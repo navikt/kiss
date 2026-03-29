@@ -1,6 +1,8 @@
-import { Alert, BodyLong, Button, Heading, Table, VStack } from "@navikt/ds-react"
+import type { FileObject } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, FileUpload, Heading, Table, VStack } from "@navikt/ds-react"
+import { useState } from "react"
 import type { ActionFunctionArgs } from "react-router"
-import { data, Form, useActionData } from "react-router"
+import { data, Form, useActionData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { type ParsedFrameworkRow, parseFrameworkExcel, summarizeFramework } from "~/lib/excel-parser.server"
 
@@ -78,29 +80,78 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function Import() {
 	const actionData = useActionData<typeof action>()
+	const navigation = useNavigation()
+	const submit = useSubmit()
+	const [selectedFile, setSelectedFile] = useState<File | null>(null)
+	const [fileError, setFileError] = useState<string | undefined>(undefined)
+
+	const isSubmitting = navigation.state === "submitting"
+
+	function handleSelect(files: FileObject[]) {
+		setFileError(undefined)
+
+		const rejected = files.filter((f): f is Extract<FileObject, { error: true }> => f.error)
+		const accepted = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
+
+		if (rejected.length > 0) {
+			setFileError(rejected[0].reasons.join(", "))
+			setSelectedFile(null)
+			return
+		}
+
+		if (accepted.length > 0) {
+			setSelectedFile(accepted[0].file)
+		}
+	}
+
+	function handleRemoveFile() {
+		setSelectedFile(null)
+		setFileError(undefined)
+	}
+
+	function handleUpload() {
+		if (!selectedFile) return
+		const formData = new FormData()
+		formData.append("file", selectedFile)
+		submit(formData, { method: "post", encType: "multipart/form-data" })
+	}
 
 	return (
 		<VStack gap="space-6">
 			<Heading size="xlarge" level="2">
 				Importer kontrollrammeverk
 			</Heading>
-			<BodyLong>Last opp Excel-fil med kontrollrammeverk-data for import.</BodyLong>
+			<BodyLong>
+				Dra og slipp en Excel-fil (.xlsx) i feltet nedenfor, eller klikk for å velge fil fra filsystemet.
+			</BodyLong>
 
-			<Form method="post" encType="multipart/form-data">
+			<FileUpload.Dropzone
+				label="Last opp Excel-fil (.xlsx)"
+				description="Maks én fil. Kun .xlsx-format støttes."
+				accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+				multiple={false}
+				onSelect={handleSelect}
+				error={fileError}
+				fileLimit={{ max: 1, current: selectedFile ? 1 : 0 }}
+			/>
+
+			{selectedFile && (
 				<VStack gap="space-4">
+					<FileUpload.Item
+						file={selectedFile}
+						button={{
+							action: "delete",
+							onClick: handleRemoveFile,
+						}}
+						status={isSubmitting ? "uploading" : "idle"}
+					/>
 					<div>
-						<label htmlFor="file-upload" style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600 }}>
-							Velg Excel-fil (.xlsx)
-						</label>
-						<input id="file-upload" type="file" name="file" accept=".xlsx" />
-					</div>
-					<div>
-						<Button type="submit" variant="primary">
+						<Button type="button" variant="primary" onClick={handleUpload} loading={isSubmitting}>
 							Last opp og valider
 						</Button>
 					</div>
 				</VStack>
-			</Form>
+			)}
 
 			{actionData && !actionData.success && <Alert variant="error">{actionData.error}</Alert>}
 
