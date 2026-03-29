@@ -1,0 +1,57 @@
+import type { NavUser } from "./auth.server"
+
+const AZURE_OPENID_CONFIG_TOKEN_ENDPOINT = process.env.AZURE_OPENID_CONFIG_TOKEN_ENDPOINT
+const AZURE_APP_CLIENT_ID = process.env.AZURE_APP_CLIENT_ID
+const AZURE_APP_CLIENT_SECRET = process.env.AZURE_APP_CLIENT_SECRET
+
+export async function getOnBehalfOfToken(user: NavUser, targetScope: string): Promise<string> {
+	if (!AZURE_OPENID_CONFIG_TOKEN_ENDPOINT || !AZURE_APP_CLIENT_ID || !AZURE_APP_CLIENT_SECRET) {
+		throw new Error("Azure AD environment variables not configured")
+	}
+
+	const response = await fetch(AZURE_OPENID_CONFIG_TOKEN_ENDPOINT, {
+		method: "POST",
+		headers: { "Content-Type": "application/x-www-form-urlencoded" },
+		body: new URLSearchParams({
+			grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+			client_id: AZURE_APP_CLIENT_ID,
+			client_secret: AZURE_APP_CLIENT_SECRET,
+			assertion: user.token,
+			scope: targetScope,
+			requested_token_use: "on_behalf_of",
+		}),
+	})
+
+	if (!response.ok) {
+		const text = await response.text()
+		throw new Error(`OBO token request failed: ${response.status} ${text}`)
+	}
+
+	const data = (await response.json()) as { access_token: string }
+	return data.access_token
+}
+
+export async function getClientCredentialToken(targetScope: string): Promise<string> {
+	if (!AZURE_OPENID_CONFIG_TOKEN_ENDPOINT || !AZURE_APP_CLIENT_ID || !AZURE_APP_CLIENT_SECRET) {
+		throw new Error("Azure AD environment variables not configured")
+	}
+
+	const response = await fetch(AZURE_OPENID_CONFIG_TOKEN_ENDPOINT, {
+		method: "POST",
+		headers: { "Content-Type": "application/x-www-form-urlencoded" },
+		body: new URLSearchParams({
+			grant_type: "client_credentials",
+			client_id: AZURE_APP_CLIENT_ID,
+			client_secret: AZURE_APP_CLIENT_SECRET,
+			scope: targetScope,
+		}),
+	})
+
+	if (!response.ok) {
+		const text = await response.text()
+		throw new Error(`Client credential token request failed: ${response.status} ${text}`)
+	}
+
+	const data = (await response.json()) as { access_token: string }
+	return data.access_token
+}
