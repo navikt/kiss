@@ -27,7 +27,7 @@ function cellText(ws: XLSX.WorkSheet, row: number, col: number): string | null {
 	const cell = ws[cellRef]
 	if (!cell) return null
 	const val = cell.v ?? cell.w
-	return val != null ? String(val).replace(/\s+/g, " ").trim() : null
+	return val != null ? String(val).trim() : null
 }
 
 export function parseFrameworkExcel(buffer: Buffer): ParsedFramework {
