@@ -98,7 +98,7 @@ export default function Kontrollrammeverk() {
 						{risks.map((risk, i) => (
 							<Link
 								key={risk.riskId}
-								to={`/kontrollrammeverk/${risk.domainCode}`}
+								to={`/kontrollrammeverk/risiko/${risk.riskId}`}
 								className="framework-card"
 								style={{ backgroundColor: riskColor(i, risks.length) }}
 							>

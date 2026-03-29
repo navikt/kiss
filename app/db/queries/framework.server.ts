@@ -160,6 +160,54 @@ export async function getDomainDetail(domainCode: string) {
 	}
 }
 
+/** Get full risk detail by risk ID string (e.g. "R-TS.01"). */
+export async function getRiskDetail(riskIdStr: string) {
+	const version = await getActiveFrameworkVersion()
+	if (!version) return null
+
+	const [risk] = await db
+		.select({
+			id: frameworkRisks.id,
+			riskId: frameworkRisks.riskId,
+			shortTitle: frameworkRisks.shortTitle,
+			description: frameworkRisks.description,
+			domainCode: frameworkDomains.code,
+			domainName: frameworkDomains.name,
+		})
+		.from(frameworkRisks)
+		.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+		.where(sql`${frameworkRisks.versionId} = ${version.id} AND ${frameworkRisks.riskId} = ${riskIdStr}`)
+		.limit(1)
+
+	if (!risk) return null
+
+	const mappings = await db
+		.select({ controlId: frameworkRiskControlMappings.controlId })
+		.from(frameworkRiskControlMappings)
+		.where(eq(frameworkRiskControlMappings.riskId, risk.id))
+
+	const controls = []
+	for (const mapping of mappings) {
+		const [ctrl] = await db.select().from(frameworkControls).where(eq(frameworkControls.id, mapping.controlId))
+		if (ctrl) {
+			controls.push({
+				id: ctrl.controlId,
+				name: ctrl.shortTitle ?? shortName(ctrl.requirement, ctrl.controlId),
+				domainCode: risk.domainCode,
+			})
+		}
+	}
+
+	return {
+		riskId: risk.riskId,
+		name: risk.shortTitle ?? shortName(risk.description, risk.riskId),
+		description: risk.description,
+		domainCode: risk.domainCode,
+		domainName: risk.domainName,
+		controls,
+	}
+}
+
 /** Get full control detail by control ID string (e.g. "K-ST.01"). */
 export async function getControlDetail(controlIdStr: string) {
 	const version = await getActiveFrameworkVersion()
