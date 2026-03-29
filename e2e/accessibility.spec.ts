@@ -9,6 +9,7 @@ const pages = [
 	{ path: "/nais-overvaking", name: "Nais-overvåking" },
 	{ path: "/rapporter", name: "Rapporter" },
 	{ path: "/admin", name: "Admin" },
+	{ path: "/import", name: "Import" },
 ]
 
 for (const { path, name } of pages) {
