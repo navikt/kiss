@@ -4,52 +4,14 @@ import { data, Form, useActionData, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { ComplianceComment, ComplianceStatusBadge, statusLabels } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-
-interface ControlAssessment {
-	controlId: string
-	controlName: string
-	domain: string
-	status: ComplianceStatusValue | null
-	comment: string | null
-	assessedBy: string | null
-	assessedAt: string | null
-}
+import { getMockAssessments } from "~/lib/mock-data.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
-	// Placeholder data – will be replaced with DB queries
 	const appName = `App ${appId}`
-	const assessments: ControlAssessment[] = [
-		{
-			controlId: "K-ST.01",
-			controlName: "Scoping av økonomisystem",
-			domain: "Styring",
-			status: "implemented",
-			comment: "Gjennomgått Q1 2026. Se https://jira.nav.no/browse/KISS-123",
-			assessedBy: "A123456",
-			assessedAt: "2026-03-15T10:00:00Z",
-		},
-		{
-			controlId: "K-TS.01",
-			controlName: "Tildeling av rettigheter",
-			domain: "Tilgangsstyring",
-			status: "partially_implemented",
-			comment: "AD-grupper er satt opp, men periodisk gjennomgang mangler.",
-			assessedBy: "B654321",
-			assessedAt: "2026-03-10T14:00:00Z",
-		},
-		{
-			controlId: "K-EH.01",
-			controlName: "Regelsett for endringshåndtering",
-			domain: "Endringshåndtering",
-			status: null,
-			comment: null,
-			assessedBy: null,
-			assessedAt: null,
-		},
-	]
+	const assessments = getMockAssessments(appId)
 
 	return data({ appId, appName, assessments })
 }

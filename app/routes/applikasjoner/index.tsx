@@ -2,45 +2,10 @@ import { BodyLong, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { compliancePercent } from "~/lib/mock-data.server"
-
-interface AppSummary {
-	id: string
-	name: string
-	teams: string[]
-	controlsImplemented: number
-	controlsPartial: number
-	controlsTotal: number
-}
+import { compliancePercent, mockApps } from "~/lib/mock-data.server"
 
 export async function loader(_args: LoaderFunctionArgs) {
-	const apps: AppSummary[] = [
-		{
-			id: "app-1",
-			name: "pensjon-regler",
-			teams: ["team-pensjon"],
-			controlsImplemented: 18,
-			controlsPartial: 4,
-			controlsTotal: 24,
-		},
-		{
-			id: "app-2",
-			name: "arbeid-api",
-			teams: ["team-arbeid"],
-			controlsImplemented: 10,
-			controlsPartial: 6,
-			controlsTotal: 24,
-		},
-		{
-			id: "app-3",
-			name: "helserefusjon-web",
-			teams: ["team-helserefusjon"],
-			controlsImplemented: 5,
-			controlsPartial: 3,
-			controlsTotal: 24,
-		},
-	]
-	return data({ apps })
+	return data({ apps: mockApps })
 }
 
 export default function Applikasjoner() {

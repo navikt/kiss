@@ -2,16 +2,7 @@ import { BodyLong, Heading, Table, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { compliancePercent } from "~/lib/mock-data.server"
-
-interface AppComplianceStatus {
-	appId: string
-	appName: string
-	implemented: number
-	partial: number
-	notImplemented: number
-	total: number
-}
+import { compliancePercent, mockTeamApps } from "~/lib/mock-data.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const seksjon = params.seksjon
@@ -24,14 +15,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		.map((w) => w.charAt(0).toUpperCase() + w.slice(1))
 		.join(" ")
 
-	// Placeholder data – will be replaced with DB queries
-	const apps: AppComplianceStatus[] = [
-		{ appId: "app-001", appName: "Behandlingsflyt", implemented: 8, partial: 2, notImplemented: 2, total: 12 },
-		{ appId: "app-002", appName: "Søknadsportal", implemented: 5, partial: 3, notImplemented: 4, total: 12 },
-		{ appId: "app-003", appName: "Dokumentarkiv", implemented: 10, partial: 1, notImplemented: 1, total: 12 },
-	]
-
-	return data({ seksjon, team, teamName, apps })
+	return data({ seksjon, team, teamName, apps: mockTeamApps })
 }
 
 export default function TeamDashboard() {

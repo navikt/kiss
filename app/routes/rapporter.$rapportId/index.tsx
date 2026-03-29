@@ -2,23 +2,7 @@ import { BodyLong, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-
-interface ComplianceRow {
-	controlId: string
-	controlName: string
-	status: "oppfylt" | "delvis" | "ikke-oppfylt" | "ikke-vurdert"
-	comment: string
-}
-
-interface ReportDetail {
-	rapportId: string
-	name: string
-	type: string
-	scope: string
-	createdAt: string
-	appVersion: string
-	complianceRows: ComplianceRow[]
-}
+import { getMockReport } from "~/lib/mock-data.server"
 
 const statusTagVariant: Record<string, "success" | "warning" | "error" | "neutral"> = {
 	oppfylt: "success",
@@ -36,35 +20,7 @@ const statusLabel: Record<string, string> = {
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const rapportId = params.rapportId ?? "ukjent"
-
-	// Placeholder data
-	const report: ReportDetail = {
-		rapportId,
-		name: `Compliance-rapport ${rapportId}`,
-		type: "Seksjon",
-		scope: "Utvikling",
-		createdAt: "2026-03-29T10:00:00Z",
-		appVersion: "1.0.0",
-		complianceRows: [
-			{ controlId: "K-ST.01", controlName: "Styringsansvar", status: "oppfylt", comment: "Dokumentert i rutine." },
-			{
-				controlId: "K-TS.01",
-				controlName: "Tilgangskontroll",
-				status: "delvis",
-				comment: "Mangler periodisk gjennomgang.",
-			},
-			{ controlId: "K-TS.02", controlName: "Sterk autentisering", status: "oppfylt", comment: "MFA aktivert." },
-			{
-				controlId: "K-EH.01",
-				controlName: "Endringslogg",
-				status: "ikke-oppfylt",
-				comment: "Ingen endringslogg funnet.",
-			},
-			{ controlId: "K-DR.01", controlName: "Overvåking", status: "ikke-vurdert", comment: "" },
-		],
-	}
-
-	return data({ report })
+	return data({ report: getMockReport(rapportId) })
 }
 
 export default function RapportDetalj() {

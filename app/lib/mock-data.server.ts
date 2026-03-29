@@ -203,3 +203,184 @@ export function getDomainSummaries(): Array<{ code: string; name: string; riskCo
 		}
 	})
 }
+
+/* ── Mock: Applikasjoner ── */
+
+export interface MockAppSummary {
+	id: string
+	name: string
+	teams: string[]
+	controlsImplemented: number
+	controlsPartial: number
+	controlsTotal: number
+}
+
+export const mockApps: MockAppSummary[] = [
+	{
+		id: "app-1",
+		name: "pensjon-regler",
+		teams: ["team-pensjon"],
+		controlsImplemented: 18,
+		controlsPartial: 4,
+		controlsTotal: 24,
+	},
+	{
+		id: "app-2",
+		name: "arbeid-api",
+		teams: ["team-arbeid"],
+		controlsImplemented: 10,
+		controlsPartial: 6,
+		controlsTotal: 24,
+	},
+	{
+		id: "app-3",
+		name: "helserefusjon-web",
+		teams: ["team-helserefusjon"],
+		controlsImplemented: 5,
+		controlsPartial: 3,
+		controlsTotal: 24,
+	},
+]
+
+/* ── Mock: Compliance-vurderinger ── */
+
+export interface MockControlAssessment {
+	controlId: string
+	controlName: string
+	domain: string
+	status: "not_relevant" | "not_implemented" | "partially_implemented" | "implemented" | null
+	comment: string | null
+	assessedBy: string | null
+	assessedAt: string | null
+}
+
+export function getMockAssessments(_appId: string): MockControlAssessment[] {
+	return [
+		{
+			controlId: "K-ST.01",
+			controlName: "Scoping av økonomisystem",
+			domain: "Styring",
+			status: "implemented",
+			comment: "Gjennomgått Q1 2026. Se https://jira.nav.no/browse/KISS-123",
+			assessedBy: "A123456",
+			assessedAt: "2026-03-15T10:00:00Z",
+		},
+		{
+			controlId: "K-TS.01",
+			controlName: "Tildeling av rettigheter",
+			domain: "Tilgangsstyring",
+			status: "partially_implemented",
+			comment: "AD-grupper er satt opp, men periodisk gjennomgang mangler.",
+			assessedBy: "B654321",
+			assessedAt: "2026-03-10T14:00:00Z",
+		},
+		{
+			controlId: "K-EH.01",
+			controlName: "Regelsett for endringshåndtering",
+			domain: "Endringshåndtering",
+			status: null,
+			comment: null,
+			assessedBy: null,
+			assessedAt: null,
+		},
+	]
+}
+
+/* ── Mock: Nais-team ── */
+
+export interface MockNaisTeam {
+	slug: string
+	status: "pending" | "monitored" | "ignored"
+	appCount: number
+	discoveredAt: string
+}
+
+export const mockNaisTeams: MockNaisTeam[] = [
+	{ slug: "team-pensjon", status: "monitored", appCount: 12, discoveredAt: "2026-03-01" },
+	{ slug: "team-arbeid", status: "monitored", appCount: 8, discoveredAt: "2026-03-01" },
+	{ slug: "team-helserefusjon", status: "pending", appCount: 5, discoveredAt: "2026-03-28" },
+	{ slug: "team-deploy", status: "ignored", appCount: 3, discoveredAt: "2026-03-15" },
+]
+
+/* ── Mock: Rapport-detaljer ── */
+
+export interface MockComplianceRow {
+	controlId: string
+	controlName: string
+	status: "oppfylt" | "delvis" | "ikke-oppfylt" | "ikke-vurdert"
+	comment: string
+}
+
+export interface MockReportDetail {
+	rapportId: string
+	name: string
+	type: string
+	scope: string
+	createdAt: string
+	appVersion: string
+	complianceRows: MockComplianceRow[]
+}
+
+export function getMockReport(rapportId: string): MockReportDetail {
+	return {
+		rapportId,
+		name: `Compliance-rapport ${rapportId}`,
+		type: "Seksjon",
+		scope: "Utvikling",
+		createdAt: "2026-03-29T10:00:00Z",
+		appVersion: "1.0.0",
+		complianceRows: [
+			{ controlId: "K-ST.01", controlName: "Styringsansvar", status: "oppfylt", comment: "Dokumentert i rutine." },
+			{
+				controlId: "K-TS.01",
+				controlName: "Tilgangskontroll",
+				status: "delvis",
+				comment: "Mangler periodisk gjennomgang.",
+			},
+			{ controlId: "K-TS.02", controlName: "Sterk autentisering", status: "oppfylt", comment: "MFA aktivert." },
+			{
+				controlId: "K-EH.01",
+				controlName: "Endringslogg",
+				status: "ikke-oppfylt",
+				comment: "Ingen endringslogg funnet.",
+			},
+			{ controlId: "K-DR.01", controlName: "Overvåking", status: "ikke-vurdert", comment: "" },
+		],
+	}
+}
+
+/* ── Mock: Seksjon-team ── */
+
+export interface MockTeamStatus {
+	slug: string
+	name: string
+	apps: number
+	implemented: number
+	partial: number
+	notImplemented: number
+	total: number
+}
+
+export const mockSeksjonTeams: MockTeamStatus[] = [
+	{ slug: "team-alfa", name: "Team Alfa", apps: 4, implemented: 12, partial: 5, notImplemented: 7, total: 24 },
+	{ slug: "team-bravo", name: "Team Bravo", apps: 3, implemented: 8, partial: 3, notImplemented: 4, total: 15 },
+	{ slug: "team-charlie", name: "Team Charlie", apps: 2, implemented: 5, partial: 6, notImplemented: 1, total: 12 },
+	{ slug: "team-delta", name: "Team Delta", apps: 5, implemented: 18, partial: 4, notImplemented: 8, total: 30 },
+]
+
+/* ── Mock: Team-applikasjoner ── */
+
+export interface MockTeamApp {
+	appId: string
+	appName: string
+	implemented: number
+	partial: number
+	notImplemented: number
+	total: number
+}
+
+export const mockTeamApps: MockTeamApp[] = [
+	{ appId: "app-001", appName: "Behandlingsflyt", implemented: 8, partial: 2, notImplemented: 2, total: 12 },
+	{ appId: "app-002", appName: "Søknadsportal", implemented: 5, partial: 3, notImplemented: 4, total: 12 },
+	{ appId: "app-003", appName: "Dokumentarkiv", implemented: 10, partial: 1, notImplemented: 1, total: 12 },
+]

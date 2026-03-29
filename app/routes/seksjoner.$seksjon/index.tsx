@@ -2,31 +2,14 @@ import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { compliancePercent } from "~/lib/mock-data.server"
-
-interface TeamStatus {
-	slug: string
-	name: string
-	apps: number
-	implemented: number
-	partial: number
-	notImplemented: number
-	total: number
-}
+import { compliancePercent, mockSeksjonTeams } from "~/lib/mock-data.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 
-	// Placeholder data – will be replaced with DB queries
 	const seksjonName = seksjon.charAt(0).toUpperCase() + seksjon.slice(1).replace(/-/g, " ")
-
-	const teams: TeamStatus[] = [
-		{ slug: "team-alfa", name: "Team Alfa", apps: 4, implemented: 12, partial: 5, notImplemented: 7, total: 24 },
-		{ slug: "team-bravo", name: "Team Bravo", apps: 3, implemented: 8, partial: 3, notImplemented: 4, total: 15 },
-		{ slug: "team-charlie", name: "Team Charlie", apps: 2, implemented: 5, partial: 6, notImplemented: 1, total: 12 },
-		{ slug: "team-delta", name: "Team Delta", apps: 5, implemented: 18, partial: 4, notImplemented: 8, total: 30 },
-	]
+	const teams = mockSeksjonTeams
 
 	const totalApps = teams.reduce((sum, t) => sum + t.apps, 0)
 	const totalImplemented = teams.reduce((sum, t) => sum + t.implemented, 0)

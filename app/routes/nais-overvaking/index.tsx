@@ -2,24 +2,10 @@ import { BodyLong, Button, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-
-interface NaisTeamInfo {
-	slug: string
-	status: "pending" | "monitored" | "ignored"
-	appCount: number
-	discoveredAt: string
-}
+import { mockNaisTeams } from "~/lib/mock-data.server"
 
 export async function loader(_args: LoaderFunctionArgs) {
-	// Placeholder data
-	const teams: NaisTeamInfo[] = [
-		{ slug: "team-pensjon", status: "monitored", appCount: 12, discoveredAt: "2026-03-01" },
-		{ slug: "team-arbeid", status: "monitored", appCount: 8, discoveredAt: "2026-03-01" },
-		{ slug: "team-helserefusjon", status: "pending", appCount: 5, discoveredAt: "2026-03-28" },
-		{ slug: "team-deploy", status: "ignored", appCount: 3, discoveredAt: "2026-03-15" },
-	]
-
-	return data({ teams, lastSync: "2026-03-29T07:00:00Z" })
+	return data({ teams: mockNaisTeams, lastSync: "2026-03-29T07:00:00Z" })
 }
 
 export async function action({ request }: ActionFunctionArgs) {
