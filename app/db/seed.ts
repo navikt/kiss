@@ -43,11 +43,12 @@ async function seed() {
 			{ name: "Team Charlie", slug: "team-charlie", sectionId, createdBy: "seed", updatedBy: "seed" },
 			{ name: "Team Delta", slug: "team-delta", sectionId, createdBy: "seed", updatedBy: "seed" },
 		])
+		.onConflictDoNothing()
 		.returning()
 
 	console.log(`  ✓ ${teams.length} dev teams`)
 
-	// 3. Nais teams
+	// 3. Nais teams (skipped if real sync has populated data)
 	const naisTeams = await db
 		.insert(schema.naisTeams)
 		.values([
@@ -56,6 +57,7 @@ async function seed() {
 			{ slug: "team-helserefusjon", status: "pending", discoveredAt: new Date("2026-03-28") },
 			{ slug: "team-deploy", status: "ignored", discoveredAt: new Date("2026-03-15") },
 		])
+		.onConflictDoNothing()
 		.returning()
 
 	console.log(`  ✓ ${naisTeams.length} nais teams`)
@@ -68,6 +70,7 @@ async function seed() {
 			{ name: "arbeid-api", createdBy: "seed", updatedBy: "seed" },
 			{ name: "helserefusjon-web", createdBy: "seed", updatedBy: "seed" },
 		])
+		.onConflictDoNothing()
 		.returning()
 
 	console.log(`  ✓ ${apps.length} monitored applications`)
