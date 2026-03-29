@@ -63,3 +63,39 @@ body {
 		padding: var(--a-spacing-4);
 	}
 }
+
+.app-nav {
+	background-color: var(--a-deepblue-700);
+	padding: 0 var(--a-spacing-6);
+}
+
+.app-nav-list {
+	max-width: 80rem;
+	margin: 0 auto;
+	display: flex;
+	list-style: none;
+	gap: 0;
+	overflow-x: auto;
+}
+
+.app-nav-link {
+	display: block;
+	padding: var(--a-spacing-3) var(--a-spacing-4);
+	color: var(--a-white);
+	text-decoration: none;
+	font-size: var(--a-font-size-medium);
+	white-space: nowrap;
+	border-bottom: 3px solid transparent;
+	transition:
+		border-color 0.15s,
+		background-color 0.15s;
+}
+
+.app-nav-link:hover {
+	background-color: var(--a-deepblue-600);
+}
+
+.app-nav-link--active {
+	border-bottom-color: var(--a-white);
+	font-weight: 600;
+}

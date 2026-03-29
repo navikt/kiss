@@ -9,6 +9,7 @@ import {
 	ScrollRestoration,
 	useLoaderData,
 } from "react-router"
+import { AppNavigation } from "./components/AppNavigation"
 
 import "@navikt/ds-css/dist/index.css"
 import "./styles/global.css"
@@ -55,6 +56,7 @@ export default function App() {
 					<span className="app-header-subtitle">Kontrollrammeverk for Integrert Sikker Systemutvikling</span>
 				</div>
 			</header>
+			<AppNavigation />
 			<main className="app-main">
 				<Outlet />
 			</main>
