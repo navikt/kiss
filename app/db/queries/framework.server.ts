@@ -77,7 +77,7 @@ export async function getDomainDetail(domainCode: string) {
 		for (const mapping of mappings) {
 			const [ctrl] = await db.select().from(frameworkControls).where(eq(frameworkControls.id, mapping.controlId))
 			if (ctrl) {
-				controls.push({ id: ctrl.controlId, name: ctrl.controlId })
+				controls.push({ id: ctrl.controlId, name: ctrl.requirement ?? ctrl.controlId })
 			}
 		}
 
@@ -110,7 +110,7 @@ export async function getControlDetail(controlIdStr: string) {
 
 	return {
 		id: ctrl.controlId,
-		name: ctrl.controlId,
+		name: ctrl.requirement ?? ctrl.controlId,
 		teknologielement: ctrl.technologyElement ?? "Ikke spesifisert",
 		krav: ctrl.requirement ?? "Ikke spesifisert",
 		ansvarlig: ctrl.responsible ?? "Ikke tildelt",
