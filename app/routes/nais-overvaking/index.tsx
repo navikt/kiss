@@ -43,10 +43,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	const intent = formData.get("intent")
 
 	if (intent === "sync") {
-		const token = process.env.NAIS_API_TOKEN
-		if (!token) {
-			return data({ error: "NAIS_API_TOKEN er ikke konfigurert" })
-		}
+		const token = process.env.NAIS_API_TOKEN || undefined
 		const result = await runFullNaisSync(token)
 		if (!result) {
 			return data({ message: "Synkronisering kjører allerede" })

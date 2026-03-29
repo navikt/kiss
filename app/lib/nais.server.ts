@@ -1,4 +1,4 @@
-const NAIS_API_URL = "https://console.nav.cloud.nais.io/graphql"
+const NAIS_API_URL = process.env.NAIS_API_URL ?? "https://console.nav.cloud.nais.io/graphql"
 
 export interface NaisTeam {
 	slug: string
@@ -21,13 +21,20 @@ interface GraphQLResponse<T> {
 	errors?: Array<{ message: string }>
 }
 
-async function naisGraphQL<T>(token: string, query: string, variables?: Record<string, unknown>): Promise<T> {
+/** Get the Nais API token. Returns undefined when using a local proxy (no auth needed). */
+export function getNaisToken(): string | undefined {
+	return process.env.NAIS_API_TOKEN || undefined
+}
+
+async function naisGraphQL<T>(query: string, variables?: Record<string, unknown>, token?: string): Promise<T> {
+	const headers: Record<string, string> = { "Content-Type": "application/json" }
+	if (token) {
+		headers.Authorization = `Bearer ${token}`
+	}
+
 	const response = await fetch(NAIS_API_URL, {
 		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${token}`,
-		},
+		headers,
 		body: JSON.stringify({ query, variables }),
 	})
 
@@ -66,8 +73,8 @@ interface TeamsResponse {
 	}
 }
 
-export async function fetchNaisTeams(token: string): Promise<NaisTeam[]> {
-	const data = await naisGraphQL<TeamsResponse>(token, TEAMS_QUERY)
+export async function fetchNaisTeams(token?: string): Promise<NaisTeam[]> {
+	const data = await naisGraphQL<TeamsResponse>(TEAMS_QUERY, undefined, token)
 	return data.teams.nodes
 }
 
@@ -98,7 +105,7 @@ interface AppsResponse {
 	}
 }
 
-export async function fetchNaisApps(token: string, teamSlug: string): Promise<NaisApp[]> {
-	const data = await naisGraphQL<AppsResponse>(token, APPS_QUERY, { slug: teamSlug })
+export async function fetchNaisApps(token: string | undefined, teamSlug: string): Promise<NaisApp[]> {
+	const data = await naisGraphQL<AppsResponse>(APPS_QUERY, { slug: teamSlug }, token)
 	return data.team.apps.nodes
 }

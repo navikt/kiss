@@ -126,6 +126,9 @@ Kopier `.env.example` til `.env` for å tilpasse konfigurasjon:
 | `DATABASE_URL` | `postgresql://kiss:kiss@localhost:5432/kiss` | Postgres-tilkoblingsstreng |
 | `STORAGE_PROVIDER` | `local` (dev) / `gcs` (prod) | `local` = filsystem, `gcs` = GCS bucket |
 | `GCS_BUCKET_NAME` | – | Påkrevd når `STORAGE_PROVIDER=gcs` |
+| `NAIS_API_URL` | `https://console.nav.cloud.nais.io/graphql` | Nais Console GraphQL API URL |
+| `NAIS_API_TOKEN` | – | Bearer-token for Nais API (ikke nødvendig med lokal proxy) |
+| `ENABLE_NAIS_SYNC` | `false` | Aktiver periodisk Nais-synkronisering (`true`/`false`) |
 
 ### Kommandoer
 
@@ -150,6 +153,20 @@ pnpm db:seed      # Seed testdata
 pnpm dev:setup    # Docker Compose + push + seed
 pnpm dev:setup:postgresapp  # Postgres.app + push + seed
 ```
+
+### Nais API (lokal utvikling)
+
+For å synkronisere team og applikasjoner fra Nais lokalt, bruk `nais alpha api proxy`:
+
+```bash
+nais alpha api proxy
+```
+
+Dette gjør Nais Console GraphQL API tilgjengelig på `http://localhost:4242` uten behov for token. `.env.example` er forhåndskonfigurert med denne URL-en.
+
+Trykk **Synkroniser nå** på `/nais-overvaking` for å kjøre manuell synkronisering, eller sett `ENABLE_NAIS_SYNC=true` i `.env` for periodisk synkronisering hvert 5. minutt.
+
+> **Produksjon:** Sett `NAIS_API_URL` til `https://console.nav.cloud.nais.io/graphql` og `NAIS_API_TOKEN` til et gyldig token.
 
 ### Database
 

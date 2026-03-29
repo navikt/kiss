@@ -10,11 +10,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		return data({ error: "Ikke autentisert" }, { status: 401 })
 	}
 
-	const token = process.env.NAIS_API_TOKEN
-	if (!token) {
-		return data({ error: "NAIS_API_TOKEN er ikke konfigurert" }, { status: 503 })
-	}
-
+	const token = process.env.NAIS_API_TOKEN || undefined
 	const result = await runFullNaisSync(token)
 	if (!result) {
 		return data({ message: "Synkronisering kjører allerede på en annen pod" }, { status: 409 })

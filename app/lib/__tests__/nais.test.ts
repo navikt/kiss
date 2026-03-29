@@ -34,6 +34,18 @@ describe("fetchNaisTeams", () => {
 		})
 	})
 
+	it("omits Authorization header when no token is provided", async () => {
+		await fetchNaisTeams()
+
+		expect(fetch).toHaveBeenCalledWith(NAIS_API_URL, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: expect.stringContaining("teams"),
+		})
+	})
+
 	it("returns the list of teams from the response", async () => {
 		const teams = [
 			{ slug: "team-a", purpose: "Frontend" },

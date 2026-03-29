@@ -12,9 +12,9 @@ export interface SyncResult {
 
 /**
  * Sync Nais teams. Uses an advisory lock so only one pod runs this at a time.
- * Returns null if another pod already holds the lock.
+ * Token is optional — omit when using local Nais API proxy.
  */
-export async function syncNaisTeams(token: string): Promise<SyncResult | null> {
+export async function syncNaisTeams(token?: string): Promise<SyncResult | null> {
 	return withAdvisoryLock("nais-sync-teams", async () => {
 		const teams = await fetchNaisTeams(token)
 		let newCount = 0
@@ -31,10 +31,10 @@ export async function syncNaisTeams(token: string): Promise<SyncResult | null> {
 
 /**
  * Sync apps for all monitored Nais teams. Uses an advisory lock per team.
- * Returns null if another pod already holds the lock.
+ * Token is optional — omit when using local Nais API proxy.
  */
 export async function syncNaisAppsForTeam(
-	token: string,
+	token: string | undefined,
 	teamSlug: string,
 	naisTeamId: string,
 ): Promise<SyncResult | null> {
@@ -58,18 +58,16 @@ export async function syncNaisAppsForTeam(
 
 /**
  * Full sync: discover teams, then discover apps for each monitored team.
- * Uses advisory lock at top level to prevent overlapping full syncs.
+ * Token is optional — omit when using local Nais API proxy.
  */
-export async function runFullNaisSync(token: string): Promise<{
+export async function runFullNaisSync(token?: string): Promise<{
 	teams: SyncResult
 	apps: { teamSlug: string; result: SyncResult }[]
 } | null> {
 	return withAdvisoryLock("nais-full-sync", async () => {
-		// Step 1: Sync teams
 		const teamsResult = await syncNaisTeams(token)
 		if (!teamsResult) return { teams: { discovered: 0, new: 0, skipped: 0 }, apps: [] }
 
-		// Step 2: Sync apps for each monitored team
 		const { getNaisTeams } = await import("~/db/queries/nais.server")
 		const allTeams = await getNaisTeams()
 		const monitoredTeams = allTeams.filter((t) => t.status === "monitored")
