@@ -1,15 +1,23 @@
 import type { FileObject, FileRejected, FileRejectionReason, SortState } from "@navikt/ds-react"
-import { Alert, BodyLong, Button, FileUpload, Heading, HStack, Switch, Table, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, FileUpload, Heading, HStack, Switch, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs } from "react-router"
-import { data, Form, useActionData, useNavigation, useSubmit } from "react-router"
+import { data, Form, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getRecentAuditLog } from "~/db/queries/audit.server"
 import {
 	activateFrameworkVersion,
+	getFrameworkVersionHistory,
 	getStagingFrameworkVersion,
 	stageFrameworkVersion,
 } from "~/db/queries/framework.server"
 import { type ParsedFrameworkRow, parseFrameworkExcel, summarizeFramework } from "~/lib/excel-parser.server"
+
+export async function loader() {
+	const [versions, auditEntries] = await Promise.all([getFrameworkVersionHistory(), getRecentAuditLog(50)])
+
+	return data({ versions, auditEntries })
+}
 
 interface SerializedControl {
 	controlId: string
@@ -137,7 +145,40 @@ const rejectionErrors: Record<FileRejectionReason, string> = {
 	fileSize: `Filen er større enn ${MAX_SIZE_MB} MB.`,
 }
 
+const actionLabels: Record<string, string> = {
+	framework_imported: "Kontrollrammeverk importert",
+	framework_activated: "Kontrollrammeverk aktivert",
+	framework_archived: "Kontrollrammeverk arkivert",
+	risk_short_title_updated: "Risiko-tittel endret",
+	control_short_title_updated: "Kontroll-tittel endret",
+}
+
+function formatAction(action: string): string {
+	return actionLabels[action] ?? action
+}
+
+function formatDetails(entry: {
+	action: string
+	entityId: string
+	previousValue: string | null
+	newValue: string | null
+}): string {
+	if (entry.action === "risk_short_title_updated" || entry.action === "control_short_title_updated") {
+		const prev = entry.previousValue ?? "(tom)"
+		const next = entry.newValue ?? "(tom)"
+		return `${entry.entityId}: «${prev}» → «${next}»`
+	}
+	if (entry.action === "framework_imported") {
+		return entry.newValue ?? entry.entityId
+	}
+	if (entry.action === "framework_activated" || entry.action === "framework_archived") {
+		return entry.newValue ?? entry.previousValue ?? entry.entityId
+	}
+	return entry.entityId
+}
+
 export default function Import() {
+	const { versions, auditEntries } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const submit = useSubmit()
@@ -351,6 +392,79 @@ export default function Import() {
 							</Button>
 						</Form>
 					</div>
+				</VStack>
+			)}
+
+			{versions.length > 0 && (
+				<VStack gap="space-4">
+					<Heading size="medium" level="3">
+						Versjonshistorikk
+					</Heading>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+					<section className="table-scroll" tabIndex={0} aria-label="Versjonshistorikk">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Filnavn</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Importert</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Importert av</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Aktivert</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{versions.map((v) => (
+									<Table.Row key={v.id}>
+										<Table.DataCell>{v.sourceFileName}</Table.DataCell>
+										<Table.DataCell>
+											<Tag
+												variant={v.status === "active" ? "success" : v.status === "staging" ? "warning" : "neutral"}
+												size="small"
+											>
+												{v.status === "active" ? "Aktiv" : v.status === "staging" ? "Staging" : "Arkivert"}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>{new Date(v.createdAt).toLocaleString("nb-NO")}</Table.DataCell>
+										<Table.DataCell>{v.createdBy}</Table.DataCell>
+										<Table.DataCell>
+											{v.activatedAt ? new Date(v.activatedAt).toLocaleString("nb-NO") : "–"}
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				</VStack>
+			)}
+
+			{auditEntries.length > 0 && (
+				<VStack gap="space-4">
+					<Heading size="medium" level="3">
+						Endringslogg
+					</Heading>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+					<section className="table-scroll" tabIndex={0} aria-label="Endringslogg">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Tidspunkt</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Utført av</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{auditEntries.map((entry) => (
+									<Table.Row key={entry.id}>
+										<Table.DataCell>{new Date(entry.performedAt).toLocaleString("nb-NO")}</Table.DataCell>
+										<Table.DataCell>{formatAction(entry.action)}</Table.DataCell>
+										<Table.DataCell>{formatDetails(entry)}</Table.DataCell>
+										<Table.DataCell>{entry.performedBy}</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
 				</VStack>
 			)}
 		</VStack>

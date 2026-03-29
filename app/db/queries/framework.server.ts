@@ -1,4 +1,4 @@
-import { count, eq, sql } from "drizzle-orm"
+import { count, desc, eq, sql } from "drizzle-orm"
 import type { ParsedFramework } from "~/lib/excel-parser.server"
 import { db } from "../connection.server"
 import {
@@ -8,6 +8,7 @@ import {
 	frameworkRisks,
 	frameworkVersions,
 } from "../schema/framework"
+import { writeAuditLog } from "./audit.server"
 
 /** Get the active framework version, or null if none exists. */
 export async function getActiveFrameworkVersion() {
@@ -147,10 +148,19 @@ export async function updateRiskShortTitle(riskId: string, shortTitle: string) {
 
 	if (!risk) throw new Error(`Risiko ${riskId} finnes ikke.`)
 
-	await db
-		.update(frameworkRisks)
-		.set({ shortTitle: shortTitle.trim() || null })
-		.where(eq(frameworkRisks.id, risk.id))
+	const previousValue = risk.shortTitle
+	const newValue = shortTitle.trim() || null
+
+	await db.update(frameworkRisks).set({ shortTitle: newValue }).where(eq(frameworkRisks.id, risk.id))
+
+	await writeAuditLog({
+		action: "risk_short_title_updated",
+		entityType: "framework_risk",
+		entityId: riskId,
+		previousValue,
+		newValue,
+		performedBy: "Ukjent bruker",
+	})
 }
 
 /** Update the short title of a control. */
@@ -166,10 +176,19 @@ export async function updateControlShortTitle(controlIdStr: string, shortTitle: 
 
 	if (!ctrl) throw new Error(`Kontroll ${controlIdStr} finnes ikke.`)
 
-	await db
-		.update(frameworkControls)
-		.set({ shortTitle: shortTitle.trim() || null })
-		.where(eq(frameworkControls.id, ctrl.id))
+	const previousValue = ctrl.shortTitle
+	const newValue = shortTitle.trim() || null
+
+	await db.update(frameworkControls).set({ shortTitle: newValue }).where(eq(frameworkControls.id, ctrl.id))
+
+	await writeAuditLog({
+		action: "control_short_title_updated",
+		entityType: "framework_control",
+		entityId: controlIdStr,
+		previousValue,
+		newValue,
+		performedBy: "Ukjent bruker",
+	})
 }
 
 /** Import parsed framework data into the database as a staging version. */
@@ -283,6 +302,19 @@ export async function stageFrameworkVersion(
 		}
 	}
 
+	await writeAuditLog({
+		action: "framework_imported",
+		entityType: "framework_version",
+		entityId: version.id,
+		newValue: fileName,
+		metadata: {
+			domainCount: domainEntries.size,
+			riskCount: riskUuidMap.size,
+			controlCount: controlUuidMap.size,
+		},
+		performedBy: uploadedBy,
+	})
+
 	return version.id
 }
 
@@ -298,7 +330,23 @@ export async function activateFrameworkVersion(versionId: string, activatedBy: s
 	}
 
 	// Archive current active version
-	await db.update(frameworkVersions).set({ status: "archived" }).where(eq(frameworkVersions.status, "active"))
+	const [currentActive] = await db
+		.select()
+		.from(frameworkVersions)
+		.where(eq(frameworkVersions.status, "active"))
+		.limit(1)
+
+	if (currentActive) {
+		await db.update(frameworkVersions).set({ status: "archived" }).where(eq(frameworkVersions.id, currentActive.id))
+
+		await writeAuditLog({
+			action: "framework_archived",
+			entityType: "framework_version",
+			entityId: currentActive.id,
+			previousValue: currentActive.sourceFileName,
+			performedBy: activatedBy,
+		})
+	}
 
 	// Activate the staging version
 	await db
@@ -309,12 +357,26 @@ export async function activateFrameworkVersion(versionId: string, activatedBy: s
 			activatedBy,
 		})
 		.where(eq(frameworkVersions.id, versionId))
+
+	await writeAuditLog({
+		action: "framework_activated",
+		entityType: "framework_version",
+		entityId: versionId,
+		newValue: version.sourceFileName,
+		metadata: { previousVersionId: currentActive?.id ?? null },
+		performedBy: activatedBy,
+	})
 }
 
 /** Get the current staging framework version, or null. */
 export async function getStagingFrameworkVersion() {
 	const [version] = await db.select().from(frameworkVersions).where(eq(frameworkVersions.status, "staging")).limit(1)
 	return version ?? null
+}
+
+/** Get all framework versions ordered by creation date (newest first). */
+export async function getFrameworkVersionHistory() {
+	return db.select().from(frameworkVersions).orderBy(desc(frameworkVersions.createdAt))
 }
 
 /** Delete all data for a framework version (mappings, controls, risks, domains, then version). */
