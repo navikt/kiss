@@ -1,6 +1,6 @@
 import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
-import { data, useLoaderData } from "react-router"
+import { data, Link, useLoaderData } from "react-router"
 
 const domainColors: Record<string, string> = {
 	Styring: "#f9d4a0",
@@ -39,10 +39,15 @@ export default function Kontrollrammeverk() {
 
 			<HGrid gap="space-6" columns={{ xs: 1, sm: 2, md: 4 }}>
 				{domains.map((domain) => (
-					<div
+					<Link
 						key={domain.code}
+						to={`/kontrollrammeverk/${domain.code}`}
 						className="domain-card"
-						style={{ backgroundColor: domainColors[domain.name] ?? "#f0f0f0" }}
+						style={{
+							backgroundColor: domainColors[domain.name] ?? "#f0f0f0",
+							textDecoration: "none",
+							color: "inherit",
+						}}
 					>
 						<Heading size="medium" level="3">
 							{domain.name}
@@ -50,7 +55,7 @@ export default function Kontrollrammeverk() {
 						<BodyLong size="small">
 							{domain.riskCount} risikoer · {domain.controlCount} kontroller
 						</BodyLong>
-					</div>
+					</Link>
 				))}
 			</HGrid>
 		</VStack>
