@@ -1,0 +1,65 @@
+apiVersion: nais.io/v1alpha1
+kind: Application
+metadata:
+  name: kiss
+  namespace: team-sdlc
+  labels:
+    team: team-sdlc
+spec:
+  image: "{{image}}"
+  port: 3000
+  replicas:
+    min: 2
+    max: 2
+  liveness:
+    path: /api/isalive
+    initialDelay: 20
+    timeout: 60
+  readiness:
+    path: /api/isready
+    initialDelay: 20
+    timeout: 60
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 256Mi
+  ingresses:
+    - https://kiss.intern.nav.no
+  azure:
+    application:
+      enabled: true
+    sidecar:
+      enabled: true
+      autoLogin: true
+  gcp:
+    sqlInstances:
+      - type: POSTGRES_17
+        tier: db-f1-micro
+        pointInTimeRecovery: true
+        flags:
+          - name: cloudsql.enable_pgaudit
+            value: "on"
+          - name: pgaudit.log
+            value: "all"
+        databases:
+          - name: kiss
+    buckets:
+      - name: kiss-data
+        retentionPeriodDays: 4015
+        cascadingDelete: false
+        lifecycleCondition:
+          withState: ANY
+  observability:
+    autoInstrumentation:
+      enabled: true
+      runtime: nodejs
+    logging:
+      destinations:
+        - id: loki
+        - id: elastic
+  accessPolicy:
+    outbound:
+      external:
+        - host: graph.microsoft.com

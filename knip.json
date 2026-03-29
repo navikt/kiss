@@ -1,0 +1,7 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"entry": ["app/routes.ts", "app/root.tsx", "app/entry.server.tsx"],
+	"project": ["app/**/*.{ts,tsx}"],
+	"ignore": ["app/**/__tests__/**", "app/**/__fixtures__/**"],
+	"ignoreDependencies": ["@react-router/dev", "@react-router/node", "@react-router/serve"]
+}
