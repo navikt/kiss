@@ -83,19 +83,37 @@ Starter PostgreSQL 17 i Docker, pusher schema og seeder testdata automatisk.
 #### Alternativ B: Postgres.app
 
 1. Installer og start [Postgres.app](https://postgresapp.com/) med PostgreSQL 17
-2. Opprett `.env` med riktig connection string:
+2. Legg til Postgres.app sine CLI-verktøy i PATH (om du ikke allerede har gjort det):
+   ```bash
+   sudo mkdir -p /etc/paths.d && echo /Applications/Postgres.app/Contents/Versions/latest/bin | sudo tee /etc/paths.d/postgresapp
+   ```
+   Start et nytt terminalvindu etter dette.
+3. Opprett database og rolle:
+   ```bash
+   # Opprett kiss-rollen med passord (matcher Docker Compose-oppsettet)
+   psql postgres -c "CREATE ROLE kiss WITH LOGIN PASSWORD 'kiss';"
+
+   # Opprett databasen eid av kiss-rollen
+   createdb --owner=kiss kiss
+
+   # Verifiser at det fungerer
+   psql -U kiss -d kiss -c "SELECT 1;"
+   ```
+4. Opprett `.env`:
    ```bash
    cp .env.example .env
    ```
    Endre `DATABASE_URL` i `.env`:
    ```
-   DATABASE_URL=postgresql://localhost:5432/kiss
+   DATABASE_URL=postgresql://kiss:kiss@localhost:5432/kiss
    ```
-3. Kjør setup:
+5. Kjør setup og start:
    ```bash
-   pnpm dev:setup:postgresapp
+   pnpm db:push && pnpm db:seed
    pnpm dev
    ```
+
+> **Tips:** Hvis du foretrekker å bruke din macOS-bruker uten passord, kan du i stedet sette `DATABASE_URL=postgresql://localhost:5432/kiss` og hoppe over steg 3.
 
 Applikasjonen kjører på `http://localhost:3000`.
 
