@@ -15,6 +15,7 @@ import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getRecentAuditLog } from "~/db/queries/audit.server"
 import {
 	createSection,
 	createTeam,
@@ -63,7 +64,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		}),
 	)
 
-	return data({ sections: sectionsWithTeams })
+	const allAuditEntries = await getRecentAuditLog(100)
+	const auditEntries = allAuditEntries.filter((e) => e.entityType === "section" || e.entityType === "team")
+
+	return data({ sections: sectionsWithTeams, auditEntries })
 }
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
@@ -103,7 +107,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			if (typeof id !== "string") {
 				return data<ActionResult>({ success: false, error: "Mangler seksjon-ID." })
 			}
-			await deleteSection(id)
+			await deleteSection(id, userId)
 			return data<ActionResult>({ success: true, message: "Seksjon slettet." })
 		}
 
@@ -139,7 +143,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			if (typeof id !== "string") {
 				return data<ActionResult>({ success: false, error: "Mangler team-ID." })
 			}
-			await deleteTeam(id)
+			await deleteTeam(id, userId)
 			return data<ActionResult>({ success: true, message: "Team slettet." })
 		}
 
@@ -361,8 +365,17 @@ function SectionCard({ section }: { section: SectionWithTeams }) {
 	)
 }
 
+const actionLabels: Record<string, string> = {
+	section_created: "Seksjon opprettet",
+	section_updated: "Seksjon oppdatert",
+	section_deleted: "Seksjon slettet",
+	team_created: "Team opprettet",
+	team_updated: "Team oppdatert",
+	team_deleted: "Team slettet",
+}
+
 export default function AdminSeksjoner() {
-	const { sections } = useLoaderData<typeof loader>()
+	const { sections, auditEntries } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const sectionFormRef = useRef<HTMLFormElement>(null)
 
@@ -416,6 +429,58 @@ export default function AdminSeksjoner() {
 			)}
 
 			{sections.length === 0 && <BodyLong>Ingen seksjoner funnet. Opprett en ny seksjon ovenfor.</BodyLong>}
+
+			{auditEntries.length > 0 && (
+				<VStack gap="space-4">
+					<Heading size="medium" level="3">
+						Endringslogg
+					</Heading>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+					<section className="table-scroll" tabIndex={0} aria-label="Endringslogg for seksjoner og team">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Tidspunkt</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Utført av</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{auditEntries.map((entry) => (
+									<Table.Row key={entry.id}>
+										<Table.DataCell>{new Date(entry.performedAt).toLocaleString("nb-NO")}</Table.DataCell>
+										<Table.DataCell>
+											<Tag
+												variant={
+													entry.action.includes("deleted")
+														? "error"
+														: entry.action.includes("created")
+															? "success"
+															: "info"
+												}
+												size="xsmall"
+											>
+												{actionLabels[entry.action] ?? entry.action}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											{entry.previousValue && entry.newValue
+												? `«${entry.previousValue}» → «${entry.newValue}»`
+												: entry.newValue
+													? `«${entry.newValue}»`
+													: entry.previousValue
+														? `«${entry.previousValue}»`
+														: "–"}
+										</Table.DataCell>
+										<Table.DataCell>{entry.performedBy}</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				</VStack>
+			)}
 		</VStack>
 	)
 }

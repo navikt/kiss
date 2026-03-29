@@ -6,6 +6,12 @@ export const auditLogActionEnum = [
 	"framework_archived",
 	"risk_short_title_updated",
 	"control_short_title_updated",
+	"section_created",
+	"section_updated",
+	"section_deleted",
+	"team_created",
+	"team_updated",
+	"team_deleted",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

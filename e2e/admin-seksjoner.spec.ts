@@ -36,7 +36,7 @@ test.describe("Admin Seksjoner", () => {
 		await sectionCard.getByRole("button", { name: "Legg til" }).click()
 
 		await expect(page.getByText(`Team «${teamName}» opprettet.`)).toBeVisible()
-		await expect(page.getByRole("cell", { name: teamName })).toBeVisible()
+		await expect(sectionCard.getByRole("cell", { name: teamName })).toBeVisible()
 	})
 
 	test("can delete a team", async ({ page }) => {

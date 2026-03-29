@@ -4,6 +4,7 @@ import { applicationTeamMappings, monitoredApplications } from "../schema/applic
 import { complianceAssessments } from "../schema/compliance"
 import { frameworkControls } from "../schema/framework"
 import { devTeams, sections } from "../schema/organization"
+import { writeAuditLog } from "./audit.server"
 import { getActiveFrameworkVersion } from "./framework.server"
 
 /** Get all sections. */
@@ -102,24 +103,52 @@ export async function createSection(name: string, description: string | null, cr
 		.insert(sections)
 		.values({ name, slug, description, createdBy, updatedBy: createdBy })
 		.returning()
+	await writeAuditLog({
+		action: "section_created",
+		entityType: "section",
+		entityId: section.id,
+		newValue: name,
+		metadata: { slug, description },
+		performedBy: createdBy,
+	})
 	return section
 }
 
 /** Update an existing section. */
 export async function updateSection(id: string, name: string, description: string | null, updatedBy: string) {
+	const [prev] = await db.select().from(sections).where(eq(sections.id, id)).limit(1)
 	const slug = generateSlug(name)
 	const [section] = await db
 		.update(sections)
 		.set({ name, slug, description, updatedBy, updatedAt: new Date() })
 		.where(eq(sections.id, id))
 		.returning()
+	await writeAuditLog({
+		action: "section_updated",
+		entityType: "section",
+		entityId: id,
+		previousValue: prev?.name ?? null,
+		newValue: name,
+		metadata: { slug, description, previousDescription: prev?.description },
+		performedBy: updatedBy,
+	})
 	return section
 }
 
 /** Delete a section and all its teams. */
-export async function deleteSection(id: string) {
+export async function deleteSection(id: string, performedBy: string) {
+	const [prev] = await db.select().from(sections).where(eq(sections.id, id)).limit(1)
+	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, id))
 	await db.delete(devTeams).where(eq(devTeams.sectionId, id))
 	await db.delete(sections).where(eq(sections.id, id))
+	await writeAuditLog({
+		action: "section_deleted",
+		entityType: "section",
+		entityId: id,
+		previousValue: prev?.name ?? null,
+		metadata: { deletedTeams: teams.map((t) => t.name) },
+		performedBy,
+	})
 }
 
 /** Create a new dev team in a section. */
@@ -129,23 +158,50 @@ export async function createTeam(sectionId: string, name: string, description: s
 		.insert(devTeams)
 		.values({ sectionId, name, slug, description, createdBy, updatedBy: createdBy })
 		.returning()
+	await writeAuditLog({
+		action: "team_created",
+		entityType: "team",
+		entityId: team.id,
+		newValue: name,
+		metadata: { sectionId, slug, description },
+		performedBy: createdBy,
+	})
 	return team
 }
 
 /** Update an existing dev team. */
 export async function updateTeam(id: string, name: string, description: string | null, updatedBy: string) {
+	const [prev] = await db.select().from(devTeams).where(eq(devTeams.id, id)).limit(1)
 	const slug = generateSlug(name)
 	const [team] = await db
 		.update(devTeams)
 		.set({ name, slug, description, updatedBy, updatedAt: new Date() })
 		.where(eq(devTeams.id, id))
 		.returning()
+	await writeAuditLog({
+		action: "team_updated",
+		entityType: "team",
+		entityId: id,
+		previousValue: prev?.name ?? null,
+		newValue: name,
+		metadata: { slug, description, previousDescription: prev?.description },
+		performedBy: updatedBy,
+	})
 	return team
 }
 
 /** Delete a dev team. */
-export async function deleteTeam(id: string) {
+export async function deleteTeam(id: string, performedBy: string) {
+	const [prev] = await db.select().from(devTeams).where(eq(devTeams.id, id)).limit(1)
 	await db.delete(devTeams).where(eq(devTeams.id, id))
+	await writeAuditLog({
+		action: "team_deleted",
+		entityType: "team",
+		entityId: id,
+		previousValue: prev?.name ?? null,
+		metadata: { sectionId: prev?.sectionId },
+		performedBy,
+	})
 }
 
 /** Get all teams for a section, ordered by name. */

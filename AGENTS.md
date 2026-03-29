@@ -130,6 +130,12 @@ React Router 7 fjerner `.server`-imports kun fra `loader`/`action`/`middleware`/
 3. **Server-only kode** skal alltid ha `.server.ts`-suffiks
 4. **Alle tabeller** skal ha audit-kolonner (created_at, created_by, updated_at, updated_by)
 5. **Historikk** skal bevares – data slettes aldri, bare arkiveres
+6. **Audit-logging er PÅKREVD** for alle CRUD-operasjoner:
+   - Alle opprettelser, endringer og slettinger skal logges til `audit_log`-tabellen via `writeAuditLog()` i `app/db/queries/audit.server.ts`
+   - Loggoppføringer skal inkludere: `action`, `entityType`, `entityId`, `previousValue` (ved endring/sletting), `newValue` (ved opprettelse/endring), `metadata` (kontekst), og `performedBy`
+   - Nye action-typer skal legges til i `auditLogActionEnum` i `app/db/schema/audit.ts`
+   - **Endringsloggen skal alltid vises i brukergrensesnittet** på den relevante admin-/oversiktssiden, slik at brukerne kan se hva som er endret, av hvem og når
+   - Bruk `<Table>` med kolonner: Tidspunkt, Handling, Detaljer, Utført av
 
 ### Kontroll-ID-formater
 - Nav MKR: `K-XX.NN` (f.eks. `K-ST.01`, `K-TS.03`)
