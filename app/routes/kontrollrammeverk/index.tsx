@@ -90,27 +90,34 @@ export default function Kontrollrammeverk() {
 			</VStack>
 
 			{risks.length > 0 && (
-				<VStack gap="space-4">
+				<VStack gap="space-6">
 					<Heading size="large" level="3">
 						Risikoer
 					</Heading>
-					<div className="framework-card-grid">
-						{risks.map((risk, i) => (
-							<Link
-								key={risk.riskId}
-								to={`/kontrollrammeverk/risiko/${risk.riskId}`}
-								className="framework-card"
-								style={{ backgroundColor: riskColor(i, risks.length) }}
-							>
-								<BodyShort size="small" className="framework-card-id">
-									{risk.riskId}:
-								</BodyShort>
-								<Heading size="small" level="4" className="framework-card-title">
-									{risk.name}
-								</Heading>
-							</Link>
-						))}
-					</div>
+					{groupByDomain(risks, "riskId").map(({ domainName, domainCode, items }) => (
+						<VStack key={domainCode} gap="space-4">
+							<Heading size="medium" level="4">
+								{domainName}
+							</Heading>
+							<div className="framework-card-grid">
+								{items.map((risk, i) => (
+									<Link
+										key={risk.riskId}
+										to={`/kontrollrammeverk/risiko/${risk.riskId}`}
+										className="framework-card"
+										style={{ backgroundColor: riskColor(i, items.length) }}
+									>
+										<BodyShort size="small" className="framework-card-id">
+											{risk.riskId}:
+										</BodyShort>
+										<Heading size="small" level="5" className="framework-card-title">
+											{risk.name}
+										</Heading>
+									</Link>
+								))}
+							</div>
+						</VStack>
+					))}
 				</VStack>
 			)}
 
