@@ -37,6 +37,16 @@ type ActionResult = { success: true; summary: SerializedSummary } | { success: f
 
 export async function action({ request }: ActionFunctionArgs) {
 	const formData = await request.formData()
+	const intent = formData.get("intent")
+
+	if (intent === "activate") {
+		// TODO: Implement activation — persist staged data to the database
+		return data<ActionResult>({
+			success: false,
+			error: "Aktivering er ikke implementert ennå.",
+		})
+	}
+
 	const file = formData.get("file")
 
 	if (!file || !(file instanceof File) || file.size === 0) {
