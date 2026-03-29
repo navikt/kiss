@@ -1,8 +1,16 @@
-import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import { BodyLong, Button, Heading, HGrid, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Form, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import {
+	getNaisTeamsForSection,
+	getUnassignedAppsForSection,
+	getUnlinkedNaisTeams,
+	linkNaisTeamToSection,
+	unlinkNaisTeamFromSection,
+} from "~/db/queries/nais.server"
 import { getSectionDetail } from "~/db/queries/sections.server"
+import { getAuthenticatedUser } from "~/lib/auth.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -21,12 +29,73 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const totalControls = teams.reduce((sum, t) => sum + t.total, 0)
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls)
 
-	return data({ seksjon, seksjonName, teams, totalApps, totalImplemented, totalPartial, totalControls, overallPercent })
+	const [linkedNaisTeams, unlinkedNaisTeams, unassignedApps] = await Promise.all([
+		getNaisTeamsForSection(result.section.id),
+		getUnlinkedNaisTeams(),
+		getUnassignedAppsForSection(result.section.id),
+	])
+
+	return data({
+		seksjon,
+		seksjonName,
+		sectionId: result.section.id,
+		teams,
+		totalApps,
+		totalImplemented,
+		totalPartial,
+		totalControls,
+		overallPercent,
+		linkedNaisTeams: linkedNaisTeams.map((t) => ({ slug: t.slug, displayName: t.displayName })),
+		unlinkedNaisTeams: unlinkedNaisTeams.map((t) => ({ slug: t.slug, displayName: t.displayName })),
+		unassignedApps,
+	})
+}
+
+export async function action({ request, params }: ActionFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const userName = user?.navIdent ?? "system"
+	const formData = await request.formData()
+	const intent = formData.get("intent")
+	const seksjon = params.seksjon
+
+	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
+
+	const result = await getSectionDetail(seksjon)
+	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
+
+	if (intent === "link-nais-team") {
+		const naisTeamSlug = formData.get("naisTeamSlug")
+		if (typeof naisTeamSlug !== "string" || !naisTeamSlug) {
+			throw new Response("Mangler Nais-team", { status: 400 })
+		}
+		await linkNaisTeamToSection(naisTeamSlug, result.section.id, userName)
+	}
+
+	if (intent === "unlink-nais-team") {
+		const naisTeamSlug = formData.get("naisTeamSlug")
+		if (typeof naisTeamSlug !== "string" || !naisTeamSlug) {
+			throw new Response("Mangler Nais-team", { status: 400 })
+		}
+		await unlinkNaisTeamFromSection(naisTeamSlug, userName)
+	}
+
+	return data({ success: true })
 }
 
 export default function SeksjonDashboard() {
-	const { seksjon, seksjonName, teams, totalApps, totalImplemented, totalPartial, totalControls, overallPercent } =
-		useLoaderData<typeof loader>()
+	const {
+		seksjon,
+		seksjonName,
+		teams,
+		totalApps,
+		totalImplemented,
+		totalPartial,
+		totalControls,
+		overallPercent,
+		linkedNaisTeams,
+		unlinkedNaisTeams,
+		unassignedApps,
+	} = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -110,6 +179,101 @@ export default function SeksjonDashboard() {
 					)
 				})}
 			</HGrid>
+
+			<Heading size="large" level="3">
+				Nais-team i seksjonen
+			</Heading>
+
+			{linkedNaisTeams.length > 0 ? (
+				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+				<section className="table-scroll" tabIndex={0} aria-label="Koblede Nais-team">
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{linkedNaisTeams.map((nt) => (
+								<Table.Row key={nt.slug}>
+									<Table.DataCell>
+										{nt.slug}
+										{nt.displayName && nt.displayName !== nt.slug && <> ({nt.displayName})</>}
+									</Table.DataCell>
+									<Table.DataCell>
+										<Form method="post">
+											<input type="hidden" name="intent" value="unlink-nais-team" />
+											<input type="hidden" name="naisTeamSlug" value={nt.slug} />
+											<Button type="submit" variant="tertiary-neutral" size="xsmall">
+												Fjern
+											</Button>
+										</Form>
+									</Table.DataCell>
+								</Table.Row>
+							))}
+						</Table.Body>
+					</Table>
+				</section>
+			) : (
+				<BodyLong>Ingen Nais-team er koblet til denne seksjonen ennå.</BodyLong>
+			)}
+
+			{unlinkedNaisTeams.length > 0 && (
+				<Form method="post">
+					<input type="hidden" name="intent" value="link-nais-team" />
+					<HStack gap="space-4" align="end">
+						<Select label="Legg til Nais-team" name="naisTeamSlug" size="small">
+							<option value="">Velg team…</option>
+							{unlinkedNaisTeams.map((nt) => (
+								<option key={nt.slug} value={nt.slug}>
+									{nt.slug}
+									{nt.displayName && nt.displayName !== nt.slug ? ` (${nt.displayName})` : ""}
+								</option>
+							))}
+						</Select>
+						<Button type="submit" variant="secondary" size="small">
+							Legg til
+						</Button>
+					</HStack>
+				</Form>
+			)}
+
+			{unassignedApps.length > 0 && (
+				<>
+					<Heading size="large" level="3">
+						Applikasjoner uten team
+					</Heading>
+					<BodyLong>
+						Disse applikasjonene tilhører Nais-team i seksjonen, men er ikke koblet til et utviklingsteam.
+					</BodyLong>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+					<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner uten team">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{unassignedApps.map((app) => (
+									<Table.Row key={app.appId}>
+										<Table.DataCell>{app.appName}</Table.DataCell>
+										<Table.DataCell>
+											<Tag variant="info" size="small">
+												{app.naisTeamSlug}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>{app.environments.join(", ")}</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				</>
+			)}
 		</VStack>
 	)
 }

@@ -1,9 +1,10 @@
-import { count, eq, sql } from "drizzle-orm"
+import { and, count, eq, notInArray, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
 import { frameworkControls } from "../schema/framework"
 import { devTeams } from "../schema/organization"
+import { writeAuditLog } from "./audit.server"
 import { getActiveFrameworkVersion } from "./framework.server"
 
 /** Get all monitored applications with compliance summary. */
@@ -58,6 +59,82 @@ export async function getApplications() {
 	}
 
 	return result
+}
+
+/** Link an application to a dev team. */
+export async function linkAppToTeam(applicationId: string, devTeamId: string, performedBy: string) {
+	const [mapping] = await db
+		.insert(applicationTeamMappings)
+		.values({ applicationId, devTeamId, createdBy: performedBy })
+		.returning()
+
+	const [app] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.id, applicationId))
+	const [team] = await db.select().from(devTeams).where(eq(devTeams.id, devTeamId))
+
+	await writeAuditLog({
+		action: "app_team_linked",
+		entityType: "application_team_mapping",
+		entityId: mapping.id,
+		newValue: `${app?.name ?? applicationId} ↔ ${team?.name ?? devTeamId}`,
+		metadata: { applicationId, devTeamId },
+		performedBy,
+	})
+
+	return mapping
+}
+
+/** Unlink an application from a dev team. */
+export async function unlinkAppFromTeam(applicationId: string, devTeamId: string, performedBy: string) {
+	const [app] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.id, applicationId))
+	const [team] = await db.select().from(devTeams).where(eq(devTeams.id, devTeamId))
+
+	await db
+		.delete(applicationTeamMappings)
+		.where(
+			and(eq(applicationTeamMappings.applicationId, applicationId), eq(applicationTeamMappings.devTeamId, devTeamId)),
+		)
+
+	await writeAuditLog({
+		action: "app_team_unlinked",
+		entityType: "application_team_mapping",
+		entityId: `${applicationId}_${devTeamId}`,
+		previousValue: `${app?.name ?? applicationId} ↔ ${team?.name ?? devTeamId}`,
+		metadata: { applicationId, devTeamId },
+		performedBy,
+	})
+}
+
+/** Get applications NOT yet linked to a specific team. */
+export async function getAvailableAppsForTeam(devTeamId: string) {
+	const linkedAppIds = db
+		.select({ applicationId: applicationTeamMappings.applicationId })
+		.from(applicationTeamMappings)
+		.where(eq(applicationTeamMappings.devTeamId, devTeamId))
+
+	return db
+		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(sql`${monitoredApplications.id} NOT IN (${linkedAppIds})`)
+		.orderBy(monitoredApplications.name)
+}
+
+/** Get teams NOT yet linked to a specific application. */
+export async function getAvailableTeamsForApp(applicationId: string) {
+	const linkedTeamIds = db
+		.select({ devTeamId: applicationTeamMappings.devTeamId })
+		.from(applicationTeamMappings)
+		.where(eq(applicationTeamMappings.applicationId, applicationId))
+
+	return db
+		.select({ id: devTeams.id, name: devTeams.name })
+		.from(devTeams)
+		.where(sql`${devTeams.id} NOT IN (${linkedTeamIds})`)
+		.orderBy(devTeams.name)
+}
+
+/** Get all dev teams. */
+export async function getAllTeams() {
+	return db.select({ id: devTeams.id, name: devTeams.name, slug: devTeams.slug }).from(devTeams).orderBy(devTeams.name)
 }
 
 /** Get compliance assessments for an application. */

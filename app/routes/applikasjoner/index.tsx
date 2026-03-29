@@ -1,17 +1,55 @@
-import { BodyLong, Heading, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import { Alert, BodyLong, Button, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getApplications } from "~/db/queries/applications.server"
+import { getAllTeams, getApplications, linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader(_args: LoaderFunctionArgs) {
-	const apps = await getApplications()
-	return data({ apps })
+	const [apps, allTeams] = await Promise.all([getApplications(), getAllTeams()])
+	return data({ apps, allTeams })
+}
+
+type ActionResult = { success: true; message: string } | { success: false; error: string }
+
+export async function action({ request }: ActionFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+	const userId = authedUser.navIdent
+
+	const formData = await request.formData()
+	const intent = formData.get("intent")
+
+	switch (intent) {
+		case "link-team": {
+			const applicationId = formData.get("applicationId")
+			const devTeamId = formData.get("devTeamId")
+			if (typeof applicationId !== "string" || typeof devTeamId !== "string" || !devTeamId) {
+				return data<ActionResult>({ success: false, error: "Velg et team." })
+			}
+			await linkAppToTeam(applicationId, devTeamId, userId)
+			return data<ActionResult>({ success: true, message: "Team lagt til." })
+		}
+
+		case "unlink-team": {
+			const applicationId = formData.get("applicationId")
+			const devTeamId = formData.get("devTeamId")
+			if (typeof applicationId !== "string" || typeof devTeamId !== "string") {
+				return data<ActionResult>({ success: false, error: "Mangler påkrevde felt." })
+			}
+			await unlinkAppFromTeam(applicationId, devTeamId, userId)
+			return data<ActionResult>({ success: true, message: "Team fjernet." })
+		}
+
+		default:
+			return data<ActionResult>({ success: false, error: "Ugyldig handling." })
+	}
 }
 
 export default function Applikasjoner() {
-	const { apps } = useLoaderData<typeof loader>()
+	const { apps, allTeams } = useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
 
 	return (
 		<VStack gap="space-6">
@@ -19,6 +57,13 @@ export default function Applikasjoner() {
 				Applikasjoner
 			</Heading>
 			<BodyLong>Oversikt over overvåkede applikasjoner og deres compliance-status.</BodyLong>
+
+			{actionData && "success" in actionData && actionData.success && (
+				<Alert variant="success">{actionData.message}</Alert>
+			)}
+			{actionData && "success" in actionData && !actionData.success && (
+				<Alert variant="error">{actionData.error}</Alert>
+			)}
 
 			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 			<section className="table-scroll" tabIndex={0} aria-label="Applikasjonstabell">
@@ -36,10 +81,36 @@ export default function Applikasjoner() {
 					<Table.Body>
 						{apps.map((app) => {
 							const pct = compliancePercent(app.controlsImplemented, app.controlsPartial, app.controlsTotal)
+							const linkedTeamSlugs = app.teams
+							const availableTeams = allTeams.filter((t) => !linkedTeamSlugs.includes(t.slug))
 							return (
 								<Table.Row key={app.id}>
 									<Table.DataCell>{app.name}</Table.DataCell>
-									<Table.DataCell>{app.teams.join(", ")}</Table.DataCell>
+									<Table.DataCell>
+										<HStack gap="space-2" wrap>
+											{app.teams.map((teamSlug) => {
+												const teamObj = allTeams.find((t) => t.slug === teamSlug)
+												return (
+													<HStack key={teamSlug} gap="space-1" align="center">
+														<Tag variant="info" size="xsmall">
+															{teamSlug}
+														</Tag>
+														{teamObj && (
+															<Form method="post" style={{ display: "inline" }}>
+																<input type="hidden" name="intent" value="unlink-team" />
+																<input type="hidden" name="applicationId" value={app.id} />
+																<input type="hidden" name="devTeamId" value={teamObj.id} />
+																<Button type="submit" variant="tertiary" size="xsmall" aria-label={`Fjern ${teamSlug}`}>
+																	✕
+																</Button>
+															</Form>
+														)}
+													</HStack>
+												)
+											})}
+											{app.teams.length === 0 && "–"}
+										</HStack>
+									</Table.DataCell>
 									<Table.DataCell>
 										{app.controlsImplemented} / {app.controlsTotal}
 									</Table.DataCell>
@@ -50,7 +121,28 @@ export default function Applikasjoner() {
 										</Tag>
 									</Table.DataCell>
 									<Table.DataCell>
-										<Link to={`/applikasjoner/${app.id}/compliance`}>Vurder</Link>
+										<HStack gap="space-2" align="center">
+											<Link to={`/applikasjoner/${app.id}/compliance`}>Vurder</Link>
+											{availableTeams.length > 0 && (
+												<Form method="post">
+													<input type="hidden" name="intent" value="link-team" />
+													<input type="hidden" name="applicationId" value={app.id} />
+													<HStack gap="space-2" align="end">
+														<Select label="Team" name="devTeamId" size="small" hideLabel>
+															<option value="">Velg …</option>
+															{availableTeams.map((t) => (
+																<option key={t.id} value={t.id}>
+																	{t.name}
+																</option>
+															))}
+														</Select>
+														<Button type="submit" variant="secondary" size="xsmall">
+															Legg til team
+														</Button>
+													</HStack>
+												</Form>
+											)}
+										</HStack>
 									</Table.DataCell>
 								</Table.Row>
 							)

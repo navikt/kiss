@@ -13,7 +13,11 @@ export const auditLogActionEnum = [
 	"team_updated",
 	"team_deleted",
 	"nais_team_status_updated",
+	"nais_team_section_linked",
+	"nais_team_section_unlinked",
 	"nais_sync_completed",
+	"app_team_linked",
+	"app_team_unlinked",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

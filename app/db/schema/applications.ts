@@ -1,5 +1,5 @@
 import { boolean, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
-import { devTeams } from "./organization"
+import { devTeams, sections } from "./organization"
 
 export const naisTeamStatusEnum = ["pending", "monitored", "ignored"] as const
 export type NaisTeamStatus = (typeof naisTeamStatusEnum)[number]
@@ -9,6 +9,7 @@ export const naisTeams = pgTable("nais_teams", {
 	slug: text("slug").notNull().unique(),
 	displayName: text("display_name"),
 	status: text("status", { enum: naisTeamStatusEnum }).notNull().default("pending"),
+	sectionId: uuid("section_id").references(() => sections.id),
 	devTeamId: uuid("dev_team_id").references(() => devTeams.id),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
