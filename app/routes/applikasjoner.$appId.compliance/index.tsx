@@ -3,6 +3,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { ComplianceComment, ComplianceStatusBadge, statusLabels } from "~/components/ComplianceStatus"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 
 interface ControlAssessment {
 	controlId: string
@@ -53,14 +54,34 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	return data({ appId, appName, assessments })
 }
 
+const validStatuses: ComplianceStatusValue[] = [
+	"not_relevant",
+	"not_implemented",
+	"partially_implemented",
+	"implemented",
+]
+
 export async function action({ request }: ActionFunctionArgs) {
 	const formData = await request.formData()
-	const controlId = formData.get("controlId") as string
-	const status = formData.get("status") as ComplianceStatusValue
-	const comment = formData.get("comment") as string
+	const controlId = formData.get("controlId")
+	const status = formData.get("status")
+	const comment = formData.get("comment")
+
+	if (typeof controlId !== "string" || !controlId) {
+		throw new Response("Mangler kontroll-ID", { status: 400 })
+	}
+
+	if (typeof status !== "string" || !validStatuses.includes(status as ComplianceStatusValue)) {
+		throw new Response("Ugyldig status", { status: 400 })
+	}
 
 	// Placeholder – will save to DB
-	return data({ success: true, controlId, status, comment })
+	return data({
+		success: true,
+		controlId,
+		status: status as ComplianceStatusValue,
+		comment: typeof comment === "string" ? comment : "",
+	})
 }
 
 export default function ComplianceAssessment() {
@@ -73,7 +94,11 @@ export default function ComplianceAssessment() {
 				Compliance-vurdering: {appName}
 			</Heading>
 
-			{actionData?.success && <div className="compliance-success">Vurdering for {actionData.controlId} er lagret.</div>}
+			{actionData?.success && (
+				<div className="compliance-success" role="status">
+					Vurdering for {actionData.controlId} er lagret.
+				</div>
+			)}
 
 			{assessments.map((assessment) => (
 				<div key={assessment.controlId} className="compliance-card">
@@ -126,3 +151,5 @@ export default function ComplianceAssessment() {
 		</VStack>
 	)
 }
+
+export { RouteErrorBoundary as ErrorBoundary }

@@ -1,6 +1,7 @@
 import { BodyLong, Button, Heading, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useLoaderData } from "react-router"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 
 interface NaisTeamInfo {
 	slug: string
@@ -19,6 +20,23 @@ export async function loader(_args: LoaderFunctionArgs) {
 	]
 
 	return data({ teams, lastSync: "2026-03-29T07:00:00Z" })
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+	const formData = await request.formData()
+	const teamSlug = formData.get("teamSlug")
+	const actionType = formData.get("action")
+
+	if (typeof teamSlug !== "string" || !teamSlug) {
+		throw new Response("Mangler team", { status: 400 })
+	}
+
+	if (actionType !== "monitor" && actionType !== "ignore") {
+		throw new Response("Ugyldig handling", { status: 400 })
+	}
+
+	// Placeholder – will persist to DB
+	return data({ success: true, teamSlug, action: actionType })
 }
 
 const statusTagVariant: Record<string, "success" | "warning" | "neutral"> = {
@@ -49,11 +67,11 @@ export default function NaisOvervaking() {
 			<Table>
 				<Table.Header>
 					<Table.Row>
-						<Table.HeaderCell>Team</Table.HeaderCell>
-						<Table.HeaderCell>Status</Table.HeaderCell>
-						<Table.HeaderCell>Applikasjoner</Table.HeaderCell>
-						<Table.HeaderCell>Oppdaget</Table.HeaderCell>
-						<Table.HeaderCell>Handlinger</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Team</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Applikasjoner</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>
@@ -72,10 +90,24 @@ export default function NaisOvervaking() {
 									<Form method="post">
 										<input type="hidden" name="teamSlug" value={team.slug} />
 										<div style={{ display: "flex", gap: "0.5rem" }}>
-											<Button type="submit" name="action" value="monitor" size="xsmall" variant="primary">
+											<Button
+												type="submit"
+												name="action"
+												value="monitor"
+												size="xsmall"
+												variant="primary"
+												aria-label={`Overvåk ${team.slug}`}
+											>
 												Overvåk
 											</Button>
-											<Button type="submit" name="action" value="ignore" size="xsmall" variant="tertiary">
+											<Button
+												type="submit"
+												name="action"
+												value="ignore"
+												size="xsmall"
+												variant="tertiary"
+												aria-label={`Ignorer ${team.slug}`}
+											>
 												Ignorer
 											</Button>
 										</div>
@@ -89,3 +121,5 @@ export default function NaisOvervaking() {
 		</VStack>
 	)
 }
+
+export { RouteErrorBoundary as ErrorBoundary }

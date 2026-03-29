@@ -1,6 +1,8 @@
 import { BodyLong, Heading, Table, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { compliancePercent } from "~/lib/mock-data.server"
 
 interface AppComplianceStatus {
 	appId: string
@@ -64,7 +66,7 @@ export default function TeamDashboard() {
 				</Table.Header>
 				<Table.Body>
 					{apps.map((app) => {
-						const pct = app.total > 0 ? Math.round(((app.implemented + app.partial * 0.5) / app.total) * 100) : 0
+						const pct = compliancePercent(app.implemented, app.partial, app.total)
 						return (
 							<Table.Row key={app.appId}>
 								<Table.DataCell>
@@ -82,3 +84,5 @@ export default function TeamDashboard() {
 		</VStack>
 	)
 }
+
+export { RouteErrorBoundary as ErrorBoundary }

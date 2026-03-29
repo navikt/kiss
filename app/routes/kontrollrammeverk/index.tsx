@@ -1,6 +1,8 @@
 import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getDomainSummaries } from "~/lib/mock-data.server"
 
 const domainColors: Record<string, string> = {
 	Styring: "#f9d4a0",
@@ -9,21 +11,8 @@ const domainColors: Record<string, string> = {
 	Drift: "#a0f9d4",
 }
 
-interface DomainSummary {
-	code: string
-	name: string
-	riskCount: number
-	controlCount: number
-}
-
 export async function loader(_args: LoaderFunctionArgs) {
-	const domains: DomainSummary[] = [
-		{ code: "ST", name: "Styring", riskCount: 2, controlCount: 2 },
-		{ code: "TS", name: "Tilgangsstyring", riskCount: 2, controlCount: 11 },
-		{ code: "EH", name: "Endringshåndtering", riskCount: 1, controlCount: 5 },
-		{ code: "DR", name: "Drift", riskCount: 4, controlCount: 6 },
-	]
-
+	const domains = getDomainSummaries()
 	return data({ domains })
 }
 
@@ -61,3 +50,5 @@ export default function Kontrollrammeverk() {
 		</VStack>
 	)
 }
+
+export { RouteErrorBoundary as ErrorBoundary }

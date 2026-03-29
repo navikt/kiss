@@ -1,6 +1,7 @@
 import { BodyLong, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, useLoaderData } from "react-router"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 
 interface ComplianceRow {
 	controlId: string
@@ -103,10 +104,10 @@ export default function RapportDetalj() {
 				<Table>
 					<Table.Header>
 						<Table.Row>
-							<Table.HeaderCell>Kontroll-ID</Table.HeaderCell>
-							<Table.HeaderCell>Kontrollnavn</Table.HeaderCell>
-							<Table.HeaderCell>Status</Table.HeaderCell>
-							<Table.HeaderCell>Kommentar</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Kontrollnavn</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Kommentar</Table.HeaderCell>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
@@ -128,3 +129,5 @@ export default function RapportDetalj() {
 		</VStack>
 	)
 }
+
+export { RouteErrorBoundary as ErrorBoundary }

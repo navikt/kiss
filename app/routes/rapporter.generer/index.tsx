@@ -2,16 +2,24 @@ import { Button, Heading, Select, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs } from "react-router"
 import { data, Form, useActionData } from "react-router"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 
 export async function action({ request }: ActionFunctionArgs) {
 	const formData = await request.formData()
-	const scope = formData.get("scope") as string
-	const seksjon = formData.get("seksjon") as string | null
+	const scope = formData.get("scope")
+	const seksjon = formData.get("seksjon")
+
+	if (typeof scope !== "string" || !scope) {
+		throw new Response("Mangler rapportomfang", { status: 400 })
+	}
 
 	// Placeholder – will generate actual report
 	return data({
 		success: true,
-		message: scope === "alle" ? "Rapport generert for alle seksjoner." : `Rapport generert for seksjon: ${seksjon}.`,
+		message:
+			scope === "alle"
+				? "Rapport generert for alle seksjoner."
+				: `Rapport generert for seksjon: ${typeof seksjon === "string" ? seksjon : "ukjent"}.`,
 	})
 }
 
@@ -25,7 +33,11 @@ export default function GenererRapport() {
 				Generer rapport
 			</Heading>
 
-			{actionData?.success && <div className="compliance-success">{actionData.message}</div>}
+			{actionData?.success && (
+				<div className="compliance-success" role="status">
+					{actionData.message}
+				</div>
+			)}
 
 			<Form method="post">
 				<VStack gap="space-6">
@@ -55,3 +67,5 @@ export default function GenererRapport() {
 		</VStack>
 	)
 }
+
+export { RouteErrorBoundary as ErrorBoundary }

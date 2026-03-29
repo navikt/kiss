@@ -32,22 +32,25 @@ interface ComplianceCommentProps {
 
 /** Renders comment text with auto-linked URLs */
 export function ComplianceComment({ comment }: ComplianceCommentProps) {
-	const urlRegex = /(https?:\/\/[^\s<]+)/g
-	const parts = comment.split(urlRegex)
+	const parts = comment.split(/(https?:\/\/[^\s<]+)/g)
+	const isUrl = (s: string) => /^https?:\/\//.test(s)
 
-	return (
-		<p className="compliance-comment">
-			{parts.map((part) =>
-				urlRegex.test(part) ? (
-					<a key={part} href={part} target="_blank" rel="noopener noreferrer">
-						{part}
-					</a>
-				) : (
-					<span key={part}>{part}</span>
-				),
-			)}
-		</p>
-	)
+	const elements: React.ReactNode[] = []
+	for (let i = 0; i < parts.length; i++) {
+		const part = parts[i]
+		if (!part) continue
+		if (isUrl(part)) {
+			elements.push(
+				<a key={`url-${part}`} href={part} target="_blank" rel="noopener noreferrer">
+					{part}
+				</a>,
+			)
+		} else {
+			elements.push(<span key={`text-${part}`}>{part}</span>)
+		}
+	}
+
+	return <p className="compliance-comment">{elements}</p>
 }
 
 export { statusLabels }

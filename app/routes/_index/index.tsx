@@ -1,6 +1,8 @@
 import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, useLoaderData } from "react-router"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { compliancePercent, getDomainSummaries } from "~/lib/mock-data.server"
 
 interface DomainStatus {
 	name: string
@@ -12,19 +14,25 @@ interface DomainStatus {
 }
 
 export async function loader(_args: LoaderFunctionArgs) {
-	// Placeholder data – will be replaced with DB aggregation
-	const domainStatuses: DomainStatus[] = [
-		{ name: "Styring", implemented: 1, partial: 1, notImplemented: 0, notRelevant: 0, total: 2 },
-		{ name: "Tilgangsstyring", implemented: 3, partial: 4, notImplemented: 2, notRelevant: 2, total: 11 },
-		{ name: "Endringshåndtering", implemented: 2, partial: 1, notImplemented: 2, notRelevant: 0, total: 5 },
-		{ name: "Drift", implemented: 1, partial: 2, notImplemented: 1, notRelevant: 2, total: 6 },
-	]
+	const summaries = getDomainSummaries()
+
+	// Placeholder compliance data – will be replaced with DB aggregation
+	const complianceByDomain: Record<string, Omit<DomainStatus, "name">> = {
+		ST: { implemented: 1, partial: 1, notImplemented: 0, notRelevant: 0, total: 2 },
+		TS: { implemented: 3, partial: 4, notImplemented: 2, notRelevant: 2, total: 11 },
+		EH: { implemented: 2, partial: 1, notImplemented: 2, notRelevant: 0, total: 5 },
+		DR: { implemented: 1, partial: 2, notImplemented: 1, notRelevant: 2, total: 6 },
+	}
+
+	const domainStatuses: DomainStatus[] = summaries.map((s) => ({
+		name: s.name,
+		...(complianceByDomain[s.code] ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 }),
+	}))
 
 	const totalControls = domainStatuses.reduce((sum, d) => sum + d.total, 0)
 	const totalImplemented = domainStatuses.reduce((sum, d) => sum + d.implemented, 0)
 	const totalPartial = domainStatuses.reduce((sum, d) => sum + d.partial, 0)
-	const overallPercent =
-		totalControls > 0 ? Math.round(((totalImplemented + totalPartial * 0.5) / totalControls) * 100) : 0
+	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls)
 
 	return data({ domainStatuses, totalControls, totalImplemented, totalPartial, overallPercent })
 }
@@ -67,8 +75,7 @@ export default function Dashboard() {
 
 			<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
 				{domainStatuses.map((domain) => {
-					const pct =
-						domain.total > 0 ? Math.round(((domain.implemented + domain.partial * 0.5) / domain.total) * 100) : 0
+					const pct = compliancePercent(domain.implemented, domain.partial, domain.total)
 					return (
 						<div key={domain.name} className="domain-status-card">
 							<div className="domain-status-header">
@@ -77,14 +84,21 @@ export default function Dashboard() {
 								</Heading>
 								<span className="domain-status-pct">{pct}%</span>
 							</div>
-							<div className="domain-status-bar">
+							<div
+								className="domain-status-bar"
+								role="progressbar"
+								aria-valuenow={pct}
+								aria-valuemin={0}
+								aria-valuemax={100}
+								aria-label={`${domain.name} compliance ${pct}%`}
+							>
 								<div
 									className="domain-status-bar-implemented"
-									style={{ width: `${(domain.implemented / domain.total) * 100}%` }}
+									style={{ width: `${domain.total > 0 ? (domain.implemented / domain.total) * 100 : 0}%` }}
 								/>
 								<div
 									className="domain-status-bar-partial"
-									style={{ width: `${(domain.partial / domain.total) * 100}%` }}
+									style={{ width: `${domain.total > 0 ? (domain.partial / domain.total) * 100 : 0}%` }}
 								/>
 							</div>
 							<div className="domain-status-details">
@@ -99,3 +113,5 @@ export default function Dashboard() {
 		</VStack>
 	)
 }
+
+export { RouteErrorBoundary as ErrorBoundary }

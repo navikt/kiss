@@ -1,6 +1,8 @@
 import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { compliancePercent } from "~/lib/mock-data.server"
 
 interface TeamStatus {
 	slug: string
@@ -30,8 +32,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const totalImplemented = teams.reduce((sum, t) => sum + t.implemented, 0)
 	const totalPartial = teams.reduce((sum, t) => sum + t.partial, 0)
 	const totalControls = teams.reduce((sum, t) => sum + t.total, 0)
-	const overallPercent =
-		totalControls > 0 ? Math.round(((totalImplemented + totalPartial * 0.5) / totalControls) * 100) : 0
+	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls)
 
 	return data({ seksjon, seksjonName, teams, totalApps, totalImplemented, totalPartial, totalControls, overallPercent })
 }
@@ -80,7 +81,7 @@ export default function SeksjonDashboard() {
 
 			<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
 				{teams.map((team) => {
-					const pct = team.total > 0 ? Math.round(((team.implemented + team.partial * 0.5) / team.total) * 100) : 0
+					const pct = compliancePercent(team.implemented, team.partial, team.total)
 					return (
 						<Link
 							key={team.slug}
@@ -94,14 +95,21 @@ export default function SeksjonDashboard() {
 									</Heading>
 									<span className="domain-status-pct">{pct}%</span>
 								</div>
-								<div className="domain-status-bar">
+								<div
+									className="domain-status-bar"
+									role="progressbar"
+									aria-valuenow={pct}
+									aria-valuemin={0}
+									aria-valuemax={100}
+									aria-label={`${team.name} compliance ${pct}%`}
+								>
 									<div
 										className="domain-status-bar-implemented"
-										style={{ width: `${(team.implemented / team.total) * 100}%` }}
+										style={{ width: `${team.total > 0 ? (team.implemented / team.total) * 100 : 0}%` }}
 									/>
 									<div
 										className="domain-status-bar-partial"
-										style={{ width: `${(team.partial / team.total) * 100}%` }}
+										style={{ width: `${team.total > 0 ? (team.partial / team.total) * 100 : 0}%` }}
 									/>
 								</div>
 								<div className="domain-status-details">
@@ -118,3 +126,5 @@ export default function SeksjonDashboard() {
 		</VStack>
 	)
 }
+
+export { RouteErrorBoundary as ErrorBoundary }

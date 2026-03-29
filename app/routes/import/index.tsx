@@ -1,6 +1,7 @@
 import { Alert, BodyLong, Button, Heading, Table, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs } from "react-router"
 import { data, Form, useActionData } from "react-router"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { type ParsedFrameworkRow, parseFrameworkExcel, summarizeFramework } from "~/lib/excel-parser.server"
 
 interface SerializedSummary {
@@ -139,12 +140,12 @@ export default function Import() {
 						<Table>
 							<Table.Header>
 								<Table.Row>
-									<Table.HeaderCell>Kontroll-ID</Table.HeaderCell>
-									<Table.HeaderCell>Domene</Table.HeaderCell>
-									<Table.HeaderCell>Risiko-ID</Table.HeaderCell>
-									<Table.HeaderCell>Krav</Table.HeaderCell>
-									<Table.HeaderCell>Ansvarlig</Table.HeaderCell>
-									<Table.HeaderCell>Frekvens</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Risiko-ID</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Krav</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Ansvarlig</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
@@ -175,3 +176,5 @@ export default function Import() {
 		</VStack>
 	)
 }
+
+export { RouteErrorBoundary as ErrorBoundary }

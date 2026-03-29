@@ -50,6 +50,9 @@ export default function App() {
 
 	return (
 		<div data-theme={theme} className="app-container">
+			<a href="#main-content" className="skip-link">
+				Hopp til hovedinnhold
+			</a>
 			<header className="app-header">
 				<div className="app-header-content">
 					<h1 className="app-header-title">KISS</h1>
@@ -57,7 +60,7 @@ export default function App() {
 				</div>
 			</header>
 			<AppNavigation />
-			<main className="app-main">
+			<main id="main-content" className="app-main">
 				<Outlet />
 			</main>
 		</div>

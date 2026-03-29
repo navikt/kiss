@@ -273,3 +273,18 @@ body {
 	border-color: var(--a-border-action);
 	box-shadow: var(--a-shadow-xsmall);
 }
+
+/* Skip-link (WCAG) */
+.skip-link {
+	position: absolute;
+	left: -9999px;
+	z-index: 999;
+	padding: 0.5rem 1rem;
+	background: var(--a-surface-action);
+	color: var(--a-text-on-action);
+}
+
+.skip-link:focus {
+	left: 0.5rem;
+	top: 0.5rem;
+}

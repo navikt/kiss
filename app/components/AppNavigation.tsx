@@ -27,7 +27,11 @@ export function AppNavigation() {
 						location.pathname === item.href || (item.href !== "/" && location.pathname.startsWith(item.href))
 					return (
 						<li key={item.href}>
-							<Link to={item.href} className={`app-nav-link ${isActive ? "app-nav-link--active" : ""}`}>
+							<Link
+								to={item.href}
+								className={`app-nav-link ${isActive ? "app-nav-link--active" : ""}`}
+								aria-current={isActive ? "page" : undefined}
+							>
 								{item.label}
 							</Link>
 						</li>

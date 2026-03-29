@@ -1,6 +1,8 @@
 import { BodyLong, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { compliancePercent } from "~/lib/mock-data.server"
 
 interface AppSummary {
 	id: string
@@ -54,17 +56,17 @@ export default function Applikasjoner() {
 			<Table>
 				<Table.Header>
 					<Table.Row>
-						<Table.HeaderCell>Applikasjon</Table.HeaderCell>
-						<Table.HeaderCell>Team</Table.HeaderCell>
-						<Table.HeaderCell>Implementert</Table.HeaderCell>
-						<Table.HeaderCell>Delvis</Table.HeaderCell>
-						<Table.HeaderCell>Compliance</Table.HeaderCell>
-						<Table.HeaderCell>Handling</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Team</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Implementert</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Delvis</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Compliance</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>
 					{apps.map((app) => {
-						const pct = Math.round(((app.controlsImplemented + app.controlsPartial * 0.5) / app.controlsTotal) * 100)
+						const pct = compliancePercent(app.controlsImplemented, app.controlsPartial, app.controlsTotal)
 						return (
 							<Table.Row key={app.id}>
 								<Table.DataCell>{app.name}</Table.DataCell>
@@ -89,3 +91,5 @@ export default function Applikasjoner() {
 		</VStack>
 	)
 }
+
+export { RouteErrorBoundary as ErrorBoundary }
