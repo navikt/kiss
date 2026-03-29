@@ -1,22 +1,68 @@
-import { renderToString } from "react-dom/server"
+import { PassThrough } from "node:stream"
+import { createReadableStreamFromReadable } from "@react-router/node"
+import { isbot } from "isbot"
+import type { RenderToPipeableStreamOptions } from "react-dom/server"
+import { renderToPipeableStream } from "react-dom/server"
 import type { AppLoadContext, EntryContext } from "react-router"
-import { type HandleDocumentRequestFunction, ServerRouter } from "react-router"
+import { ServerRouter } from "react-router"
 
-const handleRequest: HandleDocumentRequestFunction = (
+export const streamTimeout = 5_000
+
+export default function handleRequest(
 	request: Request,
 	responseStatusCode: number,
 	responseHeaders: Headers,
 	routerContext: EntryContext,
 	_loadContext: AppLoadContext,
-) => {
-	const html = renderToString(<ServerRouter context={routerContext} url={request.url} />)
+) {
+	if (request.method.toUpperCase() === "HEAD") {
+		return new Response(null, {
+			status: responseStatusCode,
+			headers: responseHeaders,
+		})
+	}
 
-	responseHeaders.set("Content-Type", "text/html")
+	return new Promise((resolve, reject) => {
+		let shellRendered = false
+		const userAgent = request.headers.get("user-agent")
 
-	return new Response(`<!DOCTYPE html>${html}`, {
-		headers: responseHeaders,
-		status: responseStatusCode,
+		const readyOption: keyof RenderToPipeableStreamOptions =
+			(userAgent && isbot(userAgent)) || routerContext.isSpaMode ? "onAllReady" : "onShellReady"
+
+		let timeoutId: ReturnType<typeof setTimeout> | undefined = setTimeout(() => abort(), streamTimeout + 1_000)
+
+		const { pipe, abort } = renderToPipeableStream(<ServerRouter context={routerContext} url={request.url} />, {
+			[readyOption]() {
+				shellRendered = true
+				const body = new PassThrough({
+					final(callback) {
+						clearTimeout(timeoutId)
+						timeoutId = undefined
+						callback()
+					},
+				})
+				const stream = createReadableStreamFromReadable(body)
+
+				responseHeaders.set("Content-Type", "text/html")
+
+				pipe(body)
+
+				resolve(
+					new Response(stream, {
+						headers: responseHeaders,
+						status: responseStatusCode,
+					}),
+				)
+			},
+			onShellError(error: unknown) {
+				reject(error)
+			},
+			onError(error: unknown) {
+				responseStatusCode = 500
+				if (shellRendered) {
+					console.error(error)
+				}
+			},
+		})
 	})
 }
-
-export default handleRequest

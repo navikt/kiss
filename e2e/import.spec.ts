@@ -44,9 +44,50 @@ test.describe("Import page", () => {
 		expect(padding).toBeGreaterThan(0)
 	})
 
+	test("selecting a file via file chooser shows it and upload button", async ({ page }) => {
+		await page.evaluate(() => {
+			const input = document.querySelector<HTMLInputElement>("input[type='file']")
+			if (!input) return
+
+			const dt = new DataTransfer()
+			dt.items.add(
+				new File(["content"], "valgt-fil.xlsx", {
+					type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+				}),
+			)
+
+			Object.defineProperty(input, "files", { value: dt.files, configurable: true })
+			input.dispatchEvent(new Event("change", { bubbles: true }))
+		})
+
+		await expect(page.getByText("valgt-fil.xlsx")).toBeVisible()
+		await expect(page.getByRole("button", { name: "Last opp og valider" })).toBeVisible()
+	})
+
 	test("hidden file input accepts xlsx files", async ({ page }) => {
 		const fileInput = page.locator("input[type='file']")
 		await expect(fileInput).toHaveAttribute("accept", /\.xlsx/)
+	})
+
+	test("dropping a file on the dropzone selects it", async ({ page }) => {
+		await page.evaluate(() => {
+			const area = document.querySelector<HTMLDivElement>(".aksel-dropzone__area")
+			if (!area) return
+
+			const dt = new DataTransfer()
+			dt.items.add(
+				new File(["content"], "kontrollrammeverk.xlsx", {
+					type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+				}),
+			)
+
+			area.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer: dt }))
+			area.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }))
+			area.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }))
+		})
+
+		await expect(page.getByText("kontrollrammeverk.xlsx")).toBeVisible()
+		await expect(page.getByRole("button", { name: "Last opp og valider" })).toBeVisible()
 	})
 
 	test("dropping a file on the dropzone does not open file chooser", async ({ page }) => {
