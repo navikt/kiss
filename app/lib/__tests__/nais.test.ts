@@ -3,6 +3,8 @@ import { fetchNaisApps, fetchNaisTeams } from "../nais.server"
 
 const NAIS_API_URL = "https://console.nav.cloud.nais.io/graphql"
 
+const noMorePages = { hasNextPage: false, endCursor: null }
+
 function mockFetchResponse(body: unknown, status = 200) {
 	return vi.fn().mockResolvedValue({
 		ok: status >= 200 && status < 300,
@@ -14,7 +16,7 @@ function mockFetchResponse(body: unknown, status = 200) {
 
 describe("fetchNaisTeams", () => {
 	beforeEach(() => {
-		vi.stubGlobal("fetch", mockFetchResponse({ data: { teams: { nodes: [] } } }))
+		vi.stubGlobal("fetch", mockFetchResponse({ data: { teams: { pageInfo: noMorePages, nodes: [] } } }))
 	})
 
 	afterEach(() => {
@@ -51,10 +53,44 @@ describe("fetchNaisTeams", () => {
 			{ slug: "team-a", purpose: "Frontend" },
 			{ slug: "team-b", purpose: "Backend" },
 		]
-		vi.stubGlobal("fetch", mockFetchResponse({ data: { teams: { nodes: teams } } }))
+		vi.stubGlobal("fetch", mockFetchResponse({ data: { teams: { pageInfo: noMorePages, nodes: teams } } }))
 
 		const result = await fetchNaisTeams("token")
 		expect(result).toEqual(teams)
+	})
+
+	it("paginates through multiple pages", async () => {
+		const page1 = {
+			data: {
+				teams: { pageInfo: { hasNextPage: true, endCursor: "cursor1" }, nodes: [{ slug: "team-a", purpose: "A" }] },
+			},
+		}
+		const page2 = { data: { teams: { pageInfo: noMorePages, nodes: [{ slug: "team-b", purpose: "B" }] } } }
+		const mockFetch = vi
+			.fn()
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: () => Promise.resolve(page1),
+				text: () => Promise.resolve(""),
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 200,
+				json: () => Promise.resolve(page2),
+				text: () => Promise.resolve(""),
+			})
+		vi.stubGlobal("fetch", mockFetch)
+
+		const result = await fetchNaisTeams("token")
+		expect(result).toEqual([
+			{ slug: "team-a", purpose: "A" },
+			{ slug: "team-b", purpose: "B" },
+		])
+		expect(mockFetch).toHaveBeenCalledTimes(2)
+
+		const body2 = JSON.parse(mockFetch.mock.calls[1][1].body)
+		expect(body2.variables.after).toBe("cursor1")
 	})
 
 	it("throws on HTTP error response", async () => {
@@ -88,12 +124,13 @@ describe("fetchNaisApps", () => {
 	})
 
 	it("sends the team slug as a GraphQL variable", async () => {
-		vi.stubGlobal("fetch", mockFetchResponse({ data: { team: { apps: { nodes: [] } } } }))
+		vi.stubGlobal("fetch", mockFetchResponse({ data: { team: { apps: { pageInfo: noMorePages, nodes: [] } } } }))
 
 		await fetchNaisApps("token", "my-team")
 
 		const callBody = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body)
-		expect(callBody.variables).toEqual({ slug: "my-team" })
+		expect(callBody.variables.slug).toBe("my-team")
+		expect(callBody.variables.first).toBe(100)
 	})
 
 	it("returns the list of apps from the response", async () => {
@@ -109,7 +146,7 @@ describe("fetchNaisApps", () => {
 				},
 			},
 		]
-		vi.stubGlobal("fetch", mockFetchResponse({ data: { team: { apps: { nodes: apps } } } }))
+		vi.stubGlobal("fetch", mockFetchResponse({ data: { team: { apps: { pageInfo: noMorePages, nodes: apps } } } }))
 
 		const result = await fetchNaisApps("token", "my-team")
 		expect(result).toEqual(apps)

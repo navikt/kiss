@@ -1,4 +1,5 @@
 const NAIS_API_URL = process.env.NAIS_API_URL ?? "https://console.nav.cloud.nais.io/graphql"
+const PAGE_SIZE = 100
 
 export interface NaisTeam {
 	slug: string
@@ -14,6 +15,11 @@ export interface NaisApp {
 		timestamp: string
 		deployer: string
 	}
+}
+
+interface PageInfo {
+	hasNextPage: boolean
+	endCursor: string | null
 }
 
 interface GraphQLResponse<T> {
@@ -57,8 +63,12 @@ async function naisGraphQL<T>(query: string, variables?: Record<string, unknown>
 }
 
 const TEAMS_QUERY = `
-	query {
-		teams {
+	query Teams($first: Int!, $after: Cursor) {
+		teams(first: $first, after: $after) {
+			pageInfo {
+				hasNextPage
+				endCursor
+			}
 			nodes {
 				slug
 				purpose
@@ -69,19 +79,39 @@ const TEAMS_QUERY = `
 
 interface TeamsResponse {
 	teams: {
+		pageInfo: PageInfo
 		nodes: NaisTeam[]
 	}
 }
 
 export async function fetchNaisTeams(token?: string): Promise<NaisTeam[]> {
-	const data = await naisGraphQL<TeamsResponse>(TEAMS_QUERY, undefined, token)
-	return data.teams.nodes
+	const allTeams: NaisTeam[] = []
+	let after: string | null = null
+	let hasMore = true
+
+	while (hasMore) {
+		const variables: Record<string, unknown> = { first: PAGE_SIZE }
+		if (after) variables.after = after
+
+		const result = await naisGraphQL<TeamsResponse>(TEAMS_QUERY, variables, token)
+		allTeams.push(...result.teams.nodes)
+
+		hasMore = result.teams.pageInfo.hasNextPage
+		after = result.teams.pageInfo.endCursor
+	}
+
+	console.log(`[nais] Fetched ${allTeams.length} teams (${Math.ceil(allTeams.length / PAGE_SIZE)} pages)`)
+	return allTeams
 }
 
 const APPS_QUERY = `
-	query TeamApps($slug: Slug!) {
+	query TeamApps($slug: Slug!, $first: Int!, $after: Cursor) {
 		team(slug: $slug) {
-			apps {
+			apps(first: $first, after: $after) {
+				pageInfo {
+					hasNextPage
+					endCursor
+				}
 				nodes {
 					name
 					namespace
@@ -100,12 +130,27 @@ const APPS_QUERY = `
 interface AppsResponse {
 	team: {
 		apps: {
+			pageInfo: PageInfo
 			nodes: NaisApp[]
 		}
 	}
 }
 
 export async function fetchNaisApps(token: string | undefined, teamSlug: string): Promise<NaisApp[]> {
-	const data = await naisGraphQL<AppsResponse>(APPS_QUERY, { slug: teamSlug }, token)
-	return data.team.apps.nodes
+	const allApps: NaisApp[] = []
+	let after: string | null = null
+	let hasMore = true
+
+	while (hasMore) {
+		const variables: Record<string, unknown> = { slug: teamSlug, first: PAGE_SIZE }
+		if (after) variables.after = after
+
+		const result = await naisGraphQL<AppsResponse>(APPS_QUERY, variables, token)
+		allApps.push(...result.team.apps.nodes)
+
+		hasMore = result.team.apps.pageInfo.hasNextPage
+		after = result.team.apps.pageInfo.endCursor
+	}
+
+	return allApps
 }
