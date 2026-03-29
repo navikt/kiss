@@ -1,4 +1,4 @@
-import type { FileObject } from "@navikt/ds-react"
+import type { FileObject, FileRejected, FileRejectionReason } from "@navikt/ds-react"
 import { Alert, BodyLong, Button, FileUpload, Heading, Table, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs } from "react-router"
@@ -78,36 +78,25 @@ export async function action({ request }: ActionFunctionArgs) {
 	}
 }
 
+const MAX_SIZE_MB = 10
+const MAX_SIZE = MAX_SIZE_MB * 1024 * 1024
+
+const rejectionErrors: Record<FileRejectionReason, string> = {
+	fileType: "Filformatet støttes ikke. Last opp en .xlsx-fil.",
+	fileSize: `Filen er større enn ${MAX_SIZE_MB} MB.`,
+}
+
 export default function Import() {
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const submit = useSubmit()
-	const [selectedFile, setSelectedFile] = useState<File | null>(null)
-	const [fileError, setFileError] = useState<string | undefined>(undefined)
+	const [files, setFiles] = useState<FileObject[]>([])
 
 	const isSubmitting = navigation.state === "submitting"
 
-	function handleSelect(files: FileObject[]) {
-		setFileError(undefined)
-
-		const rejected = files.filter((f): f is Extract<FileObject, { error: true }> => f.error)
-		const accepted = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
-
-		if (rejected.length > 0) {
-			setFileError(rejected[0].reasons.join(", "))
-			setSelectedFile(null)
-			return
-		}
-
-		if (accepted.length > 0) {
-			setSelectedFile(accepted[0].file)
-		}
-	}
-
-	function handleRemoveFile() {
-		setSelectedFile(null)
-		setFileError(undefined)
-	}
+	const acceptedFiles = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
+	const rejectedFiles = files.filter((f): f is FileRejected => f.error)
+	const selectedFile = acceptedFiles.length > 0 ? acceptedFiles[0].file : null
 
 	function handleUpload() {
 		if (!selectedFile) return
@@ -126,30 +115,62 @@ export default function Import() {
 			</BodyLong>
 
 			<FileUpload.Dropzone
-				label="Last opp Excel-fil (.xlsx)"
-				description="Maks én fil. Kun .xlsx-format støttes."
+				label="Last opp kontrollrammeverk"
+				description={`Du kan laste opp filer i xlsx-format. Maks størrelse ${MAX_SIZE_MB} MB.`}
 				accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+				maxSizeInBytes={MAX_SIZE}
 				multiple={false}
-				onSelect={handleSelect}
-				error={fileError}
-				fileLimit={{ max: 1, current: selectedFile ? 1 : 0 }}
+				onSelect={setFiles}
+				fileLimit={{ max: 1, current: acceptedFiles.length }}
 			/>
 
-			{selectedFile && (
-				<VStack gap="space-4">
-					<FileUpload.Item
-						file={selectedFile}
-						button={{
-							action: "delete",
-							onClick: handleRemoveFile,
-						}}
-						status={isSubmitting ? "uploading" : "idle"}
-					/>
+			{acceptedFiles.length > 0 && (
+				<VStack gap="space-8">
+					<VStack as="ul" gap="space-12">
+						{acceptedFiles.map((file) => (
+							<FileUpload.Item
+								as="li"
+								key={file.file.name}
+								file={file.file}
+								button={{
+									action: "delete",
+									onClick: () => setFiles([]),
+								}}
+								status={isSubmitting ? "uploading" : "idle"}
+							/>
+						))}
+					</VStack>
 					<div>
 						<Button type="button" variant="primary" onClick={handleUpload} loading={isSubmitting}>
 							Last opp og valider
 						</Button>
 					</div>
+				</VStack>
+			)}
+
+			{rejectedFiles.length > 0 && (
+				<VStack gap="space-8">
+					<Heading level="3" size="xsmall">
+						Filer med feil
+					</Heading>
+					<VStack as="ul" gap="space-12">
+						{rejectedFiles.map((rejected) => (
+							<FileUpload.Item
+								as="li"
+								key={rejected.file.name}
+								file={rejected.file}
+								error={
+									rejected.reasons[0] in rejectionErrors
+										? rejectionErrors[rejected.reasons[0] as FileRejectionReason]
+										: rejected.reasons.join(", ")
+								}
+								button={{
+									action: "delete",
+									onClick: () => setFiles(files.filter((f) => f !== rejected)),
+								}}
+							/>
+						))}
+					</VStack>
 				</VStack>
 			)}
 

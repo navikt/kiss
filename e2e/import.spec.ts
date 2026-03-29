@@ -6,12 +6,12 @@ test.describe("Import page", () => {
 	})
 
 	test("shows dropzone with label", async ({ page }) => {
-		const dropzone = page.getByText("Last opp Excel-fil (.xlsx)")
+		const dropzone = page.getByText("Last opp kontrollrammeverk")
 		await expect(dropzone).toBeVisible()
 	})
 
 	test("shows description text", async ({ page }) => {
-		await expect(page.getByText("Maks én fil. Kun .xlsx-format støttes.")).toBeVisible()
+		await expect(page.getByText(/Du kan laste opp filer i xlsx-format/)).toBeVisible()
 	})
 
 	test("shows upload button only after file selection", async ({ page }) => {
@@ -22,7 +22,7 @@ test.describe("Import page", () => {
 	test("opens file chooser on click with correct settings", async ({ page }) => {
 		const [fileChooser] = await Promise.all([
 			page.waitForEvent("filechooser"),
-			page.getByText("Last opp Excel-fil (.xlsx)").click(),
+			page.getByText("Last opp kontrollrammeverk").click(),
 		])
 		expect(fileChooser.isMultiple()).toBe(false)
 	})
