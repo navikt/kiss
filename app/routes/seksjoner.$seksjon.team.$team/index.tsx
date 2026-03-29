@@ -46,41 +46,43 @@ export default function TeamDashboard() {
 				Compliance-status per applikasjon for {teamName} i seksjon <Link to={`/seksjoner/${seksjon}`}>{seksjon}</Link>.
 			</BodyLong>
 
-			<Table>
-				<Table.Header>
-					<Table.Row>
-						<Table.HeaderCell scope="col">App</Table.HeaderCell>
-						<Table.HeaderCell scope="col" align="right">
-							Implementert
-						</Table.HeaderCell>
-						<Table.HeaderCell scope="col" align="right">
-							Delvis
-						</Table.HeaderCell>
-						<Table.HeaderCell scope="col" align="right">
-							Mangler
-						</Table.HeaderCell>
-						<Table.HeaderCell scope="col" align="right">
-							Status %
-						</Table.HeaderCell>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{apps.map((app) => {
-						const pct = compliancePercent(app.implemented, app.partial, app.total)
-						return (
-							<Table.Row key={app.appId}>
-								<Table.DataCell>
-									<Link to={`/applikasjoner/${app.appId}/compliance`}>{app.appName}</Link>
-								</Table.DataCell>
-								<Table.DataCell align="right">{app.implemented}</Table.DataCell>
-								<Table.DataCell align="right">{app.partial}</Table.DataCell>
-								<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
-								<Table.DataCell align="right">{pct}%</Table.DataCell>
-							</Table.Row>
-						)
-					})}
-				</Table.Body>
-			</Table>
+			<section className="table-scroll" tabIndex={-1} aria-label="Applikasjoner per team">
+				<Table>
+					<Table.Header>
+						<Table.Row>
+							<Table.HeaderCell scope="col">App</Table.HeaderCell>
+							<Table.HeaderCell scope="col" align="right">
+								Implementert
+							</Table.HeaderCell>
+							<Table.HeaderCell scope="col" align="right">
+								Delvis
+							</Table.HeaderCell>
+							<Table.HeaderCell scope="col" align="right">
+								Mangler
+							</Table.HeaderCell>
+							<Table.HeaderCell scope="col" align="right">
+								Status %
+							</Table.HeaderCell>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{apps.map((app) => {
+							const pct = compliancePercent(app.implemented, app.partial, app.total)
+							return (
+								<Table.Row key={app.appId}>
+									<Table.DataCell>
+										<Link to={`/applikasjoner/${app.appId}/compliance`}>{app.appName}</Link>
+									</Table.DataCell>
+									<Table.DataCell align="right">{app.implemented}</Table.DataCell>
+									<Table.DataCell align="right">{app.partial}</Table.DataCell>
+									<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
+									<Table.DataCell align="right">{pct}%</Table.DataCell>
+								</Table.Row>
+							)
+						})}
+					</Table.Body>
+				</Table>
+			</section>
 		</VStack>
 	)
 }

@@ -101,30 +101,32 @@ export default function RapportDetalj() {
 				<Heading size="medium" level="3">
 					Compliance-status
 				</Heading>
-				<Table>
-					<Table.Header>
-						<Table.Row>
-							<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Kontrollnavn</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Kommentar</Table.HeaderCell>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{report.complianceRows.map((row) => (
-							<Table.Row key={row.controlId}>
-								<Table.DataCell>{row.controlId}</Table.DataCell>
-								<Table.DataCell>{row.controlName}</Table.DataCell>
-								<Table.DataCell>
-									<Tag variant={statusTagVariant[row.status]} size="small">
-										{statusLabel[row.status]}
-									</Tag>
-								</Table.DataCell>
-								<Table.DataCell>{row.comment || "–"}</Table.DataCell>
+				<section className="table-scroll" tabIndex={-1} aria-label="Compliance-status">
+					<Table>
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Kontrollnavn</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Kommentar</Table.HeaderCell>
 							</Table.Row>
-						))}
-					</Table.Body>
-				</Table>
+						</Table.Header>
+						<Table.Body>
+							{report.complianceRows.map((row) => (
+								<Table.Row key={row.controlId}>
+									<Table.DataCell>{row.controlId}</Table.DataCell>
+									<Table.DataCell>{row.controlName}</Table.DataCell>
+									<Table.DataCell>
+										<Tag variant={statusTagVariant[row.status]} size="small">
+											{statusLabel[row.status]}
+										</Tag>
+									</Table.DataCell>
+									<Table.DataCell>{row.comment || "–"}</Table.DataCell>
+								</Table.Row>
+							))}
+						</Table.Body>
+					</Table>
+				</section>
 			</VStack>
 		</VStack>
 	)

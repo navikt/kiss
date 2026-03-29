@@ -137,30 +137,32 @@ export default function Import() {
 						<Heading size="medium" level="3">
 							Kontroller (forhåndsvisning)
 						</Heading>
-						<Table>
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Risiko-ID</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Krav</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Ansvarlig</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{actionData.summary.controls.map((control) => (
-									<Table.Row key={control.controlId}>
-										<Table.DataCell>{control.controlId}</Table.DataCell>
-										<Table.DataCell>{control.domain}</Table.DataCell>
-										<Table.DataCell>{control.riskId}</Table.DataCell>
-										<Table.DataCell>{control.requirement ?? "–"}</Table.DataCell>
-										<Table.DataCell>{control.responsible ?? "–"}</Table.DataCell>
-										<Table.DataCell>{control.frequency ?? "–"}</Table.DataCell>
+						<section className="table-scroll" tabIndex={-1} aria-label="Kontroller forhåndsvisning">
+							<Table>
+								<Table.Header>
+									<Table.Row>
+										<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Risiko-ID</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Krav</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Ansvarlig</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
 									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
+								</Table.Header>
+								<Table.Body>
+									{actionData.summary.controls.map((control) => (
+										<Table.Row key={control.controlId}>
+											<Table.DataCell>{control.controlId}</Table.DataCell>
+											<Table.DataCell>{control.domain}</Table.DataCell>
+											<Table.DataCell>{control.riskId}</Table.DataCell>
+											<Table.DataCell>{control.requirement ?? "–"}</Table.DataCell>
+											<Table.DataCell>{control.responsible ?? "–"}</Table.DataCell>
+											<Table.DataCell>{control.frequency ?? "–"}</Table.DataCell>
+										</Table.Row>
+									))}
+								</Table.Body>
+							</Table>
+						</section>
 					</VStack>
 
 					<div>

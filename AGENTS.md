@@ -89,6 +89,37 @@ app/
 - `partially_implemented` – Delvis implementert
 - `implemented` – Implementert
 
+## Responsivt design
+
+### Breakpoints
+- **xs:** 0px (mobil, default)
+- **sm:** 640px (stor mobil)
+- **md:** 768px (nettbrett)
+- **lg:** 1024px (desktop)
+- **xl:** 1280px (bred skjerm)
+
+### CSS-tokens (Aksel v8)
+Aksel v8 bruker `--ax-*` tokens (IKKE `--a-*`):
+- Spacing: `--ax-space-4`, `--ax-space-8`, `--ax-space-12`, `--ax-space-16`, `--ax-space-24`
+- Farger: `--ax-bg-brand-blue-strong`, `--ax-text-default`, `--ax-border-subtle`
+- Radius: `--ax-radius-4`, `--ax-radius-8`
+- Font: `--ax-font-size-small`, `--ax-font-size-medium`, `--ax-font-size-heading-xlarge`
+
+### Retningslinjer
+1. **Mobile-first** – Design for mobil først, utvid for større skjermer
+2. **Aksel HGrid for grid** – Bruk `columns={{ xs: 1, sm: 2, md: 4 }}` for responsive grids
+3. **Tabeller** – Wrap alle `<Table>` i `<section className="table-scroll" aria-label="...">` for horisontal scroll på mobil
+4. **Aldri hardkodede bredder** – Bruk `width: 100%; max-width: 80rem; margin: 0 auto;`
+5. **Test på 3 breakpoints** – 375px (mobil), 768px (nettbrett), 1280px (desktop)
+6. **Aksel VStack** – Bruk for alle vertikale layouts (automatisk responsiv)
+
+### Testing
+```bash
+pnpm test:e2e              # Kjør Playwright responsive tester
+pnpm test:e2e:ui           # Playwright med UI
+pnpm storybook             # Storybook med viewport-presets
+```
+
 ## Nais-plattform
 
 Applikasjonen kjører på Nais med:
