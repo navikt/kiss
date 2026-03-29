@@ -160,7 +160,7 @@ Aksel v8 bruker `--ax-*` tokens (IKKE `--a-*`):
 ### Retningslinjer
 1. **Mobile-first** – Design for mobil først, utvid for større skjermer
 2. **Aksel HGrid for grid** – Bruk `columns={{ xs: 1, sm: 2, md: 4 }}` for responsive grids
-3. **Tabeller** – Wrap alle `<Table>` i `<section className="table-scroll" aria-label="...">` for horisontal scroll på mobil
+3. **Tabeller** – Wrap alle `<Table>` i `<section className="table-scroll" tabIndex={0} aria-label="...">` for horisontal scroll på mobil. Bruk `tabIndex={0}` (ikke `-1`) slik at tastaturbrukere kan navigere scrollbart innhold.
 4. **Aldri hardkodede bredder** – Bruk `width: 100%; max-width: 80rem; margin: 0 auto;`
 5. **Test på 3 breakpoints** – 375px (mobil), 768px (nettbrett), 1280px (desktop)
 6. **Aksel VStack** – Bruk for alle vertikale layouts (automatisk responsiv)

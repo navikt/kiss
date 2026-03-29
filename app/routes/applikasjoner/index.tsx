@@ -20,7 +20,8 @@ export default function Applikasjoner() {
 			</Heading>
 			<BodyLong>Oversikt over overvåkede applikasjoner og deres compliance-status.</BodyLong>
 
-			<section className="table-scroll" tabIndex={-1} aria-label="Applikasjonstabell">
+			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+			<section className="table-scroll" tabIndex={0} aria-label="Applikasjonstabell">
 				<Table>
 					<Table.Header>
 						<Table.Row>

@@ -59,7 +59,8 @@ export default function NaisOvervaking() {
 				{new Date(lastSync).toLocaleString("nb-NO")}
 			</BodyLong>
 
-			<section className="table-scroll" tabIndex={-1} aria-label="Nais-team">
+			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+			<section className="table-scroll" tabIndex={0} aria-label="Nais-team">
 				<Table>
 					<Table.Header>
 						<Table.Row>

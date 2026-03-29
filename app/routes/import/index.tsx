@@ -188,7 +188,8 @@ export default function Import() {
 						<Heading size="medium" level="3">
 							Kontroller (forhåndsvisning)
 						</Heading>
-						<section className="table-scroll" tabIndex={-1} aria-label="Kontroller forhåndsvisning">
+						{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+						<section className="table-scroll" tabIndex={0} aria-label="Kontroller forhåndsvisning">
 							<Table>
 								<Table.Header>
 									<Table.Row>

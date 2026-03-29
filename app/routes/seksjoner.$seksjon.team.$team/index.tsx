@@ -29,7 +29,8 @@ export default function TeamDashboard() {
 				Compliance-status per applikasjon for {teamName} i seksjon <Link to={`/seksjoner/${seksjon}`}>{seksjon}</Link>.
 			</BodyLong>
 
-			<section className="table-scroll" tabIndex={-1} aria-label="Applikasjoner per team">
+			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+			<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner per team">
 				<Table>
 					<Table.Header>
 						<Table.Row>
