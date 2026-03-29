@@ -84,13 +84,16 @@ export async function getDomainDetail(domainCode: string) {
 		for (const mapping of mappings) {
 			const [ctrl] = await db.select().from(frameworkControls).where(eq(frameworkControls.id, mapping.controlId))
 			if (ctrl) {
-				controls.push({ id: ctrl.controlId, name: shortName(ctrl.requirement, ctrl.controlId) })
+				controls.push({
+					id: ctrl.controlId,
+					name: ctrl.shortTitle ?? shortName(ctrl.requirement, ctrl.controlId),
+				})
 			}
 		}
 
 		risksWithControls.push({
 			id: risk.riskId,
-			name: risk.description,
+			name: risk.shortTitle ?? risk.description,
 			controls,
 		})
 	}
@@ -117,7 +120,7 @@ export async function getControlDetail(controlIdStr: string) {
 
 	return {
 		id: ctrl.controlId,
-		name: shortName(ctrl.requirement, ctrl.controlId),
+		name: ctrl.shortTitle ?? shortName(ctrl.requirement, ctrl.controlId),
 		teknologielement: ctrl.technologyElement ?? "Ikke spesifisert",
 		krav: ctrl.requirement ?? "Ikke spesifisert",
 		ansvarlig: ctrl.responsible ?? "Ikke tildelt",
@@ -129,6 +132,44 @@ export async function getControlDetail(controlIdStr: string) {
 		referanser: ctrl.references ?? "Ikke spesifisert",
 		vanligeFallgruver: ctrl.commonPitfalls ?? "Ikke dokumentert",
 	}
+}
+
+/** Update the short title of a risk. */
+export async function updateRiskShortTitle(riskId: string, shortTitle: string) {
+	const version = await getActiveFrameworkVersion()
+	if (!version) throw new Error("Ingen aktiv versjon funnet.")
+
+	const [risk] = await db
+		.select()
+		.from(frameworkRisks)
+		.where(sql`${frameworkRisks.versionId} = ${version.id} AND ${frameworkRisks.riskId} = ${riskId}`)
+		.limit(1)
+
+	if (!risk) throw new Error(`Risiko ${riskId} finnes ikke.`)
+
+	await db
+		.update(frameworkRisks)
+		.set({ shortTitle: shortTitle.trim() || null })
+		.where(eq(frameworkRisks.id, risk.id))
+}
+
+/** Update the short title of a control. */
+export async function updateControlShortTitle(controlIdStr: string, shortTitle: string) {
+	const version = await getActiveFrameworkVersion()
+	if (!version) throw new Error("Ingen aktiv versjon funnet.")
+
+	const [ctrl] = await db
+		.select()
+		.from(frameworkControls)
+		.where(sql`${frameworkControls.versionId} = ${version.id} AND ${frameworkControls.controlId} = ${controlIdStr}`)
+		.limit(1)
+
+	if (!ctrl) throw new Error(`Kontroll ${controlIdStr} finnes ikke.`)
+
+	await db
+		.update(frameworkControls)
+		.set({ shortTitle: shortTitle.trim() || null })
+		.where(eq(frameworkControls.id, ctrl.id))
 }
 
 /** Import parsed framework data into the database as a staging version. */

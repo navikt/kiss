@@ -35,6 +35,7 @@ export const frameworkRisks = pgTable("framework_risks", {
 		.notNull()
 		.references(() => frameworkDomains.id),
 	riskId: text("risk_id").notNull(),
+	shortTitle: text("short_title"),
 	description: text("description").notNull(),
 })
 
@@ -47,6 +48,7 @@ export const frameworkControls = pgTable("framework_controls", {
 		.notNull()
 		.references(() => frameworkDomains.id),
 	controlId: text("control_id").notNull(),
+	shortTitle: text("short_title"),
 	technologyElement: text("technology_element"),
 	requirement: text("requirement"),
 	responsible: text("responsible"),
