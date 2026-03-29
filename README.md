@@ -45,7 +45,7 @@ Internkontroll-applikasjon for å vise at Nav har kontroll på Software Developm
 | UI | React 19, Aksel designsystem |
 | Språk | TypeScript |
 | ORM | Drizzle ORM |
-| Database | PostgreSQL 17 (CloudSQL) |
+| Database | PostgreSQL 18 (CloudSQL) |
 | Objektlagring | GCS Buckets (prod) / Lokalt filsystem (dev) |
 | Linting | Biome |
 | Package manager | PNPM |
@@ -61,7 +61,7 @@ Internkontroll-applikasjon for å vise at Nav har kontroll på Software Developm
 
 - Node.js >= 22
 - PNPM >= 10
-- PostgreSQL 17 via **én** av:
+- PostgreSQL 18 via **én** av:
   - [Docker](https://www.docker.com/) (Docker Compose)
   - [Postgres.app](https://postgresapp.com/) (macOS)
 
@@ -78,11 +78,11 @@ pnpm dev:setup
 pnpm dev
 ```
 
-Starter PostgreSQL 17 i Docker, pusher schema og seeder testdata automatisk.
+Starter PostgreSQL 18 i Docker, pusher schema og seeder testdata automatisk.
 
 #### Alternativ B: Postgres.app
 
-1. Installer og start [Postgres.app](https://postgresapp.com/) med PostgreSQL 17
+1. Installer og start [Postgres.app](https://postgresapp.com/) med PostgreSQL 18
 2. Legg til Postgres.app sine CLI-verktøy i PATH (om du ikke allerede har gjort det):
    ```bash
    echo 'export PATH="/Applications/Postgres.app/Contents/Versions/latest/bin:$PATH"' >> ~/.zshrc

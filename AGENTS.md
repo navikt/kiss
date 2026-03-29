@@ -9,7 +9,7 @@ KISS (Kontrollrammeverk for Integrert Sikker Systemutvikling) er Navs internkont
 - **React Router 7** i Framework Mode med Server Side Rendering
 - **React 19** med **Aksel** designsystem (@navikt/ds-react, @navikt/ds-css)
 - **TypeScript** (strict mode)
-- **Drizzle ORM** med PostgreSQL 17
+- **Drizzle ORM** med PostgreSQL 18
 - **Biome** for linting og formattering
 - **PNPM** som package manager
 - **Vitest** + **Testcontainers** for testing
@@ -110,7 +110,7 @@ pnpm dev:setup        # Start Postgres, push schema, seed testdata
 pnpm dev              # Start utviklingsserver
 ```
 
-Docker Compose kjører PostgreSQL 17 lokalt. Drizzle bruker `db:push` for rask iterasjon og `db:migrate` for produksjonsmigrasjoner.
+Docker Compose kjører PostgreSQL 18 lokalt. Drizzle bruker `db:push` for rask iterasjon og `db:migrate` for produksjonsmigrasjoner.
 
 ### Server-only imports i rutefiler
 React Router 7 fjerner `.server`-imports kun fra `loader`/`action`/`middleware`/`headers`. Funksjoner som brukes i JSX-komponenter **kan ikke** importeres fra `.server.ts`-filer. Bruk `app/lib/utils.ts` for delte utility-funksjoner som trengs på klienten.
@@ -198,7 +198,7 @@ Playwright-tester i `e2e/accessibility.spec.ts` kjører axe-core mot alle sider 
 ## Nais-plattform
 
 Applikasjonen kjører på Nais med:
-- CloudSQL PostgreSQL 17 (point-in-time recovery, audit logging)
+- CloudSQL PostgreSQL 18 (point-in-time recovery, audit logging)
 - GCS Buckets (11 års retention, ingen sletting)
 - Wonderwall for autentisering (Azure AD)
 - Automatisk deploy via GitHub Actions
