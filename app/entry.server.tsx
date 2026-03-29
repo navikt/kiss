@@ -5,6 +5,10 @@ import type { RenderToPipeableStreamOptions } from "react-dom/server"
 import { renderToPipeableStream } from "react-dom/server"
 import type { AppLoadContext, EntryContext } from "react-router"
 import { ServerRouter } from "react-router"
+import { startNaisScheduler } from "~/lib/nais-scheduler.server"
+
+// Start the Nais scheduler once on server startup
+startNaisScheduler()
 
 export const streamTimeout = 5_000
 

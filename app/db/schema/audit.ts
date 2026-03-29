@@ -12,6 +12,8 @@ export const auditLogActionEnum = [
 	"team_created",
 	"team_updated",
 	"team_deleted",
+	"nais_team_status_updated",
+	"nais_sync_completed",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

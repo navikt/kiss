@@ -20,4 +20,5 @@ export default [
 	route("admin/seksjoner", "routes/admin.seksjoner/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),
 	route("api/isready", "routes/api.isready/index.tsx"),
+	route("api/nais-sync", "routes/api.nais-sync/index.tsx"),
 ] satisfies RouteConfig

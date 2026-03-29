@@ -19,7 +19,16 @@ test.describe("Nais-overvåking", () => {
 		await expect(page.getByRole("columnheader", { name: /Status/i })).toBeVisible()
 	})
 
-	test("shows last sync timestamp", async ({ page }) => {
-		await expect(page.getByText(/Siste synkronisering/i)).toBeVisible()
+	test("shows sync button", async ({ page }) => {
+		await expect(page.getByRole("button", { name: /Synkroniser nå/i })).toBeVisible()
+	})
+
+	test("shows empty state when no teams", async ({ page }) => {
+		const emptyMsg = page.getByText(/Ingen Nais-team oppdaget/i)
+		const teamRows = page.getByRole("row").filter({ hasText: /Overvåket|Venter|Ignorert/ })
+		const hasTeams = (await teamRows.count()) > 0
+		if (!hasTeams) {
+			await expect(emptyMsg).toBeVisible()
+		}
 	})
 })

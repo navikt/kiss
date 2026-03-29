@@ -207,3 +207,37 @@ Applikasjonen kjører på Nais med:
 - GCS Buckets (11 års retention, ingen sletting)
 - Wonderwall for autentisering (Azure AD)
 - Automatisk deploy via GitHub Actions
+
+### Multi-pod og distribuert kjøring
+
+KISS kjører med **flere podder i parallell** på Nais. Dette betyr at:
+
+1. **Bakgrunnsjobber** (f.eks. Nais-synkronisering) må bruke **PostgreSQL advisory locks** for å unngå duplikat kjøring.
+2. **Aldri anta single-instance** – all kode som kjører periodisk eller i bakgrunnen MÅ bruke låsemekanismen.
+3. Bruk `withAdvisoryLock()` fra `app/lib/lock.server.ts` for alle bakgrunnsjobber:
+
+```ts
+import { withAdvisoryLock } from "~/lib/lock.server"
+
+const result = await withAdvisoryLock("my-job-name", async () => {
+  // Kun én pod kjører dette om gangen
+  return await doExpensiveWork()
+})
+
+if (result === null) {
+  // En annen pod holder allerede låsen – hopp over
+}
+```
+
+4. Låser bruker `pg_try_advisory_lock` (ikke-blokkerende) og frigjøres med `pg_advisory_unlock` i en `finally`-blokk.
+5. Ulike jobber skal bruke ulike låsnavn for uavhengig parallelitet.
+
+### Nais-synkronisering
+
+KISS scanner Nais-plattformen for å oppdage team og applikasjoner:
+
+- **Scheduler**: Periodi sk synkronisering hvert 5. minutt (konfigurerbart via `ENABLE_NAIS_SYNC`)
+- **Manuell trigger**: `POST /api/nais-sync` (krever autentisering)
+- **GraphQL API**: Bruker Nais Console API (`NAIS_API_TOKEN`)
+- **Låsemekanisme**: `nais-full-sync`, `nais-sync-teams`, `nais-sync-apps-{teamSlug}` advisory locks
+- **Persistering**: Oppdagede team og apper upsert-es til databasen med audit-logging
