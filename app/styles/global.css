@@ -99,7 +99,7 @@ body {
 /* Framework risk/control card grid */
 .framework-card-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
 	gap: var(--ax-space-16);
 }
 
@@ -111,7 +111,7 @@ body {
 	border-radius: var(--ax-radius-8);
 	text-decoration: none;
 	color: var(--ax-text-default);
-	min-height: 8rem;
+	aspect-ratio: 1;
 	transition:
 		box-shadow 0.15s,
 		transform 0.1s;
