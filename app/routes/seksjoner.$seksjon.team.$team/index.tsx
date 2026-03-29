@@ -2,7 +2,7 @@ import { BodyLong, Heading, Table, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { mockTeamApps } from "~/lib/mock-data.server"
+import { getTeamApps } from "~/db/queries/sections.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -11,12 +11,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 	if (!team) throw new Response("Mangler team", { status: 400 })
 
-	const teamName = team
-		.split("-")
-		.map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-		.join(" ")
+	const result = await getTeamApps(team)
+	if (!result) throw new Response("Team ikke funnet", { status: 404 })
 
-	return data({ seksjon, team, teamName, apps: mockTeamApps })
+	return data({ seksjon, team, teamName: result.team.name, apps: result.apps })
 }
 
 export default function TeamDashboard() {

@@ -2,7 +2,7 @@ import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getDomainSummaries } from "~/lib/mock-data.server"
+import { getDomainSummaries } from "~/db/queries/framework.server"
 
 const domainColors: Record<string, string> = {
 	Styring: "#f9d4a0",
@@ -12,7 +12,7 @@ const domainColors: Record<string, string> = {
 }
 
 export async function loader(_args: LoaderFunctionArgs) {
-	const domains = getDomainSummaries()
+	const domains = await getDomainSummaries()
 	return data({ domains })
 }
 

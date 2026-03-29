@@ -2,10 +2,17 @@ import { BodyLong, Button, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { mockNaisTeams } from "~/lib/mock-data.server"
+import { getNaisTeams, updateNaisTeamStatus } from "~/db/queries/nais.server"
 
 export async function loader(_args: LoaderFunctionArgs) {
-	return data({ teams: mockNaisTeams, lastSync: "2026-03-29T07:00:00Z" })
+	const teams = await getNaisTeams()
+	const naisTeams = teams.map((t) => ({
+		slug: t.slug,
+		status: t.status,
+		appCount: 0,
+		discoveredAt: t.discoveredAt.toISOString().split("T")[0],
+	}))
+	return data({ teams: naisTeams, lastSync: new Date().toISOString() })
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -21,7 +28,9 @@ export async function action({ request }: ActionFunctionArgs) {
 		throw new Response("Ugyldig handling", { status: 400 })
 	}
 
-	// Placeholder – will persist to DB
+	const newStatus = actionType === "monitor" ? "monitored" : "ignored"
+	await updateNaisTeamStatus(teamSlug, newStatus, "system")
+
 	return data({ success: true, teamSlug, action: actionType })
 }
 

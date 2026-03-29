@@ -4,16 +4,16 @@ import { data, Form, useActionData, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { ComplianceComment, ComplianceStatusBadge, statusLabels } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getMockAssessments } from "~/lib/mock-data.server"
+import { getAppAssessments } from "~/db/queries/applications.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
-	const appName = `App ${appId}`
-	const assessments = getMockAssessments(appId)
+	const result = await getAppAssessments(appId)
+	if (!result) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
-	return data({ appId, appName, assessments })
+	return data({ appId, appName: result.app.name, assessments: result.assessments })
 }
 
 const validStatuses: ComplianceStatusValue[] = [

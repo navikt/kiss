@@ -2,7 +2,7 @@ import { BodyLong, Detail, Heading, Label, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getControlDetail } from "~/lib/mock-data.server"
+import { getControlDetail } from "~/db/queries/framework.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const domene = params.domene?.toUpperCase()
@@ -12,7 +12,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		throw new Response("Mangler parametere", { status: 400 })
 	}
 
-	const control = getControlDetail(kontrollId)
+	const control = await getControlDetail(kontrollId)
+	if (!control) {
+		throw new Response("Kontroll ikke funnet", { status: 404 })
+	}
 
 	return data({ domene, control })
 }

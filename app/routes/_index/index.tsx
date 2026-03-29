@@ -2,7 +2,7 @@ import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getDomainSummaries } from "~/lib/mock-data.server"
+import { getDomainSummaries } from "~/db/queries/framework.server"
 import { compliancePercent } from "~/lib/utils"
 
 interface DomainStatus {
@@ -15,19 +15,15 @@ interface DomainStatus {
 }
 
 export async function loader(_args: LoaderFunctionArgs) {
-	const summaries = getDomainSummaries()
-
-	// Placeholder compliance data – will be replaced with DB aggregation
-	const complianceByDomain: Record<string, Omit<DomainStatus, "name">> = {
-		ST: { implemented: 1, partial: 1, notImplemented: 0, notRelevant: 0, total: 2 },
-		TS: { implemented: 3, partial: 4, notImplemented: 2, notRelevant: 2, total: 11 },
-		EH: { implemented: 2, partial: 1, notImplemented: 2, notRelevant: 0, total: 5 },
-		DR: { implemented: 1, partial: 2, notImplemented: 1, notRelevant: 2, total: 6 },
-	}
+	const summaries = await getDomainSummaries()
 
 	const domainStatuses: DomainStatus[] = summaries.map((s) => ({
 		name: s.name,
-		...(complianceByDomain[s.code] ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 }),
+		implemented: 0,
+		partial: 0,
+		notImplemented: 0,
+		notRelevant: 0,
+		total: s.controlCount,
 	}))
 
 	const totalControls = domainStatuses.reduce((sum, d) => sum + d.total, 0)

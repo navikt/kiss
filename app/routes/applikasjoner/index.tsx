@@ -2,11 +2,12 @@ import { BodyLong, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { mockApps } from "~/lib/mock-data.server"
+import { getApplications } from "~/db/queries/applications.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader(_args: LoaderFunctionArgs) {
-	return data({ apps: mockApps })
+	const apps = await getApplications()
+	return data({ apps })
 }
 
 export default function Applikasjoner() {

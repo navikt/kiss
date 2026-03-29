@@ -151,9 +151,9 @@ pnpm dev:setup    # Docker Compose + push + seed
 pnpm dev:setup:postgresapp  # Postgres.app + push + seed
 ```
 
-### Mock-data
+### Database
 
-All placeholder-data ligger i `app/lib/mock-data.server.ts`. Rutefiler importerer derfra – ingen inline mock-data i ruter. Se `AGENTS.md` for retningslinjer.
+Alle ruter henter data fra PostgreSQL via query-funksjoner i `app/db/queries/`. Kjør `pnpm db:seed` for å populere med testdata, eller bruk en tom database for å starte fra scratch.
 
 ## Datamodell
 

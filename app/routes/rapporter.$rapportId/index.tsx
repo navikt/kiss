@@ -2,7 +2,7 @@ import { BodyLong, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getMockReport } from "~/lib/mock-data.server"
+import { getReport } from "~/db/queries/reports.server"
 
 const statusTagVariant: Record<string, "success" | "warning" | "error" | "neutral"> = {
 	oppfylt: "success",
@@ -19,8 +19,28 @@ const statusLabel: Record<string, string> = {
 }
 
 export async function loader({ params }: LoaderFunctionArgs) {
-	const rapportId = params.rapportId ?? "ukjent"
-	return data({ report: getMockReport(rapportId) })
+	const rapportId = params.rapportId
+	if (!rapportId) throw new Response("Mangler rapport-ID", { status: 400 })
+
+	const report = await getReport(rapportId)
+	if (!report) throw new Response("Rapport ikke funnet", { status: 404 })
+
+	return data({
+		report: {
+			rapportId: report.id,
+			name: report.name,
+			type: report.reportType,
+			scope: report.scope,
+			createdAt: report.createdAt.toISOString(),
+			appVersion: report.appVersion,
+			complianceRows: [] as Array<{
+				controlId: string
+				controlName: string
+				status: string
+				comment: string
+			}>,
+		},
+	})
 }
 
 export default function RapportDetalj() {

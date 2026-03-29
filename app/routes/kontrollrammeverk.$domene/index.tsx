@@ -2,12 +2,13 @@ import { Accordion, BodyLong, Heading, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { mockDomains } from "~/lib/mock-data.server"
+import { getDomainDetail } from "~/db/queries/framework.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const domainCode = params.domene?.toUpperCase()
-	const domain = domainCode ? mockDomains[domainCode] : undefined
+	if (!domainCode) throw new Response("Mangler domene", { status: 400 })
 
+	const domain = await getDomainDetail(domainCode)
 	if (!domain) {
 		throw new Response("Domene ikke funnet", { status: 404 })
 	}

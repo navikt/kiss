@@ -2,15 +2,18 @@ import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { mockSeksjonTeams } from "~/lib/mock-data.server"
+import { getSectionDetail } from "~/db/queries/sections.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 
-	const seksjonName = seksjon.charAt(0).toUpperCase() + seksjon.slice(1).replace(/-/g, " ")
-	const teams = mockSeksjonTeams
+	const result = await getSectionDetail(seksjon)
+	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
+
+	const seksjonName = result.section.name
+	const teams = result.teams
 
 	const totalApps = teams.reduce((sum, t) => sum + t.apps, 0)
 	const totalImplemented = teams.reduce((sum, t) => sum + t.implemented, 0)

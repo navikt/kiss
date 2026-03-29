@@ -53,7 +53,6 @@ app/
 │   ├── auth.server.ts    # JWT-validering og autorisasjon
 │   ├── azure.server.ts   # Azure AD token-håndtering
 │   ├── nais.server.ts    # Nais GraphQL-integrasjon
-│   ├── mock-data.server.ts # All mock/testdata (se nedenfor)
 │   ├── utils.ts          # Delte utility-funksjoner (client-safe)
 │   └── storage/          # Lagringsabstraksjon
 │       ├── types.ts      # StorageProvider-interface
@@ -69,23 +68,23 @@ app/
 
 ## Utvikling
 
-### Mock-data og testdata
-All mock-data som brukes som placeholder før databaseintegrasjon skal ligge i `app/lib/mock-data.server.ts` – **aldri inline i rutefiler**. Dette gir:
-- Én fil å oppdatere når mock-data skal endres
-- Tydelig oversikt over hva som er mock vs. produksjonskode
-- Enkel overgang til database-queries (bytt import til `db/queries/`)
+### Database-queries
+Alle ruter henter data fra PostgreSQL via query-funksjoner i `app/db/queries/`:
 
-Rutefiler importerer mock-data slik:
 ```ts
-import { mockApps, compliancePercent } from "~/lib/mock-data.server"
+import { getDomainSummaries } from "~/db/queries/framework.server"
+import { getApplications } from "~/db/queries/applications.server"
+import { getSectionDetail } from "~/db/queries/sections.server"
 ```
 
-Når database-integrasjon er klar, erstattes importen med:
-```ts
-import { getApps } from "~/db/queries/apps.server"
-```
+Query-filer:
+- `framework.server.ts` – Domener, risikoer, kontroller
+- `applications.server.ts` – Applikasjoner, compliance-vurderinger
+- `nais.server.ts` – Nais-team
+- `sections.server.ts` – Seksjoner, team-statistikk
+- `reports.server.ts` – Rapporter
 
-Enhetstester (`app/**/__tests__/`) kan importere mock-data direkte. Integrasjonstester skal bruke Testcontainers med egen testdata.
+Testdata seedes med `pnpm db:seed` (se `app/db/seed.ts`). Uten seed vil applikasjonen vise tomme tilstander.
 
 ### Lagringsabstraksjon (StorageProvider)
 Fillagring bruker `StorageProvider`-interfacet i `app/lib/storage/`:

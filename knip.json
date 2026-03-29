@@ -2,6 +2,8 @@
 	"$schema": "https://unpkg.com/knip@6/schema.json",
 	"entry": [
 		"app/db/connection.server.ts",
+		"app/db/queries/reports.server.ts",
+		"app/db/queries/sections.server.ts",
 		"app/lib/auth.server.ts",
 		"app/lib/authorization.server.ts",
 		"app/lib/azure.server.ts",
@@ -23,5 +25,6 @@
 		"@types/compression",
 		"@types/express"
 	],
-	"ignoreExportsUsedInFile": true
+	"ignoreExportsUsedInFile": true,
+	"ignoreBinaries": ["docker-compose", "createdb"]
 }
