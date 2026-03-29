@@ -28,6 +28,23 @@ function controlColor(index: number, total: number): string {
 	return `rgb(${r}, ${g}, ${b})`
 }
 
+/** Group items by their domainCode, preserving order. */
+function groupByDomain<T extends { domainCode: string; domainName: string }>(
+	items: T[],
+	_key: string,
+): { domainCode: string; domainName: string; items: T[] }[] {
+	const groups = new Map<string, { domainCode: string; domainName: string; items: T[] }>()
+	for (const item of items) {
+		let group = groups.get(item.domainCode)
+		if (!group) {
+			group = { domainCode: item.domainCode, domainName: item.domainName, items: [] }
+			groups.set(item.domainCode, group)
+		}
+		group.items.push(item)
+	}
+	return [...groups.values()]
+}
+
 export async function loader(_args: LoaderFunctionArgs) {
 	const [domains, risks, controls] = await Promise.all([getDomainSummaries(), getAllRisks(), getAllControls()])
 	return data({ domains, risks, controls })
@@ -98,27 +115,34 @@ export default function Kontrollrammeverk() {
 			)}
 
 			{controls.length > 0 && (
-				<VStack gap="space-4">
+				<VStack gap="space-6">
 					<Heading size="large" level="3">
 						Kontroller
 					</Heading>
-					<div className="framework-card-grid">
-						{controls.map((ctrl, i) => (
-							<Link
-								key={ctrl.controlId}
-								to={`/kontrollrammeverk/${ctrl.domainCode}/${ctrl.controlId}`}
-								className="framework-card"
-								style={{ backgroundColor: controlColor(i, controls.length) }}
-							>
-								<BodyShort size="small" className="framework-card-id">
-									{ctrl.controlId}:
-								</BodyShort>
-								<Heading size="small" level="4" className="framework-card-title">
-									{ctrl.name}
-								</Heading>
-							</Link>
-						))}
-					</div>
+					{groupByDomain(controls, "controlId").map(({ domainName, domainCode, items }) => (
+						<VStack key={domainCode} gap="space-4">
+							<Heading size="medium" level="4">
+								{domainName}
+							</Heading>
+							<div className="framework-card-grid">
+								{items.map((ctrl, i) => (
+									<Link
+										key={ctrl.controlId}
+										to={`/kontrollrammeverk/${ctrl.domainCode}/${ctrl.controlId}`}
+										className="framework-card"
+										style={{ backgroundColor: controlColor(i, items.length) }}
+									>
+										<BodyShort size="small" className="framework-card-id">
+											{ctrl.controlId}:
+										</BodyShort>
+										<Heading size="small" level="5" className="framework-card-title">
+											{ctrl.name}
+										</Heading>
+									</Link>
+								))}
+							</div>
+						</VStack>
+					))}
 				</VStack>
 			)}
 		</VStack>
