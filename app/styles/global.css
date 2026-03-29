@@ -54,7 +54,8 @@ body {
 }
 
 .app-nav {
-	background-color: var(--ax-bg-brand-blue-moderate);
+	background-color: var(--ax-bg-brand-blue-strong);
+	border-top: 1px solid rgba(255, 255, 255, 0.15);
 	padding: 0 var(--ax-space-24);
 }
 
@@ -81,7 +82,7 @@ body {
 }
 
 .app-nav-link:hover {
-	background-color: var(--ax-bg-brand-blue-moderate-hover);
+	background-color: var(--ax-bg-brand-blue-strong-hover);
 }
 
 .app-nav-link--active {
@@ -356,7 +357,7 @@ body {
 		top: 0;
 		bottom: 0;
 		width: 2rem;
-		background: linear-gradient(to right, transparent, var(--ax-bg-brand-blue-moderate));
+		background: linear-gradient(to right, transparent, var(--ax-bg-brand-blue-strong));
 		pointer-events: none;
 	}
 

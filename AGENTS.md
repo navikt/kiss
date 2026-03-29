@@ -134,10 +134,32 @@ Aksel v8 bruker `--ax-*` tokens (IKKE `--a-*`):
 
 ### Testing
 ```bash
-pnpm test:e2e              # Kjør Playwright responsive tester
+pnpm test:e2e              # Kjør Playwright responsive tester + UU
 pnpm test:e2e:ui           # Playwright med UI
 pnpm storybook             # Storybook med viewport-presets
 ```
+
+## Universell utforming (UU / WCAG)
+
+### Automatisert testing med axe-core
+Playwright-tester i `e2e/accessibility.spec.ts` kjører axe-core mot alle sider og sjekker WCAG 2.1 AA:
+- Fargekontrast (minimum 4.5:1 for normal tekst, 3:1 for stor tekst)
+- Formularelementer med labels
+- ARIA-attributter
+- Tastaturnavigasjon
+- Bildetekster
+
+### Kontrastregler
+- **Aldri** bruk `--ax-text-brand-blue-contrast` (hvit) på lyse bakgrunner som `--ax-bg-brand-blue-moderate`
+- Hvit tekst krever mørk bakgrunn: bruk `--ax-bg-brand-blue-strong` eller mørkere
+- Beregn alltid kontrastforhold ved nye fargekombinasjoner (verktøy: WebAIM Contrast Checker)
+- Nav-baren bruker `--ax-bg-brand-blue-strong` (#457c9d) med hvit tekst = 4.54:1 ✓
+
+### WCAG 2.1 AA sjekkliste for nye komponenter
+1. Fargekontrast ≥ 4.5:1 (normal tekst) / ≥ 3:1 (stor tekst / UI-elementer)
+2. Interaktive elementer nåbare via tastatur
+3. Meningsfulle `aria-label` på navigasjon, regioner og skjemaer
+4. Skip-link til hovedinnhold (allerede i root.tsx)
 
 ## Nais-plattform
 
