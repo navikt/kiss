@@ -6,6 +6,7 @@ const pages = [
 	{ path: "/kontrollrammeverk", name: "Kontrollrammeverk" },
 	{ path: "/kontrollrammeverk/st", name: "Domene-detalj" },
 	{ path: "/kontrollrammeverk/st/K-ST.01", name: "Kontroll-detalj" },
+	{ path: "/kontrollrammeverk/risiko/R-ST.01", name: "Risiko-detalj" },
 	{ path: "/applikasjoner", name: "Applikasjoner" },
 	{ path: "/seksjoner", name: "Seksjoner" },
 	{ path: "/seksjoner/utvikling", name: "Seksjon-dashboard" },

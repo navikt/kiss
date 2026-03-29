@@ -3,6 +3,7 @@ import { index, type RouteConfig, route } from "@react-router/dev/routes"
 export default [
 	index("routes/_index/index.tsx"),
 	route("kontrollrammeverk", "routes/kontrollrammeverk/index.tsx"),
+	route("kontrollrammeverk/risiko/:risikoId", "routes/kontrollrammeverk.risiko.$risikoId/index.tsx"),
 	route("kontrollrammeverk/:domene", "routes/kontrollrammeverk.$domene/index.tsx"),
 	route("kontrollrammeverk/:domene/:kontrollId", "routes/kontrollrammeverk.$domene.$kontrollId/index.tsx"),
 	route("import", "routes/import/index.tsx"),

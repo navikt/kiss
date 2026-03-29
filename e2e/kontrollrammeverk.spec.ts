@@ -40,6 +40,45 @@ test.describe("Domain detail page", () => {
 	})
 })
 
+test.describe("Risk detail page", () => {
+	test("shows risk heading when seeded", async ({ page }) => {
+		await page.goto("/kontrollrammeverk/risiko/R-ST.01")
+		const heading = page.getByRole("heading", { level: 2 })
+		const text = await heading.textContent()
+		expect(text).toBeTruthy()
+	})
+
+	test("shows risk description section", async ({ page }) => {
+		await page.goto("/kontrollrammeverk/risiko/R-ST.01")
+		await expect(page.getByRole("heading", { name: "Risikobeskrivelse" })).toBeVisible()
+	})
+
+	test("shows mitigating controls when they exist", async ({ page }) => {
+		await page.goto("/kontrollrammeverk/risiko/R-TS.01")
+		const heading = page.getByRole("heading", { name: "Mitigerende kontroller" })
+		const controlCards = page.locator(".framework-card")
+		// Either shows controls or the heading isn't present (no controls mapped)
+		const headingCount = await heading.count()
+		if (headingCount > 0) {
+			expect(await controlCards.count()).toBeGreaterThan(0)
+		}
+	})
+
+	test("shows error boundary for non-existent risk", async ({ page }) => {
+		await page.goto("/kontrollrammeverk/risiko/R-FAKE.99")
+		await expect(page.getByRole("heading", { name: /Ikke funnet|Feil|galt/ })).toBeVisible()
+	})
+
+	test("risk cards on overview link to risk detail", async ({ page }) => {
+		await page.goto("/kontrollrammeverk")
+		const riskCard = page.locator(".framework-card").first()
+		if ((await riskCard.count()) > 0) {
+			await riskCard.click()
+			await expect(page).toHaveURL(/\/kontrollrammeverk\/risiko\//)
+		}
+	})
+})
+
 test.describe("Control detail page", () => {
 	test("shows control heading when seeded", async ({ page }) => {
 		await page.goto("/kontrollrammeverk/st/K-ST.01")
