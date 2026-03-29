@@ -27,7 +27,7 @@ function cellText(ws: XLSX.WorkSheet, row: number, col: number): string | null {
 	const cell = ws[cellRef]
 	if (!cell) return null
 	const val = cell.v ?? cell.w
-	return val != null ? String(val).trim() : null
+	return val != null ? String(val).replace(/\s+/g, " ").trim() : null
 }
 
 export function parseFrameworkExcel(buffer: Buffer): ParsedFramework {
@@ -92,9 +92,7 @@ export function summarizeFramework(parsed: ParsedFramework): FrameworkSummary {
 	const riskControlMappings: Array<{ riskId: string; controlId: string }> = []
 
 	for (const row of parsed.rows) {
-		// Extract domain code from risk ID (e.g., "R-ST.01" → "ST")
-		const domainCode = row.riskId.match(/R-([A-Z]{2})\./)?.[1] ?? row.domain.slice(0, 2).toUpperCase()
-		domains.set(domainCode, row.domain)
+		domains.set(row.domain, row.domain)
 
 		if (!risks.has(row.riskId)) {
 			risks.set(row.riskId, {
