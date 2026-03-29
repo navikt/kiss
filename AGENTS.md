@@ -46,14 +46,20 @@ app/
 ├── db/                   # Database (Drizzle schema, queries, migrasjoner)
 │   ├── schema/           # Drizzle tabelldefinisjoner
 │   ├── queries/          # Database-spørringer (.server.ts)
-│   └── migrations/       # SQL-migrasjoner
+│   ├── migrations/       # SQL-migrasjoner
+│   └── seed.ts           # Testdata-seeding (pnpm db:seed)
 ├── hooks/                # Custom React hooks
 ├── lib/                  # Forretningslogikk og utilities
 │   ├── auth.server.ts    # JWT-validering og autorisasjon
 │   ├── azure.server.ts   # Azure AD token-håndtering
 │   ├── nais.server.ts    # Nais GraphQL-integrasjon
 │   ├── mock-data.server.ts # All mock/testdata (se nedenfor)
-│   └── ...
+│   ├── utils.ts          # Delte utility-funksjoner (client-safe)
+│   └── storage/          # Lagringsabstraksjon
+│       ├── types.ts      # StorageProvider-interface
+│       ├── local.server.ts  # Lokalt filsystem (.local-storage/)
+│       ├── gcs.server.ts    # Google Cloud Storage
+│       └── index.server.ts  # Factory (velger provider)
 ├── routes/               # React Router ruter (hver i egen mappe)
 ├── styles/               # CSS
 ├── entry.server.tsx      # SSR entry point
@@ -80,6 +86,34 @@ import { getApps } from "~/db/queries/apps.server"
 ```
 
 Enhetstester (`app/**/__tests__/`) kan importere mock-data direkte. Integrasjonstester skal bruke Testcontainers med egen testdata.
+
+### Lagringsabstraksjon (StorageProvider)
+Fillagring bruker `StorageProvider`-interfacet i `app/lib/storage/`:
+
+```ts
+import { getStorageProvider } from "~/lib/storage/index.server"
+
+const storage = getStorageProvider()
+await storage.upload("reports/rapport-1.pdf", pdfBuffer, { contentType: "application/pdf" })
+const data = await storage.download("reports/rapport-1.pdf")
+```
+
+- **Lokal utvikling**: Filer lagres i `.local-storage/` (gitignorert)
+- **Produksjon**: Filer lagres i GCS bucket (satt via `GCS_BUCKET_NAME`)
+- Provider velges automatisk basert på `STORAGE_PROVIDER` env var (`local`/`gcs`)
+- **Aldri** bruk `@google-cloud/storage` direkte – bruk alltid `getStorageProvider()`
+
+### Lokal utviklingsoppsett
+```bash
+pnpm install          # Installer avhengigheter
+pnpm dev:setup        # Start Postgres, push schema, seed testdata
+pnpm dev              # Start utviklingsserver
+```
+
+Docker Compose kjører PostgreSQL 17 lokalt. Drizzle bruker `db:push` for rask iterasjon og `db:migrate` for produksjonsmigrasjoner.
+
+### Server-only imports i rutefiler
+React Router 7 fjerner `.server`-imports kun fra `loader`/`action`/`middleware`/`headers`. Funksjoner som brukes i JSX-komponenter **kan ikke** importeres fra `.server.ts`-filer. Bruk `app/lib/utils.ts` for delte utility-funksjoner som trengs på klienten.
 
 ### Testdrevet utvikling
 - **Tester skrives FØRST** – alltid før implementasjon

@@ -7,7 +7,8 @@
 		"app/lib/azure.server.ts",
 		"app/lib/nais.server.ts",
 		"app/lib/nais-sync.server.ts",
-		"app/lib/assessment-history.ts"
+		"app/lib/assessment-history.ts",
+		"app/lib/storage/index.server.ts"
 	],
 	"project": ["app/**/*.{ts,tsx}"],
 	"ignoreDependencies": [

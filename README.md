@@ -46,7 +46,7 @@ Internkontroll-applikasjon for å vise at Nav har kontroll på Software Developm
 | Språk | TypeScript |
 | ORM | Drizzle ORM |
 | Database | PostgreSQL 17 (CloudSQL) |
-| Objektlagring | GCS Buckets (11 års retention) |
+| Objektlagring | GCS Buckets (prod) / Lokalt filsystem (dev) |
 | Linting | Biome |
 | Package manager | PNPM |
 | Testing | Vitest, Testcontainers, Playwright, Storybook |
@@ -61,14 +61,33 @@ Internkontroll-applikasjon for å vise at Nav har kontroll på Software Developm
 
 - Node.js >= 22
 - PNPM >= 10
-- Docker (for integrasjonstester med Testcontainers)
+- Docker (for lokal Postgres og integrasjonstester)
 
 ### Kom i gang
 
 ```bash
 pnpm install
+
+# Start lokal Postgres, kjør migrasjoner og seed data:
+pnpm dev:setup
+
+# Start utviklingsserver:
 pnpm dev
 ```
+
+Applikasjonen kjører på `http://localhost:3000`.
+
+Oppsettet starter en PostgreSQL 17-database via Docker Compose, kjører Drizzle schema push og populerer databasen med testdata.
+
+### Miljøvariabler
+
+Kopier `.env.example` til `.env` for å tilpasse konfigurasjon:
+
+| Variabel | Standard | Beskrivelse |
+|----------|----------|-------------|
+| `DATABASE_URL` | `postgresql://kiss:kiss@localhost:5432/kiss` | Postgres-tilkoblingsstreng |
+| `STORAGE_PROVIDER` | `local` (dev) / `gcs` (prod) | `local` = filsystem, `gcs` = GCS bucket |
+| `GCS_BUCKET_NAME` | – | Påkrevd når `STORAGE_PROVIDER=gcs` |
 
 ### Kommandoer
 
@@ -84,7 +103,13 @@ pnpm typecheck    # TypeScript typesjekking
 pnpm check        # Lint + typecheck
 pnpm knip         # Dead code-analyse
 pnpm storybook    # Start Storybook
-pnpm test:e2e     # Playwright responsive tester
+pnpm test:e2e     # Playwright e2e + UU-tester
+pnpm db:push      # Push Drizzle-schema til lokal DB
+pnpm db:migrate   # Kjør Drizzle-migrasjoner
+pnpm db:generate  # Generer nye migrasjoner
+pnpm db:studio    # Åpne Drizzle Studio (GUI)
+pnpm db:seed      # Seed testdata
+pnpm dev:setup    # Docker Compose + push + seed
 ```
 
 ### Mock-data

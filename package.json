@@ -25,9 +25,16 @@
 		"storybook": "storybook dev -p 6006",
 		"test:e2e": "playwright test",
 		"test:e2e:ui": "playwright test --ui",
-		"build-storybook": "storybook build"
+		"build-storybook": "storybook build",
+		"db:migrate": "drizzle-kit migrate",
+		"db:push": "drizzle-kit push",
+		"db:generate": "drizzle-kit generate",
+		"db:studio": "drizzle-kit studio",
+		"db:seed": "tsx app/db/seed.ts",
+		"dev:setup": "docker compose up -d && pnpm db:push && pnpm db:seed"
 	},
 	"dependencies": {
+		"@google-cloud/storage": "^7.19.0",
 		"@navikt/aksel-icons": "^8.9.0",
 		"@navikt/ds-css": "^8.9.0",
 		"@navikt/ds-react": "^8.9.0",
@@ -38,6 +45,7 @@
 		"express": "^5.2.1",
 		"isbot": "^5.1.36",
 		"jose": "^6.2.2",
+		"mime-types": "^3.0.2",
 		"pg": "^8.20.0",
 		"react": "^19.2.4",
 		"react-dom": "^19.2.4",
@@ -56,6 +64,7 @@
 		"@testing-library/react": "^16.3.2",
 		"@types/compression": "^1.8.1",
 		"@types/express": "^5.0.6",
+		"@types/mime-types": "^3.0.1",
 		"@types/node": "^25.5.0",
 		"@types/pg": "^8.20.0",
 		"@types/react": "^19.2.14",
@@ -67,6 +76,7 @@
 		"lefthook": "^2.1.4",
 		"storybook": "^10.3.3",
 		"testcontainers": "^11.13.0",
+		"tsx": "^4.21.0",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.3",
 		"vitest": "^4.1.2"

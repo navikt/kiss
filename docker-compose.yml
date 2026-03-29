@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: kiss-postgres
+    environment:
+      POSTGRES_DB: kiss
+      POSTGRES_USER: kiss
+      POSTGRES_PASSWORD: kiss
+    ports:
+      - "5432:5432"
+    volumes:
+      - kiss-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kiss -d kiss"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  kiss-pgdata:

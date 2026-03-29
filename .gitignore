@@ -37,6 +37,9 @@ docker-compose.override.yml
 # Drizzle
 drizzle/meta/
 
+# Local storage (dev replacement for GCS buckets)
+.local-storage/
+
 # Temporary
 *.tmp
 *.log
