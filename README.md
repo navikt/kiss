@@ -85,9 +85,9 @@ Starter PostgreSQL 17 i Docker, pusher schema og seeder testdata automatisk.
 1. Installer og start [Postgres.app](https://postgresapp.com/) med PostgreSQL 17
 2. Legg til Postgres.app sine CLI-verktøy i PATH (om du ikke allerede har gjort det):
    ```bash
-   sudo mkdir -p /etc/paths.d && echo /Applications/Postgres.app/Contents/Versions/latest/bin | sudo tee /etc/paths.d/postgresapp
+   echo 'export PATH="/Applications/Postgres.app/Contents/Versions/latest/bin:$PATH"' >> ~/.zshrc
+   source ~/.zshrc
    ```
-   Start et nytt terminalvindu etter dette.
 3. Opprett database og rolle:
    ```bash
    # Opprett kiss-rollen med passord (matcher Docker Compose-oppsettet)
