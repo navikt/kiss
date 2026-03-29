@@ -1,8 +1,8 @@
 import { and, count, eq, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
-import { complianceAssessments } from "../schema/compliance"
-import { frameworkControls } from "../schema/framework"
+import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
+import { frameworkControls, frameworkDomains, frameworkRiskControlMappings, frameworkRisks } from "../schema/framework"
 import { devTeams } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 import { getActiveFrameworkVersion } from "./framework.server"
@@ -137,7 +137,7 @@ export async function getAllTeams() {
 	return db.select({ id: devTeams.id, name: devTeams.name, slug: devTeams.slug }).from(devTeams).orderBy(devTeams.name)
 }
 
-/** Get compliance assessments for an application. */
+/** Get compliance assessments for an application, including control details and linked risks. */
 export async function getAppAssessments(appId: string) {
 	const [app] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.id, appId)).limit(1)
 	if (!app) return null
@@ -148,10 +148,45 @@ export async function getAppAssessments(appId: string) {
 	}
 
 	const controls = await db
-		.select()
+		.select({
+			id: frameworkControls.id,
+			controlId: frameworkControls.controlId,
+			shortTitle: frameworkControls.shortTitle,
+			requirement: frameworkControls.requirement,
+			domainId: frameworkControls.domainId,
+		})
 		.from(frameworkControls)
 		.where(eq(frameworkControls.versionId, version.id))
 		.orderBy(frameworkControls.controlId)
+
+	// Fetch domains for name lookup
+	const domains = await db
+		.select({ id: frameworkDomains.id, code: frameworkDomains.code, name: frameworkDomains.name })
+		.from(frameworkDomains)
+		.where(eq(frameworkDomains.versionId, version.id))
+	const domainMap = new Map(domains.map((d) => [d.id, d]))
+
+	// Fetch risk-control mappings for linked risks
+	const riskMappings = await db
+		.select({
+			controlId: frameworkRiskControlMappings.controlId,
+			riskId: frameworkRisks.riskId,
+			shortTitle: frameworkRisks.shortTitle,
+			description: frameworkRisks.description,
+		})
+		.from(frameworkRiskControlMappings)
+		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.where(eq(frameworkRiskControlMappings.versionId, version.id))
+
+	const risksByControlUuid = new Map<
+		string,
+		Array<{ riskId: string; shortTitle: string | null; description: string }>
+	>()
+	for (const rm of riskMappings) {
+		const list = risksByControlUuid.get(rm.controlId) ?? []
+		list.push({ riskId: rm.riskId, shortTitle: rm.shortTitle, description: rm.description })
+		risksByControlUuid.set(rm.controlId, list)
+	}
 
 	const assessments = []
 	for (const ctrl of controls) {
@@ -161,10 +196,21 @@ export async function getAppAssessments(appId: string) {
 			.where(sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.controlId} = ${ctrl.id}`)
 			.limit(1)
 
+		const domain = domainMap.get(ctrl.domainId)
+		const risks = risksByControlUuid.get(ctrl.id) ?? []
+
 		assessments.push({
+			controlUuid: ctrl.id,
 			controlId: ctrl.controlId,
-			controlName: ctrl.controlId,
-			domain: ctrl.domainId,
+			controlName: ctrl.shortTitle ?? ctrl.requirement?.split("\n")[0] ?? ctrl.controlId,
+			requirement: ctrl.requirement ?? "",
+			domainCode: domain?.code ?? "",
+			domainName: domain?.name ?? "",
+			risks: risks.map((r) => ({
+				riskId: r.riskId,
+				name: r.shortTitle ?? r.description.split("\n")[0],
+				description: r.description,
+			})),
 			status: assessment?.status ?? null,
 			comment: assessment?.comment ?? null,
 			assessedBy: assessment?.assessedBy ?? null,
@@ -173,4 +219,72 @@ export async function getAppAssessments(appId: string) {
 	}
 
 	return { app, assessments }
+}
+
+/** Save a compliance assessment (upsert). */
+export async function saveAssessment(
+	appId: string,
+	controlUuid: string,
+	status: string,
+	comment: string,
+	performedBy: string,
+) {
+	const version = await getActiveFrameworkVersion()
+	if (!version) throw new Error("Ingen aktiv versjon funnet.")
+
+	const [existing] = await db
+		.select()
+		.from(complianceAssessments)
+		.where(
+			sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.controlId} = ${controlUuid}`,
+		)
+		.limit(1)
+
+	if (existing) {
+		// Write history before updating
+		await db.insert(complianceAssessmentHistory).values({
+			assessmentId: existing.id,
+			previousStatus: existing.status,
+			newStatus: status as ComplianceStatus,
+			previousComment: existing.comment,
+			newComment: comment || null,
+			changedBy: performedBy,
+		})
+
+		await db
+			.update(complianceAssessments)
+			.set({
+				status: status as ComplianceStatus,
+				comment: comment || null,
+				assessedBy: performedBy,
+				assessedAt: new Date(),
+				updatedBy: performedBy,
+				updatedAt: new Date(),
+			})
+			.where(eq(complianceAssessments.id, existing.id))
+	} else {
+		const [newAssessment] = await db
+			.insert(complianceAssessments)
+			.values({
+				applicationId: appId,
+				controlId: controlUuid,
+				frameworkVersionId: version.id,
+				status: status as ComplianceStatus,
+				comment: comment || null,
+				assessedBy: performedBy,
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
+			.returning()
+
+		// Write initial history
+		await db.insert(complianceAssessmentHistory).values({
+			assessmentId: newAssessment.id,
+			previousStatus: null,
+			newStatus: status as ComplianceStatus,
+			previousComment: null,
+			newComment: comment || null,
+			changedBy: performedBy,
+		})
+	}
 }
