@@ -293,6 +293,56 @@ export async function updateControlShortTitle(controlIdStr: string, shortTitle: 
 	})
 }
 
+/** Editable fields on frameworkControls and their DB column names. */
+const controlFieldMap: Record<string, keyof typeof frameworkControls.$inferInsert> = {
+	shortTitle: "shortTitle",
+	technologyElement: "technologyElement",
+	requirement: "requirement",
+	responsible: "responsible",
+	routine: "routine",
+	frequency: "frequency",
+	documentationRequirement: "documentationRequirement",
+	testProcedure: "testProcedure",
+	dependencies: "dependencies",
+	references: "references",
+	commonPitfalls: "commonPitfalls",
+}
+
+/** Update a single field on a control. */
+export async function updateControlField(controlIdStr: string, fieldName: string, value: string, performedBy: string) {
+	const column = controlFieldMap[fieldName]
+	if (!column) throw new Error(`Ugyldig felt: ${fieldName}`)
+
+	const version = await getActiveFrameworkVersion()
+	if (!version) throw new Error("Ingen aktiv versjon funnet.")
+
+	const [ctrl] = await db
+		.select()
+		.from(frameworkControls)
+		.where(sql`${frameworkControls.versionId} = ${version.id} AND ${frameworkControls.controlId} = ${controlIdStr}`)
+		.limit(1)
+
+	if (!ctrl) throw new Error(`Kontroll ${controlIdStr} finnes ikke.`)
+
+	const previousValue = (ctrl as Record<string, unknown>)[column] as string | null
+	const newValue = value.trim() || null
+
+	await db
+		.update(frameworkControls)
+		.set({ [column]: newValue })
+		.where(eq(frameworkControls.id, ctrl.id))
+
+	await writeAuditLog({
+		action: "control_field_updated",
+		entityType: "framework_control",
+		entityId: controlIdStr,
+		previousValue,
+		newValue,
+		metadata: { field: fieldName },
+		performedBy,
+	})
+}
+
 /** Import parsed framework data into the database as a staging version. */
 export async function stageFrameworkVersion(
 	parsed: ParsedFramework,

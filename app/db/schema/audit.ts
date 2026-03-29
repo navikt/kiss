@@ -18,6 +18,7 @@ export const auditLogActionEnum = [
 	"nais_sync_completed",
 	"app_team_linked",
 	"app_team_unlinked",
+	"control_field_updated",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]
