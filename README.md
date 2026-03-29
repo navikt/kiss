@@ -4,11 +4,37 @@ Internkontroll-applikasjon for å vise at Nav har kontroll på Software Developm
 
 ## Hva gjør KISS?
 
-- **Kontrollrammeverk**: Importerer og viser risikoer, kontroller og tiltak fra Navs kontrollrammeverk
+- **Kontrollrammeverk**: Importerer og viser risikoer, kontroller og tiltak fra Navs kontrollrammeverk (Excel-import med staging)
 - **Compliance-vurdering**: Lar ansvarlige per applikasjon svare ut om den er i overensstemmelse med retningslinjene
 - **Nais-overvåking**: Automatisk oppdagelse av nye applikasjoner på Nais-plattformen
 - **Rapporter**: Genererer compliance-rapporter per seksjon og på tvers av seksjoner
-- **Dashboard**: Overordnet status for SDLC compliance
+- **Dashboard**: Overordnet status for SDLC compliance med seksjon- og team-dashboards
+
+## Brukergrupper
+
+- **Utviklere / Techleads / Produktledere / Systemeiere**: Fyller ut compliance per applikasjon
+- **Teknologileder**: Ser status og henter ut rapporter for sin seksjon
+- **Revisorer / Internkontroll**: Ser status og henter ut rapporter for alle seksjoner
+
+## Ruter
+
+| Rute | Beskrivelse |
+|------|-------------|
+| `/` | Dashboard med overordnet SDLC compliance-status |
+| `/kontrollrammeverk` | Oversikt over domener, risikoer og kontroller |
+| `/kontrollrammeverk/:domene` | Detaljer for et domene |
+| `/kontrollrammeverk/:domene/:kontrollId` | Detaljer for en kontroll |
+| `/import` | Import av kontrollrammeverk fra Excel |
+| `/applikasjoner` | Oversikt over overvåkede applikasjoner |
+| `/applikasjoner/:appId/compliance` | Compliance-vurdering per applikasjon |
+| `/seksjoner` | Seksjonsoversikt |
+| `/seksjoner/:seksjon` | Seksjon-dashboard med team-status |
+| `/seksjoner/:seksjon/team/:team` | Team-dashboard med app-status |
+| `/rapporter` | Rapportoversikt |
+| `/rapporter/generer` | Generer ny rapport |
+| `/rapporter/:rapportId` | Rapport-detaljer |
+| `/nais-overvaking` | Nais-teamovervåking og godkjenning |
+| `/admin` | Administrasjon |
 
 ## Teknologistack
 
@@ -20,7 +46,7 @@ Internkontroll-applikasjon for å vise at Nav har kontroll på Software Developm
 | Språk | TypeScript |
 | ORM | Drizzle ORM |
 | Database | PostgreSQL 17 (CloudSQL) |
-| Objektlagring | GCS Buckets |
+| Objektlagring | GCS Buckets (11 års retention) |
 | Linting | Biome |
 | Package manager | PNPM |
 | Testing | Vitest, Testcontainers, Playwright, Storybook |
@@ -56,13 +82,24 @@ pnpm lint         # Lint med Biome
 pnpm format       # Formater med Biome
 pnpm typecheck    # TypeScript typesjekking
 pnpm check        # Lint + typecheck
+pnpm knip         # Dead code-analyse
+pnpm storybook    # Start Storybook
+```
+
+## Datamodell
+
+```
+Organisasjon:  Seksjon → Klynge (valgfri) → Utviklingsteam → Applikasjon
+Rammeverk:     Versjon → Domene → Risiko → Kontroll
+Compliance:    Applikasjon × Kontroll → Vurdering (med historikk)
+Rapporter:     Snapshot → Rapport (lagret i bucket)
 ```
 
 ## Integrasjoner
 
 - **[Nav Deployment Audit](https://github.com/navikt/deployment-audit)**: Konsoliderte rapporter (planlagt)
 - **Nais GraphQL API**: Automatisk oppdagelse av applikasjoner
-- **Azure AD**: Autentisering og autorisasjon
+- **Azure AD**: Autentisering og autorisasjon (OBO + Client Credentials)
 
 ## Lisens
 

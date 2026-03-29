@@ -1,7 +1,27 @@
 {
 	"$schema": "https://unpkg.com/knip@6/schema.json",
-	"entry": ["app/routes.ts", "app/root.tsx", "app/entry.server.tsx"],
+	"entry": [
+		"app/db/connection.server.ts",
+		"app/lib/auth.server.ts",
+		"app/lib/authorization.server.ts",
+		"app/lib/azure.server.ts",
+		"app/lib/nais.server.ts",
+		"app/lib/nais-sync.server.ts",
+		"app/lib/assessment-history.ts"
+	],
 	"project": ["app/**/*.{ts,tsx}"],
-	"ignore": ["app/**/__tests__/**", "app/**/__fixtures__/**"],
-	"ignoreDependencies": ["@react-router/dev", "@react-router/node", "@react-router/serve"]
+	"ignoreDependencies": [
+		"@react-router/node",
+		"@navikt/aksel-icons",
+		"compression",
+		"express",
+		"isbot",
+		"winston",
+		"@playwright/test",
+		"@testcontainers/postgresql",
+		"testcontainers",
+		"@types/compression",
+		"@types/express"
+	],
+	"ignoreExportsUsedInFile": true
 }

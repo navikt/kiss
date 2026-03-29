@@ -50,4 +50,4 @@ export function ComplianceComment({ comment }: ComplianceCommentProps) {
 	)
 }
 
-export { statusColors, statusLabels }
+export { statusLabels }
