@@ -4,6 +4,11 @@ import { useState } from "react"
 import type { ActionFunctionArgs } from "react-router"
 import { data, Form, useActionData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import {
+	activateFrameworkVersion,
+	getStagingFrameworkVersion,
+	stageFrameworkVersion,
+} from "~/db/queries/framework.server"
 import { type ParsedFrameworkRow, parseFrameworkExcel, summarizeFramework } from "~/lib/excel-parser.server"
 
 interface SerializedControl {
@@ -33,18 +38,32 @@ interface SerializedSummary {
 	controls: SerializedControl[]
 }
 
-type ActionResult = { success: true; summary: SerializedSummary } | { success: false; error: string }
+type ActionResult =
+	| { success: true; summary: SerializedSummary; versionId: string }
+	| { success: false; error: string }
+	| { activated: true }
 
 export async function action({ request }: ActionFunctionArgs) {
 	const formData = await request.formData()
 	const intent = formData.get("intent")
 
 	if (intent === "activate") {
-		// TODO: Implement activation — persist staged data to the database
-		return data<ActionResult>({
-			success: false,
-			error: "Aktivering er ikke implementert ennå.",
-		})
+		try {
+			const staging = await getStagingFrameworkVersion()
+			if (!staging) {
+				return data<ActionResult>({
+					success: false,
+					error: "Ingen staging-versjon funnet. Last opp en fil først.",
+				})
+			}
+			await activateFrameworkVersion(staging.id, "Ukjent bruker")
+			return data<ActionResult>({ activated: true })
+		} catch (err) {
+			return data<ActionResult>({
+				success: false,
+				error: err instanceof Error ? err.message : "Ukjent feil ved aktivering.",
+			})
+		}
 	}
 
 	const file = formData.get("file")
@@ -69,6 +88,9 @@ export async function action({ request }: ActionFunctionArgs) {
 		const parsed = parseFrameworkExcel(buffer)
 		const summary = summarizeFramework(parsed)
 
+		// Stage in database
+		const versionId = await stageFrameworkVersion(parsed, file.name, "Ukjent bruker")
+
 		const controls: SerializedControl[] = Array.from(summary.controls.values()).map((row: ParsedFrameworkRow) => ({
 			controlId: row.controlId,
 			domain: row.domain,
@@ -88,6 +110,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
 		return data<ActionResult>({
 			success: true,
+			versionId,
 			summary: {
 				domainCount: summary.domains.size,
 				riskCount: summary.risks.size,
@@ -155,7 +178,10 @@ export default function Import() {
 	const basicKeys = new Set(["domain", "riskId", "controlId", "requirement", "responsible", "frequency"])
 	const visibleColumns = showAllColumns ? allColumns : allColumns.filter((c) => basicKeys.has(c.key))
 
-	const sortedControls = actionData?.success
+	const isStaged = actionData && "success" in actionData && actionData.success
+	const isActivated = actionData && "activated" in actionData && actionData.activated
+
+	const sortedControls = isStaged
 		? [...actionData.summary.controls].sort((a, b) => {
 				if (!sort) return 0
 				const aVal = a[sort.orderBy as keyof SerializedControl] ?? ""
@@ -234,9 +260,15 @@ export default function Import() {
 				</VStack>
 			)}
 
-			{actionData && !actionData.success && <Alert variant="error">{actionData.error}</Alert>}
+			{actionData && "success" in actionData && !actionData.success && (
+				<Alert variant="error">{actionData.error}</Alert>
+			)}
 
-			{actionData?.success && (
+			{isActivated && (
+				<Alert variant="success">Kontrollrammeverket er nå aktivert og tilgjengelig på kontrollrammeverk-siden.</Alert>
+			)}
+
+			{isStaged && (
 				<VStack gap="space-6">
 					<Alert variant="success">Filen ble lest og validert. Kontroller dataene nedenfor før aktivering.</Alert>
 

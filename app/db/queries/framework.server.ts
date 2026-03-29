@@ -1,4 +1,5 @@
 import { count, eq, sql } from "drizzle-orm"
+import type { ParsedFramework } from "~/lib/excel-parser.server"
 import { db } from "../connection.server"
 import {
 	frameworkControls,
@@ -121,4 +122,158 @@ export async function getControlDetail(controlIdStr: string) {
 		referanser: ctrl.references ?? "Ikke spesifisert",
 		vanligeFallgruver: ctrl.commonPitfalls ?? "Ikke dokumentert",
 	}
+}
+
+/** Import parsed framework data into the database as a staging version. */
+export async function stageFrameworkVersion(
+	parsed: ParsedFramework,
+	fileName: string,
+	uploadedBy: string,
+): Promise<string> {
+	// Delete any existing staging version (and its cascaded data)
+	const existingStaging = await db
+		.select({ id: frameworkVersions.id })
+		.from(frameworkVersions)
+		.where(eq(frameworkVersions.status, "staging"))
+
+	for (const v of existingStaging) {
+		await deleteFrameworkVersionData(v.id)
+	}
+
+	// Create new staging version
+	const [version] = await db
+		.insert(frameworkVersions)
+		.values({
+			name: fileName.replace(/\.xlsx$/i, ""),
+			description: `Importert fra ${fileName}`,
+			sourceFileName: fileName,
+			sourceBucketPath: `framework-uploads/${Date.now()}-${fileName}`,
+			status: "staging",
+			createdBy: uploadedBy,
+		})
+		.returning()
+
+	// Build domain map from parsed rows (domain name → code)
+	const domainEntries = new Map<string, string>()
+	let displayOrder = 1
+	for (const row of parsed.rows) {
+		if (!domainEntries.has(row.domain)) {
+			const code = row.riskId.match(/R-([A-Z]{2})\./)?.[1] ?? row.domain.slice(0, 2).toUpperCase()
+			domainEntries.set(row.domain, code)
+		}
+	}
+
+	// Insert domains
+	const domainUuidMap = new Map<string, string>()
+	for (const [name, code] of domainEntries) {
+		const [domain] = await db
+			.insert(frameworkDomains)
+			.values({
+				versionId: version.id,
+				code,
+				name,
+				displayOrder: displayOrder++,
+			})
+			.returning()
+		domainUuidMap.set(name, domain.id)
+	}
+
+	// Insert risks, controls, and mappings
+	const riskUuidMap = new Map<string, string>()
+	const controlUuidMap = new Map<string, string>()
+
+	for (const row of parsed.rows) {
+		const domainId = domainUuidMap.get(row.domain)
+		if (!domainId) continue
+
+		// Insert risk if not already inserted
+		if (!riskUuidMap.has(row.riskId)) {
+			const [risk] = await db
+				.insert(frameworkRisks)
+				.values({
+					versionId: version.id,
+					domainId,
+					riskId: row.riskId,
+					description: row.riskDescription,
+				})
+				.returning()
+			riskUuidMap.set(row.riskId, risk.id)
+		}
+
+		// Insert control if not already inserted
+		if (!controlUuidMap.has(row.controlId)) {
+			const [ctrl] = await db
+				.insert(frameworkControls)
+				.values({
+					versionId: version.id,
+					domainId,
+					controlId: row.controlId,
+					technologyElement: row.technologyElement,
+					requirement: row.requirement,
+					responsible: row.responsible,
+					routine: row.routine,
+					frequency: row.frequency,
+					documentationRequirement: row.documentationRequirement,
+					testProcedure: row.testProcedure,
+					dependencies: row.dependencies,
+					references: row.references,
+					commonPitfalls: row.commonPitfalls,
+				})
+				.returning()
+			controlUuidMap.set(row.controlId, ctrl.id)
+		}
+
+		// Insert risk-control mapping
+		const riskUuid = riskUuidMap.get(row.riskId)
+		const controlUuid = controlUuidMap.get(row.controlId)
+		if (riskUuid && controlUuid) {
+			await db.insert(frameworkRiskControlMappings).values({
+				versionId: version.id,
+				riskId: riskUuid,
+				controlId: controlUuid,
+			})
+		}
+	}
+
+	return version.id
+}
+
+/** Activate a staging version: archive the current active version and set the new one as active. */
+export async function activateFrameworkVersion(versionId: string, activatedBy: string): Promise<void> {
+	const [version] = await db.select().from(frameworkVersions).where(eq(frameworkVersions.id, versionId)).limit(1)
+
+	if (!version) {
+		throw new Error("Versjonen finnes ikke.")
+	}
+	if (version.status !== "staging") {
+		throw new Error("Kun versjoner med status «staging» kan aktiveres.")
+	}
+
+	// Archive current active version
+	await db.update(frameworkVersions).set({ status: "archived" }).where(eq(frameworkVersions.status, "active"))
+
+	// Activate the staging version
+	await db
+		.update(frameworkVersions)
+		.set({
+			status: "active",
+			activatedAt: new Date(),
+			activatedBy,
+		})
+		.where(eq(frameworkVersions.id, versionId))
+}
+
+/** Get the current staging framework version, or null. */
+export async function getStagingFrameworkVersion() {
+	const [version] = await db.select().from(frameworkVersions).where(eq(frameworkVersions.status, "staging")).limit(1)
+	return version ?? null
+}
+
+/** Delete all data for a framework version (mappings, controls, risks, domains, then version). */
+async function deleteFrameworkVersionData(versionId: string) {
+	await db.delete(frameworkRiskControlMappings).where(eq(frameworkRiskControlMappings.versionId, versionId))
+	await db.delete(frameworkControls).where(eq(frameworkControls.versionId, versionId))
+	await db.delete(frameworkRisks).where(eq(frameworkRisks.versionId, versionId))
+	await db.delete(frameworkDomains).where(eq(frameworkDomains.versionId, versionId))
+	await db.delete(frameworkVersions).where(eq(frameworkVersions.id, versionId))
 }
