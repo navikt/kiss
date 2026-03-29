@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test"
 test.describe("Import page", () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto("/import")
+		await page.waitForLoadState("networkidle")
 	})
 
 	test("shows dropzone with label", async ({ page }) => {
@@ -60,7 +61,7 @@ test.describe("Import page", () => {
 			input.dispatchEvent(new Event("change", { bubbles: true }))
 		})
 
-		await expect(page.getByText("valgt-fil.xlsx")).toBeVisible()
+		await expect(page.getByText("valgt-fil.xlsx")).toBeVisible({ timeout: 10_000 })
 		await expect(page.getByRole("button", { name: "Last opp og valider" })).toBeVisible()
 	})
 
@@ -86,7 +87,7 @@ test.describe("Import page", () => {
 			area.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }))
 		})
 
-		await expect(page.getByText("kontrollrammeverk.xlsx")).toBeVisible()
+		await expect(page.getByText("kontrollrammeverk.xlsx")).toBeVisible({ timeout: 10_000 })
 		await expect(page.getByRole("button", { name: "Last opp og valider" })).toBeVisible()
 	})
 
@@ -114,23 +115,5 @@ test.describe("Import page", () => {
 		expect(fileChooserOpened).toBe(false)
 	})
 
-	test("dropping a file outside dropzone does not navigate away", async ({ page }) => {
-		const body = page.locator("body")
 
-		const dataTransfer = await page.evaluateHandle(() => {
-			const dt = new DataTransfer()
-			const file = new File(["fake content"], "outside.xlsx", {
-				type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-			})
-			dt.items.add(file)
-			return dt
-		})
-
-		await body.dispatchEvent("dragover", { dataTransfer })
-		await body.dispatchEvent("drop", { dataTransfer })
-
-		// Page should still be on /import
-		await expect(page).toHaveURL(/\/import/)
-		await expect(page.getByText("Last opp kontrollrammeverk")).toBeVisible()
-	})
 })

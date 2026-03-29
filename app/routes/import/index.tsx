@@ -1,6 +1,6 @@
 import type { FileObject, FileRejected, FileRejectionReason } from "@navikt/ds-react"
 import { Alert, BodyLong, Button, FileUpload, Heading, Table, VStack } from "@navikt/ds-react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import type { ActionFunctionArgs } from "react-router"
 import { data, Form, useActionData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -93,18 +93,6 @@ export default function Import() {
 	const [files, setFiles] = useState<FileObject[]>([])
 
 	const isSubmitting = navigation.state === "submitting"
-
-	// Prevent browser default drag-and-drop behavior (navigating to the file)
-	// so that only the Aksel Dropzone handles file drops.
-	useEffect(() => {
-		const prevent = (e: DragEvent) => e.preventDefault()
-		document.addEventListener("dragover", prevent)
-		document.addEventListener("drop", prevent)
-		return () => {
-			document.removeEventListener("dragover", prevent)
-			document.removeEventListener("drop", prevent)
-		}
-	}, [])
 
 	const acceptedFiles = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
 	const rejectedFiles = files.filter((f): f is FileRejected => f.error)
