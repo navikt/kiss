@@ -78,7 +78,7 @@ pnpm dev:setup
 pnpm dev
 ```
 
-Starter PostgreSQL 18 i Docker, pusher schema og seeder testdata automatisk.
+Starter PostgreSQL 18 i Docker og pusher schema.
 
 #### Alternativ B: Postgres.app
 
@@ -109,7 +109,8 @@ Starter PostgreSQL 18 i Docker, pusher schema og seeder testdata automatisk.
    ```
 5. Kjør setup og start:
    ```bash
-   pnpm db:push && pnpm db:seed
+   pnpm db:push
+   # Valgfritt: pnpm db:seed for testdata
    pnpm dev
    ```
 
@@ -149,9 +150,9 @@ pnpm db:push      # Push Drizzle-schema til lokal DB
 pnpm db:migrate   # Kjør Drizzle-migrasjoner
 pnpm db:generate  # Generer nye migrasjoner
 pnpm db:studio    # Åpne Drizzle Studio (GUI)
-pnpm db:seed      # Seed testdata
-pnpm dev:setup    # Docker Compose + push + seed
-pnpm dev:setup:postgresapp  # Postgres.app + push + seed
+pnpm db:seed      # Seed testdata (kun manuelt)
+pnpm dev:setup    # Docker Compose + push schema
+pnpm dev:setup:postgresapp  # Postgres.app + push schema
 ```
 
 ### Nais API (lokal utvikling)

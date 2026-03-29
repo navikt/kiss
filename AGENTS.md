@@ -105,7 +105,7 @@ const data = await storage.download("reports/rapport-1.pdf")
 ### Lokal utviklingsoppsett
 ```bash
 pnpm install          # Installer avhengigheter
-pnpm dev:setup        # Start Postgres, push schema, seed testdata
+pnpm dev:setup        # Start Postgres, push schema
 pnpm dev              # Start utviklingsserver
 ```
 
@@ -136,6 +136,7 @@ React Router 7 fjerner `.server`-imports kun fra `loader`/`action`/`middleware`/
    - Nye action-typer skal legges til i `auditLogActionEnum` i `app/db/schema/audit.ts`
    - **Endringsloggen skal alltid vises i brukergrensesnittet** på den relevante admin-/oversiktssiden, slik at brukerne kan se hva som er endret, av hvem og når
    - Bruk `<Table>` med kolonner: Tidspunkt, Handling, Detaljer, Utført av
+7. **Database-seeding (`pnpm db:seed`) skal ALDRI kjøres automatisk** – verken i `dev:setup`, CI/CD, eller av AI-agenter i autopilot-modus. Seeding skal kun utføres når brukeren eksplisitt ber om det.
 
 ### Kontroll-ID-formater
 - Nav MKR: `K-XX.NN` (f.eks. `K-ST.01`, `K-TS.03`)
