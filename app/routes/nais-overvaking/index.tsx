@@ -25,14 +25,14 @@ export async function loader(_args: LoaderFunctionArgs) {
 		displayName: t.displayName,
 		status: t.status,
 		appCount: appCounts.get(t.id) ?? 0,
-		discoveredAt: t.discoveredAt.toISOString().split("T")[0],
+		discoveredAt: new Date(t.discoveredAt).toISOString().split("T")[0],
 	}))
 
 	const naisAudit = auditEntries.filter((e) => e.entityType === "nais_team" || e.entityType === "nais_sync")
 
 	return data({
 		teams: naisTeams,
-		lastSync: lastSync?.toISOString() ?? null,
+		lastSync: lastSync ? new Date(lastSync).toISOString() : null,
 		auditEntries: naisAudit,
 	})
 }
