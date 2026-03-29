@@ -5,6 +5,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getControlDetail, updateControlShortTitle } from "~/db/queries/framework.server"
+import { getAuthenticatedUser } from "~/lib/auth.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const domene = params.domene?.toUpperCase()
@@ -23,6 +24,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const userName = user?.navIdent ?? "system"
 	const kontrollId = params.kontrollId?.toUpperCase()
 	if (!kontrollId) return data({ error: "Mangler kontroll-ID" }, { status: 400 })
 
@@ -30,7 +33,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const shortTitle = formData.get("shortTitle") as string
 
 	try {
-		await updateControlShortTitle(kontrollId, shortTitle)
+		await updateControlShortTitle(kontrollId, shortTitle, userName)
 		return data({ success: true })
 	} catch (err) {
 		return data({ error: err instanceof Error ? err.message : "Ukjent feil" }, { status: 500 })

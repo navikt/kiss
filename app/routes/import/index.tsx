@@ -11,6 +11,7 @@ import {
 	getStagingFrameworkVersion,
 	stageFrameworkVersion,
 } from "~/db/queries/framework.server"
+import { getAuthenticatedUser } from "~/lib/auth.server"
 import { type ParsedFrameworkRow, parseFrameworkExcel, summarizeFramework } from "~/lib/excel-parser.server"
 
 export async function loader() {
@@ -52,6 +53,8 @@ type ActionResult =
 	| { activated: true }
 
 export async function action({ request }: ActionFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const userName = user?.navIdent ?? "Ukjent bruker"
 	const formData = await request.formData()
 	const intent = formData.get("intent")
 
@@ -64,7 +67,7 @@ export async function action({ request }: ActionFunctionArgs) {
 					error: "Ingen staging-versjon funnet. Last opp en fil først.",
 				})
 			}
-			await activateFrameworkVersion(staging.id, "Ukjent bruker")
+			await activateFrameworkVersion(staging.id, userName)
 			return data<ActionResult>({ activated: true })
 		} catch (err) {
 			return data<ActionResult>({
@@ -97,7 +100,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		const summary = summarizeFramework(parsed)
 
 		// Stage in database
-		const versionId = await stageFrameworkVersion(parsed, file.name, "Ukjent bruker")
+		const versionId = await stageFrameworkVersion(parsed, file.name, userName)
 
 		const controls: SerializedControl[] = Array.from(summary.controls.values()).map((row: ParsedFrameworkRow) => ({
 			controlId: row.controlId,
@@ -125,7 +128,7 @@ export async function action({ request }: ActionFunctionArgs) {
 				controlCount: summary.controls.size,
 				fileName: file.name,
 				uploadedAt: new Date().toISOString(),
-				uploadedBy: "Ukjent bruker",
+				uploadedBy: userName,
 				controls,
 			},
 		})

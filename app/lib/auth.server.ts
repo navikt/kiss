@@ -54,7 +54,25 @@ export function extractBearerToken(request: Request): string | null {
 	return null
 }
 
+/** Build a local dev user from environment variables. Returns null if not configured. */
+function getLocalDevUser(): NavUser | null {
+	const ident = process.env.LOCAL_DEV_USER
+	if (!ident) return null
+
+	return {
+		navIdent: ident,
+		name: process.env.LOCAL_DEV_NAME ?? "Lokal utvikler",
+		email: process.env.LOCAL_DEV_EMAIL ?? `${ident.toLowerCase()}@nav.no`,
+		groups: (process.env.LOCAL_DEV_GROUPS ?? "").split(",").filter(Boolean),
+		token: "local-dev-token",
+	}
+}
+
 export async function getAuthenticatedUser(request: Request): Promise<NavUser | null> {
+	// In local development, use the configured dev user
+	const localUser = getLocalDevUser()
+	if (localUser) return localUser
+
 	const token = extractBearerToken(request)
 	if (!token) {
 		return null

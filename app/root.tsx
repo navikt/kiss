@@ -10,6 +10,8 @@ import {
 	useLoaderData,
 } from "react-router"
 import { AppNavigation } from "./components/AppNavigation"
+import { getAuthenticatedUser } from "./lib/auth.server"
+import { isAdmin, isAuditor } from "./lib/authorization.server"
 
 import "@navikt/ds-css/dist/index.css"
 import "./styles/global.css"
@@ -24,7 +26,20 @@ function getTheme(request: Request): "light" | "dark" {
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const theme = getTheme(request)
-	return data({ theme })
+	const user = await getAuthenticatedUser(request)
+
+	return data({
+		theme,
+		user: user
+			? {
+					navIdent: user.navIdent,
+					name: user.name,
+					email: user.email,
+					isAdmin: isAdmin(user),
+					isAuditor: isAuditor(user),
+				}
+			: null,
+	})
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -47,7 +62,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-	const { theme } = useLoaderData<typeof loader>()
+	const { theme, user } = useLoaderData<typeof loader>()
 
 	return (
 		<div data-theme={theme} className="app-container">
@@ -58,6 +73,11 @@ export default function App() {
 				<div className="app-header-content">
 					<h1 className="app-header-title">KISS</h1>
 					<span className="app-header-subtitle">Kontrollrammeverk for Integrert Sikker Systemutvikling</span>
+					{user && (
+						<span className="app-header-user">
+							{user.name} ({user.navIdent}){user.isAdmin ? " · Admin" : user.isAuditor ? " · Revisor" : ""}
+						</span>
+					)}
 				</div>
 			</header>
 			<AppNavigation />

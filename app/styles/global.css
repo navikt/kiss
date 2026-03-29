@@ -26,6 +26,7 @@ body {
 	display: flex;
 	align-items: baseline;
 	gap: var(--ax-space-16);
+	flex-wrap: wrap;
 }
 
 .app-header-title {
@@ -35,6 +36,12 @@ body {
 
 .app-header-subtitle {
 	font-size: var(--ax-font-size-medium);
+}
+
+.app-header-user {
+	margin-left: auto;
+	font-size: var(--ax-font-size-small);
+	opacity: 0.85;
 }
 
 .app-main {

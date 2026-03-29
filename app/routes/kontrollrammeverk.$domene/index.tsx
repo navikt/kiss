@@ -5,6 +5,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getDomainDetail, updateControlShortTitle, updateRiskShortTitle } from "~/db/queries/framework.server"
+import { getAuthenticatedUser } from "~/lib/auth.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const domainCode = params.domene?.toUpperCase()
@@ -19,6 +20,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const userName = user?.navIdent ?? "system"
 	const formData = await request.formData()
 	const type = formData.get("type") as string
 	const id = formData.get("id") as string
@@ -30,9 +33,9 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	try {
 		if (type === "risk") {
-			await updateRiskShortTitle(id, shortTitle)
+			await updateRiskShortTitle(id, shortTitle, userName)
 		} else if (type === "control") {
-			await updateControlShortTitle(id, shortTitle)
+			await updateControlShortTitle(id, shortTitle, userName)
 		}
 		return data({ success: true })
 	} catch (err) {

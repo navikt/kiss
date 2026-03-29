@@ -136,7 +136,7 @@ export async function getControlDetail(controlIdStr: string) {
 }
 
 /** Update the short title of a risk. */
-export async function updateRiskShortTitle(riskId: string, shortTitle: string) {
+export async function updateRiskShortTitle(riskId: string, shortTitle: string, performedBy = "system") {
 	const version = await getActiveFrameworkVersion()
 	if (!version) throw new Error("Ingen aktiv versjon funnet.")
 
@@ -159,12 +159,12 @@ export async function updateRiskShortTitle(riskId: string, shortTitle: string) {
 		entityId: riskId,
 		previousValue,
 		newValue,
-		performedBy: "Ukjent bruker",
+		performedBy,
 	})
 }
 
 /** Update the short title of a control. */
-export async function updateControlShortTitle(controlIdStr: string, shortTitle: string) {
+export async function updateControlShortTitle(controlIdStr: string, shortTitle: string, performedBy = "system") {
 	const version = await getActiveFrameworkVersion()
 	if (!version) throw new Error("Ingen aktiv versjon funnet.")
 
@@ -187,7 +187,7 @@ export async function updateControlShortTitle(controlIdStr: string, shortTitle: 
 		entityId: controlIdStr,
 		previousValue,
 		newValue,
-		performedBy: "Ukjent bruker",
+		performedBy,
 	})
 }
 
