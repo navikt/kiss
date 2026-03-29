@@ -7,7 +7,7 @@ import { getTeamApps } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { compliancePercent } from "~/lib/utils"
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params }: LoaderFunctionArgs) {
 	const seksjon = params.seksjon
 	const team = params.team
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })

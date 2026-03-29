@@ -1,4 +1,4 @@
-import { and, count, eq, notInArray, sql } from "drizzle-orm"
+import { and, count, eq, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
