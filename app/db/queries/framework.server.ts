@@ -49,6 +49,13 @@ export async function getDomainSummaries() {
 	return result
 }
 
+/** Extract the short title from a requirement field (first line only). */
+function shortName(requirement: string | null, fallback: string): string {
+	if (!requirement) return fallback
+	const firstLine = requirement.split("\n")[0].trim()
+	return firstLine || fallback
+}
+
 /** Get a domain with its risks and controls. */
 export async function getDomainDetail(domainCode: string) {
 	const version = await getActiveFrameworkVersion()
@@ -77,7 +84,7 @@ export async function getDomainDetail(domainCode: string) {
 		for (const mapping of mappings) {
 			const [ctrl] = await db.select().from(frameworkControls).where(eq(frameworkControls.id, mapping.controlId))
 			if (ctrl) {
-				controls.push({ id: ctrl.controlId, name: ctrl.requirement ?? ctrl.controlId })
+				controls.push({ id: ctrl.controlId, name: shortName(ctrl.requirement, ctrl.controlId) })
 			}
 		}
 
@@ -110,7 +117,7 @@ export async function getControlDetail(controlIdStr: string) {
 
 	return {
 		id: ctrl.controlId,
-		name: ctrl.requirement ?? ctrl.controlId,
+		name: shortName(ctrl.requirement, ctrl.controlId),
 		teknologielement: ctrl.technologyElement ?? "Ikke spesifisert",
 		krav: ctrl.requirement ?? "Ikke spesifisert",
 		ansvarlig: ctrl.responsible ?? "Ikke tildelt",
