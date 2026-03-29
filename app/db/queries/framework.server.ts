@@ -397,6 +397,31 @@ export async function stageFrameworkVersion(
 		domainUuidMap.set(name, domain.id)
 	}
 
+	// Carry forward manually edited fields from the active version
+	const activeVersion = await getActiveFrameworkVersion()
+	const previousRiskTitles = new Map<string, string>()
+	const previousControlEdits = new Map<string, Record<string, string | null>>()
+
+	if (activeVersion) {
+		const prevRisks = await db
+			.select({ riskId: frameworkRisks.riskId, shortTitle: frameworkRisks.shortTitle })
+			.from(frameworkRisks)
+			.where(eq(frameworkRisks.versionId, activeVersion.id))
+		for (const r of prevRisks) {
+			if (r.shortTitle) previousRiskTitles.set(r.riskId, r.shortTitle)
+		}
+
+		const prevControls = await db
+			.select()
+			.from(frameworkControls)
+			.where(eq(frameworkControls.versionId, activeVersion.id))
+		for (const c of prevControls) {
+			if (c.shortTitle) {
+				previousControlEdits.set(c.controlId, { shortTitle: c.shortTitle })
+			}
+		}
+	}
+
 	// Insert risks, controls, and mappings
 	const riskUuidMap = new Map<string, string>()
 	const controlUuidMap = new Map<string, string>()
@@ -414,6 +439,7 @@ export async function stageFrameworkVersion(
 					domainId,
 					riskId: row.riskId,
 					description: row.riskDescription,
+					shortTitle: previousRiskTitles.get(row.riskId) ?? null,
 				})
 				.returning()
 			riskUuidMap.set(row.riskId, risk.id)
@@ -421,12 +447,14 @@ export async function stageFrameworkVersion(
 
 		// Insert control if not already inserted
 		if (!controlUuidMap.has(row.controlId)) {
+			const prevEdits = previousControlEdits.get(row.controlId)
 			const [ctrl] = await db
 				.insert(frameworkControls)
 				.values({
 					versionId: version.id,
 					domainId,
 					controlId: row.controlId,
+					shortTitle: prevEdits?.shortTitle ?? null,
 					technologyElement: row.technologyElement,
 					requirement: row.requirement,
 					responsible: row.responsible,
