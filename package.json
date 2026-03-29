@@ -1,0 +1,53 @@
+{
+	"name": "kiss",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Kontrollrammeverk for Integrert Sikker Systemutvikling",
+	"type": "module",
+	"engines": {
+		"node": ">=22.0.0"
+	},
+	"packageManager": "pnpm@10.33.0",
+	"scripts": {
+		"dev": "react-router dev",
+		"build": "react-router build",
+		"start": "node ./build/server/index.js",
+		"typecheck": "react-router typegen && tsc",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"format": "biome format --write .",
+		"check": "biome check . && react-router typegen && tsc",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:int": "vitest run --config vitest.integration.config.ts",
+		"test:all": "vitest run && vitest run --config vitest.integration.config.ts",
+		"test:coverage": "vitest run --coverage",
+		"storybook": "storybook dev -p 6006",
+		"build-storybook": "storybook build"
+	},
+	"dependencies": {
+		"@react-router/node": "^7.13.2",
+		"@react-router/serve": "^7.13.2",
+		"compression": "^1.8.1",
+		"express": "^5.2.1",
+		"isbot": "^5.1.36",
+		"react": "^19.2.4",
+		"react-dom": "^19.2.4",
+		"react-router": "^7.13.2",
+		"winston": "^3.19.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.9",
+		"@react-router/dev": "^7.13.2",
+		"@types/compression": "^1.8.1",
+		"@types/express": "^5.0.6",
+		"@types/node": "^25.5.0",
+		"@types/react": "^19.2.14",
+		"@types/react-dom": "^19.2.3",
+		"@vitest/coverage-v8": "^4.1.2",
+		"lefthook": "^2.1.4",
+		"typescript": "^6.0.2",
+		"vite": "^8.0.3",
+		"vitest": "^4.1.2"
+	}
+}

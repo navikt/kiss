@@ -1,0 +1,23 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ES2022",
+		"moduleResolution": "bundler",
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"jsx": "react-jsx",
+		"strict": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"noEmit": true,
+		"rootDirs": [".", "./.react-router/types"],
+		"paths": {
+			"~/*": ["./app/*"]
+		},
+		"types": ["vite/client", "node"]
+	},
+	"include": ["**/*.ts", "**/*.tsx", ".react-router/types/**/*"],
+	"exclude": ["node_modules", "build", "dist", "coverage", "storybook-static", "playwright-report"]
+}

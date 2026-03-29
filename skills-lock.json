@@ -1,0 +1,15 @@
+{
+	"version": 1,
+	"skills": {
+		"aksel": {
+			"source": "navikt/pensjon-agent-skills",
+			"sourceType": "github",
+			"computedHash": "b0afd6639505a813b2c39fed356330dd23ea20bfc338ce8cf97f9b7324fb088f"
+		},
+		"react-router-framework-mode": {
+			"source": "remix-run/agent-skills",
+			"sourceType": "github",
+			"computedHash": "26c5bdac2f686c47eb4c4b48b6cb52401cde1dc833e6d26408ddfb22ea83c5ca"
+		}
+	}
+}
