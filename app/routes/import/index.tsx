@@ -124,19 +124,17 @@ export default function Import() {
 		submit(formData, { method: "post", encType: "multipart/form-data" })
 	}
 
-	const baseColumns = [
-		{ key: "controlId", label: "Kontroll-ID" },
+	// Column order matches the Excel file (cols 0–13)
+	const allColumns = [
 		{ key: "domain", label: "Domene" },
 		{ key: "riskId", label: "Risiko-ID" },
+		{ key: "riskDescription", label: "Risiko" },
+		{ key: "controlId", label: "Kontroll-ID" },
+		{ key: "technologyElement", label: "Teknologielement" },
 		{ key: "requirement", label: "Krav" },
 		{ key: "responsible", label: "Ansvarlig" },
-		{ key: "frequency", label: "Frekvens" },
-	]
-
-	const extraColumns = [
-		{ key: "riskDescription", label: "Risiko" },
-		{ key: "technologyElement", label: "Teknologielement" },
 		{ key: "routine", label: "Rutine" },
+		{ key: "frequency", label: "Frekvens" },
 		{ key: "documentationRequirement", label: "Dokumentasjonskrav" },
 		{ key: "testProcedure", label: "Testprosedyre" },
 		{ key: "dependencies", label: "Avhengigheter" },
@@ -144,7 +142,8 @@ export default function Import() {
 		{ key: "commonPitfalls", label: "Vanlige fallgruver" },
 	]
 
-	const visibleColumns = showAllColumns ? [...baseColumns, ...extraColumns] : baseColumns
+	const basicKeys = new Set(["domain", "riskId", "controlId", "requirement", "responsible", "frequency"])
+	const visibleColumns = showAllColumns ? allColumns : allColumns.filter((c) => basicKeys.has(c.key))
 
 	const sortedControls = actionData?.success
 		? [...actionData.summary.controls].sort((a, b) => {
