@@ -17,10 +17,10 @@ test.describe("Kontrollrammeverk overview", () => {
 		const cards = page.locator(".domain-card")
 		const count = await cards.count()
 		if (count > 0) {
-			await expect(page.getByText("Styring", { exact: true })).toBeVisible()
-			await expect(page.getByText("Tilgangsstyring")).toBeVisible()
-			await expect(page.getByText("Endringshåndtering")).toBeVisible()
-			await expect(page.getByText("Drift")).toBeVisible()
+			await expect(cards.filter({ hasText: "Styring" }).first()).toBeVisible()
+			await expect(cards.filter({ hasText: "Tilgangsstyring" }).first()).toBeVisible()
+			await expect(cards.filter({ hasText: "Endringshåndtering" }).first()).toBeVisible()
+			await expect(cards.filter({ hasText: "Drift" }).first()).toBeVisible()
 		}
 	})
 })

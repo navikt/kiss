@@ -50,6 +50,60 @@ export async function getDomainSummaries() {
 	return result
 }
 
+/** Get all risks across all domains for the active framework version. */
+export async function getAllRisks() {
+	const version = await getActiveFrameworkVersion()
+	if (!version) return []
+
+	const rows = await db
+		.select({
+			riskId: frameworkRisks.riskId,
+			shortTitle: frameworkRisks.shortTitle,
+			description: frameworkRisks.description,
+			domainCode: frameworkDomains.code,
+			domainName: frameworkDomains.name,
+			displayOrder: frameworkDomains.displayOrder,
+		})
+		.from(frameworkRisks)
+		.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+		.where(eq(frameworkRisks.versionId, version.id))
+		.orderBy(frameworkDomains.displayOrder, frameworkRisks.riskId)
+
+	return rows.map((r) => ({
+		riskId: r.riskId,
+		name: r.shortTitle ?? r.description,
+		domainCode: r.domainCode,
+		domainName: r.domainName,
+	}))
+}
+
+/** Get all controls across all domains for the active framework version. */
+export async function getAllControls() {
+	const version = await getActiveFrameworkVersion()
+	if (!version) return []
+
+	const rows = await db
+		.select({
+			controlId: frameworkControls.controlId,
+			shortTitle: frameworkControls.shortTitle,
+			requirement: frameworkControls.requirement,
+			domainCode: frameworkDomains.code,
+			domainName: frameworkDomains.name,
+			displayOrder: frameworkDomains.displayOrder,
+		})
+		.from(frameworkControls)
+		.innerJoin(frameworkDomains, eq(frameworkControls.domainId, frameworkDomains.id))
+		.where(eq(frameworkControls.versionId, version.id))
+		.orderBy(frameworkDomains.displayOrder, frameworkControls.controlId)
+
+	return rows.map((r) => ({
+		controlId: r.controlId,
+		name: r.shortTitle ?? shortName(r.requirement, r.controlId),
+		domainCode: r.domainCode,
+		domainName: r.domainName,
+	}))
+}
+
 /** Extract the short title from a requirement field (first line only). */
 function shortName(requirement: string | null, fallback: string): string {
 	if (!requirement) return fallback

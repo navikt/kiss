@@ -1,8 +1,8 @@
-import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
+import { BodyLong, BodyShort, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getDomainSummaries } from "~/db/queries/framework.server"
+import { getAllControls, getAllRisks, getDomainSummaries } from "~/db/queries/framework.server"
 
 const domainColors: Record<string, string> = {
 	Styring: "#f9d4a0",
@@ -11,42 +11,116 @@ const domainColors: Record<string, string> = {
 	Drift: "#a0f9d4",
 }
 
+/** Gradient from light pink to deeper mauve, based on position in the list. */
+function riskColor(index: number, total: number): string {
+	const t = total <= 1 ? 0 : index / (total - 1)
+	const r = Math.round(235 - t * 30)
+	const g = Math.round(200 - t * 50)
+	const b = Math.round(210 - t * 30)
+	return `rgb(${r}, ${g}, ${b})`
+}
+
+function controlColor(index: number, total: number): string {
+	const t = total <= 1 ? 0 : index / (total - 1)
+	const r = Math.round(200 - t * 30)
+	const g = Math.round(215 - t * 30)
+	const b = Math.round(235 - t * 20)
+	return `rgb(${r}, ${g}, ${b})`
+}
+
 export async function loader(_args: LoaderFunctionArgs) {
-	const domains = await getDomainSummaries()
-	return data({ domains })
+	const [domains, risks, controls] = await Promise.all([getDomainSummaries(), getAllRisks(), getAllControls()])
+	return data({ domains, risks, controls })
 }
 
 export default function Kontrollrammeverk() {
-	const { domains } = useLoaderData<typeof loader>()
+	const { domains, risks, controls } = useLoaderData<typeof loader>()
 
 	return (
-		<VStack gap="space-6">
-			<Heading size="xlarge" level="2">
-				Kontrollrammeverk
-			</Heading>
-			<BodyLong>Oversikt over domener, risikoer og kontroller i Minimum kontrollrammeverk (MKR v1.1).</BodyLong>
+		<VStack gap="space-12">
+			<VStack gap="space-6">
+				<Heading size="xlarge" level="2">
+					Kontrollrammeverk
+				</Heading>
+				<BodyLong>Oversikt over domener, risikoer og kontroller i Minimum kontrollrammeverk (MKR v1.1).</BodyLong>
+			</VStack>
 
-			<HGrid gap="space-6" columns={{ xs: 1, sm: 2, md: 4 }}>
-				{domains.map((domain) => (
-					<Link
-						key={domain.code}
-						to={`/kontrollrammeverk/${domain.code}`}
-						className="domain-card"
-						style={{
-							backgroundColor: domainColors[domain.name] ?? "#f0f0f0",
-							textDecoration: "none",
-							color: "inherit",
-						}}
-					>
-						<Heading size="medium" level="3">
-							{domain.name}
-						</Heading>
-						<BodyLong size="small">
-							{domain.riskCount} risikoer · {domain.controlCount} kontroller
-						</BodyLong>
-					</Link>
-				))}
-			</HGrid>
+			<VStack gap="space-4">
+				<Heading size="large" level="3">
+					Domener
+				</Heading>
+				<HGrid gap="space-6" columns={{ xs: 1, sm: 2, md: 4 }}>
+					{domains.map((domain) => (
+						<Link
+							key={domain.code}
+							to={`/kontrollrammeverk/${domain.code}`}
+							className="domain-card"
+							style={{
+								backgroundColor: domainColors[domain.name] ?? "#f0f0f0",
+								textDecoration: "none",
+								color: "inherit",
+							}}
+						>
+							<Heading size="medium" level="4">
+								{domain.name}
+							</Heading>
+							<BodyLong size="small">
+								{domain.riskCount} risikoer · {domain.controlCount} kontroller
+							</BodyLong>
+						</Link>
+					))}
+				</HGrid>
+			</VStack>
+
+			{risks.length > 0 && (
+				<VStack gap="space-4">
+					<Heading size="large" level="3">
+						Risikoer
+					</Heading>
+					<div className="framework-card-grid">
+						{risks.map((risk, i) => (
+							<Link
+								key={risk.riskId}
+								to={`/kontrollrammeverk/${risk.domainCode}`}
+								className="framework-card"
+								style={{ backgroundColor: riskColor(i, risks.length) }}
+							>
+								<BodyShort size="small" className="framework-card-id">
+									{risk.riskId}:
+								</BodyShort>
+								<Heading size="small" level="4" className="framework-card-title">
+									{risk.name}
+								</Heading>
+							</Link>
+						))}
+					</div>
+				</VStack>
+			)}
+
+			{controls.length > 0 && (
+				<VStack gap="space-4">
+					<Heading size="large" level="3">
+						Kontroller
+					</Heading>
+					<div className="framework-card-grid">
+						{controls.map((ctrl, i) => (
+							<Link
+								key={ctrl.controlId}
+								to={`/kontrollrammeverk/${ctrl.domainCode}/${ctrl.controlId}`}
+								className="framework-card"
+								style={{ backgroundColor: controlColor(i, controls.length) }}
+							>
+								<BodyShort size="small" className="framework-card-id">
+									{ctrl.controlId}:
+								</BodyShort>
+								<Heading size="small" level="4" className="framework-card-title">
+									{ctrl.name}
+								</Heading>
+							</Link>
+						))}
+					</div>
+				</VStack>
+			)}
 		</VStack>
 	)
 }
