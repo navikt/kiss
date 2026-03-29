@@ -61,23 +61,43 @@ Internkontroll-applikasjon for å vise at Nav har kontroll på Software Developm
 
 - Node.js >= 22
 - PNPM >= 10
-- Docker (for lokal Postgres og integrasjonstester)
+- PostgreSQL 17 via **én** av:
+  - [Docker](https://www.docker.com/) (Docker Compose)
+  - [Postgres.app](https://postgresapp.com/) (macOS)
 
 ### Kom i gang
 
 ```bash
 pnpm install
+```
 
-# Start lokal Postgres, kjør migrasjoner og seed data:
+#### Alternativ A: Docker Compose (anbefalt)
+
+```bash
 pnpm dev:setup
-
-# Start utviklingsserver:
 pnpm dev
 ```
 
-Applikasjonen kjører på `http://localhost:3000`.
+Starter PostgreSQL 17 i Docker, pusher schema og seeder testdata automatisk.
 
-Oppsettet starter en PostgreSQL 17-database via Docker Compose, kjører Drizzle schema push og populerer databasen med testdata.
+#### Alternativ B: Postgres.app
+
+1. Installer og start [Postgres.app](https://postgresapp.com/) med PostgreSQL 17
+2. Opprett `.env` med riktig connection string:
+   ```bash
+   cp .env.example .env
+   ```
+   Endre `DATABASE_URL` i `.env`:
+   ```
+   DATABASE_URL=postgresql://localhost:5432/kiss
+   ```
+3. Kjør setup:
+   ```bash
+   pnpm dev:setup:postgresapp
+   pnpm dev
+   ```
+
+Applikasjonen kjører på `http://localhost:3000`.
 
 ### Miljøvariabler
 
@@ -110,6 +130,7 @@ pnpm db:generate  # Generer nye migrasjoner
 pnpm db:studio    # Åpne Drizzle Studio (GUI)
 pnpm db:seed      # Seed testdata
 pnpm dev:setup    # Docker Compose + push + seed
+pnpm dev:setup:postgresapp  # Postgres.app + push + seed
 ```
 
 ### Mock-data
