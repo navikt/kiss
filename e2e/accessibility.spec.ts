@@ -15,6 +15,7 @@ const pages = [
 	{ path: "/rapporter", name: "Rapporter" },
 	{ path: "/rapporter/generer", name: "Generer-rapport" },
 	{ path: "/admin", name: "Admin" },
+	{ path: "/admin/seksjoner", name: "Admin Seksjoner" },
 	{ path: "/import", name: "Import" },
 ]
 
