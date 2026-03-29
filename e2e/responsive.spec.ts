@@ -3,10 +3,15 @@ import { expect, test } from "@playwright/test"
 const pages = [
 	{ path: "/", name: "Dashboard" },
 	{ path: "/kontrollrammeverk", name: "Kontrollrammeverk" },
+	{ path: "/kontrollrammeverk/st", name: "Domene-detalj" },
+	{ path: "/kontrollrammeverk/st/K-ST.01", name: "Kontroll-detalj" },
 	{ path: "/applikasjoner", name: "Applikasjoner" },
 	{ path: "/seksjoner", name: "Seksjoner" },
+	{ path: "/seksjoner/utvikling", name: "Seksjon-dashboard" },
+	{ path: "/seksjoner/utvikling/team/team-alfa", name: "Team-dashboard" },
 	{ path: "/nais-overvaking", name: "Nais-overvaking" },
 	{ path: "/rapporter", name: "Rapporter" },
+	{ path: "/rapporter/generer", name: "Generer-rapport" },
 	{ path: "/admin", name: "Admin" },
 	{ path: "/import", name: "Import" },
 ]
