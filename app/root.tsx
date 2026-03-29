@@ -1,6 +1,16 @@
 import type { LinksFunction, LoaderFunctionArgs } from "react-router"
-import { data, isRouteErrorResponse, Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router"
+import {
+	data,
+	isRouteErrorResponse,
+	Links,
+	Meta,
+	Outlet,
+	Scripts,
+	ScrollRestoration,
+	useLoaderData,
+} from "react-router"
 
+import "@navikt/ds-css/dist/index.css"
 import "./styles/global.css"
 
 export const links: LinksFunction = () => [{ rel: "icon", href: "/favicon.ico" }]
@@ -35,7 +45,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-	return <Outlet />
+	const { theme } = useLoaderData<typeof loader>()
+
+	return (
+		<div data-theme={theme} className="app-container">
+			<header className="app-header">
+				<div className="app-header-content">
+					<h1 className="app-header-title">KISS</h1>
+					<span className="app-header-subtitle">Kontrollrammeverk for Integrert Sikker Systemutvikling</span>
+				</div>
+			</header>
+			<main className="app-main">
+				<Outlet />
+			</main>
+		</div>
+	)
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
