@@ -186,11 +186,6 @@ export function getControlDetail(kontrollId: string): MockControlDetail {
 	)
 }
 
-/** Calculate compliance percentage (implemented counts fully, partial counts 50%) */
-export function compliancePercent(implemented: number, partial: number, total: number): number {
-	return total > 0 ? Math.round(((implemented + partial * 0.5) / total) * 100) : 0
-}
-
 /** Get domain summaries derived from the mock hierarchy */
 export function getDomainSummaries(): Array<{ code: string; name: string; riskCount: number; controlCount: number }> {
 	return Object.values(mockDomains).map((domain) => {

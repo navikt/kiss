@@ -2,7 +2,8 @@ import { BodyLong, Heading, Table, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { compliancePercent, mockTeamApps } from "~/lib/mock-data.server"
+import { mockTeamApps } from "~/lib/mock-data.server"
+import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const seksjon = params.seksjon

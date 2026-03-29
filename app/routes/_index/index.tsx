@@ -2,7 +2,8 @@ import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { compliancePercent, getDomainSummaries } from "~/lib/mock-data.server"
+import { getDomainSummaries } from "~/lib/mock-data.server"
+import { compliancePercent } from "~/lib/utils"
 
 interface DomainStatus {
 	name: string
