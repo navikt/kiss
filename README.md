@@ -84,7 +84,12 @@ pnpm typecheck    # TypeScript typesjekking
 pnpm check        # Lint + typecheck
 pnpm knip         # Dead code-analyse
 pnpm storybook    # Start Storybook
+pnpm test:e2e     # Playwright responsive tester
 ```
+
+### Mock-data
+
+All placeholder-data ligger i `app/lib/mock-data.server.ts`. Rutefiler importerer derfra – ingen inline mock-data i ruter. Se `AGENTS.md` for retningslinjer.
 
 ## Datamodell
 

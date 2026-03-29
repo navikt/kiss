@@ -52,6 +52,7 @@ app/
 │   ├── auth.server.ts    # JWT-validering og autorisasjon
 │   ├── azure.server.ts   # Azure AD token-håndtering
 │   ├── nais.server.ts    # Nais GraphQL-integrasjon
+│   ├── mock-data.server.ts # All mock/testdata (se nedenfor)
 │   └── ...
 ├── routes/               # React Router ruter (hver i egen mappe)
 ├── styles/               # CSS
@@ -61,6 +62,24 @@ app/
 ```
 
 ## Utvikling
+
+### Mock-data og testdata
+All mock-data som brukes som placeholder før databaseintegrasjon skal ligge i `app/lib/mock-data.server.ts` – **aldri inline i rutefiler**. Dette gir:
+- Én fil å oppdatere når mock-data skal endres
+- Tydelig oversikt over hva som er mock vs. produksjonskode
+- Enkel overgang til database-queries (bytt import til `db/queries/`)
+
+Rutefiler importerer mock-data slik:
+```ts
+import { mockApps, compliancePercent } from "~/lib/mock-data.server"
+```
+
+Når database-integrasjon er klar, erstattes importen med:
+```ts
+import { getApps } from "~/db/queries/apps.server"
+```
+
+Enhetstester (`app/**/__tests__/`) kan importere mock-data direkte. Integrasjonstester skal bruke Testcontainers med egen testdata.
 
 ### Testdrevet utvikling
 - **Tester skrives FØRST** – alltid før implementasjon
