@@ -124,7 +124,12 @@ describe("fetchNaisApps", () => {
 	})
 
 	it("sends the team slug as a GraphQL variable", async () => {
-		vi.stubGlobal("fetch", mockFetchResponse({ data: { team: { apps: { pageInfo: noMorePages, nodes: [] } } } }))
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes: [] } } },
+			}),
+		)
 
 		await fetchNaisApps("token", "my-team")
 
@@ -134,22 +139,21 @@ describe("fetchNaisApps", () => {
 	})
 
 	it("returns the list of apps from the response", async () => {
-		const apps = [
+		const nodes = [
 			{
 				name: "my-app",
-				namespace: "my-team",
-				cluster: "prod-gcp",
-				image: "ghcr.io/my-app:latest",
-				deployInfo: {
-					timestamp: "2024-01-15T12:00:00Z",
-					deployer: "deploy-bot",
-				},
+				teamEnvironment: { environment: { name: "prod-gcp" } },
 			},
 		]
-		vi.stubGlobal("fetch", mockFetchResponse({ data: { team: { apps: { pageInfo: noMorePages, nodes: apps } } } }))
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
 
 		const result = await fetchNaisApps("token", "my-team")
-		expect(result).toEqual(apps)
+		expect(result).toEqual([{ name: "my-app", namespace: "my-team", cluster: "prod-gcp" }])
 	})
 
 	it("throws on GraphQL errors", async () => {

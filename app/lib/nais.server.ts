@@ -107,19 +107,17 @@ export async function fetchNaisTeams(token?: string): Promise<NaisTeam[]> {
 const APPS_QUERY = `
 	query TeamApps($slug: Slug!, $first: Int!, $after: Cursor) {
 		team(slug: $slug) {
-			apps(first: $first, after: $after) {
+			applications(first: $first, after: $after) {
 				pageInfo {
 					hasNextPage
 					endCursor
 				}
 				nodes {
 					name
-					namespace
-					cluster
-					image
-					deployInfo {
-						timestamp
-						deployer
+					teamEnvironment {
+						environment {
+							name
+						}
 					}
 				}
 			}
@@ -129,9 +127,16 @@ const APPS_QUERY = `
 
 interface AppsResponse {
 	team: {
-		apps: {
+		applications: {
 			pageInfo: PageInfo
-			nodes: NaisApp[]
+			nodes: Array<{
+				name: string
+				teamEnvironment: {
+					environment: {
+						name: string
+					}
+				}
+			}>
 		}
 	}
 }
@@ -146,10 +151,16 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 		if (after) variables.after = after
 
 		const result = await naisGraphQL<AppsResponse>(APPS_QUERY, variables, token)
-		allApps.push(...result.team.apps.nodes)
+		for (const node of result.team.applications.nodes) {
+			allApps.push({
+				name: node.name,
+				namespace: teamSlug,
+				cluster: node.teamEnvironment.environment.name,
+			})
+		}
 
-		hasMore = result.team.apps.pageInfo.hasNextPage
-		after = result.team.apps.pageInfo.endCursor
+		hasMore = result.team.applications.pageInfo.hasNextPage
+		after = result.team.applications.pageInfo.endCursor
 	}
 
 	return allApps
