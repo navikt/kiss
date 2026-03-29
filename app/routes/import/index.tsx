@@ -1,10 +1,27 @@
-import type { FileObject, FileRejected, FileRejectionReason } from "@navikt/ds-react"
-import { Alert, BodyLong, Button, FileUpload, Heading, Table, VStack } from "@navikt/ds-react"
+import type { FileObject, FileRejected, FileRejectionReason, SortState } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, FileUpload, Heading, HStack, Switch, Table, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs } from "react-router"
 import { data, Form, useActionData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { type ParsedFrameworkRow, parseFrameworkExcel, summarizeFramework } from "~/lib/excel-parser.server"
+
+interface SerializedControl {
+	controlId: string
+	domain: string
+	riskId: string
+	riskDescription: string | null
+	technologyElement: string | null
+	requirement: string | null
+	responsible: string | null
+	routine: string | null
+	frequency: string | null
+	documentationRequirement: string | null
+	testProcedure: string | null
+	dependencies: string | null
+	references: string | null
+	commonPitfalls: string | null
+}
 
 interface SerializedSummary {
 	domainCount: number
@@ -13,14 +30,7 @@ interface SerializedSummary {
 	fileName: string
 	uploadedAt: string
 	uploadedBy: string
-	controls: Array<{
-		controlId: string
-		domain: string
-		riskId: string
-		requirement: string | null
-		responsible: string | null
-		frequency: string | null
-	}>
+	controls: SerializedControl[]
 }
 
 type ActionResult = { success: true; summary: SerializedSummary } | { success: false; error: string }
@@ -49,13 +59,21 @@ export async function action({ request }: ActionFunctionArgs) {
 		const parsed = parseFrameworkExcel(buffer)
 		const summary = summarizeFramework(parsed)
 
-		const controls = Array.from(summary.controls.values()).map((row: ParsedFrameworkRow) => ({
+		const controls: SerializedControl[] = Array.from(summary.controls.values()).map((row: ParsedFrameworkRow) => ({
 			controlId: row.controlId,
 			domain: row.domain,
 			riskId: row.riskId,
+			riskDescription: row.riskDescription,
+			technologyElement: row.technologyElement,
 			requirement: row.requirement,
 			responsible: row.responsible,
+			routine: row.routine,
 			frequency: row.frequency,
+			documentationRequirement: row.documentationRequirement,
+			testProcedure: row.testProcedure,
+			dependencies: row.dependencies,
+			references: row.references,
+			commonPitfalls: row.commonPitfalls,
 		}))
 
 		return data<ActionResult>({
@@ -91,7 +109,8 @@ export default function Import() {
 	const navigation = useNavigation()
 	const submit = useSubmit()
 	const [files, setFiles] = useState<FileObject[]>([])
-
+	const [showAllColumns, setShowAllColumns] = useState(false)
+	const [sort, setSort] = useState<SortState | undefined>(undefined)
 	const isSubmitting = navigation.state === "submitting"
 
 	const acceptedFiles = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
@@ -104,6 +123,38 @@ export default function Import() {
 		formData.append("file", selectedFile)
 		submit(formData, { method: "post", encType: "multipart/form-data" })
 	}
+
+	const baseColumns = [
+		{ key: "controlId", label: "Kontroll-ID" },
+		{ key: "domain", label: "Domene" },
+		{ key: "riskId", label: "Risiko-ID" },
+		{ key: "requirement", label: "Krav" },
+		{ key: "responsible", label: "Ansvarlig" },
+		{ key: "frequency", label: "Frekvens" },
+	]
+
+	const extraColumns = [
+		{ key: "riskDescription", label: "Risiko" },
+		{ key: "technologyElement", label: "Teknologielement" },
+		{ key: "routine", label: "Rutine" },
+		{ key: "documentationRequirement", label: "Dokumentasjonskrav" },
+		{ key: "testProcedure", label: "Testprosedyre" },
+		{ key: "dependencies", label: "Avhengigheter" },
+		{ key: "references", label: "Referanser" },
+		{ key: "commonPitfalls", label: "Vanlige fallgruver" },
+	]
+
+	const visibleColumns = showAllColumns ? [...baseColumns, ...extraColumns] : baseColumns
+
+	const sortedControls = actionData?.success
+		? [...actionData.summary.controls].sort((a, b) => {
+				if (!sort) return 0
+				const aVal = a[sort.orderBy as keyof SerializedControl] ?? ""
+				const bVal = b[sort.orderBy as keyof SerializedControl] ?? ""
+				const cmp = String(aVal).localeCompare(String(bVal), "nb")
+				return sort.direction === "descending" ? -cmp : cmp
+			})
+		: []
 
 	return (
 		<VStack gap="space-6">
@@ -206,31 +257,44 @@ export default function Import() {
 					</VStack>
 
 					<VStack gap="space-4">
-						<Heading size="medium" level="3">
-							Kontroller (forhåndsvisning)
-						</Heading>
+						<HStack gap="space-6" align="center" justify="space-between">
+							<Heading size="medium" level="3">
+								Kontroller (forhåndsvisning)
+							</Heading>
+							<Switch size="small" checked={showAllColumns} onChange={() => setShowAllColumns((v) => !v)}>
+								Vis alle kolonner
+							</Switch>
+						</HStack>
 						{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 						<section className="table-scroll" tabIndex={0} aria-label="Kontroller forhåndsvisning">
-							<Table>
+							<Table
+								size="small"
+								sort={sort}
+								onSortChange={(sortKey) =>
+									setSort((prev) =>
+										prev?.orderBy === sortKey && prev.direction === "ascending"
+											? { orderBy: sortKey, direction: "descending" }
+											: { orderBy: sortKey, direction: "ascending" },
+									)
+								}
+							>
 								<Table.Header>
 									<Table.Row>
-										<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
-										<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
-										<Table.HeaderCell scope="col">Risiko-ID</Table.HeaderCell>
-										<Table.HeaderCell scope="col">Krav</Table.HeaderCell>
-										<Table.HeaderCell scope="col">Ansvarlig</Table.HeaderCell>
-										<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
+										{visibleColumns.map((col) => (
+											<Table.ColumnHeader key={col.key} sortKey={col.key} sortable>
+												{col.label}
+											</Table.ColumnHeader>
+										))}
 									</Table.Row>
 								</Table.Header>
 								<Table.Body>
-									{actionData.summary.controls.map((control) => (
+									{sortedControls.map((control) => (
 										<Table.Row key={control.controlId}>
-											<Table.DataCell>{control.controlId}</Table.DataCell>
-											<Table.DataCell>{control.domain}</Table.DataCell>
-											<Table.DataCell>{control.riskId}</Table.DataCell>
-											<Table.DataCell>{control.requirement ?? "–"}</Table.DataCell>
-											<Table.DataCell>{control.responsible ?? "–"}</Table.DataCell>
-											<Table.DataCell>{control.frequency ?? "–"}</Table.DataCell>
+											{visibleColumns.map((col) => (
+												<Table.DataCell key={col.key}>
+													{control[col.key as keyof SerializedControl] ?? "–"}
+												</Table.DataCell>
+											))}
 										</Table.Row>
 									))}
 								</Table.Body>
