@@ -8,7 +8,6 @@ import {
 	Heading,
 	HStack,
 	Label,
-	ReadMore,
 	Table,
 	Tag,
 	VStack,
@@ -266,7 +265,7 @@ export default function ApplikasjonDetalj() {
 					<Heading size="medium" level="3" spacing>
 						Autentisering og autorisasjon
 					</Heading>
-					<HStack gap="space-4" wrap>
+					<HStack gap="space-4" wrap align="start">
 						{authIntegrations.map((auth) => {
 							const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
 							const groups = auth.groups ? (JSON.parse(auth.groups) as string[]) : null
@@ -291,55 +290,57 @@ export default function ApplikasjonDetalj() {
 										</HStack>
 
 										{auth.type === "entra_id" && (
-											<VStack gap="space-2">
-												{auth.allowAllUsers !== null && (
-													<HStack gap="space-2" align="center">
-														<BodyShort size="small" weight="semibold">
-															Tilgang:
-														</BodyShort>
-														<Tag variant={auth.allowAllUsers ? "warning" : "info"} size="xsmall">
-															{auth.allowAllUsers ? "Alle brukere" : "Gruppebasert"}
-														</Tag>
-													</HStack>
-												)}
-												{claimsExtra && claimsExtra.length > 0 && (
-													<HStack gap="space-2" align="center">
-														<BodyShort size="small" weight="semibold">
-															Claims:
-														</BodyShort>
-														<HStack gap="space-1" wrap>
-															{claimsExtra.map((claim) => (
-																<Tag key={claim} variant="neutral" size="xsmall">
-																	{claim}
-																</Tag>
-															))}
+											<VStack gap="space-4">
+												<HStack gap="space-4" wrap>
+													{auth.allowAllUsers !== null && (
+														<HStack gap="space-2" align="center">
+															<BodyShort size="small" weight="semibold">
+																Tilgang:
+															</BodyShort>
+															<Tag variant={auth.allowAllUsers ? "warning" : "info"} size="xsmall">
+																{auth.allowAllUsers ? "Alle brukere" : "Gruppebasert"}
+															</Tag>
 														</HStack>
-													</HStack>
-												)}
+													)}
+													{claimsExtra && claimsExtra.length > 0 && (
+														<HStack gap="space-2" align="center">
+															<BodyShort size="small" weight="semibold">
+																Claims:
+															</BodyShort>
+															<HStack gap="space-1" wrap>
+																{claimsExtra.map((claim) => (
+																	<Tag key={claim} variant="neutral" size="xsmall">
+																		{claim}
+																	</Tag>
+																))}
+															</HStack>
+														</HStack>
+													)}
+												</HStack>
 												{groups && groups.length > 0 && (
-													<ReadMore
-														header={`${groups.length} påkrevde gruppe${groups.length === 1 ? "" : "r"}`}
-														size="small"
-													>
-														<VStack gap="space-1" style={{ marginTop: "var(--a-spacing-2)" }}>
-															{groups.map((groupId) => (
-																<HStack key={groupId} gap="space-1" align="center">
-																	<code
-																		style={{
-																			fontSize: "var(--a-font-size-small)",
-																			background: "var(--a-surface-default)",
-																			padding: "2px 6px",
-																			borderRadius: "var(--a-border-radius-medium)",
-																			border: "1px solid var(--a-border-subtle)",
-																		}}
-																	>
-																		{groupId}
-																	</code>
-																	<CopyButton copyText={groupId} size="xsmall" />
-																</HStack>
-															))}
-														</VStack>
-													</ReadMore>
+													<VStack gap="space-2">
+														<BodyShort size="small" weight="semibold">
+															Påkrevde grupper ({groups.length})
+														</BodyShort>
+														<BodyShort size="small" textColor="subtle">
+															Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha
+															ytterligere tilgangskontroll.
+														</BodyShort>
+														<Table size="small">
+															<Table.Body>
+																{groups.map((groupId) => (
+																	<Table.Row key={groupId}>
+																		<Table.DataCell>
+																			<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{groupId}</code>
+																		</Table.DataCell>
+																		<Table.DataCell style={{ width: "1px" }}>
+																			<CopyButton copyText={groupId} size="xsmall" />
+																		</Table.DataCell>
+																	</Table.Row>
+																))}
+															</Table.Body>
+														</Table>
+													</VStack>
 												)}
 											</VStack>
 										)}
