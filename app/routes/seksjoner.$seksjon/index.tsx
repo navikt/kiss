@@ -131,7 +131,7 @@ export default function SeksjonDashboard() {
 									<span>{team.implemented} implementert</span>
 									<span>{team.partial} delvis</span>
 									<span>{team.notImplemented} mangler</span>
-									<span>{team.apps} apper</span>
+									<span>{team.apps} applikasjoner</span>
 								</div>
 							</div>
 						</Link>
