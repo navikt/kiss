@@ -1,4 +1,18 @@
-import { Alert, BodyLong, Box, Button, Heading, HStack, Label, Table, Tag, VStack } from "@navikt/ds-react"
+import {
+	Alert,
+	BodyLong,
+	BodyShort,
+	Box,
+	Button,
+	CopyButton,
+	Heading,
+	HStack,
+	Label,
+	ReadMore,
+	Table,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
@@ -252,63 +266,88 @@ export default function ApplikasjonDetalj() {
 					<Heading size="medium" level="3" spacing>
 						Autentisering og autorisasjon
 					</Heading>
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Integrasjon</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{authIntegrations.map((auth) => {
-								const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
-								const groups = auth.groups ? (JSON.parse(auth.groups) as string[]) : null
-								return (
-									<Table.Row key={auth.id}>
-										<Table.DataCell>
-											<Tag variant={authVariants[auth.type] ?? "neutral"} size="xsmall">
+					<HStack gap="space-4" wrap>
+						{authIntegrations.map((auth) => {
+							const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
+							const groups = auth.groups ? (JSON.parse(auth.groups) as string[]) : null
+							return (
+								<Box
+									key={auth.id}
+									padding="space-4"
+									borderRadius="8"
+									borderColor="neutral-subtle"
+									borderWidth="1"
+									background="sunken"
+									style={{ flex: "1 1 280px", maxWidth: "420px" }}
+								>
+									<VStack gap="space-4">
+										<HStack gap="space-2" align="center" justify="space-between">
+											<Tag variant={authVariants[auth.type] ?? "neutral"} size="small">
 												{authLabels[auth.type] ?? auth.type}
 											</Tag>
-										</Table.DataCell>
-										<Table.DataCell>
 											<Tag variant="success" size="xsmall">
 												Aktivert
 											</Tag>
-										</Table.DataCell>
-										<Table.DataCell>
+										</HStack>
+
+										{auth.type === "entra_id" && (
 											<VStack gap="space-2">
-												<HStack gap="space-2" wrap>
-													{auth.type === "entra_id" && auth.allowAllUsers !== null && (
+												{auth.allowAllUsers !== null && (
+													<HStack gap="space-2" align="center">
+														<BodyShort size="small" weight="semibold">
+															Tilgang:
+														</BodyShort>
 														<Tag variant={auth.allowAllUsers ? "warning" : "info"} size="xsmall">
-															{auth.allowAllUsers ? "Alle brukere" : "Gruppebasert tilgang"}
+															{auth.allowAllUsers ? "Alle brukere" : "Gruppebasert"}
 														</Tag>
-													)}
-													{claimsExtra?.map((claim) => (
-														<Tag key={claim} variant="neutral" size="xsmall">
-															claim: {claim}
-														</Tag>
-													))}
-												</HStack>
-												{groups && groups.length > 0 && (
-													<VStack gap="space-1">
-														<Label size="small">Påkrevde grupper ({groups.length})</Label>
-														<HStack gap="space-2" wrap>
-															{groups.map((groupId) => (
-																<Tag key={groupId} variant="neutral" size="xsmall">
-																	{groupId}
+													</HStack>
+												)}
+												{claimsExtra && claimsExtra.length > 0 && (
+													<HStack gap="space-2" align="center">
+														<BodyShort size="small" weight="semibold">
+															Claims:
+														</BodyShort>
+														<HStack gap="space-1" wrap>
+															{claimsExtra.map((claim) => (
+																<Tag key={claim} variant="neutral" size="xsmall">
+																	{claim}
 																</Tag>
 															))}
 														</HStack>
-													</VStack>
+													</HStack>
+												)}
+												{groups && groups.length > 0 && (
+													<ReadMore
+														header={`${groups.length} påkrevde gruppe${groups.length === 1 ? "" : "r"}`}
+														size="small"
+													>
+														<VStack gap="space-1" style={{ marginTop: "var(--a-spacing-2)" }}>
+															{groups.map((groupId) => (
+																<HStack key={groupId} gap="space-1" align="center">
+																	<code
+																		style={{
+																			fontSize: "var(--a-font-size-small)",
+																			background: "var(--a-surface-default)",
+																			padding: "2px 6px",
+																			borderRadius: "var(--a-border-radius-medium)",
+																			border: "1px solid var(--a-border-subtle)",
+																		}}
+																	>
+																		{groupId}
+																	</code>
+																	<CopyButton copyText={groupId} size="xsmall" />
+																</HStack>
+															))}
+														</VStack>
+													</ReadMore>
 												)}
 											</VStack>
-										</Table.DataCell>
-									</Table.Row>
-								)
-							})}
-						</Table.Body>
-					</Table>
+										)}
+									</VStack>
+								</Box>
+							)
+						})}
+					</HStack>
 				</Box>
 			)}
 
