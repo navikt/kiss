@@ -2,12 +2,14 @@ import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	applicationEnvironments,
+	applicationPersistence,
 	applicationTeamMappings,
 	monitoredApplications,
 	naisTeams,
+	type PersistenceType,
 	sectionIgnoredApplications,
 } from "../schema/applications"
-import { sections } from "../schema/organization"
+import { devTeams, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
 /** Get all Nais teams. */
@@ -263,4 +265,113 @@ export async function unignoreAppForSection(sectionId: string, applicationId: st
 		metadata: { sectionId },
 		performedBy,
 	})
+}
+
+/** Upsert a persistence resource for an application. */
+export async function upsertAppPersistence(
+	applicationId: string,
+	type: PersistenceType,
+	name: string,
+	opts?: { version?: string | null; tier?: string | null; highAvailability?: boolean | null },
+): Promise<boolean> {
+	const [existing] = await db
+		.select()
+		.from(applicationPersistence)
+		.where(
+			and(
+				eq(applicationPersistence.applicationId, applicationId),
+				eq(applicationPersistence.type, type),
+				eq(applicationPersistence.name, name),
+			),
+		)
+		.limit(1)
+
+	if (existing) {
+		await db
+			.update(applicationPersistence)
+			.set({
+				version: opts?.version ?? existing.version,
+				tier: opts?.tier ?? existing.tier,
+				highAvailability: opts?.highAvailability ?? existing.highAvailability,
+				updatedAt: new Date(),
+			})
+			.where(eq(applicationPersistence.id, existing.id))
+		return false
+	}
+
+	await db.insert(applicationPersistence).values({
+		applicationId,
+		type,
+		name,
+		version: opts?.version ?? null,
+		tier: opts?.tier ?? null,
+		highAvailability: opts?.highAvailability ?? null,
+	})
+	return true
+}
+
+/** Get persistence resources for an application. */
+export async function getAppPersistence(applicationId: string) {
+	return db
+		.select()
+		.from(applicationPersistence)
+		.where(eq(applicationPersistence.applicationId, applicationId))
+		.orderBy(applicationPersistence.type, applicationPersistence.name)
+}
+
+/** Get persistence resources for multiple applications (batch). */
+export async function getAppsPersistence(applicationIds: string[]) {
+	if (applicationIds.length === 0) return new Map<string, (typeof applicationPersistence.$inferSelect)[]>()
+
+	const rows = await db
+		.select()
+		.from(applicationPersistence)
+		.where(
+			sql`${applicationPersistence.applicationId} IN (${sql.join(
+				applicationIds.map((id) => sql`${id}`),
+				sql`, `,
+			)})`,
+		)
+		.orderBy(applicationPersistence.type, applicationPersistence.name)
+
+	const map = new Map<string, (typeof applicationPersistence.$inferSelect)[]>()
+	for (const row of rows) {
+		const list = map.get(row.applicationId) ?? []
+		list.push(row)
+		map.set(row.applicationId, list)
+	}
+	return map
+}
+
+/** Get application detail with environments and persistence. */
+export async function getApplicationDetail(applicationId: string) {
+	const [app] = await db
+		.select()
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+	if (!app) return null
+
+	const environments = await db
+		.select({
+			id: applicationEnvironments.id,
+			cluster: applicationEnvironments.cluster,
+			namespace: applicationEnvironments.namespace,
+			naisTeamSlug: naisTeams.slug,
+			discoveredAt: applicationEnvironments.discoveredAt,
+		})
+		.from(applicationEnvironments)
+		.leftJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+		.where(eq(applicationEnvironments.applicationId, applicationId))
+		.orderBy(applicationEnvironments.cluster)
+
+	const persistence = await getAppPersistence(applicationId)
+
+	const teamMappings = await db
+		.select({ teamId: devTeams.id, teamName: devTeams.name, teamSlug: devTeams.slug })
+		.from(applicationTeamMappings)
+		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+		.where(eq(applicationTeamMappings.applicationId, applicationId))
+
+	return { app, environments, persistence, teams: teamMappings }
 }

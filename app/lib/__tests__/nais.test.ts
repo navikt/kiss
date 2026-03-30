@@ -143,6 +143,11 @@ describe("fetchNaisApps", () => {
 			{
 				name: "my-app",
 				teamEnvironment: { environment: { name: "prod-gcp" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
 			},
 		]
 		vi.stubGlobal(
@@ -153,7 +158,7 @@ describe("fetchNaisApps", () => {
 		)
 
 		const result = await fetchNaisApps("token", "my-team")
-		expect(result).toEqual([{ name: "my-app", namespace: "my-team", cluster: "prod-gcp" }])
+		expect(result).toEqual([{ name: "my-app", namespace: "my-team", cluster: "prod-gcp", persistence: [] }])
 	})
 
 	it("throws on GraphQL errors", async () => {
@@ -165,5 +170,41 @@ describe("fetchNaisApps", () => {
 		)
 
 		await expect(fetchNaisApps("token", "bad-team")).rejects.toThrow("Nais GraphQL errors: Team not found")
+	})
+
+	it("extracts persistence resources from the response", async () => {
+		const nodes = [
+			{
+				name: "my-app",
+				teamEnvironment: { environment: { name: "prod-gcp" } },
+				sqlInstances: {
+					nodes: [{ name: "my-db", version: "POSTGRES_16", tier: "db-f1-micro", highAvailability: false }],
+				},
+				postgresInstances: { nodes: [] },
+				openSearch: { name: "my-search" },
+				buckets: { nodes: [{ name: "my-bucket" }] },
+				valkeys: { nodes: [{ name: "my-cache" }] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		expect(result[0].persistence).toEqual([
+			{
+				type: "cloud_sql_postgres",
+				name: "my-db",
+				version: "POSTGRES_16",
+				tier: "db-f1-micro",
+				highAvailability: false,
+			},
+			{ type: "opensearch", name: "my-search" },
+			{ type: "bucket", name: "my-bucket" },
+			{ type: "valkey", name: "my-cache" },
+		])
 	})
 })

@@ -22,6 +22,7 @@ export const auditLogActionEnum = [
 	"report_generated",
 	"section_app_ignored",
 	"section_app_unignored",
+	"nais_persistence_synced",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

@@ -50,6 +50,32 @@ export const applicationTeamMappings = pgTable("application_team_mappings", {
 	createdBy: text("created_by").notNull(),
 })
 
+export const persistenceTypeEnum = [
+	"cloud_sql_postgres",
+	"nais_postgres",
+	"opensearch",
+	"bucket",
+	"valkey",
+	"oracle",
+	"other",
+] as const
+export type PersistenceType = (typeof persistenceTypeEnum)[number]
+
+export const applicationPersistence = pgTable("application_persistence", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	applicationId: uuid("application_id")
+		.notNull()
+		.references(() => monitoredApplications.id),
+	type: text("type", { enum: persistenceTypeEnum }).notNull(),
+	name: text("name").notNull(),
+	version: text("version"),
+	tier: text("tier"),
+	highAvailability: boolean("high_availability"),
+	extra: text("extra"),
+	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const sectionIgnoredApplications = pgTable("section_ignored_applications", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	sectionId: uuid("section_id")

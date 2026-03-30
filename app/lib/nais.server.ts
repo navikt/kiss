@@ -6,6 +6,14 @@ export interface NaisTeam {
 	purpose?: string
 }
 
+export interface NaisPersistenceResource {
+	type: "cloud_sql_postgres" | "nais_postgres" | "opensearch" | "bucket" | "valkey"
+	name: string
+	version?: string
+	tier?: string
+	highAvailability?: boolean
+}
+
 export interface NaisApp {
 	name: string
 	namespace: string
@@ -15,6 +23,7 @@ export interface NaisApp {
 		timestamp: string
 		deployer: string
 	}
+	persistence: NaisPersistenceResource[]
 }
 
 interface PageInfo {
@@ -119,6 +128,34 @@ const APPS_QUERY = `
 							name
 						}
 					}
+					sqlInstances {
+						nodes {
+							name
+							version
+							tier
+							highAvailability
+						}
+					}
+					postgresInstances {
+						nodes {
+							name
+							majorVersion
+							highAvailability
+						}
+					}
+					openSearch {
+						name
+					}
+					buckets {
+						nodes {
+							name
+						}
+					}
+					valkeys {
+						nodes {
+							name
+						}
+					}
 				}
 			}
 		}
@@ -136,6 +173,28 @@ interface AppsResponse {
 						name: string
 					}
 				}
+				sqlInstances: {
+					nodes: Array<{
+						name: string
+						version: string
+						tier: string
+						highAvailability: boolean
+					}>
+				}
+				postgresInstances: {
+					nodes: Array<{
+						name: string
+						majorVersion: string
+						highAvailability: boolean
+					}>
+				}
+				openSearch: { name: string } | null
+				buckets: {
+					nodes: Array<{ name: string }>
+				}
+				valkeys: {
+					nodes: Array<{ name: string }>
+				}
 			}>
 		}
 	}
@@ -152,10 +211,53 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 
 		const result = await naisGraphQL<AppsResponse>(APPS_QUERY, variables, token)
 		for (const node of result.team.applications.nodes) {
+			const persistence: NaisPersistenceResource[] = []
+
+			for (const sql of node.sqlInstances.nodes) {
+				persistence.push({
+					type: "cloud_sql_postgres",
+					name: sql.name,
+					version: sql.version,
+					tier: sql.tier,
+					highAvailability: sql.highAvailability,
+				})
+			}
+
+			for (const pg of node.postgresInstances.nodes) {
+				persistence.push({
+					type: "nais_postgres",
+					name: pg.name,
+					version: pg.majorVersion,
+					highAvailability: pg.highAvailability,
+				})
+			}
+
+			if (node.openSearch) {
+				persistence.push({
+					type: "opensearch",
+					name: node.openSearch.name,
+				})
+			}
+
+			for (const bucket of node.buckets.nodes) {
+				persistence.push({
+					type: "bucket",
+					name: bucket.name,
+				})
+			}
+
+			for (const valkey of node.valkeys.nodes) {
+				persistence.push({
+					type: "valkey",
+					name: valkey.name,
+				})
+			}
+
 			allApps.push({
 				name: node.name,
 				namespace: teamSlug,
 				cluster: node.teamEnvironment.environment.name,
+				persistence,
 			})
 		}
 

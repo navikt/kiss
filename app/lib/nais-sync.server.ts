@@ -1,4 +1,9 @@
-import { upsertAppEnvironment, upsertMonitoredApp, upsertNaisTeam } from "~/db/queries/nais.server"
+import {
+	upsertAppEnvironment,
+	upsertAppPersistence,
+	upsertMonitoredApp,
+	upsertNaisTeam,
+} from "~/db/queries/nais.server"
 import { withAdvisoryLock } from "./lock.server"
 import { fetchNaisApps, fetchNaisTeams } from "./nais.server"
 
@@ -42,6 +47,7 @@ export async function syncNaisAppsForTeam(
 		const apps = await fetchNaisApps(token, teamSlug)
 		let newApps = 0
 		let newEnvs = 0
+		let newPersistence = 0
 
 		for (const app of apps) {
 			const { id: appId, isNew } = await upsertMonitoredApp(app.name, SYNC_PERFORMER)
@@ -49,9 +55,20 @@ export async function syncNaisAppsForTeam(
 
 			const envIsNew = await upsertAppEnvironment(appId, app.cluster, app.namespace, naisTeamId)
 			if (envIsNew) newEnvs++
+
+			for (const res of app.persistence) {
+				const isNewRes = await upsertAppPersistence(appId, res.type, res.name, {
+					version: res.version,
+					tier: res.tier,
+					highAvailability: res.highAvailability,
+				})
+				if (isNewRes) newPersistence++
+			}
 		}
 
-		console.log(`[nais-sync] Apps for ${teamSlug}: ${apps.length} discovered, ${newApps} new apps, ${newEnvs} new envs`)
+		console.log(
+			`[nais-sync] Apps for ${teamSlug}: ${apps.length} discovered, ${newApps} new apps, ${newEnvs} new envs, ${newPersistence} new persistence`,
+		)
 		return { discovered: apps.length, new: newApps, skipped: apps.length - newApps }
 	})
 }

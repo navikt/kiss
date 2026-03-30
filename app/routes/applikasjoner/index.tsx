@@ -3,12 +3,25 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllTeams, getApplications, linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
+import { getAppsPersistence } from "~/db/queries/nais.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { compliancePercent } from "~/lib/utils"
 
+const persistenceLabels: Record<string, string> = {
+	cloud_sql_postgres: "PostgreSQL",
+	nais_postgres: "Postgres",
+	opensearch: "OpenSearch",
+	bucket: "Bucket",
+	valkey: "Valkey",
+	oracle: "Oracle",
+	other: "Annet",
+}
+
 export async function loader(_args: LoaderFunctionArgs) {
 	const [apps, allTeams] = await Promise.all([getApplications(), getAllTeams()])
-	return data({ apps, allTeams })
+	const appIds = apps.map((a) => a.id)
+	const persistenceMap = await getAppsPersistence(appIds)
+	return data({ apps, allTeams, persistenceMap: Object.fromEntries(persistenceMap) })
 }
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
@@ -48,7 +61,7 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function Applikasjoner() {
-	const { apps, allTeams } = useLoaderData<typeof loader>()
+	const { apps, allTeams, persistenceMap } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
 	return (
@@ -72,6 +85,7 @@ export default function Applikasjoner() {
 						<Table.Row>
 							<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Team</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Persistens</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Implementert</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Delvis</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Compliance</Table.HeaderCell>
@@ -83,9 +97,14 @@ export default function Applikasjoner() {
 							const pct = compliancePercent(app.controlsImplemented, app.controlsPartial, app.controlsTotal)
 							const linkedTeamSlugs = app.teams
 							const availableTeams = allTeams.filter((t) => !linkedTeamSlugs.includes(t.slug))
+							const appPersistence = persistenceMap[app.id] ?? []
+							// Deduplicate persistence types for compact display
+							const uniqueTypes = [...new Set(appPersistence.map((p: { type: string }) => p.type))]
 							return (
 								<Table.Row key={app.id}>
-									<Table.DataCell>{app.name}</Table.DataCell>
+									<Table.DataCell>
+										<Link to={`/applikasjoner/${app.id}/detaljer`}>{app.name}</Link>
+									</Table.DataCell>
 									<Table.DataCell>
 										<HStack gap="space-2" wrap>
 											{app.teams.map((teamSlug) => {
@@ -109,6 +128,17 @@ export default function Applikasjoner() {
 												)
 											})}
 											{app.teams.length === 0 && "–"}
+										</HStack>
+									</Table.DataCell>
+									<Table.DataCell>
+										<HStack gap="space-1" wrap>
+											{uniqueTypes.length > 0
+												? uniqueTypes.map((type: string) => (
+														<Tag key={type} variant="neutral" size="xsmall">
+															{persistenceLabels[type] ?? type}
+														</Tag>
+													))
+												: "–"}
 										</HStack>
 									</Table.DataCell>
 									<Table.DataCell>
