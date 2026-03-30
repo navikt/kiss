@@ -9,6 +9,7 @@ export default [
 	route("import", "routes/import/index.tsx"),
 	route("seksjoner", "routes/seksjoner/index.tsx"),
 	route("seksjoner/:seksjon", "routes/seksjoner.$seksjon/index.tsx"),
+	route("seksjoner/:seksjon/nais-team", "routes/seksjoner.$seksjon.nais-team/index.tsx"),
 	route("seksjoner/:seksjon/team/:team", "routes/seksjoner.$seksjon.team.$team/index.tsx"),
 	route("applikasjoner", "routes/applikasjoner/index.tsx"),
 	route("applikasjoner/:appId/compliance", "routes/applikasjoner.$appId.compliance/index.tsx"),

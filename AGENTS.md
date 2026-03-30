@@ -138,6 +138,8 @@ React Router 7 fjerner `.server`-imports kun fra `loader`/`action`/`middleware`/
    - Bruk `<Table>` med kolonner: Tidspunkt, Handling, Detaljer, Utført av
 7. **Database-seeding (`pnpm db:seed`) skal ALDRI kjøres automatisk** – verken i `dev:setup`, CI/CD, eller av AI-agenter i autopilot-modus. Seeding skal kun utføres når brukeren eksplisitt ber om det.
 8. **E2e-tester som oppretter data i databasen SKAL alltid rydde opp etter seg.** Tester som oppretter seksjoner, team, applikasjoner osv. via UI skal slette dem igjen i samme test. Testdata som ligger igjen forurenser utviklingsdatabasen.
+9. **`db:push` skal ALDRI kjøres automatisk mot utviklingsdatabasen av AI-agenter.** Schema-endringer mot lokal database krever eksplisitt godkjenning fra brukeren. Integrasjonstester med Testcontainers bruker sin egen database og er unntatt fra denne regelen.
+10. **AI-agenter skal ALDRI kjøre e2e-tester mot utviklingsdatabasen uten eksplisitt godkjenning.** E2e-tester kjører mot den lokale databasen og kan forurense den med testdata. Bruk unit-tester og integrasjonstester (Testcontainers) for validering.
 
 ### Kontroll-ID-formater
 - Nav MKR: `K-XX.NN` (f.eks. `K-ST.01`, `K-TS.03`)
