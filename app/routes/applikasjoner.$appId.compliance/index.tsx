@@ -1,6 +1,6 @@
-import { BodyLong, Button, Detail, Heading, Label, Select, Textarea, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Detail, Heading, Label, Select, Textarea, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, useActionData, useLoaderData } from "react-router"
+import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { ComplianceComment, ComplianceStatusBadge, statusLabels } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -14,7 +14,14 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const result = await getAppAssessments(appId)
 	if (!result) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
-	return data({ appId, appName: result.app.name, assessments: result.assessments })
+	return data({
+		appId,
+		appName: result.app.name,
+		assessments: result.assessments,
+		isInherited: result.isInherited,
+		primaryName: result.primaryName,
+		primaryId: result.app.primaryApplicationId,
+	})
 }
 
 const validStatuses: ComplianceStatusValue[] = [
@@ -53,7 +60,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function ComplianceAssessment() {
-	const { appName, assessments } = useLoaderData<typeof loader>()
+	const { appName, assessments, isInherited, primaryName, primaryId } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
 	return (
@@ -61,6 +68,14 @@ export default function ComplianceAssessment() {
 			<Heading size="xlarge" level="2">
 				Compliance-vurdering: {appName}
 			</Heading>
+
+			{isInherited && primaryId && (
+				<Alert variant="info" size="small">
+					Compliance-vurderingene for denne applikasjonen arves fra primærapplikasjonen{" "}
+					<Link to={`/applikasjoner/${primaryId}/compliance`}>{primaryName}</Link>. Endringer må gjøres på
+					primærapplikasjonen.
+				</Alert>
+			)}
 
 			{actionData?.success && (
 				<div className="compliance-success" role="status">

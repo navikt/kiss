@@ -104,6 +104,11 @@ export default function Applikasjoner() {
 								<Table.Row key={app.id}>
 									<Table.DataCell>
 										<Link to={`/applikasjoner/${app.id}/detaljer`}>{app.name}</Link>
+										{app.primaryApplicationId && (
+											<Tag variant="alt1" size="xsmall" style={{ marginLeft: "var(--ax-space-2)" }}>
+												Lenket
+											</Tag>
+										)}
 									</Table.DataCell>
 									<Table.DataCell>
 										<HStack gap="space-2" wrap>

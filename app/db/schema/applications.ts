@@ -21,6 +21,7 @@ export const monitoredApplications = pgTable("monitored_applications", {
 	name: text("name").notNull(),
 	description: text("description"),
 	addedManually: boolean("added_manually").notNull().default(false),
+	primaryApplicationId: uuid("primary_application_id"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -34,6 +35,7 @@ export const applicationEnvironments = pgTable("application_environments", {
 		.references(() => monitoredApplications.id),
 	cluster: text("cluster").notNull(),
 	namespace: text("namespace").notNull(),
+	imageName: text("image_name"),
 	naisTeamId: uuid("nais_team_id").references(() => naisTeams.id),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 })

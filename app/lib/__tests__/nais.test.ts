@@ -142,6 +142,7 @@ describe("fetchNaisApps", () => {
 		const nodes = [
 			{
 				name: "my-app",
+				image: { name: "my-registry/my-app" },
 				teamEnvironment: { environment: { name: "prod-gcp" } },
 				sqlInstances: { nodes: [] },
 				postgresInstances: { nodes: [] },
@@ -158,7 +159,9 @@ describe("fetchNaisApps", () => {
 		)
 
 		const result = await fetchNaisApps("token", "my-team")
-		expect(result).toEqual([{ name: "my-app", namespace: "my-team", cluster: "prod-gcp", persistence: [] }])
+		expect(result).toEqual([
+			{ name: "my-app", namespace: "my-team", cluster: "prod-gcp", image: "my-registry/my-app", persistence: [] },
+		])
 	})
 
 	it("throws on GraphQL errors", async () => {
@@ -176,6 +179,7 @@ describe("fetchNaisApps", () => {
 		const nodes = [
 			{
 				name: "my-app",
+				image: null,
 				teamEnvironment: { environment: { name: "prod-gcp" } },
 				sqlInstances: {
 					nodes: [
@@ -224,6 +228,7 @@ describe("fetchNaisApps", () => {
 		const nodes = [
 			{
 				name: "audit-app",
+				image: null,
 				teamEnvironment: { environment: { name: "prod-gcp" } },
 				sqlInstances: {
 					nodes: [

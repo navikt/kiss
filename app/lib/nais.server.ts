@@ -126,6 +126,9 @@ const APPS_QUERY = `
 				}
 				nodes {
 					name
+					image {
+						name
+					}
 					teamEnvironment {
 						environment {
 							name
@@ -180,6 +183,7 @@ interface AppsResponse {
 			pageInfo: PageInfo
 			nodes: Array<{
 				name: string
+				image: { name: string } | null
 				teamEnvironment: {
 					environment: {
 						name: string
@@ -283,6 +287,7 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 				name: node.name,
 				namespace: teamSlug,
 				cluster: node.teamEnvironment.environment.name,
+				image: node.image?.name,
 				persistence,
 			})
 		}

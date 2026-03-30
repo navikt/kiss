@@ -1,11 +1,11 @@
-import { BodyLong, Box, Heading, HStack, Label, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import { Alert, BodyLong, Box, Button, Heading, HStack, Label, Table, Tag, VStack } from "@navikt/ds-react"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
-import { getApplicationDetail } from "~/db/queries/nais.server"
+import { findLinkCandidates, getApplicationDetail, linkApplication, unlinkApplication } from "~/db/queries/nais.server"
 import { compliancePercent } from "~/lib/utils"
 
 const persistenceLabels: Record<string, string> = {
@@ -35,9 +35,18 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
-	const [detail, assessmentsResult] = await Promise.all([getApplicationDetail(appId), getAppAssessments(appId)])
+	const [detail, assessmentsResult, candidates] = await Promise.all([
+		getApplicationDetail(appId),
+		getAppAssessments(appId),
+		findLinkCandidates(),
+	])
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
+
+	// Find candidates that include this app
+	const relevantCandidates = candidates
+		.filter((c) => c.apps.some((a) => a.id === appId))
+		.flatMap((c) => c.apps.filter((a) => a.id !== appId && !a.alreadyLinked))
 
 	const assessments = assessmentsResult?.assessments ?? []
 	const totalControls = assessments.length
@@ -52,6 +61,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		environments: detail.environments,
 		persistence: detail.persistence,
 		teams: detail.teams,
+		primaryApp: detail.primaryApp,
+		linkedApps: detail.linkedApps,
+		linkSuggestions: relevantCandidates,
 		compliance: {
 			totalControls,
 			implemented,
@@ -65,8 +77,30 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	})
 }
 
+export async function action({ params, request }: ActionFunctionArgs) {
+	const appId = params.appId
+	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
+
+	const formData = await request.formData()
+	const intent = formData.get("intent") as string
+	const performer = "system"
+
+	if (intent === "link") {
+		const linkedId = formData.get("linkedId") as string
+		if (!linkedId) throw new Response("Mangler linkedId", { status: 400 })
+		await linkApplication(linkedId, appId, performer)
+	} else if (intent === "unlink") {
+		const unlinkId = formData.get("unlinkId") as string
+		if (!unlinkId) throw new Response("Mangler unlinkId", { status: 400 })
+		await unlinkApplication(unlinkId, performer)
+	}
+
+	return redirect(`/applikasjoner/${appId}/detaljer`)
+}
+
 export default function ApplikasjonDetalj() {
-	const { app, environments, persistence, teams, compliance, assessments } = useLoaderData<typeof loader>()
+	const { app, environments, persistence, teams, primaryApp, linkedApps, linkSuggestions, compliance, assessments } =
+		useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -76,6 +110,98 @@ export default function ApplikasjonDetalj() {
 				</Heading>
 				{app.description && <BodyLong>{app.description}</BodyLong>}
 			</div>
+
+			{/* Primary app notice */}
+			{primaryApp && (
+				<Alert variant="info" size="small">
+					Denne applikasjonen er lenket til primærapplikasjonen{" "}
+					<Link to={`/applikasjoner/${primaryApp.id}/detaljer`}>{primaryApp.name}</Link>. Compliance-vurderinger arves
+					fra primærapplikasjonen.
+				</Alert>
+			)}
+
+			{/* Linked applications */}
+			{linkedApps.length > 0 && (
+				<Box>
+					<Heading size="medium" level="3" spacing>
+						Lenkede applikasjoner
+					</Heading>
+					<BodyLong spacing>
+						Disse applikasjonene er testdeploymenter eller varianter som arver compliance-vurderinger fra denne
+						applikasjonen.
+					</BodyLong>
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+								<Table.HeaderCell scope="col" />
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{linkedApps.map((la) => (
+								<Table.Row key={la.id}>
+									<Table.DataCell>
+										<Link to={`/applikasjoner/${la.id}/detaljer`}>{la.name}</Link>
+									</Table.DataCell>
+									<Table.DataCell>
+										<Form method="post">
+											<input type="hidden" name="intent" value="unlink" />
+											<input type="hidden" name="unlinkId" value={la.id} />
+											<Button variant="tertiary-neutral" size="xsmall" type="submit">
+												Fjern kobling
+											</Button>
+										</Form>
+									</Table.DataCell>
+								</Table.Row>
+							))}
+						</Table.Body>
+					</Table>
+				</Box>
+			)}
+
+			{/* Link suggestions */}
+			{!primaryApp && linkSuggestions.length > 0 && (
+				<Box>
+					<Heading size="medium" level="3" spacing>
+						Foreslåtte koblinger
+					</Heading>
+					<BodyLong spacing>
+						Disse applikasjonene bruker samme Docker image og kan være testdeploymenter av denne applikasjonen.
+					</BodyLong>
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+								<Table.HeaderCell scope="col" />
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{linkSuggestions.map((s) => (
+								<Table.Row key={s.id}>
+									<Table.DataCell>
+										<Link to={`/applikasjoner/${s.id}/detaljer`}>{s.name}</Link>
+									</Table.DataCell>
+									<Table.DataCell>
+										<Tag variant={s.isProd ? "success" : "neutral"} size="xsmall">
+											{s.cluster}
+										</Tag>
+									</Table.DataCell>
+									<Table.DataCell>
+										<Form method="post">
+											<input type="hidden" name="intent" value="link" />
+											<input type="hidden" name="linkedId" value={s.id} />
+											<Button variant="tertiary" size="xsmall" type="submit">
+												Koble hit
+											</Button>
+										</Form>
+									</Table.DataCell>
+								</Table.Row>
+							))}
+						</Table.Body>
+					</Table>
+				</Box>
+			)}
 
 			{/* Teams */}
 			<Box>
@@ -107,6 +233,7 @@ export default function ApplikasjonDetalj() {
 								<Table.HeaderCell scope="col">Klynge</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Image</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
@@ -120,6 +247,11 @@ export default function ApplikasjonDetalj() {
 									</Table.DataCell>
 									<Table.DataCell>{env.namespace}</Table.DataCell>
 									<Table.DataCell>{env.naisTeamSlug ?? "–"}</Table.DataCell>
+									<Table.DataCell
+										style={{ wordBreak: "break-all", maxWidth: "300px", fontSize: "var(--ax-font-size-small)" }}
+									>
+										{env.imageName ?? "–"}
+									</Table.DataCell>
 									<Table.DataCell>{new Date(env.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
 								</Table.Row>
 							))}

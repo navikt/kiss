@@ -134,6 +134,7 @@ export async function upsertAppEnvironment(
 	cluster: string,
 	namespace: string,
 	naisTeamId: string | null,
+	imageName?: string | null,
 ): Promise<boolean> {
 	const [existing] = await db
 		.select()
@@ -144,9 +145,14 @@ export async function upsertAppEnvironment(
 				AND ${applicationEnvironments.namespace} = ${namespace}`,
 		)
 		.limit(1)
-	if (existing) return false
+	if (existing) {
+		if (imageName && imageName !== existing.imageName) {
+			await db.update(applicationEnvironments).set({ imageName }).where(eq(applicationEnvironments.id, existing.id))
+		}
+		return false
+	}
 
-	await db.insert(applicationEnvironments).values({ applicationId, cluster, namespace, naisTeamId })
+	await db.insert(applicationEnvironments).values({ applicationId, cluster, namespace, naisTeamId, imageName })
 	return true
 }
 
@@ -418,7 +424,7 @@ export async function getAppsPersistence(applicationIds: string[]) {
 	return map
 }
 
-/** Get application detail with environments and persistence. */
+/** Get application detail with environments, persistence, and linked apps. */
 export async function getApplicationDetail(applicationId: string) {
 	const [app] = await db
 		.select()
@@ -432,6 +438,7 @@ export async function getApplicationDetail(applicationId: string) {
 			id: applicationEnvironments.id,
 			cluster: applicationEnvironments.cluster,
 			namespace: applicationEnvironments.namespace,
+			imageName: applicationEnvironments.imageName,
 			naisTeamSlug: naisTeams.slug,
 			discoveredAt: applicationEnvironments.discoveredAt,
 		})
@@ -448,5 +455,141 @@ export async function getApplicationDetail(applicationId: string) {
 		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
 		.where(eq(applicationTeamMappings.applicationId, applicationId))
 
-	return { app, environments, persistence, teams: teamMappings }
+	// Get primary application if this is a linked app
+	let primaryApp: { id: string; name: string } | null = null
+	if (app.primaryApplicationId) {
+		const [primary] = await db
+			.select({ id: monitoredApplications.id, name: monitoredApplications.name })
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.id, app.primaryApplicationId))
+			.limit(1)
+		primaryApp = primary ?? null
+	}
+
+	// Get linked apps if this is a primary
+	const linkedApps = await db
+		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.primaryApplicationId, applicationId))
+		.orderBy(monitoredApplications.name)
+
+	return { app, environments, persistence, teams: teamMappings, primaryApp, linkedApps }
+}
+
+/** Link an application to a primary application. */
+export async function linkApplication(linkedId: string, primaryId: string, performedBy: string) {
+	const [linked] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, linkedId))
+		.limit(1)
+	const [primary] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, primaryId))
+		.limit(1)
+
+	await db
+		.update(monitoredApplications)
+		.set({ primaryApplicationId: primaryId, updatedBy: performedBy, updatedAt: new Date() })
+		.where(eq(monitoredApplications.id, linkedId))
+
+	await writeAuditLog({
+		action: "application_linked",
+		entityType: "monitored_application",
+		entityId: linkedId,
+		newValue: JSON.stringify({ primaryId, primaryName: primary?.name, linkedName: linked?.name }),
+		performedBy,
+	})
+}
+
+/** Unlink an application from its primary. */
+export async function unlinkApplication(applicationId: string, performedBy: string) {
+	const [app] = await db
+		.select({
+			name: monitoredApplications.name,
+			primaryApplicationId: monitoredApplications.primaryApplicationId,
+		})
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+
+	await db
+		.update(monitoredApplications)
+		.set({ primaryApplicationId: null, updatedBy: performedBy, updatedAt: new Date() })
+		.where(eq(monitoredApplications.id, applicationId))
+
+	await writeAuditLog({
+		action: "application_unlinked",
+		entityType: "monitored_application",
+		entityId: applicationId,
+		previousValue: JSON.stringify({
+			primaryId: app?.primaryApplicationId,
+			appName: app?.name,
+		}),
+		performedBy,
+	})
+}
+
+/** Find potential link candidates based on matching Docker images. */
+export async function findLinkCandidates() {
+	// Get all environments with image names
+	const envs = await db
+		.select({
+			appId: applicationEnvironments.applicationId,
+			appName: monitoredApplications.name,
+			imageName: applicationEnvironments.imageName,
+			cluster: applicationEnvironments.cluster,
+			primaryApplicationId: monitoredApplications.primaryApplicationId,
+		})
+		.from(applicationEnvironments)
+		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+		.where(sql`${applicationEnvironments.imageName} IS NOT NULL`)
+
+	// Group by image name
+	const imageGroups = new Map<string, Set<string>>()
+	const appInfo = new Map<string, { name: string; cluster: string; primaryApplicationId: string | null }>()
+
+	for (const env of envs) {
+		if (!env.imageName) continue
+		const group = imageGroups.get(env.imageName) ?? new Set()
+		group.add(env.appId)
+		imageGroups.set(env.imageName, group)
+		if (!appInfo.has(env.appId)) {
+			appInfo.set(env.appId, {
+				name: env.appName,
+				cluster: env.cluster,
+				primaryApplicationId: env.primaryApplicationId,
+			})
+		}
+	}
+
+	// Find groups with multiple apps that aren't already linked
+	const candidates: Array<{
+		imageName: string
+		apps: Array<{ id: string; name: string; cluster: string; isProd: boolean; alreadyLinked: boolean }>
+	}> = []
+
+	for (const [imageName, appIds] of imageGroups) {
+		if (appIds.size < 2) continue
+		const apps = [...appIds]
+			.map((id) => {
+				const info = appInfo.get(id)
+				if (!info) return null
+				return {
+					id,
+					name: info.name,
+					cluster: info.cluster,
+					isProd: info.cluster.startsWith("prod"),
+					alreadyLinked: info.primaryApplicationId !== null,
+				}
+			})
+			.filter((a) => a !== null)
+		// Skip if all are already linked
+		const unlinked = apps.filter((a) => !a.alreadyLinked)
+		if (unlinked.length < 2) continue
+		candidates.push({ imageName, apps: apps.sort((a, b) => (a.isProd === b.isProd ? 0 : a.isProd ? -1 : 1)) })
+	}
+
+	return candidates
 }

@@ -26,6 +26,8 @@ export async function getApplications() {
 			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
 			.where(eq(applicationTeamMappings.applicationId, app.id))
 
+		// Use primary's compliance if linked
+		const assessmentAppId = app.primaryApplicationId ?? app.id
 		let implemented = 0
 		let partial = 0
 
@@ -33,7 +35,7 @@ export async function getApplications() {
 			.select({ count: count() })
 			.from(complianceAssessments)
 			.where(
-				sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'implemented'`,
+				sql`${complianceAssessments.applicationId} = ${assessmentAppId} AND ${complianceAssessments.status} = 'implemented'`,
 			)
 		implemented = implRow?.count ?? 0
 
@@ -41,13 +43,14 @@ export async function getApplications() {
 			.select({ count: count() })
 			.from(complianceAssessments)
 			.where(
-				sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'partially_implemented'`,
+				sql`${complianceAssessments.applicationId} = ${assessmentAppId} AND ${complianceAssessments.status} = 'partially_implemented'`,
 			)
 		partial = partialRow?.count ?? 0
 
 		result.push({
 			id: app.id,
 			name: app.name,
+			primaryApplicationId: app.primaryApplicationId,
 			teams: teamMappings.map((t) => t.teamSlug),
 			controlsImplemented: implemented,
 			controlsPartial: partial,
@@ -139,6 +142,20 @@ export async function getAppAssessments(appId: string) {
 	const [app] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.id, appId)).limit(1)
 	if (!app) return null
 
+	// If this app is linked to a primary, use the primary's assessments
+	const assessmentAppId = app.primaryApplicationId ?? appId
+	const isInherited = app.primaryApplicationId !== null
+
+	let primaryName: string | null = null
+	if (isInherited && app.primaryApplicationId) {
+		const [primary] = await db
+			.select({ name: monitoredApplications.name })
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.id, app.primaryApplicationId))
+			.limit(1)
+		primaryName = primary?.name ?? null
+	}
+
 	const controls = await db
 		.select({
 			id: frameworkControls.id,
@@ -184,7 +201,9 @@ export async function getAppAssessments(appId: string) {
 		const [assessment] = await db
 			.select()
 			.from(complianceAssessments)
-			.where(sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.controlId} = ${ctrl.id}`)
+			.where(
+				sql`${complianceAssessments.applicationId} = ${assessmentAppId} AND ${complianceAssessments.controlId} = ${ctrl.id}`,
+			)
 			.limit(1)
 
 		const domain = domainMap.get(ctrl.domainId)
@@ -209,7 +228,7 @@ export async function getAppAssessments(appId: string) {
 		})
 	}
 
-	return { app, assessments }
+	return { app, assessments, isInherited, primaryName }
 }
 
 /** Save a compliance assessment (upsert). */
