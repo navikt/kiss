@@ -588,6 +588,33 @@ export async function activateFrameworkVersion(versionId: string, activatedBy: s
 		})
 		.where(eq(frameworkVersions.id, versionId))
 
+	// Migrate compliance assessments from old version's control UUIDs to new version's
+	if (currentActive) {
+		const oldControls = await db
+			.select({ id: frameworkControls.id, controlId: frameworkControls.controlId })
+			.from(frameworkControls)
+			.where(eq(frameworkControls.versionId, currentActive.id))
+
+		const newControls = await db
+			.select({ id: frameworkControls.id, controlId: frameworkControls.controlId })
+			.from(frameworkControls)
+			.where(eq(frameworkControls.versionId, versionId))
+
+		const newControlMap = new Map(newControls.map((c) => [c.controlId, c.id]))
+
+		for (const oldCtrl of oldControls) {
+			const newUuid = newControlMap.get(oldCtrl.controlId)
+			if (newUuid) {
+				await db
+					.update(complianceAssessments)
+					.set({ controlId: newUuid, frameworkVersionId: versionId })
+					.where(
+						sql`${complianceAssessments.controlId} = ${oldCtrl.id} AND ${complianceAssessments.frameworkVersionId} = ${currentActive.id}`,
+					)
+			}
+		}
+	}
+
 	await writeAuditLog({
 		action: "framework_activated",
 		entityType: "framework_version",
