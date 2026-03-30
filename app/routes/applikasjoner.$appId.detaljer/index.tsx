@@ -345,12 +345,14 @@ export default function ApplikasjonDetalj() {
 								<Table.Row>
 									<Table.HeaderCell scope="col">Integrasjon</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Login proxy</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
 								{authIntegrations.map((auth) => {
 									const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
+									const supportsProxy = auth.type === "entra_id" || auth.type === "id_porten"
 									return (
 										<Table.Row key={auth.id}>
 											<Table.DataCell>{authLabels[auth.type] ?? auth.type}</Table.DataCell>
@@ -358,6 +360,27 @@ export default function ApplikasjonDetalj() {
 												<Tag variant="success" size="xsmall">
 													Aktivert
 												</Tag>
+											</Table.DataCell>
+											<Table.DataCell>
+												{supportsProxy ? (
+													auth.sidecarEnabled ? (
+														<Tag variant="success" size="xsmall">
+															Aktivert
+														</Tag>
+													) : auth.sidecarEnabled === false ? (
+														<Tag variant="neutral" size="xsmall">
+															Ikke aktivert
+														</Tag>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															Ukjent
+														</BodyShort>
+													)
+												) : (
+													<BodyShort size="small" textColor="subtle">
+														—
+													</BodyShort>
+												)}
 											</Table.DataCell>
 											<Table.DataCell>
 												<HStack gap="space-4" wrap>

@@ -355,4 +355,113 @@ spec:
 		const result = await fetchNaisApps("token", "my-team")
 		expect(result[0].persistence).toEqual([{ type: "on_prem_postgres", name: "my-app-postgresql" }])
 	})
+
+	it("detects Entra ID login proxy (sidecar) from manifest", async () => {
+		const manifest = `apiVersion: nais.io/v1alpha1
+kind: Application
+spec:
+  azure:
+    application:
+      enabled: true
+      allowAllUsers: true
+    sidecar:
+      enabled: true`
+
+		const nodes = [
+			{
+				name: "sidecar-app",
+				image: null,
+				manifest: { content: manifest },
+				authIntegrations: [{ name: "Microsoft Entra ID" }],
+				teamEnvironment: { environment: { name: "prod-gcp" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		const entra = result[0].authIntegrations.find((a) => a.type === "entra_id")
+		expect(entra?.sidecarEnabled).toBe(true)
+		expect(entra?.allowAllUsers).toBe(true)
+	})
+
+	it("detects ID-porten login proxy (sidecar) from manifest", async () => {
+		const manifest = `apiVersion: nais.io/v1alpha1
+kind: Application
+spec:
+  idporten:
+    enabled: true
+    sidecar:
+      enabled: true`
+
+		const nodes = [
+			{
+				name: "idporten-app",
+				image: null,
+				manifest: { content: manifest },
+				authIntegrations: [{ name: "ID-porten" }],
+				teamEnvironment: { environment: { name: "prod-gcp" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		const idporten = result[0].authIntegrations.find((a) => a.type === "id_porten")
+		expect(idporten?.sidecarEnabled).toBe(true)
+	})
+
+	it("detects sidecar not enabled when explicitly false", async () => {
+		const manifest = `apiVersion: nais.io/v1alpha1
+kind: Application
+spec:
+  azure:
+    application:
+      enabled: true
+    sidecar:
+      enabled: false`
+
+		const nodes = [
+			{
+				name: "no-sidecar-app",
+				image: null,
+				manifest: { content: manifest },
+				authIntegrations: [{ name: "Microsoft Entra ID" }],
+				teamEnvironment: { environment: { name: "prod-gcp" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		const entra = result[0].authIntegrations.find((a) => a.type === "entra_id")
+		expect(entra?.sidecarEnabled).toBe(false)
+	})
 })

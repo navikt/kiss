@@ -74,6 +74,7 @@ export async function syncNaisAppsForTeam(
 					allowAllUsers: auth.allowAllUsers,
 					claimsExtra: auth.claimsExtra,
 					groups: auth.groups,
+					sidecarEnabled: auth.sidecarEnabled,
 				})
 			}
 		}

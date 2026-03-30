@@ -23,6 +23,7 @@ export interface NaisAuthIntegration {
 	allowAllUsers?: boolean
 	claimsExtra?: string[]
 	groups?: string[]
+	sidecarEnabled?: boolean
 }
 
 export interface NaisApp {
@@ -372,12 +373,19 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 							.filter(Boolean)
 					: undefined
 
+				// Detect login proxy (sidecar) for Entra ID
+				const azureSidecarMatch = manifestContent.match(
+					/azure:\s*\n(?:.*\n)*?\s*sidecar:\s*\n\s*enabled:\s*(true|false)/,
+				)
+				const azureSidecarEnabled = azureSidecarMatch ? azureSidecarMatch[1] === "true" : undefined
+
 				authIntegrations.push({
 					type: "entra_id",
 					enabled: true,
 					allowAllUsers: allowAllMatch ? allowAllMatch[1] === "true" : undefined,
 					claimsExtra: claimsExtra?.length ? claimsExtra : undefined,
 					groups: groups?.length ? groups : undefined,
+					sidecarEnabled: azureSidecarEnabled,
 				})
 			}
 
@@ -386,7 +394,17 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 			}
 
 			if (authNames.has("ID-porten") || manifestContent.includes("idporten:")) {
-				authIntegrations.push({ type: "id_porten", enabled: true })
+				// Detect login proxy (sidecar) for ID-porten
+				const idportenSidecarMatch = manifestContent.match(
+					/idporten:\s*\n(?:.*\n)*?\s*sidecar:\s*\n\s*enabled:\s*(true|false)/,
+				)
+				const idportenSidecarEnabled = idportenSidecarMatch ? idportenSidecarMatch[1] === "true" : undefined
+
+				authIntegrations.push({
+					type: "id_porten",
+					enabled: true,
+					sidecarEnabled: idportenSidecarEnabled,
+				})
 			}
 
 			if (authNames.has("Maskinporten")) {
