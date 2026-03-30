@@ -270,7 +270,6 @@ export default function ApplikasjonDetalj() {
 							<Table.Body>
 								{authIntegrations.map((auth) => {
 									const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
-									const groups = auth.groups ? (JSON.parse(auth.groups) as string[]) : null
 									return (
 										<Table.Row key={auth.id}>
 											<Table.DataCell>{authLabels[auth.type] ?? auth.type}</Table.DataCell>
@@ -304,12 +303,6 @@ export default function ApplikasjonDetalj() {
 																))}
 															</HStack>
 														</HStack>
-													)}
-													{auth.type === "entra_id" && groups && groups.length > 0 && (
-														<BodyShort size="small">
-															{groups.length} påkrevde gruppe
-															{groups.length === 1 ? "" : "r"}
-														</BodyShort>
 													)}
 												</HStack>
 											</Table.DataCell>
