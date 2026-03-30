@@ -143,6 +143,7 @@ describe("fetchNaisApps", () => {
 			{
 				name: "my-app",
 				image: { name: "my-registry/my-app" },
+				manifest: null,
 				teamEnvironment: { environment: { name: "prod-gcp" } },
 				sqlInstances: { nodes: [] },
 				postgresInstances: { nodes: [] },
@@ -180,6 +181,7 @@ describe("fetchNaisApps", () => {
 			{
 				name: "my-app",
 				image: null,
+				manifest: null,
 				teamEnvironment: { environment: { name: "prod-gcp" } },
 				sqlInstances: {
 					nodes: [
@@ -229,6 +231,7 @@ describe("fetchNaisApps", () => {
 			{
 				name: "audit-app",
 				image: null,
+				manifest: null,
 				teamEnvironment: { environment: { name: "prod-gcp" } },
 				sqlInstances: {
 					nodes: [
@@ -268,5 +271,43 @@ describe("fetchNaisApps", () => {
 			"cloudsql.enable_pgaudit": "on",
 			"pgaudit.log": "write,ddl,role",
 		})
+	})
+
+	it("detects Oracle databases from vault paths in manifest", async () => {
+		const manifest = `apiVersion: nais.io/v1alpha1
+kind: Application
+spec:
+  vault:
+    enabled: true
+    paths:
+    - kvPath: oracle/data/prod/creds/pen-user
+      mountPath: /secrets/oracle
+    - kvPath: oracle/data/prod/config/pen
+      mountPath: /secrets/oracle-config
+    - kvPath: serviceuser/data/prod/srvpen
+      mountPath: /secrets/srvpen`
+
+		const nodes = [
+			{
+				name: "oracle-app",
+				image: null,
+				manifest: { content: manifest },
+				teamEnvironment: { environment: { name: "prod-fss" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		expect(result[0].persistence).toEqual([{ type: "oracle", name: "pen" }])
 	})
 })

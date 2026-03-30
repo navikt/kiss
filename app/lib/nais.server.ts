@@ -7,7 +7,7 @@ export interface NaisTeam {
 }
 
 export interface NaisPersistenceResource {
-	type: "cloud_sql_postgres" | "nais_postgres" | "opensearch" | "bucket" | "valkey"
+	type: "cloud_sql_postgres" | "nais_postgres" | "opensearch" | "bucket" | "valkey" | "oracle"
 	name: string
 	version?: string
 	tier?: string
@@ -129,6 +129,9 @@ const APPS_QUERY = `
 					image {
 						name
 					}
+					manifest {
+						content
+					}
 					teamEnvironment {
 						environment {
 							name
@@ -184,6 +187,7 @@ interface AppsResponse {
 			nodes: Array<{
 				name: string
 				image: { name: string } | null
+				manifest: { content: string } | null
 				teamEnvironment: {
 					environment: {
 						name: string
@@ -281,6 +285,28 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 					type: "valkey",
 					name: valkey.name,
 				})
+			}
+
+			// Detect Oracle databases from vault paths in the manifest
+			if (node.manifest?.content) {
+				const oraclePaths = node.manifest.content.match(/kvPath:\s*(oracle\/data\/[^\s]+)/g)
+				if (oraclePaths) {
+					// Extract unique database names from vault creds paths (oracle/data/{env}/creds/{db}-{user})
+					const dbNames = new Set<string>()
+					for (const match of oraclePaths) {
+						const path = match.replace("kvPath:", "").trim()
+						const credsMatch = path.match(/oracle\/data\/[^/]+\/creds\/([^-\s]+)/)
+						if (credsMatch) {
+							dbNames.add(credsMatch[1])
+						}
+					}
+					for (const dbName of dbNames) {
+						persistence.push({
+							type: "oracle",
+							name: dbName,
+						})
+					}
+				}
 			}
 
 			allApps.push({
