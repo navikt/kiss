@@ -402,6 +402,7 @@ export async function upsertAppAuthIntegration(
 		claimsExtra?: string[] | null
 		groups?: string[] | null
 		sidecarEnabled?: boolean | null
+		inboundRules?: Array<{ application: string; namespace?: string; cluster?: string }> | null
 	},
 ): Promise<boolean> {
 	const [existing] = await db
@@ -414,6 +415,7 @@ export async function upsertAppAuthIntegration(
 
 	const claimsExtraStr = opts?.claimsExtra?.length ? JSON.stringify(opts.claimsExtra) : null
 	const groupsStr = opts?.groups?.length ? JSON.stringify(opts.groups) : null
+	const inboundRulesStr = opts?.inboundRules?.length ? JSON.stringify(opts.inboundRules) : null
 
 	if (existing) {
 		await db
@@ -424,6 +426,7 @@ export async function upsertAppAuthIntegration(
 				claimsExtra: claimsExtraStr ?? existing.claimsExtra,
 				groups: groupsStr ?? existing.groups,
 				sidecarEnabled: opts?.sidecarEnabled ?? existing.sidecarEnabled,
+				inboundRules: inboundRulesStr ?? existing.inboundRules,
 				updatedAt: new Date(),
 			})
 			.where(eq(applicationAuthIntegrations.id, existing.id))
@@ -437,6 +440,7 @@ export async function upsertAppAuthIntegration(
 		claimsExtra: claimsExtraStr,
 		groups: groupsStr,
 		sidecarEnabled: opts?.sidecarEnabled ?? null,
+		inboundRules: inboundRulesStr,
 	})
 	return true
 }

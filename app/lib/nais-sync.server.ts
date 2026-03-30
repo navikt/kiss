@@ -75,6 +75,7 @@ export async function syncNaisAppsForTeam(
 					claimsExtra: auth.claimsExtra,
 					groups: auth.groups,
 					sidecarEnabled: auth.sidecarEnabled,
+					inboundRules: auth.inboundRules,
 				})
 			}
 		}

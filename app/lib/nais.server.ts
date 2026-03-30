@@ -24,6 +24,13 @@ export interface NaisAuthIntegration {
 	claimsExtra?: string[]
 	groups?: string[]
 	sidecarEnabled?: boolean
+	inboundRules?: NaisInboundRule[]
+}
+
+export interface NaisInboundRule {
+	application: string
+	namespace?: string
+	cluster?: string
 }
 
 export interface NaisApp {
@@ -354,6 +361,48 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 			const authNames = new Set(node.authIntegrations.map((a) => a.name))
 			const manifestContent = node.manifest?.content ?? ""
 
+			// Parse inbound access policy rules from manifest
+			let inboundRules: NaisInboundRule[] | undefined
+			if (manifestContent.includes("inbound:")) {
+				const lines = manifestContent.split("\n")
+				let inInbound = false
+				let rulesIdx = -1
+				for (let i = 0; i < lines.length; i++) {
+					if (/^\s+inbound:\s*$/.test(lines[i])) {
+						inInbound = true
+					} else if (inInbound && /^\s+rules:\s*$/.test(lines[i])) {
+						rulesIdx = i
+						break
+					} else if (inInbound && /^\S/.test(lines[i])) {
+						break
+					}
+				}
+				if (rulesIdx > 0) {
+					inboundRules = []
+					let current: Partial<NaisInboundRule> = {}
+					const rulesIndent = lines[rulesIdx].search(/\S/)
+					for (let i = rulesIdx + 1; i < lines.length; i++) {
+						const line = lines[i]
+						if (line.trim() === "") continue
+						const indent = line.search(/\S/)
+						if (indent <= rulesIndent) break
+						const appMatch = line.match(/^\s*-\s*application:\s*(\S+)/)
+						const nsMatch = line.match(/^\s+namespace:\s*(\S+)/)
+						const clusterMatch = line.match(/^\s+cluster:\s*(\S+)/)
+						if (appMatch) {
+							if (current.application) inboundRules.push(current as NaisInboundRule)
+							current = { application: appMatch[1] }
+						} else if (nsMatch && current.application) {
+							current.namespace = nsMatch[1]
+						} else if (clusterMatch && current.application) {
+							current.cluster = clusterMatch[1]
+						}
+					}
+					if (current.application) inboundRules.push(current as NaisInboundRule)
+					if (inboundRules.length === 0) inboundRules = undefined
+				}
+			}
+
 			if (authNames.has("Microsoft Entra ID")) {
 				const allowAllMatch = manifestContent.match(/allowAllUsers:\s*(true|false)/)
 				const claimsExtraMatch = manifestContent.match(/claims:\s*\n\s*extra:\s*\n((?:\s*-\s*\S+\n?)*)/)
@@ -389,6 +438,7 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 					claimsExtra: claimsExtra?.length ? claimsExtra : undefined,
 					groups: groups?.length ? groups : undefined,
 					sidecarEnabled: azureSidecarEnabled,
+					inboundRules,
 				})
 			}
 

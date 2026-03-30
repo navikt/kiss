@@ -464,4 +464,51 @@ spec:
 		const entra = result[0].authIntegrations.find((a) => a.type === "entra_id")
 		expect(entra?.sidecarEnabled).toBe(false)
 	})
+
+	it("extracts inbound access policy rules from manifest", async () => {
+		const manifest = `apiVersion: nais.io/v1alpha1
+kind: Application
+spec:
+  accessPolicy:
+    inbound:
+      rules:
+        - application: app-a
+        - application: app-b
+          namespace: other-ns
+        - application: app-c
+          namespace: other-ns
+          cluster: other-cluster
+  azure:
+    application:
+      enabled: true`
+
+		const nodes = [
+			{
+				name: "api-app",
+				image: null,
+				manifest: { content: manifest },
+				authIntegrations: [{ name: "Microsoft Entra ID" }],
+				teamEnvironment: { environment: { name: "prod-gcp" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		const entra = result[0].authIntegrations.find((a) => a.type === "entra_id")
+		expect(entra?.inboundRules).toEqual([
+			{ application: "app-a" },
+			{ application: "app-b", namespace: "other-ns" },
+			{ application: "app-c", namespace: "other-ns", cluster: "other-cluster" },
+		])
+	})
 })

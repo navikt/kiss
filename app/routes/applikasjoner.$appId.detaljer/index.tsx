@@ -346,24 +346,26 @@ export default function ApplikasjonDetalj() {
 							<Table.Header>
 								<Table.Row>
 									<Table.HeaderCell scope="col">Integrasjon</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Login proxy</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Tilgang</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Brukertilgang</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Applikasjonstilgang</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Claims</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
 								{authIntegrations.map((auth) => {
 									const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
+									const inboundRules = auth.inboundRules
+										? (JSON.parse(auth.inboundRules) as Array<{
+												application: string
+												namespace?: string
+												cluster?: string
+											}>)
+										: null
 									const supportsProxy = auth.type === "entra_id" || auth.type === "id_porten"
 									return (
 										<Table.Row key={auth.id}>
 											<Table.DataCell>{authLabels[auth.type] ?? auth.type}</Table.DataCell>
-											<Table.DataCell>
-												<Tag variant="success" size="xsmall">
-													Aktivert
-												</Tag>
-											</Table.DataCell>
 											<Table.DataCell>
 												{supportsProxy ? (
 													isOnPrem ? (
@@ -391,14 +393,43 @@ export default function ApplikasjonDetalj() {
 											</Table.DataCell>
 											<Table.DataCell>
 												{auth.type === "entra_id" ? (
-													auth.allowAllUsers !== null ? (
-														<Tag variant={auth.allowAllUsers ? "warning" : "info"} size="xsmall">
-															{auth.allowAllUsers ? "Alle brukere" : "Gruppebasert"}
+													auth.allowAllUsers ? (
+														<Tag variant="warning" size="xsmall">
+															Alle brukere
+														</Tag>
+													) : auth.groups ? (
+														<Tag variant="info" size="xsmall">
+															Gruppebasert
 														</Tag>
 													) : (
-														<BodyShort size="small" textColor="subtle">
-															Ukjent
-														</BodyShort>
+														<Tag variant="neutral" size="xsmall">
+															Ikke konfigurert
+														</Tag>
+													)
+												) : auth.type === "id_porten" ? (
+													<Tag variant="info" size="xsmall">
+														Borgere (ID-porten)
+													</Tag>
+												) : auth.type === "token_x" ? (
+													<Tag variant="info" size="xsmall">
+														Via TokenX
+													</Tag>
+												) : (
+													<BodyShort size="small" textColor="subtle">
+														—
+													</BodyShort>
+												)}
+											</Table.DataCell>
+											<Table.DataCell>
+												{auth.type === "entra_id" || auth.type === "maskinporten" ? (
+													inboundRules && inboundRules.length > 0 ? (
+														<Tag variant="info" size="xsmall">
+															{inboundRules.length} {inboundRules.length === 1 ? "applikasjon" : "applikasjoner"}
+														</Tag>
+													) : (
+														<Tag variant="neutral" size="xsmall">
+															Ikke konfigurert
+														</Tag>
 													)
 												) : (
 													<BodyShort size="small" textColor="subtle">
@@ -458,6 +489,64 @@ export default function ApplikasjonDetalj() {
 														</Table.DataCell>
 														<Table.DataCell>
 															<CopyButton copyText={groupId} size="xsmall" />
+														</Table.DataCell>
+													</Table.Row>
+												))}
+											</Table.Body>
+										</Table>
+									</VStack>
+								)
+							})}
+
+						{/* Inbound access policy rules */}
+						{authIntegrations
+							.filter((a) => a.type === "entra_id" && a.inboundRules)
+							.map((auth) => {
+								const rules = JSON.parse(auth.inboundRules!) as Array<{
+									application: string
+									namespace?: string
+									cluster?: string
+								}>
+								if (rules.length === 0) return null
+								return (
+									<VStack key={`inbound-${auth.id}`} gap="space-2">
+										<Heading size="xsmall" level="4">
+											Autoriserte applikasjoner ({rules.length})
+										</Heading>
+										<BodyShort size="small" textColor="subtle">
+											Applikasjoner som har tilgang til å kalle dette API-et via Entra ID (M2M eller on-behalf-of).
+										</BodyShort>
+										<Table size="small">
+											<Table.Header>
+												<Table.Row>
+													<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+													<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
+													<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
+												</Table.Row>
+											</Table.Header>
+											<Table.Body>
+												{rules.map((rule) => (
+													<Table.Row key={`${rule.application}-${rule.namespace ?? ""}-${rule.cluster ?? ""}`}>
+														<Table.DataCell>
+															<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.application}</code>
+														</Table.DataCell>
+														<Table.DataCell>
+															{rule.namespace ? (
+																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.namespace}</code>
+															) : (
+																<BodyShort size="small" textColor="subtle">
+																	Samme
+																</BodyShort>
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															{rule.cluster ? (
+																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.cluster}</code>
+															) : (
+																<BodyShort size="small" textColor="subtle">
+																	Samme
+																</BodyShort>
+															)}
 														</Table.DataCell>
 													</Table.Row>
 												))}

@@ -108,6 +108,7 @@ export const applicationAuthIntegrations = pgTable("application_auth_integration
 	claimsExtra: text("claims_extra"),
 	groups: text("groups"),
 	sidecarEnabled: boolean("sidecar_enabled"),
+	inboundRules: text("inbound_rules"),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
