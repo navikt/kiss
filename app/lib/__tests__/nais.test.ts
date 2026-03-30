@@ -144,6 +144,7 @@ describe("fetchNaisApps", () => {
 				name: "my-app",
 				image: { name: "my-registry/my-app" },
 				manifest: null,
+				authIntegrations: [],
 				teamEnvironment: { environment: { name: "prod-gcp" } },
 				sqlInstances: { nodes: [] },
 				postgresInstances: { nodes: [] },
@@ -161,7 +162,14 @@ describe("fetchNaisApps", () => {
 
 		const result = await fetchNaisApps("token", "my-team")
 		expect(result).toEqual([
-			{ name: "my-app", namespace: "my-team", cluster: "prod-gcp", image: "my-registry/my-app", persistence: [] },
+			{
+				name: "my-app",
+				namespace: "my-team",
+				cluster: "prod-gcp",
+				image: "my-registry/my-app",
+				persistence: [],
+				authIntegrations: [],
+			},
 		])
 	})
 
@@ -182,6 +190,7 @@ describe("fetchNaisApps", () => {
 				name: "my-app",
 				image: null,
 				manifest: null,
+				authIntegrations: [],
 				teamEnvironment: { environment: { name: "prod-gcp" } },
 				sqlInstances: {
 					nodes: [
@@ -232,6 +241,7 @@ describe("fetchNaisApps", () => {
 				name: "audit-app",
 				image: null,
 				manifest: null,
+				authIntegrations: [],
 				teamEnvironment: { environment: { name: "prod-gcp" } },
 				sqlInstances: {
 					nodes: [
@@ -292,6 +302,7 @@ spec:
 				name: "oracle-app",
 				image: null,
 				manifest: { content: manifest },
+				authIntegrations: [],
 				teamEnvironment: { environment: { name: "prod-fss" } },
 				sqlInstances: { nodes: [] },
 				postgresInstances: { nodes: [] },

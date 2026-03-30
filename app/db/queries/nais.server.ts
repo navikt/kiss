@@ -1,6 +1,8 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
+	type AuthIntegrationType,
+	applicationAuthIntegrations,
 	applicationEnvironments,
 	applicationPersistence,
 	applicationTeamMappings,
@@ -391,7 +393,55 @@ export async function upsertAppPersistence(
 	return true
 }
 
-/** Get persistence resources for an application. */
+/** Upsert an auth integration for an application. */
+export async function upsertAppAuthIntegration(
+	applicationId: string,
+	type: AuthIntegrationType,
+	opts?: {
+		allowAllUsers?: boolean | null
+		claimsExtra?: string[] | null
+	},
+): Promise<boolean> {
+	const [existing] = await db
+		.select()
+		.from(applicationAuthIntegrations)
+		.where(
+			and(eq(applicationAuthIntegrations.applicationId, applicationId), eq(applicationAuthIntegrations.type, type)),
+		)
+		.limit(1)
+
+	const claimsExtraStr = opts?.claimsExtra?.length ? JSON.stringify(opts.claimsExtra) : null
+
+	if (existing) {
+		await db
+			.update(applicationAuthIntegrations)
+			.set({
+				enabled: true,
+				allowAllUsers: opts?.allowAllUsers ?? existing.allowAllUsers,
+				claimsExtra: claimsExtraStr ?? existing.claimsExtra,
+				updatedAt: new Date(),
+			})
+			.where(eq(applicationAuthIntegrations.id, existing.id))
+		return false
+	}
+
+	await db.insert(applicationAuthIntegrations).values({
+		applicationId,
+		type,
+		allowAllUsers: opts?.allowAllUsers ?? null,
+		claimsExtra: claimsExtraStr,
+	})
+	return true
+}
+
+/** Get auth integrations for an application. */
+export async function getAppAuthIntegrations(applicationId: string) {
+	return db
+		.select()
+		.from(applicationAuthIntegrations)
+		.where(eq(applicationAuthIntegrations.applicationId, applicationId))
+		.orderBy(applicationAuthIntegrations.type)
+}
 export async function getAppPersistence(applicationId: string) {
 	return db
 		.select()
@@ -448,6 +498,7 @@ export async function getApplicationDetail(applicationId: string) {
 		.orderBy(applicationEnvironments.cluster)
 
 	const persistence = await getAppPersistence(applicationId)
+	const authIntegrations = await getAppAuthIntegrations(applicationId)
 
 	const teamMappings = await db
 		.select({ teamId: devTeams.id, teamName: devTeams.name, teamSlug: devTeams.slug })
@@ -473,7 +524,7 @@ export async function getApplicationDetail(applicationId: string) {
 		.where(eq(monitoredApplications.primaryApplicationId, applicationId))
 		.orderBy(monitoredApplications.name)
 
-	return { app, environments, persistence, teams: teamMappings, primaryApp, linkedApps }
+	return { app, environments, persistence, authIntegrations, teams: teamMappings, primaryApp, linkedApps }
 }
 
 /** Link an application to a primary application. */

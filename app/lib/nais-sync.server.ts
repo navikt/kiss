@@ -1,5 +1,6 @@
 import { writeAuditLog } from "~/db/queries/audit.server"
 import {
+	upsertAppAuthIntegration,
 	upsertAppEnvironment,
 	upsertAppPersistence,
 	upsertMonitoredApp,
@@ -66,6 +67,13 @@ export async function syncNaisAppsForTeam(
 					auditLogUrl: res.auditLogUrl,
 				})
 				if (isNewRes) newPersistence++
+			}
+
+			for (const auth of app.authIntegrations) {
+				await upsertAppAuthIntegration(appId, auth.type, {
+					allowAllUsers: auth.allowAllUsers,
+					claimsExtra: auth.claimsExtra,
+				})
 			}
 		}
 

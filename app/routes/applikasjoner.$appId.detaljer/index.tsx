@@ -31,6 +31,20 @@ const persistenceVariants: Record<
 	other: "neutral",
 }
 
+const authLabels: Record<string, string> = {
+	entra_id: "Entra ID",
+	token_x: "TokenX",
+	id_porten: "ID-porten",
+	maskinporten: "Maskinporten",
+}
+
+const authVariants: Record<string, "info" | "success" | "warning" | "error" | "neutral" | "alt1" | "alt2" | "alt3"> = {
+	entra_id: "info",
+	token_x: "alt1",
+	id_porten: "alt2",
+	maskinporten: "alt3",
+}
+
 export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
@@ -60,6 +74,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		app: detail.app,
 		environments: detail.environments,
 		persistence: detail.persistence,
+		authIntegrations: detail.authIntegrations,
 		teams: detail.teams,
 		primaryApp: detail.primaryApp,
 		linkedApps: detail.linkedApps,
@@ -99,8 +114,18 @@ export async function action({ params, request }: ActionFunctionArgs) {
 }
 
 export default function ApplikasjonDetalj() {
-	const { app, environments, persistence, teams, primaryApp, linkedApps, linkSuggestions, compliance, assessments } =
-		useLoaderData<typeof loader>()
+	const {
+		app,
+		environments,
+		persistence,
+		authIntegrations,
+		teams,
+		primaryApp,
+		linkedApps,
+		linkSuggestions,
+		compliance,
+		assessments,
+	} = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -220,6 +245,57 @@ export default function ApplikasjonDetalj() {
 					<BodyLong>Ikke tilknyttet noe utviklerteam.</BodyLong>
 				)}
 			</Box>
+
+			{/* Auth integrations */}
+			{authIntegrations.length > 0 && (
+				<Box>
+					<Heading size="medium" level="3" spacing>
+						Autentisering og autorisasjon
+					</Heading>
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Integrasjon</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{authIntegrations.map((auth) => {
+								const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
+								return (
+									<Table.Row key={auth.id}>
+										<Table.DataCell>
+											<Tag variant={authVariants[auth.type] ?? "neutral"} size="xsmall">
+												{authLabels[auth.type] ?? auth.type}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											<Tag variant="success" size="xsmall">
+												Aktivert
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											<HStack gap="space-2" wrap>
+												{auth.type === "entra_id" && auth.allowAllUsers !== null && (
+													<Tag variant={auth.allowAllUsers ? "warning" : "info"} size="xsmall">
+														{auth.allowAllUsers ? "Alle brukere" : "Gruppebasert tilgang"}
+													</Tag>
+												)}
+												{claimsExtra?.map((claim) => (
+													<Tag key={claim} variant="neutral" size="xsmall">
+														claim: {claim}
+													</Tag>
+												))}
+											</HStack>
+										</Table.DataCell>
+									</Table.Row>
+								)
+							})}
+						</Table.Body>
+					</Table>
+				</Box>
+			)}
 
 			{/* Environments */}
 			<Box>

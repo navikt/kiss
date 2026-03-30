@@ -17,6 +17,13 @@ export interface NaisPersistenceResource {
 	flags?: Record<string, string>
 }
 
+export interface NaisAuthIntegration {
+	type: "entra_id" | "token_x" | "id_porten" | "maskinporten"
+	enabled: boolean
+	allowAllUsers?: boolean
+	claimsExtra?: string[]
+}
+
 export interface NaisApp {
 	name: string
 	namespace: string
@@ -27,6 +34,7 @@ export interface NaisApp {
 		deployer: string
 	}
 	persistence: NaisPersistenceResource[]
+	authIntegrations: NaisAuthIntegration[]
 }
 
 interface PageInfo {
@@ -132,6 +140,12 @@ const APPS_QUERY = `
 					manifest {
 						content
 					}
+					authIntegrations {
+						... on EntraIDAuthIntegration { name }
+						... on TokenXAuthIntegration { name }
+						... on IDPortenAuthIntegration { name }
+						... on MaskinportenAuthIntegration { name }
+					}
 					teamEnvironment {
 						environment {
 							name
@@ -188,6 +202,7 @@ interface AppsResponse {
 				name: string
 				image: { name: string } | null
 				manifest: { content: string } | null
+				authIntegrations: Array<{ name: string }>
 				teamEnvironment: {
 					environment: {
 						name: string
@@ -309,12 +324,48 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 				}
 			}
 
+			// Extract auth integrations from GraphQL + manifest details
+			const authIntegrations: NaisAuthIntegration[] = []
+			const authNames = new Set(node.authIntegrations.map((a) => a.name))
+			const manifestContent = node.manifest?.content ?? ""
+
+			if (authNames.has("Microsoft Entra ID")) {
+				const allowAllMatch = manifestContent.match(/allowAllUsers:\s*(true|false)/)
+				const claimsExtraMatch = manifestContent.match(/claims:\s*\n\s*extra:\s*\n((?:\s*-\s*\S+\n?)*)/)
+				const claimsExtra = claimsExtraMatch
+					? claimsExtraMatch[1]
+							.split("\n")
+							.map((l) => l.replace(/^\s*-\s*/, "").trim())
+							.filter(Boolean)
+					: undefined
+
+				authIntegrations.push({
+					type: "entra_id",
+					enabled: true,
+					allowAllUsers: allowAllMatch ? allowAllMatch[1] === "true" : undefined,
+					claimsExtra: claimsExtra?.length ? claimsExtra : undefined,
+				})
+			}
+
+			if (authNames.has("TokenX")) {
+				authIntegrations.push({ type: "token_x", enabled: true })
+			}
+
+			if (authNames.has("ID-porten") || manifestContent.includes("idporten:")) {
+				authIntegrations.push({ type: "id_porten", enabled: true })
+			}
+
+			if (authNames.has("Maskinporten")) {
+				authIntegrations.push({ type: "maskinporten", enabled: true })
+			}
+
 			allApps.push({
 				name: node.name,
 				namespace: teamSlug,
 				cluster: node.teamEnvironment.environment.name,
 				image: node.image?.name,
 				persistence,
+				authIntegrations,
 			})
 		}
 

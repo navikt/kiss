@@ -92,3 +92,19 @@ export const sectionIgnoredApplications = pgTable("section_ignored_applications"
 	ignoredAt: timestamp("ignored_at", { withTimezone: true }).notNull().defaultNow(),
 	ignoredBy: text("ignored_by").notNull(),
 })
+
+export const authIntegrationTypeEnum = ["entra_id", "token_x", "id_porten", "maskinporten"] as const
+export type AuthIntegrationType = (typeof authIntegrationTypeEnum)[number]
+
+export const applicationAuthIntegrations = pgTable("application_auth_integrations", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	applicationId: uuid("application_id")
+		.notNull()
+		.references(() => monitoredApplications.id),
+	type: text("type", { enum: authIntegrationTypeEnum }).notNull(),
+	enabled: boolean("enabled").notNull().default(true),
+	allowAllUsers: boolean("allow_all_users"),
+	claimsExtra: text("claims_extra"),
+	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
