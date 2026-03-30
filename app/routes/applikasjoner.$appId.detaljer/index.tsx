@@ -345,33 +345,26 @@ export default function ApplikasjonDetalj() {
 											Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha
 											ytterligere tilgangskontroll som avgrenser tilgang.
 										</BodyShort>
-										<div
-											style={{
-												display: "grid",
-												gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
-												gap: "1px",
-												background: "var(--ax-border-neutral-subtle)",
-												border: "1px solid var(--ax-border-neutral-subtle)",
-												borderRadius: "var(--ax-border-radius-4)",
-												overflow: "hidden",
-											}}
-										>
-											{groups.map((groupId) => (
-												<div
-													key={groupId}
-													style={{
-														display: "flex",
-														alignItems: "center",
-														justifyContent: "space-between",
-														padding: "var(--ax-space-2) var(--ax-space-4)",
-														background: "var(--ax-bg-sunken)",
-													}}
-												>
-													<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{groupId}</code>
-													<CopyButton copyText={groupId} size="xsmall" />
-												</div>
-											))}
-										</div>
+										<Table size="small">
+											<Table.Header>
+												<Table.Row>
+													<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
+													<Table.HeaderCell scope="col" style={{ width: "1px" }} />
+												</Table.Row>
+											</Table.Header>
+											<Table.Body>
+												{groups.map((groupId) => (
+													<Table.Row key={groupId}>
+														<Table.DataCell>
+															<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{groupId}</code>
+														</Table.DataCell>
+														<Table.DataCell>
+															<CopyButton copyText={groupId} size="xsmall" />
+														</Table.DataCell>
+													</Table.Row>
+												))}
+											</Table.Body>
+										</Table>
 									</VStack>
 								)
 							})}
