@@ -159,22 +159,34 @@ export default function ApplikasjonDetalj() {
 									<Table.DataCell>{p.version ?? "–"}</Table.DataCell>
 									<Table.DataCell>{p.tier ?? "–"}</Table.DataCell>
 									<Table.DataCell>
-										{p.highAvailability === true ? "✓" : p.highAvailability === false ? "✗" : "–"}
+										{p.highAvailability === true ? (
+											<Tag variant="success" size="xsmall">
+												Ja
+											</Tag>
+										) : p.highAvailability === false ? (
+											<Tag variant="error" size="xsmall">
+												Nei
+											</Tag>
+										) : (
+											"–"
+										)}
 									</Table.DataCell>
 									<Table.DataCell>
 										{p.auditLogging === true ? (
 											p.auditLogUrl ? (
 												<a href={p.auditLogUrl} target="_blank" rel="noopener noreferrer" className="aksel-link">
-													✓ Logg
+													<Tag variant="success" size="xsmall">
+														Ja – se logg
+													</Tag>
 												</a>
 											) : (
 												<Tag variant="success" size="xsmall">
-													✓ På
+													Ja
 												</Tag>
 											)
 										) : p.auditLogging === false ? (
 											<Tag variant="error" size="xsmall">
-												✗ Av
+												Nei
 											</Tag>
 										) : (
 											"–"
