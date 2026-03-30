@@ -57,9 +57,24 @@ body {
 	padding: 0 var(--ax-space-24);
 }
 
-.app-nav-list {
+.app-nav-content {
 	max-width: 80rem;
 	margin: 0 auto;
+	display: flex;
+	align-items: center;
+	gap: var(--ax-space-8);
+}
+
+.app-nav-content form {
+	flex-shrink: 0;
+}
+
+.app-nav-content .navds-button {
+	color: var(--ax-text-brand-blue-contrast);
+}
+
+.app-nav-list {
+	flex: 1;
 	padding: 0;
 	display: flex;
 	list-style: none;

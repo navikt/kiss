@@ -1,4 +1,5 @@
 import { Link, useLocation } from "react-router"
+import { ThemeToggle } from "./ThemeToggle"
 
 interface NavItem {
 	label: string
@@ -21,23 +22,26 @@ export function AppNavigation() {
 
 	return (
 		<nav className="app-nav" aria-label="Hovednavigasjon">
-			<ul className="app-nav-list">
-				{navItems.map((item) => {
-					const isActive =
-						location.pathname === item.href || (item.href !== "/" && location.pathname.startsWith(item.href))
-					return (
-						<li key={item.href}>
-							<Link
-								to={item.href}
-								className={`app-nav-link ${isActive ? "app-nav-link--active" : ""}`}
-								aria-current={isActive ? "page" : undefined}
-							>
-								{item.label}
-							</Link>
-						</li>
-					)
-				})}
-			</ul>
+			<div className="app-nav-content">
+				<ul className="app-nav-list">
+					{navItems.map((item) => {
+						const isActive =
+							location.pathname === item.href || (item.href !== "/" && location.pathname.startsWith(item.href))
+						return (
+							<li key={item.href}>
+								<Link
+									to={item.href}
+									className={`app-nav-link ${isActive ? "app-nav-link--active" : ""}`}
+									aria-current={isActive ? "page" : undefined}
+								>
+									{item.label}
+								</Link>
+							</li>
+						)
+					})}
+				</ul>
+				<ThemeToggle />
+			</div>
 		</nav>
 	)
 }
