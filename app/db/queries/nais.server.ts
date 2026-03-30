@@ -18,6 +18,65 @@ export async function getNaisTeams() {
 	return db.select().from(naisTeams).orderBy(naisTeams.slug)
 }
 
+/** Get a single Nais team by slug with its apps, environments, and persistence. */
+export async function getNaisTeamDetail(slug: string) {
+	const [team] = await db.select().from(naisTeams).where(eq(naisTeams.slug, slug)).limit(1)
+	if (!team) return null
+
+	// Get section name if linked
+	let sectionName: string | null = null
+	if (team.sectionId) {
+		const [section] = await db.select().from(sections).where(eq(sections.id, team.sectionId)).limit(1)
+		sectionName = section?.name ?? null
+	}
+
+	// Get apps for this team via applicationEnvironments
+	const envRows = await db
+		.select({
+			appId: applicationEnvironments.applicationId,
+			appName: monitoredApplications.name,
+			cluster: applicationEnvironments.cluster,
+			namespace: applicationEnvironments.namespace,
+			discoveredAt: applicationEnvironments.discoveredAt,
+		})
+		.from(applicationEnvironments)
+		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+		.where(eq(applicationEnvironments.naisTeamId, team.id))
+		.orderBy(monitoredApplications.name, applicationEnvironments.cluster)
+
+	// Group by app, collect environments
+	const appMap = new Map<
+		string,
+		{ appId: string; appName: string; environments: Array<{ cluster: string; namespace: string }> }
+	>()
+	for (const row of envRows) {
+		const existing = appMap.get(row.appId)
+		if (existing) {
+			existing.environments.push({ cluster: row.cluster, namespace: row.namespace })
+		} else {
+			appMap.set(row.appId, {
+				appId: row.appId,
+				appName: row.appName,
+				environments: [{ cluster: row.cluster, namespace: row.namespace }],
+			})
+		}
+	}
+
+	const appIds = [...appMap.keys()]
+	const persistenceMap = await getAppsPersistence(appIds)
+
+	const apps = [...appMap.values()].map((app) => ({
+		...app,
+		persistence: (persistenceMap.get(app.appId) ?? []).map((p) => ({
+			type: p.type,
+			name: p.name,
+			version: p.version,
+		})),
+	}))
+
+	return { team, sectionName, apps }
+}
+
 /** Get app count per Nais team. */
 export async function getNaisTeamAppCounts(): Promise<Map<string, number>> {
 	const rows = await db

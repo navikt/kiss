@@ -18,6 +18,7 @@ export default [
 	route("rapporter/generer", "routes/rapporter.generer/index.tsx"),
 	route("rapporter/:rapportId", "routes/rapporter.$rapportId/index.tsx"),
 	route("nais-overvaking", "routes/nais-overvaking/index.tsx"),
+	route("nais-overvaking/:team", "routes/nais-overvaking.$team/index.tsx"),
 	route("admin", "routes/admin/index.tsx"),
 	route("admin/seksjoner", "routes/admin.seksjoner/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),

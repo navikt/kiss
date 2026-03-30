@@ -1,6 +1,6 @@
 import { Alert, BodyLong, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, useActionData, useLoaderData, useNavigation } from "react-router"
+import { data, Form, Link, useActionData, useLoaderData, useNavigation } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRecentAuditLog } from "~/db/queries/audit.server"
 import {
@@ -129,7 +129,7 @@ export default function NaisOvervaking() {
 						{teams.map((team) => (
 							<Table.Row key={team.slug}>
 								<Table.DataCell>
-									{team.slug}
+									<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
 									{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
 								</Table.DataCell>
 								<Table.DataCell>
