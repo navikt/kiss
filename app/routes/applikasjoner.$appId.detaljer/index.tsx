@@ -348,7 +348,8 @@ export default function ApplikasjonDetalj() {
 									<Table.HeaderCell scope="col">Integrasjon</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Login proxy</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Tilgang</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Claims</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
@@ -389,32 +390,36 @@ export default function ApplikasjonDetalj() {
 												)}
 											</Table.DataCell>
 											<Table.DataCell>
-												<HStack gap="space-4" wrap>
-													{auth.type === "entra_id" && auth.allowAllUsers !== null && (
-														<HStack gap="space-2" align="center">
-															<BodyShort size="small" weight="semibold">
-																Tilgang:
-															</BodyShort>
-															<Tag variant={auth.allowAllUsers ? "warning" : "info"} size="xsmall">
-																{auth.allowAllUsers ? "Alle brukere" : "Gruppebasert"}
+												{auth.type === "entra_id" ? (
+													auth.allowAllUsers !== null ? (
+														<Tag variant={auth.allowAllUsers ? "warning" : "info"} size="xsmall">
+															{auth.allowAllUsers ? "Alle brukere" : "Gruppebasert"}
+														</Tag>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															Ukjent
+														</BodyShort>
+													)
+												) : (
+													<BodyShort size="small" textColor="subtle">
+														—
+													</BodyShort>
+												)}
+											</Table.DataCell>
+											<Table.DataCell>
+												{claimsExtra && claimsExtra.length > 0 ? (
+													<HStack gap="space-1" wrap>
+														{claimsExtra.map((claim) => (
+															<Tag key={claim} variant="neutral" size="xsmall">
+																{claim}
 															</Tag>
-														</HStack>
-													)}
-													{claimsExtra && claimsExtra.length > 0 && (
-														<HStack gap="space-2" align="center">
-															<BodyShort size="small" weight="semibold">
-																Claims:
-															</BodyShort>
-															<HStack gap="space-1" wrap>
-																{claimsExtra.map((claim) => (
-																	<Tag key={claim} variant="neutral" size="xsmall">
-																		{claim}
-																	</Tag>
-																))}
-															</HStack>
-														</HStack>
-													)}
-												</HStack>
+														))}
+													</HStack>
+												) : (
+													<BodyShort size="small" textColor="subtle">
+														—
+													</BodyShort>
+												)}
 											</Table.DataCell>
 										</Table.Row>
 									)

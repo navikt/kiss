@@ -374,10 +374,13 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 					: undefined
 
 				// Detect login proxy (sidecar) for Entra ID
-				const azureSidecarMatch = manifestContent.match(
-					/azure:\s*\n(?:.*\n)*?\s*sidecar:\s*\n\s*enabled:\s*(true|false)/,
-				)
-				const azureSidecarEnabled = azureSidecarMatch ? azureSidecarMatch[1] === "true" : undefined
+				const azureBlock = manifestContent.match(/azure:[\s\S]*?(?=\n\S|\n$|$)/)
+				const azureSidecarBlock = azureBlock?.[0].match(/sidecar:\s*\n((?:\s+.*(?:\n|$))*)/)
+				let azureSidecarEnabled: boolean | undefined
+				if (azureSidecarBlock) {
+					const disabledMatch = azureSidecarBlock[0].match(/enabled:\s*false/)
+					azureSidecarEnabled = !disabledMatch
+				}
 
 				authIntegrations.push({
 					type: "entra_id",
@@ -395,10 +398,13 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 
 			if (authNames.has("ID-porten") || manifestContent.includes("idporten:")) {
 				// Detect login proxy (sidecar) for ID-porten
-				const idportenSidecarMatch = manifestContent.match(
-					/idporten:\s*\n(?:.*\n)*?\s*sidecar:\s*\n\s*enabled:\s*(true|false)/,
-				)
-				const idportenSidecarEnabled = idportenSidecarMatch ? idportenSidecarMatch[1] === "true" : undefined
+				const idportenBlock = manifestContent.match(/idporten:[\s\S]*?(?=\n\S|\n$|$)/)
+				const idportenSidecarBlock = idportenBlock?.[0].match(/sidecar:\s*\n((?:\s+.*(?:\n|$))*)/)
+				let idportenSidecarEnabled: boolean | undefined
+				if (idportenSidecarBlock) {
+					const disabledMatch = idportenSidecarBlock[0].match(/enabled:\s*false/)
+					idportenSidecarEnabled = !disabledMatch
+				}
 
 				authIntegrations.push({
 					type: "id_porten",
