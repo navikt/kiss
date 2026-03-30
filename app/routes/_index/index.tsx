@@ -1,11 +1,12 @@
 import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
-import { data, useLoaderData } from "react-router"
+import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getDomainSummaries } from "~/db/queries/framework.server"
 import { compliancePercent } from "~/lib/utils"
 
 interface DomainStatus {
+	code: string
 	name: string
 	implemented: number
 	partial: number
@@ -18,6 +19,7 @@ export async function loader(_args: LoaderFunctionArgs) {
 	const summaries = await getDomainSummaries()
 
 	const domainStatuses: DomainStatus[] = summaries.map((s) => ({
+		code: s.code,
 		name: s.name,
 		implemented: s.implemented,
 		partial: s.partial,
@@ -74,7 +76,7 @@ export default function Dashboard() {
 				{domainStatuses.map((domain) => {
 					const pct = compliancePercent(domain.implemented, domain.partial, domain.total)
 					return (
-						<div key={domain.name} className="domain-status-card">
+						<Link key={domain.code} to={`/kontrollrammeverk/${domain.code}`} className="domain-status-card-link">
 							<div className="domain-status-header">
 								<Heading size="small" level="4">
 									{domain.name}
@@ -103,7 +105,8 @@ export default function Dashboard() {
 								<span>{domain.partial} delvis</span>
 								<span>{domain.notImplemented} mangler</span>
 							</div>
-						</div>
+							<div className="domain-status-card-link-footer">Se detaljer →</div>
+						</Link>
 					)
 				})}
 			</HGrid>
