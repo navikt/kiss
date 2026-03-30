@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	applicationEnvironments,
@@ -9,6 +9,7 @@ import {
 	type PersistenceType,
 	sectionIgnoredApplications,
 } from "../schema/applications"
+import { auditLog } from "../schema/audit"
 import { devTeams, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
@@ -90,10 +91,15 @@ export async function upsertAppEnvironment(
 	return true
 }
 
-/** Get the last sync timestamp from Nais teams table. */
+/** Get the last sync timestamp from audit log. */
 export async function getLastSyncTimestamp(): Promise<Date | null> {
-	const [row] = await db.select({ maxDate: sql<Date>`MAX(${naisTeams.discoveredAt})` }).from(naisTeams)
-	return row?.maxDate ?? null
+	const [row] = await db
+		.select({ performedAt: auditLog.performedAt })
+		.from(auditLog)
+		.where(eq(auditLog.action, "nais_sync_completed"))
+		.orderBy(desc(auditLog.performedAt))
+		.limit(1)
+	return row?.performedAt ?? null
 }
 
 /** Link a Nais team to a section. */

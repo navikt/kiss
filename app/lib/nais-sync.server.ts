@@ -1,3 +1,4 @@
+import { writeAuditLog } from "~/db/queries/audit.server"
 import {
 	upsertAppEnvironment,
 	upsertAppPersistence,
@@ -97,6 +98,24 @@ export async function runFullNaisSync(token?: string): Promise<{
 			}
 		}
 
-		return { teams: teamsResult, apps: appResults }
+		const syncResult = { teams: teamsResult, apps: appResults }
+
+		const totalNewApps = appResults.reduce((sum, r) => sum + r.result.new, 0)
+		const totalDiscoveredApps = appResults.reduce((sum, r) => sum + r.result.discovered, 0)
+		await writeAuditLog({
+			action: "nais_sync_completed",
+			entityType: "nais_sync",
+			entityId: "full-sync",
+			newValue: JSON.stringify({
+				teams: teamsResult.discovered,
+				newTeams: teamsResult.new,
+				monitoredTeams: monitoredTeams.length,
+				apps: totalDiscoveredApps,
+				newApps: totalNewApps,
+			}),
+			performedBy: SYNC_PERFORMER,
+		})
+
+		return syncResult
 	})
 }

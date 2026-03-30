@@ -1,6 +1,6 @@
-import { BodyLong, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, useLoaderData } from "react-router"
+import { data, Form, useActionData, useLoaderData, useNavigation } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRecentAuditLog } from "~/db/queries/audit.server"
 import {
@@ -83,12 +83,23 @@ const statusLabel: Record<string, string> = {
 
 export default function NaisOvervaking() {
 	const { teams, lastSync, auditEntries } = useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
+	const navigation = useNavigation()
+	const isSyncing = navigation.state === "submitting" && navigation.formData?.get("intent") === "sync"
 
 	return (
 		<VStack gap="space-6">
 			<Heading size="xlarge" level="2">
 				Nais-overvåking
 			</Heading>
+
+			{actionData && "success" in actionData && actionData.success && "newTeams" in actionData && (
+				<Alert variant="success">Synkronisering fullført. {actionData.newTeams} nye team oppdaget.</Alert>
+			)}
+			{actionData && "message" in actionData && !("success" in actionData) && (
+				<Alert variant="warning">{actionData.message}</Alert>
+			)}
+
 			<HStack gap="space-4" align="center">
 				<BodyLong>
 					Overvåk Nais-plattformen for automatisk oppdagelse av applikasjoner.
@@ -96,8 +107,8 @@ export default function NaisOvervaking() {
 				</BodyLong>
 				<Form method="post">
 					<input type="hidden" name="intent" value="sync" />
-					<Button type="submit" variant="secondary" size="small">
-						Synkroniser nå
+					<Button type="submit" variant="secondary" size="small" loading={isSyncing}>
+						{isSyncing ? "Synkroniserer…" : "Synkroniser nå"}
 					</Button>
 				</Form>
 			</HStack>
