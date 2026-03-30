@@ -265,34 +265,34 @@ export default function ApplikasjonDetalj() {
 					<Heading size="medium" level="3" spacing>
 						Autentisering og autorisasjon
 					</Heading>
-					<HStack gap="space-4" wrap align="start">
-						{authIntegrations.map((auth) => {
-							const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
-							const groups = auth.groups ? (JSON.parse(auth.groups) as string[]) : null
-							return (
-								<Box
-									key={auth.id}
-									padding="space-4"
-									borderRadius="8"
-									borderColor="neutral-subtle"
-									borderWidth="1"
-									background="sunken"
-									style={{ flex: "1 1 280px", maxWidth: "420px" }}
-								>
-									<VStack gap="space-4">
-										<HStack gap="space-2" align="center" justify="space-between">
-											<Tag variant={authVariants[auth.type] ?? "neutral"} size="small">
-												{authLabels[auth.type] ?? auth.type}
-											</Tag>
-											<Tag variant="success" size="xsmall">
-												Aktivert
-											</Tag>
-										</HStack>
-
-										{auth.type === "entra_id" && (
-											<VStack gap="space-4">
+					<VStack gap="space-6">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Integrasjon</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{authIntegrations.map((auth) => {
+									const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
+									const groups = auth.groups ? (JSON.parse(auth.groups) as string[]) : null
+									return (
+										<Table.Row key={auth.id}>
+											<Table.DataCell>
+												<Tag variant={authVariants[auth.type] ?? "neutral"} size="xsmall">
+													{authLabels[auth.type] ?? auth.type}
+												</Tag>
+											</Table.DataCell>
+											<Table.DataCell>
+												<Tag variant="success" size="xsmall">
+													Aktivert
+												</Tag>
+											</Table.DataCell>
+											<Table.DataCell>
 												<HStack gap="space-4" wrap>
-													{auth.allowAllUsers !== null && (
+													{auth.type === "entra_id" && auth.allowAllUsers !== null && (
 														<HStack gap="space-2" align="center">
 															<BodyShort size="small" weight="semibold">
 																Tilgang:
@@ -316,39 +316,66 @@ export default function ApplikasjonDetalj() {
 															</HStack>
 														</HStack>
 													)}
+													{auth.type === "entra_id" && groups && groups.length > 0 && (
+														<BodyShort size="small">
+															{groups.length} påkrevde gruppe
+															{groups.length === 1 ? "" : "r"}
+														</BodyShort>
+													)}
 												</HStack>
-												{groups && groups.length > 0 && (
-													<VStack gap="space-2">
-														<BodyShort size="small" weight="semibold">
-															Påkrevde grupper ({groups.length})
-														</BodyShort>
-														<BodyShort size="small" textColor="subtle">
-															Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha
-															ytterligere tilgangskontroll.
-														</BodyShort>
-														<Table size="small">
-															<Table.Body>
-																{groups.map((groupId) => (
-																	<Table.Row key={groupId}>
-																		<Table.DataCell>
-																			<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{groupId}</code>
-																		</Table.DataCell>
-																		<Table.DataCell style={{ width: "1px" }}>
-																			<CopyButton copyText={groupId} size="xsmall" />
-																		</Table.DataCell>
-																	</Table.Row>
-																))}
-															</Table.Body>
-														</Table>
-													</VStack>
-												)}
-											</VStack>
-										)}
+											</Table.DataCell>
+										</Table.Row>
+									)
+								})}
+							</Table.Body>
+						</Table>
+
+						{/* Entra ID groups — separate full-width section */}
+						{authIntegrations
+							.filter((a) => a.type === "entra_id" && a.groups)
+							.map((auth) => {
+								const groups = JSON.parse(auth.groups!) as string[]
+								if (groups.length === 0) return null
+								return (
+									<VStack key={`groups-${auth.id}`} gap="space-2">
+										<Heading size="xsmall" level="4">
+											Påkrevde Entra ID-grupper ({groups.length})
+										</Heading>
+										<BodyShort size="small" textColor="subtle">
+											Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha
+											ytterligere tilgangskontroll som avgrenser tilgang.
+										</BodyShort>
+										<div
+											style={{
+												display: "grid",
+												gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+												gap: "1px",
+												background: "var(--ax-border-neutral-subtle)",
+												border: "1px solid var(--ax-border-neutral-subtle)",
+												borderRadius: "var(--ax-border-radius-4)",
+												overflow: "hidden",
+											}}
+										>
+											{groups.map((groupId) => (
+												<div
+													key={groupId}
+													style={{
+														display: "flex",
+														alignItems: "center",
+														justifyContent: "space-between",
+														padding: "var(--ax-space-2) var(--ax-space-4)",
+														background: "var(--ax-bg-sunken)",
+													}}
+												>
+													<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{groupId}</code>
+													<CopyButton copyText={groupId} size="xsmall" />
+												</div>
+											))}
+										</div>
 									</VStack>
-								</Box>
-							)
-						})}
-					</HStack>
+								)
+							})}
+					</VStack>
 				</Box>
 			)}
 
