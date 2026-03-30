@@ -51,13 +51,6 @@ const authLabels: Record<string, string> = {
 	maskinporten: "Maskinporten",
 }
 
-const authVariants: Record<string, "info" | "success" | "warning" | "error" | "neutral" | "alt1" | "alt2" | "alt3"> = {
-	entra_id: "info",
-	token_x: "alt1",
-	id_porten: "alt2",
-	maskinporten: "alt3",
-}
-
 export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
@@ -141,7 +134,7 @@ export default function ApplikasjonDetalj() {
 	} = useLoaderData<typeof loader>()
 
 	return (
-		<VStack gap="space-12">
+		<VStack gap="space-16">
 			<div>
 				<Heading size="xlarge" level="2">
 					{app.name}
@@ -259,8 +252,6 @@ export default function ApplikasjonDetalj() {
 				)}
 			</Box>
 
-			<hr className="section-divider" />
-
 			{/* Auth integrations */}
 			{authIntegrations.length > 0 && (
 				<Box>
@@ -282,11 +273,7 @@ export default function ApplikasjonDetalj() {
 									const groups = auth.groups ? (JSON.parse(auth.groups) as string[]) : null
 									return (
 										<Table.Row key={auth.id}>
-											<Table.DataCell>
-												<Tag variant={authVariants[auth.type] ?? "neutral"} size="xsmall">
-													{authLabels[auth.type] ?? auth.type}
-												</Tag>
-											</Table.DataCell>
+											<Table.DataCell>{authLabels[auth.type] ?? auth.type}</Table.DataCell>
 											<Table.DataCell>
 												<Tag variant="success" size="xsmall">
 													Aktivert
@@ -345,7 +332,7 @@ export default function ApplikasjonDetalj() {
 										</Heading>
 										<BodyShort size="small" textColor="subtle">
 											{auth.allowAllUsers
-												? "Alle brukere får utstedt token uavhengig av gruppemedlemskap. Gruppene nedenfor inkluderes som claims i tokenet slik at applikasjonen kan bruke dem til videre tilgangsstyring."
+												? "Alle brukere får utstedt token uavhengig av gruppemedlemskap."
 												: "Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha ytterligere tilgangskontroll som avgrenser tilgang."}
 										</BodyShort>
 										<Table size="small">
@@ -374,8 +361,6 @@ export default function ApplikasjonDetalj() {
 					</VStack>
 				</Box>
 			)}
-
-			<hr className="section-divider" />
 
 			{/* Environments */}
 			<Box>
@@ -417,8 +402,6 @@ export default function ApplikasjonDetalj() {
 					<BodyLong>Ingen kjente miljøer.</BodyLong>
 				)}
 			</Box>
-
-			<hr className="section-divider" />
 
 			{/* Persistence */}
 			<Box>
@@ -491,8 +474,6 @@ export default function ApplikasjonDetalj() {
 				)}
 			</Box>
 
-			<hr className="section-divider" />
-
 			{/* Compliance summary */}
 			<Box>
 				<Heading size="medium" level="3" spacing>
@@ -535,48 +516,45 @@ export default function ApplikasjonDetalj() {
 
 			{/* Controls needing attention */}
 			{compliance.notAssessed + compliance.notImplemented > 0 && (
-				<>
-					<hr className="section-divider" />
-					<Box>
-						<Heading size="medium" level="3" spacing>
-							Kontroller som trenger oppfølging
-						</Heading>
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{assessments
-									.filter((a) => !a.status || a.status === "not_implemented" || a.status === "partially_implemented")
-									.map((a) => (
-										<Table.Row key={a.controlUuid}>
-											<Table.DataCell>{a.controlId}</Table.DataCell>
-											<Table.DataCell>{a.controlName}</Table.DataCell>
-											<Table.DataCell>
+				<Box>
+					<Heading size="medium" level="3" spacing>
+						Kontroller som trenger oppfølging
+					</Heading>
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{assessments
+								.filter((a) => !a.status || a.status === "not_implemented" || a.status === "partially_implemented")
+								.map((a) => (
+									<Table.Row key={a.controlUuid}>
+										<Table.DataCell>{a.controlId}</Table.DataCell>
+										<Table.DataCell>{a.controlName}</Table.DataCell>
+										<Table.DataCell>
+											<Tag variant="neutral" size="xsmall">
+												{a.domainCode}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											{a.status ? (
+												<ComplianceStatusBadge status={a.status as ComplianceStatusValue} />
+											) : (
 												<Tag variant="neutral" size="xsmall">
-													{a.domainCode}
+													Ikke vurdert
 												</Tag>
-											</Table.DataCell>
-											<Table.DataCell>
-												{a.status ? (
-													<ComplianceStatusBadge status={a.status as ComplianceStatusValue} />
-												) : (
-													<Tag variant="neutral" size="xsmall">
-														Ikke vurdert
-													</Tag>
-												)}
-											</Table.DataCell>
-										</Table.Row>
-									))}
-							</Table.Body>
-						</Table>
-					</Box>
-				</>
+											)}
+										</Table.DataCell>
+									</Table.Row>
+								))}
+						</Table.Body>
+					</Table>
+				</Box>
 			)}
 		</VStack>
 	)
