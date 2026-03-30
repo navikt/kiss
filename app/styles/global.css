@@ -332,6 +332,13 @@ body {
 	top: 0.5rem;
 }
 
+/* Section divider for detail pages */
+.section-divider {
+	border: none;
+	border-top: 1px solid var(--ax-border-neutral-subtleA);
+	margin: 0;
+}
+
 /* Table scroll wrapper for mobile */
 .table-scroll {
 	overflow-x: auto;

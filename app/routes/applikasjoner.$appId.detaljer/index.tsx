@@ -141,7 +141,7 @@ export default function ApplikasjonDetalj() {
 	} = useLoaderData<typeof loader>()
 
 	return (
-		<VStack gap="space-8">
+		<VStack gap="space-12">
 			<div>
 				<Heading size="xlarge" level="2">
 					{app.name}
@@ -259,13 +259,15 @@ export default function ApplikasjonDetalj() {
 				)}
 			</Box>
 
+			<hr className="section-divider" />
+
 			{/* Auth integrations */}
 			{authIntegrations.length > 0 && (
 				<Box>
 					<Heading size="medium" level="3" spacing>
 						Autentisering og autorisasjon
 					</Heading>
-					<VStack gap="space-6">
+					<VStack gap="space-4">
 						<Table size="small">
 							<Table.Header>
 								<Table.Row>
@@ -339,11 +341,12 @@ export default function ApplikasjonDetalj() {
 								return (
 									<VStack key={`groups-${auth.id}`} gap="space-2">
 										<Heading size="xsmall" level="4">
-											Påkrevde Entra ID-grupper ({groups.length})
+											Entra ID-grupper ({groups.length})
 										</Heading>
 										<BodyShort size="small" textColor="subtle">
-											Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha
-											ytterligere tilgangskontroll som avgrenser tilgang.
+											{auth.allowAllUsers
+												? "Alle brukere får utstedt token uavhengig av gruppemedlemskap. Gruppene nedenfor inkluderes som claims i tokenet slik at applikasjonen kan bruke dem til videre tilgangsstyring."
+												: "Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha ytterligere tilgangskontroll som avgrenser tilgang."}
 										</BodyShort>
 										<Table size="small">
 											<Table.Header>
@@ -371,6 +374,8 @@ export default function ApplikasjonDetalj() {
 					</VStack>
 				</Box>
 			)}
+
+			<hr className="section-divider" />
 
 			{/* Environments */}
 			<Box>
@@ -412,6 +417,8 @@ export default function ApplikasjonDetalj() {
 					<BodyLong>Ingen kjente miljøer.</BodyLong>
 				)}
 			</Box>
+
+			<hr className="section-divider" />
 
 			{/* Persistence */}
 			<Box>
@@ -484,6 +491,8 @@ export default function ApplikasjonDetalj() {
 				)}
 			</Box>
 
+			<hr className="section-divider" />
+
 			{/* Compliance summary */}
 			<Box>
 				<Heading size="medium" level="3" spacing>
@@ -526,45 +535,48 @@ export default function ApplikasjonDetalj() {
 
 			{/* Controls needing attention */}
 			{compliance.notAssessed + compliance.notImplemented > 0 && (
-				<Box>
-					<Heading size="medium" level="3" spacing>
-						Kontroller som trenger oppfølging
-					</Heading>
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{assessments
-								.filter((a) => !a.status || a.status === "not_implemented" || a.status === "partially_implemented")
-								.map((a) => (
-									<Table.Row key={a.controlUuid}>
-										<Table.DataCell>{a.controlId}</Table.DataCell>
-										<Table.DataCell>{a.controlName}</Table.DataCell>
-										<Table.DataCell>
-											<Tag variant="neutral" size="xsmall">
-												{a.domainCode}
-											</Tag>
-										</Table.DataCell>
-										<Table.DataCell>
-											{a.status ? (
-												<ComplianceStatusBadge status={a.status as ComplianceStatusValue} />
-											) : (
+				<>
+					<hr className="section-divider" />
+					<Box>
+						<Heading size="medium" level="3" spacing>
+							Kontroller som trenger oppfølging
+						</Heading>
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{assessments
+									.filter((a) => !a.status || a.status === "not_implemented" || a.status === "partially_implemented")
+									.map((a) => (
+										<Table.Row key={a.controlUuid}>
+											<Table.DataCell>{a.controlId}</Table.DataCell>
+											<Table.DataCell>{a.controlName}</Table.DataCell>
+											<Table.DataCell>
 												<Tag variant="neutral" size="xsmall">
-													Ikke vurdert
+													{a.domainCode}
 												</Tag>
-											)}
-										</Table.DataCell>
-									</Table.Row>
-								))}
-						</Table.Body>
-					</Table>
-				</Box>
+											</Table.DataCell>
+											<Table.DataCell>
+												{a.status ? (
+													<ComplianceStatusBadge status={a.status as ComplianceStatusValue} />
+												) : (
+													<Tag variant="neutral" size="xsmall">
+														Ikke vurdert
+													</Tag>
+												)}
+											</Table.DataCell>
+										</Table.Row>
+									))}
+							</Table.Body>
+						</Table>
+					</Box>
+				</>
 			)}
 		</VStack>
 	)
