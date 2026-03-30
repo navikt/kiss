@@ -98,42 +98,37 @@ export default function SeksjonDashboard() {
 				{teams.map((team) => {
 					const pct = compliancePercent(team.implemented, team.partial, team.total)
 					return (
-						<Link
-							key={team.slug}
-							to={`/seksjoner/${seksjon}/team/${team.slug}`}
-							style={{ textDecoration: "none", color: "inherit" }}
-						>
-							<div className="domain-status-card">
-								<div className="domain-status-header">
-									<Heading size="small" level="4">
-										{team.name}
-									</Heading>
-									<span className="domain-status-pct">{pct}%</span>
-								</div>
-								<div
-									className="domain-status-bar"
-									role="progressbar"
-									aria-valuenow={pct}
-									aria-valuemin={0}
-									aria-valuemax={100}
-									aria-label={`${team.name} compliance ${pct}%`}
-								>
-									<div
-										className="domain-status-bar-implemented"
-										style={{ width: `${team.total > 0 ? (team.implemented / team.total) * 100 : 0}%` }}
-									/>
-									<div
-										className="domain-status-bar-partial"
-										style={{ width: `${team.total > 0 ? (team.partial / team.total) * 100 : 0}%` }}
-									/>
-								</div>
-								<div className="domain-status-details">
-									<span>{team.implemented} implementert</span>
-									<span>{team.partial} delvis</span>
-									<span>{team.notImplemented} mangler</span>
-									<span>{team.apps} applikasjoner</span>
-								</div>
+						<Link key={team.slug} to={`/seksjoner/${seksjon}/team/${team.slug}`} className="domain-status-card-link">
+							<div className="domain-status-header">
+								<Heading size="small" level="4">
+									{team.name}
+								</Heading>
+								<span className="domain-status-pct">{pct}%</span>
 							</div>
+							<div
+								className="domain-status-bar"
+								role="progressbar"
+								aria-valuenow={pct}
+								aria-valuemin={0}
+								aria-valuemax={100}
+								aria-label={`${team.name} compliance ${pct}%`}
+							>
+								<div
+									className="domain-status-bar-implemented"
+									style={{ width: `${team.total > 0 ? (team.implemented / team.total) * 100 : 0}%` }}
+								/>
+								<div
+									className="domain-status-bar-partial"
+									style={{ width: `${team.total > 0 ? (team.partial / team.total) * 100 : 0}%` }}
+								/>
+							</div>
+							<div className="domain-status-details">
+								<span>{team.implemented} implementert</span>
+								<span>{team.partial} delvis</span>
+								<span>{team.notImplemented} mangler</span>
+								<span>{team.apps} applikasjoner</span>
+							</div>
+							<div className="domain-status-card-link-footer">Se detaljer →</div>
 						</Link>
 					)
 				})}

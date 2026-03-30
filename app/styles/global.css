@@ -168,7 +168,7 @@ body {
 .domain-status-pct {
 	font-size: var(--ax-font-size-heading-medium);
 	font-weight: 700;
-	color: var(--ax-text-accent);
+	color: var(--ax-text-default);
 }
 
 .domain-status-bar {
@@ -193,6 +193,38 @@ body {
 	gap: var(--ax-space-16);
 	font-size: var(--ax-font-size-small);
 	color: var(--ax-text-subtle);
+}
+
+.domain-status-card-link {
+	display: block;
+	text-decoration: none;
+	color: inherit;
+	padding: var(--ax-space-24);
+	background: var(--ax-bg-default);
+	border: 1px solid var(--ax-border-subtle);
+	border-radius: var(--ax-radius-8);
+	cursor: pointer;
+	transition:
+		border-color 0.15s,
+		box-shadow 0.15s;
+}
+
+.domain-status-card-link:hover {
+	border-color: var(--ax-border-action);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.domain-status-card-link:focus-visible {
+	outline: 3px solid var(--ax-border-focus);
+	outline-offset: 2px;
+}
+
+.domain-status-card-link-footer {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: var(--ax-space-8);
+	font-size: var(--ax-font-size-small);
+	color: var(--ax-text-action);
 }
 
 /* Compliance */
@@ -331,6 +363,10 @@ body {
 	}
 
 	.domain-status-card {
+		padding: var(--ax-space-16);
+	}
+
+	.domain-status-card-link {
 		padding: var(--ax-space-16);
 	}
 
