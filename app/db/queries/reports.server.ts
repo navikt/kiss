@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm"
+import { desc, eq, isNull, sql } from "drizzle-orm"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
@@ -64,26 +64,22 @@ export async function generateComplianceReport(params: {
 	}
 
 	// 2. Get framework controls and domains
-	const controls = version
-		? await db
-				.select({
-					id: frameworkControls.id,
-					controlId: frameworkControls.controlId,
-					shortTitle: frameworkControls.shortTitle,
-					requirement: frameworkControls.requirement,
-					domainId: frameworkControls.domainId,
-				})
-				.from(frameworkControls)
-				.where(eq(frameworkControls.versionId, version.id))
-				.orderBy(frameworkControls.controlId)
-		: []
+	const controls = await db
+		.select({
+			id: frameworkControls.id,
+			controlId: frameworkControls.controlId,
+			shortTitle: frameworkControls.shortTitle,
+			requirement: frameworkControls.requirement,
+			domainId: frameworkControls.domainId,
+		})
+		.from(frameworkControls)
+		.where(isNull(frameworkControls.archivedAt))
+		.orderBy(frameworkControls.controlId)
 
-	const domains = version
-		? await db
-				.select({ id: frameworkDomains.id, code: frameworkDomains.code, name: frameworkDomains.name })
-				.from(frameworkDomains)
-				.where(eq(frameworkDomains.versionId, version.id))
-		: []
+	const domains = await db
+		.select({ id: frameworkDomains.id, code: frameworkDomains.code, name: frameworkDomains.name })
+		.from(frameworkDomains)
+		.where(isNull(frameworkDomains.archivedAt))
 	const domainMap = new Map(domains.map((d) => [d.id, d]))
 
 	// 3. Gather assessments per application

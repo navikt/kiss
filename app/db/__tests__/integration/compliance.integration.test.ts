@@ -11,7 +11,7 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { stageFrameworkVersion, activateFrameworkVersion } = await import("~/db/queries/framework.server")
+const { stageFrameworkImport, applyFrameworkImport } = await import("~/db/queries/framework.server")
 const { saveAssessment, getAppAssessments } = await import("~/db/queries/applications.server")
 
 function makeParsedFramework(): ParsedFramework {
@@ -52,11 +52,9 @@ async function createTestApp(name: string) {
 }
 
 /** Get the control UUID for the test control. */
-async function getControlUuid(versionId: string) {
+async function getControlUuid(_versionId: string) {
 	const db = getTestDb()
-	const result = await db.execute(
-		/* sql */ `SELECT id FROM framework_controls WHERE version_id = '${versionId}' LIMIT 1`,
-	)
+	const result = await db.execute(/* sql */ `SELECT id FROM framework_controls WHERE archived_at IS NULL LIMIT 1`)
 	return (result.rows[0] as { id: string }).id
 }
 
@@ -80,6 +78,7 @@ describe("Compliance integration tests", () => {
 			DELETE FROM application_team_mappings;
 			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
+			DELETE FROM framework_field_history;
 			DELETE FROM framework_risk_control_mappings;
 			DELETE FROM framework_controls;
 			DELETE FROM framework_risks;
@@ -89,10 +88,10 @@ describe("Compliance integration tests", () => {
 		`,
 		)
 
-		// Set up an active framework version for each test
+		// Set up live framework data for each test
 		const parsed = makeParsedFramework()
-		activeVersionId = await stageFrameworkVersion(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
-		await activateFrameworkVersion(activeVersionId, "admin")
+		activeVersionId = await stageFrameworkImport(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
+		await applyFrameworkImport(activeVersionId, parsed, "admin")
 	})
 
 	it("should save a new compliance assessment", async () => {

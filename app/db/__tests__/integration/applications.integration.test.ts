@@ -11,7 +11,7 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { stageFrameworkVersion, activateFrameworkVersion } = await import("~/db/queries/framework.server")
+const { stageFrameworkImport, applyFrameworkImport } = await import("~/db/queries/framework.server")
 const { getApplications, linkAppToTeam, unlinkAppFromTeam } = await import("~/db/queries/applications.server")
 
 function makeParsedFramework(): ParsedFramework {
@@ -96,6 +96,7 @@ describe("Applications integration tests", () => {
 			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
 			DELETE FROM nais_teams;
+			DELETE FROM framework_field_history;
 			DELETE FROM framework_risk_control_mappings;
 			DELETE FROM framework_controls;
 			DELETE FROM framework_risks;
@@ -169,8 +170,8 @@ describe("Applications integration tests", () => {
 
 		// Set up a framework so compliance counts work
 		const parsed = makeParsedFramework()
-		const versionId = await stageFrameworkVersion(parsed, "fw.xlsx", "user", "/uploads/fw.xlsx")
-		await activateFrameworkVersion(versionId, "admin")
+		const versionId = await stageFrameworkImport(parsed, "fw.xlsx", "user", "/uploads/fw.xlsx")
+		await applyFrameworkImport(versionId, parsed, "admin")
 
 		const apps = await getApplications()
 		expect(apps.length).toBeGreaterThanOrEqual(1)
@@ -188,8 +189,8 @@ describe("Applications integration tests", () => {
 
 		// Set up a framework
 		const parsed = makeParsedFramework()
-		const versionId = await stageFrameworkVersion(parsed, "fw.xlsx", "user", "/uploads/fw.xlsx")
-		await activateFrameworkVersion(versionId, "admin")
+		const versionId = await stageFrameworkImport(parsed, "fw.xlsx", "user", "/uploads/fw.xlsx")
+		await applyFrameworkImport(versionId, parsed, "admin")
 
 		const apps = await getApplications()
 		const app = apps.find((a) => a.name === "Lonely App")
@@ -208,8 +209,8 @@ describe("Applications integration tests", () => {
 
 		// Set up framework for getApplications
 		const parsed = makeParsedFramework()
-		const versionId = await stageFrameworkVersion(parsed, "fw.xlsx", "user", "/uploads/fw.xlsx")
-		await activateFrameworkVersion(versionId, "admin")
+		const versionId = await stageFrameworkImport(parsed, "fw.xlsx", "user", "/uploads/fw.xlsx")
+		await applyFrameworkImport(versionId, parsed, "admin")
 
 		const apps = await getApplications()
 		const app = apps.find((a) => a.id === appId)

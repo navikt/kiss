@@ -1,20 +1,19 @@
-import { and, count, eq, sql } from "drizzle-orm"
+import { and, count, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import { frameworkControls, frameworkDomains, frameworkRiskControlMappings, frameworkRisks } from "../schema/framework"
 import { devTeams } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
-import { getActiveFrameworkVersion } from "./framework.server"
 
 /** Get all monitored applications with compliance summary. */
 export async function getApplications() {
-	const version = await getActiveFrameworkVersion()
 	const apps = await db.select().from(monitoredApplications).orderBy(monitoredApplications.name)
 
-	const [totalControlsRow] = version
-		? await db.select({ count: count() }).from(frameworkControls).where(eq(frameworkControls.versionId, version.id))
-		: [{ count: 0 }]
+	const [totalControlsRow] = await db
+		.select({ count: count() })
+		.from(frameworkControls)
+		.where(isNull(frameworkControls.archivedAt))
 
 	const totalControls = totalControlsRow?.count ?? 0
 
@@ -30,23 +29,21 @@ export async function getApplications() {
 		let implemented = 0
 		let partial = 0
 
-		if (version) {
-			const [implRow] = await db
-				.select({ count: count() })
-				.from(complianceAssessments)
-				.where(
-					sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'implemented'`,
-				)
-			implemented = implRow?.count ?? 0
+		const [implRow] = await db
+			.select({ count: count() })
+			.from(complianceAssessments)
+			.where(
+				sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'implemented'`,
+			)
+		implemented = implRow?.count ?? 0
 
-			const [partialRow] = await db
-				.select({ count: count() })
-				.from(complianceAssessments)
-				.where(
-					sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'partially_implemented'`,
-				)
-			partial = partialRow?.count ?? 0
-		}
+		const [partialRow] = await db
+			.select({ count: count() })
+			.from(complianceAssessments)
+			.where(
+				sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'partially_implemented'`,
+			)
+		partial = partialRow?.count ?? 0
 
 		result.push({
 			id: app.id,
@@ -142,11 +139,6 @@ export async function getAppAssessments(appId: string) {
 	const [app] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.id, appId)).limit(1)
 	if (!app) return null
 
-	const version = await getActiveFrameworkVersion()
-	if (!version) {
-		return { app, assessments: [] }
-	}
-
 	const controls = await db
 		.select({
 			id: frameworkControls.id,
@@ -156,14 +148,14 @@ export async function getAppAssessments(appId: string) {
 			domainId: frameworkControls.domainId,
 		})
 		.from(frameworkControls)
-		.where(eq(frameworkControls.versionId, version.id))
+		.where(isNull(frameworkControls.archivedAt))
 		.orderBy(frameworkControls.controlId)
 
 	// Fetch domains for name lookup
 	const domains = await db
 		.select({ id: frameworkDomains.id, code: frameworkDomains.code, name: frameworkDomains.name })
 		.from(frameworkDomains)
-		.where(eq(frameworkDomains.versionId, version.id))
+		.where(isNull(frameworkDomains.archivedAt))
 	const domainMap = new Map(domains.map((d) => [d.id, d]))
 
 	// Fetch risk-control mappings for linked risks
@@ -176,7 +168,6 @@ export async function getAppAssessments(appId: string) {
 		})
 		.from(frameworkRiskControlMappings)
 		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
-		.where(eq(frameworkRiskControlMappings.versionId, version.id))
 
 	const risksByControlUuid = new Map<
 		string,
@@ -229,9 +220,6 @@ export async function saveAssessment(
 	comment: string,
 	performedBy: string,
 ) {
-	const version = await getActiveFrameworkVersion()
-	if (!version) throw new Error("Ingen aktiv versjon funnet.")
-
 	const [existing] = await db
 		.select()
 		.from(complianceAssessments)
@@ -268,7 +256,6 @@ export async function saveAssessment(
 			.values({
 				applicationId: appId,
 				controlId: controlUuid,
-				frameworkVersionId: version.id,
 				status: status as ComplianceStatus,
 				comment: comment || null,
 				assessedBy: performedBy,

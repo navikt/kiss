@@ -14,11 +14,11 @@ vi.mock("~/db/connection.server", () => ({
 
 // Import query functions AFTER mock is registered
 const {
-	stageFrameworkVersion,
-	activateFrameworkVersion,
+	stageFrameworkImport,
+	applyFrameworkImport,
 	getActiveFrameworkVersion,
-	getStagingFrameworkVersion,
-	getStagingDiff,
+	getPendingFrameworkImport,
+	computeImportDiff,
 	getDomainSummaries,
 	getAllRisks,
 	getAllControls,
@@ -95,6 +95,7 @@ describe("Framework integration tests", () => {
 		// Clean tables in dependency order
 		await db.execute(
 			/* sql */ `
+			DELETE FROM framework_field_history;
 			DELETE FROM framework_risk_control_mappings;
 			DELETE FROM compliance_assessments;
 			DELETE FROM compliance_assessment_history;
@@ -107,62 +108,73 @@ describe("Framework integration tests", () => {
 		)
 	})
 
-	it("should import a framework as staging version", async () => {
+	it("should import a framework as pending version", async () => {
 		const parsed = makeParsedFramework()
-		const versionId = await stageFrameworkVersion(parsed, "test.xlsx", "test-user", "/uploads/test.xlsx")
+		const versionId = await stageFrameworkImport(parsed, "test.xlsx", "test-user", "/uploads/test.xlsx")
 
 		expect(versionId).toBeDefined()
 
-		const staging = await getStagingFrameworkVersion()
-		expect(staging).not.toBeNull()
-		expect(staging?.status).toBe("staging")
-		expect(staging?.sourceFileName).toBe("test.xlsx")
-		expect(staging?.createdBy).toBe("test-user")
+		const pending = await getPendingFrameworkImport()
+		expect(pending).not.toBeNull()
+		expect(pending?.status).toBe("pending")
+		expect(pending?.sourceFileName).toBe("test.xlsx")
+		expect(pending?.createdBy).toBe("test-user")
 	})
 
-	it("should activate a staging version", async () => {
+	it("should apply a pending version and create live data", async () => {
 		const parsed = makeParsedFramework()
-		const versionId = await stageFrameworkVersion(parsed, "test.xlsx", "test-user", "/uploads/test.xlsx")
+		const versionId = await stageFrameworkImport(parsed, "test.xlsx", "test-user", "/uploads/test.xlsx")
 
-		await activateFrameworkVersion(versionId, "admin-user")
+		await applyFrameworkImport(versionId, parsed, "admin-user")
 
 		const active = await getActiveFrameworkVersion()
 		expect(active).not.toBeNull()
 		expect(active?.id).toBe(versionId)
-		expect(active?.status).toBe("active")
+		expect(active?.status).toBe("applied")
 		expect(active?.activatedBy).toBe("admin-user")
+
+		// Verify live data was created
+		const db = getTestDb()
+		const domains = await db.execute(/* sql */ `SELECT * FROM framework_domains WHERE archived_at IS NULL`)
+		expect(domains.rows.length).toBe(2)
+
+		const controls = await db.execute(/* sql */ `SELECT * FROM framework_controls WHERE archived_at IS NULL`)
+		expect(controls.rows.length).toBe(3)
+
+		const risks = await db.execute(/* sql */ `SELECT * FROM framework_risks WHERE archived_at IS NULL`)
+		expect(risks.rows.length).toBe(2)
 	})
 
-	it("should archive the previous active version when activating a new one", async () => {
+	it("should supersede the previous applied version when applying a new one", async () => {
 		const db = getTestDb()
-		// Stage and activate first version
+		// Stage and apply first version
 		const parsed1 = makeParsedFramework()
-		const v1Id = await stageFrameworkVersion(parsed1, "v1.xlsx", "user", "/uploads/v1.xlsx")
-		await activateFrameworkVersion(v1Id, "admin")
+		const v1Id = await stageFrameworkImport(parsed1, "v1.xlsx", "user", "/uploads/v1.xlsx")
+		await applyFrameworkImport(v1Id, parsed1, "admin")
 
-		// Stage and activate second version
+		// Stage and apply second version
 		const parsed2 = makeParsedFramework()
-		const v2Id = await stageFrameworkVersion(parsed2, "v2.xlsx", "user", "/uploads/v2.xlsx")
-		await activateFrameworkVersion(v2Id, "admin")
+		const v2Id = await stageFrameworkImport(parsed2, "v2.xlsx", "user", "/uploads/v2.xlsx")
+		await applyFrameworkImport(v2Id, parsed2, "admin")
 
-		// v1 should be archived
+		// v1 should be superseded
 		const versions = await db.execute(/* sql */ `SELECT id, status FROM framework_versions ORDER BY created_at`)
 		const rows = versions.rows as Array<{ id: string; status: string }>
 		const v1 = rows.find((v) => v.id === v1Id)
 		const v2 = rows.find((v) => v.id === v2Id)
 
-		expect(v1?.status).toBe("archived")
-		expect(v2?.status).toBe("active")
+		expect(v1?.status).toBe("superseded")
+		expect(v2?.status).toBe("applied")
 	})
 
-	it("should carry forward short titles on re-import", async () => {
+	it("should preserve short titles when re-importing", async () => {
 		const db = getTestDb()
-		// Import and activate first version
+		// Import and apply first version
 		const parsed1 = makeParsedFramework()
-		const v1Id = await stageFrameworkVersion(parsed1, "v1.xlsx", "user", "/uploads/v1.xlsx")
-		await activateFrameworkVersion(v1Id, "admin")
+		const v1Id = await stageFrameworkImport(parsed1, "v1.xlsx", "user", "/uploads/v1.xlsx")
+		await applyFrameworkImport(v1Id, parsed1, "admin")
 
-		// Set short titles on the active version
+		// Set short titles on the live data
 		await db.execute(
 			/* sql */ `
 			UPDATE framework_risks SET short_title = 'Custom Risk Title' WHERE risk_id = 'R-TS.01';
@@ -170,26 +182,27 @@ describe("Framework integration tests", () => {
 		`,
 		)
 
-		// Re-import a new staging version
+		// Re-import: applying a new version should NOT overwrite short titles (they're manual edits)
 		const parsed2 = makeParsedFramework()
-		const v2Id = await stageFrameworkVersion(parsed2, "v2.xlsx", "user", "/uploads/v2.xlsx")
+		const v2Id = await stageFrameworkImport(parsed2, "v2.xlsx", "user", "/uploads/v2.xlsx")
+		await applyFrameworkImport(v2Id, parsed2, "admin")
 
-		// Verify short titles carried forward to staging
+		// Verify short titles are preserved (not overwritten by import — import doesn't set shortTitle)
 		const risks = await db.execute(
-			/* sql */ `SELECT risk_id, short_title FROM framework_risks WHERE version_id = '${v2Id}' AND risk_id = 'R-TS.01'`,
+			/* sql */ `SELECT risk_id, short_title FROM framework_risks WHERE archived_at IS NULL AND risk_id = 'R-TS.01'`,
 		)
 		expect((risks.rows[0] as { short_title: string | null }).short_title).toBe("Custom Risk Title")
 
 		const controls = await db.execute(
-			/* sql */ `SELECT control_id, short_title FROM framework_controls WHERE version_id = '${v2Id}' AND control_id = 'K-TS.01'`,
+			/* sql */ `SELECT control_id, short_title FROM framework_controls WHERE archived_at IS NULL AND control_id = 'K-TS.01'`,
 		)
 		expect((controls.rows[0] as { short_title: string | null }).short_title).toBe("Custom Control Title")
 	})
 
 	it("should return correct domain summaries", async () => {
 		const parsed = makeParsedFramework()
-		const versionId = await stageFrameworkVersion(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
-		await activateFrameworkVersion(versionId, "admin")
+		const versionId = await stageFrameworkImport(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
+		await applyFrameworkImport(versionId, parsed, "admin")
 
 		const summaries = await getDomainSummaries()
 		expect(summaries).toHaveLength(2)
@@ -207,10 +220,10 @@ describe("Framework integration tests", () => {
 		expect(dh?.controlCount).toBe(1)
 	})
 
-	it("should return all risks and controls for active version", async () => {
+	it("should return all risks and controls for live data", async () => {
 		const parsed = makeParsedFramework()
-		const versionId = await stageFrameworkVersion(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
-		await activateFrameworkVersion(versionId, "admin")
+		const versionId = await stageFrameworkImport(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
+		await applyFrameworkImport(versionId, parsed, "admin")
 
 		const risks = await getAllRisks()
 		expect(risks).toHaveLength(2)
@@ -221,22 +234,22 @@ describe("Framework integration tests", () => {
 		expect(controls.map((c) => c.controlId).sort()).toEqual(["K-DH.01", "K-TS.01", "K-TS.02"])
 	})
 
-	it("should return correct staging diff for first import", async () => {
+	it("should return correct diff for first import", async () => {
 		const parsed = makeParsedFramework()
-		await stageFrameworkVersion(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
+		await stageFrameworkImport(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
 
-		const diff = await getStagingDiff()
+		const diff = await computeImportDiff(parsed)
 		expect(diff).not.toBeNull()
 		expect(diff?.isFirstImport).toBe(true)
 	})
 
-	it("should return correct staging diff with added/removed/changed items", async () => {
-		// Import and activate v1
+	it("should return correct diff with added/removed/changed items", async () => {
+		// Import and apply v1
 		const parsedV1 = makeParsedFramework()
-		const v1Id = await stageFrameworkVersion(parsedV1, "v1.xlsx", "user", "/uploads/v1.xlsx")
-		await activateFrameworkVersion(v1Id, "admin")
+		const v1Id = await stageFrameworkImport(parsedV1, "v1.xlsx", "user", "/uploads/v1.xlsx")
+		await applyFrameworkImport(v1Id, parsedV1, "admin")
 
-		// Import v2 with changes: remove DH domain, add a new risk, change a description
+		// Prepare v2 with changes: remove DH domain, add a new risk, change a description
 		const parsedV2 = makeParsedFramework({
 			rows: [
 				{
@@ -273,9 +286,9 @@ describe("Framework integration tests", () => {
 				},
 			],
 		})
-		await stageFrameworkVersion(parsedV2, "v2.xlsx", "user", "/uploads/v2.xlsx")
 
-		const diff = await getStagingDiff()
+		// Compute diff against live data (no need to stage first)
+		const diff = await computeImportDiff(parsedV2)
 		expect(diff).not.toBeNull()
 		expect(diff?.isFirstImport).toBe(false)
 
@@ -293,5 +306,60 @@ describe("Framework integration tests", () => {
 		const changedRisk = diff?.changed.risks.find((r) => r.riskId === "R-TS.01")
 		expect(changedRisk).toBeDefined()
 		expect(changedRisk?.fields.find((f) => f.field === "description")?.newValue).toBe("ENDRET: Uautorisert tilgang")
+	})
+
+	it("should archive removed items and add new items when applying v2", async () => {
+		const db = getTestDb()
+		// Apply v1
+		const parsedV1 = makeParsedFramework()
+		const v1Id = await stageFrameworkImport(parsedV1, "v1.xlsx", "user", "/uploads/v1.xlsx")
+		await applyFrameworkImport(v1Id, parsedV1, "admin")
+
+		// Apply v2 that removes DH domain and adds new items
+		const parsedV2 = makeParsedFramework({
+			rows: [
+				{
+					domain: "Teknisk sikkerhet",
+					riskId: "R-TS.01",
+					riskDescription: "ENDRET: Uautorisert tilgang",
+					controlId: "K-TS.01",
+					technologyElement: "Identitetsstyring",
+					requirement: "Krav om MFA for alle brukere",
+					responsible: "IT-avdelingen",
+					routine: "Kvartalsvis gjennomgang",
+					frequency: "Kvartalsvis",
+					documentationRequirement: "Logg over MFA-status",
+					testProcedure: "Verifiser MFA-aktivering",
+					dependencies: null,
+					references: "ISO 27001 A.9",
+					commonPitfalls: "Glemmer tjenestekontoer",
+				},
+			],
+		})
+		const v2Id = await stageFrameworkImport(parsedV2, "v2.xlsx", "user", "/uploads/v2.xlsx")
+		await applyFrameworkImport(v2Id, parsedV2, "admin")
+
+		// DH domain, R-DH.01, K-DH.01, K-TS.02 should be archived
+		const archivedDomains = await db.execute(
+			/* sql */ `SELECT code FROM framework_domains WHERE archived_at IS NOT NULL`,
+		)
+		expect((archivedDomains.rows as Array<{ code: string }>).map((r) => r.code)).toContain("DH")
+
+		const archivedRisks = await db.execute(
+			/* sql */ `SELECT risk_id FROM framework_risks WHERE archived_at IS NOT NULL`,
+		)
+		expect((archivedRisks.rows as Array<{ risk_id: string }>).map((r) => r.risk_id)).toContain("R-DH.01")
+
+		// Field history should record the description change
+		const history = await db.execute(
+			/* sql */ `SELECT * FROM framework_field_history WHERE field_name = 'description' AND entity_type = 'risk'`,
+		)
+		expect(history.rows.length).toBeGreaterThanOrEqual(1)
+
+		// UUIDs should be stable: R-TS.01's UUID should be the same as before
+		const liveRisks = await db.execute(
+			/* sql */ `SELECT id FROM framework_risks WHERE risk_id = 'R-TS.01' AND archived_at IS NULL`,
+		)
+		expect(liveRisks.rows).toHaveLength(1)
 	})
 })

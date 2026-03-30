@@ -75,7 +75,7 @@ async function seed() {
 
 	console.log(`  ✓ ${apps.length} monitored applications`)
 
-	// 5. Framework version
+	// 5. Framework version (import log)
 	const [fwVersion] = await db
 		.insert(schema.frameworkVersions)
 		.values({
@@ -83,14 +83,14 @@ async function seed() {
 			description: "Kontrollrammeverk for integrert sikker systemutvikling",
 			sourceFileName: "Minimum kontrollrammeverk økonomisystem (v1.1).xlsx",
 			sourceBucketPath: "framework-uploads/mkr-v1.1.xlsx",
-			status: "active",
+			status: "applied",
 			activatedAt: new Date(),
 			activatedBy: "seed",
 			createdBy: "seed",
 		})
 		.returning()
 
-	// 6. Framework domains
+	// 6. Framework domains (live entities — no versionId)
 	const domainData = [
 		{ code: "ST", name: "Styring", displayOrder: 1 },
 		{ code: "TS", name: "Tilgangsstyring", displayOrder: 2 },
@@ -100,7 +100,7 @@ async function seed() {
 
 	const domains = await db
 		.insert(schema.frameworkDomains)
-		.values(domainData.map((d) => ({ ...d, versionId: fwVersion.id })))
+		.values(domainData.map((d) => ({ ...d, lastImportId: fwVersion.id })))
 		.returning()
 
 	console.log(`  ✓ ${domains.length} framework domains`)
@@ -203,10 +203,10 @@ async function seed() {
 		const [risk] = await db
 			.insert(schema.frameworkRisks)
 			.values({
-				versionId: fwVersion.id,
 				domainId: domainMap[rc.domainCode],
 				riskId: rc.riskId,
 				description: rc.riskDesc,
+				lastImportId: fwVersion.id,
 			})
 			.returning()
 		riskCount++
@@ -215,7 +215,6 @@ async function seed() {
 			const [control] = await db
 				.insert(schema.frameworkControls)
 				.values({
-					versionId: fwVersion.id,
 					domainId: domainMap[rc.domainCode],
 					controlId: ctrl.controlId,
 					technologyElement: ctrl.controlId === "K-ST.01" ? "Styringsverktøy, dokumenthåndteringssystem" : null,
@@ -223,13 +222,13 @@ async function seed() {
 						ctrl.controlId === "K-ST.01"
 							? "Organisasjonen skal ha en dokumentert og godkjent IT-sikkerhetspolicy"
 							: null,
+					lastImportId: fwVersion.id,
 				})
 				.returning()
 			controlCount++
 			controlUuidMap[ctrl.controlId] = control.id
 
 			await db.insert(schema.frameworkRiskControlMappings).values({
-				versionId: fwVersion.id,
 				riskId: risk.id,
 				controlId: control.id,
 			})
@@ -244,7 +243,6 @@ async function seed() {
 		await db.insert(schema.complianceAssessments).values({
 			applicationId: pensjonRegler.id,
 			controlId: controlUuidMap["K-ST.01"],
-			frameworkVersionId: fwVersion.id,
 			status: "implemented",
 			comment: "Gjennomgått Q1 2026. Se https://jira.nav.no/browse/KISS-123",
 			assessedBy: "A123456",
@@ -255,7 +253,6 @@ async function seed() {
 		await db.insert(schema.complianceAssessments).values({
 			applicationId: pensjonRegler.id,
 			controlId: controlUuidMap["K-TS.01"],
-			frameworkVersionId: fwVersion.id,
 			status: "partially_implemented",
 			comment: "AD-grupper er satt opp, men periodisk gjennomgang mangler.",
 			assessedBy: "B654321",

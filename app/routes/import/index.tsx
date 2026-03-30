@@ -7,24 +7,20 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRecentAuditLog } from "~/db/queries/audit.server"
 import { saveBucketObject } from "~/db/queries/buckets.server"
 import {
-	activateFrameworkVersion,
+	applyFrameworkImport,
+	computeImportDiff,
 	getFrameworkVersionHistory,
-	getStagingDiff,
-	getStagingFrameworkVersion,
-	stageFrameworkVersion,
+	getPendingFrameworkImport,
+	stageFrameworkImport,
 } from "~/db/queries/framework.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { type ParsedFrameworkRow, parseFrameworkExcel, summarizeFramework } from "~/lib/excel-parser.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 export async function loader() {
-	const [versions, auditEntries, stagingDiff] = await Promise.all([
-		getFrameworkVersionHistory(),
-		getRecentAuditLog(50),
-		getStagingDiff(),
-	])
+	const [versions, auditEntries] = await Promise.all([getFrameworkVersionHistory(), getRecentAuditLog(50)])
 
-	return data({ versions, auditEntries, stagingDiff })
+	return data({ versions, auditEntries })
 }
 
 interface SerializedControl {
@@ -54,8 +50,10 @@ interface SerializedSummary {
 	controls: SerializedControl[]
 }
 
+type StagingDiff = Awaited<ReturnType<typeof computeImportDiff>>
+
 type ActionResult =
-	| { success: true; summary: SerializedSummary; versionId: string }
+	| { success: true; summary: SerializedSummary; versionId: string; stagingDiff: StagingDiff }
 	| { success: false; error: string }
 	| { activated: true }
 
@@ -67,14 +65,20 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	if (intent === "activate") {
 		try {
-			const staging = await getStagingFrameworkVersion()
-			if (!staging) {
+			const pending = await getPendingFrameworkImport()
+			if (!pending) {
 				return data<ActionResult>({
 					success: false,
-					error: "Ingen staging-versjon funnet. Last opp en fil først.",
+					error: "Ingen ventende import funnet. Last opp en fil først.",
 				})
 			}
-			await activateFrameworkVersion(staging.id, userName)
+
+			// Re-parse the file from storage to get the parsed data for applying
+			const storage = getStorageProvider()
+			const fileBuffer = await storage.download(pending.sourceBucketPath)
+			const parsed = parseFrameworkExcel(fileBuffer)
+
+			await applyFrameworkImport(pending.id, parsed, userName)
 			return data<ActionResult>({ activated: true })
 		} catch (err) {
 			return data<ActionResult>({
@@ -123,8 +127,11 @@ export async function action({ request }: ActionFunctionArgs) {
 			metadata: { originalFileName: file.name },
 		})
 
-		// Stage in database
-		const versionId = await stageFrameworkVersion(parsed, file.name, userName, bucketPath)
+		// Stage in database (import log only — no data rows created)
+		const versionId = await stageFrameworkImport(parsed, file.name, userName, bucketPath)
+
+		// Compute diff against live data
+		const stagingDiff = await computeImportDiff(parsed)
 
 		const controls: SerializedControl[] = Array.from(summary.controls.values()).map((row: ParsedFrameworkRow) => ({
 			controlId: row.controlId,
@@ -146,6 +153,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		return data<ActionResult>({
 			success: true,
 			versionId,
+			stagingDiff,
 			summary: {
 				domainCount: summary.domains.size,
 				riskCount: summary.risks.size,
@@ -224,7 +232,7 @@ function formatDetails(entry: {
 }
 
 export default function Import() {
-	const { versions, auditEntries, stagingDiff } = useLoaderData<typeof loader>()
+	const { versions, auditEntries } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const submit = useSubmit()
@@ -430,25 +438,27 @@ export default function Import() {
 						</section>
 					</VStack>
 
-					{stagingDiff && (
+					{isStaged && actionData.stagingDiff && (
 						<VStack gap="space-4">
 							<Heading size="medium" level="3">
 								Endringer fra aktiv versjon
 							</Heading>
 
-							{stagingDiff.isFirstImport ? (
+							{actionData.stagingDiff.isFirstImport ? (
 								<Alert variant="info">Dette er første import — alle elementer er nye.</Alert>
 							) : (
 								<>
 									<BodyLong>
-										{stagingDiff.added.risks.length + stagingDiff.added.controls.length} nye,{" "}
-										{stagingDiff.removed.risks.length + stagingDiff.removed.controls.length} fjernede,{" "}
-										{stagingDiff.changed.risks.length + stagingDiff.changed.controls.length} endrede elementer
+										{actionData.stagingDiff.added.risks.length + actionData.stagingDiff.added.controls.length} nye,{" "}
+										{actionData.stagingDiff.removed.risks.length + actionData.stagingDiff.removed.controls.length}{" "}
+										fjernede,{" "}
+										{actionData.stagingDiff.changed.risks.length + actionData.stagingDiff.changed.controls.length}{" "}
+										endrede elementer
 									</BodyLong>
 
-									{(stagingDiff.added.risks.length > 0 ||
-										stagingDiff.added.controls.length > 0 ||
-										stagingDiff.added.domains.length > 0) && (
+									{(actionData.stagingDiff.added.risks.length > 0 ||
+										actionData.stagingDiff.added.controls.length > 0 ||
+										actionData.stagingDiff.added.domains.length > 0) && (
 										<VStack gap="space-2">
 											<HStack gap="space-2" align="center">
 												<Tag variant="success" size="small">
@@ -464,21 +474,21 @@ export default function Import() {
 													</Table.Row>
 												</Table.Header>
 												<Table.Body>
-													{stagingDiff.added.domains.map((d) => (
+													{actionData.stagingDiff.added.domains.map((d) => (
 														<Table.Row key={`domain-${d.code}`}>
 															<Table.DataCell>Domene</Table.DataCell>
 															<Table.DataCell>{d.code}</Table.DataCell>
 															<Table.DataCell>{d.name}</Table.DataCell>
 														</Table.Row>
 													))}
-													{stagingDiff.added.risks.map((r) => (
+													{actionData.stagingDiff.added.risks.map((r) => (
 														<Table.Row key={`risk-${r.riskId}`}>
 															<Table.DataCell>Risiko</Table.DataCell>
 															<Table.DataCell>{r.riskId}</Table.DataCell>
 															<Table.DataCell>{truncateValue(r.description)}</Table.DataCell>
 														</Table.Row>
 													))}
-													{stagingDiff.added.controls.map((c) => (
+													{actionData.stagingDiff.added.controls.map((c) => (
 														<Table.Row key={`control-${c.controlId}`}>
 															<Table.DataCell>Kontroll</Table.DataCell>
 															<Table.DataCell>{c.controlId}</Table.DataCell>
@@ -490,9 +500,9 @@ export default function Import() {
 										</VStack>
 									)}
 
-									{(stagingDiff.removed.risks.length > 0 ||
-										stagingDiff.removed.controls.length > 0 ||
-										stagingDiff.removed.domains.length > 0) && (
+									{(actionData.stagingDiff.removed.risks.length > 0 ||
+										actionData.stagingDiff.removed.controls.length > 0 ||
+										actionData.stagingDiff.removed.domains.length > 0) && (
 										<VStack gap="space-2">
 											<HStack gap="space-2" align="center">
 												<Tag variant="error" size="small">
@@ -508,21 +518,21 @@ export default function Import() {
 													</Table.Row>
 												</Table.Header>
 												<Table.Body>
-													{stagingDiff.removed.domains.map((d) => (
+													{actionData.stagingDiff.removed.domains.map((d) => (
 														<Table.Row key={`domain-${d.code}`}>
 															<Table.DataCell>Domene</Table.DataCell>
 															<Table.DataCell>{d.code}</Table.DataCell>
 															<Table.DataCell>{d.name}</Table.DataCell>
 														</Table.Row>
 													))}
-													{stagingDiff.removed.risks.map((r) => (
+													{actionData.stagingDiff.removed.risks.map((r) => (
 														<Table.Row key={`risk-${r.riskId}`}>
 															<Table.DataCell>Risiko</Table.DataCell>
 															<Table.DataCell>{r.riskId}</Table.DataCell>
 															<Table.DataCell>{truncateValue(r.description)}</Table.DataCell>
 														</Table.Row>
 													))}
-													{stagingDiff.removed.controls.map((c) => (
+													{actionData.stagingDiff.removed.controls.map((c) => (
 														<Table.Row key={`control-${c.controlId}`}>
 															<Table.DataCell>Kontroll</Table.DataCell>
 															<Table.DataCell>{c.controlId}</Table.DataCell>
@@ -534,7 +544,8 @@ export default function Import() {
 										</VStack>
 									)}
 
-									{(stagingDiff.changed.risks.length > 0 || stagingDiff.changed.controls.length > 0) && (
+									{(actionData.stagingDiff.changed.risks.length > 0 ||
+										actionData.stagingDiff.changed.controls.length > 0) && (
 										<VStack gap="space-2">
 											<HStack gap="space-2" align="center">
 												<Tag variant="warning" size="small">
@@ -553,7 +564,7 @@ export default function Import() {
 														</Table.Row>
 													</Table.Header>
 													<Table.Body>
-														{stagingDiff.changed.risks.flatMap((r) =>
+														{actionData.stagingDiff.changed.risks.flatMap((r) =>
 															r.fields.map((f) => (
 																<Table.Row key={`risk-${r.riskId}-${f.field}`}>
 																	<Table.DataCell>{r.riskId}</Table.DataCell>
@@ -563,7 +574,7 @@ export default function Import() {
 																</Table.Row>
 															)),
 														)}
-														{stagingDiff.changed.controls.flatMap((c) =>
+														{actionData.stagingDiff.changed.controls.flatMap((c) =>
 															c.fields.map((f) => (
 																<Table.Row key={`control-${c.controlId}-${f.field}`}>
 																	<Table.DataCell>{c.controlId}</Table.DataCell>
@@ -579,15 +590,15 @@ export default function Import() {
 										</VStack>
 									)}
 
-									{stagingDiff.added.risks.length === 0 &&
-										stagingDiff.added.controls.length === 0 &&
-										stagingDiff.added.domains.length === 0 &&
-										stagingDiff.removed.risks.length === 0 &&
-										stagingDiff.removed.controls.length === 0 &&
-										stagingDiff.removed.domains.length === 0 &&
-										stagingDiff.changed.risks.length === 0 &&
-										stagingDiff.changed.controls.length === 0 && (
-											<Alert variant="info">Ingen endringer funnet mellom staging- og aktiv versjon.</Alert>
+									{actionData.stagingDiff.added.risks.length === 0 &&
+										actionData.stagingDiff.added.controls.length === 0 &&
+										actionData.stagingDiff.added.domains.length === 0 &&
+										actionData.stagingDiff.removed.risks.length === 0 &&
+										actionData.stagingDiff.removed.controls.length === 0 &&
+										actionData.stagingDiff.removed.domains.length === 0 &&
+										actionData.stagingDiff.changed.risks.length === 0 &&
+										actionData.stagingDiff.changed.controls.length === 0 && (
+											<Alert variant="info">Ingen endringer funnet mellom importert data og aktive data.</Alert>
 										)}
 								</>
 							)}
@@ -628,10 +639,10 @@ export default function Import() {
 										<Table.DataCell>{v.sourceFileName}</Table.DataCell>
 										<Table.DataCell>
 											<Tag
-												variant={v.status === "active" ? "success" : v.status === "staging" ? "warning" : "neutral"}
+												variant={v.status === "applied" ? "success" : v.status === "pending" ? "warning" : "neutral"}
 												size="small"
 											>
-												{v.status === "active" ? "Aktiv" : v.status === "staging" ? "Staging" : "Arkivert"}
+												{v.status === "applied" ? "Aktiv" : v.status === "pending" ? "Venter" : "Erstattet"}
 											</Tag>
 										</Table.DataCell>
 										<Table.DataCell>{new Date(v.createdAt).toLocaleString("nb-NO")}</Table.DataCell>

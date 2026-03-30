@@ -1,11 +1,10 @@
-import { count, eq, sql } from "drizzle-orm"
+import { count, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
 import { frameworkControls } from "../schema/framework"
 import { devTeams, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
-import { getActiveFrameworkVersion } from "./framework.server"
 
 /** Get all sections. */
 export async function getSections() {
@@ -17,12 +16,12 @@ export async function getSectionDetail(seksjonSlug: string) {
 	const [section] = await db.select().from(sections).where(eq(sections.slug, seksjonSlug)).limit(1)
 	if (!section) return null
 
-	const version = await getActiveFrameworkVersion()
 	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, section.id)).orderBy(devTeams.name)
 
-	const [totalControlsRow] = version
-		? await db.select({ count: count() }).from(frameworkControls).where(eq(frameworkControls.versionId, version.id))
-		: [{ count: 0 }]
+	const [totalControlsRow] = await db
+		.select({ count: count() })
+		.from(frameworkControls)
+		.where(isNull(frameworkControls.archivedAt))
 	const totalControls = totalControlsRow?.count ?? 0
 
 	const teamStats = []
@@ -36,37 +35,35 @@ export async function getSectionDetail(seksjonSlug: string) {
 		let partial = 0
 		let notImplemented = 0
 
-		if (version) {
-			const appMappings = await db
-				.select({ applicationId: applicationTeamMappings.applicationId })
-				.from(applicationTeamMappings)
-				.where(eq(applicationTeamMappings.devTeamId, team.id))
+		const appMappings = await db
+			.select({ applicationId: applicationTeamMappings.applicationId })
+			.from(applicationTeamMappings)
+			.where(eq(applicationTeamMappings.devTeamId, team.id))
 
-			for (const mapping of appMappings) {
-				const [implRow] = await db
-					.select({ count: count() })
-					.from(complianceAssessments)
-					.where(
-						sql`${complianceAssessments.applicationId} = ${mapping.applicationId} AND ${complianceAssessments.status} = 'implemented'`,
-					)
-				implemented += implRow?.count ?? 0
+		for (const mapping of appMappings) {
+			const [implRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.applicationId} = ${mapping.applicationId} AND ${complianceAssessments.status} = 'implemented'`,
+				)
+			implemented += implRow?.count ?? 0
 
-				const [partialRow] = await db
-					.select({ count: count() })
-					.from(complianceAssessments)
-					.where(
-						sql`${complianceAssessments.applicationId} = ${mapping.applicationId} AND ${complianceAssessments.status} = 'partially_implemented'`,
-					)
-				partial += partialRow?.count ?? 0
+			const [partialRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.applicationId} = ${mapping.applicationId} AND ${complianceAssessments.status} = 'partially_implemented'`,
+				)
+			partial += partialRow?.count ?? 0
 
-				const [notImplRow] = await db
-					.select({ count: count() })
-					.from(complianceAssessments)
-					.where(
-						sql`${complianceAssessments.applicationId} = ${mapping.applicationId} AND ${complianceAssessments.status} = 'not_implemented'`,
-					)
-				notImplemented += notImplRow?.count ?? 0
-			}
+			const [notImplRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.applicationId} = ${mapping.applicationId} AND ${complianceAssessments.status} = 'not_implemented'`,
+				)
+			notImplemented += notImplRow?.count ?? 0
 		}
 
 		teamStats.push({
@@ -214,10 +211,10 @@ export async function getTeamApps(teamSlug: string) {
 	const [team] = await db.select().from(devTeams).where(eq(devTeams.slug, teamSlug)).limit(1)
 	if (!team) return null
 
-	const version = await getActiveFrameworkVersion()
-	const [totalControlsRow] = version
-		? await db.select({ count: count() }).from(frameworkControls).where(eq(frameworkControls.versionId, version.id))
-		: [{ count: 0 }]
+	const [totalControlsRow] = await db
+		.select({ count: count() })
+		.from(frameworkControls)
+		.where(isNull(frameworkControls.archivedAt))
 	const totalControls = totalControlsRow?.count ?? 0
 
 	const mappings = await db
@@ -238,31 +235,29 @@ export async function getTeamApps(teamSlug: string) {
 		let partial = 0
 		let notImplemented = 0
 
-		if (version) {
-			const [implRow] = await db
-				.select({ count: count() })
-				.from(complianceAssessments)
-				.where(
-					sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'implemented'`,
-				)
-			implemented = implRow?.count ?? 0
+		const [implRow] = await db
+			.select({ count: count() })
+			.from(complianceAssessments)
+			.where(
+				sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'implemented'`,
+			)
+		implemented = implRow?.count ?? 0
 
-			const [partialRow] = await db
-				.select({ count: count() })
-				.from(complianceAssessments)
-				.where(
-					sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'partially_implemented'`,
-				)
-			partial = partialRow?.count ?? 0
+		const [partialRow] = await db
+			.select({ count: count() })
+			.from(complianceAssessments)
+			.where(
+				sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'partially_implemented'`,
+			)
+		partial = partialRow?.count ?? 0
 
-			const [notImplRow] = await db
-				.select({ count: count() })
-				.from(complianceAssessments)
-				.where(
-					sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'not_implemented'`,
-				)
-			notImplemented = notImplRow?.count ?? 0
-		}
+		const [notImplRow] = await db
+			.select({ count: count() })
+			.from(complianceAssessments)
+			.where(
+				sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.status} = 'not_implemented'`,
+			)
+		notImplemented = notImplRow?.count ?? 0
 
 		apps.push({
 			appId: app.id,

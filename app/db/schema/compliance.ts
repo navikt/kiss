@@ -1,6 +1,6 @@
 import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
 import { monitoredApplications } from "./applications"
-import { frameworkControls, frameworkVersions } from "./framework"
+import { frameworkControls } from "./framework"
 
 export const complianceStatusEnum = ["not_relevant", "not_implemented", "partially_implemented", "implemented"] as const
 export type ComplianceStatus = (typeof complianceStatusEnum)[number]
@@ -13,9 +13,6 @@ export const complianceAssessments = pgTable("compliance_assessments", {
 	controlId: uuid("control_id")
 		.notNull()
 		.references(() => frameworkControls.id),
-	frameworkVersionId: uuid("framework_version_id")
-		.notNull()
-		.references(() => frameworkVersions.id),
 	status: text("status", { enum: complianceStatusEnum }).notNull(),
 	comment: text("comment"),
 	assessedBy: text("assessed_by").notNull(),
