@@ -135,6 +135,8 @@ export default function ApplikasjonDetalj() {
 		assessments,
 	} = useLoaderData<typeof loader>()
 
+	const isOnPrem = environments.some((e) => e.cluster?.includes("-fss"))
+
 	return (
 		<VStack gap="space-16">
 			<div>
@@ -363,7 +365,11 @@ export default function ApplikasjonDetalj() {
 											</Table.DataCell>
 											<Table.DataCell>
 												{supportsProxy ? (
-													auth.sidecarEnabled ? (
+													isOnPrem ? (
+														<Tag variant="neutral" size="xsmall">
+															Ikke tilgjengelig (on-prem)
+														</Tag>
+													) : auth.sidecarEnabled ? (
 														<Tag variant="success" size="xsmall">
 															Aktivert
 														</Tag>
