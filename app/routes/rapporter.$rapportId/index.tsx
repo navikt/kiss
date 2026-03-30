@@ -100,10 +100,16 @@ export default function RapportDetalj() {
 					<Heading size="medium" level="3">
 						Rapportinnhold
 					</Heading>
-					<div
-						// biome-ignore lint/security/noDangerouslySetInnerHtml: trusted server-generated HTML report
-						dangerouslySetInnerHTML={{ __html: htmlContent }}
-						style={{ border: "1px solid #c6c2bf", padding: "1rem", borderRadius: "4px", background: "#fff" }}
+					<iframe
+						title="Rapportinnhold"
+						srcDoc={htmlContent}
+						style={{
+							border: "1px solid #c6c2bf",
+							borderRadius: "4px",
+							background: "#fff",
+							width: "100%",
+							minHeight: "80vh",
+						}}
 					/>
 				</VStack>
 			)}
