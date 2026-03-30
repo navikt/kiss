@@ -138,7 +138,7 @@ export default function ApplikasjonDetalj() {
 	const isOnPrem = environments.some((e) => e.cluster?.includes("-fss"))
 
 	return (
-		<VStack gap="space-16">
+		<VStack gap="space-24">
 			<div>
 				<Heading size="xlarge" level="2">
 					{app.name}
@@ -238,8 +238,6 @@ export default function ApplikasjonDetalj() {
 				</Box>
 			)}
 
-			<hr className="section-divider" />
-
 			{/* Teams */}
 			<Box>
 				<Heading size="medium" level="3" spacing>
@@ -257,8 +255,6 @@ export default function ApplikasjonDetalj() {
 					<BodyLong>Ikke tilknyttet noe utviklerteam.</BodyLong>
 				)}
 			</Box>
-
-			<hr className="section-divider" />
 
 			{/* Compliance summary */}
 			<Box>
@@ -338,8 +334,6 @@ export default function ApplikasjonDetalj() {
 					</Table>
 				</Box>
 			)}
-
-			<hr className="section-divider" />
 
 			{/* Auth integrations */}
 			{authIntegrations.length > 0 && (
@@ -565,8 +559,6 @@ export default function ApplikasjonDetalj() {
 				</Box>
 			)}
 
-			<hr className="section-divider" />
-
 			{/* Environments */}
 			<Box>
 				<Heading size="medium" level="3" spacing>
@@ -607,8 +599,6 @@ export default function ApplikasjonDetalj() {
 					<BodyLong>Ingen kjente miljøer.</BodyLong>
 				)}
 			</Box>
-
-			<hr className="section-divider" />
 
 			{/* Persistence */}
 			<Box>
