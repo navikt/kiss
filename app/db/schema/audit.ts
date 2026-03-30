@@ -19,6 +19,7 @@ export const auditLogActionEnum = [
 	"app_team_linked",
 	"app_team_unlinked",
 	"control_field_updated",
+	"report_generated",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

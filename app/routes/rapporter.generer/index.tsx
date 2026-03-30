@@ -1,30 +1,54 @@
 import { Button, Heading, Select, VStack } from "@navikt/ds-react"
 import { useState } from "react"
-import type { ActionFunctionArgs } from "react-router"
-import { data, Form, useActionData } from "react-router"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Form, redirect, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { generateComplianceReport } from "~/db/queries/reports.server"
+import { getSections } from "~/db/queries/sections.server"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuditor } from "~/lib/authorization.server"
+
+export async function loader({ request }: LoaderFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+	requireAuditor(authedUser)
+
+	const sections = await getSections()
+	return data({
+		sections: sections.map((s) => ({ id: s.id, name: s.name })),
+	})
+}
 
 export async function action({ request }: ActionFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+	requireAuditor(authedUser)
+
 	const formData = await request.formData()
 	const scope = formData.get("scope")
-	const seksjon = formData.get("seksjon")
 
 	if (typeof scope !== "string" || !scope) {
 		throw new Response("Mangler rapportomfang", { status: 400 })
 	}
 
-	// Placeholder – will generate actual report
-	return data({
-		success: true,
-		message:
-			scope === "alle"
-				? "Rapport generert for alle seksjoner."
-				: `Rapport generert for seksjon: ${typeof seksjon === "string" ? seksjon : "ukjent"}.`,
+	const resolvedScope = scope === "seksjon" ? "section" : "all"
+	const scopeId = resolvedScope === "section" ? (formData.get("seksjon") as string) || undefined : undefined
+
+	if (resolvedScope === "section" && !scopeId) {
+		throw new Response("Velg en seksjon", { status: 400 })
+	}
+
+	const reportId = await generateComplianceReport({
+		scope: resolvedScope,
+		scopeId,
+		createdBy: authedUser.navIdent,
 	})
+
+	return redirect(`/rapporter/${reportId}`)
 }
 
 export default function GenererRapport() {
-	const actionData = useActionData<typeof action>()
+	const { sections } = useLoaderData<typeof loader>()
 	const [scope, setScope] = useState("alle")
 
 	return (
@@ -32,12 +56,6 @@ export default function GenererRapport() {
 			<Heading size="xlarge" level="2">
 				Generer rapport
 			</Heading>
-
-			{actionData?.success && (
-				<div className="compliance-success" role="status">
-					{actionData.message}
-				</div>
-			)}
 
 			<Form method="post">
 				<VStack gap="space-6">
@@ -51,9 +69,11 @@ export default function GenererRapport() {
 							<option value="" disabled>
 								Velg seksjon
 							</option>
-							<option value="utvikling">Utvikling</option>
-							<option value="infrastruktur">Infrastruktur</option>
-							<option value="sikkerhet">Sikkerhet</option>
+							{sections.map((s) => (
+								<option key={s.id} value={s.id}>
+									{s.name}
+								</option>
+							))}
 						</Select>
 					)}
 
