@@ -1,4 +1,4 @@
-import { Theme } from "@navikt/ds-react"
+import { InternalHeader, Spacer, Theme } from "@navikt/ds-react"
 import type { LinksFunction, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -11,6 +11,7 @@ import {
 	useLoaderData,
 } from "react-router"
 import { AppNavigation } from "./components/AppNavigation"
+import { ThemeToggle } from "./components/ThemeToggle"
 import { getAuthenticatedUser } from "./lib/auth.server"
 import { isAdmin, isAuditor } from "./lib/authorization.server"
 
@@ -70,17 +71,19 @@ export default function App() {
 			<a href="#main-content" className="skip-link">
 				Hopp til hovedinnhold
 			</a>
-			<header className="app-header">
-				<div className="app-header-content">
-					<h1 className="app-header-title">KISS</h1>
-					<span className="app-header-subtitle">Kontrollrammeverk for Integrert Sikker Systemutvikling</span>
-					{user && (
-						<span className="app-header-user">
-							{user.name} ({user.navIdent}){user.isAdmin ? " · Admin" : user.isAuditor ? " · Revisor" : ""}
-						</span>
-					)}
-				</div>
-			</header>
+			<InternalHeader>
+				<InternalHeader.Title as="a" href="/">
+					KISS
+				</InternalHeader.Title>
+				<Spacer />
+				<ThemeToggle />
+				{user && (
+					<InternalHeader.User
+						name={user.name}
+						description={`${user.navIdent}${user.isAdmin ? " · Admin" : user.isAuditor ? " · Revisor" : ""}`}
+					/>
+				)}
+			</InternalHeader>
 			<AppNavigation />
 			<main id="main-content" className="app-main">
 				<Outlet />

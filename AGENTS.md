@@ -137,6 +137,7 @@ React Router 7 fjerner `.server`-imports kun fra `loader`/`action`/`middleware`/
    - **Endringsloggen skal alltid vises i brukergrensesnittet** på den relevante admin-/oversiktssiden, slik at brukerne kan se hva som er endret, av hvem og når
    - Bruk `<Table>` med kolonner: Tidspunkt, Handling, Detaljer, Utført av
 7. **Database-seeding (`pnpm db:seed`) skal ALDRI kjøres automatisk** – verken i `dev:setup`, CI/CD, eller av AI-agenter i autopilot-modus. Seeding skal kun utføres når brukeren eksplisitt ber om det.
+8. **E2e-tester som oppretter data i databasen SKAL alltid rydde opp etter seg.** Tester som oppretter seksjoner, team, applikasjoner osv. via UI skal slette dem igjen i samme test. Testdata som ligger igjen forurenser utviklingsdatabasen.
 
 ### Kontroll-ID-formater
 - Nav MKR: `K-XX.NN` (f.eks. `K-ST.01`, `K-TS.03`)

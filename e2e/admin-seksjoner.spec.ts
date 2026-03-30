@@ -14,7 +14,7 @@ test.describe("Admin Seksjoner", () => {
 		await expect(page.getByRole("button", { name: "Opprett seksjon" })).toBeVisible()
 	})
 
-	test("can create a section", async ({ page }) => {
+	test("can create and delete a section", async ({ page }) => {
 		const uniqueName = `Testseksjon ${Date.now()}`
 		await page.getByRole("textbox", { name: "Seksjonsnavn" }).fill(uniqueName)
 		await page.getByRole("textbox", { name: "Beskrivelse" }).first().fill("En testbeskrivelse")
@@ -22,9 +22,15 @@ test.describe("Admin Seksjoner", () => {
 
 		await expect(page.getByText(`Seksjon «${uniqueName}» opprettet.`)).toBeVisible()
 		await expect(page.getByRole("heading", { name: uniqueName })).toBeVisible()
+
+		// Clean up: delete the section
+		const sectionCard = page.locator(".admin-card", { has: page.getByRole("heading", { name: uniqueName }) })
+		await sectionCard.getByRole("button", { name: "Slett" }).click()
+		await page.getByRole("dialog").getByRole("button", { name: "Slett" }).click()
+		await expect(page.getByRole("heading", { name: uniqueName })).not.toBeVisible()
 	})
 
-	test("can create a team in a section", async ({ page }) => {
+	test("can create a team in a section and delete both", async ({ page }) => {
 		const sectionName = `Seksjon-team ${Date.now()}`
 		await page.getByRole("textbox", { name: "Seksjonsnavn" }).fill(sectionName)
 		await page.getByRole("button", { name: "Opprett seksjon" }).click()
@@ -37,6 +43,16 @@ test.describe("Admin Seksjoner", () => {
 
 		await expect(page.getByText(`Team «${teamName}» opprettet.`)).toBeVisible()
 		await expect(sectionCard.getByRole("cell", { name: teamName })).toBeVisible()
+
+		// Clean up: delete team then section
+		const teamRow = sectionCard.locator("tr", { hasText: teamName })
+		await teamRow.getByRole("button", { name: "Slett" }).click()
+		await page.getByRole("dialog").getByRole("button", { name: "Slett" }).click()
+		await expect(page.getByText("Team slettet.")).toBeVisible()
+
+		await sectionCard.getByRole("button", { name: "Slett" }).click()
+		await page.getByRole("dialog").getByRole("button", { name: "Slett" }).click()
+		await expect(page.getByRole("heading", { name: sectionName })).not.toBeVisible()
 	})
 
 	test("can delete a team", async ({ page }) => {
@@ -51,12 +67,16 @@ test.describe("Admin Seksjoner", () => {
 		await sectionCard.getByRole("button", { name: "Legg til" }).click()
 		await expect(sectionCard.getByRole("cell", { name: teamName })).toBeVisible()
 
-		// Click the Slett button in the team row within this section
+		// Delete team
 		const teamRow = sectionCard.locator("tr", { hasText: teamName })
 		await teamRow.getByRole("button", { name: "Slett" }).click()
 		await page.getByRole("dialog").getByRole("button", { name: "Slett" }).click()
-
 		await expect(page.getByText("Team slettet.")).toBeVisible()
+
+		// Clean up: delete section
+		await sectionCard.getByRole("button", { name: "Slett" }).click()
+		await page.getByRole("dialog").getByRole("button", { name: "Slett" }).click()
+		await expect(page.getByRole("heading", { name: sectionName })).not.toBeVisible()
 	})
 
 	test("can delete a section", async ({ page }) => {
