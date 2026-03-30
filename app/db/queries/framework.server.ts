@@ -348,6 +348,7 @@ export async function stageFrameworkVersion(
 	parsed: ParsedFramework,
 	fileName: string,
 	uploadedBy: string,
+	bucketPath: string,
 ): Promise<string> {
 	// Delete any existing staging version (and its cascaded data)
 	const existingStaging = await db
@@ -366,7 +367,7 @@ export async function stageFrameworkVersion(
 			name: fileName.replace(/\.xlsx$/i, ""),
 			description: `Importert fra ${fileName}`,
 			sourceFileName: fileName,
-			sourceBucketPath: `framework-uploads/${Date.now()}-${fileName}`,
+			sourceBucketPath: bucketPath,
 			status: "staging",
 			createdBy: uploadedBy,
 		})
@@ -557,6 +558,145 @@ export async function getStagingFrameworkVersion() {
 /** Get all framework versions ordered by creation date (newest first). */
 export async function getFrameworkVersionHistory() {
 	return db.select().from(frameworkVersions).orderBy(desc(frameworkVersions.createdAt))
+}
+
+/** Compare staging version against active version and return a structured diff. */
+export async function getStagingDiff() {
+	const staging = await getStagingFrameworkVersion()
+	if (!staging) return null
+
+	const active = await getActiveFrameworkVersion()
+	if (!active) {
+		return {
+			isFirstImport: true as const,
+			added: {
+				risks: [] as { riskId: string; description: string }[],
+				controls: [] as { controlId: string; requirement: string | null }[],
+				domains: [] as { code: string; name: string }[],
+			},
+			removed: {
+				risks: [] as { riskId: string; description: string }[],
+				controls: [] as { controlId: string; requirement: string | null }[],
+				domains: [] as { code: string; name: string }[],
+			},
+			changed: {
+				risks: [] as {
+					riskId: string
+					fields: { field: string; oldValue: string | null; newValue: string | null }[]
+				}[],
+				controls: [] as {
+					controlId: string
+					fields: { field: string; oldValue: string | null; newValue: string | null }[]
+				}[],
+			},
+		}
+	}
+
+	// Fetch risks for both versions
+	const [stagingRisks, activeRisks] = await Promise.all([
+		db.select().from(frameworkRisks).where(eq(frameworkRisks.versionId, staging.id)),
+		db.select().from(frameworkRisks).where(eq(frameworkRisks.versionId, active.id)),
+	])
+
+	// Fetch controls for both versions
+	const [stagingControls, activeControls] = await Promise.all([
+		db.select().from(frameworkControls).where(eq(frameworkControls.versionId, staging.id)),
+		db.select().from(frameworkControls).where(eq(frameworkControls.versionId, active.id)),
+	])
+
+	// Fetch domains for both versions
+	const [stagingDomains, activeDomains] = await Promise.all([
+		db.select().from(frameworkDomains).where(eq(frameworkDomains.versionId, staging.id)),
+		db.select().from(frameworkDomains).where(eq(frameworkDomains.versionId, active.id)),
+	])
+
+	// Build maps keyed by business ID
+	const activeRiskMap = new Map(activeRisks.map((r) => [r.riskId, r]))
+	const stagingRiskMap = new Map(stagingRisks.map((r) => [r.riskId, r]))
+	const activeControlMap = new Map(activeControls.map((c) => [c.controlId, c]))
+	const stagingControlMap = new Map(stagingControls.map((c) => [c.controlId, c]))
+	const activeDomainMap = new Map(activeDomains.map((d) => [d.code, d]))
+	const stagingDomainMap = new Map(stagingDomains.map((d) => [d.code, d]))
+
+	// Domains diff
+	const addedDomains = stagingDomains
+		.filter((d) => !activeDomainMap.has(d.code))
+		.map((d) => ({ code: d.code, name: d.name }))
+	const removedDomains = activeDomains
+		.filter((d) => !stagingDomainMap.has(d.code))
+		.map((d) => ({ code: d.code, name: d.name }))
+
+	// Risks diff
+	const addedRisks = stagingRisks
+		.filter((r) => !activeRiskMap.has(r.riskId))
+		.map((r) => ({ riskId: r.riskId, description: r.description }))
+	const removedRisks = activeRisks
+		.filter((r) => !stagingRiskMap.has(r.riskId))
+		.map((r) => ({ riskId: r.riskId, description: r.description }))
+
+	const riskCompareFields = ["description"] as const
+	const changedRisks: {
+		riskId: string
+		fields: { field: string; oldValue: string | null; newValue: string | null }[]
+	}[] = []
+	for (const [riskId, stagingRisk] of stagingRiskMap) {
+		const activeRisk = activeRiskMap.get(riskId)
+		if (!activeRisk) continue
+		const fields: { field: string; oldValue: string | null; newValue: string | null }[] = []
+		for (const field of riskCompareFields) {
+			const oldVal = activeRisk[field] ?? null
+			const newVal = stagingRisk[field] ?? null
+			if (oldVal !== newVal) {
+				fields.push({ field, oldValue: oldVal, newValue: newVal })
+			}
+		}
+		if (fields.length > 0) changedRisks.push({ riskId, fields })
+	}
+
+	// Controls diff
+	const addedControls = stagingControls
+		.filter((c) => !activeControlMap.has(c.controlId))
+		.map((c) => ({ controlId: c.controlId, requirement: c.requirement }))
+	const removedControls = activeControls
+		.filter((c) => !stagingControlMap.has(c.controlId))
+		.map((c) => ({ controlId: c.controlId, requirement: c.requirement }))
+
+	const controlCompareFields = [
+		"technologyElement",
+		"requirement",
+		"responsible",
+		"routine",
+		"frequency",
+		"documentationRequirement",
+		"testProcedure",
+		"dependencies",
+		"references",
+		"commonPitfalls",
+	] as const
+	const changedControls: {
+		controlId: string
+		fields: { field: string; oldValue: string | null; newValue: string | null }[]
+	}[] = []
+	for (const [controlId, stagingCtrl] of stagingControlMap) {
+		const activeCtrl = activeControlMap.get(controlId)
+		if (!activeCtrl) continue
+		const fields: { field: string; oldValue: string | null; newValue: string | null }[] = []
+		for (const field of controlCompareFields) {
+			const oldVal = activeCtrl[field] ?? null
+			const newVal = stagingCtrl[field] ?? null
+			if (oldVal !== newVal) {
+				fields.push({ field, oldValue: oldVal, newValue: newVal })
+			}
+		}
+		if (fields.length > 0) changedControls.push({ controlId, fields })
+	}
+
+	return {
+		isFirstImport: false as const,
+		added: { risks: addedRisks, controls: addedControls, domains: addedDomains },
+		removed: { risks: removedRisks, controls: removedControls, domains: removedDomains },
+		changed: { risks: changedRisks, controls: changedControls },
+	}
 }
 
 /** Delete all data for a framework version (mappings, controls, risks, domains, then version). */

@@ -5,19 +5,26 @@ import type { ActionFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRecentAuditLog } from "~/db/queries/audit.server"
+import { saveBucketObject } from "~/db/queries/buckets.server"
 import {
 	activateFrameworkVersion,
 	getFrameworkVersionHistory,
+	getStagingDiff,
 	getStagingFrameworkVersion,
 	stageFrameworkVersion,
 } from "~/db/queries/framework.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { type ParsedFrameworkRow, parseFrameworkExcel, summarizeFramework } from "~/lib/excel-parser.server"
+import { getStorageProvider } from "~/lib/storage/index.server"
 
 export async function loader() {
-	const [versions, auditEntries] = await Promise.all([getFrameworkVersionHistory(), getRecentAuditLog(50)])
+	const [versions, auditEntries, stagingDiff] = await Promise.all([
+		getFrameworkVersionHistory(),
+		getRecentAuditLog(50),
+		getStagingDiff(),
+	])
 
-	return data({ versions, auditEntries })
+	return data({ versions, auditEntries, stagingDiff })
 }
 
 interface SerializedControl {
@@ -99,8 +106,25 @@ export async function action({ request }: ActionFunctionArgs) {
 		const parsed = parseFrameworkExcel(buffer)
 		const summary = summarizeFramework(parsed)
 
+		// Upload file to bucket storage
+		const bucketName = process.env.GCS_BUCKET_NAME ?? "kiss-data-local"
+		const bucketPath = `framework-uploads/${Date.now()}-${file.name}`
+		const contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+		const storage = getStorageProvider()
+		const uploadResult = await storage.upload(bucketPath, buffer, { contentType })
+
+		await saveBucketObject({
+			bucketName,
+			objectPath: uploadResult.path,
+			contentType: uploadResult.contentType,
+			sizeBytes: uploadResult.sizeBytes,
+			objectType: "framework-import",
+			uploadedBy: userName,
+			metadata: { originalFileName: file.name },
+		})
+
 		// Stage in database
-		const versionId = await stageFrameworkVersion(parsed, file.name, userName)
+		const versionId = await stageFrameworkVersion(parsed, file.name, userName, bucketPath)
 
 		const controls: SerializedControl[] = Array.from(summary.controls.values()).map((row: ParsedFrameworkRow) => ({
 			controlId: row.controlId,
@@ -160,6 +184,25 @@ function formatAction(action: string): string {
 	return actionLabels[action] ?? action
 }
 
+const diffFieldLabels: Record<string, string> = {
+	description: "Beskrivelse",
+	technologyElement: "Teknologielement",
+	requirement: "Krav",
+	responsible: "Ansvarlig",
+	routine: "Rutine",
+	frequency: "Frekvens",
+	documentationRequirement: "Dokumentasjonskrav",
+	testProcedure: "Testprosedyre",
+	dependencies: "Avhengigheter",
+	references: "Referanser",
+	commonPitfalls: "Vanlige fallgruver",
+}
+
+function truncateValue(value: string | null, maxLength = 80): string {
+	if (!value) return "(tom)"
+	return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value
+}
+
 function formatDetails(entry: {
 	action: string
 	entityId: string
@@ -181,7 +224,7 @@ function formatDetails(entry: {
 }
 
 export default function Import() {
-	const { versions, auditEntries } = useLoaderData<typeof loader>()
+	const { versions, auditEntries, stagingDiff } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const submit = useSubmit()
@@ -386,6 +429,170 @@ export default function Import() {
 							</Table>
 						</section>
 					</VStack>
+
+					{stagingDiff && (
+						<VStack gap="space-4">
+							<Heading size="medium" level="3">
+								Endringer fra aktiv versjon
+							</Heading>
+
+							{stagingDiff.isFirstImport ? (
+								<Alert variant="info">Dette er første import — alle elementer er nye.</Alert>
+							) : (
+								<>
+									<BodyLong>
+										{stagingDiff.added.risks.length + stagingDiff.added.controls.length} nye,{" "}
+										{stagingDiff.removed.risks.length + stagingDiff.removed.controls.length} fjernede,{" "}
+										{stagingDiff.changed.risks.length + stagingDiff.changed.controls.length} endrede elementer
+									</BodyLong>
+
+									{(stagingDiff.added.risks.length > 0 ||
+										stagingDiff.added.controls.length > 0 ||
+										stagingDiff.added.domains.length > 0) && (
+										<VStack gap="space-2">
+											<HStack gap="space-2" align="center">
+												<Tag variant="success" size="small">
+													Nye elementer
+												</Tag>
+											</HStack>
+											<Table size="small">
+												<Table.Header>
+													<Table.Row>
+														<Table.HeaderCell scope="col">Type</Table.HeaderCell>
+														<Table.HeaderCell scope="col">ID</Table.HeaderCell>
+														<Table.HeaderCell scope="col">Beskrivelse</Table.HeaderCell>
+													</Table.Row>
+												</Table.Header>
+												<Table.Body>
+													{stagingDiff.added.domains.map((d) => (
+														<Table.Row key={`domain-${d.code}`}>
+															<Table.DataCell>Domene</Table.DataCell>
+															<Table.DataCell>{d.code}</Table.DataCell>
+															<Table.DataCell>{d.name}</Table.DataCell>
+														</Table.Row>
+													))}
+													{stagingDiff.added.risks.map((r) => (
+														<Table.Row key={`risk-${r.riskId}`}>
+															<Table.DataCell>Risiko</Table.DataCell>
+															<Table.DataCell>{r.riskId}</Table.DataCell>
+															<Table.DataCell>{truncateValue(r.description)}</Table.DataCell>
+														</Table.Row>
+													))}
+													{stagingDiff.added.controls.map((c) => (
+														<Table.Row key={`control-${c.controlId}`}>
+															<Table.DataCell>Kontroll</Table.DataCell>
+															<Table.DataCell>{c.controlId}</Table.DataCell>
+															<Table.DataCell>{truncateValue(c.requirement)}</Table.DataCell>
+														</Table.Row>
+													))}
+												</Table.Body>
+											</Table>
+										</VStack>
+									)}
+
+									{(stagingDiff.removed.risks.length > 0 ||
+										stagingDiff.removed.controls.length > 0 ||
+										stagingDiff.removed.domains.length > 0) && (
+										<VStack gap="space-2">
+											<HStack gap="space-2" align="center">
+												<Tag variant="error" size="small">
+													Fjernede elementer
+												</Tag>
+											</HStack>
+											<Table size="small">
+												<Table.Header>
+													<Table.Row>
+														<Table.HeaderCell scope="col">Type</Table.HeaderCell>
+														<Table.HeaderCell scope="col">ID</Table.HeaderCell>
+														<Table.HeaderCell scope="col">Beskrivelse</Table.HeaderCell>
+													</Table.Row>
+												</Table.Header>
+												<Table.Body>
+													{stagingDiff.removed.domains.map((d) => (
+														<Table.Row key={`domain-${d.code}`}>
+															<Table.DataCell>Domene</Table.DataCell>
+															<Table.DataCell>{d.code}</Table.DataCell>
+															<Table.DataCell>{d.name}</Table.DataCell>
+														</Table.Row>
+													))}
+													{stagingDiff.removed.risks.map((r) => (
+														<Table.Row key={`risk-${r.riskId}`}>
+															<Table.DataCell>Risiko</Table.DataCell>
+															<Table.DataCell>{r.riskId}</Table.DataCell>
+															<Table.DataCell>{truncateValue(r.description)}</Table.DataCell>
+														</Table.Row>
+													))}
+													{stagingDiff.removed.controls.map((c) => (
+														<Table.Row key={`control-${c.controlId}`}>
+															<Table.DataCell>Kontroll</Table.DataCell>
+															<Table.DataCell>{c.controlId}</Table.DataCell>
+															<Table.DataCell>{truncateValue(c.requirement)}</Table.DataCell>
+														</Table.Row>
+													))}
+												</Table.Body>
+											</Table>
+										</VStack>
+									)}
+
+									{(stagingDiff.changed.risks.length > 0 || stagingDiff.changed.controls.length > 0) && (
+										<VStack gap="space-2">
+											<HStack gap="space-2" align="center">
+												<Tag variant="warning" size="small">
+													Endrede elementer
+												</Tag>
+											</HStack>
+											{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+											<section className="table-scroll" tabIndex={0} aria-label="Endrede elementer">
+												<Table size="small">
+													<Table.Header>
+														<Table.Row>
+															<Table.HeaderCell scope="col">Element</Table.HeaderCell>
+															<Table.HeaderCell scope="col">Felt</Table.HeaderCell>
+															<Table.HeaderCell scope="col">Gammel verdi</Table.HeaderCell>
+															<Table.HeaderCell scope="col">Ny verdi</Table.HeaderCell>
+														</Table.Row>
+													</Table.Header>
+													<Table.Body>
+														{stagingDiff.changed.risks.flatMap((r) =>
+															r.fields.map((f) => (
+																<Table.Row key={`risk-${r.riskId}-${f.field}`}>
+																	<Table.DataCell>{r.riskId}</Table.DataCell>
+																	<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
+																	<Table.DataCell>{truncateValue(f.oldValue)}</Table.DataCell>
+																	<Table.DataCell>{truncateValue(f.newValue)}</Table.DataCell>
+																</Table.Row>
+															)),
+														)}
+														{stagingDiff.changed.controls.flatMap((c) =>
+															c.fields.map((f) => (
+																<Table.Row key={`control-${c.controlId}-${f.field}`}>
+																	<Table.DataCell>{c.controlId}</Table.DataCell>
+																	<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
+																	<Table.DataCell>{truncateValue(f.oldValue)}</Table.DataCell>
+																	<Table.DataCell>{truncateValue(f.newValue)}</Table.DataCell>
+																</Table.Row>
+															)),
+														)}
+													</Table.Body>
+												</Table>
+											</section>
+										</VStack>
+									)}
+
+									{stagingDiff.added.risks.length === 0 &&
+										stagingDiff.added.controls.length === 0 &&
+										stagingDiff.added.domains.length === 0 &&
+										stagingDiff.removed.risks.length === 0 &&
+										stagingDiff.removed.controls.length === 0 &&
+										stagingDiff.removed.domains.length === 0 &&
+										stagingDiff.changed.risks.length === 0 &&
+										stagingDiff.changed.controls.length === 0 && (
+											<Alert variant="info">Ingen endringer funnet mellom staging- og aktiv versjon.</Alert>
+										)}
+								</>
+							)}
+						</VStack>
+					)}
 
 					<div>
 						<Form method="post">
