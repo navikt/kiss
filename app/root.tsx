@@ -11,6 +11,7 @@ import {
 	useLoaderData,
 } from "react-router"
 import { AppNavigation } from "./components/AppNavigation"
+import { SearchDialog } from "./components/SearchDialog"
 import { ThemeToggle } from "./components/ThemeToggle"
 import { getAuthenticatedUser } from "./lib/auth.server"
 import { isAdmin, isAuditor } from "./lib/authorization.server"
@@ -75,6 +76,7 @@ export default function App() {
 				<InternalHeader.Title as="a" href="/">
 					KISS
 				</InternalHeader.Title>
+				<SearchDialog />
 				<Spacer />
 				<ThemeToggle />
 				{user && (
