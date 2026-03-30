@@ -523,9 +523,9 @@ export default function ApplikasjonDetalj() {
 					<Table size="small">
 						<Table.Header>
 							<Table.Row>
+								<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
@@ -534,13 +534,9 @@ export default function ApplikasjonDetalj() {
 								.filter((a) => !a.status || a.status === "not_implemented" || a.status === "partially_implemented")
 								.map((a) => (
 									<Table.Row key={a.controlUuid}>
+										<Table.DataCell>{a.domainName}</Table.DataCell>
 										<Table.DataCell>{a.controlId}</Table.DataCell>
 										<Table.DataCell>{a.controlName}</Table.DataCell>
-										<Table.DataCell>
-											<Tag variant="neutral" size="xsmall">
-												{a.domainCode}
-											</Tag>
-										</Table.DataCell>
 										<Table.DataCell>
 											{a.status ? (
 												<ComplianceStatusBadge status={a.status as ComplianceStatusValue} />
