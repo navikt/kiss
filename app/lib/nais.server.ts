@@ -22,6 +22,7 @@ export interface NaisAuthIntegration {
 	enabled: boolean
 	allowAllUsers?: boolean
 	claimsExtra?: string[]
+	groups?: string[]
 }
 
 export interface NaisApp {
@@ -339,11 +340,21 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 							.filter(Boolean)
 					: undefined
 
+				// Extract required group IDs from manifest
+				const groupsMatch = manifestContent.match(/groups:\s*\n((?:\s*-\s*id:\s*[0-9a-f-]+\n?)*)/)
+				const groups = groupsMatch
+					? groupsMatch[1]
+							.split("\n")
+							.map((l) => l.replace(/^\s*-\s*id:\s*/, "").trim())
+							.filter(Boolean)
+					: undefined
+
 				authIntegrations.push({
 					type: "entra_id",
 					enabled: true,
 					allowAllUsers: allowAllMatch ? allowAllMatch[1] === "true" : undefined,
 					claimsExtra: claimsExtra?.length ? claimsExtra : undefined,
+					groups: groups?.length ? groups : undefined,
 				})
 			}
 

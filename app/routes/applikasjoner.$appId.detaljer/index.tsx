@@ -263,6 +263,7 @@ export default function ApplikasjonDetalj() {
 						<Table.Body>
 							{authIntegrations.map((auth) => {
 								const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
+								const groups = auth.groups ? (JSON.parse(auth.groups) as string[]) : null
 								return (
 									<Table.Row key={auth.id}>
 										<Table.DataCell>
@@ -276,18 +277,32 @@ export default function ApplikasjonDetalj() {
 											</Tag>
 										</Table.DataCell>
 										<Table.DataCell>
-											<HStack gap="space-2" wrap>
-												{auth.type === "entra_id" && auth.allowAllUsers !== null && (
-													<Tag variant={auth.allowAllUsers ? "warning" : "info"} size="xsmall">
-														{auth.allowAllUsers ? "Alle brukere" : "Gruppebasert tilgang"}
-													</Tag>
+											<VStack gap="space-2">
+												<HStack gap="space-2" wrap>
+													{auth.type === "entra_id" && auth.allowAllUsers !== null && (
+														<Tag variant={auth.allowAllUsers ? "warning" : "info"} size="xsmall">
+															{auth.allowAllUsers ? "Alle brukere" : "Gruppebasert tilgang"}
+														</Tag>
+													)}
+													{claimsExtra?.map((claim) => (
+														<Tag key={claim} variant="neutral" size="xsmall">
+															claim: {claim}
+														</Tag>
+													))}
+												</HStack>
+												{groups && groups.length > 0 && (
+													<VStack gap="space-1">
+														<Label size="small">Påkrevde grupper ({groups.length})</Label>
+														<HStack gap="space-2" wrap>
+															{groups.map((groupId) => (
+																<Tag key={groupId} variant="neutral" size="xsmall">
+																	{groupId}
+																</Tag>
+															))}
+														</HStack>
+													</VStack>
 												)}
-												{claimsExtra?.map((claim) => (
-													<Tag key={claim} variant="neutral" size="xsmall">
-														claim: {claim}
-													</Tag>
-												))}
-											</HStack>
+											</VStack>
 										</Table.DataCell>
 									</Table.Row>
 								)

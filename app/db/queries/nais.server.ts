@@ -400,6 +400,7 @@ export async function upsertAppAuthIntegration(
 	opts?: {
 		allowAllUsers?: boolean | null
 		claimsExtra?: string[] | null
+		groups?: string[] | null
 	},
 ): Promise<boolean> {
 	const [existing] = await db
@@ -411,6 +412,7 @@ export async function upsertAppAuthIntegration(
 		.limit(1)
 
 	const claimsExtraStr = opts?.claimsExtra?.length ? JSON.stringify(opts.claimsExtra) : null
+	const groupsStr = opts?.groups?.length ? JSON.stringify(opts.groups) : null
 
 	if (existing) {
 		await db
@@ -419,6 +421,7 @@ export async function upsertAppAuthIntegration(
 				enabled: true,
 				allowAllUsers: opts?.allowAllUsers ?? existing.allowAllUsers,
 				claimsExtra: claimsExtraStr ?? existing.claimsExtra,
+				groups: groupsStr ?? existing.groups,
 				updatedAt: new Date(),
 			})
 			.where(eq(applicationAuthIntegrations.id, existing.id))
@@ -430,6 +433,7 @@ export async function upsertAppAuthIntegration(
 		type,
 		allowAllUsers: opts?.allowAllUsers ?? null,
 		claimsExtra: claimsExtraStr,
+		groups: groupsStr,
 	})
 	return true
 }

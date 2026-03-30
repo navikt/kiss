@@ -73,6 +73,7 @@ export async function syncNaisAppsForTeam(
 				await upsertAppAuthIntegration(appId, auth.type, {
 					allowAllUsers: auth.allowAllUsers,
 					claimsExtra: auth.claimsExtra,
+					groups: auth.groups,
 				})
 			}
 		}
