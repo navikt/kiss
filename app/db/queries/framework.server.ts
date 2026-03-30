@@ -1,6 +1,8 @@
 import { count, desc, eq, sql } from "drizzle-orm"
 import type { ParsedFramework } from "~/lib/excel-parser.server"
 import { db } from "../connection.server"
+import { monitoredApplications } from "../schema/applications"
+import { complianceAssessments } from "../schema/compliance"
 import {
 	frameworkControls,
 	frameworkDomains,
@@ -27,6 +29,10 @@ export async function getDomainSummaries() {
 		.where(eq(frameworkDomains.versionId, version.id))
 		.orderBy(frameworkDomains.displayOrder)
 
+	// Count total monitored apps for per-app compliance calculation
+	const [appCountRow] = await db.select({ count: count() }).from(monitoredApplications)
+	const totalApps = appCountRow?.count ?? 0
+
 	const result = []
 	for (const domain of domains) {
 		const [riskRow] = await db
@@ -39,11 +45,54 @@ export async function getDomainSummaries() {
 			.from(frameworkControls)
 			.where(eq(frameworkControls.domainId, domain.id))
 
+		const controlCount = controlRow?.count ?? 0
+
+		// Count compliance assessments per status for controls in this domain
+		const controlIds = await db
+			.select({ id: frameworkControls.id })
+			.from(frameworkControls)
+			.where(eq(frameworkControls.domainId, domain.id))
+		const controlUuids = controlIds.map((c) => c.id)
+
+		let implemented = 0
+		let partial = 0
+		let notImplemented = 0
+
+		if (controlUuids.length > 0) {
+			const [implRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.controlId} IN ${controlUuids} AND ${complianceAssessments.status} = 'implemented'`,
+				)
+			implemented = implRow?.count ?? 0
+
+			const [partialRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.controlId} IN ${controlUuids} AND ${complianceAssessments.status} = 'partially_implemented'`,
+				)
+			partial = partialRow?.count ?? 0
+
+			const [notImplRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.controlId} IN ${controlUuids} AND ${complianceAssessments.status} = 'not_implemented'`,
+				)
+			notImplemented = notImplRow?.count ?? 0
+		}
+
 		result.push({
 			code: domain.code,
 			name: domain.name,
 			riskCount: riskRow?.count ?? 0,
-			controlCount: controlRow?.count ?? 0,
+			controlCount,
+			totalAssessments: controlCount * totalApps,
+			implemented,
+			partial,
+			notImplemented,
 		})
 	}
 

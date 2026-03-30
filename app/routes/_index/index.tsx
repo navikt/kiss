@@ -19,11 +19,11 @@ export async function loader(_args: LoaderFunctionArgs) {
 
 	const domainStatuses: DomainStatus[] = summaries.map((s) => ({
 		name: s.name,
-		implemented: 0,
-		partial: 0,
-		notImplemented: 0,
+		implemented: s.implemented,
+		partial: s.partial,
+		notImplemented: s.notImplemented,
 		notRelevant: 0,
-		total: s.controlCount,
+		total: s.totalAssessments,
 	}))
 
 	const totalControls = domainStatuses.reduce((sum, d) => sum + d.total, 0)
