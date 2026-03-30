@@ -12,18 +12,18 @@ test.describe("Theme toggle", () => {
 		await expect(toggleButton).toBeVisible()
 	})
 
-	test("clicking toggle changes data-theme and sets cookie", async ({
+	test("clicking toggle changes theme class and sets cookie", async ({
 		page,
 	}) => {
-		const container = page.locator("[data-theme]")
-		await expect(container).toHaveAttribute("data-theme", "light")
+		const container = page.locator(".app-container")
+		await expect(container).not.toHaveClass(/\bdark\b/)
 
 		const toggleButton = page.getByRole("button", {
 			name: "Bytt til mørkt tema",
 		})
 		await toggleButton.click()
 
-		await expect(container).toHaveAttribute("data-theme", "dark")
+		await expect(container).toHaveClass(/\bdark\b/)
 
 		const cookies = await page.context().cookies()
 		const themeCookie = cookies.find((c) => c.name === "kiss-theme")
@@ -35,6 +35,6 @@ test.describe("Theme toggle", () => {
 		})
 		await toggleBack.click()
 
-		await expect(container).toHaveAttribute("data-theme", "light")
+		await expect(container).not.toHaveClass(/\bdark\b/)
 	})
 })

@@ -1,3 +1,4 @@
+import { Theme } from "@navikt/ds-react"
 import type { LinksFunction, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -65,7 +66,7 @@ export default function App() {
 	const { theme, user } = useLoaderData<typeof loader>()
 
 	return (
-		<div data-theme={theme} className="app-container">
+		<Theme theme={theme} className="app-container" hasBackground>
 			<a href="#main-content" className="skip-link">
 				Hopp til hovedinnhold
 			</a>
@@ -84,7 +85,7 @@ export default function App() {
 			<main id="main-content" className="app-main">
 				<Outlet />
 			</main>
-		</div>
+		</Theme>
 	)
 }
 
