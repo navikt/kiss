@@ -13,6 +13,8 @@ interface DomainStatus {
 	notImplemented: number
 	notRelevant: number
 	total: number
+	controlCount: number
+	controlsWithGaps: number
 }
 
 export async function loader(_args: LoaderFunctionArgs) {
@@ -26,6 +28,8 @@ export async function loader(_args: LoaderFunctionArgs) {
 		notImplemented: s.notImplemented,
 		notRelevant: 0,
 		total: s.totalAssessments,
+		controlCount: s.controlCount,
+		controlsWithGaps: s.controlsWithGaps,
 	}))
 
 	const totalControls = domainStatuses.reduce((sum, d) => sum + d.total, 0)
@@ -105,7 +109,13 @@ export default function Dashboard() {
 								<span>{domain.partial} delvis</span>
 								<span>{domain.notImplemented} mangler</span>
 							</div>
-							<div className="domain-status-card-link-footer">Se detaljer →</div>
+							{domain.controlsWithGaps > 0 ? (
+								<div className="domain-status-card-link-footer">
+									{domain.controlsWithGaps} av {domain.controlCount} kontroller har mangler →
+								</div>
+							) : (
+								<div className="domain-status-card-link-footer">Se detaljer →</div>
+							)}
 						</Link>
 					)
 				})}

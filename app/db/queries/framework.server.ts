@@ -87,11 +87,28 @@ export async function getDomainSummaries() {
 			notImplemented = notImplRow?.count ?? 0
 		}
 
+		// Count controls with gaps (at least one app not fully implemented)
+		let controlsWithGaps = 0
+		if (totalApps > 0 && controlUuids.length > 0) {
+			for (const ctrlId of controlUuids) {
+				const [implCount] = await db
+					.select({ count: count() })
+					.from(complianceAssessments)
+					.where(
+						sql`${complianceAssessments.controlId} = ${ctrlId} AND ${complianceAssessments.status} IN ('implemented', 'not_relevant')`,
+					)
+				if ((implCount?.count ?? 0) < totalApps) {
+					controlsWithGaps++
+				}
+			}
+		}
+
 		result.push({
 			code: domain.code,
 			name: domain.name,
 			riskCount: riskRow?.count ?? 0,
 			controlCount,
+			controlsWithGaps,
 			totalAssessments: controlCount * totalApps,
 			implemented,
 			partial,
@@ -167,6 +184,11 @@ export async function getDomainDetail(domainCode: string) {
 
 	if (!domain) return null
 
+	// Fetch all apps for compliance counting
+	const allApps = await db
+		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
+		.from(monitoredApplications)
+
 	const risks = await db
 		.select()
 		.from(frameworkRisks)
@@ -186,9 +208,45 @@ export async function getDomainDetail(domainCode: string) {
 				.from(frameworkControls)
 				.where(and(eq(frameworkControls.id, mapping.controlId), isNull(frameworkControls.archivedAt)))
 			if (ctrl) {
+				// Fetch compliance assessments for this control
+				const assessments = await db
+					.select({
+						appId: complianceAssessments.applicationId,
+						status: complianceAssessments.status,
+					})
+					.from(complianceAssessments)
+					.where(eq(complianceAssessments.controlId, ctrl.id))
+
+				const assessmentMap = new Map(assessments.map((a) => [a.appId, a.status]))
+				let implemented = 0
+				let partial = 0
+				let notImplemented = 0
+				const gaps: Array<{ appId: string; appName: string; status: string }> = []
+
+				for (const app of allApps) {
+					const status = assessmentMap.get(app.id)
+					if (status === "implemented" || status === "not_relevant") {
+						implemented++
+					} else if (status === "partially_implemented") {
+						partial++
+						gaps.push({ appId: app.id, appName: app.name, status: "Delvis implementert" })
+					} else if (status === "not_implemented") {
+						notImplemented++
+						gaps.push({ appId: app.id, appName: app.name, status: "Ikke implementert" })
+					} else {
+						gaps.push({ appId: app.id, appName: app.name, status: "Ikke vurdert" })
+					}
+				}
+
 				controls.push({
 					id: ctrl.controlId,
 					name: ctrl.shortTitle ?? shortName(ctrl.requirement, ctrl.controlId),
+					totalApps: allApps.length,
+					implemented,
+					partial,
+					notImplemented,
+					notAssessed: allApps.length - implemented - partial - notImplemented,
+					gaps,
 				})
 			}
 		}
