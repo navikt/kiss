@@ -5,6 +5,7 @@ import {
 	Button,
 	Heading,
 	HStack,
+	ReadMore,
 	Select,
 	Table,
 	Tag,
@@ -14,10 +15,13 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
+	getIgnoredAppsForSection,
 	getNaisTeamsForSection,
 	getUnassignedAppsForSection,
 	getUnlinkedNaisTeams,
+	ignoreAppForSection,
 	linkNaisTeamToSection,
+	unignoreAppForSection,
 	unlinkNaisTeamFromSection,
 } from "~/db/queries/nais.server"
 import { getSectionDetail } from "~/db/queries/sections.server"
@@ -30,10 +34,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const result = await getSectionDetail(seksjon)
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
 
-	const [linkedNaisTeams, unlinkedNaisTeams, unassignedApps] = await Promise.all([
+	const [linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps] = await Promise.all([
 		getNaisTeamsForSection(result.section.id),
 		getUnlinkedNaisTeams(),
 		getUnassignedAppsForSection(result.section.id),
+		getIgnoredAppsForSection(result.section.id),
 	])
 
 	return data({
@@ -50,6 +55,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			displayName: t.displayName,
 		})),
 		unassignedApps,
+		ignoredApps: ignoredApps.map((a) => ({
+			appId: a.appId,
+			appName: a.appName,
+			reason: a.reason,
+			ignoredBy: a.ignoredBy,
+			ignoredAt: a.ignoredAt?.toISOString() ?? null,
+		})),
 	})
 }
 
@@ -81,11 +93,34 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		await unlinkNaisTeamFromSection(naisTeamSlug, userName)
 	}
 
+	if (intent === "ignore-app") {
+		const applicationId = formData.get("applicationId")
+		if (typeof applicationId !== "string" || !applicationId) {
+			throw new Response("Mangler applikasjon", { status: 400 })
+		}
+		const reason = formData.get("reason")
+		await ignoreAppForSection(
+			result.section.id,
+			applicationId,
+			userName,
+			typeof reason === "string" ? reason : undefined,
+		)
+	}
+
+	if (intent === "unignore-app") {
+		const applicationId = formData.get("applicationId")
+		if (typeof applicationId !== "string" || !applicationId) {
+			throw new Response("Mangler applikasjon", { status: 400 })
+		}
+		await unignoreAppForSection(result.section.id, applicationId, userName)
+	}
+
 	return data({ success: true })
 }
 
 export default function SeksjonNaisTeam() {
-	const { seksjon, seksjonName, linkedNaisTeams, unlinkedNaisTeams, unassignedApps } = useLoaderData<typeof loader>()
+	const { seksjon, seksjonName, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps } =
+		useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -189,6 +224,7 @@ export default function SeksjonNaisTeam() {
 									<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
@@ -205,6 +241,15 @@ export default function SeksjonNaisTeam() {
 											</Tag>
 										</Table.DataCell>
 										<Table.DataCell>{app.environments.join(", ")}</Table.DataCell>
+										<Table.DataCell>
+											<Form method="post">
+												<input type="hidden" name="intent" value="ignore-app" />
+												<input type="hidden" name="applicationId" value={app.appId} />
+												<Button type="submit" variant="tertiary-neutral" size="xsmall">
+													Ignorer
+												</Button>
+											</Form>
+										</Table.DataCell>
 									</Table.Row>
 								))}
 							</Table.Body>
@@ -213,6 +258,42 @@ export default function SeksjonNaisTeam() {
 				</>
 			) : (
 				<Alert variant="success">Alle applikasjoner fra seksjonens Nais-team er tilknyttet et utviklingsteam.</Alert>
+			)}
+
+			{ignoredApps.length > 0 && (
+				<ReadMore header={`Ignorerte applikasjoner (${ignoredApps.length})`}>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+					<section className="table-scroll" tabIndex={0} aria-label="Ignorerte applikasjoner">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Begrunnelse</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Ignorert av</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{ignoredApps.map((app) => (
+									<Table.Row key={app.appId}>
+										<Table.DataCell>{app.appName}</Table.DataCell>
+										<Table.DataCell>{app.reason || "–"}</Table.DataCell>
+										<Table.DataCell>{app.ignoredBy}</Table.DataCell>
+										<Table.DataCell>
+											<Form method="post">
+												<input type="hidden" name="intent" value="unignore-app" />
+												<input type="hidden" name="applicationId" value={app.appId} />
+												<Button type="submit" variant="tertiary-neutral" size="xsmall">
+													Gjenopprett
+												</Button>
+											</Form>
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				</ReadMore>
 			)}
 		</VStack>
 	)

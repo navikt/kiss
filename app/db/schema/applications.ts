@@ -49,3 +49,16 @@ export const applicationTeamMappings = pgTable("application_team_mappings", {
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 })
+
+export const sectionIgnoredApplications = pgTable("section_ignored_applications", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	sectionId: uuid("section_id")
+		.notNull()
+		.references(() => sections.id),
+	applicationId: uuid("application_id")
+		.notNull()
+		.references(() => monitoredApplications.id),
+	reason: text("reason"),
+	ignoredAt: timestamp("ignored_at", { withTimezone: true }).notNull().defaultNow(),
+	ignoredBy: text("ignored_by").notNull(),
+})

@@ -5,6 +5,7 @@ import {
 	applicationTeamMappings,
 	monitoredApplications,
 	naisTeams,
+	sectionIgnoredApplications,
 } from "../schema/applications"
 import { sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
@@ -168,12 +169,23 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 		),
 	)
 
-	// Deduplicate by appId and filter out already-linked apps
+	// Get apps ignored for this section
+	const ignoredAppIds = new Set(
+		(
+			await db
+				.select({ appId: sectionIgnoredApplications.applicationId })
+				.from(sectionIgnoredApplications)
+				.where(eq(sectionIgnoredApplications.sectionId, sectionId))
+		).map((r) => r.appId),
+	)
+
+	// Deduplicate by appId and filter out already-linked and ignored apps
 	const seen = new Set<string>()
 	const unassigned: Array<{ appId: string; appName: string; naisTeamSlug: string; environments: string[] }> = []
 
 	for (const row of envApps) {
 		if (linkedAppIds.has(row.appId)) continue
+		if (ignoredAppIds.has(row.appId)) continue
 		if (seen.has(row.appId)) {
 			const existing = unassigned.find((a) => a.appId === row.appId)
 			if (existing && !existing.environments.includes(row.cluster)) {
@@ -191,4 +203,64 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 	}
 
 	return unassigned.sort((a, b) => a.appName.localeCompare(b.appName))
+}
+
+/** Get ignored apps for a section. */
+export async function getIgnoredAppsForSection(sectionId: string) {
+	return db
+		.select({
+			id: sectionIgnoredApplications.id,
+			appId: sectionIgnoredApplications.applicationId,
+			appName: monitoredApplications.name,
+			reason: sectionIgnoredApplications.reason,
+			ignoredAt: sectionIgnoredApplications.ignoredAt,
+			ignoredBy: sectionIgnoredApplications.ignoredBy,
+		})
+		.from(sectionIgnoredApplications)
+		.innerJoin(monitoredApplications, eq(sectionIgnoredApplications.applicationId, monitoredApplications.id))
+		.where(eq(sectionIgnoredApplications.sectionId, sectionId))
+		.orderBy(monitoredApplications.name)
+}
+
+/** Ignore an app for a section. */
+export async function ignoreAppForSection(
+	sectionId: string,
+	applicationId: string,
+	ignoredBy: string,
+	reason?: string,
+) {
+	await db.insert(sectionIgnoredApplications).values({
+		sectionId,
+		applicationId,
+		reason: reason || null,
+		ignoredBy,
+	})
+	await writeAuditLog({
+		action: "section_app_ignored",
+		entityType: "section_ignored_application",
+		entityId: applicationId,
+		newValue: JSON.stringify({ sectionId, applicationId, reason }),
+		metadata: { sectionId },
+		performedBy: ignoredBy,
+	})
+}
+
+/** Unignore an app for a section. */
+export async function unignoreAppForSection(sectionId: string, applicationId: string, performedBy: string) {
+	await db
+		.delete(sectionIgnoredApplications)
+		.where(
+			and(
+				eq(sectionIgnoredApplications.sectionId, sectionId),
+				eq(sectionIgnoredApplications.applicationId, applicationId),
+			),
+		)
+	await writeAuditLog({
+		action: "section_app_unignored",
+		entityType: "section_ignored_application",
+		entityId: applicationId,
+		previousValue: JSON.stringify({ sectionId, applicationId }),
+		metadata: { sectionId },
+		performedBy,
+	})
 }

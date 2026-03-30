@@ -20,6 +20,8 @@ export const auditLogActionEnum = [
 	"app_team_unlinked",
 	"control_field_updated",
 	"report_generated",
+	"section_app_ignored",
+	"section_app_unignored",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]
