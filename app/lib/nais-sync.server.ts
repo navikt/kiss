@@ -62,6 +62,8 @@ export async function syncNaisAppsForTeam(
 					version: res.version,
 					tier: res.tier,
 					highAvailability: res.highAvailability,
+					auditLogging: res.auditLogging,
+					auditLogUrl: res.auditLogUrl,
 				})
 				if (isNewRes) newPersistence++
 			}

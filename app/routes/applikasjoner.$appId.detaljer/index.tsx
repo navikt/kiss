@@ -144,6 +144,7 @@ export default function ApplikasjonDetalj() {
 								<Table.HeaderCell scope="col">Versjon</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Tier</Table.HeaderCell>
 								<Table.HeaderCell scope="col">HA</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Audit logging</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
@@ -159,6 +160,25 @@ export default function ApplikasjonDetalj() {
 									<Table.DataCell>{p.tier ?? "–"}</Table.DataCell>
 									<Table.DataCell>
 										{p.highAvailability === true ? "✓" : p.highAvailability === false ? "✗" : "–"}
+									</Table.DataCell>
+									<Table.DataCell>
+										{p.auditLogging === true ? (
+											p.auditLogUrl ? (
+												<a href={p.auditLogUrl} target="_blank" rel="noopener noreferrer" className="aksel-link">
+													✓ Logg
+												</a>
+											) : (
+												<Tag variant="success" size="xsmall">
+													✓ På
+												</Tag>
+											)
+										) : p.auditLogging === false ? (
+											<Tag variant="error" size="xsmall">
+												✗ Av
+											</Tag>
+										) : (
+											"–"
+										)}
 									</Table.DataCell>
 								</Table.Row>
 							))}

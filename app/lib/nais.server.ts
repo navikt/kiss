@@ -12,6 +12,9 @@ export interface NaisPersistenceResource {
 	version?: string
 	tier?: string
 	highAvailability?: boolean
+	auditLogging?: boolean
+	auditLogUrl?: string
+	flags?: Record<string, string>
 }
 
 export interface NaisApp {
@@ -134,6 +137,15 @@ const APPS_QUERY = `
 							version
 							tier
 							highAvailability
+							auditLog {
+								logUrl
+							}
+							flags {
+								nodes {
+									name
+									value
+								}
+							}
 						}
 					}
 					postgresInstances {
@@ -179,6 +191,10 @@ interface AppsResponse {
 						version: string
 						tier: string
 						highAvailability: boolean
+						auditLog: { logUrl: string } | null
+						flags: {
+							nodes: Array<{ name: string; value: string }>
+						}
 					}>
 				}
 				postgresInstances: {
@@ -214,12 +230,22 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 			const persistence: NaisPersistenceResource[] = []
 
 			for (const sql of node.sqlInstances.nodes) {
+				const flagMap: Record<string, string> = {}
+				for (const f of sql.flags.nodes) {
+					flagMap[f.name] = f.value
+				}
+				const pgAuditEnabled =
+					flagMap["cloudsql.enable_pgaudit"] === "on" || flagMap["cloudsql.enable_pgaudit"] === "true"
+
 				persistence.push({
 					type: "cloud_sql_postgres",
 					name: sql.name,
 					version: sql.version,
 					tier: sql.tier,
 					highAvailability: sql.highAvailability,
+					auditLogging: pgAuditEnabled,
+					auditLogUrl: sql.auditLog?.logUrl,
+					flags: Object.keys(flagMap).length > 0 ? flagMap : undefined,
 				})
 			}
 

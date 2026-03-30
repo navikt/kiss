@@ -337,7 +337,13 @@ export async function upsertAppPersistence(
 	applicationId: string,
 	type: PersistenceType,
 	name: string,
-	opts?: { version?: string | null; tier?: string | null; highAvailability?: boolean | null },
+	opts?: {
+		version?: string | null
+		tier?: string | null
+		highAvailability?: boolean | null
+		auditLogging?: boolean | null
+		auditLogUrl?: string | null
+	},
 ): Promise<boolean> {
 	const [existing] = await db
 		.select()
@@ -358,6 +364,8 @@ export async function upsertAppPersistence(
 				version: opts?.version ?? existing.version,
 				tier: opts?.tier ?? existing.tier,
 				highAvailability: opts?.highAvailability ?? existing.highAvailability,
+				auditLogging: opts?.auditLogging ?? existing.auditLogging,
+				auditLogUrl: opts?.auditLogUrl ?? existing.auditLogUrl,
 				updatedAt: new Date(),
 			})
 			.where(eq(applicationPersistence.id, existing.id))
@@ -371,6 +379,8 @@ export async function upsertAppPersistence(
 		version: opts?.version ?? null,
 		tier: opts?.tier ?? null,
 		highAvailability: opts?.highAvailability ?? null,
+		auditLogging: opts?.auditLogging ?? null,
+		auditLogUrl: opts?.auditLogUrl ?? null,
 	})
 	return true
 }

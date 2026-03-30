@@ -178,7 +178,16 @@ describe("fetchNaisApps", () => {
 				name: "my-app",
 				teamEnvironment: { environment: { name: "prod-gcp" } },
 				sqlInstances: {
-					nodes: [{ name: "my-db", version: "POSTGRES_16", tier: "db-f1-micro", highAvailability: false }],
+					nodes: [
+						{
+							name: "my-db",
+							version: "POSTGRES_16",
+							tier: "db-f1-micro",
+							highAvailability: false,
+							auditLog: null,
+							flags: { nodes: [] },
+						},
+					],
 				},
 				postgresInstances: { nodes: [] },
 				openSearch: { name: "my-search" },
@@ -201,10 +210,58 @@ describe("fetchNaisApps", () => {
 				version: "POSTGRES_16",
 				tier: "db-f1-micro",
 				highAvailability: false,
+				auditLogging: false,
+				auditLogUrl: undefined,
+				flags: undefined,
 			},
 			{ type: "opensearch", name: "my-search" },
 			{ type: "bucket", name: "my-bucket" },
 			{ type: "valkey", name: "my-cache" },
 		])
+	})
+
+	it("detects pgaudit flags and audit log URL", async () => {
+		const nodes = [
+			{
+				name: "audit-app",
+				teamEnvironment: { environment: { name: "prod-gcp" } },
+				sqlInstances: {
+					nodes: [
+						{
+							name: "audit-db",
+							version: "POSTGRES_17",
+							tier: "db-custom-1-3840",
+							highAvailability: true,
+							auditLog: { logUrl: "https://console.cloud.google.com/logs" },
+							flags: {
+								nodes: [
+									{ name: "cloudsql.enable_pgaudit", value: "on" },
+									{ name: "pgaudit.log", value: "write,ddl,role" },
+								],
+							},
+						},
+					],
+				},
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		const db = result[0].persistence[0]
+		expect(db.auditLogging).toBe(true)
+		expect(db.auditLogUrl).toBe("https://console.cloud.google.com/logs")
+		expect(db.flags).toEqual({
+			"cloudsql.enable_pgaudit": "on",
+			"pgaudit.log": "write,ddl,role",
+		})
 	})
 })

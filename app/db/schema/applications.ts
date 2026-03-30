@@ -71,6 +71,8 @@ export const applicationPersistence = pgTable("application_persistence", {
 	version: text("version"),
 	tier: text("tier"),
 	highAvailability: boolean("high_availability"),
+	auditLogging: boolean("audit_logging"),
+	auditLogUrl: text("audit_log_url"),
 	extra: text("extra"),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
