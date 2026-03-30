@@ -103,7 +103,7 @@ export default function TeamDashboard() {
 							return (
 								<Table.Row key={app.appId}>
 									<Table.DataCell>
-										<Link to={`/applikasjoner/${app.appId}/compliance`}>{app.appName}</Link>
+										<Link to={`/applikasjoner/${app.appId}/detaljer`}>{app.appName}</Link>
 									</Table.DataCell>
 									<Table.DataCell align="right">{app.implemented}</Table.DataCell>
 									<Table.DataCell align="right">{app.partial}</Table.DataCell>
