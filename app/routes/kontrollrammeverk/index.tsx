@@ -63,9 +63,6 @@ export default function Kontrollrammeverk() {
 			</VStack>
 
 			<VStack gap="space-4">
-				<Heading size="large" level="3">
-					Domener
-				</Heading>
 				<HGrid gap="space-6" columns={{ xs: 1, sm: 2, md: 4 }}>
 					{domains.map((domain) => (
 						<Link
