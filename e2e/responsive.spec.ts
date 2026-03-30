@@ -13,7 +13,7 @@ const pages = [
 	{ path: "/rapporter", name: "Rapporter" },
 	{ path: "/rapporter/generer", name: "Generer-rapport" },
 	{ path: "/admin", name: "Admin" },
-	{ path: "/import", name: "Import" },
+	{ path: "/admin/import", name: "Import" },
 ]
 
 for (const { path, name } of pages) {

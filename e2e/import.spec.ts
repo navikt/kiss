@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test"
 
 test.describe("Import page", () => {
 	test.beforeEach(async ({ page }) => {
-		await page.goto("/import")
+		await page.goto("/admin/import")
 		await page.waitForLoadState("networkidle")
 	})
 

@@ -22,7 +22,7 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Godkjenn eller ignorer oppdagede Nais-team.</BodyLong>
 				</Link>
-				<Link to="/import" className="admin-card">
+				<Link to="/admin/import" className="admin-card">
 					<Heading size="small" level="3">
 						Import
 					</Heading>

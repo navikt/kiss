@@ -6,7 +6,7 @@ export default [
 	route("kontrollrammeverk/risiko/:risikoId", "routes/kontrollrammeverk.risiko.$risikoId/index.tsx"),
 	route("kontrollrammeverk/:domene", "routes/kontrollrammeverk.$domene/index.tsx"),
 	route("kontrollrammeverk/:domene/:kontrollId", "routes/kontrollrammeverk.$domene.$kontrollId/index.tsx"),
-	route("import", "routes/import/index.tsx"),
+	route("admin/import", "routes/admin.import/index.tsx"),
 	route("seksjoner", "routes/seksjoner/index.tsx"),
 	route("seksjoner/:seksjon", "routes/seksjoner.$seksjon/index.tsx"),
 	route("seksjoner/:seksjon/nais-team", "routes/seksjoner.$seksjon.nais-team/index.tsx"),

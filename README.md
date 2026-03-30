@@ -24,7 +24,7 @@ Internkontroll-applikasjon for å vise at Nav har kontroll på Software Developm
 | `/kontrollrammeverk` | Oversikt over domener, risikoer og kontroller |
 | `/kontrollrammeverk/:domene` | Detaljer for et domene |
 | `/kontrollrammeverk/:domene/:kontrollId` | Detaljer for en kontroll |
-| `/import` | Import av kontrollrammeverk fra Excel |
+| `/admin/import` | Import av kontrollrammeverk fra Excel |
 | `/applikasjoner` | Oversikt over overvåkede applikasjoner |
 | `/applikasjoner/:appId/compliance` | Compliance-vurdering per applikasjon |
 | `/seksjoner` | Seksjonsoversikt |
