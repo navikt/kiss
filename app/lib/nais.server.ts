@@ -7,7 +7,7 @@ export interface NaisTeam {
 }
 
 export interface NaisPersistenceResource {
-	type: "cloud_sql_postgres" | "nais_postgres" | "opensearch" | "bucket" | "valkey" | "oracle"
+	type: "cloud_sql_postgres" | "nais_postgres" | "on_prem_postgres" | "opensearch" | "bucket" | "valkey" | "oracle"
 	name: string
 	version?: string
 	tier?: string
@@ -321,6 +321,29 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 							type: "oracle",
 							name: dbName,
 						})
+					}
+				}
+			}
+
+			// Detect on-prem PostgreSQL from envFrom secrets in manifest
+			if (node.manifest?.content) {
+				const secretMatches = node.manifest.content.match(/-\s*secret:\s*([^\s]+)/g)
+				if (secretMatches) {
+					for (const match of secretMatches) {
+						const secretName = match.replace(/-\s*secret:\s*/, "").trim()
+						if (/postgres(?:ql)?$/i.test(secretName)) {
+							// Avoid duplicates if already detected as cloud_sql or nais postgres
+							const alreadyHasPostgres = persistence.some(
+								(p) => p.type === "cloud_sql_postgres" || p.type === "nais_postgres",
+							)
+							if (!alreadyHasPostgres) {
+								persistence.push({
+									type: "on_prem_postgres",
+									name: secretName,
+								})
+							}
+							break
+						}
 					}
 				}
 			}

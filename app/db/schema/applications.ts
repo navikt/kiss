@@ -55,6 +55,7 @@ export const applicationTeamMappings = pgTable("application_team_mappings", {
 export const persistenceTypeEnum = [
 	"cloud_sql_postgres",
 	"nais_postgres",
+	"on_prem_postgres",
 	"opensearch",
 	"bucket",
 	"valkey",

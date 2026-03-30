@@ -24,6 +24,7 @@ import { compliancePercent } from "~/lib/utils"
 const persistenceLabels: Record<string, string> = {
 	cloud_sql_postgres: "Cloud SQL (PostgreSQL)",
 	nais_postgres: "Nais Postgres",
+	on_prem_postgres: "On-prem PostgreSQL",
 	opensearch: "OpenSearch",
 	bucket: "GCS Bucket",
 	valkey: "Valkey (cache)",
@@ -37,6 +38,7 @@ const persistenceVariants: Record<
 > = {
 	cloud_sql_postgres: "info",
 	nais_postgres: "info",
+	on_prem_postgres: "warning",
 	opensearch: "alt1",
 	bucket: "alt2",
 	valkey: "alt3",

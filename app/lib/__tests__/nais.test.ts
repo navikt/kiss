@@ -321,4 +321,38 @@ spec:
 		const result = await fetchNaisApps("token", "my-team")
 		expect(result[0].persistence).toEqual([{ type: "oracle", name: "pen" }])
 	})
+
+	it("detects on-prem PostgreSQL from envFrom secrets in manifest", async () => {
+		const manifest = `apiVersion: nais.io/v1alpha1
+kind: Application
+spec:
+  envFrom:
+  - secret: my-app-unleash-api-token
+  - secret: my-app-postgresql
+  - secret: my-app-encryption-key`
+
+		const nodes = [
+			{
+				name: "my-app",
+				image: null,
+				manifest: { content: manifest },
+				authIntegrations: [],
+				teamEnvironment: { environment: { name: "prod-fss" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		expect(result[0].persistence).toEqual([{ type: "on_prem_postgres", name: "my-app-postgresql" }])
+	})
 })
