@@ -1,4 +1,18 @@
-import { Alert, BodyLong, Button, Heading, HStack, Label, Select, Textarea, VStack } from "@navikt/ds-react"
+import {
+	Alert,
+	BodyLong,
+	BodyShort,
+	Button,
+	Heading,
+	HStack,
+	Label,
+	Radio,
+	RadioGroup,
+	Select,
+	Tag,
+	Textarea,
+	VStack,
+} from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
@@ -6,13 +20,18 @@ import { ComplianceComment, ComplianceStatusBadge, statusLabels } from "~/compon
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments, saveAssessment } from "~/db/queries/applications.server"
 import { getAllRisks } from "~/db/queries/framework.server"
+import { getScreeningDataForApp, saveScreeningAnswer } from "~/db/queries/screening.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
-	const [result, allRisks] = await Promise.all([getAppAssessments(appId), getAllRisks()])
+	const [result, allRisks, screeningData] = await Promise.all([
+		getAppAssessments(appId),
+		getAllRisks(),
+		getScreeningDataForApp(appId),
+	])
 	if (!result) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
 	return data({
@@ -23,6 +42,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		primaryName: result.primaryName,
 		primaryId: result.app.primaryApplicationId,
 		allRisks,
+		screening: screeningData.questions,
 	})
 }
 
@@ -40,6 +60,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
 	const formData = await request.formData()
+	const intent = formData.get("intent") as string
+
+	if (intent === "screening") {
+		const questionId = formData.get("questionId") as string
+		const answerValue = formData.get("answer") as string
+		if (!questionId) throw new Response("Mangler spørsmål-ID", { status: 400 })
+
+		const answer = answerValue === "yes" ? true : answerValue === "no" ? false : null
+		await saveScreeningAnswer(appId, questionId, answer, authedUser.navIdent)
+
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
 	const controlUuid = formData.get("controlUuid")
 	const controlId = formData.get("controlId")
 	const status = formData.get("status")
@@ -62,7 +95,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function ComplianceAssessment() {
-	const { appName, assessments, isInherited, primaryName, primaryId, allRisks } = useLoaderData<typeof loader>()
+	const { appId, appName, assessments, isInherited, primaryName, primaryId, allRisks, screening } =
+		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
 	// Build control lookup by controlUuid for quick access
@@ -99,6 +133,14 @@ export default function ComplianceAssessment() {
 					Hjem
 				</a>
 
+				{screening.length > 0 && (
+					<div className="compliance-sidebar-group">
+						<a href="#screening" className="compliance-sidebar-domain">
+							Innledende spørsmål
+						</a>
+					</div>
+				)}
+
 				{domains.map((domain) => (
 					<div key={domain.name} className="compliance-sidebar-group">
 						<a href={`#domain-${domain.name}`} className="compliance-sidebar-domain">
@@ -131,8 +173,70 @@ export default function ComplianceAssessment() {
 
 					{actionData?.success && (
 						<div className="compliance-success" role="status">
-							Vurdering for {actionData.controlId} er lagret.
+							{actionData.controlId === "screening"
+								? "Svar på innledende spørsmål er lagret."
+								: `Vurdering for ${actionData.controlId} er lagret.`}
 						</div>
+					)}
+
+					{screening.length > 0 && (
+						<VStack gap="space-8" id="screening" className="compliance-domain-section">
+							<Heading size="large" level="3">
+								Innledende spørsmål
+							</Heading>
+							<BodyLong size="small">
+								Svar på spørsmålene under for å automatisk klassifisere relevante kontrollpunkter.
+							</BodyLong>
+							<VStack gap="space-6">
+								{screening.map((q) => (
+									<div key={q.id} className="compliance-card">
+										<VStack gap="space-4">
+											<Heading size="small" level="4">
+												{q.questionText}
+											</Heading>
+											{q.effects.length > 0 && (
+												<HStack gap="space-2" wrap>
+													<BodyShort size="small" textColor="subtle">
+														Påvirker:
+													</BodyShort>
+													{q.effects.map((e) => (
+														<Tag key={e.controlTextId} variant="neutral" size="xsmall">
+															{e.controlTextId}
+														</Tag>
+													))}
+												</HStack>
+											)}
+											<Form method="post">
+												<input type="hidden" name="intent" value="screening" />
+												<input type="hidden" name="questionId" value={q.id} />
+												<HStack gap="space-4" align="end">
+													<RadioGroup
+														legend="Svar"
+														name="answer"
+														size="small"
+														defaultValue={q.answer === true ? "yes" : q.answer === false ? "no" : ""}
+														hideLegend
+													>
+														<HStack gap="space-4">
+															<Radio value="yes">Ja</Radio>
+															<Radio value="no">Nei</Radio>
+														</HStack>
+													</RadioGroup>
+													<Button type="submit" size="small" variant="secondary-neutral">
+														Lagre
+													</Button>
+													{q.answer !== null && (
+														<Tag variant={q.answer ? "success" : "warning"} size="xsmall">
+															Besvart: {q.answer ? "Ja" : "Nei"}
+														</Tag>
+													)}
+												</HStack>
+											</Form>
+										</VStack>
+									</div>
+								))}
+							</VStack>
+						</VStack>
 					)}
 
 					{domains.map((domain) => (

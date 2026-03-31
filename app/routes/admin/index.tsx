@@ -34,6 +34,12 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Generer og last ned compliance-rapporter.</BodyLong>
 				</Link>
+				<Link to="/admin/screening" className="admin-card">
+					<Heading size="small" level="3">
+						Innledende spørsmål
+					</Heading>
+					<BodyLong size="small">Definer ja/nei-spørsmål som automatisk kan styre compliance-status.</BodyLong>
+				</Link>
 			</div>
 		</VStack>
 	)

@@ -28,6 +28,10 @@ export const auditLogActionEnum = [
 	"predefined_answer_created",
 	"predefined_answer_updated",
 	"predefined_answer_deleted",
+	"screening_question_created",
+	"screening_question_updated",
+	"screening_question_deleted",
+	"screening_answer_saved",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

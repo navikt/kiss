@@ -23,6 +23,7 @@ export default [
 	route("nais-overvaking/:team", "routes/nais-overvaking.$team/index.tsx"),
 	route("admin", "routes/admin/index.tsx"),
 	route("admin/seksjoner", "routes/admin.seksjoner/index.tsx"),
+	route("admin/screening", "routes/admin.screening/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),
 	route("api/isready", "routes/api.isready/index.tsx"),
 	route("api/nais-sync", "routes/api.nais-sync/index.tsx"),
