@@ -1,4 +1,5 @@
-import { Alert, BodyLong, Button, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Heading, HStack, Select, Switch, Table, Tag, VStack } from "@navikt/ds-react"
+import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -63,6 +64,9 @@ export async function action({ request }: ActionFunctionArgs) {
 export default function Applikasjoner() {
 	const { apps, allTeams, persistenceMap } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
+	const [showLinked, setShowLinked] = useState(false)
+
+	const filteredApps = showLinked ? apps : apps.filter((a) => !a.primaryApplicationId)
 
 	return (
 		<VStack gap="space-6">
@@ -77,6 +81,10 @@ export default function Applikasjoner() {
 			{actionData && "success" in actionData && !actionData.success && (
 				<Alert variant="error">{actionData.error}</Alert>
 			)}
+
+			<Switch size="small" checked={showLinked} onChange={() => setShowLinked(!showLinked)}>
+				Vis lenkede applikasjoner
+			</Switch>
 
 			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 			<section className="table-scroll" tabIndex={0} aria-label="Applikasjonstabell">
@@ -93,7 +101,7 @@ export default function Applikasjoner() {
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
-						{apps.map((app) => {
+						{filteredApps.map((app) => {
 							const pct = compliancePercent(app.controlsImplemented, app.controlsPartial, app.controlsTotal)
 							const linkedTeamSlugs = app.teams
 							const availableTeams = allTeams.filter((t) => !linkedTeamSlugs.includes(t.slug))
