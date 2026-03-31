@@ -1,4 +1,4 @@
-import { Alert, BodyLong, Button, Heading, HStack, Switch, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Heading, HStack, Search, Switch, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData, useNavigation } from "react-router"
@@ -90,10 +90,15 @@ export default function NaisOvervaking() {
 
 	const [hideEmpty, setHideEmpty] = useState(false)
 	const [onlyUnmonitored, setOnlyUnmonitored] = useState(false)
+	const [searchQuery, setSearchQuery] = useState("")
 
 	const filteredTeams = teams.filter((t) => {
 		if (hideEmpty && t.appCount === 0) return false
 		if (onlyUnmonitored && t.status !== "pending") return false
+		if (searchQuery) {
+			const q = searchQuery.toLowerCase()
+			return t.slug.toLowerCase().includes(q) || (t.displayName?.toLowerCase().includes(q) ?? false)
+		}
 		return true
 	})
 
@@ -123,7 +128,16 @@ export default function NaisOvervaking() {
 				</Form>
 			</HStack>
 
-			<HStack gap="space-6">
+			<HStack gap="space-6" align="center" wrap>
+				<Search
+					label="Søk etter team"
+					size="small"
+					variant="simple"
+					value={searchQuery}
+					onChange={setSearchQuery}
+					onClear={() => setSearchQuery("")}
+					style={{ maxWidth: "16rem" }}
+				/>
 				<Switch size="small" checked={hideEmpty} onChange={() => setHideEmpty(!hideEmpty)}>
 					Skjul team uten apper
 				</Switch>
