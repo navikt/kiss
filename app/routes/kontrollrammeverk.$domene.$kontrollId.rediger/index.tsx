@@ -1,4 +1,4 @@
-import { PencilIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import { PencilIcon, PlusIcon, TrashIcon, XMarkIcon } from "@navikt/aksel-icons"
 import {
 	BodyLong,
 	Box,
@@ -26,6 +26,12 @@ import {
 	updateControlField,
 	updatePredefinedAnswer,
 } from "~/db/queries/framework.server"
+import {
+	addControlElement,
+	getAllTechnologyElements,
+	getControlElements,
+	removeControlElement,
+} from "~/db/queries/technology-elements.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 
@@ -62,7 +68,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		throw new Response("Kontroll ikke funnet", { status: 404 })
 	}
 
-	return data({ domene, control })
+	const allElements = await getAllTechnologyElements()
+	const controlElements = await getControlElements(control.uuid)
+
+	return data({ domene, control, allElements, controlElements })
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -108,6 +117,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			const answerId = formData.get("answerId") as string
 			if (!answerId) return data({ error: "Mangler svar-ID" }, { status: 400 })
 			await deletePredefinedAnswer(answerId, authedUser.navIdent)
+			return data({ success: true })
+		}
+
+		if (intent === "addElement") {
+			const control = await getControlDetail(kontrollId)
+			if (!control) return data({ error: "Kontroll ikke funnet" }, { status: 404 })
+			const elementId = formData.get("elementId") as string
+			if (!elementId) return data({ error: "Mangler element-ID" }, { status: 400 })
+			await addControlElement(control.uuid, elementId, authedUser.navIdent)
+			return data({ success: true })
+		}
+
+		if (intent === "removeElement") {
+			const control = await getControlDetail(kontrollId)
+			if (!control) return data({ error: "Kontroll ikke funnet" }, { status: 404 })
+			const elementId = formData.get("elementId") as string
+			if (!elementId) return data({ error: "Mangler element-ID" }, { status: 400 })
+			await removeControlElement(control.uuid, elementId, authedUser.navIdent)
 			return data({ success: true })
 		}
 
@@ -258,9 +285,12 @@ function PredefinedAnswerForm({
 }
 
 export default function ControlEditPage() {
-	const { domene, control } = useLoaderData<typeof loader>()
+	const { domene, control, allElements, controlElements } = useLoaderData<typeof loader>()
 	const [addingAnswer, setAddingAnswer] = useState(false)
 	const [editingAnswerId, setEditingAnswerId] = useState<string | null>(null)
+
+	const assignedIds = new Set(controlElements.map((e) => e.id))
+	const availableElements = allElements.filter((e) => !assignedIds.has(e.id))
 
 	const fieldValues: Record<string, string> = {
 		shortTitle: control.name,
@@ -285,6 +315,49 @@ export default function ControlEditPage() {
 				<Heading size="xlarge" level="2">
 					Rediger {control.id}: {control.name}
 				</Heading>
+			</VStack>
+
+			<VStack gap="space-6">
+				<Heading size="medium" level="3">
+					Teknologielementer
+				</Heading>
+				<HStack gap="space-2" wrap>
+					{controlElements.map((el) => (
+						<Form method="post" key={el.id}>
+							<input type="hidden" name="intent" value="removeElement" />
+							<input type="hidden" name="elementId" value={el.id} />
+							<Tag variant="info" size="small">
+								{el.name}
+								<Button
+									type="submit"
+									variant="tertiary-neutral"
+									size="xsmall"
+									icon={<XMarkIcon aria-hidden />}
+									aria-label={`Fjern ${el.name}`}
+									style={{ marginLeft: "0.25rem" }}
+								/>
+							</Tag>
+						</Form>
+					))}
+					{controlElements.length === 0 && <BodyLong size="small">Ingen elementer tilknyttet.</BodyLong>}
+				</HStack>
+				{availableElements.length > 0 && (
+					<Form method="post">
+						<input type="hidden" name="intent" value="addElement" />
+						<HStack gap="space-4" align="end">
+							<Select label="Legg til element" name="elementId" size="small">
+								{availableElements.map((el) => (
+									<option key={el.id} value={el.id}>
+										{el.name}
+									</option>
+								))}
+							</Select>
+							<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
+								Legg til
+							</Button>
+						</HStack>
+					</Form>
+				)}
 			</VStack>
 
 			<VStack gap="space-6">

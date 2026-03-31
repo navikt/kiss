@@ -31,6 +31,7 @@ export default [
 	route("admin/screening", "routes/admin.screening/index.tsx"),
 	route("admin/link-suggestions", "routes/admin.link-suggestions/index.tsx"),
 	route("admin/domener", "routes/admin.domener/index.tsx"),
+	route("admin/teknologielementer", "routes/admin.teknologielementer/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),
 	route("api/isready", "routes/api.isready/index.tsx"),
 	route("api/nais-sync", "routes/api.nais-sync/index.tsx"),

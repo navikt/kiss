@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationPersistence, monitoredApplications } from "../schema/applications"
 import { applicationTechnologyElements, controlTechnologyElements, technologyElements } from "../schema/framework"
+import { writeAuditLog } from "./audit.server"
 
 /** Get all technology elements ordered by display order. */
 export async function getAllTechnologyElements() {
@@ -55,6 +56,108 @@ export async function getApplicationElementIds(appIds: string[]): Promise<Map<st
 		map.set(row.appId, list)
 	}
 	return map
+}
+
+/** Create a new technology element. */
+export async function createTechnologyElement(
+	name: string,
+	slug: string,
+	description: string | null,
+	displayOrder: number,
+	performer: string,
+) {
+	const [el] = await db.insert(technologyElements).values({ name, slug, description, displayOrder }).returning()
+	await writeAuditLog({
+		action: "technology_element_created",
+		entityType: "technology_element",
+		entityId: el.id,
+		newValue: JSON.stringify({ name, slug }),
+		performedBy: performer,
+	})
+	return el
+}
+
+/** Update a technology element. */
+export async function updateTechnologyElement(
+	id: string,
+	updates: { name?: string; slug?: string; description?: string | null; displayOrder?: number },
+	performer: string,
+) {
+	const [el] = await db.update(technologyElements).set(updates).where(eq(technologyElements.id, id)).returning()
+	await writeAuditLog({
+		action: "technology_element_updated",
+		entityType: "technology_element",
+		entityId: id,
+		newValue: JSON.stringify(updates),
+		performedBy: performer,
+	})
+	return el
+}
+
+/** Delete a technology element. First check if it's used by any controls or apps. */
+export async function deleteTechnologyElement(id: string, performer: string) {
+	const controlUsage = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(controlTechnologyElements)
+		.where(eq(controlTechnologyElements.elementId, id))
+	if (Number(controlUsage[0].count) > 0) {
+		throw new Error(`Kan ikke slette: elementet er brukt av ${controlUsage[0].count} kontroll(er)`)
+	}
+	const appUsage = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(applicationTechnologyElements)
+		.where(eq(applicationTechnologyElements.elementId, id))
+	if (Number(appUsage[0].count) > 0) {
+		throw new Error(`Kan ikke slette: elementet er brukt av ${appUsage[0].count} applikasjon(er)`)
+	}
+	await db.delete(technologyElements).where(eq(technologyElements.id, id))
+	await writeAuditLog({
+		action: "technology_element_deleted",
+		entityType: "technology_element",
+		entityId: id,
+		performedBy: performer,
+	})
+}
+
+/** Get a single technology element with usage counts. */
+export async function getTechnologyElementWithCounts(id: string) {
+	const [el] = await db.select().from(technologyElements).where(eq(technologyElements.id, id))
+	if (!el) return null
+	const controlCount = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(controlTechnologyElements)
+		.where(eq(controlTechnologyElements.elementId, id))
+	const appCount = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(applicationTechnologyElements)
+		.where(eq(applicationTechnologyElements.elementId, id))
+	return { ...el, controlCount: Number(controlCount[0].count), appCount: Number(appCount[0].count) }
+}
+
+/** Add a technology element to a control. */
+export async function addControlElement(controlId: string, elementId: string, performer: string) {
+	await db.insert(controlTechnologyElements).values({ controlId, elementId }).onConflictDoNothing()
+	await writeAuditLog({
+		action: "control_element_added",
+		entityType: "control_technology_element",
+		entityId: controlId,
+		newValue: JSON.stringify({ controlId, elementId }),
+		performedBy: performer,
+	})
+}
+
+/** Remove a technology element from a control. */
+export async function removeControlElement(controlId: string, elementId: string, performer: string) {
+	await db
+		.delete(controlTechnologyElements)
+		.where(and(eq(controlTechnologyElements.controlId, controlId), eq(controlTechnologyElements.elementId, elementId)))
+	await writeAuditLog({
+		action: "control_element_removed",
+		entityType: "control_technology_element",
+		entityId: controlId,
+		newValue: JSON.stringify({ controlId, elementId }),
+		performedBy: performer,
+	})
 }
 
 /** Mapping from persistence/auth types to technology element slugs. */

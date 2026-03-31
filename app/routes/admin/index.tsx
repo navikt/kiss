@@ -54,6 +54,12 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Administrer domener for risikoer og kontroller i kontrollrammeverket.</BodyLong>
 				</Link>
+				<Link to="/admin/teknologielementer" className="admin-card">
+					<Heading size="small" level="3">
+						Teknologielementer
+					</Heading>
+					<BodyLong size="small">Administrer teknologielementer som brukes i kontroller og applikasjoner.</BodyLong>
+				</Link>
 			</div>
 		</VStack>
 	)
