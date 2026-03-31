@@ -112,15 +112,18 @@ export async function updateNaisTeamStatus(slug: string, status: "monitored" | "
 }
 
 /** Upsert a Nais team — insert if new, skip if already exists. Returns true if new. */
-export async function upsertNaisTeam(slug: string, displayName?: string | null): Promise<boolean> {
+export async function upsertNaisTeam(slug: string, displayName?: string | null, appCount?: number): Promise<boolean> {
 	const [existing] = await db.select().from(naisTeams).where(eq(naisTeams.slug, slug)).limit(1)
 	if (existing) {
-		if (displayName && displayName !== existing.displayName) {
-			await db.update(naisTeams).set({ displayName }).where(eq(naisTeams.slug, slug))
+		const updates: Record<string, unknown> = {}
+		if (displayName && displayName !== existing.displayName) updates.displayName = displayName
+		if (appCount !== undefined && appCount !== existing.appCount) updates.appCount = appCount
+		if (Object.keys(updates).length > 0) {
+			await db.update(naisTeams).set(updates).where(eq(naisTeams.slug, slug))
 		}
 		return false
 	}
-	await db.insert(naisTeams).values({ slug, displayName })
+	await db.insert(naisTeams).values({ slug, displayName, appCount: appCount ?? 0 })
 	return true
 }
 

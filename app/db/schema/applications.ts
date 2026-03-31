@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { boolean, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
 import { devTeams, sections } from "./organization"
 
 export const naisTeamStatusEnum = ["pending", "monitored", "ignored"] as const
@@ -8,6 +8,7 @@ export const naisTeams = pgTable("nais_teams", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	slug: text("slug").notNull().unique(),
 	displayName: text("display_name"),
+	appCount: integer("app_count").notNull().default(0),
 	status: text("status", { enum: naisTeamStatusEnum }).notNull().default("pending"),
 	sectionId: uuid("section_id").references(() => sections.id),
 	devTeamId: uuid("dev_team_id").references(() => devTeams.id),

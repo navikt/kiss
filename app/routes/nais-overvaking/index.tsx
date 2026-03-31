@@ -24,7 +24,7 @@ export async function loader(_args: LoaderFunctionArgs) {
 		slug: t.slug,
 		displayName: t.displayName,
 		status: t.status,
-		appCount: appCounts.get(t.id) ?? 0,
+		appCount: Math.max(t.appCount, appCounts.get(t.id) ?? 0),
 		discoveredAt: new Date(t.discoveredAt).toISOString().split("T")[0],
 	}))
 

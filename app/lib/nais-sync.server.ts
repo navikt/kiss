@@ -27,7 +27,7 @@ export async function syncNaisTeams(token?: string): Promise<SyncResult | null> 
 		let newCount = 0
 
 		for (const team of teams) {
-			const isNew = await upsertNaisTeam(team.slug, team.purpose)
+			const isNew = await upsertNaisTeam(team.slug, team.purpose, team.appCount)
 			if (isNew) newCount++
 		}
 

@@ -1,15 +1,8 @@
-import { BodyLong, BodyShort, Heading, HGrid, VStack } from "@navikt/ds-react"
+import { BodyLong, BodyShort, Heading, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getAllControls, getAllRisks, getDomainSummaries } from "~/db/queries/framework.server"
-
-const domainColors: Record<string, string> = {
-	Styring: "#f9d4a0",
-	Tilgangsstyring: "#a0c4f9",
-	Endringshåndtering: "#f9f0a0",
-	Drift: "#a0f9d4",
-}
+import { getAllControls, getAllRisks } from "~/db/queries/framework.server"
 
 /** Gradient from light pink to deeper mauve, based on position in the list. */
 function riskColor(index: number, total: number): string {
@@ -44,43 +37,13 @@ function groupByDomain<T extends { domainCode: string; domainName: string }>(
 	return [...groups.values()]
 }
 
-/** Merge domain summaries with the same name into single entries. */
-function mergeDomains(
-	domains: Array<{
-		code: string
-		name: string
-		riskCount: number
-		controlCount: number
-	}>,
-) {
-	const merged = new Map<string, { codes: string[]; name: string; riskCount: number; controlCount: number }>()
-	for (const d of domains) {
-		const existing = merged.get(d.name)
-		if (existing) {
-			existing.codes.push(d.code)
-			existing.riskCount += d.riskCount
-			existing.controlCount += d.controlCount
-		} else {
-			merged.set(d.name, {
-				codes: [d.code],
-				name: d.name,
-				riskCount: d.riskCount,
-				controlCount: d.controlCount,
-			})
-		}
-	}
-	return [...merged.values()]
-}
-
 export async function loader(_args: LoaderFunctionArgs) {
-	const [domains, risks, controls] = await Promise.all([getDomainSummaries(), getAllRisks(), getAllControls()])
-	return data({ domains, risks, controls })
+	const [risks, controls] = await Promise.all([getAllRisks(), getAllControls()])
+	return data({ risks, controls })
 }
 
 export default function Kontrollrammeverk() {
-	const { domains, risks, controls } = useLoaderData<typeof loader>()
-
-	const mergedDomains = mergeDomains(domains)
+	const { risks, controls } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-12">
@@ -89,30 +52,6 @@ export default function Kontrollrammeverk() {
 					Kontrollrammeverk
 				</Heading>
 				<BodyLong>Oversikt over domener, risikoer og kontroller i Minimum kontrollrammeverk (MKR v1.1).</BodyLong>
-			</VStack>
-
-			<VStack gap="space-4">
-				<HGrid gap="space-6" columns={{ xs: 1, sm: 2, md: 4 }}>
-					{mergedDomains.map((domain) => (
-						<Link
-							key={domain.codes.join(",")}
-							to={`/kontrollrammeverk/${domain.codes[0]}`}
-							className="domain-card"
-							style={{
-								backgroundColor: domainColors[domain.name] ?? "#f0f0f0",
-								textDecoration: "none",
-								color: "inherit",
-							}}
-						>
-							<Heading size="medium" level="4">
-								{domain.name}
-							</Heading>
-							<BodyLong size="small">
-								{domain.riskCount} risikoer · {domain.controlCount} kontroller
-							</BodyLong>
-						</Link>
-					))}
-				</HGrid>
 			</VStack>
 
 			{risks.length > 0 && (
