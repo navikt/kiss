@@ -1,7 +1,7 @@
 import { MagnifyingGlassIcon } from "@navikt/aksel-icons"
 import { BodyShort, Box, Detail, Dialog, HStack, Loader, Search, Tag, VStack } from "@navikt/ds-react"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Link, useLocation, useNavigate } from "react-router"
+import { useLocation, useNavigate } from "react-router"
 
 interface SearchResult {
 	type: "application" | "team" | "section" | "risk" | "control"
@@ -220,51 +220,42 @@ export function SearchDialog() {
 											onMouseEnter={() => setSelectedIndex(index)}
 											onClick={() => handleSelect(result)}
 										>
-											<Link
-												to={result.url}
-												style={{ textDecoration: "none", color: "inherit", display: "block" }}
-												onClick={(e) => {
-													e.preventDefault()
-													handleSelect(result)
-												}}
-											>
-												<HStack gap="space-12" align="center">
-													<MagnifyingGlassIcon
-														aria-hidden
-														style={{ fontSize: "1rem", color: "var(--ax-text-neutral-subtle)" }}
-													/>
-													<VStack gap="space-2" style={{ flex: 1, minWidth: 0 }}>
-														<HStack gap="space-8" align="center">
-															<BodyShort
-																weight="semibold"
-																style={{
-																	overflow: "hidden",
-																	textOverflow: "ellipsis",
-																	whiteSpace: "nowrap",
-																}}
-															>
-																{result.title}
-															</BodyShort>
-															<Tag size="xsmall" variant={typeVariants[result.type]}>
-																{typeLabels[result.type]}
-															</Tag>
-														</HStack>
-														{result.subtitle && (
-															<BodyShort
-																size="small"
-																style={{
-																	color: "var(--ax-text-neutral-subtle)",
-																	overflow: "hidden",
-																	textOverflow: "ellipsis",
-																	whiteSpace: "nowrap",
-																}}
-															>
-																{result.subtitle}
-															</BodyShort>
-														)}
-													</VStack>
-												</HStack>
-											</Link>
+											<HStack gap="space-12" align="center">
+												<MagnifyingGlassIcon
+													aria-hidden
+													style={{ fontSize: "1rem", color: "var(--ax-text-neutral-subtle)" }}
+												/>
+												<VStack gap="space-2" style={{ flex: 1, minWidth: 0 }}>
+													<HStack gap="space-8" align="center">
+														<BodyShort
+															weight="semibold"
+															style={{
+																overflow: "hidden",
+																textOverflow: "ellipsis",
+																whiteSpace: "nowrap",
+															}}
+														>
+															{result.title}
+														</BodyShort>
+														<Tag size="xsmall" variant={typeVariants[result.type]}>
+															{typeLabels[result.type]}
+														</Tag>
+													</HStack>
+													{result.subtitle && (
+														<BodyShort
+															size="small"
+															textColor="subtle"
+															style={{
+																overflow: "hidden",
+																textOverflow: "ellipsis",
+																whiteSpace: "nowrap",
+															}}
+														>
+															{result.subtitle}
+														</BodyShort>
+													)}
+												</VStack>
+											</HStack>
 										</Box>
 									)
 								})}

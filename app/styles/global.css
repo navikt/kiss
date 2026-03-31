@@ -281,7 +281,7 @@ body {
 	color: var(--ax-text-default);
 	font-size: var(--ax-font-size-small);
 	padding: var(--ax-space-2) 0;
-	line-height: 1.4;
+	line-height: var(--ax-line-height-body-small);
 }
 
 .compliance-sidebar-risk:hover {
@@ -300,7 +300,7 @@ body {
 	font-weight: 600;
 	font-size: var(--ax-font-size-small);
 	padding: var(--ax-space-4) 0 var(--ax-space-2) 0;
-	line-height: 1.4;
+	line-height: var(--ax-line-height-body-small);
 }
 
 .compliance-sidebar-domain:hover {
@@ -453,7 +453,7 @@ body {
 
 .table-scroll::-webkit-scrollbar-thumb {
 	background: var(--ax-neutral-400);
-	border-radius: 3px;
+	border-radius: var(--ax-radius-2);
 }
 
 /* ── Responsive: Tablet (≤ 768px) ── */
@@ -519,7 +519,7 @@ body {
 		right: 0;
 		top: 0;
 		bottom: 0;
-		width: 2rem;
+		width: var(--ax-space-24);
 		background: linear-gradient(to right, transparent, var(--ax-bg-brand-blue-strong));
 		pointer-events: none;
 	}
@@ -619,7 +619,7 @@ body {
 	background: var(--ax-bg-sunken);
 	padding: 0.1em 0.3em;
 	border-radius: var(--ax-radius-2);
-	font-size: 0.9em;
+	font-size: var(--ax-font-size-small);
 }
 
 .markdown-content blockquote {
