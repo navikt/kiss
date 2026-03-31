@@ -1,12 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationPersistence, monitoredApplications } from "../schema/applications"
-import {
-	applicationTechnologyElements,
-	controlTechnologyElements,
-	frameworkControls,
-	technologyElements,
-} from "../schema/framework"
+import { applicationTechnologyElements, controlTechnologyElements, technologyElements } from "../schema/framework"
 
 /** Get all technology elements ordered by display order. */
 export async function getAllTechnologyElements() {

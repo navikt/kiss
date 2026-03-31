@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, count, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
