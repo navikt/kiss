@@ -1,6 +1,7 @@
-import { eq, ilike, or } from "drizzle-orm"
+import { and, eq, ilike, isNull, or } from "drizzle-orm"
 import type { LoaderFunctionArgs } from "react-router"
 import { db } from "~/db/connection.server"
+import { getControlDomainMap } from "~/db/queries/framework.server"
 import {
 	frameworkControls,
 	frameworkDomains,
@@ -84,7 +85,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			)
 			.limit(limit),
 
-		// Controls (join with domains to get domain code)
+		// Controls (domain derived from risks)
 		db
 			.select({
 				id: frameworkControls.id,
@@ -92,21 +93,25 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				requirement: frameworkControls.requirement,
 				shortTitle: frameworkControls.shortTitle,
 				technologyElement: frameworkControls.technologyElement,
-				domainCode: frameworkDomains.code,
-				domainName: frameworkDomains.name,
 			})
 			.from(frameworkControls)
-			.innerJoin(frameworkDomains, eq(frameworkControls.domainId, frameworkDomains.id))
 			.where(
-				or(
-					ilike(frameworkControls.controlId, pattern),
-					ilike(frameworkControls.shortTitle, pattern),
-					ilike(frameworkControls.requirement, pattern),
-					ilike(frameworkControls.technologyElement, pattern),
+				and(
+					isNull(frameworkControls.archivedAt),
+					or(
+						ilike(frameworkControls.controlId, pattern),
+						ilike(frameworkControls.shortTitle, pattern),
+						ilike(frameworkControls.requirement, pattern),
+						ilike(frameworkControls.technologyElement, pattern),
+					),
 				),
 			)
 			.limit(limit),
 	])
+
+	// Batch-lookup domains for controls via risk mappings
+	const controlUuids = controlResults.map((c: (typeof controlResults)[number]) => c.id)
+	const controlDomains = await getControlDomainMap(controlUuids)
 
 	const results: SearchResult[] = [
 		...appResults.map((app: (typeof appResults)[number]) => ({
@@ -137,13 +142,17 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			title: `${risk.riskId}: ${risk.shortTitle ?? risk.description}`,
 			subtitle: risk.shortTitle ? risk.description : risk.domainName,
 		})),
-		...controlResults.map((control: (typeof controlResults)[number]) => ({
-			type: "control" as const,
-			id: control.id,
-			url: `/kontrollrammeverk/${control.domainCode}/${control.controlId}`,
-			title: `${control.controlId}: ${control.shortTitle ?? control.requirement}`,
-			subtitle: control.shortTitle ? (control.requirement ?? control.domainName) : control.domainName,
-		})),
+		...controlResults.map((control: (typeof controlResults)[number]) => {
+			const domains = controlDomains.get(control.id) ?? []
+			const primary = domains.sort((a, b) => a.displayOrder - b.displayOrder)[0]
+			return {
+				type: "control" as const,
+				id: control.id,
+				url: `/kontrollrammeverk/${primary?.domainCode ?? "unknown"}/${control.controlId}`,
+				title: `${control.controlId}: ${control.shortTitle ?? control.requirement}`,
+				subtitle: control.shortTitle ? (control.requirement ?? primary?.domainName) : primary?.domainName,
+			}
+		}),
 	]
 
 	return Response.json({ results: results.slice(0, 20) })

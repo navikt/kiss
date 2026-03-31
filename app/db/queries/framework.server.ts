@@ -45,18 +45,24 @@ export async function getDomainSummaries() {
 			.from(frameworkRisks)
 			.where(and(eq(frameworkRisks.domainId, domain.id), isNull(frameworkRisks.archivedAt)))
 
-		const [controlRow] = await db
-			.select({ count: count() })
-			.from(frameworkControls)
-			.where(and(eq(frameworkControls.domainId, domain.id), isNull(frameworkControls.archivedAt)))
-
-		const controlCount = controlRow?.count ?? 0
-
+		// Get controls for this domain via risk→control mappings
 		const controlIds = await db
-			.select({ id: frameworkControls.id })
-			.from(frameworkControls)
-			.where(and(eq(frameworkControls.domainId, domain.id), isNull(frameworkControls.archivedAt)))
+			.selectDistinctOn([frameworkRiskControlMappings.controlId], {
+				id: frameworkRiskControlMappings.controlId,
+			})
+			.from(frameworkRiskControlMappings)
+			.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+			.innerJoin(frameworkControls, eq(frameworkRiskControlMappings.controlId, frameworkControls.id))
+			.where(
+				and(
+					eq(frameworkRisks.domainId, domain.id),
+					isNull(frameworkRisks.archivedAt),
+					isNull(frameworkControls.archivedAt),
+				),
+			)
+
 		const controlUuids = controlIds.map((c) => c.id)
+		const controlCount = controlUuids.length
 
 		let implemented = 0
 		let partial = 0
@@ -149,24 +155,28 @@ export async function getAllRisks() {
 export async function getAllControls() {
 	const rows = await db
 		.select({
+			uuid: frameworkControls.id,
 			controlId: frameworkControls.controlId,
 			shortTitle: frameworkControls.shortTitle,
 			requirement: frameworkControls.requirement,
-			domainCode: frameworkDomains.code,
-			domainName: frameworkDomains.name,
-			displayOrder: frameworkDomains.displayOrder,
 		})
 		.from(frameworkControls)
-		.innerJoin(frameworkDomains, eq(frameworkControls.domainId, frameworkDomains.id))
-		.where(and(isNull(frameworkControls.archivedAt), isNull(frameworkDomains.archivedAt)))
-		.orderBy(frameworkDomains.displayOrder, frameworkControls.controlId)
+		.where(isNull(frameworkControls.archivedAt))
+		.orderBy(frameworkControls.controlId)
 
-	return rows.map((r) => ({
-		controlId: r.controlId,
-		name: r.shortTitle ?? shortName(r.requirement, r.controlId),
-		domainCode: r.domainCode,
-		domainName: r.domainName,
-	}))
+	const controlUuids = rows.map((r) => r.uuid)
+	const domainMap = await getControlDomainMap(controlUuids)
+
+	return rows.map((r) => {
+		const domains = domainMap.get(r.uuid) ?? []
+		const primary = domains.sort((a, b) => a.displayOrder - b.displayOrder)[0]
+		return {
+			controlId: r.controlId,
+			name: r.shortTitle ?? shortName(r.requirement, r.controlId),
+			domainCode: primary?.domainCode ?? "",
+			domainName: primary?.domainName ?? "",
+		}
+	})
 }
 
 /** Extract the short title from a requirement field (first line only). */
@@ -705,9 +715,6 @@ export async function applyFrameworkImport(
 	] as const
 
 	for (const [controlId, data] of parsedControls) {
-		const domainId = domainUuidMap.get(data.domainCode)
-		if (!domainId) continue
-
 		const existing = liveControlMap.get(controlId)
 		if (existing) {
 			const updates: Record<string, string | null> = {}
@@ -728,17 +735,12 @@ export async function applyFrameworkImport(
 				}
 			}
 
-			if (existing.domainId !== domainId) {
-				updates.domainId = domainId
-			}
-
 			await db
 				.update(frameworkControls)
 				.set({ ...updates, lastImportId: versionId })
 				.where(eq(frameworkControls.id, existing.id))
 		} else {
 			await db.insert(frameworkControls).values({
-				domainId,
 				controlId,
 				technologyElement: data.technologyElement,
 				requirement: data.requirement,
@@ -1134,15 +1136,25 @@ export async function getDomainWithCounts(domainId: string) {
 		.from(frameworkRisks)
 		.where(and(eq(frameworkRisks.domainId, domainId), isNull(frameworkRisks.archivedAt)))
 
-	const [controlRow] = await db
-		.select({ count: count() })
-		.from(frameworkControls)
-		.where(and(eq(frameworkControls.domainId, domainId), isNull(frameworkControls.archivedAt)))
+	const controlRows = await db
+		.selectDistinctOn([frameworkRiskControlMappings.controlId], {
+			controlId: frameworkRiskControlMappings.controlId,
+		})
+		.from(frameworkRiskControlMappings)
+		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.innerJoin(frameworkControls, eq(frameworkRiskControlMappings.controlId, frameworkControls.id))
+		.where(
+			and(
+				eq(frameworkRisks.domainId, domainId),
+				isNull(frameworkRisks.archivedAt),
+				isNull(frameworkControls.archivedAt),
+			),
+		)
 
 	return {
 		...domain,
 		riskCount: riskRow?.count ?? 0,
-		controlCount: controlRow?.count ?? 0,
+		controlCount: controlRows.length,
 	}
 }
 
@@ -1187,7 +1199,7 @@ export async function updateDomain(
 	})
 }
 
-/** Delete (archive) a domain. Throws if risks or controls still reference it. */
+/** Delete (archive) a domain. Throws if risks still reference it. */
 export async function deleteDomain(domainId: string, performedBy: string) {
 	const [riskRow] = await db
 		.select({ count: count() })
@@ -1196,15 +1208,6 @@ export async function deleteDomain(domainId: string, performedBy: string) {
 
 	if ((riskRow?.count ?? 0) > 0) {
 		throw new Error(`Kan ikke slette domenet: ${riskRow?.count} risikoer er fortsatt tilknyttet.`)
-	}
-
-	const [controlRow] = await db
-		.select({ count: count() })
-		.from(frameworkControls)
-		.where(and(eq(frameworkControls.domainId, domainId), isNull(frameworkControls.archivedAt)))
-
-	if ((controlRow?.count ?? 0) > 0) {
-		throw new Error(`Kan ikke slette domenet: ${controlRow?.count} kontroller er fortsatt tilknyttet.`)
 	}
 
 	const [domain] = await db.select().from(frameworkDomains).where(eq(frameworkDomains.id, domainId)).limit(1)
@@ -1246,4 +1249,89 @@ export async function updateRiskDomain(riskIdStr: string, newDomainId: string, p
 		newValue: newDomain.name,
 		performedBy,
 	})
+}
+
+// ─── Control → Domain helpers (transitive via risks) ─────────────────────
+
+interface ControlDomain {
+	domainId: string
+	domainCode: string
+	domainName: string
+	displayOrder: number
+}
+
+/** Get all domains a control belongs to (via its mapped risks). */
+export async function getControlDomains(controlUuid: string): Promise<ControlDomain[]> {
+	const rows = await db
+		.selectDistinctOn([frameworkDomains.id], {
+			domainId: frameworkDomains.id,
+			domainCode: frameworkDomains.code,
+			domainName: frameworkDomains.name,
+			displayOrder: frameworkDomains.displayOrder,
+		})
+		.from(frameworkRiskControlMappings)
+		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+		.where(
+			and(
+				eq(frameworkRiskControlMappings.controlId, controlUuid),
+				isNull(frameworkRisks.archivedAt),
+				isNull(frameworkDomains.archivedAt),
+			),
+		)
+		.orderBy(frameworkDomains.id, frameworkDomains.displayOrder)
+
+	return rows
+}
+
+/** Get the primary (lowest displayOrder) domain for a control. */
+export async function getControlPrimaryDomain(controlUuid: string): Promise<ControlDomain | null> {
+	const domains = await getControlDomains(controlUuid)
+	if (domains.length === 0) return null
+	return domains.sort((a, b) => a.displayOrder - b.displayOrder)[0]
+}
+
+/**
+ * Batch: build a map of controlId → ControlDomain[] for a set of controls.
+ * Much more efficient than calling getControlDomains() per control.
+ */
+export async function getControlDomainMap(controlUuids: string[]): Promise<Map<string, ControlDomain[]>> {
+	const result = new Map<string, ControlDomain[]>()
+	if (controlUuids.length === 0) return result
+
+	const rows = await db
+		.select({
+			controlId: frameworkRiskControlMappings.controlId,
+			domainId: frameworkDomains.id,
+			domainCode: frameworkDomains.code,
+			domainName: frameworkDomains.name,
+			displayOrder: frameworkDomains.displayOrder,
+		})
+		.from(frameworkRiskControlMappings)
+		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+		.where(
+			and(
+				sql`${frameworkRiskControlMappings.controlId} IN ${controlUuids}`,
+				isNull(frameworkRisks.archivedAt),
+				isNull(frameworkDomains.archivedAt),
+			),
+		)
+		.orderBy(frameworkDomains.displayOrder)
+
+	for (const row of rows) {
+		const list = result.get(row.controlId) ?? []
+		// Deduplicate by domainId
+		if (!list.some((d) => d.domainId === row.domainId)) {
+			list.push({
+				domainId: row.domainId,
+				domainCode: row.domainCode,
+				domainName: row.domainName,
+				displayOrder: row.displayOrder,
+			})
+		}
+		result.set(row.controlId, list)
+	}
+
+	return result
 }

@@ -215,7 +215,6 @@ async function seed() {
 			const [control] = await db
 				.insert(schema.frameworkControls)
 				.values({
-					domainId: domainMap[rc.domainCode],
 					controlId: ctrl.controlId,
 					technologyElement: ctrl.controlId === "K-ST.01" ? "Styringsverktøy, dokumenthåndteringssystem" : null,
 					requirement:

@@ -40,9 +40,6 @@ export const frameworkRisks = pgTable("framework_risks", {
 
 export const frameworkControls = pgTable("framework_controls", {
 	id: uuid("id").primaryKey().defaultRandom(),
-	domainId: uuid("domain_id")
-		.notNull()
-		.references(() => frameworkDomains.id),
 	controlId: text("control_id").notNull().unique(),
 	shortTitle: text("short_title"),
 	technologyElement: text("technology_element"),

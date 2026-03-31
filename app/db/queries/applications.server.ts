@@ -178,7 +178,6 @@ export async function getAppAssessments(appId: string) {
 			controlId: frameworkControls.controlId,
 			shortTitle: frameworkControls.shortTitle,
 			requirement: frameworkControls.requirement,
-			domainId: frameworkControls.domainId,
 		})
 		.from(frameworkControls)
 		.where(isNull(frameworkControls.archivedAt))
@@ -211,24 +210,25 @@ export async function getAppAssessments(appId: string) {
 		.where(isNull(frameworkDomains.archivedAt))
 	const domainMap = new Map(domains.map((d) => [d.id, d]))
 
-	// Fetch risk-control mappings for linked risks
+	// Fetch risk-control mappings for linked risks (include domainId for domain derivation)
 	const riskMappings = await db
 		.select({
 			controlId: frameworkRiskControlMappings.controlId,
 			riskId: frameworkRisks.riskId,
 			shortTitle: frameworkRisks.shortTitle,
 			description: frameworkRisks.description,
+			domainId: frameworkRisks.domainId,
 		})
 		.from(frameworkRiskControlMappings)
 		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
 
 	const risksByControlUuid = new Map<
 		string,
-		Array<{ riskId: string; shortTitle: string | null; description: string }>
+		Array<{ riskId: string; shortTitle: string | null; description: string; domainId: string }>
 	>()
 	for (const rm of riskMappings) {
 		const list = risksByControlUuid.get(rm.controlId) ?? []
-		list.push({ riskId: rm.riskId, shortTitle: rm.shortTitle, description: rm.description })
+		list.push({ riskId: rm.riskId, shortTitle: rm.shortTitle, description: rm.description, domainId: rm.domainId })
 		risksByControlUuid.set(rm.controlId, list)
 	}
 
@@ -274,8 +274,10 @@ export async function getAppAssessments(appId: string) {
 		// If no matching elements, skip this control
 		if (ctrlElementIds.length > 0 && matchingElements.length === 0) continue
 
-		const domain = domainMap.get(ctrl.domainId)
+		// Derive domain from linked risks (transitive: control → risk → domain)
 		const risks = risksByControlUuid.get(ctrl.id) ?? []
+		const riskDomainIds = [...new Set(risks.map((r) => r.domainId))]
+		const primaryDomain = riskDomainIds.length > 0 ? domainMap.get(riskDomainIds[0]) : undefined
 		const predefined = predefinedByControl.get(ctrl.id) ?? []
 
 		// Create one assessment entry per matching element (or one if no elements defined)
@@ -290,8 +292,8 @@ export async function getAppAssessments(appId: string) {
 				controlId: ctrl.controlId,
 				controlName: ctrl.shortTitle ?? ctrl.requirement?.split("\n")[0] ?? ctrl.controlId,
 				requirement: ctrl.requirement ?? "",
-				domainCode: domain?.code ?? "",
-				domainName: domain?.name ?? "",
+				domainCode: primaryDomain?.code ?? "",
+				domainName: primaryDomain?.name ?? "",
 				technologyElementId: elementId,
 				technologyElementName: elementId ? (elementNameMap.get(elementId) ?? null) : null,
 				risks: risks.map((r) => ({

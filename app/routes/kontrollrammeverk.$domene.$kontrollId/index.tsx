@@ -62,7 +62,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Get technology elements for this control
 	const { getControlElements } = await import("~/db/queries/technology-elements.server")
-	const controlElements = await getControlElements(control.uuid)
+	const { getControlDomains } = await import("~/db/queries/framework.server")
+	const [controlElements, controlDomains] = await Promise.all([
+		getControlElements(control.uuid),
+		getControlDomains(control.uuid),
+	])
 
 	// Pre-render Markdown for all text fields
 	const fieldHtml: Record<string, string> = {}
@@ -83,7 +87,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		fieldHtml[key] = renderMarkdown(val)
 	}
 
-	return data({ domene, control, canEdit, fieldHtml, controlElements })
+	return data({ domene, control, canEdit, fieldHtml, controlElements, controlDomains })
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -286,7 +290,7 @@ function PredefinedAnswerForm({
 }
 
 export default function ControlDetailPage() {
-	const { domene, control, canEdit, fieldHtml, controlElements } = useLoaderData<typeof loader>()
+	const { domene, control, canEdit, fieldHtml, controlElements, controlDomains } = useLoaderData<typeof loader>()
 	const [addingAnswer, setAddingAnswer] = useState(false)
 	const [editingAnswerId, setEditingAnswerId] = useState<string | null>(null)
 
@@ -307,7 +311,9 @@ export default function ControlDetailPage() {
 	return (
 		<VStack gap="space-12">
 			<VStack gap="space-2">
-				<Detail>Domene: {domene} / Kontroll</Detail>
+				<Detail>
+					{controlDomains.length > 0 ? controlDomains.map((d) => d.domainName).join(", ") : domene} / Kontroll
+				</Detail>
 				<Heading size="xlarge" level="2">
 					{control.id}: {control.name}
 				</Heading>

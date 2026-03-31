@@ -3,7 +3,7 @@ import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
-import { frameworkControls, frameworkDomains } from "../schema/framework"
+import { frameworkControls, frameworkDomains, frameworkRiskControlMappings, frameworkRisks } from "../schema/framework"
 import { devTeams, sections } from "../schema/organization"
 import { reports } from "../schema/reports"
 import { writeAuditLog } from "./audit.server"
@@ -63,14 +63,13 @@ export async function generateComplianceReport(params: {
 			.orderBy(monitoredApplications.name)
 	}
 
-	// 2. Get framework controls and domains
+	// 2. Get framework controls and derive domains via risk mappings
 	const controls = await db
 		.select({
 			id: frameworkControls.id,
 			controlId: frameworkControls.controlId,
 			shortTitle: frameworkControls.shortTitle,
 			requirement: frameworkControls.requirement,
-			domainId: frameworkControls.domainId,
 		})
 		.from(frameworkControls)
 		.where(isNull(frameworkControls.archivedAt))
@@ -81,6 +80,24 @@ export async function generateComplianceReport(params: {
 		.from(frameworkDomains)
 		.where(isNull(frameworkDomains.archivedAt))
 	const domainMap = new Map(domains.map((d) => [d.id, d]))
+
+	// Build control → domain map via risk-control mappings
+	const riskMappingsForDomain = await db
+		.select({
+			controlId: frameworkRiskControlMappings.controlId,
+			domainId: frameworkRisks.domainId,
+		})
+		.from(frameworkRiskControlMappings)
+		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.where(isNull(frameworkRisks.archivedAt))
+
+	const controlDomainLookup = new Map<string, { code: string; name: string }>()
+	for (const rm of riskMappingsForDomain) {
+		if (!controlDomainLookup.has(rm.controlId)) {
+			const domain = domainMap.get(rm.domainId)
+			if (domain) controlDomainLookup.set(rm.controlId, { code: domain.code, name: domain.name })
+		}
+	}
 
 	// 3. Gather assessments per application
 	type AssessmentRow = {
@@ -107,13 +124,13 @@ export async function generateComplianceReport(params: {
 				)
 				.limit(1)
 
-			const domain = domainMap.get(ctrl.domainId)
+			const ctrlDomain = controlDomainLookup.get(ctrl.id)
 			allRows.push({
 				appName: app.name,
 				controlId: ctrl.controlId,
 				controlName: ctrl.shortTitle ?? ctrl.requirement?.split("\n")[0] ?? ctrl.controlId,
-				domain: domain?.name ?? "",
-				domainCode: domain?.code ?? "",
+				domain: ctrlDomain?.name ?? "",
+				domainCode: ctrlDomain?.code ?? "",
 				status: assessment?.status ?? null,
 				comment: assessment?.comment ?? null,
 				assessedBy: assessment?.assessedBy ?? null,

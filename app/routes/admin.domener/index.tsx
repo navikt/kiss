@@ -156,14 +156,14 @@ function EditDomainModal({ domain, open, onClose }: { domain: DomainRow; open: b
 }
 
 function DeleteDomainModal({ domain, open, onClose }: { domain: DomainRow; open: boolean; onClose: () => void }) {
-	const hasChildren = domain.riskCount > 0 || domain.controlCount > 0
+	const hasChildren = domain.riskCount > 0
 	return (
 		<Modal open={open} onClose={onClose} header={{ heading: `Slett domene: ${domain.name}` }}>
 			<Modal.Body>
 				{hasChildren ? (
 					<Alert variant="warning">
-						Domenet kan ikke slettes fordi det har {domain.riskCount} risikoer og {domain.controlCount} kontroller
-						tilknyttet. Flytt eller slett disse først.
+						Domenet kan ikke slettes fordi det har {domain.riskCount} risikoer tilknyttet. Flytt eller slett disse
+						først.
 					</Alert>
 				) : (
 					<BodyLong>Er du sikker på at du vil slette domenet «{domain.name}»?</BodyLong>
