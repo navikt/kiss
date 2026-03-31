@@ -310,11 +310,20 @@ body {
 	min-width: 0;
 }
 
-.compliance-risk-block {
-	padding: var(--ax-space-8) var(--ax-space-12);
+.compliance-risk-header {
+	padding: var(--ax-space-12) var(--ax-space-16);
 	background: var(--ax-bg-sunken);
 	border-radius: var(--ax-radius-8);
 	scroll-margin-top: var(--ax-space-16);
+}
+
+.compliance-risk-section {
+	scroll-margin-top: var(--ax-space-16);
+}
+
+.compliance-domain-section {
+	padding-top: var(--ax-space-16);
+	border-top: 2px solid var(--ax-border-subtle);
 }
 
 .compliance-card {

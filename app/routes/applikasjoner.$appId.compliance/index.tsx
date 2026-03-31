@@ -1,4 +1,4 @@
-import { Alert, BodyLong, Button, Detail, Heading, HStack, Label, Select, Textarea, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Heading, HStack, Label, Select, Textarea, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
@@ -65,24 +65,31 @@ export default function ComplianceAssessment() {
 	const { appName, assessments, isInherited, primaryName, primaryId, allRisks } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
-	// Group assessments by domain
-	const domainMap = new Map<string, { code: string; name: string; assessments: typeof assessments }>()
+	// Build control lookup by controlUuid for quick access
+	const controlByUuid = new Map<string, (typeof assessments)[number]>()
 	for (const a of assessments) {
-		const key = a.domainCode
-		if (!domainMap.has(key)) {
-			domainMap.set(key, { code: a.domainCode, name: a.domainName, assessments: [] })
-		}
-		domainMap.get(key)!.assessments.push(a)
+		controlByUuid.set(a.controlUuid, a)
 	}
-	const domains = [...domainMap.values()]
+
+	// Build risk → controls mapping (from the assessment risks arrays)
+	const controlsByRisk = new Map<string, (typeof assessments)[number][]>()
+	for (const a of assessments) {
+		for (const r of a.risks) {
+			const list = controlsByRisk.get(r.riskId) ?? []
+			list.push(a)
+			controlsByRisk.set(r.riskId, list)
+		}
+	}
 
 	// Group risks by domain
-	const risksByDomain = new Map<string, typeof allRisks>()
+	const domainMap = new Map<string, { code: string; name: string; risks: typeof allRisks }>()
 	for (const r of allRisks) {
-		const list = risksByDomain.get(r.domainCode) ?? []
-		list.push(r)
-		risksByDomain.set(r.domainCode, list)
+		if (!domainMap.has(r.domainCode)) {
+			domainMap.set(r.domainCode, { code: r.domainCode, name: r.domainName, risks: [] })
+		}
+		domainMap.get(r.domainCode)?.risks.push(r)
 	}
+	const domains = [...domainMap.values()]
 
 	return (
 		<div className="compliance-layout">
@@ -92,28 +99,19 @@ export default function ComplianceAssessment() {
 					Hjem
 				</a>
 
-				<div className="compliance-sidebar-group">
-					<Detail uppercase weight="semibold" className="compliance-sidebar-label">
-						Risikoer
-					</Detail>
-					{allRisks.map((risk) => (
-						<a key={risk.riskId} href={`#risk-${risk.riskId}`} className="compliance-sidebar-risk">
-							<span className="compliance-sidebar-risk-id">{risk.riskId}</span>
-							<span>{risk.name}</span>
+				{domains.map((domain) => (
+					<div key={domain.code} className="compliance-sidebar-group">
+						<a href={`#domain-${domain.code}`} className="compliance-sidebar-domain">
+							{domain.name}
 						</a>
-					))}
-				</div>
-
-				<div className="compliance-sidebar-group">
-					<Detail uppercase weight="semibold" className="compliance-sidebar-label">
-						Kontroller
-					</Detail>
-					{domains.map((domain) => (
-						<a key={domain.code} href={`#domain-${domain.code}`} className="compliance-sidebar-domain">
-							{domain.name} ({domain.code})
-						</a>
-					))}
-				</div>
+						{domain.risks.map((risk) => (
+							<a key={risk.riskId} href={`#risk-${risk.riskId}`} className="compliance-sidebar-risk">
+								<span className="compliance-sidebar-risk-id">{risk.riskId}</span>
+								<span>{risk.name}</span>
+							</a>
+						))}
+					</div>
+				))}
 			</nav>
 
 			{/* Main content */}
@@ -137,122 +135,132 @@ export default function ComplianceAssessment() {
 						</div>
 					)}
 
-					{domains.map((domain) => {
-						const domainRisks = risksByDomain.get(domain.code) ?? []
-						return (
-							<VStack key={domain.code} gap="space-8" id={`domain-${domain.code}`}>
-								<Heading size="large" level="3">
-									{domain.name} ({domain.code})
-								</Heading>
+					{domains.map((domain) => (
+						<VStack key={domain.code} gap="space-12" id={`domain-${domain.code}`} className="compliance-domain-section">
+							<Heading size="large" level="3">
+								{domain.name}
+							</Heading>
 
-								{domainRisks.length > 0 && (
-									<VStack gap="space-4">
-										<Label size="small">Risikoer i dette domenet</Label>
-										{domainRisks.map((risk) => (
-											<div key={risk.riskId} id={`risk-${risk.riskId}`} className="compliance-risk-block">
-												<HStack gap="space-4" align="start">
-													<Detail weight="semibold" style={{ color: "var(--ax-text-accent)", whiteSpace: "nowrap" }}>
-														{risk.riskId}
-													</Detail>
-													<BodyLong size="small">{risk.description}</BodyLong>
-												</HStack>
-											</div>
-										))}
-									</VStack>
-								)}
-
-								{domain.assessments.map((assessment) => (
-									<div key={assessment.controlUuid} className="compliance-card" id={`control-${assessment.controlId}`}>
-										<div className="compliance-card-header">
-											<Heading size="small" level="4">
-												{assessment.controlId}: {assessment.controlName}
+							{domain.risks.map((risk) => {
+								const riskControls = controlsByRisk.get(risk.riskId) ?? []
+								return (
+									<VStack
+										key={risk.riskId}
+										gap="space-8"
+										id={`risk-${risk.riskId}`}
+										className="compliance-risk-section"
+									>
+										<div className="compliance-risk-header">
+											<Heading size="medium" level="4">
+												{risk.riskId}: {risk.name}
 											</Heading>
+											<BodyLong size="small">{risk.description}</BodyLong>
 										</div>
 
-										{assessment.requirement && (
-											<VStack gap="space-2">
-												<Label size="small">Krav</Label>
-												<BodyLong size="small" style={{ whiteSpace: "pre-wrap" }}>
-													{assessment.requirement}
-												</BodyLong>
-											</VStack>
-										)}
-
-										{assessment.risks.length > 0 && (
-											<VStack gap="space-2">
-												<Label size="small">Tilknyttede risikoer</Label>
-												{assessment.risks.map((risk) => (
-													<Detail key={risk.riskId}>
-														<strong>{risk.riskId}</strong>: {risk.name}
-													</Detail>
+										{riskControls.length > 0 && (
+											<VStack gap="space-6">
+												<Label size="small">Utfylling av:</Label>
+												{riskControls.map((assessment) => (
+													<AssessmentCard
+														key={assessment.controlUuid}
+														assessment={assessment}
+														actionData={actionData}
+													/>
 												))}
 											</VStack>
 										)}
-
-										{assessment.status && (
-											<div className="compliance-current">
-												<ComplianceStatusBadge status={assessment.status} />
-												{assessment.assessedBy && (
-													<span className="compliance-meta">
-														Vurdert av {assessment.assessedBy}{" "}
-														{assessment.assessedAt && new Date(assessment.assessedAt).toLocaleDateString("nb-NO")}
-													</span>
-												)}
-											</div>
-										)}
-
-										{assessment.comment && <ComplianceComment comment={assessment.comment} />}
-
-										{assessment.predefinedAnswers.length > 0 && (
-											<VStack gap="space-4" style={{ paddingTop: "var(--ax-space-8)" }}>
-												<Label size="small">Hurtigvalg</Label>
-												<HStack gap="space-4" wrap>
-													{assessment.predefinedAnswers.map((pa) => (
-														<Form method="post" key={pa.id}>
-															<input type="hidden" name="controlUuid" value={assessment.controlUuid} />
-															<input type="hidden" name="controlId" value={assessment.controlId} />
-															<input type="hidden" name="status" value={pa.status} />
-															<input type="hidden" name="comment" value={pa.comment ?? ""} />
-															<Button type="submit" size="small" variant="secondary-neutral">
-																{pa.label}
-															</Button>
-														</Form>
-													))}
-												</HStack>
-											</VStack>
-										)}
-
-										<Form method="post" className="compliance-form">
-											<input type="hidden" name="controlUuid" value={assessment.controlUuid} />
-											<input type="hidden" name="controlId" value={assessment.controlId} />
-											<Select label="Status" name="status" defaultValue={assessment.status ?? ""} size="small">
-												<option value="" disabled>
-													Velg status
-												</option>
-												{Object.entries(statusLabels).map(([value, label]) => (
-													<option key={value} value={value}>
-														{label}
-													</option>
-												))}
-											</Select>
-											<Textarea
-												label="Kommentar"
-												name="comment"
-												defaultValue={assessment.comment ?? ""}
-												size="small"
-												description="Lenker i kommentaren vil vises som klikkbare lenker."
-											/>
-											<Button type="submit" size="small" variant="primary">
-												Lagre vurdering
-											</Button>
-										</Form>
-									</div>
-								))}
-							</VStack>
-						)
-					})}
+									</VStack>
+								)
+							})}
+						</VStack>
+					))}
 				</VStack>
 			</div>
+		</div>
+	)
+}
+
+function AssessmentCard({
+	assessment,
+	actionData,
+}: {
+	assessment: ReturnType<typeof useLoaderData<typeof loader>>["assessments"][number]
+	actionData: ReturnType<typeof useActionData<typeof action>>
+}) {
+	return (
+		<div className="compliance-card" id={`control-${assessment.controlId}`}>
+			<div className="compliance-card-header">
+				<Heading size="small" level="5">
+					{assessment.controlId}: {assessment.controlName}
+				</Heading>
+			</div>
+
+			{assessment.requirement && (
+				<VStack gap="space-2">
+					<Label size="small">Krav</Label>
+					<BodyLong size="small" style={{ whiteSpace: "pre-wrap" }}>
+						{assessment.requirement}
+					</BodyLong>
+				</VStack>
+			)}
+
+			{assessment.status && (
+				<div className="compliance-current">
+					<ComplianceStatusBadge status={assessment.status} />
+					{assessment.assessedBy && (
+						<span className="compliance-meta">
+							Vurdert av {assessment.assessedBy}{" "}
+							{assessment.assessedAt && new Date(assessment.assessedAt).toLocaleDateString("nb-NO")}
+						</span>
+					)}
+				</div>
+			)}
+
+			{assessment.comment && <ComplianceComment comment={assessment.comment} />}
+
+			{assessment.predefinedAnswers.length > 0 && (
+				<VStack gap="space-4" style={{ paddingTop: "var(--ax-space-8)" }}>
+					<Label size="small">Hurtigvalg</Label>
+					<HStack gap="space-4" wrap>
+						{assessment.predefinedAnswers.map((pa) => (
+							<Form method="post" key={pa.id}>
+								<input type="hidden" name="controlUuid" value={assessment.controlUuid} />
+								<input type="hidden" name="controlId" value={assessment.controlId} />
+								<input type="hidden" name="status" value={pa.status} />
+								<input type="hidden" name="comment" value={pa.comment ?? ""} />
+								<Button type="submit" size="small" variant="secondary-neutral">
+									{pa.label}
+								</Button>
+							</Form>
+						))}
+					</HStack>
+				</VStack>
+			)}
+
+			<Form method="post" className="compliance-form">
+				<input type="hidden" name="controlUuid" value={assessment.controlUuid} />
+				<input type="hidden" name="controlId" value={assessment.controlId} />
+				<Select label="Status" name="status" defaultValue={assessment.status ?? ""} size="small">
+					<option value="" disabled>
+						Velg status
+					</option>
+					{Object.entries(statusLabels).map(([value, label]) => (
+						<option key={value} value={value}>
+							{label}
+						</option>
+					))}
+				</Select>
+				<Textarea
+					label="Kommentar"
+					name="comment"
+					defaultValue={assessment.comment ?? ""}
+					size="small"
+					description="Lenker i kommentaren vil vises som klikkbare lenker."
+				/>
+				<Button type="submit" size="small" variant="primary">
+					Lagre vurdering
+				</Button>
+			</Form>
 		</div>
 	)
 }
