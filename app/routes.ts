@@ -20,6 +20,7 @@ export default [
 	route("api/rapporter/:rapportId/pdf", "routes/api.rapporter.$rapportId.pdf/index.tsx"),
 	route("api/rapporter/:rapportId/xlsx", "routes/api.rapporter.$rapportId.xlsx/index.tsx"),
 	route("nais-overvaking", "routes/nais-overvaking/index.tsx"),
+	route("nais-overvaking/endringslogg", "routes/nais-overvaking.endringslogg/index.tsx"),
 	route("nais-overvaking/:team", "routes/nais-overvaking.$team/index.tsx"),
 	route("admin", "routes/admin/index.tsx"),
 	route("admin/seksjoner", "routes/admin.seksjoner/index.tsx"),

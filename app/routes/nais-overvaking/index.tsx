@@ -3,7 +3,6 @@ import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData, useNavigation } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getRecentAuditLog } from "~/db/queries/audit.server"
 import {
 	getLastSyncTimestamp,
 	getNaisTeamAppCounts,
@@ -14,11 +13,10 @@ import { getAuthenticatedUser } from "~/lib/auth.server"
 import { runFullNaisSync } from "~/lib/nais-sync.server"
 
 export async function loader(_args: LoaderFunctionArgs) {
-	const [teams, appCounts, lastSync, auditEntries] = await Promise.all([
+	const [teams, appCounts, lastSync] = await Promise.all([
 		getNaisTeams(),
 		getNaisTeamAppCounts(),
 		getLastSyncTimestamp(),
-		getRecentAuditLog(50),
 	])
 
 	const naisTeams = teams.map((t) => ({
@@ -29,12 +27,9 @@ export async function loader(_args: LoaderFunctionArgs) {
 		discoveredAt: new Date(t.discoveredAt).toISOString().split("T")[0],
 	}))
 
-	const naisAudit = auditEntries.filter((e) => e.entityType === "nais_team" || e.entityType === "nais_sync")
-
 	return data({
 		teams: naisTeams,
 		lastSync: lastSync ? new Date(lastSync).toISOString() : null,
-		auditEntries: naisAudit,
 	})
 }
 
@@ -83,7 +78,7 @@ const statusLabel: Record<string, string> = {
 }
 
 export default function NaisOvervaking() {
-	const { teams, lastSync, auditEntries } = useLoaderData<typeof loader>()
+	const { teams, lastSync } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const isSyncing = navigation.state === "submitting" && navigation.formData?.get("intent") === "sync"
@@ -214,39 +209,7 @@ export default function NaisOvervaking() {
 				</Table>
 			</section>
 
-			{auditEntries.length > 0 && (
-				<VStack gap="space-4">
-					<Heading size="medium" level="3">
-						Endringslogg
-					</Heading>
-					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-					<section className="table-scroll" tabIndex={0} aria-label="Endringslogg Nais-overvåking">
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Tidspunkt</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Utført av</Table.HeaderCell>
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{auditEntries.map((entry) => (
-									<Table.Row key={entry.id}>
-										<Table.DataCell>{new Date(entry.performedAt).toLocaleString("nb-NO")}</Table.DataCell>
-										<Table.DataCell>{entry.action}</Table.DataCell>
-										<Table.DataCell>
-											{entry.entityId}
-											{entry.newValue ? ` → ${entry.newValue}` : ""}
-										</Table.DataCell>
-										<Table.DataCell>{entry.performedBy}</Table.DataCell>
-									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
-					</section>
-				</VStack>
-			)}
+			<Link to="/nais-overvaking/endringslogg">Vis endringslogg</Link>
 		</VStack>
 	)
 }
