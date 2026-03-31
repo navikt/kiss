@@ -274,12 +274,13 @@ body {
 }
 
 .compliance-sidebar-risk {
-	display: flex;
-	gap: var(--ax-space-8);
+	display: grid;
+	grid-template-columns: 3.5rem 1fr;
+	gap: var(--ax-space-4);
 	text-decoration: none;
 	color: var(--ax-text-default);
-	font-size: var(--ax-font-size-medium);
-	padding: var(--ax-space-4) 0;
+	font-size: var(--ax-font-size-small);
+	padding: var(--ax-space-2) 0;
 	line-height: 1.4;
 }
 
@@ -291,14 +292,14 @@ body {
 	font-weight: 600;
 	color: var(--ax-text-accent);
 	white-space: nowrap;
-	font-size: var(--ax-font-size-small);
 }
 
 .compliance-sidebar-domain {
 	text-decoration: none;
 	color: var(--ax-text-default);
-	font-size: var(--ax-font-size-medium);
-	padding: var(--ax-space-6) 0 var(--ax-space-6) var(--ax-space-8);
+	font-weight: 600;
+	font-size: var(--ax-font-size-small);
+	padding: var(--ax-space-4) 0 var(--ax-space-2) 0;
 	line-height: 1.4;
 }
 
