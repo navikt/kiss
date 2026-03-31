@@ -9,9 +9,11 @@ import {
 	Select,
 	Table,
 	Tag,
+	Textarea,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
+import { useEffect, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -27,6 +29,7 @@ import {
 } from "~/db/queries/screening.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import { renderMarkdown } from "~/lib/markdown.server"
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -40,7 +43,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const questionsWithEffects = await Promise.all(
 		questions.map(async (q) => {
 			const effects = await getEffectsForQuestion(q.id)
-			return { ...q, effects }
+			return {
+				...q,
+				effects,
+				descriptionHtml: renderMarkdown(q.description),
+			}
 		}),
 	)
 
@@ -64,15 +71,17 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	if (intent === "createQuestion") {
 		const questionText = formData.get("questionText") as string
+		const description = (formData.get("description") as string)?.trim() || null
 		const displayOrder = Number(formData.get("displayOrder") ?? 0)
 		if (!questionText?.trim()) throw new Response("Spørsmålstekst mangler", { status: 400 })
-		await createScreeningQuestion(questionText.trim(), displayOrder, authedUser.navIdent)
+		await createScreeningQuestion(questionText.trim(), description, displayOrder, authedUser.navIdent)
 	} else if (intent === "updateQuestion") {
 		const questionId = formData.get("questionId") as string
 		const questionText = formData.get("questionText") as string
+		const description = (formData.get("description") as string)?.trim() || null
 		const displayOrder = Number(formData.get("displayOrder") ?? 0)
 		if (!questionId || !questionText?.trim()) throw new Response("Ugyldig data", { status: 400 })
-		await updateScreeningQuestion(questionId, questionText.trim(), displayOrder, authedUser.navIdent)
+		await updateScreeningQuestion(questionId, questionText.trim(), description, displayOrder, authedUser.navIdent)
 	} else if (intent === "deleteQuestion") {
 		const questionId = formData.get("questionId") as string
 		if (!questionId) throw new Response("Mangler ID", { status: 400 })
@@ -134,10 +143,19 @@ export default function AdminScreening() {
 							defaultValue="0"
 							style={{ width: "6rem" }}
 						/>
+					</HStack>
+					<Textarea
+						label="Beskrivelse (Markdown)"
+						name="description"
+						size="small"
+						description="Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)"
+						minRows={3}
+					/>
+					<div>
 						<Button type="submit" size="small" variant="primary" icon={<PlusIcon aria-hidden />}>
 							Legg til
 						</Button>
-					</HStack>
+					</div>
 				</VStack>
 			</Form>
 
@@ -162,6 +180,10 @@ export default function AdminScreening() {
 									<Heading size="small" level="3">
 										{q.questionText}
 									</Heading>
+									{q.descriptionHtml && (
+										// biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized with DOMPurify
+										<div className="markdown-content" dangerouslySetInnerHTML={{ __html: q.descriptionHtml }} />
+									)}
 									<BodyShort size="small" textColor="subtle">
 										Rekkefølge: {q.displayOrder}
 									</BodyShort>
@@ -176,30 +198,7 @@ export default function AdminScreening() {
 							</HStack>
 
 							{/* Edit question */}
-							<Form method="post">
-								<input type="hidden" name="intent" value="updateQuestion" />
-								<input type="hidden" name="questionId" value={q.id} />
-								<HStack gap="space-4" align="end" wrap>
-									<TextField
-										label="Spørsmålstekst"
-										name="questionText"
-										size="small"
-										defaultValue={q.questionText}
-										style={{ minWidth: "20rem" }}
-									/>
-									<TextField
-										label="Rekkefølge"
-										name="displayOrder"
-										size="small"
-										type="number"
-										defaultValue={String(q.displayOrder)}
-										style={{ width: "6rem" }}
-									/>
-									<Button type="submit" size="small" variant="secondary">
-										Oppdater
-									</Button>
-								</HStack>
-							</Form>
+							<QuestionEditForm question={q} />
 
 							{/* Effects */}
 							<VStack gap="space-4">
@@ -306,6 +305,96 @@ export default function AdminScreening() {
 			)}
 		</VStack>
 	)
+}
+
+/** Edit form for a screening question with live Markdown preview. */
+function QuestionEditForm({
+	question,
+}: {
+	question: { id: string; questionText: string; description: string | null; displayOrder: number }
+}) {
+	const [descriptionPreview, setDescriptionPreview] = useState(question.description ?? "")
+
+	return (
+		<Form method="post">
+			<input type="hidden" name="intent" value="updateQuestion" />
+			<input type="hidden" name="questionId" value={question.id} />
+			<VStack gap="space-4">
+				<HStack gap="space-4" align="end" wrap>
+					<TextField
+						label="Spørsmålstekst"
+						name="questionText"
+						size="small"
+						defaultValue={question.questionText}
+						style={{ minWidth: "20rem" }}
+					/>
+					<TextField
+						label="Rekkefølge"
+						name="displayOrder"
+						size="small"
+						type="number"
+						defaultValue={String(question.displayOrder)}
+						style={{ width: "6rem" }}
+					/>
+				</HStack>
+				<HStack gap="space-4" align="start" style={{ flexWrap: "wrap" }}>
+					<div style={{ flex: 1, minWidth: "20rem" }}>
+						<Textarea
+							label="Beskrivelse (Markdown)"
+							name="description"
+							size="small"
+							defaultValue={question.description ?? ""}
+							description="Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)"
+							minRows={3}
+							onChange={(e) => setDescriptionPreview(e.target.value)}
+						/>
+					</div>
+					{descriptionPreview && (
+						<div style={{ flex: 1, minWidth: "20rem" }}>
+							<BodyShort size="small" weight="semibold" spacing>
+								Forhåndsvisning
+							</BodyShort>
+							<MarkdownPreview content={descriptionPreview} />
+						</div>
+					)}
+				</HStack>
+				<div>
+					<Button type="submit" size="small" variant="secondary">
+						Oppdater
+					</Button>
+				</div>
+			</VStack>
+		</Form>
+	)
+}
+
+/** Client-side Markdown preview using marked. */
+function MarkdownPreview({ content }: { content: string }) {
+	const [html, setHtml] = useState("")
+
+	useEffect(() => {
+		void renderPreview(content, setHtml)
+	}, [content])
+
+	return (
+		<div
+			className="markdown-content"
+			style={{
+				padding: "var(--ax-space-8)",
+				border: "1px solid var(--ax-border-subtle)",
+				borderRadius: "var(--ax-radius-4)",
+				background: "var(--ax-bg-sunken)",
+				minHeight: "4rem",
+			}}
+			// biome-ignore lint/security/noDangerouslySetInnerHtml: client-side preview only
+			dangerouslySetInnerHTML={{ __html: html }}
+		/>
+	)
+}
+
+async function renderPreview(content: string, setHtml: (html: string) => void) {
+	const { marked } = await import("marked")
+	setHtml(marked.parse(content, { async: false }) as string)
 }
 
 export { RouteErrorBoundary as ErrorBoundary }

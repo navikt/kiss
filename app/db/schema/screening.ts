@@ -7,6 +7,7 @@ import { frameworkControls } from "./framework"
 export const screeningQuestions = pgTable("screening_questions", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	questionText: text("question_text").notNull(),
+	description: text("description"),
 	displayOrder: integer("display_order").notNull().default(0),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),

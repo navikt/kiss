@@ -6,6 +6,9 @@ import {
 	applicationEnvironments,
 	applicationPersistence,
 	applicationTeamMappings,
+	type LinkSuggestionMatchType,
+	type LinkSuggestionStatus,
+	linkSuggestions,
 	monitoredApplications,
 	naisTeams,
 	type PersistenceType,
@@ -594,64 +597,258 @@ export async function unlinkApplication(applicationId: string, performedBy: stri
 }
 
 /** Find potential link candidates based on matching Docker images. */
-export async function findLinkCandidates() {
-	// Get all environments with image names
+/** Extract base application name by stripping environment suffixes like -q0, -q1, -q2, -q5, -popp etc. */
+export function extractBaseName(appName: string): string | null {
+	const match = appName.match(/^(.+)-(?:popp|q\d+)$/)
+	return match ? match[1] : null
+}
+
+export type MatchType = "image_match" | "name_pattern" | "both"
+
+export interface LinkCandidate {
+	matchType: MatchType
+	confidence: number
+	apps: Array<{
+		id: string
+		name: string
+		cluster: string
+		isProd: boolean
+		alreadyLinked: boolean
+	}>
+}
+
+export async function findLinkCandidates(): Promise<LinkCandidate[]> {
+	// Get all apps with their environments
+	const allApps = await db
+		.select({
+			appId: monitoredApplications.id,
+			appName: monitoredApplications.name,
+			primaryApplicationId: monitoredApplications.primaryApplicationId,
+		})
+		.from(monitoredApplications)
+
 	const envs = await db
 		.select({
 			appId: applicationEnvironments.applicationId,
-			appName: monitoredApplications.name,
 			imageName: applicationEnvironments.imageName,
 			cluster: applicationEnvironments.cluster,
-			primaryApplicationId: monitoredApplications.primaryApplicationId,
 		})
 		.from(applicationEnvironments)
-		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
-		.where(sql`${applicationEnvironments.imageName} IS NOT NULL`)
 
-	// Group by image name
-	const imageGroups = new Map<string, Set<string>>()
-	const appInfo = new Map<string, { name: string; cluster: string; primaryApplicationId: string | null }>()
+	// Build app info map
+	const appInfo = new Map<
+		string,
+		{
+			name: string
+			clusters: string[]
+			imageNames: string[]
+			primaryApplicationId: string | null
+		}
+	>()
+
+	for (const app of allApps) {
+		appInfo.set(app.appId, {
+			name: app.appName,
+			clusters: [],
+			imageNames: [],
+			primaryApplicationId: app.primaryApplicationId,
+		})
+	}
 
 	for (const env of envs) {
-		if (!env.imageName) continue
-		const group = imageGroups.get(env.imageName) ?? new Set()
-		group.add(env.appId)
-		imageGroups.set(env.imageName, group)
-		if (!appInfo.has(env.appId)) {
-			appInfo.set(env.appId, {
-				name: env.appName,
-				cluster: env.cluster,
-				primaryApplicationId: env.primaryApplicationId,
+		const info = appInfo.get(env.appId)
+		if (!info) continue
+		if (env.cluster && !info.clusters.includes(env.cluster)) info.clusters.push(env.cluster)
+		if (env.imageName && !info.imageNames.includes(env.imageName)) info.imageNames.push(env.imageName)
+	}
+
+	// --- Strategy 1: Image-based matching ---
+	const imageGroups = new Map<string, Set<string>>()
+	for (const [appId, info] of appInfo) {
+		for (const img of info.imageNames) {
+			const group = imageGroups.get(img) ?? new Set()
+			group.add(appId)
+			imageGroups.set(img, group)
+		}
+	}
+
+	// --- Strategy 2: Name-pattern matching ---
+	const nameGroups = new Map<string, Set<string>>()
+	for (const [appId, info] of appInfo) {
+		const baseName = extractBaseName(info.name)
+		if (baseName) {
+			// Find the app with the base name
+			for (const [otherId, otherInfo] of appInfo) {
+				if (otherId === appId) continue
+				if (otherInfo.name === baseName) {
+					const key = baseName
+					const group = nameGroups.get(key) ?? new Set()
+					group.add(appId)
+					group.add(otherId)
+					nameGroups.set(key, group)
+				}
+			}
+		}
+	}
+
+	// --- Merge strategies ---
+	const candidateMap = new Map<string, LinkCandidate>()
+
+	function makeAppEntry(id: string) {
+		const info = appInfo.get(id)
+		if (!info) return null
+		return {
+			id,
+			name: info.name,
+			cluster: info.clusters[0] ?? "unknown",
+			isProd: info.clusters.some((c) => c.startsWith("prod")),
+			alreadyLinked: info.primaryApplicationId !== null,
+		}
+	}
+
+	function candidateKey(appIds: Set<string>) {
+		return [...appIds].sort().join(",")
+	}
+
+	// Process image-based groups
+	for (const [, appIds] of imageGroups) {
+		if (appIds.size < 2) continue
+		const key = candidateKey(appIds)
+		const apps = [...appIds].map(makeAppEntry).filter((a) => a !== null)
+		const unlinked = apps.filter((a) => !a.alreadyLinked)
+		if (unlinked.length < 2) continue
+
+		candidateMap.set(key, {
+			matchType: "image_match",
+			confidence: 0.95,
+			apps: apps.sort((a, b) => (a.isProd === b.isProd ? 0 : a.isProd ? -1 : 1)),
+		})
+	}
+
+	// Process name-based groups
+	for (const [, appIds] of nameGroups) {
+		if (appIds.size < 2) continue
+		const key = candidateKey(appIds)
+		const existing = candidateMap.get(key)
+		if (existing) {
+			// Both signals → upgrade to "both"
+			existing.matchType = "both"
+			existing.confidence = 0.99
+		} else {
+			const apps = [...appIds].map(makeAppEntry).filter((a) => a !== null)
+			const unlinked = apps.filter((a) => !a.alreadyLinked)
+			if (unlinked.length < 2) continue
+
+			candidateMap.set(key, {
+				matchType: "name_pattern",
+				confidence: 0.8,
+				apps: apps.sort((a, b) => (a.isProd === b.isProd ? 0 : a.isProd ? -1 : 1)),
 			})
 		}
 	}
 
-	// Find groups with multiple apps that aren't already linked
-	const candidates: Array<{
-		imageName: string
-		apps: Array<{ id: string; name: string; cluster: string; isProd: boolean; alreadyLinked: boolean }>
-	}> = []
+	return [...candidateMap.values()].sort((a, b) => b.confidence - a.confidence)
+}
 
-	for (const [imageName, appIds] of imageGroups) {
-		if (appIds.size < 2) continue
-		const apps = [...appIds]
-			.map((id) => {
-				const info = appInfo.get(id)
-				if (!info) return null
-				return {
-					id,
-					name: info.name,
-					cluster: info.cluster,
-					isProd: info.cluster.startsWith("prod"),
-					alreadyLinked: info.primaryApplicationId !== null,
-				}
-			})
-			.filter((a) => a !== null)
-		// Skip if all are already linked
-		const unlinked = apps.filter((a) => !a.alreadyLinked)
-		if (unlinked.length < 2) continue
-		candidates.push({ imageName, apps: apps.sort((a, b) => (a.isProd === b.isProd ? 0 : a.isProd ? -1 : 1)) })
+// ─── Link Suggestions ────────────────────────────────────────────────────
+
+/** Persist link candidates as suggestions in the database. Only creates new suggestions, skips existing. */
+export async function persistLinkSuggestions(candidates: LinkCandidate[]) {
+	let created = 0
+	for (const candidate of candidates) {
+		const prodApps = candidate.apps.filter((a) => a.isProd)
+
+		// Determine primary: prefer prod, else first app
+		const primary = prodApps[0] ?? candidate.apps[0]
+		const secondaries = candidate.apps.filter((a) => a.id !== primary.id)
+
+		for (const secondary of secondaries) {
+			try {
+				await db
+					.insert(linkSuggestions)
+					.values({
+						primaryAppId: primary.id,
+						secondaryAppId: secondary.id,
+						matchType: candidate.matchType as LinkSuggestionMatchType,
+						confidence: String(candidate.confidence),
+						status: "pending",
+					})
+					.onConflictDoNothing()
+				created++
+			} catch {
+				// Ignore constraint violations
+			}
+		}
 	}
+	return created
+}
 
-	return candidates
+/** Get all pending link suggestions. */
+export async function getPendingLinkSuggestions() {
+	return db
+		.select({
+			id: linkSuggestions.id,
+			primaryAppId: linkSuggestions.primaryAppId,
+			primaryAppName: sql<string>`pa.name`,
+			secondaryAppId: linkSuggestions.secondaryAppId,
+			secondaryAppName: sql<string>`sa.name`,
+			matchType: linkSuggestions.matchType,
+			confidence: linkSuggestions.confidence,
+			status: linkSuggestions.status,
+			createdAt: linkSuggestions.createdAt,
+		})
+		.from(linkSuggestions)
+		.innerJoin(sql`monitored_applications pa`, sql`pa.id = ${linkSuggestions.primaryAppId}`)
+		.innerJoin(sql`monitored_applications sa`, sql`sa.id = ${linkSuggestions.secondaryAppId}`)
+		.where(eq(linkSuggestions.status, "pending"))
+		.orderBy(desc(linkSuggestions.createdAt))
+}
+
+/** Accept a link suggestion: links the apps and marks suggestion as accepted. */
+export async function acceptLinkSuggestion(suggestionId: string, performedBy: string) {
+	const [suggestion] = await db.select().from(linkSuggestions).where(eq(linkSuggestions.id, suggestionId)).limit(1)
+
+	if (!suggestion) throw new Error("Forslag ikke funnet")
+
+	// Link the apps
+	await linkApplication(suggestion.secondaryAppId, suggestion.primaryAppId, performedBy)
+
+	// Mark as accepted
+	await db
+		.update(linkSuggestions)
+		.set({
+			status: "accepted" as LinkSuggestionStatus,
+			reviewedBy: performedBy,
+			reviewedAt: new Date(),
+		})
+		.where(eq(linkSuggestions.id, suggestionId))
+}
+
+/** Reject a link suggestion. */
+export async function rejectLinkSuggestion(suggestionId: string, performedBy: string) {
+	await db
+		.update(linkSuggestions)
+		.set({
+			status: "rejected" as LinkSuggestionStatus,
+			reviewedBy: performedBy,
+			reviewedAt: new Date(),
+		})
+		.where(eq(linkSuggestions.id, suggestionId))
+}
+
+/** Bulk-accept all suggestions above a confidence threshold. */
+export async function bulkAcceptLinkSuggestions(minConfidence: number, performedBy: string) {
+	const pending = await db
+		.select()
+		.from(linkSuggestions)
+		.where(
+			sql`${linkSuggestions.status} = 'pending' AND CAST(${linkSuggestions.confidence} AS REAL) >= ${minConfidence}`,
+		)
+
+	let accepted = 0
+	for (const s of pending) {
+		await acceptLinkSuggestion(s.id, performedBy)
+		accepted++
+	}
+	return accepted
 }

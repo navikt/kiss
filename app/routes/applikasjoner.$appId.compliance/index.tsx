@@ -22,6 +22,7 @@ import { getAppAssessments, saveAssessment } from "~/db/queries/applications.ser
 import { getAllRisks } from "~/db/queries/framework.server"
 import { getScreeningDataForApp, saveScreeningAnswer } from "~/db/queries/screening.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { renderMarkdown } from "~/lib/markdown.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
@@ -42,7 +43,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		primaryName: result.primaryName,
 		primaryId: result.app.primaryApplicationId,
 		allRisks,
-		screening: screeningData.questions,
+		screening: screeningData.questions.map((q) => ({
+			...q,
+			descriptionHtml: renderMarkdown(q.description),
+		})),
 	})
 }
 
@@ -95,7 +99,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function ComplianceAssessment() {
-	const { appId, appName, assessments, isInherited, primaryName, primaryId, allRisks, screening } =
+	const { appName, assessments, isInherited, primaryName, primaryId, allRisks, screening } =
 		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
@@ -194,6 +198,10 @@ export default function ComplianceAssessment() {
 											<Heading size="small" level="4">
 												{q.questionText}
 											</Heading>
+											{q.descriptionHtml && (
+												// biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized with DOMPurify
+												<div className="markdown-content" dangerouslySetInnerHTML={{ __html: q.descriptionHtml }} />
+											)}
 											{q.effects.length > 0 && (
 												<HStack gap="space-2" wrap>
 													<BodyShort size="small" textColor="subtle">

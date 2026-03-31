@@ -16,10 +16,15 @@ export async function getScreeningQuestion(id: string) {
 	return q ?? null
 }
 
-export async function createScreeningQuestion(questionText: string, displayOrder: number, createdBy: string) {
+export async function createScreeningQuestion(
+	questionText: string,
+	description: string | null,
+	displayOrder: number,
+	createdBy: string,
+) {
 	const [q] = await db
 		.insert(screeningQuestions)
-		.values({ questionText, displayOrder, createdBy, updatedBy: createdBy })
+		.values({ questionText, description, displayOrder, createdBy, updatedBy: createdBy })
 		.returning()
 
 	await writeAuditLog({
@@ -36,12 +41,13 @@ export async function createScreeningQuestion(questionText: string, displayOrder
 export async function updateScreeningQuestion(
 	id: string,
 	questionText: string,
+	description: string | null,
 	displayOrder: number,
 	updatedBy: string,
 ) {
 	const [q] = await db
 		.update(screeningQuestions)
-		.set({ questionText, displayOrder, updatedAt: new Date(), updatedBy })
+		.set({ questionText, description, displayOrder, updatedAt: new Date(), updatedBy })
 		.where(eq(screeningQuestions.id, id))
 		.returning()
 
@@ -246,6 +252,7 @@ async function applyScreeningEffects(applicationId: string, questionId: string, 
 export interface ScreeningQuestionWithEffects {
 	id: string
 	questionText: string
+	description: string | null
 	displayOrder: number
 	effects: Array<{
 		controlTextId: string
@@ -285,6 +292,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 		questions: questions.map((q) => ({
 			id: q.id,
 			questionText: q.questionText,
+			description: q.description,
 			displayOrder: q.displayOrder,
 			answer: answerMap.get(q.id) ?? null,
 			effects: effectsByQuestion.get(q.id) ?? [],

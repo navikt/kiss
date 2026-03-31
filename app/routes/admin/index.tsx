@@ -40,6 +40,14 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Definer ja/nei-spørsmål som automatisk kan styre compliance-status.</BodyLong>
 				</Link>
+				<Link to="/admin/link-suggestions" className="admin-card">
+					<Heading size="small" level="3">
+						Koblingsforslag
+					</Heading>
+					<BodyLong size="small">
+						Se og godkjenn foreslåtte koblinger mellom prod- og test-varianter av applikasjoner.
+					</BodyLong>
+				</Link>
 			</div>
 		</VStack>
 	)

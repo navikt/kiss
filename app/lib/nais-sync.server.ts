@@ -115,6 +115,15 @@ export async function runFullNaisSync(token?: string): Promise<{
 
 		const totalNewApps = appResults.reduce((sum, r) => sum + r.result.new, 0)
 		const totalDiscoveredApps = appResults.reduce((sum, r) => sum + r.result.discovered, 0)
+
+		// Auto-generate link suggestions after sync
+		const { findLinkCandidates, persistLinkSuggestions } = await import("~/db/queries/nais.server")
+		const candidates = await findLinkCandidates()
+		const newSuggestions = await persistLinkSuggestions(candidates)
+		if (newSuggestions > 0) {
+			console.log(`[nais-sync] Created ${newSuggestions} new link suggestions`)
+		}
+
 		await writeAuditLog({
 			action: "nais_sync_completed",
 			entityType: "nais_sync",
