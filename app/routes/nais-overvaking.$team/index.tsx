@@ -1,8 +1,9 @@
-import { BodyLong, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getNaisTeamDetail } from "~/db/queries/nais.server"
+import { fetchNaisApps } from "~/lib/nais.server"
 
 const persistenceLabels: Record<string, string> = {
 	cloud_sql_postgres: "PostgreSQL",
@@ -33,11 +34,30 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const detail = await getNaisTeamDetail(teamSlug)
 	if (!detail) throw new Response("Nais-team ikke funnet", { status: 404 })
 
-	return data({ detail })
+	let fromApi = false
+
+	// If no synced apps (unmonitored team), fetch live from Nais API
+	if (detail.apps.length === 0) {
+		try {
+			const token = process.env.NAIS_API_TOKEN || undefined
+			const naisApps = await fetchNaisApps(token, teamSlug)
+			detail.apps = naisApps.map((app) => ({
+				appId: "",
+				appName: app.name,
+				environments: [{ cluster: app.cluster, namespace: app.namespace }],
+				persistence: app.persistence.map((p) => ({ type: p.type, name: p.name, version: p.version ?? null })),
+			}))
+			fromApi = true
+		} catch {
+			// Nais API unavailable — show empty list
+		}
+	}
+
+	return data({ detail, fromApi })
 }
 
 export default function NaisTeamDetalj() {
-	const { detail } = useLoaderData<typeof loader>()
+	const { detail, fromApi } = useLoaderData<typeof loader>()
 	const { team, sectionName, apps } = detail
 
 	return (
@@ -65,6 +85,12 @@ export default function NaisTeamDetalj() {
 					Applikasjoner ({apps.length})
 				</Heading>
 
+				{fromApi && (
+					<Alert variant="info" size="small">
+						Teamet er ikke overvåket. Applikasjonene hentes direkte fra Nais API.
+					</Alert>
+				)}
+
 				{apps.length > 0 ? (
 					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
 					<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner i teamet">
@@ -77,10 +103,10 @@ export default function NaisTeamDetalj() {
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
-								{apps.map((app) => (
-									<Table.Row key={app.appId}>
+								{apps.map((app, idx) => (
+									<Table.Row key={app.appId || `api-${idx}`}>
 										<Table.DataCell>
-											<Link to={`/applikasjoner/${app.appId}/detaljer`}>{app.appName}</Link>
+											{app.appId ? <Link to={`/applikasjoner/${app.appId}/detaljer`}>{app.appName}</Link> : app.appName}
 										</Table.DataCell>
 										<Table.DataCell>
 											<HStack gap="space-1" wrap>
