@@ -1,16 +1,4 @@
-import {
-	Alert,
-	BodyLong,
-	Button,
-	Detail,
-	Heading,
-	HStack,
-	Label,
-	Select,
-	Tag,
-	Textarea,
-	VStack,
-} from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Detail, Heading, HStack, Label, Select, Textarea, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
