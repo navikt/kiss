@@ -87,6 +87,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const controlId = formData.get("controlId")
 	const status = formData.get("status")
 	const comment = formData.get("comment")
+	const techElementId = formData.get("technologyElementId")
 
 	if (typeof controlUuid !== "string" || !controlUuid) {
 		throw new Response("Mangler kontroll-UUID", { status: 400 })
@@ -96,7 +97,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		throw new Response("Ugyldig status", { status: 400 })
 	}
 
-	await saveAssessment(appId, controlUuid, status, typeof comment === "string" ? comment : "", authedUser.navIdent)
+	const elementId = typeof techElementId === "string" && techElementId ? techElementId : null
+	await saveAssessment(
+		appId,
+		controlUuid,
+		status,
+		typeof comment === "string" ? comment : "",
+		authedUser.navIdent,
+		elementId,
+	)
 
 	return data({
 		success: true,
@@ -300,11 +309,21 @@ function AssessmentCard({
 	assessment: ReturnType<typeof useLoaderData<typeof loader>>["assessments"][number]
 }) {
 	return (
-		<div className="compliance-card" id={`control-${assessment.controlId}`}>
+		<div
+			className="compliance-card"
+			id={`control-${assessment.controlId}${assessment.technologyElementId ? `-${assessment.technologyElementId}` : ""}`}
+		>
 			<div className="compliance-card-header">
-				<Heading size="small" level="5">
-					{assessment.controlId}: {assessment.controlName}
-				</Heading>
+				<HStack gap="space-4" align="center">
+					<Heading size="small" level="5">
+						{assessment.controlId}: {assessment.controlName}
+					</Heading>
+					{assessment.technologyElementName && (
+						<Tag variant="info" size="xsmall">
+							{assessment.technologyElementName}
+						</Tag>
+					)}
+				</HStack>
 			</div>
 
 			{assessment.requirementHtml && (
@@ -337,6 +356,7 @@ function AssessmentCard({
 							<Form method="post" key={pa.id}>
 								<input type="hidden" name="controlUuid" value={assessment.controlUuid} />
 								<input type="hidden" name="controlId" value={assessment.controlId} />
+								<input type="hidden" name="technologyElementId" value={assessment.technologyElementId ?? ""} />
 								<input type="hidden" name="status" value={pa.status} />
 								<input type="hidden" name="comment" value={pa.comment ?? ""} />
 								<Button type="submit" size="small" variant="secondary-neutral">
@@ -351,6 +371,7 @@ function AssessmentCard({
 			<Form method="post" className="compliance-form">
 				<input type="hidden" name="controlUuid" value={assessment.controlUuid} />
 				<input type="hidden" name="controlId" value={assessment.controlId} />
+				<input type="hidden" name="technologyElementId" value={assessment.technologyElementId ?? ""} />
 				<Select label="Status" name="status" defaultValue={assessment.status ?? ""} size="small">
 					<option value="" disabled>
 						Velg status

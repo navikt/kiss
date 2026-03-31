@@ -1,4 +1,5 @@
 import { integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { monitoredApplications } from "./applications"
 
 export const frameworkVersionStatusEnum = ["pending", "applied", "superseded"] as const
 export type FrameworkVersionStatus = (typeof frameworkVersionStatusEnum)[number]
@@ -95,4 +96,37 @@ export const controlPredefinedAnswers = pgTable("control_predefined_answers", {
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedBy: text("updated_by").notNull(),
+})
+
+// ─── Technology Elements ─────────────────────────────────────────────────
+
+export const technologyElements = pgTable("technology_elements", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	name: text("name").notNull().unique(),
+	slug: text("slug").notNull().unique(),
+	description: text("description"),
+	displayOrder: integer("display_order").notNull().default(0),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const controlTechnologyElements = pgTable("control_technology_elements", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	controlId: uuid("control_id")
+		.notNull()
+		.references(() => frameworkControls.id, { onDelete: "cascade" }),
+	elementId: uuid("element_id")
+		.notNull()
+		.references(() => technologyElements.id, { onDelete: "cascade" }),
+})
+
+export const applicationTechnologyElements = pgTable("application_technology_elements", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	applicationId: uuid("application_id")
+		.notNull()
+		.references(() => monitoredApplications.id, { onDelete: "cascade" }),
+	elementId: uuid("element_id")
+		.notNull()
+		.references(() => technologyElements.id, { onDelete: "cascade" }),
+	source: text("source").notNull().default("manual"),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })

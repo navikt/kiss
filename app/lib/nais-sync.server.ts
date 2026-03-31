@@ -124,6 +124,11 @@ export async function runFullNaisSync(token?: string): Promise<{
 			console.log(`[nais-sync] Created ${newSuggestions} new link suggestions`)
 		}
 
+		// Auto-assign technology elements to apps based on persistence/auth
+		const { syncAllApplicationElements } = await import("~/db/queries/technology-elements.server")
+		const elemSyncCount = await syncAllApplicationElements()
+		console.log(`[nais-sync] Synced technology elements for ${elemSyncCount} applications`)
+
 		await writeAuditLog({
 			action: "nais_sync_completed",
 			entityType: "nais_sync",

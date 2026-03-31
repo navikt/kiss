@@ -1,13 +1,16 @@
-import { and, count, eq, isNull, sql } from "drizzle-orm"
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import {
+	applicationTechnologyElements,
 	controlPredefinedAnswers,
+	controlTechnologyElements,
 	frameworkControls,
 	frameworkDomains,
 	frameworkRiskControlMappings,
 	frameworkRisks,
+	technologyElements,
 } from "../schema/framework"
 import { devTeams } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
@@ -143,7 +146,7 @@ export async function getAllTeams() {
 	return db.select({ id: devTeams.id, name: devTeams.name, slug: devTeams.slug }).from(devTeams).orderBy(devTeams.name)
 }
 
-/** Get compliance assessments for an application, including control details and linked risks. */
+/** Get compliance assessments for an application, filtered by matching technology elements. */
 export async function getAppAssessments(appId: string) {
 	const [app] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.id, appId)).limit(1)
 	if (!app) return null
@@ -162,6 +165,13 @@ export async function getAppAssessments(appId: string) {
 		primaryName = primary?.name ?? null
 	}
 
+	// Get app's technology elements
+	const appElements = await db
+		.select({ elementId: applicationTechnologyElements.elementId })
+		.from(applicationTechnologyElements)
+		.where(eq(applicationTechnologyElements.applicationId, assessmentAppId))
+	const appElementIds = new Set(appElements.map((e) => e.elementId))
+
 	const controls = await db
 		.select({
 			id: frameworkControls.id,
@@ -173,6 +183,26 @@ export async function getAppAssessments(appId: string) {
 		.from(frameworkControls)
 		.where(isNull(frameworkControls.archivedAt))
 		.orderBy(frameworkControls.controlId)
+
+	// Get all control → element mappings
+	const controlElements = await db
+		.select({
+			controlId: controlTechnologyElements.controlId,
+			elementId: controlTechnologyElements.elementId,
+		})
+		.from(controlTechnologyElements)
+	const elementsByControl = new Map<string, string[]>()
+	for (const ce of controlElements) {
+		const list = elementsByControl.get(ce.controlId) ?? []
+		list.push(ce.elementId)
+		elementsByControl.set(ce.controlId, list)
+	}
+
+	// Get element name lookup
+	const allElements = await db
+		.select({ id: technologyElements.id, name: technologyElements.name })
+		.from(technologyElements)
+	const elementNameMap = new Map(allElements.map((e) => [e.id, e.name]))
 
 	// Fetch domains for name lookup
 	const domains = await db
@@ -223,38 +253,59 @@ export async function getAppAssessments(appId: string) {
 		predefinedByControl.set(pa.controlId, list)
 	}
 
+	// Fetch existing assessments for this app (include element ID)
+	const existingAssessments = await db
+		.select()
+		.from(complianceAssessments)
+		.where(eq(complianceAssessments.applicationId, assessmentAppId))
+	const assessmentLookup = new Map<string, (typeof existingAssessments)[number]>()
+	for (const a of existingAssessments) {
+		const key = `${a.controlId}:${a.technologyElementId ?? "null"}`
+		assessmentLookup.set(key, a)
+	}
+
 	const assessments = []
 	for (const ctrl of controls) {
-		const [assessment] = await db
-			.select()
-			.from(complianceAssessments)
-			.where(
-				sql`${complianceAssessments.applicationId} = ${assessmentAppId} AND ${complianceAssessments.controlId} = ${ctrl.id}`,
-			)
-			.limit(1)
+		const ctrlElementIds = elementsByControl.get(ctrl.id) ?? []
+		// Find matching elements between control and app
+		const matchingElements = ctrlElementIds.filter((eid) => appElementIds.has(eid))
+
+		// If no control elements defined, show for all apps (backwards compat)
+		// If no matching elements, skip this control
+		if (ctrlElementIds.length > 0 && matchingElements.length === 0) continue
 
 		const domain = domainMap.get(ctrl.domainId)
 		const risks = risksByControlUuid.get(ctrl.id) ?? []
 		const predefined = predefinedByControl.get(ctrl.id) ?? []
 
-		assessments.push({
-			controlUuid: ctrl.id,
-			controlId: ctrl.controlId,
-			controlName: ctrl.shortTitle ?? ctrl.requirement?.split("\n")[0] ?? ctrl.controlId,
-			requirement: ctrl.requirement ?? "",
-			domainCode: domain?.code ?? "",
-			domainName: domain?.name ?? "",
-			risks: risks.map((r) => ({
-				riskId: r.riskId,
-				name: r.shortTitle ?? r.description.split("\n")[0],
-				description: r.description,
-			})),
-			predefinedAnswers: predefined,
-			status: assessment?.status ?? null,
-			comment: assessment?.comment ?? null,
-			assessedBy: assessment?.assessedBy ?? null,
-			assessedAt: assessment?.assessedAt?.toISOString() ?? null,
-		})
+		// Create one assessment entry per matching element (or one if no elements defined)
+		const elementsToAssess = matchingElements.length > 0 ? matchingElements : [null]
+
+		for (const elementId of elementsToAssess) {
+			const key = `${ctrl.id}:${elementId ?? "null"}`
+			const assessment = assessmentLookup.get(key)
+
+			assessments.push({
+				controlUuid: ctrl.id,
+				controlId: ctrl.controlId,
+				controlName: ctrl.shortTitle ?? ctrl.requirement?.split("\n")[0] ?? ctrl.controlId,
+				requirement: ctrl.requirement ?? "",
+				domainCode: domain?.code ?? "",
+				domainName: domain?.name ?? "",
+				technologyElementId: elementId,
+				technologyElementName: elementId ? (elementNameMap.get(elementId) ?? null) : null,
+				risks: risks.map((r) => ({
+					riskId: r.riskId,
+					name: r.shortTitle ?? r.description.split("\n")[0],
+					description: r.description,
+				})),
+				predefinedAnswers: predefined,
+				status: assessment?.status ?? null,
+				comment: assessment?.comment ?? null,
+				assessedBy: assessment?.assessedBy ?? null,
+				assessedAt: assessment?.assessedAt?.toISOString() ?? null,
+			})
+		}
 	}
 
 	return { app, assessments, isInherited, primaryName }
@@ -267,14 +318,20 @@ export async function saveAssessment(
 	status: string,
 	comment: string,
 	performedBy: string,
+	technologyElementId?: string | null,
 ) {
-	const [existing] = await db
-		.select()
-		.from(complianceAssessments)
-		.where(
-			sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.controlId} = ${controlUuid}`,
-		)
-		.limit(1)
+	// Find existing assessment matching (app, control, element)
+	const conditions = [
+		sql`${complianceAssessments.applicationId} = ${appId}`,
+		sql`${complianceAssessments.controlId} = ${controlUuid}`,
+	]
+	if (technologyElementId) {
+		conditions.push(sql`${complianceAssessments.technologyElementId} = ${technologyElementId}`)
+	} else {
+		conditions.push(sql`${complianceAssessments.technologyElementId} IS NULL`)
+	}
+
+	const [existing] = await db.select().from(complianceAssessments).where(sql.join(conditions, sql` AND `)).limit(1)
 
 	if (existing) {
 		// Write history before updating
@@ -304,6 +361,7 @@ export async function saveAssessment(
 			.values({
 				applicationId: appId,
 				controlId: controlUuid,
+				technologyElementId: technologyElementId ?? null,
 				status: status as ComplianceStatus,
 				comment: comment || null,
 				assessedBy: performedBy,
