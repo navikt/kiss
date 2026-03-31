@@ -1,4 +1,16 @@
-import { Alert, BodyLong, Button, Detail, Heading, Label, Select, Textarea, VStack } from "@navikt/ds-react"
+import {
+	Alert,
+	BodyLong,
+	Button,
+	Detail,
+	Heading,
+	HStack,
+	Label,
+	Select,
+	Tag,
+	Textarea,
+	VStack,
+} from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
@@ -127,6 +139,25 @@ export default function ComplianceAssessment() {
 					)}
 
 					{assessment.comment && <ComplianceComment comment={assessment.comment} />}
+
+					{assessment.predefinedAnswers.length > 0 && (
+						<VStack gap="space-4" style={{ paddingTop: "var(--ax-space-8)" }}>
+							<Label size="small">Hurtigvalg</Label>
+							<HStack gap="space-4" wrap>
+								{assessment.predefinedAnswers.map((pa) => (
+									<Form method="post" key={pa.id}>
+										<input type="hidden" name="controlUuid" value={assessment.controlUuid} />
+										<input type="hidden" name="controlId" value={assessment.controlId} />
+										<input type="hidden" name="status" value={pa.status} />
+										<input type="hidden" name="comment" value={pa.comment ?? ""} />
+										<Button type="submit" size="small" variant="secondary-neutral">
+											{pa.label}
+										</Button>
+									</Form>
+								))}
+							</HStack>
+						</VStack>
+					)}
 
 					<Form method="post" className="compliance-form">
 						<input type="hidden" name="controlUuid" value={assessment.controlUuid} />

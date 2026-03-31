@@ -25,6 +25,9 @@ export const auditLogActionEnum = [
 	"nais_persistence_synced",
 	"application_linked",
 	"application_unlinked",
+	"predefined_answer_created",
+	"predefined_answer_updated",
+	"predefined_answer_deleted",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

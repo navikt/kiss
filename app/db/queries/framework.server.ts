@@ -4,6 +4,7 @@ import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
 import {
+	controlPredefinedAnswers,
 	frameworkControls,
 	frameworkDomains,
 	frameworkFieldHistory,
@@ -323,7 +324,14 @@ export async function getControlDetail(controlIdStr: string) {
 
 	if (!ctrl) return null
 
+	const answers = await db
+		.select()
+		.from(controlPredefinedAnswers)
+		.where(eq(controlPredefinedAnswers.controlId, ctrl.id))
+		.orderBy(controlPredefinedAnswers.displayOrder)
+
 	return {
+		uuid: ctrl.id,
 		id: ctrl.controlId,
 		name: ctrl.shortTitle ?? shortName(ctrl.requirement, ctrl.controlId),
 		teknologielement: ctrl.technologyElement ?? "Ikke spesifisert",
@@ -336,6 +344,13 @@ export async function getControlDetail(controlIdStr: string) {
 		avhengigheter: ctrl.dependencies ?? "Ingen kjente",
 		referanser: ctrl.references ?? "Ikke spesifisert",
 		vanligeFallgruver: ctrl.commonPitfalls ?? "Ikke dokumentert",
+		predefinedAnswers: answers.map((a) => ({
+			id: a.id,
+			label: a.label,
+			status: a.status,
+			comment: a.comment,
+			displayOrder: a.displayOrder,
+		})),
 	}
 }
 
@@ -985,4 +1000,112 @@ export const getStagingDiff = async () => {
 	// Re-parse the file is not practical here, so we compute from live vs pending metadata
 	// For the route, we store parsed data and pass it through
 	return null
+}
+
+// ── Predefined answers ──
+
+export async function addPredefinedAnswer(
+	controlIdStr: string,
+	label: string,
+	status: string,
+	comment: string | null,
+	performedBy: string,
+) {
+	const [ctrl] = await db
+		.select({ id: frameworkControls.id })
+		.from(frameworkControls)
+		.where(sql`${frameworkControls.archivedAt} IS NULL AND ${frameworkControls.controlId} = ${controlIdStr}`)
+		.limit(1)
+	if (!ctrl) throw new Error(`Kontroll ${controlIdStr} ikke funnet`)
+
+	const [maxOrder] = await db
+		.select({ max: sql<number>`COALESCE(MAX(${controlPredefinedAnswers.displayOrder}), -1)` })
+		.from(controlPredefinedAnswers)
+		.where(eq(controlPredefinedAnswers.controlId, ctrl.id))
+
+	const [inserted] = await db
+		.insert(controlPredefinedAnswers)
+		.values({
+			controlId: ctrl.id,
+			label,
+			status,
+			comment,
+			displayOrder: (maxOrder?.max ?? -1) + 1,
+			createdBy: performedBy,
+			updatedBy: performedBy,
+		})
+		.returning()
+
+	await writeAuditLog({
+		action: "predefined_answer_created",
+		entityType: "control",
+		entityId: ctrl.id,
+		newValue: JSON.stringify({ label, status, comment }),
+		performedBy,
+	})
+
+	return inserted
+}
+
+export async function updatePredefinedAnswer(
+	answerId: string,
+	updates: { label?: string; status?: string; comment?: string | null; displayOrder?: number },
+	performedBy: string,
+) {
+	const [existing] = await db
+		.select()
+		.from(controlPredefinedAnswers)
+		.where(eq(controlPredefinedAnswers.id, answerId))
+		.limit(1)
+	if (!existing) throw new Error("Forhåndsdefinert svar ikke funnet")
+
+	const [updated] = await db
+		.update(controlPredefinedAnswers)
+		.set({
+			...(updates.label !== undefined && { label: updates.label }),
+			...(updates.status !== undefined && { status: updates.status }),
+			...(updates.comment !== undefined && { comment: updates.comment }),
+			...(updates.displayOrder !== undefined && { displayOrder: updates.displayOrder }),
+			updatedBy: performedBy,
+			updatedAt: new Date(),
+		})
+		.where(eq(controlPredefinedAnswers.id, answerId))
+		.returning()
+
+	await writeAuditLog({
+		action: "predefined_answer_updated",
+		entityType: "control",
+		entityId: existing.controlId,
+		newValue: JSON.stringify(updates),
+		performedBy,
+	})
+
+	return updated
+}
+
+export async function deletePredefinedAnswer(answerId: string, performedBy: string) {
+	const [existing] = await db
+		.select()
+		.from(controlPredefinedAnswers)
+		.where(eq(controlPredefinedAnswers.id, answerId))
+		.limit(1)
+	if (!existing) throw new Error("Forhåndsdefinert svar ikke funnet")
+
+	await db.delete(controlPredefinedAnswers).where(eq(controlPredefinedAnswers.id, answerId))
+
+	await writeAuditLog({
+		action: "predefined_answer_deleted",
+		entityType: "control",
+		entityId: existing.controlId,
+		newValue: JSON.stringify({ label: existing.label }),
+		performedBy,
+	})
+}
+
+export async function getPredefinedAnswersForControl(controlUuid: string) {
+	return db
+		.select()
+		.from(controlPredefinedAnswers)
+		.where(eq(controlPredefinedAnswers.controlId, controlUuid))
+		.orderBy(controlPredefinedAnswers.displayOrder)
 }

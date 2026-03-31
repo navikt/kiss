@@ -2,7 +2,13 @@ import { and, count, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
-import { frameworkControls, frameworkDomains, frameworkRiskControlMappings, frameworkRisks } from "../schema/framework"
+import {
+	controlPredefinedAnswers,
+	frameworkControls,
+	frameworkDomains,
+	frameworkRiskControlMappings,
+	frameworkRisks,
+} from "../schema/framework"
 import { devTeams } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
@@ -196,6 +202,27 @@ export async function getAppAssessments(appId: string) {
 		risksByControlUuid.set(rm.controlId, list)
 	}
 
+	// Fetch predefined answers for all controls
+	const allPredefined = await db
+		.select({
+			controlId: controlPredefinedAnswers.controlId,
+			id: controlPredefinedAnswers.id,
+			label: controlPredefinedAnswers.label,
+			status: controlPredefinedAnswers.status,
+			comment: controlPredefinedAnswers.comment,
+		})
+		.from(controlPredefinedAnswers)
+		.orderBy(controlPredefinedAnswers.displayOrder)
+	const predefinedByControl = new Map<
+		string,
+		Array<{ id: string; label: string; status: string; comment: string | null }>
+	>()
+	for (const pa of allPredefined) {
+		const list = predefinedByControl.get(pa.controlId) ?? []
+		list.push({ id: pa.id, label: pa.label, status: pa.status, comment: pa.comment })
+		predefinedByControl.set(pa.controlId, list)
+	}
+
 	const assessments = []
 	for (const ctrl of controls) {
 		const [assessment] = await db
@@ -208,6 +235,7 @@ export async function getAppAssessments(appId: string) {
 
 		const domain = domainMap.get(ctrl.domainId)
 		const risks = risksByControlUuid.get(ctrl.id) ?? []
+		const predefined = predefinedByControl.get(ctrl.id) ?? []
 
 		assessments.push({
 			controlUuid: ctrl.id,
@@ -221,6 +249,7 @@ export async function getAppAssessments(appId: string) {
 				name: r.shortTitle ?? r.description.split("\n")[0],
 				description: r.description,
 			})),
+			predefinedAnswers: predefined,
 			status: assessment?.status ?? null,
 			comment: assessment?.comment ?? null,
 			assessedBy: assessment?.assessedBy ?? null,
