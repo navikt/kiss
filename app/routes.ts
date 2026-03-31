@@ -26,4 +26,5 @@ export default [
 	route("api/nais-sync", "routes/api.nais-sync/index.tsx"),
 	route("api/theme", "routes/api.theme/index.tsx"),
 	route("api/search", "routes/api.search/index.tsx"),
+	route("api/applikasjoner/:appId/export-xlsx", "routes/api.applikasjoner.$appId.export-xlsx/index.tsx"),
 ] satisfies RouteConfig

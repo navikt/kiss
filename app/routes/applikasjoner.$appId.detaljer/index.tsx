@@ -1,3 +1,4 @@
+import { DownloadIcon } from "@navikt/aksel-icons"
 import {
 	Alert,
 	BodyLong,
@@ -292,7 +293,18 @@ export default function ApplikasjonDetalj() {
 					</VStack>
 				</HStack>
 				<div style={{ marginTop: "var(--ax-space-4)" }}>
-					<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
+					<HStack gap="space-8" align="center">
+						<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
+						<Button
+							as="a"
+							href={`/api/applikasjoner/${app.id}/export-xlsx`}
+							variant="secondary"
+							size="small"
+							icon={<DownloadIcon aria-hidden />}
+						>
+							Last ned XLSX
+						</Button>
+					</HStack>
 				</div>
 			</Box>
 
