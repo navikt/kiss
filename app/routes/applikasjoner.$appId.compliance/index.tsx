@@ -156,7 +156,7 @@ export default function ComplianceAssessment() {
 	const domains = [...domainMap.values()]
 
 	return (
-		<div className="compliance-layout">
+		<section className="compliance-layout" aria-label="Compliance-vurdering">
 			{/* Sidebar navigation */}
 			<nav className="compliance-sidebar" aria-label="Innholdsnavigasjon">
 				<AkselLink href="#top" className="compliance-sidebar-home">
@@ -202,7 +202,7 @@ export default function ComplianceAssessment() {
 					)}
 
 					{actionData?.success && (
-						<div className="compliance-success" role="status">
+						<div className="compliance-success" role="status" aria-live="polite">
 							{actionData.controlId === "screening"
 								? "Svar på innledende spørsmål er lagret."
 								: `Vurdering for ${actionData.controlId} er lagret.`}
@@ -315,7 +315,7 @@ export default function ComplianceAssessment() {
 					))}
 				</VStack>
 			</div>
-		</div>
+		</section>
 	)
 }
 
@@ -365,7 +365,7 @@ function AssessmentCard({
 			{assessment.comment && <ComplianceComment comment={assessment.comment} />}
 
 			{assessment.predefinedAnswers.length > 0 && (
-				<VStack gap="space-4" style={{ paddingTop: "var(--ax-space-8)" }}>
+				<VStack gap="space-4" paddingBlock="space-8 space-0">
 					<Label size="small">Hurtigvalg</Label>
 					<HStack gap="space-4" wrap>
 						{assessment.predefinedAnswers.map((pa) => (

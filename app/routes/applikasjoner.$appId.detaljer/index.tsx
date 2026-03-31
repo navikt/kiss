@@ -1,5 +1,6 @@
 import { DownloadIcon } from "@navikt/aksel-icons"
 import {
+	Link as AkselLink,
 	Alert,
 	BodyLong,
 	BodyShort,
@@ -311,21 +312,23 @@ export default function ApplikasjonDetalj() {
 					<BodyLong>Ingen teknologielementer er tilordnet.</BodyLong>
 				)}
 				{availableElements.length > 0 && (
-					<Form method="post" style={{ marginTop: "var(--ax-space-4)" }}>
-						<input type="hidden" name="intent" value="addElement" />
-						<HStack gap="space-2" align="end">
-							<Select label="Legg til element" name="elementId" size="small">
-								{availableElements.map((el) => (
-									<option key={el.id} value={el.id}>
-										{el.name}
-									</option>
-								))}
-							</Select>
-							<Button variant="secondary" size="small" type="submit">
-								Legg til
-							</Button>
-						</HStack>
-					</Form>
+					<VStack gap="space-4">
+						<Form method="post">
+							<input type="hidden" name="intent" value="addElement" />
+							<HStack gap="space-2" align="end">
+								<Select label="Legg til element" name="elementId" size="small">
+									{availableElements.map((el) => (
+										<option key={el.id} value={el.id}>
+											{el.name}
+										</option>
+									))}
+								</Select>
+								<Button variant="secondary" size="small" type="submit">
+									Legg til
+								</Button>
+							</HStack>
+						</Form>
+					</VStack>
 				)}
 			</Box>
 
@@ -364,7 +367,7 @@ export default function ApplikasjonDetalj() {
 						<BodyLong>{compliance.notAssessed}</BodyLong>
 					</VStack>
 				</HStack>
-				<div style={{ marginTop: "var(--ax-space-4)" }}>
+				<VStack gap="space-4">
 					<HStack gap="space-8" align="center">
 						<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
 						<Button
@@ -377,7 +380,7 @@ export default function ApplikasjonDetalj() {
 							Last ned XLSX
 						</Button>
 					</HStack>
-				</div>
+				</VStack>
 			</Box>
 
 			{/* Controls needing attention */}
@@ -562,7 +565,9 @@ export default function ApplikasjonDetalj() {
 											<Table.Header>
 												<Table.Row>
 													<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
-													<Table.HeaderCell scope="col" style={{ width: "1px" }} />
+													<Table.HeaderCell scope="col" style={{ width: "1px" }}>
+														<span className="navds-sr-only">Kopier</span>
+													</Table.HeaderCell>
 												</Table.Row>
 											</Table.Header>
 											<Table.Body>
@@ -728,11 +733,11 @@ export default function ApplikasjonDetalj() {
 									<Table.DataCell>
 										{p.auditLogging === true ? (
 											p.auditLogUrl ? (
-												<a href={p.auditLogUrl} target="_blank" rel="noopener noreferrer" className="aksel-link">
+												<AkselLink href={p.auditLogUrl} target="_blank" rel="noopener noreferrer">
 													<Tag variant="success" size="xsmall">
-														Ja – se logg
+														Ja – se logg (åpnes i nytt vindu)
 													</Tag>
-												</a>
+												</AkselLink>
 											) : (
 												<Tag variant="success" size="xsmall">
 													Ja

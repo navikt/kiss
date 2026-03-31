@@ -144,24 +144,24 @@ export function SearchDialog() {
 	return (
 		<Dialog open={open} onOpenChange={(nextOpen) => setOpen(nextOpen)}>
 			<Dialog.Trigger>
-				<HStack
-					gap="space-8"
-					align="center"
-					style={{
-						cursor: "pointer",
-						minWidth: "200px",
-						padding: "var(--ax-space-6) var(--ax-space-12)",
-						background: "var(--ax-bg-neutral-softA)",
-						borderRadius: "var(--ax-radius-8)",
-						border: "1px solid var(--ax-border-neutral-subtle)",
-					}}
+				<Box
+					as="button"
+					paddingInline="space-12"
+					paddingBlock="space-6"
+					background="neutral-softA"
+					borderRadius="8"
+					borderWidth="1"
+					borderColor="neutral-subtle"
+					style={{ cursor: "pointer", minWidth: "200px" }}
 				>
-					<MagnifyingGlassIcon aria-hidden style={{ fontSize: "1rem", color: "var(--ax-text-neutral-subtle)" }} />
-					<BodyShort size="small" style={{ color: "var(--ax-text-neutral-subtle)", flex: 1 }}>
-						Søk...
-					</BodyShort>
-					<Kbd>⌘K</Kbd>
-				</HStack>
+					<HStack gap="space-8" align="center">
+						<MagnifyingGlassIcon aria-hidden style={{ fontSize: "1rem", color: "var(--ax-text-neutral-subtle)" }} />
+						<BodyShort size="small" textColor="subtle" style={{ flex: 1 }}>
+							Søk...
+						</BodyShort>
+						<Kbd>⌘K</Kbd>
+					</HStack>
+				</Box>
 			</Dialog.Trigger>
 
 			<Dialog.Popup

@@ -334,7 +334,6 @@ export default function ControlEditPage() {
 									size="xsmall"
 									icon={<XMarkIcon aria-hidden />}
 									aria-label={`Fjern ${el.name}`}
-									style={{ marginLeft: "0.25rem" }}
 								/>
 							</Tag>
 						</Form>

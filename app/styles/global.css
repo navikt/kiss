@@ -173,9 +173,9 @@ body {
 
 .domain-status-bar {
 	display: flex;
-	height: 0.5rem;
+	height: var(--ax-space-2);
 	background: var(--ax-neutral-300);
-	border-radius: 4px;
+	border-radius: var(--ax-radius-4);
 	overflow: hidden;
 	margin-bottom: var(--ax-space-8);
 }
@@ -420,14 +420,18 @@ body {
 	position: absolute;
 	left: -9999px;
 	z-index: 999;
-	padding: 0.5rem 1rem;
+	padding: var(--ax-space-2) var(--ax-space-4);
 	background: var(--ax-bg-accent-strong);
 	color: var(--ax-text-accent-contrast);
+	border-radius: var(--ax-radius-4);
+	font-weight: 600;
 }
 
 .skip-link:focus {
-	left: 0.5rem;
-	top: 0.5rem;
+	left: var(--ax-space-2);
+	top: var(--ax-space-2);
+	outline: 3px solid var(--ax-border-focus);
+	outline-offset: 2px;
 }
 
 /* Section divider for detail pages */
