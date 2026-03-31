@@ -159,7 +159,6 @@ export default function ComplianceAssessment() {
 
 										{riskControls.length > 0 && (
 											<VStack gap="space-6">
-												<Label size="small">Utfylling av:</Label>
 												{riskControls.map((assessment) => (
 													<AssessmentCard key={assessment.controlUuid} assessment={assessment} />
 												))}
