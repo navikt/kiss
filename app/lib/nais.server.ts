@@ -102,7 +102,7 @@ const TEAMS_QUERY = `
 			nodes {
 				slug
 				purpose
-				applications(first: 0) {
+				applications(first: 1) {
 					pageInfo {
 						totalCount
 					}
