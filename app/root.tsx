@@ -1,4 +1,4 @@
-import { InternalHeader, Spacer, Theme } from "@navikt/ds-react"
+import { BodyLong, Box, Heading, InternalHeader, Spacer, Theme, VStack } from "@navikt/ds-react"
 import type { LinksFunction, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -97,21 +97,27 @@ export default function App() {
 export function ErrorBoundary({ error }: { error: unknown }) {
 	if (isRouteErrorResponse(error)) {
 		return (
-			<main style={{ padding: "2rem" }}>
-				<h1>
-					{error.status} {error.statusText}
-				</h1>
-				{error.data && <p>{error.data}</p>}
-			</main>
+			<Box as="main" padding="space-24">
+				<VStack gap="space-6">
+					<Heading size="xlarge" level="1">
+						{error.status} {error.statusText}
+					</Heading>
+					{error.data && <BodyLong>{error.data}</BodyLong>}
+				</VStack>
+			</Box>
 		)
 	}
 
 	const message = error instanceof Error ? error.message : "Ukjent feil"
 
 	return (
-		<main style={{ padding: "2rem" }}>
-			<h1>Noe gikk galt</h1>
-			<p>{message}</p>
-		</main>
+		<Box as="main" padding="space-24">
+			<VStack gap="space-6">
+				<Heading size="xlarge" level="1">
+					Noe gikk galt
+				</Heading>
+				<BodyLong>{message}</BodyLong>
+			</VStack>
+		</Box>
 	)
 }

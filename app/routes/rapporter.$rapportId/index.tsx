@@ -123,9 +123,9 @@ export default function RapportDetalj() {
 						title="Rapportinnhold"
 						srcDoc={htmlContent}
 						style={{
-							border: "1px solid #c6c2bf",
-							borderRadius: "4px",
-							background: "#fff",
+							border: "1px solid var(--ax-border-neutral-subtle)",
+							borderRadius: "var(--ax-radius-4)",
+							background: "var(--ax-bg-default)",
 							width: "100%",
 							minHeight: "80vh",
 						}}

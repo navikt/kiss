@@ -1,4 +1,4 @@
-import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
+import { BodyLong, BodyShort, Box, Detail, Heading, HGrid, HStack, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -68,24 +68,40 @@ export default function Dashboard() {
 				Overordnet status for SDLC compliance i Kontrollrammeverk for Integrert Sikker Systemutvikling.
 			</BodyLong>
 
-			<div className="dashboard-summary">
-				<div className="dashboard-metric">
-					<span className="dashboard-metric-value">{overallPercent}%</span>
-					<span className="dashboard-metric-label">Total compliance</span>
-				</div>
-				<div className="dashboard-metric">
-					<span className="dashboard-metric-value">{totalImplemented}</span>
-					<span className="dashboard-metric-label">Implementert</span>
-				</div>
-				<div className="dashboard-metric">
-					<span className="dashboard-metric-value">{totalPartial}</span>
-					<span className="dashboard-metric-label">Delvis implementert</span>
-				</div>
-				<div className="dashboard-metric">
-					<span className="dashboard-metric-value">{totalControls}</span>
-					<span className="dashboard-metric-label">Totalt kontroller</span>
-				</div>
-			</div>
+			<HStack gap="space-6" wrap>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{overallPercent}%
+						</Heading>
+						<Detail>Total compliance</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalImplemented}
+						</Heading>
+						<Detail>Implementert</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalPartial}
+						</Heading>
+						<Detail>Delvis implementert</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalControls}
+						</Heading>
+						<Detail>Totalt kontroller</Detail>
+					</VStack>
+				</Box>
+			</HStack>
 
 			<Heading size="large" level="3">
 				Status per domene
@@ -100,7 +116,7 @@ export default function Dashboard() {
 								<Heading size="small" level="4">
 									{domain.name}
 								</Heading>
-								<span className="domain-status-pct">{pct}%</span>
+								<BodyShort weight="semibold">{pct}%</BodyShort>
 							</div>
 							<div
 								className="domain-status-bar"
@@ -120,9 +136,9 @@ export default function Dashboard() {
 								/>
 							</div>
 							<div className="domain-status-details">
-								<span>{domain.implemented} implementert</span>
-								<span>{domain.partial} delvis</span>
-								<span>{domain.notImplemented} mangler</span>
+								<BodyShort size="small">{domain.implemented} implementert</BodyShort>
+								<BodyShort size="small">{domain.partial} delvis</BodyShort>
+								<BodyShort size="small">{domain.notImplemented} mangler</BodyShort>
 							</div>
 							{domain.controlsWithGaps > 0 ? (
 								<div className="domain-status-card-link-footer">

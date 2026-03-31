@@ -201,12 +201,14 @@ export function SearchDialog() {
 
 					{!loading && results.length > 0 && (
 						<Box paddingInline="space-12" paddingBlock="space-8">
-							<VStack as="ul" gap="space-2" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+							<VStack as="ul" role="listbox" gap="space-2" style={{ listStyle: "none", margin: 0, padding: 0 }}>
 								{results.map((result, index) => {
 									const isSelected = index === selectedIndex
 									return (
 										<Box
 											as="li"
+											role="option"
+											aria-selected={isSelected}
 											key={`${result.type}-${result.id}`}
 											padding="space-12"
 											paddingInline="space-16"

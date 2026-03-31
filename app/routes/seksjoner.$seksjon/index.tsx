@@ -1,4 +1,15 @@
-import { Link as AkselLink, Alert, BodyLong, Heading, HGrid, HStack, VStack } from "@navikt/ds-react"
+import {
+	Link as AkselLink,
+	Alert,
+	BodyLong,
+	BodyShort,
+	Box,
+	Detail,
+	Heading,
+	HGrid,
+	HStack,
+	VStack,
+} from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -63,32 +74,56 @@ export default function SeksjonDashboard() {
 			</Heading>
 			<BodyLong>Compliance-status for alle team i seksjonen.</BodyLong>
 
-			<div className="dashboard-summary">
-				<div className="dashboard-metric">
-					<span className="dashboard-metric-value">{overallPercent}%</span>
-					<span className="dashboard-metric-label">Total compliance</span>
-				</div>
-				<div className="dashboard-metric">
-					<span className="dashboard-metric-value">{teams.length}</span>
-					<span className="dashboard-metric-label">Team</span>
-				</div>
-				<div className="dashboard-metric">
-					<span className="dashboard-metric-value">{totalApps}</span>
-					<span className="dashboard-metric-label">Applikasjoner</span>
-				</div>
-				<div className="dashboard-metric">
-					<span className="dashboard-metric-value">{totalImplemented}</span>
-					<span className="dashboard-metric-label">Implementert</span>
-				</div>
-				<div className="dashboard-metric">
-					<span className="dashboard-metric-value">{totalPartial}</span>
-					<span className="dashboard-metric-label">Delvis implementert</span>
-				</div>
-				<div className="dashboard-metric">
-					<span className="dashboard-metric-value">{totalControls}</span>
-					<span className="dashboard-metric-label">Totalt kontroller</span>
-				</div>
-			</div>
+			<HStack gap="space-6" wrap>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{overallPercent}%
+						</Heading>
+						<Detail>Total compliance</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{teams.length}
+						</Heading>
+						<Detail>Team</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalApps}
+						</Heading>
+						<Detail>Applikasjoner</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalImplemented}
+						</Heading>
+						<Detail>Implementert</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalPartial}
+						</Heading>
+						<Detail>Delvis implementert</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalControls}
+						</Heading>
+						<Detail>Totalt kontroller</Detail>
+					</VStack>
+				</Box>
+			</HStack>
 
 			<Heading size="large" level="3">
 				Status per team
@@ -103,7 +138,7 @@ export default function SeksjonDashboard() {
 								<Heading size="small" level="4">
 									{team.name}
 								</Heading>
-								<span className="domain-status-pct">{pct}%</span>
+								<BodyShort weight="semibold">{pct}%</BodyShort>
 							</div>
 							<div
 								className="domain-status-bar"
@@ -123,10 +158,10 @@ export default function SeksjonDashboard() {
 								/>
 							</div>
 							<div className="domain-status-details">
-								<span>{team.implemented} implementert</span>
-								<span>{team.partial} delvis</span>
-								<span>{team.notImplemented} mangler</span>
-								<span>{team.apps} applikasjoner</span>
+								<BodyShort size="small">{team.implemented} implementert</BodyShort>
+								<BodyShort size="small">{team.partial} delvis</BodyShort>
+								<BodyShort size="small">{team.notImplemented} mangler</BodyShort>
+								<BodyShort size="small">{team.apps} applikasjoner</BodyShort>
 							</div>
 							<div className="domain-status-card-link-footer">Se detaljer →</div>
 						</Link>

@@ -1,4 +1,5 @@
 import {
+	Link as AkselLink,
 	Alert,
 	BodyLong,
 	BodyShort,
@@ -23,6 +24,16 @@ import { getAllRisks } from "~/db/queries/framework.server"
 import { getScreeningDataForApp, saveScreeningAnswer } from "~/db/queries/screening.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
+
+function slugify(text: string) {
+	return text
+		.toLowerCase()
+		.replace(/[æ]/g, "ae")
+		.replace(/[ø]/g, "oe")
+		.replace(/[å]/g, "aa")
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/(^-|-$)/g, "")
+}
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
@@ -148,28 +159,28 @@ export default function ComplianceAssessment() {
 		<div className="compliance-layout">
 			{/* Sidebar navigation */}
 			<nav className="compliance-sidebar" aria-label="Innholdsnavigasjon">
-				<a href="#top" className="compliance-sidebar-home">
+				<AkselLink href="#top" className="compliance-sidebar-home">
 					Hjem
-				</a>
+				</AkselLink>
 
 				{screening.length > 0 && (
 					<div className="compliance-sidebar-group">
-						<a href="#screening" className="compliance-sidebar-domain">
+						<AkselLink href="#screening" className="compliance-sidebar-domain">
 							Innledende spørsmål
-						</a>
+						</AkselLink>
 					</div>
 				)}
 
 				{domains.map((domain) => (
 					<div key={domain.name} className="compliance-sidebar-group">
-						<a href={`#domain-${domain.name}`} className="compliance-sidebar-domain">
+						<AkselLink href={`#domain-${slugify(domain.name)}`} className="compliance-sidebar-domain">
 							{domain.name}
-						</a>
+						</AkselLink>
 						{domain.risks.map((risk) => (
-							<a key={risk.riskId} href={`#risk-${risk.riskId}`} className="compliance-sidebar-risk">
+							<AkselLink key={risk.riskId} href={`#risk-${risk.riskId}`} className="compliance-sidebar-risk">
 								<span className="compliance-sidebar-risk-id">{risk.riskId}</span>
 								<span>{risk.name}</span>
-							</a>
+							</AkselLink>
 						))}
 					</div>
 				))}
@@ -263,7 +274,12 @@ export default function ComplianceAssessment() {
 					)}
 
 					{domains.map((domain) => (
-						<VStack key={domain.name} gap="space-12" id={`domain-${domain.name}`} className="compliance-domain-section">
+						<VStack
+							key={domain.name}
+							gap="space-12"
+							id={`domain-${slugify(domain.name)}`}
+							className="compliance-domain-section"
+						>
 							<Heading size="large" level="3">
 								{domain.name}
 							</Heading>

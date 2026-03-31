@@ -3,6 +3,7 @@ import {
 	Alert,
 	BodyLong,
 	BodyShort,
+	Box,
 	Button,
 	Heading,
 	HStack,
@@ -134,14 +135,14 @@ export default function AdminScreening() {
 						Nytt spørsmål
 					</Heading>
 					<HStack gap="space-4" align="end" wrap>
-						<TextField label="Spørsmålstekst" name="questionText" size="small" style={{ minWidth: "20rem" }} />
+						<TextField label="Spørsmålstekst" name="questionText" size="small" />
 						<TextField
 							label="Rekkefølge"
 							name="displayOrder"
 							size="small"
 							type="number"
 							defaultValue="0"
-							style={{ width: "6rem" }}
+							htmlSize={6}
 						/>
 					</HStack>
 					<Textarea
@@ -165,141 +166,135 @@ export default function AdminScreening() {
 			) : (
 				<VStack gap="space-12">
 					{questions.map((q) => (
-						<VStack
-							key={q.id}
-							gap="space-6"
-							style={{
-								padding: "var(--ax-space-16)",
-								border: "1px solid var(--ax-border-subtle)",
-								borderRadius: "var(--ax-radius-8)",
-							}}
-						>
-							{/* Question header + edit */}
-							<HStack justify="space-between" align="start" wrap>
-								<VStack gap="space-2" style={{ flex: 1 }}>
-									<Heading size="small" level="3">
-										{q.questionText}
-									</Heading>
-									{q.descriptionHtml && (
-										// biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized with DOMPurify
-										<div className="markdown-content" dangerouslySetInnerHTML={{ __html: q.descriptionHtml }} />
-									)}
-									<BodyShort size="small" textColor="subtle">
-										Rekkefølge: {q.displayOrder}
-									</BodyShort>
-								</VStack>
-								<Form method="post">
-									<input type="hidden" name="intent" value="deleteQuestion" />
-									<input type="hidden" name="questionId" value={q.id} />
-									<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />}>
-										Slett
-									</Button>
-								</Form>
-							</HStack>
-
-							{/* Edit question */}
-							<QuestionEditForm question={q} />
-
-							{/* Effects */}
-							<VStack gap="space-4">
-								<Heading size="xsmall" level="4">
-									Effekter ({q.effects.length})
-								</Heading>
-
-								{q.effects.length > 0 && (
-									<Table size="small">
-										<Table.Header>
-											<Table.Row>
-												<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
-												<Table.HeaderCell scope="col">Ja-effekt</Table.HeaderCell>
-												<Table.HeaderCell scope="col">Nei-effekt</Table.HeaderCell>
-												<Table.HeaderCell scope="col" />
-											</Table.Row>
-										</Table.Header>
-										<Table.Body>
-											{q.effects.map((e) => (
-												<Table.Row key={e.id}>
-													<Table.DataCell>
-														<Tag variant="info" size="xsmall">
-															{e.controlTextId}
-														</Tag>
-													</Table.DataCell>
-													<Table.DataCell>
-														{e.yesEffect ? (
-															<Tag variant="neutral" size="xsmall">
-																{effectLabels[e.yesEffect] ?? e.yesEffect}
-															</Tag>
-														) : (
-															<BodyShort size="small" textColor="subtle">
-																—
-															</BodyShort>
-														)}
-													</Table.DataCell>
-													<Table.DataCell>
-														{e.noEffect ? (
-															<Tag variant="neutral" size="xsmall">
-																{effectLabels[e.noEffect] ?? e.noEffect}
-															</Tag>
-														) : (
-															<BodyShort size="small" textColor="subtle">
-																—
-															</BodyShort>
-														)}
-													</Table.DataCell>
-													<Table.DataCell>
-														<Form method="post">
-															<input type="hidden" name="intent" value="deleteEffect" />
-															<input type="hidden" name="effectId" value={e.id} />
-															<Button
-																type="submit"
-																size="xsmall"
-																variant="tertiary-neutral"
-																icon={<TrashIcon aria-hidden />}
-															/>
-														</Form>
-													</Table.DataCell>
-												</Table.Row>
-											))}
-										</Table.Body>
-									</Table>
-								)}
-
-								{/* Add effect */}
-								<Form method="post">
-									<input type="hidden" name="intent" value="addEffect" />
-									<input type="hidden" name="questionId" value={q.id} />
-									<HStack gap="space-4" align="end" wrap>
-										<Select label="Kontroll" name="controlTextId" size="small">
-											<option value="">Velg kontroll</option>
-											{controls.map((c) => (
-												<option key={c.controlId} value={c.controlId}>
-													{c.controlId}
-												</option>
-											))}
-										</Select>
-										<Select label="Ja-effekt" name="yesEffect" size="small">
-											<option value="">Ingen</option>
-											{Object.entries(effectLabels).map(([v, l]) => (
-												<option key={v} value={v}>
-													{l}
-												</option>
-											))}
-										</Select>
-										<Select label="Nei-effekt" name="noEffect" size="small">
-											<option value="">Ingen</option>
-											{Object.entries(effectLabels).map(([v, l]) => (
-												<option key={v} value={v}>
-													{l}
-												</option>
-											))}
-										</Select>
-										<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
-											Legg til effekt
+						<Box key={q.id} padding="space-16" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+							<VStack gap="space-6">
+								{/* Question header + edit */}
+								<HStack justify="space-between" align="start" wrap>
+									<VStack gap="space-2">
+										<Heading size="small" level="3">
+											{q.questionText}
+										</Heading>
+										{q.descriptionHtml && (
+											// biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized with DOMPurify
+											<div className="markdown-content" dangerouslySetInnerHTML={{ __html: q.descriptionHtml }} />
+										)}
+										<BodyShort size="small" textColor="subtle">
+											Rekkefølge: {q.displayOrder}
+										</BodyShort>
+									</VStack>
+									<Form method="post">
+										<input type="hidden" name="intent" value="deleteQuestion" />
+										<input type="hidden" name="questionId" value={q.id} />
+										<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />}>
+											Slett
 										</Button>
-									</HStack>
-								</Form>
+									</Form>
+								</HStack>
+
+								{/* Edit question */}
+								<QuestionEditForm question={q} />
+
+								{/* Effects */}
+								<VStack gap="space-4">
+									<Heading size="xsmall" level="4">
+										Effekter ({q.effects.length})
+									</Heading>
+
+									{q.effects.length > 0 && (
+										<Table size="small">
+											<Table.Header>
+												<Table.Row>
+													<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
+													<Table.HeaderCell scope="col">Ja-effekt</Table.HeaderCell>
+													<Table.HeaderCell scope="col">Nei-effekt</Table.HeaderCell>
+													<Table.HeaderCell scope="col" />
+												</Table.Row>
+											</Table.Header>
+											<Table.Body>
+												{q.effects.map((e) => (
+													<Table.Row key={e.id}>
+														<Table.DataCell>
+															<Tag variant="info" size="xsmall">
+																{e.controlTextId}
+															</Tag>
+														</Table.DataCell>
+														<Table.DataCell>
+															{e.yesEffect ? (
+																<Tag variant="neutral" size="xsmall">
+																	{effectLabels[e.yesEffect] ?? e.yesEffect}
+																</Tag>
+															) : (
+																<BodyShort size="small" textColor="subtle">
+																	—
+																</BodyShort>
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															{e.noEffect ? (
+																<Tag variant="neutral" size="xsmall">
+																	{effectLabels[e.noEffect] ?? e.noEffect}
+																</Tag>
+															) : (
+																<BodyShort size="small" textColor="subtle">
+																	—
+																</BodyShort>
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															<Form method="post">
+																<input type="hidden" name="intent" value="deleteEffect" />
+																<input type="hidden" name="effectId" value={e.id} />
+																<Button
+																	type="submit"
+																	size="xsmall"
+																	variant="tertiary-neutral"
+																	icon={<TrashIcon aria-hidden />}
+																/>
+															</Form>
+														</Table.DataCell>
+													</Table.Row>
+												))}
+											</Table.Body>
+										</Table>
+									)}
+
+									{/* Add effect */}
+									<Form method="post">
+										<input type="hidden" name="intent" value="addEffect" />
+										<input type="hidden" name="questionId" value={q.id} />
+										<HStack gap="space-4" align="end" wrap>
+											<Select label="Kontroll" name="controlTextId" size="small">
+												<option value="">Velg kontroll</option>
+												{controls.map((c) => (
+													<option key={c.controlId} value={c.controlId}>
+														{c.controlId}
+													</option>
+												))}
+											</Select>
+											<Select label="Ja-effekt" name="yesEffect" size="small">
+												<option value="">Ingen</option>
+												{Object.entries(effectLabels).map(([v, l]) => (
+													<option key={v} value={v}>
+														{l}
+													</option>
+												))}
+											</Select>
+											<Select label="Nei-effekt" name="noEffect" size="small">
+												<option value="">Ingen</option>
+												{Object.entries(effectLabels).map(([v, l]) => (
+													<option key={v} value={v}>
+														{l}
+													</option>
+												))}
+											</Select>
+											<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
+												Legg til effekt
+											</Button>
+										</HStack>
+									</Form>
+								</VStack>
 							</VStack>
-						</VStack>
+						</Box>
 					))}
 				</VStack>
 			)}

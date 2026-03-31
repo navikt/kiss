@@ -173,7 +173,7 @@ export default function NaisOvervaking() {
 									{team.status === "pending" && (
 										<Form method="post">
 											<input type="hidden" name="teamSlug" value={team.slug} />
-											<div style={{ display: "flex", gap: "0.5rem" }}>
+											<HStack gap="space-2">
 												<Button
 													type="submit"
 													name="action"
@@ -194,7 +194,7 @@ export default function NaisOvervaking() {
 												>
 													Ignorer
 												</Button>
-											</div>
+											</HStack>
 										</Form>
 									)}
 								</Table.DataCell>

@@ -1,3 +1,5 @@
+import { Link as AkselLink, BodyLong, Tag } from "@navikt/ds-react"
+
 export type ComplianceStatusValue = "not_relevant" | "not_implemented" | "partially_implemented" | "implemented"
 
 const statusLabels: Record<ComplianceStatusValue, string> = {
@@ -7,11 +9,11 @@ const statusLabels: Record<ComplianceStatusValue, string> = {
 	implemented: "Implementert",
 }
 
-const statusColors: Record<ComplianceStatusValue, string> = {
-	not_relevant: "var(--a-gray-200)",
-	not_implemented: "var(--a-red-200)",
-	partially_implemented: "var(--a-orange-200)",
-	implemented: "var(--a-green-200)",
+const statusVariants: Record<ComplianceStatusValue, "neutral" | "error" | "warning" | "success"> = {
+	not_relevant: "neutral",
+	not_implemented: "error",
+	partially_implemented: "warning",
+	implemented: "success",
 }
 
 interface ComplianceStatusBadgeProps {
@@ -20,9 +22,9 @@ interface ComplianceStatusBadgeProps {
 
 export function ComplianceStatusBadge({ status }: ComplianceStatusBadgeProps) {
 	return (
-		<span className="compliance-badge" style={{ backgroundColor: statusColors[status] }}>
+		<Tag variant={statusVariants[status]} size="small">
 			{statusLabels[status]}
-		</span>
+		</Tag>
 	)
 }
 
@@ -41,16 +43,16 @@ export function ComplianceComment({ comment }: ComplianceCommentProps) {
 		if (!part) continue
 		if (isUrl(part)) {
 			elements.push(
-				<a key={`url-${part}`} href={part} target="_blank" rel="noopener noreferrer">
+				<AkselLink key={`url-${part}`} href={part} target="_blank" rel="noopener noreferrer">
 					{part}
-				</a>,
+				</AkselLink>,
 			)
 		} else {
 			elements.push(<span key={`text-${part}`}>{part}</span>)
 		}
 	}
 
-	return <p className="compliance-comment">{elements}</p>
+	return <BodyLong size="small">{elements}</BodyLong>
 }
 
 export { statusLabels }
