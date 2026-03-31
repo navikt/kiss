@@ -81,3 +81,18 @@ export const frameworkFieldHistory = pgTable("framework_field_history", {
 	changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
 	changedBy: text("changed_by").notNull(),
 })
+
+export const controlPredefinedAnswers = pgTable("control_predefined_answers", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	controlId: uuid("control_id")
+		.notNull()
+		.references(() => frameworkControls.id),
+	label: text("label").notNull(),
+	status: text("status").notNull(),
+	comment: text("comment"),
+	displayOrder: integer("display_order").notNull().default(0),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	createdBy: text("created_by").notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedBy: text("updated_by").notNull(),
+})

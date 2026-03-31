@@ -91,6 +91,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				controlId: frameworkControls.controlId,
 				requirement: frameworkControls.requirement,
 				shortTitle: frameworkControls.shortTitle,
+				technologyElement: frameworkControls.technologyElement,
 				domainCode: frameworkDomains.code,
 				domainName: frameworkDomains.name,
 			})
@@ -99,8 +100,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			.where(
 				or(
 					ilike(frameworkControls.controlId, pattern),
-					ilike(frameworkControls.requirement, pattern),
 					ilike(frameworkControls.shortTitle, pattern),
+					ilike(frameworkControls.requirement, pattern),
+					ilike(frameworkControls.technologyElement, pattern),
 				),
 			)
 			.limit(limit),
@@ -133,14 +135,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			id: risk.id,
 			url: `/kontrollrammeverk/risiko/${risk.riskId}`,
 			title: `${risk.riskId}: ${risk.shortTitle ?? risk.description}`,
-			subtitle: risk.domainName,
+			subtitle: risk.shortTitle ? risk.description : risk.domainName,
 		})),
 		...controlResults.map((control: (typeof controlResults)[number]) => ({
 			type: "control" as const,
 			id: control.id,
 			url: `/kontrollrammeverk/${control.domainCode}/${control.controlId}`,
 			title: `${control.controlId}: ${control.shortTitle ?? control.requirement}`,
-			subtitle: control.domainName,
+			subtitle: control.shortTitle ? (control.requirement ?? control.domainName) : control.domainName,
 		})),
 	]
 
