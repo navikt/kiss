@@ -66,10 +66,15 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
-	// Find candidates that include this app
-	const relevantCandidates = candidates
-		.filter((c) => c.apps.some((a) => a.id === appId))
-		.flatMap((c) => c.apps.filter((a) => a.id !== appId && !a.alreadyLinked))
+	// Find candidates that include this app, deduplicate by app ID
+	const relevantCandidates = [
+		...new Map(
+			candidates
+				.filter((c) => c.apps.some((a) => a.id === appId))
+				.flatMap((c) => c.apps.filter((a) => a.id !== appId && !a.alreadyLinked))
+				.map((a) => [a.id, a]),
+		).values(),
+	]
 
 	const assessments = assessmentsResult?.assessments ?? []
 	const totalControls = assessments.length
