@@ -28,21 +28,48 @@ function controlColor(index: number, total: number): string {
 	return `rgb(${r}, ${g}, ${b})`
 }
 
-/** Group items by their domainCode, preserving order. */
+/** Group items by their domainName, merging domains with same name. */
 function groupByDomain<T extends { domainCode: string; domainName: string }>(
 	items: T[],
-	_key: string,
-): { domainCode: string; domainName: string; items: T[] }[] {
-	const groups = new Map<string, { domainCode: string; domainName: string; items: T[] }>()
+): { domainName: string; items: T[] }[] {
+	const groups = new Map<string, { domainName: string; items: T[] }>()
 	for (const item of items) {
-		let group = groups.get(item.domainCode)
+		let group = groups.get(item.domainName)
 		if (!group) {
-			group = { domainCode: item.domainCode, domainName: item.domainName, items: [] }
-			groups.set(item.domainCode, group)
+			group = { domainName: item.domainName, items: [] }
+			groups.set(item.domainName, group)
 		}
 		group.items.push(item)
 	}
 	return [...groups.values()]
+}
+
+/** Merge domain summaries with the same name into single entries. */
+function mergeDomains(
+	domains: Array<{
+		code: string
+		name: string
+		riskCount: number
+		controlCount: number
+	}>,
+) {
+	const merged = new Map<string, { codes: string[]; name: string; riskCount: number; controlCount: number }>()
+	for (const d of domains) {
+		const existing = merged.get(d.name)
+		if (existing) {
+			existing.codes.push(d.code)
+			existing.riskCount += d.riskCount
+			existing.controlCount += d.controlCount
+		} else {
+			merged.set(d.name, {
+				codes: [d.code],
+				name: d.name,
+				riskCount: d.riskCount,
+				controlCount: d.controlCount,
+			})
+		}
+	}
+	return [...merged.values()]
 }
 
 export async function loader(_args: LoaderFunctionArgs) {
@@ -52,6 +79,8 @@ export async function loader(_args: LoaderFunctionArgs) {
 
 export default function Kontrollrammeverk() {
 	const { domains, risks, controls } = useLoaderData<typeof loader>()
+
+	const mergedDomains = mergeDomains(domains)
 
 	return (
 		<VStack gap="space-12">
@@ -64,10 +93,10 @@ export default function Kontrollrammeverk() {
 
 			<VStack gap="space-4">
 				<HGrid gap="space-6" columns={{ xs: 1, sm: 2, md: 4 }}>
-					{domains.map((domain) => (
+					{mergedDomains.map((domain) => (
 						<Link
-							key={domain.code}
-							to={`/kontrollrammeverk/${domain.code}`}
+							key={domain.codes.join(",")}
+							to={`/kontrollrammeverk/${domain.codes[0]}`}
 							className="domain-card"
 							style={{
 								backgroundColor: domainColors[domain.name] ?? "#f0f0f0",
@@ -91,8 +120,8 @@ export default function Kontrollrammeverk() {
 					<Heading size="large" level="3">
 						Risikoer
 					</Heading>
-					{groupByDomain(risks, "riskId").map(({ domainName, domainCode, items }) => (
-						<VStack key={domainCode} gap="space-4">
+					{groupByDomain(risks).map(({ domainName, items }) => (
+						<VStack key={domainName} gap="space-4">
 							<Heading size="medium" level="4">
 								{domainName}
 							</Heading>
@@ -123,8 +152,8 @@ export default function Kontrollrammeverk() {
 					<Heading size="large" level="3">
 						Kontroller
 					</Heading>
-					{groupByDomain(controls, "controlId").map(({ domainName, domainCode, items }) => (
-						<VStack key={domainCode} gap="space-4">
+					{groupByDomain(controls).map(({ domainName, items }) => (
+						<VStack key={domainName} gap="space-4">
 							<Heading size="medium" level="4">
 								{domainName}
 							</Heading>
