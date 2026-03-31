@@ -228,10 +228,100 @@ body {
 }
 
 /* Compliance */
+.compliance-layout {
+	display: grid;
+	grid-template-columns: 16rem 1fr;
+	gap: var(--ax-space-24);
+	align-items: start;
+}
+
+.compliance-sidebar {
+	position: sticky;
+	top: var(--ax-space-16);
+	max-height: calc(100vh - var(--ax-space-32));
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--ax-space-4);
+	padding-right: var(--ax-space-16);
+	border-right: 1px solid var(--ax-border-neutral-subtleA);
+}
+
+.compliance-sidebar-home {
+	font-weight: 600;
+	font-size: var(--ax-font-size-heading-small);
+	color: var(--ax-text-accent);
+	text-decoration: none;
+	padding: var(--ax-space-4) 0;
+	margin-bottom: var(--ax-space-8);
+}
+
+.compliance-sidebar-home:hover {
+	text-decoration: underline;
+}
+
+.compliance-sidebar-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--ax-space-4);
+	margin-bottom: var(--ax-space-12);
+}
+
+.compliance-sidebar-label {
+	color: var(--ax-text-subtle);
+	letter-spacing: 0.05em;
+	padding: var(--ax-space-4) 0;
+}
+
+.compliance-sidebar-risk {
+	display: flex;
+	gap: var(--ax-space-8);
+	text-decoration: none;
+	color: var(--ax-text-default);
+	font-size: var(--ax-font-size-medium);
+	padding: var(--ax-space-4) 0;
+	line-height: 1.4;
+}
+
+.compliance-sidebar-risk:hover {
+	color: var(--ax-text-accent);
+}
+
+.compliance-sidebar-risk-id {
+	font-weight: 600;
+	color: var(--ax-text-accent);
+	white-space: nowrap;
+	font-size: var(--ax-font-size-small);
+}
+
+.compliance-sidebar-domain {
+	text-decoration: none;
+	color: var(--ax-text-default);
+	font-size: var(--ax-font-size-medium);
+	padding: var(--ax-space-6) 0 var(--ax-space-6) var(--ax-space-8);
+	line-height: 1.4;
+}
+
+.compliance-sidebar-domain:hover {
+	color: var(--ax-text-accent);
+}
+
+.compliance-content {
+	min-width: 0;
+}
+
+.compliance-risk-block {
+	padding: var(--ax-space-8) var(--ax-space-12);
+	background: var(--ax-bg-sunken);
+	border-radius: var(--ax-radius-8);
+	scroll-margin-top: var(--ax-space-16);
+}
+
 .compliance-card {
 	padding: var(--ax-space-24);
 	border: 1px solid var(--ax-border-subtle);
 	border-radius: var(--ax-radius-8);
+	scroll-margin-top: var(--ax-space-16);
 }
 
 .compliance-card-header {
@@ -375,6 +465,20 @@ body {
 
 	.domain-status-card-link {
 		padding: var(--ax-space-16);
+	}
+
+	.compliance-layout {
+		grid-template-columns: 1fr;
+	}
+
+	.compliance-sidebar {
+		position: static;
+		max-height: none;
+		border-right: none;
+		border-bottom: 1px solid var(--ax-border-neutral-subtleA);
+		padding-right: 0;
+		padding-bottom: var(--ax-space-16);
+		margin-bottom: var(--ax-space-8);
 	}
 
 	.compliance-card {

@@ -139,6 +139,7 @@ export async function getAllRisks() {
 	return rows.map((r) => ({
 		riskId: r.riskId,
 		name: r.shortTitle ?? r.description,
+		description: r.description,
 		domainCode: r.domainCode,
 		domainName: r.domainName,
 	}))

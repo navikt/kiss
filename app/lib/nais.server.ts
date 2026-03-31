@@ -4,6 +4,7 @@ const PAGE_SIZE = 100
 export interface NaisTeam {
 	slug: string
 	purpose?: string
+	appCount?: number
 }
 
 export interface NaisPersistenceResource {
@@ -101,6 +102,11 @@ const TEAMS_QUERY = `
 			nodes {
 				slug
 				purpose
+				applications(first: 0) {
+					pageInfo {
+						totalCount
+					}
+				}
 			}
 		}
 	}
@@ -109,7 +115,11 @@ const TEAMS_QUERY = `
 interface TeamsResponse {
 	teams: {
 		pageInfo: PageInfo
-		nodes: NaisTeam[]
+		nodes: Array<{
+			slug: string
+			purpose?: string
+			applications?: { pageInfo: { totalCount?: number } }
+		}>
 	}
 }
 
@@ -123,7 +133,13 @@ export async function fetchNaisTeams(token?: string): Promise<NaisTeam[]> {
 		if (after) variables.after = after
 
 		const result = await naisGraphQL<TeamsResponse>(TEAMS_QUERY, variables, token)
-		allTeams.push(...result.teams.nodes)
+		for (const node of result.teams.nodes) {
+			allTeams.push({
+				slug: node.slug,
+				purpose: node.purpose,
+				appCount: node.applications?.pageInfo?.totalCount ?? undefined,
+			})
+		}
 
 		hasMore = result.teams.pageInfo.hasNextPage
 		after = result.teams.pageInfo.endCursor
