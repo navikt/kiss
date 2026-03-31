@@ -9,6 +9,7 @@ import {
 	Heading,
 	HStack,
 	Label,
+	Select,
 	Table,
 	Tag,
 	VStack,
@@ -66,6 +67,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
+	// Get technology elements
+	const { getApplicationElements, getAllTechnologyElements } = await import("~/db/queries/technology-elements.server")
+	const [appElements, allElements] = await Promise.all([getApplicationElements(appId), getAllTechnologyElements()])
+
 	// Find candidates that include this app, deduplicate by app ID
 	const relevantCandidates = [
 		...new Map(
@@ -93,6 +98,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		primaryApp: detail.primaryApp,
 		linkedApps: detail.linkedApps,
 		linkSuggestions: relevantCandidates,
+		appElements,
+		availableElements: allElements.filter((e) => !appElements.some((ae) => ae.id === e.id)),
 		compliance: {
 			totalControls,
 			implemented,
@@ -122,6 +129,16 @@ export async function action({ params, request }: ActionFunctionArgs) {
 		const unlinkId = formData.get("unlinkId") as string
 		if (!unlinkId) throw new Response("Mangler unlinkId", { status: 400 })
 		await unlinkApplication(unlinkId, performer)
+	} else if (intent === "addElement") {
+		const elementId = formData.get("elementId") as string
+		if (!elementId) throw new Response("Mangler elementId", { status: 400 })
+		const { addApplicationElement } = await import("~/db/queries/technology-elements.server")
+		await addApplicationElement(appId, elementId)
+	} else if (intent === "removeElement") {
+		const elementId = formData.get("elementId") as string
+		if (!elementId) throw new Response("Mangler elementId", { status: 400 })
+		const { removeApplicationElement } = await import("~/db/queries/technology-elements.server")
+		await removeApplicationElement(appId, elementId)
 	}
 
 	return redirect(`/applikasjoner/${appId}/detaljer`)
@@ -137,6 +154,8 @@ export default function ApplikasjonDetalj() {
 		primaryApp,
 		linkedApps,
 		linkSuggestions,
+		appElements,
+		availableElements,
 		compliance,
 		assessments,
 	} = useLoaderData<typeof loader>()
@@ -259,6 +278,54 @@ export default function ApplikasjonDetalj() {
 					</HStack>
 				) : (
 					<BodyLong>Ikke tilknyttet noe utviklerteam.</BodyLong>
+				)}
+			</Box>
+
+			{/* Technology elements */}
+			<Box>
+				<Heading size="medium" level="3" spacing>
+					Teknologielementer
+				</Heading>
+				<BodyLong spacing>
+					Teknologielementer bestemmer hvilke kontroller som er relevante for denne applikasjonen.
+				</BodyLong>
+				{appElements.length > 0 ? (
+					<HStack gap="space-2" wrap>
+						{appElements.map((el) => (
+							<HStack key={el.id} gap="space-1" align="center">
+								<Tag variant="alt1" size="small">
+									{el.name}
+									{el.source === "auto" && " (auto)"}
+								</Tag>
+								<Form method="post" style={{ display: "inline" }}>
+									<input type="hidden" name="intent" value="removeElement" />
+									<input type="hidden" name="elementId" value={el.id} />
+									<Button variant="tertiary-neutral" size="xsmall" type="submit" title="Fjern element">
+										✕
+									</Button>
+								</Form>
+							</HStack>
+						))}
+					</HStack>
+				) : (
+					<BodyLong>Ingen teknologielementer er tilordnet.</BodyLong>
+				)}
+				{availableElements.length > 0 && (
+					<Form method="post" style={{ marginTop: "var(--ax-space-4)" }}>
+						<input type="hidden" name="intent" value="addElement" />
+						<HStack gap="space-2" align="end">
+							<Select label="Legg til element" name="elementId" size="small">
+								{availableElements.map((el) => (
+									<option key={el.id} value={el.id}>
+										{el.name}
+									</option>
+								))}
+							</Select>
+							<Button variant="secondary" size="small" type="submit">
+								Legg til
+							</Button>
+						</HStack>
+					</Form>
 				)}
 			</Box>
 

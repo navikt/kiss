@@ -60,6 +60,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const canEdit = user ? isAdmin(user) : false
 
+	// Get technology elements for this control
+	const { getControlElements } = await import("~/db/queries/technology-elements.server")
+	const controlElements = await getControlElements(control.uuid)
+
 	// Pre-render Markdown for all text fields
 	const fieldHtml: Record<string, string> = {}
 	const rawFields: Record<string, string> = {
@@ -79,7 +83,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		fieldHtml[key] = renderMarkdown(val)
 	}
 
-	return data({ domene, control, canEdit, fieldHtml })
+	return data({ domene, control, canEdit, fieldHtml, controlElements })
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -282,7 +286,7 @@ function PredefinedAnswerForm({
 }
 
 export default function ControlDetailPage() {
-	const { domene, control, canEdit, fieldHtml } = useLoaderData<typeof loader>()
+	const { domene, control, canEdit, fieldHtml, controlElements } = useLoaderData<typeof loader>()
 	const [addingAnswer, setAddingAnswer] = useState(false)
 	const [editingAnswerId, setEditingAnswerId] = useState<string | null>(null)
 
@@ -307,6 +311,15 @@ export default function ControlDetailPage() {
 				<Heading size="xlarge" level="2">
 					{control.id}: {control.name}
 				</Heading>
+				{controlElements.length > 0 && (
+					<HStack gap="space-2" wrap>
+						{controlElements.map((el) => (
+							<Tag key={el.id} variant="info" size="small">
+								{el.name}
+							</Tag>
+						))}
+					</HStack>
+				)}
 			</VStack>
 
 			<VStack gap="space-6">
