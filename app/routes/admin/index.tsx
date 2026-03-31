@@ -48,6 +48,12 @@ export default function Admin() {
 						Se og godkjenn foreslåtte koblinger mellom prod- og test-varianter av applikasjoner.
 					</BodyLong>
 				</Link>
+				<Link to="/admin/domener" className="admin-card">
+					<Heading size="small" level="3">
+						Domener
+					</Heading>
+					<BodyLong size="small">Administrer domener for risikoer og kontroller i kontrollrammeverket.</BodyLong>
+				</Link>
 			</div>
 		</VStack>
 	)

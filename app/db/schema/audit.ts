@@ -32,6 +32,10 @@ export const auditLogActionEnum = [
 	"screening_question_updated",
 	"screening_question_deleted",
 	"screening_answer_saved",
+	"domain_created",
+	"domain_updated",
+	"domain_deleted",
+	"risk_domain_changed",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

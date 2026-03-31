@@ -37,6 +37,7 @@ export const applicationEnvironments = pgTable("application_environments", {
 	cluster: text("cluster").notNull(),
 	namespace: text("namespace").notNull(),
 	imageName: text("image_name"),
+	gitRepository: text("git_repository"),
 	naisTeamId: uuid("nais_team_id").references(() => naisTeams.id),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 })

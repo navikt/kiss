@@ -275,6 +275,7 @@ export async function getRiskDetail(riskIdStr: string) {
 			riskId: frameworkRisks.riskId,
 			shortTitle: frameworkRisks.shortTitle,
 			description: frameworkRisks.description,
+			domainId: frameworkDomains.id,
 			domainCode: frameworkDomains.code,
 			domainName: frameworkDomains.name,
 		})
@@ -309,6 +310,7 @@ export async function getRiskDetail(riskIdStr: string) {
 		riskId: risk.riskId,
 		name: risk.shortTitle ?? shortName(risk.description, risk.riskId),
 		description: risk.description,
+		domainId: risk.domainId,
 		domainCode: risk.domainCode,
 		domainName: risk.domainName,
 		controls,
@@ -1109,4 +1111,139 @@ export async function getPredefinedAnswersForControl(controlUuid: string) {
 		.from(controlPredefinedAnswers)
 		.where(eq(controlPredefinedAnswers.controlId, controlUuid))
 		.orderBy(controlPredefinedAnswers.displayOrder)
+}
+
+// ─── Domain CRUD ─────────────────────────────────────────────────────────
+
+/** Get all active (non-archived) domains. */
+export async function getAllActiveDomains() {
+	return db
+		.select()
+		.from(frameworkDomains)
+		.where(isNull(frameworkDomains.archivedAt))
+		.orderBy(frameworkDomains.displayOrder)
+}
+
+/** Get a domain by ID with counts of associated risks and controls. */
+export async function getDomainWithCounts(domainId: string) {
+	const [domain] = await db.select().from(frameworkDomains).where(eq(frameworkDomains.id, domainId)).limit(1)
+	if (!domain) return null
+
+	const [riskRow] = await db
+		.select({ count: count() })
+		.from(frameworkRisks)
+		.where(and(eq(frameworkRisks.domainId, domainId), isNull(frameworkRisks.archivedAt)))
+
+	const [controlRow] = await db
+		.select({ count: count() })
+		.from(frameworkControls)
+		.where(and(eq(frameworkControls.domainId, domainId), isNull(frameworkControls.archivedAt)))
+
+	return {
+		...domain,
+		riskCount: riskRow?.count ?? 0,
+		controlCount: controlRow?.count ?? 0,
+	}
+}
+
+/** Create a new domain. */
+export async function createDomain(code: string, name: string, displayOrder: number, performedBy: string) {
+	const [domain] = await db
+		.insert(frameworkDomains)
+		.values({ code, name, displayOrder })
+		.returning({ id: frameworkDomains.id })
+
+	await writeAuditLog({
+		action: "domain_created",
+		entityType: "framework_domain",
+		entityId: domain.id,
+		newValue: JSON.stringify({ code, name, displayOrder }),
+		performedBy,
+	})
+
+	return domain.id
+}
+
+/** Update a domain's code, name, and display order. */
+export async function updateDomain(
+	domainId: string,
+	code: string,
+	name: string,
+	displayOrder: number,
+	performedBy: string,
+) {
+	const [existing] = await db.select().from(frameworkDomains).where(eq(frameworkDomains.id, domainId)).limit(1)
+	if (!existing) throw new Error("Domenet finnes ikke.")
+
+	await db.update(frameworkDomains).set({ code, name, displayOrder }).where(eq(frameworkDomains.id, domainId))
+
+	await writeAuditLog({
+		action: "domain_updated",
+		entityType: "framework_domain",
+		entityId: domainId,
+		previousValue: JSON.stringify({ code: existing.code, name: existing.name, displayOrder: existing.displayOrder }),
+		newValue: JSON.stringify({ code, name, displayOrder }),
+		performedBy,
+	})
+}
+
+/** Delete (archive) a domain. Throws if risks or controls still reference it. */
+export async function deleteDomain(domainId: string, performedBy: string) {
+	const [riskRow] = await db
+		.select({ count: count() })
+		.from(frameworkRisks)
+		.where(and(eq(frameworkRisks.domainId, domainId), isNull(frameworkRisks.archivedAt)))
+
+	if ((riskRow?.count ?? 0) > 0) {
+		throw new Error(`Kan ikke slette domenet: ${riskRow?.count} risikoer er fortsatt tilknyttet.`)
+	}
+
+	const [controlRow] = await db
+		.select({ count: count() })
+		.from(frameworkControls)
+		.where(and(eq(frameworkControls.domainId, domainId), isNull(frameworkControls.archivedAt)))
+
+	if ((controlRow?.count ?? 0) > 0) {
+		throw new Error(`Kan ikke slette domenet: ${controlRow?.count} kontroller er fortsatt tilknyttet.`)
+	}
+
+	const [domain] = await db.select().from(frameworkDomains).where(eq(frameworkDomains.id, domainId)).limit(1)
+	if (!domain) throw new Error("Domenet finnes ikke.")
+
+	await db.update(frameworkDomains).set({ archivedAt: new Date() }).where(eq(frameworkDomains.id, domainId))
+
+	await writeAuditLog({
+		action: "domain_deleted",
+		entityType: "framework_domain",
+		entityId: domainId,
+		previousValue: JSON.stringify({ code: domain.code, name: domain.name }),
+		performedBy,
+	})
+}
+
+/** Move a risk to a different domain. */
+export async function updateRiskDomain(riskIdStr: string, newDomainId: string, performedBy: string) {
+	const [risk] = await db
+		.select()
+		.from(frameworkRisks)
+		.where(sql`${frameworkRisks.archivedAt} IS NULL AND ${frameworkRisks.riskId} = ${riskIdStr}`)
+		.limit(1)
+
+	if (!risk) throw new Error(`Risiko ${riskIdStr} finnes ikke.`)
+
+	const [oldDomain] = await db.select().from(frameworkDomains).where(eq(frameworkDomains.id, risk.domainId)).limit(1)
+	const [newDomain] = await db.select().from(frameworkDomains).where(eq(frameworkDomains.id, newDomainId)).limit(1)
+
+	if (!newDomain) throw new Error("Nytt domene finnes ikke.")
+
+	await db.update(frameworkRisks).set({ domainId: newDomainId }).where(eq(frameworkRisks.id, risk.id))
+
+	await writeAuditLog({
+		action: "risk_domain_changed",
+		entityType: "framework_risk",
+		entityId: risk.riskId,
+		previousValue: oldDomain?.name ?? risk.domainId,
+		newValue: newDomain.name,
+		performedBy,
+	})
 }

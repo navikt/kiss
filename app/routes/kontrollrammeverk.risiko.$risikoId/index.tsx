@@ -1,10 +1,15 @@
 import { PencilIcon } from "@navikt/aksel-icons"
-import { BodyShort, Button, Detail, Heading, HStack, TextField, VStack } from "@navikt/ds-react"
+import { BodyShort, Button, Detail, Heading, HStack, Select, TextField, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getRiskDetail, updateRiskShortTitle } from "~/db/queries/framework.server"
+import {
+	getAllActiveDomains,
+	getRiskDetail,
+	updateRiskDomain,
+	updateRiskShortTitle,
+} from "~/db/queries/framework.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 
@@ -12,10 +17,14 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const risikoId = params.risikoId?.toUpperCase()
 	if (!risikoId) throw new Response("Mangler risiko-ID", { status: 400 })
 
-	const risk = await getRiskDetail(risikoId)
+	const [risk, domains] = await Promise.all([getRiskDetail(risikoId), getAllActiveDomains()])
 	if (!risk) throw new Response("Risiko ikke funnet", { status: 404 })
 
-	return data({ risk, descriptionHtml: renderMarkdown(risk.description) })
+	return data({
+		risk,
+		descriptionHtml: renderMarkdown(risk.description),
+		domains: domains.map((d) => ({ id: d.id, code: d.code, name: d.name })),
+	})
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -25,9 +34,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (!risikoId) return data({ error: "Mangler risiko-ID" }, { status: 400 })
 
 	const formData = await request.formData()
-	const shortTitle = formData.get("shortTitle") as string
+	const intent = formData.get("intent") as string
 
 	try {
+		if (intent === "change-domain") {
+			const domainId = formData.get("domainId") as string
+			if (!domainId) return data({ error: "Mangler domene-ID" }, { status: 400 })
+			await updateRiskDomain(risikoId, domainId, userName)
+			return data({ success: true })
+		}
+
+		const shortTitle = formData.get("shortTitle") as string
 		await updateRiskShortTitle(risikoId, shortTitle, userName)
 		return data({ success: true })
 	} catch (err) {
@@ -44,9 +61,10 @@ function controlColor(index: number, total: number): string {
 }
 
 export default function RiskDetailPage() {
-	const { risk, descriptionHtml } = useLoaderData<typeof loader>()
+	const { risk, descriptionHtml, domains } = useLoaderData<typeof loader>()
 	const [editing, setEditing] = useState(false)
 	const [titleValue, setTitleValue] = useState(risk.name)
+	const [changingDomain, setChangingDomain] = useState(false)
 
 	return (
 		<VStack gap="space-8">
@@ -97,6 +115,41 @@ export default function RiskDetailPage() {
 							aria-label={`Rediger kort tittel for ${risk.riskId}`}
 						/>
 					</HStack>
+				)}
+				<HStack gap="space-2" align="center">
+					<Detail>
+						Domene: <strong>{risk.domainName}</strong>
+					</Detail>
+					{!changingDomain && (
+						<Button
+							type="button"
+							variant="tertiary-neutral"
+							size="xsmall"
+							icon={<PencilIcon aria-hidden />}
+							onClick={() => setChangingDomain(true)}
+							aria-label="Endre domene"
+						/>
+					)}
+				</HStack>
+				{changingDomain && (
+					<Form method="post" onSubmit={() => setChangingDomain(false)}>
+						<input type="hidden" name="intent" value="change-domain" />
+						<HStack gap="space-2" align="end">
+							<Select label="Nytt domene" name="domainId" size="small" defaultValue={risk.domainId}>
+								{domains.map((d) => (
+									<option key={d.id} value={d.id}>
+										{d.code}: {d.name}
+									</option>
+								))}
+							</Select>
+							<Button type="submit" variant="primary" size="small">
+								Flytt
+							</Button>
+							<Button type="button" variant="tertiary" size="small" onClick={() => setChangingDomain(false)}>
+								Avbryt
+							</Button>
+						</HStack>
+					</Form>
 				)}
 			</VStack>
 
