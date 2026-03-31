@@ -1,4 +1,5 @@
-import { BodyLong, Button, Heading, VStack } from "@navikt/ds-react"
+import { DownloadIcon } from "@navikt/aksel-icons"
+import { BodyLong, Button, Heading, HStack, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -88,11 +89,29 @@ export default function RapportDetalj() {
 			</VStack>
 
 			{htmlContent && (
-				<div>
-					<Button variant="secondary" size="small" onClick={handleDownload}>
-						Last ned rapport (HTML)
+				<HStack gap="space-4">
+					<Button variant="secondary" size="small" onClick={handleDownload} icon={<DownloadIcon aria-hidden />}>
+						Last ned HTML
 					</Button>
-				</div>
+					<Button
+						as="a"
+						href={`/api/rapporter/${report.rapportId}/pdf`}
+						variant="secondary"
+						size="small"
+						icon={<DownloadIcon aria-hidden />}
+					>
+						Last ned PDF
+					</Button>
+					<Button
+						as="a"
+						href={`/api/rapporter/${report.rapportId}/xlsx`}
+						variant="secondary"
+						size="small"
+						icon={<DownloadIcon aria-hidden />}
+					>
+						Last ned XLSX
+					</Button>
+				</HStack>
 			)}
 
 			{htmlContent && (
