@@ -81,13 +81,13 @@ export default function ComplianceAssessment() {
 		}
 	}
 
-	// Group risks by domain
-	const domainMap = new Map<string, { code: string; name: string; risks: typeof allRisks }>()
+	// Group risks by domain name (merge domains with same name, e.g. TI and DR both named "Drift")
+	const domainMap = new Map<string, { name: string; risks: typeof allRisks }>()
 	for (const r of allRisks) {
-		if (!domainMap.has(r.domainCode)) {
-			domainMap.set(r.domainCode, { code: r.domainCode, name: r.domainName, risks: [] })
+		if (!domainMap.has(r.domainName)) {
+			domainMap.set(r.domainName, { name: r.domainName, risks: [] })
 		}
-		domainMap.get(r.domainCode)?.risks.push(r)
+		domainMap.get(r.domainName)?.risks.push(r)
 	}
 	const domains = [...domainMap.values()]
 
@@ -100,8 +100,8 @@ export default function ComplianceAssessment() {
 				</a>
 
 				{domains.map((domain) => (
-					<div key={domain.code} className="compliance-sidebar-group">
-						<a href={`#domain-${domain.code}`} className="compliance-sidebar-domain">
+					<div key={domain.name} className="compliance-sidebar-group">
+						<a href={`#domain-${domain.name}`} className="compliance-sidebar-domain">
 							{domain.name}
 						</a>
 						{domain.risks.map((risk) => (
@@ -136,7 +136,7 @@ export default function ComplianceAssessment() {
 					)}
 
 					{domains.map((domain) => (
-						<VStack key={domain.code} gap="space-12" id={`domain-${domain.code}`} className="compliance-domain-section">
+						<VStack key={domain.name} gap="space-12" id={`domain-${domain.name}`} className="compliance-domain-section">
 							<Heading size="large" level="3">
 								{domain.name}
 							</Heading>
