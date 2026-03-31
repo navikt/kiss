@@ -231,7 +231,7 @@ export default function SeksjonNaisTeam() {
 								{unassignedApps.map((app) => (
 									<Table.Row key={app.appId}>
 										<Table.DataCell>
-											<AkselLink as={Link} to={`/applikasjoner/${app.appId}/compliance`}>
+											<AkselLink as={Link} to={`/applikasjoner/${app.appId}/detaljer`}>
 												{app.appName}
 											</AkselLink>
 										</Table.DataCell>
