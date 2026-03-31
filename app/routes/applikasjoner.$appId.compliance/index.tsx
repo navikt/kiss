@@ -38,11 +38,17 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	return data({
 		appId,
 		appName: result.app.name,
-		assessments: result.assessments,
+		assessments: result.assessments.map((a) => ({
+			...a,
+			requirementHtml: renderMarkdown(a.requirement),
+		})),
 		isInherited: result.isInherited,
 		primaryName: result.primaryName,
 		primaryId: result.app.primaryApplicationId,
-		allRisks,
+		allRisks: allRisks.map((r) => ({
+			...r,
+			descriptionHtml: renderMarkdown(r.description),
+		})),
 		screening: screeningData.questions.map((q) => ({
 			...q,
 			descriptionHtml: renderMarkdown(q.description),
@@ -266,7 +272,8 @@ export default function ComplianceAssessment() {
 											<Heading size="medium" level="4">
 												{risk.riskId}: {risk.name}
 											</Heading>
-											<BodyLong size="small">{risk.description}</BodyLong>
+											{/* biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized server-side */}
+											<div className="markdown-content" dangerouslySetInnerHTML={{ __html: risk.descriptionHtml }} />
 										</div>
 
 										{riskControls.length > 0 && (
@@ -300,12 +307,11 @@ function AssessmentCard({
 				</Heading>
 			</div>
 
-			{assessment.requirement && (
+			{assessment.requirementHtml && (
 				<VStack gap="space-2">
 					<Label size="small">Krav</Label>
-					<BodyLong size="small" style={{ whiteSpace: "pre-wrap" }}>
-						{assessment.requirement}
-					</BodyLong>
+					{/* biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized server-side */}
+					<div className="markdown-content" dangerouslySetInnerHTML={{ __html: assessment.requirementHtml }} />
 				</VStack>
 			)}
 

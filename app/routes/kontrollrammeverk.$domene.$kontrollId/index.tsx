@@ -28,6 +28,7 @@ import {
 } from "~/db/queries/framework.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
+import { renderMarkdown } from "~/lib/markdown.server"
 
 const fieldConfig = [
 	{ key: "shortTitle", label: "Kort tittel", multiline: false },
@@ -59,7 +60,26 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const canEdit = user ? isAdmin(user) : false
 
-	return data({ domene, control, canEdit })
+	// Pre-render Markdown for all text fields
+	const fieldHtml: Record<string, string> = {}
+	const rawFields: Record<string, string> = {
+		shortTitle: control.name,
+		technologyElement: control.teknologielement,
+		requirement: control.krav,
+		responsible: control.ansvarlig,
+		routine: control.rutine,
+		frequency: control.frekvens,
+		documentationRequirement: control.dokumentasjonskrav,
+		testProcedure: control.testprosedyre,
+		dependencies: control.avhengigheter,
+		references: control.referanser,
+		commonPitfalls: control.vanligeFallgruver,
+	}
+	for (const [key, val] of Object.entries(rawFields)) {
+		fieldHtml[key] = renderMarkdown(val)
+	}
+
+	return data({ domene, control, canEdit, fieldHtml })
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -118,6 +138,7 @@ function EditableField({
 	fieldKey,
 	label,
 	value,
+	html,
 	multiline,
 	canEdit,
 	controlId,
@@ -125,6 +146,7 @@ function EditableField({
 	fieldKey: string
 	label: string
 	value: string
+	html: string
 	multiline: boolean
 	canEdit: boolean
 	controlId: string
@@ -192,7 +214,8 @@ function EditableField({
 					/>
 				)}
 			</HStack>
-			<BodyLong style={{ whiteSpace: "pre-wrap" }}>{currentValue}</BodyLong>
+			{/* biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized server-side */}
+			<div className="markdown-content" dangerouslySetInnerHTML={{ __html: html }} />
 		</VStack>
 	)
 }
@@ -259,7 +282,7 @@ function PredefinedAnswerForm({
 }
 
 export default function ControlDetailPage() {
-	const { domene, control, canEdit } = useLoaderData<typeof loader>()
+	const { domene, control, canEdit, fieldHtml } = useLoaderData<typeof loader>()
 	const [addingAnswer, setAddingAnswer] = useState(false)
 	const [editingAnswerId, setEditingAnswerId] = useState<string | null>(null)
 
@@ -293,6 +316,7 @@ export default function ControlDetailPage() {
 						fieldKey={field.key}
 						label={field.label}
 						value={fieldValues[field.key]}
+						html={fieldHtml[field.key]}
 						multiline={field.multiline}
 						canEdit={canEdit}
 						controlId={control.id}

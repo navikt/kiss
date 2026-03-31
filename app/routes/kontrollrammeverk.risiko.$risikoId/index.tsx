@@ -1,43 +1,12 @@
 import { PencilIcon } from "@navikt/aksel-icons"
-import { BodyLong, BodyShort, Button, Detail, Heading, HStack, List, TextField, VStack } from "@navikt/ds-react"
+import { BodyShort, Button, Detail, Heading, HStack, TextField, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRiskDetail, updateRiskShortTitle } from "~/db/queries/framework.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-
-/** Parse risk description into sections: first paragraph = description, bullet lines = consequences. */
-function parseDescription(text: string): { description: string; consequences: string[] } {
-	const lines = text.split("\n").map((l) => l.trim())
-	const descLines: string[] = []
-	const consequences: string[] = []
-	let inBullets = false
-
-	for (const line of lines) {
-		if (line.startsWith("•") || line.startsWith("-") || line.startsWith("*")) {
-			inBullets = true
-			consequences.push(line.replace(/^[•\-*]\s*/, ""))
-		} else if (inBullets && line) {
-			consequences.push(line)
-		} else if (!inBullets && line) {
-			descLines.push(line)
-		}
-	}
-
-	return {
-		description: descLines.join(" "),
-		consequences,
-	}
-}
-
-function controlColor(index: number, total: number): string {
-	const t = total <= 1 ? 0 : index / (total - 1)
-	const r = Math.round(200 - t * 30)
-	const g = Math.round(215 - t * 30)
-	const b = Math.round(235 - t * 20)
-	return `rgb(${r}, ${g}, ${b})`
-}
+import { renderMarkdown } from "~/lib/markdown.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const risikoId = params.risikoId?.toUpperCase()
@@ -46,7 +15,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const risk = await getRiskDetail(risikoId)
 	if (!risk) throw new Response("Risiko ikke funnet", { status: 404 })
 
-	return data({ risk })
+	return data({ risk, descriptionHtml: renderMarkdown(risk.description) })
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -66,11 +35,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 }
 
+function controlColor(index: number, total: number): string {
+	const t = total <= 1 ? 0 : index / (total - 1)
+	const r = Math.round(200 - t * 30)
+	const g = Math.round(215 - t * 30)
+	const b = Math.round(235 - t * 20)
+	return `rgb(${r}, ${g}, ${b})`
+}
+
 export default function RiskDetailPage() {
-	const { risk } = useLoaderData<typeof loader>()
+	const { risk, descriptionHtml } = useLoaderData<typeof loader>()
 	const [editing, setEditing] = useState(false)
 	const [titleValue, setTitleValue] = useState(risk.name)
-	const parsed = parseDescription(risk.description)
 
 	return (
 		<VStack gap="space-8">
@@ -131,21 +107,9 @@ export default function RiskDetailPage() {
 					<Heading size="large" level="3">
 						Risikobeskrivelse
 					</Heading>
-					<BodyLong>{parsed.description}</BodyLong>
+					{/* biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized server-side */}
+					<div className="markdown-content" dangerouslySetInnerHTML={{ __html: descriptionHtml }} />
 				</VStack>
-
-				{parsed.consequences.length > 0 && (
-					<VStack gap="space-4">
-						<Heading size="large" level="3">
-							Konsekvenser
-						</Heading>
-						<List>
-							{parsed.consequences.map((c) => (
-								<List.Item key={c}>{c}</List.Item>
-							))}
-						</List>
-					</VStack>
-				)}
 
 				{risk.controls.length > 0 && (
 					<VStack gap="space-4">
