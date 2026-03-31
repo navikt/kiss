@@ -20,17 +20,32 @@ interface DomainStatus {
 export async function loader(_args: LoaderFunctionArgs) {
 	const summaries = await getDomainSummaries()
 
-	const domainStatuses: DomainStatus[] = summaries.map((s) => ({
-		code: s.code,
-		name: s.name,
-		implemented: s.implemented,
-		partial: s.partial,
-		notImplemented: s.notImplemented,
-		notRelevant: 0,
-		total: s.totalAssessments,
-		controlCount: s.controlCount,
-		controlsWithGaps: s.controlsWithGaps,
-	}))
+	// Merge domains with the same name
+	const mergedMap = new Map<string, DomainStatus>()
+	for (const s of summaries) {
+		const existing = mergedMap.get(s.name)
+		if (existing) {
+			existing.implemented += s.implemented
+			existing.partial += s.partial
+			existing.notImplemented += s.notImplemented
+			existing.total += s.totalAssessments
+			existing.controlCount += s.controlCount
+			existing.controlsWithGaps += s.controlsWithGaps
+		} else {
+			mergedMap.set(s.name, {
+				code: s.code,
+				name: s.name,
+				implemented: s.implemented,
+				partial: s.partial,
+				notImplemented: s.notImplemented,
+				notRelevant: 0,
+				total: s.totalAssessments,
+				controlCount: s.controlCount,
+				controlsWithGaps: s.controlsWithGaps,
+			})
+		}
+	}
+	const domainStatuses = [...mergedMap.values()]
 
 	const totalControls = domainStatuses.reduce((sum, d) => sum + d.total, 0)
 	const totalImplemented = domainStatuses.reduce((sum, d) => sum + d.implemented, 0)
