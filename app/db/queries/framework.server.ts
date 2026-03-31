@@ -67,6 +67,7 @@ export async function getDomainSummaries() {
 		let implemented = 0
 		let partial = 0
 		let notImplemented = 0
+		let notRelevant = 0
 
 		if (controlUuids.length > 0) {
 			const [implRow] = await db
@@ -92,6 +93,14 @@ export async function getDomainSummaries() {
 					sql`${complianceAssessments.controlId} IN ${controlUuids} AND ${complianceAssessments.status} = 'not_implemented'`,
 				)
 			notImplemented = notImplRow?.count ?? 0
+
+			const [notRelRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.controlId} IN ${controlUuids} AND ${complianceAssessments.status} = 'not_relevant'`,
+				)
+			notRelevant = notRelRow?.count ?? 0
 		}
 
 		// Count controls with gaps (at least one app not fully implemented)
@@ -120,6 +129,7 @@ export async function getDomainSummaries() {
 			implemented,
 			partial,
 			notImplemented,
+			notRelevant,
 		})
 	}
 

@@ -1,4 +1,4 @@
-import { BodyLong, BodyShort, Box, Detail, Heading, HGrid, HStack, VStack } from "@navikt/ds-react"
+import { BodyLong, BodyShort, Box, Detail, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -28,6 +28,7 @@ export async function loader(_args: LoaderFunctionArgs) {
 			existing.implemented += s.implemented
 			existing.partial += s.partial
 			existing.notImplemented += s.notImplemented
+			existing.notRelevant += s.notRelevant
 			existing.total += s.totalAssessments
 			existing.controlCount += s.controlCount
 			existing.controlsWithGaps += s.controlsWithGaps
@@ -38,7 +39,7 @@ export async function loader(_args: LoaderFunctionArgs) {
 				implemented: s.implemented,
 				partial: s.partial,
 				notImplemented: s.notImplemented,
-				notRelevant: 0,
+				notRelevant: s.notRelevant,
 				total: s.totalAssessments,
 				controlCount: s.controlCount,
 				controlsWithGaps: s.controlsWithGaps,
@@ -50,13 +51,22 @@ export async function loader(_args: LoaderFunctionArgs) {
 	const totalControls = domainStatuses.reduce((sum, d) => sum + d.total, 0)
 	const totalImplemented = domainStatuses.reduce((sum, d) => sum + d.implemented, 0)
 	const totalPartial = domainStatuses.reduce((sum, d) => sum + d.partial, 0)
-	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls)
+	const totalNotRelevant = domainStatuses.reduce((sum, d) => sum + d.notRelevant, 0)
+	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotRelevant
+	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
-	return data({ domainStatuses, totalControls, totalImplemented, totalPartial, overallPercent })
+	return data({
+		domainStatuses,
+		totalControls,
+		totalImplemented,
+		totalPartial,
+		totalMangler,
+		overallPercent,
+	})
 }
 
 export default function Dashboard() {
-	const { domainStatuses, totalControls, totalImplemented, totalPartial, overallPercent } =
+	const { domainStatuses, totalImplemented, totalPartial, totalMangler, overallPercent } =
 		useLoaderData<typeof loader>()
 
 	return (
@@ -68,7 +78,7 @@ export default function Dashboard() {
 				Overordnet status for SDLC compliance i Kontrollrammeverk for Integrert Sikker Systemutvikling.
 			</BodyLong>
 
-			<HStack gap="space-6" wrap>
+			<HGrid gap="space-6" columns={{ xs: 2, sm: 4 }}>
 				<Box padding="space-6" borderRadius="8" background="sunken">
 					<VStack align="center">
 						<Heading size="xlarge" level="3">
@@ -96,12 +106,12 @@ export default function Dashboard() {
 				<Box padding="space-6" borderRadius="8" background="sunken">
 					<VStack align="center">
 						<Heading size="xlarge" level="3">
-							{totalControls}
+							{totalMangler}
 						</Heading>
-						<Detail>Totalt kontroller</Detail>
+						<Detail>Mangler</Detail>
 					</VStack>
 				</Box>
-			</HStack>
+			</HGrid>
 
 			<Heading size="large" level="3">
 				Status per domene
@@ -109,7 +119,8 @@ export default function Dashboard() {
 
 			<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
 				{domainStatuses.map((domain) => {
-					const pct = compliancePercent(domain.implemented, domain.partial, domain.total)
+					const pct = compliancePercent(domain.implemented, domain.partial, domain.total, domain.notRelevant)
+					const mangler = domain.total - domain.implemented - domain.partial - domain.notRelevant
 					return (
 						<Link key={domain.code} to={`/kontrollrammeverk/${domain.code}`} className="domain-status-card-link">
 							<div className="domain-status-header">
@@ -128,24 +139,28 @@ export default function Dashboard() {
 							>
 								<div
 									className="domain-status-bar-implemented"
-									style={{ width: `${domain.total > 0 ? (domain.implemented / domain.total) * 100 : 0}%` }}
+									style={{
+										width: `${domain.total - domain.notRelevant > 0 ? (domain.implemented / (domain.total - domain.notRelevant)) * 100 : 0}%`,
+									}}
 								/>
 								<div
 									className="domain-status-bar-partial"
-									style={{ width: `${domain.total > 0 ? (domain.partial / domain.total) * 100 : 0}%` }}
+									style={{
+										width: `${domain.total - domain.notRelevant > 0 ? (domain.partial / (domain.total - domain.notRelevant)) * 100 : 0}%`,
+									}}
 								/>
 							</div>
 							<div className="domain-status-details">
 								<BodyShort size="small">{domain.implemented} implementert</BodyShort>
 								<BodyShort size="small">{domain.partial} delvis</BodyShort>
-								<BodyShort size="small">{domain.notImplemented} mangler</BodyShort>
+								<BodyShort size="small">{mangler} mangler</BodyShort>
 							</div>
 							{domain.controlsWithGaps > 0 ? (
 								<div className="domain-status-card-link-footer">
 									{domain.controlsWithGaps} av {domain.controlCount} kontroller har mangler →
 								</div>
 							) : (
-								<div className="domain-status-card-link-footer">Se detaljer →</div>
+								<div className="domain-status-card-link-footer">Alle kontroller i orden →</div>
 							)}
 						</Link>
 					)

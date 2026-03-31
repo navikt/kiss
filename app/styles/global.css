@@ -196,7 +196,8 @@ body {
 }
 
 .domain-status-card-link {
-	display: block;
+	display: flex;
+	flex-direction: column;
 	text-decoration: none;
 	color: inherit;
 	padding: var(--ax-space-24);
@@ -222,7 +223,8 @@ body {
 .domain-status-card-link-footer {
 	display: flex;
 	justify-content: flex-end;
-	margin-top: var(--ax-space-8);
+	margin-top: auto;
+	padding-top: var(--ax-space-8);
 	font-size: var(--ax-font-size-small);
 	color: var(--ax-text-action);
 }

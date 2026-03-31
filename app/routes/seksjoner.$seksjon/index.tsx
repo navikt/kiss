@@ -31,7 +31,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const totalImplemented = teams.reduce((sum, t) => sum + t.implemented, 0)
 	const totalPartial = teams.reduce((sum, t) => sum + t.partial, 0)
 	const totalControls = teams.reduce((sum, t) => sum + t.total, 0)
-	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls)
+	const totalNotRelevant = teams.reduce((sum, t) => sum + t.notRelevant, 0)
+	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotRelevant
+	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
 	const [linkedNaisTeams, unassignedApps] = await Promise.all([
 		getNaisTeamsForSection(result.section.id),
@@ -46,6 +48,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		totalApps,
 		totalImplemented,
 		totalPartial,
+		totalMangler,
 		totalControls,
 		overallPercent,
 		naisTeamCount: linkedNaisTeams.length,
@@ -61,7 +64,7 @@ export default function SeksjonDashboard() {
 		totalApps,
 		totalImplemented,
 		totalPartial,
-		totalControls,
+		totalMangler,
 		overallPercent,
 		naisTeamCount,
 		unassignedAppCount,
@@ -74,7 +77,7 @@ export default function SeksjonDashboard() {
 			</Heading>
 			<BodyLong>Compliance-status for alle team i seksjonen.</BodyLong>
 
-			<HStack gap="space-6" wrap>
+			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 6 }}>
 				<Box padding="space-6" borderRadius="8" background="sunken">
 					<VStack align="center">
 						<Heading size="xlarge" level="3">
@@ -112,18 +115,18 @@ export default function SeksjonDashboard() {
 						<Heading size="xlarge" level="3">
 							{totalPartial}
 						</Heading>
-						<Detail>Delvis implementert</Detail>
+						<Detail>Delvis</Detail>
 					</VStack>
 				</Box>
 				<Box padding="space-6" borderRadius="8" background="sunken">
 					<VStack align="center">
 						<Heading size="xlarge" level="3">
-							{totalControls}
+							{totalMangler}
 						</Heading>
-						<Detail>Totalt kontroller</Detail>
+						<Detail>Mangler</Detail>
 					</VStack>
 				</Box>
-			</HStack>
+			</HGrid>
 
 			<Heading size="large" level="3">
 				Status per team
@@ -131,7 +134,8 @@ export default function SeksjonDashboard() {
 
 			<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
 				{teams.map((team) => {
-					const pct = compliancePercent(team.implemented, team.partial, team.total)
+					const pct = compliancePercent(team.implemented, team.partial, team.total, team.notRelevant)
+					const mangler = team.total - team.implemented - team.partial - team.notRelevant
 					return (
 						<Link key={team.slug} to={`/seksjoner/${seksjon}/team/${team.slug}`} className="domain-status-card-link">
 							<div className="domain-status-header">
@@ -150,18 +154,22 @@ export default function SeksjonDashboard() {
 							>
 								<div
 									className="domain-status-bar-implemented"
-									style={{ width: `${team.total > 0 ? (team.implemented / team.total) * 100 : 0}%` }}
+									style={{
+										width: `${team.total - team.notRelevant > 0 ? (team.implemented / (team.total - team.notRelevant)) * 100 : 0}%`,
+									}}
 								/>
 								<div
 									className="domain-status-bar-partial"
-									style={{ width: `${team.total > 0 ? (team.partial / team.total) * 100 : 0}%` }}
+									style={{
+										width: `${team.total - team.notRelevant > 0 ? (team.partial / (team.total - team.notRelevant)) * 100 : 0}%`,
+									}}
 								/>
 							</div>
 							<div className="domain-status-details">
 								<BodyShort size="small">{team.implemented} implementert</BodyShort>
 								<BodyShort size="small">{team.partial} delvis</BodyShort>
-								<BodyShort size="small">{team.notImplemented} mangler</BodyShort>
-								<BodyShort size="small">{team.apps} applikasjoner</BodyShort>
+								<BodyShort size="small">{mangler} mangler</BodyShort>
+								<BodyShort size="small">{team.apps} apper</BodyShort>
 							</div>
 							<div className="domain-status-card-link-footer">Se detaljer →</div>
 						</Link>

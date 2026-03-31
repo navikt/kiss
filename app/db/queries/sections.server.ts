@@ -34,6 +34,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 		let implemented = 0
 		let partial = 0
 		let notImplemented = 0
+		let notRelevant = 0
 
 		const appMappings = await db
 			.select({ applicationId: applicationTeamMappings.applicationId })
@@ -64,6 +65,14 @@ export async function getSectionDetail(seksjonSlug: string) {
 					sql`${complianceAssessments.applicationId} = ${mapping.applicationId} AND ${complianceAssessments.status} = 'not_implemented'`,
 				)
 			notImplemented += notImplRow?.count ?? 0
+
+			const [notRelRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.applicationId} = ${mapping.applicationId} AND ${complianceAssessments.status} = 'not_relevant'`,
+				)
+			notRelevant += notRelRow?.count ?? 0
 		}
 
 		teamStats.push({
@@ -73,6 +82,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 			implemented,
 			partial,
 			notImplemented,
+			notRelevant,
 			total: totalControls * (appCountRow?.count ?? 0),
 		})
 	}

@@ -1,4 +1,6 @@
-/** Calculate compliance percentage from implementation counts. */
-export function compliancePercent(implemented: number, partial: number, total: number): number {
-	return total > 0 ? Math.round(((implemented + partial * 0.5) / total) * 100) : 0
+/** Calculate compliance percentage from implementation counts.
+ *  notRelevant assessments are excluded from the denominator. */
+export function compliancePercent(implemented: number, partial: number, total: number, notRelevant = 0): number {
+	const denominator = total - notRelevant
+	return denominator > 0 ? Math.round(((implemented + partial * 0.5) / denominator) * 100) : 0
 }
