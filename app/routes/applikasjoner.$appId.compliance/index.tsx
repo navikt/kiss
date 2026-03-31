@@ -161,11 +161,7 @@ export default function ComplianceAssessment() {
 											<VStack gap="space-6">
 												<Label size="small">Utfylling av:</Label>
 												{riskControls.map((assessment) => (
-													<AssessmentCard
-														key={assessment.controlUuid}
-														assessment={assessment}
-														actionData={actionData}
-													/>
+													<AssessmentCard key={assessment.controlUuid} assessment={assessment} />
 												))}
 											</VStack>
 										)}
@@ -182,10 +178,8 @@ export default function ComplianceAssessment() {
 
 function AssessmentCard({
 	assessment,
-	actionData,
 }: {
 	assessment: ReturnType<typeof useLoaderData<typeof loader>>["assessments"][number]
-	actionData: ReturnType<typeof useActionData<typeof action>>
 }) {
 	return (
 		<div className="compliance-card" id={`control-${assessment.controlId}`}>
