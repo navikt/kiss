@@ -1,4 +1,5 @@
-import { Alert, BodyLong, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Heading, HStack, Switch, Table, Tag, VStack } from "@navikt/ds-react"
+import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData, useNavigation } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -87,6 +88,15 @@ export default function NaisOvervaking() {
 	const navigation = useNavigation()
 	const isSyncing = navigation.state === "submitting" && navigation.formData?.get("intent") === "sync"
 
+	const [hideEmpty, setHideEmpty] = useState(false)
+	const [onlyUnmonitored, setOnlyUnmonitored] = useState(false)
+
+	const filteredTeams = teams.filter((t) => {
+		if (hideEmpty && t.appCount === 0) return false
+		if (onlyUnmonitored && t.status !== "pending") return false
+		return true
+	})
+
 	return (
 		<VStack gap="space-6">
 			<Heading size="xlarge" level="2">
@@ -113,6 +123,15 @@ export default function NaisOvervaking() {
 				</Form>
 			</HStack>
 
+			<HStack gap="space-6">
+				<Switch size="small" checked={hideEmpty} onChange={() => setHideEmpty(!hideEmpty)}>
+					Skjul team uten apper
+				</Switch>
+				<Switch size="small" checked={onlyUnmonitored} onChange={() => setOnlyUnmonitored(!onlyUnmonitored)}>
+					Kun ikke-overvåkede
+				</Switch>
+			</HStack>
+
 			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 			<section className="table-scroll" tabIndex={0} aria-label="Nais-team">
 				<Table>
@@ -120,13 +139,15 @@ export default function NaisOvervaking() {
 						<Table.Row>
 							<Table.HeaderCell scope="col">Team</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Applikasjoner</Table.HeaderCell>
+							<Table.HeaderCell scope="col" align="right">
+								Applikasjoner
+							</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
-						{teams.map((team) => (
+						{filteredTeams.map((team) => (
 							<Table.Row key={team.slug}>
 								<Table.DataCell>
 									<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
@@ -137,7 +158,7 @@ export default function NaisOvervaking() {
 										{statusLabel[team.status]}
 									</Tag>
 								</Table.DataCell>
-								<Table.DataCell>{team.appCount}</Table.DataCell>
+								<Table.DataCell align="right">{team.appCount}</Table.DataCell>
 								<Table.DataCell>{new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
 								<Table.DataCell>
 									{team.status === "pending" && (
@@ -170,7 +191,7 @@ export default function NaisOvervaking() {
 								</Table.DataCell>
 							</Table.Row>
 						))}
-						{teams.length === 0 && (
+						{filteredTeams.length === 0 && (
 							<Table.Row>
 								<Table.DataCell colSpan={5}>Ingen Nais-team oppdaget ennå. Trykk «Synkroniser nå».</Table.DataCell>
 							</Table.Row>
