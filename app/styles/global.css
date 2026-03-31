@@ -312,9 +312,7 @@ body {
 }
 
 .compliance-risk-header {
-	padding: var(--ax-space-12) var(--ax-space-16);
-	background: var(--ax-bg-sunken);
-	border-radius: var(--ax-radius-8);
+	padding: var(--ax-space-12) 0;
 	scroll-margin-top: var(--ax-space-16);
 }
 
