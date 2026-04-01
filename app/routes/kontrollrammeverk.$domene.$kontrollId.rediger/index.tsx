@@ -16,7 +16,7 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, useActionData, useLoaderData, useNavigation } from "react-router"
+import { data, Form, Link, redirect, useActionData, useLoaderData, useNavigation } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { statusLabels } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -89,7 +89,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (!isAdmin(authedUser)) return data<ActionResult>({ success: false, error: "Ikke tilgang" }, { status: 403 })
 
 	const kontrollId = params.kontrollId?.toUpperCase()
-	if (!kontrollId) return data<ActionResult>({ success: false, error: "Mangler kontroll-ID" }, { status: 400 })
+	const domene = params.domene
+	if (!kontrollId || !domene)
+		return data<ActionResult>({ success: false, error: "Mangler parametere" }, { status: 400 })
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
@@ -104,7 +106,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				}
 			}
 			await updateControlFields(kontrollId, fields, authedUser.navIdent)
-			return data<ActionResult>({ success: true, message: "Endringene ble lagret." })
+			return redirect(`/kontrollrammeverk/${domene}/${kontrollId}`)
 		}
 
 		if (intent === "addAnswer") {
