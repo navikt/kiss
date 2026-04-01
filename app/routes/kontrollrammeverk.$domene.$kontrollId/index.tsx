@@ -115,8 +115,7 @@ export default function ControlDetailPage() {
 										style={{ textDecoration: "none" }}
 									>
 										<Tag variant="alt1" size="small">
-											{dep.controlId}
-											{dep.shortTitle ? `: ${dep.shortTitle}` : ""}
+											{dep.controlId}: {dep.name}
 										</Tag>
 									</Link>
 								))}
@@ -134,8 +133,7 @@ export default function ControlDetailPage() {
 										style={{ textDecoration: "none" }}
 									>
 										<Tag variant="neutral" size="small">
-											{dep.controlId}
-											{dep.shortTitle ? `: ${dep.shortTitle}` : ""}
+											{dep.controlId}: {dep.name}
 										</Tag>
 									</Link>
 								))}

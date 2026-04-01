@@ -376,8 +376,7 @@ export default function ControlEditPage() {
 							<input type="hidden" name="intent" value="removeDependency" />
 							<input type="hidden" name="dependsOnId" value={dep.id} />
 							<Tag variant="alt1" size="small">
-								{dep.controlId}
-								{dep.shortTitle ? `: ${dep.shortTitle}` : ""}
+								{dep.controlId}: {dep.name}
 								<Button
 									type="submit"
 									variant="tertiary-neutral"
@@ -397,8 +396,7 @@ export default function ControlEditPage() {
 							<Select label="Legg til avhengighet" name="dependsOnId" size="small">
 								{availableControls.map((c) => (
 									<option key={c.id} value={c.id}>
-										{c.controlId}
-										{c.shortTitle ? `: ${c.shortTitle}` : ""}
+										{c.controlId}: {c.name}
 									</option>
 								))}
 							</Select>

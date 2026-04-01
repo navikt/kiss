@@ -1385,30 +1385,42 @@ export async function getControlDomainMap(controlUuids: string[]): Promise<Map<s
 
 /** Get controls that a given control depends on. */
 export async function getControlDependencies(controlUuid: string) {
-	return db
+	const rows = await db
 		.select({
 			id: frameworkControls.id,
 			controlId: frameworkControls.controlId,
 			shortTitle: frameworkControls.shortTitle,
+			requirement: frameworkControls.requirement,
 		})
 		.from(controlDependencies)
 		.innerJoin(frameworkControls, eq(controlDependencies.dependsOnControlId, frameworkControls.id))
 		.where(eq(controlDependencies.controlId, controlUuid))
 		.orderBy(frameworkControls.controlId)
+	return rows.map((r) => ({
+		id: r.id,
+		controlId: r.controlId,
+		name: r.shortTitle || shortName(r.requirement, r.controlId),
+	}))
 }
 
 /** Get controls that depend on a given control (reverse dependencies). */
 export async function getControlDependents(controlUuid: string) {
-	return db
+	const rows = await db
 		.select({
 			id: frameworkControls.id,
 			controlId: frameworkControls.controlId,
 			shortTitle: frameworkControls.shortTitle,
+			requirement: frameworkControls.requirement,
 		})
 		.from(controlDependencies)
 		.innerJoin(frameworkControls, eq(controlDependencies.controlId, frameworkControls.id))
 		.where(eq(controlDependencies.dependsOnControlId, controlUuid))
 		.orderBy(frameworkControls.controlId)
+	return rows.map((r) => ({
+		id: r.id,
+		controlId: r.controlId,
+		name: r.shortTitle || shortName(r.requirement, r.controlId),
+	}))
 }
 
 /** Add a dependency between controls. */
@@ -1444,13 +1456,19 @@ export async function removeControlDependency(controlUuid: string, dependsOnUuid
 
 /** Get all non-archived controls (for dependency selection). */
 export async function getAllControlsForSelection() {
-	return db
+	const rows = await db
 		.select({
 			id: frameworkControls.id,
 			controlId: frameworkControls.controlId,
 			shortTitle: frameworkControls.shortTitle,
+			requirement: frameworkControls.requirement,
 		})
 		.from(frameworkControls)
 		.where(isNull(frameworkControls.archivedAt))
 		.orderBy(frameworkControls.controlId)
+	return rows.map((r) => ({
+		id: r.id,
+		controlId: r.controlId,
+		name: r.shortTitle || shortName(r.requirement, r.controlId),
+	}))
 }
