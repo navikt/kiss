@@ -474,6 +474,42 @@ export async function updateControlField(controlIdStr: string, fieldName: string
 	})
 }
 
+/** Update multiple fields on a control in one go. Only changed fields are written. */
+export async function updateControlFields(controlIdStr: string, fields: Record<string, string>, performedBy: string) {
+	const [ctrl] = await db
+		.select()
+		.from(frameworkControls)
+		.where(sql`${frameworkControls.archivedAt} IS NULL AND ${frameworkControls.controlId} = ${controlIdStr}`)
+		.limit(1)
+
+	if (!ctrl) throw new Error(`Kontroll ${controlIdStr} finnes ikke.`)
+
+	for (const [fieldName, value] of Object.entries(fields)) {
+		const column = controlFieldMap[fieldName]
+		if (!column) continue
+
+		const previousValue = (ctrl as Record<string, unknown>)[column] as string | null
+		const newValue = value.trim() || null
+
+		if (previousValue === newValue) continue
+
+		await db
+			.update(frameworkControls)
+			.set({ [column]: newValue })
+			.where(eq(frameworkControls.id, ctrl.id))
+
+		await writeAuditLog({
+			action: "control_field_updated",
+			entityType: "framework_control",
+			entityId: controlIdStr,
+			previousValue,
+			newValue,
+			metadata: { field: fieldName },
+			performedBy,
+		})
+	}
+}
+
 /** Stage a framework import: create a pending version and compute the diff against live data. */
 export async function stageFrameworkImport(
 	parsed: ParsedFramework,

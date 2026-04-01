@@ -1,5 +1,6 @@
 import { PencilIcon, PlusIcon, TrashIcon, XMarkIcon } from "@navikt/aksel-icons"
 import {
+	Alert,
 	BodyLong,
 	Box,
 	Button,
@@ -15,7 +16,7 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, useLoaderData } from "react-router"
+import { data, Form, Link, useActionData, useLoaderData, useNavigation } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { statusLabels } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -23,7 +24,7 @@ import {
 	addPredefinedAnswer,
 	deletePredefinedAnswer,
 	getControlDetail,
-	updateControlField,
+	updateControlFields,
 	updatePredefinedAnswer,
 } from "~/db/queries/framework.server"
 import {
@@ -74,33 +75,39 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return data({ domene, control, allElements, controlElements })
 }
 
+type ActionResult = { success: true; message: string } | { success: false; error: string }
+
 export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	if (!isAdmin(authedUser)) return data({ error: "Ikke tilgang" }, { status: 403 })
+	if (!isAdmin(authedUser)) return data<ActionResult>({ success: false, error: "Ikke tilgang" }, { status: 403 })
 
 	const kontrollId = params.kontrollId?.toUpperCase()
-	if (!kontrollId) return data({ error: "Mangler kontroll-ID" }, { status: 400 })
+	if (!kontrollId) return data<ActionResult>({ success: false, error: "Mangler kontroll-ID" }, { status: 400 })
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
 
 	try {
-		if (intent === "updateField") {
-			const fieldName = formData.get("fieldName") as string
-			const value = formData.get("value") as string
-			if (!fieldName) return data({ error: "Mangler feltnavn" }, { status: 400 })
-			await updateControlField(kontrollId, fieldName, value ?? "", authedUser.navIdent)
-			return data({ success: true })
+		if (intent === "saveFields") {
+			const fields: Record<string, string> = {}
+			for (const field of fieldConfig) {
+				const value = formData.get(field.key)
+				if (typeof value === "string") {
+					fields[field.key] = value
+				}
+			}
+			await updateControlFields(kontrollId, fields, authedUser.navIdent)
+			return data<ActionResult>({ success: true, message: "Endringene ble lagret." })
 		}
 
 		if (intent === "addAnswer") {
 			const label = (formData.get("label") as string)?.trim()
 			const status = formData.get("status") as string
 			const comment = (formData.get("comment") as string)?.trim() || null
-			if (!label || !status) return data({ error: "Mangler label eller status" }, { status: 400 })
+			if (!label || !status) return data<ActionResult>({ success: false, error: "Mangler label eller status" })
 			await addPredefinedAnswer(kontrollId, label, status, comment, authedUser.navIdent)
-			return data({ success: true })
+			return data<ActionResult>({ success: true, message: "Forhåndsdefinert svar ble lagt til." })
 		}
 
 		if (intent === "updateAnswer") {
@@ -108,119 +115,43 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			const label = (formData.get("label") as string)?.trim()
 			const status = formData.get("status") as string
 			const comment = (formData.get("comment") as string)?.trim() || null
-			if (!answerId || !label || !status) return data({ error: "Mangler data" }, { status: 400 })
+			if (!answerId || !label || !status) return data<ActionResult>({ success: false, error: "Mangler data" })
 			await updatePredefinedAnswer(answerId, { label, status, comment }, authedUser.navIdent)
-			return data({ success: true })
+			return data<ActionResult>({ success: true, message: "Forhåndsdefinert svar ble oppdatert." })
 		}
 
 		if (intent === "deleteAnswer") {
 			const answerId = formData.get("answerId") as string
-			if (!answerId) return data({ error: "Mangler svar-ID" }, { status: 400 })
+			if (!answerId) return data<ActionResult>({ success: false, error: "Mangler svar-ID" })
 			await deletePredefinedAnswer(answerId, authedUser.navIdent)
-			return data({ success: true })
+			return data<ActionResult>({ success: true, message: "Forhåndsdefinert svar ble slettet." })
 		}
 
 		if (intent === "addElement") {
 			const control = await getControlDetail(kontrollId)
-			if (!control) return data({ error: "Kontroll ikke funnet" }, { status: 404 })
+			if (!control) return data<ActionResult>({ success: false, error: "Kontroll ikke funnet" })
 			const elementId = formData.get("elementId") as string
-			if (!elementId) return data({ error: "Mangler element-ID" }, { status: 400 })
+			if (!elementId) return data<ActionResult>({ success: false, error: "Mangler element-ID" })
 			await addControlElement(control.uuid, elementId, authedUser.navIdent)
-			return data({ success: true })
+			return data<ActionResult>({ success: true, message: "Element ble lagt til." })
 		}
 
 		if (intent === "removeElement") {
 			const control = await getControlDetail(kontrollId)
-			if (!control) return data({ error: "Kontroll ikke funnet" }, { status: 404 })
+			if (!control) return data<ActionResult>({ success: false, error: "Kontroll ikke funnet" })
 			const elementId = formData.get("elementId") as string
-			if (!elementId) return data({ error: "Mangler element-ID" }, { status: 400 })
+			if (!elementId) return data<ActionResult>({ success: false, error: "Mangler element-ID" })
 			await removeControlElement(control.uuid, elementId, authedUser.navIdent)
-			return data({ success: true })
+			return data<ActionResult>({ success: true, message: "Element ble fjernet." })
 		}
 
-		return data({ error: "Ukjent handling" }, { status: 400 })
+		return data<ActionResult>({ success: false, error: "Ukjent handling" }, { status: 400 })
 	} catch (err) {
-		return data({ error: err instanceof Error ? err.message : "Ukjent feil" }, { status: 500 })
+		return data<ActionResult>({
+			success: false,
+			error: err instanceof Error ? err.message : "Ukjent feil",
+		})
 	}
-}
-
-function EditableField({
-	fieldKey,
-	label,
-	value,
-	multiline,
-}: {
-	fieldKey: string
-	label: string
-	value: string
-	multiline: boolean
-}) {
-	const [editing, setEditing] = useState(false)
-	const [currentValue, setCurrentValue] = useState(value)
-
-	if (editing) {
-		return (
-			<Form method="post" onSubmit={() => setEditing(false)}>
-				<VStack gap="space-2">
-					<input type="hidden" name="intent" value="updateField" />
-					<input type="hidden" name="fieldName" value={fieldKey} />
-					{multiline ? (
-						<Textarea
-							label={label}
-							name="value"
-							value={currentValue}
-							onChange={(e) => setCurrentValue(e.target.value)}
-							minRows={3}
-							autoFocus
-						/>
-					) : (
-						<TextField
-							label={label}
-							name="value"
-							value={currentValue}
-							onChange={(e) => setCurrentValue(e.target.value)}
-							autoFocus
-						/>
-					)}
-					<HStack gap="space-2">
-						<Button type="submit" variant="primary" size="small">
-							Lagre
-						</Button>
-						<Button
-							type="button"
-							variant="tertiary"
-							size="small"
-							onClick={() => {
-								setCurrentValue(value)
-								setEditing(false)
-							}}
-						>
-							Avbryt
-						</Button>
-					</HStack>
-				</VStack>
-			</Form>
-		)
-	}
-
-	return (
-		<VStack gap="space-2">
-			<HStack gap="space-2" align="center">
-				<Label size="small">{label}</Label>
-				<Button
-					type="button"
-					variant="tertiary-neutral"
-					size="xsmall"
-					icon={<PencilIcon aria-hidden />}
-					onClick={() => setEditing(true)}
-					aria-label={`Rediger ${label}`}
-				/>
-			</HStack>
-			<BodyLong size="small" style={{ whiteSpace: "pre-wrap" }}>
-				{value || "–"}
-			</BodyLong>
-		</VStack>
-	)
 }
 
 const statusVariants: Record<string, "info" | "success" | "warning" | "error" | "neutral"> = {
@@ -286,6 +217,10 @@ function PredefinedAnswerForm({
 
 export default function ControlEditPage() {
 	const { domene, control, allElements, controlElements } = useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
+	const navigation = useNavigation()
+	const isSubmitting = navigation.state === "submitting"
+
 	const [addingAnswer, setAddingAnswer] = useState(false)
 	const [editingAnswerId, setEditingAnswerId] = useState<string | null>(null)
 
@@ -316,6 +251,51 @@ export default function ControlEditPage() {
 					Rediger {control.id}: {control.name}
 				</Heading>
 			</VStack>
+
+			{actionData && "success" in actionData && actionData.success && (
+				<Alert variant="success" size="small">
+					{actionData.message}
+				</Alert>
+			)}
+			{actionData && "success" in actionData && !actionData.success && (
+				<Alert variant="error" size="small">
+					{actionData.error}
+				</Alert>
+			)}
+
+			<Form method="post">
+				<input type="hidden" name="intent" value="saveFields" />
+				<VStack gap="space-6">
+					<Heading size="medium" level="3">
+						Kontrollinformasjon
+					</Heading>
+					{fieldConfig.map((field) =>
+						field.multiline ? (
+							<Textarea
+								key={field.key}
+								label={field.label}
+								name={field.key}
+								defaultValue={fieldValues[field.key]}
+								minRows={3}
+								size="small"
+							/>
+						) : (
+							<TextField
+								key={field.key}
+								label={field.label}
+								name={field.key}
+								defaultValue={fieldValues[field.key]}
+								size="small"
+							/>
+						),
+					)}
+					<div>
+						<Button type="submit" variant="primary" loading={isSubmitting}>
+							Lagre endringer
+						</Button>
+					</div>
+				</VStack>
+			</Form>
 
 			<VStack gap="space-6">
 				<Heading size="medium" level="3">
@@ -357,18 +337,6 @@ export default function ControlEditPage() {
 						</HStack>
 					</Form>
 				)}
-			</VStack>
-
-			<VStack gap="space-6">
-				{fieldConfig.map((field) => (
-					<EditableField
-						key={field.key}
-						fieldKey={field.key}
-						label={field.label}
-						value={fieldValues[field.key]}
-						multiline={field.multiline}
-					/>
-				))}
 			</VStack>
 
 			<VStack gap="space-8">
