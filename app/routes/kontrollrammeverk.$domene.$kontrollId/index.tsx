@@ -9,14 +9,12 @@ import { isAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 
 const fieldConfig = [
-	{ key: "technologyElement", label: "Teknologielement" },
 	{ key: "requirement", label: "Krav" },
 	{ key: "responsible", label: "Ansvarlig" },
 	{ key: "routine", label: "Rutine" },
 	{ key: "frequency", label: "Frekvens" },
 	{ key: "documentationRequirement", label: "Dokumentasjonskrav" },
 	{ key: "testProcedure", label: "Testprosedyre" },
-	{ key: "dependencies", label: "Avhengigheter" },
 	{ key: "references", label: "Referanser" },
 	{ key: "commonPitfalls", label: "Vanlige fallgruver" },
 ] as const
@@ -48,14 +46,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const fieldHtml: Record<string, string> = {}
 	const rawFields: Record<string, string> = {
-		technologyElement: control.teknologielement,
 		requirement: control.krav,
 		responsible: control.ansvarlig,
 		routine: control.rutine,
 		frequency: control.frekvens,
 		documentationRequirement: control.dokumentasjonskrav,
 		testProcedure: control.testprosedyre,
-		dependencies: control.avhengigheter,
 		references: control.referanser,
 		commonPitfalls: control.vanligeFallgruver,
 	}
