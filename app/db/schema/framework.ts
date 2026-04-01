@@ -127,3 +127,13 @@ export const applicationTechnologyElements = pgTable("application_technology_ele
 	source: text("source").notNull().default("manual"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+export const controlDependencies = pgTable("control_dependencies", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	controlId: uuid("control_id")
+		.notNull()
+		.references(() => frameworkControls.id, { onDelete: "cascade" }),
+	dependsOnControlId: uuid("depends_on_control_id")
+		.notNull()
+		.references(() => frameworkControls.id, { onDelete: "cascade" }),
+})

@@ -3,7 +3,7 @@ import { Button, Detail, Heading, HStack, Label, Tag, VStack } from "@navikt/ds-
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getControlDetail } from "~/db/queries/framework.server"
+import { getControlDependencies, getControlDependents, getControlDetail } from "~/db/queries/framework.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -39,9 +39,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const { getControlElements } = await import("~/db/queries/technology-elements.server")
 	const { getControlDomains } = await import("~/db/queries/framework.server")
-	const [controlElements, controlDomains] = await Promise.all([
+	const [controlElements, controlDomains, dependencies, dependents] = await Promise.all([
 		getControlElements(control.uuid),
 		getControlDomains(control.uuid),
+		getControlDependencies(control.uuid),
+		getControlDependents(control.uuid),
 	])
 
 	const fieldHtml: Record<string, string> = {}
@@ -61,11 +63,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		fieldHtml[key] = renderMarkdown(val)
 	}
 
-	return data({ domene, control, canEdit, fieldHtml, controlElements, controlDomains })
+	return data({ domene, control, canEdit, fieldHtml, controlElements, controlDomains, dependencies, dependents })
 }
 
 export default function ControlDetailPage() {
-	const { domene, control, canEdit, fieldHtml, controlElements, controlDomains } = useLoaderData<typeof loader>()
+	const { domene, control, canEdit, fieldHtml, controlElements, controlDomains, dependencies, dependents } =
+		useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-12">
@@ -98,6 +101,47 @@ export default function ControlDetailPage() {
 					</HStack>
 				)}
 			</VStack>
+
+			{(dependencies.length > 0 || dependents.length > 0) && (
+				<VStack gap="space-6">
+					{dependencies.length > 0 && (
+						<VStack gap="space-2">
+							<Label size="small">Avhenger av</Label>
+							<HStack gap="space-2" wrap>
+								{dependencies.map((dep) => (
+									<Link
+										key={dep.id}
+										to={`/kontrollrammeverk/${domene}/${dep.controlId}`}
+										style={{ textDecoration: "none" }}
+									>
+										<Tag variant="alt1" size="small">
+											{dep.controlId}: {dep.shortTitle ?? dep.controlId}
+										</Tag>
+									</Link>
+								))}
+							</HStack>
+						</VStack>
+					)}
+					{dependents.length > 0 && (
+						<VStack gap="space-2">
+							<Label size="small">Brukes av</Label>
+							<HStack gap="space-2" wrap>
+								{dependents.map((dep) => (
+									<Link
+										key={dep.id}
+										to={`/kontrollrammeverk/${domene}/${dep.controlId}`}
+										style={{ textDecoration: "none" }}
+									>
+										<Tag variant="neutral" size="small">
+											{dep.controlId}: {dep.shortTitle ?? dep.controlId}
+										</Tag>
+									</Link>
+								))}
+							</HStack>
+						</VStack>
+					)}
+				</VStack>
+			)}
 
 			<VStack gap="space-6">
 				{fieldConfig.map((field) => (

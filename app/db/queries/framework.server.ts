@@ -4,6 +4,7 @@ import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
 import {
+	controlDependencies,
 	controlPredefinedAnswers,
 	frameworkControls,
 	frameworkDomains,
@@ -1380,4 +1381,76 @@ export async function getControlDomainMap(controlUuids: string[]): Promise<Map<s
 	}
 
 	return result
+}
+
+/** Get controls that a given control depends on. */
+export async function getControlDependencies(controlUuid: string) {
+	return db
+		.select({
+			id: frameworkControls.id,
+			controlId: frameworkControls.controlId,
+			shortTitle: frameworkControls.shortTitle,
+		})
+		.from(controlDependencies)
+		.innerJoin(frameworkControls, eq(controlDependencies.dependsOnControlId, frameworkControls.id))
+		.where(eq(controlDependencies.controlId, controlUuid))
+		.orderBy(frameworkControls.controlId)
+}
+
+/** Get controls that depend on a given control (reverse dependencies). */
+export async function getControlDependents(controlUuid: string) {
+	return db
+		.select({
+			id: frameworkControls.id,
+			controlId: frameworkControls.controlId,
+			shortTitle: frameworkControls.shortTitle,
+		})
+		.from(controlDependencies)
+		.innerJoin(frameworkControls, eq(controlDependencies.controlId, frameworkControls.id))
+		.where(eq(controlDependencies.dependsOnControlId, controlUuid))
+		.orderBy(frameworkControls.controlId)
+}
+
+/** Add a dependency between controls. */
+export async function addControlDependency(controlUuid: string, dependsOnUuid: string, performer: string) {
+	await db
+		.insert(controlDependencies)
+		.values({ controlId: controlUuid, dependsOnControlId: dependsOnUuid })
+		.onConflictDoNothing()
+	await writeAuditLog({
+		action: "control_dependency_added",
+		entityType: "control_dependency",
+		entityId: controlUuid,
+		newValue: JSON.stringify({ controlId: controlUuid, dependsOnControlId: dependsOnUuid }),
+		performedBy: performer,
+	})
+}
+
+/** Remove a dependency between controls. */
+export async function removeControlDependency(controlUuid: string, dependsOnUuid: string, performer: string) {
+	await db
+		.delete(controlDependencies)
+		.where(
+			and(eq(controlDependencies.controlId, controlUuid), eq(controlDependencies.dependsOnControlId, dependsOnUuid)),
+		)
+	await writeAuditLog({
+		action: "control_dependency_removed",
+		entityType: "control_dependency",
+		entityId: controlUuid,
+		previousValue: JSON.stringify({ controlId: controlUuid, dependsOnControlId: dependsOnUuid }),
+		performedBy: performer,
+	})
+}
+
+/** Get all non-archived controls (for dependency selection). */
+export async function getAllControlsForSelection() {
+	return db
+		.select({
+			id: frameworkControls.id,
+			controlId: frameworkControls.controlId,
+			shortTitle: frameworkControls.shortTitle,
+		})
+		.from(frameworkControls)
+		.where(isNull(frameworkControls.archivedAt))
+		.orderBy(frameworkControls.controlId)
 }

@@ -21,9 +21,13 @@ import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { statusLabels } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
+	addControlDependency,
 	addPredefinedAnswer,
 	deletePredefinedAnswer,
+	getAllControlsForSelection,
+	getControlDependencies,
 	getControlDetail,
+	removeControlDependency,
 	updateControlFields,
 	updatePredefinedAnswer,
 } from "~/db/queries/framework.server"
@@ -71,8 +75,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const allElements = await getAllTechnologyElements()
 	const controlElements = await getControlElements(control.uuid)
+	const dependencies = await getControlDependencies(control.uuid)
+	const allControls = await getAllControlsForSelection()
 
-	return data({ domene, control, allElements, controlElements })
+	return data({ domene, control, allElements, controlElements, dependencies, allControls })
 }
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
@@ -143,6 +149,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (!elementId) return data<ActionResult>({ success: false, error: "Mangler element-ID" })
 			await removeControlElement(control.uuid, elementId, authedUser.navIdent)
 			return data<ActionResult>({ success: true, message: "Element ble fjernet." })
+		}
+
+		if (intent === "addDependency") {
+			const control = await getControlDetail(kontrollId)
+			if (!control) return data<ActionResult>({ success: false, error: "Kontroll ikke funnet" })
+			const dependsOnId = formData.get("dependsOnId") as string
+			if (!dependsOnId) return data<ActionResult>({ success: false, error: "Mangler kontroll-ID" })
+			await addControlDependency(control.uuid, dependsOnId, authedUser.navIdent)
+			return data<ActionResult>({ success: true, message: "Avhengighet ble lagt til." })
+		}
+
+		if (intent === "removeDependency") {
+			const control = await getControlDetail(kontrollId)
+			if (!control) return data<ActionResult>({ success: false, error: "Kontroll ikke funnet" })
+			const dependsOnId = formData.get("dependsOnId") as string
+			if (!dependsOnId) return data<ActionResult>({ success: false, error: "Mangler kontroll-ID" })
+			await removeControlDependency(control.uuid, dependsOnId, authedUser.navIdent)
+			return data<ActionResult>({ success: true, message: "Avhengighet ble fjernet." })
 		}
 
 		return data<ActionResult>({ success: false, error: "Ukjent handling" }, { status: 400 })
@@ -216,7 +240,7 @@ function PredefinedAnswerForm({
 }
 
 export default function ControlEditPage() {
-	const { domene, control, allElements, controlElements } = useLoaderData<typeof loader>()
+	const { domene, control, allElements, controlElements, dependencies, allControls } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const isSubmitting = navigation.state === "submitting"
@@ -226,6 +250,9 @@ export default function ControlEditPage() {
 
 	const assignedIds = new Set(controlElements.map((e) => e.id))
 	const availableElements = allElements.filter((e) => !assignedIds.has(e.id))
+
+	const depIds = new Set(dependencies.map((d) => d.id))
+	const availableControls = allControls.filter((c) => c.id !== control.uuid && !depIds.has(c.id))
 
 	const fieldValues: Record<string, string> = {
 		shortTitle: control.name,
@@ -328,6 +355,48 @@ export default function ControlEditPage() {
 								{availableElements.map((el) => (
 									<option key={el.id} value={el.id}>
 										{el.name}
+									</option>
+								))}
+							</Select>
+							<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
+								Legg til
+							</Button>
+						</HStack>
+					</Form>
+				)}
+			</VStack>
+
+			<VStack gap="space-6">
+				<Heading size="medium" level="3">
+					Avhengigheter til andre kontroller
+				</Heading>
+				<HStack gap="space-2" wrap>
+					{dependencies.map((dep) => (
+						<Form method="post" key={dep.id}>
+							<input type="hidden" name="intent" value="removeDependency" />
+							<input type="hidden" name="dependsOnId" value={dep.id} />
+							<Tag variant="alt1" size="small">
+								{dep.controlId}: {dep.shortTitle ?? dep.controlId}
+								<Button
+									type="submit"
+									variant="tertiary-neutral"
+									size="xsmall"
+									icon={<XMarkIcon aria-hidden />}
+									aria-label={`Fjern avhengighet til ${dep.controlId}`}
+								/>
+							</Tag>
+						</Form>
+					))}
+					{dependencies.length === 0 && <BodyLong size="small">Ingen avhengigheter definert.</BodyLong>}
+				</HStack>
+				{availableControls.length > 0 && (
+					<Form method="post">
+						<input type="hidden" name="intent" value="addDependency" />
+						<HStack gap="space-4" align="end">
+							<Select label="Legg til avhengighet" name="dependsOnId" size="small">
+								{availableControls.map((c) => (
+									<option key={c.id} value={c.id}>
+										{c.controlId}: {c.shortTitle ?? c.controlId}
 									</option>
 								))}
 							</Select>
