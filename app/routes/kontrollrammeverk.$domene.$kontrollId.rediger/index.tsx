@@ -12,7 +12,6 @@ import {
 	Tag,
 	Textarea,
 	TextField,
-	UNSAFE_Combobox,
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
@@ -217,25 +216,38 @@ const statusVariants: Record<string, "info" | "success" | "warning" | "error" | 
 }
 
 function FrequencyCombobox({ defaultValue }: { defaultValue: string }) {
-	const [value, setValue] = useState(defaultValue)
+	const isPredefined = textFrequencySuggestions.includes(defaultValue as (typeof textFrequencySuggestions)[number])
+	const [selected, setSelected] = useState(isPredefined ? defaultValue : defaultValue ? "custom" : "")
+	const [customText, setCustomText] = useState(isPredefined ? "" : defaultValue)
+
+	const effectiveValue = selected === "custom" ? customText : selected
+
 	return (
-		<div style={{ flexGrow: 1 }}>
-			<input type="hidden" name="frequency" value={value} />
-			<UNSAFE_Combobox
+		<VStack gap="space-4" style={{ flexGrow: 1 }}>
+			<input type="hidden" name="frequency" value={effectiveValue} />
+			<Select
 				label="Hendelsesbasert frekvens"
-				options={[...textFrequencySuggestions]}
 				size="small"
-				defaultValue={defaultValue}
-				allowNewValues
-				shouldAutocomplete
-				onToggleSelected={(option, isSelected) => {
-					setValue(isSelected ? option : "")
-				}}
-				onChange={(newVal) => {
-					setValue(newVal ?? "")
-				}}
-			/>
-		</div>
+				value={selected}
+				onChange={(e) => setSelected(e.target.value)}
+			>
+				<option value="">Ikke valgt</option>
+				{textFrequencySuggestions.map((opt) => (
+					<option key={opt} value={opt}>
+						{opt}
+					</option>
+				))}
+				<option value="custom">Annet (egendefinert)</option>
+			</Select>
+			{selected === "custom" && (
+				<TextField
+					label="Egendefinert frekvens"
+					size="small"
+					value={customText}
+					onChange={(e) => setCustomText(e.target.value)}
+				/>
+			)}
+		</VStack>
 	)
 }
 
