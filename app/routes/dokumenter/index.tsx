@@ -14,7 +14,7 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import type { ActionFunctionArgs } from "react-router"
 import { data, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { saveBucketObject } from "~/db/queries/buckets.server"
@@ -36,16 +36,14 @@ interface DocumentRow {
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader() {
 	const docs = await getAllDocuments()
-	const origin = new URL(request.url).origin
 
 	return data({
 		documents: docs.map((d) => ({
 			...d,
 			uploadedAt: d.uploadedAt.toISOString(),
 		})),
-		origin,
 	})
 }
 
@@ -166,7 +164,7 @@ const rejectionErrors: Record<FileRejectionReason, string> = {
 }
 
 export default function Dokumenter() {
-	const { documents, origin } = useLoaderData<typeof loader>()
+	const { documents } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const submit = useSubmit()
@@ -323,7 +321,7 @@ export default function Dokumenter() {
 						</Table.Header>
 						<Table.Body>
 							{(documents as DocumentRow[]).map((doc) => {
-								const docUrl = `${origin}/api/dokumenter/${doc.id}`
+								const docUrl = `/api/dokumenter/${doc.id}`
 								return (
 									<Table.Row key={doc.id}>
 										<Table.DataCell>

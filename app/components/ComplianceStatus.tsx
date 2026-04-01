@@ -32,23 +32,32 @@ interface ComplianceCommentProps {
 	comment: string
 }
 
-/** Renders comment text with auto-linked URLs */
+/** Renders comment text with auto-linked URLs and relative paths */
 export function ComplianceComment({ comment }: ComplianceCommentProps) {
-	const parts = comment.split(/(https?:\/\/[^\s<]+)/g)
-	const isUrl = (s: string) => /^https?:\/\//.test(s)
+	// Match absolute URLs (https://...) and relative paths (/api/... /dokumenter/...)
+	const parts = comment.split(/(https?:\/\/[^\s<]+|\/api\/[^\s<]+|\/dokumenter\/[^\s<]+)/g)
+	const isAbsoluteUrl = (s: string) => /^https?:\/\//.test(s)
+	const isRelativePath = (s: string) => /^\/(?:api|dokumenter)\//.test(s)
 
 	const elements: React.ReactNode[] = []
 	for (let i = 0; i < parts.length; i++) {
 		const part = parts[i]
 		if (!part) continue
-		if (isUrl(part)) {
+		if (isAbsoluteUrl(part)) {
 			elements.push(
-				<AkselLink key={`url-${part}`} href={part} target="_blank" rel="noopener noreferrer">
+				<AkselLink key={`url-${i}`} href={part} target="_blank" rel="noopener noreferrer">
+					{part}
+					<span className="navds-sr-only"> (åpnes i nytt vindu)</span>
+				</AkselLink>,
+			)
+		} else if (isRelativePath(part)) {
+			elements.push(
+				<AkselLink key={`path-${i}`} href={part} target="_blank" rel="noopener noreferrer">
 					{part}
 				</AkselLink>,
 			)
 		} else {
-			elements.push(<span key={`text-${part}`}>{part}</span>)
+			elements.push(<span key={`text-${i}`}>{part}</span>)
 		}
 	}
 
