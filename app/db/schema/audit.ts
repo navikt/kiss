@@ -41,6 +41,8 @@ export const auditLogActionEnum = [
 	"technology_element_deleted",
 	"control_element_added",
 	"control_element_removed",
+	"document_uploaded",
+	"document_deleted",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

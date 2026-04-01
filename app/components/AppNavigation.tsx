@@ -11,6 +11,7 @@ const navItems: NavItem[] = [
 	{ label: "Applikasjoner", href: "/applikasjoner" },
 	{ label: "Seksjoner", href: "/seksjoner" },
 	{ label: "Rapporter", href: "/rapporter" },
+	{ label: "Dokumenter", href: "/dokumenter" },
 	{ label: "Nais", href: "/nais-overvaking" },
 	{ label: "Admin", href: "/admin" },
 ]

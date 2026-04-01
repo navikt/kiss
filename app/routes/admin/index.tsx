@@ -60,6 +60,12 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Administrer teknologielementer som brukes i kontroller og applikasjoner.</BodyLong>
 				</Link>
+				<Link to="/dokumenter" className="admin-card">
+					<Heading size="small" level="3">
+						Dokumenter
+					</Heading>
+					<BodyLong size="small">Last opp dokumenter som kan lenkes til fra compliance-vurderinger.</BodyLong>
+				</Link>
 			</div>
 		</VStack>
 	)
