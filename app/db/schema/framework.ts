@@ -47,6 +47,7 @@ export const frameworkControls = pgTable("framework_controls", {
 	responsible: text("responsible"),
 	routine: text("routine"),
 	frequency: text("frequency"),
+	cronFrequency: text("cron_frequency"),
 	documentationRequirement: text("documentation_requirement"),
 	testProcedure: text("test_procedure"),
 	dependencies: text("dependencies"),

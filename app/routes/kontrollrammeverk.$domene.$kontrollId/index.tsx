@@ -8,11 +8,18 @@ import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 
+const cronFrequencyLabels: Record<string, string> = {
+	monthly: "Månedlig",
+	quarterly: "Kvartalsvis",
+	tertiary: "Tertialsvis",
+	biannual: "Halvårsvis",
+	annual: "Årlig",
+}
+
 const fieldConfig = [
 	{ key: "requirement", label: "Krav" },
 	{ key: "responsible", label: "Ansvarlig" },
 	{ key: "routine", label: "Rutine" },
-	{ key: "frequency", label: "Frekvens" },
 	{ key: "documentationRequirement", label: "Dokumentasjonskrav" },
 	{ key: "testProcedure", label: "Testprosedyre" },
 	{ key: "references", label: "Referanser" },
@@ -49,7 +56,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		requirement: control.krav,
 		responsible: control.ansvarlig,
 		routine: control.rutine,
-		frequency: control.frekvens,
 		documentationRequirement: control.dokumentasjonskrav,
 		testProcedure: control.testprosedyre,
 		references: control.referanser,
@@ -136,6 +142,24 @@ export default function ControlDetailPage() {
 							</HStack>
 						</VStack>
 					)}
+				</VStack>
+			)}
+
+			{(control.kronologiskFrekvens || (control.frekvens && control.frekvens !== "Ikke definert")) && (
+				<VStack gap="space-2">
+					<Label size="small">Frekvens</Label>
+					<HStack gap="space-4" wrap align="center">
+						{control.kronologiskFrekvens && (
+							<Tag variant="info" size="small">
+								{cronFrequencyLabels[control.kronologiskFrekvens] ?? control.kronologiskFrekvens}
+							</Tag>
+						)}
+						{control.frekvens && control.frekvens !== "Ikke definert" && (
+							<Tag variant="neutral" size="small">
+								{control.frekvens}
+							</Tag>
+						)}
+					</HStack>
 				</VStack>
 			)}
 

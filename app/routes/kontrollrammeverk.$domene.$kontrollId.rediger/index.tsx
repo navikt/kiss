@@ -12,6 +12,7 @@ import {
 	Tag,
 	Textarea,
 	TextField,
+	UNSAFE_Combobox,
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
@@ -46,12 +47,32 @@ const fieldConfig = [
 	{ key: "requirement", label: "Krav", multiline: true },
 	{ key: "responsible", label: "Ansvarlig", multiline: false },
 	{ key: "routine", label: "Rutine", multiline: true },
-	{ key: "frequency", label: "Frekvens", multiline: false },
 	{ key: "documentationRequirement", label: "Dokumentasjonskrav", multiline: true },
 	{ key: "testProcedure", label: "Testprosedyre", multiline: true },
 	{ key: "dependencies", label: "Avhengigheter", multiline: true },
 	{ key: "references", label: "Referanser", multiline: true },
 	{ key: "commonPitfalls", label: "Vanlige fallgruver", multiline: true },
+] as const
+
+const cronFrequencyOptions = [
+	{ value: "", label: "Ikke valgt" },
+	{ value: "monthly", label: "Månedlig" },
+	{ value: "quarterly", label: "Kvartalsvis" },
+	{ value: "tertiary", label: "Tertialsvis" },
+	{ value: "biannual", label: "Halvårsvis" },
+	{ value: "annual", label: "Årlig" },
+] as const
+
+const textFrequencySuggestions = [
+	"Ved endring",
+	"For hver ny bruker og/eller rettighet",
+	"Kontinuerlig",
+	"For hver bruker som slutter eller bytter roller/ansvar/oppgaver",
+	"Ved vesentlige endringer",
+	"Ved behov",
+	"For hver endring",
+	"For hver produksjonssetting",
+	"Risikobasert",
 ] as const
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -104,6 +125,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				if (typeof value === "string") {
 					fields[field.key] = value
 				}
+			}
+			const cronFreq = formData.get("cronFrequency")
+			if (typeof cronFreq === "string") {
+				fields.cronFrequency = cronFreq
+			}
+			const textFreq = formData.get("frequency")
+			if (typeof textFreq === "string") {
+				fields.frequency = textFreq
 			}
 			await updateControlFields(kontrollId, fields, authedUser.navIdent)
 			return redirect(`/kontrollrammeverk/${domene}/${kontrollId}`)
@@ -187,6 +216,29 @@ const statusVariants: Record<string, "info" | "success" | "warning" | "error" | 
 	implemented: "success",
 }
 
+function FrequencyCombobox({ defaultValue }: { defaultValue: string }) {
+	const [value, setValue] = useState(defaultValue)
+	return (
+		<div style={{ flexGrow: 1 }}>
+			<input type="hidden" name="frequency" value={value} />
+			<UNSAFE_Combobox
+				label="Hendelsesbasert frekvens"
+				options={[...textFrequencySuggestions]}
+				size="small"
+				defaultValue={defaultValue}
+				allowNewValues
+				shouldAutocomplete
+				onToggleSelected={(option, isSelected) => {
+					setValue(isSelected ? option : "")
+				}}
+				onChange={(newVal) => {
+					setValue(newVal ?? "")
+				}}
+			/>
+		</div>
+	)
+}
+
 function PredefinedAnswerForm({
 	answer,
 	onCancel,
@@ -262,13 +314,15 @@ export default function ControlEditPage() {
 		requirement: control.krav,
 		responsible: control.ansvarlig,
 		routine: control.rutine,
-		frequency: control.frekvens,
 		documentationRequirement: control.dokumentasjonskrav,
 		testProcedure: control.testprosedyre,
 		dependencies: control.avhengigheter,
 		references: control.referanser,
 		commonPitfalls: control.vanligeFallgruver,
 	}
+
+	const currentCronFrequency = control.kronologiskFrekvens ?? ""
+	const currentTextFrequency = control.frekvens === "Ikke definert" ? "" : control.frekvens
 
 	return (
 		<VStack gap="space-12">
@@ -318,6 +372,19 @@ export default function ControlEditPage() {
 							/>
 						),
 					)}
+					<Heading size="small" level="4">
+						Frekvens
+					</Heading>
+					<HStack gap="space-6" wrap>
+						<Select label="Kronologisk frekvens" name="cronFrequency" defaultValue={currentCronFrequency} size="small">
+							{cronFrequencyOptions.map((opt) => (
+								<option key={opt.value} value={opt.value}>
+									{opt.label}
+								</option>
+							))}
+						</Select>
+						<FrequencyCombobox defaultValue={currentTextFrequency} />
+					</HStack>
 					<div>
 						<Button type="submit" variant="primary" loading={isSubmitting}>
 							Lagre endringer
