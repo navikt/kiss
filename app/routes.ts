@@ -40,5 +40,6 @@ export default [
 	route("api/search", "routes/api.search/index.tsx"),
 	route("api/applikasjoner/:appId/export-xlsx", "routes/api.applikasjoner.$appId.export-xlsx/index.tsx"),
 	route("dokumenter", "routes/dokumenter/index.tsx"),
+	route("hjelp/markdown", "routes/hjelp.markdown/index.tsx"),
 	route("api/dokumenter/:dokumentId", "routes/api.dokumenter.$dokumentId/index.tsx"),
 ] satisfies RouteConfig

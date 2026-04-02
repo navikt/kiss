@@ -20,6 +20,7 @@ import {
 import { useEffect, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
+import { MarkdownHint } from "~/components/MarkdownHint"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
 import {
@@ -183,9 +184,7 @@ export default function SectionScreening() {
 								/>
 							</HStack>
 							<Textarea label="Beskrivelse (Markdown)" name="description" size="small" minRows={3} />
-							<BodyShort size="small" textColor="subtle">
-								Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)
-							</BodyShort>
+							<MarkdownHint />
 							<div>
 								<Button type="submit" size="small" variant="primary" icon={<PlusIcon aria-hidden />}>
 									Legg til
@@ -328,9 +327,7 @@ function SectionQuestionEditForm({
 								minRows={3}
 								onChange={(e) => setDescriptionPreview(e.target.value)}
 							/>
-							<BodyShort size="small" textColor="subtle">
-								Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)
-							</BodyShort>
+							<MarkdownHint />
 						</VStack>
 						{descriptionPreview && (
 							<VStack style={{ flex: 1, minWidth: "20rem" }}>

@@ -19,6 +19,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData, useNavigation } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { statusLabels } from "~/components/ComplianceStatus"
+import { MarkdownHint } from "~/components/MarkdownHint"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addControlDependency,
@@ -482,6 +483,7 @@ export default function ControlEditPage() {
 							/>
 						),
 					)}
+					<MarkdownHint />
 					<div>
 						<Button type="submit" variant="primary" loading={isSubmitting}>
 							Lagre endringer
