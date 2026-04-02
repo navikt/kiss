@@ -7,33 +7,33 @@ import {
 	Button,
 	Heading,
 	HStack,
-	Label,
 	ReadMore,
-	Select,
 	Table,
 	Tag,
 	Textarea,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useEffect, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, useLoaderData } from "react-router"
+import { data, Form, Link, useLoaderData } from "react-router"
 import { MarkdownHint } from "~/components/MarkdownHint"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getAllControls } from "~/db/queries/framework.server"
 import {
-	addEffect,
 	createScreeningQuestion,
-	deleteEffect,
 	deleteScreeningQuestion,
 	getEffectsForQuestion,
 	getScreeningQuestions,
-	updateScreeningQuestion,
 } from "~/db/queries/screening.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
+
+const effectLabels: Record<string, string> = {
+	not_relevant: "Ikke relevant",
+	implemented: "Implementert",
+	partially_implemented: "Delvis implementert",
+	not_implemented: "Ikke implementert",
+}
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -41,9 +41,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	requireAdmin(authedUser)
 
 	const questions = await getScreeningQuestions()
-	const controls = await getAllControls()
 
-	// Load effects for each question
 	const questionsWithEffects = await Promise.all(
 		questions.map(async (q) => {
 			const effects = await getEffectsForQuestion(q.id)
@@ -55,14 +53,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		}),
 	)
 
-	return data({ questions: questionsWithEffects, controls })
-}
-
-const effectLabels: Record<string, string> = {
-	not_relevant: "Ikke relevant",
-	implemented: "Implementert",
-	partially_implemented: "Delvis implementert",
-	not_implemented: "Ikke implementert",
+	return data({ questions: questionsWithEffects })
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -79,44 +70,17 @@ export async function action({ request }: ActionFunctionArgs) {
 		const displayOrder = Number(formData.get("displayOrder") ?? 0)
 		if (!questionText?.trim()) throw new Response("Spørsmålstekst mangler", { status: 400 })
 		await createScreeningQuestion(questionText.trim(), description, displayOrder, authedUser.navIdent)
-	} else if (intent === "updateQuestion") {
-		const questionId = formData.get("questionId") as string
-		const questionText = formData.get("questionText") as string
-		const description = (formData.get("description") as string)?.trim() || null
-		const displayOrder = Number(formData.get("displayOrder") ?? 0)
-		if (!questionId || !questionText?.trim()) throw new Response("Ugyldig data", { status: 400 })
-		await updateScreeningQuestion(questionId, questionText.trim(), description, displayOrder, authedUser.navIdent)
 	} else if (intent === "deleteQuestion") {
 		const questionId = formData.get("questionId") as string
 		if (!questionId) throw new Response("Mangler ID", { status: 400 })
 		await deleteScreeningQuestion(questionId, authedUser.navIdent)
-	} else if (intent === "addEffect") {
-		const questionId = formData.get("questionId") as string
-		const controlTextId = formData.get("controlTextId") as string
-		const yesEffect = formData.get("yesEffect") as string
-		const noEffect = formData.get("noEffect") as string
-		const yesComment = formData.get("yesComment") as string
-		const noComment = formData.get("noComment") as string
-		if (!questionId || !controlTextId) throw new Response("Mangler data", { status: 400 })
-		await addEffect({
-			questionId,
-			controlTextId,
-			yesEffect: yesEffect || null,
-			noEffect: noEffect || null,
-			yesComment: yesComment || null,
-			noComment: noComment || null,
-		})
-	} else if (intent === "deleteEffect") {
-		const effectId = formData.get("effectId") as string
-		if (!effectId) throw new Response("Mangler effect-ID", { status: 400 })
-		await deleteEffect(effectId)
 	}
 
 	return data({ success: true })
 }
 
 export default function AdminScreening() {
-	const { questions, controls } = useLoaderData<typeof loader>()
+	const { questions } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-12">
@@ -131,7 +95,39 @@ export default function AdminScreening() {
 			</div>
 
 			{/* Create new question */}
-			<NewQuestionForm />
+			<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8" background="sunken">
+				<Form method="post">
+					<input type="hidden" name="intent" value="createQuestion" />
+					<VStack gap="space-4">
+						<Heading size="small" level="3">
+							Nytt spørsmål
+						</Heading>
+						<HStack gap="space-4" align="end" wrap>
+							<TextField
+								label="Spørsmålstekst"
+								name="questionText"
+								size="small"
+								style={{ flex: 1, minWidth: "20rem" }}
+							/>
+							<TextField
+								label="Rekkefølge"
+								name="displayOrder"
+								size="small"
+								type="number"
+								defaultValue="0"
+								htmlSize={6}
+							/>
+						</HStack>
+						<Textarea label="Beskrivelse (Markdown)" name="description" size="small" minRows={3} />
+						<MarkdownHint />
+						<div>
+							<Button type="submit" size="small" variant="primary" icon={<PlusIcon aria-hidden />}>
+								Legg til
+							</Button>
+						</div>
+					</VStack>
+				</Form>
+			</Box>
 
 			{/* Questions list */}
 			{questions.length === 0 ? (
@@ -139,317 +135,66 @@ export default function AdminScreening() {
 			) : (
 				<VStack gap="space-8">
 					{questions.map((q) => (
-						<QuestionCard key={q.id} question={q} controls={controls} />
+						<Box key={q.id} padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+							<VStack gap="space-6">
+								{/* Header row */}
+								<HStack justify="space-between" align="start" wrap gap="space-4">
+									<HStack gap="space-4" align="center">
+										<Tag variant="neutral" size="small">
+											#{q.displayOrder}
+										</Tag>
+										<Heading size="small" level="3">
+											{q.questionText}
+										</Heading>
+									</HStack>
+									<HStack gap="space-2">
+										<Button
+											as={Link}
+											to={`/admin/screening/${q.id}/rediger`}
+											size="xsmall"
+											variant="tertiary-neutral"
+											icon={<PencilIcon aria-hidden />}
+										>
+											Rediger
+										</Button>
+										<Form method="post">
+											<input type="hidden" name="intent" value="deleteQuestion" />
+											<input type="hidden" name="questionId" value={q.id} />
+											<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />}>
+												Slett
+											</Button>
+										</Form>
+									</HStack>
+								</HStack>
+
+								{/* Description */}
+								{q.descriptionHtml && (
+									<ReadMore header="Beskrivelse" defaultOpen={false} size="small">
+										{/* biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized with DOMPurify */}
+										<div className="markdown-content" dangerouslySetInnerHTML={{ __html: q.descriptionHtml }} />
+									</ReadMore>
+								)}
+
+								{/* Effects summary */}
+								{q.effects.length > 0 && (
+									<HStack gap="space-2" align="center" wrap>
+										<BodyShort size="small" textColor="subtle">
+											Effekter:
+										</BodyShort>
+										{q.effects.map((e) => (
+											<Tag key={e.id} variant="info" size="xsmall">
+												{e.controlTextId}
+											</Tag>
+										))}
+									</HStack>
+								)}
+							</VStack>
+						</Box>
 					))}
 				</VStack>
 			)}
 		</VStack>
 	)
-}
-
-function NewQuestionForm() {
-	return (
-		<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8" background="sunken">
-			<Form method="post">
-				<input type="hidden" name="intent" value="createQuestion" />
-				<VStack gap="space-4">
-					<Heading size="small" level="3">
-						Nytt spørsmål
-					</Heading>
-					<HStack gap="space-4" align="end" wrap>
-						<TextField label="Spørsmålstekst" name="questionText" size="small" style={{ flex: 1, minWidth: "20rem" }} />
-						<TextField
-							label="Rekkefølge"
-							name="displayOrder"
-							size="small"
-							type="number"
-							defaultValue="0"
-							htmlSize={6}
-						/>
-					</HStack>
-					<Textarea label="Beskrivelse (Markdown)" name="description" size="small" minRows={3} />
-					<MarkdownHint />
-					<div>
-						<Button type="submit" size="small" variant="primary" icon={<PlusIcon aria-hidden />}>
-							Legg til
-						</Button>
-					</div>
-				</VStack>
-			</Form>
-		</Box>
-	)
-}
-
-type QuestionData = {
-	id: string
-	questionText: string
-	description: string | null
-	descriptionHtml: string | null
-	displayOrder: number
-	effects: Array<{
-		id: string
-		controlTextId: string
-		yesEffect: string | null
-		noEffect: string | null
-	}>
-}
-
-type ControlOption = { controlId: string }
-
-function QuestionCard({ question: q, controls }: { question: QuestionData; controls: ControlOption[] }) {
-	const [editing, setEditing] = useState(false)
-
-	return (
-		<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-			<VStack gap="space-6">
-				{/* Header row */}
-				<HStack justify="space-between" align="start" wrap gap="space-4">
-					<HStack gap="space-4" align="center">
-						<Tag variant="neutral" size="small">
-							#{q.displayOrder}
-						</Tag>
-						<Heading size="small" level="3">
-							{q.questionText}
-						</Heading>
-					</HStack>
-					<HStack gap="space-2">
-						<Button
-							size="xsmall"
-							variant={editing ? "secondary" : "tertiary-neutral"}
-							icon={<PencilIcon aria-hidden />}
-							onClick={() => setEditing(!editing)}
-						>
-							{editing ? "Skjul redigering" : "Rediger"}
-						</Button>
-						<Form method="post">
-							<input type="hidden" name="intent" value="deleteQuestion" />
-							<input type="hidden" name="questionId" value={q.id} />
-							<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />}>
-								Slett
-							</Button>
-						</Form>
-					</HStack>
-				</HStack>
-
-				{/* Description (collapsible when long) */}
-				{q.descriptionHtml && (
-					<ReadMore header="Beskrivelse" defaultOpen={false} size="small">
-						{/* biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized with DOMPurify */}
-						<div className="markdown-content" dangerouslySetInnerHTML={{ __html: q.descriptionHtml }} />
-					</ReadMore>
-				)}
-
-				{/* Edit form (collapsible) */}
-				{editing && <QuestionEditForm question={q} />}
-
-				{/* Effects section */}
-				<EffectsSection questionId={q.id} effects={q.effects} controls={controls} />
-			</VStack>
-		</Box>
-	)
-}
-
-/** Inline edit form for a screening question with live Markdown preview. */
-function QuestionEditForm({
-	question,
-}: {
-	question: { id: string; questionText: string; description: string | null; displayOrder: number }
-}) {
-	const [descriptionPreview, setDescriptionPreview] = useState(question.description ?? "")
-
-	return (
-		<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="4" background="sunken">
-			<Form method="post">
-				<input type="hidden" name="intent" value="updateQuestion" />
-				<input type="hidden" name="questionId" value={question.id} />
-				<VStack gap="space-4">
-					<HStack gap="space-4" align="end" wrap>
-						<TextField
-							label="Spørsmålstekst"
-							name="questionText"
-							size="small"
-							defaultValue={question.questionText}
-							style={{ flex: 1, minWidth: "20rem" }}
-						/>
-						<TextField
-							label="Rekkefølge"
-							name="displayOrder"
-							size="small"
-							type="number"
-							defaultValue={String(question.displayOrder)}
-							style={{ width: "6rem" }}
-						/>
-					</HStack>
-					<HStack gap="space-4" align="start" style={{ flexWrap: "wrap" }}>
-						<VStack gap="space-2" style={{ flex: 1, minWidth: "20rem" }}>
-							<Textarea
-								label="Beskrivelse (Markdown)"
-								name="description"
-								size="small"
-								defaultValue={question.description ?? ""}
-								minRows={3}
-								onChange={(e) => setDescriptionPreview(e.target.value)}
-							/>
-							<MarkdownHint />
-						</VStack>
-						{descriptionPreview && (
-							<VStack style={{ flex: 1, minWidth: "20rem" }}>
-								<Label size="small" spacing>
-									Forhåndsvisning
-								</Label>
-								<MarkdownPreview content={descriptionPreview} />
-							</VStack>
-						)}
-					</HStack>
-					<div>
-						<Button type="submit" size="small" variant="secondary">
-							Oppdater
-						</Button>
-					</div>
-				</VStack>
-			</Form>
-		</Box>
-	)
-}
-
-function EffectsSection({
-	questionId,
-	effects,
-	controls,
-}: {
-	questionId: string
-	effects: QuestionData["effects"]
-	controls: ControlOption[]
-}) {
-	return (
-		<VStack gap="space-4">
-			<HStack gap="space-2" align="center">
-				<Heading size="xsmall" level="4">
-					Effekter
-				</Heading>
-				<Tag variant="neutral" size="xsmall">
-					{effects.length}
-				</Tag>
-			</HStack>
-
-			{effects.length > 0 && (
-				<Table size="small">
-					<Table.Header>
-						<Table.Row>
-							<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Ja-effekt</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Nei-effekt</Table.HeaderCell>
-							<Table.HeaderCell scope="col" />
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{effects.map((e) => (
-							<Table.Row key={e.id}>
-								<Table.DataCell>
-									<Tag variant="info" size="xsmall">
-										{e.controlTextId}
-									</Tag>
-								</Table.DataCell>
-								<Table.DataCell>
-									{e.yesEffect ? (
-										<Tag variant="neutral" size="xsmall">
-											{effectLabels[e.yesEffect] ?? e.yesEffect}
-										</Tag>
-									) : (
-										<BodyShort size="small" textColor="subtle">
-											—
-										</BodyShort>
-									)}
-								</Table.DataCell>
-								<Table.DataCell>
-									{e.noEffect ? (
-										<Tag variant="neutral" size="xsmall">
-											{effectLabels[e.noEffect] ?? e.noEffect}
-										</Tag>
-									) : (
-										<BodyShort size="small" textColor="subtle">
-											—
-										</BodyShort>
-									)}
-								</Table.DataCell>
-								<Table.DataCell>
-									<Form method="post">
-										<input type="hidden" name="intent" value="deleteEffect" />
-										<input type="hidden" name="effectId" value={e.id} />
-										<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />} />
-									</Form>
-								</Table.DataCell>
-							</Table.Row>
-						))}
-					</Table.Body>
-				</Table>
-			)}
-
-			{/* Add effect */}
-			<Form method="post">
-				<input type="hidden" name="intent" value="addEffect" />
-				<input type="hidden" name="questionId" value={questionId} />
-				<HStack gap="space-4" align="end" wrap>
-					<Select label="Kontroll" name="controlTextId" size="small">
-						<option value="">Velg kontroll</option>
-						{controls.map((c) => (
-							<option key={c.controlId} value={c.controlId}>
-								{c.controlId}
-							</option>
-						))}
-					</Select>
-					<Select label="Ja-effekt" name="yesEffect" size="small">
-						<option value="">Ingen</option>
-						{Object.entries(effectLabels).map(([v, l]) => (
-							<option key={v} value={v}>
-								{l}
-							</option>
-						))}
-					</Select>
-					<Select label="Nei-effekt" name="noEffect" size="small">
-						<option value="">Ingen</option>
-						{Object.entries(effectLabels).map(([v, l]) => (
-							<option key={v} value={v}>
-								{l}
-							</option>
-						))}
-					</Select>
-					<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
-						Legg til effekt
-					</Button>
-				</HStack>
-			</Form>
-		</VStack>
-	)
-}
-
-/** Client-side Markdown preview using marked. */
-function MarkdownPreview({ content }: { content: string }) {
-	const [html, setHtml] = useState("")
-
-	useEffect(() => {
-		void renderPreview(content, setHtml)
-	}, [content])
-
-	return (
-		<div
-			className="markdown-content"
-			style={{
-				padding: "var(--ax-space-8)",
-				border: "1px solid var(--ax-border-subtle)",
-				borderRadius: "var(--ax-radius-8)",
-				background: "var(--ax-bg-sunken)",
-				minHeight: "4rem",
-			}}
-			// biome-ignore lint/security/noDangerouslySetInnerHtml: client-side preview only
-			dangerouslySetInnerHTML={{ __html: html }}
-		/>
-	)
-}
-
-async function renderPreview(content: string, setHtml: (html: string) => void) {
-	const { marked } = await import("marked")
-	setHtml(marked.parse(content, { async: false }) as string)
 }
 
 export { RouteErrorBoundary as ErrorBoundary }
