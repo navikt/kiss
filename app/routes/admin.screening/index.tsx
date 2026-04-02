@@ -15,8 +15,7 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, useLoaderData } from "react-router"
-import { MarkdownHint } from "~/components/MarkdownHint"
+import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	createScreeningQuestion,
@@ -66,10 +65,9 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	if (intent === "createQuestion") {
 		const questionText = formData.get("questionText") as string
-		const description = (formData.get("description") as string)?.trim() || null
-		const displayOrder = Number(formData.get("displayOrder") ?? 0)
 		if (!questionText?.trim()) throw new Response("Spørsmålstekst mangler", { status: 400 })
-		await createScreeningQuestion(questionText.trim(), description, displayOrder, authedUser.navIdent)
+		const q = await createScreeningQuestion(questionText.trim(), null, 0, authedUser.navIdent)
+		return redirect(`/admin/screening/${q.id}/rediger`)
 	} else if (intent === "deleteQuestion") {
 		const questionId = formData.get("questionId") as string
 		if (!questionId) throw new Response("Mangler ID", { status: 400 })
@@ -98,34 +96,12 @@ export default function AdminScreening() {
 			<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8" background="sunken">
 				<Form method="post">
 					<input type="hidden" name="intent" value="createQuestion" />
-					<VStack gap="space-4">
-						<Heading size="small" level="3">
-							Nytt spørsmål
-						</Heading>
-						<HStack gap="space-4" align="end" wrap>
-							<TextField
-								label="Spørsmålstekst"
-								name="questionText"
-								size="small"
-								style={{ flex: 1, minWidth: "20rem" }}
-							/>
-							<TextField
-								label="Rekkefølge"
-								name="displayOrder"
-								size="small"
-								type="number"
-								defaultValue="0"
-								htmlSize={6}
-							/>
-						</HStack>
-						<Textarea label="Beskrivelse (Markdown)" name="description" size="small" minRows={3} />
-						<MarkdownHint />
-						<div>
-							<Button type="submit" size="small" variant="primary" icon={<PlusIcon aria-hidden />}>
-								Legg til
-							</Button>
-						</div>
-					</VStack>
+					<HStack gap="space-4" align="end" wrap>
+						<TextField label="Nytt spørsmål" name="questionText" size="small" style={{ flex: 1, minWidth: "20rem" }} />
+						<Button type="submit" size="small" variant="primary" icon={<PlusIcon aria-hidden />}>
+							Legg til
+						</Button>
+					</HStack>
 				</Form>
 			</Box>
 
