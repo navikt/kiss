@@ -64,9 +64,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	const intent = formData.get("intent") as string
 
 	if (intent === "createQuestion") {
-		const questionText = formData.get("questionText") as string
-		if (!questionText?.trim()) throw new Response("Spørsmålstekst mangler", { status: 400 })
-		const q = await createScreeningQuestion(questionText.trim(), null, 0, authedUser.navIdent)
+		const q = await createScreeningQuestion("Nytt spørsmål", null, 0, authedUser.navIdent)
 		return redirect(`/admin/screening/${q.id}/rediger`)
 	} else if (intent === "deleteQuestion") {
 		const questionId = formData.get("questionId") as string
@@ -93,17 +91,12 @@ export default function AdminScreening() {
 			</div>
 
 			{/* Create new question */}
-			<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8" background="sunken">
-				<Form method="post">
-					<input type="hidden" name="intent" value="createQuestion" />
-					<HStack gap="space-4" align="end" wrap>
-						<TextField label="Nytt spørsmål" name="questionText" size="small" style={{ flex: 1, minWidth: "20rem" }} />
-						<Button type="submit" size="small" variant="primary" icon={<PlusIcon aria-hidden />}>
-							Legg til
-						</Button>
-					</HStack>
-				</Form>
-			</Box>
+			<Form method="post">
+				<input type="hidden" name="intent" value="createQuestion" />
+				<Button type="submit" size="small" variant="secondary" icon={<PlusIcon aria-hidden />}>
+					Nytt spørsmål
+				</Button>
+			</Form>
 
 			{/* Questions list */}
 			{questions.length === 0 ? (
