@@ -194,6 +194,9 @@ export default function SeksjonDashboard() {
 				<AkselLink as={Link} to={`/seksjoner/${seksjon}/nais-team`}>
 					Administrer Nais-team ({naisTeamCount} koblet)
 				</AkselLink>
+				<AkselLink as={Link} to={`/seksjoner/${seksjon}/screening`}>
+					Innledende spørsmål
+				</AkselLink>
 			</HStack>
 		</VStack>
 	)

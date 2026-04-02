@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm"
+import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import { frameworkControls } from "../schema/framework"
@@ -8,7 +8,20 @@ import { writeAuditLog } from "./audit.server"
 // ─── Questions CRUD ──────────────────────────────────────────────────────
 
 export async function getScreeningQuestions() {
-	return db.select().from(screeningQuestions).orderBy(screeningQuestions.displayOrder)
+	return db
+		.select()
+		.from(screeningQuestions)
+		.where(isNull(screeningQuestions.sectionId))
+		.orderBy(screeningQuestions.displayOrder)
+}
+
+/** Get screening questions scoped to a section. */
+export async function getSectionScreeningQuestions(sectionId: string) {
+	return db
+		.select()
+		.from(screeningQuestions)
+		.where(eq(screeningQuestions.sectionId, sectionId))
+		.orderBy(screeningQuestions.displayOrder)
 }
 
 export async function getScreeningQuestion(id: string) {
@@ -21,10 +34,11 @@ export async function createScreeningQuestion(
 	description: string | null,
 	displayOrder: number,
 	createdBy: string,
+	sectionId?: string | null,
 ) {
 	const [q] = await db
 		.insert(screeningQuestions)
-		.values({ questionText, description, displayOrder, createdBy, updatedBy: createdBy })
+		.values({ questionText, description, displayOrder, createdBy, updatedBy: createdBy, sectionId: sectionId ?? null })
 		.returning()
 
 	await writeAuditLog({

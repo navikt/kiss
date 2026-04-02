@@ -2,10 +2,12 @@ import { boolean, integer, pgTable, text, timestamp, unique, uuid } from "drizzl
 import { monitoredApplications } from "./applications"
 import { complianceStatusEnum } from "./compliance"
 import { frameworkControls } from "./framework"
+import { sections } from "./organization"
 
 /** Yes/No screening questions shown before detailed compliance assessment. */
 export const screeningQuestions = pgTable("screening_questions", {
 	id: uuid("id").primaryKey().defaultRandom(),
+	sectionId: uuid("section_id").references(() => sections.id, { onDelete: "cascade" }),
 	questionText: text("question_text").notNull(),
 	description: text("description"),
 	displayOrder: integer("display_order").notNull().default(0),
