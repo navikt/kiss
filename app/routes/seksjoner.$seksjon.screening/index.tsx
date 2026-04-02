@@ -1,4 +1,4 @@
-import { PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import { PencilIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
 import {
 	Alert,
 	BodyLong,
@@ -8,6 +8,7 @@ import {
 	Detail,
 	Heading,
 	HStack,
+	ReadMore,
 	Select,
 	Table,
 	Tag,
@@ -157,175 +158,52 @@ export default function SectionScreening() {
 			</VStack>
 
 			{canEdit && (
-				<Form method="post">
-					<input type="hidden" name="intent" value="createQuestion" />
-					<VStack gap="space-4">
-						<Heading size="medium" level="3">
-							Nytt spørsmål
-						</Heading>
-						<HStack gap="space-4" align="end" wrap>
-							<TextField label="Spørsmålstekst" name="questionText" size="small" />
-							<TextField
-								label="Rekkefølge"
-								name="displayOrder"
+				<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8" background="sunken">
+					<Form method="post">
+						<input type="hidden" name="intent" value="createQuestion" />
+						<VStack gap="space-4">
+							<Heading size="small" level="3">
+								Nytt spørsmål
+							</Heading>
+							<HStack gap="space-4" align="end" wrap>
+								<TextField
+									label="Spørsmålstekst"
+									name="questionText"
+									size="small"
+									style={{ flex: 1, minWidth: "20rem" }}
+								/>
+								<TextField
+									label="Rekkefølge"
+									name="displayOrder"
+									size="small"
+									type="number"
+									defaultValue="0"
+									htmlSize={6}
+								/>
+							</HStack>
+							<Textarea
+								label="Beskrivelse (Markdown)"
+								name="description"
 								size="small"
-								type="number"
-								defaultValue="0"
-								htmlSize={6}
+								description="Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)"
+								minRows={3}
 							/>
-						</HStack>
-						<Textarea
-							label="Beskrivelse (Markdown)"
-							name="description"
-							size="small"
-							description="Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)"
-							minRows={3}
-						/>
-						<div>
-							<Button type="submit" size="small" variant="primary" icon={<PlusIcon aria-hidden />}>
-								Legg til
-							</Button>
-						</div>
-					</VStack>
-				</Form>
+							<div>
+								<Button type="submit" size="small" variant="primary" icon={<PlusIcon aria-hidden />}>
+									Legg til
+								</Button>
+							</div>
+						</VStack>
+					</Form>
+				</Box>
 			)}
 
 			{questions.length === 0 ? (
 				<Alert variant="info">Ingen innledende spørsmål er definert for denne seksjonen.</Alert>
 			) : (
-				<VStack gap="space-12">
+				<VStack gap="space-8">
 					{questions.map((q) => (
-						<Box key={q.id} padding="space-16" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-							<VStack gap="space-6">
-								<HStack justify="space-between" align="start" wrap>
-									<VStack gap="space-2">
-										<Heading size="small" level="3">
-											{q.questionText}
-										</Heading>
-										{q.descriptionHtml && (
-											// biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized server-side
-											<div className="markdown-content" dangerouslySetInnerHTML={{ __html: q.descriptionHtml }} />
-										)}
-										<BodyShort size="small" textColor="subtle">
-											Rekkefølge: {q.displayOrder}
-										</BodyShort>
-									</VStack>
-									{canEdit && (
-										<Form method="post">
-											<input type="hidden" name="intent" value="deleteQuestion" />
-											<input type="hidden" name="questionId" value={q.id} />
-											<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />}>
-												Slett
-											</Button>
-										</Form>
-									)}
-								</HStack>
-
-								{canEdit && <QuestionEditForm question={q} />}
-
-								<VStack gap="space-4">
-									<Heading size="xsmall" level="4">
-										Effekter ({q.effects.length})
-									</Heading>
-
-									{q.effects.length > 0 && (
-										<Table size="small">
-											<Table.Header>
-												<Table.Row>
-													<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
-													<Table.HeaderCell scope="col">Ja-effekt</Table.HeaderCell>
-													<Table.HeaderCell scope="col">Nei-effekt</Table.HeaderCell>
-													{canEdit && <Table.HeaderCell scope="col" />}
-												</Table.Row>
-											</Table.Header>
-											<Table.Body>
-												{q.effects.map((e) => (
-													<Table.Row key={e.id}>
-														<Table.DataCell>
-															<Tag variant="info" size="xsmall">
-																{e.controlTextId}
-															</Tag>
-														</Table.DataCell>
-														<Table.DataCell>
-															{e.yesEffect ? (
-																<Tag variant="neutral" size="xsmall">
-																	{effectLabels[e.yesEffect] ?? e.yesEffect}
-																</Tag>
-															) : (
-																<BodyShort size="small" textColor="subtle">
-																	—
-																</BodyShort>
-															)}
-														</Table.DataCell>
-														<Table.DataCell>
-															{e.noEffect ? (
-																<Tag variant="neutral" size="xsmall">
-																	{effectLabels[e.noEffect] ?? e.noEffect}
-																</Tag>
-															) : (
-																<BodyShort size="small" textColor="subtle">
-																	—
-																</BodyShort>
-															)}
-														</Table.DataCell>
-														{canEdit && (
-															<Table.DataCell>
-																<Form method="post">
-																	<input type="hidden" name="intent" value="deleteEffect" />
-																	<input type="hidden" name="effectId" value={e.id} />
-																	<Button
-																		type="submit"
-																		size="xsmall"
-																		variant="tertiary-neutral"
-																		icon={<TrashIcon aria-hidden />}
-																	/>
-																</Form>
-															</Table.DataCell>
-														)}
-													</Table.Row>
-												))}
-											</Table.Body>
-										</Table>
-									)}
-
-									{canEdit && (
-										<Form method="post">
-											<input type="hidden" name="intent" value="addEffect" />
-											<input type="hidden" name="questionId" value={q.id} />
-											<HStack gap="space-4" align="end" wrap>
-												<Select label="Kontroll" name="controlTextId" size="small">
-													<option value="">Velg kontroll</option>
-													{controls.map((c) => (
-														<option key={c.controlId} value={c.controlId}>
-															{c.controlId}
-														</option>
-													))}
-												</Select>
-												<Select label="Ja-effekt" name="yesEffect" size="small">
-													<option value="">Ingen</option>
-													{Object.entries(effectLabels).map(([v, l]) => (
-														<option key={v} value={v}>
-															{l}
-														</option>
-													))}
-												</Select>
-												<Select label="Nei-effekt" name="noEffect" size="small">
-													<option value="">Ingen</option>
-													{Object.entries(effectLabels).map(([v, l]) => (
-														<option key={v} value={v}>
-															{l}
-														</option>
-													))}
-												</Select>
-												<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
-													Legg til effekt
-												</Button>
-											</HStack>
-										</Form>
-									)}
-								</VStack>
-							</VStack>
-						</Box>
+						<SectionQuestionCard key={q.id} question={q} controls={controls} canEdit={canEdit} />
 					))}
 				</VStack>
 			)}
@@ -333,7 +211,86 @@ export default function SectionScreening() {
 	)
 }
 
-function QuestionEditForm({
+type QuestionData = {
+	id: string
+	questionText: string
+	description: string | null
+	descriptionHtml: string | null
+	displayOrder: number
+	effects: Array<{
+		id: string
+		controlTextId: string
+		yesEffect: string | null
+		noEffect: string | null
+	}>
+}
+
+type ControlOption = { controlId: string }
+
+function SectionQuestionCard({
+	question: q,
+	controls,
+	canEdit,
+}: {
+	question: QuestionData
+	controls: ControlOption[]
+	canEdit: boolean
+}) {
+	const [editing, setEditing] = useState(false)
+
+	return (
+		<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+			<VStack gap="space-6">
+				{/* Header row */}
+				<HStack justify="space-between" align="start" wrap gap="space-4">
+					<HStack gap="space-4" align="center">
+						<Tag variant="neutral" size="small">
+							#{q.displayOrder}
+						</Tag>
+						<Heading size="small" level="3">
+							{q.questionText}
+						</Heading>
+					</HStack>
+					{canEdit && (
+						<HStack gap="space-2">
+							<Button
+								size="xsmall"
+								variant={editing ? "secondary" : "tertiary-neutral"}
+								icon={<PencilIcon aria-hidden />}
+								onClick={() => setEditing(!editing)}
+							>
+								{editing ? "Skjul redigering" : "Rediger"}
+							</Button>
+							<Form method="post">
+								<input type="hidden" name="intent" value="deleteQuestion" />
+								<input type="hidden" name="questionId" value={q.id} />
+								<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />}>
+									Slett
+								</Button>
+							</Form>
+						</HStack>
+					)}
+				</HStack>
+
+				{/* Description (collapsible when long) */}
+				{q.descriptionHtml && (
+					<ReadMore header="Beskrivelse" defaultOpen={false} size="small">
+						{/* biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized server-side */}
+						<div className="markdown-content" dangerouslySetInnerHTML={{ __html: q.descriptionHtml }} />
+					</ReadMore>
+				)}
+
+				{/* Edit form (collapsible) */}
+				{editing && canEdit && <SectionQuestionEditForm question={q} />}
+
+				{/* Effects section */}
+				<SectionEffectsSection questionId={q.id} effects={q.effects} controls={controls} canEdit={canEdit} />
+			</VStack>
+		</Box>
+	)
+}
+
+function SectionQuestionEditForm({
 	question,
 }: {
 	question: { id: string; questionText: string; description: string | null; displayOrder: number }
@@ -341,55 +298,173 @@ function QuestionEditForm({
 	const [descriptionPreview, setDescriptionPreview] = useState(question.description ?? "")
 
 	return (
-		<Form method="post">
-			<input type="hidden" name="intent" value="updateQuestion" />
-			<input type="hidden" name="questionId" value={question.id} />
-			<VStack gap="space-4">
-				<HStack gap="space-4" align="end" wrap>
-					<TextField
-						label="Spørsmålstekst"
-						name="questionText"
-						size="small"
-						defaultValue={question.questionText}
-						style={{ minWidth: "20rem" }}
-					/>
-					<TextField
-						label="Rekkefølge"
-						name="displayOrder"
-						size="small"
-						type="number"
-						defaultValue={String(question.displayOrder)}
-						style={{ width: "6rem" }}
-					/>
-				</HStack>
-				<HStack gap="space-4" align="start" style={{ flexWrap: "wrap" }}>
-					<div style={{ flex: 1, minWidth: "20rem" }}>
-						<Textarea
-							label="Beskrivelse (Markdown)"
-							name="description"
+		<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="4" background="sunken">
+			<Form method="post">
+				<input type="hidden" name="intent" value="updateQuestion" />
+				<input type="hidden" name="questionId" value={question.id} />
+				<VStack gap="space-4">
+					<HStack gap="space-4" align="end" wrap>
+						<TextField
+							label="Spørsmålstekst"
+							name="questionText"
 							size="small"
-							defaultValue={question.description ?? ""}
-							description="Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)"
-							minRows={3}
-							onChange={(e) => setDescriptionPreview(e.target.value)}
+							defaultValue={question.questionText}
+							style={{ flex: 1, minWidth: "20rem" }}
 						/>
-					</div>
-					{descriptionPreview && (
+						<TextField
+							label="Rekkefølge"
+							name="displayOrder"
+							size="small"
+							type="number"
+							defaultValue={String(question.displayOrder)}
+							style={{ width: "6rem" }}
+						/>
+					</HStack>
+					<HStack gap="space-4" align="start" style={{ flexWrap: "wrap" }}>
 						<div style={{ flex: 1, minWidth: "20rem" }}>
-							<BodyShort size="small" weight="semibold" spacing>
-								Forhåndsvisning
-							</BodyShort>
-							<MarkdownPreview content={descriptionPreview} />
+							<Textarea
+								label="Beskrivelse (Markdown)"
+								name="description"
+								size="small"
+								defaultValue={question.description ?? ""}
+								description="Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)"
+								minRows={3}
+								onChange={(e) => setDescriptionPreview(e.target.value)}
+							/>
 						</div>
-					)}
-				</HStack>
-				<div>
-					<Button type="submit" size="small" variant="secondary">
-						Oppdater
-					</Button>
-				</div>
-			</VStack>
-		</Form>
+						{descriptionPreview && (
+							<div style={{ flex: 1, minWidth: "20rem" }}>
+								<BodyShort size="small" weight="semibold" spacing>
+									Forhåndsvisning
+								</BodyShort>
+								<MarkdownPreview content={descriptionPreview} />
+							</div>
+						)}
+					</HStack>
+					<div>
+						<Button type="submit" size="small" variant="secondary">
+							Oppdater
+						</Button>
+					</div>
+				</VStack>
+			</Form>
+		</Box>
+	)
+}
+
+function SectionEffectsSection({
+	questionId,
+	effects,
+	controls,
+	canEdit,
+}: {
+	questionId: string
+	effects: QuestionData["effects"]
+	controls: ControlOption[]
+	canEdit: boolean
+}) {
+	return (
+		<VStack gap="space-4">
+			<HStack gap="space-2" align="center">
+				<Heading size="xsmall" level="4">
+					Effekter
+				</Heading>
+				<Tag variant="neutral" size="xsmall">
+					{effects.length}
+				</Tag>
+			</HStack>
+
+			{effects.length > 0 && (
+				<Table size="small">
+					<Table.Header>
+						<Table.Row>
+							<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Ja-effekt</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Nei-effekt</Table.HeaderCell>
+							{canEdit && <Table.HeaderCell scope="col" />}
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{effects.map((e) => (
+							<Table.Row key={e.id}>
+								<Table.DataCell>
+									<Tag variant="info" size="xsmall">
+										{e.controlTextId}
+									</Tag>
+								</Table.DataCell>
+								<Table.DataCell>
+									{e.yesEffect ? (
+										<Tag variant="neutral" size="xsmall">
+											{effectLabels[e.yesEffect] ?? e.yesEffect}
+										</Tag>
+									) : (
+										<BodyShort size="small" textColor="subtle">
+											—
+										</BodyShort>
+									)}
+								</Table.DataCell>
+								<Table.DataCell>
+									{e.noEffect ? (
+										<Tag variant="neutral" size="xsmall">
+											{effectLabels[e.noEffect] ?? e.noEffect}
+										</Tag>
+									) : (
+										<BodyShort size="small" textColor="subtle">
+											—
+										</BodyShort>
+									)}
+								</Table.DataCell>
+								{canEdit && (
+									<Table.DataCell>
+										<Form method="post">
+											<input type="hidden" name="intent" value="deleteEffect" />
+											<input type="hidden" name="effectId" value={e.id} />
+											<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />} />
+										</Form>
+									</Table.DataCell>
+								)}
+							</Table.Row>
+						))}
+					</Table.Body>
+				</Table>
+			)}
+
+			{canEdit && (
+				<Form method="post">
+					<input type="hidden" name="intent" value="addEffect" />
+					<input type="hidden" name="questionId" value={questionId} />
+					<HStack gap="space-4" align="end" wrap>
+						<Select label="Kontroll" name="controlTextId" size="small">
+							<option value="">Velg kontroll</option>
+							{controls.map((c) => (
+								<option key={c.controlId} value={c.controlId}>
+									{c.controlId}
+								</option>
+							))}
+						</Select>
+						<Select label="Ja-effekt" name="yesEffect" size="small">
+							<option value="">Ingen</option>
+							{Object.entries(effectLabels).map(([v, l]) => (
+								<option key={v} value={v}>
+									{l}
+								</option>
+							))}
+						</Select>
+						<Select label="Nei-effekt" name="noEffect" size="small">
+							<option value="">Ingen</option>
+							{Object.entries(effectLabels).map(([v, l]) => (
+								<option key={v} value={v}>
+									{l}
+								</option>
+							))}
+						</Select>
+						<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
+							Legg til effekt
+						</Button>
+					</HStack>
+				</Form>
+			)}
+		</VStack>
 	)
 }
 
