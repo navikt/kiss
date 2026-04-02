@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm"
+import { eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import { frameworkControls } from "../schema/framework"
