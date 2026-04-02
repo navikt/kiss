@@ -8,6 +8,7 @@ import {
 	Detail,
 	Heading,
 	HStack,
+	Label,
 	ReadMore,
 	Select,
 	Table,
@@ -332,10 +333,10 @@ function SectionQuestionEditForm({
 							</BodyShort>
 						</VStack>
 						{descriptionPreview && (
-							<VStack gap="space-2" style={{ flex: 1, minWidth: "20rem" }}>
-								<BodyShort size="small" weight="semibold">
+							<VStack style={{ flex: 1, minWidth: "20rem" }}>
+								<Label size="small" spacing>
 									Forhåndsvisning
-								</BodyShort>
+								</Label>
 								<MarkdownPreview content={descriptionPreview} />
 							</VStack>
 						)}
