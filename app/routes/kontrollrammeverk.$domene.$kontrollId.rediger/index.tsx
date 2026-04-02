@@ -41,16 +41,16 @@ import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 
 const fieldConfig = [
-	{ key: "shortTitle", label: "Kort tittel", multiline: false },
-	{ key: "technologyElement", label: "Teknologielement", multiline: false },
 	{ key: "requirement", label: "Krav", multiline: true },
 	{ key: "responsible", label: "Ansvarlig", multiline: false },
 	{ key: "routine", label: "Rutine", multiline: true },
 	{ key: "documentationRequirement", label: "Dokumentasjonskrav", multiline: true },
 	{ key: "testProcedure", label: "Testprosedyre", multiline: true },
-	{ key: "dependencies", label: "Avhengigheter", multiline: true },
 	{ key: "references", label: "Referanser", multiline: true },
 	{ key: "commonPitfalls", label: "Vanlige fallgruver", multiline: true },
+	{ key: "shortTitle", label: "Kort tittel", multiline: false },
+	{ key: "technologyElement", label: "Teknologielement (fritekst)", multiline: false },
+	{ key: "dependencies", label: "Avhengigheter (fritekst)", multiline: true },
 ] as const
 
 const cronFrequencyOptions = [
@@ -358,53 +358,6 @@ export default function ControlEditPage() {
 				</Alert>
 			)}
 
-			<Form method="post">
-				<input type="hidden" name="intent" value="saveFields" />
-				<VStack gap="space-6">
-					<Heading size="medium" level="3">
-						Kontrollinformasjon
-					</Heading>
-					{fieldConfig.map((field) =>
-						field.multiline ? (
-							<Textarea
-								key={field.key}
-								label={field.label}
-								name={field.key}
-								defaultValue={fieldValues[field.key]}
-								minRows={3}
-								size="small"
-							/>
-						) : (
-							<TextField
-								key={field.key}
-								label={field.label}
-								name={field.key}
-								defaultValue={fieldValues[field.key]}
-								size="small"
-							/>
-						),
-					)}
-					<Heading size="small" level="4">
-						Frekvens
-					</Heading>
-					<HStack gap="space-6" wrap>
-						<Select label="Kronologisk frekvens" name="cronFrequency" defaultValue={currentCronFrequency} size="small">
-							{cronFrequencyOptions.map((opt) => (
-								<option key={opt.value} value={opt.value}>
-									{opt.label}
-								</option>
-							))}
-						</Select>
-						<FrequencyCombobox defaultValue={currentTextFrequency} />
-					</HStack>
-					<div>
-						<Button type="submit" variant="primary" loading={isSubmitting}>
-							Lagre endringer
-						</Button>
-					</div>
-				</VStack>
-			</Form>
-
 			<VStack gap="space-6">
 				<Heading size="medium" level="3">
 					Teknologielementer
@@ -488,6 +441,54 @@ export default function ControlEditPage() {
 					</Form>
 				)}
 			</VStack>
+
+			<Form method="post">
+				<input type="hidden" name="intent" value="saveFields" />
+				<VStack gap="space-6">
+					<Heading size="medium" level="3">
+						Frekvens
+					</Heading>
+					<HStack gap="space-6" wrap>
+						<Select label="Kronologisk frekvens" name="cronFrequency" defaultValue={currentCronFrequency} size="small">
+							{cronFrequencyOptions.map((opt) => (
+								<option key={opt.value} value={opt.value}>
+									{opt.label}
+								</option>
+							))}
+						</Select>
+						<FrequencyCombobox defaultValue={currentTextFrequency} />
+					</HStack>
+
+					<Heading size="medium" level="3">
+						Kontrollinformasjon
+					</Heading>
+					{fieldConfig.map((field) =>
+						field.multiline ? (
+							<Textarea
+								key={field.key}
+								label={field.label}
+								name={field.key}
+								defaultValue={fieldValues[field.key]}
+								minRows={3}
+								size="small"
+							/>
+						) : (
+							<TextField
+								key={field.key}
+								label={field.label}
+								name={field.key}
+								defaultValue={fieldValues[field.key]}
+								size="small"
+							/>
+						),
+					)}
+					<div>
+						<Button type="submit" variant="primary" loading={isSubmitting}>
+							Lagre endringer
+						</Button>
+					</div>
+				</VStack>
+			</Form>
 
 			<VStack gap="space-8">
 				<Heading size="medium" level="3">
