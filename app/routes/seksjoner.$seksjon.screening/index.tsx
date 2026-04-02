@@ -181,13 +181,10 @@ export default function SectionScreening() {
 									htmlSize={6}
 								/>
 							</HStack>
-							<Textarea
-								label="Beskrivelse (Markdown)"
-								name="description"
-								size="small"
-								description="Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)"
-								minRows={3}
-							/>
+							<Textarea label="Beskrivelse (Markdown)" name="description" size="small" minRows={3} />
+							<BodyShort size="small" textColor="subtle">
+								Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)
+							</BodyShort>
 							<div>
 								<Button type="submit" size="small" variant="primary" icon={<PlusIcon aria-hidden />}>
 									Legg til
@@ -321,24 +318,26 @@ function SectionQuestionEditForm({
 						/>
 					</HStack>
 					<HStack gap="space-4" align="start" style={{ flexWrap: "wrap" }}>
-						<div style={{ flex: 1, minWidth: "20rem" }}>
+						<VStack gap="space-2" style={{ flex: 1, minWidth: "20rem" }}>
 							<Textarea
 								label="Beskrivelse (Markdown)"
 								name="description"
 								size="small"
 								defaultValue={question.description ?? ""}
-								description="Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)"
 								minRows={3}
 								onChange={(e) => setDescriptionPreview(e.target.value)}
 							/>
-						</div>
+							<BodyShort size="small" textColor="subtle">
+								Støtter **bold**, *kursiv*, - kulepunkter, [lenker](url)
+							</BodyShort>
+						</VStack>
 						{descriptionPreview && (
-							<div style={{ flex: 1, minWidth: "20rem" }}>
-								<BodyShort size="small" weight="semibold" spacing>
+							<VStack gap="space-2" style={{ flex: 1, minWidth: "20rem" }}>
+								<BodyShort size="small" weight="semibold">
 									Forhåndsvisning
 								</BodyShort>
 								<MarkdownPreview content={descriptionPreview} />
-							</div>
+							</VStack>
 						)}
 					</HStack>
 					<div>
