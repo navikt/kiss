@@ -481,7 +481,7 @@ function MarkdownPreview({ content }: { content: string }) {
 			style={{
 				padding: "var(--ax-space-8)",
 				border: "1px solid var(--ax-border-subtle)",
-				borderRadius: "var(--ax-radius-4)",
+				borderRadius: "var(--ax-radius-8)",
 				background: "var(--ax-bg-sunken)",
 				minHeight: "4rem",
 			}}
