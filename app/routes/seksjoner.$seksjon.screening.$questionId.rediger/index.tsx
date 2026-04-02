@@ -118,57 +118,55 @@ export default function EditSectionScreeningQuestion() {
 				Rediger spørsmål
 			</Heading>
 
-			{/* Edit form */}
-			<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-				<Form method="post">
-					<input type="hidden" name="intent" value="updateQuestion" />
-					<VStack gap="space-4">
-						<HStack gap="space-4" align="end" wrap>
-							<TextField
-								label="Spørsmålstekst"
-								name="questionText"
+			{/* Edit form — padding accommodates Aksel's 6px focus ring (3px outline + 3px offset) */}
+			<Form method="post" style={{ padding: "6px" }}>
+				<input type="hidden" name="intent" value="updateQuestion" />
+				<VStack gap="space-8">
+					<HStack gap="space-4" align="end" wrap>
+						<TextField
+							label="Spørsmålstekst"
+							name="questionText"
+							size="small"
+							defaultValue={question.questionText}
+							style={{ flex: 1, minWidth: "20rem" }}
+						/>
+						<TextField
+							label="Rekkefølge"
+							name="displayOrder"
+							size="small"
+							type="number"
+							defaultValue={String(question.displayOrder)}
+							style={{ width: "6rem" }}
+						/>
+					</HStack>
+					<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
+						<VStack gap="space-4" style={{ flex: 1, minWidth: "20rem", padding: "6px", margin: "-6px" }}>
+							<Textarea
+								label="Beskrivelse (Markdown)"
+								name="description"
 								size="small"
-								defaultValue={question.questionText}
-								style={{ flex: 1, minWidth: "20rem" }}
+								defaultValue={question.description ?? ""}
+								minRows={5}
+								onChange={(e) => setDescriptionPreview(e.target.value)}
 							/>
-							<TextField
-								label="Rekkefølge"
-								name="displayOrder"
-								size="small"
-								type="number"
-								defaultValue={String(question.displayOrder)}
-								style={{ width: "6rem" }}
-							/>
-						</HStack>
-						<HStack gap="space-4" align="start" style={{ flexWrap: "wrap" }}>
-							<VStack gap="space-2" style={{ flex: 1, minWidth: "20rem" }}>
-								<Textarea
-									label="Beskrivelse (Markdown)"
-									name="description"
-									size="small"
-									defaultValue={question.description ?? ""}
-									minRows={5}
-									onChange={(e) => setDescriptionPreview(e.target.value)}
-								/>
-								<MarkdownHint />
+							<MarkdownHint />
+						</VStack>
+						{descriptionPreview && (
+							<VStack style={{ flex: 1, minWidth: "20rem" }}>
+								<Label size="small" spacing>
+									Forhåndsvisning
+								</Label>
+								<MarkdownPreview content={descriptionPreview} />
 							</VStack>
-							{descriptionPreview && (
-								<VStack style={{ flex: 1, minWidth: "20rem" }}>
-									<Label size="small" spacing>
-										Forhåndsvisning
-									</Label>
-									<MarkdownPreview content={descriptionPreview} />
-								</VStack>
-							)}
-						</HStack>
-						<div>
-							<Button type="submit" size="small" variant="primary">
-								Lagre endringer
-							</Button>
-						</div>
-					</VStack>
-				</Form>
-			</Box>
+						)}
+					</HStack>
+					<div>
+						<Button type="submit" size="small" variant="primary">
+							Lagre endringer
+						</Button>
+					</div>
+				</VStack>
+			</Form>
 
 			{/* Effects */}
 			<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
