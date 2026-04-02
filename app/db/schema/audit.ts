@@ -45,6 +45,8 @@ export const auditLogActionEnum = [
 	"document_deleted",
 	"control_dependency_added",
 	"control_dependency_removed",
+	"technology_element_confirmed",
+	"technology_element_rejected",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

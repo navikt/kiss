@@ -126,6 +126,11 @@ export const applicationTechnologyElements = pgTable("application_technology_ele
 		.notNull()
 		.references(() => technologyElements.id, { onDelete: "cascade" }),
 	source: text("source").notNull().default("manual"),
+	confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+	confirmedBy: text("confirmed_by"),
+	rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+	rejectedBy: text("rejected_by"),
+	rejectionReason: text("rejection_reason"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 

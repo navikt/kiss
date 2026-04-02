@@ -31,6 +31,12 @@ export async function getApplicationElements(appId: string) {
 			name: technologyElements.name,
 			slug: technologyElements.slug,
 			source: applicationTechnologyElements.source,
+			linkId: applicationTechnologyElements.id,
+			confirmedAt: applicationTechnologyElements.confirmedAt,
+			confirmedBy: applicationTechnologyElements.confirmedBy,
+			rejectedAt: applicationTechnologyElements.rejectedAt,
+			rejectedBy: applicationTechnologyElements.rejectedBy,
+			rejectionReason: applicationTechnologyElements.rejectionReason,
 		})
 		.from(applicationTechnologyElements)
 		.innerJoin(technologyElements, eq(applicationTechnologyElements.elementId, technologyElements.id))
@@ -232,16 +238,20 @@ export async function syncApplicationTechnologyElements(appId: string) {
 			.onConflictDoNothing()
 	}
 
-	// Remove auto-detected elements that no longer apply (but keep manual)
+	// Remove auto-detected elements that no longer apply (but keep manual and rejected)
 	const currentAuto = await db
-		.select({ id: applicationTechnologyElements.id, elementId: applicationTechnologyElements.elementId })
+		.select({
+			id: applicationTechnologyElements.id,
+			elementId: applicationTechnologyElements.elementId,
+			rejectedAt: applicationTechnologyElements.rejectedAt,
+		})
 		.from(applicationTechnologyElements)
 		.where(
 			and(eq(applicationTechnologyElements.applicationId, appId), eq(applicationTechnologyElements.source, "auto")),
 		)
 
 	for (const row of currentAuto) {
-		if (!elementIds.has(row.elementId)) {
+		if (!elementIds.has(row.elementId) && !row.rejectedAt) {
 			await db.delete(applicationTechnologyElements).where(eq(applicationTechnologyElements.id, row.id))
 		}
 	}
@@ -298,4 +308,62 @@ export async function syncAllApplicationElements() {
 		await syncApplicationTechnologyElements(app.id)
 	}
 	return apps.length
+}
+
+/** Confirm an auto-detected technology element for an application. */
+export async function confirmApplicationElement(linkId: string, performedBy: string) {
+	const [row] = await db
+		.update(applicationTechnologyElements)
+		.set({
+			confirmedAt: new Date(),
+			confirmedBy: performedBy,
+			rejectedAt: null,
+			rejectedBy: null,
+			rejectionReason: null,
+		})
+		.where(eq(applicationTechnologyElements.id, linkId))
+		.returning({
+			appId: applicationTechnologyElements.applicationId,
+			elementId: applicationTechnologyElements.elementId,
+		})
+
+	if (row) {
+		await writeAuditLog({
+			action: "technology_element_confirmed",
+			entityType: "application_technology_element",
+			entityId: linkId,
+			newValue: "confirmed",
+			metadata: { applicationId: row.appId, elementId: row.elementId },
+			performedBy,
+		})
+	}
+}
+
+/** Reject an auto-detected technology element for an application. */
+export async function rejectApplicationElement(linkId: string, reason: string, performedBy: string) {
+	const [row] = await db
+		.update(applicationTechnologyElements)
+		.set({
+			rejectedAt: new Date(),
+			rejectedBy: performedBy,
+			rejectionReason: reason,
+			confirmedAt: null,
+			confirmedBy: null,
+		})
+		.where(eq(applicationTechnologyElements.id, linkId))
+		.returning({
+			appId: applicationTechnologyElements.applicationId,
+			elementId: applicationTechnologyElements.elementId,
+		})
+
+	if (row) {
+		await writeAuditLog({
+			action: "technology_element_rejected",
+			entityType: "application_technology_element",
+			entityId: linkId,
+			newValue: reason,
+			metadata: { applicationId: row.appId, elementId: row.elementId },
+			performedBy,
+		})
+	}
 }
