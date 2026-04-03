@@ -178,7 +178,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 export default function RedigerSeksjon() {
 	const { section, teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, seksjon } =
 		useLoaderData<typeof loader>()
-	const [searchParams] = useSearchParams()
+	const [searchParams, setSearchParams] = useSearchParams()
 	const activeTab = searchParams.get("fane") ?? "seksjon"
 
 	const teamFormRef = useRef<HTMLFormElement>(null)
@@ -198,7 +198,7 @@ export default function RedigerSeksjon() {
 				</Heading>
 			</div>
 
-			<Tabs defaultValue={activeTab}>
+			<Tabs value={activeTab} onChange={(tab) => setSearchParams({ fane: tab }, { replace: true })}>
 				<Tabs.List>
 					<Tabs.Tab value="seksjon" label="Seksjon" />
 					<Tabs.Tab value="team" label={`Utviklingsteam (${teams.length})`} />
