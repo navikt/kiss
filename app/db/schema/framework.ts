@@ -1,4 +1,4 @@
-import { integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
 import { monitoredApplications } from "./applications"
 
 export const frameworkVersionStatusEnum = ["pending", "applied", "superseded"] as const
@@ -117,22 +117,26 @@ export const controlTechnologyElements = pgTable("control_technology_elements", 
 		.references(() => technologyElements.id, { onDelete: "cascade" }),
 })
 
-export const applicationTechnologyElements = pgTable("application_technology_elements", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	applicationId: uuid("application_id")
-		.notNull()
-		.references(() => monitoredApplications.id, { onDelete: "cascade" }),
-	elementId: uuid("element_id")
-		.notNull()
-		.references(() => technologyElements.id, { onDelete: "cascade" }),
-	source: text("source").notNull().default("manual"),
-	confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
-	confirmedBy: text("confirmed_by"),
-	rejectedAt: timestamp("rejected_at", { withTimezone: true }),
-	rejectedBy: text("rejected_by"),
-	rejectionReason: text("rejection_reason"),
-	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const applicationTechnologyElements = pgTable(
+	"application_technology_elements",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id, { onDelete: "cascade" }),
+		elementId: uuid("element_id")
+			.notNull()
+			.references(() => technologyElements.id, { onDelete: "cascade" }),
+		source: text("source").notNull().default("manual"),
+		confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+		confirmedBy: text("confirmed_by"),
+		rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+		rejectedBy: text("rejected_by"),
+		rejectionReason: text("rejection_reason"),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [unique("uq_app_tech_element").on(t.applicationId, t.elementId)],
+)
 
 export const controlDependencies = pgTable("control_dependencies", {
 	id: uuid("id").primaryKey().defaultRandom(),
