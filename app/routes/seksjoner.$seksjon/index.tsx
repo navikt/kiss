@@ -13,7 +13,6 @@ import {
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getNaisTeamsForSection } from "~/db/queries/nais.server"
 import { getSectionDetail } from "~/db/queries/sections.server"
 import { compliancePercent } from "~/lib/utils"
 
@@ -36,8 +35,6 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotRelevant
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
-	const linkedNaisTeams = await getNaisTeamsForSection(result.section.id)
-
 	return data({
 		seksjon,
 		seksjonName,
@@ -50,7 +47,6 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		totalMangler,
 		totalControls,
 		overallPercent,
-		naisTeamCount: linkedNaisTeams.length,
 	})
 }
 
@@ -65,7 +61,6 @@ export default function SeksjonDashboard() {
 		totalPartial,
 		totalMangler,
 		overallPercent,
-		naisTeamCount,
 	} = useLoaderData<typeof loader>()
 
 	return (
@@ -229,9 +224,6 @@ export default function SeksjonDashboard() {
 			</HGrid>
 
 			<HStack gap="space-4" align="center">
-				<AkselLink as={Link} to={`/seksjoner/${seksjon}/rediger`}>
-					Administrer Nais-team ({naisTeamCount} koblet)
-				</AkselLink>
 				<AkselLink as={Link} to={`/seksjoner/${seksjon}/screening`}>
 					Innledende spørsmål
 				</AkselLink>
