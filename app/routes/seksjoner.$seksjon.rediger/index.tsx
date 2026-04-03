@@ -41,6 +41,8 @@ import {
 	deleteTeam,
 	getSectionDetail,
 	getTeamsForSection,
+	linkNaisTeamToDevTeam,
+	unlinkNaisTeamFromDevTeam,
 	updateSection,
 	updateTeam,
 } from "~/db/queries/sections.server"
@@ -76,7 +78,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			slug: result.section.slug,
 			description: result.section.description,
 		},
-		teams: teams.map((t) => ({ id: t.id, name: t.name, slug: t.slug, description: t.description })),
+		teams: teams.map((t) => ({
+			id: t.id,
+			name: t.name,
+			slug: t.slug,
+			description: t.description,
+			linkedNaisTeams: t.linkedNaisTeams,
+		})),
 		linkedNaisTeams: linkedNaisTeams.map((t) => ({
 			slug: t.slug,
 			displayName: t.displayName,
@@ -202,6 +210,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirectToTab(seksjon, "apper")
 	}
 
+	if (intent === "link-nais-to-devteam") {
+		const devTeamId = formData.get("devTeamId") as string
+		const naisTeamSlug = formData.get("naisTeamSlug") as string
+		if (!devTeamId || !naisTeamSlug) throw new Response("Mangler påkrevde felt", { status: 400 })
+		await linkNaisTeamToDevTeam(naisTeamSlug, devTeamId, userId)
+		return redirectToTab(seksjon, "team")
+	}
+
+	if (intent === "unlink-nais-from-devteam") {
+		const devTeamId = formData.get("devTeamId") as string
+		const naisTeamSlug = formData.get("naisTeamSlug") as string
+		if (!devTeamId || !naisTeamSlug) throw new Response("Mangler påkrevde felt", { status: 400 })
+		await unlinkNaisTeamFromDevTeam(naisTeamSlug, devTeamId, userId)
+		return redirectToTab(seksjon, "team")
+	}
+
 	throw new Response("Ugyldig handling", { status: 400 })
 }
 
@@ -304,14 +328,53 @@ export default function RedigerSeksjon() {
 										<Table.Row>
 											<Table.HeaderCell scope="col">Team</Table.HeaderCell>
 											<Table.HeaderCell scope="col">Beskrivelse</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
 											<Table.HeaderCell scope="col" />
 										</Table.Row>
 									</Table.Header>
 									<Table.Body>
 										{teams.map((team) => (
 											<Table.Row key={team.id}>
-												<Table.DataCell>{team.name}</Table.DataCell>
+												<Table.DataCell>
+													<AkselLink as={Link} to={`/seksjoner/${seksjon}/team/${team.slug}`}>
+														{team.name}
+													</AkselLink>
+												</Table.DataCell>
 												<Table.DataCell>{team.description ?? "–"}</Table.DataCell>
+												<Table.DataCell>
+													{team.linkedNaisTeams.length > 0 ? (
+														<HStack gap="space-2" wrap>
+															{team.linkedNaisTeams.map((slug) => (
+																<Tag key={slug} variant="info" size="xsmall">
+																	{slug}
+																	<Form method="post" style={{ display: "inline" }}>
+																		<input type="hidden" name="intent" value="unlink-nais-from-devteam" />
+																		<input type="hidden" name="devTeamId" value={team.id} />
+																		<input type="hidden" name="naisTeamSlug" value={slug} />
+																		<button
+																			type="submit"
+																			aria-label={`Fjern ${slug}`}
+																			style={{
+																				background: "none",
+																				border: "none",
+																				cursor: "pointer",
+																				padding: "0 0 0 4px",
+																				fontSize: "0.75rem",
+																				lineHeight: 1,
+																			}}
+																		>
+																			✕
+																		</button>
+																	</Form>
+																</Tag>
+															))}
+														</HStack>
+													) : (
+														<BodyShort size="small" style={{ color: "var(--ax-text-subtle)" }}>
+															Ingen
+														</BodyShort>
+													)}
+												</Table.DataCell>
 												<Table.DataCell align="right">
 													<HStack gap="space-2" justify="end">
 														<Button
@@ -344,6 +407,36 @@ export default function RedigerSeksjon() {
 						)}
 
 						{teams.length === 0 && <BodyLong>Ingen team er opprettet i denne seksjonen.</BodyLong>}
+
+						{teams.length > 0 && linkedNaisTeams.length > 0 && (
+							<VStack gap="space-4">
+								<Heading size="small" level="4">
+									Koble Nais-team til utviklingsteam
+								</Heading>
+								<Form method="post">
+									<input type="hidden" name="intent" value="link-nais-to-devteam" />
+									<HStack gap="space-4" align="end">
+										<Select label="Utviklingsteam" name="devTeamId" size="small">
+											{teams.map((t) => (
+												<option key={t.id} value={t.id}>
+													{t.name}
+												</option>
+											))}
+										</Select>
+										<Select label="Nais-team" name="naisTeamSlug" size="small">
+											{linkedNaisTeams.map((nt) => (
+												<option key={nt.slug} value={nt.slug}>
+													{nt.slug}
+												</option>
+											))}
+										</Select>
+										<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
+											Koble
+										</Button>
+									</HStack>
+								</Form>
+							</VStack>
+						)}
 
 						<Form
 							method="post"

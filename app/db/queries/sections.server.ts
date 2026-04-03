@@ -3,6 +3,7 @@ import { db } from "../connection.server"
 import {
 	applicationEnvironments,
 	applicationTeamMappings,
+	devTeamNaisTeamMappings,
 	monitoredApplications,
 	naisTeams,
 	sectionIgnoredApplications,
@@ -330,8 +331,20 @@ export async function deleteTeam(id: string, performedBy: string) {
 }
 
 /** Get all teams for a section, ordered by name. */
+/** Get all teams for a section with linked Nais team counts. */
 export async function getTeamsForSection(sectionId: string) {
-	return db.select().from(devTeams).where(eq(devTeams.sectionId, sectionId)).orderBy(devTeams.name)
+	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, sectionId)).orderBy(devTeams.name)
+	const teamsWithNais = await Promise.all(
+		teams.map(async (team) => {
+			const naisLinks = await db
+				.select({ slug: naisTeams.slug })
+				.from(devTeamNaisTeamMappings)
+				.innerJoin(naisTeams, eq(devTeamNaisTeamMappings.naisTeamId, naisTeams.id))
+				.where(eq(devTeamNaisTeamMappings.devTeamId, team.id))
+			return { ...team, linkedNaisTeams: naisLinks.map((n) => n.slug) }
+		}),
+	)
+	return teamsWithNais
 }
 
 /** Get apps for a specific dev team. */
@@ -398,4 +411,71 @@ export async function getTeamApps(teamSlug: string) {
 	}
 
 	return { team, apps }
+}
+
+/** Link a Nais team to a dev team (by Nais team slug). */
+export async function linkNaisTeamToDevTeam(naisTeamSlug: string, devTeamId: string, performedBy: string) {
+	const [naisTeam] = await db.select().from(naisTeams).where(eq(naisTeams.slug, naisTeamSlug)).limit(1)
+	if (!naisTeam) throw new Error(`Nais-team not found: ${naisTeamSlug}`)
+
+	const [existing] = await db
+		.select()
+		.from(devTeamNaisTeamMappings)
+		.where(and(eq(devTeamNaisTeamMappings.naisTeamId, naisTeam.id), eq(devTeamNaisTeamMappings.devTeamId, devTeamId)))
+		.limit(1)
+	if (existing) return existing
+
+	const [mapping] = await db
+		.insert(devTeamNaisTeamMappings)
+		.values({ naisTeamId: naisTeam.id, devTeamId, createdBy: performedBy })
+		.returning()
+
+	const [team] = await db.select({ name: devTeams.name }).from(devTeams).where(eq(devTeams.id, devTeamId)).limit(1)
+
+	await writeAuditLog({
+		action: "dev_team_nais_team_linked",
+		entityType: "dev_team_nais_team_mapping",
+		entityId: mapping.id,
+		newValue: `${team?.name ?? devTeamId} ↔ ${naisTeamSlug}`,
+		metadata: { devTeamId, naisTeamSlug },
+		performedBy,
+	})
+
+	return mapping
+}
+
+/** Unlink a Nais team from a dev team (by Nais team slug). */
+export async function unlinkNaisTeamFromDevTeam(naisTeamSlug: string, devTeamId: string, performedBy: string) {
+	const [naisTeam] = await db.select().from(naisTeams).where(eq(naisTeams.slug, naisTeamSlug)).limit(1)
+	if (!naisTeam) throw new Error(`Nais-team not found: ${naisTeamSlug}`)
+
+	const [team] = await db.select({ name: devTeams.name }).from(devTeams).where(eq(devTeams.id, devTeamId)).limit(1)
+
+	await db
+		.delete(devTeamNaisTeamMappings)
+		.where(and(eq(devTeamNaisTeamMappings.naisTeamId, naisTeam.id), eq(devTeamNaisTeamMappings.devTeamId, devTeamId)))
+
+	await writeAuditLog({
+		action: "dev_team_nais_team_unlinked",
+		entityType: "dev_team_nais_team_mapping",
+		entityId: `${devTeamId}-${naisTeamSlug}`,
+		previousValue: `${team?.name ?? devTeamId} ↔ ${naisTeamSlug}`,
+		metadata: { devTeamId, naisTeamSlug },
+		performedBy,
+	})
+}
+
+/** Get Nais teams linked to a dev team. */
+export async function getNaisTeamsForDevTeam(devTeamId: string) {
+	return db
+		.select({
+			id: naisTeams.id,
+			slug: naisTeams.slug,
+			displayName: naisTeams.displayName,
+			appCount: naisTeams.appCount,
+		})
+		.from(devTeamNaisTeamMappings)
+		.innerJoin(naisTeams, eq(devTeamNaisTeamMappings.naisTeamId, naisTeams.id))
+		.where(eq(devTeamNaisTeamMappings.devTeamId, devTeamId))
+		.orderBy(naisTeams.slug)
 }

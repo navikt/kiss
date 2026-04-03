@@ -54,6 +54,18 @@ export const applicationTeamMappings = pgTable("application_team_mappings", {
 	createdBy: text("created_by").notNull(),
 })
 
+export const devTeamNaisTeamMappings = pgTable("dev_team_nais_team_mappings", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	devTeamId: uuid("dev_team_id")
+		.notNull()
+		.references(() => devTeams.id, { onDelete: "cascade" }),
+	naisTeamId: uuid("nais_team_id")
+		.notNull()
+		.references(() => naisTeams.id, { onDelete: "cascade" }),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	createdBy: text("created_by").notNull(),
+})
+
 export const persistenceTypeEnum = [
 	"cloud_sql_postgres",
 	"nais_postgres",
