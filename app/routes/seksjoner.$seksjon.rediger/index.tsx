@@ -5,6 +5,7 @@ import {
 	BodyLong,
 	BodyShort,
 	Button,
+	Checkbox,
 	Heading,
 	HStack,
 	Modal,
@@ -21,6 +22,7 @@ import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { linkAppToTeam } from "~/db/queries/applications.server"
 import {
 	getIgnoredAppsForSection,
 	getLinkCandidatesForSection,
@@ -188,6 +190,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirectToTab(seksjon, "kobling")
 	}
 
+	if (intent === "bulk-assign-team") {
+		const teamId = formData.get("teamId") as string
+		const appIds = formData.getAll("appId") as string[]
+		if (!teamId) throw new Response("Mangler team", { status: 400 })
+		if (appIds.length === 0) throw new Response("Ingen applikasjoner valgt", { status: 400 })
+		for (const appId of appIds) {
+			await linkAppToTeam(appId, teamId, userId)
+		}
+		return redirectToTab(seksjon, "apper")
+	}
+
 	throw new Response("Ugyldig handling", { status: 400 })
 }
 
@@ -204,6 +217,7 @@ export default function RedigerSeksjon() {
 	const [editingTeam, setEditingTeam] = useState<(typeof teams)[number] | null>(null)
 	const [deletingTeam, setDeletingTeam] = useState<(typeof teams)[number] | null>(null)
 	const [unlinkingNaisTeam, setUnlinkingNaisTeam] = useState<(typeof linkedNaisTeams)[number] | null>(null)
+	const [selectedApps, setSelectedApps] = useState<string[]>([])
 
 	return (
 		<VStack gap="space-6">
@@ -443,11 +457,45 @@ export default function RedigerSeksjon() {
 										{unassignedApps.length} {unassignedApps.length === 1 ? "applikasjon" : "applikasjoner"} fra
 										seksjonens Nais-team er ikke koblet til et utviklingsteam.
 									</Alert>
+									{teams.length > 0 && selectedApps.length > 0 && (
+										<Form method="post">
+											<input type="hidden" name="intent" value="bulk-assign-team" />
+											{selectedApps.map((id) => (
+												<input key={id} type="hidden" name="appId" value={id} />
+											))}
+											<HStack gap="space-4" align="end">
+												<Select label="Utviklingsteam" name="teamId" size="small">
+													{teams.map((t) => (
+														<option key={t.id} value={t.id}>
+															{t.name}
+														</option>
+													))}
+												</Select>
+												<Button type="submit" variant="primary" size="small">
+													Koble {selectedApps.length} {selectedApps.length === 1 ? "app" : "apper"} til team
+												</Button>
+											</HStack>
+										</Form>
+									)}
 									{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 									<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner uten team">
 										<Table size="small">
 											<Table.Header>
 												<Table.Row>
+													<Table.HeaderCell scope="col">
+														<Checkbox
+															size="small"
+															checked={selectedApps.length === unassignedApps.length && unassignedApps.length > 0}
+															indeterminate={selectedApps.length > 0 && selectedApps.length < unassignedApps.length}
+															onChange={(e) =>
+																setSelectedApps(e.target.checked ? unassignedApps.map((a) => a.appId) : [])
+															}
+															aria-label="Velg alle"
+															hideLabel
+														>
+															Velg alle
+														</Checkbox>
+													</Table.HeaderCell>
 													<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
 													<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
 													<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
@@ -457,6 +505,21 @@ export default function RedigerSeksjon() {
 											<Table.Body>
 												{unassignedApps.map((app) => (
 													<Table.Row key={app.appId}>
+														<Table.DataCell>
+															<Checkbox
+																size="small"
+																checked={selectedApps.includes(app.appId)}
+																onChange={(e) =>
+																	setSelectedApps((prev) =>
+																		e.target.checked ? [...prev, app.appId] : prev.filter((id) => id !== app.appId),
+																	)
+																}
+																aria-label={`Velg ${app.appName}`}
+																hideLabel
+															>
+																{app.appName}
+															</Checkbox>
+														</Table.DataCell>
 														<Table.DataCell>
 															<AkselLink as={Link} to={`/applikasjoner/${app.appId}/detaljer`}>
 																{app.appName}
