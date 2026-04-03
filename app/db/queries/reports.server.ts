@@ -1,4 +1,5 @@
 import { desc, eq, isNull, sql } from "drizzle-orm"
+import { getStatusLabel } from "../../lib/compliance-status"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
@@ -323,13 +324,6 @@ function buildReportHtml(data: {
 		assessedAt: string | null
 	}>
 }): string {
-	const statusLabel: Record<string, string> = {
-		implemented: "Implementert",
-		partially_implemented: "Delvis implementert",
-		not_implemented: "Ikke implementert",
-		not_relevant: "Ikke relevant",
-	}
-
 	const domainRowsHtml = [...data.domainStats.entries()]
 		.map(
 			([code, d]) => `
@@ -353,7 +347,7 @@ function buildReportHtml(data: {
 				<td>${escapeHtml(row.controlId)}</td>
 				<td>${escapeHtml(row.controlName)}</td>
 				<td>${escapeHtml(row.domainCode)}</td>
-				<td>${escapeHtml(statusLabel[row.status ?? ""] ?? "Ikke vurdert")}</td>
+				<td>${escapeHtml(getStatusLabel(row.status))}</td>
 				<td>${escapeHtml(row.comment ?? "")}</td>
 			</tr>`,
 		)
