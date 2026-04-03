@@ -1,4 +1,4 @@
-import { CheckmarkIcon, DownloadIcon, XMarkIcon } from "@navikt/aksel-icons"
+import { CheckmarkIcon, DownloadIcon, ExternalLinkIcon, XMarkIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
@@ -335,7 +335,7 @@ export default function ApplikasjonDetalj() {
 				{app.description && <BodyLong>{app.description}</BodyLong>}
 				<HStack gap="space-4" align="center" style={{ marginTop: "var(--ax-space-2)" }}>
 					<AkselLink href={gitHubUrl} target="_blank" rel="noopener noreferrer">
-						GitHub
+						GitHub <ExternalLinkIcon aria-hidden />
 					</AkselLink>
 				</HStack>
 			</div>
