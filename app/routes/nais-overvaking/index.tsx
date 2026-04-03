@@ -109,6 +109,9 @@ export default function NaisOvervaking() {
 		return true
 	})
 
+	const linkedTeams = filteredTeams.filter((t) => t.sectionName)
+	const unlinkedTeams = filteredTeams.filter((t) => !t.sectionName)
+
 	return (
 		<VStack gap="space-6">
 			<Heading size="xlarge" level="2">
@@ -150,30 +153,32 @@ export default function NaisOvervaking() {
 				</Switch>
 			</HStack>
 
-			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-			<section className="table-scroll" tabIndex={0} aria-label="Nais-team">
-				<Table>
-					<Table.Header>
-						<Table.Row>
-							<Table.HeaderCell scope="col">Team</Table.HeaderCell>
-							<Table.HeaderCell scope="col" align="right">
-								Applikasjoner
-							</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Seksjon</Table.HeaderCell>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{filteredTeams.map((team) => (
-							<Table.Row key={team.slug}>
-								<Table.DataCell>
-									<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
-									{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
-								</Table.DataCell>
-								<Table.DataCell align="right">{team.appCount}</Table.DataCell>
-								<Table.DataCell>{new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
-								<Table.DataCell>
-									{team.sectionName ? (
+			{/* Linked teams */}
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Team koblet til seksjon ({linkedTeams.length})
+				</Heading>
+				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+				<section className="table-scroll" tabIndex={0} aria-label="Team koblet til seksjon">
+					<Table>
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Team</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Seksjon</Table.HeaderCell>
+								<Table.HeaderCell scope="col" align="right">
+									Applikasjoner
+								</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{linkedTeams.map((team) => (
+								<Table.Row key={team.slug}>
+									<Table.DataCell>
+										<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
+										{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
+									</Table.DataCell>
+									<Table.DataCell>
 										<HStack gap="space-2" align="center">
 											<Tag variant="info" size="xsmall">
 												{team.sectionName}
@@ -191,7 +196,49 @@ export default function NaisOvervaking() {
 												✕
 											</Button>
 										</HStack>
-									) : (
+									</Table.DataCell>
+									<Table.DataCell align="right">{team.appCount}</Table.DataCell>
+									<Table.DataCell>{new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+								</Table.Row>
+							))}
+							{linkedTeams.length === 0 && (
+								<Table.Row>
+									<Table.DataCell colSpan={4}>Ingen team er koblet til en seksjon ennå.</Table.DataCell>
+								</Table.Row>
+							)}
+						</Table.Body>
+					</Table>
+				</section>
+			</VStack>
+
+			{/* Unlinked teams */}
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Team uten seksjon ({unlinkedTeams.length})
+				</Heading>
+				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+				<section className="table-scroll" tabIndex={0} aria-label="Team uten seksjon">
+					<Table>
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Team</Table.HeaderCell>
+								<Table.HeaderCell scope="col" align="right">
+									Applikasjoner
+								</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Seksjon</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{unlinkedTeams.map((team) => (
+								<Table.Row key={team.slug}>
+									<Table.DataCell>
+										<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
+										{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
+									</Table.DataCell>
+									<Table.DataCell align="right">{team.appCount}</Table.DataCell>
+									<Table.DataCell>{new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+									<Table.DataCell>
 										<Form method="post">
 											<input type="hidden" name="intent" value="link-section" />
 											<input type="hidden" name="teamSlug" value={team.slug} />
@@ -209,18 +256,18 @@ export default function NaisOvervaking() {
 												</Button>
 											</HStack>
 										</Form>
-									)}
-								</Table.DataCell>
-							</Table.Row>
-						))}
-						{filteredTeams.length === 0 && (
-							<Table.Row>
-								<Table.DataCell colSpan={4}>Ingen Nais-team oppdaget ennå. Trykk «Synkroniser nå».</Table.DataCell>
-							</Table.Row>
-						)}
-					</Table.Body>
-				</Table>
-			</section>
+									</Table.DataCell>
+								</Table.Row>
+							))}
+							{unlinkedTeams.length === 0 && (
+								<Table.Row>
+									<Table.DataCell colSpan={4}>Alle team er koblet til en seksjon.</Table.DataCell>
+								</Table.Row>
+							)}
+						</Table.Body>
+					</Table>
+				</section>
+			</VStack>
 
 			<Modal ref={unlinkModalRef} header={{ heading: "Fjern seksjonskobling" }}>
 				<Modal.Body>
