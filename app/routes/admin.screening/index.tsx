@@ -14,6 +14,7 @@ import {
 	BodyShort,
 	Box,
 	Button,
+	Detail,
 	Heading,
 	HStack,
 	Modal,
@@ -29,25 +30,33 @@ import {
 	deleteScreeningQuestion,
 	getEffectsForQuestion,
 	getScreeningQuestions,
+	getSectionScreeningQuestions,
 	reorderScreeningQuestions,
 } from "~/db/queries/screening.server"
+import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
-
-const effectLabels: Record<string, string> = {
-	not_relevant: "Ikke relevant",
-	implemented: "Implementert",
-	partially_implemented: "Delvis implementert",
-	not_implemented: "Ikke implementert",
-}
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)
 
-	const questions = await getScreeningQuestions()
+	const url = new URL(request.url)
+	const seksjonSlug = url.searchParams.get("seksjon")
+
+	let sectionId: string | null = null
+	let sectionName: string | null = null
+
+	if (seksjonSlug) {
+		const section = await getSectionBySlug(seksjonSlug)
+		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+		sectionId = section.id
+		sectionName = section.name
+	}
+
+	const questions = sectionId ? await getSectionScreeningQuestions(sectionId) : await getScreeningQuestions()
 
 	const questionsWithEffects = await Promise.all(
 		questions.map(async (q) => {
@@ -60,7 +69,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		}),
 	)
 
-	return data({ questions: questionsWithEffects })
+	return data({ questions: questionsWithEffects, seksjon: seksjonSlug, sectionId, sectionName })
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -85,11 +94,12 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function AdminScreening() {
-	const { questions: loaderQuestions } = useLoaderData<typeof loader>()
+	const { questions: loaderQuestions, seksjon, sectionName } = useLoaderData<typeof loader>()
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
 	const [deleteTarget, setDeleteTarget] = useState<{ id: string; text: string } | null>(null)
 	const [questions, setQuestions] = useState(loaderQuestions)
 	const fetcher = useFetcher()
+	const seksjonParam = seksjon ? `?seksjon=${seksjon}` : ""
 
 	const sensors = useSensors(
 		useSensor(PointerSensor),
@@ -115,13 +125,18 @@ export default function AdminScreening() {
 	return (
 		<VStack gap="space-12">
 			<div>
+				{seksjon && (
+					<Detail>
+						<Link to={`/seksjoner/${seksjon}/rediger`}>← Tilbake til {sectionName}</Link>
+					</Detail>
+				)}
 				<HStack justify="space-between" align="center" wrap gap="space-4">
 					<Heading size="xlarge" level="2">
-						Innledende spørsmål
+						Innledende spørsmål{sectionName ? ` — ${sectionName}` : ""}
 					</Heading>
 					<Button
 						as={Link}
-						to="/admin/screening/ny/rediger"
+						to={`/admin/screening/ny/rediger${seksjonParam}`}
 						size="small"
 						variant="secondary"
 						icon={<PlusIcon aria-hidden />}
@@ -146,6 +161,7 @@ export default function AdminScreening() {
 									key={q.id}
 									question={q}
 									index={index}
+									seksjonParam={seksjonParam}
 									onDelete={() => {
 										setDeleteTarget({ id: q.id, text: q.questionText })
 										deleteModalRef.current?.showModal()
@@ -193,10 +209,12 @@ type QuestionItem = {
 function SortableQuestionCard({
 	question: q,
 	index,
+	seksjonParam,
 	onDelete,
 }: {
 	question: QuestionItem
 	index: number
+	seksjonParam: string
 	onDelete: () => void
 }) {
 	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: q.id })
@@ -247,7 +265,7 @@ function SortableQuestionCard({
 					<HStack gap="space-2">
 						<Button
 							as={Link}
-							to={`/admin/screening/${q.id}/rediger`}
+							to={`/admin/screening/${q.id}/rediger${seksjonParam}`}
 							size="xsmall"
 							variant="tertiary-neutral"
 							icon={<PencilIcon aria-hidden />}

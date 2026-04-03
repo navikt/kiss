@@ -28,6 +28,7 @@ import {
 	getScreeningQuestion,
 	updateScreeningQuestion,
 } from "~/db/queries/screening.server"
+import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -43,6 +44,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)
+
+	const url = new URL(request.url)
+	const seksjonSlug = url.searchParams.get("seksjon")
+
+	let sectionId: string | null = null
+	let sectionName: string | null = null
+
+	if (seksjonSlug) {
+		const section = await getSectionBySlug(seksjonSlug)
+		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+		sectionId = section.id
+		sectionName = section.name
+	}
 
 	const questionId = params.questionId as string
 	const isNew = questionId === "ny"
@@ -60,6 +74,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			},
 			effects: [],
 			controls,
+			seksjon: seksjonSlug,
+			sectionId,
+			sectionName,
 		})
 	}
 
@@ -77,6 +94,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		},
 		effects,
 		controls,
+		seksjon: seksjonSlug,
+		sectionId,
+		sectionName,
 	})
 }
 
@@ -88,6 +108,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const questionId = params.questionId as string
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
+	const seksjon = formData.get("seksjon") as string | null
+	const sectionId = formData.get("sectionId") as string | null
+	const seksjonParam = seksjon ? `?seksjon=${seksjon}` : ""
 
 	if (intent === "updateQuestion") {
 		const questionText = formData.get("questionText") as string
@@ -96,12 +119,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!questionText?.trim()) throw new Response("Ugyldig data", { status: 400 })
 
 		if (questionId === "ny") {
-			const q = await createScreeningQuestion(questionText.trim(), description, displayOrder, authedUser.navIdent)
-			return redirect(`/admin/screening/${q.id}/rediger`)
+			const q = await createScreeningQuestion(
+				questionText.trim(),
+				description,
+				displayOrder,
+				authedUser.navIdent,
+				sectionId,
+			)
+			return redirect(`/admin/screening/${q.id}/rediger${seksjonParam}`)
 		}
 
 		await updateScreeningQuestion(questionId, questionText.trim(), description, displayOrder, authedUser.navIdent)
-		return redirect(`/admin/screening`)
+		return redirect(`/admin/screening${seksjonParam}`)
 	} else if (intent === "addEffect") {
 		const controlTextId = formData.get("controlTextId") as string
 		const yesEffect = formData.get("yesEffect") as string
@@ -127,13 +156,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function EditScreeningQuestion() {
-	const { isNew, question, effects, controls } = useLoaderData<typeof loader>()
+	const { isNew, question, effects, controls, seksjon, sectionId, sectionName } = useLoaderData<typeof loader>()
 	const [descriptionPreview, setDescriptionPreview] = useState(question.description ?? "")
+	const seksjonParam = seksjon ? `?seksjon=${seksjon}` : ""
 
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
 			<Detail>
-				<Link to="/admin/screening">← Tilbake til innledende spørsmål</Link>
+				<Link to={`/admin/screening${seksjonParam}`}>
+					← Tilbake til innledende spørsmål{sectionName ? ` — ${sectionName}` : ""}
+				</Link>
 			</Detail>
 
 			<Heading size="xlarge" level="2">
@@ -143,6 +175,8 @@ export default function EditScreeningQuestion() {
 			{/* Edit form — padding accommodates Aksel's 6px focus ring (3px outline + 3px offset) */}
 			<Form method="post" style={{ padding: "6px" }}>
 				<input type="hidden" name="intent" value="updateQuestion" />
+				{seksjon && <input type="hidden" name="seksjon" value={seksjon} />}
+				{sectionId && <input type="hidden" name="sectionId" value={sectionId} />}
 				<VStack gap="space-8">
 					<HStack gap="space-4" align="end" wrap>
 						<TextField

@@ -251,7 +251,7 @@ export default function RedigerSeksjon() {
 								Relatert
 							</Heading>
 							<HStack gap="space-4">
-								<Button as={Link} to={`/seksjoner/${seksjon}/screening`} variant="secondary" size="small">
+								<Button as={Link} to={`/admin/screening?seksjon=${seksjon}`} variant="secondary" size="small">
 									Screening-spørsmål
 								</Button>
 							</HStack>

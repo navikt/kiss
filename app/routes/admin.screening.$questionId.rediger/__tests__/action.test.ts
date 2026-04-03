@@ -176,7 +176,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 				expect((thrown as Response).headers.get("Location")).toContain("/admin/screening/new-id/rediger")
 			}
 
-			expect(mockCreateScreeningQuestion).toHaveBeenCalledWith("Nytt spørsmål", "Beskrivelse", 0, "Z999999")
+			expect(mockCreateScreeningQuestion).toHaveBeenCalledWith("Nytt spørsmål", "Beskrivelse", 0, "Z999999", null)
 		})
 
 		it("allows update for admin", async () => {

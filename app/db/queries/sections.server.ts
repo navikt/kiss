@@ -17,6 +17,12 @@ export async function getSections() {
 	return db.select().from(sections).orderBy(sections.name)
 }
 
+/** Get a section by slug (lightweight lookup). */
+export async function getSectionBySlug(slug: string) {
+	const [section] = await db.select().from(sections).where(eq(sections.slug, slug)).limit(1)
+	return section ?? null
+}
+
 /** Get section detail with team compliance stats. */
 export async function getSectionDetail(seksjonSlug: string) {
 	const [section] = await db.select().from(sections).where(eq(sections.slug, seksjonSlug)).limit(1)
