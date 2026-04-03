@@ -1,5 +1,19 @@
-import { Alert, BodyLong, Button, Heading, HStack, Search, Select, Switch, Table, Tag, VStack } from "@navikt/ds-react"
-import { useState } from "react"
+import {
+	Alert,
+	BodyLong,
+	BodyShort,
+	Button,
+	Heading,
+	HStack,
+	Modal,
+	Search,
+	Select,
+	Switch,
+	Table,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
+import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData, useNavigation } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -28,7 +42,6 @@ export async function loader(_args: LoaderFunctionArgs) {
 	const naisTeams = teams.map((t) => ({
 		slug: t.slug,
 		displayName: t.displayName,
-		status: t.status,
 		appCount: Math.max(t.appCount, appCounts.get(t.id) ?? 0),
 		discoveredAt: new Date(t.discoveredAt).toISOString().split("T")[0],
 		sectionId: t.sectionId,
@@ -62,6 +75,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		const sectionId = formData.get("sectionId") as string
 		if (!teamSlug || !sectionId) throw new Response("Mangler data", { status: 400 })
 		await linkNaisTeamToSection(teamSlug, sectionId, userName)
+		await updateNaisTeamStatus(teamSlug, "monitored", userName)
 		return data({ success: true })
 	}
 
@@ -72,33 +86,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		return data({ success: true })
 	}
 
-	const teamSlug = formData.get("teamSlug")
-	const actionType = formData.get("action")
-
-	if (typeof teamSlug !== "string" || !teamSlug) {
-		throw new Response("Mangler team", { status: 400 })
-	}
-
-	if (actionType !== "monitor" && actionType !== "ignore") {
-		throw new Response("Ugyldig handling", { status: 400 })
-	}
-
-	const newStatus = actionType === "monitor" ? "monitored" : "ignored"
-	await updateNaisTeamStatus(teamSlug, newStatus, userName)
-
-	return data({ success: true, teamSlug, action: actionType })
-}
-
-const statusTagVariant: Record<string, "success" | "warning" | "neutral"> = {
-	monitored: "success",
-	pending: "warning",
-	ignored: "neutral",
-}
-
-const statusLabel: Record<string, string> = {
-	monitored: "Overvåket",
-	pending: "Venter",
-	ignored: "Ignorert",
+	throw new Response("Ugyldig handling", { status: 400 })
 }
 
 export default function NaisOvervaking() {
@@ -108,12 +96,12 @@ export default function NaisOvervaking() {
 	const isSyncing = navigation.state === "submitting" && navigation.formData?.get("intent") === "sync"
 
 	const [hideEmpty, setHideEmpty] = useState(false)
-	const [onlyUnmonitored, setOnlyUnmonitored] = useState(false)
 	const [searchQuery, setSearchQuery] = useState("")
+	const unlinkModalRef = useRef<HTMLDialogElement>(null)
+	const [unlinkTarget, setUnlinkTarget] = useState<{ slug: string; sectionName: string } | null>(null)
 
 	const filteredTeams = teams.filter((t) => {
 		if (hideEmpty && t.appCount === 0) return false
-		if (onlyUnmonitored && t.status !== "pending") return false
 		if (searchQuery) {
 			const q = searchQuery.toLowerCase()
 			return t.slug.toLowerCase().includes(q) || (t.displayName?.toLowerCase().includes(q) ?? false)
@@ -160,9 +148,6 @@ export default function NaisOvervaking() {
 				<Switch size="small" checked={hideEmpty} onChange={() => setHideEmpty(!hideEmpty)}>
 					Skjul team uten apper
 				</Switch>
-				<Switch size="small" checked={onlyUnmonitored} onChange={() => setOnlyUnmonitored(!onlyUnmonitored)}>
-					Kun ikke-overvåkede
-				</Switch>
 			</HStack>
 
 			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
@@ -171,13 +156,11 @@ export default function NaisOvervaking() {
 					<Table.Header>
 						<Table.Row>
 							<Table.HeaderCell scope="col">Team</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Seksjon</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Status</Table.HeaderCell>
 							<Table.HeaderCell scope="col" align="right">
 								Applikasjoner
 							</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Seksjon</Table.HeaderCell>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
@@ -187,19 +170,26 @@ export default function NaisOvervaking() {
 									<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
 									{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
 								</Table.DataCell>
+								<Table.DataCell align="right">{team.appCount}</Table.DataCell>
+								<Table.DataCell>{new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
 								<Table.DataCell>
 									{team.sectionName ? (
 										<HStack gap="space-2" align="center">
 											<Tag variant="info" size="xsmall">
 												{team.sectionName}
 											</Tag>
-											<Form method="post" style={{ display: "inline" }}>
-												<input type="hidden" name="intent" value="unlink-section" />
-												<input type="hidden" name="teamSlug" value={team.slug} />
-												<Button variant="tertiary-neutral" size="xsmall" type="submit" title="Fjern seksjon">
-													✕
-												</Button>
-											</Form>
+											<Button
+												variant="tertiary-neutral"
+												size="xsmall"
+												type="button"
+												title={`Fjern kobling for ${team.slug}`}
+												onClick={() => {
+													setUnlinkTarget({ slug: team.slug, sectionName: team.sectionName as string })
+													unlinkModalRef.current?.showModal()
+												}}
+											>
+												✕
+											</Button>
 										</HStack>
 									) : (
 										<Form method="post">
@@ -221,52 +211,39 @@ export default function NaisOvervaking() {
 										</Form>
 									)}
 								</Table.DataCell>
-								<Table.DataCell>
-									<Tag variant={statusTagVariant[team.status]} size="small">
-										{statusLabel[team.status]}
-									</Tag>
-								</Table.DataCell>
-								<Table.DataCell align="right">{team.appCount}</Table.DataCell>
-								<Table.DataCell>{new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
-								<Table.DataCell>
-									{team.status === "pending" && (
-										<Form method="post">
-											<input type="hidden" name="teamSlug" value={team.slug} />
-											<HStack gap="space-2">
-												<Button
-													type="submit"
-													name="action"
-													value="monitor"
-													size="xsmall"
-													variant="primary"
-													aria-label={`Overvåk ${team.slug}`}
-												>
-													Overvåk
-												</Button>
-												<Button
-													type="submit"
-													name="action"
-													value="ignore"
-													size="xsmall"
-													variant="tertiary"
-													aria-label={`Ignorer ${team.slug}`}
-												>
-													Ignorer
-												</Button>
-											</HStack>
-										</Form>
-									)}
-								</Table.DataCell>
 							</Table.Row>
 						))}
 						{filteredTeams.length === 0 && (
 							<Table.Row>
-								<Table.DataCell colSpan={6}>Ingen Nais-team oppdaget ennå. Trykk «Synkroniser nå».</Table.DataCell>
+								<Table.DataCell colSpan={4}>Ingen Nais-team oppdaget ennå. Trykk «Synkroniser nå».</Table.DataCell>
 							</Table.Row>
 						)}
 					</Table.Body>
 				</Table>
 			</section>
+
+			<Modal ref={unlinkModalRef} header={{ heading: "Fjern seksjonskobling" }}>
+				<Modal.Body>
+					<BodyShort>
+						Er du sikker på at du vil fjerne koblingen mellom <strong>{unlinkTarget?.slug}</strong> og seksjonen{" "}
+						<strong>{unlinkTarget?.sectionName}</strong>?
+					</BodyShort>
+				</Modal.Body>
+				<Modal.Footer>
+					<Form method="post" onSubmit={() => unlinkModalRef.current?.close()}>
+						<input type="hidden" name="intent" value="unlink-section" />
+						<input type="hidden" name="teamSlug" value={unlinkTarget?.slug ?? ""} />
+						<HStack gap="space-4">
+							<Button type="button" variant="secondary" size="small" onClick={() => unlinkModalRef.current?.close()}>
+								Avbryt
+							</Button>
+							<Button type="submit" variant="danger" size="small">
+								Fjern kobling
+							</Button>
+						</HStack>
+					</Form>
+				</Modal.Footer>
+			</Modal>
 
 			<Link to="/nais-overvaking/endringslogg">Vis endringslogg</Link>
 		</VStack>

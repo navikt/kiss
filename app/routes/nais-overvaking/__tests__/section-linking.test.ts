@@ -61,7 +61,7 @@ describe("nais-overvaking action – section linking", () => {
 		mockGetAuthenticatedUser.mockResolvedValue(testUser)
 	})
 
-	it("links a Nais team to a section", async () => {
+	it("links a Nais team to a section and sets status to monitored", async () => {
 		const formData = new FormData()
 		formData.set("intent", "link-section")
 		formData.set("teamSlug", "my-team")
@@ -70,6 +70,7 @@ describe("nais-overvaking action – section linking", () => {
 		await callAction(formData)
 
 		expect(mockLinkNaisTeamToSection).toHaveBeenCalledWith("my-team", "section-1", "Z999999")
+		expect(mockUpdateNaisTeamStatus).toHaveBeenCalledWith("my-team", "monitored", "Z999999")
 	})
 
 	it("unlinks a Nais team from a section", async () => {
@@ -127,5 +128,18 @@ describe("nais-overvaking action – section linking", () => {
 		}
 
 		expect(mockUnlinkNaisTeamFromSection).not.toHaveBeenCalled()
+	})
+
+	it("returns 400 for unknown intent", async () => {
+		const formData = new FormData()
+		formData.set("intent", "invalid")
+
+		try {
+			await callAction(formData)
+			expect.unreachable("Should have thrown 400")
+		} catch (thrown) {
+			expect(thrown).toBeInstanceOf(Response)
+			expect((thrown as Response).status).toBe(400)
+		}
 	})
 })
