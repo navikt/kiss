@@ -115,26 +115,24 @@ export default function AdminScreening() {
 	return (
 		<VStack gap="space-12">
 			<div>
-				<Heading size="xlarge" level="2">
-					Innledende spørsmål
-				</Heading>
+				<HStack justify="space-between" align="center" wrap gap="space-4">
+					<Heading size="xlarge" level="2">
+						Innledende spørsmål
+					</Heading>
+					<Button
+						as={Link}
+						to="/admin/screening/ny/rediger"
+						size="small"
+						variant="secondary"
+						icon={<PlusIcon aria-hidden />}
+					>
+						Nytt spørsmål
+					</Button>
+				</HStack>
 				<BodyLong>
 					Definer ja/nei-spørsmål som vises før compliance-vurderingen. Svarene kan automatisk sette status på
 					kontrollpunkter.
 				</BodyLong>
-			</div>
-
-			{/* Create new question */}
-			<div>
-				<Button
-					as={Link}
-					to="/admin/screening/ny/rediger"
-					size="small"
-					variant="secondary"
-					icon={<PlusIcon aria-hidden />}
-				>
-					Nytt spørsmål
-				</Button>
 			</div>
 
 			{/* Questions list */}
