@@ -1,5 +1,18 @@
 import { PencilIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
-import { Alert, BodyLong, BodyShort, Box, Button, Heading, HStack, ReadMore, Tag, VStack } from "@navikt/ds-react"
+import {
+	Alert,
+	BodyLong,
+	BodyShort,
+	Box,
+	Button,
+	Heading,
+	HStack,
+	Modal,
+	ReadMore,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
+import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -55,6 +68,8 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function AdminScreening() {
 	const { questions } = useLoaderData<typeof loader>()
+	const deleteModalRef = useRef<HTMLDialogElement>(null)
+	const [deleteTarget, setDeleteTarget] = useState<{ id: string; text: string } | null>(null)
 
 	return (
 		<VStack gap="space-12">
@@ -109,13 +124,17 @@ export default function AdminScreening() {
 										>
 											Rediger
 										</Button>
-										<Form method="post">
-											<input type="hidden" name="intent" value="deleteQuestion" />
-											<input type="hidden" name="questionId" value={q.id} />
-											<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />}>
-												Slett
-											</Button>
-										</Form>
+										<Button
+											size="xsmall"
+											variant="tertiary-neutral"
+											icon={<TrashIcon aria-hidden />}
+											onClick={() => {
+												setDeleteTarget({ id: q.id, text: q.questionText })
+												deleteModalRef.current?.showModal()
+											}}
+										>
+											Slett
+										</Button>
 									</HStack>
 								</HStack>
 
@@ -145,6 +164,28 @@ export default function AdminScreening() {
 					))}
 				</VStack>
 			)}
+			{/* Delete confirmation modal */}
+			<Modal ref={deleteModalRef} header={{ heading: "Slett spørsmål" }} onClose={() => setDeleteTarget(null)}>
+				<Modal.Body>
+					<BodyLong>
+						Er du sikker på at du vil slette spørsmålet «{deleteTarget?.text}»? Dette kan ikke angres.
+					</BodyLong>
+				</Modal.Body>
+				<Modal.Footer>
+					<Form method="post" onSubmit={() => deleteModalRef.current?.close()}>
+						<input type="hidden" name="intent" value="deleteQuestion" />
+						<input type="hidden" name="questionId" value={deleteTarget?.id ?? ""} />
+						<HStack gap="space-4">
+							<Button type="submit" size="small" variant="danger">
+								Slett
+							</Button>
+							<Button type="button" size="small" variant="secondary" onClick={() => deleteModalRef.current?.close()}>
+								Avbryt
+							</Button>
+						</HStack>
+					</Form>
+				</Modal.Footer>
+			</Modal>
 		</VStack>
 	)
 }
