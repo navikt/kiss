@@ -76,6 +76,23 @@ export async function updateScreeningQuestion(
 	return q
 }
 
+export async function reorderScreeningQuestions(orderedIds: string[], performedBy: string) {
+	for (let i = 0; i < orderedIds.length; i++) {
+		await db
+			.update(screeningQuestions)
+			.set({ displayOrder: i, updatedAt: new Date(), updatedBy: performedBy })
+			.where(eq(screeningQuestions.id, orderedIds[i]))
+	}
+
+	await writeAuditLog({
+		action: "screening_question_updated",
+		entityType: "screening_question",
+		entityId: orderedIds.join(","),
+		newValue: `Reordered: ${orderedIds.join(", ")}`,
+		performedBy,
+	})
+}
+
 export async function deleteScreeningQuestion(id: string, performedBy: string) {
 	await db.delete(screeningQuestions).where(eq(screeningQuestions.id, id))
 
