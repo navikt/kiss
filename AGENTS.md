@@ -120,6 +120,13 @@ React Router 7 fjerner `.server`-imports kun fra `loader`/`action`/`middleware`/
 - Frontend-tester bruker Storybook og Playwright
 - UU-tester med axe-core
 
+### Nye ruter
+Når nye ruter introduseres:
+1. **Legg til ruten i `app/routes.ts` FØRST** – uten ruteregistrering vil URLen gi 404
+2. **Verifiser at alle lenker peker til registrerte ruter** – sjekk at `to`-proppen i `<Link>` og `<Button as={Link}>` matcher et mønster i `routes.ts`
+3. **Test at ruten svarer med HTTP 200** før commit – bruk `curl -s -o /dev/null -w '%{http_code}' <url>`
+4. **Sjekk at lenker fra eksisterende sider fungerer** – navigasjonsflyt skal testes ende-til-ende
+
 ### Branch-strategi
 - All utvikling skjer i feature branches
 - Alle endringer skal sjekkes med AI-agenter (Opus, Sonnet, Codex)

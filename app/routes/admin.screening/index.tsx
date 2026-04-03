@@ -1,28 +1,9 @@
 import { PencilIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
-import {
-	Alert,
-	BodyLong,
-	BodyShort,
-	Box,
-	Button,
-	Heading,
-	HStack,
-	ReadMore,
-	Table,
-	Tag,
-	Textarea,
-	TextField,
-	VStack,
-} from "@navikt/ds-react"
+import { Alert, BodyLong, BodyShort, Box, Button, Heading, HStack, ReadMore, Tag, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useLoaderData } from "react-router"
+import { data, Form, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import {
-	createScreeningQuestion,
-	deleteScreeningQuestion,
-	getEffectsForQuestion,
-	getScreeningQuestions,
-} from "~/db/queries/screening.server"
+import { deleteScreeningQuestion, getEffectsForQuestion, getScreeningQuestions } from "~/db/queries/screening.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -63,10 +44,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
 
-	if (intent === "createQuestion") {
-		const q = await createScreeningQuestion("Nytt spørsmål", null, 0, authedUser.navIdent)
-		return redirect(`/admin/screening/${q.id}/rediger`)
-	} else if (intent === "deleteQuestion") {
+	if (intent === "deleteQuestion") {
 		const questionId = formData.get("questionId") as string
 		if (!questionId) throw new Response("Mangler ID", { status: 400 })
 		await deleteScreeningQuestion(questionId, authedUser.navIdent)
@@ -91,12 +69,17 @@ export default function AdminScreening() {
 			</div>
 
 			{/* Create new question */}
-			<Form method="post">
-				<input type="hidden" name="intent" value="createQuestion" />
-				<Button type="submit" size="small" variant="secondary" icon={<PlusIcon aria-hidden />}>
+			<div>
+				<Button
+					as={Link}
+					to="/admin/screening/ny/rediger"
+					size="small"
+					variant="secondary"
+					icon={<PlusIcon aria-hidden />}
+				>
 					Nytt spørsmål
 				</Button>
-			</Form>
+			</div>
 
 			{/* Questions list */}
 			{questions.length === 0 ? (
