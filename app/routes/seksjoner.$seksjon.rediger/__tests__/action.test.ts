@@ -29,6 +29,25 @@ vi.mock("~/db/queries/sections.server", () => ({
 	deleteTeam: mockDeleteTeam,
 }))
 
+const mockLinkNaisTeamToSection = vi.fn()
+const mockUnlinkNaisTeamFromSection = vi.fn()
+const mockIgnoreAppForSection = vi.fn()
+const mockUnignoreAppForSection = vi.fn()
+const mockGetNaisTeamsForSection = vi.fn()
+const mockGetUnlinkedNaisTeams = vi.fn()
+const mockGetUnassignedAppsForSection = vi.fn()
+const mockGetIgnoredAppsForSection = vi.fn()
+vi.mock("~/db/queries/nais.server", () => ({
+	linkNaisTeamToSection: mockLinkNaisTeamToSection,
+	unlinkNaisTeamFromSection: mockUnlinkNaisTeamFromSection,
+	ignoreAppForSection: mockIgnoreAppForSection,
+	unignoreAppForSection: mockUnignoreAppForSection,
+	getNaisTeamsForSection: mockGetNaisTeamsForSection,
+	getUnlinkedNaisTeams: mockGetUnlinkedNaisTeams,
+	getUnassignedAppsForSection: mockGetUnassignedAppsForSection,
+	getIgnoredAppsForSection: mockGetIgnoredAppsForSection,
+}))
+
 const { action } = await import("../index")
 
 // --- Helpers ---------------------------------------------------------
@@ -287,6 +306,173 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			}
 
 			expect(mockDeleteTeam).not.toHaveBeenCalled()
+		})
+	})
+
+	describe("link-nais-team", () => {
+		beforeEach(() => {
+			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
+			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAdmin.mockImplementation(() => {})
+			mockGetSectionDetail.mockResolvedValue(mockSection)
+		})
+
+		it("links Nais-team and redirects", async () => {
+			mockLinkNaisTeamToSection.mockResolvedValue({})
+
+			const formData = new FormData()
+			formData.set("intent", "link-nais-team")
+			formData.set("naisTeamSlug", "pensjon-person")
+
+			try {
+				await callAction(formData)
+			} catch (thrown) {
+				expect(thrown).toBeInstanceOf(Response)
+				expect((thrown as Response).status).toBe(302)
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger")
+			}
+
+			expect(mockLinkNaisTeamToSection).toHaveBeenCalledWith("pensjon-person", "sec-1", "Z999999")
+		})
+
+		it("returns 400 when naisTeamSlug is missing", async () => {
+			const formData = new FormData()
+			formData.set("intent", "link-nais-team")
+
+			try {
+				await callAction(formData)
+				expect.unreachable("Should have thrown 400")
+			} catch (thrown) {
+				expect(thrown).toBeInstanceOf(Response)
+				expect((thrown as Response).status).toBe(400)
+			}
+
+			expect(mockLinkNaisTeamToSection).not.toHaveBeenCalled()
+		})
+	})
+
+	describe("unlink-nais-team", () => {
+		beforeEach(() => {
+			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
+			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAdmin.mockImplementation(() => {})
+			mockGetSectionDetail.mockResolvedValue(mockSection)
+		})
+
+		it("unlinks Nais-team and redirects", async () => {
+			mockUnlinkNaisTeamFromSection.mockResolvedValue({})
+
+			const formData = new FormData()
+			formData.set("intent", "unlink-nais-team")
+			formData.set("naisTeamSlug", "pensjon-person")
+
+			try {
+				await callAction(formData)
+			} catch (thrown) {
+				expect(thrown).toBeInstanceOf(Response)
+				expect((thrown as Response).status).toBe(302)
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger")
+			}
+
+			expect(mockUnlinkNaisTeamFromSection).toHaveBeenCalledWith("pensjon-person", "Z999999")
+		})
+
+		it("returns 400 when naisTeamSlug is missing", async () => {
+			const formData = new FormData()
+			formData.set("intent", "unlink-nais-team")
+
+			try {
+				await callAction(formData)
+				expect.unreachable("Should have thrown 400")
+			} catch (thrown) {
+				expect(thrown).toBeInstanceOf(Response)
+				expect((thrown as Response).status).toBe(400)
+			}
+
+			expect(mockUnlinkNaisTeamFromSection).not.toHaveBeenCalled()
+		})
+	})
+
+	describe("ignore-app", () => {
+		beforeEach(() => {
+			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
+			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAdmin.mockImplementation(() => {})
+			mockGetSectionDetail.mockResolvedValue(mockSection)
+		})
+
+		it("ignores app and redirects", async () => {
+			mockIgnoreAppForSection.mockResolvedValue({})
+
+			const formData = new FormData()
+			formData.set("intent", "ignore-app")
+			formData.set("applicationId", "app-1")
+			formData.set("reason", "Ikke relevant")
+
+			try {
+				await callAction(formData)
+			} catch (thrown) {
+				expect(thrown).toBeInstanceOf(Response)
+				expect((thrown as Response).status).toBe(302)
+			}
+
+			expect(mockIgnoreAppForSection).toHaveBeenCalledWith("sec-1", "app-1", "Z999999", "Ikke relevant")
+		})
+
+		it("returns 400 when applicationId is missing", async () => {
+			const formData = new FormData()
+			formData.set("intent", "ignore-app")
+
+			try {
+				await callAction(formData)
+				expect.unreachable("Should have thrown 400")
+			} catch (thrown) {
+				expect(thrown).toBeInstanceOf(Response)
+				expect((thrown as Response).status).toBe(400)
+			}
+
+			expect(mockIgnoreAppForSection).not.toHaveBeenCalled()
+		})
+	})
+
+	describe("unignore-app", () => {
+		beforeEach(() => {
+			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
+			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAdmin.mockImplementation(() => {})
+			mockGetSectionDetail.mockResolvedValue(mockSection)
+		})
+
+		it("unignores app and redirects", async () => {
+			mockUnignoreAppForSection.mockResolvedValue({})
+
+			const formData = new FormData()
+			formData.set("intent", "unignore-app")
+			formData.set("applicationId", "app-1")
+
+			try {
+				await callAction(formData)
+			} catch (thrown) {
+				expect(thrown).toBeInstanceOf(Response)
+				expect((thrown as Response).status).toBe(302)
+			}
+
+			expect(mockUnignoreAppForSection).toHaveBeenCalledWith("sec-1", "app-1", "Z999999")
+		})
+
+		it("returns 400 when applicationId is missing", async () => {
+			const formData = new FormData()
+			formData.set("intent", "unignore-app")
+
+			try {
+				await callAction(formData)
+				expect.unreachable("Should have thrown 400")
+			} catch (thrown) {
+				expect(thrown).toBeInstanceOf(Response)
+				expect((thrown as Response).status).toBe(400)
+			}
+
+			expect(mockUnignoreAppForSection).not.toHaveBeenCalled()
 		})
 	})
 

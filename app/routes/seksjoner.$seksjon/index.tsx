@@ -190,14 +190,14 @@ export default function SeksjonDashboard() {
 					</Heading>
 					{unassignedAppCount} {unassignedAppCount === 1 ? "applikasjon" : "applikasjoner"} fra seksjonens Nais-team er
 					ikke koblet til et utviklingsteam og følges ikke opp for compliance.{" "}
-					<AkselLink as={Link} to={`/seksjoner/${seksjon}/nais-team`}>
+					<AkselLink as={Link} to={`/seksjoner/${seksjon}/rediger`}>
 						Se og administrer Nais-team
 					</AkselLink>
 				</Alert>
 			)}
 
 			<HStack gap="space-4" align="center">
-				<AkselLink as={Link} to={`/seksjoner/${seksjon}/nais-team`}>
+				<AkselLink as={Link} to={`/seksjoner/${seksjon}/rediger`}>
 					Administrer Nais-team ({naisTeamCount} koblet)
 				</AkselLink>
 				<AkselLink as={Link} to={`/seksjoner/${seksjon}/screening`}>
