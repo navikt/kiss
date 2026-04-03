@@ -28,6 +28,7 @@ import {
 	getUnassignedAppsForSection,
 	getUnlinkedNaisTeams,
 	ignoreAppForSection,
+	linkApplication,
 	linkNaisTeamToSection,
 	unignoreAppForSection,
 	unlinkNaisTeamFromSection,
@@ -177,6 +178,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
 		await unignoreAppForSection(result.section.id, applicationId, userId)
 		return redirectToTab(seksjon, "apper")
+	}
+
+	if (intent === "link-app") {
+		const childId = formData.get("childId") as string
+		const parentId = formData.get("parentId") as string
+		if (!childId || !parentId) throw new Response("Mangler applikasjons-ID", { status: 400 })
+		await linkApplication(childId, parentId, userId)
+		return redirectToTab(seksjon, "kobling")
 	}
 
 	throw new Response("Ugyldig handling", { status: 400 })
@@ -581,6 +590,7 @@ export default function RedigerSeksjon() {
 																	<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
 																	<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
 																	<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+																	<Table.HeaderCell scope="col" />
 																</Table.Row>
 															</Table.Header>
 															<Table.Body>
@@ -605,6 +615,18 @@ export default function RedigerSeksjon() {
 																				<Tag variant="warning" size="xsmall">
 																					Ikke koblet
 																				</Tag>
+																			)}
+																		</Table.DataCell>
+																		<Table.DataCell>
+																			{!app.alreadyLinked && (
+																				<Form method="post">
+																					<input type="hidden" name="intent" value="link-app" />
+																					<input type="hidden" name="childId" value={app.id} />
+																					<input type="hidden" name="parentId" value={prodApp.id} />
+																					<Button variant="tertiary" size="xsmall" type="submit">
+																						Koble
+																					</Button>
+																				</Form>
 																			)}
 																		</Table.DataCell>
 																	</Table.Row>
