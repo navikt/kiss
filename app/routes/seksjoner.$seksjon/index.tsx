@@ -1,6 +1,5 @@
 import {
 	Link as AkselLink,
-	Alert,
 	BodyLong,
 	BodyShort,
 	Box,
@@ -14,7 +13,7 @@ import {
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getNaisTeamsForSection, getUnassignedAppsForSection } from "~/db/queries/nais.server"
+import { getNaisTeamsForSection } from "~/db/queries/nais.server"
 import { getSectionDetail } from "~/db/queries/sections.server"
 import { compliancePercent } from "~/lib/utils"
 
@@ -37,10 +36,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotRelevant
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
-	const [linkedNaisTeams, unassignedApps] = await Promise.all([
-		getNaisTeamsForSection(result.section.id),
-		getUnassignedAppsForSection(result.section.id),
-	])
+	const linkedNaisTeams = await getNaisTeamsForSection(result.section.id)
 
 	return data({
 		seksjon,
@@ -55,7 +51,6 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		totalControls,
 		overallPercent,
 		naisTeamCount: linkedNaisTeams.length,
-		unassignedAppCount: unassignedApps.length,
 	})
 }
 
@@ -71,7 +66,6 @@ export default function SeksjonDashboard() {
 		totalMangler,
 		overallPercent,
 		naisTeamCount,
-		unassignedAppCount,
 	} = useLoaderData<typeof loader>()
 
 	return (
@@ -233,19 +227,6 @@ export default function SeksjonDashboard() {
 						)
 					})()}
 			</HGrid>
-
-			{unassignedAppCount > 0 && (
-				<Alert variant="warning">
-					<Heading size="small" level="3" spacing>
-						Applikasjoner uten team
-					</Heading>
-					{unassignedAppCount} {unassignedAppCount === 1 ? "applikasjon" : "applikasjoner"} fra seksjonens Nais-team er
-					ikke koblet til et utviklingsteam.{" "}
-					<AkselLink as={Link} to={`/seksjoner/${seksjon}/rediger?fane=apper`}>
-						Se og administrer
-					</AkselLink>
-				</Alert>
-			)}
 
 			<HStack gap="space-4" align="center">
 				<AkselLink as={Link} to={`/seksjoner/${seksjon}/rediger`}>
