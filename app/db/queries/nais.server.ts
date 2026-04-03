@@ -147,6 +147,7 @@ export async function upsertAppEnvironment(
 	namespace: string,
 	naisTeamId: string | null,
 	imageName?: string | null,
+	gitRepository?: string | null,
 ): Promise<boolean> {
 	const [existing] = await db
 		.select()
@@ -158,13 +159,18 @@ export async function upsertAppEnvironment(
 		)
 		.limit(1)
 	if (existing) {
-		if (imageName && imageName !== existing.imageName) {
-			await db.update(applicationEnvironments).set({ imageName }).where(eq(applicationEnvironments.id, existing.id))
+		const updates: Record<string, string> = {}
+		if (imageName && imageName !== existing.imageName) updates.imageName = imageName
+		if (gitRepository && gitRepository !== existing.gitRepository) updates.gitRepository = gitRepository
+		if (Object.keys(updates).length > 0) {
+			await db.update(applicationEnvironments).set(updates).where(eq(applicationEnvironments.id, existing.id))
 		}
 		return false
 	}
 
-	await db.insert(applicationEnvironments).values({ applicationId, cluster, namespace, naisTeamId, imageName })
+	await db
+		.insert(applicationEnvironments)
+		.values({ applicationId, cluster, namespace, naisTeamId, imageName, gitRepository })
 	return true
 }
 
@@ -515,6 +521,7 @@ export async function getApplicationDetail(applicationId: string) {
 			cluster: applicationEnvironments.cluster,
 			namespace: applicationEnvironments.namespace,
 			imageName: applicationEnvironments.imageName,
+			gitRepository: applicationEnvironments.gitRepository,
 			naisTeamSlug: naisTeams.slug,
 			discoveredAt: applicationEnvironments.discoveredAt,
 		})

@@ -324,7 +324,7 @@ export default function ApplikasjonDetalj() {
 
 	const isOnPrem = environments.some((e) => e.cluster?.includes("-fss"))
 
-	const gitHubUrl = `https://github.com/navikt/${app.name}`
+	const gitHubUrl = environments.find((e) => e.gitRepository)?.gitRepository ?? `https://github.com/navikt/${app.name}`
 
 	return (
 		<VStack gap="space-24">

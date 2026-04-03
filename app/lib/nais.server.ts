@@ -42,6 +42,9 @@ export interface NaisApp {
 	deployInfo?: {
 		timestamp: string
 		deployer: string
+		repository: string | null
+		commitSha: string | null
+		triggerUrl: string | null
 	}
 	persistence: NaisPersistenceResource[]
 	authIntegrations: NaisAuthIntegration[]
@@ -162,6 +165,15 @@ const APPS_QUERY = `
 					image {
 						name
 					}
+					deployments(first: 1) {
+						nodes {
+							createdAt
+							repository
+							commitSha
+							triggerUrl
+							deployerUsername
+						}
+					}
 					manifest {
 						content
 					}
@@ -226,6 +238,15 @@ interface AppsResponse {
 			nodes: Array<{
 				name: string
 				image: { name: string } | null
+				deployments: {
+					nodes: Array<{
+						createdAt: string
+						repository: string | null
+						commitSha: string | null
+						triggerUrl: string | null
+						deployerUsername: string | null
+					}>
+				}
 				manifest: { content: string } | null
 				authIntegrations: Array<{ name: string }>
 				teamEnvironment: {
@@ -483,11 +504,22 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 				authIntegrations.push({ type: "maskinporten", enabled: true })
 			}
 
+			const latestDeploy = node.deployments.nodes[0]
+
 			allApps.push({
 				name: node.name,
 				namespace: teamSlug,
 				cluster: node.teamEnvironment.environment.name,
 				image: node.image?.name,
+				deployInfo: latestDeploy
+					? {
+							timestamp: latestDeploy.createdAt,
+							deployer: latestDeploy.deployerUsername ?? "unknown",
+							repository: latestDeploy.repository,
+							commitSha: latestDeploy.commitSha,
+							triggerUrl: latestDeploy.triggerUrl,
+						}
+					: undefined,
 				persistence,
 				authIntegrations,
 			})

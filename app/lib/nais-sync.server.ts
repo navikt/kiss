@@ -55,7 +55,15 @@ export async function syncNaisAppsForTeam(
 			const { id: appId, isNew } = await upsertMonitoredApp(app.name, SYNC_PERFORMER)
 			if (isNew) newApps++
 
-			const envIsNew = await upsertAppEnvironment(appId, app.cluster, app.namespace, naisTeamId, app.image)
+			const gitRepository = app.deployInfo?.repository ? `https://github.com/${app.deployInfo.repository}` : null
+			const envIsNew = await upsertAppEnvironment(
+				appId,
+				app.cluster,
+				app.namespace,
+				naisTeamId,
+				app.image,
+				gitRepository,
+			)
 			if (envIsNew) newEnvs++
 
 			for (const res of app.persistence) {

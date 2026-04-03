@@ -151,6 +151,7 @@ describe("fetchNaisApps", () => {
 				openSearch: null,
 				buckets: { nodes: [] },
 				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
 			},
 		]
 		vi.stubGlobal(
@@ -208,6 +209,7 @@ describe("fetchNaisApps", () => {
 				openSearch: { name: "my-search" },
 				buckets: { nodes: [{ name: "my-bucket" }] },
 				valkeys: { nodes: [{ name: "my-cache" }] },
+				deployments: { nodes: [] },
 			},
 		]
 		vi.stubGlobal(
@@ -264,6 +266,7 @@ describe("fetchNaisApps", () => {
 				openSearch: null,
 				buckets: { nodes: [] },
 				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
 			},
 		]
 		vi.stubGlobal(
@@ -309,6 +312,7 @@ spec:
 				openSearch: null,
 				buckets: { nodes: [] },
 				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
 			},
 		]
 		vi.stubGlobal(
@@ -343,6 +347,7 @@ spec:
 				openSearch: null,
 				buckets: { nodes: [] },
 				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
 			},
 		]
 		vi.stubGlobal(
@@ -379,6 +384,7 @@ spec:
 				openSearch: null,
 				buckets: { nodes: [] },
 				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
 			},
 		]
 		vi.stubGlobal(
@@ -415,6 +421,7 @@ spec:
 				openSearch: null,
 				buckets: { nodes: [] },
 				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
 			},
 		]
 		vi.stubGlobal(
@@ -451,6 +458,7 @@ spec:
 				openSearch: null,
 				buckets: { nodes: [] },
 				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
 			},
 		]
 		vi.stubGlobal(
@@ -494,6 +502,7 @@ spec:
 				openSearch: null,
 				buckets: { nodes: [] },
 				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
 			},
 		]
 		vi.stubGlobal(
