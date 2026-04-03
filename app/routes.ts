@@ -16,6 +16,7 @@ export default [
 	route("seksjoner/:seksjon/rediger", "routes/seksjoner.$seksjon.rediger/index.tsx"),
 	route("seksjoner/:seksjon/nais-team", "routes/seksjoner.$seksjon.nais-team/index.tsx"),
 	route("seksjoner/:seksjon/team/:team", "routes/seksjoner.$seksjon.team.$team/index.tsx"),
+	route("seksjoner/:seksjon/team/:team/rediger", "routes/seksjoner.$seksjon.team.$team.rediger/index.tsx"),
 	route("applikasjoner", "routes/applikasjoner/index.tsx"),
 	route("applikasjoner/:appId/detaljer", "routes/applikasjoner.$appId.detaljer/index.tsx"),
 	route("applikasjoner/:appId/compliance", "routes/applikasjoner.$appId.compliance/index.tsx"),

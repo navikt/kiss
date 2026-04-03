@@ -1,4 +1,4 @@
-import { PencilIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import { PencilIcon, PlusIcon } from "@navikt/aksel-icons"
 import type { SortState } from "@navikt/ds-react"
 import {
 	Link as AkselLink,
@@ -36,16 +36,7 @@ import {
 	unignoreAppForSection,
 	unlinkNaisTeamFromSection,
 } from "~/db/queries/nais.server"
-import {
-	createTeam,
-	deleteTeam,
-	getSectionDetail,
-	getTeamsForSection,
-	linkNaisTeamToDevTeam,
-	unlinkNaisTeamFromDevTeam,
-	updateSection,
-	updateTeam,
-} from "~/db/queries/sections.server"
+import { createTeam, getSectionDetail, getTeamsForSection, updateSection } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 
@@ -146,22 +137,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirectToTab(seksjon, "team")
 	}
 
-	if (intent === "update-team") {
-		const teamId = formData.get("teamId") as string
-		const name = (formData.get("name") as string)?.trim()
-		const description = (formData.get("description") as string)?.trim() || null
-		if (!teamId || !name) throw new Response("Mangler påkrevde felt", { status: 400 })
-		await updateTeam(teamId, name, description, userId)
-		return redirectToTab(seksjon, "team")
-	}
-
-	if (intent === "delete-team") {
-		const teamId = formData.get("teamId") as string
-		if (!teamId) throw new Response("Mangler team-ID", { status: 400 })
-		await deleteTeam(teamId, userId)
-		return redirectToTab(seksjon, "team")
-	}
-
 	if (intent === "link-nais-team") {
 		const naisTeamSlug = formData.get("naisTeamSlug") as string
 		if (!naisTeamSlug) throw new Response("Mangler Nais-team", { status: 400 })
@@ -210,22 +185,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirectToTab(seksjon, "apper")
 	}
 
-	if (intent === "link-nais-to-devteam") {
-		const devTeamId = formData.get("devTeamId") as string
-		const naisTeamSlug = formData.get("naisTeamSlug") as string
-		if (!devTeamId || !naisTeamSlug) throw new Response("Mangler påkrevde felt", { status: 400 })
-		await linkNaisTeamToDevTeam(naisTeamSlug, devTeamId, userId)
-		return redirectToTab(seksjon, "team")
-	}
-
-	if (intent === "unlink-nais-from-devteam") {
-		const devTeamId = formData.get("devTeamId") as string
-		const naisTeamSlug = formData.get("naisTeamSlug") as string
-		if (!devTeamId || !naisTeamSlug) throw new Response("Mangler påkrevde felt", { status: 400 })
-		await unlinkNaisTeamFromDevTeam(naisTeamSlug, devTeamId, userId)
-		return redirectToTab(seksjon, "team")
-	}
-
 	throw new Response("Ugyldig handling", { status: 400 })
 }
 
@@ -236,11 +195,7 @@ export default function RedigerSeksjon() {
 	const activeTab = searchParams.get("fane") ?? "seksjon"
 
 	const teamFormRef = useRef<HTMLFormElement>(null)
-	const editTeamModalRef = useRef<HTMLDialogElement>(null)
-	const deleteTeamModalRef = useRef<HTMLDialogElement>(null)
 	const unlinkNaisModalRef = useRef<HTMLDialogElement>(null)
-	const [editingTeam, setEditingTeam] = useState<(typeof teams)[number] | null>(null)
-	const [deletingTeam, setDeletingTeam] = useState<(typeof teams)[number] | null>(null)
 	const [unlinkingNaisTeam, setUnlinkingNaisTeam] = useState<(typeof linkedNaisTeams)[number] | null>(null)
 	const [selectedApps, setSelectedApps] = useState<string[]>([])
 	const [appSort, setAppSort] = useState<SortState | undefined>({ orderBy: "appName", direction: "ascending" })
@@ -347,25 +302,6 @@ export default function RedigerSeksjon() {
 															{team.linkedNaisTeams.map((slug) => (
 																<Tag key={slug} variant="info" size="xsmall">
 																	{slug}
-																	<Form method="post" style={{ display: "inline" }}>
-																		<input type="hidden" name="intent" value="unlink-nais-from-devteam" />
-																		<input type="hidden" name="devTeamId" value={team.id} />
-																		<input type="hidden" name="naisTeamSlug" value={slug} />
-																		<button
-																			type="submit"
-																			aria-label={`Fjern ${slug}`}
-																			style={{
-																				background: "none",
-																				border: "none",
-																				cursor: "pointer",
-																				padding: "0 0 0 4px",
-																				fontSize: "0.75rem",
-																				lineHeight: 1,
-																			}}
-																		>
-																			✕
-																		</button>
-																	</Form>
 																</Tag>
 															))}
 														</HStack>
@@ -376,28 +312,14 @@ export default function RedigerSeksjon() {
 													)}
 												</Table.DataCell>
 												<Table.DataCell align="right">
-													<HStack gap="space-2" justify="end">
-														<Button
-															variant="tertiary"
-															size="xsmall"
-															onClick={() => {
-																setEditingTeam(team)
-																editTeamModalRef.current?.showModal()
-															}}
-														>
-															Rediger
-														</Button>
-														<Button
-															variant="tertiary-neutral"
-															size="xsmall"
-															onClick={() => {
-																setDeletingTeam(team)
-																deleteTeamModalRef.current?.showModal()
-															}}
-														>
-															Slett
-														</Button>
-													</HStack>
+													<Button
+														as={Link}
+														to={`/seksjoner/${seksjon}/team/${team.slug}/rediger`}
+														variant="tertiary"
+														size="xsmall"
+													>
+														Rediger
+													</Button>
 												</Table.DataCell>
 											</Table.Row>
 										))}
@@ -407,36 +329,6 @@ export default function RedigerSeksjon() {
 						)}
 
 						{teams.length === 0 && <BodyLong>Ingen team er opprettet i denne seksjonen.</BodyLong>}
-
-						{teams.length > 0 && linkedNaisTeams.length > 0 && (
-							<VStack gap="space-4">
-								<Heading size="small" level="4">
-									Koble Nais-team til utviklingsteam
-								</Heading>
-								<Form method="post">
-									<input type="hidden" name="intent" value="link-nais-to-devteam" />
-									<HStack gap="space-4" align="end">
-										<Select label="Utviklingsteam" name="devTeamId" size="small">
-											{teams.map((t) => (
-												<option key={t.id} value={t.id}>
-													{t.name}
-												</option>
-											))}
-										</Select>
-										<Select label="Nais-team" name="naisTeamSlug" size="small">
-											{linkedNaisTeams.map((nt) => (
-												<option key={nt.slug} value={nt.slug}>
-													{nt.slug}
-												</option>
-											))}
-										</Select>
-										<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
-											Koble
-										</Button>
-									</HStack>
-								</Form>
-							</VStack>
-						)}
 
 						<Form
 							method="post"
@@ -831,66 +723,6 @@ export default function RedigerSeksjon() {
 					</VStack>
 				</Tabs.Panel>
 			</Tabs>
-
-			{/* Edit team modal */}
-			<Modal ref={editTeamModalRef} header={{ heading: `Rediger team: ${editingTeam?.name ?? ""}` }}>
-				<Modal.Body>
-					<Form method="post" onSubmit={() => editTeamModalRef.current?.close()}>
-						<input type="hidden" name="intent" value="update-team" />
-						<input type="hidden" name="teamId" value={editingTeam?.id ?? ""} />
-						<VStack gap="space-6">
-							<TextField label="Navn" name="name" defaultValue={editingTeam?.name ?? ""} key={editingTeam?.id} />
-							<Textarea
-								label="Beskrivelse"
-								name="description"
-								defaultValue={editingTeam?.description ?? ""}
-								key={`desc-${editingTeam?.id}`}
-							/>
-							<HStack gap="space-4">
-								<Button type="submit" variant="primary" size="small">
-									Lagre
-								</Button>
-								<Button
-									type="button"
-									variant="secondary"
-									size="small"
-									onClick={() => editTeamModalRef.current?.close()}
-								>
-									Avbryt
-								</Button>
-							</HStack>
-						</VStack>
-					</Form>
-				</Modal.Body>
-			</Modal>
-
-			{/* Delete team modal */}
-			<Modal ref={deleteTeamModalRef} header={{ heading: "Slett team" }}>
-				<Modal.Body>
-					<BodyShort>
-						Er du sikker på at du vil slette teamet <strong>{deletingTeam?.name}</strong>?
-					</BodyShort>
-				</Modal.Body>
-				<Modal.Footer>
-					<Form method="post" onSubmit={() => deleteTeamModalRef.current?.close()}>
-						<input type="hidden" name="intent" value="delete-team" />
-						<input type="hidden" name="teamId" value={deletingTeam?.id ?? ""} />
-						<HStack gap="space-4">
-							<Button
-								type="button"
-								variant="secondary"
-								size="small"
-								onClick={() => deleteTeamModalRef.current?.close()}
-							>
-								Avbryt
-							</Button>
-							<Button type="submit" variant="danger" size="small" icon={<TrashIcon aria-hidden />}>
-								Slett team
-							</Button>
-						</HStack>
-					</Form>
-				</Modal.Footer>
-			</Modal>
 
 			{/* Unlink Nais-team modal */}
 			<Modal ref={unlinkNaisModalRef} header={{ heading: "Fjern Nais-team fra seksjon" }}>

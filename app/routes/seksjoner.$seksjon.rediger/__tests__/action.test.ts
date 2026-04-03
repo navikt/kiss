@@ -18,15 +18,11 @@ const mockGetSectionDetail = vi.fn()
 const mockUpdateSection = vi.fn()
 const mockGetTeamsForSection = vi.fn()
 const mockCreateTeam = vi.fn()
-const mockUpdateTeam = vi.fn()
-const mockDeleteTeam = vi.fn()
 vi.mock("~/db/queries/sections.server", () => ({
 	getSectionDetail: mockGetSectionDetail,
 	updateSection: mockUpdateSection,
 	getTeamsForSection: mockGetTeamsForSection,
 	createTeam: mockCreateTeam,
-	updateTeam: mockUpdateTeam,
-	deleteTeam: mockDeleteTeam,
 }))
 
 const mockLinkNaisTeamToSection = vi.fn()
@@ -218,94 +214,6 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			}
 
 			expect(mockCreateTeam).not.toHaveBeenCalled()
-		})
-	})
-
-	describe("update-team", () => {
-		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireUser.mockReturnValue(adminUser)
-			mockRequireAdmin.mockImplementation(() => {})
-			mockGetSectionDetail.mockResolvedValue(mockSection)
-		})
-
-		it("updates team and redirects", async () => {
-			mockUpdateTeam.mockResolvedValue({})
-
-			const formData = new FormData()
-			formData.set("intent", "update-team")
-			formData.set("teamId", "team-1")
-			formData.set("name", "Oppdatert team")
-			formData.set("description", "Ny beskrivelse")
-
-			try {
-				await callAction(formData)
-			} catch (thrown) {
-				expect(thrown).toBeInstanceOf(Response)
-				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=team")
-			}
-
-			expect(mockUpdateTeam).toHaveBeenCalledWith("team-1", "Oppdatert team", "Ny beskrivelse", "Z999999")
-		})
-
-		it("returns 400 when teamId or name is missing", async () => {
-			const formData = new FormData()
-			formData.set("intent", "update-team")
-			formData.set("teamId", "team-1")
-			formData.set("name", "")
-
-			try {
-				await callAction(formData)
-				expect.unreachable("Should have thrown 400")
-			} catch (thrown) {
-				expect(thrown).toBeInstanceOf(Response)
-				expect((thrown as Response).status).toBe(400)
-			}
-
-			expect(mockUpdateTeam).not.toHaveBeenCalled()
-		})
-	})
-
-	describe("delete-team", () => {
-		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireUser.mockReturnValue(adminUser)
-			mockRequireAdmin.mockImplementation(() => {})
-			mockGetSectionDetail.mockResolvedValue(mockSection)
-		})
-
-		it("deletes team and redirects", async () => {
-			mockDeleteTeam.mockResolvedValue({})
-
-			const formData = new FormData()
-			formData.set("intent", "delete-team")
-			formData.set("teamId", "team-1")
-
-			try {
-				await callAction(formData)
-			} catch (thrown) {
-				expect(thrown).toBeInstanceOf(Response)
-				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=team")
-			}
-
-			expect(mockDeleteTeam).toHaveBeenCalledWith("team-1", "Z999999")
-		})
-
-		it("returns 400 when teamId is missing", async () => {
-			const formData = new FormData()
-			formData.set("intent", "delete-team")
-
-			try {
-				await callAction(formData)
-				expect.unreachable("Should have thrown 400")
-			} catch (thrown) {
-				expect(thrown).toBeInstanceOf(Response)
-				expect((thrown as Response).status).toBe(400)
-			}
-
-			expect(mockDeleteTeam).not.toHaveBeenCalled()
 		})
 	})
 
