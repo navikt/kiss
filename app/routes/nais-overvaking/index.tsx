@@ -1,4 +1,4 @@
-import { Alert, BodyLong, Button, Heading, HStack, Search, Switch, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Heading, HStack, Search, Select, Switch, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData, useNavigation } from "react-router"
@@ -7,17 +7,23 @@ import {
 	getLastSyncTimestamp,
 	getNaisTeamAppCounts,
 	getNaisTeams,
+	linkNaisTeamToSection,
+	unlinkNaisTeamFromSection,
 	updateNaisTeamStatus,
 } from "~/db/queries/nais.server"
+import { getSections } from "~/db/queries/sections.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { runFullNaisSync } from "~/lib/nais-sync.server"
 
 export async function loader(_args: LoaderFunctionArgs) {
-	const [teams, appCounts, lastSync] = await Promise.all([
+	const [teams, appCounts, lastSync, allSections] = await Promise.all([
 		getNaisTeams(),
 		getNaisTeamAppCounts(),
 		getLastSyncTimestamp(),
+		getSections(),
 	])
+
+	const sectionMap = new Map(allSections.map((s) => [s.id, s.name]))
 
 	const naisTeams = teams.map((t) => ({
 		slug: t.slug,
@@ -25,10 +31,13 @@ export async function loader(_args: LoaderFunctionArgs) {
 		status: t.status,
 		appCount: Math.max(t.appCount, appCounts.get(t.id) ?? 0),
 		discoveredAt: new Date(t.discoveredAt).toISOString().split("T")[0],
+		sectionId: t.sectionId,
+		sectionName: t.sectionId ? (sectionMap.get(t.sectionId) ?? null) : null,
 	}))
 
 	return data({
 		teams: naisTeams,
+		sections: allSections.map((s) => ({ id: s.id, name: s.name })),
 		lastSync: lastSync ? new Date(lastSync).toISOString() : null,
 	})
 }
@@ -37,6 +46,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const formData = await request.formData()
 	const intent = formData.get("intent")
+	const userName = user?.navIdent ?? "system"
 
 	if (intent === "sync") {
 		const token = process.env.NAIS_API_TOKEN || undefined
@@ -45,6 +55,21 @@ export async function action({ request }: ActionFunctionArgs) {
 			return data({ message: "Synkronisering kjører allerede" })
 		}
 		return data({ success: true, newTeams: result.teams.new })
+	}
+
+	if (intent === "link-section") {
+		const teamSlug = formData.get("teamSlug") as string
+		const sectionId = formData.get("sectionId") as string
+		if (!teamSlug || !sectionId) throw new Response("Mangler data", { status: 400 })
+		await linkNaisTeamToSection(teamSlug, sectionId, userName)
+		return data({ success: true })
+	}
+
+	if (intent === "unlink-section") {
+		const teamSlug = formData.get("teamSlug") as string
+		if (!teamSlug) throw new Response("Mangler team", { status: 400 })
+		await unlinkNaisTeamFromSection(teamSlug, userName)
+		return data({ success: true })
 	}
 
 	const teamSlug = formData.get("teamSlug")
@@ -58,7 +83,6 @@ export async function action({ request }: ActionFunctionArgs) {
 		throw new Response("Ugyldig handling", { status: 400 })
 	}
 
-	const userName = user?.navIdent ?? "system"
 	const newStatus = actionType === "monitor" ? "monitored" : "ignored"
 	await updateNaisTeamStatus(teamSlug, newStatus, userName)
 
@@ -78,7 +102,7 @@ const statusLabel: Record<string, string> = {
 }
 
 export default function NaisOvervaking() {
-	const { teams, lastSync } = useLoaderData<typeof loader>()
+	const { teams, sections, lastSync } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const isSyncing = navigation.state === "submitting" && navigation.formData?.get("intent") === "sync"
@@ -104,10 +128,10 @@ export default function NaisOvervaking() {
 			</Heading>
 
 			{actionData && "success" in actionData && actionData.success && "newTeams" in actionData && (
-				<Alert variant="success">Synkronisering fullført. {actionData.newTeams} nye team oppdaget.</Alert>
+				<Alert variant="success">Synkronisering fullført. {String(actionData.newTeams)} nye team oppdaget.</Alert>
 			)}
 			{actionData && "message" in actionData && !("success" in actionData) && (
-				<Alert variant="warning">{actionData.message}</Alert>
+				<Alert variant="warning">{String(actionData.message)}</Alert>
 			)}
 
 			<HStack gap="space-4" align="center">
@@ -147,6 +171,7 @@ export default function NaisOvervaking() {
 					<Table.Header>
 						<Table.Row>
 							<Table.HeaderCell scope="col">Team</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Seksjon</Table.HeaderCell>
 							<Table.HeaderCell scope="col">Status</Table.HeaderCell>
 							<Table.HeaderCell scope="col" align="right">
 								Applikasjoner
@@ -161,6 +186,40 @@ export default function NaisOvervaking() {
 								<Table.DataCell>
 									<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
 									{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
+								</Table.DataCell>
+								<Table.DataCell>
+									{team.sectionName ? (
+										<HStack gap="space-2" align="center">
+											<Tag variant="info" size="xsmall">
+												{team.sectionName}
+											</Tag>
+											<Form method="post" style={{ display: "inline" }}>
+												<input type="hidden" name="intent" value="unlink-section" />
+												<input type="hidden" name="teamSlug" value={team.slug} />
+												<Button variant="tertiary-neutral" size="xsmall" type="submit" title="Fjern seksjon">
+													✕
+												</Button>
+											</Form>
+										</HStack>
+									) : (
+										<Form method="post">
+											<input type="hidden" name="intent" value="link-section" />
+											<input type="hidden" name="teamSlug" value={team.slug} />
+											<HStack gap="space-2" align="end">
+												<Select label="" name="sectionId" size="small" hideLabel style={{ minWidth: "10rem" }}>
+													<option value="">Velg seksjon</option>
+													{sections.map((s) => (
+														<option key={s.id} value={s.id}>
+															{s.name}
+														</option>
+													))}
+												</Select>
+												<Button variant="tertiary" size="xsmall" type="submit">
+													Koble
+												</Button>
+											</HStack>
+										</Form>
+									)}
 								</Table.DataCell>
 								<Table.DataCell>
 									<Tag variant={statusTagVariant[team.status]} size="small">
@@ -202,7 +261,7 @@ export default function NaisOvervaking() {
 						))}
 						{filteredTeams.length === 0 && (
 							<Table.Row>
-								<Table.DataCell colSpan={5}>Ingen Nais-team oppdaget ennå. Trykk «Synkroniser nå».</Table.DataCell>
+								<Table.DataCell colSpan={6}>Ingen Nais-team oppdaget ennå. Trykk «Synkroniser nå».</Table.DataCell>
 							</Table.Row>
 						)}
 					</Table.Body>
