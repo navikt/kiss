@@ -324,6 +324,8 @@ export default function ApplikasjonDetalj() {
 
 	const isOnPrem = environments.some((e) => e.cluster?.includes("-fss"))
 
+	const gitHubUrl = `https://github.com/navikt/${app.name}`
+
 	return (
 		<VStack gap="space-24">
 			<div>
@@ -331,6 +333,11 @@ export default function ApplikasjonDetalj() {
 					{app.name}
 				</Heading>
 				{app.description && <BodyLong>{app.description}</BodyLong>}
+				<HStack gap="space-4" align="center" style={{ marginTop: "var(--ax-space-2)" }}>
+					<AkselLink href={gitHubUrl} target="_blank" rel="noopener noreferrer">
+						GitHub
+					</AkselLink>
+				</HStack>
 			</div>
 
 			{/* Primary app notice */}
