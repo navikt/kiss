@@ -190,14 +190,12 @@ export default function EditSectionScreeningQuestion() {
 							/>
 							<MarkdownHint />
 						</VStack>
-						{descriptionPreview && (
-							<VStack style={{ flex: 1, minWidth: "20rem" }}>
-								<Label size="small" spacing>
-									Forhåndsvisning
-								</Label>
-								<MarkdownPreview content={descriptionPreview} />
-							</VStack>
-						)}
+						<VStack style={{ flex: 1, minWidth: "20rem" }}>
+							<Label size="small" spacing>
+								Forhåndsvisning
+							</Label>
+							<MarkdownPreview content={descriptionPreview} />
+						</VStack>
 					</HStack>
 					<div>
 						<Button type="submit" size="small" variant="primary">
