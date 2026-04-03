@@ -65,14 +65,22 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function TeamDashboard() {
-	const { seksjon, teamId, teamName, apps, availableApps } = useLoaderData<typeof loader>()
+	const { seksjon, team, teamId, teamName, apps, availableApps } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
 	return (
 		<VStack gap="space-8">
-			<Heading size="xlarge" level="2">
-				{teamName}
-			</Heading>
+			<div>
+				<Link to={`/seksjoner/${seksjon}`}>← Tilbake til seksjon</Link>
+				<HStack gap="space-4" align="center">
+					<Heading size="xlarge" level="2">
+						{teamName}
+					</Heading>
+					<Button as={Link} to={`/seksjoner/${seksjon}/team/${team}/rediger`} variant="tertiary" size="small">
+						Administrer
+					</Button>
+				</HStack>
+			</div>
 			<BodyLong>
 				Compliance-status per applikasjon for {teamName} i seksjon <Link to={`/seksjoner/${seksjon}`}>{seksjon}</Link>.
 			</BodyLong>
