@@ -162,14 +162,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
 		const reason = formData.get("reason")
 		await ignoreAppForSection(result.section.id, applicationId, userId, typeof reason === "string" ? reason : undefined)
-		return redirectToTab(seksjon, "nais")
+		return redirectToTab(seksjon, "apper")
 	}
 
 	if (intent === "unignore-app") {
 		const applicationId = formData.get("applicationId") as string
 		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
 		await unignoreAppForSection(result.section.id, applicationId, userId)
-		return redirectToTab(seksjon, "nais")
+		return redirectToTab(seksjon, "apper")
 	}
 
 	throw new Response("Ugyldig handling", { status: 400 })
@@ -202,9 +202,10 @@ export default function RedigerSeksjon() {
 				<Tabs.List>
 					<Tabs.Tab value="seksjon" label="Seksjon" />
 					<Tabs.Tab value="team" label={`Utviklingsteam (${teams.length})`} />
+					<Tabs.Tab value="nais" label={`Nais-team (${linkedNaisTeams.length})`} />
 					<Tabs.Tab
-						value="nais"
-						label={`Nais-team (${linkedNaisTeams.length})${unassignedApps.length > 0 ? ` ⚠ ${unassignedApps.length}` : ""}`}
+						value="apper"
+						label={`Apper uten team (${unassignedApps.length})${unassignedApps.length > 0 ? " ⚠" : ""}`}
 					/>
 				</Tabs.List>
 
@@ -405,7 +406,12 @@ export default function RedigerSeksjon() {
 								</Form>
 							)}
 						</VStack>
+					</VStack>
+				</Tabs.Panel>
 
+				{/* Tab: Apper uten team */}
+				<Tabs.Panel value="apper" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<VStack gap="space-8">
 						<VStack gap="space-4">
 							<Heading size="medium" level="3">
 								Applikasjoner uten team ({unassignedApps.length})
