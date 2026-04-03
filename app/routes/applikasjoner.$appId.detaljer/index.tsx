@@ -22,7 +22,12 @@ import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getAppAssessments } from "~/db/queries/applications.server"
+import {
+	getAppAssessments,
+	getAvailableTeamsForApp,
+	linkAppToTeam,
+	unlinkAppFromTeam,
+} from "~/db/queries/applications.server"
 import { findLinkCandidates, getApplicationDetail, linkApplication, unlinkApplication } from "~/db/queries/nais.server"
 import { compliancePercent } from "~/lib/utils"
 
@@ -70,9 +75,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
-	// Get technology elements
+	// Get technology elements and available teams
 	const { getApplicationElements, getAllTechnologyElements } = await import("~/db/queries/technology-elements.server")
-	const [appElements, allElements] = await Promise.all([getApplicationElements(appId), getAllTechnologyElements()])
+	const [appElements, allElements, availableTeams] = await Promise.all([
+		getApplicationElements(appId),
+		getAllTechnologyElements(),
+		getAvailableTeamsForApp(appId),
+	])
 
 	// Find candidates that include this app, deduplicate by app ID
 	const relevantCandidates = [
@@ -103,6 +112,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		linkSuggestions: relevantCandidates,
 		appElements,
 		availableElements: allElements.filter((e) => !appElements.some((ae) => ae.id === e.id)),
+		availableTeams,
 		compliance: {
 			totalControls,
 			implemented,
@@ -154,6 +164,14 @@ export async function action({ params, request }: ActionFunctionArgs) {
 		if (!reason) throw new Response("Begrunnelse er påkrevd", { status: 400 })
 		const { rejectApplicationElement } = await import("~/db/queries/technology-elements.server")
 		await rejectApplicationElement(linkId, reason, performer)
+	} else if (intent === "link-team") {
+		const devTeamId = formData.get("devTeamId") as string
+		if (!devTeamId) throw new Response("Mangler devTeamId", { status: 400 })
+		await linkAppToTeam(appId, devTeamId, performer)
+	} else if (intent === "unlink-team") {
+		const devTeamId = formData.get("devTeamId") as string
+		if (!devTeamId) throw new Response("Mangler devTeamId", { status: 400 })
+		await unlinkAppFromTeam(appId, devTeamId, performer)
 	}
 
 	return redirect(`/applikasjoner/${appId}/detaljer`)
@@ -299,6 +317,7 @@ export default function ApplikasjonDetalj() {
 		linkSuggestions,
 		appElements,
 		availableElements,
+		availableTeams,
 		compliance,
 		assessments,
 	} = useLoaderData<typeof loader>()
@@ -414,13 +433,42 @@ export default function ApplikasjonDetalj() {
 				{teams.length > 0 ? (
 					<HStack gap="space-4" wrap>
 						{teams.map((t) => (
-							<Tag key={t.teamId} variant="info" size="small">
-								{t.teamName}
-							</Tag>
+							<Form key={t.teamId} method="post" style={{ display: "inline" }}>
+								<input type="hidden" name="intent" value="unlink-team" />
+								<input type="hidden" name="devTeamId" value={t.teamId} />
+								<Tag variant="info" size="small">
+									{t.teamName}
+									<Button
+										variant="tertiary-neutral"
+										size="xsmall"
+										type="submit"
+										icon={<XMarkIcon aria-hidden />}
+										title={`Fjern ${t.teamName}`}
+										style={{ marginLeft: "var(--ax-space-2)", marginRight: "calc(-1 * var(--ax-space-2))" }}
+									/>
+								</Tag>
+							</Form>
 						))}
 					</HStack>
 				) : (
 					<BodyLong>Ikke tilknyttet noe utviklerteam.</BodyLong>
+				)}
+				{availableTeams.length > 0 && (
+					<Form method="post" style={{ marginTop: "var(--ax-space-8)" }}>
+						<input type="hidden" name="intent" value="link-team" />
+						<HStack gap="space-2" align="end">
+							<Select label="Legg til team" name="devTeamId" size="small">
+								{availableTeams.map((t) => (
+									<option key={t.id} value={t.id}>
+										{t.name}
+									</option>
+								))}
+							</Select>
+							<Button variant="secondary" size="small" type="submit">
+								Legg til
+							</Button>
+						</HStack>
+					</Form>
 				)}
 			</Box>
 
