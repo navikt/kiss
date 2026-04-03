@@ -13,18 +13,15 @@ import {
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, useActionData, useLoaderData } from "react-router"
+import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRecentAuditLog } from "~/db/queries/audit.server"
 import {
 	createSection,
-	createTeam,
 	deleteSection,
-	deleteTeam,
 	getSections,
 	getTeamsForSection,
 	updateSection,
-	updateTeam,
 } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 
@@ -111,42 +108,6 @@ export async function action({ request }: ActionFunctionArgs) {
 			return data<ActionResult>({ success: true, message: "Seksjon slettet." })
 		}
 
-		case "create-team": {
-			const sectionId = formData.get("sectionId")
-			const name = formData.get("name")
-			const description = formData.get("description")
-			if (typeof sectionId !== "string" || typeof name !== "string" || !name.trim()) {
-				return data<ActionResult>({ success: false, error: "Navn er påkrevd." })
-			}
-			await createTeam(
-				sectionId,
-				name.trim(),
-				typeof description === "string" ? description.trim() || null : null,
-				userId,
-			)
-			return data<ActionResult>({ success: true, message: `Team «${name.trim()}» opprettet.` })
-		}
-
-		case "update-team": {
-			const id = formData.get("id")
-			const name = formData.get("name")
-			const description = formData.get("description")
-			if (typeof id !== "string" || typeof name !== "string" || !name.trim()) {
-				return data<ActionResult>({ success: false, error: "Mangler påkrevde felt." })
-			}
-			await updateTeam(id, name.trim(), typeof description === "string" ? description.trim() || null : null, userId)
-			return data<ActionResult>({ success: true, message: `Team «${name.trim()}» oppdatert.` })
-		}
-
-		case "delete-team": {
-			const id = formData.get("id")
-			if (typeof id !== "string") {
-				return data<ActionResult>({ success: false, error: "Mangler team-ID." })
-			}
-			await deleteTeam(id, userId)
-			return data<ActionResult>({ success: true, message: "Team slettet." })
-		}
-
 		default:
 			return data<ActionResult>({ success: false, error: "Ugyldig handling." })
 	}
@@ -170,39 +131,6 @@ function EditSectionModal({
 					<VStack gap="space-6">
 						<TextField label="Navn" name="name" defaultValue={section.name} required />
 						<Textarea label="Beskrivelse" name="description" defaultValue={section.description ?? ""} />
-						<HStack gap="space-4">
-							<Button type="submit" variant="primary">
-								Lagre
-							</Button>
-							<Button type="button" variant="tertiary" onClick={onClose}>
-								Avbryt
-							</Button>
-						</HStack>
-					</VStack>
-				</Form>
-			</Modal.Body>
-		</Modal>
-	)
-}
-
-function EditTeamModal({
-	team,
-	open,
-	onClose,
-}: {
-	team: { id: string; name: string; description: string | null }
-	open: boolean
-	onClose: () => void
-}) {
-	return (
-		<Modal open={open} onClose={onClose} header={{ heading: `Rediger team: ${team.name}` }}>
-			<Modal.Body>
-				<Form method="post" onSubmit={onClose}>
-					<input type="hidden" name="intent" value="update-team" />
-					<input type="hidden" name="id" value={team.id} />
-					<VStack gap="space-6">
-						<TextField label="Navn" name="name" defaultValue={team.name} required />
-						<Textarea label="Beskrivelse" name="description" defaultValue={team.description ?? ""} />
 						<HStack gap="space-4">
 							<Button type="submit" variant="primary">
 								Lagre
@@ -258,9 +186,6 @@ function DeleteConfirmModal({
 function SectionCard({ section }: { section: SectionWithTeams }) {
 	const [editSectionOpen, setEditSectionOpen] = useState(false)
 	const [deleteSectionOpen, setDeleteSectionOpen] = useState(false)
-	const [editingTeam, setEditingTeam] = useState<SectionWithTeams["teams"][number] | null>(null)
-	const [deletingTeam, setDeletingTeam] = useState<SectionWithTeams["teams"][number] | null>(null)
-	const teamFormRef = useRef<HTMLFormElement>(null)
 
 	return (
 		<VStack gap="space-4" className="admin-card" key={section.id}>
@@ -275,7 +200,7 @@ function SectionCard({ section }: { section: SectionWithTeams }) {
 					</Tag>
 				</VStack>
 				<HStack gap="space-2">
-					<Button variant="secondary" size="small" onClick={() => setEditSectionOpen(true)}>
+					<Button as={Link} to={`/seksjoner/${section.slug}/rediger`} variant="secondary" size="small">
 						Rediger
 					</Button>
 					<Button variant="danger" size="small" onClick={() => setDeleteSectionOpen(true)}>
@@ -283,62 +208,6 @@ function SectionCard({ section }: { section: SectionWithTeams }) {
 					</Button>
 				</HStack>
 			</HStack>
-
-			{section.teams.length > 0 && (
-				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
-				<section className="table-scroll" tabIndex={0} aria-label={`Team i ${section.name}`}>
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Team</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Beskrivelse</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{section.teams.map((team) => (
-								<Table.Row key={team.id}>
-									<Table.DataCell>{team.name}</Table.DataCell>
-									<Table.DataCell>{team.description ?? "–"}</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-2">
-											<Button variant="tertiary" size="xsmall" onClick={() => setEditingTeam(team)}>
-												Rediger
-											</Button>
-											<Button variant="tertiary" size="xsmall" onClick={() => setDeletingTeam(team)}>
-												Slett
-											</Button>
-										</HStack>
-									</Table.DataCell>
-								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
-				</section>
-			)}
-
-			<Form
-				method="post"
-				ref={teamFormRef}
-				onSubmit={() => {
-					setTimeout(() => teamFormRef.current?.reset(), 0)
-				}}
-			>
-				<input type="hidden" name="intent" value="create-team" />
-				<input type="hidden" name="sectionId" value={section.id} />
-				<VStack gap="space-4">
-					<Heading size="small" level="4">
-						Legg til team
-					</Heading>
-					<HStack gap="space-4" align="end">
-						<TextField label="Teamnavn" name="name" size="small" required />
-						<TextField label="Beskrivelse" name="description" size="small" />
-						<Button type="submit" variant="secondary" size="small">
-							Legg til
-						</Button>
-					</HStack>
-				</VStack>
-			</Form>
 
 			<EditSectionModal section={section} open={editSectionOpen} onClose={() => setEditSectionOpen(false)} />
 
@@ -349,18 +218,6 @@ function SectionCard({ section }: { section: SectionWithTeams }) {
 				message={`Er du sikker på at du vil slette seksjonen «${section.name}»? Alle ${section.teams.length} team i seksjonen vil også bli slettet.`}
 				formData={{ intent: "delete-section", id: section.id }}
 			/>
-
-			{editingTeam && <EditTeamModal team={editingTeam} open={!!editingTeam} onClose={() => setEditingTeam(null)} />}
-
-			{deletingTeam && (
-				<DeleteConfirmModal
-					open={!!deletingTeam}
-					onClose={() => setDeletingTeam(null)}
-					title={`Slett team: ${deletingTeam.name}`}
-					message={`Er du sikker på at du vil slette teamet «${deletingTeam.name}»?`}
-					formData={{ intent: "delete-team", id: deletingTeam.id }}
-				/>
-			)}
 		</VStack>
 	)
 }
