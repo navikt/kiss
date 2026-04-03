@@ -1,4 +1,5 @@
 import { PencilIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import type { SortState } from "@navikt/ds-react"
 import {
 	Link as AkselLink,
 	Alert,
@@ -218,6 +219,16 @@ export default function RedigerSeksjon() {
 	const [deletingTeam, setDeletingTeam] = useState<(typeof teams)[number] | null>(null)
 	const [unlinkingNaisTeam, setUnlinkingNaisTeam] = useState<(typeof linkedNaisTeams)[number] | null>(null)
 	const [selectedApps, setSelectedApps] = useState<string[]>([])
+	const [appSort, setAppSort] = useState<SortState | undefined>({ orderBy: "appName", direction: "ascending" })
+
+	const sortedUnassignedApps = [...unassignedApps].sort((a, b) => {
+		if (!appSort) return 0
+		const dir = appSort.direction === "ascending" ? 1 : -1
+		const key = appSort.orderBy
+		const valA = key === "environments" ? a.environments.join(", ") : String((a as Record<string, unknown>)[key] ?? "")
+		const valB = key === "environments" ? b.environments.join(", ") : String((b as Record<string, unknown>)[key] ?? "")
+		return valA.localeCompare(valB, "nb") * dir
+	})
 
 	return (
 		<VStack gap="space-6">
@@ -479,7 +490,17 @@ export default function RedigerSeksjon() {
 									)}
 									{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 									<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner uten team">
-										<Table size="small">
+										<Table
+											size="small"
+											sort={appSort}
+											onSortChange={(sortKey) =>
+												setAppSort((prev) =>
+													prev?.orderBy === sortKey && prev.direction === "ascending"
+														? { orderBy: sortKey, direction: "descending" }
+														: { orderBy: sortKey, direction: "ascending" },
+												)
+											}
+										>
 											<Table.Header>
 												<Table.Row>
 													<Table.HeaderCell scope="col">
@@ -496,14 +517,20 @@ export default function RedigerSeksjon() {
 															Velg alle
 														</Checkbox>
 													</Table.HeaderCell>
-													<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-													<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
-													<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+													<Table.ColumnHeader sortKey="appName" sortable scope="col">
+														Applikasjon
+													</Table.ColumnHeader>
+													<Table.ColumnHeader sortKey="naisTeamSlug" sortable scope="col">
+														Nais-team
+													</Table.ColumnHeader>
+													<Table.ColumnHeader sortKey="environments" sortable scope="col">
+														Miljø
+													</Table.ColumnHeader>
 													<Table.HeaderCell scope="col" />
 												</Table.Row>
 											</Table.Header>
 											<Table.Body>
-												{unassignedApps.map((app) => (
+												{sortedUnassignedApps.map((app) => (
 													<Table.Row key={app.appId}>
 														<Table.DataCell>
 															<Checkbox
