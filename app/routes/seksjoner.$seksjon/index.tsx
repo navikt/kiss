@@ -70,7 +70,7 @@ export default function SeksjonDashboard() {
 					Seksjon: {seksjonName}
 				</Heading>
 				<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">
-					Rediger
+					Administrer
 				</Button>
 			</HStack>
 			<BodyLong>Compliance-status for alle team i seksjonen.</BodyLong>
