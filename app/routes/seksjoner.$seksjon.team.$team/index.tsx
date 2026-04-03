@@ -1,4 +1,4 @@
-import { BodyLong, Button, Heading, HStack, Table, VStack } from "@navikt/ds-react"
+import { BodyLong, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -49,6 +49,7 @@ export default function TeamDashboard() {
 						<Table.Header>
 							<Table.Row>
 								<Table.HeaderCell scope="col">App</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
 								<Table.HeaderCell scope="col" align="right">
 									Implementert
 								</Table.HeaderCell>
@@ -70,6 +71,11 @@ export default function TeamDashboard() {
 									<Table.Row key={app.appId}>
 										<Table.DataCell>
 											<Link to={`/applikasjoner/${app.appId}/detaljer`}>{app.appName}</Link>
+										</Table.DataCell>
+										<Table.DataCell>
+											<Tag variant={app.source === "direct" ? "neutral" : "info"} size="xsmall">
+												{app.source === "direct" ? "Direkte" : "Nais-team"}
+											</Tag>
 										</Table.DataCell>
 										<Table.DataCell align="right">{app.implemented}</Table.DataCell>
 										<Table.DataCell align="right">{app.partial}</Table.DataCell>
