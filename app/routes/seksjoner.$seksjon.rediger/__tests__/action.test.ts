@@ -138,7 +138,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			} catch (thrown) {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/nytt-navn/rediger")
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/nytt-navn/rediger?fane=seksjon")
 			}
 
 			expect(mockUpdateSection).toHaveBeenCalledWith("sec-1", "Nytt navn", "Ny beskrivelse", "Z999999")
@@ -198,7 +198,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			} catch (thrown) {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger")
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=team")
 			}
 
 			expect(mockCreateTeam).toHaveBeenCalledWith("sec-1", "Nytt team", "Team-beskrivelse", "Z999999")
@@ -243,7 +243,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			} catch (thrown) {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger")
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=team")
 			}
 
 			expect(mockUpdateTeam).toHaveBeenCalledWith("team-1", "Oppdatert team", "Ny beskrivelse", "Z999999")
@@ -287,7 +287,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			} catch (thrown) {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger")
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=team")
 			}
 
 			expect(mockDeleteTeam).toHaveBeenCalledWith("team-1", "Z999999")
@@ -329,7 +329,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			} catch (thrown) {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger")
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=nais")
 			}
 
 			expect(mockLinkNaisTeamToSection).toHaveBeenCalledWith("pensjon-person", "sec-1", "Z999999")
@@ -371,7 +371,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			} catch (thrown) {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger")
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=nais")
 			}
 
 			expect(mockUnlinkNaisTeamFromSection).toHaveBeenCalledWith("pensjon-person", "Z999999")
@@ -414,6 +414,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			} catch (thrown) {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=nais")
 			}
 
 			expect(mockIgnoreAppForSection).toHaveBeenCalledWith("sec-1", "app-1", "Z999999", "Ikke relevant")
@@ -455,6 +456,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			} catch (thrown) {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=nais")
 			}
 
 			expect(mockUnignoreAppForSection).toHaveBeenCalledWith("sec-1", "app-1", "Z999999")

@@ -11,6 +11,7 @@ import {
 	ReadMore,
 	Select,
 	Table,
+	Tabs,
 	Tag,
 	Textarea,
 	TextField,
@@ -18,7 +19,7 @@ import {
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useLoaderData } from "react-router"
+import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	getIgnoredAppsForSection,
@@ -91,6 +92,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 }
 
+function redirectToTab(seksjon: string, tab: string) {
+	return redirect(`/seksjoner/${seksjon}/rediger?fane=${tab}`)
+}
+
 export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
@@ -111,7 +116,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const description = (formData.get("description") as string)?.trim() || null
 		if (!name) throw new Response("Navn er påkrevd", { status: 400 })
 		const updated = await updateSection(result.section.id, name, description, userId)
-		return redirect(`/seksjoner/${updated.slug}/rediger`)
+		return redirectToTab(updated.slug, "seksjon")
 	}
 
 	if (intent === "create-team") {
@@ -119,7 +124,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const description = (formData.get("description") as string)?.trim() || null
 		if (!name) throw new Response("Teamnavn er påkrevd", { status: 400 })
 		await createTeam(result.section.id, name, description, userId)
-		return redirect(`/seksjoner/${seksjon}/rediger`)
+		return redirectToTab(seksjon, "team")
 	}
 
 	if (intent === "update-team") {
@@ -128,28 +133,28 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const description = (formData.get("description") as string)?.trim() || null
 		if (!teamId || !name) throw new Response("Mangler påkrevde felt", { status: 400 })
 		await updateTeam(teamId, name, description, userId)
-		return redirect(`/seksjoner/${seksjon}/rediger`)
+		return redirectToTab(seksjon, "team")
 	}
 
 	if (intent === "delete-team") {
 		const teamId = formData.get("teamId") as string
 		if (!teamId) throw new Response("Mangler team-ID", { status: 400 })
 		await deleteTeam(teamId, userId)
-		return redirect(`/seksjoner/${seksjon}/rediger`)
+		return redirectToTab(seksjon, "team")
 	}
 
 	if (intent === "link-nais-team") {
 		const naisTeamSlug = formData.get("naisTeamSlug") as string
 		if (!naisTeamSlug) throw new Response("Mangler Nais-team", { status: 400 })
 		await linkNaisTeamToSection(naisTeamSlug, result.section.id, userId)
-		return redirect(`/seksjoner/${seksjon}/rediger`)
+		return redirectToTab(seksjon, "nais")
 	}
 
 	if (intent === "unlink-nais-team") {
 		const naisTeamSlug = formData.get("naisTeamSlug") as string
 		if (!naisTeamSlug) throw new Response("Mangler Nais-team", { status: 400 })
 		await unlinkNaisTeamFromSection(naisTeamSlug, userId)
-		return redirect(`/seksjoner/${seksjon}/rediger`)
+		return redirectToTab(seksjon, "nais")
 	}
 
 	if (intent === "ignore-app") {
@@ -157,14 +162,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
 		const reason = formData.get("reason")
 		await ignoreAppForSection(result.section.id, applicationId, userId, typeof reason === "string" ? reason : undefined)
-		return redirect(`/seksjoner/${seksjon}/rediger`)
+		return redirectToTab(seksjon, "nais")
 	}
 
 	if (intent === "unignore-app") {
 		const applicationId = formData.get("applicationId") as string
 		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
 		await unignoreAppForSection(result.section.id, applicationId, userId)
-		return redirect(`/seksjoner/${seksjon}/rediger`)
+		return redirectToTab(seksjon, "nais")
 	}
 
 	throw new Response("Ugyldig handling", { status: 400 })
@@ -173,6 +178,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 export default function RedigerSeksjon() {
 	const { section, teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, seksjon } =
 		useLoaderData<typeof loader>()
+	const [searchParams] = useSearchParams()
+	const activeTab = searchParams.get("fane") ?? "seksjon"
+
 	const teamFormRef = useRef<HTMLFormElement>(null)
 	const editTeamModalRef = useRef<HTMLDialogElement>(null)
 	const deleteTeamModalRef = useRef<HTMLDialogElement>(null)
@@ -182,7 +190,7 @@ export default function RedigerSeksjon() {
 	const [unlinkingNaisTeam, setUnlinkingNaisTeam] = useState<(typeof linkedNaisTeams)[number] | null>(null)
 
 	return (
-		<VStack gap="space-12">
+		<VStack gap="space-6">
 			<div>
 				<Link to={`/seksjoner/${seksjon}`}>← Tilbake til seksjon</Link>
 				<Heading size="xlarge" level="2" spacing>
@@ -190,293 +198,310 @@ export default function RedigerSeksjon() {
 				</Heading>
 			</div>
 
-			{/* Section metadata */}
-			<VStack gap="space-6">
-				<Heading size="medium" level="3">
-					Seksjonsinformasjon
-				</Heading>
-				<Form method="post">
-					<input type="hidden" name="intent" value="update-section" />
-					<VStack gap="space-6" style={{ maxWidth: "40rem" }}>
-						<TextField label="Navn" name="name" defaultValue={section.name} autoComplete="off" />
-						<Textarea label="Beskrivelse" name="description" defaultValue={section.description ?? ""} minRows={3} />
-						<div>
-							<Button type="submit" variant="primary" size="small" icon={<PencilIcon aria-hidden />}>
-								Lagre endringer
-							</Button>
-						</div>
+			<Tabs defaultValue={activeTab}>
+				<Tabs.List>
+					<Tabs.Tab value="seksjon" label="Seksjon" />
+					<Tabs.Tab value="team" label={`Utviklingsteam (${teams.length})`} />
+					<Tabs.Tab
+						value="nais"
+						label={`Nais-team (${linkedNaisTeams.length})${unassignedApps.length > 0 ? ` ⚠ ${unassignedApps.length}` : ""}`}
+					/>
+				</Tabs.List>
+
+				{/* Tab: Seksjon */}
+				<Tabs.Panel value="seksjon" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<VStack gap="space-8">
+						<VStack gap="space-6">
+							<Heading size="medium" level="3">
+								Seksjonsinformasjon
+							</Heading>
+							<Form method="post">
+								<input type="hidden" name="intent" value="update-section" />
+								<VStack gap="space-6" style={{ maxWidth: "40rem" }}>
+									<TextField label="Navn" name="name" defaultValue={section.name} autoComplete="off" />
+									<Textarea
+										label="Beskrivelse"
+										name="description"
+										defaultValue={section.description ?? ""}
+										minRows={3}
+									/>
+									<div>
+										<Button type="submit" variant="primary" size="small" icon={<PencilIcon aria-hidden />}>
+											Lagre endringer
+										</Button>
+									</div>
+								</VStack>
+							</Form>
+						</VStack>
+
+						<VStack gap="space-4">
+							<Heading size="medium" level="3">
+								Relatert
+							</Heading>
+							<HStack gap="space-4">
+								<Button as={Link} to={`/seksjoner/${seksjon}/screening`} variant="secondary" size="small">
+									Screening-spørsmål
+								</Button>
+							</HStack>
+						</VStack>
 					</VStack>
-				</Form>
-			</VStack>
+				</Tabs.Panel>
 
-			{/* Team management */}
-			<VStack gap="space-6">
-				<Heading size="medium" level="3">
-					Utviklingsteam ({teams.length})
-				</Heading>
-
-				{teams.length > 0 && (
-					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
-					<section className="table-scroll" tabIndex={0} aria-label={`Team i ${section.name}`}>
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Team</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Beskrivelse</Table.HeaderCell>
-									<Table.HeaderCell scope="col" />
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{teams.map((team) => (
-									<Table.Row key={team.id}>
-										<Table.DataCell>{team.name}</Table.DataCell>
-										<Table.DataCell>{team.description ?? "–"}</Table.DataCell>
-										<Table.DataCell align="right">
-											<HStack gap="space-2" justify="end">
-												<Button
-													variant="tertiary"
-													size="xsmall"
-													onClick={() => {
-														setEditingTeam(team)
-														editTeamModalRef.current?.showModal()
-													}}
-												>
-													Rediger
-												</Button>
-												<Button
-													variant="tertiary-neutral"
-													size="xsmall"
-													onClick={() => {
-														setDeletingTeam(team)
-														deleteTeamModalRef.current?.showModal()
-													}}
-												>
-													Slett
-												</Button>
-											</HStack>
-										</Table.DataCell>
-									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
-					</section>
-				)}
-
-				{teams.length === 0 && <BodyLong>Ingen team er opprettet i denne seksjonen.</BodyLong>}
-
-				<Form
-					method="post"
-					ref={teamFormRef}
-					onSubmit={() => {
-						setTimeout(() => teamFormRef.current?.reset(), 0)
-					}}
-				>
-					<input type="hidden" name="intent" value="create-team" />
-					<VStack gap="space-4">
-						<Heading size="small" level="4">
-							Legg til team
-						</Heading>
-						<HStack gap="space-4" align="end">
-							<TextField label="Teamnavn" name="name" size="small" autoComplete="off" />
-							<TextField label="Beskrivelse" name="description" size="small" autoComplete="off" />
-							<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
-								Legg til
-							</Button>
-						</HStack>
-					</VStack>
-				</Form>
-			</VStack>
-
-			{/* Nais-team linking */}
-			<VStack gap="space-6">
-				<Heading size="medium" level="3">
-					Nais-team ({linkedNaisTeams.length})
-				</Heading>
-				<BodyLong>Koble Nais-team til seksjonen for å overvåke deres applikasjoner.</BodyLong>
-
-				{linkedNaisTeams.length > 0 ? (
-					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
-					<section className="table-scroll" tabIndex={0} aria-label="Koblede Nais-team">
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Utviklingsteam</Table.HeaderCell>
-									<Table.HeaderCell scope="col" />
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{linkedNaisTeams.map((nt) => (
-									<Table.Row key={nt.slug}>
-										<Table.DataCell>
-											<AkselLink as={Link} to={`/nais-overvaking/${nt.slug}`}>
-												{nt.slug}
-											</AkselLink>
-											{nt.displayName && nt.displayName !== nt.slug && <> ({nt.displayName})</>}
-										</Table.DataCell>
-										<Table.DataCell>
-											{nt.devTeamId ? (
-												<Tag variant="success" size="small">
-													Tilknyttet
-												</Tag>
-											) : (
-												<Tag variant="warning" size="small">
-													Ikke tilknyttet
-												</Tag>
-											)}
-										</Table.DataCell>
-										<Table.DataCell align="right">
-											<Button
-												variant="tertiary-neutral"
-												size="xsmall"
-												onClick={() => {
-													setUnlinkingNaisTeam(nt)
-													unlinkNaisModalRef.current?.showModal()
-												}}
-											>
-												Fjern fra seksjon
-											</Button>
-										</Table.DataCell>
-									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
-					</section>
-				) : (
-					<Alert variant="info" size="small">
-						Ingen Nais-team er koblet til denne seksjonen ennå.
-					</Alert>
-				)}
-
-				{unlinkedNaisTeams.length > 0 && (
-					<Form method="post">
-						<input type="hidden" name="intent" value="link-nais-team" />
-						<HStack gap="space-4" align="end">
-							<Select label="Legg til Nais-team" name="naisTeamSlug" size="small">
-								<option value="">Velg team…</option>
-								{unlinkedNaisTeams.map((nt) => (
-									<option key={nt.slug} value={nt.slug}>
-										{nt.slug}
-										{nt.displayName && nt.displayName !== nt.slug ? ` (${nt.displayName})` : ""}
-									</option>
-								))}
-							</Select>
-							<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
-								Legg til
-							</Button>
-						</HStack>
-					</Form>
-				)}
-			</VStack>
-
-			{/* Unassigned apps */}
-			{(unassignedApps.length > 0 || ignoredApps.length > 0) && (
-				<VStack gap="space-6">
-					<Heading size="medium" level="3">
-						Applikasjoner uten team ({unassignedApps.length})
-					</Heading>
-
-					{unassignedApps.length > 0 ? (
-						<>
-							<Alert variant="warning" size="small">
-								{unassignedApps.length} {unassignedApps.length === 1 ? "applikasjon" : "applikasjoner"} fra seksjonens
-								Nais-team er ikke koblet til et utviklingsteam.
-							</Alert>
-							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-							<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner uten team">
+				{/* Tab: Utviklingsteam */}
+				<Tabs.Panel value="team" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<VStack gap="space-6">
+						{teams.length > 0 && (
+							/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+							<section className="table-scroll" tabIndex={0} aria-label={`Team i ${section.name}`}>
 								<Table size="small">
 									<Table.Header>
 										<Table.Row>
-											<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-											<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
-											<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Team</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Beskrivelse</Table.HeaderCell>
 											<Table.HeaderCell scope="col" />
 										</Table.Row>
 									</Table.Header>
 									<Table.Body>
-										{unassignedApps.map((app) => (
-											<Table.Row key={app.appId}>
-												<Table.DataCell>
-													<AkselLink as={Link} to={`/applikasjoner/${app.appId}/detaljer`}>
-														{app.appName}
-													</AkselLink>
-												</Table.DataCell>
-												<Table.DataCell>
-													<Tag variant="info" size="small">
-														{app.naisTeamSlug}
-													</Tag>
-												</Table.DataCell>
-												<Table.DataCell>{app.environments.join(", ")}</Table.DataCell>
+										{teams.map((team) => (
+											<Table.Row key={team.id}>
+												<Table.DataCell>{team.name}</Table.DataCell>
+												<Table.DataCell>{team.description ?? "–"}</Table.DataCell>
 												<Table.DataCell align="right">
-													<Form method="post">
-														<input type="hidden" name="intent" value="ignore-app" />
-														<input type="hidden" name="applicationId" value={app.appId} />
-														<Button type="submit" variant="tertiary-neutral" size="xsmall">
-															Ignorer
+													<HStack gap="space-2" justify="end">
+														<Button
+															variant="tertiary"
+															size="xsmall"
+															onClick={() => {
+																setEditingTeam(team)
+																editTeamModalRef.current?.showModal()
+															}}
+														>
+															Rediger
 														</Button>
-													</Form>
+														<Button
+															variant="tertiary-neutral"
+															size="xsmall"
+															onClick={() => {
+																setDeletingTeam(team)
+																deleteTeamModalRef.current?.showModal()
+															}}
+														>
+															Slett
+														</Button>
+													</HStack>
 												</Table.DataCell>
 											</Table.Row>
 										))}
 									</Table.Body>
 								</Table>
 							</section>
-						</>
-					) : (
-						<Alert variant="success" size="small">
-							Alle applikasjoner fra seksjonens Nais-team er tilknyttet et utviklingsteam.
-						</Alert>
-					)}
+						)}
 
-					{ignoredApps.length > 0 && (
-						<ReadMore header={`Ignorerte applikasjoner (${ignoredApps.length})`}>
-							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-							<section className="table-scroll" tabIndex={0} aria-label="Ignorerte applikasjoner">
-								<Table size="small">
-									<Table.Header>
-										<Table.Row>
-											<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-											<Table.HeaderCell scope="col">Begrunnelse</Table.HeaderCell>
-											<Table.HeaderCell scope="col">Ignorert av</Table.HeaderCell>
-											<Table.HeaderCell scope="col" />
-										</Table.Row>
-									</Table.Header>
-									<Table.Body>
-										{ignoredApps.map((app) => (
-											<Table.Row key={app.appId}>
-												<Table.DataCell>{app.appName}</Table.DataCell>
-												<Table.DataCell>{app.reason || "–"}</Table.DataCell>
-												<Table.DataCell>{app.ignoredBy}</Table.DataCell>
-												<Table.DataCell align="right">
-													<Form method="post">
-														<input type="hidden" name="intent" value="unignore-app" />
-														<input type="hidden" name="applicationId" value={app.appId} />
-														<Button type="submit" variant="tertiary-neutral" size="xsmall">
-															Gjenopprett
-														</Button>
-													</Form>
-												</Table.DataCell>
+						{teams.length === 0 && <BodyLong>Ingen team er opprettet i denne seksjonen.</BodyLong>}
+
+						<Form
+							method="post"
+							ref={teamFormRef}
+							onSubmit={() => {
+								setTimeout(() => teamFormRef.current?.reset(), 0)
+							}}
+						>
+							<input type="hidden" name="intent" value="create-team" />
+							<VStack gap="space-4">
+								<Heading size="small" level="4">
+									Legg til team
+								</Heading>
+								<HStack gap="space-4" align="end">
+									<TextField label="Teamnavn" name="name" size="small" autoComplete="off" />
+									<TextField label="Beskrivelse" name="description" size="small" autoComplete="off" />
+									<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
+										Legg til
+									</Button>
+								</HStack>
+							</VStack>
+						</Form>
+					</VStack>
+				</Tabs.Panel>
+
+				{/* Tab: Nais-team */}
+				<Tabs.Panel value="nais" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<VStack gap="space-8">
+						<VStack gap="space-4">
+							<Heading size="medium" level="3">
+								Koblede Nais-team ({linkedNaisTeams.length})
+							</Heading>
+
+							{linkedNaisTeams.length > 0 ? (
+								/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+								<section className="table-scroll" tabIndex={0} aria-label="Koblede Nais-team">
+									<Table size="small">
+										<Table.Header>
+											<Table.Row>
+												<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
+												<Table.HeaderCell scope="col">Utviklingsteam</Table.HeaderCell>
+												<Table.HeaderCell scope="col" />
 											</Table.Row>
-										))}
-									</Table.Body>
-								</Table>
-							</section>
-						</ReadMore>
-					)}
-				</VStack>
-			)}
+										</Table.Header>
+										<Table.Body>
+											{linkedNaisTeams.map((nt) => (
+												<Table.Row key={nt.slug}>
+													<Table.DataCell>
+														<AkselLink as={Link} to={`/nais-overvaking/${nt.slug}`}>
+															{nt.slug}
+														</AkselLink>
+														{nt.displayName && nt.displayName !== nt.slug && <> ({nt.displayName})</>}
+													</Table.DataCell>
+													<Table.DataCell>
+														{nt.devTeamId ? (
+															<Tag variant="success" size="small">
+																Tilknyttet
+															</Tag>
+														) : (
+															<Tag variant="warning" size="small">
+																Ikke tilknyttet
+															</Tag>
+														)}
+													</Table.DataCell>
+													<Table.DataCell align="right">
+														<Button
+															variant="tertiary-neutral"
+															size="xsmall"
+															onClick={() => {
+																setUnlinkingNaisTeam(nt)
+																unlinkNaisModalRef.current?.showModal()
+															}}
+														>
+															Fjern fra seksjon
+														</Button>
+													</Table.DataCell>
+												</Table.Row>
+											))}
+										</Table.Body>
+									</Table>
+								</section>
+							) : (
+								<Alert variant="info" size="small">
+									Ingen Nais-team er koblet til denne seksjonen ennå.
+								</Alert>
+							)}
 
-			{/* Links to related admin pages */}
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Relatert
-				</Heading>
-				<HStack gap="space-4">
-					<Button as={Link} to={`/seksjoner/${seksjon}/screening`} variant="secondary" size="small">
-						Screening-spørsmål
-					</Button>
-				</HStack>
-			</VStack>
+							{unlinkedNaisTeams.length > 0 && (
+								<Form method="post">
+									<input type="hidden" name="intent" value="link-nais-team" />
+									<HStack gap="space-4" align="end">
+										<Select label="Legg til Nais-team" name="naisTeamSlug" size="small">
+											<option value="">Velg team…</option>
+											{unlinkedNaisTeams.map((nt) => (
+												<option key={nt.slug} value={nt.slug}>
+													{nt.slug}
+													{nt.displayName && nt.displayName !== nt.slug ? ` (${nt.displayName})` : ""}
+												</option>
+											))}
+										</Select>
+										<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
+											Legg til
+										</Button>
+									</HStack>
+								</Form>
+							)}
+						</VStack>
+
+						<VStack gap="space-4">
+							<Heading size="medium" level="3">
+								Applikasjoner uten team ({unassignedApps.length})
+							</Heading>
+
+							{unassignedApps.length > 0 ? (
+								<>
+									<Alert variant="warning" size="small">
+										{unassignedApps.length} {unassignedApps.length === 1 ? "applikasjon" : "applikasjoner"} fra
+										seksjonens Nais-team er ikke koblet til et utviklingsteam.
+									</Alert>
+									{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+									<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner uten team">
+										<Table size="small">
+											<Table.Header>
+												<Table.Row>
+													<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+													<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
+													<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+													<Table.HeaderCell scope="col" />
+												</Table.Row>
+											</Table.Header>
+											<Table.Body>
+												{unassignedApps.map((app) => (
+													<Table.Row key={app.appId}>
+														<Table.DataCell>
+															<AkselLink as={Link} to={`/applikasjoner/${app.appId}/detaljer`}>
+																{app.appName}
+															</AkselLink>
+														</Table.DataCell>
+														<Table.DataCell>
+															<Tag variant="info" size="small">
+																{app.naisTeamSlug}
+															</Tag>
+														</Table.DataCell>
+														<Table.DataCell>{app.environments.join(", ")}</Table.DataCell>
+														<Table.DataCell align="right">
+															<Form method="post">
+																<input type="hidden" name="intent" value="ignore-app" />
+																<input type="hidden" name="applicationId" value={app.appId} />
+																<Button type="submit" variant="tertiary-neutral" size="xsmall">
+																	Ignorer
+																</Button>
+															</Form>
+														</Table.DataCell>
+													</Table.Row>
+												))}
+											</Table.Body>
+										</Table>
+									</section>
+								</>
+							) : (
+								<Alert variant="success" size="small">
+									Alle applikasjoner fra seksjonens Nais-team er tilknyttet et utviklingsteam.
+								</Alert>
+							)}
+						</VStack>
+
+						{ignoredApps.length > 0 && (
+							<ReadMore header={`Ignorerte applikasjoner (${ignoredApps.length})`}>
+								{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+								<section className="table-scroll" tabIndex={0} aria-label="Ignorerte applikasjoner">
+									<Table size="small">
+										<Table.Header>
+											<Table.Row>
+												<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+												<Table.HeaderCell scope="col">Begrunnelse</Table.HeaderCell>
+												<Table.HeaderCell scope="col">Ignorert av</Table.HeaderCell>
+												<Table.HeaderCell scope="col" />
+											</Table.Row>
+										</Table.Header>
+										<Table.Body>
+											{ignoredApps.map((app) => (
+												<Table.Row key={app.appId}>
+													<Table.DataCell>{app.appName}</Table.DataCell>
+													<Table.DataCell>{app.reason || "–"}</Table.DataCell>
+													<Table.DataCell>{app.ignoredBy}</Table.DataCell>
+													<Table.DataCell align="right">
+														<Form method="post">
+															<input type="hidden" name="intent" value="unignore-app" />
+															<input type="hidden" name="applicationId" value={app.appId} />
+															<Button type="submit" variant="tertiary-neutral" size="xsmall">
+																Gjenopprett
+															</Button>
+														</Form>
+													</Table.DataCell>
+												</Table.Row>
+											))}
+										</Table.Body>
+									</Table>
+								</section>
+							</ReadMore>
+						)}
+					</VStack>
+				</Tabs.Panel>
+			</Tabs>
 
 			{/* Edit team modal */}
 			<Modal ref={editTeamModalRef} header={{ heading: `Rediger team: ${editingTeam?.name ?? ""}` }}>
