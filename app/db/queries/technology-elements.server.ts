@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationPersistence, monitoredApplications } from "../schema/applications"
 import { applicationTechnologyElements, controlTechnologyElements, technologyElements } from "../schema/framework"
@@ -136,7 +136,8 @@ export async function getTechnologyElementWithCounts(id: string) {
 	const appCount = await db
 		.select({ count: sql<number>`count(*)` })
 		.from(applicationTechnologyElements)
-		.where(eq(applicationTechnologyElements.elementId, id))
+		.innerJoin(monitoredApplications, eq(applicationTechnologyElements.applicationId, monitoredApplications.id))
+		.where(and(eq(applicationTechnologyElements.elementId, id), isNull(monitoredApplications.primaryApplicationId)))
 	return { ...el, controlCount: Number(controlCount[0].count), appCount: Number(appCount[0].count) }
 }
 

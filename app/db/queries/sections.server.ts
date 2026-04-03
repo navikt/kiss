@@ -26,20 +26,28 @@ export async function getSectionDetail(seksjonSlug: string) {
 
 	const teamStats = []
 	for (const team of teams) {
+		// Count only primary (non-linked) apps for this team
 		const [appCountRow] = await db
 			.select({ count: count() })
 			.from(applicationTeamMappings)
-			.where(eq(applicationTeamMappings.devTeamId, team.id))
+			.innerJoin(monitoredApplications, eq(applicationTeamMappings.applicationId, monitoredApplications.id))
+			.where(
+				sql`${applicationTeamMappings.devTeamId} = ${team.id} AND ${monitoredApplications.primaryApplicationId} IS NULL`,
+			)
 
 		let implemented = 0
 		let partial = 0
 		let notImplemented = 0
 		let notRelevant = 0
 
+		// Get only primary (non-linked) app mappings for compliance stats
 		const appMappings = await db
 			.select({ applicationId: applicationTeamMappings.applicationId })
 			.from(applicationTeamMappings)
-			.where(eq(applicationTeamMappings.devTeamId, team.id))
+			.innerJoin(monitoredApplications, eq(applicationTeamMappings.applicationId, monitoredApplications.id))
+			.where(
+				sql`${applicationTeamMappings.devTeamId} = ${team.id} AND ${monitoredApplications.primaryApplicationId} IS NULL`,
+			)
 
 		for (const mapping of appMappings) {
 			const [implRow] = await db

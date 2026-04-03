@@ -37,7 +37,7 @@ export async function getNaisTeamDetail(slug: string) {
 		sectionSlug = section?.slug ?? null
 	}
 
-	// Get apps for this team via applicationEnvironments
+	// Get apps for this team via applicationEnvironments (excludes linked/child apps)
 	const envRows = await db
 		.select({
 			appId: applicationEnvironments.applicationId,
@@ -48,7 +48,7 @@ export async function getNaisTeamDetail(slug: string) {
 		})
 		.from(applicationEnvironments)
 		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
-		.where(eq(applicationEnvironments.naisTeamId, team.id))
+		.where(and(eq(applicationEnvironments.naisTeamId, team.id), isNull(monitoredApplications.primaryApplicationId)))
 		.orderBy(monitoredApplications.name, applicationEnvironments.cluster)
 
 	// Group by app, collect environments
@@ -84,7 +84,7 @@ export async function getNaisTeamDetail(slug: string) {
 	return { team, sectionName, sectionSlug, apps }
 }
 
-/** Get app count per Nais team. */
+/** Get app count per Nais team (excludes linked/child apps). */
 export async function getNaisTeamAppCounts(): Promise<Map<string, number>> {
 	const rows = await db
 		.select({
@@ -92,6 +92,8 @@ export async function getNaisTeamAppCounts(): Promise<Map<string, number>> {
 			count: sql<number>`count(DISTINCT ${applicationEnvironments.applicationId})`,
 		})
 		.from(applicationEnvironments)
+		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+		.where(isNull(monitoredApplications.primaryApplicationId))
 		.groupBy(applicationEnvironments.naisTeamId)
 
 	const map = new Map<string, number>()
@@ -231,7 +233,7 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 
 	const naisTeamIds = sectionNaisTeams.map((t) => t.id)
 
-	// Get all apps from those nais teams' environments
+	// Get all apps from those nais teams' environments (excludes linked/child apps)
 	const envApps = await db
 		.select({
 			appId: applicationEnvironments.applicationId,
@@ -243,7 +245,12 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 		.from(applicationEnvironments)
 		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
 		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`)
+		.where(
+			and(
+				sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`,
+				isNull(monitoredApplications.primaryApplicationId),
+			),
+		)
 
 	// Get apps that already have a dev team mapping
 	const linkedAppIds = new Set(

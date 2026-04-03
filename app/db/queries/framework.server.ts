@@ -36,7 +36,10 @@ export async function getDomainSummaries() {
 
 	if (domains.length === 0) return []
 
-	const [appCountRow] = await db.select({ count: count() }).from(monitoredApplications)
+	const [appCountRow] = await db
+		.select({ count: count() })
+		.from(monitoredApplications)
+		.where(isNull(monitoredApplications.primaryApplicationId))
 	const totalApps = appCountRow?.count ?? 0
 
 	const result = []

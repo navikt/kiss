@@ -15,9 +15,13 @@ import {
 import { devTeams } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
-/** Get all monitored applications with compliance summary. */
+/** Get all monitored applications with compliance summary (excludes linked/child apps). */
 export async function getApplications() {
-	const apps = await db.select().from(monitoredApplications).orderBy(monitoredApplications.name)
+	const apps = await db
+		.select()
+		.from(monitoredApplications)
+		.where(isNull(monitoredApplications.primaryApplicationId))
+		.orderBy(monitoredApplications.name)
 
 	const [totalControlsRow] = await db
 		.select({ count: count() })
@@ -59,7 +63,6 @@ export async function getApplications() {
 		result.push({
 			id: app.id,
 			name: app.name,
-			primaryApplicationId: app.primaryApplicationId,
 			teams: teamMappings.map((t) => t.teamSlug),
 			controlsImplemented: implemented,
 			controlsPartial: partial,
@@ -113,7 +116,7 @@ export async function unlinkAppFromTeam(applicationId: string, devTeamId: string
 	})
 }
 
-/** Get applications NOT yet linked to a specific team. */
+/** Get applications NOT yet linked to a specific team (excludes linked/child apps). */
 export async function getAvailableAppsForTeam(devTeamId: string) {
 	const linkedAppIds = db
 		.select({ applicationId: applicationTeamMappings.applicationId })
@@ -123,7 +126,12 @@ export async function getAvailableAppsForTeam(devTeamId: string) {
 	return db
 		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
 		.from(monitoredApplications)
-		.where(sql`${monitoredApplications.id} NOT IN (${linkedAppIds})`)
+		.where(
+			and(
+				isNull(monitoredApplications.primaryApplicationId),
+				sql`${monitoredApplications.id} NOT IN (${linkedAppIds})`,
+			),
+		)
 		.orderBy(monitoredApplications.name)
 }
 
