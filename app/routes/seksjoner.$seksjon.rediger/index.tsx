@@ -23,6 +23,7 @@ import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "reac
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	getIgnoredAppsForSection,
+	getLinkCandidatesForSection,
 	getNaisTeamsForSection,
 	getUnassignedAppsForSection,
 	getUnlinkedNaisTeams,
@@ -55,12 +56,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const sectionId = result.section.id
 
-	const [teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps] = await Promise.all([
+	const [teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, linkCandidates] = await Promise.all([
 		getTeamsForSection(sectionId),
 		getNaisTeamsForSection(sectionId),
 		getUnlinkedNaisTeams(),
 		getUnassignedAppsForSection(sectionId),
 		getIgnoredAppsForSection(sectionId),
+		getLinkCandidatesForSection(sectionId),
 	])
 
 	return data({
@@ -87,6 +89,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			reason: a.reason,
 			ignoredBy: a.ignoredBy,
 			ignoredAt: a.ignoredAt?.toISOString() ?? null,
+		})),
+		linkCandidates: linkCandidates.map((c) => ({
+			matchType: c.matchType,
+			confidence: c.confidence,
+			apps: c.apps,
 		})),
 		seksjon,
 	})
@@ -176,7 +183,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RedigerSeksjon() {
-	const { section, teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, seksjon } =
+	const { section, teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, linkCandidates, seksjon } =
 		useLoaderData<typeof loader>()
 	const [searchParams, setSearchParams] = useSearchParams()
 	const activeTab = searchParams.get("fane") ?? "seksjon"
@@ -206,6 +213,10 @@ export default function RedigerSeksjon() {
 					<Tabs.Tab
 						value="apper"
 						label={`Apper uten team (${unassignedApps.length})${unassignedApps.length > 0 ? " ⚠" : ""}`}
+					/>
+					<Tabs.Tab
+						value="kobling"
+						label={`Koblingsforslag (${linkCandidates.length})${linkCandidates.length > 0 ? " 🔗" : ""}`}
 					/>
 				</Tabs.List>
 
@@ -504,6 +515,113 @@ export default function RedigerSeksjon() {
 									</Table>
 								</section>
 							</ReadMore>
+						)}
+					</VStack>
+				</Tabs.Panel>
+
+				{/* Tab: Koblingsforslag */}
+				<Tabs.Panel value="kobling" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<VStack gap="space-6">
+						<Heading size="medium" level="3">
+							Koblingsforslag ({linkCandidates.length})
+						</Heading>
+
+						{linkCandidates.length > 0 ? (
+							<>
+								<Alert variant="info" size="small">
+									Disse applikasjonene har blitt identifisert som mulige paraply-koblinger basert på felles Docker-image
+									eller navnemønster.
+								</Alert>
+								<VStack gap="space-4">
+									{linkCandidates.map((candidate) => {
+										const prodApp = candidate.apps.find((a) => a.isProd) ?? candidate.apps[0]
+										const otherApps = candidate.apps.filter((a) => a.id !== prodApp.id)
+										return (
+											<div
+												key={candidate.apps.map((a) => a.id).join(",")}
+												style={{
+													border: "1px solid var(--ax-border-default)",
+													borderRadius: "var(--ax-border-radius-medium)",
+													padding: "var(--ax-space-4)",
+												}}
+											>
+												<VStack gap="space-2">
+													<HStack gap="space-4" align="center">
+														<Heading size="small" level="4">
+															<AkselLink as={Link} to={`/applikasjoner/${prodApp.id}/detaljer`}>
+																{prodApp.name}
+															</AkselLink>
+														</Heading>
+														<Tag
+															variant={
+																candidate.matchType === "both"
+																	? "success"
+																	: candidate.matchType === "image_match"
+																		? "info"
+																		: "warning"
+															}
+															size="xsmall"
+														>
+															{candidate.matchType === "both"
+																? "Image + navnemønster"
+																: candidate.matchType === "image_match"
+																	? "Felles image"
+																	: "Navnemønster"}
+														</Tag>
+														<Tag variant="neutral" size="xsmall">
+															{Math.round(candidate.confidence * 100)}% sannsynlighet
+														</Tag>
+													</HStack>
+													<BodyShort size="small">Mulige koblinger ({otherApps.length}):</BodyShort>
+													{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+													<section className="table-scroll" tabIndex={0} aria-label="Koblingsforslag">
+														<Table size="small">
+															<Table.Header>
+																<Table.Row>
+																	<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+																	<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+																	<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+																</Table.Row>
+															</Table.Header>
+															<Table.Body>
+																{otherApps.map((app) => (
+																	<Table.Row key={app.id}>
+																		<Table.DataCell>
+																			<AkselLink as={Link} to={`/applikasjoner/${app.id}/detaljer`}>
+																				{app.name}
+																			</AkselLink>
+																		</Table.DataCell>
+																		<Table.DataCell>
+																			<Tag variant="info" size="xsmall">
+																				{app.cluster}
+																			</Tag>
+																		</Table.DataCell>
+																		<Table.DataCell>
+																			{app.alreadyLinked ? (
+																				<Tag variant="success" size="xsmall">
+																					Allerede koblet
+																				</Tag>
+																			) : (
+																				<Tag variant="warning" size="xsmall">
+																					Ikke koblet
+																				</Tag>
+																			)}
+																		</Table.DataCell>
+																	</Table.Row>
+																))}
+															</Table.Body>
+														</Table>
+													</section>
+												</VStack>
+											</div>
+										)
+									})}
+								</VStack>
+							</>
+						) : (
+							<Alert variant="success" size="small">
+								Ingen koblingsforslag funnet for denne seksjonens applikasjoner.
+							</Alert>
 						)}
 					</VStack>
 				</Tabs.Panel>
