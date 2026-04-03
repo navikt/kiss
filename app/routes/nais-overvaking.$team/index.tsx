@@ -58,7 +58,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 export default function NaisTeamDetalj() {
 	const { detail, fromApi } = useLoaderData<typeof loader>()
-	const { team, sectionName, apps } = detail
+	const { team, sectionName, sectionSlug, apps } = detail
 
 	return (
 		<VStack gap="space-8">
@@ -72,9 +72,11 @@ export default function NaisTeamDetalj() {
 						{statusLabel[team.status]}
 					</Tag>
 					{sectionName && (
-						<Tag variant="info" size="small">
-							Seksjon: {sectionName}
-						</Tag>
+						<Link to={sectionSlug ? `/seksjoner/${sectionSlug}` : "#"}>
+							<Tag variant="info" size="small">
+								Seksjon: {sectionName}
+							</Tag>
+						</Link>
 					)}
 					<BodyLong size="small">Oppdaget {new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</BodyLong>
 				</HStack>

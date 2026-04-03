@@ -28,11 +28,13 @@ export async function getNaisTeamDetail(slug: string) {
 	const [team] = await db.select().from(naisTeams).where(eq(naisTeams.slug, slug)).limit(1)
 	if (!team) return null
 
-	// Get section name if linked
+	// Get section info if linked
 	let sectionName: string | null = null
+	let sectionSlug: string | null = null
 	if (team.sectionId) {
 		const [section] = await db.select().from(sections).where(eq(sections.id, team.sectionId)).limit(1)
 		sectionName = section?.name ?? null
+		sectionSlug = section?.slug ?? null
 	}
 
 	// Get apps for this team via applicationEnvironments
@@ -79,7 +81,7 @@ export async function getNaisTeamDetail(slug: string) {
 		})),
 	}))
 
-	return { team, sectionName, apps }
+	return { team, sectionName, sectionSlug, apps }
 }
 
 /** Get app count per Nais team. */
