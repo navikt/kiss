@@ -1,9 +1,9 @@
 import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { COMPLIANCE_STATUSES, type ComplianceStatus } from "~/lib/compliance-status"
 import { monitoredApplications } from "./applications"
 import { frameworkControls, technologyElements } from "./framework"
 
-export const complianceStatusEnum = ["not_relevant", "not_implemented", "partially_implemented", "implemented"] as const
-export type ComplianceStatus = (typeof complianceStatusEnum)[number]
+export { COMPLIANCE_STATUSES as complianceStatusEnum, type ComplianceStatus }
 
 export const complianceAssessments = pgTable("compliance_assessments", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -14,7 +14,7 @@ export const complianceAssessments = pgTable("compliance_assessments", {
 		.notNull()
 		.references(() => frameworkControls.id),
 	technologyElementId: uuid("technology_element_id").references(() => technologyElements.id),
-	status: text("status", { enum: complianceStatusEnum }).notNull(),
+	status: text("status", { enum: COMPLIANCE_STATUSES }).notNull(),
 	comment: text("comment"),
 	assessedBy: text("assessed_by").notNull(),
 	assessedAt: timestamp("assessed_at", { withTimezone: true }).notNull().defaultNow(),
@@ -29,8 +29,8 @@ export const complianceAssessmentHistory = pgTable("compliance_assessment_histor
 	assessmentId: uuid("assessment_id")
 		.notNull()
 		.references(() => complianceAssessments.id),
-	previousStatus: text("previous_status", { enum: complianceStatusEnum }),
-	newStatus: text("new_status", { enum: complianceStatusEnum }).notNull(),
+	previousStatus: text("previous_status", { enum: COMPLIANCE_STATUSES }),
+	newStatus: text("new_status", { enum: COMPLIANCE_STATUSES }).notNull(),
 	previousComment: text("previous_comment"),
 	newComment: text("new_comment"),
 	changedBy: text("changed_by").notNull(),

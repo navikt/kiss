@@ -31,14 +31,8 @@ import {
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import { getStatusLabel, statusLabels } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
-
-const effectLabels: Record<string, string> = {
-	not_relevant: "Ikke relevant",
-	implemented: "Implementert",
-	partially_implemented: "Delvis implementert",
-	not_implemented: "Ikke implementert",
-}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -256,7 +250,7 @@ export default function EditScreeningQuestion() {
 											<Table.DataCell>
 												{e.yesEffect ? (
 													<Tag variant="neutral" size="xsmall">
-														{effectLabels[e.yesEffect] ?? e.yesEffect}
+														{getStatusLabel(e.yesEffect)}
 													</Tag>
 												) : (
 													<BodyShort size="small" textColor="subtle">
@@ -267,7 +261,7 @@ export default function EditScreeningQuestion() {
 											<Table.DataCell>
 												{e.noEffect ? (
 													<Tag variant="neutral" size="xsmall">
-														{effectLabels[e.noEffect] ?? e.noEffect}
+														{getStatusLabel(e.noEffect)}
 													</Tag>
 												) : (
 													<BodyShort size="small" textColor="subtle">
@@ -307,7 +301,7 @@ export default function EditScreeningQuestion() {
 								</Select>
 								<Select label="Ja-effekt" name="yesEffect" size="small">
 									<option value="">Ingen</option>
-									{Object.entries(effectLabels).map(([v, l]) => (
+									{Object.entries(statusLabels).map(([v, l]) => (
 										<option key={v} value={v}>
 											{l}
 										</option>
@@ -315,7 +309,7 @@ export default function EditScreeningQuestion() {
 								</Select>
 								<Select label="Nei-effekt" name="noEffect" size="small">
 									<option value="">Ingen</option>
-									{Object.entries(effectLabels).map(([v, l]) => (
+									{Object.entries(statusLabels).map(([v, l]) => (
 										<option key={v} value={v}>
 											{l}
 										</option>

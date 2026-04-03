@@ -19,7 +19,6 @@ import {
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
-import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
 import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
@@ -29,6 +28,7 @@ import {
 	unlinkAppFromTeam,
 } from "~/db/queries/applications.server"
 import { findLinkCandidates, getApplicationDetail, linkApplication, unlinkApplication } from "~/db/queries/nais.server"
+import type { ComplianceStatus } from "~/lib/compliance-status"
 import { compliancePercent } from "~/lib/utils"
 
 const persistenceLabels: Record<string, string> = {
@@ -593,7 +593,7 @@ export default function ApplikasjonDetalj() {
 										<Table.DataCell>{a.controlName}</Table.DataCell>
 										<Table.DataCell>
 											{a.status ? (
-												<ComplianceStatusBadge status={a.status as ComplianceStatusValue} />
+												<ComplianceStatusBadge status={a.status as ComplianceStatus} />
 											) : (
 												<Tag variant="neutral" size="xsmall">
 													Ikke vurdert

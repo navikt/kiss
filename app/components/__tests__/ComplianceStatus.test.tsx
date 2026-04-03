@@ -1,11 +1,12 @@
 import { cleanup, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
-import { ComplianceComment, ComplianceStatusBadge, type ComplianceStatusValue, statusLabels } from "../ComplianceStatus"
+import { COMPLIANCE_STATUSES, type ComplianceStatus, statusLabels } from "~/lib/compliance-status"
+import { ComplianceComment, ComplianceStatusBadge } from "../ComplianceStatus"
 
 afterEach(() => cleanup())
 
 describe("ComplianceStatusBadge", () => {
-	const statuses: ComplianceStatusValue[] = ["not_relevant", "not_implemented", "partially_implemented", "implemented"]
+	const statuses: ComplianceStatus[] = [...COMPLIANCE_STATUSES]
 
 	it.each(statuses)("renders correct label for status '%s'", (status) => {
 		render(<ComplianceStatusBadge status={status} />)

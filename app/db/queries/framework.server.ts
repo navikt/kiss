@@ -1,4 +1,5 @@
 import { and, count, desc, eq, isNull, sql } from "drizzle-orm"
+import { getStatusLabel } from "~/lib/compliance-status"
 import type { ParsedFramework } from "~/lib/excel-parser.server"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
@@ -255,12 +256,12 @@ export async function getDomainDetail(domainCode: string) {
 						implemented++
 					} else if (status === "partially_implemented") {
 						partial++
-						gaps.push({ appId: app.id, appName: app.name, status: "Delvis implementert" })
+						gaps.push({ appId: app.id, appName: app.name, status: getStatusLabel(status) })
 					} else if (status === "not_implemented") {
 						notImplemented++
-						gaps.push({ appId: app.id, appName: app.name, status: "Ikke implementert" })
+						gaps.push({ appId: app.id, appName: app.name, status: getStatusLabel(status) })
 					} else {
-						gaps.push({ appId: app.id, appName: app.name, status: "Ikke vurdert" })
+						gaps.push({ appId: app.id, appName: app.name, status: getStatusLabel(status) })
 					}
 				}
 

@@ -2,14 +2,8 @@ import type { LoaderFunctionArgs } from "react-router"
 import * as XLSX from "xlsx"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getActiveFrameworkVersion } from "~/db/queries/framework.server"
+import { getStatusLabel } from "~/lib/compliance-status"
 import { getStorageProvider } from "~/lib/storage/index.server"
-
-const statusLabels: Record<string, string> = {
-	implemented: "Implementert",
-	partially_implemented: "Delvis implementert",
-	not_implemented: "Ikke implementert",
-	not_relevant: "Ikke relevant",
-}
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
@@ -75,7 +69,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		if (!assessment) continue
 
 		ws[XLSX.utils.encode_cell({ r, c: statusCol })] = {
-			v: assessment.status ? (statusLabels[assessment.status] ?? assessment.status) : "Ikke vurdert",
+			v: getStatusLabel(assessment.status),
 			t: "s",
 		}
 		ws[XLSX.utils.encode_cell({ r, c: commentCol })] = {

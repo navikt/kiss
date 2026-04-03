@@ -29,12 +29,7 @@ interface ReportSnapshot {
 	}>
 }
 
-const statusLabels: Record<string, string> = {
-	implemented: "Implementert",
-	partially_implemented: "Delvis implementert",
-	not_implemented: "Ikke implementert",
-	not_relevant: "Ikke relevant",
-}
+import { getStatusLabel } from "~/lib/compliance-status"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const rapportId = params.rapportId
@@ -81,7 +76,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		Domenekode: r.domainCode,
 		"Kontroll-ID": r.controlId,
 		Kontrollnavn: r.controlName.replace(/\r/g, ""),
-		Status: statusLabels[r.status ?? ""] ?? "Ikke vurdert",
+		Status: getStatusLabel(r.status),
 		Kommentar: r.comment ?? "",
 		"Vurdert av": r.assessedBy ?? "",
 		"Vurdert dato": r.assessedAt ? new Date(r.assessedAt).toLocaleDateString("nb-NO") : "",

@@ -1,23 +1,11 @@
 import { Link as AkselLink, BodyLong, Tag } from "@navikt/ds-react"
+import { type ComplianceStatus, statusLabels, statusVariants } from "~/lib/compliance-status"
 
-export type ComplianceStatusValue = "not_relevant" | "not_implemented" | "partially_implemented" | "implemented"
-
-const statusLabels: Record<ComplianceStatusValue, string> = {
-	not_relevant: "Ikke relevant",
-	not_implemented: "Ikke implementert",
-	partially_implemented: "Delvis implementert",
-	implemented: "Implementert",
-}
-
-const statusVariants: Record<ComplianceStatusValue, "neutral" | "error" | "warning" | "success"> = {
-	not_relevant: "neutral",
-	not_implemented: "error",
-	partially_implemented: "warning",
-	implemented: "success",
-}
+export type { ComplianceStatus as ComplianceStatusValue }
+export { statusLabels }
 
 interface ComplianceStatusBadgeProps {
-	status: ComplianceStatusValue
+	status: ComplianceStatus
 }
 
 export function ComplianceStatusBadge({ status }: ComplianceStatusBadgeProps) {
@@ -63,5 +51,3 @@ export function ComplianceComment({ comment }: ComplianceCommentProps) {
 
 	return <BodyLong size="small">{elements}</BodyLong>
 }
-
-export { statusLabels }

@@ -16,13 +16,13 @@ import {
 } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
-import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
-import { ComplianceComment, ComplianceStatusBadge, statusLabels } from "~/components/ComplianceStatus"
+import { ComplianceComment, ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments, saveAssessment } from "~/db/queries/applications.server"
 import { getAllRisks } from "~/db/queries/framework.server"
 import { getScreeningDataForApp, saveScreeningAnswer } from "~/db/queries/screening.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { isComplianceStatus, statusLabels } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
 
 function slugify(text: string) {
@@ -67,13 +67,6 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	})
 }
 
-const validStatuses: ComplianceStatusValue[] = [
-	"not_relevant",
-	"not_implemented",
-	"partially_implemented",
-	"implemented",
-]
-
 export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
@@ -104,7 +97,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		throw new Response("Mangler kontroll-UUID", { status: 400 })
 	}
 
-	if (typeof status !== "string" || !validStatuses.includes(status as ComplianceStatusValue)) {
+	if (typeof status !== "string" || !isComplianceStatus(status)) {
 		throw new Response("Ugyldig status", { status: 400 })
 	}
 

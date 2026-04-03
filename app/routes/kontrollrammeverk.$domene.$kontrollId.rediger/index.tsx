@@ -17,8 +17,6 @@ import {
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData, useNavigation } from "react-router"
-import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
-import { statusLabels } from "~/components/ComplianceStatus"
 import { MarkdownHint } from "~/components/MarkdownHint"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
@@ -40,6 +38,7 @@ import {
 } from "~/db/queries/technology-elements.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
+import { getStatusLabel, getStatusVariant, statusLabels } from "~/lib/compliance-status"
 
 const fieldConfig = [
 	{ key: "requirement", label: "Krav", multiline: true },
@@ -207,13 +206,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			error: err instanceof Error ? err.message : "Ukjent feil",
 		})
 	}
-}
-
-const statusVariants: Record<string, "info" | "success" | "warning" | "error" | "neutral"> = {
-	not_relevant: "neutral",
-	not_implemented: "error",
-	partially_implemented: "warning",
-	implemented: "success",
 }
 
 function FrequencyCombobox({ defaultValue }: { defaultValue: string }) {
@@ -511,8 +503,8 @@ export default function ControlEditPage() {
 										<VStack gap="space-4">
 											<HStack gap="space-8" align="center">
 												<Label size="small">{answer.label}</Label>
-												<Tag size="xsmall" variant={statusVariants[answer.status] ?? "neutral"}>
-													{statusLabels[answer.status as ComplianceStatusValue] ?? answer.status}
+												<Tag size="xsmall" variant={getStatusVariant(answer.status)}>
+													{getStatusLabel(answer.status)}
 												</Tag>
 											</HStack>
 											{answer.comment && (

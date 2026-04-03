@@ -1,10 +1,10 @@
-import type { ComplianceStatusValue } from "~/components/ComplianceStatus"
+import type { ComplianceStatus } from "~/lib/compliance-status"
 
 export interface AssessmentChange {
 	id: string
 	controlId: string
-	previousStatus: ComplianceStatusValue | null
-	newStatus: ComplianceStatusValue
+	previousStatus: ComplianceStatus | null
+	newStatus: ComplianceStatus
 	previousComment: string | null
 	newComment: string | null
 	changedBy: string

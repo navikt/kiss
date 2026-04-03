@@ -31,12 +31,7 @@ interface ReportSnapshot {
 	}>
 }
 
-const statusLabels: Record<string, string> = {
-	implemented: "Implementert",
-	partially_implemented: "Delvis implementert",
-	not_implemented: "Ikke implementert",
-	not_relevant: "Ikke relevant",
-}
+import { getStatusLabel } from "~/lib/compliance-status"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const rapportId = params.rapportId
@@ -175,7 +170,7 @@ function buildPdf(reportName: string, snapshot: ReportSnapshot): Promise<Buffer>
 				row.appName.slice(0, 30),
 				row.controlId,
 				controlName,
-				statusLabels[row.status ?? ""] ?? "Ikke vurdert",
+				getStatusLabel(row.status),
 				comment,
 			])
 		}
