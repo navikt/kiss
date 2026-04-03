@@ -176,11 +176,11 @@ export default function AdminScreening() {
 						<input type="hidden" name="intent" value="deleteQuestion" />
 						<input type="hidden" name="questionId" value={deleteTarget?.id ?? ""} />
 						<HStack gap="space-4">
-							<Button type="submit" size="small" variant="danger">
-								Slett
-							</Button>
 							<Button type="button" size="small" variant="secondary" onClick={() => deleteModalRef.current?.close()}>
 								Avbryt
+							</Button>
+							<Button type="submit" size="small" variant="danger">
+								Slett spørsmål
 							</Button>
 						</HStack>
 					</Form>
