@@ -1,15 +1,4 @@
-import {
-	Link as AkselLink,
-	BodyLong,
-	BodyShort,
-	Box,
-	Button,
-	Detail,
-	Heading,
-	HGrid,
-	HStack,
-	VStack,
-} from "@navikt/ds-react"
+import { BodyLong, BodyShort, Box, Button, Detail, Heading, HGrid, HStack, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -222,12 +211,6 @@ export default function SeksjonDashboard() {
 						)
 					})()}
 			</HGrid>
-
-			<HStack gap="space-4" align="center">
-				<AkselLink as={Link} to={`/seksjoner/${seksjon}/screening`}>
-					Innledende spørsmål
-				</AkselLink>
-			</HStack>
 		</VStack>
 	)
 }
