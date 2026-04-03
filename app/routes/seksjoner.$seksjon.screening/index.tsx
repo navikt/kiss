@@ -98,7 +98,7 @@ export default function SectionScreening() {
 					Innledende spørsmål — {seksjonName}
 				</Heading>
 				<BodyLong>
-					Definer ja/nei-spørsmål som gjelder spesifikt for denne seksjonen. Svarene kan automatisk sette status på
+					Definer spørsmål som gjelder spesifikt for denne seksjonen. Svarene kan automatisk sette status på
 					kontrollpunkter for applikasjoner i seksjonen.
 				</BodyLong>
 			</VStack>

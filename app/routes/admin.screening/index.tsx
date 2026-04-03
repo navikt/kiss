@@ -130,8 +130,7 @@ export default function AdminScreening() {
 					</Button>
 				</HStack>
 				<BodyLong>
-					Definer ja/nei-spørsmål som vises før compliance-vurderingen. Svarene kan automatisk sette status på
-					kontrollpunkter.
+					Definer spørsmål som vises før compliance-vurderingen. Svarene kan automatisk sette status på kontrollpunkter.
 				</BodyLong>
 			</div>
 
