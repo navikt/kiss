@@ -13,6 +13,7 @@ export default [
 	route("admin/import", "routes/admin.import/index.tsx"),
 	route("seksjoner", "routes/seksjoner/index.tsx"),
 	route("seksjoner/:seksjon", "routes/seksjoner.$seksjon/index.tsx"),
+	route("seksjoner/:seksjon/rediger", "routes/seksjoner.$seksjon.rediger/index.tsx"),
 	route("seksjoner/:seksjon/nais-team", "routes/seksjoner.$seksjon.nais-team/index.tsx"),
 	route("seksjoner/:seksjon/screening", "routes/seksjoner.$seksjon.screening/index.tsx"),
 	route(

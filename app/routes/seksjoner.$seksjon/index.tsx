@@ -4,6 +4,7 @@ import {
 	BodyLong,
 	BodyShort,
 	Box,
+	Button,
 	Detail,
 	Heading,
 	HGrid,
@@ -72,9 +73,14 @@ export default function SeksjonDashboard() {
 
 	return (
 		<VStack gap="space-8">
-			<Heading size="xlarge" level="2">
-				Seksjon: {seksjonName}
-			</Heading>
+			<HStack justify="space-between" align="center">
+				<Heading size="xlarge" level="2">
+					Seksjon: {seksjonName}
+				</Heading>
+				<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">
+					Rediger
+				</Button>
+			</HStack>
 			<BodyLong>Compliance-status for alle team i seksjonen.</BodyLong>
 
 			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 6 }}>
