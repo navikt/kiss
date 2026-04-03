@@ -1,6 +1,12 @@
-import { count, eq, isNull, sql } from "drizzle-orm"
+import { and, count, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
-import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
+import {
+	applicationEnvironments,
+	applicationTeamMappings,
+	monitoredApplications,
+	naisTeams,
+	sectionIgnoredApplications,
+} from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
 import { frameworkControls } from "../schema/framework"
 import { devTeams, sections } from "../schema/organization"
@@ -95,7 +101,105 @@ export async function getSectionDetail(seksjonSlug: string) {
 		})
 	}
 
-	return { section, teams: teamStats }
+	// Get compliance stats for unassigned apps (from Nais teams, not in any dev team, not ignored, primary only)
+	const sectionNaisTeamRows = await db.select().from(naisTeams).where(eq(naisTeams.sectionId, section.id))
+	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
+
+	let unassignedStats = {
+		apps: 0,
+		implemented: 0,
+		partial: 0,
+		notImplemented: 0,
+		notRelevant: 0,
+		total: 0,
+	}
+
+	if (naisTeamIds.length > 0) {
+		// Get all primary apps from section's Nais teams
+		const naisAppRows = await db
+			.selectDistinct({
+				appId: applicationEnvironments.applicationId,
+			})
+			.from(applicationEnvironments)
+			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+			.where(
+				and(
+					sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`,
+					isNull(monitoredApplications.primaryApplicationId),
+				),
+			)
+
+		// Exclude apps already in a dev team
+		const allTeamAppIds = new Set(
+			(await db.select({ appId: applicationTeamMappings.applicationId }).from(applicationTeamMappings)).map(
+				(r) => r.appId,
+			),
+		)
+
+		// Exclude ignored apps
+		const ignoredAppIds = new Set(
+			(
+				await db
+					.select({ appId: sectionIgnoredApplications.applicationId })
+					.from(sectionIgnoredApplications)
+					.where(eq(sectionIgnoredApplications.sectionId, section.id))
+			).map((r) => r.appId),
+		)
+
+		const unassignedAppIds = naisAppRows
+			.map((r) => r.appId)
+			.filter((id) => !allTeamAppIds.has(id) && !ignoredAppIds.has(id))
+
+		let uImpl = 0
+		let uPartial = 0
+		let uNotImpl = 0
+		let uNotRel = 0
+
+		for (const appId of unassignedAppIds) {
+			const [implRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.status} = 'implemented'`,
+				)
+			uImpl += implRow?.count ?? 0
+
+			const [partialRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.status} = 'partially_implemented'`,
+				)
+			uPartial += partialRow?.count ?? 0
+
+			const [notImplRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.status} = 'not_implemented'`,
+				)
+			uNotImpl += notImplRow?.count ?? 0
+
+			const [notRelRow] = await db
+				.select({ count: count() })
+				.from(complianceAssessments)
+				.where(
+					sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.status} = 'not_relevant'`,
+				)
+			uNotRel += notRelRow?.count ?? 0
+		}
+
+		unassignedStats = {
+			apps: unassignedAppIds.length,
+			implemented: uImpl,
+			partial: uPartial,
+			notImplemented: uNotImpl,
+			notRelevant: uNotRel,
+			total: totalControls * unassignedAppIds.length,
+		}
+	}
+
+	return { section, teams: teamStats, unassignedStats }
 }
 
 /** Generate a URL-friendly slug from a name. */

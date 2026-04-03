@@ -27,12 +27,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const seksjonName = result.section.name
 	const teams = result.teams
+	const unassigned = result.unassignedStats
 
-	const totalApps = teams.reduce((sum, t) => sum + t.apps, 0)
-	const totalImplemented = teams.reduce((sum, t) => sum + t.implemented, 0)
-	const totalPartial = teams.reduce((sum, t) => sum + t.partial, 0)
-	const totalControls = teams.reduce((sum, t) => sum + t.total, 0)
-	const totalNotRelevant = teams.reduce((sum, t) => sum + t.notRelevant, 0)
+	const totalApps = teams.reduce((sum, t) => sum + t.apps, 0) + unassigned.apps
+	const totalImplemented = teams.reduce((sum, t) => sum + t.implemented, 0) + unassigned.implemented
+	const totalPartial = teams.reduce((sum, t) => sum + t.partial, 0) + unassigned.partial
+	const totalControls = teams.reduce((sum, t) => sum + t.total, 0) + unassigned.total
+	const totalNotRelevant = teams.reduce((sum, t) => sum + t.notRelevant, 0) + unassigned.notRelevant
 	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotRelevant
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
@@ -46,6 +47,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		seksjonName,
 		sectionId: result.section.id,
 		teams,
+		unassigned,
 		totalApps,
 		totalImplemented,
 		totalPartial,
@@ -62,6 +64,7 @@ export default function SeksjonDashboard() {
 		seksjon,
 		seksjonName,
 		teams,
+		unassigned,
 		totalApps,
 		totalImplemented,
 		totalPartial,
@@ -181,6 +184,54 @@ export default function SeksjonDashboard() {
 						</Link>
 					)
 				})}
+				{unassigned.apps > 0 &&
+					(() => {
+						const pct = compliancePercent(
+							unassigned.implemented,
+							unassigned.partial,
+							unassigned.total,
+							unassigned.notRelevant,
+						)
+						const mangler = unassigned.total - unassigned.implemented - unassigned.partial - unassigned.notRelevant
+						return (
+							<Link to={`/seksjoner/${seksjon}/rediger?fane=apper`} className="domain-status-card-link">
+								<div className="domain-status-header">
+									<Heading size="small" level="4">
+										Uten team
+									</Heading>
+									<BodyShort weight="semibold">{pct}%</BodyShort>
+								</div>
+								<div
+									className="domain-status-bar"
+									role="progressbar"
+									aria-valuenow={pct}
+									aria-valuemin={0}
+									aria-valuemax={100}
+									aria-label={`Uten team compliance ${pct}%`}
+								>
+									<div
+										className="domain-status-bar-implemented"
+										style={{
+											width: `${unassigned.total - unassigned.notRelevant > 0 ? (unassigned.implemented / (unassigned.total - unassigned.notRelevant)) * 100 : 0}%`,
+										}}
+									/>
+									<div
+										className="domain-status-bar-partial"
+										style={{
+											width: `${unassigned.total - unassigned.notRelevant > 0 ? (unassigned.partial / (unassigned.total - unassigned.notRelevant)) * 100 : 0}%`,
+										}}
+									/>
+								</div>
+								<div className="domain-status-details">
+									<BodyShort size="small">{unassigned.implemented} implementert</BodyShort>
+									<BodyShort size="small">{unassigned.partial} delvis</BodyShort>
+									<BodyShort size="small">{mangler} mangler</BodyShort>
+									<BodyShort size="small">{unassigned.apps} apper</BodyShort>
+								</div>
+								<div className="domain-status-card-link-footer">Administrer →</div>
+							</Link>
+						)
+					})()}
 			</HGrid>
 
 			{unassignedAppCount > 0 && (
@@ -189,9 +240,9 @@ export default function SeksjonDashboard() {
 						Applikasjoner uten team
 					</Heading>
 					{unassignedAppCount} {unassignedAppCount === 1 ? "applikasjon" : "applikasjoner"} fra seksjonens Nais-team er
-					ikke koblet til et utviklingsteam og følges ikke opp for compliance.{" "}
-					<AkselLink as={Link} to={`/seksjoner/${seksjon}/rediger`}>
-						Se og administrer Nais-team
+					ikke koblet til et utviklingsteam.{" "}
+					<AkselLink as={Link} to={`/seksjoner/${seksjon}/rediger?fane=apper`}>
+						Se og administrer
 					</AkselLink>
 				</Alert>
 			)}
