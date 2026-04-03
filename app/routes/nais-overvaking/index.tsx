@@ -10,6 +10,7 @@ import {
 	Select,
 	Switch,
 	Table,
+	Tabs,
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
@@ -109,8 +110,25 @@ export default function NaisOvervaking() {
 		return true
 	})
 
-	const linkedTeams = filteredTeams.filter((t) => t.sectionName)
-	const unlinkedTeams = filteredTeams.filter((t) => !t.sectionName)
+	const unlinkedTeams = filteredTeams.filter((t) => !t.sectionId)
+
+	// Group linked teams by sectionId
+	const teamsBySection = new Map<string, typeof filteredTeams>()
+	for (const t of filteredTeams) {
+		if (!t.sectionId) continue
+		const list = teamsBySection.get(t.sectionId) ?? []
+		list.push(t)
+		teamsBySection.set(t.sectionId, list)
+	}
+
+	// Build tab list: one per section that has teams, plus "Uten seksjon"
+	const sectionTabs = sections
+		.filter((s) => teamsBySection.has(s.id))
+		.map((s) => ({
+			id: s.id,
+			name: s.name,
+			teams: teamsBySection.get(s.id) ?? [],
+		}))
 
 	return (
 		<VStack gap="space-6">
@@ -153,121 +171,118 @@ export default function NaisOvervaking() {
 				</Switch>
 			</HStack>
 
-			{/* Linked teams */}
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Team koblet til seksjon ({linkedTeams.length})
-				</Heading>
-				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-				<section className="table-scroll" tabIndex={0} aria-label="Team koblet til seksjon">
-					<Table>
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Team</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Seksjon</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
-									Applikasjoner
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{linkedTeams.map((team) => (
-								<Table.Row key={team.slug}>
-									<Table.DataCell>
-										<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
-										{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
-									</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-2" align="center">
-											<Tag variant="info" size="xsmall">
-												{team.sectionName}
-											</Tag>
-											<Button
-												variant="tertiary-neutral"
-												size="xsmall"
-												type="button"
-												title={`Fjern kobling for ${team.slug}`}
-												onClick={() => {
-													setUnlinkTarget({ slug: team.slug, sectionName: team.sectionName as string })
-													unlinkModalRef.current?.showModal()
-												}}
-											>
-												✕
-											</Button>
-										</HStack>
-									</Table.DataCell>
-									<Table.DataCell align="right">{team.appCount}</Table.DataCell>
-									<Table.DataCell>{new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
-								</Table.Row>
-							))}
-							{linkedTeams.length === 0 && (
-								<Table.Row>
-									<Table.DataCell colSpan={4}>Ingen team er koblet til en seksjon ennå.</Table.DataCell>
-								</Table.Row>
-							)}
-						</Table.Body>
-					</Table>
-				</section>
-			</VStack>
+			<Tabs defaultValue="unlinked">
+				<Tabs.List>
+					<Tabs.Tab value="unlinked" label={`Uten seksjon (${unlinkedTeams.length})`} />
+					{sectionTabs.map((s) => (
+						<Tabs.Tab key={s.id} value={s.id} label={`${s.name} (${s.teams.length})`} />
+					))}
+				</Tabs.List>
 
-			{/* Unlinked teams */}
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Team uten seksjon ({unlinkedTeams.length})
-				</Heading>
-				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-				<section className="table-scroll" tabIndex={0} aria-label="Team uten seksjon">
-					<Table>
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Team</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
-									Applikasjoner
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Seksjon</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{unlinkedTeams.map((team) => (
-								<Table.Row key={team.slug}>
-									<Table.DataCell>
-										<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
-										{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
-									</Table.DataCell>
-									<Table.DataCell align="right">{team.appCount}</Table.DataCell>
-									<Table.DataCell>{new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
-									<Table.DataCell>
-										<Form method="post">
-											<input type="hidden" name="intent" value="link-section" />
-											<input type="hidden" name="teamSlug" value={team.slug} />
-											<HStack gap="space-2" align="end">
-												<Select label="" name="sectionId" size="small" hideLabel style={{ minWidth: "10rem" }}>
-													<option value="">Velg seksjon</option>
-													{sections.map((s) => (
-														<option key={s.id} value={s.id}>
-															{s.name}
-														</option>
-													))}
-												</Select>
-												<Button variant="tertiary" size="xsmall" type="submit">
-													Koble
-												</Button>
-											</HStack>
-										</Form>
-									</Table.DataCell>
-								</Table.Row>
-							))}
-							{unlinkedTeams.length === 0 && (
-								<Table.Row>
-									<Table.DataCell colSpan={4}>Alle team er koblet til en seksjon.</Table.DataCell>
-								</Table.Row>
-							)}
-						</Table.Body>
-					</Table>
-				</section>
-			</VStack>
+				<Tabs.Panel value="unlinked">
+					<VStack gap="space-4" style={{ paddingTop: "var(--ax-space-4)" }}>
+						{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+						<section className="table-scroll" tabIndex={0} aria-label="Team uten seksjon">
+							<Table>
+								<Table.Header>
+									<Table.Row>
+										<Table.HeaderCell scope="col">Team</Table.HeaderCell>
+										<Table.HeaderCell scope="col" align="right">
+											Applikasjoner
+										</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Koble til seksjon</Table.HeaderCell>
+									</Table.Row>
+								</Table.Header>
+								<Table.Body>
+									{unlinkedTeams.map((team) => (
+										<Table.Row key={team.slug}>
+											<Table.DataCell>
+												<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
+												{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
+											</Table.DataCell>
+											<Table.DataCell align="right">{team.appCount}</Table.DataCell>
+											<Table.DataCell>{new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+											<Table.DataCell>
+												<Form method="post">
+													<input type="hidden" name="intent" value="link-section" />
+													<input type="hidden" name="teamSlug" value={team.slug} />
+													<HStack gap="space-2" align="end">
+														<Select label="" name="sectionId" size="small" hideLabel style={{ minWidth: "10rem" }}>
+															<option value="">Velg seksjon</option>
+															{sections.map((s) => (
+																<option key={s.id} value={s.id}>
+																	{s.name}
+																</option>
+															))}
+														</Select>
+														<Button variant="tertiary" size="xsmall" type="submit">
+															Koble
+														</Button>
+													</HStack>
+												</Form>
+											</Table.DataCell>
+										</Table.Row>
+									))}
+									{unlinkedTeams.length === 0 && (
+										<Table.Row>
+											<Table.DataCell colSpan={4}>Alle team er koblet til en seksjon.</Table.DataCell>
+										</Table.Row>
+									)}
+								</Table.Body>
+							</Table>
+						</section>
+					</VStack>
+				</Tabs.Panel>
+
+				{sectionTabs.map((s) => (
+					<Tabs.Panel key={s.id} value={s.id}>
+						<VStack gap="space-4" style={{ paddingTop: "var(--ax-space-4)" }}>
+							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+							<section className="table-scroll" tabIndex={0} aria-label={`Team i ${s.name}`}>
+								<Table>
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell scope="col">Team</Table.HeaderCell>
+											<Table.HeaderCell scope="col" align="right">
+												Applikasjoner
+											</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
+											<Table.HeaderCell scope="col" />
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{s.teams.map((team) => (
+											<Table.Row key={team.slug}>
+												<Table.DataCell>
+													<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
+													{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
+												</Table.DataCell>
+												<Table.DataCell align="right">{team.appCount}</Table.DataCell>
+												<Table.DataCell>{new Date(team.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+												<Table.DataCell align="right">
+													<Button
+														variant="tertiary-neutral"
+														size="xsmall"
+														type="button"
+														title={`Fjern kobling for ${team.slug}`}
+														onClick={() => {
+															setUnlinkTarget({ slug: team.slug, sectionName: s.name })
+															unlinkModalRef.current?.showModal()
+														}}
+													>
+														Fjern kobling
+													</Button>
+												</Table.DataCell>
+											</Table.Row>
+										))}
+									</Table.Body>
+								</Table>
+							</section>
+						</VStack>
+					</Tabs.Panel>
+				))}
+			</Tabs>
 
 			<Modal ref={unlinkModalRef} header={{ heading: "Fjern seksjonskobling" }}>
 				<Modal.Body>
