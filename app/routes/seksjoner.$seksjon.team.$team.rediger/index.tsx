@@ -198,7 +198,7 @@ export default function RedigerTeam() {
 								<Table.Row>
 									<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
 									<Table.HeaderCell scope="col" align="right">
-										Apper
+										Applikasjoner
 									</Table.HeaderCell>
 									<Table.HeaderCell scope="col" />
 								</Table.Row>

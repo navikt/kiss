@@ -167,7 +167,7 @@ export default function NaisOvervaking() {
 					style={{ maxWidth: "16rem" }}
 				/>
 				<Switch size="small" checked={hideEmpty} onChange={() => setHideEmpty(!hideEmpty)}>
-					Skjul team uten apper
+					Skjul team uten applikasjoner
 				</Switch>
 			</HStack>
 

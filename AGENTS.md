@@ -24,6 +24,11 @@ KISS (Kontrollrammeverk for Integrert Sikker Systemutvikling) er Navs internkont
 - Kommentarer kun når koden trenger klargjøring
 - Linjbredde: 120 tegn
 
+## Terminologi
+
+- Bruk **applikasjoner** (ikke «apper» eller «apps») i alle brukervendte tekster, labels, tab-titler og dokumentasjon
+- I kode (variabelnavn, funksjoner, database-kolonner) er `apps`/`app` OK for korthet
+
 ## Filstruktur
 
 ### Ruter
@@ -251,4 +256,4 @@ KISS scanner Nais-plattformen for å oppdage team og applikasjoner:
 - **Manuell trigger**: `POST /api/nais-sync` (krever autentisering)
 - **GraphQL API**: Bruker Nais Console API (`NAIS_API_TOKEN`)
 - **Låsemekanisme**: `nais-full-sync`, `nais-sync-teams`, `nais-sync-apps-{teamSlug}` advisory locks
-- **Persistering**: Oppdagede team og apper upsert-es til databasen med audit-logging
+- **Persistering**: Oppdagede team og applikasjoner upsert-es til databasen med audit-logging

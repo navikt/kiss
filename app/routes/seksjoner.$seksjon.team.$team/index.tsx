@@ -48,7 +48,7 @@ export default function TeamDashboard() {
 					<Table>
 						<Table.Header>
 							<Table.Row>
-								<Table.HeaderCell scope="col">App</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
 								<Table.HeaderCell scope="col" align="right">
 									Implementert

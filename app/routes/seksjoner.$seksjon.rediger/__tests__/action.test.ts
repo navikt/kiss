@@ -322,7 +322,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			} catch (thrown) {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=apper")
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=applikasjoner")
 			}
 
 			expect(mockIgnoreAppForSection).toHaveBeenCalledWith("sec-1", "app-1", "Z999999", "Ikke relevant")
@@ -364,7 +364,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			} catch (thrown) {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=apper")
+				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=applikasjoner")
 			}
 
 			expect(mockUnignoreAppForSection).toHaveBeenCalledWith("sec-1", "app-1", "Z999999")

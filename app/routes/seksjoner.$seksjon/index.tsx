@@ -156,7 +156,7 @@ export default function SeksjonDashboard() {
 								<BodyShort size="small">{team.implemented} implementert</BodyShort>
 								<BodyShort size="small">{team.partial} delvis</BodyShort>
 								<BodyShort size="small">{mangler} mangler</BodyShort>
-								<BodyShort size="small">{team.apps} apper</BodyShort>
+								<BodyShort size="small">{team.apps} applikasjoner</BodyShort>
 							</div>
 							<div className="domain-status-card-link-footer">Se detaljer →</div>
 						</Link>
@@ -172,7 +172,7 @@ export default function SeksjonDashboard() {
 						)
 						const mangler = unassigned.total - unassigned.implemented - unassigned.partial - unassigned.notRelevant
 						return (
-							<Link to={`/seksjoner/${seksjon}/rediger?fane=apper`} className="domain-status-card-link">
+							<Link to={`/seksjoner/${seksjon}/rediger?fane=applikasjoner`} className="domain-status-card-link">
 								<div className="domain-status-header">
 									<Heading size="small" level="4">
 										Uten team
@@ -204,7 +204,7 @@ export default function SeksjonDashboard() {
 									<BodyShort size="small">{unassigned.implemented} implementert</BodyShort>
 									<BodyShort size="small">{unassigned.partial} delvis</BodyShort>
 									<BodyShort size="small">{mangler} mangler</BodyShort>
-									<BodyShort size="small">{unassigned.apps} apper</BodyShort>
+									<BodyShort size="small">{unassigned.apps} applikasjoner</BodyShort>
 								</div>
 								<div className="domain-status-card-link-footer">Administrer →</div>
 							</Link>

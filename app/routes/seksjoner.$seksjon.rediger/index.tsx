@@ -156,14 +156,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
 		const reason = formData.get("reason")
 		await ignoreAppForSection(result.section.id, applicationId, userId, typeof reason === "string" ? reason : undefined)
-		return redirectToTab(seksjon, "apper")
+		return redirectToTab(seksjon, "applikasjoner")
 	}
 
 	if (intent === "unignore-app") {
 		const applicationId = formData.get("applicationId") as string
 		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
 		await unignoreAppForSection(result.section.id, applicationId, userId)
-		return redirectToTab(seksjon, "apper")
+		return redirectToTab(seksjon, "applikasjoner")
 	}
 
 	if (intent === "link-app") {
@@ -182,7 +182,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		for (const appId of appIds) {
 			await linkAppToTeam(appId, teamId, userId)
 		}
-		return redirectToTab(seksjon, "apper")
+		return redirectToTab(seksjon, "applikasjoner")
 	}
 
 	throw new Response("Ugyldig handling", { status: 400 })
@@ -224,8 +224,8 @@ export default function RedigerSeksjon() {
 					<Tabs.Tab value="team" label={`Utviklingsteam (${teams.length})`} />
 					<Tabs.Tab value="nais" label={`Nais-team (${linkedNaisTeams.length})`} />
 					<Tabs.Tab
-						value="apper"
-						label={`Apper uten team (${unassignedApps.length})${unassignedApps.length > 0 ? " ⚠" : ""}`}
+						value="applikasjoner"
+						label={`Applikasjoner uten team (${unassignedApps.length})${unassignedApps.length > 0 ? " ⚠" : ""}`}
 					/>
 					<Tabs.Tab
 						value="kobling"
@@ -439,8 +439,8 @@ export default function RedigerSeksjon() {
 					</VStack>
 				</Tabs.Panel>
 
-				{/* Tab: Apper uten team */}
-				<Tabs.Panel value="apper" style={{ paddingTop: "var(--ax-space-6)" }}>
+				{/* Tab: Applikasjoner uten team */}
+				<Tabs.Panel value="applikasjoner" style={{ paddingTop: "var(--ax-space-6)" }}>
 					<VStack gap="space-8">
 						<VStack gap="space-4">
 							<Heading size="medium" level="3">
@@ -468,7 +468,8 @@ export default function RedigerSeksjon() {
 													))}
 												</Select>
 												<Button type="submit" variant="primary" size="small">
-													Koble {selectedApps.length} {selectedApps.length === 1 ? "app" : "apper"} til team
+													Koble {selectedApps.length} {selectedApps.length === 1 ? "applikasjon" : "applikasjoner"} til
+													team
 												</Button>
 											</HStack>
 										</Form>
