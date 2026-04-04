@@ -332,9 +332,21 @@ function SortableQuestionCard({
 									c.effects.map((e) => (
 										<Table.Row key={e.id}>
 											<Table.DataCell>
-												<Tag variant="alt3" size="xsmall">
-													{c.label}
-												</Tag>
+												<HStack gap="space-2" align="center">
+													<Tag variant="alt3" size="xsmall">
+														{c.label}
+													</Tag>
+													{c.requiresComment && (
+														<Tag variant="neutral" size="xsmall">
+															Kommentar
+														</Tag>
+													)}
+													{c.requiresLink && (
+														<Tag variant="neutral" size="xsmall">
+															Lenke
+														</Tag>
+													)}
+												</HStack>
 											</Table.DataCell>
 											<Table.DataCell>
 												<Tag variant="info" size="xsmall">
