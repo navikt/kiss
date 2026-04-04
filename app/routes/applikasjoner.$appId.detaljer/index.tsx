@@ -152,9 +152,10 @@ export default function ApplikasjonDetalj() {
 
 			<Tabs value={activeTab} onChange={(tab) => setSearchParams({ fane: tab }, { replace: true })}>
 				<Tabs.List>
+					<Tabs.Tab value="oversikt" label="Oversikt" />
 					<Tabs.Tab
-						value="oversikt"
-						label={`Oversikt${controlsNeedingAttention.length > 0 ? ` (${controlsNeedingAttention.length} ⚠)` : ""}`}
+						value="kontroller"
+						label={`Kontroller (${controlsNeedingAttention.length}${controlsNeedingAttention.length > 0 ? " ⚠" : ""})`}
 					/>
 					<Tabs.Tab value="autentisering" label={`Autentisering (${authIntegrations.length})`} />
 					<Tabs.Tab value="miljoer" label={`Miljøer (${environments.length})`} />
@@ -216,43 +217,6 @@ export default function ApplikasjonDetalj() {
 								</HStack>
 							</VStack>
 						</Box>
-
-						{/* Controls needing attention */}
-						{controlsNeedingAttention.length > 0 && (
-							<Box>
-								<Heading size="medium" level="3" spacing>
-									Kontroller som trenger oppfølging
-								</Heading>
-								<Table size="small">
-									<Table.Header>
-										<Table.Row>
-											<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
-											<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
-											<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-											<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-										</Table.Row>
-									</Table.Header>
-									<Table.Body>
-										{controlsNeedingAttention.map((a) => (
-											<Table.Row key={a.controlUuid}>
-												<Table.DataCell>{a.domainName}</Table.DataCell>
-												<Table.DataCell>{a.controlId}</Table.DataCell>
-												<Table.DataCell>{a.controlName}</Table.DataCell>
-												<Table.DataCell>
-													{a.status ? (
-														<ComplianceStatusBadge status={a.status as ComplianceStatus} />
-													) : (
-														<Tag variant="neutral" size="xsmall">
-															Ikke vurdert
-														</Tag>
-													)}
-												</Table.DataCell>
-											</Table.Row>
-										))}
-									</Table.Body>
-								</Table>
-							</Box>
-						)}
 
 						{/* Linked applications */}
 						{linkedApps.length > 0 && (
@@ -322,6 +286,42 @@ export default function ApplikasjonDetalj() {
 							)}
 						</Box>
 					</VStack>
+				</Tabs.Panel>
+
+				{/* Kontroller */}
+				<Tabs.Panel value="kontroller" style={{ paddingTop: "var(--ax-space-6)" }}>
+					{controlsNeedingAttention.length > 0 ? (
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{controlsNeedingAttention.map((a) => (
+									<Table.Row key={a.controlUuid}>
+										<Table.DataCell>{a.domainName}</Table.DataCell>
+										<Table.DataCell>{a.controlId}</Table.DataCell>
+										<Table.DataCell>{a.controlName}</Table.DataCell>
+										<Table.DataCell>
+											{a.status ? (
+												<ComplianceStatusBadge status={a.status as ComplianceStatus} />
+											) : (
+												<Tag variant="neutral" size="xsmall">
+													Ikke vurdert
+												</Tag>
+											)}
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					) : (
+						<BodyLong>Alle kontroller er vurdert.</BodyLong>
+					)}
 				</Tabs.Panel>
 
 				{/* Autentisering */}
