@@ -313,66 +313,49 @@ function SortableQuestionCard({
 					</ReadMore>
 				)}
 
-				{/* Effects table — show per-choice effects */}
+				{/* Effects table — flat view with choice column */}
 				{q.choices.some((c) => c.effects.length > 0) && (
 					<VStack gap="space-2">
 						<BodyShort size="small" textColor="subtle">
 							Effekter
 						</BodyShort>
-						<Table size="small" style={{ tableLayout: "fixed" }}>
+						<Table size="small">
 							<Table.Header>
 								<Table.Row>
-									<Table.HeaderCell scope="col" style={{ width: "50%" }}>
-										Kontroll
-									</Table.HeaderCell>
-									{q.choices.map((c) => (
-										<Table.HeaderCell key={c.id} scope="col" style={{ width: `${50 / q.choices.length}%` }}>
-											{c.label}
-										</Table.HeaderCell>
-									))}
+									<Table.HeaderCell scope="col">Valg</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Effekt</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
-								{(() => {
-									// Collect all unique controls across all choices
-									const controlMap = new Map<string, { controlTextId: string; controlName: string | null }>()
-									for (const c of q.choices) {
-										for (const e of c.effects) {
-											if (!controlMap.has(e.controlTextId)) {
-												controlMap.set(e.controlTextId, {
-													controlTextId: e.controlTextId,
-													controlName: e.controlName,
-												})
-											}
-										}
-									}
-									return [...controlMap.values()].map((ctrl) => (
-										<Table.Row key={ctrl.controlTextId}>
+								{q.choices.flatMap((c) =>
+									c.effects.map((e) => (
+										<Table.Row key={e.id}>
 											<Table.DataCell>
-												<Tag variant="info" size="xsmall">
-													{ctrl.controlTextId}
-													{ctrl.controlName ? ` – ${ctrl.controlName}` : ""}
+												<Tag variant="alt3" size="xsmall">
+													{c.label}
 												</Tag>
 											</Table.DataCell>
-											{q.choices.map((c) => {
-												const effect = c.effects.find((e) => e.controlTextId === ctrl.controlTextId)
-												return (
-													<Table.DataCell key={c.id}>
-														{effect?.effect ? (
-															<Tag variant="neutral" size="xsmall">
-																{getStatusLabel(effect.effect)}
-															</Tag>
-														) : (
-															<BodyShort size="small" textColor="subtle">
-																—
-															</BodyShort>
-														)}
-													</Table.DataCell>
-												)
-											})}
+											<Table.DataCell>
+												<Tag variant="info" size="xsmall">
+													{e.controlTextId}
+													{e.controlName ? ` – ${e.controlName}` : ""}
+												</Tag>
+											</Table.DataCell>
+											<Table.DataCell>
+												{e.effect ? (
+													<Tag variant="neutral" size="xsmall">
+														{getStatusLabel(e.effect)}
+													</Tag>
+												) : (
+													<BodyShort size="small" textColor="subtle">
+														—
+													</BodyShort>
+												)}
+											</Table.DataCell>
 										</Table.Row>
-									))
-								})()}
+									)),
+								)}
 							</Table.Body>
 						</Table>
 					</VStack>
