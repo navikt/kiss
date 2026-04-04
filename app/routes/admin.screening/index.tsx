@@ -19,6 +19,7 @@ import {
 	HStack,
 	Modal,
 	ReadMore,
+	Table,
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
@@ -36,6 +37,7 @@ import {
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import { getStatusLabel } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -203,7 +205,13 @@ type QuestionItem = {
 	questionText: string
 	displayOrder: number
 	descriptionHtml: string | null
-	effects: { id: string; controlTextId: string; controlName: string | null }[]
+	effects: {
+		id: string
+		controlTextId: string
+		controlName: string | null
+		yesEffect: string | null
+		noEffect: string | null
+	}[]
 }
 
 function SortableQuestionCard({
@@ -286,19 +294,56 @@ function SortableQuestionCard({
 					</ReadMore>
 				)}
 
-				{/* Effects summary */}
+				{/* Effects table */}
 				{q.effects.length > 0 && (
-					<HStack gap="space-2" align="center" wrap>
+					<VStack gap="space-2">
 						<BodyShort size="small" textColor="subtle">
-							Effekter:
+							Effekter ({q.effects.length})
 						</BodyShort>
-						{q.effects.map((e) => (
-							<Tag key={e.id} variant="info" size="xsmall">
-								{e.controlTextId}
-								{e.controlName ? ` – ${e.controlName}` : ""}
-							</Tag>
-						))}
-					</HStack>
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Ja-effekt</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Nei-effekt</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{q.effects.map((e) => (
+									<Table.Row key={e.id}>
+										<Table.DataCell>
+											<Tag variant="info" size="xsmall">
+												{e.controlTextId}
+												{e.controlName ? ` – ${e.controlName}` : ""}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											{e.yesEffect ? (
+												<Tag variant="neutral" size="xsmall">
+													{getStatusLabel(e.yesEffect)}
+												</Tag>
+											) : (
+												<BodyShort size="small" textColor="subtle">
+													—
+												</BodyShort>
+											)}
+										</Table.DataCell>
+										<Table.DataCell>
+											{e.noEffect ? (
+												<Tag variant="neutral" size="xsmall">
+													{getStatusLabel(e.noEffect)}
+												</Tag>
+											) : (
+												<BodyShort size="small" textColor="subtle">
+													—
+												</BodyShort>
+											)}
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</VStack>
 				)}
 			</VStack>
 		</Box>
