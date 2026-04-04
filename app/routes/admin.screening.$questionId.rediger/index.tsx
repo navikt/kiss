@@ -258,14 +258,9 @@ export default function EditScreeningQuestion() {
 			{/* Effects */}
 			<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
 				<VStack gap="space-6">
-					<HStack gap="space-2" align="center">
-						<Heading size="small" level="3">
-							Effekter
-						</Heading>
-						<Tag variant="neutral" size="xsmall">
-							{allEffects.length}
-						</Tag>
-					</HStack>
+					<Heading size="small" level="3">
+						Effekter
+					</Heading>
 
 					{allEffects.length > 0 && (
 						<Table size="small">
