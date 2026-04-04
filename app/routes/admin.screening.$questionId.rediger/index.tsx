@@ -172,23 +172,7 @@ export default function EditScreeningQuestion() {
 				{seksjon && <input type="hidden" name="seksjon" value={seksjon} />}
 				{sectionId && <input type="hidden" name="sectionId" value={sectionId} />}
 				<VStack gap="space-8">
-					<HStack gap="space-4" align="end" wrap>
-						<TextField
-							label="Spørsmålstekst"
-							name="questionText"
-							size="small"
-							defaultValue={question.questionText}
-							style={{ flex: 1, minWidth: "20rem" }}
-						/>
-						<TextField
-							label="Rekkefølge"
-							name="displayOrder"
-							size="small"
-							type="number"
-							defaultValue={String(question.displayOrder)}
-							style={{ width: "6rem" }}
-						/>
-					</HStack>
+					<TextField label="Spørsmålstekst" name="questionText" size="small" defaultValue={question.questionText} />
 					<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
 						<VStack gap="space-4" style={{ flex: 1, minWidth: "20rem", padding: "6px", margin: "-6px" }}>
 							<Textarea
@@ -201,7 +185,7 @@ export default function EditScreeningQuestion() {
 							/>
 							<MarkdownHint />
 						</VStack>
-						<VStack style={{ flex: 1, minWidth: "20rem" }}>
+						<VStack style={{ flex: 1, minWidth: "20rem", alignSelf: "stretch" }}>
 							<Label size="small" spacing>
 								Forhåndsvisning
 							</Label>
@@ -342,7 +326,7 @@ function MarkdownPreview({ content }: { content: string }) {
 				border: "1px solid var(--ax-border-subtle)",
 				borderRadius: "var(--ax-radius-8)",
 				background: "var(--ax-bg-sunken)",
-				minHeight: "4rem",
+				flex: 1,
 			}}
 			// biome-ignore lint/security/noDangerouslySetInnerHtml: client-side preview only
 			dangerouslySetInnerHTML={{ __html: html }}
