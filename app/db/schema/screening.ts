@@ -4,12 +4,13 @@ import { complianceStatusEnum } from "./compliance"
 import { frameworkControls } from "./framework"
 import { sections } from "./organization"
 
-/** Yes/No screening questions shown before detailed compliance assessment. */
+/** Screening questions shown before detailed compliance assessment. */
 export const screeningQuestions = pgTable("screening_questions", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	sectionId: uuid("section_id").references(() => sections.id, { onDelete: "cascade" }),
 	questionText: text("question_text").notNull(),
 	description: text("description"),
+	answerType: text("answer_type").notNull().default("boolean"),
 	displayOrder: integer("display_order").notNull().default(0),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
@@ -17,19 +18,31 @@ export const screeningQuestions = pgTable("screening_questions", {
 	updatedBy: text("updated_by").notNull(),
 })
 
-/** What effect a yes/no answer has on a specific control's compliance status. */
-export const screeningQuestionEffects = pgTable("screening_question_effects", {
+/** Available choices for a screening question (e.g. "Ja", "Nei", "Delvis"). */
+export const screeningQuestionChoices = pgTable("screening_question_choices", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	questionId: uuid("question_id")
 		.notNull()
 		.references(() => screeningQuestions.id, { onDelete: "cascade" }),
+	value: text("value").notNull(),
+	label: text("label").notNull(),
+	requiresComment: boolean("requires_comment").notNull().default(false),
+	requiresLink: boolean("requires_link").notNull().default(false),
+	displayOrder: integer("display_order").notNull().default(0),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** What effect choosing a specific choice has on a control's compliance status. */
+export const screeningChoiceEffects = pgTable("screening_choice_effects", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	choiceId: uuid("choice_id")
+		.notNull()
+		.references(() => screeningQuestionChoices.id, { onDelete: "cascade" }),
 	controlId: uuid("control_id")
 		.notNull()
 		.references(() => frameworkControls.id),
-	yesEffect: text("yes_effect", { enum: complianceStatusEnum }),
-	noEffect: text("no_effect", { enum: complianceStatusEnum }),
-	yesComment: text("yes_comment"),
-	noComment: text("no_comment"),
+	effect: text("effect", { enum: complianceStatusEnum }),
+	comment: text("comment"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -44,9 +57,27 @@ export const screeningAnswers = pgTable(
 		questionId: uuid("question_id")
 			.notNull()
 			.references(() => screeningQuestions.id, { onDelete: "cascade" }),
-		answer: boolean("answer"),
+		answer: text("answer"),
+		comment: text("comment"),
+		link: text("link"),
 		answeredBy: text("answered_by"),
 		answeredAt: timestamp("answered_at", { withTimezone: true }),
 	},
 	(t) => [unique().on(t.applicationId, t.questionId)],
 )
+
+// Keep old table reference for migration — will be dropped after data migration
+export const screeningQuestionEffects = pgTable("screening_question_effects", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	questionId: uuid("question_id")
+		.notNull()
+		.references(() => screeningQuestions.id, { onDelete: "cascade" }),
+	controlId: uuid("control_id")
+		.notNull()
+		.references(() => frameworkControls.id),
+	yesEffect: text("yes_effect", { enum: complianceStatusEnum }),
+	noEffect: text("no_effect", { enum: complianceStatusEnum }),
+	yesComment: text("yes_comment"),
+	noComment: text("no_comment"),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})

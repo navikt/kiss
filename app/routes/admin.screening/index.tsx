@@ -29,7 +29,8 @@ import { data, Form, Link, useFetcher, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	deleteScreeningQuestion,
-	getEffectsForQuestion,
+	getChoiceEffects,
+	getChoicesForQuestion,
 	getScreeningQuestions,
 	getSectionScreeningQuestions,
 	reorderScreeningQuestions,
@@ -62,10 +63,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 	const questionsWithEffects = await Promise.all(
 		questions.map(async (q) => {
-			const effects = await getEffectsForQuestion(q.id)
+			const choices = await getChoicesForQuestion(q.id)
+			const choicesWithEffects = await Promise.all(
+				choices.map(async (c) => {
+					const effects = await getChoiceEffects(c.id)
+					return { ...c, effects }
+				}),
+			)
 			return {
 				...q,
-				effects,
+				choices: choicesWithEffects,
 				descriptionHtml: renderMarkdown(q.description),
 			}
 		}),
@@ -200,18 +207,30 @@ export default function AdminScreening() {
 	)
 }
 
+type ChoiceEffect = {
+	id: string
+	controlTextId: string
+	controlName: string | null
+	effect: string | null
+	comment: string | null
+}
+
+type QuestionChoice = {
+	id: string
+	value: string
+	label: string
+	requiresComment: boolean
+	requiresLink: boolean
+	effects: ChoiceEffect[]
+}
+
 type QuestionItem = {
 	id: string
 	questionText: string
 	displayOrder: number
+	answerType: string
 	descriptionHtml: string | null
-	effects: {
-		id: string
-		controlTextId: string
-		controlName: string | null
-		yesEffect: string | null
-		noEffect: string | null
-	}[]
+	choices: QuestionChoice[]
 }
 
 function SortableQuestionCard({
@@ -294,11 +313,11 @@ function SortableQuestionCard({
 					</ReadMore>
 				)}
 
-				{/* Effects table */}
-				{q.effects.length > 0 && (
+				{/* Effects table — show per-choice effects */}
+				{q.choices.some((c) => c.effects.length > 0) && (
 					<VStack gap="space-2">
 						<BodyShort size="small" textColor="subtle">
-							Effekter ({q.effects.length})
+							Effekter
 						</BodyShort>
 						<Table size="small" style={{ tableLayout: "fixed" }}>
 							<Table.Header>
@@ -306,47 +325,54 @@ function SortableQuestionCard({
 									<Table.HeaderCell scope="col" style={{ width: "50%" }}>
 										Kontroll
 									</Table.HeaderCell>
-									<Table.HeaderCell scope="col" style={{ width: "25%" }}>
-										Ja-effekt
-									</Table.HeaderCell>
-									<Table.HeaderCell scope="col" style={{ width: "25%" }}>
-										Nei-effekt
-									</Table.HeaderCell>
+									{q.choices.map((c) => (
+										<Table.HeaderCell key={c.id} scope="col" style={{ width: `${50 / q.choices.length}%` }}>
+											{c.label}
+										</Table.HeaderCell>
+									))}
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
-								{q.effects.map((e) => (
-									<Table.Row key={e.id}>
-										<Table.DataCell>
-											<Tag variant="info" size="xsmall">
-												{e.controlTextId}
-												{e.controlName ? ` – ${e.controlName}` : ""}
-											</Tag>
-										</Table.DataCell>
-										<Table.DataCell>
-											{e.yesEffect ? (
-												<Tag variant="neutral" size="xsmall">
-													{getStatusLabel(e.yesEffect)}
+								{(() => {
+									// Collect all unique controls across all choices
+									const controlMap = new Map<string, { controlTextId: string; controlName: string | null }>()
+									for (const c of q.choices) {
+										for (const e of c.effects) {
+											if (!controlMap.has(e.controlTextId)) {
+												controlMap.set(e.controlTextId, {
+													controlTextId: e.controlTextId,
+													controlName: e.controlName,
+												})
+											}
+										}
+									}
+									return [...controlMap.values()].map((ctrl) => (
+										<Table.Row key={ctrl.controlTextId}>
+											<Table.DataCell>
+												<Tag variant="info" size="xsmall">
+													{ctrl.controlTextId}
+													{ctrl.controlName ? ` – ${ctrl.controlName}` : ""}
 												</Tag>
-											) : (
-												<BodyShort size="small" textColor="subtle">
-													—
-												</BodyShort>
-											)}
-										</Table.DataCell>
-										<Table.DataCell>
-											{e.noEffect ? (
-												<Tag variant="neutral" size="xsmall">
-													{getStatusLabel(e.noEffect)}
-												</Tag>
-											) : (
-												<BodyShort size="small" textColor="subtle">
-													—
-												</BodyShort>
-											)}
-										</Table.DataCell>
-									</Table.Row>
-								))}
+											</Table.DataCell>
+											{q.choices.map((c) => {
+												const effect = c.effects.find((e) => e.controlTextId === ctrl.controlTextId)
+												return (
+													<Table.DataCell key={c.id}>
+														{effect?.effect ? (
+															<Tag variant="neutral" size="xsmall">
+																{getStatusLabel(effect.effect)}
+															</Tag>
+														) : (
+															<BodyShort size="small" textColor="subtle">
+																—
+															</BodyShort>
+														)}
+													</Table.DataCell>
+												)
+											})}
+										</Table.Row>
+									))
+								})()}
 							</Table.Body>
 						</Table>
 					</VStack>

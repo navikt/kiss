@@ -12,8 +12,10 @@ import {
 	Select,
 	Tag,
 	Textarea,
+	TextField,
 	VStack,
 } from "@navikt/ds-react"
+import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { ComplianceComment, ComplianceStatusBadge } from "~/components/ComplianceStatus"
@@ -79,10 +81,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "screening") {
 		const questionId = formData.get("questionId") as string
 		const answerValue = formData.get("answer") as string
+		const answerComment = formData.get("answerComment") as string | null
+		const answerLink = formData.get("answerLink") as string | null
 		if (!questionId) throw new Response("Mangler spørsmål-ID", { status: 400 })
 
-		const answer = answerValue === "yes" ? true : answerValue === "no" ? false : null
-		await saveScreeningAnswer(appId, questionId, answer, authedUser.navIdent)
+		const answer = answerValue || null
+		await saveScreeningAnswer(appId, questionId, answer, authedUser.navIdent, answerComment, answerLink)
 
 		return data({ success: true, controlId: "screening", screening: true })
 	}
@@ -221,44 +225,19 @@ export default function ComplianceAssessment() {
 												// biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized with DOMPurify
 												<div className="markdown-content" dangerouslySetInnerHTML={{ __html: q.descriptionHtml }} />
 											)}
-											{q.effects.length > 0 && (
+											{q.affectedControls.length > 0 && (
 												<HStack gap="space-2" wrap>
 													<BodyShort size="small" textColor="subtle">
 														Påvirker:
 													</BodyShort>
-													{q.effects.map((e) => (
-														<Tag key={e.controlTextId} variant="neutral" size="xsmall">
-															{e.controlTextId}
+													{q.affectedControls.map((controlId) => (
+														<Tag key={controlId} variant="neutral" size="xsmall">
+															{controlId}
 														</Tag>
 													))}
 												</HStack>
 											)}
-											<Form method="post">
-												<input type="hidden" name="intent" value="screening" />
-												<input type="hidden" name="questionId" value={q.id} />
-												<HStack gap="space-4" align="end">
-													<RadioGroup
-														legend="Svar"
-														name="answer"
-														size="small"
-														defaultValue={q.answer === true ? "yes" : q.answer === false ? "no" : ""}
-														hideLegend
-													>
-														<HStack gap="space-4">
-															<Radio value="yes">Ja</Radio>
-															<Radio value="no">Nei</Radio>
-														</HStack>
-													</RadioGroup>
-													<Button type="submit" size="small" variant="secondary-neutral">
-														Lagre
-													</Button>
-													{q.answer !== null && (
-														<Tag variant={q.answer ? "success" : "warning"} size="xsmall">
-															Besvart: {q.answer ? "Ja" : "Nei"}
-														</Tag>
-													)}
-												</HStack>
-											</Form>
+											<ScreeningAnswerForm question={q} />
 										</VStack>
 									</div>
 								))}
@@ -309,6 +288,98 @@ export default function ComplianceAssessment() {
 				</VStack>
 			</div>
 		</section>
+	)
+}
+
+type ScreeningQuestion = ReturnType<typeof useLoaderData<typeof loader>>["screening"][number]
+
+function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
+	const [selectedValue, setSelectedValue] = useState<string>(q.answer ?? "")
+	const selectedChoice = q.choices.find((c) => c.value === selectedValue)
+
+	if (q.answerType === "boolean" && q.choices.length === 2) {
+		return (
+			<Form method="post">
+				<input type="hidden" name="intent" value="screening" />
+				<input type="hidden" name="questionId" value={q.id} />
+				<VStack gap="space-4">
+					<HStack gap="space-4" align="end">
+						<RadioGroup
+							legend="Svar"
+							name="answer"
+							size="small"
+							defaultValue={q.answer ?? ""}
+							hideLegend
+							onChange={(val) => setSelectedValue(val)}
+						>
+							<HStack gap="space-4">
+								{q.choices.map((c) => (
+									<Radio key={c.value} value={c.value}>
+										{c.label}
+									</Radio>
+								))}
+							</HStack>
+						</RadioGroup>
+						<Button type="submit" size="small" variant="secondary-neutral">
+							Lagre
+						</Button>
+						{q.answer !== null && (
+							<Tag variant="success" size="xsmall">
+								Besvart: {q.choices.find((c) => c.value === q.answer)?.label ?? q.answer}
+							</Tag>
+						)}
+					</HStack>
+					{selectedChoice?.requiresComment && (
+						<TextField label="Kommentar" name="answerComment" size="small" defaultValue={q.answerComment ?? ""} />
+					)}
+					{selectedChoice?.requiresLink && (
+						<TextField label="Lenke" name="answerLink" size="small" defaultValue={q.answerLink ?? ""} />
+					)}
+				</VStack>
+			</Form>
+		)
+	}
+
+	// single_choice with dropdown
+	return (
+		<Form method="post">
+			<input type="hidden" name="intent" value="screening" />
+			<input type="hidden" name="questionId" value={q.id} />
+			<VStack gap="space-4">
+				<HStack gap="space-4" align="end">
+					<Select
+						label="Svar"
+						name="answer"
+						size="small"
+						defaultValue={q.answer ?? ""}
+						onChange={(e) => setSelectedValue(e.target.value)}
+					>
+						<option value="" disabled>
+							Velg svar
+						</option>
+						{q.choices.map((c) => (
+							<option key={c.value} value={c.value}>
+								{c.label}
+							</option>
+						))}
+					</Select>
+					<Button type="submit" size="small" variant="secondary-neutral">
+						Lagre
+					</Button>
+					{q.answer !== null && (
+						<Tag variant="success" size="xsmall">
+							Besvart: {q.choices.find((c) => c.value === q.answer)?.label ?? q.answer}
+						</Tag>
+					)}
+				</HStack>
+				{selectedChoice?.requiresComment && (
+					<TextField label="Kommentar" name="answerComment" size="small" defaultValue={q.answerComment ?? ""} />
+				)}
+				{selectedChoice?.requiresLink && (
+					<TextField label="Lenke" name="answerLink" size="small" defaultValue={q.answerLink ?? ""} />
+				)}
+			</VStack>
+		</Form>
 	)
 }
 

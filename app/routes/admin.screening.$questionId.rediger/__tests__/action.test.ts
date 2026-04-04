@@ -16,15 +16,22 @@ vi.mock("~/lib/authorization.server", () => ({
 
 const mockCreateScreeningQuestion = vi.fn()
 const mockUpdateScreeningQuestion = vi.fn()
-const mockAddEffect = vi.fn()
-const mockDeleteEffect = vi.fn()
+const mockAddChoiceEffect = vi.fn()
+const mockDeleteChoiceEffect = vi.fn()
+const mockCreateChoice = vi.fn()
+const mockDeleteChoice = vi.fn()
+const mockGetChoicesForQuestion = vi.fn()
 vi.mock("~/db/queries/screening.server", () => ({
 	createScreeningQuestion: mockCreateScreeningQuestion,
 	updateScreeningQuestion: mockUpdateScreeningQuestion,
-	addEffect: mockAddEffect,
-	deleteEffect: mockDeleteEffect,
+	addChoiceEffect: mockAddChoiceEffect,
+	deleteChoiceEffect: mockDeleteChoiceEffect,
+	createChoice: mockCreateChoice,
+	deleteChoice: mockDeleteChoice,
 	getScreeningQuestion: vi.fn(),
-	getEffectsForQuestion: vi.fn(),
+	getChoicesForQuestion: mockGetChoicesForQuestion,
+	getChoiceEffects: vi.fn().mockResolvedValue([]),
+	updateChoice: vi.fn(),
 }))
 
 vi.mock("~/db/queries/framework.server", () => ({
@@ -121,6 +128,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 		it("rejects add effect for non-admin", async () => {
 			const formData = new FormData()
 			formData.set("intent", "addEffect")
+			formData.set("choiceId", "choice-1")
 			formData.set("controlTextId", "ctrl-1")
 
 			try {
@@ -131,7 +139,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 				expect((thrown as Response).status).toBe(403)
 			}
 
-			expect(mockAddEffect).not.toHaveBeenCalled()
+			expect(mockAddChoiceEffect).not.toHaveBeenCalled()
 		})
 
 		it("rejects delete effect for non-admin", async () => {
@@ -147,7 +155,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 				expect((thrown as Response).status).toBe(403)
 			}
 
-			expect(mockDeleteEffect).not.toHaveBeenCalled()
+			expect(mockDeleteChoiceEffect).not.toHaveBeenCalled()
 		})
 	})
 
@@ -160,6 +168,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 
 		it("allows create for admin", async () => {
 			mockCreateScreeningQuestion.mockResolvedValue({ id: "new-id" })
+			mockGetChoicesForQuestion.mockResolvedValue([])
 
 			const formData = new FormData()
 			formData.set("intent", "updateQuestion")
@@ -173,10 +182,17 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 				// redirect throws a Response
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toContain("/admin/screening/new-id/rediger")
+				expect((thrown as Response).headers.get("Location")).toContain("/admin/screening")
 			}
 
-			expect(mockCreateScreeningQuestion).toHaveBeenCalledWith("Nytt spørsmål", "Beskrivelse", 0, "Z999999", null)
+			expect(mockCreateScreeningQuestion).toHaveBeenCalledWith(
+				"Nytt spørsmål",
+				"Beskrivelse",
+				0,
+				"Z999999",
+				null,
+				"boolean",
+			)
 		})
 
 		it("allows update for admin", async () => {
@@ -206,19 +222,17 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 		it("allows add effect for admin", async () => {
 			const formData = new FormData()
 			formData.set("intent", "addEffect")
+			formData.set("choiceId", "choice-1")
 			formData.set("controlTextId", "ctrl-1")
-			formData.set("yesEffect", "implemented")
-			formData.set("noEffect", "not_implemented")
+			formData.set("effect", "implemented")
 
 			await callAction(formData)
 
-			expect(mockAddEffect).toHaveBeenCalledWith({
-				questionId: "test-id",
+			expect(mockAddChoiceEffect).toHaveBeenCalledWith({
+				choiceId: "choice-1",
 				controlTextId: "ctrl-1",
-				yesEffect: "implemented",
-				noEffect: "not_implemented",
-				yesComment: null,
-				noComment: null,
+				effect: "implemented",
+				comment: null,
 			})
 		})
 
@@ -229,7 +243,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 
 			await callAction(formData)
 
-			expect(mockDeleteEffect).toHaveBeenCalledWith("effect-1")
+			expect(mockDeleteChoiceEffect).toHaveBeenCalledWith("effect-1")
 		})
 	})
 })
