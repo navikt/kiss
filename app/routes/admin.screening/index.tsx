@@ -203,7 +203,7 @@ type QuestionItem = {
 	questionText: string
 	displayOrder: number
 	descriptionHtml: string | null
-	effects: { id: string; controlTextId: string }[]
+	effects: { id: string; controlTextId: string; controlName: string | null }[]
 }
 
 function SortableQuestionCard({
@@ -295,6 +295,7 @@ function SortableQuestionCard({
 						{q.effects.map((e) => (
 							<Tag key={e.id} variant="info" size="xsmall">
 								{e.controlTextId}
+								{e.controlName ? ` – ${e.controlName}` : ""}
 							</Tag>
 						))}
 					</HStack>

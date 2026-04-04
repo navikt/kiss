@@ -113,6 +113,7 @@ export async function getEffectsForQuestion(questionId: string) {
 			questionId: screeningQuestionEffects.questionId,
 			controlId: screeningQuestionEffects.controlId,
 			controlTextId: frameworkControls.controlId,
+			controlName: frameworkControls.shortTitle,
 			yesEffect: screeningQuestionEffects.yesEffect,
 			noEffect: screeningQuestionEffects.noEffect,
 			yesComment: screeningQuestionEffects.yesComment,

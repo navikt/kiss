@@ -172,6 +172,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 interface PendingEffect {
 	clientId: string
 	controlTextId: string
+	controlName: string
 	yesEffect: string | null
 	noEffect: string | null
 }
@@ -189,11 +190,13 @@ export default function EditScreeningQuestion() {
 		const fd = new FormData(e.currentTarget)
 		const controlTextId = fd.get("controlTextId") as string
 		if (!controlTextId) return
+		const control = controls.find((c) => c.controlId === controlTextId)
 		setPendingEffects((prev) => [
 			...prev,
 			{
 				clientId: crypto.randomUUID(),
 				controlTextId,
+				controlName: control?.name ?? "",
 				yesEffect: (fd.get("yesEffect") as string) || null,
 				noEffect: (fd.get("noEffect") as string) || null,
 			},
@@ -280,7 +283,7 @@ export default function EditScreeningQuestion() {
 											<Table.Row key={e.clientId}>
 												<Table.DataCell>
 													<Tag variant="info" size="xsmall">
-														{e.controlTextId}
+														{e.controlTextId} – {e.controlName}
 													</Tag>
 												</Table.DataCell>
 												<Table.DataCell>
@@ -321,6 +324,7 @@ export default function EditScreeningQuestion() {
 												<Table.DataCell>
 													<Tag variant="info" size="xsmall">
 														{e.controlTextId}
+														{e.controlName ? ` – ${e.controlName}` : ""}
 													</Tag>
 												</Table.DataCell>
 												<Table.DataCell>
@@ -371,7 +375,7 @@ export default function EditScreeningQuestion() {
 									<option value="">Velg kontroll</option>
 									{controls.map((c) => (
 										<option key={c.controlId} value={c.controlId}>
-											{c.controlId}
+											{c.controlId} – {c.name}
 										</option>
 									))}
 								</Select>
@@ -404,7 +408,7 @@ export default function EditScreeningQuestion() {
 									<option value="">Velg kontroll</option>
 									{controls.map((c) => (
 										<option key={c.controlId} value={c.controlId}>
-											{c.controlId}
+											{c.controlId} – {c.name}
 										</option>
 									))}
 								</Select>
