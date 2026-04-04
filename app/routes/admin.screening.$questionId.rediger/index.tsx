@@ -589,7 +589,7 @@ function ChoiceCard({
 						<input type="hidden" name="intent" value="addEffect" />
 						<input type="hidden" name="choiceId" value={choice.id} />
 						<HStack gap="space-4" align="end" wrap>
-							<Select label="Kontroll" name="controlTextId" size="small">
+							<Select label="Kontroll" name="controlTextId" size="small" required>
 								<option value="">Velg kontroll</option>
 								{controls.map((c) => (
 									<option key={c.controlId} value={c.controlId}>
@@ -644,8 +644,8 @@ function AddPendingChoiceForm({
 	return (
 		<form onSubmit={handleSubmit}>
 			<HStack gap="space-4" align="end" wrap>
-				<TextField label="Verdi" name="value" size="small" />
-				<TextField label="Visningsnavn" name="label" size="small" />
+				<TextField label="Verdi" name="value" size="small" required />
+				<TextField label="Visningsnavn" name="label" size="small" required />
 				<Checkbox name="requiresComment" size="small">
 					Krev kommentar
 				</Checkbox>
@@ -688,7 +688,7 @@ function AddPendingEffectForm({
 	return (
 		<form onSubmit={handleSubmit}>
 			<HStack gap="space-4" align="end" wrap>
-				<Select label="Kontroll" name="controlTextId" size="small">
+				<Select label="Kontroll" name="controlTextId" size="small" required>
 					<option value="">Velg kontroll</option>
 					{controls.map((c) => (
 						<option key={c.controlId} value={c.controlId}>
