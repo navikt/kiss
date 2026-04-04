@@ -174,7 +174,7 @@ export default function EditScreeningQuestion() {
 				<VStack gap="space-8">
 					<TextField label="Spørsmålstekst" name="questionText" size="small" defaultValue={question.questionText} />
 					<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
-						<VStack gap="space-4" style={{ flex: 1, minWidth: "20rem", padding: "6px", margin: "-6px" }}>
+						<VStack style={{ flex: 1, minWidth: "20rem", padding: "6px", margin: "-6px" }}>
 							<Textarea
 								label="Beskrivelse (Markdown)"
 								name="description"
@@ -183,7 +183,6 @@ export default function EditScreeningQuestion() {
 								minRows={5}
 								onChange={(e) => setDescriptionPreview(e.target.value)}
 							/>
-							<MarkdownHint />
 						</VStack>
 						<VStack style={{ flex: 1, minWidth: "20rem", alignSelf: "stretch" }}>
 							<Label size="small" spacing>
@@ -192,6 +191,7 @@ export default function EditScreeningQuestion() {
 							<MarkdownPreview content={descriptionPreview} />
 						</VStack>
 					</HStack>
+					<MarkdownHint />
 					<div>
 						<Button type="submit" size="small" variant="primary">
 							{isNew ? "Opprett spørsmål" : "Lagre endringer"}
