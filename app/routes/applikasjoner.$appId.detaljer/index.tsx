@@ -153,13 +153,10 @@ export default function ApplikasjonDetalj() {
 			<Tabs value={activeTab} onChange={(tab) => setSearchParams({ fane: tab }, { replace: true })}>
 				<Tabs.List>
 					<Tabs.Tab value="oversikt" label="Oversikt" />
-					<Tabs.Tab
-						value="kontroller"
-						label={`Kontroller (${controlsNeedingAttention.length}${controlsNeedingAttention.length > 0 ? " ⚠" : ""})`}
-					/>
-					<Tabs.Tab value="autentisering" label={`Autentisering (${authIntegrations.length})`} />
-					<Tabs.Tab value="miljoer" label={`Miljøer (${environments.length})`} />
-					<Tabs.Tab value="persistering" label={`Persistering (${persistence.length})`} />
+					<Tabs.Tab value="kontroller" label="Kontroller" />
+					<Tabs.Tab value="autentisering" label="Autentisering" />
+					<Tabs.Tab value="miljoer" label="Miljøer" />
+					<Tabs.Tab value="persistering" label="Persistering" />
 				</Tabs.List>
 
 				{/* Oversikt */}
