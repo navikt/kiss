@@ -150,8 +150,9 @@ Når nye ruter introduseres:
    - Bruk `<Table>` med kolonner: Tidspunkt, Handling, Detaljer, Utført av
 7. **Database-seeding (`pnpm db:seed`) skal ALDRI kjøres automatisk** – verken i `dev:setup`, CI/CD, eller av AI-agenter i autopilot-modus. Seeding skal kun utføres når brukeren eksplisitt ber om det.
 8. **E2e-tester som oppretter data i databasen SKAL alltid rydde opp etter seg.** Tester som oppretter seksjoner, team, applikasjoner osv. via UI skal slette dem igjen i samme test. Testdata som ligger igjen forurenser utviklingsdatabasen.
-9. **`db:push` skal ALDRI kjøres automatisk mot utviklingsdatabasen av AI-agenter.** Schema-endringer mot lokal database krever eksplisitt godkjenning fra brukeren. Integrasjonstester med Testcontainers bruker sin egen database og er unntatt fra denne regelen.
+9. **`db:push` og `drizzle-kit push` skal ALDRI kjøres av AI-agenter mot utviklingsdatabasen.** Schema-endringer mot lokal database krever eksplisitt godkjenning fra brukeren. `--force`-flagget er STRENGT FORBUDT da det hopper over bekreftelsesdialoger og kan slette tabeller med data. Integrasjonstester med Testcontainers bruker sin egen database og er unntatt fra denne regelen.
 10. **AI-agenter skal ALDRI kjøre e2e-tester mot utviklingsdatabasen uten eksplisitt godkjenning.** E2e-tester kjører mot den lokale databasen og kan forurense den med testdata. Bruk unit-tester og integrasjonstester (Testcontainers) for validering.
+11. **AI-agenter skal ALDRI utføre destruktive databaseoperasjoner uten å spørre brukeren først.** Dette inkluderer DROP TABLE, DELETE uten WHERE, TRUNCATE, og alle migreringsverktøy som kan endre eller fjerne tabeller. Selv i autopilot-modus skal agenten stoppe og spørre.
 
 ### Kontroll-ID-formater
 - Nav MKR: `K-XX.NN` (f.eks. `K-ST.01`, `K-TS.03`)
