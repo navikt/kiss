@@ -182,7 +182,11 @@ export default function EditScreeningQuestion() {
 	const { isNew, question, effects, controls, seksjon, sectionId, sectionName } = useLoaderData<typeof loader>()
 	const [descriptionPreview, setDescriptionPreview] = useState(question.description ?? "")
 	const [pendingEffects, setPendingEffects] = useState<PendingEffect[]>([])
-	const [deleteTarget, setDeleteTarget] = useState<{ id: string; controlTextId: string } | null>(null)
+	const [deleteTarget, setDeleteTarget] = useState<{
+		id: string
+		controlTextId: string
+		controlName: string | null
+	} | null>(null)
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
 	const seksjonParam = seksjon ? `?seksjon=${seksjon}` : ""
 
@@ -354,7 +358,11 @@ export default function EditScreeningQuestion() {
 														variant="tertiary-neutral"
 														icon={<TrashIcon aria-hidden />}
 														onClick={() => {
-															setDeleteTarget({ id: e.id, controlTextId: e.controlTextId })
+															setDeleteTarget({
+																id: e.id,
+																controlTextId: e.controlTextId,
+																controlName: e.controlName,
+															})
 															deleteModalRef.current?.showModal()
 														}}
 													/>
@@ -439,7 +447,12 @@ export default function EditScreeningQuestion() {
 			<Modal ref={deleteModalRef} header={{ heading: "Slett effekt" }} onClose={() => setDeleteTarget(null)}>
 				<Modal.Body>
 					<BodyShort>
-						Er du sikker på at du vil slette effekten for kontroll <strong>{deleteTarget?.controlTextId}</strong>?
+						Er du sikker på at du vil slette effekten for kontroll{" "}
+						<strong>
+							{deleteTarget?.controlTextId}
+							{deleteTarget?.controlName ? ` – ${deleteTarget.controlName}` : ""}
+						</strong>
+						?
 					</BodyShort>
 				</Modal.Body>
 				<Modal.Footer>
@@ -447,11 +460,11 @@ export default function EditScreeningQuestion() {
 						<input type="hidden" name="intent" value="deleteEffect" />
 						<input type="hidden" name="effectId" value={deleteTarget?.id ?? ""} />
 						<HStack gap="space-4">
-							<Button type="submit" variant="danger" size="small" onClick={() => deleteModalRef.current?.close()}>
-								Slett
-							</Button>
 							<Button type="button" variant="secondary" size="small" onClick={() => deleteModalRef.current?.close()}>
 								Avbryt
+							</Button>
+							<Button type="submit" variant="danger" size="small" onClick={() => deleteModalRef.current?.close()}>
+								Slett effekt
 							</Button>
 						</HStack>
 					</Form>
