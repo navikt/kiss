@@ -43,7 +43,7 @@ const { action } = await import("../index")
 // --- Helpers ---------------------------------------------------------
 
 function makeRequest(formData: FormData): Request {
-	return new Request("http://localhost/applikasjoner/app-1/detaljer", {
+	return new Request("http://localhost/applikasjoner/app-1/rediger", {
 		method: "POST",
 		body: formData,
 	})

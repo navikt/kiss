@@ -19,6 +19,7 @@ export default [
 	route("seksjoner/:seksjon/team/:team/rediger", "routes/seksjoner.$seksjon.team.$team.rediger/index.tsx"),
 	route("applikasjoner", "routes/applikasjoner/index.tsx"),
 	route("applikasjoner/:appId/detaljer", "routes/applikasjoner.$appId.detaljer/index.tsx"),
+	route("applikasjoner/:appId/rediger", "routes/applikasjoner.$appId.rediger/index.tsx"),
 	route("applikasjoner/:appId/compliance", "routes/applikasjoner.$appId.compliance/index.tsx"),
 	route("rapporter", "routes/rapporter/index.tsx"),
 	route("rapporter/generer", "routes/rapporter.generer/index.tsx"),
