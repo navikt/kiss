@@ -300,12 +300,18 @@ function SortableQuestionCard({
 						<BodyShort size="small" textColor="subtle">
 							Effekter ({q.effects.length})
 						</BodyShort>
-						<Table size="small">
+						<Table size="small" style={{ tableLayout: "fixed" }}>
 							<Table.Header>
 								<Table.Row>
-									<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Ja-effekt</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Nei-effekt</Table.HeaderCell>
+									<Table.HeaderCell scope="col" style={{ width: "50%" }}>
+										Kontroll
+									</Table.HeaderCell>
+									<Table.HeaderCell scope="col" style={{ width: "25%" }}>
+										Ja-effekt
+									</Table.HeaderCell>
+									<Table.HeaderCell scope="col" style={{ width: "25%" }}>
+										Nei-effekt
+									</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
