@@ -140,7 +140,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				}
 			}
 
-			return redirect(`/admin/screening/${q.id}/rediger${seksjonParam}`)
+			return redirect(`/admin/screening${seksjonParam}`)
 		}
 
 		await updateScreeningQuestion(questionId, questionText.trim(), description, displayOrder, authedUser.navIdent)
