@@ -313,7 +313,35 @@ function SortableQuestionCard({
 					</ReadMore>
 				)}
 
-				{/* Effects table — flat view with choice column */}
+				{/* Choices overview */}
+				{q.choices.length > 0 && (
+					<VStack gap="space-2">
+						<BodyShort size="small" textColor="subtle">
+							Valgmuligheter
+						</BodyShort>
+						<HStack gap="space-4" wrap>
+							{q.choices.map((c) => (
+								<HStack key={c.id} gap="space-2" align="center">
+									<Tag variant="alt3" size="xsmall">
+										{c.label}
+									</Tag>
+									{c.requiresComment && (
+										<Tag variant="neutral" size="xsmall">
+											Kommentar
+										</Tag>
+									)}
+									{c.requiresLink && (
+										<Tag variant="neutral" size="xsmall">
+											Lenke
+										</Tag>
+									)}
+								</HStack>
+							))}
+						</HStack>
+					</VStack>
+				)}
+
+				{/* Effects table */}
 				{q.choices.some((c) => c.effects.length > 0) && (
 					<VStack gap="space-2">
 						<BodyShort size="small" textColor="subtle">
@@ -332,21 +360,9 @@ function SortableQuestionCard({
 									c.effects.map((e) => (
 										<Table.Row key={e.id}>
 											<Table.DataCell>
-												<HStack gap="space-2" align="center">
-													<Tag variant="alt3" size="xsmall">
-														{c.label}
-													</Tag>
-													{c.requiresComment && (
-														<Tag variant="neutral" size="xsmall">
-															Kommentar
-														</Tag>
-													)}
-													{c.requiresLink && (
-														<Tag variant="neutral" size="xsmall">
-															Lenke
-														</Tag>
-													)}
-												</HStack>
+												<Tag variant="alt3" size="xsmall">
+													{c.label}
+												</Tag>
 											</Table.DataCell>
 											<Table.DataCell>
 												<Tag variant="info" size="xsmall">
