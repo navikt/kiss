@@ -176,7 +176,7 @@ export default function EditScreeningQuestion() {
 					<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
 						<VStack style={{ flex: 1, minWidth: "20rem", padding: "6px", margin: "-6px" }}>
 							<Textarea
-								label="Beskrivelse (Markdown)"
+								label="Beskrivelse"
 								name="description"
 								size="small"
 								defaultValue={question.description ?? ""}
