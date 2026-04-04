@@ -11,11 +11,12 @@ import {
 	HStack,
 	Label,
 	Table,
+	Tabs,
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import { data, Link, useLoaderData, useSearchParams } from "react-router"
 import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
@@ -110,9 +111,16 @@ export default function ApplikasjonDetalj() {
 		assessments,
 	} = useLoaderData<typeof loader>()
 
+	const [searchParams, setSearchParams] = useSearchParams()
+	const activeTab = searchParams.get("fane") ?? "oversikt"
+
 	const isOnPrem = environments.some((e) => e.cluster?.includes("-fss"))
 
 	const gitHubUrl = environments.find((e) => e.gitRepository)?.gitRepository ?? `https://github.com/navikt/${app.name}`
+
+	const controlsNeedingAttention = assessments.filter(
+		(a) => !a.status || a.status === "not_implemented" || a.status === "partially_implemented",
+	)
 
 	return (
 		<VStack gap="space-24">
@@ -142,495 +150,515 @@ export default function ApplikasjonDetalj() {
 				</Alert>
 			)}
 
-			{/* Compliance summary */}
-			<Box>
-				<Heading size="medium" level="3" spacing>
-					Compliance
-				</Heading>
-				<HStack gap="space-6" wrap>
-					<VStack gap="space-1">
-						<Label size="small">Total</Label>
-						<Heading size="large" level="4">
-							<Tag variant={compliance.percent >= 80 ? "success" : compliance.percent >= 50 ? "warning" : "error"}>
-								{compliance.percent} %
-							</Tag>
-						</Heading>
-					</VStack>
-					<VStack gap="space-1">
-						<Label size="small">Implementert</Label>
-						<BodyLong>{compliance.implemented}</BodyLong>
-					</VStack>
-					<VStack gap="space-1">
-						<Label size="small">Delvis</Label>
-						<BodyLong>{compliance.partial}</BodyLong>
-					</VStack>
-					<VStack gap="space-1">
-						<Label size="small">Ikke implementert</Label>
-						<BodyLong>{compliance.notImplemented}</BodyLong>
-					</VStack>
-					<VStack gap="space-1">
-						<Label size="small">Ikke relevant</Label>
-						<BodyLong>{compliance.notRelevant}</BodyLong>
-					</VStack>
-					<VStack gap="space-1">
-						<Label size="small">Ikke vurdert</Label>
-						<BodyLong>{compliance.notAssessed}</BodyLong>
-					</VStack>
-				</HStack>
-				<VStack gap="space-4">
-					<HStack gap="space-8" align="center">
-						<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
-						<Button
-							as="a"
-							href={`/api/applikasjoner/${app.id}/export-xlsx`}
-							variant="secondary"
-							size="small"
-							icon={<DownloadIcon aria-hidden />}
-						>
-							Last ned XLSX
-						</Button>
-					</HStack>
-				</VStack>
-			</Box>
+			<Tabs value={activeTab} onChange={(tab) => setSearchParams({ fane: tab }, { replace: true })}>
+				<Tabs.List>
+					<Tabs.Tab
+						value="oversikt"
+						label={`Oversikt${controlsNeedingAttention.length > 0 ? ` (${controlsNeedingAttention.length} ⚠)` : ""}`}
+					/>
+					<Tabs.Tab value="autentisering" label={`Autentisering (${authIntegrations.length})`} />
+					<Tabs.Tab value="miljoer" label={`Miljøer (${environments.length})`} />
+					<Tabs.Tab value="persistering" label={`Persistering (${persistence.length})`} />
+				</Tabs.List>
 
-			{/* Controls needing attention */}
-			{compliance.notAssessed + compliance.notImplemented > 0 && (
-				<Box>
-					<Heading size="medium" level="3" spacing>
-						Kontroller som trenger oppfølging
-					</Heading>
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{assessments
-								.filter((a) => !a.status || a.status === "not_implemented" || a.status === "partially_implemented")
-								.map((a) => (
-									<Table.Row key={a.controlUuid}>
-										<Table.DataCell>{a.domainName}</Table.DataCell>
-										<Table.DataCell>{a.controlId}</Table.DataCell>
-										<Table.DataCell>{a.controlName}</Table.DataCell>
+				{/* Oversikt */}
+				<Tabs.Panel value="oversikt" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<VStack gap="space-24">
+						{/* Compliance summary */}
+						<Box>
+							<Heading size="medium" level="3" spacing>
+								Compliance
+							</Heading>
+							<HStack gap="space-6" wrap>
+								<VStack gap="space-1">
+									<Label size="small">Total</Label>
+									<Heading size="large" level="4">
+										<Tag
+											variant={compliance.percent >= 80 ? "success" : compliance.percent >= 50 ? "warning" : "error"}
+										>
+											{compliance.percent} %
+										</Tag>
+									</Heading>
+								</VStack>
+								<VStack gap="space-1">
+									<Label size="small">Implementert</Label>
+									<BodyLong>{compliance.implemented}</BodyLong>
+								</VStack>
+								<VStack gap="space-1">
+									<Label size="small">Delvis</Label>
+									<BodyLong>{compliance.partial}</BodyLong>
+								</VStack>
+								<VStack gap="space-1">
+									<Label size="small">Ikke implementert</Label>
+									<BodyLong>{compliance.notImplemented}</BodyLong>
+								</VStack>
+								<VStack gap="space-1">
+									<Label size="small">Ikke relevant</Label>
+									<BodyLong>{compliance.notRelevant}</BodyLong>
+								</VStack>
+								<VStack gap="space-1">
+									<Label size="small">Ikke vurdert</Label>
+									<BodyLong>{compliance.notAssessed}</BodyLong>
+								</VStack>
+							</HStack>
+							<VStack gap="space-4">
+								<HStack gap="space-8" align="center">
+									<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
+									<Button
+										as="a"
+										href={`/api/applikasjoner/${app.id}/export-xlsx`}
+										variant="secondary"
+										size="small"
+										icon={<DownloadIcon aria-hidden />}
+									>
+										Last ned XLSX
+									</Button>
+								</HStack>
+							</VStack>
+						</Box>
+
+						{/* Controls needing attention */}
+						{controlsNeedingAttention.length > 0 && (
+							<Box>
+								<Heading size="medium" level="3" spacing>
+									Kontroller som trenger oppfølging
+								</Heading>
+								<Table size="small">
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{controlsNeedingAttention.map((a) => (
+											<Table.Row key={a.controlUuid}>
+												<Table.DataCell>{a.domainName}</Table.DataCell>
+												<Table.DataCell>{a.controlId}</Table.DataCell>
+												<Table.DataCell>{a.controlName}</Table.DataCell>
+												<Table.DataCell>
+													{a.status ? (
+														<ComplianceStatusBadge status={a.status as ComplianceStatus} />
+													) : (
+														<Tag variant="neutral" size="xsmall">
+															Ikke vurdert
+														</Tag>
+													)}
+												</Table.DataCell>
+											</Table.Row>
+										))}
+									</Table.Body>
+								</Table>
+							</Box>
+						)}
+
+						{/* Linked applications */}
+						{linkedApps.length > 0 && (
+							<Box>
+								<Heading size="medium" level="3" spacing>
+									Lenkede applikasjoner
+								</Heading>
+								<BodyLong spacing>
+									Disse applikasjonene er testdeploymenter eller varianter som arver compliance-vurderinger fra denne
+									applikasjonen.
+								</BodyLong>
+								<HStack gap="space-4" wrap>
+									{linkedApps.map((la) => (
+										<Tag key={la.id} variant="neutral" size="small">
+											<Link to={`/applikasjoner/${la.id}/detaljer`}>{la.name}</Link>
+										</Tag>
+									))}
+								</HStack>
+							</Box>
+						)}
+
+						{/* Teams */}
+						<Box>
+							<Heading size="medium" level="3" spacing>
+								Team
+							</Heading>
+							{teams.length > 0 ? (
+								<HStack gap="space-4" wrap>
+									{teams.map((t) => (
+										<Tag key={t.teamId} variant="info" size="small">
+											{t.teamName}
+										</Tag>
+									))}
+								</HStack>
+							) : (
+								<BodyLong>Ikke tilknyttet noe utviklerteam.</BodyLong>
+							)}
+						</Box>
+
+						{/* Technology elements */}
+						<Box>
+							<Heading size="medium" level="3" spacing>
+								Teknologielementer
+							</Heading>
+							{appElements.length > 0 ? (
+								<HStack gap="space-4" wrap>
+									{appElements.map((el) => (
+										<Tag
+											key={el.id}
+											variant={
+												el.rejectedAt
+													? "neutral"
+													: el.confirmedAt
+														? "success"
+														: el.source === "auto"
+															? "warning"
+															: "alt1"
+											}
+											size="small"
+										>
+											{el.name}
+										</Tag>
+									))}
+								</HStack>
+							) : (
+								<BodyLong>Ingen teknologielementer er tilordnet.</BodyLong>
+							)}
+						</Box>
+					</VStack>
+				</Tabs.Panel>
+
+				{/* Autentisering */}
+				<Tabs.Panel value="autentisering" style={{ paddingTop: "var(--ax-space-6)" }}>
+					{authIntegrations.length > 0 ? (
+						<VStack gap="space-4">
+							<Table size="small">
+								<Table.Header>
+									<Table.Row>
+										<Table.HeaderCell scope="col">Integrasjon</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Login proxy</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Brukertilgang</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Applikasjonstilgang</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Claims</Table.HeaderCell>
+									</Table.Row>
+								</Table.Header>
+								<Table.Body>
+									{authIntegrations.map((auth) => {
+										const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
+										const inboundRules = auth.inboundRules
+											? (JSON.parse(auth.inboundRules) as Array<{
+													application: string
+													namespace?: string
+													cluster?: string
+												}>)
+											: null
+										const supportsProxy = auth.type === "entra_id" || auth.type === "id_porten"
+										return (
+											<Table.Row key={auth.id}>
+												<Table.DataCell>{authLabels[auth.type] ?? auth.type}</Table.DataCell>
+												<Table.DataCell>
+													{supportsProxy ? (
+														isOnPrem ? (
+															<Tag variant="neutral" size="xsmall">
+																Ikke tilgjengelig (on-prem)
+															</Tag>
+														) : auth.sidecarEnabled ? (
+															<Tag variant="success" size="xsmall">
+																Aktivert
+															</Tag>
+														) : auth.sidecarEnabled === false ? (
+															<Tag variant="neutral" size="xsmall">
+																Ikke aktivert
+															</Tag>
+														) : (
+															<BodyShort size="small" textColor="subtle">
+																Ukjent
+															</BodyShort>
+														)
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															—
+														</BodyShort>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{auth.type === "entra_id" ? (
+														auth.allowAllUsers ? (
+															<Tag variant="warning" size="xsmall">
+																Alle brukere
+															</Tag>
+														) : auth.groups ? (
+															<Tag variant="info" size="xsmall">
+																Gruppebasert
+															</Tag>
+														) : (
+															<Tag variant="neutral" size="xsmall">
+																Ikke konfigurert
+															</Tag>
+														)
+													) : auth.type === "id_porten" ? (
+														<Tag variant="info" size="xsmall">
+															Borgere (ID-porten)
+														</Tag>
+													) : auth.type === "token_x" ? (
+														<Tag variant="info" size="xsmall">
+															Via TokenX
+														</Tag>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															—
+														</BodyShort>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{auth.type === "entra_id" || auth.type === "maskinporten" ? (
+														inboundRules && inboundRules.length > 0 ? (
+															<Tag variant="info" size="xsmall">
+																{inboundRules.length} {inboundRules.length === 1 ? "applikasjon" : "applikasjoner"}
+															</Tag>
+														) : (
+															<Tag variant="neutral" size="xsmall">
+																Ikke konfigurert
+															</Tag>
+														)
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															—
+														</BodyShort>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{claimsExtra && claimsExtra.length > 0 ? (
+														<HStack gap="space-1" wrap>
+															{claimsExtra.map((claim) => (
+																<Tag key={claim} variant="neutral" size="xsmall">
+																	{claim}
+																</Tag>
+															))}
+														</HStack>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															—
+														</BodyShort>
+													)}
+												</Table.DataCell>
+											</Table.Row>
+										)
+									})}
+								</Table.Body>
+							</Table>
+
+							{/* Entra ID groups */}
+							{authIntegrations
+								.filter((a) => a.type === "entra_id" && a.groups)
+								.map((auth) => {
+									const groups = JSON.parse(auth.groups!) as string[]
+									if (groups.length === 0) return null
+									return (
+										<VStack key={`groups-${auth.id}`} gap="space-2">
+											<Heading size="xsmall" level="4">
+												Entra ID-grupper ({groups.length})
+											</Heading>
+											<BodyShort size="small" textColor="subtle">
+												{auth.allowAllUsers
+													? "Alle brukere får utstedt token uavhengig av gruppemedlemskap."
+													: "Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha ytterligere tilgangskontroll som avgrenser tilgang."}
+											</BodyShort>
+											<Table size="small">
+												<Table.Header>
+													<Table.Row>
+														<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
+														<Table.HeaderCell scope="col" style={{ width: "1px" }}>
+															<span className="navds-sr-only">Kopier</span>
+														</Table.HeaderCell>
+													</Table.Row>
+												</Table.Header>
+												<Table.Body>
+													{groups.map((groupId) => (
+														<Table.Row key={groupId}>
+															<Table.DataCell>
+																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{groupId}</code>
+															</Table.DataCell>
+															<Table.DataCell>
+																<CopyButton copyText={groupId} size="xsmall" />
+															</Table.DataCell>
+														</Table.Row>
+													))}
+												</Table.Body>
+											</Table>
+										</VStack>
+									)
+								})}
+
+							{/* Inbound access policy rules */}
+							{authIntegrations
+								.filter((a) => a.type === "entra_id" && a.inboundRules)
+								.map((auth) => {
+									const rules = JSON.parse(auth.inboundRules!) as Array<{
+										application: string
+										namespace?: string
+										cluster?: string
+									}>
+									if (rules.length === 0) return null
+									return (
+										<VStack key={`inbound-${auth.id}`} gap="space-2">
+											<Heading size="xsmall" level="4">
+												Autoriserte applikasjoner ({rules.length})
+											</Heading>
+											<BodyShort size="small" textColor="subtle">
+												Applikasjoner som har tilgang til å kalle dette API-et via Entra ID (M2M eller on-behalf-of).
+											</BodyShort>
+											<Table size="small">
+												<Table.Header>
+													<Table.Row>
+														<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+														<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
+														<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
+													</Table.Row>
+												</Table.Header>
+												<Table.Body>
+													{rules.map((rule) => (
+														<Table.Row key={`${rule.application}-${rule.namespace ?? ""}-${rule.cluster ?? ""}`}>
+															<Table.DataCell>
+																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.application}</code>
+															</Table.DataCell>
+															<Table.DataCell>
+																{rule.namespace ? (
+																	<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.namespace}</code>
+																) : (
+																	<BodyShort size="small" textColor="subtle">
+																		Samme
+																	</BodyShort>
+																)}
+															</Table.DataCell>
+															<Table.DataCell>
+																{rule.cluster ? (
+																	<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.cluster}</code>
+																) : (
+																	<BodyShort size="small" textColor="subtle">
+																		Samme
+																	</BodyShort>
+																)}
+															</Table.DataCell>
+														</Table.Row>
+													))}
+												</Table.Body>
+											</Table>
+										</VStack>
+									)
+								})}
+						</VStack>
+					) : (
+						<BodyLong>Ingen autentiseringsintegrasjoner funnet.</BodyLong>
+					)}
+				</Tabs.Panel>
+
+				{/* Miljøer */}
+				<Tabs.Panel value="miljoer" style={{ paddingTop: "var(--ax-space-6)" }}>
+					{environments.length > 0 ? (
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Klynge</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Image</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{environments.map((env) => (
+									<Table.Row key={env.id}>
 										<Table.DataCell>
-											{a.status ? (
-												<ComplianceStatusBadge status={a.status as ComplianceStatus} />
-											) : (
-												<Tag variant="neutral" size="xsmall">
-													Ikke vurdert
+											<Tag variant="neutral" size="xsmall">
+												{env.cluster}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>{env.namespace}</Table.DataCell>
+										<Table.DataCell>{env.naisTeamSlug ?? "–"}</Table.DataCell>
+										<Table.DataCell
+											style={{
+												wordBreak: "break-all",
+												maxWidth: "300px",
+												fontSize: "var(--ax-font-size-small)",
+											}}
+										>
+											{env.imageName ?? "–"}
+										</Table.DataCell>
+										<Table.DataCell>{new Date(env.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					) : (
+						<BodyLong>Ingen kjente miljøer.</BodyLong>
+					)}
+				</Tabs.Panel>
+
+				{/* Persistering */}
+				<Tabs.Panel value="persistering" style={{ paddingTop: "var(--ax-space-6)" }}>
+					{persistence.length > 0 ? (
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Type</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Versjon</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Tier</Table.HeaderCell>
+									<Table.HeaderCell scope="col">HA</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Audit logging</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{persistence.map((p) => (
+									<Table.Row key={p.id}>
+										<Table.DataCell>
+											<Tag variant={persistenceVariants[p.type] ?? "neutral"} size="xsmall">
+												{persistenceLabels[p.type] ?? p.type}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>{p.name}</Table.DataCell>
+										<Table.DataCell>{p.version ?? "–"}</Table.DataCell>
+										<Table.DataCell>{p.tier ?? "–"}</Table.DataCell>
+										<Table.DataCell>
+											{p.highAvailability === true ? (
+												<Tag variant="success" size="xsmall">
+													Ja
 												</Tag>
+											) : p.highAvailability === false ? (
+												<Tag variant="error" size="xsmall">
+													Nei
+												</Tag>
+											) : (
+												"–"
+											)}
+										</Table.DataCell>
+										<Table.DataCell>
+											{p.auditLogging === true ? (
+												p.auditLogUrl ? (
+													<AkselLink href={p.auditLogUrl} target="_blank" rel="noopener noreferrer">
+														<Tag variant="success" size="xsmall">
+															Ja – se logg (åpnes i nytt vindu)
+														</Tag>
+													</AkselLink>
+												) : (
+													<Tag variant="success" size="xsmall">
+														Ja
+													</Tag>
+												)
+											) : p.auditLogging === false ? (
+												<Tag variant="error" size="xsmall">
+													Nei
+												</Tag>
+											) : (
+												"–"
 											)}
 										</Table.DataCell>
 									</Table.Row>
 								))}
-						</Table.Body>
-					</Table>
-				</Box>
-			)}
-
-			{/* Linked applications */}
-			{linkedApps.length > 0 && (
-				<Box>
-					<Heading size="medium" level="3" spacing>
-						Lenkede applikasjoner
-					</Heading>
-					<BodyLong spacing>
-						Disse applikasjonene er testdeploymenter eller varianter som arver compliance-vurderinger fra denne
-						applikasjonen.
-					</BodyLong>
-					<HStack gap="space-4" wrap>
-						{linkedApps.map((la) => (
-							<Tag key={la.id} variant="neutral" size="small">
-								<Link to={`/applikasjoner/${la.id}/detaljer`}>{la.name}</Link>
-							</Tag>
-						))}
-					</HStack>
-				</Box>
-			)}
-
-			{/* Teams */}
-			<Box>
-				<Heading size="medium" level="3" spacing>
-					Team
-				</Heading>
-				{teams.length > 0 ? (
-					<HStack gap="space-4" wrap>
-						{teams.map((t) => (
-							<Tag key={t.teamId} variant="info" size="small">
-								{t.teamName}
-							</Tag>
-						))}
-					</HStack>
-				) : (
-					<BodyLong>Ikke tilknyttet noe utviklerteam.</BodyLong>
-				)}
-			</Box>
-
-			{/* Technology elements */}
-			<Box>
-				<Heading size="medium" level="3" spacing>
-					Teknologielementer
-				</Heading>
-				{appElements.length > 0 ? (
-					<HStack gap="space-4" wrap>
-						{appElements.map((el) => (
-							<Tag
-								key={el.id}
-								variant={
-									el.rejectedAt ? "neutral" : el.confirmedAt ? "success" : el.source === "auto" ? "warning" : "alt1"
-								}
-								size="small"
-							>
-								{el.name}
-							</Tag>
-						))}
-					</HStack>
-				) : (
-					<BodyLong>Ingen teknologielementer er tilordnet.</BodyLong>
-				)}
-			</Box>
-
-			{/* Auth integrations */}
-			{authIntegrations.length > 0 && (
-				<Box>
-					<Heading size="medium" level="3" spacing>
-						Autentisering og autorisasjon
-					</Heading>
-					<VStack gap="space-4">
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Integrasjon</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Login proxy</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Brukertilgang</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Applikasjonstilgang</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Claims</Table.HeaderCell>
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{authIntegrations.map((auth) => {
-									const claimsExtra = auth.claimsExtra ? (JSON.parse(auth.claimsExtra) as string[]) : null
-									const inboundRules = auth.inboundRules
-										? (JSON.parse(auth.inboundRules) as Array<{
-												application: string
-												namespace?: string
-												cluster?: string
-											}>)
-										: null
-									const supportsProxy = auth.type === "entra_id" || auth.type === "id_porten"
-									return (
-										<Table.Row key={auth.id}>
-											<Table.DataCell>{authLabels[auth.type] ?? auth.type}</Table.DataCell>
-											<Table.DataCell>
-												{supportsProxy ? (
-													isOnPrem ? (
-														<Tag variant="neutral" size="xsmall">
-															Ikke tilgjengelig (on-prem)
-														</Tag>
-													) : auth.sidecarEnabled ? (
-														<Tag variant="success" size="xsmall">
-															Aktivert
-														</Tag>
-													) : auth.sidecarEnabled === false ? (
-														<Tag variant="neutral" size="xsmall">
-															Ikke aktivert
-														</Tag>
-													) : (
-														<BodyShort size="small" textColor="subtle">
-															Ukjent
-														</BodyShort>
-													)
-												) : (
-													<BodyShort size="small" textColor="subtle">
-														—
-													</BodyShort>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>
-												{auth.type === "entra_id" ? (
-													auth.allowAllUsers ? (
-														<Tag variant="warning" size="xsmall">
-															Alle brukere
-														</Tag>
-													) : auth.groups ? (
-														<Tag variant="info" size="xsmall">
-															Gruppebasert
-														</Tag>
-													) : (
-														<Tag variant="neutral" size="xsmall">
-															Ikke konfigurert
-														</Tag>
-													)
-												) : auth.type === "id_porten" ? (
-													<Tag variant="info" size="xsmall">
-														Borgere (ID-porten)
-													</Tag>
-												) : auth.type === "token_x" ? (
-													<Tag variant="info" size="xsmall">
-														Via TokenX
-													</Tag>
-												) : (
-													<BodyShort size="small" textColor="subtle">
-														—
-													</BodyShort>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>
-												{auth.type === "entra_id" || auth.type === "maskinporten" ? (
-													inboundRules && inboundRules.length > 0 ? (
-														<Tag variant="info" size="xsmall">
-															{inboundRules.length} {inboundRules.length === 1 ? "applikasjon" : "applikasjoner"}
-														</Tag>
-													) : (
-														<Tag variant="neutral" size="xsmall">
-															Ikke konfigurert
-														</Tag>
-													)
-												) : (
-													<BodyShort size="small" textColor="subtle">
-														—
-													</BodyShort>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>
-												{claimsExtra && claimsExtra.length > 0 ? (
-													<HStack gap="space-1" wrap>
-														{claimsExtra.map((claim) => (
-															<Tag key={claim} variant="neutral" size="xsmall">
-																{claim}
-															</Tag>
-														))}
-													</HStack>
-												) : (
-													<BodyShort size="small" textColor="subtle">
-														—
-													</BodyShort>
-												)}
-											</Table.DataCell>
-										</Table.Row>
-									)
-								})}
 							</Table.Body>
 						</Table>
-
-						{/* Entra ID groups — separate full-width section */}
-						{authIntegrations
-							.filter((a) => a.type === "entra_id" && a.groups)
-							.map((auth) => {
-								const groups = JSON.parse(auth.groups!) as string[]
-								if (groups.length === 0) return null
-								return (
-									<VStack key={`groups-${auth.id}`} gap="space-2">
-										<Heading size="xsmall" level="4">
-											Entra ID-grupper ({groups.length})
-										</Heading>
-										<BodyShort size="small" textColor="subtle">
-											{auth.allowAllUsers
-												? "Alle brukere får utstedt token uavhengig av gruppemedlemskap."
-												: "Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha ytterligere tilgangskontroll som avgrenser tilgang."}
-										</BodyShort>
-										<Table size="small">
-											<Table.Header>
-												<Table.Row>
-													<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
-													<Table.HeaderCell scope="col" style={{ width: "1px" }}>
-														<span className="navds-sr-only">Kopier</span>
-													</Table.HeaderCell>
-												</Table.Row>
-											</Table.Header>
-											<Table.Body>
-												{groups.map((groupId) => (
-													<Table.Row key={groupId}>
-														<Table.DataCell>
-															<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{groupId}</code>
-														</Table.DataCell>
-														<Table.DataCell>
-															<CopyButton copyText={groupId} size="xsmall" />
-														</Table.DataCell>
-													</Table.Row>
-												))}
-											</Table.Body>
-										</Table>
-									</VStack>
-								)
-							})}
-
-						{/* Inbound access policy rules */}
-						{authIntegrations
-							.filter((a) => a.type === "entra_id" && a.inboundRules)
-							.map((auth) => {
-								const rules = JSON.parse(auth.inboundRules!) as Array<{
-									application: string
-									namespace?: string
-									cluster?: string
-								}>
-								if (rules.length === 0) return null
-								return (
-									<VStack key={`inbound-${auth.id}`} gap="space-2">
-										<Heading size="xsmall" level="4">
-											Autoriserte applikasjoner ({rules.length})
-										</Heading>
-										<BodyShort size="small" textColor="subtle">
-											Applikasjoner som har tilgang til å kalle dette API-et via Entra ID (M2M eller on-behalf-of).
-										</BodyShort>
-										<Table size="small">
-											<Table.Header>
-												<Table.Row>
-													<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-													<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
-													<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
-												</Table.Row>
-											</Table.Header>
-											<Table.Body>
-												{rules.map((rule) => (
-													<Table.Row key={`${rule.application}-${rule.namespace ?? ""}-${rule.cluster ?? ""}`}>
-														<Table.DataCell>
-															<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.application}</code>
-														</Table.DataCell>
-														<Table.DataCell>
-															{rule.namespace ? (
-																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.namespace}</code>
-															) : (
-																<BodyShort size="small" textColor="subtle">
-																	Samme
-																</BodyShort>
-															)}
-														</Table.DataCell>
-														<Table.DataCell>
-															{rule.cluster ? (
-																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.cluster}</code>
-															) : (
-																<BodyShort size="small" textColor="subtle">
-																	Samme
-																</BodyShort>
-															)}
-														</Table.DataCell>
-													</Table.Row>
-												))}
-											</Table.Body>
-										</Table>
-									</VStack>
-								)
-							})}
-					</VStack>
-				</Box>
-			)}
-
-			{/* Environments */}
-			<Box>
-				<Heading size="medium" level="3" spacing>
-					Miljøer
-				</Heading>
-				{environments.length > 0 ? (
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Klynge</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Nais-team</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Image</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{environments.map((env) => (
-								<Table.Row key={env.id}>
-									<Table.DataCell>
-										<Tag variant="neutral" size="xsmall">
-											{env.cluster}
-										</Tag>
-									</Table.DataCell>
-									<Table.DataCell>{env.namespace}</Table.DataCell>
-									<Table.DataCell>{env.naisTeamSlug ?? "–"}</Table.DataCell>
-									<Table.DataCell
-										style={{ wordBreak: "break-all", maxWidth: "300px", fontSize: "var(--ax-font-size-small)" }}
-									>
-										{env.imageName ?? "–"}
-									</Table.DataCell>
-									<Table.DataCell>{new Date(env.discoveredAt).toLocaleDateString("nb-NO")}</Table.DataCell>
-								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
-				) : (
-					<BodyLong>Ingen kjente miljøer.</BodyLong>
-				)}
-			</Box>
-
-			{/* Persistence */}
-			<Box>
-				<Heading size="medium" level="3" spacing>
-					Persistens
-				</Heading>
-				{persistence.length > 0 ? (
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Type</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Versjon</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Tier</Table.HeaderCell>
-								<Table.HeaderCell scope="col">HA</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Audit logging</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{persistence.map((p) => (
-								<Table.Row key={p.id}>
-									<Table.DataCell>
-										<Tag variant={persistenceVariants[p.type] ?? "neutral"} size="xsmall">
-											{persistenceLabels[p.type] ?? p.type}
-										</Tag>
-									</Table.DataCell>
-									<Table.DataCell>{p.name}</Table.DataCell>
-									<Table.DataCell>{p.version ?? "–"}</Table.DataCell>
-									<Table.DataCell>{p.tier ?? "–"}</Table.DataCell>
-									<Table.DataCell>
-										{p.highAvailability === true ? (
-											<Tag variant="success" size="xsmall">
-												Ja
-											</Tag>
-										) : p.highAvailability === false ? (
-											<Tag variant="error" size="xsmall">
-												Nei
-											</Tag>
-										) : (
-											"–"
-										)}
-									</Table.DataCell>
-									<Table.DataCell>
-										{p.auditLogging === true ? (
-											p.auditLogUrl ? (
-												<AkselLink href={p.auditLogUrl} target="_blank" rel="noopener noreferrer">
-													<Tag variant="success" size="xsmall">
-														Ja – se logg (åpnes i nytt vindu)
-													</Tag>
-												</AkselLink>
-											) : (
-												<Tag variant="success" size="xsmall">
-													Ja
-												</Tag>
-											)
-										) : p.auditLogging === false ? (
-											<Tag variant="error" size="xsmall">
-												Nei
-											</Tag>
-										) : (
-											"–"
-										)}
-									</Table.DataCell>
-								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
-				) : (
-					<BodyLong>Ingen kjent persistens fra Nais.</BodyLong>
-				)}
-			</Box>
+					) : (
+						<BodyLong>Ingen kjent persistens fra Nais.</BodyLong>
+					)}
+				</Tabs.Panel>
+			</Tabs>
 		</VStack>
 	)
 }
