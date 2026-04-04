@@ -117,17 +117,19 @@ export default function ApplikasjonDetalj() {
 	return (
 		<VStack gap="space-24">
 			<div>
-				<Heading size="xlarge" level="2">
-					{app.name}
-				</Heading>
+				<HStack justify="space-between" align="center">
+					<Heading size="xlarge" level="2">
+						{app.name}
+					</Heading>
+					<Button as={Link} to={`/applikasjoner/${app.id}/rediger`} variant="tertiary" size="small">
+						Administrer
+					</Button>
+				</HStack>
 				{app.description && <BodyLong>{app.description}</BodyLong>}
 				<HStack gap="space-4" align="center" style={{ marginTop: "var(--ax-space-2)" }}>
 					<AkselLink href={gitHubUrl} target="_blank" rel="noopener noreferrer">
 						GitHub <ExternalLinkIcon aria-hidden />
 					</AkselLink>
-					<Button as={Link} to={`/applikasjoner/${app.id}/rediger`} variant="tertiary" size="small">
-						Administrer
-					</Button>
 				</HStack>
 			</div>
 
