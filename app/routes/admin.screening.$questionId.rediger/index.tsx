@@ -120,6 +120,26 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				authedUser.navIdent,
 				sectionId,
 			)
+
+			const pendingEffectsJson = formData.get("pendingEffects") as string | null
+			if (pendingEffectsJson) {
+				const pending = JSON.parse(pendingEffectsJson) as Array<{
+					controlTextId: string
+					yesEffect: string | null
+					noEffect: string | null
+				}>
+				for (const eff of pending) {
+					await addEffect({
+						questionId: q.id,
+						controlTextId: eff.controlTextId,
+						yesEffect: eff.yesEffect,
+						noEffect: eff.noEffect,
+						yesComment: null,
+						noComment: null,
+					})
+				}
+			}
+
 			return redirect(`/admin/screening/${q.id}/rediger${seksjonParam}`)
 		}
 
@@ -149,10 +169,41 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	return data({ success: true })
 }
 
+interface PendingEffect {
+	clientId: string
+	controlTextId: string
+	yesEffect: string | null
+	noEffect: string | null
+}
+
 export default function EditScreeningQuestion() {
 	const { isNew, question, effects, controls, seksjon, sectionId, sectionName } = useLoaderData<typeof loader>()
 	const [descriptionPreview, setDescriptionPreview] = useState(question.description ?? "")
+	const [pendingEffects, setPendingEffects] = useState<PendingEffect[]>([])
 	const seksjonParam = seksjon ? `?seksjon=${seksjon}` : ""
+
+	const allEffects = isNew ? pendingEffects : effects
+
+	function handleAddPendingEffect(e: React.FormEvent<HTMLFormElement>) {
+		e.preventDefault()
+		const fd = new FormData(e.currentTarget)
+		const controlTextId = fd.get("controlTextId") as string
+		if (!controlTextId) return
+		setPendingEffects((prev) => [
+			...prev,
+			{
+				clientId: crypto.randomUUID(),
+				controlTextId,
+				yesEffect: (fd.get("yesEffect") as string) || null,
+				noEffect: (fd.get("noEffect") as string) || null,
+			},
+		])
+		e.currentTarget.reset()
+	}
+
+	function handleRemovePendingEffect(clientId: string) {
+		setPendingEffects((prev) => prev.filter((p) => p.clientId !== clientId))
+	}
 
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
@@ -171,6 +222,7 @@ export default function EditScreeningQuestion() {
 				<input type="hidden" name="intent" value="updateQuestion" />
 				{seksjon && <input type="hidden" name="seksjon" value={seksjon} />}
 				{sectionId && <input type="hidden" name="sectionId" value={sectionId} />}
+				{isNew && <input type="hidden" name="pendingEffects" value={JSON.stringify(pendingEffects)} />}
 				<VStack gap="space-8">
 					<TextField label="Spørsmålstekst" name="questionText" size="small" defaultValue={question.questionText} />
 					<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
@@ -200,78 +252,151 @@ export default function EditScreeningQuestion() {
 				</VStack>
 			</Form>
 
-			{/* Effects — only shown for existing questions */}
-			{!isNew && (
-				<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-					<VStack gap="space-6">
-						<HStack gap="space-2" align="center">
-							<Heading size="small" level="3">
-								Effekter
-							</Heading>
-							<Tag variant="neutral" size="xsmall">
-								{effects.length}
-							</Tag>
-						</HStack>
+			{/* Effects */}
+			<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+				<VStack gap="space-6">
+					<HStack gap="space-2" align="center">
+						<Heading size="small" level="3">
+							Effekter
+						</Heading>
+						<Tag variant="neutral" size="xsmall">
+							{allEffects.length}
+						</Tag>
+					</HStack>
 
-						{effects.length > 0 && (
-							<Table size="small">
-								<Table.Header>
-									<Table.Row>
-										<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
-										<Table.HeaderCell scope="col">Ja-effekt</Table.HeaderCell>
-										<Table.HeaderCell scope="col">Nei-effekt</Table.HeaderCell>
-										<Table.HeaderCell scope="col" />
-									</Table.Row>
-								</Table.Header>
-								<Table.Body>
-									{effects.map((e) => (
-										<Table.Row key={e.id}>
-											<Table.DataCell>
-												<Tag variant="info" size="xsmall">
-													{e.controlTextId}
-												</Tag>
-											</Table.DataCell>
-											<Table.DataCell>
-												{e.yesEffect ? (
-													<Tag variant="neutral" size="xsmall">
-														{getStatusLabel(e.yesEffect)}
+					{allEffects.length > 0 && (
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Ja-effekt</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Nei-effekt</Table.HeaderCell>
+									<Table.HeaderCell scope="col" />
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{isNew
+									? pendingEffects.map((e) => (
+											<Table.Row key={e.clientId}>
+												<Table.DataCell>
+													<Tag variant="info" size="xsmall">
+														{e.controlTextId}
 													</Tag>
-												) : (
-													<BodyShort size="small" textColor="subtle">
-														—
-													</BodyShort>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>
-												{e.noEffect ? (
-													<Tag variant="neutral" size="xsmall">
-														{getStatusLabel(e.noEffect)}
-													</Tag>
-												) : (
-													<BodyShort size="small" textColor="subtle">
-														—
-													</BodyShort>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>
-												<Form method="post">
-													<input type="hidden" name="intent" value="deleteEffect" />
-													<input type="hidden" name="effectId" value={e.id} />
+												</Table.DataCell>
+												<Table.DataCell>
+													{e.yesEffect ? (
+														<Tag variant="neutral" size="xsmall">
+															{getStatusLabel(e.yesEffect)}
+														</Tag>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															—
+														</BodyShort>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{e.noEffect ? (
+														<Tag variant="neutral" size="xsmall">
+															{getStatusLabel(e.noEffect)}
+														</Tag>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															—
+														</BodyShort>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
 													<Button
-														type="submit"
+														type="button"
 														size="xsmall"
 														variant="tertiary-neutral"
 														icon={<TrashIcon aria-hidden />}
+														onClick={() => handleRemovePendingEffect(e.clientId)}
 													/>
-												</Form>
-											</Table.DataCell>
-										</Table.Row>
-									))}
-								</Table.Body>
-							</Table>
-						)}
+												</Table.DataCell>
+											</Table.Row>
+										))
+									: effects.map((e) => (
+											<Table.Row key={e.id}>
+												<Table.DataCell>
+													<Tag variant="info" size="xsmall">
+														{e.controlTextId}
+													</Tag>
+												</Table.DataCell>
+												<Table.DataCell>
+													{e.yesEffect ? (
+														<Tag variant="neutral" size="xsmall">
+															{getStatusLabel(e.yesEffect)}
+														</Tag>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															—
+														</BodyShort>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{e.noEffect ? (
+														<Tag variant="neutral" size="xsmall">
+															{getStatusLabel(e.noEffect)}
+														</Tag>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															—
+														</BodyShort>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													<Form method="post">
+														<input type="hidden" name="intent" value="deleteEffect" />
+														<input type="hidden" name="effectId" value={e.id} />
+														<Button
+															type="submit"
+															size="xsmall"
+															variant="tertiary-neutral"
+															icon={<TrashIcon aria-hidden />}
+														/>
+													</Form>
+												</Table.DataCell>
+											</Table.Row>
+										))}
+							</Table.Body>
+						</Table>
+					)}
 
-						{/* Add effect */}
+					{/* Add effect */}
+					{isNew ? (
+						<form onSubmit={handleAddPendingEffect}>
+							<HStack gap="space-4" align="end" wrap>
+								<Select label="Kontroll" name="controlTextId" size="small">
+									<option value="">Velg kontroll</option>
+									{controls.map((c) => (
+										<option key={c.controlId} value={c.controlId}>
+											{c.controlId}
+										</option>
+									))}
+								</Select>
+								<Select label="Ja-effekt" name="yesEffect" size="small">
+									<option value="">Ingen</option>
+									{Object.entries(statusLabels).map(([v, l]) => (
+										<option key={v} value={v}>
+											{l}
+										</option>
+									))}
+								</Select>
+								<Select label="Nei-effekt" name="noEffect" size="small">
+									<option value="">Ingen</option>
+									{Object.entries(statusLabels).map(([v, l]) => (
+										<option key={v} value={v}>
+											{l}
+										</option>
+									))}
+								</Select>
+								<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
+									Legg til effekt
+								</Button>
+							</HStack>
+						</form>
+					) : (
 						<Form method="post">
 							<input type="hidden" name="intent" value="addEffect" />
 							<HStack gap="space-4" align="end" wrap>
@@ -304,9 +429,9 @@ export default function EditScreeningQuestion() {
 								</Button>
 							</HStack>
 						</Form>
-					</VStack>
-				</Box>
-			)}
+					)}
+				</VStack>
+			</Box>
 		</VStack>
 	)
 }
