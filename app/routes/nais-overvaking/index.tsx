@@ -11,7 +11,6 @@ import {
 	Switch,
 	Table,
 	Tabs,
-	Tag,
 	VStack,
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
@@ -100,6 +99,14 @@ export default function NaisOvervaking() {
 	const [searchQuery, setSearchQuery] = useState("")
 	const unlinkModalRef = useRef<HTMLDialogElement>(null)
 	const [unlinkTarget, setUnlinkTarget] = useState<{ slug: string; sectionName: string } | null>(null)
+	const [sort, setSort] = useState<{ orderBy: string; direction: "ascending" | "descending" } | undefined>()
+
+	const handleSort = (sortKey: string) =>
+		setSort((prev) =>
+			prev?.orderBy === sortKey && prev.direction === "ascending"
+				? { orderBy: sortKey, direction: "descending" }
+				: { orderBy: sortKey, direction: "ascending" },
+		)
 
 	const filteredTeams = teams.filter((t) => {
 		if (hideEmpty && t.appCount === 0) return false
@@ -111,6 +118,25 @@ export default function NaisOvervaking() {
 	})
 
 	const unlinkedTeams = filteredTeams.filter((t) => !t.sectionId)
+
+	function sortTeams<T extends (typeof filteredTeams)[number]>(list: T[]): T[] {
+		if (!sort) return list
+		return [...list].sort((a, b) => {
+			const dir = sort.direction === "ascending" ? 1 : -1
+			switch (sort.orderBy) {
+				case "slug":
+					return dir * a.slug.localeCompare(b.slug, "nb")
+				case "appCount":
+					return dir * (a.appCount - b.appCount)
+				case "discoveredAt":
+					return dir * a.discoveredAt.localeCompare(b.discoveredAt)
+				default:
+					return 0
+			}
+		})
+	}
+
+	const sortedUnlinkedTeams = sortTeams(unlinkedTeams)
 
 	// Group linked teams by sectionId
 	const teamsBySection = new Map<string, typeof filteredTeams>()
@@ -183,19 +209,23 @@ export default function NaisOvervaking() {
 					<VStack gap="space-4" style={{ paddingTop: "var(--ax-space-4)" }}>
 						{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 						<section className="table-scroll" tabIndex={0} aria-label="Team uten seksjon">
-							<Table>
+							<Table sort={sort} onSortChange={handleSort}>
 								<Table.Header>
 									<Table.Row>
-										<Table.HeaderCell scope="col">Team</Table.HeaderCell>
-										<Table.HeaderCell scope="col" align="right">
+										<Table.ColumnHeader sortKey="slug" sortable scope="col">
+											Team
+										</Table.ColumnHeader>
+										<Table.ColumnHeader sortKey="appCount" sortable scope="col" align="right">
 											Applikasjoner
-										</Table.HeaderCell>
-										<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
+										</Table.ColumnHeader>
+										<Table.ColumnHeader sortKey="discoveredAt" sortable scope="col">
+											Oppdaget
+										</Table.ColumnHeader>
 										<Table.HeaderCell scope="col">Koble til seksjon</Table.HeaderCell>
 									</Table.Row>
 								</Table.Header>
 								<Table.Body>
-									{unlinkedTeams.map((team) => (
+									{sortedUnlinkedTeams.map((team) => (
 										<Table.Row key={team.slug}>
 											<Table.DataCell>
 												<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
@@ -240,19 +270,23 @@ export default function NaisOvervaking() {
 						<VStack gap="space-4" style={{ paddingTop: "var(--ax-space-4)" }}>
 							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 							<section className="table-scroll" tabIndex={0} aria-label={`Team i ${s.name}`}>
-								<Table>
+								<Table sort={sort} onSortChange={handleSort}>
 									<Table.Header>
 										<Table.Row>
-											<Table.HeaderCell scope="col">Team</Table.HeaderCell>
-											<Table.HeaderCell scope="col" align="right">
+											<Table.ColumnHeader sortKey="slug" sortable scope="col">
+												Team
+											</Table.ColumnHeader>
+											<Table.ColumnHeader sortKey="appCount" sortable scope="col" align="right">
 												Applikasjoner
-											</Table.HeaderCell>
-											<Table.HeaderCell scope="col">Oppdaget</Table.HeaderCell>
+											</Table.ColumnHeader>
+											<Table.ColumnHeader sortKey="discoveredAt" sortable scope="col">
+												Oppdaget
+											</Table.ColumnHeader>
 											<Table.HeaderCell scope="col" />
 										</Table.Row>
 									</Table.Header>
 									<Table.Body>
-										{s.teams.map((team) => (
+										{sortTeams(s.teams).map((team) => (
 											<Table.Row key={team.slug}>
 												<Table.DataCell>
 													<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
