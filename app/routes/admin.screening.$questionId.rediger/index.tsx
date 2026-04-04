@@ -7,6 +7,7 @@ import {
 	Heading,
 	HStack,
 	Label,
+	Modal,
 	Select,
 	Table,
 	Tag,
@@ -14,7 +15,7 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { MarkdownHint } from "~/components/MarkdownHint"
@@ -181,6 +182,8 @@ export default function EditScreeningQuestion() {
 	const { isNew, question, effects, controls, seksjon, sectionId, sectionName } = useLoaderData<typeof loader>()
 	const [descriptionPreview, setDescriptionPreview] = useState(question.description ?? "")
 	const [pendingEffects, setPendingEffects] = useState<PendingEffect[]>([])
+	const [deleteTarget, setDeleteTarget] = useState<{ id: string; controlTextId: string } | null>(null)
+	const deleteModalRef = useRef<HTMLDialogElement>(null)
 	const seksjonParam = seksjon ? `?seksjon=${seksjon}` : ""
 
 	const allEffects = isNew ? pendingEffects : effects
@@ -345,16 +348,16 @@ export default function EditScreeningQuestion() {
 													)}
 												</Table.DataCell>
 												<Table.DataCell>
-													<Form method="post">
-														<input type="hidden" name="intent" value="deleteEffect" />
-														<input type="hidden" name="effectId" value={e.id} />
-														<Button
-															type="submit"
-															size="xsmall"
-															variant="tertiary-neutral"
-															icon={<TrashIcon aria-hidden />}
-														/>
-													</Form>
+													<Button
+														type="button"
+														size="xsmall"
+														variant="tertiary-neutral"
+														icon={<TrashIcon aria-hidden />}
+														onClick={() => {
+															setDeleteTarget({ id: e.id, controlTextId: e.controlTextId })
+															deleteModalRef.current?.showModal()
+														}}
+													/>
 												</Table.DataCell>
 											</Table.Row>
 										))}
@@ -431,6 +434,29 @@ export default function EditScreeningQuestion() {
 					)}
 				</VStack>
 			</Box>
+
+			{/* Delete confirmation modal */}
+			<Modal ref={deleteModalRef} header={{ heading: "Slett effekt" }} onClose={() => setDeleteTarget(null)}>
+				<Modal.Body>
+					<BodyShort>
+						Er du sikker på at du vil slette effekten for kontroll <strong>{deleteTarget?.controlTextId}</strong>?
+					</BodyShort>
+				</Modal.Body>
+				<Modal.Footer>
+					<Form method="post">
+						<input type="hidden" name="intent" value="deleteEffect" />
+						<input type="hidden" name="effectId" value={deleteTarget?.id ?? ""} />
+						<HStack gap="space-4">
+							<Button type="submit" variant="danger" size="small" onClick={() => deleteModalRef.current?.close()}>
+								Slett
+							</Button>
+							<Button type="button" variant="secondary" size="small" onClick={() => deleteModalRef.current?.close()}>
+								Avbryt
+							</Button>
+						</HStack>
+					</Form>
+				</Modal.Footer>
+			</Modal>
 		</VStack>
 	)
 }
