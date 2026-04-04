@@ -142,68 +142,6 @@ export default function ApplikasjonDetalj() {
 				</Alert>
 			)}
 
-			{/* Linked applications */}
-			{linkedApps.length > 0 && (
-				<Box>
-					<Heading size="medium" level="3" spacing>
-						Lenkede applikasjoner
-					</Heading>
-					<BodyLong spacing>
-						Disse applikasjonene er testdeploymenter eller varianter som arver compliance-vurderinger fra denne
-						applikasjonen.
-					</BodyLong>
-					<HStack gap="space-4" wrap>
-						{linkedApps.map((la) => (
-							<Tag key={la.id} variant="neutral" size="small">
-								<Link to={`/applikasjoner/${la.id}/detaljer`}>{la.name}</Link>
-							</Tag>
-						))}
-					</HStack>
-				</Box>
-			)}
-
-			{/* Teams */}
-			<Box>
-				<Heading size="medium" level="3" spacing>
-					Team
-				</Heading>
-				{teams.length > 0 ? (
-					<HStack gap="space-4" wrap>
-						{teams.map((t) => (
-							<Tag key={t.teamId} variant="info" size="small">
-								{t.teamName}
-							</Tag>
-						))}
-					</HStack>
-				) : (
-					<BodyLong>Ikke tilknyttet noe utviklerteam.</BodyLong>
-				)}
-			</Box>
-
-			{/* Technology elements */}
-			<Box>
-				<Heading size="medium" level="3" spacing>
-					Teknologielementer
-				</Heading>
-				{appElements.length > 0 ? (
-					<HStack gap="space-4" wrap>
-						{appElements.map((el) => (
-							<Tag
-								key={el.id}
-								variant={
-									el.rejectedAt ? "neutral" : el.confirmedAt ? "success" : el.source === "auto" ? "warning" : "alt1"
-								}
-								size="small"
-							>
-								{el.name}
-							</Tag>
-						))}
-					</HStack>
-				) : (
-					<BodyLong>Ingen teknologielementer er tilordnet.</BodyLong>
-				)}
-			</Box>
-
 			{/* Compliance summary */}
 			<Box>
 				<Heading size="medium" level="3" spacing>
@@ -293,6 +231,68 @@ export default function ApplikasjonDetalj() {
 					</Table>
 				</Box>
 			)}
+
+			{/* Linked applications */}
+			{linkedApps.length > 0 && (
+				<Box>
+					<Heading size="medium" level="3" spacing>
+						Lenkede applikasjoner
+					</Heading>
+					<BodyLong spacing>
+						Disse applikasjonene er testdeploymenter eller varianter som arver compliance-vurderinger fra denne
+						applikasjonen.
+					</BodyLong>
+					<HStack gap="space-4" wrap>
+						{linkedApps.map((la) => (
+							<Tag key={la.id} variant="neutral" size="small">
+								<Link to={`/applikasjoner/${la.id}/detaljer`}>{la.name}</Link>
+							</Tag>
+						))}
+					</HStack>
+				</Box>
+			)}
+
+			{/* Teams */}
+			<Box>
+				<Heading size="medium" level="3" spacing>
+					Team
+				</Heading>
+				{teams.length > 0 ? (
+					<HStack gap="space-4" wrap>
+						{teams.map((t) => (
+							<Tag key={t.teamId} variant="info" size="small">
+								{t.teamName}
+							</Tag>
+						))}
+					</HStack>
+				) : (
+					<BodyLong>Ikke tilknyttet noe utviklerteam.</BodyLong>
+				)}
+			</Box>
+
+			{/* Technology elements */}
+			<Box>
+				<Heading size="medium" level="3" spacing>
+					Teknologielementer
+				</Heading>
+				{appElements.length > 0 ? (
+					<HStack gap="space-4" wrap>
+						{appElements.map((el) => (
+							<Tag
+								key={el.id}
+								variant={
+									el.rejectedAt ? "neutral" : el.confirmedAt ? "success" : el.source === "auto" ? "warning" : "alt1"
+								}
+								size="small"
+							>
+								{el.name}
+							</Tag>
+						))}
+					</HStack>
+				) : (
+					<BodyLong>Ingen teknologielementer er tilordnet.</BodyLong>
+				)}
+			</Box>
 
 			{/* Auth integrations */}
 			{authIntegrations.length > 0 && (
