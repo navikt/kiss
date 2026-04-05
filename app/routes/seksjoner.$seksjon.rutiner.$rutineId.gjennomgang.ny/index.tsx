@@ -11,9 +11,9 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Link, redirect, useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router"
+import { data, Link, redirect, useActionData, useLoaderData, useNavigation } from "react-router"
 import { MarkdownHint } from "~/components/MarkdownHint"
 import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -140,38 +140,27 @@ export default function NyGjennomgang() {
 	const { routine, apps } = useLoaderData<typeof loader>()
 	const actionData = useActionData<ActionResult>()
 	const navigation = useNavigation()
-	const revalidator = useRevalidator()
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
+	const isSubmitting = navigation.state === "submitting"
 
 	const [files, setFiles] = useState<(FileObject | FileRejected)[]>([])
 	const [summaryPreview, setSummaryPreview] = useState("")
-	const [submitting, setSubmitting] = useState(false)
 	const acceptedFiles = files.filter((f) => !("reasons" in f)) as FileObject[]
 	const rejectedFiles = files.filter((f) => "reasons" in f) as FileRejected[]
-	const isSubmitting = submitting || navigation.state === "submitting"
+	const fileInputRef = useRef<HTMLInputElement>(null)
 
-	async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-		event.preventDefault()
-		const form = event.currentTarget
-		const formData = new FormData(form)
-		const action = form.action || window.location.href
-		for (const accepted of acceptedFiles) {
-			formData.append("attachments", accepted.file)
-		}
-		setSubmitting(true)
-		try {
-			const response = await fetch(action, {
-				method: "POST",
-				body: formData,
-			})
-			if (response.redirected) {
-				window.location.href = response.url
-			} else {
-				revalidator.revalidate()
+	// Sync accepted files to hidden file input using DataTransfer
+	function syncFileInput(currentFiles: (FileObject | FileRejected)[]) {
+		setFiles(currentFiles)
+		if (fileInputRef.current) {
+			const dt = new DataTransfer()
+			for (const f of currentFiles) {
+				if (!("reasons" in f)) {
+					dt.items.add(f.file)
+				}
 			}
-		} finally {
-			setSubmitting(false)
+			fileInputRef.current.files = dt.files
 		}
 	}
 
@@ -186,7 +175,7 @@ export default function NyGjennomgang() {
 
 			{actionData && !actionData.success && <Alert variant="error">{actionData.error}</Alert>}
 
-			<form method="post" onSubmit={handleSubmit}>
+			<form method="post" encType="multipart/form-data">
 				<VStack gap="space-6">
 					<TextField label="Tittel" name="title" size="small" autoComplete="off" defaultValue={defaultTitle} />
 
@@ -254,12 +243,13 @@ export default function NyGjennomgang() {
 					/>
 
 					<VStack gap="space-2">
+						<input ref={fileInputRef} type="file" name="attachments" multiple style={{ display: "none" }} />
 						<FileUpload.Dropzone
 							label="Vedlegg"
 							description={`Last opp dokumentasjon (PDF, DOCX, XLSX o.l.). Maks ${MAX_SIZE_MB} MB per fil.`}
 							accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.txt,.md"
 							maxSizeInBytes={MAX_SIZE_BYTES}
-							onSelect={(newFiles) => setFiles((prev) => [...prev, ...newFiles])}
+							onSelect={(newFiles) => syncFileInput([...files, ...newFiles])}
 							multiple
 						/>
 
@@ -271,7 +261,7 @@ export default function NyGjennomgang() {
 										file={file.file}
 										button={{
 											action: "delete",
-											onClick: () => setFiles(files.filter((f) => f !== file)),
+											onClick: () => syncFileInput(files.filter((f) => f !== file)),
 										}}
 										status={isSubmitting ? "uploading" : "idle"}
 									/>
@@ -292,7 +282,7 @@ export default function NyGjennomgang() {
 										}
 										button={{
 											action: "delete",
-											onClick: () => setFiles(files.filter((f) => f !== rejected)),
+											onClick: () => syncFileInput(files.filter((f) => f !== rejected)),
 										}}
 									/>
 								))}
