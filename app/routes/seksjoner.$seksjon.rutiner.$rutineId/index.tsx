@@ -20,6 +20,17 @@ function formatDate(date: string | Date | null): string {
 	return new Date(date).toLocaleDateString("nb-NO")
 }
 
+function formatDateTime(date: string | Date | null): string {
+	if (!date) return "—"
+	return new Date(date).toLocaleDateString("nb-NO", {
+		day: "numeric",
+		month: "short",
+		year: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	})
+}
+
 export async function loader({ params }: LoaderFunctionArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
@@ -220,7 +231,7 @@ export default function RutineDetaljer() {
 								const confirmedCount = review.participants.filter((p) => p.confirmedAt).length
 								return (
 									<Table.Row key={review.id}>
-										<Table.DataCell>{formatDate(review.reviewedAt)}</Table.DataCell>
+										<Table.DataCell>{formatDateTime(review.reviewedAt)}</Table.DataCell>
 										<Table.DataCell>
 											<Link to={`./gjennomgang/${review.id}`}>{review.title}</Link>
 										</Table.DataCell>
