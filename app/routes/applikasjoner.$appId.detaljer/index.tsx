@@ -137,6 +137,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "generate-report") {
 		const includeReviews = formData.get("includeReviews") === "true"
 		const includeAttachments = formData.get("includeAttachments") === "true"
+		const includeRoutineDescription = formData.get("includeRoutineDescription") === "true"
 		const reviewIdsRaw = formData.get("reviewIds")
 		const reviewIds = reviewIdsRaw != null ? String(reviewIdsRaw).split(",").filter(Boolean) : undefined
 		try {
@@ -145,6 +146,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				createdBy: authedUser.navIdent,
 				includeReviews,
 				includeAttachments,
+				includeRoutineDescription,
 				reviewIds: includeReviews ? reviewIds : undefined,
 			})
 			return data({ success: true, message: "Rapport generert.", error: null })
@@ -922,6 +924,7 @@ function ReportsPanel({
 						onChange={(val) => setReportOptions(val)}
 					>
 						<Checkbox value="includeReviews">Rutinegjennomganger</Checkbox>
+						<Checkbox value="includeRoutineDescription">Rutinebeskrivelse (vises på gjennomgangssider)</Checkbox>
 						<Checkbox value="includeAttachments">Vedlegg fra gjennomganger (flettes som sider i PDF)</Checkbox>
 					</CheckboxGroup>
 
@@ -1000,6 +1003,7 @@ function ReportsPanel({
 								fd.set("intent", "generate-report")
 								fd.set("includeReviews", String(includeReviews))
 								fd.set("includeAttachments", String(reportOptions.includes("includeAttachments")))
+								fd.set("includeRoutineDescription", String(reportOptions.includes("includeRoutineDescription")))
 								if (includeReviews) {
 									fd.set("reviewIds", selectedReviewIds.join(","))
 								}

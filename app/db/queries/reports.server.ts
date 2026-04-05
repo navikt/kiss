@@ -357,9 +357,17 @@ export async function generateAppComplianceReport(params: {
 	createdBy: string
 	includeReviews?: boolean
 	includeAttachments?: boolean
+	includeRoutineDescription?: boolean
 	reviewIds?: string[]
 }): Promise<string> {
-	const { applicationId, createdBy, includeReviews = true, includeAttachments = true, reviewIds } = params
+	const {
+		applicationId,
+		createdBy,
+		includeReviews = true,
+		includeAttachments = true,
+		includeRoutineDescription = false,
+		reviewIds,
+	} = params
 
 	// Dynamic imports to avoid circular deps and keep pdfkit server-only
 	const { getAppAssessments } = await import("./applications.server")
@@ -428,6 +436,7 @@ export async function generateAppComplianceReport(params: {
 			id: r.id,
 			title: r.title,
 			routineName: r.routineName,
+			routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
 			routineFrequency: r.routineFrequency,
 			reviewedAt: r.reviewedAt.toISOString(),
 			createdBy: r.createdBy,
@@ -578,6 +587,7 @@ function buildAppPdf(
 		reviewedAt: Date
 		createdBy: string
 		routineName: string
+		routineDescription: string | null
 		routineFrequency: string
 		participants: Array<{ userIdent: string; userName: string | null }>
 		attachments: Array<{ fileName: string }>
@@ -664,6 +674,14 @@ function buildAppPdf(
 
 				doc.fontSize(9).fillColor(gray)
 				doc.text(`Rutine: ${r.routineName} (${getFrequencyLabel(r.routineFrequency)})`)
+				if (r.routineDescription) {
+					doc.moveDown(0.3)
+					doc.fontSize(10).fillColor(dark).text("Rutinebeskrivelse", { underline: true })
+					doc.moveDown(0.2)
+					doc.fontSize(9).fillColor(dark).text(r.routineDescription, { width: 495 })
+					doc.moveDown(0.3)
+					doc.fillColor(gray)
+				}
 				doc.text(`Dato: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
 				doc.text(`Opprettet av: ${r.createdBy}`)
 				if (r.participants.length > 0) {

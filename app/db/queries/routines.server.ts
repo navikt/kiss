@@ -197,6 +197,7 @@ export async function getReviewsForApp(applicationId: string) {
 		.select({
 			review: routineReviews,
 			routineName: routines.name,
+			routineDescription: routines.description,
 			routineFrequency: routines.frequency,
 			sectionId: routines.sectionId,
 		})
@@ -211,6 +212,7 @@ export async function getReviewsForApp(applicationId: string) {
 			return {
 				...enriched,
 				routineName: row.routineName,
+				routineDescription: row.routineDescription,
 				routineFrequency: row.routineFrequency,
 				sectionId: row.sectionId,
 			}
