@@ -155,11 +155,14 @@ function buildPdf(
 		}
 
 		// ─── Embed attachments as PDF file attachments ────────────────
+		const now = new Date()
 		for (const att of attachments) {
 			doc.file(att.data, {
 				name: att.fileName,
 				type: att.contentType,
 				description: `Vedlegg fra rutinegjennomgang: ${att.fileName}`,
+				creationDate: now,
+				modifiedDate: now,
 			})
 		}
 
