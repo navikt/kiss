@@ -1,3 +1,4 @@
+import { PDFDocument as PDFLibDocument } from "pdf-lib"
 import PDFDocument from "pdfkit"
 import type { LoaderFunctionArgs } from "react-router"
 import { getAppAssessments } from "~/db/queries/applications.server"
@@ -44,15 +45,27 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	}
 
-	const pdfBuffer = await buildPdf(
+	const pdfAttachments = attachmentBuffers.filter((a) => a.contentType === "application/pdf")
+	const otherAttachments = attachmentBuffers.filter((a) => a.contentType !== "application/pdf")
+
+	const mainPdfBuffer = await buildPdf(
 		{ name: detail.app.name, namespace, cluster },
 		assessments,
 		completedReviews,
 		attachmentBuffers,
+		otherAttachments,
 	)
 
+	// Merge PDF attachments as additional pages
+	let finalBuffer: Buffer
+	if (pdfAttachments.length > 0) {
+		finalBuffer = await mergePdfAttachments(mainPdfBuffer, pdfAttachments)
+	} else {
+		finalBuffer = mainPdfBuffer
+	}
+
 	const safeName = detail.app.name.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_")
-	return new Response(new Uint8Array(pdfBuffer), {
+	return new Response(new Uint8Array(finalBuffer), {
 		headers: {
 			"Content-Type": "application/pdf",
 			"Content-Disposition": `attachment; filename="Compliance-rapport_${safeName}.pdf"`,
@@ -104,7 +117,8 @@ function buildPdf(
 	app: AppInfo,
 	assessments: Assessment[],
 	reviews: Review[],
-	attachments: AttachmentData[],
+	allAttachments: AttachmentData[],
+	nonPdfAttachments: AttachmentData[],
 ): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true })
@@ -138,7 +152,7 @@ function buildPdf(
 		buildReviewsSection(doc, reviews)
 
 		// ─── Attached documents list ──────────────────────────────────
-		if (attachments.length > 0) {
+		if (allAttachments.length > 0) {
 			ensureSpace(doc, 80)
 			doc.fontSize(14).fillColor(blue).text("Vedlagte dokumenter")
 			doc.moveDown(0.3)
@@ -146,24 +160,31 @@ function buildPdf(
 			const colWidths = [280, 150, 65]
 			drawTableRow(doc, 50, colWidths, ["Filnavn", "Type", "Størrelse"], true)
 
-			for (const att of attachments) {
+			for (const att of allAttachments) {
 				ensureSpace(doc, 18)
-				drawTableRow(doc, 50, colWidths, [att.fileName.slice(0, 60), att.contentType, formatFileSize(att.data.length)])
+				const isPdf = att.contentType === "application/pdf"
+				const label = isPdf ? `${att.fileName} (se vedlagte sider)` : att.fileName
+				drawTableRow(doc, 50, colWidths, [label.slice(0, 60), att.contentType, formatFileSize(att.data.length)])
 			}
 			doc.moveDown(0.5)
-			doc.fontSize(8).fillColor(subtle).text("Dokumentene er vedlagt som vedlegg i denne PDF-filen.", { align: "left" })
+			doc
+				.fontSize(8)
+				.fillColor(subtle)
+				.text("PDF-vedlegg er lagt til som ekstra sider i dette dokumentet.", { align: "left" })
 		}
 
-		// ─── Embed attachments as PDF file attachments ────────────────
-		const now = new Date()
-		for (const att of attachments) {
-			doc.file(att.data, {
-				name: att.fileName,
-				type: att.contentType,
-				description: `Vedlegg fra rutinegjennomgang: ${att.fileName}`,
-				creationDate: now,
-				modifiedDate: now,
-			})
+		// ─── Embed non-PDF attachments as file attachments ───────────
+		if (nonPdfAttachments.length > 0) {
+			const now = new Date()
+			for (const att of nonPdfAttachments) {
+				doc.file(att.data, {
+					name: att.fileName,
+					type: att.contentType,
+					description: `Vedlegg fra rutinegjennomgang: ${att.fileName}`,
+					creationDate: now,
+					modifiedDate: now,
+				})
+			}
 		}
 
 		doc.end()
@@ -372,4 +393,23 @@ function drawTableRow(doc: PDFKit.PDFDocument, x: number, colWidths: number[], c
 
 	doc.y = y + rowHeight
 	doc.x = x
+}
+
+async function mergePdfAttachments(mainPdf: Buffer, pdfAttachments: AttachmentData[]): Promise<Buffer> {
+	const merged = await PDFLibDocument.load(mainPdf)
+
+	for (const att of pdfAttachments) {
+		try {
+			const attachedPdf = await PDFLibDocument.load(att.data)
+			const pages = await merged.copyPages(attachedPdf, attachedPdf.getPageIndices())
+			for (const page of pages) {
+				merged.addPage(page)
+			}
+		} catch {
+			// Skip corrupt/unreadable PDFs
+		}
+	}
+
+	const result = await merged.save()
+	return Buffer.from(result)
 }
