@@ -481,18 +481,35 @@ export async function generateAppComplianceReport(params: {
 		pdfAttachmentBuffers,
 	)
 
-	// Merge PDF attachments as pages
+	// Merge PDF attachments right after their cover pages
 	const pdfFiles = pdfAttachmentBuffers.filter((a) => a.contentType === "application/pdf")
 	let finalPdf: Buffer
 	if (pdfFiles.length > 0) {
 		const merged = await PDFLibDocument.load(mainPdfBuffer)
-		for (const att of pdfFiles) {
+		const totalMainPages = merged.getPageCount()
+
+		// Attachment cover pages are the last N pages (one per attachment)
+		// They appear in the same order as pdfAttachmentBuffers
+		// We need to find which cover pages correspond to PDF attachments
+		// and insert their pages right after
+		const attachmentCount = pdfAttachmentBuffers.length
+		const firstCoverPageIndex = totalMainPages - attachmentCount
+
+		// Process in reverse so page indices remain stable
+		let insertOffset = 0
+		for (let i = pdfAttachmentBuffers.length - 1; i >= 0; i--) {
+			const att = pdfAttachmentBuffers[i]
+			if (att.contentType !== "application/pdf") continue
+			const coverIndex = firstCoverPageIndex + i + insertOffset
 			try {
 				const attachedPdf = await PDFLibDocument.load(att.data)
-				const pages = await merged.copyPages(attachedPdf, attachedPdf.getPageIndices())
-				for (const page of pages) {
-					merged.addPage(page)
+				const pageIndices = attachedPdf.getPageIndices()
+				const copiedPages = await merged.copyPages(attachedPdf, pageIndices)
+				// Insert after the cover page (at coverIndex + 1)
+				for (let j = copiedPages.length - 1; j >= 0; j--) {
+					merged.insertPage(coverIndex + 1, copiedPages[j])
 				}
+				insertOffset += copiedPages.length
 			} catch {
 				// Skip corrupt PDFs
 			}
@@ -633,65 +650,77 @@ function buildAppPdf(
 			doc.moveDown(1)
 		}
 
-		// Reviews
+		// Reviews — one page per review
 		if (reviews.length > 0) {
-			doc.addPage()
-			doc.fontSize(14).fillColor(blue).text("Rutinegjennomganger")
-			doc.moveDown(0.3)
 			for (const r of reviews) {
-				if (doc.y > 700) doc.addPage()
-				doc.fontSize(11).fillColor(blue).text(r.title)
-				doc.moveDown(0.2)
-				doc.fontSize(8).fillColor(gray)
+				doc.addPage()
+				doc.fontSize(14).fillColor(blue).text("Rutinegjennomgang")
+				doc.moveDown(0.3)
+				doc.fontSize(16).fillColor(dark).text(r.title)
+				doc.moveDown(0.5)
+
+				doc.fontSize(9).fillColor(gray)
 				doc.text(`Rutine: ${r.routineName} (${getFrequencyLabel(r.routineFrequency)})`)
 				doc.text(`Dato: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
 				doc.text(`Opprettet av: ${r.createdBy}`)
-				if (r.participants.length > 0)
+				if (r.participants.length > 0) {
 					doc.text(`Deltakere: ${r.participants.map((p) => p.userName || p.userIdent).join(", ")}`)
-				if (r.attachments.length > 0) doc.text(`Vedlegg: ${r.attachments.map((a) => a.fileName).join(", ")}`)
-				if (r.summary) {
-					doc.moveDown(0.3)
-					doc.fontSize(8).fillColor(dark).text(r.summary.slice(0, 2000), { width: 495 })
 				}
-				doc.moveDown(0.8)
+				if (r.attachments.length > 0) {
+					doc.text(`Vedlegg: ${r.attachments.map((a) => a.fileName).join(", ")}`)
+				}
+
+				if (r.summary) {
+					doc.moveDown(0.8)
+					doc.fontSize(11).fillColor(blue).text("Oppsummering / referat")
+					doc.moveDown(0.3)
+					doc.fontSize(9).fillColor(dark).text(r.summary, { width: 495 })
+				}
 			}
 		}
 
-		// Attachment list
+		// Attachment cover pages + list
 		if (attachments.length > 0) {
-			if (doc.y > 700) doc.addPage()
-			doc.fontSize(14).fillColor(blue).text("Vedlagte dokumenter")
-			doc.moveDown(0.3)
-			const cw = [280, 150, 65]
-			drawRow(doc, 50, cw, ["Filnavn", "Type", "Størrelse"], true, blue, dark)
 			for (const att of attachments) {
-				if (doc.y > 760) doc.addPage()
 				const isPdf = att.contentType === "application/pdf"
-				drawRow(
-					doc,
-					50,
-					cw,
-					[
-						`${att.fileName}${isPdf ? " (vedlagte sider)" : ""}`.slice(0, 60),
-						att.contentType,
-						fmtSize(att.data.length),
-					],
-					false,
-					blue,
-					dark,
-				)
-			}
 
-			// Embed non-PDF files
-			const nonPdf = attachments.filter((a) => a.contentType !== "application/pdf")
-			const embedNow = new Date()
-			for (const att of nonPdf) {
-				doc.file(att.data, {
-					name: att.fileName,
-					type: att.contentType,
-					creationDate: embedNow,
-					modifiedDate: embedNow,
-				})
+				// Cover page for each attachment
+				doc.addPage()
+				doc.fontSize(14).fillColor(blue).text("Vedlegg")
+				doc.moveDown(0.5)
+				doc.fontSize(16).fillColor(dark).text(att.fileName)
+				doc.moveDown(0.5)
+				doc.fontSize(10).fillColor(gray)
+				doc.text(`Filtype: ${att.contentType}`)
+				doc.text(`Størrelse: ${fmtSize(att.data.length)}`)
+				doc.moveDown(1)
+
+				// Find which review this attachment belongs to
+				const parentReview = reviews.find((r) => r.attachments.some((a) => a.fileName === att.fileName))
+				if (parentReview) {
+					doc.fontSize(10).fillColor(dark)
+					doc.text(`Tilhører gjennomgang: ${parentReview.title}`)
+					doc.text(`Rutine: ${parentReview.routineName}`)
+					doc.text(`Gjennomgangsdato: ${new Date(parentReview.reviewedAt).toLocaleString("nb-NO")}`)
+				}
+
+				doc.moveDown(1)
+				if (isPdf) {
+					doc.fontSize(10).fillColor(gray).text("Dokumentet følger på neste side(r).")
+				} else {
+					doc.fontSize(10).fillColor(gray).text("Dokumentet er vedlagt som innebygd fil i denne PDF-en.")
+				}
+
+				// Embed non-PDF files directly
+				if (!isPdf) {
+					const embedNow = new Date()
+					doc.file(att.data, {
+						name: att.fileName,
+						type: att.contentType,
+						creationDate: embedNow,
+						modifiedDate: embedNow,
+					})
+				}
 			}
 		}
 
