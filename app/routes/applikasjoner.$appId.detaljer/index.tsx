@@ -772,7 +772,7 @@ export default function ApplikasjonDetalj() {
 												{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] && (
 													<Button
 														as={Link}
-														to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}/gjennomgang/ny`}
+														to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}/gjennomgang/ny?appId=${app.id}`}
 														variant="tertiary"
 														size="xsmall"
 													>

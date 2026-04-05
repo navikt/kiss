@@ -1,7 +1,7 @@
 import { Button, Heading, HStack, Label, Select, Textarea, TextField, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useLoaderData } from "react-router"
+import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownHint } from "~/components/MarkdownHint"
 import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -73,6 +73,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 export default function NyGjennomgang() {
 	const { routine, apps } = useLoaderData<typeof loader>()
+	const [searchParams] = useSearchParams()
+	const preselectedAppId = searchParams.get("appId") ?? ""
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
 	const [summaryPreview, setSummaryPreview] = useState("")
@@ -90,7 +92,13 @@ export default function NyGjennomgang() {
 				<VStack gap="space-6">
 					<TextField label="Tittel" name="title" size="small" autoComplete="off" defaultValue={defaultTitle} />
 
-					<Select label="Applikasjon" name="applicationId" size="small">
+					<Select
+						label="Applikasjon"
+						name="applicationId"
+						size="small"
+						defaultValue={preselectedAppId}
+						disabled={!!preselectedAppId}
+					>
 						<option value="">Generell (ikke applikasjonsspesifikk)</option>
 						{apps.map((app) => (
 							<option key={app.id} value={app.id}>
@@ -98,6 +106,7 @@ export default function NyGjennomgang() {
 							</option>
 						))}
 					</Select>
+					{preselectedAppId && <input type="hidden" name="applicationId" value={preselectedAppId} />}
 
 					<HStack gap="space-6" align="end">
 						<div>
