@@ -22,6 +22,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getApplicationDetail } from "~/db/queries/nais.server"
 import { getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
+import { getSections } from "~/db/queries/sections.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 import { compliancePercent } from "~/lib/utils"
@@ -67,11 +68,15 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
 	const { getApplicationElements } = await import("~/db/queries/technology-elements.server")
-	const [appElements, routineDeadlines, completedReviews] = await Promise.all([
+	const [appElements, routineDeadlines, completedReviews, allSections] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesForApp(appId),
 		getReviewsForApp(appId),
+		getSections(),
 	])
+
+	// Build section ID → slug lookup for routine links
+	const sectionSlugMap = Object.fromEntries(allSections.map((s) => [s.id, s.slug]))
 
 	const assessments = assessmentsResult?.assessments ?? []
 	const totalControls = assessments.length
@@ -92,6 +97,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		appElements,
 		routineDeadlines,
 		completedReviews,
+		sectionSlugMap,
 		compliance: {
 			totalControls,
 			implemented,
@@ -117,6 +123,7 @@ export default function ApplikasjonDetalj() {
 		appElements,
 		routineDeadlines,
 		completedReviews,
+		sectionSlugMap,
 		compliance,
 		assessments,
 	} = useLoaderData<typeof loader>()
@@ -685,6 +692,7 @@ export default function ApplikasjonDetalj() {
 										<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
 										<Table.HeaderCell>Frist</Table.HeaderCell>
 										<Table.HeaderCell>Status</Table.HeaderCell>
+										<Table.HeaderCell />
 									</Table.Row>
 								</Table.Header>
 								<Table.Body>
@@ -709,6 +717,18 @@ export default function ApplikasjonDetalj() {
 													<Tag variant="warning" size="small">
 														Ikke gjennomført
 													</Tag>
+												)}
+											</Table.DataCell>
+											<Table.DataCell>
+												{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] && (
+													<Button
+														as={Link}
+														to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}/gjennomgang/ny`}
+														variant="tertiary"
+														size="xsmall"
+													>
+														Ny gjennomgang
+													</Button>
 												)}
 											</Table.DataCell>
 										</Table.Row>
