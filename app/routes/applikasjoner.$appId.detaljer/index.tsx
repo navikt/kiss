@@ -1,4 +1,4 @@
-import { DownloadIcon, ExternalLinkIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, ExternalLinkIcon, EyeIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
@@ -6,6 +6,8 @@ import {
 	BodyShort,
 	Box,
 	Button,
+	Checkbox,
+	CheckboxGroup,
 	CopyButton,
 	Heading,
 	HStack,
@@ -15,6 +17,7 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
+import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, useActionData, useLoaderData, useNavigation, useSearchParams, useSubmit } from "react-router"
 import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
@@ -132,10 +135,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const intent = formData.get("intent")
 
 	if (intent === "generate-report") {
+		const includeReviews = formData.get("includeReviews") === "true"
+		const includeAttachments = formData.get("includeAttachments") === "true"
 		try {
 			await generateAppComplianceReport({
 				applicationId: appId,
 				createdBy: authedUser.navIdent,
+				includeReviews,
+				includeAttachments,
 			})
 			return data({ success: true, message: "Rapport generert.", error: null })
 		} catch (err) {
@@ -167,10 +174,6 @@ export default function ApplikasjonDetalj() {
 		assessments,
 		appReports,
 	} = useLoaderData<typeof loader>()
-	const submit = useSubmit()
-	const navigation = useNavigation()
-	const actionData = useActionData<typeof action>()
-	const isGenerating = navigation.state === "submitting"
 
 	const [searchParams, setSearchParams] = useSearchParams()
 	const activeTab = searchParams.get("fane") ?? "oversikt"
@@ -219,6 +222,7 @@ export default function ApplikasjonDetalj() {
 					<Tabs.Tab value="miljoer" label="Miljøer" />
 					<Tabs.Tab value="persistering" label="Persistering" />
 					<Tabs.Tab value="rutiner" label="Rutiner" />
+					<Tabs.Tab value="rapporter" label="Rapporter" />
 				</Tabs.List>
 
 				{/* Oversikt */}
@@ -261,93 +265,18 @@ export default function ApplikasjonDetalj() {
 									<BodyLong>{compliance.notAssessed}</BodyLong>
 								</VStack>
 							</HStack>
-							<VStack gap="space-4">
-								{actionData?.success && (
-									<Alert variant="success" size="small">
-										{actionData.message}
-									</Alert>
-								)}
-								{actionData && !actionData.success && actionData.error && (
-									<Alert variant="error" size="small">
-										{actionData.error}
-									</Alert>
-								)}
-								<HStack gap="space-8" align="center">
-									<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
-									<Button
-										type="button"
-										variant="primary"
-										size="small"
-										icon={<DownloadIcon aria-hidden />}
-										loading={isGenerating}
-										onClick={() => {
-											const fd = new FormData()
-											fd.set("intent", "generate-report")
-											submit(fd, { method: "post" })
-										}}
-									>
-										Generer compliance-rapport
-									</Button>
-									<Button
-										as="a"
-										href={`/api/applikasjoner/${app.id}/export-xlsx`}
-										variant="secondary"
-										size="small"
-										icon={<DownloadIcon aria-hidden />}
-									>
-										Last ned XLSX
-									</Button>
-								</HStack>
-							</VStack>
-
-							{/* Generated reports */}
-							{appReports.length > 0 && (
-								<VStack gap="space-4">
-									<Heading size="small" level="4">
-										Genererte rapporter
-									</Heading>
-									<Table size="small">
-										<Table.Header>
-											<Table.Row>
-												<Table.HeaderCell>Rapport</Table.HeaderCell>
-												<Table.HeaderCell>Generert</Table.HeaderCell>
-												<Table.HeaderCell>Av</Table.HeaderCell>
-												<Table.HeaderCell />
-											</Table.Row>
-										</Table.Header>
-										<Table.Body>
-											{appReports.map((r) => (
-												<Table.Row key={r.id}>
-													<Table.DataCell>{r.name}</Table.DataCell>
-													<Table.DataCell>
-														{new Date(r.createdAt).toLocaleString("nb-NO", {
-															day: "numeric",
-															month: "short",
-															year: "numeric",
-															hour: "2-digit",
-															minute: "2-digit",
-														})}
-													</Table.DataCell>
-													<Table.DataCell>{r.createdBy}</Table.DataCell>
-													<Table.DataCell>
-														{r.reportBucketPath && (
-															<Button
-																as="a"
-																href={`/api/rapporter/${r.id}/pdf`}
-																variant="tertiary"
-																size="xsmall"
-																icon={<DownloadIcon aria-hidden />}
-															>
-																Last ned PDF
-															</Button>
-														)}
-													</Table.DataCell>
-												</Table.Row>
-											))}
-										</Table.Body>
-									</Table>
-								</VStack>
-							)}
+							<HStack gap="space-8" align="center">
+								<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
+								<Button
+									as="a"
+									href={`/api/applikasjoner/${app.id}/export-xlsx`}
+									variant="secondary"
+									size="small"
+									icon={<DownloadIcon aria-hidden />}
+								>
+									Last ned XLSX
+								</Button>
+							</HStack>
 						</Box>
 
 						{/* Linked applications */}
@@ -912,7 +841,150 @@ export default function ApplikasjonDetalj() {
 						)}
 					</VStack>
 				</Tabs.Panel>
+
+				{/* Rapporter */}
+				<Tabs.Panel value="rapporter" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<ReportsPanel appReports={appReports} />
+				</Tabs.Panel>
 			</Tabs>
+		</VStack>
+	)
+}
+
+function ReportsPanel({
+	appReports,
+}: {
+	appReports: Array<{
+		id: string
+		name: string
+		createdAt: string
+		createdBy: string
+		reportBucketPath: string | null
+	}>
+}) {
+	const submit = useSubmit()
+	const navigation = useNavigation()
+	const actionData = useActionData<typeof action>()
+	const isGenerating = navigation.state === "submitting"
+	const [reportOptions, setReportOptions] = useState<string[]>(["includeReviews", "includeAttachments"])
+
+	return (
+		<VStack gap="space-8">
+			{/* Generate report section */}
+			<Box background="sunken" padding="space-6" borderRadius="8">
+				<Heading size="medium" level="3" spacing>
+					Generer rapport
+				</Heading>
+				<VStack gap="space-4">
+					<BodyShort>
+						Generer en compliance-rapport for denne applikasjonen som PDF. Rapporten lagres og kan lastes ned eller
+						vises senere.
+					</BodyShort>
+					<CheckboxGroup
+						legend="Inkluder i rapporten"
+						size="small"
+						value={reportOptions}
+						onChange={(val) => setReportOptions(val)}
+					>
+						<Checkbox value="includeReviews">Rutinegjennomganger</Checkbox>
+						<Checkbox value="includeAttachments">Vedlegg fra gjennomganger (flettes som sider i PDF)</Checkbox>
+					</CheckboxGroup>
+					{actionData?.success && (
+						<Alert variant="success" size="small">
+							{actionData.message}
+						</Alert>
+					)}
+					{actionData && !actionData.success && actionData.error && (
+						<Alert variant="error" size="small">
+							{actionData.error}
+						</Alert>
+					)}
+					<div>
+						<Button
+							type="button"
+							variant="primary"
+							size="small"
+							loading={isGenerating}
+							onClick={() => {
+								const fd = new FormData()
+								fd.set("intent", "generate-report")
+								fd.set("includeReviews", String(reportOptions.includes("includeReviews")))
+								fd.set("includeAttachments", String(reportOptions.includes("includeAttachments")))
+								submit(fd, { method: "post" })
+							}}
+						>
+							Generer compliance-rapport
+						</Button>
+					</div>
+				</VStack>
+			</Box>
+
+			{/* Generated reports list */}
+			<Box>
+				<Heading size="medium" level="3" spacing>
+					Genererte rapporter
+				</Heading>
+				{appReports.length === 0 ? (
+					<BodyShort>Ingen rapporter er generert ennå.</BodyShort>
+				) : (
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell>Rapport</Table.HeaderCell>
+								<Table.HeaderCell>Generert</Table.HeaderCell>
+								<Table.HeaderCell>Av</Table.HeaderCell>
+								<Table.HeaderCell>Vis</Table.HeaderCell>
+								<Table.HeaderCell>Last ned</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{appReports.map((r) => (
+								<Table.Row key={r.id}>
+									<Table.DataCell>{r.name}</Table.DataCell>
+									<Table.DataCell>
+										{new Date(r.createdAt).toLocaleString("nb-NO", {
+											day: "numeric",
+											month: "short",
+											year: "numeric",
+											hour: "2-digit",
+											minute: "2-digit",
+										})}
+									</Table.DataCell>
+									<Table.DataCell>{r.createdBy}</Table.DataCell>
+									<Table.DataCell>
+										{r.reportBucketPath && (
+											<Button
+												as="a"
+												href={`/api/rapporter/${r.id}/pdf`}
+												target="_blank"
+												rel="noopener noreferrer"
+												variant="tertiary"
+												size="xsmall"
+												icon={<EyeIcon aria-hidden />}
+											>
+												Vis
+											</Button>
+										)}
+									</Table.DataCell>
+									<Table.DataCell>
+										{r.reportBucketPath && (
+											<Button
+												as="a"
+												href={`/api/rapporter/${r.id}/pdf?download=true`}
+												variant="tertiary"
+												size="xsmall"
+												icon={<DownloadIcon aria-hidden />}
+											>
+												Last ned
+											</Button>
+										)}
+									</Table.DataCell>
+								</Table.Row>
+							))}
+						</Table.Body>
+					</Table>
+				)}
+			</Box>
 		</VStack>
 	)
 }

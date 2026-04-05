@@ -355,8 +355,10 @@ export async function generateComplianceReport(params: {
 export async function generateAppComplianceReport(params: {
 	applicationId: string
 	createdBy: string
+	includeReviews?: boolean
+	includeAttachments?: boolean
 }): Promise<string> {
-	const { applicationId, createdBy } = params
+	const { applicationId, createdBy, includeReviews = true, includeAttachments = true } = params
 
 	// Dynamic imports to avoid circular deps and keep pdfkit server-only
 	const { getAppAssessments } = await import("./applications.server")
@@ -372,10 +374,12 @@ export async function generateAppComplianceReport(params: {
 
 	// Reviews may fail if routine tables don't exist yet
 	let reviews: Awaited<ReturnType<typeof getReviewsForApp>> = []
-	try {
-		reviews = await getReviewsForApp(applicationId)
-	} catch {
-		// Routine tables may not exist
+	if (includeReviews) {
+		try {
+			reviews = await getReviewsForApp(applicationId)
+		} catch {
+			// Routine tables may not exist
+		}
 	}
 
 	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
@@ -447,13 +451,15 @@ export async function generateAppComplianceReport(params: {
 
 	// Download attachment files for embedding in PDF
 	const pdfAttachmentBuffers: Array<{ fileName: string; contentType: string; data: Buffer }> = []
-	for (const review of completedReviews) {
-		for (const att of review.attachments) {
-			try {
-				const buf = await storage.download(att.bucketPath)
-				pdfAttachmentBuffers.push({ fileName: att.fileName, contentType: att.contentType, data: buf })
-			} catch {
-				// Skip unreadable attachments
+	if (includeAttachments) {
+		for (const review of completedReviews) {
+			for (const att of review.attachments) {
+				try {
+					const buf = await storage.download(att.bucketPath)
+					pdfAttachmentBuffers.push({ fileName: att.fileName, contentType: att.contentType, data: buf })
+				} catch {
+					// Skip unreadable attachments
+				}
 			}
 		}
 	}

@@ -33,15 +33,18 @@ interface ReportSnapshot {
 
 import { getStatusLabel } from "~/lib/compliance-status"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
 	const rapportId = params.rapportId
 	if (!rapportId) throw new Response("Mangler rapport-ID", { status: 400 })
 
 	const report = await getReport(rapportId)
 	if (!report) throw new Response("Rapport ikke funnet", { status: 404 })
 
+	const url = new URL(request.url)
+	const forceDownload = url.searchParams.get("download") === "true"
 	const storage = getStorageProvider()
 	const safeName = report.name.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_")
+	const disposition = forceDownload ? `attachment; filename="${safeName}.pdf"` : `inline; filename="${safeName}.pdf"`
 
 	// App compliance reports store the PDF directly in the bucket
 	if (report.reportType === "app_compliance" && report.reportBucketPath?.endsWith(".pdf")) {
@@ -50,7 +53,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			return new Response(new Uint8Array(pdfBuffer), {
 				headers: {
 					"Content-Type": "application/pdf",
-					"Content-Disposition": `attachment; filename="${safeName}.pdf"`,
+					"Content-Disposition": disposition,
 				},
 			})
 		} catch {
@@ -72,7 +75,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	return new Response(new Uint8Array(pdfBuffer), {
 		headers: {
 			"Content-Type": "application/pdf",
-			"Content-Disposition": `attachment; filename="${safeName}.pdf"`,
+			"Content-Disposition": disposition,
 		},
 	})
 }
