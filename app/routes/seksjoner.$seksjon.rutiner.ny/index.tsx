@@ -79,7 +79,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		createdBy: authedUser.navIdent,
 	})
 
-	return redirect(`../rutiner/${routine.id}`)
+	return redirect(`/seksjoner/${seksjon}/rutiner/${routine.id}`)
 }
 
 export default function NyRutine() {

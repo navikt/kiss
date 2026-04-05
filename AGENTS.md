@@ -131,6 +131,11 @@ Når nye ruter introduseres:
 2. **Verifiser at alle lenker peker til registrerte ruter** – sjekk at `to`-proppen i `<Link>` og `<Button as={Link}>` matcher et mønster i `routes.ts`
 3. **Test at ruten svarer med HTTP 200** før commit – bruk `curl -s -o /dev/null -w '%{http_code}' <url>`
 4. **Sjekk at lenker fra eksisterende sider fungerer** – navigasjonsflyt skal testes ende-til-ende
+5. **Alle `redirect()`-kall skal bruke absolutte stier** – relative stier som `../rutiner/` kan resolveres feil avhengig av kontekst. Bruk alltid absolutte stier som `/seksjoner/${seksjon}/rutiner/${id}`.
+6. **Automatiserte tester SKAL opprettes** for å verifisere:
+   - At alle ruter definert i `routes.ts` har en tilhørende rutefil
+   - At alle `redirect()`-kall i action-funksjoner peker til ruter som finnes i `routes.ts`
+   - At alle `<Link to="...">` og `<Button as={Link} to="...">` i rutekomponenter peker til gyldige ruter
 
 ### Branch-strategi
 - All utvikling skjer i feature branches
