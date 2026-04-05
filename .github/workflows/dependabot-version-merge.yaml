@@ -1,0 +1,62 @@
+name: Dependabot Version Auto-merge (7-day cooldown)
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # Daglig kl. 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge-versions:
+    name: Auto-merge Version Updates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find and merge eligible Dependabot PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COOLDOWN_DAYS: 7
+        run: |
+          REPO="${{ github.repository }}"
+          CUTOFF_DATE=$(date -u -d "-${COOLDOWN_DAYS} days" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-${COOLDOWN_DAYS}d +%Y-%m-%dT%H:%M:%SZ)
+
+          echo "Looking for Dependabot PRs created before ${CUTOFF_DATE}"
+
+          # List open Dependabot PRs
+          PRS=$(gh pr list --repo "$REPO" --author "app/dependabot" --state open --json number,createdAt,title --jq '.[]')
+
+          if [ -z "$PRS" ]; then
+            echo "No open Dependabot PRs found."
+            exit 0
+          fi
+
+          echo "$PRS" | while IFS= read -r PR_JSON; do
+            [ -z "$PR_JSON" ] && continue
+            NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+            CREATED=$(echo "$PR_JSON" | jq -r '.createdAt')
+            TITLE=$(echo "$PR_JSON" | jq -r '.title')
+
+            echo "Checking PR #${NUMBER}: ${TITLE} (created: ${CREATED})"
+
+            # Check if PR is old enough
+            if [[ "$CREATED" > "$CUTOFF_DATE" ]]; then
+              echo "  → Skipping: less than ${COOLDOWN_DAYS} days old"
+              continue
+            fi
+
+            echo "  → Eligible for auto-merge (${COOLDOWN_DAYS}+ days old)"
+
+            # Check CI status
+            CI_STATUS=$(gh pr checks "$NUMBER" --repo "$REPO" --json name,state --jq '[.[] | select(.name != "Auto-merge Version Updates" and .name != "Auto-merge Security Updates")] | all(.state == "SUCCESS")')
+
+            if [ "$CI_STATUS" != "true" ]; then
+              echo "  → Skipping: CI checks not all passing"
+              continue
+            fi
+
+            echo "  → Approving and enabling auto-merge"
+            gh pr review --approve "$NUMBER" --repo "$REPO" || true
+            gh pr merge --auto --squash "$NUMBER" --repo "$REPO" || true
+          done
