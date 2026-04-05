@@ -13,7 +13,7 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router"
+import { data, Link, redirect, useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router"
 import { MarkdownHint } from "~/components/MarkdownHint"
 import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -153,13 +153,15 @@ export default function NyGjennomgang() {
 
 	async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
 		event.preventDefault()
-		setSubmitting(true)
-		const formData = new FormData(event.currentTarget)
+		const form = event.currentTarget
+		const formData = new FormData(form)
+		const action = form.action || window.location.href
 		for (const accepted of acceptedFiles) {
 			formData.append("attachments", accepted.file)
 		}
+		setSubmitting(true)
 		try {
-			const response = await fetch(event.currentTarget.action || window.location.href, {
+			const response = await fetch(action, {
 				method: "POST",
 				body: formData,
 			})
@@ -184,7 +186,7 @@ export default function NyGjennomgang() {
 
 			{actionData && !actionData.success && <Alert variant="error">{actionData.error}</Alert>}
 
-			<Form method="post" onSubmit={handleSubmit}>
+			<form method="post" onSubmit={handleSubmit}>
 				<VStack gap="space-6">
 					<TextField label="Tittel" name="title" size="small" autoComplete="off" defaultValue={defaultTitle} />
 
@@ -307,7 +309,7 @@ export default function NyGjennomgang() {
 						</Button>
 					</HStack>
 				</VStack>
-			</Form>
+			</form>
 		</VStack>
 	)
 }
