@@ -436,6 +436,7 @@ export async function generateAppComplianceReport(params: {
 		reviews: completedReviews.map((r) => ({
 			id: r.id,
 			title: r.title,
+			routineId: r.routineId,
 			routineName: r.routineName,
 			routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
 			routineFrequency: r.routineFrequency,
@@ -587,6 +588,7 @@ function buildAppPdf(
 		summary: string | null
 		reviewedAt: Date
 		createdBy: string
+		routineId: string
 		routineName: string
 		routineDescription: string | null
 		routineFrequency: string
@@ -664,39 +666,82 @@ function buildAppPdf(
 			doc.moveDown(1)
 		}
 
-		// Reviews — one page per review
+		// Reviews — grouped by routine
 		if (reviews.length > 0) {
+			// Group reviews by routineId
+			const routineGroups = new Map<
+				string,
+				{
+					routineName: string
+					routineDescription: string | null
+					routineFrequency: string
+					reviews: typeof reviews
+				}
+			>()
 			for (const r of reviews) {
+				const key = r.routineId
+				if (!routineGroups.has(key)) {
+					routineGroups.set(key, {
+						routineName: r.routineName,
+						routineDescription: r.routineDescription,
+						routineFrequency: r.routineFrequency,
+						reviews: [],
+					})
+				}
+				routineGroups.get(key)!.reviews.push(r)
+			}
+
+			for (const [, group] of routineGroups) {
+				// Routine cover page
 				doc.addPage()
-				doc.fontSize(14).fillColor(blue).text("Rutinegjennomgang")
+				doc.fontSize(14).fillColor(blue).text("Rutine")
 				doc.moveDown(0.3)
-				doc.fontSize(16).fillColor(dark).text(r.title)
+				doc.fontSize(16).fillColor(dark).text(group.routineName)
+				doc.moveDown(0.3)
+				doc
+					.fontSize(9)
+					.fillColor(gray)
+					.text(`Frekvens: ${getFrequencyLabel(group.routineFrequency)}`)
 				doc.moveDown(0.5)
 
-				doc.fontSize(9).fillColor(gray)
-				doc.text(`Rutine: ${r.routineName} (${getFrequencyLabel(r.routineFrequency)})`)
-				if (r.routineDescription) {
-					doc.moveDown(0.3)
-					doc.fontSize(10).fillColor(dark).text("Rutinebeskrivelse", { underline: true })
+				if (group.routineDescription) {
+					doc.fontSize(10).fillColor(dark).text("Beskrivelse", { underline: true })
 					doc.moveDown(0.2)
-					renderMarkdownToPdf(doc, r.routineDescription, { width: 495 })
-					doc.moveDown(0.3)
-					doc.fillColor(gray)
-				}
-				doc.text(`Dato: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
-				doc.text(`Opprettet av: ${r.createdBy}`)
-				if (r.participants.length > 0) {
-					doc.text(`Deltakere: ${r.participants.map((p) => p.userName || p.userIdent).join(", ")}`)
-				}
-				if (r.attachments.length > 0) {
-					doc.text(`Vedlegg: ${r.attachments.map((a) => a.fileName).join(", ")}`)
+					renderMarkdownToPdf(doc, group.routineDescription, { width: 495 })
+					doc.moveDown(0.5)
 				}
 
-				if (r.summary) {
-					doc.moveDown(0.8)
-					doc.fontSize(11).fillColor(blue).text("Oppsummering / referat")
+				doc.fontSize(11).fillColor(blue).text(`Gjennomganger (${group.reviews.length})`)
+				doc.moveDown(0.5)
+
+				// Each review
+				for (const r of group.reviews) {
+					if (doc.y > 680) doc.addPage()
+
+					doc.fontSize(12).fillColor(dark).text(r.title)
 					doc.moveDown(0.3)
-					renderMarkdownToPdf(doc, r.summary, { width: 495 })
+					doc.fontSize(9).fillColor(gray)
+					doc.text(`Dato: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
+					doc.text(`Opprettet av: ${r.createdBy}`)
+					if (r.participants.length > 0) {
+						doc.text(`Deltakere: ${r.participants.map((p) => p.userName || p.userIdent).join(", ")}`)
+					}
+					if (r.attachments.length > 0) {
+						doc.text(`Vedlegg: ${r.attachments.map((a) => a.fileName).join(", ")}`)
+					}
+
+					if (r.summary) {
+						doc.moveDown(0.5)
+						doc.fontSize(10).fillColor(blue).text("Oppsummering / referat")
+						doc.moveDown(0.2)
+						renderMarkdownToPdf(doc, r.summary, { width: 495 })
+					}
+
+					doc.moveDown(1)
+					// Separator line between reviews
+					const sepY = doc.y
+					doc.save().moveTo(50, sepY).lineTo(545, sepY).strokeColor("#dddddd").lineWidth(0.5).stroke().restore()
+					doc.moveDown(0.5)
 				}
 			}
 		}
