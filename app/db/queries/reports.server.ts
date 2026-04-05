@@ -1,5 +1,6 @@
 import { desc, eq, isNull, sql } from "drizzle-orm"
 import { getStatusLabel } from "../../lib/compliance-status"
+import { getFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
@@ -7,9 +8,11 @@ import { complianceAssessments } from "../schema/compliance"
 import { frameworkControls, frameworkDomains, frameworkRiskControlMappings, frameworkRisks } from "../schema/framework"
 import { devTeams, sections } from "../schema/organization"
 import { reports } from "../schema/reports"
+import { routineReviews, routines } from "../schema/routines"
 import { writeAuditLog } from "./audit.server"
 import { saveBucketObject } from "./buckets.server"
 import { getActiveFrameworkVersion } from "./framework.server"
+import { calculateDeadline, getAppsRequiringRoutine, getLatestReviewForApp, isOverdue } from "./routines.server"
 
 /** Get all reports ordered by newest first. */
 export async function getReports() {
@@ -186,6 +189,53 @@ export async function generateComplianceReport(params: {
 	const appVersion = "0.1.0"
 	const reportName = `Compliance-rapport – ${scopeLabel} – ${now.toLocaleDateString("nb-NO")}`
 
+	// 6b. Gather routine status for apps in scope
+	const routineRows: Array<{
+		appName: string
+		routineName: string
+		frequency: string
+		lastReview: string | null
+		deadline: string
+		status: string
+	}> = []
+
+	// Get routines for the scoped section, or all routines for "all" scope
+	let scopedRoutines: Array<{ id: string; name: string; frequency: string; createdAt: Date }>
+	if (scope === "section" && scopeId) {
+		scopedRoutines = await db
+			.select({ id: routines.id, name: routines.name, frequency: routines.frequency, createdAt: routines.createdAt })
+			.from(routines)
+			.where(eq(routines.sectionId, scopeId))
+	} else {
+		scopedRoutines = await db
+			.select({ id: routines.id, name: routines.name, frequency: routines.frequency, createdAt: routines.createdAt })
+			.from(routines)
+	}
+
+	for (const routine of scopedRoutines) {
+		const requiredApps = await getAppsRequiringRoutine(routine.id)
+		const appsInScope = requiredApps.filter((a) => apps.some((sa) => sa.id === a.id))
+
+		for (const app of appsInScope) {
+			const lastReview = await getLatestReviewForApp(routine.id, app.id)
+			const deadline = calculateDeadline(
+				lastReview?.reviewedAt ?? null,
+				routine.createdAt,
+				routine.frequency as RoutineFrequency,
+			)
+			const overdue = isOverdue(deadline)
+
+			routineRows.push({
+				appName: app.name,
+				routineName: routine.name,
+				frequency: getFrequencyLabel(routine.frequency),
+				lastReview: lastReview?.reviewedAt?.toISOString() ?? null,
+				deadline: deadline.toISOString(),
+				status: overdue ? "Over frist" : lastReview ? "OK" : "Ikke gjennomført",
+			})
+		}
+	}
+
 	// 7. Build snapshot JSON
 	const snapshot = {
 		generatedAt: timestamp,
@@ -206,6 +256,7 @@ export async function generateComplianceReport(params: {
 			unassessed: totalAssessments - assessed.length,
 		},
 		rows: allRows,
+		routineRows,
 	}
 
 	const storage = getStorageProvider()
@@ -245,6 +296,7 @@ export async function generateComplianceReport(params: {
 		pct,
 		domainStats,
 		allRows,
+		routineRows,
 	})
 
 	// 10. Upload HTML report
@@ -323,6 +375,14 @@ function buildReportHtml(data: {
 		assessedBy: string | null
 		assessedAt: string | null
 	}>
+	routineRows: Array<{
+		appName: string
+		routineName: string
+		frequency: string
+		lastReview: string | null
+		deadline: string
+		status: string
+	}>
 }): string {
 	const domainRowsHtml = [...data.domainStats.entries()]
 		.map(
@@ -349,6 +409,20 @@ function buildReportHtml(data: {
 				<td>${escapeHtml(row.domainCode)}</td>
 				<td>${escapeHtml(getStatusLabel(row.status))}</td>
 				<td>${escapeHtml(row.comment ?? "")}</td>
+			</tr>`,
+		)
+		.join("")
+
+	const routineRowsHtml = data.routineRows
+		.map(
+			(row) => `
+			<tr>
+				<td>${escapeHtml(row.appName)}</td>
+				<td>${escapeHtml(row.routineName)}</td>
+				<td>${escapeHtml(row.frequency)}</td>
+				<td>${row.lastReview ? new Date(row.lastReview).toLocaleDateString("nb-NO") : "Aldri"}</td>
+				<td>${new Date(row.deadline).toLocaleDateString("nb-NO")}</td>
+				<td>${escapeHtml(row.status)}</td>
 			</tr>`,
 		)
 		.join("")
@@ -422,6 +496,26 @@ function buildReportHtml(data: {
 		</thead>
 		<tbody>${detailRowsHtml}</tbody>
 	</table>
+${
+	data.routineRows.length > 0
+		? `
+	<h2>Rutinestatus</h2>
+	<table>
+		<thead>
+			<tr>
+				<th>Applikasjon</th>
+				<th>Rutine</th>
+				<th>Frekvens</th>
+				<th>Siste gjennomgang</th>
+				<th>Frist</th>
+				<th>Status</th>
+			</tr>
+		</thead>
+		<tbody>${routineRowsHtml}</tbody>
+	</table>
+`
+		: ""
+}
 </body>
 </html>`
 }
