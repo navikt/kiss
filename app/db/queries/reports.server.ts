@@ -1,5 +1,6 @@
 import { desc, eq, isNull, sql } from "drizzle-orm"
 import { getStatusLabel } from "../../lib/compliance-status"
+import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
@@ -678,7 +679,7 @@ function buildAppPdf(
 					doc.moveDown(0.3)
 					doc.fontSize(10).fillColor(dark).text("Rutinebeskrivelse", { underline: true })
 					doc.moveDown(0.2)
-					doc.fontSize(9).fillColor(dark).text(r.routineDescription, { width: 495 })
+					renderMarkdownToPdf(doc, r.routineDescription, { width: 495 })
 					doc.moveDown(0.3)
 					doc.fillColor(gray)
 				}
@@ -695,7 +696,7 @@ function buildAppPdf(
 					doc.moveDown(0.8)
 					doc.fontSize(11).fillColor(blue).text("Oppsummering / referat")
 					doc.moveDown(0.3)
-					doc.fontSize(9).fillColor(dark).text(r.summary, { width: 495 })
+					renderMarkdownToPdf(doc, r.summary, { width: 495 })
 				}
 			}
 		}

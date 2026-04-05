@@ -6,6 +6,7 @@ import {
 	CheckboxGroup,
 	Heading,
 	HStack,
+	Label,
 	Modal,
 	Select,
 	Textarea,
@@ -15,6 +16,8 @@ import {
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
+import { MarkdownHint } from "~/components/MarkdownHint"
+import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { deleteRoutine, getRoutine, updateRoutine } from "~/db/queries/routines.server"
 import { getChoicesForQuestion, getScreeningQuestions } from "~/db/queries/screening.server"
@@ -106,6 +109,7 @@ export default function RedigerRutine() {
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
 
 	const [selectedQuestionId, setSelectedQuestionId] = useState<string>(routine.screeningQuestionId ?? "")
+	const [descriptionPreview, setDescriptionPreview] = useState(routine.description ?? "")
 
 	const selectedQuestion = questionsWithChoices.find((q) => q.id === selectedQuestionId)
 
@@ -122,7 +126,25 @@ export default function RedigerRutine() {
 				<input type="hidden" name="intent" value="update" />
 				<VStack gap="space-4">
 					<TextField label="Navn" name="name" defaultValue={routine.name} size="small" autoComplete="off" />
-					<Textarea label="Beskrivelse" name="description" defaultValue={routine.description ?? ""} size="small" />
+					<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
+						<VStack style={{ flex: 1, minWidth: "20rem" }}>
+							<Textarea
+								label="Beskrivelse"
+								name="description"
+								defaultValue={routine.description ?? ""}
+								size="small"
+								minRows={6}
+								onChange={(e) => setDescriptionPreview(e.target.value)}
+							/>
+							<MarkdownHint />
+						</VStack>
+						<VStack style={{ flex: 1, minWidth: "20rem", alignSelf: "stretch" }}>
+							<Label size="small" spacing>
+								Forhåndsvisning
+							</Label>
+							<MarkdownPreview content={descriptionPreview} />
+						</VStack>
+					</HStack>
 					<Select label="Frekvens" name="frequency" defaultValue={routine.frequency} size="small">
 						{ROUTINE_FREQUENCIES.map((freq) => (
 							<option key={freq} value={freq}>

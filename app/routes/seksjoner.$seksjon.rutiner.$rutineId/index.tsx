@@ -12,6 +12,7 @@ import {
 } from "~/db/queries/routines.server"
 import { getScreeningQuestion } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
@@ -80,11 +81,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		reviews,
 		appsWithDeadlines,
 		screeningQuestion,
+		descriptionHtml: renderMarkdown(routine.description),
 	})
 }
 
 export default function RutineDetaljer() {
-	const { section, routine, reviews, appsWithDeadlines, screeningQuestion } = useLoaderData<typeof loader>()
+	const { section, routine, reviews, appsWithDeadlines, screeningQuestion, descriptionHtml } =
+		useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-12">
@@ -109,10 +112,11 @@ export default function RutineDetaljer() {
 
 			{/* Info section */}
 			<VStack gap="space-6">
-				{routine.description && (
+				{descriptionHtml && (
 					<VStack gap="space-2">
 						<Label size="small">Beskrivelse</Label>
-						<BodyLong>{routine.description}</BodyLong>
+						{/* biome-ignore lint/security/noDangerouslySetInnerHtml: server-sanitized markdown */}
+						<div className="markdown-content" dangerouslySetInnerHTML={{ __html: descriptionHtml }} />
 					</VStack>
 				)}
 
