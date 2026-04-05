@@ -79,10 +79,13 @@ export default function NyGjennomgang() {
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
 	const [summaryPreview, setSummaryPreview] = useState("")
 
+	const backUrl = preselectedAppId ? `/applikasjoner/${preselectedAppId}/detaljer?fane=rutiner` : "../.."
+	const backLabel = preselectedAppId ? "← Tilbake til applikasjon" : `← Tilbake til ${routine.name}`
+
 	return (
 		<VStack gap="space-8">
 			<div>
-				<Link to="../..">← Tilbake til {routine.name}</Link>
+				<Link to={backUrl}>{backLabel}</Link>
 				<Heading size="xlarge" level="2" spacing>
 					Ny gjennomgang — {routine.name}
 				</Heading>
@@ -166,7 +169,7 @@ export default function NyGjennomgang() {
 						<Button type="submit" variant="primary" size="small">
 							Opprett utkast
 						</Button>
-						<Button as={Link} to="../.." variant="tertiary" size="small">
+						<Button as={Link} to={backUrl} variant="tertiary" size="small">
 							Avbryt
 						</Button>
 					</HStack>
