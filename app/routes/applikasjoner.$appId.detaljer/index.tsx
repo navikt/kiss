@@ -888,7 +888,11 @@ function ReportsPanel({
 	const navigation = useNavigation()
 	const actionData = useActionData<typeof action>()
 	const isGenerating = navigation.state === "submitting"
-	const [reportOptions, setReportOptions] = useState<string[]>(["includeReviews", "includeAttachments"])
+	const [reportOptions, setReportOptions] = useState<string[]>([
+		"includeReviews",
+		"includeRoutineDescription",
+		"includeAttachments",
+	])
 	const includeReviews = reportOptions.includes("includeReviews")
 
 	const completed = completedReviews.filter((r) => r.status === "completed")
