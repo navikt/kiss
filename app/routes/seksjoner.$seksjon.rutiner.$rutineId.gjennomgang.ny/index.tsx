@@ -141,6 +141,7 @@ export default function NyGjennomgang() {
 	const navigation = useNavigation()
 	const submit = useSubmit()
 	const today = new Date().toISOString().split("T")[0]
+	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
 	const isSubmitting = navigation.state === "submitting"
 
 	const [files, setFiles] = useState<(FileObject | FileRejected)[]>([])
@@ -170,7 +171,7 @@ export default function NyGjennomgang() {
 
 			<Form method="post" onSubmit={handleSubmit}>
 				<VStack gap="space-6">
-					<TextField label="Tittel" name="title" size="small" autoComplete="off" />
+					<TextField label="Tittel" name="title" size="small" autoComplete="off" defaultValue={defaultTitle} />
 
 					<Select label="Applikasjon" name="applicationId" size="small">
 						<option value="">Generell (ikke applikasjonsspesifikk)</option>
