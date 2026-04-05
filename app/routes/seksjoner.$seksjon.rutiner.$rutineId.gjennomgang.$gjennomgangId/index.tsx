@@ -186,12 +186,12 @@ export default function GjennomgangDetalj() {
 				</VStack>
 			)}
 
-			{/* Attachments */}
-			{review.attachments.length > 0 && (
-				<VStack gap="space-4">
-					<Heading size="medium" level="3">
-						Vedlegg ({review.attachments.length})
-					</Heading>
+			{/* Vedlegg */}
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Vedlegg
+				</Heading>
+				{review.attachments.length > 0 ? (
 					<Table size="small">
 						<Table.Header>
 							<Table.Row>
@@ -226,8 +226,12 @@ export default function GjennomgangDetalj() {
 							))}
 						</Table.Body>
 					</Table>
-				</VStack>
-			)}
+				) : (
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<BodyShort>Ingen vedlegg er lagt til denne gjennomgangen.</BodyShort>
+					</Box>
+				)}
+			</VStack>
 		</VStack>
 	)
 }
