@@ -716,7 +716,7 @@ function buildAppPdf(
 
 				// Each review
 				for (const r of group.reviews) {
-					if (doc.y > 680) doc.addPage()
+					doc.addPage()
 
 					doc.fontSize(12).fillColor(dark).text(r.title)
 					doc.moveDown(0.3)
@@ -736,12 +736,6 @@ function buildAppPdf(
 						doc.moveDown(0.2)
 						renderMarkdownToPdf(doc, r.summary, { width: 495 })
 					}
-
-					doc.moveDown(1)
-					// Separator line between reviews
-					const sepY = doc.y
-					doc.save().moveTo(50, sepY).lineTo(545, sepY).strokeColor("#dddddd").lineWidth(0.5).stroke().restore()
-					doc.moveDown(0.5)
 				}
 			}
 		}
