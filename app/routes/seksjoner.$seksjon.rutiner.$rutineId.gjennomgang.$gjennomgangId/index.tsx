@@ -14,14 +14,24 @@ import {
 	Label,
 	Table,
 	Tag,
+	Textarea,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData, useNavigation, useRevalidator, useSubmit } from "react-router"
+import { MarkdownHint } from "~/components/MarkdownHint"
+import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { addReviewLink, completeReview, deleteReviewLink, getReview, getRoutine } from "~/db/queries/routines.server"
+import {
+	addReviewLink,
+	completeReview,
+	deleteReviewLink,
+	getReview,
+	getRoutine,
+	updateReview,
+} from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -101,6 +111,37 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
+
+	if (intent === "update-review") {
+		const title = (formData.get("title") as string)?.trim()
+		const summary = (formData.get("summary") as string)?.trim() || null
+		const reviewedAt = formData.get("reviewedAt") as string
+		const reviewedTime = (formData.get("reviewedTime") as string) || "00:00"
+		const participantsRaw = (formData.get("participants") as string)?.trim() || ""
+
+		if (!title) {
+			return data<ActionResult>({ success: false, error: "Tittel er påkrevd", intent: "update-review" })
+		}
+
+		const participants = participantsRaw
+			.split(",")
+			.map((ident) => ident.trim())
+			.filter(Boolean)
+			.map((ident) => ({ userIdent: ident, userName: ident }))
+
+		await updateReview(
+			gjennomgangId,
+			{
+				title,
+				summary,
+				reviewedAt: reviewedAt ? new Date(`${reviewedAt}T${reviewedTime}`) : undefined,
+				participants,
+			},
+			authedUser.navIdent,
+		)
+
+		return data<ActionResult>({ success: true, message: "Gjennomgang oppdatert.", intent: "update-review" })
+	}
 
 	if (intent === "complete") {
 		const review = await getReview(gjennomgangId)
@@ -418,14 +459,26 @@ function CompleteSection() {
 
 export default function GjennomgangDetalj() {
 	const { section, routine, review } = useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
 	const confirmedCount = review.participants.filter((p) => p.confirmedAt).length
 	const isDraft = review.status === "draft"
+	const [summaryPreview, setSummaryPreview] = useState(review.summary ?? "")
+
+	const reviewDate = new Date(review.reviewedAt)
+	const defaultDate = reviewDate.toISOString().split("T")[0]
+	const defaultTime = reviewDate.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })
 
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
 			<div>
 				<Detail>
-					<Link to={`/seksjoner/${section.slug}/rutiner/${routine.id}`}>← Tilbake til {routine.name}</Link>
+					{review.applicationId ? (
+						<Link to={`/applikasjoner/${review.applicationId}/detaljer?fane=rutiner`}>
+							← Tilbake til {review.applicationName ?? "applikasjon"}
+						</Link>
+					) : (
+						<Link to={`/seksjoner/${section.slug}/rutiner/${routine.id}`}>← Tilbake til {routine.name}</Link>
+					)}
 				</Detail>
 				<HStack gap="space-4" align="center">
 					<Heading size="xlarge" level="2">
@@ -443,60 +496,178 @@ export default function GjennomgangDetalj() {
 				</HStack>
 			</div>
 
-			{/* Metadata */}
-			<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-				<HStack gap="space-12" wrap>
-					<VStack gap="space-2">
-						<Label size="small">Rutine</Label>
-						<BodyShort>
-							<AkselLink as={Link} to={`/seksjoner/${section.slug}/rutiner/${routine.id}`}>
-								{routine.name}
-							</AkselLink>
-						</BodyShort>
+			{isDraft ? (
+				/* Editable form for drafts */
+				<Form method="post">
+					<input type="hidden" name="intent" value="update-review" />
+					<VStack gap="space-6">
+						<TextField label="Tittel" name="title" size="small" autoComplete="off" defaultValue={review.title} />
+
+						{/* Metadata (read-only info + editable date) */}
+						<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+							<VStack gap="space-4">
+								<HStack gap="space-12" wrap>
+									<VStack gap="space-2">
+										<Label size="small">Rutine</Label>
+										<BodyShort>
+											<AkselLink as={Link} to={`/seksjoner/${section.slug}/rutiner/${routine.id}`}>
+												{routine.name}
+											</AkselLink>
+										</BodyShort>
+									</VStack>
+									<VStack gap="space-2">
+										<Label size="small">Frekvens</Label>
+										<BodyShort>{getFrequencyLabel(routine.frequency)}</BodyShort>
+									</VStack>
+									{review.applicationId && (
+										<VStack gap="space-2">
+											<Label size="small">Applikasjon</Label>
+											<BodyShort>
+												<AkselLink as={Link} to={`/applikasjoner/${review.applicationId}/detaljer`}>
+													{review.applicationName ?? review.applicationId}
+												</AkselLink>
+											</BodyShort>
+										</VStack>
+									)}
+									<VStack gap="space-2">
+										<Label size="small">Opprettet av</Label>
+										<BodyShort>{review.createdBy}</BodyShort>
+									</VStack>
+								</HStack>
+								<HStack gap="space-6" align="end">
+									<div>
+										<Label size="small" htmlFor="reviewedAt">
+											Dato for gjennomgang
+										</Label>
+										<input
+											type="date"
+											id="reviewedAt"
+											name="reviewedAt"
+											defaultValue={defaultDate}
+											className="navds-text-field__input navds-body-short navds-body-short--small"
+										/>
+									</div>
+									<div>
+										<Label size="small" htmlFor="reviewedTime">
+											Tidspunkt
+										</Label>
+										<input
+											type="time"
+											id="reviewedTime"
+											name="reviewedTime"
+											defaultValue={defaultTime}
+											className="navds-text-field__input navds-body-short navds-body-short--small"
+										/>
+									</div>
+								</HStack>
+							</VStack>
+						</Box>
+
+						<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
+							<VStack style={{ flex: 1, minWidth: "20rem" }}>
+								<Textarea
+									label="Oppsummering/referat"
+									name="summary"
+									size="small"
+									minRows={6}
+									defaultValue={review.summary ?? ""}
+									onChange={(e) => setSummaryPreview(e.target.value)}
+								/>
+								<MarkdownHint />
+							</VStack>
+							<VStack style={{ flex: 1, minWidth: "20rem", alignSelf: "stretch" }}>
+								<Label size="small" spacing>
+									Forhåndsvisning
+								</Label>
+								<MarkdownPreview content={summaryPreview} />
+							</VStack>
+						</HStack>
+
+						<TextField
+							label="Deltakere"
+							name="participants"
+							size="small"
+							description="Kommaseparert liste med NAV-identer"
+							autoComplete="off"
+							defaultValue={review.participants.map((p) => p.userIdent).join(", ")}
+						/>
+
+						{actionData?.intent === "update-review" && actionData.success && (
+							<Alert variant="success" size="small">
+								{actionData.message}
+							</Alert>
+						)}
+						{actionData?.intent === "update-review" && actionData.error && (
+							<Alert variant="error" size="small">
+								{actionData.error}
+							</Alert>
+						)}
+
+						<HStack>
+							<Button type="submit" variant="primary" size="small">
+								Lagre endringer
+							</Button>
+						</HStack>
 					</VStack>
-					<VStack gap="space-2">
-						<Label size="small">Frekvens</Label>
-						<BodyShort>{getFrequencyLabel(routine.frequency)}</BodyShort>
-					</VStack>
-					<VStack gap="space-2">
-						<Label size="small">Gjennomgangsdato</Label>
-						<BodyShort>{formatDateTime(review.reviewedAt)}</BodyShort>
-					</VStack>
-					<VStack gap="space-2">
-						<Label size="small">Opprettet av</Label>
-						<BodyShort>{review.createdBy}</BodyShort>
-					</VStack>
-					<VStack gap="space-2">
-						<Label size="small">Opprettet</Label>
-						<BodyShort>{formatDateTime(review.createdAt)}</BodyShort>
-					</VStack>
-					{review.applicationId && (
+				</Form>
+			) : (
+				<>
+					{/* Metadata (read-only) */}
+					<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+						<HStack gap="space-12" wrap>
+							<VStack gap="space-2">
+								<Label size="small">Rutine</Label>
+								<BodyShort>
+									<AkselLink as={Link} to={`/seksjoner/${section.slug}/rutiner/${routine.id}`}>
+										{routine.name}
+									</AkselLink>
+								</BodyShort>
+							</VStack>
+							<VStack gap="space-2">
+								<Label size="small">Frekvens</Label>
+								<BodyShort>{getFrequencyLabel(routine.frequency)}</BodyShort>
+							</VStack>
+							<VStack gap="space-2">
+								<Label size="small">Gjennomgangsdato</Label>
+								<BodyShort>{formatDateTime(review.reviewedAt)}</BodyShort>
+							</VStack>
+							<VStack gap="space-2">
+								<Label size="small">Opprettet av</Label>
+								<BodyShort>{review.createdBy}</BodyShort>
+							</VStack>
+							<VStack gap="space-2">
+								<Label size="small">Opprettet</Label>
+								<BodyShort>{formatDateTime(review.createdAt)}</BodyShort>
+							</VStack>
+							{review.applicationId && (
+								<VStack gap="space-2">
+									<Label size="small">Applikasjon</Label>
+									<BodyShort>
+										<AkselLink as={Link} to={`/applikasjoner/${review.applicationId}/detaljer`}>
+											{review.applicationName ?? review.applicationId}
+										</AkselLink>
+									</BodyShort>
+								</VStack>
+							)}
+						</HStack>
+					</Box>
+
+					{/* Summary (read-only) */}
+					{review.summaryHtml && (
 						<VStack gap="space-2">
-							<Label size="small">Applikasjon</Label>
-							<BodyShort>
-								<AkselLink as={Link} to={`/applikasjoner/${review.applicationId}/detaljer`}>
-									{review.applicationName ?? review.applicationId}
-								</AkselLink>
-							</BodyShort>
+							<Heading size="medium" level="3">
+								Oppsummering / referat
+							</Heading>
+							<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+								<div
+									className="markdown-content"
+									// biome-ignore lint/security/noDangerouslySetInnerHtml: server-sanitized
+									dangerouslySetInnerHTML={{ __html: review.summaryHtml }}
+								/>
+							</Box>
 						</VStack>
 					)}
-				</HStack>
-			</Box>
-
-			{/* Summary */}
-			{review.summaryHtml && (
-				<VStack gap="space-2">
-					<Heading size="medium" level="3">
-						Oppsummering / referat
-					</Heading>
-					<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-						<div
-							className="markdown-content"
-							// biome-ignore lint/security/noDangerouslySetInnerHtml: server-sanitized
-							dangerouslySetInnerHTML={{ __html: review.summaryHtml }}
-						/>
-					</Box>
-				</VStack>
+				</>
 			)}
 
 			{/* Participants */}

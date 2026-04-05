@@ -19,13 +19,22 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Link, useActionData, useLoaderData, useNavigation, useSearchParams, useSubmit } from "react-router"
+import {
+	data,
+	Link,
+	redirect,
+	useActionData,
+	useLoaderData,
+	useNavigation,
+	useSearchParams,
+	useSubmit,
+} from "react-router"
 import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getApplicationDetail } from "~/db/queries/nais.server"
 import { generateAppComplianceReport, getReportsForApp } from "~/db/queries/reports.server"
-import { getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
+import { createReview, getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
@@ -133,6 +142,32 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const formData = await request.formData()
 	const intent = formData.get("intent")
+
+	if (intent === "create-draft") {
+		const routineId = formData.get("routineId") as string
+		const sectionSlug = formData.get("sectionSlug") as string
+		if (!routineId || !sectionSlug) {
+			return data({ success: false, message: null, error: "Mangler rutine-ID" })
+		}
+		const { getRoutine } = await import("~/db/queries/routines.server")
+		const routine = await getRoutine(routineId)
+		if (!routine) {
+			return data({ success: false, message: null, error: "Fant ikke rutine" })
+		}
+		const now = new Date()
+		const title = `${routine.name} — ${now.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
+		const review = await createReview({
+			routineId,
+			applicationId: appId,
+			title,
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: now,
+			createdBy: authedUser.navIdent,
+			participants: [],
+		})
+		return redirect(`/seksjoner/${sectionSlug}/rutiner/${routineId}/gjennomgang/${review.id}`)
+	}
 
 	if (intent === "generate-report") {
 		const includeReviews = formData.get("includeReviews") === "true"
@@ -780,14 +815,14 @@ export default function ApplikasjonDetalj() {
 											</Table.DataCell>
 											<Table.DataCell>
 												{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] && (
-													<Button
-														as={Link}
-														to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}/gjennomgang/ny?appId=${app.id}`}
-														variant="tertiary"
-														size="xsmall"
-													>
-														Ny gjennomgang
-													</Button>
+													<form method="post" style={{ display: "inline" }}>
+														<input type="hidden" name="intent" value="create-draft" />
+														<input type="hidden" name="routineId" value={dl.routine.id} />
+														<input type="hidden" name="sectionSlug" value={sectionSlugMap[dl.routine.sectionId]} />
+														<Button type="submit" variant="tertiary" size="xsmall">
+															Ny gjennomgang
+														</Button>
+													</form>
 												)}
 											</Table.DataCell>
 										</Table.Row>
