@@ -6,7 +6,7 @@
  * for Drizzle column definitions.
  */
 
-export const ROUTINE_FREQUENCIES = ["weekly", "monthly", "quarterly", "semi_annually", "annually"] as const
+export const ROUTINE_FREQUENCIES = ["weekly", "monthly", "quarterly", "tertially", "semi_annually", "annually"] as const
 
 export type RoutineFrequency = (typeof ROUTINE_FREQUENCIES)[number]
 
@@ -15,6 +15,7 @@ export const frequencyLabels: Record<RoutineFrequency, string> = {
 	weekly: "Ukentlig",
 	monthly: "Månedlig",
 	quarterly: "Kvartalsvis",
+	tertially: "Tertialsvis",
 	semi_annually: "Halvårlig",
 	annually: "Årlig",
 }
@@ -24,6 +25,7 @@ export const frequencyDays: Record<RoutineFrequency, number> = {
 	weekly: 7,
 	monthly: 30,
 	quarterly: 91,
+	tertially: 122,
 	semi_annually: 182,
 	annually: 365,
 }
