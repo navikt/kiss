@@ -1,11 +1,9 @@
 import { DownloadIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
-	BodyLong,
 	BodyShort,
 	Box,
 	Button,
-	Chips,
 	Detail,
 	Heading,
 	HStack,
