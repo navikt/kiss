@@ -948,6 +948,7 @@ function ReportsPanel({
 														hideLabel
 														checked={selectedReviewIds.includes(review.id)}
 														onChange={() => toggleReview(review.id)}
+														onClick={(e) => e.stopPropagation()}
 													>
 														Velg
 													</Checkbox>
