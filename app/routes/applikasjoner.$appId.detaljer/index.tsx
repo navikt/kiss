@@ -222,6 +222,15 @@ export default function ApplikasjonDetalj() {
 									<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
 									<Button
 										as="a"
+										href={`/api/applikasjoner/${app.id}/rapport-pdf`}
+										variant="primary"
+										size="small"
+										icon={<DownloadIcon aria-hidden />}
+									>
+										Compliance-rapport (PDF)
+									</Button>
+									<Button
+										as="a"
 										href={`/api/applikasjoner/${app.id}/export-xlsx`}
 										variant="secondary"
 										size="small"
