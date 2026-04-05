@@ -286,6 +286,73 @@ export async function createReview(params: {
 	return review
 }
 
+export async function updateReview(
+	reviewId: string,
+	params: {
+		title?: string
+		summary?: string | null
+		applicationId?: string | null
+		reviewedAt?: Date
+		participants?: Array<{ userIdent: string; userName: string | null }>
+	},
+	performedBy: string,
+) {
+	const existing = await getReview(reviewId)
+	if (!existing) return null
+	if (existing.status === "completed") return null
+
+	const updates: Record<string, unknown> = {}
+	if (params.title !== undefined) updates.title = params.title
+	if (params.summary !== undefined) updates.summary = params.summary
+	if (params.applicationId !== undefined) updates.applicationId = params.applicationId
+	if (params.reviewedAt !== undefined) updates.reviewedAt = params.reviewedAt
+
+	if (Object.keys(updates).length > 0) {
+		await db.update(routineReviews).set(updates).where(eq(routineReviews.id, reviewId))
+	}
+
+	if (params.participants !== undefined) {
+		await db.delete(routineReviewParticipants).where(eq(routineReviewParticipants.reviewId, reviewId))
+		if (params.participants.length > 0) {
+			await db.insert(routineReviewParticipants).values(
+				params.participants.map((p) => ({
+					reviewId,
+					userIdent: p.userIdent,
+					userName: p.userName,
+				})),
+			)
+		}
+	}
+
+	await writeAuditLog({
+		action: "routine_review_updated",
+		entityType: "routine_review",
+		entityId: reviewId,
+		newValue: JSON.stringify(updates),
+		performedBy,
+	})
+
+	return getReview(reviewId)
+}
+
+export async function completeReview(reviewId: string, performedBy: string) {
+	const existing = await getReview(reviewId)
+	if (!existing) return null
+	if (existing.status === "completed") return existing
+
+	await db.update(routineReviews).set({ status: "completed" }).where(eq(routineReviews.id, reviewId))
+
+	await writeAuditLog({
+		action: "routine_review_completed",
+		entityType: "routine_review",
+		entityId: reviewId,
+		newValue: "completed",
+		performedBy,
+	})
+
+	return getReview(reviewId)
+}
+
 export async function confirmParticipation(reviewId: string, userIdent: string) {
 	const [participant] = await db
 		.update(routineReviewParticipants)

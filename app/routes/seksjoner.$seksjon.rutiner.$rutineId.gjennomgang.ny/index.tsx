@@ -1,32 +1,13 @@
-import type { FileObject, FileRejected, FileRejectionReason } from "@navikt/ds-react"
-import {
-	Alert,
-	Button,
-	FileUpload,
-	Heading,
-	HStack,
-	Label,
-	Select,
-	Textarea,
-	TextField,
-	VStack,
-} from "@navikt/ds-react"
-import { useRef, useState } from "react"
+import { Button, Heading, HStack, Label, Select, Textarea, TextField, VStack } from "@navikt/ds-react"
+import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Link, redirect, useActionData, useLoaderData, useNavigation } from "react-router"
+import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { MarkdownHint } from "~/components/MarkdownHint"
 import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { saveBucketObject } from "~/db/queries/buckets.server"
-import { addReviewAttachment, createReview, getAppsRequiringRoutine, getRoutine } from "~/db/queries/routines.server"
+import { createReview, getAppsRequiringRoutine, getRoutine } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { getStorageProvider } from "~/lib/storage/index.server"
-
-const MAX_SIZE_MB = 50
-const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
-
-type ActionResult = { success: true } | { success: false; error: string }
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const { seksjon, rutineId } = params
@@ -46,11 +27,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const apps = await getAppsRequiringRoutine(rutineId)
 
-	return data({
-		section,
-		routine,
-		apps,
-	})
+	return data({ section, routine, apps })
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -71,7 +48,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const participantsRaw = (formData.get("participants") as string)?.trim() || ""
 
 	if (!title) {
-		return data<ActionResult>({ success: false, error: "Tittel er påkrevd" })
+		throw data({ message: "Tittel er påkrevd" }, { status: 400 })
 	}
 
 	const participants = participantsRaw
@@ -91,78 +68,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		participants,
 	})
 
-	// Handle file attachments
-	const files = formData.getAll("attachments")
-	const storage = getStorageProvider()
-	const bucketName = process.env.GCS_BUCKET_NAME ?? "kiss-data-local"
-
-	for (const file of files) {
-		if (!(file instanceof File) || file.size === 0) continue
-		if (file.size > MAX_SIZE_BYTES) continue
-
-		const arrayBuffer = await file.arrayBuffer()
-		const buffer = Buffer.from(arrayBuffer)
-		const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
-		const bucketPath = `routine-reviews/${review.id}/${Date.now()}-${sanitizedName}`
-		const contentType = file.type || "application/octet-stream"
-
-		const uploadResult = await storage.upload(bucketPath, buffer, { contentType })
-
-		await saveBucketObject({
-			bucketName,
-			objectPath: uploadResult.path,
-			contentType: uploadResult.contentType,
-			sizeBytes: uploadResult.sizeBytes,
-			objectType: "routine_review_attachment",
-			uploadedBy: authedUser.navIdent,
-			metadata: { reviewId: review.id, originalFileName: file.name },
-		})
-
-		await addReviewAttachment({
-			reviewId: review.id,
-			fileName: file.name,
-			bucketPath: uploadResult.path,
-			contentType,
-			sizeBytes: file.size,
-			uploadedBy: authedUser.navIdent,
-		})
-	}
-
-	return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
-}
-
-const rejectionErrors: Record<FileRejectionReason, string> = {
-	fileType: "Filtypen støttes ikke",
-	fileSize: `Filen er for stor (maks ${MAX_SIZE_MB} MB)`,
+	return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}/gjennomgang/${review.id}`)
 }
 
 export default function NyGjennomgang() {
 	const { routine, apps } = useLoaderData<typeof loader>()
-	const actionData = useActionData<ActionResult>()
-	const navigation = useNavigation()
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
-	const isSubmitting = navigation.state === "submitting"
-
-	const [files, setFiles] = useState<(FileObject | FileRejected)[]>([])
 	const [summaryPreview, setSummaryPreview] = useState("")
-	const acceptedFiles = files.filter((f) => !("reasons" in f)) as FileObject[]
-	const rejectedFiles = files.filter((f) => "reasons" in f) as FileRejected[]
-	const fileInputRef = useRef<HTMLInputElement>(null)
-
-	// Sync accepted files to hidden file input using DataTransfer
-	function syncFileInput(currentFiles: (FileObject | FileRejected)[]) {
-		setFiles(currentFiles)
-		if (fileInputRef.current) {
-			const dt = new DataTransfer()
-			for (const f of currentFiles) {
-				if (!("reasons" in f)) {
-					dt.items.add(f.file)
-				}
-			}
-			fileInputRef.current.files = dt.files
-		}
-	}
 
 	return (
 		<VStack gap="space-8">
@@ -173,9 +86,7 @@ export default function NyGjennomgang() {
 				</Heading>
 			</div>
 
-			{actionData && !actionData.success && <Alert variant="error">{actionData.error}</Alert>}
-
-			<form method="post" encType="multipart/form-data">
+			<Form method="post">
 				<VStack gap="space-6">
 					<TextField label="Tittel" name="title" size="small" autoComplete="off" defaultValue={defaultTitle} />
 
@@ -242,64 +153,16 @@ export default function NyGjennomgang() {
 						autoComplete="off"
 					/>
 
-					<VStack gap="space-2">
-						<input ref={fileInputRef} type="file" name="attachments" multiple style={{ display: "none" }} />
-						<FileUpload.Dropzone
-							label="Vedlegg"
-							description={`Last opp dokumentasjon (PDF, DOCX, XLSX o.l.). Maks ${MAX_SIZE_MB} MB per fil.`}
-							accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.txt,.md"
-							maxSizeInBytes={MAX_SIZE_BYTES}
-							onSelect={(newFiles) => syncFileInput([...files, ...newFiles])}
-							multiple
-						/>
-
-						{acceptedFiles.length > 0 && (
-							<VStack gap="space-2">
-								{acceptedFiles.map((file) => (
-									<FileUpload.Item
-										key={`${file.file.name}-${file.file.size}-${file.file.lastModified}`}
-										file={file.file}
-										button={{
-											action: "delete",
-											onClick: () => syncFileInput(files.filter((f) => f !== file)),
-										}}
-										status={isSubmitting ? "uploading" : "idle"}
-									/>
-								))}
-							</VStack>
-						)}
-
-						{rejectedFiles.length > 0 && (
-							<VStack gap="space-2">
-								{rejectedFiles.map((rejected) => (
-									<FileUpload.Item
-										key={`${rejected.file.name}-${rejected.file.size}-${rejected.file.lastModified}`}
-										file={rejected.file}
-										error={
-											rejected.reasons[0] in rejectionErrors
-												? rejectionErrors[rejected.reasons[0] as FileRejectionReason]
-												: rejected.reasons.join(", ")
-										}
-										button={{
-											action: "delete",
-											onClick: () => syncFileInput(files.filter((f) => f !== rejected)),
-										}}
-									/>
-								))}
-							</VStack>
-						)}
-					</VStack>
-
 					<HStack gap="space-4">
-						<Button type="submit" variant="primary" size="small" loading={isSubmitting}>
-							Opprett gjennomgang
+						<Button type="submit" variant="primary" size="small">
+							Opprett utkast
 						</Button>
 						<Button as={Link} to="../.." variant="tertiary" size="small">
 							Avbryt
 						</Button>
 					</HStack>
 				</VStack>
-			</form>
+			</Form>
 		</VStack>
 	)
 }

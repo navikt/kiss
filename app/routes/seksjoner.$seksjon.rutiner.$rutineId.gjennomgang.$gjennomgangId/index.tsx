@@ -1,10 +1,14 @@
-import { DownloadIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, UploadIcon } from "@navikt/aksel-icons"
+import type { FileObject, FileRejected, FileRejectionReason } from "@navikt/ds-react"
 import {
 	Link as AkselLink,
+	Alert,
 	BodyShort,
 	Box,
 	Button,
+	ConfirmationPanel,
 	Detail,
+	FileUpload,
 	Heading,
 	HStack,
 	Label,
@@ -12,13 +16,27 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import { useState } from "react"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Link, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getReview, getRoutine } from "~/db/queries/routines.server"
+import { saveBucketObject } from "~/db/queries/buckets.server"
+import { addReviewAttachment, completeReview, getReview, getRoutine } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
+import { getStorageProvider } from "~/lib/storage/index.server"
+
+const MAX_SIZE_MB = 50
+const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
+
+type ActionResult = {
+	success: boolean
+	message?: string
+	error?: string
+	intent?: string
+}
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const { seksjon, rutineId, gjennomgangId } = params
@@ -61,6 +79,114 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	})
 }
 
+export async function action({ request, params }: ActionFunctionArgs) {
+	const { gjennomgangId } = params
+	if (!gjennomgangId) {
+		throw data({ message: "Mangler parametere" }, { status: 400 })
+	}
+
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+
+	const formData = await request.formData()
+	const intent = formData.get("intent") as string
+
+	if (intent === "upload") {
+		const file = formData.get("file")
+
+		if (!file || !(file instanceof File) || file.size === 0) {
+			return data<ActionResult>({
+				success: false,
+				error: "Ingen fil mottatt. Prøv igjen.",
+				intent: "upload",
+			})
+		}
+
+		if (file.size > MAX_SIZE_BYTES) {
+			return data<ActionResult>({
+				success: false,
+				error: `Filen er for stor. Maks ${MAX_SIZE_MB} MB.`,
+				intent: "upload",
+			})
+		}
+
+		const review = await getReview(gjennomgangId)
+		if (!review) {
+			return data<ActionResult>({ success: false, error: "Fant ikke gjennomgang", intent: "upload" })
+		}
+		if (review.status === "completed") {
+			return data<ActionResult>({
+				success: false,
+				error: "Kan ikke laste opp vedlegg til en fullført gjennomgang.",
+				intent: "upload",
+			})
+		}
+
+		try {
+			const arrayBuffer = await file.arrayBuffer()
+			const buffer = Buffer.from(arrayBuffer)
+			const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
+			const bucketPath = `routines/${review.routineId}/reviews/${gjennomgangId}/${Date.now()}-${sanitizedName}`
+			const contentType = file.type || "application/octet-stream"
+
+			const storage = getStorageProvider()
+			const uploadResult = await storage.upload(bucketPath, buffer, { contentType })
+
+			const bucketName = process.env.GCS_BUCKET_NAME ?? "kiss-data-local"
+			await saveBucketObject({
+				bucketName,
+				objectPath: uploadResult.path,
+				contentType: uploadResult.contentType,
+				sizeBytes: uploadResult.sizeBytes,
+				objectType: "routine-review-attachment",
+				uploadedBy: authedUser.navIdent,
+				metadata: { originalFileName: file.name, reviewId: gjennomgangId },
+			})
+
+			await addReviewAttachment({
+				reviewId: gjennomgangId,
+				fileName: file.name,
+				bucketPath: uploadResult.path,
+				contentType: uploadResult.contentType,
+				sizeBytes: uploadResult.sizeBytes,
+				uploadedBy: authedUser.navIdent,
+			})
+
+			return data<ActionResult>({
+				success: true,
+				message: `Vedlegg "${file.name}" ble lastet opp.`,
+				intent: "upload",
+			})
+		} catch (err) {
+			return data<ActionResult>({
+				success: false,
+				error: err instanceof Error ? err.message : "Ukjent feil ved opplasting.",
+				intent: "upload",
+			})
+		}
+	}
+
+	if (intent === "complete") {
+		const review = await getReview(gjennomgangId)
+		if (!review) {
+			return data<ActionResult>({ success: false, error: "Fant ikke gjennomgang", intent: "complete" })
+		}
+		if (review.status === "completed") {
+			return data<ActionResult>({ success: false, error: "Gjennomgangen er allerede fullført.", intent: "complete" })
+		}
+
+		await completeReview(gjennomgangId, authedUser.navIdent)
+
+		return data<ActionResult>({
+			success: true,
+			message: "Gjennomgangen er fullført.",
+			intent: "complete",
+		})
+	}
+
+	return data<ActionResult>({ success: false, error: "Ukjent handling" })
+}
+
 function formatDate(dateStr: string) {
 	return new Date(dateStr).toLocaleDateString("nb-NO", {
 		day: "numeric",
@@ -87,9 +213,171 @@ function formatFileSize(bytes: number | null) {
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+const rejectionErrors: Record<FileRejectionReason, string> = {
+	fileType: "Filtypen er ikke støttet",
+	fileSize: `Filen er for stor (maks ${MAX_SIZE_MB} MB)`,
+}
+
+function UploadSection() {
+	const submit = useSubmit()
+	const navigation = useNavigation()
+	const actionData = useActionData<ActionResult>()
+	const [files, setFiles] = useState<FileObject[]>([])
+	const isSubmitting = navigation.state === "submitting"
+
+	const acceptedFiles = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
+	const rejectedFiles = files.filter((f): f is FileRejected => f.error)
+
+	function handleUpload() {
+		const selectedFile = acceptedFiles.length > 0 ? acceptedFiles[0].file : null
+		if (!selectedFile) return
+
+		const formData = new FormData()
+		formData.set("intent", "upload")
+		formData.set("file", selectedFile)
+
+		submit(formData, { method: "post", encType: "multipart/form-data" })
+		setFiles([])
+	}
+
+	return (
+		<VStack gap="space-4">
+			<Heading size="small" level="4">
+				Last opp vedlegg
+			</Heading>
+
+			{actionData?.intent === "upload" && actionData.error && (
+				<Alert variant="error" size="small">
+					{actionData.error}
+				</Alert>
+			)}
+			{actionData?.intent === "upload" && actionData.success && (
+				<Alert variant="success" size="small">
+					{actionData.message}
+				</Alert>
+			)}
+
+			<FileUpload.Dropzone
+				label="Velg fil eller dra og slipp"
+				description={`Maks ${MAX_SIZE_MB} MB. PDF, DOCX, XLSX, PPTX, PNG, JPG, TXT, MD`}
+				accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.txt,.md"
+				maxSizeInBytes={MAX_SIZE_BYTES}
+				onSelect={setFiles}
+				multiple={false}
+				fileLimit={{ max: 1, current: acceptedFiles.length }}
+			/>
+
+			{acceptedFiles.length > 0 && (
+				<VStack gap="space-2">
+					{acceptedFiles.map((file) => (
+						<FileUpload.Item
+							key={file.file.name}
+							file={file.file}
+							button={{ action: "delete", onClick: () => setFiles([]) }}
+							status={isSubmitting ? "uploading" : "idle"}
+						/>
+					))}
+				</VStack>
+			)}
+
+			{rejectedFiles.length > 0 && (
+				<VStack gap="space-2">
+					{rejectedFiles.map((rejected) => (
+						<FileUpload.Item
+							key={rejected.file.name}
+							file={rejected.file}
+							error={
+								rejected.reasons[0] in rejectionErrors
+									? rejectionErrors[rejected.reasons[0] as FileRejectionReason]
+									: rejected.reasons.join(", ")
+							}
+							button={{
+								action: "delete",
+								onClick: () => setFiles(files.filter((f) => f !== rejected)),
+							}}
+						/>
+					))}
+				</VStack>
+			)}
+
+			{acceptedFiles.length > 0 && (
+				<HStack>
+					<Button
+						type="button"
+						variant="primary"
+						size="small"
+						onClick={handleUpload}
+						disabled={isSubmitting}
+						loading={isSubmitting}
+						icon={<UploadIcon aria-hidden />}
+					>
+						Last opp
+					</Button>
+				</HStack>
+			)}
+		</VStack>
+	)
+}
+
+function CompleteSection() {
+	const submit = useSubmit()
+	const navigation = useNavigation()
+	const actionData = useActionData<ActionResult>()
+	const [confirmed, setConfirmed] = useState(false)
+	const isSubmitting = navigation.state === "submitting"
+
+	function handleComplete() {
+		if (!confirmed) return
+		const formData = new FormData()
+		formData.set("intent", "complete")
+		submit(formData, { method: "post" })
+	}
+
+	return (
+		<Box padding="space-8" borderWidth="1" borderColor="warning" borderRadius="8" background="warning-softA">
+			<VStack gap="space-4">
+				<Heading size="small" level="4">
+					Fullfør gjennomgang
+				</Heading>
+				<BodyShort>
+					Når gjennomgangen er fullført kan den ikke lenger redigeres. Sørg for at alle vedlegg er lastet opp og
+					oppsummeringen er korrekt.
+				</BodyShort>
+
+				{actionData?.intent === "complete" && actionData.error && (
+					<Alert variant="error" size="small">
+						{actionData.error}
+					</Alert>
+				)}
+
+				<ConfirmationPanel
+					checked={confirmed}
+					onChange={() => setConfirmed(!confirmed)}
+					label="Jeg bekrefter at gjennomgangen er komplett"
+					size="small"
+				/>
+
+				<HStack>
+					<Button
+						type="button"
+						variant="primary"
+						size="small"
+						onClick={handleComplete}
+						disabled={!confirmed || isSubmitting}
+						loading={isSubmitting}
+					>
+						Fullfør gjennomgang
+					</Button>
+				</HStack>
+			</VStack>
+		</Box>
+	)
+}
+
 export default function GjennomgangDetalj() {
 	const { section, routine, review } = useLoaderData<typeof loader>()
 	const confirmedCount = review.participants.filter((p) => p.confirmedAt).length
+	const isDraft = review.status === "draft"
 
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
@@ -97,9 +385,20 @@ export default function GjennomgangDetalj() {
 				<Detail>
 					<Link to={`/seksjoner/${section.slug}/rutiner/${routine.id}`}>← Tilbake til {routine.name}</Link>
 				</Detail>
-				<Heading size="xlarge" level="2" spacing>
-					{review.title}
-				</Heading>
+				<HStack gap="space-4" align="center">
+					<Heading size="xlarge" level="2">
+						{review.title}
+					</Heading>
+					{isDraft ? (
+						<Tag variant="warning" size="small">
+							Utkast
+						</Tag>
+					) : (
+						<Tag variant="success" size="small">
+							Fullført
+						</Tag>
+					)}
+				</HStack>
 			</div>
 
 			{/* Metadata */}
@@ -243,6 +542,12 @@ export default function GjennomgangDetalj() {
 					</Box>
 				)}
 			</VStack>
+
+			{/* Upload section — only for drafts */}
+			{isDraft && <UploadSection />}
+
+			{/* Complete section — only for drafts */}
+			{isDraft && <CompleteSection />}
 		</VStack>
 	)
 }

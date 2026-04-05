@@ -53,6 +53,8 @@ export const auditLogActionEnum = [
 	"routine_updated",
 	"routine_deleted",
 	"routine_review_created",
+	"routine_review_updated",
+	"routine_review_completed",
 	"routine_review_confirmed",
 	"routine_attachment_uploaded",
 ] as const

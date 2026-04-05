@@ -749,6 +749,7 @@ export default function ApplikasjonDetalj() {
 											<Table.HeaderCell>Dato</Table.HeaderCell>
 											<Table.HeaderCell>Rutine</Table.HeaderCell>
 											<Table.HeaderCell>Tittel</Table.HeaderCell>
+											<Table.HeaderCell>Status</Table.HeaderCell>
 											<Table.HeaderCell>Opprettet av</Table.HeaderCell>
 											<Table.HeaderCell>Deltakere</Table.HeaderCell>
 										</Table.Row>
@@ -768,6 +769,17 @@ export default function ApplikasjonDetalj() {
 															</Link>
 														) : (
 															review.title
+														)}
+													</Table.DataCell>
+													<Table.DataCell>
+														{review.status === "completed" ? (
+															<Tag variant="success" size="xsmall">
+																Fullført
+															</Tag>
+														) : (
+															<Tag variant="warning" size="xsmall">
+																Utkast
+															</Tag>
 														)}
 													</Table.DataCell>
 													<Table.DataCell>{review.createdBy}</Table.DataCell>
