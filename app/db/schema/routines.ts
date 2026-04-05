@@ -84,3 +84,16 @@ export const routineReviewAttachments = pgTable("routine_review_attachments", {
 	uploadedBy: text("uploaded_by").notNull(),
 	uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+// ─── Review Links ────────────────────────────────────────────────────────
+
+export const routineReviewLinks = pgTable("routine_review_links", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	reviewId: uuid("review_id")
+		.notNull()
+		.references(() => routineReviews.id, { onDelete: "cascade" }),
+	url: text("url").notNull(),
+	title: text("title"),
+	addedBy: text("added_by").notNull(),
+	addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+})

@@ -5,6 +5,7 @@ import { monitoredApplications } from "../schema/applications"
 import { applicationTechnologyElements, technologyElements } from "../schema/framework"
 import {
 	routineReviewAttachments,
+	routineReviewLinks,
 	routineReviewParticipants,
 	routineReviews,
 	routines,
@@ -227,16 +228,21 @@ export async function getReview(id: string) {
 }
 
 async function enrichReview(review: typeof routineReviews.$inferSelect) {
-	const [participants, attachments] = await Promise.all([
+	const [participants, attachments, links] = await Promise.all([
 		db.select().from(routineReviewParticipants).where(eq(routineReviewParticipants.reviewId, review.id)),
 		db
 			.select()
 			.from(routineReviewAttachments)
 			.where(eq(routineReviewAttachments.reviewId, review.id))
 			.orderBy(routineReviewAttachments.uploadedAt),
+		db
+			.select()
+			.from(routineReviewLinks)
+			.where(eq(routineReviewLinks.reviewId, review.id))
+			.orderBy(routineReviewLinks.addedAt),
 	])
 
-	return { ...review, participants, attachments }
+	return { ...review, participants, attachments, links }
 }
 
 export async function createReview(params: {
@@ -353,6 +359,47 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	})
 
 	return getReview(reviewId)
+}
+
+// ─── Review Links ────────────────────────────────────────────────────────
+
+export async function addReviewLink(params: { reviewId: string; url: string; title: string | null; addedBy: string }) {
+	const [link] = await db
+		.insert(routineReviewLinks)
+		.values({
+			reviewId: params.reviewId,
+			url: params.url,
+			title: params.title,
+			addedBy: params.addedBy,
+		})
+		.returning()
+
+	await writeAuditLog({
+		action: "review_link_added",
+		entityType: "routine_review",
+		entityId: params.reviewId,
+		newValue: params.url,
+		performedBy: params.addedBy,
+	})
+
+	return link
+}
+
+export async function deleteReviewLink(linkId: string, performedBy: string) {
+	const [link] = await db.select().from(routineReviewLinks).where(eq(routineReviewLinks.id, linkId)).limit(1)
+	if (!link) return null
+
+	await db.delete(routineReviewLinks).where(eq(routineReviewLinks.id, linkId))
+
+	await writeAuditLog({
+		action: "review_link_deleted",
+		entityType: "routine_review",
+		entityId: link.reviewId,
+		newValue: link.url,
+		performedBy,
+	})
+
+	return link
 }
 
 export async function confirmParticipation(reviewId: string, userIdent: string) {

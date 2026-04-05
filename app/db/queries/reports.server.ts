@@ -449,6 +449,10 @@ export async function generateAppComplianceReport(params: {
 				contentType: a.contentType,
 				bucketPath: a.bucketPath,
 			})),
+			links: r.links.map((l) => ({
+				url: l.url,
+				title: l.title,
+			})),
 		})),
 	}
 
@@ -594,6 +598,7 @@ function buildAppPdf(
 		routineFrequency: string
 		participants: Array<{ userIdent: string; userName: string | null }>
 		attachments: Array<{ fileName: string }>
+		links: Array<{ url: string; title: string | null }>
 	}>,
 	attachments: Array<{ fileName: string; contentType: string; data: Buffer }>,
 ): Promise<Buffer> {
@@ -735,6 +740,20 @@ function buildAppPdf(
 						doc.fontSize(10).fillColor(blue).text("Oppsummering / referat")
 						doc.moveDown(0.2)
 						renderMarkdownToPdf(doc, r.summary, { width: 495 })
+					}
+
+					if (r.links.length > 0) {
+						doc.moveDown(0.5)
+						doc.fontSize(10).fillColor(blue).text("Lenker")
+						doc.moveDown(0.2)
+						for (const link of r.links) {
+							const label = link.title || link.url
+							doc.fontSize(9).fillColor(blue).text(label, { link: link.url, underline: true, width: 495 })
+							if (link.title) {
+								doc.fontSize(8).fillColor(gray).text(link.url, { width: 495 })
+							}
+							doc.moveDown(0.2)
+						}
 					}
 				}
 			}

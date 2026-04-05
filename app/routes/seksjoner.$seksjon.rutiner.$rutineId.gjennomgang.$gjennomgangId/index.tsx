@@ -1,4 +1,4 @@
-import { DownloadIcon, ExternalLinkIcon, UploadIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, ExternalLinkIcon, LinkIcon, TrashIcon, UploadIcon } from "@navikt/aksel-icons"
 import type { FileObject, FileRejected, FileRejectionReason } from "@navikt/ds-react"
 import {
 	Link as AkselLink,
@@ -14,13 +14,14 @@ import {
 	Label,
 	Table,
 	Tag,
+	TextField,
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Link, useActionData, useLoaderData, useNavigation, useRevalidator, useSubmit } from "react-router"
+import { data, Form, Link, useActionData, useLoaderData, useNavigation, useRevalidator, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { completeReview, getReview, getRoutine } from "~/db/queries/routines.server"
+import { addReviewLink, completeReview, deleteReviewLink, getReview, getRoutine } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -81,6 +82,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				...a,
 				uploadedAt: a.uploadedAt.toISOString(),
 			})),
+			links: review.links.map((l) => ({
+				...l,
+				addedAt: l.addedAt.toISOString(),
+			})),
 		},
 	})
 }
@@ -115,6 +120,30 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		})
 	}
 
+	if (intent === "add-link") {
+		const url = (formData.get("url") as string)?.trim()
+		const title = (formData.get("linkTitle") as string)?.trim() || null
+		if (!url) {
+			return data<ActionResult>({ success: false, error: "URL er påkrevd", intent: "add-link" })
+		}
+		try {
+			new URL(url)
+		} catch {
+			return data<ActionResult>({ success: false, error: "Ugyldig URL", intent: "add-link" })
+		}
+		await addReviewLink({ reviewId: gjennomgangId, url, title, addedBy: authedUser.navIdent })
+		return data<ActionResult>({ success: true, message: "Lenke lagt til.", intent: "add-link" })
+	}
+
+	if (intent === "delete-link") {
+		const linkId = formData.get("linkId") as string
+		if (!linkId) {
+			return data<ActionResult>({ success: false, error: "Mangler lenke-ID", intent: "delete-link" })
+		}
+		await deleteReviewLink(linkId, authedUser.navIdent)
+		return data<ActionResult>({ success: true, message: "Lenke fjernet.", intent: "delete-link" })
+	}
+
 	return data<ActionResult>({ success: false, error: "Ukjent handling" })
 }
 
@@ -147,6 +176,71 @@ function formatFileSize(bytes: number | null) {
 const rejectionErrors: Record<FileRejectionReason, string> = {
 	fileType: "Filtypen er ikke støttet",
 	fileSize: `Filen er for stor (maks ${MAX_SIZE_MB} MB)`,
+}
+
+function AddLinkSection() {
+	const actionData = useActionData<typeof action>()
+	const navigation = useNavigation()
+	const isSubmitting = navigation.state === "submitting"
+	const [url, setUrl] = useState("")
+	const [title, setTitle] = useState("")
+
+	return (
+		<Box padding="space-6" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+			<Heading size="small" level="4" spacing>
+				Legg til lenke
+			</Heading>
+			<Form
+				method="post"
+				onSubmit={() => {
+					setTimeout(() => {
+						setUrl("")
+						setTitle("")
+					}, 100)
+				}}
+			>
+				<input type="hidden" name="intent" value="add-link" />
+				<VStack gap="space-4">
+					<HStack gap="space-4" align="end" style={{ flexWrap: "wrap" }}>
+						<TextField
+							label="Tittel (valgfritt)"
+							name="linkTitle"
+							size="small"
+							autoComplete="off"
+							value={title}
+							onChange={(e) => setTitle(e.target.value)}
+							style={{ minWidth: "15rem", flex: 1 }}
+						/>
+						<TextField
+							label="URL"
+							name="url"
+							size="small"
+							type="url"
+							autoComplete="off"
+							value={url}
+							onChange={(e) => setUrl(e.target.value)}
+							placeholder="https://..."
+							style={{ minWidth: "20rem", flex: 2 }}
+						/>
+						<Button
+							type="submit"
+							variant="secondary"
+							size="small"
+							loading={isSubmitting}
+							icon={<LinkIcon aria-hidden />}
+						>
+							Legg til
+						</Button>
+					</HStack>
+					{actionData?.intent === "add-link" && actionData.error && (
+						<Alert variant="error" size="small">
+							{actionData.error}
+						</Alert>
+					)}
+				</VStack>
+			</Form>
+		</Box>
+	)
 }
 
 function UploadSection({ reviewId }: { reviewId: string }) {
@@ -504,6 +598,59 @@ export default function GjennomgangDetalj() {
 					</Box>
 				)}
 			</VStack>
+
+			{/* Lenker */}
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Lenker
+				</Heading>
+				{review.links.length > 0 ? (
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell>Tittel</Table.HeaderCell>
+								<Table.HeaderCell>URL</Table.HeaderCell>
+								<Table.HeaderCell>Lagt til av</Table.HeaderCell>
+								<Table.HeaderCell>Dato</Table.HeaderCell>
+								{isDraft && <Table.HeaderCell />}
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{review.links.map((l) => (
+								<Table.Row key={l.id}>
+									<Table.DataCell>{l.title || "—"}</Table.DataCell>
+									<Table.DataCell>
+										<AkselLink href={l.url} target="_blank" rel="noopener noreferrer">
+											{l.url.length > 60 ? `${l.url.slice(0, 60)}…` : l.url}
+											<ExternalLinkIcon aria-hidden style={{ marginLeft: "0.25rem" }} />
+										</AkselLink>
+									</Table.DataCell>
+									<Table.DataCell>{l.addedBy}</Table.DataCell>
+									<Table.DataCell>{formatDate(l.addedAt)}</Table.DataCell>
+									{isDraft && (
+										<Table.DataCell>
+											<Form method="post">
+												<input type="hidden" name="intent" value="delete-link" />
+												<input type="hidden" name="linkId" value={l.id} />
+												<Button type="submit" variant="tertiary-neutral" size="xsmall" icon={<TrashIcon aria-hidden />}>
+													Fjern
+												</Button>
+											</Form>
+										</Table.DataCell>
+									)}
+								</Table.Row>
+							))}
+						</Table.Body>
+					</Table>
+				) : (
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<BodyShort>Ingen lenker er lagt til denne gjennomgangen.</BodyShort>
+					</Box>
+				)}
+			</VStack>
+
+			{/* Add link — only for drafts */}
+			{isDraft && <AddLinkSection />}
 
 			{/* Upload section — only for drafts */}
 			{isDraft && <UploadSection reviewId={review.id} />}
