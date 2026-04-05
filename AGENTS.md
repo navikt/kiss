@@ -132,10 +132,14 @@ Når nye ruter introduseres:
 3. **Test at ruten svarer med HTTP 200** før commit – bruk `curl -s -o /dev/null -w '%{http_code}' <url>`
 4. **Sjekk at lenker fra eksisterende sider fungerer** – navigasjonsflyt skal testes ende-til-ende
 5. **Alle `redirect()`-kall skal bruke absolutte stier** – relative stier som `../rutiner/` kan resolveres feil avhengig av kontekst. Bruk alltid absolutte stier som `/seksjoner/${seksjon}/rutiner/${id}`.
-6. **Automatiserte tester SKAL opprettes** for å verifisere:
+6. **Relative lenker (`to="./..."` og `to="../..."`) skal resolves mot rutens eget mønster og valideres** – en relativ lenke som `./ny-gjennomgang` fra ruten `seksjoner/:seksjon/rutiner/:rutineId` resolves til `/seksjoner/:seksjon/rutiner/:rutineId/ny-gjennomgang`, som må matche en registrert rute.
+7. **`href`-attributter som peker til interne API-ruter** (f.eks. `href="/api/rutine-vedlegg/${id}"`) skal også valideres mot registrerte ruter.
+8. **Automatiserte tester SKAL opprettes** for å verifisere:
    - At alle ruter definert i `routes.ts` har en tilhørende rutefil
    - At alle `redirect()`-kall i action-funksjoner peker til ruter som finnes i `routes.ts`
    - At alle `<Link to="...">` og `<Button as={Link} to="...">` i rutekomponenter peker til gyldige ruter
+   - At alle relative lenker (`./`, `../`) resolves korrekt mot rutens mønster og matcher en registrert rute
+   - At alle `href="..."`-attributter som peker til interne stier matcher registrerte ruter
 
 ### Branch-strategi
 - All utvikling skjer i feature branches

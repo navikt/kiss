@@ -89,7 +89,7 @@ export default function RutineDetaljer() {
 						<Button as={Link} to="./rediger" variant="secondary" size="small">
 							Rediger
 						</Button>
-						<Button as={Link} to="./ny-gjennomgang" variant="primary" size="small">
+						<Button as={Link} to="./gjennomgang/ny" variant="primary" size="small">
 							Ny gjennomgang
 						</Button>
 					</HStack>

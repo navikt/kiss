@@ -85,11 +85,11 @@ function findRedirects(): Array<{ file: string; line: number; path: string; raw:
 
 /**
  * Find all Link to="..." and Button as={Link} to="..." in route components.
- * Returns Array<{ file: string, line: number, path: string }>.
+ * Returns Array<{ file: string, line: number, path: string, routePattern: string }>.
  */
-function findLinkTargets(): Array<{ file: string; line: number; path: string }> {
+function findLinkTargets(): Array<{ file: string; line: number; path: string; routePattern: string }> {
 	const routes = parseRoutes()
-	const results: Array<{ file: string; line: number; path: string }> = []
+	const results: Array<{ file: string; line: number; path: string; routePattern: string }> = []
 
 	for (const route of routes) {
 		const filePath = resolve(ROOT, "app", route.file)
@@ -103,16 +103,55 @@ function findLinkTargets(): Array<{ file: string; line: number; path: string }> 
 			// Match to="..." or to={`...`}
 			const staticMatch = line.match(/\bto="([^"]+)"/)
 			if (staticMatch) {
-				results.push({ file: route.file, line: i + 1, path: staticMatch[1] })
+				results.push({ file: route.file, line: i + 1, path: staticMatch[1], routePattern: route.pattern })
 			}
 			const templateMatch = line.match(/\bto=\{`([^`]+)`\}/)
 			if (templateMatch) {
-				results.push({ file: route.file, line: i + 1, path: templateMatch[1] })
+				results.push({ file: route.file, line: i + 1, path: templateMatch[1], routePattern: route.pattern })
+			}
+			// Match href="..." or href={`...`} for anchor/button links
+			const hrefStaticMatch = line.match(/\bhref="([^"]+)"/)
+			if (hrefStaticMatch) {
+				results.push({ file: route.file, line: i + 1, path: hrefStaticMatch[1], routePattern: route.pattern })
+			}
+			const hrefTemplateMatch = line.match(/\bhref=\{`([^`]+)`\}/)
+			if (hrefTemplateMatch) {
+				results.push({
+					file: route.file,
+					line: i + 1,
+					path: hrefTemplateMatch[1],
+					routePattern: route.pattern,
+				})
 			}
 		}
 	}
 
 	return results
+}
+
+/**
+ * Resolve a relative path (starting with ./ or ../) against the route's own pattern.
+ * Returns an absolute path with param segments replaced by placeholders.
+ */
+function resolveRelativePath(relativePath: string, routePattern: string): string {
+	// Build an absolute base by prepending /
+	const baseSegments = routePattern.split("/")
+
+	const relParts = relativePath.split("/")
+	// Start from the route's own path segments
+	const segments = [...baseSegments]
+
+	for (const part of relParts) {
+		if (part === ".") {
+			// stay in current
+		} else if (part === "..") {
+			segments.pop()
+		} else {
+			segments.push(part)
+		}
+	}
+
+	return `/${segments.join("/")}`
 }
 
 describe("Routes integrity", () => {
@@ -159,6 +198,22 @@ describe("Routes integrity", () => {
 			it(`link in ${link.file}:${link.line} → "${link.path}" matches a registered route`, () => {
 				const matches = pathMatchesAnyRoute(link.path, routes)
 				expect(matches, `No route matches link path "${link.path}" in ${link.file}:${link.line}`).toBe(true)
+			})
+		}
+	})
+
+	describe("Relative Link/Button targets resolve to valid routes", () => {
+		const links = findLinkTargets()
+		const relativeLinks = links.filter((l) => l.path.startsWith("./") || l.path.startsWith("../"))
+
+		for (const link of relativeLinks) {
+			it(`relative link in ${link.file}:${link.line} → "${link.path}" (from ${link.routePattern}) resolves to a valid route`, () => {
+				const resolved = resolveRelativePath(link.path, link.routePattern)
+				const matches = pathMatchesAnyRoute(resolved, routes)
+				expect(
+					matches,
+					`Relative link "${link.path}" in ${link.file}:${link.line} resolves to "${resolved}" which does not match any registered route`,
+				).toBe(true)
 			})
 		}
 	})
