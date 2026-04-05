@@ -16,10 +16,11 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { MarkdownHint } from "~/components/MarkdownHint"
+import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
 import {
@@ -710,34 +711,6 @@ function AddPendingEffectForm({
 			</HStack>
 		</form>
 	)
-}
-
-function MarkdownPreview({ content }: { content: string }) {
-	const [html, setHtml] = useState("")
-
-	useEffect(() => {
-		void renderPreview(content, setHtml)
-	}, [content])
-
-	return (
-		<div
-			className="markdown-content"
-			style={{
-				padding: "var(--ax-space-8)",
-				border: "1px solid var(--ax-border-subtle)",
-				borderRadius: "var(--ax-radius-8)",
-				background: "var(--ax-bg-sunken)",
-				flex: 1,
-			}}
-			// biome-ignore lint/security/noDangerouslySetInnerHtml: client-side preview only
-			dangerouslySetInnerHTML={{ __html: html }}
-		/>
-	)
-}
-
-async function renderPreview(content: string, setHtml: (html: string) => void) {
-	const { marked } = await import("marked")
-	setHtml(marked.parse(content, { async: false }) as string)
 }
 
 export { RouteErrorBoundary as ErrorBoundary }

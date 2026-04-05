@@ -14,6 +14,8 @@ import {
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
+import { MarkdownHint } from "~/components/MarkdownHint"
+import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { saveBucketObject } from "~/db/queries/buckets.server"
 import { addReviewAttachment, createReview, getAppsRequiringRoutine, getRoutine } from "~/db/queries/routines.server"
@@ -142,6 +144,7 @@ export default function NyGjennomgang() {
 	const isSubmitting = navigation.state === "submitting"
 
 	const [files, setFiles] = useState<(FileObject | FileRejected)[]>([])
+	const [summaryPreview, setSummaryPreview] = useState("")
 	const acceptedFiles = files.filter((f) => !("reasons" in f)) as FileObject[]
 	const rejectedFiles = files.filter((f) => "reasons" in f) as FileRejected[]
 
@@ -191,13 +194,24 @@ export default function NyGjennomgang() {
 						/>
 					</div>
 
-					<Textarea
-						label="Oppsummering/referat"
-						name="summary"
-						size="small"
-						description="Støtter Markdown"
-						minRows={6}
-					/>
+					<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
+						<VStack style={{ flex: 1, minWidth: "20rem" }}>
+							<Textarea
+								label="Oppsummering/referat"
+								name="summary"
+								size="small"
+								minRows={6}
+								onChange={(e) => setSummaryPreview(e.target.value)}
+							/>
+						</VStack>
+						<VStack style={{ flex: 1, minWidth: "20rem", alignSelf: "stretch" }}>
+							<Label size="small" spacing>
+								Forhåndsvisning
+							</Label>
+							<MarkdownPreview content={summaryPreview} />
+						</VStack>
+					</HStack>
+					<MarkdownHint />
 
 					<TextField
 						label="Deltakere"
