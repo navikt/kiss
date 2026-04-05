@@ -137,12 +137,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "generate-report") {
 		const includeReviews = formData.get("includeReviews") === "true"
 		const includeAttachments = formData.get("includeAttachments") === "true"
+		const reviewIdsRaw = formData.get("reviewIds")
+		const reviewIds = reviewIdsRaw ? String(reviewIdsRaw).split(",").filter(Boolean) : undefined
 		try {
 			await generateAppComplianceReport({
 				applicationId: appId,
 				createdBy: authedUser.navIdent,
 				includeReviews,
 				includeAttachments,
+				reviewIds: includeReviews ? reviewIds : undefined,
 			})
 			return data({ success: true, message: "Rapport generert.", error: null })
 		} catch (err) {
@@ -844,7 +847,7 @@ export default function ApplikasjonDetalj() {
 
 				{/* Rapporter */}
 				<Tabs.Panel value="rapporter" style={{ paddingTop: "var(--ax-space-6)" }}>
-					<ReportsPanel appReports={appReports} />
+					<ReportsPanel appReports={appReports} completedReviews={completedReviews} />
 				</Tabs.Panel>
 			</Tabs>
 		</VStack>
@@ -853,6 +856,7 @@ export default function ApplikasjonDetalj() {
 
 function ReportsPanel({
 	appReports,
+	completedReviews,
 }: {
 	appReports: Array<{
 		id: string
@@ -861,12 +865,35 @@ function ReportsPanel({
 		createdBy: string
 		reportBucketPath: string | null
 	}>
+	completedReviews: Array<{
+		id: string
+		title: string
+		routineName: string
+		reviewedAt: Date | string
+		status: string
+		createdBy: string
+	}>
 }) {
 	const submit = useSubmit()
 	const navigation = useNavigation()
 	const actionData = useActionData<typeof action>()
 	const isGenerating = navigation.state === "submitting"
 	const [reportOptions, setReportOptions] = useState<string[]>(["includeReviews", "includeAttachments"])
+	const includeReviews = reportOptions.includes("includeReviews")
+
+	const completed = completedReviews.filter((r) => r.status === "completed")
+	const [selectedReviewIds, setSelectedReviewIds] = useState<string[]>(() => completed.map((r) => r.id))
+
+	const toggleReview = (reviewId: string) => {
+		setSelectedReviewIds((prev) =>
+			prev.includes(reviewId) ? prev.filter((id) => id !== reviewId) : [...prev, reviewId],
+		)
+	}
+
+	const allSelected = completed.length > 0 && selectedReviewIds.length === completed.length
+	const toggleAll = () => {
+		setSelectedReviewIds(allSelected ? [] : completed.map((r) => r.id))
+	}
 
 	return (
 		<VStack gap="space-8">
@@ -889,6 +916,60 @@ function ReportsPanel({
 						<Checkbox value="includeReviews">Rutinegjennomganger</Checkbox>
 						<Checkbox value="includeAttachments">Vedlegg fra gjennomganger (flettes som sider i PDF)</Checkbox>
 					</CheckboxGroup>
+
+					{/* Review selection */}
+					{includeReviews && completed.length > 0 && (
+						<Box padding="space-4" borderWidth="1" borderColor="neutral" borderRadius="8">
+							<VStack gap="space-2">
+								<HStack justify="space-between" align="center">
+									<Label size="small">
+										Velg gjennomganger ({selectedReviewIds.length} av {completed.length})
+									</Label>
+									<Button variant="tertiary" size="xsmall" onClick={toggleAll}>
+										{allSelected ? "Fjern alle" : "Velg alle"}
+									</Button>
+								</HStack>
+								<Table size="small">
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell style={{ width: "2rem" }} />
+											<Table.HeaderCell>Tittel</Table.HeaderCell>
+											<Table.HeaderCell>Rutine</Table.HeaderCell>
+											<Table.HeaderCell>Dato</Table.HeaderCell>
+											<Table.HeaderCell>Av</Table.HeaderCell>
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{completed.map((review) => (
+											<Table.Row key={review.id} onClick={() => toggleReview(review.id)} style={{ cursor: "pointer" }}>
+												<Table.DataCell>
+													<Checkbox
+														size="small"
+														hideLabel
+														checked={selectedReviewIds.includes(review.id)}
+														onChange={() => toggleReview(review.id)}
+													>
+														Velg
+													</Checkbox>
+												</Table.DataCell>
+												<Table.DataCell>{review.title}</Table.DataCell>
+												<Table.DataCell>{review.routineName}</Table.DataCell>
+												<Table.DataCell>{new Date(review.reviewedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+												<Table.DataCell>{review.createdBy}</Table.DataCell>
+											</Table.Row>
+										))}
+									</Table.Body>
+								</Table>
+							</VStack>
+						</Box>
+					)}
+
+					{includeReviews && completed.length === 0 && (
+						<BodyShort size="small" textColor="subtle">
+							Ingen fullførte gjennomganger tilgjengelig.
+						</BodyShort>
+					)}
+
 					{actionData?.success && (
 						<Alert variant="success" size="small">
 							{actionData.message}
@@ -908,8 +989,11 @@ function ReportsPanel({
 							onClick={() => {
 								const fd = new FormData()
 								fd.set("intent", "generate-report")
-								fd.set("includeReviews", String(reportOptions.includes("includeReviews")))
+								fd.set("includeReviews", String(includeReviews))
 								fd.set("includeAttachments", String(reportOptions.includes("includeAttachments")))
+								if (includeReviews && selectedReviewIds.length > 0) {
+									fd.set("reviewIds", selectedReviewIds.join(","))
+								}
 								submit(fd, { method: "post" })
 							}}
 						>

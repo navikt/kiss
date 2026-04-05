@@ -357,8 +357,9 @@ export async function generateAppComplianceReport(params: {
 	createdBy: string
 	includeReviews?: boolean
 	includeAttachments?: boolean
+	reviewIds?: string[]
 }): Promise<string> {
-	const { applicationId, createdBy, includeReviews = true, includeAttachments = true } = params
+	const { applicationId, createdBy, includeReviews = true, includeAttachments = true, reviewIds } = params
 
 	// Dynamic imports to avoid circular deps and keep pdfkit server-only
 	const { getAppAssessments } = await import("./applications.server")
@@ -385,7 +386,10 @@ export async function generateAppComplianceReport(params: {
 	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
 
 	const assessments = assessmentsResult?.assessments ?? []
-	const completedReviews = reviews.filter((r) => r.status === "completed")
+	let completedReviews = reviews.filter((r) => r.status === "completed")
+	if (reviewIds && reviewIds.length > 0) {
+		completedReviews = completedReviews.filter((r) => reviewIds.includes(r.id))
+	}
 
 	const now = new Date()
 	const datePrefix = now.toISOString().slice(0, 10)
