@@ -61,6 +61,9 @@ export default function SeksjonDashboard() {
 				<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">
 					Administrer
 				</Button>
+				<Button as={Link} to={`/seksjoner/${seksjon}/rutiner`} variant="secondary" size="small">
+					Rutiner
+				</Button>
 			</HStack>
 			<BodyLong>Compliance-status for alle team i seksjonen.</BodyLong>
 

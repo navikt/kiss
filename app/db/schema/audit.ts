@@ -49,6 +49,12 @@ export const auditLogActionEnum = [
 	"technology_element_rejected",
 	"dev_team_nais_team_linked",
 	"dev_team_nais_team_unlinked",
+	"routine_created",
+	"routine_updated",
+	"routine_deleted",
+	"routine_review_created",
+	"routine_review_confirmed",
+	"routine_attachment_uploaded",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

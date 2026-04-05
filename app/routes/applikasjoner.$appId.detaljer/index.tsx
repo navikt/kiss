@@ -21,7 +21,9 @@ import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getApplicationDetail } from "~/db/queries/nais.server"
+import { getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
+import { getFrequencyLabel } from "~/lib/routine-frequencies"
 import { compliancePercent } from "~/lib/utils"
 
 const persistenceLabels: Record<string, string> = {
@@ -65,7 +67,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
 	const { getApplicationElements } = await import("~/db/queries/technology-elements.server")
-	const appElements = await getApplicationElements(appId)
+	const [appElements, routineDeadlines, completedReviews] = await Promise.all([
+		getApplicationElements(appId),
+		getRoutineDeadlinesForApp(appId),
+		getReviewsForApp(appId),
+	])
 
 	const assessments = assessmentsResult?.assessments ?? []
 	const totalControls = assessments.length
@@ -84,6 +90,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		primaryApp: detail.primaryApp,
 		linkedApps: detail.linkedApps,
 		appElements,
+		routineDeadlines,
+		completedReviews,
 		compliance: {
 			totalControls,
 			implemented,
@@ -107,6 +115,8 @@ export default function ApplikasjonDetalj() {
 		primaryApp,
 		linkedApps,
 		appElements,
+		routineDeadlines,
+		completedReviews,
 		compliance,
 		assessments,
 	} = useLoaderData<typeof loader>()
@@ -157,6 +167,7 @@ export default function ApplikasjonDetalj() {
 					<Tabs.Tab value="autentisering" label="Autentisering" />
 					<Tabs.Tab value="miljoer" label="Miljøer" />
 					<Tabs.Tab value="persistering" label="Persistering" />
+					<Tabs.Tab value="rutiner" label="Rutiner" />
 				</Tabs.List>
 
 				{/* Oversikt */}
@@ -654,6 +665,94 @@ export default function ApplikasjonDetalj() {
 					) : (
 						<BodyLong>Ingen kjent persistens fra Nais.</BodyLong>
 					)}
+				</Tabs.Panel>
+
+				{/* Rutiner */}
+				<Tabs.Panel value="rutiner" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<VStack gap="space-8">
+						{/* Manglende rutiner */}
+						<Heading size="medium" level="3">
+							Rutinestatus
+						</Heading>
+						{routineDeadlines.length === 0 ? (
+							<BodyShort>Ingen rutiner er knyttet til denne applikasjonen.</BodyShort>
+						) : (
+							<Table size="small">
+								<Table.Header>
+									<Table.Row>
+										<Table.HeaderCell>Rutine</Table.HeaderCell>
+										<Table.HeaderCell>Frekvens</Table.HeaderCell>
+										<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
+										<Table.HeaderCell>Frist</Table.HeaderCell>
+										<Table.HeaderCell>Status</Table.HeaderCell>
+									</Table.Row>
+								</Table.Header>
+								<Table.Body>
+									{routineDeadlines.map((dl) => (
+										<Table.Row key={dl.routine?.id ?? "unknown"}>
+											<Table.DataCell>{dl.routine?.name ?? "—"}</Table.DataCell>
+											<Table.DataCell>{getFrequencyLabel(dl.routine?.frequency)}</Table.DataCell>
+											<Table.DataCell>
+												{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
+											</Table.DataCell>
+											<Table.DataCell>{new Date(dl.deadline).toLocaleDateString("nb-NO")}</Table.DataCell>
+											<Table.DataCell>
+												{dl.overdue ? (
+													<Tag variant="error" size="small">
+														Over frist
+													</Tag>
+												) : dl.lastReviewDate ? (
+													<Tag variant="success" size="small">
+														OK
+													</Tag>
+												) : (
+													<Tag variant="warning" size="small">
+														Ikke gjennomført
+													</Tag>
+												)}
+											</Table.DataCell>
+										</Table.Row>
+									))}
+								</Table.Body>
+							</Table>
+						)}
+
+						{/* Gjennomførte rutinegjennomganger */}
+						{completedReviews.length > 0 && (
+							<>
+								<Heading size="medium" level="3">
+									Gjennomførte gjennomganger
+								</Heading>
+								<Table size="small">
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell>Dato</Table.HeaderCell>
+											<Table.HeaderCell>Rutine</Table.HeaderCell>
+											<Table.HeaderCell>Tittel</Table.HeaderCell>
+											<Table.HeaderCell>Opprettet av</Table.HeaderCell>
+											<Table.HeaderCell>Deltakere</Table.HeaderCell>
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{completedReviews.map((review) => {
+											const confirmed = review.participants.filter((p) => p.confirmedAt).length
+											return (
+												<Table.Row key={review.id}>
+													<Table.DataCell>{new Date(review.reviewedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+													<Table.DataCell>{review.routineName}</Table.DataCell>
+													<Table.DataCell>{review.title}</Table.DataCell>
+													<Table.DataCell>{review.createdBy}</Table.DataCell>
+													<Table.DataCell>
+														{review.participants.length} ({confirmed} bekreftet)
+													</Table.DataCell>
+												</Table.Row>
+											)
+										})}
+									</Table.Body>
+								</Table>
+							</>
+						)}
+					</VStack>
 				</Tabs.Panel>
 			</Tabs>
 		</VStack>
