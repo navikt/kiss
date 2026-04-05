@@ -747,7 +747,15 @@ export default function ApplikasjonDetalj() {
 								<Table.Body>
 									{routineDeadlines.map((dl) => (
 										<Table.Row key={dl.routine?.id ?? "unknown"}>
-											<Table.DataCell>{dl.routine?.name ?? "—"}</Table.DataCell>
+											<Table.DataCell>
+												{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+													<Link to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}>
+														{dl.routine?.name ?? "—"}
+													</Link>
+												) : (
+													(dl.routine?.name ?? "—")
+												)}
+											</Table.DataCell>
 											<Table.DataCell>{getFrequencyLabel(dl.routine?.frequency)}</Table.DataCell>
 											<Table.DataCell>
 												{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
