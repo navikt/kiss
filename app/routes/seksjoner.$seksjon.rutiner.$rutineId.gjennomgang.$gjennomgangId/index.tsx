@@ -18,15 +18,13 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Link, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
+import { data, Link, useActionData, useLoaderData, useNavigation, useRevalidator, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { saveBucketObject } from "~/db/queries/buckets.server"
-import { addReviewAttachment, completeReview, getReview, getRoutine } from "~/db/queries/routines.server"
+import { completeReview, getReview, getRoutine } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
-import { getStorageProvider } from "~/lib/storage/index.server"
 
 const MAX_SIZE_MB = 50
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
@@ -91,81 +89,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
 
-	if (intent === "upload") {
-		const file = formData.get("file")
-
-		if (!file || !(file instanceof File) || file.size === 0) {
-			return data<ActionResult>({
-				success: false,
-				error: "Ingen fil mottatt. Prøv igjen.",
-				intent: "upload",
-			})
-		}
-
-		if (file.size > MAX_SIZE_BYTES) {
-			return data<ActionResult>({
-				success: false,
-				error: `Filen er for stor. Maks ${MAX_SIZE_MB} MB.`,
-				intent: "upload",
-			})
-		}
-
-		const review = await getReview(gjennomgangId)
-		if (!review) {
-			return data<ActionResult>({ success: false, error: "Fant ikke gjennomgang", intent: "upload" })
-		}
-		if (review.status === "completed") {
-			return data<ActionResult>({
-				success: false,
-				error: "Kan ikke laste opp vedlegg til en fullført gjennomgang.",
-				intent: "upload",
-			})
-		}
-
-		try {
-			const arrayBuffer = await file.arrayBuffer()
-			const buffer = Buffer.from(arrayBuffer)
-			const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
-			const bucketPath = `routines/${review.routineId}/reviews/${gjennomgangId}/${Date.now()}-${sanitizedName}`
-			const contentType = file.type || "application/octet-stream"
-
-			const storage = getStorageProvider()
-			const uploadResult = await storage.upload(bucketPath, buffer, { contentType })
-
-			const bucketName = process.env.GCS_BUCKET_NAME ?? "kiss-data-local"
-			await saveBucketObject({
-				bucketName,
-				objectPath: uploadResult.path,
-				contentType: uploadResult.contentType,
-				sizeBytes: uploadResult.sizeBytes,
-				objectType: "routine-review-attachment",
-				uploadedBy: authedUser.navIdent,
-				metadata: { originalFileName: file.name, reviewId: gjennomgangId },
-			})
-
-			await addReviewAttachment({
-				reviewId: gjennomgangId,
-				fileName: file.name,
-				bucketPath: uploadResult.path,
-				contentType: uploadResult.contentType,
-				sizeBytes: uploadResult.sizeBytes,
-				uploadedBy: authedUser.navIdent,
-			})
-
-			return data<ActionResult>({
-				success: true,
-				message: `Vedlegg "${file.name}" ble lastet opp.`,
-				intent: "upload",
-			})
-		} catch (err) {
-			return data<ActionResult>({
-				success: false,
-				error: err instanceof Error ? err.message : "Ukjent feil ved opplasting.",
-				intent: "upload",
-			})
-		}
-	}
-
 	if (intent === "complete") {
 		const review = await getReview(gjennomgangId)
 		if (!review) {
@@ -218,26 +141,43 @@ const rejectionErrors: Record<FileRejectionReason, string> = {
 	fileSize: `Filen er for stor (maks ${MAX_SIZE_MB} MB)`,
 }
 
-function UploadSection() {
-	const submit = useSubmit()
-	const navigation = useNavigation()
-	const actionData = useActionData<ActionResult>()
+function UploadSection({ reviewId }: { reviewId: string }) {
+	const revalidator = useRevalidator()
 	const [files, setFiles] = useState<FileObject[]>([])
-	const isSubmitting = navigation.state === "submitting"
+	const [uploading, setUploading] = useState(false)
+	const [uploadResult, setUploadResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null)
 
 	const acceptedFiles = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
 	const rejectedFiles = files.filter((f): f is FileRejected => f.error)
 
-	function handleUpload() {
+	async function handleUpload() {
 		const selectedFile = acceptedFiles.length > 0 ? acceptedFiles[0].file : null
 		if (!selectedFile) return
 
-		const formData = new FormData()
-		formData.set("intent", "upload")
-		formData.set("file", selectedFile)
+		setUploading(true)
+		setUploadResult(null)
 
-		submit(formData, { method: "post", encType: "multipart/form-data" })
-		setFiles([])
+		try {
+			const formData = new FormData()
+			formData.append("file", selectedFile)
+
+			const response = await fetch(`/api/gjennomgang/${reviewId}/vedlegg`, {
+				method: "POST",
+				body: formData,
+			})
+
+			const result = await response.json()
+			setUploadResult(result)
+
+			if (result.success) {
+				setFiles([])
+				revalidator.revalidate()
+			}
+		} catch {
+			setUploadResult({ success: false, error: "Nettverksfeil ved opplasting." })
+		} finally {
+			setUploading(false)
+		}
 	}
 
 	return (
@@ -246,14 +186,14 @@ function UploadSection() {
 				Last opp vedlegg
 			</Heading>
 
-			{actionData?.intent === "upload" && actionData.error && (
+			{uploadResult?.error && (
 				<Alert variant="error" size="small">
-					{actionData.error}
+					{uploadResult.error}
 				</Alert>
 			)}
-			{actionData?.intent === "upload" && actionData.success && (
+			{uploadResult?.success && (
 				<Alert variant="success" size="small">
-					{actionData.message}
+					{uploadResult.message}
 				</Alert>
 			)}
 
@@ -274,7 +214,7 @@ function UploadSection() {
 							key={file.file.name}
 							file={file.file}
 							button={{ action: "delete", onClick: () => setFiles([]) }}
-							status={isSubmitting ? "uploading" : "idle"}
+							status={uploading ? "uploading" : "idle"}
 						/>
 					))}
 				</VStack>
@@ -307,8 +247,8 @@ function UploadSection() {
 						variant="primary"
 						size="small"
 						onClick={handleUpload}
-						disabled={isSubmitting}
-						loading={isSubmitting}
+						disabled={uploading}
+						loading={uploading}
 						icon={<UploadIcon aria-hidden />}
 					>
 						Last opp
@@ -544,7 +484,7 @@ export default function GjennomgangDetalj() {
 			</VStack>
 
 			{/* Upload section — only for drafts */}
-			{isDraft && <UploadSection />}
+			{isDraft && <UploadSection reviewId={review.id} />}
 
 			{/* Complete section — only for drafts */}
 			{isDraft && <CompleteSection />}

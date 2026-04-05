@@ -35,6 +35,7 @@ export default [
 		"routes/seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/index.tsx",
 	),
 	route("api/rutine-vedlegg/:vedleggId", "routes/api.rutine-vedlegg.$vedleggId/index.tsx"),
+	route("api/gjennomgang/:gjennomgangId/vedlegg", "routes/api.gjennomgang.$gjennomgangId.vedlegg/index.tsx"),
 	route("applikasjoner", "routes/applikasjoner/index.tsx"),
 	route("applikasjoner/:appId/detaljer", "routes/applikasjoner.$appId.detaljer/index.tsx"),
 	route("applikasjoner/:appId/rediger", "routes/applikasjoner.$appId.rediger/index.tsx"),
