@@ -13,7 +13,7 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
+import { data, Form, Link, redirect, useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router"
 import { MarkdownHint } from "~/components/MarkdownHint"
 import { MarkdownPreview } from "~/components/MarkdownPreview"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -66,6 +66,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const title = (formData.get("title") as string)?.trim()
 	const applicationId = (formData.get("applicationId") as string) || null
 	const reviewedAt = formData.get("reviewedAt") as string
+	const reviewedTime = (formData.get("reviewedTime") as string) || "00:00"
 	const summary = (formData.get("summary") as string)?.trim() || null
 	const participantsRaw = (formData.get("participants") as string)?.trim() || ""
 
@@ -85,7 +86,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		title,
 		summary,
 		routineSnapshotPath: null,
-		reviewedAt: reviewedAt ? new Date(reviewedAt) : new Date(),
+		reviewedAt: reviewedAt ? new Date(`${reviewedAt}T${reviewedTime}`) : new Date(),
 		createdBy: authedUser.navIdent,
 		participants,
 	})
@@ -139,23 +140,37 @@ export default function NyGjennomgang() {
 	const { routine, apps } = useLoaderData<typeof loader>()
 	const actionData = useActionData<ActionResult>()
 	const navigation = useNavigation()
-	const submit = useSubmit()
+	const revalidator = useRevalidator()
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
-	const isSubmitting = navigation.state === "submitting"
 
 	const [files, setFiles] = useState<(FileObject | FileRejected)[]>([])
 	const [summaryPreview, setSummaryPreview] = useState("")
+	const [submitting, setSubmitting] = useState(false)
 	const acceptedFiles = files.filter((f) => !("reasons" in f)) as FileObject[]
 	const rejectedFiles = files.filter((f) => "reasons" in f) as FileRejected[]
+	const isSubmitting = submitting || navigation.state === "submitting"
 
-	function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+	async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
 		event.preventDefault()
+		setSubmitting(true)
 		const formData = new FormData(event.currentTarget)
 		for (const accepted of acceptedFiles) {
 			formData.append("attachments", accepted.file)
 		}
-		submit(formData, { method: "post", encType: "multipart/form-data" })
+		try {
+			const response = await fetch(event.currentTarget.action || window.location.href, {
+				method: "POST",
+				body: formData,
+			})
+			if (response.redirected) {
+				window.location.href = response.url
+			} else {
+				revalidator.revalidate()
+			}
+		} finally {
+			setSubmitting(false)
+		}
 	}
 
 	return (
@@ -182,18 +197,32 @@ export default function NyGjennomgang() {
 						))}
 					</Select>
 
-					<div>
-						<Label size="small" htmlFor="reviewedAt">
-							Dato for gjennomgang
-						</Label>
-						<input
-							type="date"
-							id="reviewedAt"
-							name="reviewedAt"
-							defaultValue={today}
-							className="navds-text-field__input navds-body-short navds-body-short--small"
-						/>
-					</div>
+					<HStack gap="space-6" align="end">
+						<div>
+							<Label size="small" htmlFor="reviewedAt">
+								Dato for gjennomgang
+							</Label>
+							<input
+								type="date"
+								id="reviewedAt"
+								name="reviewedAt"
+								defaultValue={today}
+								className="navds-text-field__input navds-body-short navds-body-short--small"
+							/>
+						</div>
+						<div>
+							<Label size="small" htmlFor="reviewedTime">
+								Tidspunkt
+							</Label>
+							<input
+								type="time"
+								id="reviewedTime"
+								name="reviewedTime"
+								defaultValue={new Date().toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })}
+								className="navds-text-field__input navds-body-short navds-body-short--small"
+							/>
+						</div>
+					</HStack>
 
 					<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
 						<VStack style={{ flex: 1, minWidth: "20rem" }}>

@@ -69,6 +69,17 @@ function formatDate(dateStr: string) {
 	})
 }
 
+function formatDateTime(dateStr: string) {
+	const d = new Date(dateStr)
+	return d.toLocaleDateString("nb-NO", {
+		day: "numeric",
+		month: "long",
+		year: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	})
+}
+
 function formatFileSize(bytes: number | null) {
 	if (!bytes) return "—"
 	if (bytes < 1024) return `${bytes} B`
@@ -108,7 +119,7 @@ export default function GjennomgangDetalj() {
 					</VStack>
 					<VStack gap="space-2">
 						<Label size="small">Gjennomgangsdato</Label>
-						<BodyShort>{formatDate(review.reviewedAt)}</BodyShort>
+						<BodyShort>{formatDateTime(review.reviewedAt)}</BodyShort>
 					</VStack>
 					<VStack gap="space-2">
 						<Label size="small">Opprettet av</Label>
@@ -116,7 +127,7 @@ export default function GjennomgangDetalj() {
 					</VStack>
 					<VStack gap="space-2">
 						<Label size="small">Opprettet</Label>
-						<BodyShort>{formatDate(review.createdAt)}</BodyShort>
+						<BodyShort>{formatDateTime(review.createdAt)}</BodyShort>
 					</VStack>
 					{review.applicationId && (
 						<VStack gap="space-2">
