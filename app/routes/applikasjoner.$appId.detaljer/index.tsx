@@ -15,14 +15,16 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData, useSearchParams } from "react-router"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Link, useActionData, useLoaderData, useNavigation, useSearchParams, useSubmit } from "react-router"
 import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getApplicationDetail } from "~/db/queries/nais.server"
+import { generateAppComplianceReport, getReportsForApp } from "~/db/queries/reports.server"
 import { getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 import { compliancePercent } from "~/lib/utils"
@@ -68,11 +70,12 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
 	const { getApplicationElements } = await import("~/db/queries/technology-elements.server")
-	const [appElements, routineDeadlines, completedReviews, allSections] = await Promise.all([
+	const [appElements, routineDeadlines, completedReviews, allSections, appReports] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesForApp(appId),
 		getReviewsForApp(appId),
 		getSections(),
+		getReportsForApp(appId),
 	])
 
 	// Build section ID → slug lookup for routine links
@@ -108,7 +111,43 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			percent: compliancePercent(implemented, partial, totalControls),
 		},
 		assessments,
+		appReports: appReports.map((r) => ({
+			id: r.id,
+			name: r.name,
+			createdAt: r.createdAt.toISOString(),
+			createdBy: r.createdBy,
+			reportBucketPath: r.reportBucketPath,
+		})),
 	})
+}
+
+export async function action({ request, params }: ActionFunctionArgs) {
+	const appId = params.appId
+	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
+
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+
+	const formData = await request.formData()
+	const intent = formData.get("intent")
+
+	if (intent === "generate-report") {
+		try {
+			await generateAppComplianceReport({
+				applicationId: appId,
+				createdBy: authedUser.navIdent,
+			})
+			return data({ success: true, message: "Rapport generert.", error: null })
+		} catch (err) {
+			return data({
+				success: false,
+				message: null,
+				error: err instanceof Error ? err.message : "Feil ved generering av rapport.",
+			})
+		}
+	}
+
+	return data({ success: false, message: null, error: "Ukjent handling" })
 }
 
 export default function ApplikasjonDetalj() {
@@ -126,7 +165,12 @@ export default function ApplikasjonDetalj() {
 		sectionSlugMap,
 		compliance,
 		assessments,
+		appReports,
 	} = useLoaderData<typeof loader>()
+	const submit = useSubmit()
+	const navigation = useNavigation()
+	const actionData = useActionData<typeof action>()
+	const isGenerating = navigation.state === "submitting"
 
 	const [searchParams, setSearchParams] = useSearchParams()
 	const activeTab = searchParams.get("fane") ?? "oversikt"
@@ -218,16 +262,31 @@ export default function ApplikasjonDetalj() {
 								</VStack>
 							</HStack>
 							<VStack gap="space-4">
+								{actionData?.success && (
+									<Alert variant="success" size="small">
+										{actionData.message}
+									</Alert>
+								)}
+								{actionData && !actionData.success && actionData.error && (
+									<Alert variant="error" size="small">
+										{actionData.error}
+									</Alert>
+								)}
 								<HStack gap="space-8" align="center">
 									<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
 									<Button
-										as="a"
-										href={`/api/applikasjoner/${app.id}/rapport-pdf`}
+										type="button"
 										variant="primary"
 										size="small"
 										icon={<DownloadIcon aria-hidden />}
+										loading={isGenerating}
+										onClick={() => {
+											const fd = new FormData()
+											fd.set("intent", "generate-report")
+											submit(fd, { method: "post" })
+										}}
 									>
-										Compliance-rapport (PDF)
+										Generer compliance-rapport
 									</Button>
 									<Button
 										as="a"
@@ -240,6 +299,55 @@ export default function ApplikasjonDetalj() {
 									</Button>
 								</HStack>
 							</VStack>
+
+							{/* Generated reports */}
+							{appReports.length > 0 && (
+								<VStack gap="space-4">
+									<Heading size="small" level="4">
+										Genererte rapporter
+									</Heading>
+									<Table size="small">
+										<Table.Header>
+											<Table.Row>
+												<Table.HeaderCell>Rapport</Table.HeaderCell>
+												<Table.HeaderCell>Generert</Table.HeaderCell>
+												<Table.HeaderCell>Av</Table.HeaderCell>
+												<Table.HeaderCell />
+											</Table.Row>
+										</Table.Header>
+										<Table.Body>
+											{appReports.map((r) => (
+												<Table.Row key={r.id}>
+													<Table.DataCell>{r.name}</Table.DataCell>
+													<Table.DataCell>
+														{new Date(r.createdAt).toLocaleString("nb-NO", {
+															day: "numeric",
+															month: "short",
+															year: "numeric",
+															hour: "2-digit",
+															minute: "2-digit",
+														})}
+													</Table.DataCell>
+													<Table.DataCell>{r.createdBy}</Table.DataCell>
+													<Table.DataCell>
+														{r.reportBucketPath && (
+															<Button
+																as="a"
+																href={`/api/rapporter/${r.id}/pdf`}
+																variant="tertiary"
+																size="xsmall"
+																icon={<DownloadIcon aria-hidden />}
+															>
+																Last ned PDF
+															</Button>
+														)}
+													</Table.DataCell>
+												</Table.Row>
+											))}
+										</Table.Body>
+									</Table>
+								</VStack>
+							)}
 						</Box>
 
 						{/* Linked applications */}

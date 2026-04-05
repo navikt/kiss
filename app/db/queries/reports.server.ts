@@ -19,6 +19,15 @@ export async function getReports() {
 	return db.select().from(reports).orderBy(desc(reports.createdAt))
 }
 
+/** Get reports scoped to a specific application. */
+export async function getReportsForApp(applicationId: string) {
+	return db
+		.select()
+		.from(reports)
+		.where(sql`${reports.scope} = 'application' AND ${reports.scopeId} = ${applicationId}`)
+		.orderBy(desc(reports.createdAt))
+}
+
 /** Get a report by ID. */
 export async function getReport(reportId: string) {
 	const [report] = await db.select().from(reports).where(eq(reports.id, reportId)).limit(1)
@@ -340,6 +349,375 @@ export async function generateComplianceReport(params: {
 	})
 
 	return report.id
+}
+
+/** Generate a per-application compliance report: snapshot JSON + PDF stored in bucket. */
+export async function generateAppComplianceReport(params: {
+	applicationId: string
+	createdBy: string
+}): Promise<string> {
+	const { applicationId, createdBy } = params
+
+	// Dynamic imports to avoid circular deps and keep pdfkit server-only
+	const { getAppAssessments } = await import("./applications.server")
+	const { getReviewsForApp } = await import("./routines.server")
+	const { getApplicationDetail } = await import("./nais.server")
+	const { default: PDFDocument } = await import("pdfkit")
+	const { PDFDocument: PDFLibDocument } = await import("pdf-lib")
+
+	const [detail, assessmentsResult] = await Promise.all([
+		getApplicationDetail(applicationId),
+		getAppAssessments(applicationId),
+	])
+
+	// Reviews may fail if routine tables don't exist yet
+	let reviews: Awaited<ReturnType<typeof getReviewsForApp>> = []
+	try {
+		reviews = await getReviewsForApp(applicationId)
+	} catch {
+		// Routine tables may not exist
+	}
+
+	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
+
+	const assessments = assessmentsResult?.assessments ?? []
+	const completedReviews = reviews.filter((r) => r.status === "completed")
+
+	const now = new Date()
+	const datePrefix = now.toISOString().slice(0, 10)
+	const fileId = crypto.randomUUID()
+	const reportName = `Compliance-rapport – ${detail.app.name} – ${now.toLocaleDateString("nb-NO")}`
+	const storage = getStorageProvider()
+	const bucketName = "kiss-reports"
+
+	// Build snapshot
+	const total = assessments.length
+	const implemented = assessments.filter((a) => a.status === "implemented").length
+	const partial = assessments.filter((a) => a.status === "partially_implemented").length
+	const notImpl = assessments.filter((a) => a.status === "not_implemented").length
+	const notRel = assessments.filter((a) => a.status === "not_relevant").length
+	const notAssessed = assessments.filter((a) => !a.status).length
+
+	const snapshot = {
+		generatedAt: now.toISOString(),
+		appName: detail.app.name,
+		namespace: detail.environments[0]?.namespace ?? null,
+		cluster: detail.environments[0]?.cluster ?? null,
+		totalControls: total,
+		statistics: { implemented, partial, notImplemented: notImpl, notRelevant: notRel, unassessed: notAssessed },
+		assessments: assessments.map((a) => ({
+			controlId: a.controlId,
+			controlName: a.controlName,
+			domainCode: a.domainCode,
+			domainName: a.domainName,
+			status: a.status,
+			comment: a.comment,
+			assessedBy: a.assessedBy,
+			assessedAt: a.assessedAt,
+		})),
+		reviews: completedReviews.map((r) => ({
+			id: r.id,
+			title: r.title,
+			routineName: r.routineName,
+			routineFrequency: r.routineFrequency,
+			reviewedAt: r.reviewedAt.toISOString(),
+			createdBy: r.createdBy,
+			summary: r.summary,
+			participants: r.participants.map((p) => ({ userIdent: p.userIdent, userName: p.userName })),
+			attachments: r.attachments.map((a) => ({
+				fileName: a.fileName,
+				contentType: a.contentType,
+				bucketPath: a.bucketPath,
+			})),
+		})),
+	}
+
+	// Upload snapshot JSON
+	const snapshotPath = `reports/app/${datePrefix}/${fileId}/snapshot.json`
+	const snapshotBuffer = Buffer.from(JSON.stringify(snapshot, null, 2), "utf-8")
+	const snapshotResult = await storage.upload(snapshotPath, snapshotBuffer, { contentType: "application/json" })
+	await saveBucketObject({
+		bucketName,
+		objectPath: snapshotPath,
+		contentType: "application/json",
+		sizeBytes: snapshotResult.sizeBytes,
+		objectType: "app_report_snapshot",
+		uploadedBy: createdBy,
+	})
+
+	// Download attachment files for embedding in PDF
+	const pdfAttachmentBuffers: Array<{ fileName: string; contentType: string; data: Buffer }> = []
+	for (const review of completedReviews) {
+		for (const att of review.attachments) {
+			try {
+				const buf = await storage.download(att.bucketPath)
+				pdfAttachmentBuffers.push({ fileName: att.fileName, contentType: att.contentType, data: buf })
+			} catch {
+				// Skip unreadable attachments
+			}
+		}
+	}
+
+	// Generate main PDF with pdfkit
+	const mainPdfBuffer = await buildAppPdf(
+		PDFDocument,
+		{
+			name: detail.app.name,
+			namespace: detail.environments[0]?.namespace ?? null,
+			cluster: detail.environments[0]?.cluster ?? null,
+		},
+		assessments,
+		completedReviews,
+		pdfAttachmentBuffers,
+	)
+
+	// Merge PDF attachments as pages
+	const pdfFiles = pdfAttachmentBuffers.filter((a) => a.contentType === "application/pdf")
+	let finalPdf: Buffer
+	if (pdfFiles.length > 0) {
+		const merged = await PDFLibDocument.load(mainPdfBuffer)
+		for (const att of pdfFiles) {
+			try {
+				const attachedPdf = await PDFLibDocument.load(att.data)
+				const pages = await merged.copyPages(attachedPdf, attachedPdf.getPageIndices())
+				for (const page of pages) {
+					merged.addPage(page)
+				}
+			} catch {
+				// Skip corrupt PDFs
+			}
+		}
+		finalPdf = Buffer.from(await merged.save())
+	} else {
+		finalPdf = mainPdfBuffer
+	}
+
+	// Upload PDF to bucket
+	const pdfPath = `reports/app/${datePrefix}/${fileId}/rapport.pdf`
+	const pdfResult = await storage.upload(pdfPath, finalPdf, { contentType: "application/pdf" })
+	await saveBucketObject({
+		bucketName,
+		objectPath: pdfPath,
+		contentType: "application/pdf",
+		sizeBytes: pdfResult.sizeBytes,
+		objectType: "app_report_pdf",
+		uploadedBy: createdBy,
+	})
+
+	// Insert report record
+	const [report] = await db
+		.insert(reports)
+		.values({
+			name: reportName,
+			reportType: "app_compliance",
+			scope: "application",
+			scopeId: applicationId,
+			snapshotBucketPath: snapshotPath,
+			reportBucketPath: pdfPath,
+			appVersion: "0.1.0",
+			createdBy,
+		})
+		.returning()
+
+	await writeAuditLog({
+		action: "report_generated",
+		entityType: "report",
+		entityId: report.id,
+		newValue: reportName,
+		metadata: { scope: "application", applicationId, totalControls: total },
+		performedBy: createdBy,
+	})
+
+	return report.id
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: pdfkit constructor type
+function buildAppPdf(
+	PDFDocCtor: any,
+	app: { name: string; namespace: string | null; cluster: string | null },
+	assessments: Array<{
+		controlId: string
+		controlName: string
+		domainCode: string
+		domainName: string
+		status: string | null
+		comment: string | null
+	}>,
+	reviews: Array<{
+		title: string
+		summary: string | null
+		reviewedAt: Date
+		createdBy: string
+		routineName: string
+		routineFrequency: string
+		participants: Array<{ userIdent: string; userName: string | null }>
+		attachments: Array<{ fileName: string }>
+	}>,
+	attachments: Array<{ fileName: string; contentType: string; data: Buffer }>,
+): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		const doc = new PDFDocCtor({ size: "A4", margin: 50, bufferPages: true })
+		const chunks: Buffer[] = []
+		doc.on("data", (chunk: Buffer) => chunks.push(chunk))
+		doc.on("end", () => resolve(Buffer.concat(chunks)))
+		doc.on("error", reject)
+
+		const blue = "#0067c5"
+		const dark = "#222222"
+		const gray = "#666666"
+
+		// Title
+		doc.fontSize(22).fillColor(blue).text("Compliance-rapport")
+		doc.fontSize(16).fillColor(dark).text(app.name)
+		doc.moveDown(0.5)
+		doc.fontSize(9).fillColor(gray)
+		doc.text(`Generert: ${new Date().toLocaleString("nb-NO")}`)
+		if (app.namespace) doc.text(`Namespace: ${app.namespace}`)
+		if (app.cluster) doc.text(`Cluster: ${app.cluster}`)
+		doc.moveDown(1)
+
+		// Summary
+		const total = assessments.length
+		const impl = assessments.filter((a) => a.status === "implemented").length
+		const part = assessments.filter((a) => a.status === "partially_implemented").length
+		const notI = assessments.filter((a) => a.status === "not_implemented").length
+		const notR = assessments.filter((a) => a.status === "not_relevant").length
+		const notA = assessments.filter((a) => !a.status).length
+		const pct = (n: number) => (total > 0 ? ((n / total) * 100).toFixed(1) : "0.0")
+
+		doc.fontSize(14).fillColor(blue).text("Compliance-oppsummering")
+		doc.moveDown(0.3)
+		doc.fontSize(10).fillColor(dark)
+		doc.text(`Totalt kontroller: ${total}`)
+		doc.text(`Implementert: ${impl} (${pct(impl)}%)`)
+		doc.text(`Delvis implementert: ${part} (${pct(part)}%)`)
+		doc.text(`Ikke implementert: ${notI} (${pct(notI)}%)`)
+		doc.text(`Ikke relevant: ${notR} (${pct(notR)}%)`)
+		doc.text(`Ikke vurdert: ${notA} (${pct(notA)}%)`)
+		doc.moveDown(1)
+
+		// Assessment table
+		if (assessments.length > 0) {
+			doc.fontSize(14).fillColor(blue).text("Kontrollvurderinger")
+			doc.moveDown(0.3)
+			const cw = [55, 150, 80, 95, 115]
+			drawRow(doc, 50, cw, ["Kontroll", "Kontrollnavn", "Domene", "Status", "Kommentar"], true, blue, dark)
+			for (const a of assessments) {
+				if (doc.y > 760) doc.addPage()
+				drawRow(
+					doc,
+					50,
+					cw,
+					[
+						a.controlId,
+						a.controlName.slice(0, 35),
+						a.domainName.slice(0, 18),
+						getStatusLabel(a.status),
+						(a.comment ?? "").slice(0, 30),
+					],
+					false,
+					blue,
+					dark,
+				)
+			}
+			doc.moveDown(1)
+		}
+
+		// Reviews
+		if (reviews.length > 0) {
+			doc.addPage()
+			doc.fontSize(14).fillColor(blue).text("Rutinegjennomganger")
+			doc.moveDown(0.3)
+			for (const r of reviews) {
+				if (doc.y > 700) doc.addPage()
+				doc.fontSize(11).fillColor(blue).text(r.title)
+				doc.moveDown(0.2)
+				doc.fontSize(8).fillColor(gray)
+				doc.text(`Rutine: ${r.routineName} (${getFrequencyLabel(r.routineFrequency)})`)
+				doc.text(`Dato: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
+				doc.text(`Opprettet av: ${r.createdBy}`)
+				if (r.participants.length > 0)
+					doc.text(`Deltakere: ${r.participants.map((p) => p.userName || p.userIdent).join(", ")}`)
+				if (r.attachments.length > 0) doc.text(`Vedlegg: ${r.attachments.map((a) => a.fileName).join(", ")}`)
+				if (r.summary) {
+					doc.moveDown(0.3)
+					doc.fontSize(8).fillColor(dark).text(r.summary.slice(0, 2000), { width: 495 })
+				}
+				doc.moveDown(0.8)
+			}
+		}
+
+		// Attachment list
+		if (attachments.length > 0) {
+			if (doc.y > 700) doc.addPage()
+			doc.fontSize(14).fillColor(blue).text("Vedlagte dokumenter")
+			doc.moveDown(0.3)
+			const cw = [280, 150, 65]
+			drawRow(doc, 50, cw, ["Filnavn", "Type", "Størrelse"], true, blue, dark)
+			for (const att of attachments) {
+				if (doc.y > 760) doc.addPage()
+				const isPdf = att.contentType === "application/pdf"
+				drawRow(
+					doc,
+					50,
+					cw,
+					[
+						`${att.fileName}${isPdf ? " (vedlagte sider)" : ""}`.slice(0, 60),
+						att.contentType,
+						fmtSize(att.data.length),
+					],
+					false,
+					blue,
+					dark,
+				)
+			}
+
+			// Embed non-PDF files
+			const nonPdf = attachments.filter((a) => a.contentType !== "application/pdf")
+			const embedNow = new Date()
+			for (const att of nonPdf) {
+				doc.file(att.data, {
+					name: att.fileName,
+					type: att.contentType,
+					creationDate: embedNow,
+					modifiedDate: embedNow,
+				})
+			}
+		}
+
+		doc.end()
+	})
+}
+
+function drawRow(
+	doc: PDFKit.PDFDocument,
+	x: number,
+	widths: number[],
+	cells: string[],
+	isHeader: boolean,
+	headerColor: string,
+	textColor: string,
+) {
+	if (doc.y > 760) doc.addPage()
+	const y = doc.y
+	const h = 16
+	const totalW = widths.reduce((a, b) => a + b, 0)
+	if (isHeader) doc.rect(x, y, totalW, h).fill("#e6f0ff")
+	doc.fontSize(7).fillColor(isHeader ? headerColor : textColor)
+	let cx = x
+	for (let i = 0; i < cells.length; i++) {
+		doc.text(cells[i], cx + 3, y + 3, { width: widths[i] - 6, height: h - 2, lineBreak: false, ellipsis: true })
+		cx += widths[i]
+	}
+	doc.strokeColor("#c6c2bf").lineWidth(0.5).rect(x, y, totalW, h).stroke()
+	doc.y = y + h
+	doc.x = x
+}
+
+function fmtSize(bytes: number) {
+	if (bytes < 1024) return `${bytes} B`
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function escapeHtml(str: string): string {

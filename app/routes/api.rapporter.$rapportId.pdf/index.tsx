@@ -40,8 +40,25 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const report = await getReport(rapportId)
 	if (!report) throw new Response("Rapport ikke funnet", { status: 404 })
 
-	// Load the snapshot JSON
 	const storage = getStorageProvider()
+	const safeName = report.name.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_")
+
+	// App compliance reports store the PDF directly in the bucket
+	if (report.reportType === "app_compliance" && report.reportBucketPath?.endsWith(".pdf")) {
+		try {
+			const pdfBuffer = await storage.download(report.reportBucketPath)
+			return new Response(new Uint8Array(pdfBuffer), {
+				headers: {
+					"Content-Type": "application/pdf",
+					"Content-Disposition": `attachment; filename="${safeName}.pdf"`,
+				},
+			})
+		} catch {
+			throw new Response("Kunne ikke laste rapport-PDF", { status: 500 })
+		}
+	}
+
+	// Standard compliance reports regenerate from snapshot
 	let snapshot: ReportSnapshot
 	try {
 		const buf = await storage.download(report.snapshotBucketPath)
@@ -52,7 +69,6 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const pdfBuffer = await buildPdf(report.name, snapshot)
 
-	const safeName = report.name.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_")
 	return new Response(new Uint8Array(pdfBuffer), {
 		headers: {
 			"Content-Type": "application/pdf",
