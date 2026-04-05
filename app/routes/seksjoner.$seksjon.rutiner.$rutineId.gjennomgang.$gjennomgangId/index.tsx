@@ -57,11 +57,19 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		throw data({ message: "Fant ikke gjennomgang" }, { status: 404 })
 	}
 
+	let applicationName: string | null = null
+	if (review.applicationId) {
+		const { getApplicationDetail } = await import("~/db/queries/nais.server")
+		const appDetail = await getApplicationDetail(review.applicationId)
+		applicationName = appDetail?.app.name ?? null
+	}
+
 	return data({
 		section,
 		routine,
 		review: {
 			...review,
+			applicationName,
 			reviewedAt: review.reviewedAt.toISOString(),
 			createdAt: review.createdAt.toISOString(),
 			summaryHtml: renderMarkdown(review.summary),
@@ -373,7 +381,7 @@ export default function GjennomgangDetalj() {
 							<Label size="small">Applikasjon</Label>
 							<BodyShort>
 								<AkselLink as={Link} to={`/applikasjoner/${review.applicationId}/detaljer`}>
-									{review.applicationId}
+									{review.applicationName ?? review.applicationId}
 								</AkselLink>
 							</BodyShort>
 						</VStack>
