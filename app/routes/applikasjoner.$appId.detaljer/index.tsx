@@ -756,11 +756,20 @@ export default function ApplikasjonDetalj() {
 									<Table.Body>
 										{completedReviews.map((review) => {
 											const confirmed = review.participants.filter((p) => p.confirmedAt).length
+											const slug = review.sectionId ? sectionSlugMap[review.sectionId] : null
 											return (
 												<Table.Row key={review.id}>
 													<Table.DataCell>{new Date(review.reviewedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
 													<Table.DataCell>{review.routineName}</Table.DataCell>
-													<Table.DataCell>{review.title}</Table.DataCell>
+													<Table.DataCell>
+														{slug ? (
+															<Link to={`/seksjoner/${slug}/rutiner/${review.routineId}/gjennomgang/${review.id}`}>
+																{review.title}
+															</Link>
+														) : (
+															review.title
+														)}
+													</Table.DataCell>
 													<Table.DataCell>{review.createdBy}</Table.DataCell>
 													<Table.DataCell>
 														{review.participants.length} ({confirmed} bekreftet)

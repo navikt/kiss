@@ -221,7 +221,9 @@ export default function RutineDetaljer() {
 								return (
 									<Table.Row key={review.id}>
 										<Table.DataCell>{formatDate(review.reviewedAt)}</Table.DataCell>
-										<Table.DataCell>{review.title}</Table.DataCell>
+										<Table.DataCell>
+											<Link to={`./gjennomgang/${review.id}`}>{review.title}</Link>
+										</Table.DataCell>
 										<Table.DataCell>{review.createdBy}</Table.DataCell>
 										<Table.DataCell>
 											{review.participants.length > 0

@@ -198,6 +198,7 @@ export async function getReviewsForApp(applicationId: string) {
 			review: routineReviews,
 			routineName: routines.name,
 			routineFrequency: routines.frequency,
+			sectionId: routines.sectionId,
 		})
 		.from(routineReviews)
 		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
@@ -211,6 +212,7 @@ export async function getReviewsForApp(applicationId: string) {
 				...enriched,
 				routineName: row.routineName,
 				routineFrequency: row.routineFrequency,
+				sectionId: row.sectionId,
 			}
 		}),
 	)
