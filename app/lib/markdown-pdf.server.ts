@@ -61,13 +61,15 @@ function renderToken(doc: any, token: Token, style: PdfStyle, width: number) {
 			for (let i = 0; i < t.items.length; i++) {
 				const item = t.items[i]
 				const bullet = t.ordered ? `${(Number(t.start) || 1) + i}. ` : "• "
-				const itemWidth = width - style.indent - 12
+				const bulletIndent = 50 + style.indent
+				const textIndent = bulletIndent + 15
+				const itemWidth = width - style.indent - 15
 
 				doc.fontSize(style.fontSize).fillColor(style.color)
-				doc.text(bullet, 50 + style.indent, undefined, { continued: true, width: 12 })
-
+				const bulletY = doc.y
+				doc.text(bullet, bulletIndent, bulletY, { width: 15 })
 				const text = extractPlainText(item.tokens ?? [])
-				doc.text(text, { width: itemWidth, continued: false })
+				doc.text(text, textIndent, bulletY, { width: itemWidth })
 			}
 			doc.moveDown(0.3)
 			break
