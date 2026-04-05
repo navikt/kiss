@@ -418,6 +418,7 @@ export async function generateAppComplianceReport(params: {
 			controlName: a.controlName,
 			domainCode: a.domainCode,
 			domainName: a.domainName,
+			technologyElementName: a.technologyElementName ?? null,
 			status: a.status,
 			comment: a.comment,
 			assessedBy: a.assessedBy,
@@ -567,6 +568,7 @@ function buildAppPdf(
 		controlName: string
 		domainCode: string
 		domainName: string
+		technologyElementName: string | null
 		status: string | null
 		comment: string | null
 	}>,
@@ -627,8 +629,8 @@ function buildAppPdf(
 		if (assessments.length > 0) {
 			doc.fontSize(14).fillColor(blue).text("Kontrollvurderinger")
 			doc.moveDown(0.3)
-			const cw = [55, 150, 80, 95, 115]
-			drawRow(doc, 50, cw, ["Kontroll", "Kontrollnavn", "Domene", "Status", "Kommentar"], true, blue, dark)
+			const cw = [50, 120, 70, 75, 85, 95]
+			drawRow(doc, 50, cw, ["Kontroll", "Kontrollnavn", "Domene", "Teknologi", "Status", "Kommentar"], true, blue, dark)
 			for (const a of assessments) {
 				if (doc.y > 760) doc.addPage()
 				drawRow(
@@ -637,10 +639,11 @@ function buildAppPdf(
 					cw,
 					[
 						a.controlId,
-						a.controlName.slice(0, 35),
-						a.domainName.slice(0, 18),
+						a.controlName.slice(0, 28),
+						a.domainName.slice(0, 15),
+						(a.technologyElementName ?? "–").slice(0, 16),
 						getStatusLabel(a.status),
-						(a.comment ?? "").slice(0, 30),
+						(a.comment ?? "").slice(0, 22),
 					],
 					false,
 					blue,
