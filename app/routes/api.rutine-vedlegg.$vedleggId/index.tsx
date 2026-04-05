@@ -4,7 +4,7 @@ import { db } from "~/db/connection.server"
 import { routineReviewAttachments } from "~/db/schema"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
 	const vedleggId = params.vedleggId
 	if (!vedleggId) throw new Response("Mangler vedlegg-ID", { status: 400 })
 
@@ -19,10 +19,14 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const storage = getStorageProvider()
 	const fileBuffer = await storage.download(attachment.bucketPath)
 
+	const url = new URL(request.url)
+	const forceDownload = url.searchParams.get("download") === "true"
+	const disposition = forceDownload ? "attachment" : "inline"
+
 	return new Response(new Uint8Array(fileBuffer), {
 		headers: {
 			"Content-Type": attachment.contentType,
-			"Content-Disposition": `inline; filename="${encodeURIComponent(attachment.fileName)}"`,
+			"Content-Disposition": `${disposition}; filename="${encodeURIComponent(attachment.fileName)}"`,
 			"Content-Length": String(fileBuffer.length),
 			"Cache-Control": "private, max-age=3600",
 		},

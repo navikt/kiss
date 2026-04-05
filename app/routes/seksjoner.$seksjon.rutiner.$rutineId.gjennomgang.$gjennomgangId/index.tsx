@@ -1,4 +1,4 @@
-import { DownloadIcon, UploadIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, ExternalLinkIcon, UploadIcon } from "@navikt/aksel-icons"
 import type { FileObject, FileRejected, FileRejectionReason } from "@navikt/ds-react"
 import {
 	Link as AkselLink,
@@ -462,15 +462,29 @@ export default function GjennomgangDetalj() {
 									<Table.DataCell>{a.uploadedBy}</Table.DataCell>
 									<Table.DataCell>{formatDate(a.uploadedAt)}</Table.DataCell>
 									<Table.DataCell>
-										<Button
-											as="a"
-											href={`/api/rutine-vedlegg/${a.id}`}
-											variant="tertiary"
-											size="xsmall"
-											icon={<DownloadIcon aria-hidden />}
-										>
-											Last ned
-										</Button>
+										<HStack gap="space-2">
+											<Button
+												as="a"
+												href={`/api/rutine-vedlegg/${a.id}`}
+												target="_blank"
+												rel="noopener noreferrer"
+												variant="tertiary"
+												size="xsmall"
+												icon={<ExternalLinkIcon aria-hidden />}
+											>
+												Åpne
+											</Button>
+											<Button
+												as="a"
+												href={`/api/rutine-vedlegg/${a.id}?download=true`}
+												download={a.fileName}
+												variant="tertiary"
+												size="xsmall"
+												icon={<DownloadIcon aria-hidden />}
+											>
+												Last ned
+											</Button>
+										</HStack>
 									</Table.DataCell>
 								</Table.Row>
 							))}
