@@ -387,7 +387,7 @@ export async function generateAppComplianceReport(params: {
 
 	const assessments = assessmentsResult?.assessments ?? []
 	let completedReviews = reviews.filter((r) => r.status === "completed")
-	if (reviewIds && reviewIds.length > 0) {
+	if (reviewIds) {
 		completedReviews = completedReviews.filter((r) => reviewIds.includes(r.id))
 	}
 

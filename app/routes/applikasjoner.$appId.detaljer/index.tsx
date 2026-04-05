@@ -138,7 +138,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const includeReviews = formData.get("includeReviews") === "true"
 		const includeAttachments = formData.get("includeAttachments") === "true"
 		const reviewIdsRaw = formData.get("reviewIds")
-		const reviewIds = reviewIdsRaw ? String(reviewIdsRaw).split(",").filter(Boolean) : undefined
+		const reviewIds = reviewIdsRaw != null ? String(reviewIdsRaw).split(",").filter(Boolean) : undefined
 		try {
 			await generateAppComplianceReport({
 				applicationId: appId,
@@ -992,7 +992,7 @@ function ReportsPanel({
 								fd.set("intent", "generate-report")
 								fd.set("includeReviews", String(includeReviews))
 								fd.set("includeAttachments", String(reportOptions.includes("includeAttachments")))
-								if (includeReviews && selectedReviewIds.length > 0) {
+								if (includeReviews) {
 									fd.set("reviewIds", selectedReviewIds.join(","))
 								}
 								submit(fd, { method: "post" })
