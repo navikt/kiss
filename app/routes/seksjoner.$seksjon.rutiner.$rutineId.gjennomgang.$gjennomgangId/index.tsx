@@ -563,7 +563,7 @@ export default function GjennomgangDetalj() {
 							</VStack>
 						</Box>
 
-						<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
+						<HStack gap="space-8" align="stretch" style={{ flexWrap: "wrap" }}>
 							<VStack style={{ flex: 1, minWidth: "20rem" }}>
 								<Textarea
 									label="Oppsummering/referat"
@@ -575,7 +575,7 @@ export default function GjennomgangDetalj() {
 								/>
 								<MarkdownHint />
 							</VStack>
-							<VStack style={{ flex: 1, minWidth: "20rem", alignSelf: "stretch" }}>
+							<VStack style={{ flex: 1, minWidth: "20rem" }}>
 								<Label size="small" spacing>
 									Forhåndsvisning
 								</Label>

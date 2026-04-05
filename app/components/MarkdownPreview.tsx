@@ -21,6 +21,8 @@ export function MarkdownPreview({ content }: { content: string }) {
 				borderRadius: "var(--ax-radius-8)",
 				background: "var(--ax-bg-sunken)",
 				flex: 1,
+				minHeight: "10rem",
+				overflowY: "auto",
 			}}
 			// biome-ignore lint/security/noDangerouslySetInnerHtml: client-side preview only
 			dangerouslySetInnerHTML={{ __html: html }}

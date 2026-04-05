@@ -126,7 +126,7 @@ export default function RedigerRutine() {
 				<input type="hidden" name="intent" value="update" />
 				<VStack gap="space-4">
 					<TextField label="Navn" name="name" defaultValue={routine.name} size="small" autoComplete="off" />
-					<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
+					<HStack gap="space-8" align="stretch" style={{ flexWrap: "wrap" }}>
 						<VStack style={{ flex: 1, minWidth: "20rem" }}>
 							<Textarea
 								label="Beskrivelse"
@@ -138,7 +138,7 @@ export default function RedigerRutine() {
 							/>
 							<MarkdownHint />
 						</VStack>
-						<VStack style={{ flex: 1, minWidth: "20rem", alignSelf: "stretch" }}>
+						<VStack style={{ flex: 1, minWidth: "20rem" }}>
 							<Label size="small" spacing>
 								Forhåndsvisning
 							</Label>
