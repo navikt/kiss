@@ -4,21 +4,21 @@
 }
 
 .word-diff--removed {
-	background-color: var(--a-red-100);
-	color: var(--a-red-800);
+	background-color: var(--ax-bg-danger-soft);
+	color: var(--ax-text-danger);
 	text-decoration: line-through;
 	border-radius: 2px;
 	padding-inline: 1px;
 }
 
 .word-diff--added {
-	background-color: var(--a-green-100);
-	color: var(--a-green-800);
+	background-color: var(--ax-bg-success-soft);
+	color: var(--ax-text-success);
 	border-radius: 2px;
 	padding-inline: 1px;
 }
 
 .word-diff--empty {
-	color: var(--a-gray-500);
+	color: var(--ax-text-subtle);
 	font-style: italic;
 }
