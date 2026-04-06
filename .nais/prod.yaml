@@ -2,9 +2,9 @@ apiVersion: nais.io/v1alpha1
 kind: Application
 metadata:
   name: kiss
-  namespace: team-sdlc
+  namespace: pensjon-revisjon
   labels:
-    team: team-sdlc
+    team: pensjon-revisjon
 spec:
   image: "{{image}}"
   port: 3000

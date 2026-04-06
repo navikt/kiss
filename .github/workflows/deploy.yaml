@@ -23,7 +23,7 @@ jobs:
       - uses: nais/docker-build-push@078e460885ed0424b60d45ce9220b4be1748be9d # ratchet:nais/docker-build-push@v0
         id: docker-push
         with:
-          team: team-sdlc
+          team: pensjon-revisjon
           identity_provider: ${{ secrets.NAIS_WORKLOAD_IDENTITY_PROVIDER }}
           project_id: ${{ vars.NAIS_MANAGEMENT_PROJECT_ID }}
       - uses: nais/deploy/actions/deploy@fa754451577294aae42872a69b888b3470478ec1 # ratchet:nais/deploy/actions/deploy@v2
