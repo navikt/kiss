@@ -23,7 +23,7 @@ function makeParsedFramework(): ParsedFramework {
 				riskId: "R-TS.01",
 				riskDescription: "Uautorisert tilgang til systemer",
 				controlId: "K-TS.01",
-				technologyElement: "Identitetsstyring",
+				technologyElement: null,
 				requirement: "Krav om MFA",
 				responsible: "IT",
 				routine: "Kvartalsvis",
@@ -79,11 +79,13 @@ describe("Compliance integration tests", () => {
 			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
 			DELETE FROM framework_field_history;
+			DELETE FROM control_technology_elements;
 			DELETE FROM framework_risk_control_mappings;
 			DELETE FROM framework_controls;
 			DELETE FROM framework_risks;
 			DELETE FROM framework_domains;
 			DELETE FROM framework_versions;
+			DELETE FROM technology_elements;
 			DELETE FROM audit_log;
 		`,
 		)
