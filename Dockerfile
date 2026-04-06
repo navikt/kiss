@@ -29,4 +29,4 @@ ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["./build/server/index.js"]
+CMD ["./node_modules/@react-router/serve/dist/cli.js", "./build/server/index.js"]
