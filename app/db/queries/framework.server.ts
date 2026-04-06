@@ -528,15 +528,8 @@ export async function stageFrameworkImport(
 	uploadedBy: string,
 	bucketPath: string,
 ): Promise<string> {
-	// Delete any existing pending imports
-	const existingPending = await db
-		.select({ id: frameworkVersions.id })
-		.from(frameworkVersions)
-		.where(eq(frameworkVersions.status, "pending"))
-
-	for (const v of existingPending) {
-		await db.delete(frameworkVersions).where(eq(frameworkVersions.id, v.id))
-	}
+	// Supersede any existing pending imports
+	await db.update(frameworkVersions).set({ status: "superseded" }).where(eq(frameworkVersions.status, "pending"))
 
 	// Create new pending version record (import log only — no domain/risk/control rows)
 	const [version] = await db
