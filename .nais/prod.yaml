@@ -69,3 +69,15 @@ spec:
     outbound:
       external:
         - host: graph.microsoft.com
+        - host: console.nav.cloud.nais.io
+  env:
+    - name: NODE_ENV
+      value: production
+    - name: TZ
+      value: Europe/Oslo
+    - name: NAIS_API_URL
+      value: https://console.nav.cloud.nais.io/graphql
+    - name: ENABLE_NAIS_SYNC
+      value: "true"
+  envFrom:
+    - secret: kiss
