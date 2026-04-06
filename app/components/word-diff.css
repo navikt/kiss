@@ -1,0 +1,24 @@
+.word-diff {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.word-diff--removed {
+	background-color: var(--a-red-100);
+	color: var(--a-red-800);
+	text-decoration: line-through;
+	border-radius: 2px;
+	padding-inline: 1px;
+}
+
+.word-diff--added {
+	background-color: var(--a-green-100);
+	color: var(--a-green-800);
+	border-radius: 2px;
+	padding-inline: 1px;
+}
+
+.word-diff--empty {
+	color: var(--a-gray-500);
+	font-style: italic;
+}

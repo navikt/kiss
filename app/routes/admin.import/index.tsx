@@ -16,6 +16,7 @@ import { useState } from "react"
 import type { ActionFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { WordDiff } from "~/components/WordDiff"
 import { getRecentAuditLog } from "~/db/queries/audit.server"
 import { saveBucketObject } from "~/db/queries/buckets.server"
 import {
@@ -229,11 +230,11 @@ function truncateValue(value: string | null, maxLength = 80): string {
 	return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value
 }
 
-function formatDiffValue(field: string, value: string | null, maxLength = 80): string {
+function resolveDiffValue(field: string, value: string | null): string | null {
 	if (field === "cronFrequency" && value) {
 		return cronFrequencyLabels[value] ?? value
 	}
-	return truncateValue(value, maxLength)
+	return value
 }
 
 function formatDetails(entry: {
@@ -614,8 +615,20 @@ export default function Import() {
 																		</Table.DataCell>
 																		<Table.DataCell>{r.riskId}</Table.DataCell>
 																		<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
-																		<Table.DataCell>{formatDiffValue(f.field, f.oldValue)}</Table.DataCell>
-																		<Table.DataCell>{formatDiffValue(f.field, f.newValue)}</Table.DataCell>
+																		<Table.DataCell>
+																			<WordDiff
+																				oldValue={resolveDiffValue(f.field, f.oldValue)}
+																				newValue={resolveDiffValue(f.field, f.newValue)}
+																				side="old"
+																			/>
+																		</Table.DataCell>
+																		<Table.DataCell>
+																			<WordDiff
+																				oldValue={resolveDiffValue(f.field, f.oldValue)}
+																				newValue={resolveDiffValue(f.field, f.newValue)}
+																				side="new"
+																			/>
+																		</Table.DataCell>
 																	</Table.Row>
 																)
 															}),
@@ -647,8 +660,20 @@ export default function Import() {
 																		</Table.DataCell>
 																		<Table.DataCell>{c.controlId}</Table.DataCell>
 																		<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
-																		<Table.DataCell>{formatDiffValue(f.field, f.oldValue)}</Table.DataCell>
-																		<Table.DataCell>{formatDiffValue(f.field, f.newValue)}</Table.DataCell>
+																		<Table.DataCell>
+																			<WordDiff
+																				oldValue={resolveDiffValue(f.field, f.oldValue)}
+																				newValue={resolveDiffValue(f.field, f.newValue)}
+																				side="old"
+																			/>
+																		</Table.DataCell>
+																		<Table.DataCell>
+																			<WordDiff
+																				oldValue={resolveDiffValue(f.field, f.oldValue)}
+																				newValue={resolveDiffValue(f.field, f.newValue)}
+																				side="new"
+																			/>
+																		</Table.DataCell>
 																	</Table.Row>
 																)
 															}),
