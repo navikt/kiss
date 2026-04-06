@@ -9,16 +9,19 @@ const NAIS_PREFIX = "NAIS_DATABASE_KISS_KISS"
 function buildConnectionConfig() {
 	// 1. Try envVarPrefix (DB_*) from nais.yaml
 	const dbHost = process.env.DB_HOST
-	if (dbHost && process.env.DB_DATABASE && process.env.DB_USERNAME && process.env.DB_PASSWORD) {
+	const dbDatabase = process.env.DB_DATABASE
+	const dbUsername = process.env.DB_USERNAME
+	const dbPassword = process.env.DB_PASSWORD
+	if (dbHost && dbDatabase && dbUsername && dbPassword) {
 		console.log(
-			`Database config: Using DB_* variables (host=${dbHost}, port=${process.env.DB_PORT ?? 5432}, db=${process.env.DB_DATABASE}, ssl=${process.env.DB_SSLROOTCERT ? "yes" : "no"})`,
+			`Database config: Using DB_* variables (host=${dbHost}, port=${process.env.DB_PORT ?? 5432}, db=${dbDatabase}, ssl=${process.env.DB_SSLROOTCERT ? "yes" : "no"})`,
 		)
 		return buildSslConfig(
 			dbHost,
 			process.env.DB_PORT,
-			process.env.DB_DATABASE!,
-			process.env.DB_USERNAME!,
-			process.env.DB_PASSWORD!,
+			dbDatabase,
+			dbUsername,
+			dbPassword,
 			process.env.DB_SSLROOTCERT,
 			process.env.DB_SSLCERT,
 			process.env.DB_SSLKEY,
@@ -27,21 +30,19 @@ function buildConnectionConfig() {
 
 	// 2. Try Nais default env vars (NAIS_DATABASE_KISS_KISS_*)
 	const naisHost = process.env[`${NAIS_PREFIX}_HOST`]
-	if (
-		naisHost &&
-		process.env[`${NAIS_PREFIX}_DATABASE`] &&
-		process.env[`${NAIS_PREFIX}_USERNAME`] &&
-		process.env[`${NAIS_PREFIX}_PASSWORD`]
-	) {
+	const naisDatabase = process.env[`${NAIS_PREFIX}_DATABASE`]
+	const naisUsername = process.env[`${NAIS_PREFIX}_USERNAME`]
+	const naisPassword = process.env[`${NAIS_PREFIX}_PASSWORD`]
+	if (naisHost && naisDatabase && naisUsername && naisPassword) {
 		console.log(
-			`Database config: Using ${NAIS_PREFIX}_* variables (host=${naisHost}, port=${process.env[`${NAIS_PREFIX}_PORT`] ?? 5432}, db=${process.env[`${NAIS_PREFIX}_DATABASE`]}, ssl=${process.env[`${NAIS_PREFIX}_SSLROOTCERT`] ? "yes" : "no"})`,
+			`Database config: Using ${NAIS_PREFIX}_* variables (host=${naisHost}, port=${process.env[`${NAIS_PREFIX}_PORT`] ?? 5432}, db=${naisDatabase}, ssl=${process.env[`${NAIS_PREFIX}_SSLROOTCERT`] ? "yes" : "no"})`,
 		)
 		return buildSslConfig(
 			naisHost,
 			process.env[`${NAIS_PREFIX}_PORT`],
-			process.env[`${NAIS_PREFIX}_DATABASE`]!,
-			process.env[`${NAIS_PREFIX}_USERNAME`]!,
-			process.env[`${NAIS_PREFIX}_PASSWORD`]!,
+			naisDatabase,
+			naisUsername,
+			naisPassword,
 			process.env[`${NAIS_PREFIX}_SSLROOTCERT`],
 			process.env[`${NAIS_PREFIX}_SSLCERT`],
 			process.env[`${NAIS_PREFIX}_SSLKEY`],
