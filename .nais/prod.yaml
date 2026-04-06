@@ -51,7 +51,6 @@ spec:
             value: "all"
         databases:
           - name: kiss
-            envVarPrefix: DB
     buckets:
       - name: kiss-data
         retentionPeriodDays: 4015
