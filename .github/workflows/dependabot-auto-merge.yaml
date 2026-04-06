@@ -1,4 +1,4 @@
-name: Dependabot Security Auto-merge
+name: Dependabot Auto-merge
 
 on: pull_request
 
@@ -7,8 +7,8 @@ permissions:
   pull-requests: write
 
 jobs:
-  auto-merge-security:
-    name: Auto-merge Security Updates
+  auto-merge:
+    name: Auto-merge Dependabot
     runs-on: ubuntu-latest
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     steps:
@@ -18,16 +18,11 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Auto-approve security patch
-        if: steps.metadata.outputs.alert-state == 'FIXED'
-        run: gh pr review --approve "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Enable auto-merge for security patch
-        if: steps.metadata.outputs.alert-state == 'FIXED'
-        run: gh pr merge --auto --squash "$PR_URL"
+      - name: Auto-approve and merge
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        run: |
+          gh pr review --approve "$PR_URL"
+          gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
