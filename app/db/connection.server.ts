@@ -14,6 +14,10 @@ function buildConnectionConfig() {
 	const dbSslRootCert = process.env.DB_SSLROOTCERT
 
 	if (dbHost && dbDatabase && dbUsername && dbPassword) {
+		console.log(
+			`Database config: Using Nais DB_* variables (host=${dbHost}, port=${dbPort ?? 5432}, db=${dbDatabase}, ssl=${dbSslRootCert ? "yes" : "no"})`,
+		)
+
 		const sslConfig: {
 			rejectUnauthorized: boolean
 			ca?: string
@@ -37,9 +41,15 @@ function buildConnectionConfig() {
 
 	const connectionString = process.env.DATABASE_URL
 	if (connectionString) {
+		console.log("Database config: Using DATABASE_URL")
 		return { connectionString }
 	}
 
+	console.log("Database config: No DB_* or DATABASE_URL found, using localhost default")
+	const dbEnvVars = Object.keys(process.env).filter((k) => k.startsWith("DB_") || k.startsWith("DATABASE"))
+	if (dbEnvVars.length > 0) {
+		console.log(`Database-related env vars found: ${dbEnvVars.join(", ")}`)
+	}
 	return { connectionString: "postgresql://kiss:kiss@localhost:5432/kiss" }
 }
 
