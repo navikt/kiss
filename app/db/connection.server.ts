@@ -27,7 +27,12 @@ function buildConnectionConfig() {
 
 	// 2. Try Nais default env vars (NAIS_DATABASE_KISS_KISS_*)
 	const naisHost = process.env[`${NAIS_PREFIX}_HOST`]
-	if (naisHost && process.env[`${NAIS_PREFIX}_DATABASE`] && process.env[`${NAIS_PREFIX}_USERNAME`] && process.env[`${NAIS_PREFIX}_PASSWORD`]) {
+	if (
+		naisHost &&
+		process.env[`${NAIS_PREFIX}_DATABASE`] &&
+		process.env[`${NAIS_PREFIX}_USERNAME`] &&
+		process.env[`${NAIS_PREFIX}_PASSWORD`]
+	) {
 		console.log(
 			`Database config: Using ${NAIS_PREFIX}_* variables (host=${naisHost}, port=${process.env[`${NAIS_PREFIX}_PORT`] ?? 5432}, db=${process.env[`${NAIS_PREFIX}_DATABASE`]}, ssl=${process.env[`${NAIS_PREFIX}_SSLROOTCERT`] ? "yes" : "no"})`,
 		)
