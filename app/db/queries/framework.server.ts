@@ -1,18 +1,21 @@
 import { and, count, desc, eq, isNull, sql } from "drizzle-orm"
 import { getStatusLabel } from "~/lib/compliance-status"
 import type { ParsedFramework } from "~/lib/excel-parser.server"
+import { deriveCronFrequency } from "~/lib/frequency-mapping"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
 import {
 	controlDependencies,
 	controlPredefinedAnswers,
+	controlTechnologyElements,
 	frameworkControls,
 	frameworkDomains,
 	frameworkFieldHistory,
 	frameworkRiskControlMappings,
 	frameworkRisks,
 	frameworkVersions,
+	technologyElements,
 } from "../schema/framework"
 import { writeAuditLog } from "./audit.server"
 
@@ -566,12 +569,58 @@ export async function stageFrameworkImport(
 // Keep backward-compatible alias
 export const stageFrameworkVersion = stageFrameworkImport
 
+/**
+ * Parse comma/semicolon-separated technology element text and sync junction entries.
+ * Matches element names case-insensitively against existing technology elements.
+ */
+async function syncControlTechElements(
+	controlUuid: string,
+	techElementText: string | null,
+	techElementByName: Map<string, { id: string; name: string }>,
+) {
+	// Parse the text into individual names
+	const desiredIds = new Set<string>()
+	if (techElementText) {
+		const names = techElementText
+			.split(/[,;]/)
+			.map((s) => s.trim().toLowerCase())
+			.filter(Boolean)
+		for (const name of names) {
+			const el = techElementByName.get(name)
+			if (el) desiredIds.add(el.id)
+		}
+	}
+
+	// Get existing junction entries
+	const existing = await db
+		.select({ id: controlTechnologyElements.id, elementId: controlTechnologyElements.elementId })
+		.from(controlTechnologyElements)
+		.where(eq(controlTechnologyElements.controlId, controlUuid))
+
+	const existingIds = new Set(existing.map((e) => e.elementId))
+
+	// Add missing
+	for (const elementId of desiredIds) {
+		if (!existingIds.has(elementId)) {
+			await db.insert(controlTechnologyElements).values({ controlId: controlUuid, elementId }).onConflictDoNothing()
+		}
+	}
+
+	// Remove no-longer-matched
+	for (const row of existing) {
+		if (!desiredIds.has(row.elementId)) {
+			await db.delete(controlTechnologyElements).where(eq(controlTechnologyElements.id, row.id))
+		}
+	}
+}
+
 /** Apply a pending import: upsert live data, archive removed items, record field history. */
 export async function applyFrameworkImport(
 	versionId: string,
 	parsed: ParsedFramework,
 	appliedBy: string,
 	invalidatedControlIds: string[] = [],
+	excludedChanges?: Set<string>,
 ): Promise<void> {
 	const [version] = await db.select().from(frameworkVersions).where(eq(frameworkVersions.id, versionId)).limit(1)
 
@@ -701,7 +750,7 @@ export async function applyFrameworkImport(
 		const existing = liveRiskMap.get(riskId)
 		if (existing) {
 			const fields: { fieldName: string; prev: string | null; next: string | null }[] = []
-			if (existing.description !== data.description) {
+			if (existing.description !== data.description && !excludedChanges?.has(`risk:${riskId}:description`)) {
 				fields.push({ fieldName: "description", prev: existing.description, next: data.description })
 			}
 			if (existing.domainId !== domainId) {
@@ -720,14 +769,11 @@ export async function applyFrameworkImport(
 				})
 			}
 
-			await db
-				.update(frameworkRisks)
-				.set({
-					description: data.description,
-					domainId,
-					lastImportId: versionId,
-				})
-				.where(eq(frameworkRisks.id, existing.id))
+			const riskUpdates: Record<string, string | null> = { lastImportId: versionId }
+			if (fields.some((f) => f.fieldName === "description")) riskUpdates.description = data.description
+			if (fields.some((f) => f.fieldName === "domainId")) riskUpdates.domainId = domainId
+
+			await db.update(frameworkRisks).set(riskUpdates).where(eq(frameworkRisks.id, existing.id))
 			riskUuidMap.set(riskId, existing.id)
 		} else {
 			const [risk] = await db
@@ -767,6 +813,10 @@ export async function applyFrameworkImport(
 		"commonPitfalls",
 	] as const
 
+	// Load all technology elements for name matching
+	const allTechElements = await db.select().from(technologyElements)
+	const techElementByName = new Map(allTechElements.map((e) => [e.name.toLowerCase().trim(), e]))
+
 	for (const [controlId, data] of parsedControls) {
 		const existing = liveControlMap.get(controlId)
 		if (existing) {
@@ -774,7 +824,7 @@ export async function applyFrameworkImport(
 			for (const field of controlCompareFields) {
 				const oldVal = existing[field] ?? null
 				const newVal = data[field] ?? null
-				if (oldVal !== newVal) {
+				if (oldVal !== newVal && !excludedChanges?.has(`control:${controlId}:${field}`)) {
 					await db.insert(frameworkFieldHistory).values({
 						entityType: "control",
 						entityId: existing.id,
@@ -788,25 +838,55 @@ export async function applyFrameworkImport(
 				}
 			}
 
+			// Compute and apply cronFrequency from frequency text
+			const effectiveFrequency = updates.frequency !== undefined ? updates.frequency : existing.frequency
+			const newCron = deriveCronFrequency(effectiveFrequency)
+			if (!excludedChanges?.has(`control:${controlId}:cronFrequency`)) {
+				const oldCron = existing.cronFrequency ?? null
+				if (newCron !== oldCron && newCron !== null) {
+					await db.insert(frameworkFieldHistory).values({
+						entityType: "control",
+						entityId: existing.id,
+						fieldName: "cronFrequency",
+						previousValue: oldCron,
+						newValue: newCron,
+						importId: versionId,
+						changedBy: appliedBy,
+					})
+					updates.cronFrequency = newCron
+				}
+			}
+
 			await db
 				.update(frameworkControls)
 				.set({ ...updates, lastImportId: versionId })
 				.where(eq(frameworkControls.id, existing.id))
+
+			// Sync technology element junction entries
+			await syncControlTechElements(existing.id, data.technologyElement, techElementByName)
 		} else {
-			await db.insert(frameworkControls).values({
-				controlId,
-				technologyElement: data.technologyElement,
-				requirement: data.requirement,
-				responsible: data.responsible,
-				routine: data.routine,
-				frequency: data.frequency,
-				documentationRequirement: data.documentationRequirement,
-				testProcedure: data.testProcedure,
-				dependencies: data.dependencies,
-				references: data.references,
-				commonPitfalls: data.commonPitfalls,
-				lastImportId: versionId,
-			})
+			const newCron = deriveCronFrequency(data.frequency)
+			const [inserted] = await db
+				.insert(frameworkControls)
+				.values({
+					controlId,
+					technologyElement: data.technologyElement,
+					requirement: data.requirement,
+					responsible: data.responsible,
+					routine: data.routine,
+					frequency: data.frequency,
+					cronFrequency: newCron,
+					documentationRequirement: data.documentationRequirement,
+					testProcedure: data.testProcedure,
+					dependencies: data.dependencies,
+					references: data.references,
+					commonPitfalls: data.commonPitfalls,
+					lastImportId: versionId,
+				})
+				.returning()
+
+			// Create technology element junction entries for new controls
+			await syncControlTechElements(inserted.id, data.technologyElement, techElementByName)
 		}
 	}
 
@@ -937,6 +1017,26 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 		}
 	}
 
+	// Load all technology elements for name matching
+	const allTechElements = await db.select().from(technologyElements)
+	const techElementByName = new Map(allTechElements.map((e) => [e.name.toLowerCase().trim(), e]))
+
+	// Collect unmatched technology element texts across all controls
+	const unmatchedTechnologyElements: { controlId: string; text: string }[] = []
+	for (const [controlId, data] of parsedControlMap) {
+		if (data.technologyElement) {
+			const names = data.technologyElement
+				.split(/[,;]/)
+				.map((s) => s.trim())
+				.filter(Boolean)
+			for (const name of names) {
+				if (!techElementByName.has(name.toLowerCase())) {
+					unmatchedTechnologyElements.push({ controlId, text: name })
+				}
+			}
+		}
+	}
+
 	// Fetch live data
 	const liveDomains = await db.select().from(frameworkDomains).where(isNull(frameworkDomains.archivedAt))
 	const liveRisks = await db.select().from(frameworkRisks).where(isNull(frameworkRisks.archivedAt))
@@ -967,6 +1067,7 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 					fields: { field: string; oldValue: string | null; newValue: string | null }[]
 				}[],
 			},
+			unmatchedTechnologyElements,
 		}
 	}
 
@@ -1040,6 +1141,14 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 				fields.push({ field, oldValue: oldVal, newValue: newVal })
 			}
 		}
+		// Include cronFrequency diff
+		const newCron = deriveCronFrequency(data.frequency)
+		if (newCron !== null) {
+			const oldCron = live.cronFrequency ?? null
+			if (oldCron !== newCron) {
+				fields.push({ field: "cronFrequency", oldValue: oldCron, newValue: newCron })
+			}
+		}
 		if (fields.length > 0) changedControls.push({ controlId, fields })
 	}
 
@@ -1048,6 +1157,7 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 		added: { risks: addedRisks, controls: addedControls, domains: addedDomains },
 		removed: { risks: removedRisks, controls: removedControls, domains: removedDomains },
 		changed: { risks: changedRisks, controls: changedControls },
+		unmatchedTechnologyElements,
 	}
 }
 

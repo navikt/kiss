@@ -1,5 +1,17 @@
 import type { FileObject, FileRejected, FileRejectionReason, SortState } from "@navikt/ds-react"
-import { Alert, BodyLong, Button, FileUpload, Heading, HStack, Switch, Table, Tag, VStack } from "@navikt/ds-react"
+import {
+	Alert,
+	BodyLong,
+	Button,
+	Checkbox,
+	FileUpload,
+	Heading,
+	HStack,
+	Switch,
+	Table,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
@@ -15,6 +27,7 @@ import {
 } from "~/db/queries/framework.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { type ParsedFrameworkRow, parseFrameworkExcel, summarizeFramework } from "~/lib/excel-parser.server"
+import { cronFrequencyLabels } from "~/lib/frequency-mapping"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 export async function loader() {
@@ -73,12 +86,16 @@ export async function action({ request }: ActionFunctionArgs) {
 				})
 			}
 
+			// Parse excluded changes from form data
+			const excludedRaw = formData.get("excludedChanges")
+			const excludedChanges = excludedRaw ? new Set<string>(JSON.parse(String(excludedRaw)) as string[]) : undefined
+
 			// Re-parse the file from storage to get the parsed data for applying
 			const storage = getStorageProvider()
 			const fileBuffer = await storage.download(pending.sourceBucketPath)
 			const parsed = parseFrameworkExcel(fileBuffer)
 
-			await applyFrameworkImport(pending.id, parsed, userName)
+			await applyFrameworkImport(pending.id, parsed, userName, [], excludedChanges)
 			return data<ActionResult>({ activated: true })
 		} catch (err) {
 			return data<ActionResult>({
@@ -199,6 +216,7 @@ const diffFieldLabels: Record<string, string> = {
 	responsible: "Ansvarlig",
 	routine: "Rutine",
 	frequency: "Frekvens",
+	cronFrequency: "Kronologisk frekvens",
 	documentationRequirement: "Dokumentasjonskrav",
 	testProcedure: "Testprosedyre",
 	dependencies: "Avhengigheter",
@@ -209,6 +227,13 @@ const diffFieldLabels: Record<string, string> = {
 function truncateValue(value: string | null, maxLength = 80): string {
 	if (!value) return "(tom)"
 	return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value
+}
+
+function formatDiffValue(field: string, value: string | null, maxLength = 80): string {
+	if (field === "cronFrequency" && value) {
+		return cronFrequencyLabels[value] ?? value
+	}
+	return truncateValue(value, maxLength)
 }
 
 function formatDetails(entry: {
@@ -239,6 +264,7 @@ export default function Import() {
 	const [files, setFiles] = useState<FileObject[]>([])
 	const [showAllColumns, setShowAllColumns] = useState(false)
 	const [sort, setSort] = useState<SortState | undefined>(undefined)
+	const [excludedChanges, setExcludedChanges] = useState<Set<string>>(new Set())
 	const isSubmitting = navigation.state === "submitting"
 
 	const acceptedFiles = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
@@ -366,7 +392,6 @@ export default function Import() {
 			{isStaged && (
 				<VStack gap="space-6">
 					<Alert variant="success">Filen ble lest og validert. Kontroller dataene nedenfor før aktivering.</Alert>
-
 					<VStack gap="space-2">
 						<Heading size="medium" level="3">
 							Metadata
@@ -381,7 +406,6 @@ export default function Import() {
 							<strong>Lastet opp av:</strong> {actionData.summary.uploadedBy}
 						</BodyLong>
 					</VStack>
-
 					<VStack gap="space-2">
 						<Heading size="medium" level="3">
 							Oppsummering
@@ -391,7 +415,6 @@ export default function Import() {
 							{actionData.summary.controlCount} kontroller
 						</BodyLong>
 					</VStack>
-
 					<VStack gap="space-4">
 						<HStack gap="space-6" align="center" justify="space-between">
 							<Heading size="medium" level="3">
@@ -437,7 +460,6 @@ export default function Import() {
 							</Table>
 						</section>
 					</VStack>
-
 					{isStaged && actionData.stagingDiff && (
 						<VStack gap="space-4">
 							<Heading size="medium" level="3">
@@ -557,6 +579,7 @@ export default function Import() {
 												<Table size="small">
 													<Table.Header>
 														<Table.Row>
+															<Table.HeaderCell scope="col">Inkluder</Table.HeaderCell>
 															<Table.HeaderCell scope="col">Element</Table.HeaderCell>
 															<Table.HeaderCell scope="col">Felt</Table.HeaderCell>
 															<Table.HeaderCell scope="col">Gammel verdi</Table.HeaderCell>
@@ -565,24 +588,70 @@ export default function Import() {
 													</Table.Header>
 													<Table.Body>
 														{actionData.stagingDiff.changed.risks.flatMap((r) =>
-															r.fields.map((f) => (
-																<Table.Row key={`risk-${r.riskId}-${f.field}`}>
-																	<Table.DataCell>{r.riskId}</Table.DataCell>
-																	<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
-																	<Table.DataCell>{truncateValue(f.oldValue)}</Table.DataCell>
-																	<Table.DataCell>{truncateValue(f.newValue)}</Table.DataCell>
-																</Table.Row>
-															)),
+															r.fields.map((f) => {
+																const changeKey = `risk:${r.riskId}:${f.field}`
+																return (
+																	<Table.Row key={`risk-${r.riskId}-${f.field}`}>
+																		<Table.DataCell>
+																			<Checkbox
+																				size="small"
+																				hideLabel
+																				checked={!excludedChanges.has(changeKey)}
+																				onChange={() => {
+																					setExcludedChanges((prev) => {
+																						const next = new Set(prev)
+																						if (next.has(changeKey)) {
+																							next.delete(changeKey)
+																						} else {
+																							next.add(changeKey)
+																						}
+																						return next
+																					})
+																				}}
+																			>
+																				Inkluder endring for {r.riskId} {f.field}
+																			</Checkbox>
+																		</Table.DataCell>
+																		<Table.DataCell>{r.riskId}</Table.DataCell>
+																		<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
+																		<Table.DataCell>{formatDiffValue(f.field, f.oldValue)}</Table.DataCell>
+																		<Table.DataCell>{formatDiffValue(f.field, f.newValue)}</Table.DataCell>
+																	</Table.Row>
+																)
+															}),
 														)}
 														{actionData.stagingDiff.changed.controls.flatMap((c) =>
-															c.fields.map((f) => (
-																<Table.Row key={`control-${c.controlId}-${f.field}`}>
-																	<Table.DataCell>{c.controlId}</Table.DataCell>
-																	<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
-																	<Table.DataCell>{truncateValue(f.oldValue)}</Table.DataCell>
-																	<Table.DataCell>{truncateValue(f.newValue)}</Table.DataCell>
-																</Table.Row>
-															)),
+															c.fields.map((f) => {
+																const changeKey = `control:${c.controlId}:${f.field}`
+																return (
+																	<Table.Row key={`control-${c.controlId}-${f.field}`}>
+																		<Table.DataCell>
+																			<Checkbox
+																				size="small"
+																				hideLabel
+																				checked={!excludedChanges.has(changeKey)}
+																				onChange={() => {
+																					setExcludedChanges((prev) => {
+																						const next = new Set(prev)
+																						if (next.has(changeKey)) {
+																							next.delete(changeKey)
+																						} else {
+																							next.add(changeKey)
+																						}
+																						return next
+																					})
+																				}}
+																			>
+																				Inkluder endring for {c.controlId} {f.field}
+																			</Checkbox>
+																		</Table.DataCell>
+																		<Table.DataCell>{c.controlId}</Table.DataCell>
+																		<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
+																		<Table.DataCell>{formatDiffValue(f.field, f.oldValue)}</Table.DataCell>
+																		<Table.DataCell>{formatDiffValue(f.field, f.newValue)}</Table.DataCell>
+																	</Table.Row>
+																)
+															}),
 														)}
 													</Table.Body>
 												</Table>
@@ -604,10 +673,25 @@ export default function Import() {
 							)}
 						</VStack>
 					)}
-
+					{actionData.stagingDiff?.unmatchedTechnologyElements &&
+						actionData.stagingDiff.unmatchedTechnologyElements.length > 0 && (
+							<Alert variant="warning">
+								Følgende teknologielement-tekster fra Excel har ingen match i systemet og vil ikke bli koblet
+								automatisk. Opprett dem via admin om nødvendig:
+								<ul>
+									{actionData.stagingDiff.unmatchedTechnologyElements.map((u, i) => (
+										// biome-ignore lint/suspicious/noArrayIndexKey: static list
+										<li key={i}>
+											<strong>{u.controlId}</strong>: {u.text}
+										</li>
+									))}
+								</ul>
+							</Alert>
+						)}
 					<div>
 						<Form method="post">
 							<input type="hidden" name="intent" value="activate" />
+							<input type="hidden" name="excludedChanges" value={JSON.stringify([...excludedChanges])} />
 							<Button type="submit" variant="primary">
 								Aktiver
 							</Button>

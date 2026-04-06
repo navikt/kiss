@@ -6,15 +6,8 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getControlDependencies, getControlDependents, getControlDetail } from "~/db/queries/framework.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
+import { cronFrequencyLabels } from "~/lib/frequency-mapping"
 import { renderMarkdown } from "~/lib/markdown.server"
-
-const cronFrequencyLabels: Record<string, string> = {
-	monthly: "Månedlig",
-	quarterly: "Kvartalsvis",
-	tertiary: "Tertialsvis",
-	biannual: "Halvårsvis",
-	annual: "Årlig",
-}
 
 const fieldConfig = [
 	{ key: "requirement", label: "Krav" },
