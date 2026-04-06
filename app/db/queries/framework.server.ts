@@ -1037,6 +1037,11 @@ export async function getPendingFrameworkImport() {
 // Keep backward-compatible alias
 export const getStagingFrameworkVersion = getPendingFrameworkImport
 
+/** Discard a pending framework import by setting its status to superseded. */
+export async function discardPendingImport() {
+	await db.update(frameworkVersions).set({ status: "superseded" }).where(eq(frameworkVersions.status, "pending"))
+}
+
 /** Get all framework versions ordered by creation date (newest first). */
 export async function getFrameworkVersionHistory() {
 	return db.select().from(frameworkVersions).orderBy(desc(frameworkVersions.createdAt))

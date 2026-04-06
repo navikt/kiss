@@ -22,6 +22,7 @@ import { saveBucketObject } from "~/db/queries/buckets.server"
 import {
 	applyFrameworkImport,
 	computeImportDiff,
+	discardPendingImport,
 	getFrameworkVersionHistory,
 	getPendingFrameworkImport,
 	stageFrameworkImport,
@@ -32,9 +33,13 @@ import { cronFrequencyLabels } from "~/lib/frequency-mapping"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 export async function loader() {
-	const [versions, auditEntries] = await Promise.all([getFrameworkVersionHistory(), getRecentAuditLog(50)])
+	const [versions, auditEntries, pendingImport] = await Promise.all([
+		getFrameworkVersionHistory(),
+		getRecentAuditLog(50),
+		getPendingFrameworkImport(),
+	])
 
-	return data({ versions, auditEntries })
+	return data({ versions, auditEntries, pendingImport })
 }
 
 interface SerializedControl {
@@ -70,12 +75,69 @@ type ActionResult =
 	| { success: true; summary: SerializedSummary; versionId: string; stagingDiff: StagingDiff }
 	| { success: false; error: string }
 	| { activated: true }
+	| { discarded: true }
 
 export async function action({ request }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const userName = user?.navIdent ?? "Ukjent bruker"
 	const formData = await request.formData()
 	const intent = formData.get("intent")
+
+	if (intent === "discard") {
+		await discardPendingImport()
+		return data<ActionResult>({ discarded: true })
+	}
+
+	if (intent === "continue") {
+		try {
+			const pending = await getPendingFrameworkImport()
+			if (!pending) {
+				return data<ActionResult>({ success: false, error: "Ingen ventende import funnet." })
+			}
+			const storage = getStorageProvider()
+			const fileBuffer = await storage.download(pending.sourceBucketPath)
+			const parsed = parseFrameworkExcel(fileBuffer)
+			const stagingDiff = await computeImportDiff(parsed)
+			const summary = summarizeFramework(parsed)
+
+			const controls: SerializedControl[] = Array.from(summary.controls.values()).map((row: ParsedFrameworkRow) => ({
+				controlId: row.controlId,
+				domain: row.domain,
+				riskId: row.riskId,
+				riskDescription: row.riskDescription,
+				technologyElement: row.technologyElement,
+				requirement: row.requirement,
+				responsible: row.responsible,
+				routine: row.routine,
+				frequency: row.frequency,
+				documentationRequirement: row.documentationRequirement,
+				testProcedure: row.testProcedure,
+				dependencies: row.dependencies,
+				references: row.references,
+				commonPitfalls: row.commonPitfalls,
+			}))
+
+			return data<ActionResult>({
+				success: true,
+				versionId: pending.id,
+				stagingDiff,
+				summary: {
+					domainCount: summary.domains.size,
+					riskCount: summary.risks.size,
+					controlCount: summary.controls.size,
+					fileName: pending.sourceFileName,
+					uploadedAt: pending.createdAt.toISOString(),
+					uploadedBy: pending.createdBy,
+					controls,
+				},
+			})
+		} catch (err) {
+			return data<ActionResult>({
+				success: false,
+				error: err instanceof Error ? err.message : "Ukjent feil ved lasting av ventende import.",
+			})
+		}
+	}
 
 	if (intent === "activate") {
 		try {
@@ -258,7 +320,7 @@ function formatDetails(entry: {
 }
 
 export default function Import() {
-	const { versions, auditEntries } = useLoaderData<typeof loader>()
+	const { versions, auditEntries, pendingImport } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const submit = useSubmit()
@@ -321,6 +383,32 @@ export default function Import() {
 			<BodyLong>
 				Dra og slipp en Excel-fil (.xlsx) i feltet nedenfor, eller klikk for å velge fil fra filsystemet.
 			</BodyLong>
+
+			{pendingImport && !actionData && (
+				<Alert variant="warning">
+					<Heading size="small" level="3" spacing>
+						Ventende import: {pendingImport.sourceFileName}
+					</Heading>
+					<BodyLong spacing>
+						Lastet opp {new Date(pendingImport.createdAt).toLocaleString("nb-NO")} av {pendingImport.createdBy}. Velg om
+						du vil fortsette med denne importen eller forkaste den.
+					</BodyLong>
+					<HStack gap="space-4">
+						<Form method="post">
+							<input type="hidden" name="intent" value="continue" />
+							<Button type="submit" variant="primary" size="small" loading={isSubmitting}>
+								Fortsett import
+							</Button>
+						</Form>
+						<Form method="post">
+							<input type="hidden" name="intent" value="discard" />
+							<Button type="submit" variant="danger" size="small" loading={isSubmitting}>
+								Forkast
+							</Button>
+						</Form>
+					</HStack>
+				</Alert>
+			)}
 
 			<FileUpload.Dropzone
 				label="Last opp kontrollrammeverk"
