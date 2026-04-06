@@ -1,12 +1,18 @@
 import type { JWTPayload } from "jose"
 import { createRemoteJWKSet, jwtVerify } from "jose"
 
+const ADMIN_GROUP_ID = "1e97cbc6-0687-4d23-aebd-c611035279c1" // pensjon-revisjon
+const USER_GROUP_ID = "415d3817-c83d-44c9-a52b-5116757f8fa8" // teampensjon
+
+export type UserRole = "admin" | "user"
+
 export interface NavUser {
 	navIdent: string
 	name: string
 	email?: string
 	groups: string[]
 	token: string
+	role: UserRole
 }
 
 interface AzureAdClaims extends JWTPayload {
@@ -54,17 +60,25 @@ export function extractBearerToken(request: Request): string | null {
 	return null
 }
 
+/** Derive user role from Azure AD group memberships. */
+export function deriveRole(groups: string[]): UserRole {
+	if (groups.includes(ADMIN_GROUP_ID)) return "admin"
+	return "user"
+}
+
 /** Build a local dev user from environment variables. Returns null if not configured. */
 function getLocalDevUser(): NavUser | null {
 	const ident = process.env.LOCAL_DEV_USER
 	if (!ident) return null
 
+	const groups = (process.env.LOCAL_DEV_GROUPS ?? "").split(",").filter(Boolean)
 	return {
 		navIdent: ident,
 		name: process.env.LOCAL_DEV_NAME ?? "Lokal utvikler",
 		email: process.env.LOCAL_DEV_EMAIL ?? `${ident.toLowerCase()}@nav.no`,
-		groups: (process.env.LOCAL_DEV_GROUPS ?? "").split(",").filter(Boolean),
+		groups,
 		token: "local-dev-token",
+		role: deriveRole(groups),
 	}
 }
 
@@ -80,12 +94,14 @@ export async function getAuthenticatedUser(request: Request): Promise<NavUser | 
 
 	try {
 		const claims = await validateToken(token)
+		const groups = claims.groups ?? []
 		return {
 			navIdent: claims.NAVident ?? "unknown",
 			name: claims.name ?? "Ukjent bruker",
 			email: claims.preferred_username,
-			groups: claims.groups ?? [],
+			groups,
 			token,
+			role: deriveRole(groups),
 		}
 	} catch {
 		return null
@@ -95,6 +111,19 @@ export async function getAuthenticatedUser(request: Request): Promise<NavUser | 
 export function requireUser(user: NavUser | null): NavUser {
 	if (!user) {
 		throw new Response("Ikke autentisert", { status: 401 })
+	}
+	return user
+}
+
+/** Check if a user has the admin role. */
+export function isAdmin(user: NavUser): boolean {
+	return user.role === "admin"
+}
+
+/** Require admin role, throw 403 if not. */
+export function requireAdmin(user: NavUser): NavUser {
+	if (!isAdmin(user)) {
+		throw new Response("Ingen tilgang", { status: 403 })
 	}
 	return user
 }
