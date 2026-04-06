@@ -580,7 +580,42 @@ export default function Import() {
 												<Table size="small">
 													<Table.Header>
 														<Table.Row>
-															<Table.HeaderCell scope="col">Inkluder</Table.HeaderCell>
+															<Table.HeaderCell scope="col">
+																{(() => {
+																	const allKeys = [
+																		...actionData.stagingDiff.changed.risks.flatMap((r) =>
+																			r.fields.map((f) => `risk:${r.riskId}:${f.field}`),
+																		),
+																		...actionData.stagingDiff.changed.controls.flatMap((c) =>
+																			c.fields.map((f) => `control:${c.controlId}:${f.field}`),
+																		),
+																	]
+																	const includedCount = allKeys.filter((k) => !excludedChanges.has(k)).length
+																	return (
+																		<Checkbox
+																			size="small"
+																			hideLabel
+																			checked={includedCount === allKeys.length}
+																			indeterminate={includedCount > 0 && includedCount < allKeys.length}
+																			onChange={() => {
+																				setExcludedChanges((prev) => {
+																					const allIncluded = allKeys.every((k) => !prev.has(k))
+																					if (allIncluded) {
+																						return new Set([...prev, ...allKeys])
+																					}
+																					const next = new Set(prev)
+																					for (const k of allKeys) {
+																						next.delete(k)
+																					}
+																					return next
+																				})
+																			}}
+																		>
+																			Inkluder alle endringer
+																		</Checkbox>
+																	)
+																})()}
+															</Table.HeaderCell>
 															<Table.HeaderCell scope="col">Element</Table.HeaderCell>
 															<Table.HeaderCell scope="col">Felt</Table.HeaderCell>
 															<Table.HeaderCell scope="col">Gammel verdi</Table.HeaderCell>
