@@ -62,7 +62,7 @@ interface GraphQLResponse<T> {
 
 /** Get the Nais API token. Returns undefined when using a local proxy (no auth needed). */
 export function getNaisToken(): string | undefined {
-	return process.env.NAIS_API_TOKEN || undefined
+	return process.env.NAIS_API_KEY || process.env.NAIS_API_TOKEN || undefined
 }
 
 async function naisGraphQL<T>(query: string, variables?: Record<string, unknown>, token?: string): Promise<T> {

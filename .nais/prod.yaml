@@ -80,4 +80,4 @@ spec:
     - name: ENABLE_NAIS_SYNC
       value: "true"
   envFrom:
-    - secret: kiss
+    - secret: nais-deployment-audit

@@ -6,7 +6,7 @@ const INITIAL_DELAY_MS = 30 * 1000 // 30 seconds after startup
 let intervalId: ReturnType<typeof setInterval> | null = null
 
 async function runSync() {
-	const token = process.env.NAIS_API_TOKEN || undefined
+	const token = process.env.NAIS_API_KEY || process.env.NAIS_API_TOKEN || undefined
 
 	try {
 		const result = await runFullNaisSync(token)
