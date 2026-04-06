@@ -35,7 +35,7 @@ storybook-static/
 docker-compose.override.yml
 
 # Drizzle
-drizzle/meta/
+!drizzle/meta/
 
 # Local storage (dev replacement for GCS buckets)
 .local-storage/
