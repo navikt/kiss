@@ -1,0 +1,79 @@
+import crypto from "node:crypto"
+import fs from "node:fs"
+import path from "node:path"
+import { sql } from "drizzle-orm"
+import { migrate } from "drizzle-orm/node-postgres/migrator"
+import { db } from "./connection.server"
+
+const MIGRATIONS_FOLDER = "./drizzle"
+
+export async function runMigrations() {
+	console.log("Running database migrations...")
+	try {
+		await seedTrackingForPushedDatabase()
+		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
+		console.log("Database migrations completed successfully")
+	} catch (error) {
+		console.error("Database migration failed:", error)
+		throw error
+	}
+}
+
+/**
+ * Handles transition from `db:push` to `migrate()`.
+ *
+ * If the database was set up with `db:push`, tables exist but
+ * there is no migration tracking. This seeds the drizzle.__drizzle_migrations
+ * table so `migrate()` skips already-applied migrations.
+ */
+async function seedTrackingForPushedDatabase() {
+	const [{ exists: trackingExists }] = (
+		await db.execute<{ exists: boolean }>(sql`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+		) AS exists
+	`)
+	).rows
+
+	if (trackingExists) return
+
+	const [{ exists: tablesExist }] = (
+		await db.execute<{ exists: boolean }>(sql`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'sections'
+		) AS exists
+	`)
+	).rows
+
+	if (!tablesExist) return
+
+	console.log("Detected database created with db:push — seeding migration tracking...")
+
+	await db.execute(sql`CREATE SCHEMA IF NOT EXISTS drizzle`)
+	await db.execute(sql`
+		CREATE TABLE IF NOT EXISTS drizzle."__drizzle_migrations" (
+			id SERIAL PRIMARY KEY,
+			hash text NOT NULL,
+			created_at bigint
+		)
+	`)
+
+	const journalPath = path.join(MIGRATIONS_FOLDER, "meta", "_journal.json")
+	const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as {
+		entries: { idx: number; when: number; tag: string }[]
+	}
+
+	for (const entry of journal.entries) {
+		const sqlContent = fs.readFileSync(path.join(MIGRATIONS_FOLDER, `${entry.tag}.sql`)).toString()
+		const hash = crypto.createHash("sha256").update(sqlContent).digest("hex")
+
+		await db.execute(sql`
+			INSERT INTO drizzle."__drizzle_migrations" (hash, created_at)
+			VALUES (${hash}, ${entry.when})
+		`)
+	}
+
+	console.log(`Seeded ${journal.entries.length} migration(s) into tracking table`)
+}

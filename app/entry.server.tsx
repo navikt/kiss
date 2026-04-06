@@ -5,10 +5,18 @@ import type { RenderToPipeableStreamOptions } from "react-dom/server"
 import { renderToPipeableStream } from "react-dom/server"
 import type { AppLoadContext, EntryContext } from "react-router"
 import { ServerRouter } from "react-router"
+import { runMigrations } from "~/db/migrate.server"
 import { startNaisScheduler } from "~/lib/nais-scheduler.server"
 
-// Start the Nais scheduler once on server startup
-startNaisScheduler()
+// Run database migrations, then start the Nais scheduler
+runMigrations()
+	.then(() => {
+		startNaisScheduler()
+	})
+	.catch((error) => {
+		console.error("Failed to run migrations, shutting down:", error)
+		process.exit(1)
+	})
 
 export const streamTimeout = 5_000
 

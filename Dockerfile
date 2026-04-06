@@ -21,6 +21,7 @@ WORKDIR /app
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/build ./build
+COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/package.json ./
 
 ENV NODE_ENV=production
