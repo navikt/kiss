@@ -1,4 +1,4 @@
-name: CI
+name: Bygg, test og deploy
 
 on:
   pull_request:
