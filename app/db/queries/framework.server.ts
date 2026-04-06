@@ -678,12 +678,15 @@ export async function applyFrameworkImport(
 
 	// --- DOMAINS ---
 	const liveDomains = await db.select().from(frameworkDomains).where(isNull(frameworkDomains.archivedAt))
+	const allDomains = await db.select().from(frameworkDomains)
 	const liveDomainMap = new Map(liveDomains.map((d) => [d.code, d]))
+	const archivedDomainMap = new Map(allDomains.filter((d) => d.archivedAt !== null).map((d) => [d.code, d]))
 	const domainUuidMap = new Map<string, string>()
 
 	// Upsert domains
 	for (const [code, data] of parsedDomains) {
 		const existing = liveDomainMap.get(code)
+		const archived = archivedDomainMap.get(code)
 		if (existing) {
 			if (existing.name !== data.name || existing.displayOrder !== data.displayOrder) {
 				if (existing.name !== data.name) {
@@ -705,6 +708,13 @@ export async function applyFrameworkImport(
 				await db.update(frameworkDomains).set({ lastImportId: versionId }).where(eq(frameworkDomains.id, existing.id))
 			}
 			domainUuidMap.set(code, existing.id)
+		} else if (archived) {
+			// Re-activate archived domain
+			await db
+				.update(frameworkDomains)
+				.set({ name: data.name, displayOrder: data.displayOrder, archivedAt: null, lastImportId: versionId })
+				.where(eq(frameworkDomains.id, archived.id))
+			domainUuidMap.set(code, archived.id)
 		} else {
 			const [domain] = await db
 				.insert(frameworkDomains)
@@ -728,7 +738,9 @@ export async function applyFrameworkImport(
 
 	// --- RISKS ---
 	const liveRisks = await db.select().from(frameworkRisks).where(isNull(frameworkRisks.archivedAt))
+	const allRisks = await db.select().from(frameworkRisks)
 	const liveRiskMap = new Map(liveRisks.map((r) => [r.riskId, r]))
+	const archivedRiskMap = new Map(allRisks.filter((r) => r.archivedAt !== null).map((r) => [r.riskId, r]))
 	const riskUuidMap = new Map<string, string>()
 
 	for (const [riskId, data] of parsedRisks) {
@@ -763,6 +775,14 @@ export async function applyFrameworkImport(
 
 			await db.update(frameworkRisks).set(riskUpdates).where(eq(frameworkRisks.id, existing.id))
 			riskUuidMap.set(riskId, existing.id)
+		} else if (archivedRiskMap.has(riskId)) {
+			// Re-activate archived risk
+			const archived = archivedRiskMap.get(riskId)!
+			await db
+				.update(frameworkRisks)
+				.set({ domainId, description: data.description, archivedAt: null, lastImportId: versionId })
+				.where(eq(frameworkRisks.id, archived.id))
+			riskUuidMap.set(riskId, archived.id)
 		} else {
 			const [risk] = await db
 				.insert(frameworkRisks)
@@ -786,7 +806,9 @@ export async function applyFrameworkImport(
 
 	// --- CONTROLS ---
 	const liveControls = await db.select().from(frameworkControls).where(isNull(frameworkControls.archivedAt))
+	const allControls = await db.select().from(frameworkControls)
 	const liveControlMap = new Map(liveControls.map((c) => [c.controlId, c]))
+	const archivedControlMap = new Map(allControls.filter((c) => c.archivedAt !== null).map((c) => [c.controlId, c]))
 
 	const controlCompareFields = [
 		"technologyElement",
@@ -878,6 +900,29 @@ export async function applyFrameworkImport(
 
 			// Sync technology element junction entries
 			await syncControlTechElements(existing.id, data.technologyElement, techElementByName)
+		} else if (archivedControlMap.has(controlId)) {
+			// Re-activate archived control
+			const archived = archivedControlMap.get(controlId)!
+			const newCron = deriveCronFrequency(data.frequency)
+			await db
+				.update(frameworkControls)
+				.set({
+					technologyElement: data.technologyElement,
+					requirement: data.requirement,
+					responsible: data.responsible,
+					routine: data.routine,
+					frequency: data.frequency,
+					cronFrequency: newCron,
+					documentationRequirement: data.documentationRequirement,
+					testProcedure: data.testProcedure,
+					dependencies: data.dependencies,
+					references: data.references,
+					commonPitfalls: data.commonPitfalls,
+					archivedAt: null,
+					lastImportId: versionId,
+				})
+				.where(eq(frameworkControls.id, archived.id))
+			await syncControlTechElements(archived.id, data.technologyElement, techElementByName)
 		} else {
 			const newCron = deriveCronFrequency(data.frequency)
 			const [inserted] = await db
