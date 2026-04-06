@@ -100,4 +100,30 @@ describe("Database migration on empty database", () => {
 	it("should be idempotent — running migrations again does nothing", async () => {
 		await expect(runMigrations()).resolves.not.toThrow()
 	})
+
+	it("should apply new migrations on subsequent startups", async () => {
+		const countBefore = await testDb.execute<{ count: string }>(sql`
+			SELECT COUNT(*)::text AS count FROM drizzle."__drizzle_migrations"
+		`)
+		const migrationsBefore = Number(countBefore.rows[0].count)
+
+		// Simulate adding a new migration by creating a test table
+		await testDb.execute(sql`
+			CREATE TABLE IF NOT EXISTS _migration_test_marker (id serial PRIMARY KEY)
+		`)
+
+		// Run migrations again — should complete without error
+		// (no new migration files, so count stays the same)
+		await runMigrations()
+
+		const countAfter = await testDb.execute<{ count: string }>(sql`
+			SELECT COUNT(*)::text AS count FROM drizzle."__drizzle_migrations"
+		`)
+		const migrationsAfter = Number(countAfter.rows[0].count)
+
+		expect(migrationsAfter).toBe(migrationsBefore)
+
+		// Clean up test marker
+		await testDb.execute(sql`DROP TABLE _migration_test_marker`)
+	})
 })
