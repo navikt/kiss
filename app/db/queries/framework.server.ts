@@ -2,6 +2,7 @@ import { and, count, desc, eq, isNull, sql } from "drizzle-orm"
 import { getStatusLabel } from "~/lib/compliance-status"
 import type { ParsedFramework } from "~/lib/excel-parser.server"
 import { deriveCronFrequency } from "~/lib/frequency-mapping"
+import { parseTechnologyElements } from "~/lib/technology-element-parser"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
@@ -578,17 +579,11 @@ async function syncControlTechElements(
 	techElementText: string | null,
 	techElementByName: Map<string, { id: string; name: string }>,
 ) {
-	// Parse the text into individual names
+	const parsed = parseTechnologyElements(techElementText)
 	const desiredIds = new Set<string>()
-	if (techElementText) {
-		const names = techElementText
-			.split(/[,;]/)
-			.map((s) => s.trim().toLowerCase())
-			.filter(Boolean)
-		for (const name of names) {
-			const el = techElementByName.get(name)
-			if (el) desiredIds.add(el.id)
-		}
+	for (const { name } of parsed) {
+		const el = techElementByName.get(name.toLowerCase())
+		if (el) desiredIds.add(el.id)
 	}
 
 	// Get existing junction entries
@@ -817,6 +812,32 @@ export async function applyFrameworkImport(
 	const allTechElements = await db.select().from(technologyElements)
 	const techElementByName = new Map(allTechElements.map((e) => [e.name.toLowerCase().trim(), e]))
 
+	// Auto-create missing technology elements from parsed Excel data
+	const allParsedElements = new Map<string, { name: string; description: string | null }>()
+	for (const [, data] of parsedControls) {
+		for (const el of parseTechnologyElements(data.technologyElement)) {
+			if (!allParsedElements.has(el.name.toLowerCase())) {
+				allParsedElements.set(el.name.toLowerCase(), el)
+			}
+		}
+	}
+	for (const [lowerName, el] of allParsedElements) {
+		if (!techElementByName.has(lowerName)) {
+			const slug = lowerName
+				.replace(/[^a-zæøå0-9]+/gi, "-")
+				.replace(/^-|-$/g, "")
+				.toLowerCase()
+			const [created] = await db
+				.insert(technologyElements)
+				.values({ name: el.name, slug, description: el.description })
+				.onConflictDoNothing()
+				.returning()
+			if (created) {
+				techElementByName.set(lowerName, created)
+			}
+		}
+	}
+
 	for (const [controlId, data] of parsedControls) {
 		const existing = liveControlMap.get(controlId)
 		if (existing) {
@@ -1021,17 +1042,14 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 	const allTechElements = await db.select().from(technologyElements)
 	const techElementByName = new Map(allTechElements.map((e) => [e.name.toLowerCase().trim(), e]))
 
-	// Collect unmatched technology element texts across all controls
-	const unmatchedTechnologyElements: { controlId: string; text: string }[] = []
+	// Collect new technology elements that will be auto-created on activation
+	const newTechnologyElements: { controlId: string; name: string; description: string | null }[] = []
 	for (const [controlId, data] of parsedControlMap) {
 		if (data.technologyElement) {
-			const names = data.technologyElement
-				.split(/[,;]/)
-				.map((s) => s.trim())
-				.filter(Boolean)
-			for (const name of names) {
+			const parsed = parseTechnologyElements(data.technologyElement)
+			for (const { name, description } of parsed) {
 				if (!techElementByName.has(name.toLowerCase())) {
-					unmatchedTechnologyElements.push({ controlId, text: name })
+					newTechnologyElements.push({ controlId, name, description })
 				}
 			}
 		}
@@ -1067,7 +1085,11 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 					fields: { field: string; oldValue: string | null; newValue: string | null }[]
 				}[],
 			},
-			unmatchedTechnologyElements,
+			unmatchedTechnologyElements: newTechnologyElements.map((e) => ({
+				controlId: e.controlId,
+				text: e.name,
+				description: e.description,
+			})),
 		}
 	}
 
@@ -1157,7 +1179,11 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 		added: { risks: addedRisks, controls: addedControls, domains: addedDomains },
 		removed: { risks: removedRisks, controls: removedControls, domains: removedDomains },
 		changed: { risks: changedRisks, controls: changedControls },
-		unmatchedTechnologyElements,
+		unmatchedTechnologyElements: newTechnologyElements.map((e) => ({
+			controlId: e.controlId,
+			text: e.name,
+			description: e.description,
+		})),
 	}
 }
 

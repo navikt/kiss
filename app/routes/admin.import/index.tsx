@@ -735,14 +735,14 @@ export default function Import() {
 					)}
 					{actionData.stagingDiff?.unmatchedTechnologyElements &&
 						actionData.stagingDiff.unmatchedTechnologyElements.length > 0 && (
-							<Alert variant="warning">
-								Følgende teknologielement-tekster fra Excel har ingen match i systemet og vil ikke bli koblet
-								automatisk. Opprett dem via admin om nødvendig:
+							<Alert variant="info">
+								Følgende teknologielementer finnes ikke i systemet og vil bli opprettet automatisk ved aktivering:
 								<ul>
 									{actionData.stagingDiff.unmatchedTechnologyElements.map((u, i) => (
 										// biome-ignore lint/suspicious/noArrayIndexKey: static list
 										<li key={i}>
-											<strong>{u.controlId}</strong>: {u.text}
+											<strong>{u.text}</strong>
+											{u.description && <> — {u.description}</>} (brukt i {u.controlId})
 										</li>
 									))}
 								</ul>
