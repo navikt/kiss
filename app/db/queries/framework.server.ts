@@ -1048,7 +1048,7 @@ export async function getFrameworkVersionHistory() {
 }
 
 /** Compare parsed import data against live data and return a structured diff. */
-export async function computeImportDiff(parsed: ParsedFramework) {
+export async function computeImportDiff(parsed: ParsedFramework, previousParsed?: ParsedFramework) {
 	// Build parsed data maps
 	const parsedDomainMap = new Map<string, string>()
 	for (const row of parsed.rows) {
@@ -1078,6 +1078,31 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 				references: row.references,
 				commonPitfalls: row.commonPitfalls,
 			})
+		}
+	}
+
+	// Build previous xlsx data maps (for source classification)
+	const prevRiskMap = new Map<string, { description: string }>()
+	const prevControlMap = new Map<string, Record<string, string | null>>()
+	if (previousParsed) {
+		for (const row of previousParsed.rows) {
+			if (!prevRiskMap.has(row.riskId)) {
+				prevRiskMap.set(row.riskId, { description: row.riskDescription })
+			}
+			if (!prevControlMap.has(row.controlId)) {
+				prevControlMap.set(row.controlId, {
+					technologyElement: row.technologyElement,
+					requirement: row.requirement,
+					responsible: row.responsible,
+					routine: row.routine,
+					frequency: row.frequency,
+					documentationRequirement: row.documentationRequirement,
+					testProcedure: row.testProcedure,
+					dependencies: row.dependencies,
+					references: row.references,
+					commonPitfalls: row.commonPitfalls,
+				})
+			}
 		}
 	}
 
@@ -1121,11 +1146,21 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 			changed: {
 				risks: [] as {
 					riskId: string
-					fields: { field: string; oldValue: string | null; newValue: string | null }[]
+					fields: {
+						field: string
+						oldValue: string | null
+						newValue: string | null
+						source: "xlsx-changed" | "db-only"
+					}[]
 				}[],
 				controls: [] as {
 					controlId: string
-					fields: { field: string; oldValue: string | null; newValue: string | null }[]
+					fields: {
+						field: string
+						oldValue: string | null
+						newValue: string | null
+						source: "xlsx-changed" | "db-only"
+					}[]
 				}[],
 			},
 			unmatchedTechnologyElements: newTechnologyElements.map((e) => ({
@@ -1158,14 +1193,28 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 
 	const changedRisks: {
 		riskId: string
-		fields: { field: string; oldValue: string | null; newValue: string | null }[]
+		fields: { field: string; oldValue: string | null; newValue: string | null; source: "xlsx-changed" | "db-only" }[]
 	}[] = []
 	for (const [riskId, data] of parsedRiskMap) {
 		const live = liveRiskIds.get(riskId)
 		if (!live) continue
-		const fields: { field: string; oldValue: string | null; newValue: string | null }[] = []
+		const fields: {
+			field: string
+			oldValue: string | null
+			newValue: string | null
+			source: "xlsx-changed" | "db-only"
+		}[] = []
 		if ((live.description ?? null) !== (data.description ?? null)) {
-			fields.push({ field: "description", oldValue: live.description ?? null, newValue: data.description ?? null })
+			const prev = prevRiskMap.get(riskId)
+			const prevVal = prev?.description ?? null
+			const source: "xlsx-changed" | "db-only" =
+				!previousParsed || (prevVal ?? null) !== (data.description ?? null) ? "xlsx-changed" : "db-only"
+			fields.push({
+				field: "description",
+				oldValue: live.description ?? null,
+				newValue: data.description ?? null,
+				source,
+			})
 		}
 		if (fields.length > 0) changedRisks.push({ riskId, fields })
 	}
@@ -1193,17 +1242,26 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 
 	const changedControls: {
 		controlId: string
-		fields: { field: string; oldValue: string | null; newValue: string | null }[]
+		fields: { field: string; oldValue: string | null; newValue: string | null; source: "xlsx-changed" | "db-only" }[]
 	}[] = []
 	for (const [controlId, data] of parsedControlMap) {
 		const live = liveControlIds.get(controlId)
 		if (!live) continue
-		const fields: { field: string; oldValue: string | null; newValue: string | null }[] = []
+		const fields: {
+			field: string
+			oldValue: string | null
+			newValue: string | null
+			source: "xlsx-changed" | "db-only"
+		}[] = []
+		const prev = prevControlMap.get(controlId)
 		for (const field of controlCompareFields) {
 			const oldVal = live[field] ?? null
 			const newVal = data[field] ?? null
 			if (oldVal !== newVal) {
-				fields.push({ field, oldValue: oldVal, newValue: newVal })
+				const prevVal = prev?.[field] ?? null
+				const source: "xlsx-changed" | "db-only" =
+					!previousParsed || (prevVal ?? null) !== (newVal ?? null) ? "xlsx-changed" : "db-only"
+				fields.push({ field, oldValue: oldVal, newValue: newVal, source })
 			}
 		}
 		// Include cronFrequency diff
@@ -1211,7 +1269,10 @@ export async function computeImportDiff(parsed: ParsedFramework) {
 		if (newCron !== null) {
 			const oldCron = live.cronFrequency ?? null
 			if (oldCron !== newCron) {
-				fields.push({ field: "cronFrequency", oldValue: oldCron, newValue: newCron })
+				const prevFreq = prev?.frequency ?? null
+				const prevCron = prevFreq !== null ? deriveCronFrequency(prevFreq) : null
+				const source: "xlsx-changed" | "db-only" = !previousParsed || prevCron !== newCron ? "xlsx-changed" : "db-only"
+				fields.push({ field: "cronFrequency", oldValue: oldCron, newValue: newCron, source })
 			}
 		}
 		if (fields.length > 0) changedControls.push({ controlId, fields })

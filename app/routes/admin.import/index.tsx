@@ -12,7 +12,7 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type { ActionFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -23,12 +23,18 @@ import {
 	applyFrameworkImport,
 	computeImportDiff,
 	discardPendingImport,
+	getActiveFrameworkVersion,
 	getFrameworkVersionHistory,
 	getPendingFrameworkImport,
 	stageFrameworkImport,
 } from "~/db/queries/framework.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { type ParsedFrameworkRow, parseFrameworkExcel, summarizeFramework } from "~/lib/excel-parser.server"
+import {
+	type ParsedFramework,
+	type ParsedFrameworkRow,
+	parseFrameworkExcel,
+	summarizeFramework,
+} from "~/lib/excel-parser.server"
 import { cronFrequencyLabels } from "~/lib/frequency-mapping"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
@@ -97,7 +103,20 @@ export async function action({ request }: ActionFunctionArgs) {
 			const storage = getStorageProvider()
 			const fileBuffer = await storage.download(pending.sourceBucketPath)
 			const parsed = parseFrameworkExcel(fileBuffer)
-			const stagingDiff = await computeImportDiff(parsed)
+
+			// Load previous xlsx for source classification
+			let previousParsed: ParsedFramework | undefined
+			const activeVersion = await getActiveFrameworkVersion()
+			if (activeVersion?.sourceBucketPath) {
+				try {
+					const prevBuffer = await storage.download(activeVersion.sourceBucketPath)
+					previousParsed = parseFrameworkExcel(prevBuffer)
+				} catch {
+					// Previous file unavailable — treat all changes as xlsx-changed
+				}
+			}
+
+			const stagingDiff = await computeImportDiff(parsed, previousParsed)
 			const summary = summarizeFramework(parsed)
 
 			const controls: SerializedControl[] = Array.from(summary.controls.values()).map((row: ParsedFrameworkRow) => ({
@@ -210,8 +229,20 @@ export async function action({ request }: ActionFunctionArgs) {
 		// Stage in database (import log only — no data rows created)
 		const versionId = await stageFrameworkImport(parsed, file.name, userName, bucketPath)
 
+		// Load previous xlsx for source classification
+		let previousParsed: ParsedFramework | undefined
+		const activeVersion = await getActiveFrameworkVersion()
+		if (activeVersion?.sourceBucketPath) {
+			try {
+				const prevBuffer = await storage.download(activeVersion.sourceBucketPath)
+				previousParsed = parseFrameworkExcel(prevBuffer)
+			} catch {
+				// Previous file unavailable — treat all changes as xlsx-changed
+			}
+		}
+
 		// Compute diff against live data
-		const stagingDiff = await computeImportDiff(parsed)
+		const stagingDiff = await computeImportDiff(parsed, previousParsed)
 
 		const controls: SerializedControl[] = Array.from(summary.controls.values()).map((row: ParsedFrameworkRow) => ({
 			controlId: row.controlId,
@@ -329,6 +360,29 @@ export default function Import() {
 	const [sort, setSort] = useState<SortState | undefined>(undefined)
 	const [excludedChanges, setExcludedChanges] = useState<Set<string>>(new Set())
 	const isSubmitting = navigation.state === "submitting"
+
+	// Initialize excludedChanges with db-only keys when actionData changes
+	useEffect(() => {
+		if (!actionData || !("success" in actionData) || !actionData.success || !actionData.stagingDiff) return
+		const diff = actionData.stagingDiff
+		if (diff.isFirstImport) return
+		const dbOnlyKeys: string[] = []
+		for (const r of diff.changed.risks) {
+			for (const f of r.fields) {
+				if (f.source === "db-only") {
+					dbOnlyKeys.push(`risk:${r.riskId}:${f.field}`)
+				}
+			}
+		}
+		for (const c of diff.changed.controls) {
+			for (const f of c.fields) {
+				if (f.source === "db-only") {
+					dbOnlyKeys.push(`control:${c.controlId}:${f.field}`)
+				}
+			}
+		}
+		setExcludedChanges(new Set(dbOnlyKeys))
+	}, [actionData])
 
 	const acceptedFiles = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
 	const rejectedFiles = files.filter((f): f is FileRejected => f.error)
@@ -655,157 +709,330 @@ export default function Import() {
 										</VStack>
 									)}
 
-									{(actionData.stagingDiff.changed.risks.length > 0 ||
-										actionData.stagingDiff.changed.controls.length > 0) && (
-										<VStack gap="space-2">
-											<HStack gap="space-2" align="center">
-												<Tag variant="warning" size="small">
-													Endrede elementer
-												</Tag>
-											</HStack>
-											{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-											<section className="table-scroll" tabIndex={0} aria-label="Endrede elementer">
-												<Table size="small">
-													<Table.Header>
-														<Table.Row>
-															<Table.HeaderCell scope="col">
-																{(() => {
-																	const allKeys = [
-																		...actionData.stagingDiff.changed.risks.flatMap((r) =>
-																			r.fields.map((f) => `risk:${r.riskId}:${f.field}`),
-																		),
-																		...actionData.stagingDiff.changed.controls.flatMap((c) =>
-																			c.fields.map((f) => `control:${c.controlId}:${f.field}`),
-																		),
-																	]
-																	const includedCount = allKeys.filter((k) => !excludedChanges.has(k)).length
-																	return (
-																		<Checkbox
-																			size="small"
-																			hideLabel
-																			checked={includedCount === allKeys.length}
-																			indeterminate={includedCount > 0 && includedCount < allKeys.length}
-																			onChange={() => {
-																				setExcludedChanges((prev) => {
-																					const allIncluded = allKeys.every((k) => !prev.has(k))
-																					if (allIncluded) {
-																						return new Set([...prev, ...allKeys])
-																					}
-																					const next = new Set(prev)
-																					for (const k of allKeys) {
-																						next.delete(k)
-																					}
-																					return next
-																				})
-																			}}
-																		>
-																			Inkluder alle endringer
-																		</Checkbox>
-																	)
-																})()}
-															</Table.HeaderCell>
-															<Table.HeaderCell scope="col">Element</Table.HeaderCell>
-															<Table.HeaderCell scope="col">Felt</Table.HeaderCell>
-															<Table.HeaderCell scope="col">Gammel verdi</Table.HeaderCell>
-															<Table.HeaderCell scope="col">Ny verdi</Table.HeaderCell>
-														</Table.Row>
-													</Table.Header>
-													<Table.Body>
-														{actionData.stagingDiff.changed.risks.flatMap((r) =>
-															r.fields.map((f) => {
-																const changeKey = `risk:${r.riskId}:${f.field}`
-																return (
-																	<Table.Row key={`risk-${r.riskId}-${f.field}`}>
-																		<Table.DataCell>
-																			<Checkbox
-																				size="small"
-																				hideLabel
-																				checked={!excludedChanges.has(changeKey)}
-																				onChange={() => {
-																					setExcludedChanges((prev) => {
-																						const next = new Set(prev)
-																						if (next.has(changeKey)) {
-																							next.delete(changeKey)
-																						} else {
-																							next.add(changeKey)
-																						}
-																						return next
-																					})
-																				}}
-																			>
-																				Inkluder endring for {r.riskId} {f.field}
-																			</Checkbox>
-																		</Table.DataCell>
-																		<Table.DataCell>{r.riskId}</Table.DataCell>
-																		<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
-																		<Table.DataCell>
-																			<WordDiff
-																				oldValue={resolveDiffValue(f.field, f.oldValue)}
-																				newValue={resolveDiffValue(f.field, f.newValue)}
-																				side="old"
-																			/>
-																		</Table.DataCell>
-																		<Table.DataCell>
-																			<WordDiff
-																				oldValue={resolveDiffValue(f.field, f.oldValue)}
-																				newValue={resolveDiffValue(f.field, f.newValue)}
-																				side="new"
-																			/>
-																		</Table.DataCell>
+									{(() => {
+										const xlsxChangedRisks = actionData.stagingDiff.changed.risks
+											.map((r) => ({ ...r, fields: r.fields.filter((f) => f.source === "xlsx-changed") }))
+											.filter((r) => r.fields.length > 0)
+										const xlsxChangedControls = actionData.stagingDiff.changed.controls
+											.map((c) => ({ ...c, fields: c.fields.filter((f) => f.source === "xlsx-changed") }))
+											.filter((c) => c.fields.length > 0)
+										const dbOnlyRisks = actionData.stagingDiff.changed.risks
+											.map((r) => ({ ...r, fields: r.fields.filter((f) => f.source === "db-only") }))
+											.filter((r) => r.fields.length > 0)
+										const dbOnlyControls = actionData.stagingDiff.changed.controls
+											.map((c) => ({ ...c, fields: c.fields.filter((f) => f.source === "db-only") }))
+											.filter((c) => c.fields.length > 0)
+
+										return (
+											<>
+												{(xlsxChangedRisks.length > 0 || xlsxChangedControls.length > 0) && (
+													<VStack gap="space-2">
+														<HStack gap="space-2" align="center">
+															<Tag variant="warning" size="small">
+																Endringer i kontrollrammeverket
+															</Tag>
+														</HStack>
+														{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+														<section className="table-scroll" tabIndex={0} aria-label="Endringer i kontrollrammeverket">
+															<Table size="small">
+																<Table.Header>
+																	<Table.Row>
+																		<Table.HeaderCell scope="col">
+																			{(() => {
+																				const allKeys = [
+																					...xlsxChangedRisks.flatMap((r) =>
+																						r.fields.map((f) => `risk:${r.riskId}:${f.field}`),
+																					),
+																					...xlsxChangedControls.flatMap((c) =>
+																						c.fields.map((f) => `control:${c.controlId}:${f.field}`),
+																					),
+																				]
+																				const includedCount = allKeys.filter((k) => !excludedChanges.has(k)).length
+																				return (
+																					<Checkbox
+																						size="small"
+																						hideLabel
+																						checked={includedCount === allKeys.length}
+																						indeterminate={includedCount > 0 && includedCount < allKeys.length}
+																						onChange={() => {
+																							setExcludedChanges((prev) => {
+																								const allIncluded = allKeys.every((k) => !prev.has(k))
+																								if (allIncluded) {
+																									return new Set([...prev, ...allKeys])
+																								}
+																								const next = new Set(prev)
+																								for (const k of allKeys) {
+																									next.delete(k)
+																								}
+																								return next
+																							})
+																						}}
+																					>
+																						Inkluder alle endringer
+																					</Checkbox>
+																				)
+																			})()}
+																		</Table.HeaderCell>
+																		<Table.HeaderCell scope="col">Element</Table.HeaderCell>
+																		<Table.HeaderCell scope="col">Felt</Table.HeaderCell>
+																		<Table.HeaderCell scope="col">Gammel verdi</Table.HeaderCell>
+																		<Table.HeaderCell scope="col">Ny verdi</Table.HeaderCell>
 																	</Table.Row>
-																)
-															}),
-														)}
-														{actionData.stagingDiff.changed.controls.flatMap((c) =>
-															c.fields.map((f) => {
-																const changeKey = `control:${c.controlId}:${f.field}`
-																return (
-																	<Table.Row key={`control-${c.controlId}-${f.field}`}>
-																		<Table.DataCell>
-																			<Checkbox
-																				size="small"
-																				hideLabel
-																				checked={!excludedChanges.has(changeKey)}
-																				onChange={() => {
-																					setExcludedChanges((prev) => {
-																						const next = new Set(prev)
-																						if (next.has(changeKey)) {
-																							next.delete(changeKey)
-																						} else {
-																							next.add(changeKey)
-																						}
-																						return next
-																					})
-																				}}
-																			>
-																				Inkluder endring for {c.controlId} {f.field}
-																			</Checkbox>
-																		</Table.DataCell>
-																		<Table.DataCell>{c.controlId}</Table.DataCell>
-																		<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
-																		<Table.DataCell>
-																			<WordDiff
-																				oldValue={resolveDiffValue(f.field, f.oldValue)}
-																				newValue={resolveDiffValue(f.field, f.newValue)}
-																				side="old"
-																			/>
-																		</Table.DataCell>
-																		<Table.DataCell>
-																			<WordDiff
-																				oldValue={resolveDiffValue(f.field, f.oldValue)}
-																				newValue={resolveDiffValue(f.field, f.newValue)}
-																				side="new"
-																			/>
-																		</Table.DataCell>
+																</Table.Header>
+																<Table.Body>
+																	{xlsxChangedRisks.flatMap((r) =>
+																		r.fields.map((f) => {
+																			const changeKey = `risk:${r.riskId}:${f.field}`
+																			return (
+																				<Table.Row key={`risk-${r.riskId}-${f.field}`}>
+																					<Table.DataCell>
+																						<Checkbox
+																							size="small"
+																							hideLabel
+																							checked={!excludedChanges.has(changeKey)}
+																							onChange={() => {
+																								setExcludedChanges((prev) => {
+																									const next = new Set(prev)
+																									if (next.has(changeKey)) {
+																										next.delete(changeKey)
+																									} else {
+																										next.add(changeKey)
+																									}
+																									return next
+																								})
+																							}}
+																						>
+																							Inkluder endring for {r.riskId} {f.field}
+																						</Checkbox>
+																					</Table.DataCell>
+																					<Table.DataCell>{r.riskId}</Table.DataCell>
+																					<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
+																					<Table.DataCell>
+																						<WordDiff
+																							oldValue={resolveDiffValue(f.field, f.oldValue)}
+																							newValue={resolveDiffValue(f.field, f.newValue)}
+																							side="old"
+																						/>
+																					</Table.DataCell>
+																					<Table.DataCell>
+																						<WordDiff
+																							oldValue={resolveDiffValue(f.field, f.oldValue)}
+																							newValue={resolveDiffValue(f.field, f.newValue)}
+																							side="new"
+																						/>
+																					</Table.DataCell>
+																				</Table.Row>
+																			)
+																		}),
+																	)}
+																	{xlsxChangedControls.flatMap((c) =>
+																		c.fields.map((f) => {
+																			const changeKey = `control:${c.controlId}:${f.field}`
+																			return (
+																				<Table.Row key={`control-${c.controlId}-${f.field}`}>
+																					<Table.DataCell>
+																						<Checkbox
+																							size="small"
+																							hideLabel
+																							checked={!excludedChanges.has(changeKey)}
+																							onChange={() => {
+																								setExcludedChanges((prev) => {
+																									const next = new Set(prev)
+																									if (next.has(changeKey)) {
+																										next.delete(changeKey)
+																									} else {
+																										next.add(changeKey)
+																									}
+																									return next
+																								})
+																							}}
+																						>
+																							Inkluder endring for {c.controlId} {f.field}
+																						</Checkbox>
+																					</Table.DataCell>
+																					<Table.DataCell>{c.controlId}</Table.DataCell>
+																					<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
+																					<Table.DataCell>
+																						<WordDiff
+																							oldValue={resolveDiffValue(f.field, f.oldValue)}
+																							newValue={resolveDiffValue(f.field, f.newValue)}
+																							side="old"
+																						/>
+																					</Table.DataCell>
+																					<Table.DataCell>
+																						<WordDiff
+																							oldValue={resolveDiffValue(f.field, f.oldValue)}
+																							newValue={resolveDiffValue(f.field, f.newValue)}
+																							side="new"
+																						/>
+																					</Table.DataCell>
+																				</Table.Row>
+																			)
+																		}),
+																	)}
+																</Table.Body>
+															</Table>
+														</section>
+													</VStack>
+												)}
+
+												{(dbOnlyRisks.length > 0 || dbOnlyControls.length > 0) && (
+													<VStack gap="space-2">
+														<HStack gap="space-2" align="center">
+															<Tag variant="info" size="small">
+																Manuelle endringer i databasen
+															</Tag>
+														</HStack>
+														<BodyLong size="small">
+															Disse feltene ble endret manuelt i applikasjonen etter forrige import. De er ikke valgt
+															for oppdatering som standard.
+														</BodyLong>
+														{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+														<section className="table-scroll" tabIndex={0} aria-label="Manuelle endringer i databasen">
+															<Table size="small">
+																<Table.Header>
+																	<Table.Row>
+																		<Table.HeaderCell scope="col">
+																			{(() => {
+																				const allKeys = [
+																					...dbOnlyRisks.flatMap((r) =>
+																						r.fields.map((f) => `risk:${r.riskId}:${f.field}`),
+																					),
+																					...dbOnlyControls.flatMap((c) =>
+																						c.fields.map((f) => `control:${c.controlId}:${f.field}`),
+																					),
+																				]
+																				const includedCount = allKeys.filter((k) => !excludedChanges.has(k)).length
+																				return (
+																					<Checkbox
+																						size="small"
+																						hideLabel
+																						checked={includedCount === allKeys.length}
+																						indeterminate={includedCount > 0 && includedCount < allKeys.length}
+																						onChange={() => {
+																							setExcludedChanges((prev) => {
+																								const allIncluded = allKeys.every((k) => !prev.has(k))
+																								if (allIncluded) {
+																									return new Set([...prev, ...allKeys])
+																								}
+																								const next = new Set(prev)
+																								for (const k of allKeys) {
+																									next.delete(k)
+																								}
+																								return next
+																							})
+																						}}
+																					>
+																						Inkluder alle manuelle endringer
+																					</Checkbox>
+																				)
+																			})()}
+																		</Table.HeaderCell>
+																		<Table.HeaderCell scope="col">Element</Table.HeaderCell>
+																		<Table.HeaderCell scope="col">Felt</Table.HeaderCell>
+																		<Table.HeaderCell scope="col">Gammel verdi</Table.HeaderCell>
+																		<Table.HeaderCell scope="col">Ny verdi</Table.HeaderCell>
 																	</Table.Row>
-																)
-															}),
-														)}
-													</Table.Body>
-												</Table>
-											</section>
-										</VStack>
-									)}
+																</Table.Header>
+																<Table.Body>
+																	{dbOnlyRisks.flatMap((r) =>
+																		r.fields.map((f) => {
+																			const changeKey = `risk:${r.riskId}:${f.field}`
+																			return (
+																				<Table.Row key={`risk-${r.riskId}-${f.field}`}>
+																					<Table.DataCell>
+																						<Checkbox
+																							size="small"
+																							hideLabel
+																							checked={!excludedChanges.has(changeKey)}
+																							onChange={() => {
+																								setExcludedChanges((prev) => {
+																									const next = new Set(prev)
+																									if (next.has(changeKey)) {
+																										next.delete(changeKey)
+																									} else {
+																										next.add(changeKey)
+																									}
+																									return next
+																								})
+																							}}
+																						>
+																							Inkluder endring for {r.riskId} {f.field}
+																						</Checkbox>
+																					</Table.DataCell>
+																					<Table.DataCell>{r.riskId}</Table.DataCell>
+																					<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
+																					<Table.DataCell>
+																						<WordDiff
+																							oldValue={resolveDiffValue(f.field, f.oldValue)}
+																							newValue={resolveDiffValue(f.field, f.newValue)}
+																							side="old"
+																						/>
+																					</Table.DataCell>
+																					<Table.DataCell>
+																						<WordDiff
+																							oldValue={resolveDiffValue(f.field, f.oldValue)}
+																							newValue={resolveDiffValue(f.field, f.newValue)}
+																							side="new"
+																						/>
+																					</Table.DataCell>
+																				</Table.Row>
+																			)
+																		}),
+																	)}
+																	{dbOnlyControls.flatMap((c) =>
+																		c.fields.map((f) => {
+																			const changeKey = `control:${c.controlId}:${f.field}`
+																			return (
+																				<Table.Row key={`control-${c.controlId}-${f.field}`}>
+																					<Table.DataCell>
+																						<Checkbox
+																							size="small"
+																							hideLabel
+																							checked={!excludedChanges.has(changeKey)}
+																							onChange={() => {
+																								setExcludedChanges((prev) => {
+																									const next = new Set(prev)
+																									if (next.has(changeKey)) {
+																										next.delete(changeKey)
+																									} else {
+																										next.add(changeKey)
+																									}
+																									return next
+																								})
+																							}}
+																						>
+																							Inkluder endring for {c.controlId} {f.field}
+																						</Checkbox>
+																					</Table.DataCell>
+																					<Table.DataCell>{c.controlId}</Table.DataCell>
+																					<Table.DataCell>{diffFieldLabels[f.field] ?? f.field}</Table.DataCell>
+																					<Table.DataCell>
+																						<WordDiff
+																							oldValue={resolveDiffValue(f.field, f.oldValue)}
+																							newValue={resolveDiffValue(f.field, f.newValue)}
+																							side="old"
+																						/>
+																					</Table.DataCell>
+																					<Table.DataCell>
+																						<WordDiff
+																							oldValue={resolveDiffValue(f.field, f.oldValue)}
+																							newValue={resolveDiffValue(f.field, f.newValue)}
+																							side="new"
+																						/>
+																					</Table.DataCell>
+																				</Table.Row>
+																			)
+																		}),
+																	)}
+																</Table.Body>
+															</Table>
+														</section>
+													</VStack>
+												)}
+											</>
+										)
+									})()}
 
 									{actionData.stagingDiff.added.risks.length === 0 &&
 										actionData.stagingDiff.added.controls.length === 0 &&
