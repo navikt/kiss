@@ -919,27 +919,38 @@ export async function upsertAccessPolicyRules(
 	direction: "inbound" | "outbound",
 	rules: Array<{ application: string; namespace?: string; cluster?: string }>,
 ) {
-	// Delete existing rules for this direction
-	await db
-		.delete(applicationAccessPolicyRules)
-		.where(
-			and(
-				eq(applicationAccessPolicyRules.applicationId, applicationId),
-				eq(applicationAccessPolicyRules.direction, direction),
-			),
+	await db.transaction(async (tx) => {
+		// Delete existing rules for this direction
+		await tx
+			.delete(applicationAccessPolicyRules)
+			.where(
+				and(
+					eq(applicationAccessPolicyRules.applicationId, applicationId),
+					eq(applicationAccessPolicyRules.direction, direction),
+				),
+			)
+
+		if (rules.length === 0) return
+
+		// Deduplicate rules (same app can appear in multiple environments)
+		const seen = new Set<string>()
+		const uniqueRules = rules.filter((rule) => {
+			const key = `${rule.application}|${rule.namespace ?? ""}|${rule.cluster ?? ""}`
+			if (seen.has(key)) return false
+			seen.add(key)
+			return true
+		})
+
+		await tx.insert(applicationAccessPolicyRules).values(
+			uniqueRules.map((rule) => ({
+				applicationId,
+				direction,
+				ruleApplication: rule.application,
+				ruleNamespace: rule.namespace ?? null,
+				ruleCluster: rule.cluster ?? null,
+			})),
 		)
-
-	if (rules.length === 0) return
-
-	await db.insert(applicationAccessPolicyRules).values(
-		rules.map((rule) => ({
-			applicationId,
-			direction,
-			ruleApplication: rule.application,
-			ruleNamespace: rule.namespace ?? null,
-			ruleCluster: rule.cluster ?? null,
-		})),
-	)
+	})
 }
 
 /** Get all access policy rules for an application. */
