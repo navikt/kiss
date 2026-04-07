@@ -148,3 +148,19 @@ export const applicationAuthIntegrations = pgTable("application_auth_integration
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+export const accessPolicyDirectionEnum = ["inbound", "outbound"] as const
+export type AccessPolicyDirection = (typeof accessPolicyDirectionEnum)[number]
+
+export const applicationAccessPolicyRules = pgTable("application_access_policy_rules", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	applicationId: uuid("application_id")
+		.notNull()
+		.references(() => monitoredApplications.id),
+	direction: text("direction", { enum: accessPolicyDirectionEnum }).notNull(),
+	ruleApplication: text("rule_application").notNull(),
+	ruleNamespace: text("rule_namespace"),
+	ruleCluster: text("rule_cluster"),
+	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})

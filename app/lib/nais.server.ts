@@ -48,6 +48,7 @@ export interface NaisApp {
 	}
 	persistence: NaisPersistenceResource[]
 	authIntegrations: NaisAuthIntegration[]
+	accessPolicyInbound?: NaisInboundRule[]
 }
 
 interface PageInfo {
@@ -522,6 +523,7 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 					: undefined,
 				persistence,
 				authIntegrations,
+				accessPolicyInbound: inboundRules,
 			})
 		}
 

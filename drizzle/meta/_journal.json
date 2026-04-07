@@ -15,6 +15,13 @@
       "when": 1775460944075,
       "tag": "0001_windy_sally_floyd",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775560526499,
+      "tag": "0002_unique_penance",
+      "breakpoints": true
     }
   ]
 }

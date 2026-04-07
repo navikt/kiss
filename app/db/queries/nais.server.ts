@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	type AuthIntegrationType,
+	applicationAccessPolicyRules,
 	applicationAuthIntegrations,
 	applicationEnvironments,
 	applicationPersistence,
@@ -532,6 +533,7 @@ export async function getApplicationDetail(applicationId: string) {
 
 	const persistence = await getAppPersistence(applicationId)
 	const authIntegrations = await getAppAuthIntegrations(applicationId)
+	const accessPolicyRules = await getAccessPolicyRules(applicationId)
 
 	const teamMappings = await db
 		.select({ teamId: devTeams.id, teamName: devTeams.name, teamSlug: devTeams.slug })
@@ -557,7 +559,16 @@ export async function getApplicationDetail(applicationId: string) {
 		.where(eq(monitoredApplications.primaryApplicationId, applicationId))
 		.orderBy(monitoredApplications.name)
 
-	return { app, environments, persistence, authIntegrations, teams: teamMappings, primaryApp, linkedApps }
+	return {
+		app,
+		environments,
+		persistence,
+		authIntegrations,
+		accessPolicyRules,
+		teams: teamMappings,
+		primaryApp,
+		linkedApps,
+	}
 }
 
 /** Link an application to a primary application. */
@@ -900,4 +911,42 @@ export async function bulkAcceptLinkSuggestions(minConfidence: number, performed
 		accepted++
 	}
 	return accepted
+}
+
+/** Replace all access policy rules for a given application and direction. */
+export async function upsertAccessPolicyRules(
+	applicationId: string,
+	direction: "inbound" | "outbound",
+	rules: Array<{ application: string; namespace?: string; cluster?: string }>,
+) {
+	// Delete existing rules for this direction
+	await db
+		.delete(applicationAccessPolicyRules)
+		.where(
+			and(
+				eq(applicationAccessPolicyRules.applicationId, applicationId),
+				eq(applicationAccessPolicyRules.direction, direction),
+			),
+		)
+
+	if (rules.length === 0) return
+
+	await db.insert(applicationAccessPolicyRules).values(
+		rules.map((rule) => ({
+			applicationId,
+			direction,
+			ruleApplication: rule.application,
+			ruleNamespace: rule.namespace ?? null,
+			ruleCluster: rule.cluster ?? null,
+		})),
+	)
+}
+
+/** Get all access policy rules for an application. */
+export async function getAccessPolicyRules(applicationId: string) {
+	return db
+		.select()
+		.from(applicationAccessPolicyRules)
+		.where(eq(applicationAccessPolicyRules.applicationId, applicationId))
+		.orderBy(applicationAccessPolicyRules.direction, applicationAccessPolicyRules.ruleApplication)
 }

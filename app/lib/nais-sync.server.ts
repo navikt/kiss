@@ -1,5 +1,6 @@
 import { writeAuditLog } from "~/db/queries/audit.server"
 import {
+	upsertAccessPolicyRules,
 	upsertAppAuthIntegration,
 	upsertAppEnvironment,
 	upsertAppPersistence,
@@ -85,6 +86,11 @@ export async function syncNaisAppsForTeam(
 					sidecarEnabled: auth.sidecarEnabled,
 					inboundRules: auth.inboundRules,
 				})
+			}
+
+			// Store access policy inbound rules independently
+			if (app.accessPolicyInbound) {
+				await upsertAccessPolicyRules(appId, "inbound", app.accessPolicyInbound)
 			}
 		}
 

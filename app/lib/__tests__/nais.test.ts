@@ -519,5 +519,11 @@ spec:
 			{ application: "app-b", namespace: "other-ns" },
 			{ application: "app-c", namespace: "other-ns", cluster: "other-cluster" },
 		])
+		// Also available as top-level accessPolicyInbound
+		expect(result[0].accessPolicyInbound).toEqual([
+			{ application: "app-a" },
+			{ application: "app-b", namespace: "other-ns" },
+			{ application: "app-c", namespace: "other-ns", cluster: "other-cluster" },
+		])
 	})
 })

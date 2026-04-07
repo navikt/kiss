@@ -109,6 +109,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		environments: detail.environments,
 		persistence: detail.persistence,
 		authIntegrations: detail.authIntegrations,
+		accessPolicyRules: detail.accessPolicyRules,
 		teams: detail.teams,
 		primaryApp: detail.primaryApp,
 		linkedApps: detail.linkedApps,
@@ -207,6 +208,7 @@ export default function ApplikasjonDetalj() {
 		environments,
 		persistence,
 		authIntegrations,
+		accessPolicyRules,
 		teams,
 		primaryApp,
 		linkedApps,
@@ -266,6 +268,7 @@ export default function ApplikasjonDetalj() {
 					<Tabs.Tab value="oversikt" label="Oversikt" />
 					<Tabs.Tab value="kontroller" label="Kontroller" />
 					<Tabs.Tab value="autentisering" label="Autentisering" />
+					<Tabs.Tab value="tilgangspolicy" label="Tilgangspolicy" />
 					<Tabs.Tab value="miljoer" label="Miljøer" />
 					<Tabs.Tab value="persistering" label="Persistering" />
 					<Tabs.Tab value="rutiner" label="Rutiner" />
@@ -655,6 +658,77 @@ export default function ApplikasjonDetalj() {
 					) : (
 						<BodyLong>Ingen autentiseringsintegrasjoner funnet.</BodyLong>
 					)}
+				</Tabs.Panel>
+
+				{/* Tilgangspolicy */}
+				<Tabs.Panel value="tilgangspolicy" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<VStack gap="space-4">
+						<Alert variant="info" size="small">
+							Tilgangspolicyen definerer hvilke applikasjoner som har nettverkstilgang til å kalle denne applikasjonen,
+							og som kan utstede tokens via TokenX eller Entra ID. Policyen hentes automatisk fra{" "}
+							<code>spec.accessPolicy.inbound.rules</code> i Nais-manifestet.
+						</Alert>
+
+						{(() => {
+							const inboundRules = accessPolicyRules.filter((r) => r.direction === "inbound")
+							if (inboundRules.length === 0) {
+								return (
+									<BodyLong>
+										Ingen tilgangspolicyregler funnet. Applikasjonen har enten ikke definert{" "}
+										<code>accessPolicy.inbound.rules</code> i sitt Nais-manifest, eller den har ikke blitt synkronisert
+										ennå.
+									</BodyLong>
+								)
+							}
+							return (
+								<VStack gap="space-2">
+									<Heading size="xsmall" level="4">
+										Innkommende tilgang ({inboundRules.length}{" "}
+										{inboundRules.length === 1 ? "applikasjon" : "applikasjoner"})
+									</Heading>
+									<BodyShort size="small" textColor="subtle">
+										Disse applikasjonene har tillatelse til å kalle dette API-et over nettverket.
+									</BodyShort>
+									<Table size="small">
+										<Table.Header>
+											<Table.Row>
+												<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+												<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
+												<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
+											</Table.Row>
+										</Table.Header>
+										<Table.Body>
+											{inboundRules.map((rule) => (
+												<Table.Row key={rule.id}>
+													<Table.DataCell>
+														<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleApplication}</code>
+													</Table.DataCell>
+													<Table.DataCell>
+														{rule.ruleNamespace ? (
+															<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleNamespace}</code>
+														) : (
+															<BodyShort size="small" textColor="subtle">
+																Samme
+															</BodyShort>
+														)}
+													</Table.DataCell>
+													<Table.DataCell>
+														{rule.ruleCluster ? (
+															<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleCluster}</code>
+														) : (
+															<BodyShort size="small" textColor="subtle">
+																Samme
+															</BodyShort>
+														)}
+													</Table.DataCell>
+												</Table.Row>
+											))}
+										</Table.Body>
+									</Table>
+								</VStack>
+							)
+						})()}
+					</VStack>
 				</Tabs.Panel>
 
 				{/* Miljøer */}
