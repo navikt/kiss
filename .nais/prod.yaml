@@ -79,5 +79,9 @@ spec:
       value: https://console.nav.cloud.nais.io/graphql
     - name: ENABLE_NAIS_SYNC
       value: "true"
+    - name: KISS_ADMIN_GROUP_IDS
+      value: "1e97cbc6-0687-4d23-aebd-c611035279c1"
+    - name: KISS_AUDITOR_GROUP_IDS
+      value: "415d3817-c83d-44c9-a52b-5116757f8fa8"
   envFrom:
     - secret: nais-deployment-audit

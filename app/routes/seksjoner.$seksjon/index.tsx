@@ -3,11 +3,15 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionDetail } from "~/db/queries/sections.server"
+import { getAuthenticatedUser } from "~/lib/auth.server"
+import { isAdmin } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: LoaderFunctionArgs) {
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
+
+	const user = await getAuthenticatedUser(request)
 
 	const result = await getSectionDetail(seksjon)
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
@@ -36,6 +40,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		totalMangler,
 		totalControls,
 		overallPercent,
+		canAdmin: user ? isAdmin(user) : false,
 	})
 }
 
@@ -50,6 +55,7 @@ export default function SeksjonDashboard() {
 		totalPartial,
 		totalMangler,
 		overallPercent,
+		canAdmin,
 	} = useLoaderData<typeof loader>()
 
 	return (
@@ -58,9 +64,11 @@ export default function SeksjonDashboard() {
 				<Heading size="xlarge" level="2">
 					Seksjon: {seksjonName}
 				</Heading>
-				<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">
-					Administrer
-				</Button>
+				{canAdmin && (
+					<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">
+						Administrer
+					</Button>
+				)}
 				<Button as={Link} to={`/seksjoner/${seksjon}/rutiner`} variant="secondary" size="small">
 					Rutiner
 				</Button>
