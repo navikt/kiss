@@ -1,4 +1,4 @@
-import { DownloadIcon, ExternalLinkIcon, EyeIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, ExternalLinkIcon, EyeIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
@@ -32,7 +32,7 @@ import {
 import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
-import { getApplicationDetail } from "~/db/queries/nais.server"
+import { getApplicationDetail, resolveAppNames } from "~/db/queries/nais.server"
 import { generateAppComplianceReport, getReportsForApp } from "~/db/queries/reports.server"
 import { createReview, getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
@@ -104,6 +104,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const notRelevant = assessments.filter((a) => a.status === "not_relevant").length
 	const notAssessed = assessments.filter((a) => !a.status).length
 
+	// Collect all referenced app names from auth inbound rules and access policy rules
+	const referencedAppNames = new Set<string>()
+	for (const auth of detail.authIntegrations) {
+		if (auth.inboundRules) {
+			const rules = JSON.parse(auth.inboundRules) as Array<{ application: string }>
+			for (const r of rules) referencedAppNames.add(r.application)
+		}
+	}
+	for (const rule of detail.accessPolicyRules) {
+		referencedAppNames.add(rule.ruleApplication)
+	}
+	const knownApps = await resolveAppNames([...referencedAppNames])
+
 	return data({
 		app: detail.app,
 		environments: detail.environments,
@@ -118,6 +131,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
+		knownApps,
 		compliance: {
 			totalControls,
 			implemented,
@@ -217,6 +231,7 @@ export default function ApplikasjonDetalj() {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin,
+		knownApps,
 		compliance,
 		assessments,
 		appReports,
@@ -621,34 +636,62 @@ export default function ApplikasjonDetalj() {
 														<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
 														<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
 														<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
+														<Table.HeaderCell scope="col">Status</Table.HeaderCell>
 													</Table.Row>
 												</Table.Header>
 												<Table.Body>
-													{rules.map((rule) => (
-														<Table.Row key={`${rule.application}-${rule.namespace ?? ""}-${rule.cluster ?? ""}`}>
-															<Table.DataCell>
-																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.application}</code>
-															</Table.DataCell>
-															<Table.DataCell>
-																{rule.namespace ? (
-																	<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.namespace}</code>
-																) : (
-																	<BodyShort size="small" textColor="subtle">
-																		Samme
-																	</BodyShort>
-																)}
-															</Table.DataCell>
-															<Table.DataCell>
-																{rule.cluster ? (
-																	<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.cluster}</code>
-																) : (
-																	<BodyShort size="small" textColor="subtle">
-																		Samme
-																	</BodyShort>
-																)}
-															</Table.DataCell>
-														</Table.Row>
-													))}
+													{rules.map((rule) => {
+														const appId = knownApps[rule.application]
+														return (
+															<Table.Row key={`${rule.application}-${rule.namespace ?? ""}-${rule.cluster ?? ""}`}>
+																<Table.DataCell>
+																	{appId ? (
+																		<Link to={`/applikasjoner/${appId}/detaljer`}>
+																			<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.application}</code>
+																		</Link>
+																	) : (
+																		<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.application}</code>
+																	)}
+																</Table.DataCell>
+																<Table.DataCell>
+																	{rule.namespace ? (
+																		<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.namespace}</code>
+																	) : (
+																		<BodyShort size="small" textColor="subtle">
+																			Samme
+																		</BodyShort>
+																	)}
+																</Table.DataCell>
+																<Table.DataCell>
+																	{rule.cluster ? (
+																		<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.cluster}</code>
+																	) : (
+																		<BodyShort size="small" textColor="subtle">
+																			Samme
+																		</BodyShort>
+																	)}
+																</Table.DataCell>
+																<Table.DataCell>
+																	{appId ? (
+																		<Tag variant="success" size="xsmall">
+																			Kjent
+																		</Tag>
+																	) : (
+																		<HStack gap="space-1" align="center">
+																			<XMarkOctagonIcon
+																				aria-hidden
+																				fontSize="1rem"
+																				style={{ color: "var(--ax-text-warning)" }}
+																			/>
+																			<Tag variant="warning" size="xsmall">
+																				Ukjent
+																			</Tag>
+																		</HStack>
+																	)}
+																</Table.DataCell>
+															</Table.Row>
+														)
+													})}
 												</Table.Body>
 											</Table>
 										</VStack>
@@ -695,34 +738,62 @@ export default function ApplikasjonDetalj() {
 												<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
 												<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
 												<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
+												<Table.HeaderCell scope="col">Status</Table.HeaderCell>
 											</Table.Row>
 										</Table.Header>
 										<Table.Body>
-											{inboundRules.map((rule) => (
-												<Table.Row key={rule.id}>
-													<Table.DataCell>
-														<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleApplication}</code>
-													</Table.DataCell>
-													<Table.DataCell>
-														{rule.ruleNamespace ? (
-															<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleNamespace}</code>
-														) : (
-															<BodyShort size="small" textColor="subtle">
-																Samme
-															</BodyShort>
-														)}
-													</Table.DataCell>
-													<Table.DataCell>
-														{rule.ruleCluster ? (
-															<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleCluster}</code>
-														) : (
-															<BodyShort size="small" textColor="subtle">
-																Samme
-															</BodyShort>
-														)}
-													</Table.DataCell>
-												</Table.Row>
-											))}
+											{inboundRules.map((rule) => {
+												const resolvedId = knownApps[rule.ruleApplication]
+												return (
+													<Table.Row key={rule.id}>
+														<Table.DataCell>
+															{resolvedId ? (
+																<Link to={`/applikasjoner/${resolvedId}/detaljer`}>
+																	<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleApplication}</code>
+																</Link>
+															) : (
+																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleApplication}</code>
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															{rule.ruleNamespace ? (
+																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleNamespace}</code>
+															) : (
+																<BodyShort size="small" textColor="subtle">
+																	Samme
+																</BodyShort>
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															{rule.ruleCluster ? (
+																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleCluster}</code>
+															) : (
+																<BodyShort size="small" textColor="subtle">
+																	Samme
+																</BodyShort>
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															{resolvedId ? (
+																<Tag variant="success" size="xsmall">
+																	Kjent
+																</Tag>
+															) : (
+																<HStack gap="space-1" align="center">
+																	<XMarkOctagonIcon
+																		aria-hidden
+																		fontSize="1rem"
+																		style={{ color: "var(--ax-text-warning)" }}
+																	/>
+																	<Tag variant="warning" size="xsmall">
+																		Ukjent
+																	</Tag>
+																</HStack>
+															)}
+														</Table.DataCell>
+													</Table.Row>
+												)
+											})}
 										</Table.Body>
 									</Table>
 								</VStack>

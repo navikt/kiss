@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	type AuthIntegrationType,
@@ -911,6 +911,16 @@ export async function bulkAcceptLinkSuggestions(minConfidence: number, performed
 		accepted++
 	}
 	return accepted
+}
+
+/** Look up which application names exist as monitored applications. Returns a map of name → appId. */
+export async function resolveAppNames(names: string[]): Promise<Record<string, string>> {
+	if (names.length === 0) return {}
+	const rows = await db
+		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(inArray(monitoredApplications.name, names))
+	return Object.fromEntries(rows.map((r) => [r.name, r.id]))
 }
 
 /** Replace all access policy rules for a given application and direction. */
