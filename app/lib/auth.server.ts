@@ -2,7 +2,7 @@ import type { JWTPayload } from "jose"
 import { createRemoteJWKSet, jwtVerify } from "jose"
 
 const ADMIN_GROUP_ID = "1e97cbc6-0687-4d23-aebd-c611035279c1" // pensjon-revisjon
-const USER_GROUP_ID = "415d3817-c83d-44c9-a52b-5116757f8fa8" // teampensjon
+const _USER_GROUP_ID = "415d3817-c83d-44c9-a52b-5116757f8fa8" // teampensjon
 
 export type UserRole = "admin" | "user"
 

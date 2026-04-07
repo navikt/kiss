@@ -96,13 +96,8 @@ export default function App() {
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
-	let admin = false
-	try {
-		const rootData = useRouteLoaderData<typeof loader>("root")
-		admin = rootData?.user?.isAdmin === true
-	} catch {
-		// Root loader may not be available
-	}
+	const rootData = useRouteLoaderData<typeof loader>("root")
+	const admin = rootData?.user?.isAdmin === true
 
 	if (isRouteErrorResponse(error)) {
 		return (

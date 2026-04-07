@@ -574,8 +574,8 @@ export async function generateAppComplianceReport(params: {
 	return report.id
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: pdfkit constructor type
 function buildAppPdf(
+	// biome-ignore lint/suspicious/noExplicitAny: pdfkit constructor type varies across versions
 	PDFDocCtor: any,
 	app: { name: string; namespace: string | null; cluster: string | null },
 	assessments: Array<{
@@ -693,7 +693,7 @@ function buildAppPdf(
 						reviews: [],
 					})
 				}
-				routineGroups.get(key)!.reviews.push(r)
+				routineGroups.get(key)?.reviews.push(r)
 			}
 
 			for (const [, group] of routineGroups) {

@@ -777,7 +777,8 @@ export async function applyFrameworkImport(
 			riskUuidMap.set(riskId, existing.id)
 		} else if (archivedRiskMap.has(riskId)) {
 			// Re-activate archived risk
-			const archived = archivedRiskMap.get(riskId)!
+			const archived = archivedRiskMap.get(riskId)
+			if (!archived) throw new Error(`Archived risk ${riskId} not found`)
 			await db
 				.update(frameworkRisks)
 				.set({ domainId, description: data.description, archivedAt: null, lastImportId: versionId })
@@ -902,7 +903,8 @@ export async function applyFrameworkImport(
 			await syncControlTechElements(existing.id, data.technologyElement, techElementByName)
 		} else if (archivedControlMap.has(controlId)) {
 			// Re-activate archived control
-			const archived = archivedControlMap.get(controlId)!
+			const archived = archivedControlMap.get(controlId)
+			if (!archived) throw new Error(`Archived control ${controlId} not found`)
 			const newCron = deriveCronFrequency(data.frequency)
 			await db
 				.update(frameworkControls)
@@ -1025,8 +1027,10 @@ export async function applyFrameworkImport(
 }
 
 // Keep backward-compatible alias
-export const activateFrameworkVersion = (versionId: string, activatedBy: string, parsed?: ParsedFramework) =>
-	applyFrameworkImport(versionId, parsed!, activatedBy)
+export const activateFrameworkVersion = (versionId: string, activatedBy: string, parsed?: ParsedFramework) => {
+	if (!parsed) throw new Error("parsed is required for activateFrameworkVersion")
+	return applyFrameworkImport(versionId, parsed, activatedBy)
+}
 
 /** Get the current pending framework import, or null. */
 export async function getPendingFrameworkImport() {

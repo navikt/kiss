@@ -1,4 +1,4 @@
-import { BodyLong, BodyShort, Box, Button, Detail, Heading, HStack, Label, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyShort, Box, Button, Detail, Heading, HStack, Label, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"

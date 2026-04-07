@@ -549,7 +549,7 @@ export default function ApplikasjonDetalj() {
 							{authIntegrations
 								.filter((a) => a.type === "entra_id" && a.groups)
 								.map((auth) => {
-									const groups = JSON.parse(auth.groups!) as string[]
+									const groups = JSON.parse(auth.groups ?? "[]") as string[]
 									if (groups.length === 0) return null
 									return (
 										<VStack key={`groups-${auth.id}`} gap="space-2">
@@ -591,7 +591,7 @@ export default function ApplikasjonDetalj() {
 							{authIntegrations
 								.filter((a) => a.type === "entra_id" && a.inboundRules)
 								.map((auth) => {
-									const rules = JSON.parse(auth.inboundRules!) as Array<{
+									const rules = JSON.parse(auth.inboundRules ?? "[]") as Array<{
 										application: string
 										namespace?: string
 										cluster?: string

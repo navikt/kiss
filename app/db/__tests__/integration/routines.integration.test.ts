@@ -193,11 +193,11 @@ describe("Routines integration tests", () => {
 			const routine = await getRoutine(created.id)
 
 			expect(routine).not.toBeNull()
-			expect(routine!.name).toBe("Container Review")
-			expect(routine!.description).toBe("Review container configs")
-			expect(routine!.frequency).toBe("semi_annually")
-			expect(routine!.technologyElements).toHaveLength(1)
-			expect(routine!.technologyElements[0].name).toBe("Docker")
+			expect(routine?.name).toBe("Container Review")
+			expect(routine?.description).toBe("Review container configs")
+			expect(routine?.frequency).toBe("semi_annually")
+			expect(routine?.technologyElements).toHaveLength(1)
+			expect(routine?.technologyElements[0].name).toBe("Docker")
 		})
 
 		it("should update a routine", async () => {
@@ -231,8 +231,8 @@ describe("Routines integration tests", () => {
 			expect(updated.frequency).toBe("monthly")
 
 			const fetched = await getRoutine(created.id)
-			expect(fetched!.technologyElements).toHaveLength(1)
-			expect(fetched!.technologyElements[0].name).toBe("Vue")
+			expect(fetched?.technologyElements).toHaveLength(1)
+			expect(fetched?.technologyElements[0].name).toBe("Vue")
 
 			const db = getTestDb()
 			const auditResult = await db.execute(
@@ -353,7 +353,7 @@ describe("Routines integration tests", () => {
 			const confirmed = await confirmParticipation(review.id, "alice")
 
 			expect(confirmed).not.toBeNull()
-			expect(confirmed!.confirmedAt).toBeDefined()
+			expect(confirmed?.confirmedAt).toBeDefined()
 
 			const db = getTestDb()
 			const auditResult = await db.execute(
@@ -543,7 +543,7 @@ describe("Routines integration tests", () => {
 			expect(latestReview).toBeNull()
 
 			const updatedRoutine = await getRoutine(routine.id)
-			const deadline = calculateDeadline(null, updatedRoutine!.createdAt, "weekly")
+			const deadline = calculateDeadline(null, updatedRoutine?.createdAt ?? new Date(), "weekly")
 			expect(isOverdue(deadline)).toBe(true)
 		})
 	})

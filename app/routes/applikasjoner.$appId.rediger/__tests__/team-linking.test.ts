@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // --- Mocks -----------------------------------------------------------
 
 const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
 	getAuthenticatedUser: mockGetAuthenticatedUser,
 	requireUser: vi.fn(),

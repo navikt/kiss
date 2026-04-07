@@ -24,7 +24,7 @@ const examples = [
 	{ markdown: "> Et sitat", description: "Blokkitat" },
 ]
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader(_args: LoaderFunctionArgs) {
 	const rendered = examples.map((e) => ({
 		...e,
 		html: renderMarkdown(e.markdown),
