@@ -174,6 +174,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirectToTab(seksjon, "kobling")
 	}
 
+	if (intent === "link-all-apps") {
+		const parentId = formData.get("parentId") as string
+		const childIds = formData.getAll("childId") as string[]
+		if (!parentId || childIds.length === 0) throw new Response("Mangler applikasjons-IDer", { status: 400 })
+		for (const childId of childIds) {
+			await linkApplication(childId, parentId, userId)
+		}
+		return redirectToTab(seksjon, "kobling")
+	}
+
 	if (intent === "bulk-assign-team") {
 		const teamId = formData.get("teamId") as string
 		const appIds = formData.getAll("appId") as string[]
@@ -621,6 +631,7 @@ export default function RedigerSeksjon() {
 									{linkCandidates.map((candidate) => {
 										const prodApp = candidate.apps.find((a) => a.isProd) ?? candidate.apps[0]
 										const otherApps = candidate.apps.filter((a) => a.id !== prodApp.id)
+										const unlinkedApps = otherApps.filter((a) => !a.alreadyLinked)
 										return (
 											<div
 												key={candidate.apps.map((a) => a.id).join(",")}
@@ -656,6 +667,18 @@ export default function RedigerSeksjon() {
 														<Tag variant="neutral" size="xsmall">
 															{Math.round(candidate.confidence * 100)}% sannsynlighet
 														</Tag>
+														{unlinkedApps.length > 0 && (
+															<Form method="post">
+																<input type="hidden" name="intent" value="link-all-apps" />
+																<input type="hidden" name="parentId" value={prodApp.id} />
+																{unlinkedApps.map((app) => (
+																	<input key={app.id} type="hidden" name="childId" value={app.id} />
+																))}
+																<Button variant="tertiary" size="xsmall" type="submit">
+																	Koble alle ({unlinkedApps.length})
+																</Button>
+															</Form>
+														)}
 													</HStack>
 													<BodyShort size="small">Mulige koblinger ({otherApps.length}):</BodyShort>
 													{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
