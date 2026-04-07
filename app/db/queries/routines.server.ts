@@ -8,6 +8,7 @@ import {
 	routineReviewLinks,
 	routineReviewParticipants,
 	routineReviews,
+	routineScreeningQuestions,
 	routines,
 	routineTechnologyElements,
 } from "../schema/routines"
@@ -57,7 +58,12 @@ export async function getRoutine(id: string) {
 		.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
 		.where(eq(routineTechnologyElements.routineId, id))
 
-	return { ...routine, technologyElements: elements }
+	const screeningLinks = await db
+		.select()
+		.from(routineScreeningQuestions)
+		.where(eq(routineScreeningQuestions.routineId, id))
+
+	return { ...routine, technologyElements: elements, screeningQuestions: screeningLinks }
 }
 
 export async function createRoutine(params: {
@@ -67,6 +73,7 @@ export async function createRoutine(params: {
 	frequency: RoutineFrequency
 	screeningQuestionId: string | null
 	screeningChoiceValue: string | null
+	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
 	technologyElementIds: string[]
 	createdBy: string
 }) {
@@ -93,6 +100,22 @@ export async function createRoutine(params: {
 		)
 	}
 
+	// Insert screening question links (new many-to-many)
+	const links = params.screeningQuestionLinks ?? []
+	// Also include legacy single link if set and not already in the list
+	if (params.screeningQuestionId && !links.some((l) => l.questionId === params.screeningQuestionId)) {
+		links.push({ questionId: params.screeningQuestionId, choiceValue: params.screeningChoiceValue })
+	}
+	if (links.length > 0) {
+		await db.insert(routineScreeningQuestions).values(
+			links.map((link) => ({
+				routineId: routine.id,
+				questionId: link.questionId,
+				choiceValue: link.choiceValue,
+			})),
+		)
+	}
+
 	await writeAuditLog({
 		action: "routine_created",
 		entityType: "routine",
@@ -102,6 +125,7 @@ export async function createRoutine(params: {
 			sectionId: params.sectionId,
 			frequency: params.frequency,
 			screeningQuestionId: params.screeningQuestionId,
+			screeningQuestionLinks: links,
 			technologyElementIds: params.technologyElementIds,
 		},
 		performedBy: params.createdBy,
@@ -117,6 +141,7 @@ export async function updateRoutine(params: {
 	frequency: RoutineFrequency
 	screeningQuestionId: string | null
 	screeningChoiceValue: string | null
+	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
 	technologyElementIds: string[]
 	updatedBy: string
 }) {
@@ -147,6 +172,22 @@ export async function updateRoutine(params: {
 		)
 	}
 
+	// Replace screening question links
+	await db.delete(routineScreeningQuestions).where(eq(routineScreeningQuestions.routineId, params.id))
+	const links = params.screeningQuestionLinks ?? []
+	if (params.screeningQuestionId && !links.some((l) => l.questionId === params.screeningQuestionId)) {
+		links.push({ questionId: params.screeningQuestionId, choiceValue: params.screeningChoiceValue })
+	}
+	if (links.length > 0) {
+		await db.insert(routineScreeningQuestions).values(
+			links.map((link) => ({
+				routineId: params.id,
+				questionId: link.questionId,
+				choiceValue: link.choiceValue,
+			})),
+		)
+	}
+
 	await writeAuditLog({
 		action: "routine_updated",
 		entityType: "routine",
@@ -156,6 +197,7 @@ export async function updateRoutine(params: {
 		metadata: {
 			frequency: params.frequency,
 			screeningQuestionId: params.screeningQuestionId,
+			screeningQuestionLinks: links,
 			technologyElementIds: params.technologyElementIds,
 		},
 		performedBy: params.updatedBy,
@@ -463,25 +505,31 @@ export async function getAppsRequiringRoutine(routineId: string) {
 	const routine = await getRoutine(routineId)
 	if (!routine) return []
 
-	// If no screening question linked, no apps are automatically required
-	if (!routine.screeningQuestionId || !routine.screeningChoiceValue) return []
+	// Use join table for question links; fall back to legacy single link
+	const questionLinks =
+		routine.screeningQuestions.length > 0
+			? routine.screeningQuestions
+			: routine.screeningQuestionId && routine.screeningChoiceValue
+				? [{ questionId: routine.screeningQuestionId, choiceValue: routine.screeningChoiceValue }]
+				: []
 
-	// Step 1: Find apps that answered the screening question with the required choice
-	const matchingApps = await db
-		.select({
-			applicationId: screeningAnswers.applicationId,
-		})
-		.from(screeningAnswers)
-		.where(
-			and(
-				eq(screeningAnswers.questionId, routine.screeningQuestionId),
-				eq(screeningAnswers.answer, routine.screeningChoiceValue),
-			),
-		)
+	if (questionLinks.length === 0) return []
 
-	if (matchingApps.length === 0) return []
+	// Find apps that answered ANY linked question with the required choice
+	const matchingAppSets = await Promise.all(
+		questionLinks.map(async (link) => {
+			if (!link.choiceValue) return []
+			const rows = await db
+				.select({ applicationId: screeningAnswers.applicationId })
+				.from(screeningAnswers)
+				.where(and(eq(screeningAnswers.questionId, link.questionId), eq(screeningAnswers.answer, link.choiceValue)))
+			return rows.map((r) => r.applicationId)
+		}),
+	)
 
-	const appIds = matchingApps.map((a) => a.applicationId)
+	// Union all matching app IDs
+	const appIds = [...new Set(matchingAppSets.flat())]
+	if (appIds.length === 0) return []
 
 	// Step 2: If routine has technology elements, further filter by those
 	if (routine.technologyElements.length > 0) {

@@ -25,6 +25,19 @@ export const routines = pgTable("routines", {
 	updatedBy: text("updated_by").notNull(),
 })
 
+// ─── Routine ↔ Screening Question linking ────────────────────────────────
+
+export const routineScreeningQuestions = pgTable("routine_screening_questions", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	routineId: uuid("routine_id")
+		.notNull()
+		.references(() => routines.id, { onDelete: "cascade" }),
+	questionId: uuid("question_id")
+		.notNull()
+		.references(() => screeningQuestions.id, { onDelete: "cascade" }),
+	choiceValue: text("choice_value"),
+})
+
 // ─── Routine ↔ Technology Element linking ────────────────────────────────
 
 export const routineTechnologyElements = pgTable("routine_technology_elements", {
