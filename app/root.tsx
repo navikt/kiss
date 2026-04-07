@@ -1,4 +1,4 @@
-import { BodyLong, Box, Heading, InternalHeader, Spacer, Theme, VStack } from "@navikt/ds-react"
+import { BodyLong, Box, Detail, Heading, InternalHeader, Spacer, Theme, VStack } from "@navikt/ds-react"
 import type { LinksFunction, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -9,6 +9,7 @@ import {
 	Scripts,
 	ScrollRestoration,
 	useLoaderData,
+	useRouteLoaderData,
 } from "react-router"
 import { AppNavigation } from "./components/AppNavigation"
 import { SearchDialog } from "./components/SearchDialog"
@@ -95,6 +96,14 @@ export default function App() {
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
+	let admin = false
+	try {
+		const rootData = useRouteLoaderData<typeof loader>("root")
+		admin = rootData?.user?.isAdmin === true
+	} catch {
+		// Root loader may not be available
+	}
+
 	if (isRouteErrorResponse(error)) {
 		return (
 			<Box as="main" padding="space-24">
@@ -109,6 +118,7 @@ export function ErrorBoundary({ error }: { error: unknown }) {
 	}
 
 	const message = error instanceof Error ? error.message : "Ukjent feil"
+	const stack = error instanceof Error ? error.stack : undefined
 
 	return (
 		<Box as="main" padding="space-24">
@@ -117,6 +127,11 @@ export function ErrorBoundary({ error }: { error: unknown }) {
 					Noe gikk galt
 				</Heading>
 				<BodyLong>{message}</BodyLong>
+				{admin && stack && (
+					<Detail as="pre" style={{ whiteSpace: "pre-wrap", overflowX: "auto" }}>
+						{stack}
+					</Detail>
+				)}
 			</VStack>
 		</Box>
 	)
