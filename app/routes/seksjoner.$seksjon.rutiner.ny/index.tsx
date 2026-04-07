@@ -8,9 +8,14 @@ import { getChoicesForQuestion, getScreeningQuestions } from "~/db/queries/scree
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAdmin } from "~/lib/authorization.server"
 import { frequencyLabels, isRoutineFrequency, ROUTINE_FREQUENCIES } from "~/lib/routine-frequencies"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: LoaderFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
+
 	const { seksjon } = params
 	if (!seksjon) {
 		throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
@@ -40,6 +45,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
 
 	const { seksjon } = params
 	if (!seksjon) {

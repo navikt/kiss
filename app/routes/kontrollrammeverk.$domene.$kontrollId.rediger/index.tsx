@@ -37,7 +37,7 @@ import {
 	removeControlElement,
 } from "~/db/queries/technology-elements.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
+import { requireAdmin } from "~/lib/authorization.server"
 import { getStatusLabel, getStatusVariant, statusLabels } from "~/lib/compliance-status"
 
 const fieldConfig = [
@@ -84,9 +84,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	if (!isAdmin(authedUser)) {
-		throw new Response("Ikke tilgang", { status: 403 })
-	}
+	requireAdmin(authedUser)
 
 	const control = await getControlDetail(kontrollId)
 	if (!control) {
@@ -106,7 +104,7 @@ type ActionResult = { success: true; message: string } | { success: false; error
 export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	if (!isAdmin(authedUser)) return data<ActionResult>({ success: false, error: "Ikke tilgang" }, { status: 403 })
+	requireAdmin(authedUser)
 
 	const kontrollId = params.kontrollId?.toUpperCase()
 	const domene = params.domene

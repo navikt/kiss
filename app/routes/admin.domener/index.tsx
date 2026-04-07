@@ -12,6 +12,7 @@ import {
 	updateDomain,
 } from "~/db/queries/framework.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAdmin } from "~/lib/authorization.server"
 
 interface DomainRow {
 	id: string
@@ -24,7 +25,8 @@ interface DomainRow {
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
-	requireUser(user)
+	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
 
 	const rawDomains = await getAllActiveDomains()
 	const domains: DomainRow[] = await Promise.all(
@@ -52,6 +54,7 @@ type ActionResult = { success: true; message: string } | { success: false; error
 export async function action({ request }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
 	const userId = authedUser.navIdent
 
 	const formData = await request.formData()

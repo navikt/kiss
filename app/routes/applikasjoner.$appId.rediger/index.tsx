@@ -27,10 +27,16 @@ import {
 	rejectApplicationElement,
 	removeApplicationElement,
 } from "~/db/queries/technology-elements.server"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAdmin } from "~/lib/authorization.server"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
+
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
 
 	const [detail, candidates, appElements, allElements, availableTeams] = await Promise.all([
 		getApplicationDetail(appId),
@@ -66,6 +72,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 export async function action({ params, request }: ActionFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
+
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string

@@ -24,6 +24,7 @@ import {
 	updateSection,
 } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAdmin } from "~/lib/authorization.server"
 
 interface SectionWithTeams {
 	id: string
@@ -40,7 +41,8 @@ interface SectionWithTeams {
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
-	requireUser(user)
+	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
 
 	const allSections = await getSections()
 	const sectionsWithTeams: SectionWithTeams[] = await Promise.all(
@@ -72,6 +74,7 @@ type ActionResult = { success: true; message: string } | { success: false; error
 export async function action({ request }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
 	const userId = authedUser.navIdent
 
 	const formData = await request.formData()

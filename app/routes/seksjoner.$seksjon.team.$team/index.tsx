@@ -3,13 +3,17 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getTeamApps } from "~/db/queries/sections.server"
+import { getAuthenticatedUser } from "~/lib/auth.server"
+import { isAdmin } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: LoaderFunctionArgs) {
 	const seksjon = params.seksjon
 	const team = params.team
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 	if (!team) throw new Response("Mangler team", { status: 400 })
+
+	const user = await getAuthenticatedUser(request)
 
 	const result = await getTeamApps(team)
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
@@ -19,11 +23,12 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		team,
 		teamName: result.team.name,
 		apps: result.apps,
+		canAdmin: user ? isAdmin(user) : false,
 	})
 }
 
 export default function TeamDashboard() {
-	const { seksjon, team, teamName, apps } = useLoaderData<typeof loader>()
+	const { seksjon, team, teamName, apps, canAdmin } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -33,9 +38,11 @@ export default function TeamDashboard() {
 					<Heading size="xlarge" level="2">
 						{teamName}
 					</Heading>
-					<Button as={Link} to={`/seksjoner/${seksjon}/team/${team}/rediger`} variant="tertiary" size="small">
-						Administrer
-					</Button>
+					{canAdmin && (
+						<Button as={Link} to={`/seksjoner/${seksjon}/team/${team}/rediger`} variant="tertiary" size="small">
+							Administrer
+						</Button>
+					)}
 				</HStack>
 			</div>
 			<BodyLong>

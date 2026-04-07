@@ -37,6 +37,7 @@ import { generateAppComplianceReport, getReportsForApp } from "~/db/queries/repo
 import { createReview, getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { isAdmin } from "~/lib/authorization.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 import { compliancePercent } from "~/lib/utils"
@@ -73,9 +74,11 @@ const authLabels: Record<string, string> = {
 	maskinporten: "Maskinporten",
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
+
+	const user = await getAuthenticatedUser(request)
 
 	const [detail, assessmentsResult] = await Promise.all([getApplicationDetail(appId), getAppAssessments(appId)])
 
@@ -113,6 +116,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		routineDeadlines,
 		completedReviews,
 		sectionSlugMap,
+		canAdmin: user ? isAdmin(user) : false,
 		compliance: {
 			totalControls,
 			implemented,
@@ -210,6 +214,7 @@ export default function ApplikasjonDetalj() {
 		routineDeadlines,
 		completedReviews,
 		sectionSlugMap,
+		canAdmin,
 		compliance,
 		assessments,
 		appReports,
@@ -233,9 +238,11 @@ export default function ApplikasjonDetalj() {
 					<Heading size="xlarge" level="2">
 						{app.name}
 					</Heading>
-					<Button as={Link} to={`/applikasjoner/${app.id}/rediger`} variant="tertiary" size="small">
-						Administrer
-					</Button>
+					{canAdmin && (
+						<Button as={Link} to={`/applikasjoner/${app.id}/rediger`} variant="tertiary" size="small">
+							Administrer
+						</Button>
+					)}
 				</HStack>
 				{app.description && <BodyLong>{app.description}</BodyLong>}
 				<HStack gap="space-4" align="center" style={{ marginTop: "var(--ax-space-2)" }}>

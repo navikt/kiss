@@ -4,13 +4,17 @@ import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getAuthenticatedUser } from "~/lib/auth.server"
+import { isAdmin } from "~/lib/authorization.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { seksjon } = params
 	if (!seksjon) {
 		throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 	}
+
+	const user = await getAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) {
@@ -22,11 +26,12 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	return data({
 		section,
 		routines,
+		canAdmin: user ? isAdmin(user) : false,
 	})
 }
 
 export default function SeksjonRutinerIndex() {
-	const { section, routines } = useLoaderData<typeof loader>()
+	const { section, routines, canAdmin } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-6">
@@ -39,9 +44,11 @@ export default function SeksjonRutinerIndex() {
 					<Button as={Link} to="./gjennomfort" variant="secondary" size="small">
 						Gjennomførte
 					</Button>
-					<Button as={Link} to="./ny" variant="primary" size="small">
-						Opprett ny rutine
-					</Button>
+					{canAdmin && (
+						<Button as={Link} to="./ny" variant="primary" size="small">
+							Opprett ny rutine
+						</Button>
+					)}
 				</HStack>
 			</HStack>
 
@@ -78,9 +85,11 @@ export default function SeksjonRutinerIndex() {
 								</Table.DataCell>
 								<Table.DataCell>{routine.reviewCount}</Table.DataCell>
 								<Table.DataCell>
-									<Button as={Link} to={`./${routine.id}/rediger`} variant="tertiary" size="small">
-										Rediger
-									</Button>
+									{canAdmin && (
+										<Button as={Link} to={`./${routine.id}/rediger`} variant="tertiary" size="small">
+											Rediger
+										</Button>
+									)}
 								</Table.DataCell>
 							</Table.Row>
 						))}

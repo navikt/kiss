@@ -13,7 +13,7 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useEffect, useState } from "react"
-import type { ActionFunctionArgs } from "react-router"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { WordDiff } from "~/components/WordDiff"
@@ -28,7 +28,8 @@ import {
 	getPendingFrameworkImport,
 	stageFrameworkImport,
 } from "~/db/queries/framework.server"
-import { getAuthenticatedUser } from "~/lib/auth.server"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAdmin } from "~/lib/authorization.server"
 import {
 	type ParsedFramework,
 	type ParsedFrameworkRow,
@@ -38,7 +39,11 @@ import {
 import { cronFrequencyLabels } from "~/lib/frequency-mapping"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
-export async function loader() {
+export async function loader({ request }: LoaderFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
+
 	const [versions, auditEntries, pendingImport] = await Promise.all([
 		getFrameworkVersionHistory(),
 		getRecentAuditLog(50),
@@ -85,7 +90,9 @@ type ActionResult =
 
 export async function action({ request }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
-	const userName = user?.navIdent ?? "Ukjent bruker"
+	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
+	const userName = authedUser.navIdent
 	const formData = await request.formData()
 	const intent = formData.get("intent")
 
