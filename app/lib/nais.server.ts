@@ -423,7 +423,9 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 						const line = lines[i]
 						if (line.trim() === "") continue
 						const indent = line.search(/\S/)
-						if (indent <= rulesIndent) break
+						// YAML list items can be at the same indent as the parent key
+						if (indent < rulesIndent) break
+						if (indent === rulesIndent && !line.trimStart().startsWith("-")) break
 						const appMatch = line.match(/^\s*-\s*application:\s*(\S+)/)
 						const nsMatch = line.match(/^\s+namespace:\s*(\S+)/)
 						const clusterMatch = line.match(/^\s+cluster:\s*(\S+)/)

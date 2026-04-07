@@ -526,4 +526,55 @@ spec:
 			{ application: "app-c", namespace: "other-ns", cluster: "other-cluster" },
 		])
 	})
+
+	it("extracts inbound rules when YAML list items are at same indent as rules key", async () => {
+		const manifest = `apiVersion: nais.io/v1alpha1
+kind: Application
+spec:
+  accessPolicy:
+    inbound:
+      rules:
+      - application: gosys
+        cluster: prod-fss
+        namespace: isa
+        permissions:
+          roles:
+          - gosys
+      - application: pensjon-alde
+        cluster: prod-gcp
+        namespace: pensjon-saksbehandling
+      - application: only-app
+  azure:
+    application:
+      enabled: true`
+
+		const nodes = [
+			{
+				name: "api-app",
+				image: null,
+				manifest: { content: manifest },
+				authIntegrations: [{ name: "Microsoft Entra ID" }],
+				teamEnvironment: { environment: { name: "prod-gcp" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		expect(result[0].accessPolicyInbound).toEqual([
+			{ application: "gosys", cluster: "prod-fss", namespace: "isa" },
+			{ application: "pensjon-alde", cluster: "prod-gcp", namespace: "pensjon-saksbehandling" },
+			{ application: "only-app" },
+		])
+	})
 })
