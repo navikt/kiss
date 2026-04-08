@@ -16,7 +16,7 @@ function getBuildVersion(): string {
 		sha = process.env.GITHUB_SHA.substring(0, 12)
 	} else {
 		try {
-			sha = execSync("git rev-parse --short=12 HEAD", { encoding: "utf-8" }).trim()
+			sha = execSync("git rev-parse --short=12 HEAD", { encoding: "utf-8", cwd: __dirname }).trim()
 		} catch {
 			sha = "unknown"
 		}
