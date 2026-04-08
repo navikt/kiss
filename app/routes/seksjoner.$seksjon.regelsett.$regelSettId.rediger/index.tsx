@@ -8,13 +8,13 @@ import {
 	RadioGroup,
 	Select,
 	Table,
-	Textarea,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
+import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import {
@@ -184,7 +184,7 @@ export default function RegelsettRediger() {
 				<input type="hidden" name="intent" value="update" />
 				<VStack gap="space-4">
 					<TextField label="Navn" name="name" defaultValue={ruleset.name} />
-					<Textarea label="Beskrivelse" name="description" defaultValue={ruleset.description ?? ""} />
+					<MarkdownEditor label="Beskrivelse" name="description" defaultValue={ruleset.description ?? ""} />
 
 					<RadioGroup
 						legend="Ansvarlig"

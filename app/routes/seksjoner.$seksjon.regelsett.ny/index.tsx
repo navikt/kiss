@@ -1,18 +1,8 @@
-import {
-	Alert,
-	Button,
-	Heading,
-	HStack,
-	Radio,
-	RadioGroup,
-	Select,
-	Textarea,
-	TextField,
-	VStack,
-} from "@navikt/ds-react"
+import { Alert, Button, Heading, HStack, Radio, RadioGroup, Select, TextField, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useActionData, useLoaderData } from "react-router"
+import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { createRuleset } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
@@ -126,7 +116,7 @@ export default function NyttRegelsett() {
 				<VStack gap="space-4">
 					<TextField label="Kode" name="code" placeholder="f.eks. RS-PEN.01" />
 					<TextField label="Navn" name="name" />
-					<Textarea label="Beskrivelse" name="description" />
+					<MarkdownEditor label="Beskrivelse" name="description" />
 
 					<RadioGroup
 						legend="Ansvarlig"

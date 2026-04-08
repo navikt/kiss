@@ -8,6 +8,7 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { hasExactRoleForSection, isAdmin } from "~/lib/authorization.server"
+import { renderMarkdown } from "~/lib/markdown.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 const statusConfig: Record<ApprovalStatus, { label: string; variant: "success" | "warning" | "error" | "neutral" }> = {
@@ -47,7 +48,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		responsibleDisplay = ruleset.responsibleName ?? "Ikke angitt"
 	}
 
-	return data({ section, ruleset, canApprove, canAdmin: userIsAdmin, responsibleDisplay })
+	return data({
+		section,
+		ruleset,
+		canApprove,
+		canAdmin: userIsAdmin,
+		responsibleDisplay,
+		descriptionHtml: renderMarkdown(ruleset.description),
+	})
 }
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
@@ -91,7 +99,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RegelsettDetalj() {
-	const { section, ruleset, canApprove, canAdmin, responsibleDisplay } = useLoaderData<typeof loader>()
+	const { section, ruleset, canApprove, canAdmin, responsibleDisplay, descriptionHtml } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const [approveOpen, setApproveOpen] = useState(false)
 
@@ -158,12 +166,13 @@ export default function RegelsettDetalj() {
 					</VStack>
 				</HStack>
 
-				{ruleset.description && (
+				{descriptionHtml && (
 					<VStack gap="space-1">
 						<Heading size="small" level="3">
 							Beskrivelse
 						</Heading>
-						<BodyLong style={{ whiteSpace: "pre-wrap" }}>{ruleset.description}</BodyLong>
+						{/* biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized via DOMPurify in renderMarkdown */}
+						<div className="markdown-content" dangerouslySetInnerHTML={{ __html: descriptionHtml }} />
 					</VStack>
 				)}
 			</VStack>
