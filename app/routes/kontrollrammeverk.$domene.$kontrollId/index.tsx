@@ -1,9 +1,10 @@
 import { PencilIcon } from "@navikt/aksel-icons"
-import { Button, Detail, Heading, HStack, Label, Tag, VStack } from "@navikt/ds-react"
+import { Button, Detail, Heading, HStack, Label, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getControlDependencies, getControlDependents, getControlDetail } from "~/db/queries/framework.server"
+import { type ApprovalStatus, getRulesetsForControl } from "~/db/queries/rulesets.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { cronFrequencyLabels } from "~/lib/frequency-mapping"
@@ -37,11 +38,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const { getControlElements } = await import("~/db/queries/technology-elements.server")
 	const { getControlDomains } = await import("~/db/queries/framework.server")
-	const [controlElements, controlDomains, dependencies, dependents] = await Promise.all([
+	const [controlElements, controlDomains, dependencies, dependents, linkedRulesets] = await Promise.all([
 		getControlElements(control.uuid),
 		getControlDomains(control.uuid),
 		getControlDependencies(control.uuid),
 		getControlDependents(control.uuid),
+		getRulesetsForControl(control.uuid),
 	])
 
 	const fieldHtml: Record<string, string> = {}
@@ -58,12 +60,83 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		fieldHtml[key] = renderMarkdown(val)
 	}
 
-	return data({ domene, control, canEdit, fieldHtml, controlElements, controlDomains, dependencies, dependents })
+	return data({
+		domene,
+		control,
+		canEdit,
+		fieldHtml,
+		controlElements,
+		controlDomains,
+		dependencies,
+		dependents,
+		linkedRulesets,
+	})
+}
+
+const approvalStatusConfig: Record<
+	ApprovalStatus,
+	{ label: string; variant: "success" | "warning" | "error" | "neutral" }
+> = {
+	draft: { label: "Utkast", variant: "neutral" },
+	valid: { label: "Gyldig", variant: "success" },
+	expiring_soon: { label: "Utløper snart", variant: "warning" },
+	expired: { label: "Utløpt", variant: "error" },
+}
+
+function RulesetSection({
+	rulesets,
+}: {
+	rulesets: { id: string; code: string; name: string; sectionName: string; approvalStatus: ApprovalStatus }[]
+}) {
+	return (
+		<VStack gap="space-4">
+			<Label size="small">Tilknyttede regelsett</Label>
+			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+			<section className="table-scroll" tabIndex={0} aria-label="Tilknyttede regelsett">
+				<Table size="small">
+					<Table.Header>
+						<Table.Row>
+							<Table.HeaderCell scope="col">Kode</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Seksjon</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{rulesets.map((rs) => {
+							const cfg = approvalStatusConfig[rs.approvalStatus]
+							return (
+								<Table.Row key={rs.id}>
+									<Table.DataCell>{rs.code}</Table.DataCell>
+									<Table.DataCell>{rs.name}</Table.DataCell>
+									<Table.DataCell>{rs.sectionName}</Table.DataCell>
+									<Table.DataCell>
+										<Tag variant={cfg.variant} size="xsmall">
+											{cfg.label}
+										</Tag>
+									</Table.DataCell>
+								</Table.Row>
+							)
+						})}
+					</Table.Body>
+				</Table>
+			</section>
+		</VStack>
+	)
 }
 
 export default function ControlDetailPage() {
-	const { domene, control, canEdit, fieldHtml, controlElements, controlDomains, dependencies, dependents } =
-		useLoaderData<typeof loader>()
+	const {
+		domene,
+		control,
+		canEdit,
+		fieldHtml,
+		controlElements,
+		controlDomains,
+		dependencies,
+		dependents,
+		linkedRulesets,
+	} = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-12">
@@ -165,6 +238,8 @@ export default function ControlDetailPage() {
 					</VStack>
 				))}
 			</VStack>
+
+			{linkedRulesets.length > 0 && <RulesetSection rulesets={linkedRulesets} />}
 		</VStack>
 	)
 }

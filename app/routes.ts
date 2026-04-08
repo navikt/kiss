@@ -34,6 +34,12 @@ export default [
 		"seksjoner/:seksjon/rutiner/:rutineId/gjennomgang/:gjennomgangId",
 		"routes/seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/index.tsx",
 	),
+	route("seksjoner/:seksjon/regelsett", "routes/seksjoner.$seksjon.regelsett/index.tsx"),
+	route("seksjoner/:seksjon/regelsett/:regelSettId", "routes/seksjoner.$seksjon.regelsett.$regelSettId/index.tsx"),
+	route(
+		"seksjoner/:seksjon/regelsett/:regelSettId/rediger",
+		"routes/seksjoner.$seksjon.regelsett.$regelSettId.rediger/index.tsx",
+	),
 	route("api/rutine-vedlegg/:vedleggId", "routes/api.rutine-vedlegg.$vedleggId/index.tsx"),
 	route("api/gjennomgang/:gjennomgangId/vedlegg", "routes/api.gjennomgang.$gjennomgangId.vedlegg/index.tsx"),
 	route("applikasjoner", "routes/applikasjoner/index.tsx"),

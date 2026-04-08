@@ -1,0 +1,377 @@
+import { and, desc, eq, inArray, isNull } from "drizzle-orm"
+import type { RoutineFrequency } from "../../lib/routine-frequencies"
+import { frequencyDays } from "../../lib/routine-frequencies"
+import { db } from "../connection.server"
+import { frameworkControls } from "../schema/framework"
+import { sections } from "../schema/organization"
+import { type RulesetStatus, rulesetApprovals, rulesetAttachments, rulesetControls, rulesets } from "../schema/rulesets"
+
+// ─── Types ────────────────────────────────────────────────────────────────
+
+export type ApprovalStatus = "draft" | "valid" | "expiring_soon" | "expired"
+
+export interface RulesetListItem {
+	id: string
+	code: string
+	name: string
+	description: string | null
+	responsibleIdent: string | null
+	responsibleName: string | null
+	frequency: string
+	status: RulesetStatus
+	approvalStatus: ApprovalStatus
+	lastApproval: { validFrom: Date; validUntil: Date } | null
+}
+
+export interface RulesetDetail extends RulesetListItem {
+	sectionId: string
+	sectionName: string
+	approvals: {
+		id: string
+		approvedBy: string
+		approvedByName: string
+		comment: string | null
+		validFrom: Date
+		validUntil: Date
+		createdAt: Date
+	}[]
+	controls: {
+		id: string
+		linkId: string
+		controlId: string
+		shortTitle: string | null
+	}[]
+	attachments: {
+		id: string
+		fileName: string
+		bucketPath: string
+		contentType: string
+		sizeBytes: number | null
+		uploadedBy: string
+		uploadedAt: Date
+	}[]
+	createdAt: Date
+	createdBy: string
+	updatedAt: Date
+	updatedBy: string
+}
+
+// ─── Approval status calculation ──────────────────────────────────────────
+
+const EXPIRING_SOON_DAYS = 30
+
+function computeApprovalStatus(
+	rulesetStatus: RulesetStatus,
+	lastApproval: { validUntil: Date } | null,
+): ApprovalStatus {
+	if (rulesetStatus === "draft") return "draft"
+	if (rulesetStatus === "archived") return "expired"
+	if (!lastApproval) return "draft"
+
+	const now = new Date()
+	const until = new Date(lastApproval.validUntil)
+	if (until < now) return "expired"
+
+	const daysLeft = (until.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+	if (daysLeft <= EXPIRING_SOON_DAYS) return "expiring_soon"
+	return "valid"
+}
+
+// ─── Queries ──────────────────────────────────────────────────────────────
+
+export async function getRulesetsForSection(sectionId: string): Promise<RulesetListItem[]> {
+	const rows = await db
+		.select()
+		.from(rulesets)
+		.where(and(eq(rulesets.sectionId, sectionId), isNull(rulesets.archivedAt)))
+		.orderBy(rulesets.code)
+
+	if (rows.length === 0) return []
+
+	const rulesetIds = rows.map((r) => r.id)
+	const allApprovals = await db
+		.select()
+		.from(rulesetApprovals)
+		.where(inArray(rulesetApprovals.rulesetId, rulesetIds))
+		.orderBy(desc(rulesetApprovals.validFrom))
+
+	const latestByRuleset = new Map<string, (typeof allApprovals)[0]>()
+	for (const a of allApprovals) {
+		if (!latestByRuleset.has(a.rulesetId)) {
+			latestByRuleset.set(a.rulesetId, a)
+		}
+	}
+
+	return rows.map((r) => {
+		const latest = latestByRuleset.get(r.id)
+		return {
+			id: r.id,
+			code: r.code,
+			name: r.name,
+			description: r.description,
+			responsibleIdent: r.responsibleIdent,
+			responsibleName: r.responsibleName,
+			frequency: r.frequency,
+			status: r.status as RulesetStatus,
+			approvalStatus: computeApprovalStatus(
+				r.status as RulesetStatus,
+				latest ? { validUntil: latest.validUntil } : null,
+			),
+			lastApproval: latest ? { validFrom: latest.validFrom, validUntil: latest.validUntil } : null,
+		}
+	})
+}
+
+export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail | null> {
+	const [row] = await db
+		.select({
+			id: rulesets.id,
+			sectionId: rulesets.sectionId,
+			sectionName: sections.name,
+			code: rulesets.code,
+			name: rulesets.name,
+			description: rulesets.description,
+			responsibleIdent: rulesets.responsibleIdent,
+			responsibleName: rulesets.responsibleName,
+			frequency: rulesets.frequency,
+			status: rulesets.status,
+			createdAt: rulesets.createdAt,
+			createdBy: rulesets.createdBy,
+			updatedAt: rulesets.updatedAt,
+			updatedBy: rulesets.updatedBy,
+		})
+		.from(rulesets)
+		.innerJoin(sections, eq(rulesets.sectionId, sections.id))
+		.where(eq(rulesets.id, rulesetId))
+
+	if (!row) return null
+
+	const [approvals, controls, attachments] = await Promise.all([
+		db
+			.select()
+			.from(rulesetApprovals)
+			.where(eq(rulesetApprovals.rulesetId, rulesetId))
+			.orderBy(desc(rulesetApprovals.validFrom)),
+		db
+			.select({
+				linkId: rulesetControls.id,
+				id: frameworkControls.id,
+				controlId: frameworkControls.controlId,
+				shortTitle: frameworkControls.shortTitle,
+			})
+			.from(rulesetControls)
+			.innerJoin(frameworkControls, eq(rulesetControls.controlId, frameworkControls.id))
+			.where(eq(rulesetControls.rulesetId, rulesetId))
+			.orderBy(frameworkControls.controlId),
+		db
+			.select()
+			.from(rulesetAttachments)
+			.where(eq(rulesetAttachments.rulesetId, rulesetId))
+			.orderBy(rulesetAttachments.uploadedAt),
+	])
+
+	const latestApproval = approvals[0] ?? null
+
+	return {
+		id: row.id,
+		sectionId: row.sectionId,
+		sectionName: row.sectionName,
+		code: row.code,
+		name: row.name,
+		description: row.description,
+		responsibleIdent: row.responsibleIdent,
+		responsibleName: row.responsibleName,
+		frequency: row.frequency,
+		status: row.status as RulesetStatus,
+		approvalStatus: computeApprovalStatus(
+			row.status as RulesetStatus,
+			latestApproval ? { validUntil: latestApproval.validUntil } : null,
+		),
+		lastApproval: latestApproval
+			? { validFrom: latestApproval.validFrom, validUntil: latestApproval.validUntil }
+			: null,
+		approvals: approvals.map((a) => ({
+			id: a.id,
+			approvedBy: a.approvedBy,
+			approvedByName: a.approvedByName,
+			comment: a.comment,
+			validFrom: a.validFrom,
+			validUntil: a.validUntil,
+			createdAt: a.createdAt,
+		})),
+		controls: controls.map((c) => ({
+			id: c.id,
+			linkId: c.linkId,
+			controlId: c.controlId,
+			shortTitle: c.shortTitle,
+		})),
+		attachments: attachments.map((a) => ({
+			id: a.id,
+			fileName: a.fileName,
+			bucketPath: a.bucketPath,
+			contentType: a.contentType,
+			sizeBytes: a.sizeBytes,
+			uploadedBy: a.uploadedBy,
+			uploadedAt: a.uploadedAt,
+		})),
+		createdAt: row.createdAt,
+		createdBy: row.createdBy,
+		updatedAt: row.updatedAt,
+		updatedBy: row.updatedBy,
+	}
+}
+
+// ─── Mutations ────────────────────────────────────────────────────────────
+
+export async function createRuleset(input: {
+	sectionId: string
+	code: string
+	name: string
+	description?: string
+	responsibleIdent?: string
+	responsibleName?: string
+	frequency: RoutineFrequency
+	createdBy: string
+}): Promise<string> {
+	const [row] = await db
+		.insert(rulesets)
+		.values({
+			sectionId: input.sectionId,
+			code: input.code,
+			name: input.name,
+			description: input.description ?? null,
+			responsibleIdent: input.responsibleIdent ?? null,
+			responsibleName: input.responsibleName ?? null,
+			frequency: input.frequency,
+			createdBy: input.createdBy,
+			updatedBy: input.createdBy,
+		})
+		.returning({ id: rulesets.id })
+	return row.id
+}
+
+export async function updateRuleset(
+	rulesetId: string,
+	input: {
+		name?: string
+		description?: string | null
+		responsibleIdent?: string | null
+		responsibleName?: string | null
+		frequency?: RoutineFrequency
+		updatedBy: string
+	},
+): Promise<void> {
+	const set: Record<string, unknown> = { updatedAt: new Date(), updatedBy: input.updatedBy }
+	if (input.name !== undefined) set.name = input.name
+	if (input.description !== undefined) set.description = input.description
+	if (input.responsibleIdent !== undefined) set.responsibleIdent = input.responsibleIdent
+	if (input.responsibleName !== undefined) set.responsibleName = input.responsibleName
+	if (input.frequency !== undefined) set.frequency = input.frequency
+
+	await db.update(rulesets).set(set).where(eq(rulesets.id, rulesetId))
+}
+
+export async function archiveRuleset(rulesetId: string, updatedBy: string): Promise<void> {
+	await db
+		.update(rulesets)
+		.set({ status: "archived", archivedAt: new Date(), updatedAt: new Date(), updatedBy })
+		.where(eq(rulesets.id, rulesetId))
+}
+
+export async function activateRuleset(rulesetId: string, updatedBy: string): Promise<void> {
+	await db
+		.update(rulesets)
+		.set({ status: "active", updatedAt: new Date(), updatedBy })
+		.where(eq(rulesets.id, rulesetId))
+}
+
+export async function approveRuleset(input: {
+	rulesetId: string
+	approvedBy: string
+	approvedByName: string
+	comment?: string
+	frequency: string
+}): Promise<string> {
+	const now = new Date()
+	const days = frequencyDays[input.frequency as keyof typeof frequencyDays] ?? 365
+	const validUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
+
+	const [row] = await db
+		.insert(rulesetApprovals)
+		.values({
+			rulesetId: input.rulesetId,
+			approvedBy: input.approvedBy,
+			approvedByName: input.approvedByName,
+			comment: input.comment ?? null,
+			validFrom: now,
+			validUntil,
+		})
+		.returning({ id: rulesetApprovals.id })
+
+	// Activate the ruleset if it's still in draft
+	await db
+		.update(rulesets)
+		.set({ status: "active", updatedAt: now, updatedBy: input.approvedBy })
+		.where(and(eq(rulesets.id, input.rulesetId), eq(rulesets.status, "draft")))
+
+	return row.id
+}
+
+// ─── Control linking ──────────────────────────────────────────────────────
+
+export async function linkControlToRuleset(rulesetId: string, controlId: string): Promise<void> {
+	await db.insert(rulesetControls).values({ rulesetId, controlId }).onConflictDoNothing()
+}
+
+export async function unlinkControlFromRuleset(linkId: string): Promise<void> {
+	await db.delete(rulesetControls).where(eq(rulesetControls.id, linkId))
+}
+
+/** Get rulesets linked to a specific control (for the control detail page). */
+export async function getRulesetsForControl(
+	controlUuid: string,
+): Promise<{ id: string; code: string; name: string; sectionName: string; approvalStatus: ApprovalStatus }[]> {
+	const rows = await db
+		.select({
+			id: rulesets.id,
+			code: rulesets.code,
+			name: rulesets.name,
+			status: rulesets.status,
+			sectionName: sections.name,
+		})
+		.from(rulesetControls)
+		.innerJoin(rulesets, eq(rulesetControls.rulesetId, rulesets.id))
+		.innerJoin(sections, eq(rulesets.sectionId, sections.id))
+		.where(and(eq(rulesetControls.controlId, controlUuid), isNull(rulesets.archivedAt)))
+		.orderBy(rulesets.code)
+
+	if (rows.length === 0) return []
+
+	const rulesetIds = rows.map((r) => r.id)
+	const allApprovals = await db
+		.select()
+		.from(rulesetApprovals)
+		.where(inArray(rulesetApprovals.rulesetId, rulesetIds))
+		.orderBy(desc(rulesetApprovals.validFrom))
+
+	const latestByRuleset = new Map<string, (typeof allApprovals)[0]>()
+	for (const a of allApprovals) {
+		if (!latestByRuleset.has(a.rulesetId)) {
+			latestByRuleset.set(a.rulesetId, a)
+		}
+	}
+
+	return rows.map((r) => {
+		const latest = latestByRuleset.get(r.id)
+		return {
+			id: r.id,
+			code: r.code,
+			name: r.name,
+			sectionName: r.sectionName,
+			approvalStatus: computeApprovalStatus(
+				r.status as RulesetStatus,
+				latest ? { validUntil: latest.validUntil } : null,
+			),
+		}
+	})
+}
