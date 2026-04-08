@@ -14,15 +14,13 @@ import {
 	Label,
 	Table,
 	Tag,
-	Textarea,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData, useNavigation, useRevalidator, useSubmit } from "react-router"
-import { MarkdownHint } from "~/components/MarkdownHint"
-import { MarkdownPreview } from "~/components/MarkdownPreview"
+import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addReviewLink,
@@ -462,7 +460,6 @@ export default function GjennomgangDetalj() {
 	const actionData = useActionData<typeof action>()
 	const confirmedCount = review.participants.filter((p) => p.confirmedAt).length
 	const isDraft = review.status === "draft"
-	const [summaryPreview, setSummaryPreview] = useState(review.summary ?? "")
 
 	const reviewDate = new Date(review.reviewedAt)
 	const defaultDate = reviewDate.toISOString().split("T")[0]
@@ -563,25 +560,7 @@ export default function GjennomgangDetalj() {
 							</VStack>
 						</Box>
 
-						<HStack gap="space-8" align="stretch" style={{ flexWrap: "wrap" }}>
-							<VStack style={{ flex: 1, minWidth: "20rem" }}>
-								<Textarea
-									label="Oppsummering/referat"
-									name="summary"
-									size="small"
-									minRows={6}
-									defaultValue={review.summary ?? ""}
-									onChange={(e) => setSummaryPreview(e.target.value)}
-								/>
-								<MarkdownHint />
-							</VStack>
-							<VStack style={{ flex: 1, minWidth: "20rem" }}>
-								<Label size="small" spacing>
-									Forhåndsvisning
-								</Label>
-								<MarkdownPreview content={summaryPreview} />
-							</VStack>
-						</HStack>
+						<MarkdownEditor label="Oppsummering/referat" name="summary" defaultValue={review.summary ?? ""} />
 
 						<TextField
 							label="Deltakere"

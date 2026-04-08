@@ -1,9 +1,7 @@
-import { Button, Heading, HStack, Label, Select, Textarea, TextField, VStack } from "@navikt/ds-react"
-import { useState } from "react"
+import { Button, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
-import { MarkdownHint } from "~/components/MarkdownHint"
-import { MarkdownPreview } from "~/components/MarkdownPreview"
+import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { createReview, getAppsRequiringRoutine, getRoutine } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
@@ -77,7 +75,6 @@ export default function NyGjennomgang() {
 	const preselectedAppId = searchParams.get("appId") ?? ""
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
-	const [summaryPreview, setSummaryPreview] = useState("")
 
 	const backUrl = preselectedAppId ? `/applikasjoner/${preselectedAppId}/detaljer?fane=rutiner` : "../.."
 	const backLabel = preselectedAppId ? "← Tilbake til applikasjon" : `← Tilbake til ${routine.name}`
@@ -138,24 +135,7 @@ export default function NyGjennomgang() {
 						</div>
 					</HStack>
 
-					<HStack gap="space-8" align="stretch" style={{ flexWrap: "wrap" }}>
-						<VStack style={{ flex: 1, minWidth: "20rem" }}>
-							<Textarea
-								label="Oppsummering/referat"
-								name="summary"
-								size="small"
-								minRows={6}
-								onChange={(e) => setSummaryPreview(e.target.value)}
-							/>
-						</VStack>
-						<VStack style={{ flex: 1, minWidth: "20rem" }}>
-							<Label size="small" spacing>
-								Forhåndsvisning
-							</Label>
-							<MarkdownPreview content={summaryPreview} />
-						</VStack>
-					</HStack>
-					<MarkdownHint />
+					<MarkdownEditor label="Oppsummering/referat" name="summary" />
 
 					<TextField
 						label="Deltakere"

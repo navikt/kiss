@@ -7,20 +7,17 @@ import {
 	Detail,
 	Heading,
 	HStack,
-	Label,
 	Modal,
 	Select,
 	Table,
 	Tag,
-	Textarea,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
-import { MarkdownHint } from "~/components/MarkdownHint"
-import { MarkdownPreview } from "~/components/MarkdownPreview"
+import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
 import {
@@ -243,7 +240,6 @@ interface PendingChoice {
 
 export default function EditScreeningQuestion() {
 	const { isNew, question, choices, controls, seksjon, sectionId, sectionName } = useLoaderData<typeof loader>()
-	const [descriptionPreview, setDescriptionPreview] = useState(question.description ?? "")
 	const [pendingChoices, setPendingChoices] = useState<PendingChoice[]>([])
 	const [deleteTarget, setDeleteTarget] = useState<{
 		type: "choice" | "effect"
@@ -274,25 +270,12 @@ export default function EditScreeningQuestion() {
 				{isNew && <input type="hidden" name="pendingChoices" value={JSON.stringify(pendingChoices)} />}
 				<VStack gap="space-8">
 					<TextField label="Spørsmålstekst" name="questionText" size="small" defaultValue={question.questionText} />
-					<HStack gap="space-8" align="start" style={{ flexWrap: "wrap" }}>
-						<VStack style={{ flex: 1, minWidth: "20rem", padding: "6px", margin: "-6px" }}>
-							<Textarea
-								label="Beskrivelse"
-								name="description"
-								size="small"
-								defaultValue={question.description ?? ""}
-								minRows={5}
-								onChange={(e) => setDescriptionPreview(e.target.value)}
-							/>
-						</VStack>
-						<VStack style={{ flex: 1, minWidth: "20rem", alignSelf: "stretch" }}>
-							<Label size="small" spacing>
-								Forhåndsvisning
-							</Label>
-							<MarkdownPreview content={descriptionPreview} />
-						</VStack>
-					</HStack>
-					<MarkdownHint />
+					<MarkdownEditor
+						label="Beskrivelse"
+						name="description"
+						defaultValue={question.description ?? ""}
+						minRows={5}
+					/>
 					<div>
 						<Button type="submit" size="small" variant="primary">
 							{isNew ? "Opprett spørsmål" : "Lagre endringer"}

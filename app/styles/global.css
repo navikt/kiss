@@ -630,3 +630,33 @@ body {
 	border-left: 3px solid var(--ax-border-subtle);
 	color: var(--ax-text-subtle);
 }
+
+/* ─── Markdown Editor ──────────────────────────────────────────────────── */
+
+.markdown-editor {
+	display: flex;
+	gap: var(--ax-space-8);
+	align-items: stretch;
+	flex-wrap: wrap;
+}
+
+.markdown-editor__pane {
+	flex: 1;
+	min-width: 20rem;
+	display: flex;
+	flex-direction: column;
+}
+
+.markdown-editor__pane .navds-form-field {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+}
+
+.markdown-editor__pane .navds-textarea__wrapper {
+	flex: 1;
+}
+
+.markdown-editor__pane .navds-textarea__input {
+	flex: 1;
+}

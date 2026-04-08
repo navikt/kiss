@@ -10,15 +10,13 @@ import {
 	Label,
 	Modal,
 	Select,
-	Textarea,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
-import { MarkdownHint } from "~/components/MarkdownHint"
-import { MarkdownPreview } from "~/components/MarkdownPreview"
+import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { deleteRoutine, getRoutine, updateRoutine } from "~/db/queries/routines.server"
 import {
@@ -133,7 +131,6 @@ export default function RedigerRutine() {
 	const { seksjon, routine, questionsWithChoices, technologyElements } = useLoaderData<typeof loader>()
 
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
-	const [descriptionPreview, setDescriptionPreview] = useState(routine.description ?? "")
 
 	// Initialize question links from join table or legacy field
 	const initialLinks: QuestionLink[] =
@@ -186,25 +183,7 @@ export default function RedigerRutine() {
 				<input type="hidden" name="intent" value="update" />
 				<VStack gap="space-4">
 					<TextField label="Navn" name="name" defaultValue={routine.name} size="small" autoComplete="off" />
-					<HStack gap="space-8" align="stretch" style={{ flexWrap: "wrap" }}>
-						<VStack style={{ flex: 1, minWidth: "20rem" }}>
-							<Textarea
-								label="Beskrivelse"
-								name="description"
-								defaultValue={routine.description ?? ""}
-								size="small"
-								minRows={6}
-								onChange={(e) => setDescriptionPreview(e.target.value)}
-							/>
-							<MarkdownHint />
-						</VStack>
-						<VStack style={{ flex: 1, minWidth: "20rem" }}>
-							<Label size="small" spacing>
-								Forhåndsvisning
-							</Label>
-							<MarkdownPreview content={descriptionPreview} />
-						</VStack>
-					</HStack>
+					<MarkdownEditor label="Beskrivelse" name="description" defaultValue={routine.description ?? ""} />
 					<Select label="Frekvens" name="frequency" defaultValue={routine.frequency} size="small">
 						{ROUTINE_FREQUENCIES.map((freq) => (
 							<option key={freq} value={freq}>
