@@ -2,7 +2,7 @@ import { Alert, BodyLong, Button, Heading, HStack, Select, Table, Tag, VStack } 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getAllTeams, getApplications, linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
+import { getAllTeams, getApplications, linkAppToTeam } from "~/db/queries/applications.server"
 import { getAppsPersistence } from "~/db/queries/nais.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { compliancePercent } from "~/lib/utils"
@@ -43,16 +43,6 @@ export async function action({ request }: ActionFunctionArgs) {
 			}
 			await linkAppToTeam(applicationId, devTeamId, userId)
 			return data<ActionResult>({ success: true, message: "Team lagt til." })
-		}
-
-		case "unlink-team": {
-			const applicationId = formData.get("applicationId")
-			const devTeamId = formData.get("devTeamId")
-			if (typeof applicationId !== "string" || typeof devTeamId !== "string") {
-				return data<ActionResult>({ success: false, error: "Mangler påkrevde felt." })
-			}
-			await unlinkAppFromTeam(applicationId, devTeamId, userId)
-			return data<ActionResult>({ success: true, message: "Team fjernet." })
 		}
 
 		default:
@@ -107,26 +97,11 @@ export default function Applikasjoner() {
 									</Table.DataCell>
 									<Table.DataCell>
 										<HStack gap="space-2" wrap>
-											{app.teams.map((teamSlug) => {
-												const teamObj = allTeams.find((t) => t.slug === teamSlug)
-												return (
-													<HStack key={teamSlug} gap="space-1" align="center">
-														<Tag variant="info" size="xsmall">
-															{teamSlug}
-														</Tag>
-														{teamObj && (
-															<Form method="post" style={{ display: "inline" }}>
-																<input type="hidden" name="intent" value="unlink-team" />
-																<input type="hidden" name="applicationId" value={app.id} />
-																<input type="hidden" name="devTeamId" value={teamObj.id} />
-																<Button type="submit" variant="tertiary" size="xsmall" aria-label={`Fjern ${teamSlug}`}>
-																	✕
-																</Button>
-															</Form>
-														)}
-													</HStack>
-												)
-											})}
+											{app.teams.map((teamSlug) => (
+												<Tag key={teamSlug} variant="info" size="xsmall">
+													{teamSlug}
+												</Tag>
+											))}
 											{app.teams.length === 0 && "–"}
 										</HStack>
 									</Table.DataCell>
