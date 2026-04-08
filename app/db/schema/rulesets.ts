@@ -18,6 +18,7 @@ export const rulesets = pgTable("rulesets", {
 	description: text("description"),
 	responsibleIdent: text("responsible_ident"),
 	responsibleName: text("responsible_name"),
+	responsibleRole: text("responsible_role"),
 	frequency: text("frequency", { enum: ROUTINE_FREQUENCIES }).notNull(),
 	status: text("status", { enum: rulesetStatusEnum }).notNull().default("draft"),
 	archivedAt: timestamp("archived_at", { withTimezone: true }),

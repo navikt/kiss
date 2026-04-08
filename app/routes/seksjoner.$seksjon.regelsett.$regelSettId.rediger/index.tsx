@@ -1,4 +1,18 @@
-import { Alert, BodyLong, Button, Heading, HStack, Select, Table, Textarea, TextField, VStack } from "@navikt/ds-react"
+import {
+	Alert,
+	BodyLong,
+	Button,
+	Heading,
+	HStack,
+	Radio,
+	RadioGroup,
+	Select,
+	Table,
+	Textarea,
+	TextField,
+	VStack,
+} from "@navikt/ds-react"
+import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -11,6 +25,7 @@ import {
 	updateRuleset,
 } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import {
@@ -19,6 +34,15 @@ import {
 	ROUTINE_FREQUENCIES,
 	type RoutineFrequency,
 } from "~/lib/routine-frequencies"
+
+const assignableRoles: UserRole[] = [
+	"section_manager",
+	"tech_manager",
+	"delivery_manager",
+	"product_owner",
+	"tech_lead",
+	"system_owner",
+]
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { seksjon, regelSettId } = params
@@ -66,20 +90,36 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		case "update": {
 			const name = formData.get("name")
 			const description = formData.get("description")
+			const responsibleType = formData.get("responsibleType")
 			const responsibleIdent = formData.get("responsibleIdent")
 			const responsibleName = formData.get("responsibleName")
+			const responsibleRole = formData.get("responsibleRole")
 			const frequency = formData.get("frequency")
 
 			if (typeof name !== "string" || !name.trim()) {
 				return data<ActionResult>({ success: false, error: "Navn er påkrevd." })
 			}
 
+			const isRoleBased = responsibleType === "role"
+
 			await updateRuleset(regelSettId, {
 				name: name.trim(),
 				description: typeof description === "string" ? description.trim() || null : undefined,
-				responsibleIdent:
-					typeof responsibleIdent === "string" ? responsibleIdent.trim().toUpperCase() || null : undefined,
-				responsibleName: typeof responsibleName === "string" ? responsibleName.trim() || null : undefined,
+				responsibleIdent: isRoleBased
+					? null
+					: typeof responsibleIdent === "string"
+						? responsibleIdent.trim().toUpperCase() || null
+						: undefined,
+				responsibleName: isRoleBased
+					? null
+					: typeof responsibleName === "string"
+						? responsibleName.trim() || null
+						: undefined,
+				responsibleRole: isRoleBased
+					? typeof responsibleRole === "string" && responsibleRole.trim()
+						? responsibleRole.trim()
+						: null
+					: null,
 				frequency: isRoutineFrequency(frequency) ? (frequency as RoutineFrequency) : undefined,
 				updatedBy: authedUser.navIdent,
 			})
@@ -118,6 +158,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 export default function RegelsettRediger() {
 	const { section, ruleset, allControls, frequencies } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
+	const initialType = ruleset.responsibleRole ? "role" : "person"
+	const [responsibleType, setResponsibleType] = useState<"person" | "role">(initialType)
 
 	const linkedControlIds = new Set(ruleset.controls.map((c) => c.id))
 	const availableControls = allControls.filter((c) => !linkedControlIds.has(c.id))
@@ -143,20 +185,43 @@ export default function RegelsettRediger() {
 				<VStack gap="space-4">
 					<TextField label="Navn" name="name" required defaultValue={ruleset.name} />
 					<Textarea label="Beskrivelse" name="description" defaultValue={ruleset.description ?? ""} />
-					<HStack gap="space-4" wrap>
-						<TextField
-							label="Ansvarlig (NAV-ident)"
-							name="responsibleIdent"
-							defaultValue={ruleset.responsibleIdent ?? ""}
-							htmlSize={12}
-						/>
-						<TextField
-							label="Ansvarlig (navn)"
-							name="responsibleName"
-							defaultValue={ruleset.responsibleName ?? ""}
-							htmlSize={30}
-						/>
-					</HStack>
+
+					<RadioGroup
+						legend="Ansvarlig"
+						value={responsibleType}
+						onChange={(val) => setResponsibleType(val as "person" | "role")}
+						name="responsibleType"
+					>
+						<Radio value="person">Navngitt person</Radio>
+						<Radio value="role">Rolle i seksjonen</Radio>
+					</RadioGroup>
+
+					{responsibleType === "person" ? (
+						<HStack gap="space-4" wrap>
+							<TextField
+								label="NAV-ident"
+								name="responsibleIdent"
+								defaultValue={ruleset.responsibleIdent ?? ""}
+								htmlSize={12}
+							/>
+							<TextField
+								label="Navn"
+								name="responsibleName"
+								defaultValue={ruleset.responsibleName ?? ""}
+								htmlSize={30}
+							/>
+						</HStack>
+					) : (
+						<Select label="Velg rolle" name="responsibleRole" required defaultValue={ruleset.responsibleRole ?? ""}>
+							<option value="">Velg rolle</option>
+							{assignableRoles.map((role) => (
+								<option key={role} value={role}>
+									{userRoleLabels[role]}
+								</option>
+							))}
+						</Select>
+					)}
+
 					<Select label="Frekvens" name="frequency" required defaultValue={ruleset.frequency}>
 						<option value="">Velg frekvens</option>
 						{frequencies.map((f) => (

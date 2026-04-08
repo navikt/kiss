@@ -1,9 +1,22 @@
-import { Button, Heading, HStack, Select, Textarea, TextField, VStack } from "@navikt/ds-react"
+import {
+	Alert,
+	Button,
+	Heading,
+	HStack,
+	Radio,
+	RadioGroup,
+	Select,
+	Textarea,
+	TextField,
+	VStack,
+} from "@navikt/ds-react"
+import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, redirect, useLoaderData } from "react-router"
+import { data, Form, redirect, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { createRuleset } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import {
@@ -12,6 +25,15 @@ import {
 	ROUTINE_FREQUENCIES,
 	type RoutineFrequency,
 } from "~/lib/routine-frequencies"
+
+const assignableRoles: UserRole[] = [
+	"section_manager",
+	"tech_manager",
+	"delivery_manager",
+	"product_owner",
+	"tech_lead",
+	"system_owner",
+]
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { seksjon } = params
@@ -47,8 +69,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const code = formData.get("code")
 	const name = formData.get("name")
 	const description = formData.get("description")
+	const responsibleType = formData.get("responsibleType")
 	const responsibleIdent = formData.get("responsibleIdent")
 	const responsibleName = formData.get("responsibleName")
+	const responsibleRole = formData.get("responsibleRole")
 	const frequency = formData.get("frequency")
 
 	if (typeof code !== "string" || !code.trim()) {
@@ -61,16 +85,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return data<ActionResult>({ success: false, error: "Ugyldig frekvens." })
 	}
 
+	const isRoleBased = responsibleType === "role"
+
 	const id = await createRuleset({
 		sectionId: section.id,
 		code: code.trim(),
 		name: name.trim(),
 		description: typeof description === "string" && description.trim() ? description.trim() : undefined,
 		responsibleIdent:
-			typeof responsibleIdent === "string" && responsibleIdent.trim()
+			!isRoleBased && typeof responsibleIdent === "string" && responsibleIdent.trim()
 				? responsibleIdent.trim().toUpperCase()
 				: undefined,
-		responsibleName: typeof responsibleName === "string" && responsibleName.trim() ? responsibleName.trim() : undefined,
+		responsibleName:
+			!isRoleBased && typeof responsibleName === "string" && responsibleName.trim()
+				? responsibleName.trim()
+				: undefined,
+		responsibleRole:
+			isRoleBased && typeof responsibleRole === "string" && responsibleRole.trim() ? responsibleRole.trim() : undefined,
 		frequency: frequency as RoutineFrequency,
 		createdBy: authedUser.navIdent,
 	})
@@ -80,20 +111,49 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 export default function NyttRegelsett() {
 	const { section, frequencies } = useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
+	const [responsibleType, setResponsibleType] = useState<"person" | "role">("person")
 
 	return (
 		<VStack gap="space-6">
 			<Heading size="large">Opprett regelsett — {section.name}</Heading>
+
+			{actionData && "success" in actionData && !actionData.success && (
+				<Alert variant="error">{actionData.error}</Alert>
+			)}
 
 			<Form method="post">
 				<VStack gap="space-4">
 					<TextField label="Kode" name="code" required placeholder="f.eks. RS-PEN.01" />
 					<TextField label="Navn" name="name" required />
 					<Textarea label="Beskrivelse" name="description" />
-					<HStack gap="space-4" wrap>
-						<TextField label="Ansvarlig (NAV-ident)" name="responsibleIdent" htmlSize={12} />
-						<TextField label="Ansvarlig (navn)" name="responsibleName" htmlSize={30} />
-					</HStack>
+
+					<RadioGroup
+						legend="Ansvarlig"
+						value={responsibleType}
+						onChange={(val) => setResponsibleType(val as "person" | "role")}
+						name="responsibleType"
+					>
+						<Radio value="person">Navngitt person</Radio>
+						<Radio value="role">Rolle i seksjonen</Radio>
+					</RadioGroup>
+
+					{responsibleType === "person" ? (
+						<HStack gap="space-4" wrap>
+							<TextField label="NAV-ident" name="responsibleIdent" htmlSize={12} />
+							<TextField label="Navn" name="responsibleName" htmlSize={30} />
+						</HStack>
+					) : (
+						<Select label="Velg rolle" name="responsibleRole" required>
+							<option value="">Velg rolle</option>
+							{assignableRoles.map((role) => (
+								<option key={role} value={role}>
+									{userRoleLabels[role]}
+								</option>
+							))}
+						</Select>
+					)}
+
 					<Select label="Frekvens" name="frequency" required>
 						<option value="">Velg frekvens</option>
 						{frequencies.map((f) => (

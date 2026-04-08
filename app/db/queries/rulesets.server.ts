@@ -3,7 +3,7 @@ import type { RoutineFrequency } from "../../lib/routine-frequencies"
 import { frequencyDays } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
 import { frameworkControls } from "../schema/framework"
-import { sections } from "../schema/organization"
+import { sections, type UserRole, userRoles, users } from "../schema/organization"
 import { type RulesetStatus, rulesetApprovals, rulesetAttachments, rulesetControls, rulesets } from "../schema/rulesets"
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -17,6 +17,7 @@ export interface RulesetListItem {
 	description: string | null
 	responsibleIdent: string | null
 	responsibleName: string | null
+	responsibleRole: string | null
 	frequency: string
 	status: RulesetStatus
 	approvalStatus: ApprovalStatus
@@ -26,6 +27,7 @@ export interface RulesetListItem {
 export interface RulesetDetail extends RulesetListItem {
 	sectionId: string
 	sectionName: string
+	resolvedResponsible: { navIdent: string; name: string } | null
 	approvals: {
 		id: string
 		approvedBy: string
@@ -77,6 +79,22 @@ function computeApprovalStatus(
 	return "valid"
 }
 
+// ─── Role resolution ──────────────────────────────────────────────────────
+
+/** Find the user holding a specific role in a section. Returns first match or null. */
+export async function resolveRoleHolder(
+	role: string,
+	sectionId: string,
+): Promise<{ navIdent: string; name: string } | null> {
+	const [row] = await db
+		.select({ navIdent: users.navIdent, name: users.name })
+		.from(userRoles)
+		.innerJoin(users, eq(userRoles.userId, users.id))
+		.where(and(eq(userRoles.role, role as UserRole), eq(userRoles.sectionId, sectionId)))
+		.limit(1)
+	return row ?? null
+}
+
 // ─── Queries ──────────────────────────────────────────────────────────────
 
 export async function getRulesetsForSection(sectionId: string): Promise<RulesetListItem[]> {
@@ -111,6 +129,7 @@ export async function getRulesetsForSection(sectionId: string): Promise<RulesetL
 			description: r.description,
 			responsibleIdent: r.responsibleIdent,
 			responsibleName: r.responsibleName,
+			responsibleRole: r.responsibleRole,
 			frequency: r.frequency,
 			status: r.status as RulesetStatus,
 			approvalStatus: computeApprovalStatus(
@@ -133,6 +152,7 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 			description: rulesets.description,
 			responsibleIdent: rulesets.responsibleIdent,
 			responsibleName: rulesets.responsibleName,
+			responsibleRole: rulesets.responsibleRole,
 			frequency: rulesets.frequency,
 			status: rulesets.status,
 			createdAt: rulesets.createdAt,
@@ -172,6 +192,9 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 
 	const latestApproval = approvals[0] ?? null
 
+	// Resolve role-based responsible to current holder
+	const resolvedResponsible = row.responsibleRole ? await resolveRoleHolder(row.responsibleRole, row.sectionId) : null
+
 	return {
 		id: row.id,
 		sectionId: row.sectionId,
@@ -181,8 +204,10 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 		description: row.description,
 		responsibleIdent: row.responsibleIdent,
 		responsibleName: row.responsibleName,
+		responsibleRole: row.responsibleRole,
 		frequency: row.frequency,
 		status: row.status as RulesetStatus,
+		resolvedResponsible,
 		approvalStatus: computeApprovalStatus(
 			row.status as RulesetStatus,
 			latestApproval ? { validUntil: latestApproval.validUntil } : null,
@@ -230,6 +255,7 @@ export async function createRuleset(input: {
 	description?: string
 	responsibleIdent?: string
 	responsibleName?: string
+	responsibleRole?: string
 	frequency: RoutineFrequency
 	createdBy: string
 }): Promise<string> {
@@ -242,6 +268,7 @@ export async function createRuleset(input: {
 			description: input.description ?? null,
 			responsibleIdent: input.responsibleIdent ?? null,
 			responsibleName: input.responsibleName ?? null,
+			responsibleRole: input.responsibleRole ?? null,
 			frequency: input.frequency,
 			createdBy: input.createdBy,
 			updatedBy: input.createdBy,
@@ -257,6 +284,7 @@ export async function updateRuleset(
 		description?: string | null
 		responsibleIdent?: string | null
 		responsibleName?: string | null
+		responsibleRole?: string | null
 		frequency?: RoutineFrequency
 		updatedBy: string
 	},
@@ -266,6 +294,7 @@ export async function updateRuleset(
 	if (input.description !== undefined) set.description = input.description
 	if (input.responsibleIdent !== undefined) set.responsibleIdent = input.responsibleIdent
 	if (input.responsibleName !== undefined) set.responsibleName = input.responsibleName
+	if (input.responsibleRole !== undefined) set.responsibleRole = input.responsibleRole
 	if (input.frequency !== undefined) set.frequency = input.frequency
 
 	await db.update(rulesets).set(set).where(eq(rulesets.id, rulesetId))

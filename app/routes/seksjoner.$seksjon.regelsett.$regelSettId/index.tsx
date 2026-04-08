@@ -5,8 +5,9 @@ import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { type ApprovalStatus, approveRuleset, getRulesetDetail } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
+import { hasRoleForSection, isAdmin } from "~/lib/authorization.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 const statusConfig: Record<ApprovalStatus, { label: string; variant: "success" | "warning" | "error" | "neutral" }> = {
@@ -31,10 +32,22 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const canApprove =
 		user !== null &&
-		(isAdmin(user) || (ruleset.responsibleIdent !== null && user.navIdent === ruleset.responsibleIdent))
+		(isAdmin(user) ||
+			(ruleset.responsibleIdent !== null && user.navIdent === ruleset.responsibleIdent) ||
+			(ruleset.responsibleRole !== null && hasRoleForSection(user, ruleset.responsibleRole as UserRole, section.id)))
 	const userIsAdmin = user ? isAdmin(user) : false
 
-	return data({ section, ruleset, canApprove, canAdmin: userIsAdmin })
+	// Build display text for responsible
+	let responsibleDisplay: string
+	if (ruleset.responsibleRole) {
+		const roleLabel = userRoleLabels[ruleset.responsibleRole as UserRole] ?? ruleset.responsibleRole
+		const holder = ruleset.resolvedResponsible
+		responsibleDisplay = holder ? `${roleLabel} (${holder.name})` : `${roleLabel} (ingen tildelt)`
+	} else {
+		responsibleDisplay = ruleset.responsibleName ?? "Ikke angitt"
+	}
+
+	return data({ section, ruleset, canApprove, canAdmin: userIsAdmin, responsibleDisplay })
 }
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
@@ -55,7 +68,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (!ruleset) throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
 
 			const canApprove =
-				isAdmin(authedUser) || (ruleset.responsibleIdent !== null && authedUser.navIdent === ruleset.responsibleIdent)
+				isAdmin(authedUser) ||
+				(ruleset.responsibleIdent !== null && authedUser.navIdent === ruleset.responsibleIdent) ||
+				(ruleset.responsibleRole !== null &&
+					hasRoleForSection(authedUser, ruleset.responsibleRole as UserRole, ruleset.sectionId))
 			if (!canApprove) throw new Response("Ikke autorisert", { status: 403 })
 
 			const comment = formData.get("comment")
@@ -76,7 +92,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RegelsettDetalj() {
-	const { section, ruleset, canApprove, canAdmin } = useLoaderData<typeof loader>()
+	const { section, ruleset, canApprove, canAdmin, responsibleDisplay } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const [approveOpen, setApproveOpen] = useState(false)
 
@@ -127,7 +143,7 @@ export default function RegelsettDetalj() {
 				<HStack gap="space-12" wrap>
 					<VStack gap="space-1">
 						<Detail textColor="subtle">Ansvarlig</Detail>
-						<BodyLong>{ruleset.responsibleName ?? "Ikke angitt"}</BodyLong>
+						<BodyLong>{responsibleDisplay}</BodyLong>
 					</VStack>
 					<VStack gap="space-1">
 						<Detail textColor="subtle">Frekvens</Detail>

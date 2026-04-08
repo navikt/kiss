@@ -1,0 +1,1 @@
+ALTER TABLE "rulesets" ADD COLUMN "responsible_role" text;

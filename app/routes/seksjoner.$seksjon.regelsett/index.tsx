@@ -4,6 +4,7 @@ import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { type ApprovalStatus, getRulesetsForSection } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
@@ -75,7 +76,11 @@ export default function SeksjonRegelsettIndex() {
 											<Link to={`/seksjoner/${section.slug}/regelsett/${rs.id}`}>{rs.code}</Link>
 										</Table.DataCell>
 										<Table.DataCell>{rs.name}</Table.DataCell>
-										<Table.DataCell>{rs.responsibleName ?? "–"}</Table.DataCell>
+										<Table.DataCell>
+											{rs.responsibleRole
+												? (userRoleLabels[rs.responsibleRole as UserRole] ?? rs.responsibleRole)
+												: (rs.responsibleName ?? "–")}
+										</Table.DataCell>
 										<Table.DataCell>{getFrequencyLabel(rs.frequency)}</Table.DataCell>
 										<Table.DataCell>
 											{rs.lastApproval ? new Date(rs.lastApproval.validFrom).toLocaleDateString("nb-NO") : "–"}
