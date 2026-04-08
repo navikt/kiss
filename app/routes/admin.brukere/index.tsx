@@ -231,9 +231,9 @@ export default function AdminBrukere() {
 					<input type="hidden" name="intent" value="assign-role" />
 					<VStack gap="space-4">
 						<HStack gap="space-4" wrap>
-							<TextField label="NAV-ident" name="navIdent" required htmlSize={12} />
-							<TextField label="Navn" name="name" required htmlSize={30} />
-							<Select label="Rolle" name="role" required>
+							<TextField label="NAV-ident" name="navIdent" htmlSize={12} />
+							<TextField label="Navn" name="name" htmlSize={30} />
+							<Select label="Rolle" name="role">
 								<option value="">Velg rolle</option>
 								{userRoleEnum.map((r) => (
 									<option key={r} value={r}>

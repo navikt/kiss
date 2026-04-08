@@ -183,7 +183,7 @@ export default function RegelsettRediger() {
 			<Form method="post">
 				<input type="hidden" name="intent" value="update" />
 				<VStack gap="space-4">
-					<TextField label="Navn" name="name" required defaultValue={ruleset.name} />
+					<TextField label="Navn" name="name" defaultValue={ruleset.name} />
 					<Textarea label="Beskrivelse" name="description" defaultValue={ruleset.description ?? ""} />
 
 					<RadioGroup
@@ -212,7 +212,7 @@ export default function RegelsettRediger() {
 							/>
 						</HStack>
 					) : (
-						<Select label="Velg rolle" name="responsibleRole" required defaultValue={ruleset.responsibleRole ?? ""}>
+						<Select label="Velg rolle" name="responsibleRole" defaultValue={ruleset.responsibleRole ?? ""}>
 							<option value="">Velg rolle</option>
 							{assignableRoles.map((role) => (
 								<option key={role} value={role}>
@@ -222,7 +222,7 @@ export default function RegelsettRediger() {
 						</Select>
 					)}
 
-					<Select label="Frekvens" name="frequency" required defaultValue={ruleset.frequency}>
+					<Select label="Frekvens" name="frequency" defaultValue={ruleset.frequency}>
 						<option value="">Velg frekvens</option>
 						{frequencies.map((f) => (
 							<option key={f.value} value={f.value}>

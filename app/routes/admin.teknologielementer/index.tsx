@@ -153,8 +153,8 @@ function EditElementModal({ element, open, onClose }: { element: ElementRow; ope
 					<input type="hidden" name="intent" value="update-element" />
 					<input type="hidden" name="id" value={element.id} />
 					<VStack gap="space-6">
-						<TextField label="Navn" name="name" defaultValue={element.name} required />
-						<TextField label="Slug" name="slug" defaultValue={element.slug} required />
+						<TextField label="Navn" name="name" defaultValue={element.name} />
+						<TextField label="Slug" name="slug" defaultValue={element.slug} />
 						<Textarea label="Beskrivelse" name="description" defaultValue={element.description ?? ""} minRows={2} />
 						<TextField
 							label="Visningsrekkefølge"
@@ -250,8 +250,8 @@ export default function AdminTeknologielementer() {
 					<input type="hidden" name="intent" value="create-element" />
 					<VStack gap="space-4">
 						<HStack gap="space-4" align="end" wrap>
-							<TextField label="Navn" name="name" size="small" required />
-							<TextField label="Slug" name="slug" size="small" required />
+							<TextField label="Navn" name="name" size="small" />
+							<TextField label="Slug" name="slug" size="small" />
 							<TextField
 								label="Rekkefølge"
 								name="displayOrder"

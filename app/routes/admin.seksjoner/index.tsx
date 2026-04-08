@@ -132,7 +132,7 @@ function EditSectionModal({
 					<input type="hidden" name="intent" value="update-section" />
 					<input type="hidden" name="id" value={section.id} />
 					<VStack gap="space-6">
-						<TextField label="Navn" name="name" defaultValue={section.name} required />
+						<TextField label="Navn" name="name" defaultValue={section.name} />
 						<Textarea label="Beskrivelse" name="description" defaultValue={section.description ?? ""} />
 						<HStack gap="space-4">
 							<Button type="submit" variant="primary">
@@ -266,7 +266,7 @@ export default function AdminSeksjoner() {
 				>
 					<input type="hidden" name="intent" value="create-section" />
 					<VStack gap="space-4">
-						<TextField label="Seksjonsnavn" name="name" required />
+						<TextField label="Seksjonsnavn" name="name" />
 						<Textarea label="Beskrivelse" name="description" />
 						<div>
 							<Button type="submit" variant="primary">

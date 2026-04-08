@@ -124,8 +124,8 @@ export default function NyttRegelsett() {
 
 			<Form method="post">
 				<VStack gap="space-4">
-					<TextField label="Kode" name="code" required placeholder="f.eks. RS-PEN.01" />
-					<TextField label="Navn" name="name" required />
+					<TextField label="Kode" name="code" placeholder="f.eks. RS-PEN.01" />
+					<TextField label="Navn" name="name" />
 					<Textarea label="Beskrivelse" name="description" />
 
 					<RadioGroup
@@ -144,7 +144,7 @@ export default function NyttRegelsett() {
 							<TextField label="Navn" name="responsibleName" htmlSize={30} />
 						</HStack>
 					) : (
-						<Select label="Velg rolle" name="responsibleRole" required>
+						<Select label="Velg rolle" name="responsibleRole">
 							<option value="">Velg rolle</option>
 							{assignableRoles.map((role) => (
 								<option key={role} value={role}>
@@ -154,7 +154,7 @@ export default function NyttRegelsett() {
 						</Select>
 					)}
 
-					<Select label="Frekvens" name="frequency" required>
+					<Select label="Frekvens" name="frequency">
 						<option value="">Velg frekvens</option>
 						{frequencies.map((f) => (
 							<option key={f.value} value={f.value}>

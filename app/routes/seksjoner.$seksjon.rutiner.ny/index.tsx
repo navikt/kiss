@@ -154,11 +154,11 @@ export default function NyRutine() {
 
 			<Form method="post">
 				<VStack gap="space-6">
-					<TextField label="Navn" name="name" required />
+					<TextField label="Navn" name="name" />
 
 					<Textarea label="Beskrivelse" name="description" />
 
-					<Select label="Frekvens" name="frequency" required>
+					<Select label="Frekvens" name="frequency">
 						<option value="">Velg frekvens</option>
 						{ROUTINE_FREQUENCIES.map((freq) => (
 							<option key={freq} value={freq}>

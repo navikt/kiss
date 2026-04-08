@@ -135,8 +135,8 @@ function EditDomainModal({ domain, open, onClose }: { domain: DomainRow; open: b
 					<input type="hidden" name="intent" value="update-domain" />
 					<input type="hidden" name="id" value={domain.id} />
 					<VStack gap="space-6">
-						<TextField label="Kode" name="code" defaultValue={domain.code} required />
-						<TextField label="Navn" name="name" defaultValue={domain.name} required />
+						<TextField label="Kode" name="code" defaultValue={domain.code} />
+						<TextField label="Navn" name="name" defaultValue={domain.name} />
 						<TextField
 							label="Visningsrekkefølge"
 							name="displayOrder"
@@ -236,8 +236,8 @@ export default function AdminDomener() {
 				>
 					<input type="hidden" name="intent" value="create-domain" />
 					<HStack gap="space-4" align="end" wrap>
-						<TextField label="Kode" name="code" size="small" required htmlSize={8} />
-						<TextField label="Navn" name="name" size="small" required />
+						<TextField label="Kode" name="code" size="small" htmlSize={8} />
+						<TextField label="Navn" name="name" size="small" />
 						<TextField
 							label="Rekkefølge"
 							name="displayOrder"
