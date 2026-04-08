@@ -250,7 +250,6 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 
 export async function createRuleset(input: {
 	sectionId: string
-	code: string
 	name: string
 	description?: string
 	responsibleIdent?: string
@@ -259,11 +258,15 @@ export async function createRuleset(input: {
 	frequency: RoutineFrequency
 	createdBy: string
 }): Promise<string> {
+	// Auto-generate a unique code: RS-{next sequence number}
+	const existing = await db.select({ id: rulesets.id }).from(rulesets).where(eq(rulesets.sectionId, input.sectionId))
+	const code = `RS-${String(existing.length + 1).padStart(3, "0")}`
+
 	const [row] = await db
 		.insert(rulesets)
 		.values({
 			sectionId: input.sectionId,
-			code: input.code,
+			code,
 			name: input.name,
 			description: input.description ?? null,
 			responsibleIdent: input.responsibleIdent ?? null,

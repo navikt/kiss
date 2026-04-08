@@ -56,7 +56,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 
 	const formData = await request.formData()
-	const code = formData.get("code")
 	const name = formData.get("name")
 	const description = formData.get("description")
 	const responsibleType = formData.get("responsibleType")
@@ -65,9 +64,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const responsibleRole = formData.get("responsibleRole")
 	const frequency = formData.get("frequency")
 
-	if (typeof code !== "string" || !code.trim()) {
-		return data<ActionResult>({ success: false, error: "Kode er påkrevd." })
-	}
 	if (typeof name !== "string" || !name.trim()) {
 		return data<ActionResult>({ success: false, error: "Navn er påkrevd." })
 	}
@@ -79,7 +75,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const id = await createRuleset({
 		sectionId: section.id,
-		code: code.trim(),
 		name: name.trim(),
 		description: typeof description === "string" && description.trim() ? description.trim() : undefined,
 		responsibleIdent:
@@ -114,7 +109,6 @@ export default function NyttRegelsett() {
 
 			<Form method="post">
 				<VStack gap="space-4">
-					<TextField label="Kode" name="code" placeholder="f.eks. RS-PEN.01" />
 					<TextField label="Navn" name="name" />
 					<MarkdownEditor label="Beskrivelse" name="description" />
 
