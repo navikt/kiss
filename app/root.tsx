@@ -102,6 +102,19 @@ export function ErrorBoundary({ error }: { error: unknown }) {
 	const rootData = useRouteLoaderData<typeof loader>("root")
 	const admin = rootData?.user?.isAdmin === true
 
+	const message =
+		error instanceof Error
+			? error.message
+			: typeof error === "object" && error !== null && "message" in error
+				? String((error as { message: unknown }).message)
+				: "Ukjent feil"
+	const stack =
+		error instanceof Error
+			? error.stack
+			: typeof error === "object" && error !== null && "stack" in error
+				? String((error as { stack: unknown }).stack)
+				: undefined
+
 	if (isRouteErrorResponse(error)) {
 		return (
 			<Box as="main" padding="space-24">
@@ -110,13 +123,15 @@ export function ErrorBoundary({ error }: { error: unknown }) {
 						{error.status} {error.statusText}
 					</Heading>
 					{error.data && <BodyLong>{error.data}</BodyLong>}
+					{admin && stack && (
+						<Detail as="pre" style={{ whiteSpace: "pre-wrap", overflowX: "auto" }}>
+							{stack}
+						</Detail>
+					)}
 				</VStack>
 			</Box>
 		)
 	}
-
-	const message = error instanceof Error ? error.message : "Ukjent feil"
-	const stack = error instanceof Error ? error.stack : undefined
 
 	return (
 		<Box as="main" padding="space-24">
