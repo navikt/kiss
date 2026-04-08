@@ -43,3 +43,6 @@ docker-compose.override.yml
 # Temporary
 *.tmp
 *.log
+
+# Compiled server entry
+server.js

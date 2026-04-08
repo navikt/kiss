@@ -10,6 +10,7 @@ RUN corepack enable && pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm build
+RUN pnpm exec tsc server.ts --outDir . --module nodenext --moduleResolution nodenext --target es2022 --esModuleInterop --skipLibCheck --ignoreConfig
 
 FROM node:22-alpine AS prod-deps
 
@@ -26,10 +27,11 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/server.js ./
 
 ENV NODE_ENV=production
 ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["./node_modules/@react-router/serve/dist/cli.js", "./build/server/index.js"]
+CMD ["server.js"]
