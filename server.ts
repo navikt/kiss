@@ -63,7 +63,7 @@ app.use(accessLogMiddleware)
 
 // React Router request handler
 const build = await import(url.pathToFileURL(buildPath).href)
-app.all("*", createRequestHandler({ build, mode: process.env.NODE_ENV }))
+app.all("/{*splat}", createRequestHandler({ build, mode: process.env.NODE_ENV }))
 
 // Error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
