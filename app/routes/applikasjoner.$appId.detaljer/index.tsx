@@ -1,4 +1,4 @@
-import { DownloadIcon, ExternalLinkIcon, EyeIcon, LinkIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, ExternalLinkIcon, EyeIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
@@ -608,39 +608,6 @@ export default function ApplikasjonDetalj() {
 													))}
 												</Table.Body>
 											</Table>
-										</VStack>
-									)
-								})}
-
-							{/* Inbound access policy rules — summary with link to Tilgangspolicy tab */}
-							{authIntegrations
-								.filter((a) => a.type === "entra_id" && a.inboundRules)
-								.map((auth) => {
-									const rules = JSON.parse(auth.inboundRules ?? "[]") as Array<{
-										application: string
-									}>
-									if (rules.length === 0) return null
-									return (
-										<VStack key={`inbound-${auth.id}`} gap="space-2">
-											<Heading size="xsmall" level="4">
-												Autoriserte applikasjoner ({rules.length})
-											</Heading>
-											<BodyShort size="small">
-												{rules.length} {rules.length === 1 ? "applikasjon" : "applikasjoner"} har tilgang til å kalle
-												dette API-et via Entra ID.{" "}
-												<AkselLink
-													as="button"
-													onClick={() =>
-														setSearchParams((prev) => {
-															prev.set("fane", "tilgangspolicy")
-															return prev
-														})
-													}
-												>
-													<LinkIcon aria-hidden fontSize="1rem" />
-													Se detaljer i Tilgangspolicy-fanen
-												</AkselLink>
-											</BodyShort>
 										</VStack>
 									)
 								})}
