@@ -29,6 +29,11 @@ export function hasRole(user: NavUser, role: UserRole): boolean {
 /** Sjekk om bruker har en rolle scopet til en seksjon. Admin har alltid tilgang. */
 export function hasRoleForSection(user: NavUser, role: UserRole, sectionId: string): boolean {
 	if (hasRole(user, "admin")) return true
+	return hasExactRoleForSection(user, role, sectionId)
+}
+
+/** Streng sjekk: har bruker nøyaktig denne rollen for seksjonen (uten admin-bypass). */
+export function hasExactRoleForSection(user: NavUser, role: UserRole, sectionId: string): boolean {
 	return (user.dbRoles ?? []).some((r) => r.role === role && (r.sectionId === sectionId || r.sectionId === null))
 }
 

@@ -7,7 +7,7 @@ import { type ApprovalStatus, approveRuleset, getRulesetDetail } from "~/db/quer
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { hasRoleForSection, isAdmin } from "~/lib/authorization.server"
+import { hasExactRoleForSection, isAdmin } from "~/lib/authorization.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 const statusConfig: Record<ApprovalStatus, { label: string; variant: "success" | "warning" | "error" | "neutral" }> = {
@@ -33,7 +33,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const canApprove =
 		user !== null &&
 		((ruleset.responsibleIdent !== null && user.navIdent === ruleset.responsibleIdent) ||
-			(ruleset.responsibleRole !== null && hasRoleForSection(user, ruleset.responsibleRole as UserRole, section.id)))
+			(ruleset.responsibleRole !== null &&
+				hasExactRoleForSection(user, ruleset.responsibleRole as UserRole, section.id)))
 	const userIsAdmin = user ? isAdmin(user) : false
 
 	// Build display text for responsible
@@ -69,7 +70,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			const canApprove =
 				(ruleset.responsibleIdent !== null && authedUser.navIdent === ruleset.responsibleIdent) ||
 				(ruleset.responsibleRole !== null &&
-					hasRoleForSection(authedUser, ruleset.responsibleRole as UserRole, ruleset.sectionId))
+					hasExactRoleForSection(authedUser, ruleset.responsibleRole as UserRole, ruleset.sectionId))
 			if (!canApprove) throw new Response("Ikke autorisert", { status: 403 })
 
 			const comment = formData.get("comment")
