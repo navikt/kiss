@@ -224,6 +224,7 @@ export default function RutineDetaljer() {
 						<Table.Header>
 							<Table.Row>
 								<Table.HeaderCell>Dato</Table.HeaderCell>
+								<Table.HeaderCell>Applikasjon</Table.HeaderCell>
 								<Table.HeaderCell>Tittel</Table.HeaderCell>
 								<Table.HeaderCell>Status</Table.HeaderCell>
 								<Table.HeaderCell>Opprettet av</Table.HeaderCell>
@@ -237,6 +238,15 @@ export default function RutineDetaljer() {
 								return (
 									<Table.Row key={review.id}>
 										<Table.DataCell>{formatDateTime(review.reviewedAt)}</Table.DataCell>
+										<Table.DataCell>
+											{review.applicationId ? (
+												<Link to={`/applikasjoner/${review.applicationId}/detaljer`}>
+													{review.applicationName ?? "Ukjent"}
+												</Link>
+											) : (
+												"—"
+											)}
+										</Table.DataCell>
 										<Table.DataCell>
 											<Link to={`./gjennomgang/${review.id}`}>{review.title}</Link>
 										</Table.DataCell>

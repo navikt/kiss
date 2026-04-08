@@ -227,12 +227,21 @@ export async function deleteRoutine(id: string, performedBy: string) {
 
 export async function getReviewsForRoutine(routineId: string) {
 	const reviews = await db
-		.select()
+		.select({
+			review: routineReviews,
+			applicationName: monitoredApplications.name,
+		})
 		.from(routineReviews)
+		.leftJoin(monitoredApplications, eq(routineReviews.applicationId, monitoredApplications.id))
 		.where(eq(routineReviews.routineId, routineId))
 		.orderBy(desc(routineReviews.reviewedAt))
 
-	return Promise.all(reviews.map(enrichReview))
+	return Promise.all(
+		reviews.map(async (row) => {
+			const enriched = await enrichReview(row.review)
+			return { ...enriched, applicationName: row.applicationName }
+		}),
+	)
 }
 
 export async function getReviewsForApp(applicationId: string) {
