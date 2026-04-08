@@ -937,6 +937,40 @@ export async function bulkAcceptLinkSuggestions(minConfidence: number, performed
 	return accepted
 }
 
+/** Create a parent application and link all variant apps to it. Accepts related suggestions. */
+export async function createParentAndLinkGroup(
+	parentName: string,
+	variantAppIds: string[],
+	performedBy: string,
+): Promise<string> {
+	// Create or find the parent application
+	const { id: parentId } = await upsertMonitoredApp(parentName, performedBy)
+
+	// Link all variants to the parent
+	for (const appId of variantAppIds) {
+		if (appId === parentId) continue
+		await linkApplication(appId, parentId, performedBy)
+	}
+
+	// Accept all pending suggestions involving these apps
+	const pending = await db.select().from(linkSuggestions).where(eq(linkSuggestions.status, "pending"))
+	const variantSet = new Set(variantAppIds)
+	for (const s of pending) {
+		if (variantSet.has(s.primaryAppId) && variantSet.has(s.secondaryAppId)) {
+			await db
+				.update(linkSuggestions)
+				.set({
+					status: "accepted" as LinkSuggestionStatus,
+					reviewedBy: performedBy,
+					reviewedAt: new Date(),
+				})
+				.where(eq(linkSuggestions.id, s.id))
+		}
+	}
+
+	return parentId
+}
+
 export type AppResolution = { status: "monitored"; appId: string } | { status: "discovered" } | { status: "unknown" }
 
 /** Look up app names: first in monitoredApplications (monitored), then naisDiscoveredApps (discovered), else unknown. */
