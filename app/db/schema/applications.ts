@@ -1,4 +1,4 @@
-import { boolean, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { boolean, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
 import { devTeams, sections } from "./organization"
 
 export const naisTeamStatusEnum = ["pending", "monitored", "ignored"] as const
@@ -114,21 +114,25 @@ export type LinkSuggestionStatus = (typeof linkSuggestionStatusEnum)[number]
 export const linkSuggestionMatchTypeEnum = ["image_match", "name_pattern", "both"] as const
 export type LinkSuggestionMatchType = (typeof linkSuggestionMatchTypeEnum)[number]
 
-export const linkSuggestions = pgTable("link_suggestions", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	primaryAppId: uuid("primary_app_id")
-		.notNull()
-		.references(() => monitoredApplications.id),
-	secondaryAppId: uuid("secondary_app_id")
-		.notNull()
-		.references(() => monitoredApplications.id),
-	matchType: text("match_type", { enum: linkSuggestionMatchTypeEnum }).notNull(),
-	confidence: text("confidence").notNull(),
-	status: text("status", { enum: linkSuggestionStatusEnum }).notNull().default("pending"),
-	reviewedBy: text("reviewed_by"),
-	reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
-	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const linkSuggestions = pgTable(
+	"link_suggestions",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		primaryAppId: uuid("primary_app_id")
+			.notNull()
+			.references(() => monitoredApplications.id),
+		secondaryAppId: uuid("secondary_app_id")
+			.notNull()
+			.references(() => monitoredApplications.id),
+		matchType: text("match_type", { enum: linkSuggestionMatchTypeEnum }).notNull(),
+		confidence: text("confidence").notNull(),
+		status: text("status", { enum: linkSuggestionStatusEnum }).notNull().default("pending"),
+		reviewedBy: text("reviewed_by"),
+		reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [unique("uq_link_suggestion_pair").on(t.primaryAppId, t.secondaryAppId, t.matchType)],
+)
 
 export const authIntegrationTypeEnum = ["entra_id", "token_x", "id_porten", "maskinporten"] as const
 export type AuthIntegrationType = (typeof authIntegrationTypeEnum)[number]
