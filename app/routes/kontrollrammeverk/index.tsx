@@ -1,5 +1,4 @@
 import { BodyLong, BodyShort, Heading, HStack, Select, VStack } from "@navikt/ds-react"
-import { useCallback, useMemo } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -38,9 +37,31 @@ function groupByDomain<T extends { domainCode: string; domainName: string }>(
 	return [...groups.values()]
 }
 
-export async function loader(_args: LoaderFunctionArgs) {
-	const [risks, controls] = await Promise.all([getAllRisks(), getAllControls()])
-	return data({ risks, controls })
+export async function loader({ request }: LoaderFunctionArgs) {
+	const url = new URL(request.url)
+	const ansvarlig = url.searchParams.get("ansvarlig") ?? ""
+	const teknologielement = url.searchParams.get("teknologielement") ?? ""
+	const frekvens = url.searchParams.get("frekvens") ?? ""
+
+	const [risks, allControls] = await Promise.all([getAllRisks(), getAllControls()])
+
+	let filteredControls = allControls
+	if (ansvarlig) filteredControls = filteredControls.filter((c) => c.responsible === ansvarlig)
+	if (teknologielement)
+		filteredControls = filteredControls.filter((c) => c.technologyElements.includes(teknologielement))
+	if (frekvens) filteredControls = filteredControls.filter((c) => c.frequency === frekvens)
+
+	const responsibleOptions = uniqueSorted(allControls.map((c) => c.responsible))
+	const technologyOptions = uniqueSorted(allControls.flatMap((c) => c.technologyElements))
+	const frequencyOptions = uniqueSorted(allControls.map((c) => c.frequency))
+
+	return data({
+		risks,
+		controls: filteredControls,
+		totalControls: allControls.length,
+		filters: { ansvarlig, teknologielement, frekvens },
+		options: { responsibleOptions, technologyOptions, frequencyOptions },
+	})
 }
 
 function uniqueSorted(values: (string | null)[]) {
@@ -49,41 +70,22 @@ function uniqueSorted(values: (string | null)[]) {
 }
 
 export default function Kontrollrammeverk() {
-	const { risks, controls } = useLoaderData<typeof loader>()
-	const [searchParams, setSearchParams] = useSearchParams()
+	const { risks, controls, totalControls, filters, options } = useLoaderData<typeof loader>()
+	const [, setSearchParams] = useSearchParams()
 
-	const ansvarlig = searchParams.get("ansvarlig") ?? ""
-	const teknologielement = searchParams.get("teknologielement") ?? ""
-	const frekvens = searchParams.get("frekvens") ?? ""
-
-	const setFilter = useCallback(
-		(key: string, value: string) => {
-			setSearchParams(
-				(prev) => {
-					if (value) {
-						prev.set(key, value)
-					} else {
-						prev.delete(key)
-					}
-					return prev
-				},
-				{ replace: true },
-			)
-		},
-		[setSearchParams],
-	)
-
-	const responsibleOptions = useMemo(() => uniqueSorted(controls.map((c) => c.responsible)), [controls])
-	const technologyOptions = useMemo(() => uniqueSorted(controls.flatMap((c) => c.technologyElements)), [controls])
-	const frequencyOptions = useMemo(() => uniqueSorted(controls.map((c) => c.frequency)), [controls])
-
-	const filteredControls = useMemo(() => {
-		let result = controls
-		if (ansvarlig) result = result.filter((c) => c.responsible === ansvarlig)
-		if (teknologielement) result = result.filter((c) => c.technologyElements.includes(teknologielement))
-		if (frekvens) result = result.filter((c) => c.frequency === frekvens)
-		return result
-	}, [controls, ansvarlig, teknologielement, frekvens])
+	function setFilter(key: string, value: string) {
+		setSearchParams(
+			(prev) => {
+				if (value) {
+					prev.set(key, value)
+				} else {
+					prev.delete(key)
+				}
+				return prev
+			},
+			{ replace: true },
+		)
+	}
 
 	return (
 		<VStack gap="space-12">
@@ -126,51 +128,51 @@ export default function Kontrollrammeverk() {
 				</VStack>
 			)}
 
-			{controls.length > 0 && (
+			{(controls.length > 0 || totalControls > 0) && (
 				<VStack gap="space-6">
 					<Heading size="large" level="3">
 						Kontroller
 					</Heading>
 					<HStack gap="space-6" wrap>
-						{responsibleOptions.length > 0 && (
+						{options.responsibleOptions.length > 0 && (
 							<Select
 								label="Ansvarlig"
-								value={ansvarlig}
+								value={filters.ansvarlig}
 								onChange={(e) => setFilter("ansvarlig", e.target.value)}
 								style={{ minWidth: "14rem" }}
 							>
 								<option value="">Vis alle</option>
-								{responsibleOptions.map((r) => (
+								{options.responsibleOptions.map((r) => (
 									<option key={r} value={r}>
 										{r}
 									</option>
 								))}
 							</Select>
 						)}
-						{technologyOptions.length > 0 && (
+						{options.technologyOptions.length > 0 && (
 							<Select
 								label="Teknologielement"
-								value={teknologielement}
+								value={filters.teknologielement}
 								onChange={(e) => setFilter("teknologielement", e.target.value)}
 								style={{ minWidth: "14rem" }}
 							>
 								<option value="">Vis alle</option>
-								{technologyOptions.map((t) => (
+								{options.technologyOptions.map((t) => (
 									<option key={t} value={t}>
 										{t}
 									</option>
 								))}
 							</Select>
 						)}
-						{frequencyOptions.length > 0 && (
+						{options.frequencyOptions.length > 0 && (
 							<Select
 								label="Frekvens"
-								value={frekvens}
+								value={filters.frekvens}
 								onChange={(e) => setFilter("frekvens", e.target.value)}
 								style={{ minWidth: "14rem" }}
 							>
 								<option value="">Vis alle</option>
-								{frequencyOptions.map((f) => (
+								{options.frequencyOptions.map((f) => (
 									<option key={f} value={f}>
 										{f}
 									</option>
@@ -179,9 +181,9 @@ export default function Kontrollrammeverk() {
 						)}
 					</HStack>
 					<BodyShort size="small">
-						Viser {filteredControls.length} av {controls.length} kontroller
+						Viser {controls.length} av {totalControls} kontroller
 					</BodyShort>
-					{groupByDomain(filteredControls).map(({ domainName, items }) => (
+					{groupByDomain(controls).map(({ domainName, items }) => (
 						<VStack key={domainName} gap="space-4">
 							<Heading size="medium" level="4">
 								{domainName}
