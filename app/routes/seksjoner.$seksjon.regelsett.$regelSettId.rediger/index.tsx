@@ -168,7 +168,7 @@ export default function RegelsettRediger() {
 		<VStack gap="space-6">
 			<VStack gap="space-2">
 				<Heading size="large">
-					Rediger: {ruleset.code} — {section.name}
+					Rediger: {ruleset.name} — {section.name}
 				</Heading>
 				<Link to={`/seksjoner/${section.slug}/regelsett/${ruleset.id}`}>← Tilbake til regelsett</Link>
 			</VStack>

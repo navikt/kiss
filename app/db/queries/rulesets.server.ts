@@ -12,7 +12,6 @@ export type ApprovalStatus = "draft" | "valid" | "expiring_soon" | "expired"
 
 export interface RulesetListItem {
 	id: string
-	code: string
 	name: string
 	description: string | null
 	responsibleIdent: string | null
@@ -102,7 +101,7 @@ export async function getRulesetsForSection(sectionId: string): Promise<RulesetL
 		.select()
 		.from(rulesets)
 		.where(and(eq(rulesets.sectionId, sectionId), isNull(rulesets.archivedAt)))
-		.orderBy(rulesets.code)
+		.orderBy(rulesets.name)
 
 	if (rows.length === 0) return []
 
@@ -124,7 +123,6 @@ export async function getRulesetsForSection(sectionId: string): Promise<RulesetL
 		const latest = latestByRuleset.get(r.id)
 		return {
 			id: r.id,
-			code: r.code,
 			name: r.name,
 			description: r.description,
 			responsibleIdent: r.responsibleIdent,
@@ -147,7 +145,6 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 			id: rulesets.id,
 			sectionId: rulesets.sectionId,
 			sectionName: sections.name,
-			code: rulesets.code,
 			name: rulesets.name,
 			description: rulesets.description,
 			responsibleIdent: rulesets.responsibleIdent,
@@ -199,7 +196,6 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 		id: row.id,
 		sectionId: row.sectionId,
 		sectionName: row.sectionName,
-		code: row.code,
 		name: row.name,
 		description: row.description,
 		responsibleIdent: row.responsibleIdent,
@@ -258,15 +254,10 @@ export async function createRuleset(input: {
 	frequency: RoutineFrequency
 	createdBy: string
 }): Promise<string> {
-	// Auto-generate a unique code: RS-{next sequence number}
-	const existing = await db.select({ id: rulesets.id }).from(rulesets).where(eq(rulesets.sectionId, input.sectionId))
-	const code = `RS-${String(existing.length + 1).padStart(3, "0")}`
-
 	const [row] = await db
 		.insert(rulesets)
 		.values({
 			sectionId: input.sectionId,
-			code,
 			name: input.name,
 			description: input.description ?? null,
 			responsibleIdent: input.responsibleIdent ?? null,
@@ -362,11 +353,10 @@ export async function unlinkControlFromRuleset(linkId: string): Promise<void> {
 /** Get rulesets linked to a specific control (for the control detail page). */
 export async function getRulesetsForControl(
 	controlUuid: string,
-): Promise<{ id: string; code: string; name: string; sectionName: string; approvalStatus: ApprovalStatus }[]> {
+): Promise<{ id: string; name: string; sectionName: string; approvalStatus: ApprovalStatus }[]> {
 	const rows = await db
 		.select({
 			id: rulesets.id,
-			code: rulesets.code,
 			name: rulesets.name,
 			status: rulesets.status,
 			sectionName: sections.name,
@@ -375,7 +365,7 @@ export async function getRulesetsForControl(
 		.innerJoin(rulesets, eq(rulesetControls.rulesetId, rulesets.id))
 		.innerJoin(sections, eq(rulesets.sectionId, sections.id))
 		.where(and(eq(rulesetControls.controlId, controlUuid), isNull(rulesets.archivedAt)))
-		.orderBy(rulesets.code)
+		.orderBy(rulesets.name)
 
 	if (rows.length === 0) return []
 
@@ -397,7 +387,6 @@ export async function getRulesetsForControl(
 		const latest = latestByRuleset.get(r.id)
 		return {
 			id: r.id,
-			code: r.code,
 			name: r.name,
 			sectionName: r.sectionName,
 			approvalStatus: computeApprovalStatus(

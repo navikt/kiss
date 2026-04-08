@@ -13,7 +13,7 @@ export const rulesets = pgTable("rulesets", {
 	sectionId: uuid("section_id")
 		.notNull()
 		.references(() => sections.id, { onDelete: "cascade" }),
-	code: text("code").notNull().unique(),
+	code: text("code"),
 	name: text("name").notNull(),
 	description: text("description"),
 	responsibleIdent: text("responsible_ident"),

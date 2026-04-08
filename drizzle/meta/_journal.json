@@ -57,6 +57,13 @@
       "when": 1775678818309,
       "tag": "0007_noisy_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775687992962,
+      "tag": "0008_spooky_black_knight",
+      "breakpoints": true
     }
   ]
 }

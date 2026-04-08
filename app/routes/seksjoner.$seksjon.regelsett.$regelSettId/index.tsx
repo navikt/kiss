@@ -112,9 +112,7 @@ export default function RegelsettDetalj() {
 					<Detail>
 						<Link to={`/seksjoner/${section.slug}/regelsett`}>← Regelsett</Link>
 					</Detail>
-					<Heading size="large">
-						{ruleset.code} — {ruleset.name}
-					</Heading>
+					<Heading size="large">{ruleset.name}</Heading>
 				</VStack>
 				<HStack gap="space-2">
 					{canApprove && (

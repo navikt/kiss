@@ -59,7 +59,6 @@ export default function SeksjonRegelsettIndex() {
 					<Table size="small">
 						<Table.Header>
 							<Table.Row>
-								<Table.HeaderCell scope="col">Kode</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Ansvarlig</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
@@ -73,9 +72,8 @@ export default function SeksjonRegelsettIndex() {
 								return (
 									<Table.Row key={rs.id}>
 										<Table.DataCell>
-											<Link to={`/seksjoner/${section.slug}/regelsett/${rs.id}`}>{rs.code}</Link>
+											<Link to={`/seksjoner/${section.slug}/regelsett/${rs.id}`}>{rs.name}</Link>
 										</Table.DataCell>
-										<Table.DataCell>{rs.name}</Table.DataCell>
 										<Table.DataCell>
 											{rs.responsibleRole
 												? (userRoleLabels[rs.responsibleRole as UserRole] ?? rs.responsibleRole)
