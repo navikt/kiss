@@ -20,6 +20,24 @@ runMigrations()
 
 export const streamTimeout = 5_000
 
+export function handleError(error: unknown, { request }: { request: Request }) {
+	// Don't log client-side abort errors
+	if (request.signal.aborted) return
+
+	const url = new URL(request.url)
+	const path = `${request.method} ${url.pathname}`
+
+	if (error instanceof Error) {
+		console.error(`[${path}] Unhandled error: ${error.message}`, {
+			stack_trace: error.stack,
+			path: url.pathname,
+			method: request.method,
+		})
+	} else {
+		console.error(`[${path}] Unhandled error:`, error)
+	}
+}
+
 export default function handleRequest(
 	request: Request,
 	responseStatusCode: number,
