@@ -48,25 +48,6 @@ function uniqueSorted(values: (string | null)[]) {
 	return [...unique].sort((a, b) => a.localeCompare(b, "nb"))
 }
 
-/** Split on commas that are outside parentheses. */
-function splitTechnologyElements(value: string): string[] {
-	const parts: string[] = []
-	let current = ""
-	let depth = 0
-	for (const ch of value) {
-		if (ch === "(") depth++
-		else if (ch === ")") depth--
-		if (ch === "," && depth === 0) {
-			parts.push(current.trim())
-			current = ""
-		} else {
-			current += ch
-		}
-	}
-	if (current.trim()) parts.push(current.trim())
-	return parts
-}
-
 export default function Kontrollrammeverk() {
 	const { risks, controls } = useLoaderData<typeof loader>()
 	const [ansvarlig, setAnsvarlig] = useState("")
@@ -74,17 +55,13 @@ export default function Kontrollrammeverk() {
 	const [frekvens, setFrekvens] = useState("")
 
 	const responsibleOptions = useMemo(() => uniqueSorted(controls.map((c) => c.responsible)), [controls])
-	const technologyOptions = useMemo(
-		() => uniqueSorted(controls.flatMap((c) => splitTechnologyElements(c.technologyElement ?? ""))),
-		[controls],
-	)
+	const technologyOptions = useMemo(() => uniqueSorted(controls.flatMap((c) => c.technologyElements)), [controls])
 	const frequencyOptions = useMemo(() => uniqueSorted(controls.map((c) => c.frequency)), [controls])
 
 	const filteredControls = useMemo(() => {
 		let result = controls
 		if (ansvarlig) result = result.filter((c) => c.responsible === ansvarlig)
-		if (teknologielement)
-			result = result.filter((c) => splitTechnologyElements(c.technologyElement ?? "").includes(teknologielement))
+		if (teknologielement) result = result.filter((c) => c.technologyElements.includes(teknologielement))
 		if (frekvens) result = result.filter((c) => c.frequency === frekvens)
 		return result
 	}, [controls, ansvarlig, teknologielement, frekvens])

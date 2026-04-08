@@ -1,4 +1,4 @@
-import { and, count, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { getStatusLabel } from "~/lib/compliance-status"
 import type { ParsedFramework } from "~/lib/excel-parser.server"
 import { deriveCronFrequency } from "~/lib/frequency-mapping"
@@ -179,7 +179,6 @@ export async function getAllControls() {
 			shortTitle: frameworkControls.shortTitle,
 			requirement: frameworkControls.requirement,
 			responsible: frameworkControls.responsible,
-			technologyElement: frameworkControls.technologyElement,
 			frequency: frameworkControls.frequency,
 		})
 		.from(frameworkControls)
@@ -187,7 +186,10 @@ export async function getAllControls() {
 		.orderBy(frameworkControls.controlId)
 
 	const controlUuids = rows.map((r) => r.uuid)
-	const domainMap = await getControlDomainMap(controlUuids)
+	const [domainMap, techMap] = await Promise.all([
+		getControlDomainMap(controlUuids),
+		getControlTechnologyMap(controlUuids),
+	])
 
 	return rows.map((r) => {
 		const domains = domainMap.get(r.uuid) ?? []
@@ -196,12 +198,36 @@ export async function getAllControls() {
 			controlId: r.controlId,
 			name: r.shortTitle ?? shortName(r.requirement, r.controlId),
 			responsible: r.responsible ?? null,
-			technologyElement: r.technologyElement ?? null,
+			technologyElements: techMap.get(r.uuid) ?? [],
 			frequency: r.frequency ?? null,
 			domainCode: primary?.domainCode ?? "",
 			domainName: primary?.domainName ?? "",
 		}
 	})
+}
+
+async function getControlTechnologyMap(controlUuids: string[]) {
+	if (controlUuids.length === 0) return new Map<string, string[]>()
+	const rows = await db
+		.select({
+			controlId: controlTechnologyElements.controlId,
+			elementName: technologyElements.name,
+		})
+		.from(controlTechnologyElements)
+		.innerJoin(technologyElements, eq(controlTechnologyElements.elementId, technologyElements.id))
+		.where(inArray(controlTechnologyElements.controlId, controlUuids))
+		.orderBy(technologyElements.displayOrder)
+
+	const map = new Map<string, string[]>()
+	for (const row of rows) {
+		let list = map.get(row.controlId)
+		if (!list) {
+			list = []
+			map.set(row.controlId, list)
+		}
+		list.push(row.elementName)
+	}
+	return map
 }
 
 /** Extract the short title from a requirement field (first line only). */
