@@ -55,13 +55,22 @@ export default function Kontrollrammeverk() {
 	const [frekvens, setFrekvens] = useState("")
 
 	const responsibleOptions = useMemo(() => uniqueSorted(controls.map((c) => c.responsible)), [controls])
-	const technologyOptions = useMemo(() => uniqueSorted(controls.map((c) => c.technologyElement)), [controls])
+	const technologyOptions = useMemo(
+		() => uniqueSorted(controls.flatMap((c) => (c.technologyElement ?? "").split(",").map((s) => s.trim()))),
+		[controls],
+	)
 	const frequencyOptions = useMemo(() => uniqueSorted(controls.map((c) => c.frequency)), [controls])
 
 	const filteredControls = useMemo(() => {
 		let result = controls
 		if (ansvarlig) result = result.filter((c) => c.responsible === ansvarlig)
-		if (teknologielement) result = result.filter((c) => c.technologyElement === teknologielement)
+		if (teknologielement)
+			result = result.filter((c) =>
+				(c.technologyElement ?? "")
+					.split(",")
+					.map((s) => s.trim())
+					.includes(teknologielement),
+			)
 		if (frekvens) result = result.filter((c) => c.frequency === frekvens)
 		return result
 	}, [controls, ansvarlig, teknologielement, frekvens])
