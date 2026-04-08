@@ -120,7 +120,7 @@ export default function Kontrollrammeverk() {
 								onChange={(e) => setAnsvarlig(e.target.value)}
 								style={{ minWidth: "14rem" }}
 							>
-								<option value="">Alle</option>
+								<option value="">Vis alle</option>
 								{responsibleOptions.map((r) => (
 									<option key={r} value={r}>
 										{r}
@@ -135,7 +135,7 @@ export default function Kontrollrammeverk() {
 								onChange={(e) => setTeknologielement(e.target.value)}
 								style={{ minWidth: "14rem" }}
 							>
-								<option value="">Alle</option>
+								<option value="">Vis alle</option>
 								{technologyOptions.map((t) => (
 									<option key={t} value={t}>
 										{t}
@@ -150,7 +150,7 @@ export default function Kontrollrammeverk() {
 								onChange={(e) => setFrekvens(e.target.value)}
 								style={{ minWidth: "14rem" }}
 							>
-								<option value="">Alle</option>
+								<option value="">Vis alle</option>
 								{frequencyOptions.map((f) => (
 									<option key={f} value={f}>
 										{f}
