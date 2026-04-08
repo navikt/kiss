@@ -1,5 +1,6 @@
 import path from "node:path"
 import url from "node:url"
+import { trace } from "@opentelemetry/api"
 import { createRequestHandler } from "@react-router/express"
 import compression from "compression"
 import express from "express"
@@ -28,11 +29,15 @@ function accessLogMiddleware(req: express.Request, res: express.Response, next: 
 		// Skip static assets in production
 		if (process.env.NODE_ENV === "production" && req.path.startsWith("/assets/")) return
 
+		const span = trace.getActiveSpan()
+		const traceId = span?.spanContext().traceId
+
 		logger.info("request", {
 			method: req.method,
 			path: req.originalUrl,
 			status: res.statusCode,
 			duration_ms: duration,
+			trace_id: traceId,
 			user_agent: req.get("user-agent"),
 			remote_addr: req.ip,
 		})
