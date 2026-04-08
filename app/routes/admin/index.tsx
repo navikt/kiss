@@ -20,6 +20,12 @@ export default function Admin() {
 			<BodyLong>Administrer brukere, seksjoner og systeminnstillinger.</BodyLong>
 
 			<div className="admin-grid">
+				<Link to="/admin/brukere" className="admin-card">
+					<Heading size="small" level="3">
+						Brukere og roller
+					</Heading>
+					<BodyLong size="small">Tildel og administrer roller for brukere.</BodyLong>
+				</Link>
 				<Link to="/admin/seksjoner" className="admin-card">
 					<Heading size="small" level="3">
 						Seksjoner

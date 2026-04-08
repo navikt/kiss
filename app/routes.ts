@@ -50,6 +50,7 @@ export default [
 	route("nais-overvaking/:team", "routes/nais-overvaking.$team/index.tsx"),
 	route("admin", "routes/admin/index.tsx"),
 	route("admin/seksjoner", "routes/admin.seksjoner/index.tsx"),
+	route("admin/brukere", "routes/admin.brukere/index.tsx"),
 	route("admin/screening", "routes/admin.screening/index.tsx"),
 	route("admin/screening/:questionId/rediger", "routes/admin.screening.$questionId.rediger/index.tsx"),
 	route("admin/link-suggestions", "routes/admin.link-suggestions/index.tsx"),

@@ -1,0 +1,315 @@
+import {
+	Alert,
+	BodyLong,
+	Button,
+	Heading,
+	HStack,
+	Modal,
+	Select,
+	Table,
+	Tag,
+	TextField,
+	VStack,
+} from "@navikt/ds-react"
+import { useState } from "react"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Form, useActionData, useLoaderData } from "react-router"
+import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getAllTeams } from "~/db/queries/applications.server"
+import { getSections } from "~/db/queries/sections.server"
+import { assignRole, listUsersWithRoles, removeRole, type UserWithRoles } from "~/db/queries/users.server"
+import { type UserRole, userRoleEnum, userRoleLabels } from "~/db/schema/organization"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAdmin } from "~/lib/authorization.server"
+
+export async function loader({ request }: LoaderFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
+
+	const [users, sections, teams] = await Promise.all([listUsersWithRoles(), getSections(), getAllTeams()])
+
+	return data({
+		users,
+		sections: sections.map((s) => ({ id: s.id, name: s.name })),
+		teams: teams.map((t) => ({ id: t.id, name: t.name })),
+	})
+}
+
+type ActionResult = { success: true; message: string } | { success: false; error: string }
+
+export async function action({ request }: ActionFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+	requireAdmin(authedUser)
+
+	const formData = await request.formData()
+	const intent = formData.get("intent")
+
+	switch (intent) {
+		case "assign-role": {
+			const navIdent = formData.get("navIdent")
+			const name = formData.get("name")
+			const role = formData.get("role")
+			const sectionId = formData.get("sectionId") || undefined
+			const devTeamId = formData.get("devTeamId") || undefined
+
+			if (typeof navIdent !== "string" || !navIdent.trim() || typeof name !== "string" || !name.trim()) {
+				return data<ActionResult>({
+					success: false,
+					error: "NAV-ident og navn er påkrevd.",
+				})
+			}
+			if (typeof role !== "string" || !userRoleEnum.includes(role as UserRole)) {
+				return data<ActionResult>({
+					success: false,
+					error: "Ugyldig rolle.",
+				})
+			}
+
+			await assignRole(
+				navIdent.trim().toUpperCase(),
+				name.trim(),
+				role as UserRole,
+				authedUser.navIdent,
+				typeof sectionId === "string" ? sectionId : undefined,
+				typeof devTeamId === "string" ? devTeamId : undefined,
+			)
+
+			return data<ActionResult>({
+				success: true,
+				message: `Rolle «${userRoleLabels[role as UserRole]}» tildelt ${navIdent.trim().toUpperCase()}.`,
+			})
+		}
+
+		case "remove-role": {
+			const roleId = formData.get("roleId")
+			if (typeof roleId !== "string") {
+				return data<ActionResult>({
+					success: false,
+					error: "Mangler rolle-ID.",
+				})
+			}
+			await removeRole(roleId)
+			return data<ActionResult>({
+				success: true,
+				message: "Rolle fjernet.",
+			})
+		}
+
+		default:
+			return data<ActionResult>({
+				success: false,
+				error: "Ugyldig handling.",
+			})
+	}
+}
+
+function RemoveRoleModal({
+	open,
+	onClose,
+	roleId,
+	roleName,
+	userName,
+}: {
+	open: boolean
+	onClose: () => void
+	roleId: string
+	roleName: string
+	userName: string
+}) {
+	return (
+		<Modal open={open} onClose={onClose} header={{ heading: "Fjern rolle" }}>
+			<Modal.Body>
+				<BodyLong>
+					Er du sikker på at du vil fjerne rollen «{roleName}» fra {userName}?
+				</BodyLong>
+			</Modal.Body>
+			<Modal.Footer>
+				<Form method="post" onSubmit={onClose}>
+					<input type="hidden" name="intent" value="remove-role" />
+					<input type="hidden" name="roleId" value={roleId} />
+					<HStack gap="space-4">
+						<Button type="submit" variant="danger">
+							Fjern
+						</Button>
+						<Button type="button" variant="tertiary" onClick={onClose}>
+							Avbryt
+						</Button>
+					</HStack>
+				</Form>
+			</Modal.Footer>
+		</Modal>
+	)
+}
+
+function UserRow({ user }: { user: UserWithRoles }) {
+	const [removeOpen, setRemoveOpen] = useState<string | null>(null)
+
+	return (
+		<>
+			<Table.Row>
+				<Table.DataCell>{user.navIdent}</Table.DataCell>
+				<Table.DataCell>{user.name}</Table.DataCell>
+				<Table.DataCell>{user.email ?? "–"}</Table.DataCell>
+				<Table.DataCell>
+					{user.roles.length === 0 ? (
+						<BodyLong size="small" textColor="subtle">
+							Ingen roller
+						</BodyLong>
+					) : (
+						<HStack gap="space-2" wrap>
+							{user.roles.map((r) => {
+								const scope = r.sectionName ?? r.devTeamName
+								return (
+									<HStack key={r.id} gap="space-1" align="center">
+										<Tag variant="info" size="xsmall">
+											{userRoleLabels[r.role]}
+											{scope ? ` (${scope})` : ""}
+										</Tag>
+										<Button
+											variant="tertiary-neutral"
+											size="xsmall"
+											onClick={() => setRemoveOpen(r.id)}
+											aria-label={`Fjern rolle ${userRoleLabels[r.role]}`}
+										>
+											✕
+										</Button>
+									</HStack>
+								)
+							})}
+						</HStack>
+					)}
+				</Table.DataCell>
+			</Table.Row>
+			{user.roles.map((r) => (
+				<RemoveRoleModal
+					key={r.id}
+					open={removeOpen === r.id}
+					onClose={() => setRemoveOpen(null)}
+					roleId={r.id}
+					roleName={userRoleLabels[r.role]}
+					userName={user.name}
+				/>
+			))}
+		</>
+	)
+}
+
+export default function AdminBrukere() {
+	const { users, sections, teams } = useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
+	const [filter, setFilter] = useState("")
+
+	const filtered = filter
+		? users.filter(
+				(u) =>
+					u.navIdent.toLowerCase().includes(filter.toLowerCase()) ||
+					u.name.toLowerCase().includes(filter.toLowerCase()),
+			)
+		: users
+
+	return (
+		<VStack gap="space-6">
+			<Heading size="xlarge" level="2">
+				Brukere og roller
+			</Heading>
+			<BodyLong>Tildel og fjern roller for brukere. Roller kan scopes til en seksjon eller et team.</BodyLong>
+
+			{actionData && "success" in actionData && actionData.success && (
+				<Alert variant="success">{actionData.message}</Alert>
+			)}
+			{actionData && "success" in actionData && !actionData.success && (
+				<Alert variant="error">{actionData.error}</Alert>
+			)}
+
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Tildel rolle
+				</Heading>
+				<Form method="post">
+					<input type="hidden" name="intent" value="assign-role" />
+					<VStack gap="space-4">
+						<HStack gap="space-4" wrap>
+							<TextField label="NAV-ident" name="navIdent" required htmlSize={12} />
+							<TextField label="Navn" name="name" required htmlSize={30} />
+							<Select label="Rolle" name="role" required>
+								<option value="">Velg rolle</option>
+								{userRoleEnum.map((r) => (
+									<option key={r} value={r}>
+										{userRoleLabels[r]}
+									</option>
+								))}
+							</Select>
+						</HStack>
+						<HStack gap="space-4" wrap>
+							<Select label="Seksjon (valgfri)" name="sectionId">
+								<option value="">Ingen</option>
+								{sections.map((s) => (
+									<option key={s.id} value={s.id}>
+										{s.name}
+									</option>
+								))}
+							</Select>
+							<Select label="Team (valgfritt)" name="devTeamId">
+								<option value="">Ingen</option>
+								{teams.map((t) => (
+									<option key={t.id} value={t.id}>
+										{t.name}
+									</option>
+								))}
+							</Select>
+						</HStack>
+						<div>
+							<Button type="submit" variant="primary">
+								Tildel rolle
+							</Button>
+						</div>
+					</VStack>
+				</Form>
+			</VStack>
+
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Brukere ({users.length})
+				</Heading>
+				<TextField
+					label="Søk"
+					description="Søk på NAV-ident eller navn"
+					value={filter}
+					onChange={(e) => setFilter(e.target.value)}
+					htmlSize={30}
+				/>
+				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+				<section className="table-scroll" tabIndex={0} aria-label="Brukere og roller">
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">NAV-ident</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+								<Table.HeaderCell scope="col">E-post</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Roller</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{filtered.map((u) => (
+								<UserRow key={u.id} user={u} />
+							))}
+							{filtered.length === 0 && (
+								<Table.Row>
+									<Table.DataCell colSpan={4}>
+										<BodyLong size="small" textColor="subtle">
+											{filter ? "Ingen brukere matcher søket." : "Ingen brukere registrert ennå."}
+										</BodyLong>
+									</Table.DataCell>
+								</Table.Row>
+							)}
+						</Table.Body>
+					</Table>
+				</section>
+			</VStack>
+		</VStack>
+	)
+}
+
+export { RouteErrorBoundary as ErrorBoundary }

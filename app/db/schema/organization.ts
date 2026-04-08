@@ -41,15 +41,29 @@ export const devTeams = pgTable("dev_teams", {
 })
 
 export const userRoleEnum = [
-	"developer",
-	"tech_lead",
-	"product_owner",
-	"system_owner",
-	"tech_manager",
-	"auditor",
 	"admin",
+	"section_manager",
+	"tech_manager",
+	"delivery_manager",
+	"product_owner",
+	"tech_lead",
+	"auditor",
+	"system_owner",
+	"developer",
 ] as const
 export type UserRole = (typeof userRoleEnum)[number]
+
+export const userRoleLabels: Record<UserRole, string> = {
+	admin: "Admin",
+	section_manager: "Seksjonsleder",
+	tech_manager: "Teknologileder",
+	delivery_manager: "Leveranseleder",
+	product_owner: "Produktleder",
+	tech_lead: "Tech Lead",
+	auditor: "Revisor",
+	system_owner: "Systemeier",
+	developer: "Utvikler",
+}
 
 export const users = pgTable("users", {
 	id: uuid("id").primaryKey().defaultRandom(),
