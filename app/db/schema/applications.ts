@@ -164,3 +164,13 @@ export const applicationAccessPolicyRules = pgTable("application_access_policy_r
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+export const naisDiscoveredApps = pgTable("nais_discovered_apps", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	name: text("name").notNull(),
+	naisTeamId: uuid("nais_team_id")
+		.notNull()
+		.references(() => naisTeams.id),
+	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})

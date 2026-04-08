@@ -1,4 +1,4 @@
-import { DownloadIcon, ExternalLinkIcon, EyeIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, ExternalLinkIcon, EyeIcon, LinkIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
@@ -612,14 +612,12 @@ export default function ApplikasjonDetalj() {
 									)
 								})}
 
-							{/* Inbound access policy rules */}
+							{/* Inbound access policy rules — summary with link to Tilgangspolicy tab */}
 							{authIntegrations
 								.filter((a) => a.type === "entra_id" && a.inboundRules)
 								.map((auth) => {
 									const rules = JSON.parse(auth.inboundRules ?? "[]") as Array<{
 										application: string
-										namespace?: string
-										cluster?: string
 									}>
 									if (rules.length === 0) return null
 									return (
@@ -627,73 +625,22 @@ export default function ApplikasjonDetalj() {
 											<Heading size="xsmall" level="4">
 												Autoriserte applikasjoner ({rules.length})
 											</Heading>
-											<BodyShort size="small" textColor="subtle">
-												Applikasjoner som har tilgang til å kalle dette API-et via Entra ID (M2M eller on-behalf-of).
+											<BodyShort size="small">
+												{rules.length} {rules.length === 1 ? "applikasjon" : "applikasjoner"} har tilgang til å kalle
+												dette API-et via Entra ID.{" "}
+												<AkselLink
+													as="button"
+													onClick={() =>
+														setSearchParams((prev) => {
+															prev.set("fane", "tilgangspolicy")
+															return prev
+														})
+													}
+												>
+													<LinkIcon aria-hidden fontSize="1rem" />
+													Se detaljer i Tilgangspolicy-fanen
+												</AkselLink>
 											</BodyShort>
-											<Table size="small">
-												<Table.Header>
-													<Table.Row>
-														<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-														<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
-														<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
-														<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-													</Table.Row>
-												</Table.Header>
-												<Table.Body>
-													{rules.map((rule) => {
-														const appId = knownApps[rule.application]
-														return (
-															<Table.Row key={`${rule.application}-${rule.namespace ?? ""}-${rule.cluster ?? ""}`}>
-																<Table.DataCell>
-																	{appId ? (
-																		<Link to={`/applikasjoner/${appId}/detaljer`}>
-																			<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.application}</code>
-																		</Link>
-																	) : (
-																		<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.application}</code>
-																	)}
-																</Table.DataCell>
-																<Table.DataCell>
-																	{rule.namespace ? (
-																		<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.namespace}</code>
-																	) : (
-																		<BodyShort size="small" textColor="subtle">
-																			Samme
-																		</BodyShort>
-																	)}
-																</Table.DataCell>
-																<Table.DataCell>
-																	{rule.cluster ? (
-																		<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.cluster}</code>
-																	) : (
-																		<BodyShort size="small" textColor="subtle">
-																			Samme
-																		</BodyShort>
-																	)}
-																</Table.DataCell>
-																<Table.DataCell>
-																	{appId ? (
-																		<Tag variant="success" size="xsmall">
-																			Kjent
-																		</Tag>
-																	) : (
-																		<HStack gap="space-1" align="center">
-																			<XMarkOctagonIcon
-																				aria-hidden
-																				fontSize="1rem"
-																				style={{ color: "var(--ax-text-warning)" }}
-																			/>
-																			<Tag variant="warning" size="xsmall">
-																				Ukjent
-																			</Tag>
-																		</HStack>
-																	)}
-																</Table.DataCell>
-															</Table.Row>
-														)
-													})}
-												</Table.Body>
-											</Table>
 										</VStack>
 									)
 								})}
@@ -743,12 +690,12 @@ export default function ApplikasjonDetalj() {
 										</Table.Header>
 										<Table.Body>
 											{inboundRules.map((rule) => {
-												const resolvedId = knownApps[rule.ruleApplication]
+												const resolution = knownApps[rule.ruleApplication]
 												return (
 													<Table.Row key={rule.id}>
 														<Table.DataCell>
-															{resolvedId ? (
-																<Link to={`/applikasjoner/${resolvedId}/detaljer`}>
+															{resolution?.status === "monitored" ? (
+																<Link to={`/applikasjoner/${resolution.appId}/detaljer`}>
 																	<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleApplication}</code>
 																</Link>
 															) : (
@@ -774,9 +721,13 @@ export default function ApplikasjonDetalj() {
 															)}
 														</Table.DataCell>
 														<Table.DataCell>
-															{resolvedId ? (
+															{resolution?.status === "monitored" ? (
 																<Tag variant="success" size="xsmall">
-																	Kjent
+																	Overvåket
+																</Tag>
+															) : resolution?.status === "discovered" ? (
+																<Tag variant="info" size="xsmall">
+																	Nais
 																</Tag>
 															) : (
 																<HStack gap="space-1" align="center">

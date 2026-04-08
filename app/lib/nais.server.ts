@@ -5,6 +5,7 @@ export interface NaisTeam {
 	slug: string
 	purpose?: string
 	appCount?: number
+	appNames?: string[]
 }
 
 export interface NaisPersistenceResource {
@@ -106,9 +107,12 @@ const TEAMS_QUERY = `
 			nodes {
 				slug
 				purpose
-				applications(first: 1) {
+				applications(first: 500) {
 					pageInfo {
 						totalCount
+					}
+					nodes {
+						name
 					}
 				}
 			}
@@ -122,7 +126,10 @@ interface TeamsResponse {
 		nodes: Array<{
 			slug: string
 			purpose?: string
-			applications?: { pageInfo: { totalCount?: number } }
+			applications?: {
+				pageInfo: { totalCount?: number }
+				nodes?: Array<{ name: string }>
+			}
 		}>
 	}
 }
@@ -142,6 +149,7 @@ export async function fetchNaisTeams(token?: string): Promise<NaisTeam[]> {
 				slug: node.slug,
 				purpose: node.purpose,
 				appCount: node.applications?.pageInfo?.totalCount ?? undefined,
+				appNames: node.applications?.nodes?.map((a) => a.name) ?? [],
 			})
 		}
 

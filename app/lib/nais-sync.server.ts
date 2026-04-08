@@ -1,5 +1,6 @@
 import { writeAuditLog } from "~/db/queries/audit.server"
 import {
+	syncDiscoveredApps,
 	upsertAccessPolicyRules,
 	upsertAppAuthIntegration,
 	upsertAppEnvironment,
@@ -30,6 +31,11 @@ export async function syncNaisTeams(token?: string): Promise<SyncResult | null> 
 		for (const team of teams) {
 			const isNew = await upsertNaisTeam(team.slug, team.purpose, team.appCount)
 			if (isNew) newCount++
+
+			// Store discovered app names for all teams (not just monitored)
+			if (team.appNames && team.appNames.length > 0) {
+				await syncDiscoveredApps(team.slug, team.appNames)
+			}
 		}
 
 		console.log(`[nais-sync] Teams: ${teams.length} discovered, ${newCount} new`)

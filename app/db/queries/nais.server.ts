@@ -11,6 +11,7 @@ import {
 	type LinkSuggestionStatus,
 	linkSuggestions,
 	monitoredApplications,
+	naisDiscoveredApps,
 	naisTeams,
 	type PersistenceType,
 	sectionIgnoredApplications,
@@ -130,6 +131,29 @@ export async function upsertNaisTeam(slug: string, displayName?: string | null, 
 	}
 	await db.insert(naisTeams).values({ slug, displayName, appCount: appCount ?? 0 })
 	return true
+}
+
+/** Sync discovered app names for a Nais team. Deletes removed apps, upserts current ones. */
+export async function syncDiscoveredApps(teamSlug: string, appNames: string[]): Promise<void> {
+	const [team] = await db.select({ id: naisTeams.id }).from(naisTeams).where(eq(naisTeams.slug, teamSlug)).limit(1)
+	if (!team) return
+
+	await db.transaction(async (tx) => {
+		// Delete all existing discovered apps for this team
+		await tx.delete(naisDiscoveredApps).where(eq(naisDiscoveredApps.naisTeamId, team.id))
+
+		if (appNames.length === 0) return
+
+		// Deduplicate names (shouldn't happen, but be safe)
+		const unique = [...new Set(appNames)]
+
+		await tx.insert(naisDiscoveredApps).values(
+			unique.map((name) => ({
+				name,
+				naisTeamId: team.id,
+			})),
+		)
+	})
 }
 
 /** Upsert a monitored application — insert if new, skip if exists. Returns the app. */
@@ -913,14 +937,44 @@ export async function bulkAcceptLinkSuggestions(minConfidence: number, performed
 	return accepted
 }
 
-/** Look up which application names exist as monitored applications. Returns a map of name → appId. */
-export async function resolveAppNames(names: string[]): Promise<Record<string, string>> {
+export type AppResolution = { status: "monitored"; appId: string } | { status: "discovered" } | { status: "unknown" }
+
+/** Look up app names: first in monitoredApplications (monitored), then naisDiscoveredApps (discovered), else unknown. */
+export async function resolveAppNames(names: string[]): Promise<Record<string, AppResolution>> {
 	if (names.length === 0) return {}
-	const rows = await db
+	const result: Record<string, AppResolution> = {}
+
+	// Step 1: Check monitored applications
+	const monitored = await db
 		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
 		.from(monitoredApplications)
 		.where(inArray(monitoredApplications.name, names))
-	return Object.fromEntries(rows.map((r) => [r.name, r.id]))
+	for (const row of monitored) {
+		result[row.name] = { status: "monitored", appId: row.id }
+	}
+
+	// Step 2: Check nais discovered apps for remaining names
+	const remaining = names.filter((n) => !result[n])
+	if (remaining.length > 0) {
+		const discovered = await db
+			.select({ name: naisDiscoveredApps.name })
+			.from(naisDiscoveredApps)
+			.where(inArray(naisDiscoveredApps.name, remaining))
+		for (const row of discovered) {
+			if (!result[row.name]) {
+				result[row.name] = { status: "discovered" }
+			}
+		}
+	}
+
+	// Step 3: Mark remaining as unknown
+	for (const name of names) {
+		if (!result[name]) {
+			result[name] = { status: "unknown" }
+		}
+	}
+
+	return result
 }
 
 /** Replace all access policy rules for a given application and direction. */

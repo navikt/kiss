@@ -56,7 +56,10 @@ describe("fetchNaisTeams", () => {
 		vi.stubGlobal("fetch", mockFetchResponse({ data: { teams: { pageInfo: noMorePages, nodes: teams } } }))
 
 		const result = await fetchNaisTeams("token")
-		expect(result).toEqual(teams)
+		expect(result).toEqual([
+			{ slug: "team-a", purpose: "Frontend", appCount: undefined, appNames: [] },
+			{ slug: "team-b", purpose: "Backend", appCount: undefined, appNames: [] },
+		])
 	})
 
 	it("paginates through multiple pages", async () => {
@@ -84,8 +87,8 @@ describe("fetchNaisTeams", () => {
 
 		const result = await fetchNaisTeams("token")
 		expect(result).toEqual([
-			{ slug: "team-a", purpose: "A" },
-			{ slug: "team-b", purpose: "B" },
+			{ slug: "team-a", purpose: "A", appCount: undefined, appNames: [] },
+			{ slug: "team-b", purpose: "B", appCount: undefined, appNames: [] },
 		])
 		expect(mockFetch).toHaveBeenCalledTimes(2)
 
