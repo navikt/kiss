@@ -6,6 +6,7 @@ import { renderToPipeableStream } from "react-dom/server"
 import type { AppLoadContext, EntryContext } from "react-router"
 import { ServerRouter } from "react-router"
 import { runMigrations } from "~/db/migrate.server"
+import { logger } from "~/lib/logger.server"
 import { startNaisScheduler } from "~/lib/nais-scheduler.server"
 
 // Run database migrations, then start the Nais scheduler
@@ -14,27 +15,26 @@ runMigrations()
 		startNaisScheduler()
 	})
 	.catch((error) => {
-		console.error("Failed to run migrations, shutting down:", error)
+		logger.error("Failed to run migrations, shutting down", error)
 		process.exit(1)
 	})
 
 export const streamTimeout = 5_000
 
 export function handleError(error: unknown, { request }: { request: Request }) {
-	// Don't log client-side abort errors
 	if (request.signal.aborted) return
 
 	const url = new URL(request.url)
 	const path = `${request.method} ${url.pathname}`
 
 	if (error instanceof Error) {
-		console.error(`[${path}] Unhandled error: ${error.message}`, {
+		logger.error(`[${path}] Unhandled error: ${error.message}`, {
 			stack_trace: error.stack,
 			path: url.pathname,
 			method: request.method,
 		})
 	} else {
-		console.error(`[${path}] Unhandled error:`, error)
+		logger.error(`[${path}] Unhandled error`, { details: String(error) })
 	}
 }
 
@@ -90,7 +90,7 @@ export default function handleRequest(
 			onError(error: unknown) {
 				responseStatusCode = 500
 				if (shellRendered) {
-					console.error(error)
+					logger.error("Stream render error", error instanceof Error ? error : { details: String(error) })
 				}
 			},
 		})

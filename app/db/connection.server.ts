@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
+import { logger } from "~/lib/logger.server"
 import * as schema from "./schema/index"
 
 // Nais default env var prefix: NAIS_DATABASE_{APP}_{DB} → NAIS_DATABASE_KISS_KISS
@@ -13,7 +14,7 @@ function buildConnectionConfig() {
 	const dbUsername = process.env.DB_USERNAME
 	const dbPassword = process.env.DB_PASSWORD
 	if (dbHost && dbDatabase && dbUsername && dbPassword) {
-		console.log(
+		logger.info(
 			`Database config: Using DB_* variables (host=${dbHost}, port=${process.env.DB_PORT ?? 5432}, db=${dbDatabase}, ssl=${process.env.DB_SSLROOTCERT ? "yes" : "no"})`,
 		)
 		return buildSslConfig(
@@ -34,7 +35,7 @@ function buildConnectionConfig() {
 	const naisUsername = process.env[`${NAIS_PREFIX}_USERNAME`]
 	const naisPassword = process.env[`${NAIS_PREFIX}_PASSWORD`]
 	if (naisHost && naisDatabase && naisUsername && naisPassword) {
-		console.log(
+		logger.info(
 			`Database config: Using ${NAIS_PREFIX}_* variables (host=${naisHost}, port=${process.env[`${NAIS_PREFIX}_PORT`] ?? 5432}, db=${naisDatabase}, ssl=${process.env[`${NAIS_PREFIX}_SSLROOTCERT`] ? "yes" : "no"})`,
 		)
 		return buildSslConfig(
@@ -52,17 +53,17 @@ function buildConnectionConfig() {
 	// 3. Try DATABASE_URL (generic fallback)
 	const connectionString = process.env.DATABASE_URL
 	if (connectionString) {
-		console.log("Database config: Using DATABASE_URL")
+		logger.info("Database config: Using DATABASE_URL")
 		return { connectionString }
 	}
 
 	// 4. Local development default
-	console.log("Database config: No Nais or DATABASE_URL vars found, using localhost default")
+	logger.info("Database config: No Nais or DATABASE_URL vars found, using localhost default")
 	const dbEnvVars = Object.keys(process.env).filter(
 		(k) => k.startsWith("DB_") || k.startsWith("DATABASE") || k.startsWith("NAIS_DATABASE"),
 	)
 	if (dbEnvVars.length > 0) {
-		console.log(`Database-related env vars found: ${dbEnvVars.join(", ")}`)
+		logger.info(`Database-related env vars found: ${dbEnvVars.join(", ")}`)
 	}
 	return { connectionString: "postgresql://kiss:kiss@localhost:5432/kiss" }
 }
@@ -103,7 +104,7 @@ const pool = new Pool({
 })
 
 pool.on("error", (err) => {
-	console.error("Unexpected error on idle database client", err)
+	logger.error("Unexpected error on idle database client", err)
 })
 
 export const db = drizzle(pool, { schema })

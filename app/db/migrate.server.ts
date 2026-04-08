@@ -3,18 +3,19 @@ import fs from "node:fs"
 import path from "node:path"
 import { sql } from "drizzle-orm"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
+import { logger } from "~/lib/logger.server"
 import { db } from "./connection.server"
 
 const MIGRATIONS_FOLDER = "./drizzle"
 
 export async function runMigrations() {
-	console.log("Running database migrations...")
+	logger.info("Running database migrations...")
 	try {
 		await seedTrackingForPushedDatabase()
 		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
-		console.log("Database migrations completed successfully")
+		logger.info("Database migrations completed successfully")
 	} catch (error) {
-		console.error("Database migration failed:", error)
+		logger.error("Database migration failed", error)
 		throw error
 	}
 }
@@ -49,7 +50,7 @@ async function seedTrackingForPushedDatabase() {
 
 	if (!tablesExist) return
 
-	console.log("Detected database created with db:push — seeding migration tracking...")
+	logger.info("Detected database created with db:push — seeding migration tracking...")
 
 	await db.execute(sql`CREATE SCHEMA IF NOT EXISTS drizzle`)
 	await db.execute(sql`
@@ -75,5 +76,5 @@ async function seedTrackingForPushedDatabase() {
 		`)
 	}
 
-	console.log(`Seeded ${journal.entries.length} migration(s) into tracking table`)
+	logger.info(`Seeded ${journal.entries.length} migration(s) into tracking table`)
 }

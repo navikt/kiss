@@ -9,6 +9,7 @@ import {
 	upsertNaisTeam,
 } from "~/db/queries/nais.server"
 import { withAdvisoryLock } from "./lock.server"
+import { logger } from "./logger.server"
 import { fetchNaisApps, fetchNaisTeams } from "./nais.server"
 
 const SYNC_PERFORMER = "nais-sync"
@@ -38,7 +39,7 @@ export async function syncNaisTeams(token?: string): Promise<SyncResult | null> 
 			}
 		}
 
-		console.log(`[nais-sync] Teams: ${teams.length} discovered, ${newCount} new`)
+		logger.info(`[nais-sync] Teams: ${teams.length} discovered, ${newCount} new`)
 		return { discovered: teams.length, new: newCount, skipped: teams.length - newCount }
 	})
 }
@@ -100,7 +101,7 @@ export async function syncNaisAppsForTeam(
 			}
 		}
 
-		console.log(
+		logger.info(
 			`[nais-sync] Apps for ${teamSlug}: ${apps.length} discovered, ${newApps} new apps, ${newEnvs} new envs, ${newPersistence} new persistence`,
 		)
 		return { discovered: apps.length, new: newApps, skipped: apps.length - newApps }
@@ -141,13 +142,13 @@ export async function runFullNaisSync(token?: string): Promise<{
 		const candidates = await findLinkCandidates()
 		const newSuggestions = await persistLinkSuggestions(candidates)
 		if (newSuggestions > 0) {
-			console.log(`[nais-sync] Created ${newSuggestions} new link suggestions`)
+			logger.info(`[nais-sync] Created ${newSuggestions} new link suggestions`)
 		}
 
 		// Auto-assign technology elements to apps based on persistence/auth
 		const { syncAllApplicationElements } = await import("~/db/queries/technology-elements.server")
 		const elemSyncCount = await syncAllApplicationElements()
-		console.log(`[nais-sync] Synced technology elements for ${elemSyncCount} applications`)
+		logger.info(`[nais-sync] Synced technology elements for ${elemSyncCount} applications`)
 
 		await writeAuditLog({
 			action: "nais_sync_completed",

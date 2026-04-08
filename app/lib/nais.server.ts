@@ -1,3 +1,5 @@
+import { logger } from "./logger.server"
+
 const NAIS_API_URL = process.env.NAIS_API_URL ?? "https://console.nav.cloud.nais.io/graphql"
 const PAGE_SIZE = 100
 
@@ -157,7 +159,7 @@ export async function fetchNaisTeams(token?: string): Promise<NaisTeam[]> {
 		after = result.teams.pageInfo.endCursor
 	}
 
-	console.log(`[nais] Fetched ${allTeams.length} teams (${Math.ceil(allTeams.length / PAGE_SIZE)} pages)`)
+	logger.info(`[nais] Fetched ${allTeams.length} teams (${Math.ceil(allTeams.length / PAGE_SIZE)} pages)`)
 	return allTeams
 }
 
