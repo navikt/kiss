@@ -79,6 +79,9 @@ export default function App() {
 				</InternalHeader.Title>
 				<SearchDialog />
 				<Spacer />
+				<Detail textColor="subtle" style={{ alignSelf: "center", marginRight: "var(--ax-space-4)" }}>
+					{__BUILD_VERSION__}
+				</Detail>
 				<ThemeToggle />
 				{user && (
 					<InternalHeader.User
