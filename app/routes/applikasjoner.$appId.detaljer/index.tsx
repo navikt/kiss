@@ -32,6 +32,7 @@ import {
 import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
+import { getLatestSnapshot, getOracleInstancesForApp } from "~/db/queries/audit-evidence.server"
 import { getApplicationDetail, resolveAppNames } from "~/db/queries/nais.server"
 import { generateAppComplianceReport, getReportsForApp } from "~/db/queries/reports.server"
 import { createReview, getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
@@ -117,6 +118,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 	const knownApps = await resolveAppNames([...referencedAppNames])
 
+	const oracleInstances = await getOracleInstancesForApp(appId)
+
+	// Fetch latest snapshots for configured instances
+	const snapshotPromises = oracleInstances.map(async (inst) => {
+		const snapshot = await getLatestSnapshot(appId, inst.instanceId)
+		return { instanceId: inst.instanceId, snapshot }
+	})
+	const instanceSnapshots = await Promise.all(snapshotPromises)
+
 	return data({
 		app: detail.app,
 		environments: detail.environments,
@@ -148,6 +158,36 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			createdAt: r.createdAt.toISOString(),
 			createdBy: r.createdBy,
 			reportBucketPath: r.reportBucketPath,
+		})),
+		oracleInstances: oracleInstances.map((inst) => ({
+			...inst,
+			configuredAt: inst.configuredAt.toISOString(),
+			latestSnapshot: inst.latestSnapshot
+				? {
+						...inst.latestSnapshot,
+						fetchedAt: inst.latestSnapshot.fetchedAt.toISOString(),
+					}
+				: null,
+		})),
+		instanceSnapshots: instanceSnapshots.map(({ instanceId, snapshot }) => ({
+			instanceId,
+			snapshot: snapshot
+				? {
+						id: snapshot.id,
+						overallStatus: snapshot.overallStatus,
+						collectedAt: snapshot.collectedAt.toISOString(),
+						fetchedAt: snapshot.fetchedAt.toISOString(),
+						fetchedBy: snapshot.fetchedBy,
+						excelBucketPath: snapshot.excelBucketPath,
+						sections: snapshot.sections.map((s) => ({
+							sectionId: s.sectionId,
+							title: s.title,
+							summary: s.summary,
+							error: s.error,
+							resultJson: s.resultJson as { query?: string; columns?: string[]; rows?: unknown[][] } | null,
+						})),
+					}
+				: null,
 		})),
 	})
 }
@@ -235,6 +275,8 @@ export default function ApplikasjonDetalj() {
 		compliance,
 		assessments,
 		appReports,
+		oracleInstances,
+		instanceSnapshots,
 	} = useLoaderData<typeof loader>()
 
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -286,6 +328,7 @@ export default function ApplikasjonDetalj() {
 					<Tabs.Tab value="tilgangspolicy" label="Tilgangspolicy" />
 					<Tabs.Tab value="miljoer" label="Miljøer" />
 					<Tabs.Tab value="persistering" label="Persistering" />
+					{oracleInstances.length > 0 && <Tabs.Tab value="revisjonsbevis" label="Revisjonsbevis" />}
 					<Tabs.Tab value="rutiner" label="Rutiner" />
 					<Tabs.Tab value="rapporter" label="Rapporter" />
 				</Tabs.List>
@@ -829,6 +872,122 @@ export default function ApplikasjonDetalj() {
 						<BodyLong>Ingen kjent persistens fra Nais.</BodyLong>
 					)}
 				</Tabs.Panel>
+
+				{/* Revisjonsbevis */}
+				{oracleInstances.length > 0 && (
+					<Tabs.Panel value="revisjonsbevis" style={{ paddingTop: "var(--ax-space-6)" }}>
+						<VStack gap="space-12">
+							{instanceSnapshots.map(({ instanceId, snapshot }) => (
+								<Box key={instanceId} borderWidth="1" borderColor="neutral-subtle" padding="space-8" borderRadius="8">
+									<VStack gap="space-6">
+										<HStack gap="space-4" align="center" wrap>
+											<Heading size="small" level="3">
+												{instanceId.toUpperCase()}
+											</Heading>
+											{snapshot ? (
+												<>
+													<Tag
+														variant={
+															snapshot.overallStatus === "OK"
+																? "success"
+																: snapshot.overallStatus === "PARTIAL"
+																	? "warning"
+																	: "error"
+														}
+														size="small"
+													>
+														{snapshot.overallStatus}
+													</Tag>
+													<BodyShort size="small" style={{ color: "var(--ax-text-subtle)" }}>
+														Hentet {new Date(snapshot.fetchedAt).toLocaleString("nb-NO")} av {snapshot.fetchedBy}
+													</BodyShort>
+													{snapshot.excelBucketPath && (
+														<a href={`/api/applikasjoner/${app.id}/revisjonsbevis/${instanceId}/excel`}>
+															<Button variant="tertiary" size="xsmall" as="span" icon={<DownloadIcon aria-hidden />}>
+																Excel
+															</Button>
+														</a>
+													)}
+												</>
+											) : (
+												<Tag variant="neutral" size="small">
+													Ikke hentet
+												</Tag>
+											)}
+										</HStack>
+
+										{snapshot?.sections && snapshot.sections.length > 0 && (
+											<VStack gap="space-4">
+												{snapshot.sections.map((section) => (
+													<Box
+														key={section.sectionId}
+														borderWidth="1"
+														borderColor="neutral-subtle"
+														padding="space-4"
+														borderRadius="4"
+													>
+														<VStack gap="space-2">
+															<HStack gap="space-4" align="center">
+																<BodyShort weight="semibold">{section.title}</BodyShort>
+																{section.error ? (
+																	<Tag variant="error" size="xsmall">
+																		Feil
+																	</Tag>
+																) : (
+																	<Tag variant="success" size="xsmall">
+																		OK
+																	</Tag>
+																)}
+															</HStack>
+															{section.summary && (
+																<BodyShort size="small" style={{ color: "var(--ax-text-subtle)" }}>
+																	{section.summary}
+																</BodyShort>
+															)}
+															{section.error && (
+																<Alert variant="error" size="small">
+																	{section.error}
+																</Alert>
+															)}
+															{section.resultJson?.columns && section.resultJson?.rows && (
+																<section className="table-scroll" aria-label={section.title}>
+																	<Table size="small">
+																		<Table.Header>
+																			<Table.Row>
+																				{section.resultJson.columns.map((col) => (
+																					<Table.HeaderCell key={col} scope="col">
+																						{col}
+																					</Table.HeaderCell>
+																				))}
+																			</Table.Row>
+																		</Table.Header>
+																		<Table.Body>
+																			{section.resultJson.rows.map((row, rowIdx) => {
+																				const rowKey = `${section.sectionId}-r${String(rowIdx)}`
+																				return (
+																					<Table.Row key={rowKey}>
+																						{(row as unknown[]).map((cell, colIdx) => {
+																							const cellKey = `${rowKey}-c${String(colIdx)}`
+																							return <Table.DataCell key={cellKey}>{String(cell ?? "")}</Table.DataCell>
+																						})}
+																					</Table.Row>
+																				)
+																			})}
+																		</Table.Body>
+																	</Table>
+																</section>
+															)}
+														</VStack>
+													</Box>
+												))}
+											</VStack>
+										)}
+									</VStack>
+								</Box>
+							))}
+						</VStack>
+					</Tabs.Panel>
+				)}
 
 				{/* Rutiner */}
 				<Tabs.Panel value="rutiner" style={{ paddingTop: "var(--ax-space-6)" }}>

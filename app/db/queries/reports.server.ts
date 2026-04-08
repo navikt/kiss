@@ -11,6 +11,7 @@ import { devTeams, sections } from "../schema/organization"
 import { reports } from "../schema/reports"
 import { routines } from "../schema/routines"
 import { writeAuditLog } from "./audit.server"
+import { getAuditEvidenceForReport } from "./audit-evidence.server"
 import { saveBucketObject } from "./buckets.server"
 import { getActiveFrameworkVersion } from "./framework.server"
 import { calculateDeadline, getAppsRequiringRoutine, getLatestReviewForApp, isOverdue } from "./routines.server"
@@ -400,6 +401,8 @@ export async function generateAppComplianceReport(params: {
 		completedReviews = completedReviews.filter((r) => reviewIds.includes(r.id))
 	}
 
+	const auditEvidence = await getAuditEvidenceForReport(applicationId)
+
 	const now = new Date()
 	const datePrefix = now.toISOString().slice(0, 10)
 	const fileId = crypto.randomUUID()
@@ -454,6 +457,16 @@ export async function generateAppComplianceReport(params: {
 				title: l.title,
 			})),
 		})),
+		auditEvidence: auditEvidence.map((e) => ({
+			instanceId: e.instanceId,
+			overallStatus: e.overallStatus,
+			collectedAt: e.collectedAt.toISOString(),
+			sections: e.sections.map((s) => ({
+				title: s.title,
+				summary: s.summary,
+				error: s.error,
+			})),
+		})),
 	}
 
 	// Upload snapshot JSON
@@ -495,6 +508,7 @@ export async function generateAppComplianceReport(params: {
 		assessments,
 		completedReviews,
 		pdfAttachmentBuffers,
+		auditEvidence,
 	)
 
 	// Merge PDF attachments right after their cover pages
@@ -601,6 +615,12 @@ function buildAppPdf(
 		links: Array<{ url: string; title: string | null }>
 	}>,
 	attachments: Array<{ fileName: string; contentType: string; data: Buffer }>,
+	auditEvidence: Array<{
+		instanceId: string
+		overallStatus: string
+		collectedAt: Date
+		sections: Array<{ title: string; summary: string | null; error: string | null }>
+	}>,
 ): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const doc = new PDFDocCtor({ size: "A4", margin: 50, bufferPages: true })
@@ -756,6 +776,39 @@ function buildAppPdf(
 						}
 					}
 				}
+			}
+		}
+
+		// Audit evidence — Oracle databases
+		if (auditEvidence.length > 0) {
+			doc.addPage()
+			doc.fontSize(16).fillColor(blue).text("Revisjonsbevis — Oracle-databaser", { underline: true })
+			doc.moveDown()
+
+			for (const evidence of auditEvidence) {
+				if (doc.y > 700) doc.addPage()
+				doc.fontSize(12).fillColor(dark).text(`${evidence.instanceId.toUpperCase()} — ${evidence.overallStatus}`, {
+					underline: true,
+				})
+				doc.moveDown(0.5)
+				doc
+					.fontSize(9)
+					.fillColor(gray)
+					.text(`Hentet: ${evidence.collectedAt.toLocaleDateString("nb-NO")}`)
+				doc.moveDown(0.5)
+
+				for (const section of evidence.sections) {
+					if (doc.y > 760) doc.addPage()
+					doc.fontSize(10).fillColor(dark).text(section.title, { continued: false })
+					if (section.summary) {
+						doc.fontSize(9).fillColor(dark).text(`  ${section.summary}`)
+					}
+					if (section.error) {
+						doc.fontSize(9).fillColor("red").text(`  Feil: ${section.error}`).fillColor(dark)
+					}
+					doc.moveDown(0.3)
+				}
+				doc.moveDown()
 			}
 		}
 

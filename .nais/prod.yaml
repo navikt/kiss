@@ -70,6 +70,7 @@ spec:
       external:
         - host: graph.microsoft.com
         - host: console.nav.cloud.nais.io
+        - host: pensjon-oracle-revisjon-backend.prod-fss-pub.nais.io
   env:
     - name: NODE_ENV
       value: production
@@ -85,5 +86,9 @@ spec:
       value: "415d3817-c83d-44c9-a52b-5116757f8fa8"
     - name: GCS_BUCKET_NAME
       value: kiss-data
+    - name: ORACLE_REVISJON_BASE_URL
+      value: "https://pensjon-oracle-revisjon-backend.prod-fss-pub.nais.io"
+    - name: ORACLE_REVISJON_SCOPE
+      value: "api://prod-fss.pensjon-revisjon.pensjon-oracle-revisjon-backend/.default"
   envFrom:
     - secret: nais-deployment-audit

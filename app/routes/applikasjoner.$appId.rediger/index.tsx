@@ -18,6 +18,13 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableTeamsForApp, linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
+import {
+	configureOracleInstance,
+	getOracleInstancesForApp,
+	removeOracleInstance,
+	saveAuditEvidenceSnapshot,
+	setIncludeInReport,
+} from "~/db/queries/audit-evidence.server"
 import { findLinkCandidates, getApplicationDetail, linkApplication, unlinkApplication } from "~/db/queries/nais.server"
 import {
 	addApplicationElement,
@@ -29,6 +36,7 @@ import {
 } from "~/db/queries/technology-elements.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import { getAuditEvidence, getAuditEvidenceExcel, getOracleInstances } from "~/lib/oracle-revisjon.server"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const appId = params.appId
@@ -38,13 +46,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)
 
-	const [detail, candidates, appElements, allElements, availableTeams] = await Promise.all([
-		getApplicationDetail(appId),
-		findLinkCandidates(),
-		getApplicationElements(appId),
-		getAllTechnologyElements(),
-		getAvailableTeamsForApp(appId),
-	])
+	const [detail, candidates, appElements, allElements, availableTeams, oracleInstances, allOracleInstances] =
+		await Promise.all([
+			getApplicationDetail(appId),
+			findLinkCandidates(),
+			getApplicationElements(appId),
+			getAllTechnologyElements(),
+			getAvailableTeamsForApp(appId),
+			getOracleInstancesForApp(appId),
+			getOracleInstances(),
+		])
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
@@ -57,6 +68,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		).values(),
 	]
 
+	const configuredIds = new Set(oracleInstances.map((i) => i.instanceId))
+	const availableOracleInstances = allOracleInstances.filter((i) => !configuredIds.has(i.id))
+
 	return data({
 		app: detail.app,
 		teams: detail.teams,
@@ -66,6 +80,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		appElements,
 		availableElements: allElements.filter((e) => !appElements.some((ae) => ae.id === e.id)),
 		availableTeams,
+		oracleInstances,
+		availableOracleInstances,
 	})
 }
 
@@ -115,6 +131,24 @@ export async function action({ params, request }: ActionFunctionArgs) {
 		const devTeamId = formData.get("devTeamId") as string
 		if (!devTeamId) throw new Response("Mangler devTeamId", { status: 400 })
 		await unlinkAppFromTeam(appId, devTeamId, performer)
+	} else if (intent === "addOracleInstance") {
+		const instanceId = formData.get("instanceId") as string
+		if (!instanceId) throw new Response("Mangler instanceId", { status: 400 })
+		await configureOracleInstance(appId, instanceId, authedUser.navIdent)
+	} else if (intent === "removeOracleInstance") {
+		const instanceId = formData.get("instanceId") as string
+		if (!instanceId) throw new Response("Mangler instanceId", { status: 400 })
+		await removeOracleInstance(appId, instanceId)
+	} else if (intent === "toggleOracleReport") {
+		const instanceId = formData.get("instanceId") as string
+		const include = formData.get("include") as string
+		if (!instanceId) throw new Response("Mangler instanceId", { status: 400 })
+		await setIncludeInReport(appId, instanceId, include === "true")
+	} else if (intent === "fetchEvidence") {
+		const instanceId = formData.get("instanceId") as string
+		if (!instanceId) throw new Response("Mangler instanceId", { status: 400 })
+		const [evidence, excel] = await Promise.all([getAuditEvidence(instanceId), getAuditEvidenceExcel(instanceId)])
+		await saveAuditEvidenceSnapshot(appId, instanceId, evidence, excel, authedUser.navIdent)
 	} else {
 		throw new Response("Ugyldig handling", { status: 400 })
 	}
@@ -250,9 +284,25 @@ function TechnologyElementRow({ element: el }: { element: AppElement }) {
 	)
 }
 
+function statusVariant(status: string): "success" | "warning" | "error" {
+	if (status === "OK") return "success"
+	if (status === "PARTIAL") return "warning"
+	return "error"
+}
+
 export default function ApplikasjonRediger() {
-	const { app, teams, primaryApp, linkedApps, linkSuggestions, appElements, availableElements, availableTeams } =
-		useLoaderData<typeof loader>()
+	const {
+		app,
+		teams,
+		primaryApp,
+		linkedApps,
+		linkSuggestions,
+		appElements,
+		availableElements,
+		availableTeams,
+		oracleInstances,
+		availableOracleInstances,
+	} = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-24">
@@ -355,6 +405,90 @@ export default function ApplikasjonRediger() {
 							</HStack>
 						</Form>
 					</VStack>
+				)}
+			</Box>
+
+			{/* Oracle-revisjonsbevis */}
+			<Box>
+				<Heading size="medium" level="3" spacing>
+					Oracle-revisjonsbevis
+				</Heading>
+				<BodyLong spacing>
+					Konfigurer hvilke Oracle-instanser som skal hente revisjonsbevis for denne applikasjonen.
+				</BodyLong>
+
+				{oracleInstances.length > 0 ? (
+					<VStack gap="space-4">
+						{oracleInstances.map((inst) => (
+							<Box key={inst.id} borderWidth="1" borderColor="neutral-subtle" padding="space-8" borderRadius="8">
+								<VStack gap="space-4">
+									<HStack gap="space-4" align="center" wrap>
+										<Tag variant="info" size="small">
+											{inst.instanceId.toUpperCase()}
+										</Tag>
+										{inst.latestSnapshot ? (
+											<Tag variant={statusVariant(inst.latestSnapshot.overallStatus)} size="xsmall">
+												{inst.latestSnapshot.overallStatus}
+											</Tag>
+										) : (
+											<Tag variant="neutral" size="xsmall">
+												Ikke hentet
+											</Tag>
+										)}
+										{inst.latestSnapshot && (
+											<BodyShort size="small" style={{ color: "var(--ax-text-subtle)" }}>
+												Hentet {new Date(inst.latestSnapshot.fetchedAt).toLocaleString("nb-NO")}
+											</BodyShort>
+										)}
+									</HStack>
+									<HStack gap="space-2" align="center">
+										<Form method="post" style={{ display: "inline" }}>
+											<input type="hidden" name="intent" value="fetchEvidence" />
+											<input type="hidden" name="instanceId" value={inst.instanceId} />
+											<Button variant="secondary" size="xsmall" type="submit">
+												Hent bevis
+											</Button>
+										</Form>
+										<Form method="post" style={{ display: "inline" }}>
+											<input type="hidden" name="intent" value="toggleOracleReport" />
+											<input type="hidden" name="instanceId" value={inst.instanceId} />
+											<input type="hidden" name="include" value={inst.includeInReport ? "false" : "true"} />
+											<Button variant="tertiary" size="xsmall" type="submit">
+												{inst.includeInReport ? "Fjern fra rapport" : "Ta med i rapport"}
+											</Button>
+										</Form>
+										<Form method="post" style={{ display: "inline" }}>
+											<input type="hidden" name="intent" value="removeOracleInstance" />
+											<input type="hidden" name="instanceId" value={inst.instanceId} />
+											<Button variant="tertiary-neutral" size="xsmall" type="submit">
+												Fjern
+											</Button>
+										</Form>
+									</HStack>
+								</VStack>
+							</Box>
+						))}
+					</VStack>
+				) : (
+					<BodyLong>Ingen Oracle-instanser er konfigurert.</BodyLong>
+				)}
+
+				{availableOracleInstances.length > 0 && (
+					<Form method="post" style={{ marginTop: "var(--ax-space-8)" }}>
+						<input type="hidden" name="intent" value="addOracleInstance" />
+						<HStack gap="space-2" align="end">
+							<Select label="Legg til Oracle-instans" name="instanceId" size="small">
+								{availableOracleInstances.map((inst) => (
+									<option key={inst.id} value={inst.id}>
+										{inst.id.toUpperCase()} ({inst.name})
+									</option>
+								))}
+							</Select>
+							<Button variant="secondary" size="small" type="submit">
+								Legg til
+							</Button>
+						</HStack>
+					</Form>
 				)}
 			</Box>
 

@@ -1,5 +1,6 @@
 export * from "./applications"
 export * from "./audit"
+export * from "./audit-evidence"
 export * from "./buckets"
 export * from "./compliance"
 export * from "./documents"
