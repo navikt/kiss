@@ -1,7 +1,7 @@
 import { BodyLong, BodyShort, Heading, HStack, Select, VStack } from "@navikt/ds-react"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo } from "react"
 import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import { data, Link, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls, getAllRisks } from "~/db/queries/framework.server"
 
@@ -50,9 +50,28 @@ function uniqueSorted(values: (string | null)[]) {
 
 export default function Kontrollrammeverk() {
 	const { risks, controls } = useLoaderData<typeof loader>()
-	const [ansvarlig, setAnsvarlig] = useState("")
-	const [teknologielement, setTeknologielement] = useState("")
-	const [frekvens, setFrekvens] = useState("")
+	const [searchParams, setSearchParams] = useSearchParams()
+
+	const ansvarlig = searchParams.get("ansvarlig") ?? ""
+	const teknologielement = searchParams.get("teknologielement") ?? ""
+	const frekvens = searchParams.get("frekvens") ?? ""
+
+	const setFilter = useCallback(
+		(key: string, value: string) => {
+			setSearchParams(
+				(prev) => {
+					if (value) {
+						prev.set(key, value)
+					} else {
+						prev.delete(key)
+					}
+					return prev
+				},
+				{ replace: true },
+			)
+		},
+		[setSearchParams],
+	)
 
 	const responsibleOptions = useMemo(() => uniqueSorted(controls.map((c) => c.responsible)), [controls])
 	const technologyOptions = useMemo(() => uniqueSorted(controls.flatMap((c) => c.technologyElements)), [controls])
@@ -117,7 +136,7 @@ export default function Kontrollrammeverk() {
 							<Select
 								label="Ansvarlig"
 								value={ansvarlig}
-								onChange={(e) => setAnsvarlig(e.target.value)}
+								onChange={(e) => setFilter("ansvarlig", e.target.value)}
 								style={{ minWidth: "14rem" }}
 							>
 								<option value="">Vis alle</option>
@@ -132,7 +151,7 @@ export default function Kontrollrammeverk() {
 							<Select
 								label="Teknologielement"
 								value={teknologielement}
-								onChange={(e) => setTeknologielement(e.target.value)}
+								onChange={(e) => setFilter("teknologielement", e.target.value)}
 								style={{ minWidth: "14rem" }}
 							>
 								<option value="">Vis alle</option>
@@ -147,7 +166,7 @@ export default function Kontrollrammeverk() {
 							<Select
 								label="Frekvens"
 								value={frekvens}
-								onChange={(e) => setFrekvens(e.target.value)}
+								onChange={(e) => setFilter("frekvens", e.target.value)}
 								style={{ minWidth: "14rem" }}
 							>
 								<option value="">Vis alle</option>
