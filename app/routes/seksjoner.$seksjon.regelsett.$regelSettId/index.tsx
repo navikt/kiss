@@ -32,8 +32,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const canApprove =
 		user !== null &&
-		(isAdmin(user) ||
-			(ruleset.responsibleIdent !== null && user.navIdent === ruleset.responsibleIdent) ||
+		((ruleset.responsibleIdent !== null && user.navIdent === ruleset.responsibleIdent) ||
 			(ruleset.responsibleRole !== null && hasRoleForSection(user, ruleset.responsibleRole as UserRole, section.id)))
 	const userIsAdmin = user ? isAdmin(user) : false
 
@@ -68,7 +67,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (!ruleset) throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
 
 			const canApprove =
-				isAdmin(authedUser) ||
 				(ruleset.responsibleIdent !== null && authedUser.navIdent === ruleset.responsibleIdent) ||
 				(ruleset.responsibleRole !== null &&
 					hasRoleForSection(authedUser, ruleset.responsibleRole as UserRole, ruleset.sectionId))
