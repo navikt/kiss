@@ -1,4 +1,5 @@
-import { BodyLong, BodyShort, Heading, VStack } from "@navikt/ds-react"
+import { BodyLong, BodyShort, Heading, Select, VStack } from "@navikt/ds-react"
+import { useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -44,6 +45,17 @@ export async function loader(_args: LoaderFunctionArgs) {
 
 export default function Kontrollrammeverk() {
 	const { risks, controls } = useLoaderData<typeof loader>()
+	const [ansvarlig, setAnsvarlig] = useState("")
+
+	const responsibleOptions = useMemo(() => {
+		const unique = new Set(controls.map((c) => c.responsible).filter(Boolean) as string[])
+		return [...unique].sort((a, b) => a.localeCompare(b, "nb"))
+	}, [controls])
+
+	const filteredControls = useMemo(
+		() => (ansvarlig ? controls.filter((c) => c.responsible === ansvarlig) : controls),
+		[controls, ansvarlig],
+	)
 
 	return (
 		<VStack gap="space-12">
@@ -91,7 +103,22 @@ export default function Kontrollrammeverk() {
 					<Heading size="large" level="3">
 						Kontroller
 					</Heading>
-					{groupByDomain(controls).map(({ domainName, items }) => (
+					{responsibleOptions.length > 0 && (
+						<Select
+							label="Filtrer på ansvarlig"
+							value={ansvarlig}
+							onChange={(e) => setAnsvarlig(e.target.value)}
+							style={{ maxWidth: "20rem" }}
+						>
+							<option value="">Alle ({controls.length})</option>
+							{responsibleOptions.map((r) => (
+								<option key={r} value={r}>
+									{r} ({controls.filter((c) => c.responsible === r).length})
+								</option>
+							))}
+						</Select>
+					)}
+					{groupByDomain(filteredControls).map(({ domainName, items }) => (
 						<VStack key={domainName} gap="space-4">
 							<Heading size="medium" level="4">
 								{domainName}

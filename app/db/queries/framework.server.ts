@@ -178,6 +178,7 @@ export async function getAllControls() {
 			controlId: frameworkControls.controlId,
 			shortTitle: frameworkControls.shortTitle,
 			requirement: frameworkControls.requirement,
+			responsible: frameworkControls.responsible,
 		})
 		.from(frameworkControls)
 		.where(isNull(frameworkControls.archivedAt))
@@ -192,6 +193,7 @@ export async function getAllControls() {
 		return {
 			controlId: r.controlId,
 			name: r.shortTitle ?? shortName(r.requirement, r.controlId),
+			responsible: r.responsible ?? null,
 			domainCode: primary?.domainCode ?? "",
 			domainName: primary?.domainName ?? "",
 		}
