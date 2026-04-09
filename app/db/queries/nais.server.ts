@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	type AuthIntegrationType,
+	accessPolicyAcknowledgments,
 	applicationAccessPolicyRules,
 	applicationAuthIntegrations,
 	applicationEnvironments,
@@ -1058,4 +1059,56 @@ export async function getAccessPolicyRules(applicationId: string) {
 		.from(applicationAccessPolicyRules)
 		.where(eq(applicationAccessPolicyRules.applicationId, applicationId))
 		.orderBy(applicationAccessPolicyRules.direction, applicationAccessPolicyRules.ruleApplication)
+}
+
+export interface AccessPolicyAcknowledgment {
+	id: string
+	ruleApplication: string
+	comment: string
+	acknowledgedBy: string
+	acknowledgedAt: Date
+}
+
+/** Acknowledge an unknown app in the access policy. */
+export async function acknowledgeUnknownApp(
+	applicationId: string,
+	ruleApplication: string,
+	comment: string,
+	user: string,
+) {
+	const [row] = await db
+		.insert(accessPolicyAcknowledgments)
+		.values({ applicationId, ruleApplication, comment, acknowledgedBy: user })
+		.returning()
+	return row
+}
+
+/** Revoke an existing acknowledgment for an unknown app. */
+export async function revokeAcknowledgment(applicationId: string, ruleApplication: string, user: string) {
+	await db
+		.update(accessPolicyAcknowledgments)
+		.set({ revokedAt: new Date(), revokedBy: user })
+		.where(
+			and(
+				eq(accessPolicyAcknowledgments.applicationId, applicationId),
+				eq(accessPolicyAcknowledgments.ruleApplication, ruleApplication),
+				isNull(accessPolicyAcknowledgments.revokedAt),
+			),
+		)
+}
+
+/** Get all active (non-revoked) acknowledgments for an application. */
+export async function getActiveAcknowledgments(applicationId: string): Promise<AccessPolicyAcknowledgment[]> {
+	return db
+		.select({
+			id: accessPolicyAcknowledgments.id,
+			ruleApplication: accessPolicyAcknowledgments.ruleApplication,
+			comment: accessPolicyAcknowledgments.comment,
+			acknowledgedBy: accessPolicyAcknowledgments.acknowledgedBy,
+			acknowledgedAt: accessPolicyAcknowledgments.acknowledgedAt,
+		})
+		.from(accessPolicyAcknowledgments)
+		.where(
+			and(eq(accessPolicyAcknowledgments.applicationId, applicationId), isNull(accessPolicyAcknowledgments.revokedAt)),
+		)
 }

@@ -169,6 +169,19 @@ export const applicationAccessPolicyRules = pgTable("application_access_policy_r
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+export const accessPolicyAcknowledgments = pgTable("access_policy_acknowledgments", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	applicationId: uuid("application_id")
+		.notNull()
+		.references(() => monitoredApplications.id),
+	ruleApplication: text("rule_application").notNull(),
+	comment: text("comment").notNull(),
+	acknowledgedBy: text("acknowledged_by").notNull(),
+	acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }).notNull().defaultNow(),
+	revokedAt: timestamp("revoked_at", { withTimezone: true }),
+	revokedBy: text("revoked_by"),
+})
+
 export const naisDiscoveredApps = pgTable("nais_discovered_apps", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	name: text("name").notNull(),

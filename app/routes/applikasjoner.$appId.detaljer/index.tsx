@@ -9,15 +9,18 @@ import {
 	Checkbox,
 	CheckboxGroup,
 	CopyButton,
+	Detail,
 	Heading,
 	HStack,
 	Label,
+	Modal,
 	Table,
 	Tabs,
 	Tag,
+	Textarea,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -33,7 +36,13 @@ import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getLatestSnapshot, getOracleInstancesForApp } from "~/db/queries/audit-evidence.server"
-import { getApplicationDetail, resolveAppNames } from "~/db/queries/nais.server"
+import {
+	acknowledgeUnknownApp,
+	getActiveAcknowledgments,
+	getApplicationDetail,
+	resolveAppNames,
+	revokeAcknowledgment,
+} from "~/db/queries/nais.server"
 import { generateAppComplianceReport, getReportsForApp } from "~/db/queries/reports.server"
 import { createReview, getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
@@ -118,6 +127,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 	const knownApps = await resolveAppNames([...referencedAppNames])
 
+	const acknowledgmentsRaw = await getActiveAcknowledgments(appId)
+	const acknowledgments: Record<string, { comment: string; acknowledgedBy: string; acknowledgedAt: string }> = {}
+	for (const ack of acknowledgmentsRaw) {
+		acknowledgments[ack.ruleApplication] = {
+			comment: ack.comment,
+			acknowledgedBy: ack.acknowledgedBy,
+			acknowledgedAt: ack.acknowledgedAt.toISOString(),
+		}
+	}
+
 	const oracleInstances = await getOracleInstancesForApp(appId)
 
 	// Fetch latest snapshots for configured instances
@@ -142,6 +161,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
 		knownApps,
+		acknowledgments,
 		compliance: {
 			totalControls,
 			implemented,
@@ -246,6 +266,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 	}
 
+	if (intent === "acknowledge-app") {
+		const ruleApplication = formData.get("ruleApplication") as string
+		const comment = (formData.get("comment") as string)?.trim()
+		if (!ruleApplication) throw new Response("Mangler applikasjonsnavn", { status: 400 })
+		if (!comment) return data({ success: false, message: null, error: "Kommentar er obligatorisk" })
+		await acknowledgeUnknownApp(appId, ruleApplication, comment, authedUser.navIdent)
+		return data({ success: true, message: `${ruleApplication} er kvittert ut.`, error: null })
+	}
+
+	if (intent === "revoke-acknowledgment") {
+		const ruleApplication = formData.get("ruleApplication") as string
+		if (!ruleApplication) throw new Response("Mangler applikasjonsnavn", { status: 400 })
+		await revokeAcknowledgment(appId, ruleApplication, authedUser.navIdent)
+		return data({ success: true, message: `Kvittering for ${ruleApplication} er trukket tilbake.`, error: null })
+	}
+
 	return data({ success: false, message: null, error: "Ukjent handling" })
 }
 
@@ -265,6 +301,7 @@ export default function ApplikasjonDetalj() {
 		sectionSlugMap,
 		canAdmin,
 		knownApps,
+		acknowledgments,
 		compliance,
 		assessments,
 		appReports,
@@ -274,6 +311,11 @@ export default function ApplikasjonDetalj() {
 
 	const [searchParams, setSearchParams] = useSearchParams()
 	const activeTab = searchParams.get("fane") ?? "oversikt"
+	const submit = useSubmit()
+
+	const [ackTarget, setAckTarget] = useState<string | null>(null)
+	const [ackComment, setAckComment] = useState("")
+	const ackModalRef = useRef<HTMLDialogElement>(null)
 
 	const isOnPrem = environments.some((e) => e.cluster?.includes("-fss"))
 
@@ -689,11 +731,14 @@ export default function ApplikasjonDetalj() {
 												<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
 												<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
 												<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+												<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
 											</Table.Row>
 										</Table.Header>
 										<Table.Body>
 											{inboundRules.map((rule) => {
 												const resolution = knownApps[rule.ruleApplication]
+												const ack = acknowledgments[rule.ruleApplication]
+												const isUnknown = !resolution || resolution.status === "unknown"
 												return (
 													<Table.Row key={rule.id}>
 														<Table.DataCell>
@@ -732,6 +777,20 @@ export default function ApplikasjonDetalj() {
 																<Tag variant="info" size="xsmall">
 																	Nais
 																</Tag>
+															) : ack ? (
+																<VStack gap="space-1">
+																	<HStack gap="space-2" align="center">
+																		<Tag variant="neutral" size="xsmall">
+																			Kvittert
+																		</Tag>
+																	</HStack>
+																	<BodyShort size="small" textColor="subtle">
+																		{ack.comment}
+																	</BodyShort>
+																	<Detail textColor="subtle">
+																		{ack.acknowledgedBy}, {new Date(ack.acknowledgedAt).toLocaleDateString("nb-NO")}
+																	</Detail>
+																</VStack>
 															) : (
 																<HStack gap="space-1" align="center">
 																	<XMarkOctagonIcon
@@ -745,6 +804,38 @@ export default function ApplikasjonDetalj() {
 																</HStack>
 															)}
 														</Table.DataCell>
+														<Table.DataCell>
+															{isUnknown &&
+																(ack ? (
+																	<Button
+																		variant="tertiary-neutral"
+																		size="xsmall"
+																		onClick={() =>
+																			submit(
+																				{
+																					intent: "revoke-acknowledgment",
+																					ruleApplication: rule.ruleApplication,
+																				},
+																				{ method: "POST" },
+																			)
+																		}
+																	>
+																		Trekk tilbake
+																	</Button>
+																) : (
+																	<Button
+																		variant="tertiary"
+																		size="xsmall"
+																		onClick={() => {
+																			setAckTarget(rule.ruleApplication)
+																			setAckComment("")
+																			ackModalRef.current?.showModal()
+																		}}
+																	>
+																		Kvitter ut
+																	</Button>
+																))}
+														</Table.DataCell>
 													</Table.Row>
 												)
 											})}
@@ -753,6 +844,45 @@ export default function ApplikasjonDetalj() {
 								</VStack>
 							)
 						})()}
+
+						<Modal ref={ackModalRef} header={{ heading: `Kvitter ut ${ackTarget}` }} onClose={() => setAckTarget(null)}>
+							<Modal.Body>
+								<Textarea
+									label="Kommentar (obligatorisk)"
+									description="Beskriv hvorfor denne applikasjonen er reell selv om den er ukjent i KISS"
+									value={ackComment}
+									onChange={(e) => setAckComment(e.target.value)}
+									minRows={3}
+								/>
+							</Modal.Body>
+							<Modal.Footer>
+								<Button
+									onClick={() => {
+										if (!ackTarget || !ackComment.trim()) return
+										submit(
+											{ intent: "acknowledge-app", ruleApplication: ackTarget, comment: ackComment },
+											{ method: "POST" },
+										)
+										ackModalRef.current?.close()
+										setAckTarget(null)
+										setAckComment("")
+									}}
+									disabled={!ackComment.trim()}
+								>
+									Bekreft
+								</Button>
+								<Button
+									variant="secondary"
+									onClick={() => {
+										ackModalRef.current?.close()
+										setAckTarget(null)
+										setAckComment("")
+									}}
+								>
+									Avbryt
+								</Button>
+							</Modal.Footer>
+						</Modal>
 					</VStack>
 				</Tabs.Panel>
 
