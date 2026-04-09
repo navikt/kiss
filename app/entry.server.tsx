@@ -28,12 +28,7 @@ export function handleError(error: unknown, { request }: { request: Request }) {
 	const path = `${request.method} ${url.pathname}`
 
 	if (error instanceof Error) {
-		logger.error(`[${path}] Unhandled error`, {
-			error: error.message,
-			stack_trace: error.stack,
-			path: url.pathname,
-			method: request.method,
-		})
+		logger.error(`[${path}] Unhandled error`, error)
 	} else {
 		logger.error(`[${path}] Unhandled error`, {
 			error: String(error),
