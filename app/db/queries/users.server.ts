@@ -7,6 +7,7 @@ export interface UserRoleEntry {
 	role: UserRole
 	sectionId: string | null
 	sectionName: string | null
+	sectionSlug: string | null
 	devTeamId: string | null
 	devTeamName: string | null
 	createdAt: Date
@@ -42,6 +43,7 @@ export async function getUserRoles(navIdent: string): Promise<UserRoleEntry[]> {
 			role: userRoles.role,
 			sectionId: userRoles.sectionId,
 			sectionName: sections.name,
+			sectionSlug: sections.slug,
 			devTeamId: userRoles.devTeamId,
 			devTeamName: devTeams.name,
 			createdAt: userRoles.createdAt,
@@ -106,6 +108,7 @@ export async function listUsersWithRoles(): Promise<UserWithRoles[]> {
 			role: userRoles.role,
 			sectionId: userRoles.sectionId,
 			sectionName: sections.name,
+			sectionSlug: sections.slug,
 			devTeamId: userRoles.devTeamId,
 			devTeamName: devTeams.name,
 			createdAt: userRoles.createdAt,
@@ -123,6 +126,7 @@ export async function listUsersWithRoles(): Promise<UserWithRoles[]> {
 			role: r.role as UserRole,
 			sectionId: r.sectionId,
 			sectionName: r.sectionName,
+			sectionSlug: r.sectionSlug,
 			devTeamId: r.devTeamId,
 			devTeamName: r.devTeamName,
 			createdAt: r.createdAt,

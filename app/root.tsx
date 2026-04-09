@@ -1,5 +1,5 @@
 import { BodyLong, Box, Detail, Heading, InternalHeader, Spacer, Theme, VStack } from "@navikt/ds-react"
-import type { LinksFunction, LoaderFunctionArgs } from "react-router"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import {
 	data,
 	isRouteErrorResponse,
@@ -13,12 +13,17 @@ import {
 } from "react-router"
 import { AppNavigation } from "./components/AppNavigation"
 import { SearchDialog } from "./components/SearchDialog"
-import { ThemeToggle } from "./components/ThemeToggle"
+import { UserMenu } from "./components/UserMenu"
+import { getUserRoles } from "./db/queries/users.server"
+import { userRoleLabels } from "./db/schema/organization"
+import { ThemeProvider, useTheme } from "./hooks/useTheme"
 import { getAuthenticatedUser } from "./lib/auth.server"
 import { isAdmin, isAuditor } from "./lib/authorization.server"
 
 import "@navikt/ds-css/dist/index.css"
 import "./styles/global.css"
+
+import type { LinksFunction } from "react-router"
 
 export const links: LinksFunction = () => [{ rel: "icon", href: "/favicon.ico" }]
 
@@ -32,6 +37,28 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const theme = getTheme(request)
 	const user = await getAuthenticatedUser(request)
 
+	let userSections: { sectionName: string; sectionSlug: string; roleLabel: string }[] = []
+	if (user) {
+		try {
+			const fullRoles = await getUserRoles(user.navIdent)
+			const sectionMap = new Map<string, { sectionName: string; sectionSlug: string; roleLabel: string }>()
+			for (const r of fullRoles) {
+				if (r.sectionId && r.sectionName && r.sectionSlug) {
+					if (!sectionMap.has(r.sectionId)) {
+						sectionMap.set(r.sectionId, {
+							sectionName: r.sectionName,
+							sectionSlug: r.sectionSlug,
+							roleLabel: userRoleLabels[r.role] ?? r.role,
+						})
+					}
+				}
+			}
+			userSections = [...sectionMap.values()]
+		} catch {
+			// DB unavailable during startup
+		}
+	}
+
 	return data({
 		theme,
 		user: user
@@ -41,9 +68,24 @@ export async function loader({ request }: LoaderFunctionArgs) {
 					email: user.email,
 					isAdmin: isAdmin(user),
 					isAuditor: isAuditor(user),
+					sections: userSections,
 				}
 			: null,
 	})
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+	const formData = await request.formData()
+	const theme = formData.get("theme") === "dark" ? "dark" : "light"
+
+	return data(
+		{ theme },
+		{
+			headers: {
+				"Set-Cookie": `kiss-theme=${theme}; SameSite=Lax; Path=/; Max-Age=31536000; HttpOnly`,
+			},
+		},
+	)
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -69,6 +111,26 @@ export default function App() {
 	const { theme, user } = useLoaderData<typeof loader>()
 
 	return (
+		<ThemeProvider initialTheme={theme}>
+			<AppShell user={user} />
+		</ThemeProvider>
+	)
+}
+
+function AppShell({
+	user,
+}: {
+	user: {
+		navIdent: string
+		name: string
+		isAdmin: boolean
+		isAuditor: boolean
+		sections: { sectionName: string; sectionSlug: string; roleLabel: string }[]
+	} | null
+}) {
+	const { theme } = useTheme()
+
+	return (
 		<Theme theme={theme} className="app-container" hasBackground>
 			<a href="#main-content" className="skip-link">
 				Hopp til hovedinnhold
@@ -82,11 +144,13 @@ export default function App() {
 				<Detail textColor="subtle" style={{ alignSelf: "center", marginRight: "var(--ax-space-4)" }}>
 					{__BUILD_VERSION__}
 				</Detail>
-				<ThemeToggle />
 				{user && (
-					<InternalHeader.User
+					<UserMenu
 						name={user.name}
-						description={`${user.navIdent}${user.isAdmin ? " · Admin" : user.isAuditor ? " · Revisor" : ""}`}
+						navIdent={user.navIdent}
+						isAdmin={user.isAdmin}
+						isAuditor={user.isAuditor}
+						sections={user.sections}
 					/>
 				)}
 			</InternalHeader>
