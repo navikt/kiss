@@ -14,6 +14,7 @@ import {
 	HStack,
 	Label,
 	Modal,
+	ReadMore,
 	Table,
 	Tabs,
 	Tag,
@@ -49,6 +50,8 @@ import { getSections } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
+import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
+import { getAuditEvidenceSummary, getOracleInstances } from "~/lib/oracle-revisjon.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 import { compliancePercent } from "~/lib/utils"
 
@@ -82,6 +85,19 @@ const authLabels: Record<string, string> = {
 	token_x: "TokenX",
 	id_porten: "ID-porten",
 	maskinporten: "Maskinporten",
+}
+
+const conclusionConfig: Record<string, { label: string; variant: "success" | "warning" | "error" | "neutral" }> = {
+	FULLSTENDIG: { label: "Fullstendig", variant: "success" },
+	MANGELFULL: { label: "Mangelfull", variant: "warning" },
+	AV: { label: "Av", variant: "error" },
+	UKJENT: { label: "Ukjent", variant: "neutral" },
+}
+
+const findingSeverityVariant: Record<string, "error" | "warning" | "info"> = {
+	KRITISK: "error",
+	ADVARSEL: "warning",
+	INFO: "info",
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -146,10 +162,32 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 	const instanceSnapshotHistories = await Promise.all(snapshotHistoryPromises)
 
+	// Fetch audit evidence summaries for Oracle persistence entries
+	const oraclePersistence = detail.persistence.filter((p) => p.type === "oracle")
+	const allOracleInstances = oraclePersistence.length > 0 ? await getOracleInstances() : []
+	const knownInstanceIds = new Set(allOracleInstances.map((i) => i.id))
+
+	const summaryResults = await Promise.allSettled(
+		oraclePersistence
+			.filter((p) => knownInstanceIds.has(p.name))
+			.map(async (p) => {
+				const summary = await getAuditEvidenceSummary(p.name)
+				return { persistenceId: p.id, summary }
+			}),
+	)
+
+	const oracleAuditSummaries: Record<string, AuditEvidenceSummary> = {}
+	for (const result of summaryResults) {
+		if (result.status === "fulfilled" && result.value.summary) {
+			oracleAuditSummaries[result.value.persistenceId] = result.value.summary
+		}
+	}
+
 	return data({
 		app: detail.app,
 		environments: detail.environments,
 		persistence: detail.persistence,
+		oracleAuditSummaries,
 		authIntegrations: detail.authIntegrations,
 		accessPolicyRules: detail.accessPolicyRules,
 		teams: detail.teams,
@@ -287,6 +325,7 @@ export default function ApplikasjonDetalj() {
 		app,
 		environments,
 		persistence,
+		oracleAuditSummaries,
 		authIntegrations,
 		accessPolicyRules,
 		teams,
@@ -964,7 +1003,35 @@ export default function ApplikasjonDetalj() {
 											)}
 										</Table.DataCell>
 										<Table.DataCell>
-											{p.auditLogging === true ? (
+											{p.type === "oracle" && oracleAuditSummaries[p.id] ? (
+												<VStack gap="space-2">
+													<Tag
+														variant={conclusionConfig[oracleAuditSummaries[p.id].conclusion]?.variant ?? "neutral"}
+														size="xsmall"
+													>
+														{conclusionConfig[oracleAuditSummaries[p.id].conclusion]?.label ??
+															oracleAuditSummaries[p.id].conclusion}
+													</Tag>
+													<Detail style={{ color: "var(--ax-text-subtle)" }}>
+														{oracleAuditSummaries[p.id].reason}
+													</Detail>
+													{oracleAuditSummaries[p.id].findings.length > 0 && (
+														<ReadMore header="Funn" size="small" defaultOpen={false}>
+															<VStack gap="space-2">
+																{oracleAuditSummaries[p.id].findings.map((f, i) => (
+																	// biome-ignore lint/suspicious/noArrayIndexKey: static findings list
+																	<HStack key={i} gap="space-2" align="center" wrap>
+																		<Tag variant={findingSeverityVariant[f.severity] ?? "info"} size="xsmall">
+																			{f.severity}
+																		</Tag>
+																		<Detail>{f.message}</Detail>
+																	</HStack>
+																))}
+															</VStack>
+														</ReadMore>
+													)}
+												</VStack>
+											) : p.auditLogging === true ? (
 												p.auditLogUrl ? (
 													<AkselLink href={p.auditLogUrl} target="_blank" rel="noopener noreferrer">
 														<Tag variant="success" size="xsmall">

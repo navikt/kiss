@@ -35,6 +35,27 @@ export interface AuditEvidence {
 	sections: AuditEvidenceSection[]
 }
 
+export type AuditConclusion = "AV" | "MANGELFULL" | "FULLSTENDIG" | "UKJENT"
+export type FindingSeverity = "KRITISK" | "ADVARSEL" | "INFO"
+
+export interface AuditFinding {
+	severity: FindingSeverity
+	message: string
+}
+
+export interface AuditEvidenceSummary {
+	conclusion: AuditConclusion
+	reason: string
+	unifiedAuditingEnabled: boolean
+	activePolicyCount: number
+	auditedObjectCount: number
+	unauditedTableCount: number
+	excludedUserCount: number
+	policiesWithoutFailureAudit: number
+	hasAuditTrailData: boolean
+	findings: AuditFinding[]
+}
+
 // --- Internal helpers ---
 
 function isDevMode(): boolean {
@@ -166,6 +187,64 @@ function getMockEvidence(instanceId: string): AuditEvidence {
 	}
 }
 
+function getMockSummary(instanceId: string): AuditEvidenceSummary {
+	const conclusions: AuditConclusion[] = ["FULLSTENDIG", "MANGELFULL", "AV", "UKJENT"]
+	const hash = [...instanceId].reduce((acc, c) => acc + c.charCodeAt(0), 0)
+	const conclusion = conclusions[hash % conclusions.length]
+
+	const findingsMap: Record<AuditConclusion, AuditFinding[]> = {
+		FULLSTENDIG: [{ severity: "INFO", message: "Alle tabeller i skjemaet har audit-dekning" }],
+		MANGELFULL: [
+			{ severity: "ADVARSEL", message: "1 policy(er) logger ikke mislykkede handlinger (FAILURE)" },
+			{
+				severity: "ADVARSEL",
+				message: `12 tabell(er) i ${instanceId.toUpperCase()}-skjemaet mangler audit-dekning`,
+			},
+		],
+		AV: [{ severity: "KRITISK", message: "Unified Auditing er ikke aktivert" }],
+		UKJENT: [{ severity: "INFO", message: "Kunne ikke hente data fra kritiske seksjoner" }],
+	}
+
+	const reasonMap: Record<AuditConclusion, string> = {
+		FULLSTENDIG: "Unified Auditing er aktivert med full dekning av alle tabeller.",
+		MANGELFULL: "Unified Auditing er aktivert med 3 aktive policy(er), men 12 tabell(er) mangler dekning.",
+		AV: "Unified Auditing er ikke aktivert på denne instansen.",
+		UKJENT: "Kunne ikke fastslå status — kritiske dataseksjoner feilet ved innhenting.",
+	}
+
+	return {
+		conclusion,
+		reason: reasonMap[conclusion],
+		unifiedAuditingEnabled: conclusion !== "AV",
+		activePolicyCount: conclusion === "AV" ? 0 : 3,
+		auditedObjectCount: conclusion === "FULLSTENDIG" ? 57 : 45,
+		unauditedTableCount: conclusion === "MANGELFULL" ? 12 : 0,
+		excludedUserCount: 0,
+		policiesWithoutFailureAudit: conclusion === "MANGELFULL" ? 1 : 0,
+		hasAuditTrailData: conclusion !== "AV",
+		findings: findingsMap[conclusion],
+	}
+}
+
+// --- In-memory cache (TTL 1 hour) ---
+
+const SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000
+const summaryCache = new Map<string, { data: AuditEvidenceSummary | null; fetchedAt: number }>()
+
+function getCachedSummary(instanceId: string): AuditEvidenceSummary | null | undefined {
+	const entry = summaryCache.get(instanceId)
+	if (!entry) return undefined
+	if (Date.now() - entry.fetchedAt > SUMMARY_CACHE_TTL_MS) {
+		summaryCache.delete(instanceId)
+		return undefined
+	}
+	return entry.data
+}
+
+function setCachedSummary(instanceId: string, data: AuditEvidenceSummary | null) {
+	summaryCache.set(instanceId, { data, fetchedAt: Date.now() })
+}
+
 // --- Public API ---
 
 export async function getOracleInstances(): Promise<OracleInstance[]> {
@@ -201,4 +280,55 @@ export async function getAuditEvidenceExcel(instanceId: string): Promise<Buffer>
 	})
 	const arrayBuffer = await response.arrayBuffer()
 	return Buffer.from(arrayBuffer)
+}
+
+export async function getAuditEvidenceSummary(instanceId: string): Promise<AuditEvidenceSummary | null> {
+	if (isDevMode()) {
+		logger.warn("ORACLE_REVISJON_BASE_URL not set — returning mock summary", { instanceId })
+		return getMockSummary(instanceId)
+	}
+
+	const cached = getCachedSummary(instanceId)
+	if (cached !== undefined) return cached
+
+	try {
+		if (!ORACLE_REVISJON_SCOPE || !ORACLE_REVISJON_BASE_URL) {
+			return null
+		}
+
+		const token = await getClientCredentialToken(ORACLE_REVISJON_SCOPE)
+		const url = `${ORACLE_REVISJON_BASE_URL}/api/m2m/audit/evidence/summary`
+
+		logger.debug("Fetching audit evidence summary", { instanceId, url })
+
+		const response = await fetch(url, {
+			headers: {
+				Authorization: `Bearer ${token}`,
+				"X-Instance-Id": instanceId,
+			},
+		})
+
+		if (response.status === 204) {
+			logger.info("Audit evidence summary not available (204)", { instanceId })
+			setCachedSummary(instanceId, null)
+			return null
+		}
+
+		if (!response.ok) {
+			const text = await response.text()
+			logger.error("Audit evidence summary request failed", {
+				instanceId,
+				status: response.status,
+				body: text,
+			})
+			return null
+		}
+
+		const summary = (await response.json()) as AuditEvidenceSummary
+		setCachedSummary(instanceId, summary)
+		return summary
+	} catch (error) {
+		logger.error("Failed to fetch audit evidence summary", { instanceId, error })
+		return null
+	}
 }
