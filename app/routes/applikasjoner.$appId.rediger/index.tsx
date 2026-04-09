@@ -148,7 +148,14 @@ export async function action({ params, request }: ActionFunctionArgs) {
 		const instanceId = formData.get("instanceId") as string
 		if (!instanceId) throw new Response("Mangler instanceId", { status: 400 })
 		const [evidence, excel] = await Promise.all([getAuditEvidence(instanceId), getAuditEvidenceExcel(instanceId)])
-		await saveAuditEvidenceSnapshot(appId, instanceId, evidence, excel, authedUser.navIdent)
+		await saveAuditEvidenceSnapshot(
+			appId,
+			instanceId,
+			evidence.overallStatus,
+			evidence.collectedAt,
+			excel,
+			authedUser.navIdent,
+		)
 	} else {
 		throw new Response("Ugyldig handling", { status: 400 })
 	}

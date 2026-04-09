@@ -1,4 +1,4 @@
-import { boolean, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
+import { boolean, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
 import { monitoredApplications } from "./applications"
 
 // ─── Oracle Instances ────────────────────────────────────────────────────
@@ -34,20 +34,4 @@ export const auditEvidenceSnapshots = pgTable("audit_evidence_snapshots", {
 	fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 	fetchedBy: text("fetched_by").notNull(),
 	bucketPath: text("bucket_path").notNull(),
-	excelBucketPath: text("excel_bucket_path"),
-})
-
-// ─── Audit Evidence Sections ─────────────────────────────────────────────
-
-export const auditEvidenceSections = pgTable("audit_evidence_sections", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	snapshotId: uuid("snapshot_id")
-		.notNull()
-		.references(() => auditEvidenceSnapshots.id),
-	sectionId: text("section_id").notNull(),
-	title: text("title").notNull(),
-	description: text("description"),
-	summary: text("summary"),
-	error: text("error"),
-	resultJson: jsonb("result_json"),
 })

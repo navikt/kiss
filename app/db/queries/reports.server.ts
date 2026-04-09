@@ -461,11 +461,6 @@ export async function generateAppComplianceReport(params: {
 			instanceId: e.instanceId,
 			overallStatus: e.overallStatus,
 			collectedAt: e.collectedAt.toISOString(),
-			sections: e.sections.map((s) => ({
-				title: s.title,
-				summary: s.summary,
-				error: s.error,
-			})),
 		})),
 	}
 
@@ -619,7 +614,6 @@ function buildAppPdf(
 		instanceId: string
 		overallStatus: string
 		collectedAt: Date
-		sections: Array<{ title: string; summary: string | null; error: string | null }>
 	}>,
 ): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
@@ -795,19 +789,6 @@ function buildAppPdf(
 					.fontSize(9)
 					.fillColor(gray)
 					.text(`Hentet: ${evidence.collectedAt.toLocaleDateString("nb-NO")}`)
-				doc.moveDown(0.5)
-
-				for (const section of evidence.sections) {
-					if (doc.y > 760) doc.addPage()
-					doc.fontSize(10).fillColor(dark).text(section.title, { continued: false })
-					if (section.summary) {
-						doc.fontSize(9).fillColor(dark).text(`  ${section.summary}`)
-					}
-					if (section.error) {
-						doc.fontSize(9).fillColor("red").text(`  Feil: ${section.error}`).fillColor(dark)
-					}
-					doc.moveDown(0.3)
-				}
 				doc.moveDown()
 			}
 		}

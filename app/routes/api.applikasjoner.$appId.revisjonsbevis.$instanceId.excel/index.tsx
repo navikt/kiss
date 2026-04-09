@@ -16,12 +16,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	const snapshot = await getLatestSnapshot(appId, instanceId)
-	if (!snapshot?.excelBucketPath) {
+	if (!snapshot?.bucketPath) {
 		throw new Response("Ingen Excel-fil tilgjengelig", { status: 404 })
 	}
 
 	const storage = getStorageProvider()
-	const buffer = await storage.download(snapshot.excelBucketPath)
+	const buffer = await storage.download(snapshot.bucketPath)
 
 	return new Response(new Uint8Array(buffer), {
 		headers: {

@@ -178,14 +178,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 						collectedAt: snapshot.collectedAt.toISOString(),
 						fetchedAt: snapshot.fetchedAt.toISOString(),
 						fetchedBy: snapshot.fetchedBy,
-						excelBucketPath: snapshot.excelBucketPath,
-						sections: snapshot.sections.map((s) => ({
-							sectionId: s.sectionId,
-							title: s.title,
-							summary: s.summary,
-							error: s.error,
-							resultJson: s.resultJson as { query?: string; columns?: string[]; rows?: unknown[][] } | null,
-						})),
+						bucketPath: snapshot.bucketPath,
 					}
 				: null,
 		})),
@@ -901,13 +894,11 @@ export default function ApplikasjonDetalj() {
 													<BodyShort size="small" style={{ color: "var(--ax-text-subtle)" }}>
 														Hentet {new Date(snapshot.fetchedAt).toLocaleString("nb-NO")} av {snapshot.fetchedBy}
 													</BodyShort>
-													{snapshot.excelBucketPath && (
-														<a href={`/api/applikasjoner/${app.id}/revisjonsbevis/${instanceId}/excel`}>
-															<Button variant="tertiary" size="xsmall" as="span" icon={<DownloadIcon aria-hidden />}>
-																Excel
-															</Button>
-														</a>
-													)}
+													<a href={`/api/applikasjoner/${app.id}/revisjonsbevis/${instanceId}/excel`}>
+														<Button variant="tertiary" size="xsmall" as="span" icon={<DownloadIcon aria-hidden />}>
+															Last ned Excel
+														</Button>
+													</a>
 												</>
 											) : (
 												<Tag variant="neutral" size="small">
@@ -915,73 +906,6 @@ export default function ApplikasjonDetalj() {
 												</Tag>
 											)}
 										</HStack>
-
-										{snapshot?.sections && snapshot.sections.length > 0 && (
-											<VStack gap="space-4">
-												{snapshot.sections.map((section) => (
-													<Box
-														key={section.sectionId}
-														borderWidth="1"
-														borderColor="neutral-subtle"
-														padding="space-4"
-														borderRadius="4"
-													>
-														<VStack gap="space-2">
-															<HStack gap="space-4" align="center">
-																<BodyShort weight="semibold">{section.title}</BodyShort>
-																{section.error ? (
-																	<Tag variant="error" size="xsmall">
-																		Feil
-																	</Tag>
-																) : (
-																	<Tag variant="success" size="xsmall">
-																		OK
-																	</Tag>
-																)}
-															</HStack>
-															{section.summary && (
-																<BodyShort size="small" style={{ color: "var(--ax-text-subtle)" }}>
-																	{section.summary}
-																</BodyShort>
-															)}
-															{section.error && (
-																<Alert variant="error" size="small">
-																	{section.error}
-																</Alert>
-															)}
-															{section.resultJson?.columns && section.resultJson?.rows && (
-																<section className="table-scroll" aria-label={section.title}>
-																	<Table size="small">
-																		<Table.Header>
-																			<Table.Row>
-																				{section.resultJson.columns.map((col) => (
-																					<Table.HeaderCell key={col} scope="col">
-																						{col}
-																					</Table.HeaderCell>
-																				))}
-																			</Table.Row>
-																		</Table.Header>
-																		<Table.Body>
-																			{section.resultJson.rows.map((row, rowIdx) => {
-																				const rowKey = `${section.sectionId}-r${String(rowIdx)}`
-																				return (
-																					<Table.Row key={rowKey}>
-																						{(row as unknown[]).map((cell, colIdx) => {
-																							const cellKey = `${rowKey}-c${String(colIdx)}`
-																							return <Table.DataCell key={cellKey}>{String(cell ?? "")}</Table.DataCell>
-																						})}
-																					</Table.Row>
-																				)
-																			})}
-																		</Table.Body>
-																	</Table>
-																</section>
-															)}
-														</VStack>
-													</Box>
-												))}
-											</VStack>
-										)}
 									</VStack>
 								</Box>
 							))}

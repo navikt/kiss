@@ -1,8 +1,8 @@
 import { and, desc, eq, inArray } from "drizzle-orm"
-import type { AuditEvidence } from "../../lib/oracle-revisjon.server"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
-import { applicationOracleInstances, auditEvidenceSections, auditEvidenceSnapshots } from "../schema/audit-evidence"
+import type { AuditEvidenceOverallStatus } from "../schema/audit-evidence"
+import { applicationOracleInstances, auditEvidenceSnapshots } from "../schema/audit-evidence"
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -24,18 +24,6 @@ export interface SnapshotDetail {
 	fetchedAt: Date
 	fetchedBy: string
 	bucketPath: string
-	excelBucketPath: string | null
-	sections: SnapshotSection[]
-}
-
-export interface SnapshotSection {
-	id: string
-	sectionId: string
-	title: string
-	description: string | null
-	summary: string | null
-	error: string | null
-	resultJson: unknown
 }
 
 export interface SnapshotHistoryItem {
@@ -50,7 +38,6 @@ export interface ReportEvidence {
 	instanceId: string
 	overallStatus: string
 	collectedAt: Date
-	sections: { title: string; summary: string | null; error: string | null }[]
 }
 
 // ─── Oracle Instance Configuration ───────────────────────────────────────
@@ -127,59 +114,32 @@ export async function setIncludeInReport(appId: string, instanceId: string, incl
 export async function saveAuditEvidenceSnapshot(
 	appId: string,
 	instanceId: string,
-	evidence: AuditEvidence,
-	excelBuffer: Buffer | null,
+	overallStatus: AuditEvidenceOverallStatus,
+	collectedAt: string,
+	excelBuffer: Buffer,
 	user: string,
 ): Promise<string> {
 	const storage = getStorageProvider()
 	const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-	const basePath = `audit-evidence/${appId}/${instanceId}/${timestamp}`
+	const bucketPath = `audit-evidence/${appId}/${instanceId}/${timestamp}/evidence.xlsx`
 
-	const bucketPath = `${basePath}/evidence.json`
-	await storage.upload(bucketPath, Buffer.from(JSON.stringify(evidence)), {
-		contentType: "application/json",
+	await storage.upload(bucketPath, excelBuffer, {
+		contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	})
 
-	let excelBucketPath: string | null = null
-	if (excelBuffer) {
-		excelBucketPath = `${basePath}/evidence.xlsx`
-		await storage.upload(excelBucketPath, excelBuffer, {
-			contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	const [snapshot] = await db
+		.insert(auditEvidenceSnapshots)
+		.values({
+			applicationId: appId,
+			instanceId,
+			overallStatus,
+			collectedAt: new Date(collectedAt),
+			fetchedBy: user,
+			bucketPath,
 		})
-	}
+		.returning({ id: auditEvidenceSnapshots.id })
 
-	const snapshotId = await db.transaction(async (tx) => {
-		const [snapshot] = await tx
-			.insert(auditEvidenceSnapshots)
-			.values({
-				applicationId: appId,
-				instanceId,
-				overallStatus: evidence.overallStatus,
-				collectedAt: new Date(evidence.collectedAt),
-				fetchedBy: user,
-				bucketPath,
-				excelBucketPath,
-			})
-			.returning({ id: auditEvidenceSnapshots.id })
-
-		if (evidence.sections.length > 0) {
-			await tx.insert(auditEvidenceSections).values(
-				evidence.sections.map((s) => ({
-					snapshotId: snapshot.id,
-					sectionId: s.id,
-					title: s.title,
-					description: s.description,
-					summary: s.summary,
-					error: s.error,
-					resultJson: s.result,
-				})),
-			)
-		}
-
-		return snapshot.id
-	})
-
-	return snapshotId
+	return snapshot.id
 }
 
 // ─── Snapshot Queries ─────────────────────────────────────────────────────
@@ -194,11 +154,6 @@ export async function getLatestSnapshot(appId: string, instanceId: string): Prom
 
 	if (!snapshot) return null
 
-	const sections = await db
-		.select()
-		.from(auditEvidenceSections)
-		.where(eq(auditEvidenceSections.snapshotId, snapshot.id))
-
 	return {
 		id: snapshot.id,
 		applicationId: snapshot.applicationId,
@@ -208,16 +163,6 @@ export async function getLatestSnapshot(appId: string, instanceId: string): Prom
 		fetchedAt: snapshot.fetchedAt,
 		fetchedBy: snapshot.fetchedBy,
 		bucketPath: snapshot.bucketPath,
-		excelBucketPath: snapshot.excelBucketPath,
-		sections: sections.map((s) => ({
-			id: s.id,
-			sectionId: s.sectionId,
-			title: s.title,
-			description: s.description,
-			summary: s.summary,
-			error: s.error,
-			resultJson: s.resultJson,
-		})),
 	}
 }
 
@@ -242,11 +187,6 @@ export async function getSnapshot(snapshotId: string): Promise<SnapshotDetail | 
 
 	if (!snapshot) return null
 
-	const sections = await db
-		.select()
-		.from(auditEvidenceSections)
-		.where(eq(auditEvidenceSections.snapshotId, snapshot.id))
-
 	return {
 		id: snapshot.id,
 		applicationId: snapshot.applicationId,
@@ -256,16 +196,6 @@ export async function getSnapshot(snapshotId: string): Promise<SnapshotDetail | 
 		fetchedAt: snapshot.fetchedAt,
 		fetchedBy: snapshot.fetchedBy,
 		bucketPath: snapshot.bucketPath,
-		excelBucketPath: snapshot.excelBucketPath,
-		sections: sections.map((s) => ({
-			id: s.id,
-			sectionId: s.sectionId,
-			title: s.title,
-			description: s.description,
-			summary: s.summary,
-			error: s.error,
-			resultJson: s.resultJson,
-		})),
 	}
 }
 
@@ -291,7 +221,6 @@ export async function getAuditEvidenceForReport(appId: string): Promise<ReportEv
 		)
 		.orderBy(desc(auditEvidenceSnapshots.fetchedAt))
 
-	// Pick the latest snapshot per instance
 	const latestByInstance = new Map<string, (typeof snapshots)[0]>()
 	for (const s of snapshots) {
 		if (!latestByInstance.has(s.instanceId)) {
@@ -299,35 +228,9 @@ export async function getAuditEvidenceForReport(appId: string): Promise<ReportEv
 		}
 	}
 
-	const latestSnapshots = [...latestByInstance.values()]
-	if (latestSnapshots.length === 0) return []
-
-	const snapshotIds = latestSnapshots.map((s) => s.id)
-	const allSections = await db
-		.select({
-			snapshotId: auditEvidenceSections.snapshotId,
-			title: auditEvidenceSections.title,
-			summary: auditEvidenceSections.summary,
-			error: auditEvidenceSections.error,
-		})
-		.from(auditEvidenceSections)
-		.where(inArray(auditEvidenceSections.snapshotId, snapshotIds))
-
-	const sectionsBySnapshot = new Map<string, typeof allSections>()
-	for (const s of allSections) {
-		const existing = sectionsBySnapshot.get(s.snapshotId) ?? []
-		existing.push(s)
-		sectionsBySnapshot.set(s.snapshotId, existing)
-	}
-
-	return latestSnapshots.map((snap) => ({
+	return [...latestByInstance.values()].map((snap) => ({
 		instanceId: snap.instanceId,
 		overallStatus: snap.overallStatus,
 		collectedAt: snap.collectedAt,
-		sections: (sectionsBySnapshot.get(snap.id) ?? []).map((s) => ({
-			title: s.title,
-			summary: s.summary,
-			error: s.error,
-		})),
 	}))
 }
