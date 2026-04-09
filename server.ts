@@ -8,10 +8,36 @@ import winston from "winston"
 
 const isProd = process.env.NODE_ENV === "production"
 
+/** Custom format: ensure stack traces are never in the message field */
+const separateStackTrace = winston.format((info) => {
+	if (typeof info.message === "string") {
+		const stackPattern = /\n\s+at\s/
+		const match = stackPattern.exec(info.message)
+		if (match?.index) {
+			if (!info.stack_trace) {
+				info.stack_trace = info.message.substring(match.index).trim()
+			}
+			info.message = info.message.substring(0, match.index).trim()
+		}
+	}
+	if (info.stack && !info.stack_trace) {
+		info.stack_trace = info.stack
+	}
+	if (info.stack) {
+		delete info.stack
+	}
+	return info
+})
+
 const logger = winston.createLogger({
 	level: "info",
 	format: isProd
-		? winston.format.combine(winston.format.timestamp(), winston.format.json())
+		? winston.format.combine(
+				winston.format.errors({ stack: true }),
+				winston.format.timestamp(),
+				separateStackTrace(),
+				winston.format.json(),
+			)
 		: winston.format.combine(winston.format.colorize(), winston.format.simple()),
 	transports: [new winston.transports.Console()],
 })
