@@ -6,6 +6,9 @@ import { applicationEnvironments, monitoredApplications, naisTeams } from "../sc
 import type { VerificationSummaryResponse } from "../schema/deployment-audit"
 import { deploymentVerificationSummaries } from "../schema/deployment-audit"
 
+// Production clusters that deployment-audit monitors
+const PROD_CLUSTERS = ["prod-gcp", "prod-fss"]
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface AppProdEnvironment {
@@ -31,13 +34,7 @@ export async function getAppsWithProdEnvironments(): Promise<AppProdEnvironment[
 		.from(applicationEnvironments)
 		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
 		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(
-			and(
-				isNotNull(applicationEnvironments.naisTeamId),
-				// Only production clusters
-				eq(applicationEnvironments.cluster, "prod-gcp"),
-			),
-		)
+		.where(and(isNotNull(applicationEnvironments.naisTeamId), inArray(applicationEnvironments.cluster, PROD_CLUSTERS)))
 
 	return rows.map((r) => ({
 		applicationId: r.applicationId,
@@ -79,7 +76,7 @@ export async function getDeploymentVerificationForAppWithFetch(applicationId: st
 		.where(
 			and(
 				eq(applicationEnvironments.applicationId, applicationId),
-				eq(applicationEnvironments.cluster, "prod-gcp"),
+				inArray(applicationEnvironments.cluster, PROD_CLUSTERS),
 				isNotNull(applicationEnvironments.naisTeamId),
 			),
 		)
@@ -95,8 +92,9 @@ export async function getDeploymentVerificationForAppWithFetch(applicationId: st
 			.from(applicationEnvironments)
 			.where(eq(applicationEnvironments.applicationId, applicationId))
 
-		logger.info("Deployment verification: no prod-gcp environments with naisTeamId found", {
+		logger.info("Deployment verification: no production environments with naisTeamId found", {
 			applicationId,
+			prodClusters: PROD_CLUSTERS,
 			allEnvironments: allEnvs.map((e) => ({
 				cluster: e.cluster,
 				namespace: e.namespace,
