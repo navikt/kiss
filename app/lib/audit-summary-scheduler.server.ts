@@ -1,7 +1,8 @@
-import { eq } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { db } from "../db/connection.server"
 import { applicationPersistence } from "../db/schema/applications"
 import { auditLog } from "../db/schema/audit"
+import { applicationOracleInstances } from "../db/schema/audit-evidence"
 import { persistenceAuditSummaries } from "../db/schema/audit-logging"
 import { withAdvisoryLock } from "./lock.server"
 import { logger } from "./logger.server"
@@ -13,6 +14,23 @@ const RETRY_DELAY_MS = 5 * 1000 // 5 seconds retry delay
 const PERFORMER = "audit-summary-sync"
 
 let intervalId: ReturnType<typeof setInterval> | null = null
+
+/**
+ * Resolve Oracle instance ID: explicit link > auto-match > name fallback.
+ */
+function resolveInstanceId(
+	entry: { name: string; applicationId: string; oracleInstanceId: string | null },
+	instancesByApp: Map<string, string[]>,
+): string {
+	if (entry.oracleInstanceId) return entry.oracleInstanceId
+	const appInstances = instancesByApp.get(entry.applicationId)
+	if (appInstances?.length === 1) return appInstances[0]
+	if (appInstances) {
+		const match = appInstances.find((id) => id.toLowerCase() === entry.name.toLowerCase())
+		if (match) return match
+	}
+	return entry.name
+}
 let timeoutId: ReturnType<typeof setTimeout> | null = null
 
 async function fetchSummaryWithRetry(instanceId: string, retries = 1) {
@@ -50,15 +68,36 @@ async function syncAuditSummaries(): Promise<{
 				.select({
 					id: applicationPersistence.id,
 					name: applicationPersistence.name,
+					applicationId: applicationPersistence.applicationId,
 					oracleInstanceId: applicationPersistence.oracleInstanceId,
 				})
 				.from(applicationPersistence)
 				.where(eq(applicationPersistence.type, "oracle"))
 
+			// Look up configured Oracle instances for auto-matching
+			const appIds = [...new Set(oraclePersistence.map((e) => e.applicationId))]
+			const configuredInstances =
+				appIds.length > 0
+					? await db
+							.select({
+								applicationId: applicationOracleInstances.applicationId,
+								instanceId: applicationOracleInstances.instanceId,
+							})
+							.from(applicationOracleInstances)
+							.where(inArray(applicationOracleInstances.applicationId, appIds))
+					: []
+
+			const instancesByApp = new Map<string, string[]>()
+			for (const inst of configuredInstances) {
+				const list = instancesByApp.get(inst.applicationId) ?? []
+				list.push(inst.instanceId)
+				instancesByApp.set(inst.applicationId, list)
+			}
+
 			for (const entry of oraclePersistence) {
 				processed++
 				const now = new Date()
-				const instanceId = entry.oracleInstanceId ?? entry.name
+				const instanceId = resolveInstanceId(entry, instancesByApp)
 
 				if (!validInstanceIds.has(instanceId)) {
 					skipped++

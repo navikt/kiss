@@ -11,6 +11,7 @@ import {
 	sectionIgnoredApplications,
 } from "../schema/applications"
 import { auditLog } from "../schema/audit"
+import { applicationOracleInstances } from "../schema/audit-evidence"
 import type { AuditConclusion } from "../schema/audit-logging"
 import { persistenceAuditConfirmations, persistenceAuditSummaries } from "../schema/audit-logging"
 import { devTeams, sections } from "../schema/organization"
@@ -87,16 +88,69 @@ export function computeAuditStatus(
 // ─── Cached Oracle audit summaries for app detail page ──────────────────────
 
 /**
+ * Resolve the Oracle instance ID for a persistence entry.
+ * Priority: explicit link > auto-match from configured instances > name fallback.
+ */
+function resolveOracleInstanceId(
+	entry: { name: string; applicationId: string; oracleInstanceId: string | null },
+	instancesByApp: Map<string, string[]>,
+): string {
+	// 1. Explicit link set on the persistence entry
+	if (entry.oracleInstanceId) return entry.oracleInstanceId
+
+	// 2. Auto-match: if the app has exactly one configured Oracle instance, use it
+	const appInstances = instancesByApp.get(entry.applicationId)
+	if (appInstances?.length === 1) return appInstances[0]
+
+	// 3. Check if any configured instance matches the persistence name (case-insensitive)
+	if (appInstances) {
+		const match = appInstances.find((id) => id.toLowerCase() === entry.name.toLowerCase())
+		if (match) return match
+	}
+
+	// 4. Fallback to persistence name
+	return entry.name
+}
+
+/**
  * Get Oracle audit summaries for an app's persistence entries.
  * Reads from the `persistence_audit_summaries` DB cache first.
  * On cache miss, fetches from the oracle-revisjon API, stores in DB, then returns.
- * Uses `oracleInstanceId` when set, falls back to `name` for backwards compatibility.
+ *
+ * Instance ID resolution (in priority order):
+ * 1. `oracleInstanceId` on the persistence entry (explicit link)
+ * 2. Configured Oracle instances from `application_oracle_instances` (auto-match)
+ * 3. Persistence `name` (fallback)
  */
 export async function getOracleAuditSummariesForApp(
-	persistenceEntries: Array<{ id: string; name: string; type: string; oracleInstanceId: string | null }>,
+	persistenceEntries: Array<{
+		id: string
+		name: string
+		type: string
+		applicationId: string
+		oracleInstanceId: string | null
+	}>,
 ): Promise<Record<string, AuditEvidenceSummary>> {
 	const oracleEntries = persistenceEntries.filter((p) => p.type === "oracle")
 	if (oracleEntries.length === 0) return {}
+
+	// Look up configured Oracle instances for auto-matching
+	const appIds = [...new Set(oracleEntries.map((e) => e.applicationId))]
+	const configuredInstances = await db
+		.select({
+			applicationId: applicationOracleInstances.applicationId,
+			instanceId: applicationOracleInstances.instanceId,
+		})
+		.from(applicationOracleInstances)
+		.where(inArray(applicationOracleInstances.applicationId, appIds))
+
+	// Group configured instances by app
+	const instancesByApp = new Map<string, string[]>()
+	for (const inst of configuredInstances) {
+		const list = instancesByApp.get(inst.applicationId) ?? []
+		list.push(inst.instanceId)
+		instancesByApp.set(inst.applicationId, list)
+	}
 
 	const persistenceIds = oracleEntries.map((p) => p.id)
 
@@ -117,7 +171,7 @@ export async function getOracleAuditSummariesForApp(
 		if (cachedEntry) {
 			result[entry.id] = dbSummaryToApiSummary(cachedEntry)
 		} else {
-			const instanceId = entry.oracleInstanceId ?? entry.name
+			const instanceId = resolveOracleInstanceId(entry, instancesByApp)
 			misses.push({ id: entry.id, instanceId })
 		}
 	}
