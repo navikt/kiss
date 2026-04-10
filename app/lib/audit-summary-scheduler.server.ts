@@ -47,21 +47,26 @@ async function syncAuditSummaries(): Promise<{
 			const validInstanceIds = new Set(oracleInstances.map((i) => i.id))
 
 			const oraclePersistence = await db
-				.select({ id: applicationPersistence.id, name: applicationPersistence.name })
+				.select({
+					id: applicationPersistence.id,
+					name: applicationPersistence.name,
+					oracleInstanceId: applicationPersistence.oracleInstanceId,
+				})
 				.from(applicationPersistence)
 				.where(eq(applicationPersistence.type, "oracle"))
 
 			for (const entry of oraclePersistence) {
 				processed++
 				const now = new Date()
+				const instanceId = entry.oracleInstanceId ?? entry.name
 
-				if (!validInstanceIds.has(entry.name)) {
+				if (!validInstanceIds.has(instanceId)) {
 					skipped++
 					continue
 				}
 
 				try {
-					const summary = await fetchSummaryWithRetry(entry.name)
+					const summary = await fetchSummaryWithRetry(instanceId)
 
 					if (summary) {
 						await db
@@ -129,7 +134,7 @@ async function syncAuditSummaries(): Promise<{
 				} catch (err) {
 					logger.error("[audit-summary-sync] Failed to sync instance", {
 						persistenceId: entry.id,
-						instanceId: entry.name,
+						instanceId,
 						error: err,
 					})
 					failed++

@@ -90,6 +90,7 @@ export const applicationPersistence = pgTable("application_persistence", {
 	highAvailability: boolean("high_availability"),
 	auditLogging: boolean("audit_logging"),
 	auditLogUrl: text("audit_log_url"),
+	oracleInstanceId: text("oracle_instance_id"),
 	extra: text("extra"),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

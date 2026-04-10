@@ -90,9 +90,10 @@ export function computeAuditStatus(
  * Get Oracle audit summaries for an app's persistence entries.
  * Reads from the `persistence_audit_summaries` DB cache first.
  * On cache miss, fetches from the oracle-revisjon API, stores in DB, then returns.
+ * Uses `oracleInstanceId` when set, falls back to `name` for backwards compatibility.
  */
 export async function getOracleAuditSummariesForApp(
-	persistenceEntries: Array<{ id: string; name: string; type: string }>,
+	persistenceEntries: Array<{ id: string; name: string; type: string; oracleInstanceId: string | null }>,
 ): Promise<Record<string, AuditEvidenceSummary>> {
 	const oracleEntries = persistenceEntries.filter((p) => p.type === "oracle")
 	if (oracleEntries.length === 0) return {}
@@ -110,13 +111,14 @@ export async function getOracleAuditSummariesForApp(
 	const result: Record<string, AuditEvidenceSummary> = {}
 
 	// Populate from cache and track misses
-	const misses: Array<{ id: string; name: string }> = []
+	const misses: Array<{ id: string; instanceId: string }> = []
 	for (const entry of oracleEntries) {
 		const cachedEntry = cachedMap.get(entry.id)
 		if (cachedEntry) {
 			result[entry.id] = dbSummaryToApiSummary(cachedEntry)
 		} else {
-			misses.push(entry)
+			const instanceId = entry.oracleInstanceId ?? entry.name
+			misses.push({ id: entry.id, instanceId })
 		}
 	}
 
@@ -130,9 +132,9 @@ export async function getOracleAuditSummariesForApp(
 
 	const fetchResults = await Promise.allSettled(
 		misses
-			.filter((p) => knownInstanceIds.has(p.name))
+			.filter((p) => knownInstanceIds.has(p.instanceId))
 			.map(async (p) => {
-				const summary = await getAuditEvidenceSummary(p.name)
+				const summary = await getAuditEvidenceSummary(p.instanceId)
 				return { persistenceId: p.id, summary }
 			}),
 	)

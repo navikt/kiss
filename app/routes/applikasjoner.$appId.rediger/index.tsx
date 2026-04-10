@@ -82,6 +82,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		availableTeams,
 		oracleInstances,
 		availableOracleInstances,
+		oraclePersistence: detail.persistence
+			.filter((p) => p.type === "oracle")
+			.map((p) => ({ id: p.id, name: p.name, oracleInstanceId: p.oracleInstanceId })),
 	})
 }
 
@@ -156,6 +159,12 @@ export async function action({ params, request }: ActionFunctionArgs) {
 			excel,
 			authedUser.navIdent,
 		)
+	} else if (intent === "linkPersistenceToOracle") {
+		const persistenceId = formData.get("persistenceId") as string
+		const oracleInstanceId = (formData.get("oracleInstanceId") as string) || null
+		if (!persistenceId) throw new Response("Mangler persistenceId", { status: 400 })
+		const { linkPersistenceToOracleInstance } = await import("~/db/queries/nais.server")
+		await linkPersistenceToOracleInstance(persistenceId, oracleInstanceId)
 	} else {
 		throw new Response("Ugyldig handling", { status: 400 })
 	}
@@ -309,6 +318,7 @@ export default function ApplikasjonRediger() {
 		availableTeams,
 		oracleInstances,
 		availableOracleInstances,
+		oraclePersistence,
 	} = useLoaderData<typeof loader>()
 
 	return (
@@ -498,6 +508,59 @@ export default function ApplikasjonRediger() {
 					</Form>
 				)}
 			</Box>
+
+			{/* Oracle-databasekobling */}
+			{oraclePersistence.length > 0 && oracleInstances.length > 0 && (
+				<Box>
+					<Heading size="medium" level="3" spacing>
+						Oracle-databasekobling
+					</Heading>
+					<BodyLong spacing>
+						Koble Oracle-databaser oppdaget av Nais til riktig Oracle-instans. Dette sikrer at audit
+						logging-oppsummeringer hentes for riktig database.
+					</BodyLong>
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Database (oppdaget)</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Koblet Oracle-instans</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{oraclePersistence.map((p) => (
+								<Table.Row key={p.id}>
+									<Table.DataCell>{p.name}</Table.DataCell>
+									<Table.DataCell>
+										<Form method="post">
+											<input type="hidden" name="intent" value="linkPersistenceToOracle" />
+											<input type="hidden" name="persistenceId" value={p.id} />
+											<HStack gap="space-2" align="end">
+												<Select
+													label="Oracle-instans"
+													name="oracleInstanceId"
+													size="small"
+													hideLabel
+													defaultValue={p.oracleInstanceId ?? ""}
+												>
+													<option value="">Bruk databasenavn ({p.name})</option>
+													{oracleInstances.map((inst) => (
+														<option key={inst.id} value={inst.instanceId}>
+															{inst.instanceId.toUpperCase()}
+														</option>
+													))}
+												</Select>
+												<Button variant="secondary" size="small" type="submit">
+													Lagre
+												</Button>
+											</HStack>
+										</Form>
+									</Table.DataCell>
+								</Table.Row>
+							))}
+						</Table.Body>
+					</Table>
+				</Box>
+			)}
 
 			{/* Linked applications */}
 			{linkedApps.length > 0 && (

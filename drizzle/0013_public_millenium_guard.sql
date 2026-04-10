@@ -1,0 +1,1 @@
+ALTER TABLE "application_persistence" ADD COLUMN "oracle_instance_id" text;

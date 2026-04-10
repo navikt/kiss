@@ -532,6 +532,14 @@ export async function getAppsPersistence(applicationIds: string[]) {
 	return map
 }
 
+/** Link an Oracle persistence entry to an Oracle instance ID. */
+export async function linkPersistenceToOracleInstance(persistenceId: string, oracleInstanceId: string | null) {
+	await db
+		.update(applicationPersistence)
+		.set({ oracleInstanceId, updatedAt: new Date() })
+		.where(eq(applicationPersistence.id, persistenceId))
+}
+
 /** Get application detail with environments, persistence, and linked apps. */
 export async function getApplicationDetail(applicationId: string) {
 	const [app] = await db
