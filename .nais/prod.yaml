@@ -68,6 +68,8 @@ spec:
         - id: elastic
   accessPolicy:
     outbound:
+      rules:
+        - application: pensjon-deployment-audit
       external:
         - host: graph.microsoft.com
         - host: console.nav.cloud.nais.io
@@ -92,6 +94,12 @@ spec:
     - name: ORACLE_REVISJON_SCOPE
       value: "api://prod-fss.pensjon-revisjon.pensjon-oracle-revisjon-backend/.default"
     - name: ENABLE_AUDIT_SUMMARY_SYNC
+      value: "true"
+    - name: DEPLOYMENT_AUDIT_BASE_URL
+      value: "http://pensjon-deployment-audit.pensjon-revisjon"
+    - name: DEPLOYMENT_AUDIT_SCOPE
+      value: "api://prod-gcp.pensjon-revisjon.pensjon-deployment-audit/.default"
+    - name: ENABLE_DEPLOYMENT_AUDIT_SYNC
       value: "true"
   envFrom:
     - secret: nais-deployment-audit

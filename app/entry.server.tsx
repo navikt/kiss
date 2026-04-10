@@ -6,7 +6,8 @@ import { renderToPipeableStream } from "react-dom/server"
 import type { AppLoadContext, EntryContext } from "react-router"
 import { ServerRouter } from "react-router"
 import { runMigrations } from "~/db/migrate.server"
-import { startAuditSummaryScheduler } from "~/lib/audit-summary-scheduler.server"
+import { startAuditSummaryScheduler, stopAuditSummaryScheduler } from "~/lib/audit-summary-scheduler.server"
+import { startDeploymentAuditScheduler, stopDeploymentAuditScheduler } from "~/lib/deployment-audit-scheduler.server"
 import { logger } from "~/lib/logger.server"
 import { startNaisScheduler } from "~/lib/nais-scheduler.server"
 
@@ -15,11 +16,19 @@ runMigrations()
 	.then(() => {
 		startNaisScheduler()
 		startAuditSummaryScheduler()
+		startDeploymentAuditScheduler()
 	})
 	.catch((error) => {
 		logger.error("Failed to run migrations, shutting down", error)
 		process.exit(1)
 	})
+
+// Graceful shutdown
+process.on("SIGTERM", () => {
+	logger.info("SIGTERM received — stopping schedulers")
+	stopAuditSummaryScheduler()
+	stopDeploymentAuditScheduler()
+})
 
 export const streamTimeout = 5_000
 
