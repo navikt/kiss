@@ -17,7 +17,7 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, useActionData, useLoaderData } from "react-router"
+import { data, Form, Link, useActionData, useLoaderData, useSearchParams } from "react-router"
 import { ComplianceComment, ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments, saveAssessment } from "~/db/queries/applications.server"
@@ -37,9 +37,21 @@ function slugify(text: string) {
 		.replace(/(^-|-$)/g, "")
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+function uniqueSorted(values: (string | null)[]) {
+	const unique = new Set(values.filter(Boolean) as string[])
+	return [...unique].sort((a, b) => a.localeCompare(b, "nb"))
+}
+
+export async function loader({ params, request }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
+
+	const url = new URL(request.url)
+	const ansvarlig = url.searchParams.get("ansvarlig") ?? ""
+	const teknologielement = url.searchParams.get("teknologielement") ?? ""
+	const frekvens = url.searchParams.get("frekvens") ?? ""
+	const status = url.searchParams.get("status") ?? ""
+	const domene = url.searchParams.get("domene") ?? ""
 
 	const [result, allRisks, screeningData] = await Promise.all([
 		getAppAssessments(appId),
@@ -48,13 +60,30 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	])
 	if (!result) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
+	// Compute filter options from all assessments before filtering
+	const responsibleOptions = uniqueSorted(result.assessments.map((a) => a.responsible))
+	const technologyOptions = uniqueSorted(result.assessments.map((a) => a.technologyElementName))
+	const frequencyOptions = uniqueSorted(result.assessments.map((a) => a.frequency))
+	const domainOptions = uniqueSorted(result.assessments.map((a) => a.domainName))
+	const statusOptions = Object.entries(statusLabels).map(([value, label]) => ({ value, label }))
+
+	// Apply filters
+	let filtered = result.assessments
+	if (ansvarlig) filtered = filtered.filter((a) => a.responsible === ansvarlig)
+	if (teknologielement) filtered = filtered.filter((a) => a.technologyElementName === teknologielement)
+	if (frekvens) filtered = filtered.filter((a) => a.frequency === frekvens)
+	if (status === "__not_assessed") filtered = filtered.filter((a) => a.status === null)
+	else if (status) filtered = filtered.filter((a) => a.status === status)
+	if (domene) filtered = filtered.filter((a) => a.domainName === domene)
+
 	return data({
 		appId,
 		appName: result.app.name,
-		assessments: result.assessments.map((a) => ({
+		assessments: filtered.map((a) => ({
 			...a,
 			requirementHtml: renderMarkdown(a.requirement),
 		})),
+		totalAssessments: result.assessments.length,
 		isInherited: result.isInherited,
 		primaryName: result.primaryName,
 		primaryId: result.app.primaryApplicationId,
@@ -66,6 +95,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			...q,
 			descriptionHtml: renderMarkdown(q.description),
 		})),
+		filters: { ansvarlig, teknologielement, frekvens, status, domene },
+		options: { responsibleOptions, technologyOptions, frequencyOptions, domainOptions, statusOptions },
 	})
 }
 
@@ -122,9 +153,42 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function ComplianceAssessment() {
-	const { appName, assessments, isInherited, primaryName, primaryId, allRisks, screening } =
-		useLoaderData<typeof loader>()
+	const {
+		appName,
+		assessments,
+		totalAssessments,
+		isInherited,
+		primaryName,
+		primaryId,
+		allRisks,
+		screening,
+		filters,
+		options,
+	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
+	const [, setSearchParams] = useSearchParams()
+
+	const hasActiveFilters = !!(
+		filters.ansvarlig ||
+		filters.teknologielement ||
+		filters.frekvens ||
+		filters.status ||
+		filters.domene
+	)
+
+	function setFilter(key: string, value: string) {
+		setSearchParams(
+			(prev) => {
+				if (value) {
+					prev.set(key, value)
+				} else {
+					prev.delete(key)
+				}
+				return prev
+			},
+			{ replace: true },
+		)
+	}
 
 	// Build control lookup by controlUuid for quick access
 	const controlByUuid = new Map<string, (typeof assessments)[number]>()
@@ -142,7 +206,7 @@ export default function ComplianceAssessment() {
 		}
 	}
 
-	// Group risks by domain name (merge domains with same name, e.g. TI and DR both named "Drift")
+	// Group risks by domain name (merge domains with same name)
 	const domainMap = new Map<string, { name: string; risks: typeof allRisks }>()
 	for (const r of allRisks) {
 		if (!domainMap.has(r.domainName)) {
@@ -204,6 +268,115 @@ export default function ComplianceAssessment() {
 								? "Svar på innledende spørsmål er lagret."
 								: `Vurdering for ${actionData.controlId} er lagret.`}
 						</div>
+					)}
+
+					<HStack gap="space-6" wrap>
+						{options.domainOptions.length > 0 && (
+							<Select
+								label="Domene"
+								size="small"
+								value={filters.domene}
+								onChange={(e) => setFilter("domene", e.target.value)}
+								style={{ minWidth: "12rem" }}
+							>
+								<option value="">Alle domener</option>
+								{options.domainOptions.map((d) => (
+									<option key={d} value={d}>
+										{d}
+									</option>
+								))}
+							</Select>
+						)}
+						{options.responsibleOptions.length > 0 && (
+							<Select
+								label="Ansvarlig"
+								size="small"
+								value={filters.ansvarlig}
+								onChange={(e) => setFilter("ansvarlig", e.target.value)}
+								style={{ minWidth: "12rem" }}
+							>
+								<option value="">Alle ansvarlige</option>
+								{options.responsibleOptions.map((r) => (
+									<option key={r} value={r}>
+										{r}
+									</option>
+								))}
+							</Select>
+						)}
+						{options.technologyOptions.length > 0 && (
+							<Select
+								label="Teknologielement"
+								size="small"
+								value={filters.teknologielement}
+								onChange={(e) => setFilter("teknologielement", e.target.value)}
+								style={{ minWidth: "12rem" }}
+							>
+								<option value="">Alle teknologier</option>
+								{options.technologyOptions.map((t) => (
+									<option key={t} value={t}>
+										{t}
+									</option>
+								))}
+							</Select>
+						)}
+						{options.frequencyOptions.length > 0 && (
+							<Select
+								label="Frekvens"
+								size="small"
+								value={filters.frekvens}
+								onChange={(e) => setFilter("frekvens", e.target.value)}
+								style={{ minWidth: "12rem" }}
+							>
+								<option value="">Alle frekvenser</option>
+								{options.frequencyOptions.map((f) => (
+									<option key={f} value={f}>
+										{f}
+									</option>
+								))}
+							</Select>
+						)}
+						<Select
+							label="Status"
+							size="small"
+							value={filters.status}
+							onChange={(e) => setFilter("status", e.target.value)}
+							style={{ minWidth: "12rem" }}
+						>
+							<option value="">Alle statuser</option>
+							<option value="__not_assessed">Ikke vurdert</option>
+							{options.statusOptions.map((s) => (
+								<option key={s.value} value={s.value}>
+									{s.label}
+								</option>
+							))}
+						</Select>
+					</HStack>
+
+					{hasActiveFilters && (
+						<HStack gap="space-4" align="center">
+							<BodyShort size="small" textColor="subtle">
+								Viser {assessments.length} av {totalAssessments} kontrollpunkter
+							</BodyShort>
+							<Button
+								size="xsmall"
+								variant="tertiary"
+								onClick={() =>
+									setSearchParams(
+										(prev) => {
+											prev.delete("ansvarlig")
+											prev.delete("teknologielement")
+											prev.delete("frekvens")
+											prev.delete("status")
+											prev.delete("domene")
+											return prev
+										},
+										{ replace: true },
+									)
+								}
+							>
+								Nullstill filtre
+							</Button>
+						</HStack>
 					)}
 
 					{screening.length > 0 && (
@@ -396,7 +569,13 @@ function AssessmentCard({
 			<div className="compliance-card-header">
 				<HStack gap="space-4" align="center">
 					<Heading size="small" level="5">
-						{assessment.controlId}: {assessment.controlName}
+						<Link
+							to={`/kontrollrammeverk/${assessment.domainCode}/${assessment.controlId}`}
+							className="compliance-control-link"
+						>
+							{assessment.controlId}
+						</Link>
+						: {assessment.controlName}
 					</Heading>
 					{assessment.technologyElementName && (
 						<Tag variant="info" size="xsmall">

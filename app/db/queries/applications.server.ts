@@ -186,6 +186,8 @@ export async function getAppAssessments(appId: string) {
 			controlId: frameworkControls.controlId,
 			shortTitle: frameworkControls.shortTitle,
 			requirement: frameworkControls.requirement,
+			responsible: frameworkControls.responsible,
+			frequency: frameworkControls.frequency,
 		})
 		.from(frameworkControls)
 		.where(isNull(frameworkControls.archivedAt))
@@ -300,6 +302,8 @@ export async function getAppAssessments(appId: string) {
 				controlId: ctrl.controlId,
 				controlName: ctrl.shortTitle ?? ctrl.requirement?.split("\n")[0] ?? ctrl.controlId,
 				requirement: ctrl.requirement ?? "",
+				responsible: ctrl.responsible ?? null,
+				frequency: ctrl.frequency ?? null,
 				domainCode: primaryDomain?.code ?? "",
 				domainName: primaryDomain?.name ?? "",
 				technologyElementId: elementId,
