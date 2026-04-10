@@ -91,5 +91,7 @@ spec:
       value: "https://pensjon-oracle-revisjon-backend.prod-fss-pub.nais.io"
     - name: ORACLE_REVISJON_SCOPE
       value: "api://prod-fss.pensjon-revisjon.pensjon-oracle-revisjon-backend/.default"
+    - name: ENABLE_AUDIT_SUMMARY_SYNC
+      value: "true"
   envFrom:
     - secret: nais-deployment-audit
