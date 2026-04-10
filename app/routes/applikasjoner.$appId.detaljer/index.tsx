@@ -11,6 +11,7 @@ import {
 	CopyButton,
 	Detail,
 	Heading,
+	HGrid,
 	HStack,
 	Label,
 	Modal,
@@ -179,11 +180,25 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	// Get Oracle audit summaries — reads from DB cache, fetches on-demand if missing
 	const oracleAuditSummaries = await getOracleAuditSummariesForApp(detail.persistence)
 
+	// Get deployment verification data (cached, on-demand fetch if missing)
+	const { getDeploymentVerificationForAppWithFetch } = await import("~/db/queries/deployment-audit.server")
+	const deploymentVerifications = await getDeploymentVerificationForAppWithFetch(appId)
+
 	return data({
 		app: detail.app,
 		environments: detail.environments,
 		persistence: detail.persistence,
 		oracleAuditSummaries,
+		deploymentVerifications: deploymentVerifications.map((v) => ({
+			...v,
+			periodFrom: v.periodFrom.toISOString(),
+			periodTo: v.periodTo.toISOString(),
+			lastDeploymentAt: v.lastDeploymentAt?.toISOString() ?? null,
+			fetchedAt: v.fetchedAt.toISOString(),
+			lastSyncAttemptedAt: v.lastSyncAttemptedAt?.toISOString() ?? null,
+			createdAt: v.createdAt.toISOString(),
+			updatedAt: v.updatedAt.toISOString(),
+		})),
 		authIntegrations: detail.authIntegrations,
 		accessPolicyRules: detail.accessPolicyRules,
 		teams: detail.teams,
@@ -322,6 +337,7 @@ export default function ApplikasjonDetalj() {
 		environments,
 		persistence,
 		oracleAuditSummaries,
+		deploymentVerifications,
 		authIntegrations,
 		accessPolicyRules,
 		teams,
@@ -394,6 +410,7 @@ export default function ApplikasjonDetalj() {
 					<Tabs.Tab value="autentisering" label="Autentisering" />
 					<Tabs.Tab value="tilgangspolicy" label="Tilgangspolicy" />
 					<Tabs.Tab value="miljoer" label="Miljøer" />
+					{environments.length > 0 && <Tabs.Tab value="deployments" label="Deployments" />}
 					<Tabs.Tab value="persistering" label="Persistering" />
 					{oracleInstances.length > 0 && <Tabs.Tab value="revisjonsbevis" label="Revisjonsbevis" />}
 					<Tabs.Tab value="rutiner" label="Rutiner" />
@@ -960,6 +977,13 @@ export default function ApplikasjonDetalj() {
 					)}
 				</Tabs.Panel>
 
+				{/* Deployments */}
+				{environments.length > 0 && (
+					<Tabs.Panel value="deployments" style={{ paddingTop: "var(--ax-space-6)" }}>
+						<DeploymentVerificationPanel verifications={deploymentVerifications} />
+					</Tabs.Panel>
+				)}
+
 				{/* Persistering */}
 				<Tabs.Panel value="persistering" style={{ paddingTop: "var(--ax-space-6)" }}>
 					{persistence.length > 0 ? (
@@ -1494,6 +1518,261 @@ function ReportsPanel({
 					</Table>
 				)}
 			</Box>
+		</VStack>
+	)
+}
+
+const STALENESS_THRESHOLD_MS = 2 * 60 * 60 * 1000 // 2 hours
+
+function getCoverageVariant(percent: number | null): "success" | "warning" | "error" | "neutral" {
+	if (percent === null) return "neutral"
+	if (percent >= 80) return "success"
+	if (percent >= 60) return "warning"
+	return "error"
+}
+
+function CoverageCard({
+	title,
+	percent,
+	numerator,
+	denominator,
+	details,
+}: {
+	title: string
+	percent: number | null
+	numerator: number | null
+	denominator: number | null
+	details?: Array<{ label: string; value: number | null }>
+}) {
+	const variant = getCoverageVariant(percent)
+
+	return (
+		<Box padding="space-16" borderRadius="8" borderColor="neutral-subtle" borderWidth="1">
+			<VStack gap="space-8">
+				<Heading size="xsmall">{title}</Heading>
+				{percent !== null ? (
+					<>
+						<div
+							style={{
+								height: "8px",
+								background: "var(--ax-bg-neutral-moderate)",
+								borderRadius: "var(--ax-radius-4)",
+								overflow: "hidden",
+							}}
+						>
+							<div
+								style={{
+									height: "100%",
+									width: `${Math.min(100, percent)}%`,
+									background:
+										variant === "success"
+											? "var(--ax-bg-positive-strong)"
+											: variant === "warning"
+												? "var(--ax-bg-warning-strong)"
+												: "var(--ax-bg-danger-strong)",
+									borderRadius: "var(--ax-radius-4)",
+									transition: "width 0.3s ease",
+								}}
+								role="progressbar"
+								aria-valuenow={percent}
+								aria-valuemin={0}
+								aria-valuemax={100}
+								aria-label={`${title}: ${Math.round(percent)}%`}
+							/>
+						</div>
+						<HStack gap="space-4" align="center">
+							<Tag variant={variant} size="small">
+								{Math.round(percent)}%
+							</Tag>
+							{numerator !== null && denominator !== null && (
+								<Detail>
+									{numerator} av {denominator}
+								</Detail>
+							)}
+						</HStack>
+					</>
+				) : (
+					<Tag variant="neutral" size="small">
+						Ingen data
+					</Tag>
+				)}
+				{details && details.length > 0 && (
+					<VStack gap="space-2">
+						{details.map((d) => (
+							<HStack key={d.label} gap="space-4" justify="space-between">
+								<Detail>{d.label}</Detail>
+								<Detail>{d.value ?? "–"}</Detail>
+							</HStack>
+						))}
+					</VStack>
+				)}
+			</VStack>
+		</Box>
+	)
+}
+
+function DeploymentVerificationPanel({
+	verifications,
+}: {
+	verifications: Array<{
+		environment: string
+		appName: string
+		teamSlug: string
+		status: string
+		fourEyesCoveragePercent: number | null
+		fourEyesTotal: number | null
+		fourEyesApproved: number | null
+		changeOriginCoveragePercent: number | null
+		changeOriginTotal: number | null
+		changeOriginLinked: number | null
+		lastDeploymentAt: string | null
+		fetchedAt: string
+		rawSummary: {
+			fourEyesCoverage: { unapproved: number; pending: number }
+			changeOriginCoverage: { dependabot: number }
+			lastDeployment: {
+				createdAt: string
+				deployer: string | null
+				commitSha: string | null
+				fourEyesStatus: string
+				hasChangeOrigin: boolean
+			} | null
+		}
+	}>
+}) {
+	if (verifications.length === 0) {
+		return (
+			<Alert variant="info" size="small">
+				Ingen deployment-data tilgjengelig. Data hentes automatisk fra deployment-audit og oppdateres periodisk.
+			</Alert>
+		)
+	}
+
+	const allNotMonitored = verifications.every((v) => v.status === "not_monitored")
+	if (allNotMonitored) {
+		return (
+			<Alert variant="info" size="small">
+				Denne applikasjonen overvåkes ikke av deployment-audit. Kontakt plattformteamet for å aktivere overvåking.
+			</Alert>
+		)
+	}
+
+	const syncedVerifications = verifications.filter((v) => v.status === "synced")
+
+	return (
+		<VStack gap="space-16">
+			{syncedVerifications.map((v) => {
+				const isStale = v.fetchedAt && Date.now() - new Date(v.fetchedAt).getTime() > STALENESS_THRESHOLD_MS
+				const lastDeploy = v.rawSummary?.lastDeployment
+
+				return (
+					<VStack key={v.environment} gap="space-12">
+						<HStack gap="space-8" align="center">
+							<Heading size="small">{v.environment}</Heading>
+							{isStale && (
+								<Tag variant="neutral" size="xsmall">
+									⚠️ Foreldet
+								</Tag>
+							)}
+							<Detail>
+								Sist oppdatert:{" "}
+								{new Date(v.fetchedAt).toLocaleString("nb-NO", {
+									day: "numeric",
+									month: "short",
+									hour: "2-digit",
+									minute: "2-digit",
+								})}
+							</Detail>
+						</HStack>
+
+						<HGrid columns={{ xs: 1, md: 2, lg: 3 }} gap="space-12">
+							<CoverageCard
+								title="Fire-øyne-dekning"
+								percent={v.fourEyesCoveragePercent}
+								numerator={v.fourEyesApproved}
+								denominator={v.fourEyesTotal}
+								details={[
+									{ label: "Ugodkjent", value: v.rawSummary?.fourEyesCoverage.unapproved ?? null },
+									{ label: "Ventende", value: v.rawSummary?.fourEyesCoverage.pending ?? null },
+								]}
+							/>
+							<CoverageCard
+								title="Endringsopphav"
+								percent={v.changeOriginCoveragePercent}
+								numerator={v.changeOriginLinked}
+								denominator={v.changeOriginTotal}
+								details={[
+									{
+										label: "Dependabot",
+										value: v.rawSummary?.changeOriginCoverage.dependabot ?? null,
+									},
+								]}
+							/>
+							<Box padding="space-16" borderRadius="8" borderColor="neutral-subtle" borderWidth="1">
+								<VStack gap="space-8">
+									<Heading size="xsmall">Siste deployment</Heading>
+									{lastDeploy ? (
+										<VStack gap="space-4">
+											<HStack gap="space-4" justify="space-between">
+												<Detail>Dato</Detail>
+												<Detail>
+													{new Date(lastDeploy.createdAt).toLocaleString("nb-NO", {
+														day: "numeric",
+														month: "short",
+														year: "numeric",
+														hour: "2-digit",
+														minute: "2-digit",
+													})}
+												</Detail>
+											</HStack>
+											{lastDeploy.deployer && (
+												<HStack gap="space-4" justify="space-between">
+													<Detail>Deployer</Detail>
+													<Detail>{lastDeploy.deployer}</Detail>
+												</HStack>
+											)}
+											{lastDeploy.commitSha && (
+												<HStack gap="space-4" justify="space-between">
+													<Detail>Commit</Detail>
+													<HStack gap="space-2" align="center">
+														<Detail>{lastDeploy.commitSha.slice(0, 8)}</Detail>
+														<CopyButton copyText={lastDeploy.commitSha} size="xsmall" variant="action" />
+													</HStack>
+												</HStack>
+											)}
+											<HStack gap="space-4" justify="space-between">
+												<Detail>Fire-øyne</Detail>
+												<Tag
+													variant={
+														lastDeploy.fourEyesStatus === "approved"
+															? "success"
+															: lastDeploy.fourEyesStatus === "pending"
+																? "neutral"
+																: "warning"
+													}
+													size="xsmall"
+												>
+													{lastDeploy.fourEyesStatus}
+												</Tag>
+											</HStack>
+											<HStack gap="space-4" justify="space-between">
+												<Detail>Endringsopphav</Detail>
+												<Tag variant={lastDeploy.hasChangeOrigin ? "success" : "neutral"} size="xsmall">
+													{lastDeploy.hasChangeOrigin ? "Koblet" : "Ikke koblet"}
+												</Tag>
+											</HStack>
+										</VStack>
+									) : (
+										<Tag variant="neutral" size="small">
+											Ingen deployments
+										</Tag>
+									)}
+								</VStack>
+							</Box>
+						</HGrid>
+					</VStack>
+				)
+			})}
 		</VStack>
 	)
 }
