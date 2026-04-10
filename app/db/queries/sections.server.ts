@@ -212,9 +212,14 @@ export async function getSectionDetail(seksjonSlug: string) {
 			notRelevant: uNotRel,
 			total: totalControls * unassignedAppIds.length,
 		}
+
+		// Add unassigned app IDs to the full set
+		for (const id of unassignedAppIds) {
+			allAssignedAppIds.add(id)
+		}
 	}
 
-	return { section, teams: teamStats, unassignedStats }
+	return { section, teams: teamStats, unassignedStats, allAppIds: [...allAssignedAppIds] }
 }
 
 /** Generate a URL-friendly slug from a name. */

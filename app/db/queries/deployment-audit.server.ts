@@ -238,3 +238,43 @@ export async function getDeploymentVerificationsForApps(applicationIds: string[]
 		.from(deploymentVerificationSummaries)
 		.where(inArray(deploymentVerificationSummaries.applicationId, applicationIds))
 }
+
+/** Aggregate deployment verification stats across all synced summaries. */
+export async function getDeploymentVerificationAggregate(applicationIds?: string[]) {
+	const conditions = [eq(deploymentVerificationSummaries.status, "synced")]
+	if (applicationIds && applicationIds.length > 0) {
+		conditions.push(inArray(deploymentVerificationSummaries.applicationId, applicationIds))
+	}
+
+	const rows = await db
+		.select({
+			fourEyesTotal: deploymentVerificationSummaries.fourEyesTotal,
+			fourEyesApproved: deploymentVerificationSummaries.fourEyesApproved,
+			changeOriginTotal: deploymentVerificationSummaries.changeOriginTotal,
+			changeOriginLinked: deploymentVerificationSummaries.changeOriginLinked,
+		})
+		.from(deploymentVerificationSummaries)
+		.where(and(...conditions))
+
+	let totalDeployments = 0
+	let totalApproved = 0
+	let changeTotal = 0
+	let changeLinked = 0
+
+	for (const row of rows) {
+		totalDeployments += row.fourEyesTotal ?? 0
+		totalApproved += row.fourEyesApproved ?? 0
+		changeTotal += row.changeOriginTotal ?? 0
+		changeLinked += row.changeOriginLinked ?? 0
+	}
+
+	return {
+		appsWithData: rows.length,
+		fourEyesPercent: totalDeployments > 0 ? Math.round((totalApproved / totalDeployments) * 100) : null,
+		fourEyesTotal: totalDeployments,
+		fourEyesApproved: totalApproved,
+		changeOriginPercent: changeTotal > 0 ? Math.round((changeLinked / changeTotal) * 100) : null,
+		changeOriginTotal: changeTotal,
+		changeOriginLinked: changeLinked,
+	}
+}

@@ -1,7 +1,9 @@
 import { BodyLong, BodyShort, Box, Button, Detail, Heading, HGrid, HStack, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getSectionDetail } from "~/db/queries/sections.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
@@ -15,6 +17,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const result = await getSectionDetail(seksjon)
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
+
+	const deploymentStats = await getDeploymentVerificationAggregate(result.allAppIds)
 
 	const seksjonName = result.section.name
 	const teams = result.teams
@@ -41,6 +45,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		totalControls,
 		overallPercent,
 		canAdmin: user ? isAdmin(user) : false,
+		deploymentStats,
 	})
 }
 
@@ -56,6 +61,7 @@ export default function SeksjonDashboard() {
 		totalMangler,
 		overallPercent,
 		canAdmin,
+		deploymentStats,
 	} = useLoaderData<typeof loader>()
 
 	return (
@@ -131,6 +137,8 @@ export default function SeksjonDashboard() {
 					</VStack>
 				</Box>
 			</HGrid>
+
+			<DeploymentSummaryCards stats={deploymentStats} />
 
 			<Heading size="large" level="3">
 				Status per team

@@ -1,7 +1,9 @@
 import { BodyLong, BodyShort, Box, Detail, Heading, HGrid, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getDomainSummaries } from "~/db/queries/framework.server"
 import { compliancePercent } from "~/lib/utils"
 
@@ -18,7 +20,7 @@ interface DomainStatus {
 }
 
 export async function loader(_args: LoaderFunctionArgs) {
-	const summaries = await getDomainSummaries()
+	const [summaries, deploymentStats] = await Promise.all([getDomainSummaries(), getDeploymentVerificationAggregate()])
 
 	// Merge domains with the same name
 	const mergedMap = new Map<string, DomainStatus>()
@@ -62,11 +64,12 @@ export async function loader(_args: LoaderFunctionArgs) {
 		totalPartial,
 		totalMangler,
 		overallPercent,
+		deploymentStats,
 	})
 }
 
 export default function Dashboard() {
-	const { domainStatuses, totalImplemented, totalPartial, totalMangler, overallPercent } =
+	const { domainStatuses, totalImplemented, totalPartial, totalMangler, overallPercent, deploymentStats } =
 		useLoaderData<typeof loader>()
 
 	return (
@@ -112,6 +115,8 @@ export default function Dashboard() {
 					</VStack>
 				</Box>
 			</HGrid>
+
+			<DeploymentSummaryCards stats={deploymentStats} />
 
 			<Heading size="large" level="3">
 				Status per domene
