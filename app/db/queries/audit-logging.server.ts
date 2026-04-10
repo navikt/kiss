@@ -1,6 +1,14 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
-import { applicationPersistence, applicationTeamMappings, monitoredApplications } from "../schema/applications"
+import {
+	applicationEnvironments,
+	applicationPersistence,
+	applicationTeamMappings,
+	devTeamNaisTeamMappings,
+	monitoredApplications,
+	naisTeams,
+	sectionIgnoredApplications,
+} from "../schema/applications"
 import { auditLog } from "../schema/audit"
 import { persistenceAuditConfirmations, persistenceAuditSummaries } from "../schema/audit-logging"
 import { devTeams, sections } from "../schema/organization"
@@ -74,19 +82,78 @@ export function computeAuditStatus(
 	return "unknown"
 }
 
+// ─── Section app discovery (matches getSectionDetail logic) ─────────────────
+
+async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
+	const appIds = new Set<string>()
+
+	// Path 1: Apps directly mapped to dev teams in this section
+	const directRows = await db
+		.selectDistinct({ appId: applicationTeamMappings.applicationId })
+		.from(applicationTeamMappings)
+		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+		.innerJoin(monitoredApplications, eq(applicationTeamMappings.applicationId, monitoredApplications.id))
+		.where(and(eq(devTeams.sectionId, sectionId), isNull(monitoredApplications.primaryApplicationId)))
+	for (const row of directRows) appIds.add(row.appId)
+
+	// Path 2: Apps from Nais teams linked to dev teams in this section
+	const linkedNaisTeamRows = await db
+		.selectDistinct({ naisTeamId: devTeamNaisTeamMappings.naisTeamId })
+		.from(devTeamNaisTeamMappings)
+		.innerJoin(devTeams, eq(devTeamNaisTeamMappings.devTeamId, devTeams.id))
+		.where(eq(devTeams.sectionId, sectionId))
+
+	const linkedNaisTeamIds = linkedNaisTeamRows.map((r) => r.naisTeamId)
+
+	// Path 3: Apps from Nais teams directly assigned to this section
+	const sectionNaisTeamRows = await db
+		.select({ id: naisTeams.id })
+		.from(naisTeams)
+		.where(eq(naisTeams.sectionId, sectionId))
+
+	const sectionNaisTeamIds = sectionNaisTeamRows.map((r) => r.id)
+
+	const allNaisTeamIds = [...new Set([...linkedNaisTeamIds, ...sectionNaisTeamIds])]
+
+	if (allNaisTeamIds.length > 0) {
+		const naisAppRows = await db
+			.selectDistinct({ appId: applicationEnvironments.applicationId })
+			.from(applicationEnvironments)
+			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+			.where(
+				and(
+					inArray(applicationEnvironments.naisTeamId, allNaisTeamIds),
+					isNull(monitoredApplications.primaryApplicationId),
+				),
+			)
+		for (const row of naisAppRows) appIds.add(row.appId)
+	}
+
+	// Exclude ignored apps
+	const ignoredRows = await db
+		.select({ appId: sectionIgnoredApplications.applicationId })
+		.from(sectionIgnoredApplications)
+		.where(eq(sectionIgnoredApplications.sectionId, sectionId))
+	for (const row of ignoredRows) appIds.delete(row.appId)
+
+	return appIds
+}
+
 // ─── Section audit overview query ───────────────────────────────────────────
 
 export async function getSectionAuditOverview(sectionSlug: string): Promise<AuditOverviewRow[]> {
 	const [section] = await db.select({ id: sections.id }).from(sections).where(eq(sections.slug, sectionSlug)).limit(1)
 	if (!section) return []
 
-	const rows = await db
-		.selectDistinctOn([applicationPersistence.id], {
+	const sectionAppIds = await getSectionAppIds(section.id)
+	if (sectionAppIds.size === 0) return []
+
+	// Get all persistence entries with database types for section apps
+	const persistenceRows = await db
+		.select({
 			persistenceId: applicationPersistence.id,
 			appId: monitoredApplications.id,
 			appName: monitoredApplications.name,
-			teamName: devTeams.name,
-			teamSlug: devTeams.slug,
 			persistenceType: applicationPersistence.type,
 			persistenceName: applicationPersistence.name,
 			auditLogging: applicationPersistence.auditLogging,
@@ -105,8 +172,6 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 		})
 		.from(applicationPersistence)
 		.innerJoin(monitoredApplications, eq(applicationPersistence.applicationId, monitoredApplications.id))
-		.innerJoin(applicationTeamMappings, eq(monitoredApplications.id, applicationTeamMappings.applicationId))
-		.innerJoin(devTeams, and(eq(applicationTeamMappings.devTeamId, devTeams.id), eq(devTeams.sectionId, section.id)))
 		.leftJoin(persistenceAuditSummaries, eq(applicationPersistence.id, persistenceAuditSummaries.persistenceId))
 		.leftJoin(
 			persistenceAuditConfirmations,
@@ -115,43 +180,68 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 				isNull(persistenceAuditConfirmations.revokedAt),
 			),
 		)
-		.where(inArray(applicationPersistence.type, [...DATABASE_TYPES]))
-		.orderBy(applicationPersistence.id, desc(devTeams.name))
+		.where(
+			and(
+				inArray(applicationPersistence.applicationId, [...sectionAppIds]),
+				inArray(applicationPersistence.type, [...DATABASE_TYPES]),
+			),
+		)
+		.orderBy(monitoredApplications.name, applicationPersistence.type)
 
-	return rows.map((row) => ({
-		persistenceId: row.persistenceId,
-		appId: row.appId,
-		appName: row.appName,
-		teamName: row.teamName,
-		teamSlug: row.teamSlug,
-		persistenceType: row.persistenceType,
-		persistenceName: row.persistenceName,
-		auditLogging: row.auditLogging,
-		summary: row.summaryConclusion
-			? {
-					conclusion: row.summaryConclusion,
-					reason: row.summaryReason,
-					fetchedAt: row.summaryFetchedAt ?? new Date(),
-					findings: row.summaryFindings,
-				}
-			: null,
-		confirmation: row.confirmationId
-			? {
-					id: row.confirmationId,
-					enabledAt: row.confirmationEnabledAt ?? "",
-					description: row.confirmationDescription ?? "",
-					evidenceUrl: row.confirmationEvidenceUrl ?? "",
-					confirmedBy: row.confirmationConfirmedBy ?? "",
-					confirmedAt: row.confirmationConfirmedAt ?? new Date(),
-				}
-			: null,
-		status: computeAuditStatus(
-			row.persistenceType,
-			row.auditLogging,
-			row.summaryConclusion,
-			row.confirmationId !== null,
-		),
-	}))
+	// Look up team name for each app (best-effort, may be null for unassigned apps)
+	const appTeamMap = new Map<string, { teamName: string; teamSlug: string }>()
+	const teamRows = await db
+		.select({
+			appId: applicationTeamMappings.applicationId,
+			teamName: devTeams.name,
+			teamSlug: devTeams.slug,
+		})
+		.from(applicationTeamMappings)
+		.innerJoin(devTeams, and(eq(applicationTeamMappings.devTeamId, devTeams.id), eq(devTeams.sectionId, section.id)))
+		.where(inArray(applicationTeamMappings.applicationId, [...sectionAppIds]))
+	for (const row of teamRows) {
+		if (!appTeamMap.has(row.appId)) {
+			appTeamMap.set(row.appId, { teamName: row.teamName, teamSlug: row.teamSlug })
+		}
+	}
+
+	return persistenceRows.map((row) => {
+		const team = appTeamMap.get(row.appId)
+		return {
+			persistenceId: row.persistenceId,
+			appId: row.appId,
+			appName: row.appName,
+			teamName: team?.teamName ?? null,
+			teamSlug: team?.teamSlug ?? null,
+			persistenceType: row.persistenceType,
+			persistenceName: row.persistenceName,
+			auditLogging: row.auditLogging,
+			summary: row.summaryConclusion
+				? {
+						conclusion: row.summaryConclusion,
+						reason: row.summaryReason,
+						fetchedAt: row.summaryFetchedAt ?? new Date(),
+						findings: row.summaryFindings,
+					}
+				: null,
+			confirmation: row.confirmationId
+				? {
+						id: row.confirmationId,
+						enabledAt: row.confirmationEnabledAt ?? "",
+						description: row.confirmationDescription ?? "",
+						evidenceUrl: row.confirmationEvidenceUrl ?? "",
+						confirmedBy: row.confirmationConfirmedBy ?? "",
+						confirmedAt: row.confirmationConfirmedAt ?? new Date(),
+					}
+				: null,
+			status: computeAuditStatus(
+				row.persistenceType,
+				row.auditLogging,
+				row.summaryConclusion,
+				row.confirmationId !== null,
+			),
+		}
+	})
 }
 
 // ─── Manual confirmation CRUD ───────────────────────────────────────────────
@@ -307,13 +397,14 @@ export async function getAuditConfirmationLog(sectionSlug: string, limit = 50) {
 	const [section] = await db.select({ id: sections.id }).from(sections).where(eq(sections.slug, sectionSlug)).limit(1)
 	if (!section) return []
 
-	// Get all persistence IDs in this section
+	const sectionAppIds = await getSectionAppIds(section.id)
+	if (sectionAppIds.size === 0) return []
+
+	// Get all persistence IDs for section apps
 	const sectionPersistenceIds = db
 		.selectDistinct({ id: applicationPersistence.id })
 		.from(applicationPersistence)
-		.innerJoin(monitoredApplications, eq(applicationPersistence.applicationId, monitoredApplications.id))
-		.innerJoin(applicationTeamMappings, eq(monitoredApplications.id, applicationTeamMappings.applicationId))
-		.innerJoin(devTeams, and(eq(applicationTeamMappings.devTeamId, devTeams.id), eq(devTeams.sectionId, section.id)))
+		.where(inArray(applicationPersistence.applicationId, [...sectionAppIds]))
 
 	// Get all confirmation IDs for this section's persistence
 	const confirmationIds = await db

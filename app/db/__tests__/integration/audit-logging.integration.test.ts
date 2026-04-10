@@ -35,6 +35,8 @@ describe("Audit logging integration tests", () => {
 			DELETE FROM audit_log;
 			DELETE FROM application_persistence;
 			DELETE FROM application_team_mappings;
+			DELETE FROM dev_team_nais_team_mappings;
+			DELETE FROM section_ignored_applications;
 			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
 			DELETE FROM nais_teams;
@@ -83,6 +85,36 @@ describe("Audit logging integration tests", () => {
 			/* sql */ `INSERT INTO application_persistence (application_id, name, type) VALUES ('${appId}', '${name}', '${type}') RETURNING id`,
 		)
 		return (result.rows[0] as Record<string, string>).id
+	}
+
+	async function createNaisTeam(slug: string, sectionId: string | null) {
+		const db = getTestDb()
+		const sectionRef = sectionId ? `'${sectionId}'` : "NULL"
+		const result = await db.execute(
+			/* sql */ `INSERT INTO nais_teams (slug, section_id, status) VALUES ('${slug}', ${sectionRef}, 'active') RETURNING id`,
+		)
+		return (result.rows[0] as Record<string, string>).id
+	}
+
+	async function createAppEnvironment(appId: string, naisTeamId: string) {
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+		)
+	}
+
+	async function linkNaisTeamToDevTeam(naisTeamId: string, devTeamId: string) {
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO dev_team_nais_team_mappings (nais_team_id, dev_team_id, created_by) VALUES ('${naisTeamId}', '${devTeamId}', 'test')`,
+		)
+	}
+
+	async function ignoreApp(sectionId: string, appId: string) {
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO section_ignored_applications (section_id, application_id, ignored_by) VALUES ('${sectionId}', '${appId}', 'test')`,
+		)
 	}
 
 	async function insertSummary(persistenceId: string, conclusion: string) {
@@ -161,6 +193,67 @@ describe("Audit logging integration tests", () => {
 			const result = await getSectionAuditOverview("pensjon")
 			expect(result).toHaveLength(1)
 			expect(result[0].appName).toBe("app-pensjon")
+		})
+
+		it("discovers apps via Nais teams assigned to section (no dev team)", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const naisTeamId = await createNaisTeam("nais-pen", sectionId)
+			const appId = await createTestApp("pensjon-pen")
+			await createAppEnvironment(appId, naisTeamId)
+			await createPersistence(appId, "pen-db", "oracle")
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(1)
+			expect(result[0].appName).toBe("pensjon-pen")
+			expect(result[0].teamName).toBeNull()
+			expect(result[0].status).toBe("unknown")
+		})
+
+		it("discovers apps via Nais teams linked to dev teams", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const devTeamId = await createTestTeam("Backend", "backend", sectionId)
+			const naisTeamId = await createNaisTeam("nais-pen", null)
+			await linkNaisTeamToDevTeam(naisTeamId, devTeamId)
+			const appId = await createTestApp("pen-backend")
+			await createAppEnvironment(appId, naisTeamId)
+			await createPersistence(appId, "pen-db", "cloud_sql_postgres")
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(1)
+			expect(result[0].appName).toBe("pen-backend")
+		})
+
+		it("excludes ignored apps", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const naisTeamId = await createNaisTeam("nais-pen", sectionId)
+			const app1Id = await createTestApp("visible-app")
+			await createAppEnvironment(app1Id, naisTeamId)
+			await createPersistence(app1Id, "db-1", "oracle")
+
+			const app2Id = await createTestApp("ignored-app")
+			await createAppEnvironment(app2Id, naisTeamId)
+			await createPersistence(app2Id, "db-2", "oracle")
+			await ignoreApp(sectionId, app2Id)
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(1)
+			expect(result[0].appName).toBe("visible-app")
+		})
+
+		it("deduplicates apps discovered via both dev team and Nais team paths", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const devTeamId = await createTestTeam("Backend", "backend", sectionId)
+			const naisTeamId = await createNaisTeam("nais-pen", sectionId)
+			await linkNaisTeamToDevTeam(naisTeamId, devTeamId)
+			const appId = await createTestApp("dual-path-app")
+			await linkAppToTeam(appId, devTeamId)
+			await createAppEnvironment(appId, naisTeamId)
+			await createPersistence(appId, "my-db", "cloud_sql_postgres")
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(1)
+			expect(result[0].appName).toBe("dual-path-app")
+			expect(result[0].teamName).toBe("Backend")
 		})
 	})
 
@@ -436,6 +529,26 @@ describe("Audit logging integration tests", () => {
 			await createTestSection("Tom", "tom")
 			const result = await getAuditConfirmationLog("tom")
 			expect(result).toEqual([])
+		})
+
+		it("returns audit log for apps discovered via Nais teams", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const naisTeamId = await createNaisTeam("nais-pen", sectionId)
+			const appId = await createTestApp("nais-app")
+			await createAppEnvironment(appId, naisTeamId)
+			const persistenceId = await createPersistence(appId, "nais-db", "nais_postgres")
+
+			await createAuditConfirmation({
+				persistenceId,
+				enabledAt: "2025-03-01",
+				description: "Confirmed via Nais team path",
+				evidenceUrl: "https://github.com/navikt/nais-app/pull/1",
+				performedBy: "T333333",
+			})
+
+			const log = await getAuditConfirmationLog("pensjon")
+			expect(log).toHaveLength(1)
+			expect(log[0].performedBy).toBe("T333333")
 		})
 	})
 })
