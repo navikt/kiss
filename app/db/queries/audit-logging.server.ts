@@ -85,6 +85,29 @@ export function computeAuditStatus(
 	return "unknown"
 }
 
+// ─── Ensure persistence entries for Oracle instances ─────────────────────────
+
+/**
+ * Create real `application_persistence` rows for Oracle instances that don't have one.
+ * Returns the newly created entries (Drizzle-inferred shape).
+ */
+export async function ensureOraclePersistenceEntries(appId: string, instanceIds: string[]) {
+	const results: (typeof applicationPersistence.$inferSelect)[] = []
+	for (const instanceId of instanceIds) {
+		const [row] = await db
+			.insert(applicationPersistence)
+			.values({
+				applicationId: appId,
+				type: "oracle",
+				name: instanceId,
+				oracleInstanceId: instanceId,
+			})
+			.returning()
+		if (row) results.push(row)
+	}
+	return results
+}
+
 // ─── Cached Oracle audit summaries for app detail page ──────────────────────
 
 /**
@@ -152,11 +175,9 @@ export async function getOracleAuditSummariesForApp(
 		instancesByApp.set(inst.applicationId, list)
 	}
 
-	const isSyntheticId = (id: string) => id.startsWith("oracle-instance-")
+	const persistenceIds = oracleEntries.map((p) => p.id)
 
-	const persistenceIds = oracleEntries.map((p) => p.id).filter((id) => !isSyntheticId(id))
-
-	// Read cached summaries from DB (only for real persistence entries)
+	// Read cached summaries from DB
 	const cached =
 		persistenceIds.length > 0
 			? await db
@@ -205,8 +226,7 @@ export async function getOracleAuditSummariesForApp(
 		const { persistenceId, summary } = fetchResult.value
 		result[persistenceId] = summary
 
-		// Store in DB for future cache hits (skip synthetic entries without real persistence row)
-		if (isSyntheticId(persistenceId)) continue
+		// Store in DB for future cache hits
 
 		await db
 			.insert(persistenceAuditSummaries)
@@ -469,10 +489,23 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 	})
 
 	// Add orphan Oracle instances (configured but without persistence entries)
+	// Create real persistence entries for these so caching works going forward
 	for (const inst of orphanOracleInstances) {
+		const [newPersistence] = await db
+			.insert(applicationPersistence)
+			.values({
+				applicationId: inst.appId,
+				type: "oracle",
+				name: inst.instanceId,
+				oracleInstanceId: inst.instanceId,
+			})
+			.returning({ id: applicationPersistence.id })
+
+		if (!newPersistence) continue
+
 		const team = appTeamMap.get(inst.appId)
 		rows.push({
-			persistenceId: `oracle-instance-${inst.instanceId}`,
+			persistenceId: newPersistence.id,
 			appId: inst.appId,
 			appName: inst.appName,
 			teamName: team?.teamName ?? null,

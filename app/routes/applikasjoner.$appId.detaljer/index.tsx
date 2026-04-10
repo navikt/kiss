@@ -154,29 +154,20 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const oracleInstances = await getOracleInstancesForApp(appId)
 
-	// Create synthetic persistence entries for configured Oracle instances without a matching persistence row
-	const oraclePersistenceNames = new Set(
+	// Ensure persistence entries exist for configured Oracle instances
+	const oraclePersistenceInstanceIds = new Set(
 		detail.persistence.filter((p) => p.type === "oracle").map((p) => p.oracleInstanceId ?? p.name),
 	)
-	const syntheticOracleEntries = oracleInstances
-		.filter((inst) => !oraclePersistenceNames.has(inst.instanceId))
-		.map((inst) => ({
-			id: `oracle-instance-${inst.instanceId}`,
-			applicationId: appId,
-			type: "oracle" as const,
-			name: inst.instanceId,
-			oracleInstanceId: inst.instanceId,
-			version: null,
-			tier: null,
-			highAvailability: null,
-			auditLogging: null,
-			auditLogUrl: null,
-			extra: null,
-			discoveredAt: inst.configuredAt,
-			updatedAt: inst.configuredAt,
-		}))
+	const orphanInstances = oracleInstances.filter((inst) => !oraclePersistenceInstanceIds.has(inst.instanceId))
 
-	const allPersistence = [...detail.persistence, ...syntheticOracleEntries]
+	if (orphanInstances.length > 0) {
+		const { ensureOraclePersistenceEntries } = await import("~/db/queries/audit-logging.server")
+		const newEntries = await ensureOraclePersistenceEntries(
+			appId,
+			orphanInstances.map((i) => i.instanceId),
+		)
+		detail.persistence.push(...newEntries)
+	}
 
 	// Fetch full snapshot history for configured instances
 	const snapshotHistoryPromises = oracleInstances.map(async (inst) => {
@@ -186,12 +177,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const instanceSnapshotHistories = await Promise.all(snapshotHistoryPromises)
 
 	// Get Oracle audit summaries — reads from DB cache, fetches on-demand if missing
-	const oracleAuditSummaries = await getOracleAuditSummariesForApp(allPersistence)
+	const oracleAuditSummaries = await getOracleAuditSummariesForApp(detail.persistence)
 
 	return data({
 		app: detail.app,
 		environments: detail.environments,
-		persistence: allPersistence,
+		persistence: detail.persistence,
 		oracleAuditSummaries,
 		authIntegrations: detail.authIntegrations,
 		accessPolicyRules: detail.accessPolicyRules,
@@ -991,7 +982,7 @@ export default function ApplikasjonDetalj() {
 												<Tag variant={persistenceVariants[p.type] ?? "neutral"} size="xsmall">
 													{persistenceLabels[p.type] ?? p.type}
 												</Tag>
-												{p.id.startsWith("oracle-instance-") && (
+												{p.oracleInstanceId && p.oracleInstanceId === p.name && (
 													<Tag variant="neutral" size="xsmall">
 														Manuelt konfigurert
 													</Tag>

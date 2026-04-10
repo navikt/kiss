@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
+import { applicationPersistence } from "../schema/applications"
 import type { AuditEvidenceOverallStatus } from "../schema/audit-evidence"
 import { applicationOracleInstances, auditEvidenceSnapshots } from "../schema/audit-evidence"
 
@@ -51,6 +52,23 @@ export async function configureOracleInstance(appId: string, instanceId: string,
 			configuredBy: user,
 		})
 		.returning()
+
+	// Ensure a matching persistence entry exists so caching and overview queries work
+	const existing = await db
+		.select({ id: applicationPersistence.id })
+		.from(applicationPersistence)
+		.where(and(eq(applicationPersistence.applicationId, appId), eq(applicationPersistence.type, "oracle")))
+		.limit(1)
+
+	if (existing.length === 0) {
+		await db.insert(applicationPersistence).values({
+			applicationId: appId,
+			type: "oracle",
+			name: instanceId,
+			oracleInstanceId: instanceId,
+		})
+	}
+
 	return row
 }
 
