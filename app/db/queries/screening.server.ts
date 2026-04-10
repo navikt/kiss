@@ -1,5 +1,6 @@
-import { eq, isNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
+import { applicationEnvironments, naisTeams } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import { frameworkControls } from "../schema/framework"
 import {
@@ -418,7 +419,28 @@ async function applyChoiceEffects(applicationId: string, questionId: string, ans
 // ─── Loading all screening data for compliance page ──────────────────────
 
 export async function getScreeningDataForApp(applicationId: string) {
-	const questions = await getScreeningQuestions()
+	// Get global questions + section-scoped questions for the app's section(s)
+	const globalQuestions = await getScreeningQuestions()
+
+	// Find section IDs for this app via its nais team environments
+	const sectionRows = await db
+		.selectDistinct({ sectionId: naisTeams.sectionId })
+		.from(applicationEnvironments)
+		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+		.where(and(eq(applicationEnvironments.applicationId, applicationId), isNotNull(naisTeams.sectionId)))
+
+	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+
+	let sectionQuestions: Awaited<ReturnType<typeof getScreeningQuestions>> = []
+	if (sectionIds.length > 0) {
+		sectionQuestions = await db
+			.select()
+			.from(screeningQuestions)
+			.where(inArray(screeningQuestions.sectionId, sectionIds))
+			.orderBy(screeningQuestions.displayOrder)
+	}
+
+	const questions = [...globalQuestions, ...sectionQuestions]
 	const answers = await getScreeningAnswersForApp(applicationId)
 
 	const answerMap = new Map<string, { answer: string | null; comment: string | null; link: string | null }>()
