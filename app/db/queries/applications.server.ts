@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, sql } from "drizzle-orm"
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
@@ -30,47 +30,57 @@ export async function getApplications() {
 
 	const totalControls = totalControlsRow?.count ?? 0
 
-	const result = []
-	for (const app of apps) {
-		// Get teams for this app
-		const teamMappings = await db
-			.select({ teamSlug: devTeams.slug })
-			.from(applicationTeamMappings)
-			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-			.where(eq(applicationTeamMappings.applicationId, app.id))
+	const appIds = apps.map((a) => a.id)
+	if (appIds.length === 0) return []
 
-		// Use primary's compliance if linked
-		const assessmentAppId = app.primaryApplicationId ?? app.id
-		let implemented = 0
-		let partial = 0
-
-		const [implRow] = await db
-			.select({ count: count() })
-			.from(complianceAssessments)
-			.where(
-				sql`${complianceAssessments.applicationId} = ${assessmentAppId} AND ${complianceAssessments.status} = 'implemented'`,
-			)
-		implemented = implRow?.count ?? 0
-
-		const [partialRow] = await db
-			.select({ count: count() })
-			.from(complianceAssessments)
-			.where(
-				sql`${complianceAssessments.applicationId} = ${assessmentAppId} AND ${complianceAssessments.status} = 'partially_implemented'`,
-			)
-		partial = partialRow?.count ?? 0
-
-		result.push({
-			id: app.id,
-			name: app.name,
-			teams: teamMappings.map((t) => t.teamSlug),
-			controlsImplemented: implemented,
-			controlsPartial: partial,
-			controlsTotal: totalControls,
+	// Batch: team mappings for all apps
+	const allTeamMappings = await db
+		.select({
+			applicationId: applicationTeamMappings.applicationId,
+			teamSlug: devTeams.slug,
 		})
+		.from(applicationTeamMappings)
+		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+		.where(inArray(applicationTeamMappings.applicationId, appIds))
+
+	const teamsByApp = new Map<string, string[]>()
+	for (const row of allTeamMappings) {
+		const teams = teamsByApp.get(row.applicationId) ?? []
+		teams.push(row.teamSlug)
+		teamsByApp.set(row.applicationId, teams)
 	}
 
-	return result
+	// Batch: compliance stats for all apps
+	const complianceRows = await db
+		.select({
+			applicationId: complianceAssessments.applicationId,
+			status: complianceAssessments.status,
+			count: count(),
+		})
+		.from(complianceAssessments)
+		.where(inArray(complianceAssessments.applicationId, appIds))
+		.groupBy(complianceAssessments.applicationId, complianceAssessments.status)
+
+	const complianceByApp = new Map<string, { implemented: number; partial: number }>()
+	for (const row of complianceRows) {
+		const stats = complianceByApp.get(row.applicationId) ?? { implemented: 0, partial: 0 }
+		if (row.status === "implemented") stats.implemented = row.count
+		else if (row.status === "partially_implemented") stats.partial = row.count
+		complianceByApp.set(row.applicationId, stats)
+	}
+
+	return apps.map((app) => {
+		const assessmentAppId = app.primaryApplicationId ?? app.id
+		const stats = complianceByApp.get(assessmentAppId) ?? { implemented: 0, partial: 0 }
+		return {
+			id: app.id,
+			name: app.name,
+			teams: teamsByApp.get(app.id) ?? [],
+			controlsImplemented: stats.implemented,
+			controlsPartial: stats.partial,
+			controlsTotal: totalControls,
+		}
+	})
 }
 
 /** Link an application to a dev team. */
