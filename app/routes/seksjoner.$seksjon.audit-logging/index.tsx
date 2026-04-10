@@ -516,6 +516,8 @@ function AuditRow({
 	const isStale =
 		row.summary?.fetchedAt && Date.now() - new Date(row.summary.fetchedAt).getTime() > STALENESS_THRESHOLD_MS
 
+	const isSynthetic = row.persistenceId.startsWith("oracle-instance-")
+
 	return (
 		<Table.Row>
 			<Table.DataCell>
@@ -534,6 +536,11 @@ function AuditRow({
 							⚠️ Foreldet
 						</Tag>
 					)}
+					{isSynthetic && (
+						<Tag variant="neutral" size="xsmall">
+							Manuelt konfigurert
+						</Tag>
+					)}
 				</HStack>
 				{row.confirmation && (
 					<BodyShort size="small">
@@ -543,7 +550,7 @@ function AuditRow({
 				)}
 			</Table.DataCell>
 			<Table.DataCell>
-				{canManage && row.status === "unknown" && !row.confirmation && (
+				{canManage && !isSynthetic && row.status === "unknown" && !row.confirmation && (
 					<Button variant="tertiary" size="xsmall" onClick={onConfirm}>
 						Bekreft
 					</Button>

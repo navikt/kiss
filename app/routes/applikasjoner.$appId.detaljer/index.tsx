@@ -154,6 +154,30 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const oracleInstances = await getOracleInstancesForApp(appId)
 
+	// Create synthetic persistence entries for configured Oracle instances without a matching persistence row
+	const oraclePersistenceNames = new Set(
+		detail.persistence.filter((p) => p.type === "oracle").map((p) => p.oracleInstanceId ?? p.name),
+	)
+	const syntheticOracleEntries = oracleInstances
+		.filter((inst) => !oraclePersistenceNames.has(inst.instanceId))
+		.map((inst) => ({
+			id: `oracle-instance-${inst.instanceId}`,
+			applicationId: appId,
+			type: "oracle" as const,
+			name: inst.instanceId,
+			oracleInstanceId: inst.instanceId,
+			version: null,
+			tier: null,
+			highAvailability: null,
+			auditLogging: null,
+			auditLogUrl: null,
+			extra: null,
+			discoveredAt: inst.configuredAt,
+			updatedAt: inst.configuredAt,
+		}))
+
+	const allPersistence = [...detail.persistence, ...syntheticOracleEntries]
+
 	// Fetch full snapshot history for configured instances
 	const snapshotHistoryPromises = oracleInstances.map(async (inst) => {
 		const history = await getSnapshotHistory(appId, inst.instanceId)
@@ -162,12 +186,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const instanceSnapshotHistories = await Promise.all(snapshotHistoryPromises)
 
 	// Get Oracle audit summaries — reads from DB cache, fetches on-demand if missing
-	const oracleAuditSummaries = await getOracleAuditSummariesForApp(detail.persistence)
+	const oracleAuditSummaries = await getOracleAuditSummariesForApp(allPersistence)
 
 	return data({
 		app: detail.app,
 		environments: detail.environments,
-		persistence: detail.persistence,
+		persistence: allPersistence,
 		oracleAuditSummaries,
 		authIntegrations: detail.authIntegrations,
 		accessPolicyRules: detail.accessPolicyRules,
@@ -963,9 +987,16 @@ export default function ApplikasjonDetalj() {
 								{persistence.map((p) => (
 									<Table.Row key={p.id}>
 										<Table.DataCell>
-											<Tag variant={persistenceVariants[p.type] ?? "neutral"} size="xsmall">
-												{persistenceLabels[p.type] ?? p.type}
-											</Tag>
+											<HStack gap="space-2" align="center">
+												<Tag variant={persistenceVariants[p.type] ?? "neutral"} size="xsmall">
+													{persistenceLabels[p.type] ?? p.type}
+												</Tag>
+												{p.id.startsWith("oracle-instance-") && (
+													<Tag variant="neutral" size="xsmall">
+														Manuelt konfigurert
+													</Tag>
+												)}
+											</HStack>
 										</Table.DataCell>
 										<Table.DataCell>{p.name}</Table.DataCell>
 										<Table.DataCell>{p.version ?? "–"}</Table.DataCell>

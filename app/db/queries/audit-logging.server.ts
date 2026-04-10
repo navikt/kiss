@@ -152,13 +152,18 @@ export async function getOracleAuditSummariesForApp(
 		instancesByApp.set(inst.applicationId, list)
 	}
 
-	const persistenceIds = oracleEntries.map((p) => p.id)
+	const isSyntheticId = (id: string) => id.startsWith("oracle-instance-")
 
-	// Read cached summaries from DB
-	const cached = await db
-		.select()
-		.from(persistenceAuditSummaries)
-		.where(inArray(persistenceAuditSummaries.persistenceId, persistenceIds))
+	const persistenceIds = oracleEntries.map((p) => p.id).filter((id) => !isSyntheticId(id))
+
+	// Read cached summaries from DB (only for real persistence entries)
+	const cached =
+		persistenceIds.length > 0
+			? await db
+					.select()
+					.from(persistenceAuditSummaries)
+					.where(inArray(persistenceAuditSummaries.persistenceId, persistenceIds))
+			: []
 
 	const cachedMap = new Map(cached.map((c) => [c.persistenceId, c]))
 
@@ -200,7 +205,9 @@ export async function getOracleAuditSummariesForApp(
 		const { persistenceId, summary } = fetchResult.value
 		result[persistenceId] = summary
 
-		// Store in DB for future cache hits
+		// Store in DB for future cache hits (skip synthetic entries without real persistence row)
+		if (isSyntheticId(persistenceId)) continue
+
 		await db
 			.insert(persistenceAuditSummaries)
 			.values({
@@ -365,6 +372,47 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 		)
 		.orderBy(monitoredApplications.name, applicationPersistence.type)
 
+	// Find Oracle instances for section apps that don't have a matching persistence entry
+	const oracleInstanceRows = await db
+		.select({
+			instanceId: applicationOracleInstances.instanceId,
+			appId: monitoredApplications.id,
+			appName: monitoredApplications.name,
+		})
+		.from(applicationOracleInstances)
+		.innerJoin(monitoredApplications, eq(applicationOracleInstances.applicationId, monitoredApplications.id))
+		.where(inArray(applicationOracleInstances.applicationId, [...sectionAppIds]))
+
+	// Determine which Oracle instances already have a matching persistence entry
+	const coveredInstancesByApp = new Map<string, Set<string>>()
+	for (const row of persistenceRows) {
+		if (row.persistenceType !== "oracle") continue
+		const set = coveredInstancesByApp.get(row.appId) ?? new Set()
+		set.add(row.persistenceName.toLowerCase())
+		coveredInstancesByApp.set(row.appId, set)
+	}
+	// Also check oracleInstanceId links on persistence entries
+	const linkedInstances = await db
+		.select({
+			appId: applicationPersistence.applicationId,
+			oracleInstanceId: applicationPersistence.oracleInstanceId,
+		})
+		.from(applicationPersistence)
+		.where(
+			and(inArray(applicationPersistence.applicationId, [...sectionAppIds]), eq(applicationPersistence.type, "oracle")),
+		)
+	for (const row of linkedInstances) {
+		if (!row.oracleInstanceId) continue
+		const set = coveredInstancesByApp.get(row.appId) ?? new Set()
+		set.add(row.oracleInstanceId.toLowerCase())
+		coveredInstancesByApp.set(row.appId, set)
+	}
+
+	const orphanOracleInstances = oracleInstanceRows.filter((inst) => {
+		const covered = coveredInstancesByApp.get(inst.appId)
+		return !covered?.has(inst.instanceId.toLowerCase())
+	})
+
 	// Look up team name for each app (best-effort, may be null for unassigned apps)
 	const appTeamMap = new Map<string, { teamName: string; teamSlug: string }>()
 	const teamRows = await db
@@ -382,7 +430,7 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 		}
 	}
 
-	return persistenceRows.map((row) => {
+	const rows: AuditOverviewRow[] = persistenceRows.map((row) => {
 		const team = appTeamMap.get(row.appId)
 		return {
 			persistenceId: row.persistenceId,
@@ -419,6 +467,27 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 			),
 		}
 	})
+
+	// Add orphan Oracle instances (configured but without persistence entries)
+	for (const inst of orphanOracleInstances) {
+		const team = appTeamMap.get(inst.appId)
+		rows.push({
+			persistenceId: `oracle-instance-${inst.instanceId}`,
+			appId: inst.appId,
+			appName: inst.appName,
+			teamName: team?.teamName ?? null,
+			teamSlug: team?.teamSlug ?? null,
+			persistenceType: "oracle",
+			persistenceName: inst.instanceId.toUpperCase(),
+			auditLogging: null,
+			summary: null,
+			confirmation: null,
+			status: "unknown",
+		})
+	}
+
+	rows.sort((a, b) => a.appName.localeCompare(b.appName, "nb"))
+	return rows
 }
 
 // ─── Manual confirmation CRUD ───────────────────────────────────────────────
