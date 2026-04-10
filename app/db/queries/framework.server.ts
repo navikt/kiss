@@ -47,91 +47,97 @@ export async function getDomainSummaries() {
 		.where(isNull(monitoredApplications.primaryApplicationId))
 	const totalApps = appCountRow?.count ?? 0
 
+	// Batch: get all control IDs per domain via risk→control mappings
+	const domainIds = domains.map((d) => d.id)
+
+	const allControlMappings = await db
+		.selectDistinctOn([frameworkRiskControlMappings.controlId], {
+			controlId: frameworkRiskControlMappings.controlId,
+			domainId: frameworkRisks.domainId,
+		})
+		.from(frameworkRiskControlMappings)
+		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.innerJoin(frameworkControls, eq(frameworkRiskControlMappings.controlId, frameworkControls.id))
+		.where(
+			and(
+				inArray(frameworkRisks.domainId, domainIds),
+				isNull(frameworkRisks.archivedAt),
+				isNull(frameworkControls.archivedAt),
+			),
+		)
+
+	const controlsByDomain = new Map<string, string[]>()
+	const allControlIds: string[] = []
+	for (const row of allControlMappings) {
+		const list = controlsByDomain.get(row.domainId) ?? []
+		list.push(row.controlId)
+		controlsByDomain.set(row.domainId, list)
+		allControlIds.push(row.controlId)
+	}
+
+	// Batch: risk counts per domain
+	const riskCounts = await db
+		.select({ domainId: frameworkRisks.domainId, count: count() })
+		.from(frameworkRisks)
+		.where(and(inArray(frameworkRisks.domainId, domainIds), isNull(frameworkRisks.archivedAt)))
+		.groupBy(frameworkRisks.domainId)
+	const riskCountMap = new Map(riskCounts.map((r) => [r.domainId, r.count]))
+
+	// Batch: compliance stats by controlId + status
+	const complianceByControl = new Map<string, Map<string, number>>()
+	if (allControlIds.length > 0) {
+		const compRows = await db
+			.select({
+				controlId: complianceAssessments.controlId,
+				status: complianceAssessments.status,
+				count: count(),
+			})
+			.from(complianceAssessments)
+			.where(inArray(complianceAssessments.controlId, allControlIds))
+			.groupBy(complianceAssessments.controlId, complianceAssessments.status)
+
+		for (const row of compRows) {
+			let controlMap = complianceByControl.get(row.controlId)
+			if (!controlMap) {
+				controlMap = new Map()
+				complianceByControl.set(row.controlId, controlMap)
+			}
+			controlMap.set(row.status, row.count)
+		}
+	}
+
 	const result = []
 	for (const domain of domains) {
-		const [riskRow] = await db
-			.select({ count: count() })
-			.from(frameworkRisks)
-			.where(and(eq(frameworkRisks.domainId, domain.id), isNull(frameworkRisks.archivedAt)))
-
-		// Get controls for this domain via risk→control mappings
-		const controlIds = await db
-			.selectDistinctOn([frameworkRiskControlMappings.controlId], {
-				id: frameworkRiskControlMappings.controlId,
-			})
-			.from(frameworkRiskControlMappings)
-			.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
-			.innerJoin(frameworkControls, eq(frameworkRiskControlMappings.controlId, frameworkControls.id))
-			.where(
-				and(
-					eq(frameworkRisks.domainId, domain.id),
-					isNull(frameworkRisks.archivedAt),
-					isNull(frameworkControls.archivedAt),
-				),
-			)
-
-		const controlUuids = controlIds.map((c) => c.id)
+		const controlUuids = controlsByDomain.get(domain.id) ?? []
 		const controlCount = controlUuids.length
 
 		let implemented = 0
 		let partial = 0
 		let notImplemented = 0
 		let notRelevant = 0
-
-		if (controlUuids.length > 0) {
-			const [implRow] = await db
-				.select({ count: count() })
-				.from(complianceAssessments)
-				.where(
-					sql`${complianceAssessments.controlId} IN ${controlUuids} AND ${complianceAssessments.status} = 'implemented'`,
-				)
-			implemented = implRow?.count ?? 0
-
-			const [partialRow] = await db
-				.select({ count: count() })
-				.from(complianceAssessments)
-				.where(
-					sql`${complianceAssessments.controlId} IN ${controlUuids} AND ${complianceAssessments.status} = 'partially_implemented'`,
-				)
-			partial = partialRow?.count ?? 0
-
-			const [notImplRow] = await db
-				.select({ count: count() })
-				.from(complianceAssessments)
-				.where(
-					sql`${complianceAssessments.controlId} IN ${controlUuids} AND ${complianceAssessments.status} = 'not_implemented'`,
-				)
-			notImplemented = notImplRow?.count ?? 0
-
-			const [notRelRow] = await db
-				.select({ count: count() })
-				.from(complianceAssessments)
-				.where(
-					sql`${complianceAssessments.controlId} IN ${controlUuids} AND ${complianceAssessments.status} = 'not_relevant'`,
-				)
-			notRelevant = notRelRow?.count ?? 0
-		}
-
-		// Count controls with gaps (at least one app not fully implemented)
 		let controlsWithGaps = 0
-		if (totalApps > 0 && controlUuids.length > 0) {
-			for (const ctrlId of controlUuids) {
-				const [implCount] = await db
-					.select({ count: count() })
-					.from(complianceAssessments)
-					.where(
-						sql`${complianceAssessments.controlId} = ${ctrlId} AND ${complianceAssessments.status} IN ('implemented', 'not_relevant')`,
-					)
-				if ((implCount?.count ?? 0) < totalApps) {
-					controlsWithGaps++
-				}
+
+		for (const ctrlId of controlUuids) {
+			const statusMap = complianceByControl.get(ctrlId)
+			const implCount = statusMap?.get("implemented") ?? 0
+			const partialCount = statusMap?.get("partially_implemented") ?? 0
+			const notImplCount = statusMap?.get("not_implemented") ?? 0
+			const notRelCount = statusMap?.get("not_relevant") ?? 0
+
+			implemented += implCount
+			partial += partialCount
+			notImplemented += notImplCount
+			notRelevant += notRelCount
+
+			if (totalApps > 0 && implCount + notRelCount < totalApps) {
+				controlsWithGaps++
 			}
 		}
 
 		result.push({
 			code: domain.code,
 			name: domain.name,
-			riskCount: riskRow?.count ?? 0,
+			riskCount: riskCountMap.get(domain.id) ?? 0,
 			controlCount,
 			controlsWithGaps,
 			totalAssessments: controlCount * totalApps,
