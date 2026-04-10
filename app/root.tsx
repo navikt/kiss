@@ -12,6 +12,7 @@ import {
 	useRouteLoaderData,
 } from "react-router"
 import { AppNavigation } from "./components/AppNavigation"
+import { Breadcrumbs } from "./components/Breadcrumbs"
 import { SearchDialog } from "./components/SearchDialog"
 import { UserMenu } from "./components/UserMenu"
 import { getUserRoles } from "./db/queries/users.server"
@@ -156,6 +157,7 @@ function AppShell({
 			</InternalHeader>
 			<AppNavigation />
 			<main id="main-content" className="app-main">
+				<Breadcrumbs />
 				<Outlet />
 			</main>
 		</Theme>

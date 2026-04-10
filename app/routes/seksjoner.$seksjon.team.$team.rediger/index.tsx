@@ -53,6 +53,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	return data({
 		seksjon,
+		seksjonName: section.name,
 		teamSlug: team,
 		teamId: result.team.id,
 		teamName: result.team.name,

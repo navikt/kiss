@@ -2,7 +2,7 @@ import { BodyLong, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/d
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getTeamApps } from "~/db/queries/sections.server"
+import { getSectionBySlug, getTeamApps } from "~/db/queries/sections.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
@@ -15,11 +15,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const user = await getAuthenticatedUser(request)
 
-	const result = await getTeamApps(team)
+	const [result, section] = await Promise.all([getTeamApps(team), getSectionBySlug(seksjon)])
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
 
 	return data({
 		seksjon,
+		seksjonName: section?.name ?? seksjon,
 		team,
 		teamName: result.team.name,
 		apps: result.apps,

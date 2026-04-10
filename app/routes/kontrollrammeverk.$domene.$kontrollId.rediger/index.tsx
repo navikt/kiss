@@ -26,6 +26,7 @@ import {
 	getAllControlsForSelection,
 	getControlDependencies,
 	getControlDetail,
+	getControlDomains,
 	removeControlDependency,
 	updateControlFields,
 	updatePredefinedAnswer,
@@ -95,8 +96,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const controlElements = await getControlElements(control.uuid)
 	const dependencies = await getControlDependencies(control.uuid)
 	const allControls = await getAllControlsForSelection()
+	const controlDomains = await getControlDomains(control.uuid)
+	const domainName = controlDomains.find((d) => d.domainCode === domene)?.domainName ?? domene
 
-	return data({ domene, control, allElements, controlElements, dependencies, allControls })
+	return data({ domene, domainName, control, allElements, controlElements, dependencies, allControls })
 }
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
