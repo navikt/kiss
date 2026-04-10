@@ -41,7 +41,7 @@ const DATABASE_TYPES = ["cloud_sql_postgres", "nais_postgres", "on_prem_postgres
 
 // ─── Unified status computation ─────────────────────────────────────────────
 
-function computeAuditStatus(
+export function computeAuditStatus(
 	persistenceType: string,
 	auditLogging: boolean | null,
 	summaryConclusion: string | null,
