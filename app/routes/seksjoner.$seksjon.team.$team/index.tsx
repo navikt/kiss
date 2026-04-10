@@ -1,7 +1,9 @@
-import { BodyLong, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getSectionBySlug, getTeamApps } from "~/db/queries/sections.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
@@ -18,6 +20,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const [result, section] = await Promise.all([getTeamApps(team), getSectionBySlug(seksjon)])
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
 
+	const appIds = result.apps.map((a) => a.appId)
+	const deploymentStats = await getDeploymentVerificationAggregate(appIds)
+
+	const totalControls = result.apps.reduce((sum, a) => sum + a.total, 0)
+	const totalImplemented = result.apps.reduce((sum, a) => sum + a.implemented, 0)
+	const totalPartial = result.apps.reduce((sum, a) => sum + a.partial, 0)
+	const totalNotImplemented = result.apps.reduce((sum, a) => sum + a.notImplemented, 0)
+	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotImplemented
+	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls)
+
 	return data({
 		seksjon,
 		seksjonName: section?.name ?? seksjon,
@@ -25,11 +37,27 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		teamName: result.team.name,
 		apps: result.apps,
 		canAdmin: user ? isAdmin(user) : false,
+		totalImplemented,
+		totalPartial,
+		totalMangler,
+		overallPercent,
+		deploymentStats,
 	})
 }
 
 export default function TeamDashboard() {
-	const { seksjon, team, teamName, apps, canAdmin } = useLoaderData<typeof loader>()
+	const {
+		seksjon,
+		team,
+		teamName,
+		apps,
+		canAdmin,
+		totalImplemented,
+		totalPartial,
+		totalMangler,
+		overallPercent,
+		deploymentStats,
+	} = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -49,6 +77,55 @@ export default function TeamDashboard() {
 			<BodyLong>
 				Compliance-status per applikasjon for {teamName} i seksjon <Link to={`/seksjoner/${seksjon}`}>{seksjon}</Link>.
 			</BodyLong>
+
+			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 5 }}>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{overallPercent}%
+						</Heading>
+						<Detail>Total compliance</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{apps.length}
+						</Heading>
+						<Detail>Applikasjoner</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalImplemented}
+						</Heading>
+						<Detail>Implementert</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalPartial}
+						</Heading>
+						<Detail>Delvis</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalMangler}
+						</Heading>
+						<Detail>Mangler</Detail>
+					</VStack>
+				</Box>
+			</HGrid>
+
+			<DeploymentSummaryCards stats={deploymentStats} />
+
+			<Heading size="large" level="3">
+				Applikasjoner
+			</Heading>
 
 			{apps.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
