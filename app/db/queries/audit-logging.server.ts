@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm"
+import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
 import { db } from "../connection.server"
 import {
 	applicationEnvironments,
@@ -10,6 +11,7 @@ import {
 	sectionIgnoredApplications,
 } from "../schema/applications"
 import { auditLog } from "../schema/audit"
+import type { AuditConclusion } from "../schema/audit-logging"
 import { persistenceAuditConfirmations, persistenceAuditSummaries } from "../schema/audit-logging"
 import { devTeams, sections } from "../schema/organization"
 
@@ -80,6 +82,125 @@ export function computeAuditStatus(
 	}
 
 	return "unknown"
+}
+
+// ─── Cached Oracle audit summaries for app detail page ──────────────────────
+
+/**
+ * Get Oracle audit summaries for an app's persistence entries.
+ * Reads from the `persistence_audit_summaries` DB cache first.
+ * On cache miss, fetches from the oracle-revisjon API, stores in DB, then returns.
+ */
+export async function getOracleAuditSummariesForApp(
+	persistenceEntries: Array<{ id: string; name: string; type: string }>,
+): Promise<Record<string, AuditEvidenceSummary>> {
+	const oracleEntries = persistenceEntries.filter((p) => p.type === "oracle")
+	if (oracleEntries.length === 0) return {}
+
+	const persistenceIds = oracleEntries.map((p) => p.id)
+
+	// Read cached summaries from DB
+	const cached = await db
+		.select()
+		.from(persistenceAuditSummaries)
+		.where(inArray(persistenceAuditSummaries.persistenceId, persistenceIds))
+
+	const cachedMap = new Map(cached.map((c) => [c.persistenceId, c]))
+
+	const result: Record<string, AuditEvidenceSummary> = {}
+
+	// Populate from cache and track misses
+	const misses: Array<{ id: string; name: string }> = []
+	for (const entry of oracleEntries) {
+		const cachedEntry = cachedMap.get(entry.id)
+		if (cachedEntry) {
+			result[entry.id] = dbSummaryToApiSummary(cachedEntry)
+		} else {
+			misses.push(entry)
+		}
+	}
+
+	if (misses.length === 0) return result
+
+	// Lazy-import to avoid circular dependencies
+	const { getOracleInstances, getAuditEvidenceSummary } = await import("~/lib/oracle-revisjon.server")
+
+	const allOracleInstances = await getOracleInstances()
+	const knownInstanceIds = new Set(allOracleInstances.map((i) => i.id))
+
+	const fetchResults = await Promise.allSettled(
+		misses
+			.filter((p) => knownInstanceIds.has(p.name))
+			.map(async (p) => {
+				const summary = await getAuditEvidenceSummary(p.name)
+				return { persistenceId: p.id, summary }
+			}),
+	)
+
+	const now = new Date()
+	for (const fetchResult of fetchResults) {
+		if (fetchResult.status !== "fulfilled" || !fetchResult.value.summary) continue
+
+		const { persistenceId, summary } = fetchResult.value
+		result[persistenceId] = summary
+
+		// Store in DB for future cache hits
+		await db
+			.insert(persistenceAuditSummaries)
+			.values({
+				persistenceId,
+				conclusion: summary.conclusion as AuditConclusion,
+				reason: summary.reason,
+				unifiedAuditingEnabled: summary.unifiedAuditingEnabled,
+				activePolicyCount: summary.activePolicyCount,
+				auditedObjectCount: summary.auditedObjectCount,
+				unauditedTableCount: summary.unauditedTableCount,
+				excludedUserCount: summary.excludedUserCount,
+				policiesWithoutFailureAudit: summary.policiesWithoutFailureAudit,
+				hasAuditTrailData: summary.hasAuditTrailData,
+				findings: summary.findings,
+				fetchedAt: now,
+				lastSyncAttemptedAt: now,
+				createdBy: "on-demand-fetch",
+				updatedBy: "on-demand-fetch",
+			})
+			.onConflictDoUpdate({
+				target: persistenceAuditSummaries.persistenceId,
+				set: {
+					conclusion: summary.conclusion as AuditConclusion,
+					reason: summary.reason,
+					unifiedAuditingEnabled: summary.unifiedAuditingEnabled,
+					activePolicyCount: summary.activePolicyCount,
+					auditedObjectCount: summary.auditedObjectCount,
+					unauditedTableCount: summary.unauditedTableCount,
+					excludedUserCount: summary.excludedUserCount,
+					policiesWithoutFailureAudit: summary.policiesWithoutFailureAudit,
+					hasAuditTrailData: summary.hasAuditTrailData,
+					findings: summary.findings,
+					fetchedAt: now,
+					lastSyncAttemptedAt: now,
+					updatedAt: now,
+					updatedBy: "on-demand-fetch",
+				},
+			})
+	}
+
+	return result
+}
+
+function dbSummaryToApiSummary(row: typeof persistenceAuditSummaries.$inferSelect): AuditEvidenceSummary {
+	return {
+		conclusion: row.conclusion,
+		reason: row.reason ?? "",
+		unifiedAuditingEnabled: row.unifiedAuditingEnabled ?? false,
+		activePolicyCount: row.activePolicyCount ?? 0,
+		auditedObjectCount: row.auditedObjectCount ?? 0,
+		unauditedTableCount: row.unauditedTableCount ?? 0,
+		excludedUserCount: row.excludedUserCount ?? 0,
+		policiesWithoutFailureAudit: row.policiesWithoutFailureAudit ?? 0,
+		hasAuditTrailData: row.hasAuditTrailData ?? false,
+		findings: (row.findings ?? []) as AuditEvidenceSummary["findings"],
+	}
 }
 
 // ─── Section app discovery (matches getSectionDetail logic) ─────────────────

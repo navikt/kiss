@@ -37,6 +37,7 @@ import { ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getOracleInstancesForApp, getSnapshotHistory } from "~/db/queries/audit-evidence.server"
+import { getOracleAuditSummariesForApp } from "~/db/queries/audit-logging.server"
 import {
 	acknowledgeUnknownApp,
 	getActiveAcknowledgments,
@@ -50,8 +51,6 @@ import { getSections } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
-import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
-import { getAuditEvidenceSummary, getOracleInstances } from "~/lib/oracle-revisjon.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 import { compliancePercent } from "~/lib/utils"
 
@@ -162,26 +161,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 	const instanceSnapshotHistories = await Promise.all(snapshotHistoryPromises)
 
-	// Fetch audit evidence summaries for Oracle persistence entries
-	const oraclePersistence = detail.persistence.filter((p) => p.type === "oracle")
-	const allOracleInstances = oraclePersistence.length > 0 ? await getOracleInstances() : []
-	const knownInstanceIds = new Set(allOracleInstances.map((i) => i.id))
-
-	const summaryResults = await Promise.allSettled(
-		oraclePersistence
-			.filter((p) => knownInstanceIds.has(p.name))
-			.map(async (p) => {
-				const summary = await getAuditEvidenceSummary(p.name)
-				return { persistenceId: p.id, summary }
-			}),
-	)
-
-	const oracleAuditSummaries: Record<string, AuditEvidenceSummary> = {}
-	for (const result of summaryResults) {
-		if (result.status === "fulfilled" && result.value.summary) {
-			oracleAuditSummaries[result.value.persistenceId] = result.value.summary
-		}
-	}
+	// Get Oracle audit summaries — reads from DB cache, fetches on-demand if missing
+	const oracleAuditSummaries = await getOracleAuditSummariesForApp(detail.persistence)
 
 	return data({
 		app: detail.app,
