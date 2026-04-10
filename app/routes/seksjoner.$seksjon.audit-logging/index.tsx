@@ -8,6 +8,7 @@ import {
 	HStack,
 	Modal,
 	ReadMore,
+	Search,
 	Table,
 	Tag,
 	Textarea,
@@ -186,12 +187,33 @@ export default function SeksjonAuditLogging() {
 	const [filter, setFilter] = useState<string>("alle")
 	const [confirmingId, setConfirmingId] = useState<string | null>(null)
 	const [revokingId, setRevokingId] = useState<string | null>(null)
+	const [searchQuery, setSearchQuery] = useState("")
+	const [sort, setSort] = useState<{ orderBy: string; direction: "ascending" | "descending" } | undefined>()
 
-	const filteredOverview = overview.filter((row) => {
-		if (filter === "alle") return true
-		if (filter === "ikke-aktiv") return row.status !== "active" && row.status !== "confirmed"
-		return row.status === filter
-	})
+	const handleSort = (sortKey: string) =>
+		setSort((prev) =>
+			prev?.orderBy === sortKey && prev.direction === "ascending"
+				? { orderBy: sortKey, direction: "descending" }
+				: { orderBy: sortKey, direction: "ascending" },
+		)
+
+	const filteredOverview = sortRows(
+		overview.filter((row) => {
+			if (filter === "ikke-aktiv" && (row.status === "active" || row.status === "confirmed")) return false
+			if (filter !== "alle" && filter !== "ikke-aktiv" && row.status !== filter) return false
+			if (searchQuery) {
+				const q = searchQuery.toLowerCase()
+				return (
+					row.appName.toLowerCase().includes(q) ||
+					row.persistenceName.toLowerCase().includes(q) ||
+					(row.teamName?.toLowerCase().includes(q) ?? false) ||
+					(persistenceTypeLabels[row.persistenceType] ?? row.persistenceType).toLowerCase().includes(q)
+				)
+			}
+			return true
+		}),
+		sort,
+	)
 
 	const confirmingRow = overview.find((r) => r.persistenceId === confirmingId)
 	const revokingRow = overview.find((r) => r.confirmation?.id === revokingId)
@@ -226,23 +248,48 @@ export default function SeksjonAuditLogging() {
 				<ToggleGroup.Item value="unknown">Ukjent ({stats.unknown})</ToggleGroup.Item>
 			</ToggleGroup>
 
+			{/* Søk */}
+			<Search
+				label="Søk i tabellen"
+				variant="simple"
+				size="small"
+				value={searchQuery}
+				onChange={setSearchQuery}
+				onClear={() => setSearchQuery("")}
+				placeholder="Filtrer på applikasjon, team, type eller databasenavn"
+			/>
+
 			{/* Hovedtabell */}
 			{filteredOverview.length === 0 ? (
 				<Box padding="space-6" borderRadius="8" background="sunken">
-					<BodyShort>Ingen databaser matcher valgt filter.</BodyShort>
+					<BodyShort>
+						{searchQuery
+							? `Ingen treff for «${searchQuery}» med valgt filter.`
+							: "Ingen databaser matcher valgt filter."}
+					</BodyShort>
 				</Box>
 			) : (
 				// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table container needs keyboard focus
 				<section className="table-scroll" tabIndex={0} aria-label="Audit logging-oversikt">
-					<Table>
+					<Table sort={sort} onSortChange={handleSort}>
 						<Table.Header>
 							<Table.Row>
-								<Table.HeaderCell>Applikasjon</Table.HeaderCell>
-								<Table.HeaderCell>Team</Table.HeaderCell>
-								<Table.HeaderCell>Databasetype</Table.HeaderCell>
-								<Table.HeaderCell>Databasenavn</Table.HeaderCell>
-								<Table.HeaderCell>Audit logging</Table.HeaderCell>
-								<Table.HeaderCell>Handling</Table.HeaderCell>
+								<Table.ColumnHeader sortKey="appName" sortable scope="col">
+									Applikasjon
+								</Table.ColumnHeader>
+								<Table.ColumnHeader sortKey="teamName" sortable scope="col">
+									Team
+								</Table.ColumnHeader>
+								<Table.ColumnHeader sortKey="persistenceType" sortable scope="col">
+									Databasetype
+								</Table.ColumnHeader>
+								<Table.ColumnHeader sortKey="persistenceName" sortable scope="col">
+									Databasenavn
+								</Table.ColumnHeader>
+								<Table.ColumnHeader sortKey="status" sortable scope="col">
+									Audit logging
+								</Table.ColumnHeader>
+								<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
@@ -388,6 +435,44 @@ export default function SeksjonAuditLogging() {
 }
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
+
+const statusSortOrder: Record<string, number> = {
+	inactive: 0,
+	unknown: 1,
+	partial: 2,
+	confirmed: 3,
+	active: 4,
+}
+
+function sortRows(
+	rows: AuditOverviewRow[],
+	sort: { orderBy: string; direction: "ascending" | "descending" } | undefined,
+): AuditOverviewRow[] {
+	if (!sort) return rows
+	return [...rows].sort((a, b) => {
+		const dir = sort.direction === "ascending" ? 1 : -1
+		switch (sort.orderBy) {
+			case "appName":
+				return dir * a.appName.localeCompare(b.appName, "nb")
+			case "teamName":
+				return dir * (a.teamName ?? "").localeCompare(b.teamName ?? "", "nb")
+			case "persistenceType":
+				return (
+					dir *
+					(persistenceTypeLabels[a.persistenceType] ?? a.persistenceType).localeCompare(
+						persistenceTypeLabels[b.persistenceType] ?? b.persistenceType,
+						"nb",
+					)
+				)
+			case "persistenceName":
+				return dir * a.persistenceName.localeCompare(b.persistenceName, "nb")
+			case "status":
+				return dir * ((statusSortOrder[a.status] ?? 99) - (statusSortOrder[b.status] ?? 99))
+			default:
+				return 0
+		}
+	})
+}
 
 function StatCard({
 	label,
