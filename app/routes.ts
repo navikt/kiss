@@ -34,6 +34,7 @@ export default [
 		"seksjoner/:seksjon/rutiner/:rutineId/gjennomgang/:gjennomgangId",
 		"routes/seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/index.tsx",
 	),
+	route("seksjoner/:seksjon/audit-logging", "routes/seksjoner.$seksjon.audit-logging/index.tsx"),
 	route("seksjoner/:seksjon/regelsett", "routes/seksjoner.$seksjon.regelsett/index.tsx"),
 	route("seksjoner/:seksjon/regelsett/ny", "routes/seksjoner.$seksjon.regelsett.ny/index.tsx"),
 	route("seksjoner/:seksjon/regelsett/:regelSettId", "routes/seksjoner.$seksjon.regelsett.$regelSettId/index.tsx"),

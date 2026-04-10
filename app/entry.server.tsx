@@ -6,13 +6,15 @@ import { renderToPipeableStream } from "react-dom/server"
 import type { AppLoadContext, EntryContext } from "react-router"
 import { ServerRouter } from "react-router"
 import { runMigrations } from "~/db/migrate.server"
+import { startAuditSummaryScheduler } from "~/lib/audit-summary-scheduler.server"
 import { logger } from "~/lib/logger.server"
 import { startNaisScheduler } from "~/lib/nais-scheduler.server"
 
-// Run database migrations, then start the Nais scheduler
+// Run database migrations, then start background schedulers
 runMigrations()
 	.then(() => {
 		startNaisScheduler()
+		startAuditSummaryScheduler()
 	})
 	.catch((error) => {
 		logger.error("Failed to run migrations, shutting down", error)

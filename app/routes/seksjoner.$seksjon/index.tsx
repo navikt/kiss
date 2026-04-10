@@ -75,6 +75,9 @@ export default function SeksjonDashboard() {
 				<Button as={Link} to={`/seksjoner/${seksjon}/regelsett`} variant="secondary" size="small">
 					Regelsett
 				</Button>
+				<Button as={Link} to={`/seksjoner/${seksjon}/audit-logging`} variant="secondary" size="small">
+					Audit logging
+				</Button>
 			</HStack>
 			<BodyLong>Compliance-status for alle team i seksjonen.</BodyLong>
 
