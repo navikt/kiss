@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, sql } from "drizzle-orm"
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	applicationEnvironments,
@@ -24,34 +24,47 @@ export async function getSectionBySlug(slug: string) {
 	return section ?? null
 }
 
-/** Get compliance assessment counts for a single application. */
-async function getAppComplianceStats(appId: string) {
-	const [implRow] = await db
-		.select({ count: count() })
-		.from(complianceAssessments)
-		.where(sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.status} = 'implemented'`)
-	const [partialRow] = await db
-		.select({ count: count() })
-		.from(complianceAssessments)
-		.where(
-			sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.status} = 'partially_implemented'`,
-		)
-	const [notImplRow] = await db
-		.select({ count: count() })
-		.from(complianceAssessments)
-		.where(
-			sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.status} = 'not_implemented'`,
-		)
-	const [notRelRow] = await db
-		.select({ count: count() })
-		.from(complianceAssessments)
-		.where(sql`${complianceAssessments.applicationId} = ${appId} AND ${complianceAssessments.status} = 'not_relevant'`)
-	return {
-		implemented: implRow?.count ?? 0,
-		partial: partialRow?.count ?? 0,
-		notImplemented: notImplRow?.count ?? 0,
-		notRelevant: notRelRow?.count ?? 0,
+type ComplianceStats = { implemented: number; partial: number; notImplemented: number; notRelevant: number }
+
+/** Get compliance assessment counts for multiple applications in a single query. */
+async function getBatchComplianceStats(appIds: string[]): Promise<Map<string, ComplianceStats>> {
+	const result = new Map<string, ComplianceStats>()
+	if (appIds.length === 0) return result
+
+	for (const id of appIds) {
+		result.set(id, { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0 })
 	}
+
+	const rows = await db
+		.select({
+			applicationId: complianceAssessments.applicationId,
+			status: complianceAssessments.status,
+			count: count(),
+		})
+		.from(complianceAssessments)
+		.where(inArray(complianceAssessments.applicationId, appIds))
+		.groupBy(complianceAssessments.applicationId, complianceAssessments.status)
+
+	for (const row of rows) {
+		const stats = result.get(row.applicationId)
+		if (!stats) continue
+		switch (row.status) {
+			case "implemented":
+				stats.implemented = row.count
+				break
+			case "partially_implemented":
+				stats.partial = row.count
+				break
+			case "not_implemented":
+				stats.notImplemented = row.count
+				break
+			case "not_relevant":
+				stats.notRelevant = row.count
+				break
+		}
+	}
+
+	return result
 }
 
 /** Get all unique primary app IDs for a dev team (direct + via linked Nais teams, excluding ignored). */
@@ -120,51 +133,23 @@ export async function getSectionDetail(seksjonSlug: string) {
 		.where(isNull(frameworkControls.archivedAt))
 	const totalControls = totalControlsRow?.count ?? 0
 
-	// Collect all app IDs assigned to any dev team (for unassigned calculation)
+	// Phase 1: Collect all app IDs per team
+	const teamAppMaps: { team: (typeof teams)[0]; allIds: Set<string> }[] = []
 	const allAssignedAppIds = new Set<string>()
 
-	const teamStats = []
 	for (const team of teams) {
 		const { allIds } = await getTeamAppIds(team.id, section.id)
-
-		let implemented = 0
-		let partial = 0
-		let notImplemented = 0
-		let notRelevant = 0
-
-		for (const appId of allIds) {
-			allAssignedAppIds.add(appId)
-			const stats = await getAppComplianceStats(appId)
-			implemented += stats.implemented
-			partial += stats.partial
-			notImplemented += stats.notImplemented
-			notRelevant += stats.notRelevant
+		teamAppMaps.push({ team, allIds })
+		for (const id of allIds) {
+			allAssignedAppIds.add(id)
 		}
-
-		teamStats.push({
-			slug: team.slug,
-			name: team.name,
-			apps: allIds.size,
-			implemented,
-			partial,
-			notImplemented,
-			notRelevant,
-			total: totalControls * allIds.size,
-		})
 	}
 
-	// Get compliance stats for unassigned apps (from Nais teams, not assigned to any dev team, not ignored, primary only)
+	// Phase 2: Collect unassigned app IDs
 	const sectionNaisTeamRows = await db.select().from(naisTeams).where(eq(naisTeams.sectionId, section.id))
 	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
 
-	let unassignedStats = {
-		apps: 0,
-		implemented: 0,
-		partial: 0,
-		notImplemented: 0,
-		notRelevant: 0,
-		total: 0,
-	}
+	let unassignedAppIds: string[] = []
 
 	if (naisTeamIds.length > 0) {
 		const naisAppRows = await db
@@ -187,17 +172,60 @@ export async function getSectionDetail(seksjonSlug: string) {
 			).map((r) => r.appId),
 		)
 
-		const unassignedAppIds = naisAppRows
+		unassignedAppIds = naisAppRows
 			.map((r) => r.appId)
 			.filter((id) => !allAssignedAppIds.has(id) && !ignoredAppIds.has(id))
+	}
 
+	// Phase 3: Batch-fetch compliance stats for ALL apps in one query
+	const allAppIds = [...allAssignedAppIds, ...unassignedAppIds.filter((id) => !allAssignedAppIds.has(id))]
+	const statsMap = await getBatchComplianceStats(allAppIds)
+
+	// Phase 4: Build team stats from the pre-fetched map
+	const teamStats = teamAppMaps.map(({ team, allIds }) => {
+		let implemented = 0
+		let partial = 0
+		let notImplemented = 0
+		let notRelevant = 0
+
+		for (const appId of allIds) {
+			const stats = statsMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0 }
+			implemented += stats.implemented
+			partial += stats.partial
+			notImplemented += stats.notImplemented
+			notRelevant += stats.notRelevant
+		}
+
+		return {
+			slug: team.slug,
+			name: team.name,
+			apps: allIds.size,
+			implemented,
+			partial,
+			notImplemented,
+			notRelevant,
+			total: totalControls * allIds.size,
+		}
+	})
+
+	// Phase 5: Build unassigned stats
+	let unassignedStats = {
+		apps: 0,
+		implemented: 0,
+		partial: 0,
+		notImplemented: 0,
+		notRelevant: 0,
+		total: 0,
+	}
+
+	if (unassignedAppIds.length > 0) {
 		let uImpl = 0
 		let uPartial = 0
 		let uNotImpl = 0
 		let uNotRel = 0
 
 		for (const appId of unassignedAppIds) {
-			const stats = await getAppComplianceStats(appId)
+			const stats = statsMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0 }
 			uImpl += stats.implemented
 			uPartial += stats.partial
 			uNotImpl += stats.notImplemented
@@ -213,7 +241,6 @@ export async function getSectionDetail(seksjonSlug: string) {
 			total: totalControls * unassignedAppIds.length,
 		}
 
-		// Add unassigned app IDs to the full set
 		for (const id of unassignedAppIds) {
 			allAssignedAppIds.add(id)
 		}
@@ -373,22 +400,32 @@ export async function getTeamApps(teamSlug: string) {
 
 	const { allIds, directIds } = await getTeamAppIds(team.id, team.sectionId)
 
-	const apps = []
-	for (const appId of allIds) {
-		const [app] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.id, appId))
-		if (!app) continue
+	const appIdList = [...allIds]
+	const [appRows, statsMap] = await Promise.all([
+		appIdList.length > 0
+			? db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, appIdList))
+			: Promise.resolve([]),
+		getBatchComplianceStats(appIdList),
+	])
 
-		const stats = await getAppComplianceStats(appId)
-		apps.push({
-			appId: app.id,
-			appName: app.name,
-			implemented: stats.implemented,
-			partial: stats.partial,
-			notImplemented: stats.notImplemented,
-			total: totalControls,
-			source: directIds.has(appId) ? ("direct" as const) : ("nais-team" as const),
+	const appById = new Map(appRows.map((a) => [a.id, a]))
+
+	const apps = appIdList
+		.map((appId) => {
+			const app = appById.get(appId)
+			if (!app) return null
+			const stats = statsMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0 }
+			return {
+				appId: app.id,
+				appName: app.name,
+				implemented: stats.implemented,
+				partial: stats.partial,
+				notImplemented: stats.notImplemented,
+				total: totalControls,
+				source: directIds.has(appId) ? ("direct" as const) : ("nais-team" as const),
+			}
 		})
-	}
+		.filter((a): a is NonNullable<typeof a> => a !== null)
 
 	apps.sort((a, b) => a.appName.localeCompare(b.appName, "nb"))
 

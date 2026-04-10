@@ -106,6 +106,13 @@
       "when": 1775816743143,
       "tag": "0014_deployment_verification_summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1775937793000,
+      "tag": "0015_compliance_app_status_index",
+      "breakpoints": true
     }
   ]
 }
