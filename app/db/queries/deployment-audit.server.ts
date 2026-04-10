@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNotNull } from "drizzle-orm"
 import { getVerificationSummary } from "../../lib/deployment-audit.server"
+import { logger } from "../../lib/logger.server"
 import { db } from "../connection.server"
 import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
 import type { VerificationSummaryResponse } from "../schema/deployment-audit"
@@ -59,7 +60,10 @@ export async function getDeploymentVerificationForApp(applicationId: string) {
 /** Get cached deployment verification data, fetching on-demand if missing. */
 export async function getDeploymentVerificationForAppWithFetch(applicationId: string) {
 	const cached = await getDeploymentVerificationForApp(applicationId)
-	if (cached.length > 0) return cached
+	if (cached.length > 0) {
+		logger.debug("Deployment verification: returning cached data", { applicationId, count: cached.length })
+		return cached
+	}
 
 	// No cached data — try on-demand fetch
 	const envs = await db
@@ -80,7 +84,32 @@ export async function getDeploymentVerificationForAppWithFetch(applicationId: st
 			),
 		)
 
-	if (envs.length === 0) return []
+	if (envs.length === 0) {
+		// Log all environments for debugging
+		const allEnvs = await db
+			.select({
+				cluster: applicationEnvironments.cluster,
+				namespace: applicationEnvironments.namespace,
+				naisTeamId: applicationEnvironments.naisTeamId,
+			})
+			.from(applicationEnvironments)
+			.where(eq(applicationEnvironments.applicationId, applicationId))
+
+		logger.info("Deployment verification: no prod-gcp environments with naisTeamId found", {
+			applicationId,
+			allEnvironments: allEnvs.map((e) => ({
+				cluster: e.cluster,
+				namespace: e.namespace,
+				hasNaisTeamId: !!e.naisTeamId,
+			})),
+		})
+		return []
+	}
+
+	logger.info("Deployment verification: on-demand fetching", {
+		applicationId,
+		environments: envs.map((e) => `${e.teamSlug}/${e.cluster}/${e.appName}`),
+	})
 
 	const results = []
 	for (const env of envs) {
