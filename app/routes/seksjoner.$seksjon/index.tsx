@@ -71,9 +71,14 @@ export default function SeksjonDashboard() {
 					Seksjon: {seksjonName}
 				</Heading>
 				{canAdmin && (
-					<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">
-						Administrer
-					</Button>
+					<HStack gap="space-4">
+						<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">
+							Administrer
+						</Button>
+						<Button as={Link} to={`/admin/screening?seksjon=${seksjon}`} variant="secondary" size="small">
+							Screening-spørsmål
+						</Button>
+					</HStack>
 				)}
 				<Button as={Link} to={`/seksjoner/${seksjon}/rutiner`} variant="secondary" size="small">
 					Rutiner

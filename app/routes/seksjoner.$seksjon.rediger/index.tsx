@@ -265,17 +265,6 @@ export default function RedigerSeksjon() {
 								</VStack>
 							</Form>
 						</VStack>
-
-						<VStack gap="space-4">
-							<Heading size="medium" level="3">
-								Relatert
-							</Heading>
-							<HStack gap="space-4">
-								<Button as={Link} to={`/admin/screening?seksjon=${seksjon}`} variant="secondary" size="small">
-									Screening-spørsmål
-								</Button>
-							</HStack>
-						</VStack>
 					</VStack>
 				</Tabs.Panel>
 
