@@ -12,7 +12,6 @@ import {
 	deleteScreeningQuestion,
 	getChoiceEffects,
 	getChoicesForQuestion,
-	getScreeningQuestions,
 	getSectionScreeningQuestions,
 	reorderScreeningQuestions,
 } from "~/db/queries/screening.server"
@@ -21,25 +20,18 @@ import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)
 
-	const url = new URL(request.url)
-	const seksjonSlug = url.searchParams.get("seksjon")
+	const seksjon = params.seksjon
+	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 
-	let sectionId: string | null = null
-	let sectionName: string | null = null
+	const section = await getSectionBySlug(seksjon)
+	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
 
-	if (seksjonSlug) {
-		const section = await getSectionBySlug(seksjonSlug)
-		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
-		sectionId = section.id
-		sectionName = section.name
-	}
-
-	const questions = sectionId ? await getSectionScreeningQuestions(sectionId) : await getScreeningQuestions()
+	const questions = await getSectionScreeningQuestions(section.id)
 
 	const questionsWithEffects = await Promise.all(
 		questions.map(async (q) => {
@@ -58,16 +50,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		}),
 	)
 
-	return data({
-		questions: questionsWithEffects,
-		seksjon: seksjonSlug,
-		sectionId,
-		sectionName,
-		screeningBasePath: "/admin/screening",
-	})
+	const screeningBasePath = `/seksjoner/${seksjon}/screening`
+
+	return data({ questions: questionsWithEffects, seksjon, sectionName: section.name, screeningBasePath })
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)
@@ -88,8 +76,8 @@ export async function action({ request }: ActionFunctionArgs) {
 	return data({ success: true })
 }
 
-export default function AdminScreening() {
-	const { questions: loaderQuestions, seksjon, sectionName, screeningBasePath } = useLoaderData<typeof loader>()
+export default function SectionScreening() {
+	const { questions: loaderQuestions, sectionName, screeningBasePath } = useLoaderData<typeof loader>()
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
 	const [deleteTarget, setDeleteTarget] = useState<{ id: string; text: string } | null>(null)
 	const [questions, setQuestions] = useState(loaderQuestions)
@@ -121,7 +109,7 @@ export default function AdminScreening() {
 			<div>
 				<HStack justify="space-between" align="center" wrap gap="space-4">
 					<Heading size="xlarge" level="2">
-						Innledende spørsmål{sectionName ? ` — ${sectionName}` : ""}
+						Innledende spørsmål — {sectionName}
 					</Heading>
 					<Button
 						as={Link}
@@ -138,7 +126,6 @@ export default function AdminScreening() {
 				</BodyLong>
 			</div>
 
-			{/* Questions list */}
 			{questions.length === 0 ? (
 				<Alert variant="info">Ingen innledende spørsmål er definert ennå.</Alert>
 			) : (
@@ -161,7 +148,7 @@ export default function AdminScreening() {
 					</SortableContext>
 				</DndContext>
 			)}
-			{/* Delete confirmation modal */}
+
 			<Modal ref={deleteModalRef} header={{ heading: "Slett spørsmål" }} onClose={() => setDeleteTarget(null)}>
 				<Modal.Body>
 					<BodyLong>

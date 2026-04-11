@@ -75,7 +75,7 @@ export default function SeksjonDashboard() {
 						<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">
 							Administrer
 						</Button>
-						<Button as={Link} to={`/admin/screening?seksjon=${seksjon}`} variant="secondary" size="small">
+						<Button as={Link} to={`/seksjoner/${seksjon}/screening`} variant="secondary" size="small">
 							Screening-spørsmål
 						</Button>
 					</HStack>

@@ -35,6 +35,11 @@ export default [
 		"routes/seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/index.tsx",
 	),
 	route("seksjoner/:seksjon/audit-logging", "routes/seksjoner.$seksjon.audit-logging/index.tsx"),
+	route("seksjoner/:seksjon/screening", "routes/seksjoner.$seksjon.screening/index.tsx"),
+	route(
+		"seksjoner/:seksjon/screening/:questionId/rediger",
+		"routes/seksjoner.$seksjon.screening.$questionId.rediger/index.tsx",
+	),
 	route("seksjoner/:seksjon/regelsett", "routes/seksjoner.$seksjon.regelsett/index.tsx"),
 	route("seksjoner/:seksjon/regelsett/ny", "routes/seksjoner.$seksjon.regelsett.ny/index.tsx"),
 	route("seksjoner/:seksjon/regelsett/:regelSettId", "routes/seksjoner.$seksjon.regelsett.$regelSettId/index.tsx"),

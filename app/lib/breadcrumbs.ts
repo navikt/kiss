@@ -258,6 +258,21 @@ const rules: BreadcrumbRule[] = [
 		segments: [SEKSJONER, { label: sectionName, to: sectionPath }, { label: teamName }],
 	},
 
+	// ── Seksjoner: Screening ──
+	{
+		pattern: "seksjoner/:seksjon/screening/:questionId/rediger",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: "Screening", to: (p) => `/seksjoner/${p.seksjon}/screening` },
+			{ label: "Rediger" },
+		],
+	},
+	{
+		pattern: "seksjoner/:seksjon/screening",
+		segments: [SEKSJONER, { label: sectionName, to: sectionPath }, { label: "Screening" }],
+	},
+
 	// ── Seksjoner: Andre ──
 	{
 		pattern: "seksjoner/:seksjon/nais-team",

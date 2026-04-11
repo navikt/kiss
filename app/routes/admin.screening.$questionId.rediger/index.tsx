@@ -4,7 +4,6 @@ import {
 	Box,
 	Button,
 	Checkbox,
-	Detail,
 	Heading,
 	HStack,
 	Modal,
@@ -16,7 +15,7 @@ import {
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useLoaderData } from "react-router"
+import { data, Form, redirect, useLoaderData } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
@@ -59,6 +58,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const questionId = params.questionId as string
 	const isNew = questionId === "ny"
 
+	const returnPath = seksjonSlug ? `/admin/screening?seksjon=${seksjonSlug}` : "/admin/screening"
+
 	if (isNew) {
 		const controls = await getAllControls()
 		return data({
@@ -76,6 +77,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			seksjon: seksjonSlug,
 			sectionId,
 			sectionName,
+			returnPath,
 		})
 	}
 
@@ -103,6 +105,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		seksjon: seksjonSlug,
 		sectionId,
 		sectionName,
+		returnPath,
 	})
 }
 
@@ -114,9 +117,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const questionId = params.questionId as string
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
-	const seksjon = formData.get("seksjon") as string | null
 	const sectionId = formData.get("sectionId") as string | null
-	const seksjonParam = seksjon ? `?seksjon=${seksjon}` : ""
+	const returnPath = (formData.get("returnPath") as string) || "/admin/screening"
 
 	if (intent === "updateQuestion") {
 		const questionText = formData.get("questionText") as string
@@ -167,11 +169,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				}
 			}
 
-			return redirect(`/admin/screening${seksjonParam}`)
+			return redirect(returnPath)
 		}
 
 		await updateScreeningQuestion(questionId, questionText.trim(), description, displayOrder, authedUser.navIdent)
-		return redirect(`/admin/screening${seksjonParam}`)
+		return redirect(returnPath)
 	}
 
 	if (intent === "addChoice") {
@@ -239,7 +241,7 @@ interface PendingChoice {
 }
 
 export default function EditScreeningQuestion() {
-	const { isNew, question, choices, controls, seksjon, sectionId, sectionName } = useLoaderData<typeof loader>()
+	const { isNew, question, choices, controls, sectionId, returnPath } = useLoaderData<typeof loader>()
 	const [pendingChoices, setPendingChoices] = useState<PendingChoice[]>([])
 	const [deleteTarget, setDeleteTarget] = useState<{
 		type: "choice" | "effect"
@@ -248,16 +250,9 @@ export default function EditScreeningQuestion() {
 		choiceId?: string
 	} | null>(null)
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
-	const seksjonParam = seksjon ? `?seksjon=${seksjon}` : ""
 
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
-			<Detail>
-				<Link to={`/admin/screening${seksjonParam}`}>
-					← Tilbake til innledende spørsmål{sectionName ? ` — ${sectionName}` : ""}
-				</Link>
-			</Detail>
-
 			<Heading size="xlarge" level="2">
 				{isNew ? "Nytt spørsmål" : "Rediger spørsmål"}
 			</Heading>
@@ -265,7 +260,7 @@ export default function EditScreeningQuestion() {
 			{/* Edit form */}
 			<Form method="post" style={{ padding: "6px" }}>
 				<input type="hidden" name="intent" value="updateQuestion" />
-				{seksjon && <input type="hidden" name="seksjon" value={seksjon} />}
+				<input type="hidden" name="returnPath" value={returnPath} />
 				{sectionId && <input type="hidden" name="sectionId" value={sectionId} />}
 				{isNew && <input type="hidden" name="pendingChoices" value={JSON.stringify(pendingChoices)} />}
 				<VStack gap="space-8">
