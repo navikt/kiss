@@ -15,7 +15,7 @@ import {
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useLoaderData } from "react-router"
+import { data, Form, redirect, useLoaderData } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { deleteRoutine, getRoutine, updateRoutine } from "~/db/queries/routines.server"
@@ -172,12 +172,9 @@ export default function RedigerRutine() {
 
 	return (
 		<VStack gap="space-8">
-			<div>
-				<Link to={`/seksjoner/${seksjon}/rutiner/${routine.id}`}>← Tilbake til {routine.name}</Link>
-				<Heading size="xlarge" level="2" spacing>
-					Rediger rutine: {routine.name}
-				</Heading>
-			</div>
+			<Heading size="xlarge" level="2" spacing>
+				Rediger rutine: {routine.name}
+			</Heading>
 
 			<Form method="post">
 				<input type="hidden" name="intent" value="update" />

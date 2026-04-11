@@ -146,12 +146,9 @@ export default function RedigerTeam() {
 
 	return (
 		<VStack gap="space-8">
-			<div>
-				<Link to={`/seksjoner/${seksjon}/team/${teamSlug}`}>← Tilbake til {teamName}</Link>
-				<Heading size="xlarge" level="2" spacing>
-					Rediger team: {teamName}
-				</Heading>
-			</div>
+			<Heading size="xlarge" level="2" spacing>
+				Rediger team: {teamName}
+			</Heading>
 
 			{/* Edit team details */}
 			<VStack gap="space-4">

@@ -100,12 +100,9 @@ export default function ManglendeRutiner() {
 
 	return (
 		<VStack gap="space-8">
-			<div>
-				<Link to="..">← Tilbake til rutiner</Link>
-				<Heading size="xlarge" level="2" spacing>
-					Manglende rutinegjennomganger — {section.name}
-				</Heading>
-			</div>
+			<Heading size="xlarge" level="2" spacing>
+				Manglende rutinegjennomganger — {section.name}
+			</Heading>
 
 			<VStack gap="space-4">
 				<Heading size="medium" level="3">

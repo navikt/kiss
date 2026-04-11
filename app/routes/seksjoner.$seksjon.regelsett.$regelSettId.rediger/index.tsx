@@ -13,7 +13,7 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
+import { data, Form, redirect, useActionData, useLoaderData } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
@@ -166,12 +166,9 @@ export default function RegelsettRediger() {
 
 	return (
 		<VStack gap="space-6">
-			<VStack gap="space-2">
-				<Heading size="large">
-					Rediger: {ruleset.name} — {section.name}
-				</Heading>
-				<Link to={`/seksjoner/${section.slug}/regelsett/${ruleset.id}`}>← Tilbake til regelsett</Link>
-			</VStack>
+			<Heading size="large">
+				Rediger: {ruleset.name} — {section.name}
+			</Heading>
 
 			{actionData && "success" in actionData && actionData.success && (
 				<Alert variant="success">{actionData.message}</Alert>

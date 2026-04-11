@@ -468,15 +468,13 @@ export default function GjennomgangDetalj() {
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
 			<div>
-				<Detail>
-					{review.applicationId ? (
+				{review.applicationId && (
+					<Detail>
 						<Link to={`/applikasjoner/${review.applicationId}/detaljer?fane=rutiner`}>
 							← Tilbake til {review.applicationName ?? "applikasjon"}
 						</Link>
-					) : (
-						<Link to={`/seksjoner/${section.slug}/rutiner/${routine.id}`}>← Tilbake til {routine.name}</Link>
-					)}
-				</Detail>
+					</Detail>
+				)}
 				<HStack gap="space-4" align="center">
 					<Heading size="xlarge" level="2">
 						{review.title}

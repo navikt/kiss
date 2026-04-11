@@ -1,4 +1,4 @@
-import { Button, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
+import { Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
@@ -76,13 +76,14 @@ export default function NyGjennomgang() {
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
 
-	const backUrl = preselectedAppId ? `/applikasjoner/${preselectedAppId}/detaljer?fane=rutiner` : "../.."
-	const backLabel = preselectedAppId ? "← Tilbake til applikasjon" : `← Tilbake til ${routine.name}`
-
 	return (
 		<VStack gap="space-8">
 			<div>
-				<Link to={backUrl}>{backLabel}</Link>
+				{preselectedAppId && (
+					<Detail>
+						<Link to={`/applikasjoner/${preselectedAppId}/detaljer?fane=rutiner`}>← Tilbake til applikasjon</Link>
+					</Detail>
+				)}
 				<Heading size="xlarge" level="2" spacing>
 					Ny gjennomgang — {routine.name}
 				</Heading>
@@ -149,7 +150,7 @@ export default function NyGjennomgang() {
 						<Button type="submit" variant="primary" size="small">
 							Opprett utkast
 						</Button>
-						<Button as={Link} to={backUrl} variant="tertiary" size="small">
+						<Button as={Link} to="../.." variant="tertiary" size="small">
 							Avbryt
 						</Button>
 					</HStack>

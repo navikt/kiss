@@ -4,7 +4,6 @@ import {
 	BodyLong,
 	Box,
 	Button,
-	Detail,
 	Heading,
 	HStack,
 	Label,
@@ -16,7 +15,7 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useActionData, useLoaderData, useNavigation } from "react-router"
+import { data, Form, redirect, useActionData, useLoaderData, useNavigation } from "react-router"
 import { MarkdownHint } from "~/components/MarkdownHint"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
@@ -332,14 +331,9 @@ export default function ControlEditPage() {
 
 	return (
 		<VStack gap="space-12">
-			<VStack gap="space-2">
-				<Detail>
-					<Link to={`/kontrollrammeverk/${domene}/${control.id}`}>← Tilbake til kontroll</Link>
-				</Detail>
-				<Heading size="xlarge" level="2">
-					Rediger {control.id}: {control.name}
-				</Heading>
-			</VStack>
+			<Heading size="xlarge" level="2">
+				Rediger {control.id}: {control.name}
+			</Heading>
 
 			{actionData && "success" in actionData && actionData.success && (
 				<Alert variant="success" size="small">

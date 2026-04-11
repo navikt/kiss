@@ -221,12 +221,9 @@ export default function RedigerSeksjon() {
 
 	return (
 		<VStack gap="space-6">
-			<div>
-				<Link to={`/seksjoner/${seksjon}`}>← Tilbake til seksjon</Link>
-				<Heading size="xlarge" level="2" spacing>
-					Rediger seksjon: {section.name}
-				</Heading>
-			</div>
+			<Heading size="xlarge" level="2" spacing>
+				Rediger seksjon: {section.name}
+			</Heading>
 
 			<Tabs value={activeTab} onChange={(tab) => setSearchParams({ fane: tab }, { replace: true })}>
 				<Tabs.List>

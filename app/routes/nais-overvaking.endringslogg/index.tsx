@@ -1,6 +1,6 @@
 import { Heading, HStack, Table, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import { data, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRecentAuditLog } from "~/db/queries/audit.server"
 
@@ -20,8 +20,6 @@ export default function NaisEndringslogg() {
 					Endringslogg – Nais-overvåking
 				</Heading>
 			</HStack>
-
-			<Link to="/nais-overvaking">← Tilbake til Nais-overvåking</Link>
 
 			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 			<section className="table-scroll" tabIndex={0} aria-label="Endringslogg Nais-overvåking">

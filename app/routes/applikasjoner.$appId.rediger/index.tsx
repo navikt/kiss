@@ -1,6 +1,5 @@
 import { CheckmarkIcon, XMarkIcon } from "@navikt/aksel-icons"
 import {
-	Link as AkselLink,
 	BodyLong,
 	BodyShort,
 	Box,
@@ -323,14 +322,9 @@ export default function ApplikasjonRediger() {
 
 	return (
 		<VStack gap="space-24">
-			<div>
-				<AkselLink as={Link} to={`/applikasjoner/${app.id}/detaljer`}>
-					← Tilbake til detaljer
-				</AkselLink>
-				<Heading size="xlarge" level="2" spacing>
-					Administrer {app.name}
-				</Heading>
-			</div>
+			<Heading size="xlarge" level="2" spacing>
+				Administrer {app.name}
+			</Heading>
 
 			{/* Primary app notice */}
 			{primaryApp && (

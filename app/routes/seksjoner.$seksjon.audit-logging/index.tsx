@@ -220,12 +220,7 @@ export default function SeksjonAuditLogging() {
 
 	return (
 		<VStack gap="space-8">
-			<HStack justify="space-between" align="center">
-				<Heading size="large">Audit logging — {section.name}</Heading>
-				<Button as={Link} to={`/seksjoner/${seksjon}`} variant="secondary" size="small">
-					Tilbake til seksjon
-				</Button>
-			</HStack>
+			<Heading size="large">Audit logging — {section.name}</Heading>
 
 			{/* Statistikk-kort */}
 			<HGrid gap="space-4" columns={{ xs: 2, sm: 3, md: 6 }}>

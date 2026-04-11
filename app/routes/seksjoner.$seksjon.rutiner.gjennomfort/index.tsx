@@ -34,12 +34,9 @@ export default function GjennomforteRutiner() {
 
 	return (
 		<VStack gap="space-8">
-			<div>
-				<Link to="..">← Tilbake til rutiner</Link>
-				<Heading size="xlarge" level="2" spacing>
-					Gjennomførte rutinegjennomganger — {section.name}
-				</Heading>
-			</div>
+			<Heading size="xlarge" level="2" spacing>
+				Gjennomførte rutinegjennomganger — {section.name}
+			</Heading>
 
 			{reviews.length === 0 ? (
 				<Box padding="space-6" borderRadius="8" background="sunken">

@@ -61,19 +61,16 @@ export default function TeamDashboard() {
 
 	return (
 		<VStack gap="space-8">
-			<div>
-				<Link to={`/seksjoner/${seksjon}`}>← Tilbake til seksjon</Link>
-				<HStack gap="space-4" align="center">
-					<Heading size="xlarge" level="2">
-						{teamName}
-					</Heading>
-					{canAdmin && (
-						<Button as={Link} to={`/seksjoner/${seksjon}/team/${team}/rediger`} variant="tertiary" size="small">
-							Administrer
-						</Button>
-					)}
-				</HStack>
-			</div>
+			<HStack gap="space-4" align="center">
+				<Heading size="xlarge" level="2">
+					{teamName}
+				</Heading>
+				{canAdmin && (
+					<Button as={Link} to={`/seksjoner/${seksjon}/team/${team}/rediger`} variant="tertiary" size="small">
+						Administrer
+					</Button>
+				)}
+			</HStack>
 			<BodyLong>
 				Compliance-status per applikasjon for {teamName} i seksjon <Link to={`/seksjoner/${seksjon}`}>{seksjon}</Link>.
 			</BodyLong>
