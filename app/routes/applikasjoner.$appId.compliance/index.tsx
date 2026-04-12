@@ -20,7 +20,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData, useSearchParams } from "react-router"
 import { ComplianceComment, ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getAppAssessments, saveAssessment } from "~/db/queries/applications.server"
+import { getAppAssessments, saveAssessment, saveAssessmentComment } from "~/db/queries/applications.server"
 import { getAllRisks } from "~/db/queries/framework.server"
 import { getScreeningDataForApp, saveScreeningAnswer } from "~/db/queries/screening.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
@@ -120,6 +120,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		await saveScreeningAnswer(appId, questionId, answer, authedUser.navIdent, answerComment, answerLink)
 
 		return data({ success: true, controlId: "screening", screening: true })
+	}
+
+	if (intent === "saveComment") {
+		const controlUuid = formData.get("controlUuid") as string
+		const controlId = formData.get("controlId") as string
+		const comment = formData.get("comment") as string
+		const techElementId = (formData.get("technologyElementId") as string) || null
+		if (!controlUuid) throw new Response("Mangler kontroll-UUID", { status: 400 })
+
+		await saveAssessmentComment(appId, controlUuid, comment ?? "", authedUser.navIdent, techElementId)
+
+		return data({
+			success: true,
+			controlId: typeof controlId === "string" ? controlId : controlUuid,
+		})
 	}
 
 	const controlUuid = formData.get("controlUuid")
@@ -648,9 +663,16 @@ function AssessmentCard({
 					size="small"
 					description="Lenker i kommentaren vil vises som klikkbare lenker."
 				/>
-				<Button type="submit" size="small" variant="primary">
-					Lagre vurdering
-				</Button>
+				<HStack gap="space-4">
+					<Button type="submit" size="small" variant="primary">
+						Lagre vurdering
+					</Button>
+					{assessment.status && (
+						<Button type="submit" name="intent" value="saveComment" size="small" variant="secondary">
+							Lagre kun kommentar
+						</Button>
+					)}
+				</HStack>
 			</Form>
 		</div>
 	)
