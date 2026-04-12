@@ -12,8 +12,8 @@ interface DeploymentStats {
 
 function coverageTag(percent: number | null) {
 	if (percent === null) return <Tag variant="neutral-moderate">Ingen data</Tag>
-	if (percent >= 80) return <Tag variant="success-moderate">{percent}%</Tag>
-	if (percent >= 60) return <Tag variant="warning-moderate">{percent}%</Tag>
+	if (percent === 100) return <Tag variant="success-moderate">{percent}%</Tag>
+	if (percent >= 80) return <Tag variant="warning-moderate">{percent}%</Tag>
 	return <Tag variant="error-moderate">{percent}%</Tag>
 }
 
