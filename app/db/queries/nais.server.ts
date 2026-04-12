@@ -1128,6 +1128,24 @@ export async function createParentAndLinkGroup(
 	return parentId
 }
 
+/** Accept all pending suggestions where both apps are in the given set. */
+export async function acceptRelatedSuggestions(appIds: string[], performedBy: string) {
+	const pending = await db.select().from(linkSuggestions).where(eq(linkSuggestions.status, "pending"))
+	const appSet = new Set(appIds)
+	for (const s of pending) {
+		if (appSet.has(s.primaryAppId) && appSet.has(s.secondaryAppId)) {
+			await db
+				.update(linkSuggestions)
+				.set({
+					status: "accepted" as LinkSuggestionStatus,
+					reviewedBy: performedBy,
+					reviewedAt: new Date(),
+				})
+				.where(eq(linkSuggestions.id, s.id))
+		}
+	}
+}
+
 export type AppResolution = { status: "monitored"; appId: string } | { status: "discovered" } | { status: "unknown" }
 
 /** Look up app names: first in monitoredApplications (monitored), then naisDiscoveredApps (discovered), else unknown. */

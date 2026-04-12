@@ -1,5 +1,5 @@
 import { LinkIcon } from "@navikt/aksel-icons"
-import { Alert, BodyLong, BodyShort, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, BodyShort, Button, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -7,7 +7,6 @@ import {
 	acceptLinkSuggestion,
 	bulkAcceptLinkSuggestions,
 	createParentAndLinkGroup,
-	extractBaseName,
 	findLinkCandidates,
 	getPendingLinkSuggestions,
 	persistLinkSuggestions,
@@ -23,37 +22,53 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 	const suggestions = await getPendingLinkSuggestions()
 
-	// Group suggestions by base name to enable "create parent" action
-	const groupMap = new Map<string, SuggestionGroup>()
-	for (const s of suggestions) {
-		const baseName = extractBaseName(s.primaryAppName) ?? extractBaseName(s.secondaryAppName) ?? s.primaryAppName
-		let group = groupMap.get(baseName)
-		if (!group) {
-			group = { baseName, appIds: new Set(), appNames: new Map(), suggestions: [] }
-			groupMap.set(baseName, group)
-		}
-		group.appIds.add(s.primaryAppId)
-		group.appIds.add(s.secondaryAppId)
-		group.appNames.set(s.primaryAppId, s.primaryAppName)
-		group.appNames.set(s.secondaryAppId, s.secondaryAppName)
-		group.suggestions.push(s)
+	// Union-Find to merge overlapping groups (e.g. Docker image matches across name groups)
+	const parent = new Map<string, string>()
+	function find(x: string): string {
+		if (!parent.has(x)) parent.set(x, x)
+		if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!))
+		return parent.get(x)!
+	}
+	function union(a: string, b: string) {
+		const ra = find(a)
+		const rb = find(b)
+		if (ra !== rb) parent.set(ra, rb)
 	}
 
-	const groups = [...groupMap.values()].map((g) => ({
-		baseName: g.baseName,
-		appIds: [...g.appIds],
-		appNames: Object.fromEntries(g.appNames),
-		suggestions: g.suggestions,
-	}))
+	const appNames = new Map<string, string>()
+	for (const s of suggestions) {
+		appNames.set(s.primaryAppId, s.primaryAppName)
+		appNames.set(s.secondaryAppId, s.secondaryAppName)
+		union(s.primaryAppId, s.secondaryAppId)
+	}
+
+	// Group by connected component
+	const componentMap = new Map<string, { appIds: Set<string>; suggestions: typeof suggestions }>()
+	for (const s of suggestions) {
+		const root = find(s.primaryAppId)
+		let comp = componentMap.get(root)
+		if (!comp) {
+			comp = { appIds: new Set(), suggestions: [] }
+			componentMap.set(root, comp)
+		}
+		comp.appIds.add(s.primaryAppId)
+		comp.appIds.add(s.secondaryAppId)
+		comp.suggestions.push(s)
+	}
+
+	// Derive a group label: shortest app name (most likely the "base" prod app)
+	const groups = [...componentMap.values()].map((comp) => {
+		const names = [...comp.appIds].map((id) => appNames.get(id) ?? id)
+		const groupName = names.reduce((a, b) => (a.length <= b.length ? a : b))
+		return {
+			baseName: groupName,
+			appIds: [...comp.appIds],
+			appNames: Object.fromEntries([...comp.appIds].map((id) => [id, appNames.get(id) ?? id])),
+			suggestions: comp.suggestions,
+		}
+	})
 
 	return data({ suggestions, groups })
-}
-
-interface SuggestionGroup {
-	baseName: string
-	appIds: Set<string>
-	appNames: Map<string, string>
-	suggestions: typeof getPendingLinkSuggestions extends () => Promise<infer R> ? R : never
 }
 
 const matchTypeLabels: Record<string, { label: string; variant: "info" | "success" | "warning" }> = {
@@ -78,10 +93,25 @@ export async function action({ request }: ActionFunctionArgs) {
 		await rejectLinkSuggestion(suggestionId, authedUser.navIdent)
 	} else if (intent === "createParent") {
 		const parentName = formData.get("parentName") as string
+		const primaryAppId = formData.get("primaryAppId") as string | null
 		const appIds = formData.getAll("appId") as string[]
-		if (parentName && appIds.length > 0) {
-			await createParentAndLinkGroup(parentName, appIds, authedUser.navIdent)
-			return data({ success: true, message: `${parentName} opprettet med ${appIds.length} varianter` })
+		if (appIds.length > 0) {
+			if (primaryAppId) {
+				// Use an existing app as primary — link all others to it
+				for (const appId of appIds) {
+					if (appId === primaryAppId) continue
+					const { linkApplication } = await import("~/db/queries/nais.server")
+					await linkApplication(appId, primaryAppId, authedUser.navIdent)
+				}
+				// Accept related pending suggestions
+				const { acceptRelatedSuggestions } = await import("~/db/queries/nais.server")
+				await acceptRelatedSuggestions(appIds, authedUser.navIdent)
+				return data({ success: true, message: `${appIds.length - 1} applikasjoner koblet` })
+			}
+			if (parentName) {
+				await createParentAndLinkGroup(parentName, appIds, authedUser.navIdent)
+				return data({ success: true, message: `${parentName} opprettet med ${appIds.length} varianter` })
+			}
 		}
 	} else if (intent === "bulkAccept") {
 		const minConfidence = Number(formData.get("minConfidence") ?? 0.9)
@@ -135,21 +165,30 @@ export default function AdminLinkSuggestions() {
 				<VStack gap="space-8">
 					{groups.map((group) => (
 						<VStack key={group.baseName} gap="space-4">
-							<HStack gap="space-4" align="center">
-								<Heading size="small" level="3">
-									{group.baseName}
-								</Heading>
-								<Form method="post">
-									<input type="hidden" name="intent" value="createParent" />
-									<input type="hidden" name="parentName" value={group.baseName} />
-									{group.appIds.map((id) => (
-										<input key={id} type="hidden" name="appId" value={id} />
-									))}
-									<Button type="submit" size="xsmall" variant="primary" icon={<LinkIcon aria-hidden />}>
-										Opprett «{group.baseName}» og koble {group.appIds.length} varianter
+							<Heading size="small" level="3">
+								{group.baseName}
+								{group.appIds.length > 2 && ` (${group.appIds.length} applikasjoner)`}
+							</Heading>
+							<Form method="post">
+								<input type="hidden" name="intent" value="createParent" />
+								<input type="hidden" name="parentName" value={group.baseName} />
+								{group.appIds.map((id) => (
+									<input key={id} type="hidden" name="appId" value={id} />
+								))}
+								<HStack gap="space-4" align="end" wrap>
+									<Select label="Hovedapplikasjon" name="primaryAppId" size="small">
+										<option value="">Opprett ny «{group.baseName}»</option>
+										{group.appIds.map((id) => (
+											<option key={id} value={id}>
+												{group.appNames[id]}
+											</option>
+										))}
+									</Select>
+									<Button type="submit" size="small" variant="primary" icon={<LinkIcon aria-hidden />}>
+										Koble {group.appIds.length} applikasjoner
 									</Button>
-								</Form>
-							</HStack>
+								</HStack>
+							</Form>
 							<Table size="small">
 								<Table.Header>
 									<Table.Row>
