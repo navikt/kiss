@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, count, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
@@ -32,6 +32,30 @@ export async function getApplications() {
 
 	const appIds = apps.map((a) => a.id)
 	if (appIds.length === 0) return []
+
+	// Batch: linked (child) apps for all primary apps
+	const childApps = await db
+		.select({
+			id: monitoredApplications.id,
+			name: monitoredApplications.name,
+			primaryApplicationId: monitoredApplications.primaryApplicationId,
+		})
+		.from(monitoredApplications)
+		.where(
+			and(
+				isNotNull(monitoredApplications.primaryApplicationId),
+				inArray(monitoredApplications.primaryApplicationId, appIds),
+			),
+		)
+		.orderBy(monitoredApplications.name)
+
+	const childrenByParent = new Map<string, Array<{ id: string; name: string }>>()
+	for (const child of childApps) {
+		if (!child.primaryApplicationId) continue
+		const list = childrenByParent.get(child.primaryApplicationId) ?? []
+		list.push({ id: child.id, name: child.name })
+		childrenByParent.set(child.primaryApplicationId, list)
+	}
 
 	// Batch: team mappings for all apps
 	const allTeamMappings = await db
@@ -79,6 +103,7 @@ export async function getApplications() {
 			controlsImplemented: stats.implemented,
 			controlsPartial: stats.partial,
 			controlsTotal: totalControls,
+			linkedApps: childrenByParent.get(app.id) ?? [],
 		}
 	})
 }

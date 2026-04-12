@@ -1,4 +1,17 @@
-import { Alert, BodyLong, Button, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import { ChevronRightIcon } from "@navikt/aksel-icons"
+import {
+	Alert,
+	BodyLong,
+	BodyShort,
+	Button,
+	Detail,
+	Heading,
+	HStack,
+	Select,
+	Table,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -88,68 +101,92 @@ export default function Applikasjoner() {
 							const linkedTeamSlugs = app.teams
 							const availableTeams = allTeams.filter((t) => !linkedTeamSlugs.includes(t.slug))
 							const appPersistence = persistenceMap[app.id] ?? []
-							// Deduplicate persistence types for compact display
 							const uniqueTypes = [...new Set(appPersistence.map((p: { type: string }) => p.type))]
 							return (
-								<Table.Row key={app.id}>
-									<Table.DataCell>
-										<Link to={`/applikasjoner/${app.id}/detaljer`}>{app.name}</Link>
-									</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-2" wrap>
-											{app.teams.map((teamSlug) => (
-												<Tag key={teamSlug} variant="info" size="xsmall">
-													{teamSlug}
-												</Tag>
-											))}
-											{app.teams.length === 0 && "–"}
-										</HStack>
-									</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-1" wrap>
-											{uniqueTypes.length > 0
-												? uniqueTypes.map((type: string) => (
-														<Tag key={type} variant="neutral" size="xsmall">
-															{persistenceLabels[type] ?? type}
-														</Tag>
-													))
-												: "–"}
-										</HStack>
-									</Table.DataCell>
-									<Table.DataCell>
-										{app.controlsImplemented} / {app.controlsTotal}
-									</Table.DataCell>
-									<Table.DataCell>{app.controlsPartial}</Table.DataCell>
-									<Table.DataCell>
-										<Tag variant={pct >= 80 ? "success" : pct >= 50 ? "warning" : "error"} size="small">
-											{pct}%
-										</Tag>
-									</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-2" align="center">
-											<Link to={`/applikasjoner/${app.id}/compliance`}>Vurder</Link>
-											{availableTeams.length > 0 && (
-												<Form method="post">
-													<input type="hidden" name="intent" value="link-team" />
-													<input type="hidden" name="applicationId" value={app.id} />
-													<HStack gap="space-2" align="end">
-														<Select label="Team" name="devTeamId" size="small" hideLabel>
-															<option value="">Velg …</option>
-															{availableTeams.map((t) => (
-																<option key={t.id} value={t.id}>
-																	{t.name}
-																</option>
-															))}
-														</Select>
-														<Button type="submit" variant="secondary" size="xsmall">
-															Legg til team
-														</Button>
-													</HStack>
-												</Form>
+								<>
+									<Table.Row key={app.id}>
+										<Table.DataCell>
+											<Link to={`/applikasjoner/${app.id}/detaljer`}>{app.name}</Link>
+											{app.linkedApps.length > 0 && (
+												<Detail as="span" style={{ marginLeft: "var(--ax-space-4)" }}>
+													({app.linkedApps.length} koblet{app.linkedApps.length > 1 ? "e" : ""})
+												</Detail>
 											)}
-										</HStack>
-									</Table.DataCell>
-								</Table.Row>
+										</Table.DataCell>
+										<Table.DataCell>
+											<HStack gap="space-2" wrap>
+												{app.teams.map((teamSlug) => (
+													<Tag key={teamSlug} variant="info" size="xsmall">
+														{teamSlug}
+													</Tag>
+												))}
+												{app.teams.length === 0 && "–"}
+											</HStack>
+										</Table.DataCell>
+										<Table.DataCell>
+											<HStack gap="space-1" wrap>
+												{uniqueTypes.length > 0
+													? uniqueTypes.map((type: string) => (
+															<Tag key={type} variant="neutral" size="xsmall">
+																{persistenceLabels[type] ?? type}
+															</Tag>
+														))
+													: "–"}
+											</HStack>
+										</Table.DataCell>
+										<Table.DataCell>
+											{app.controlsImplemented} / {app.controlsTotal}
+										</Table.DataCell>
+										<Table.DataCell>{app.controlsPartial}</Table.DataCell>
+										<Table.DataCell>
+											<Tag variant={pct >= 80 ? "success" : pct >= 50 ? "warning" : "error"} size="small">
+												{pct}%
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											<HStack gap="space-2" align="center">
+												<Link to={`/applikasjoner/${app.id}/compliance`}>Vurder</Link>
+												{availableTeams.length > 0 && (
+													<Form method="post">
+														<input type="hidden" name="intent" value="link-team" />
+														<input type="hidden" name="applicationId" value={app.id} />
+														<HStack gap="space-2" align="end">
+															<Select label="Team" name="devTeamId" size="small" hideLabel>
+																<option value="">Velg …</option>
+																{availableTeams.map((t) => (
+																	<option key={t.id} value={t.id}>
+																		{t.name}
+																	</option>
+																))}
+															</Select>
+															<Button type="submit" variant="secondary" size="xsmall">
+																Legg til team
+															</Button>
+														</HStack>
+													</Form>
+												)}
+											</HStack>
+										</Table.DataCell>
+									</Table.Row>
+									{app.linkedApps.map((child) => (
+										<Table.Row key={child.id}>
+											<Table.DataCell>
+												<HStack gap="space-2" align="center" style={{ paddingLeft: "var(--ax-space-8)" }}>
+													<ChevronRightIcon aria-hidden fontSize="1rem" />
+													<Link to={`/applikasjoner/${child.id}/detaljer`}>
+														<BodyShort size="small">{child.name}</BodyShort>
+													</Link>
+												</HStack>
+											</Table.DataCell>
+											<Table.DataCell />
+											<Table.DataCell />
+											<Table.DataCell colSpan={3}>
+												<Detail>Arver compliance fra {app.name}</Detail>
+											</Table.DataCell>
+											<Table.DataCell />
+										</Table.Row>
+									))}
+								</>
 							)
 						})}
 					</Table.Body>
