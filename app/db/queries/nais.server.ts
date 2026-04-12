@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	type AuthIntegrationType,
@@ -18,7 +18,11 @@ import {
 	sectionIgnoredApplications,
 } from "../schema/applications"
 import { auditLog } from "../schema/audit"
+import { applicationOracleInstances, auditEvidenceSnapshots } from "../schema/audit-evidence"
+import { complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
+import { deploymentVerificationSummaries } from "../schema/deployment-audit"
 import { devTeams, sections } from "../schema/organization"
+import { screeningAnswers } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 
 /** Get all Nais teams. */
@@ -735,7 +739,75 @@ export async function promoteToPrimary(newPrimaryId: string, currentPrimaryId: s
 	})
 }
 
-/** Find potential link candidates based on matching Docker images. */
+/** Delete an application that has no linked apps and no Nais environments. */
+export async function deleteApplication(appId: string, performedBy: string) {
+	const [app] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, appId))
+		.limit(1)
+	if (!app) throw new Error("Applikasjon ikke funnet")
+
+	// Verify no linked apps
+	const [linked] = await db
+		.select({ id: monitoredApplications.id })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.primaryApplicationId, appId))
+		.limit(1)
+	if (linked) throw new Error("Kan ikke slette applikasjon med lenkede applikasjoner")
+
+	// Verify no environments
+	const [env] = await db
+		.select({ id: applicationEnvironments.id })
+		.from(applicationEnvironments)
+		.where(eq(applicationEnvironments.applicationId, appId))
+		.limit(1)
+	if (env) throw new Error("Kan ikke slette applikasjon som finnes på Nais")
+
+	await db.transaction(async (tx) => {
+		// Delete compliance history (references assessments, not the app directly)
+		const assessmentIds = await tx
+			.select({ id: complianceAssessments.id })
+			.from(complianceAssessments)
+			.where(eq(complianceAssessments.applicationId, appId))
+		if (assessmentIds.length > 0) {
+			await tx.delete(complianceAssessmentHistory).where(
+				inArray(
+					complianceAssessmentHistory.assessmentId,
+					assessmentIds.map((a) => a.id),
+				),
+			)
+		}
+		await tx.delete(complianceAssessments).where(eq(complianceAssessments.applicationId, appId))
+
+		// Delete from all FK tables
+		await tx.delete(applicationTeamMappings).where(eq(applicationTeamMappings.applicationId, appId))
+		await tx.delete(applicationPersistence).where(eq(applicationPersistence.applicationId, appId))
+		await tx.delete(sectionIgnoredApplications).where(eq(sectionIgnoredApplications.applicationId, appId))
+		await tx
+			.delete(linkSuggestions)
+			.where(or(eq(linkSuggestions.primaryAppId, appId), eq(linkSuggestions.secondaryAppId, appId)))
+		await tx.delete(applicationAuthIntegrations).where(eq(applicationAuthIntegrations.applicationId, appId))
+		await tx.delete(applicationAccessPolicyRules).where(eq(applicationAccessPolicyRules.applicationId, appId))
+		await tx.delete(accessPolicyAcknowledgments).where(eq(accessPolicyAcknowledgments.applicationId, appId))
+		await tx.delete(screeningAnswers).where(eq(screeningAnswers.applicationId, appId))
+		await tx.delete(deploymentVerificationSummaries).where(eq(deploymentVerificationSummaries.applicationId, appId))
+		await tx.delete(applicationOracleInstances).where(eq(applicationOracleInstances.applicationId, appId))
+		await tx.delete(auditEvidenceSnapshots).where(eq(auditEvidenceSnapshots.applicationId, appId))
+		// applicationTechnologyElements has onDelete: cascade, handled by DB
+
+		// Delete the application itself
+		await tx.delete(monitoredApplications).where(eq(monitoredApplications.id, appId))
+	})
+
+	await writeAuditLog({
+		action: "application_deleted",
+		entityType: "monitored_application",
+		entityId: appId,
+		previousValue: JSON.stringify({ name: app.name }),
+		performedBy,
+	})
+}
 /** Extract base application name by stripping environment suffixes like -q0, -q1, -q2, -q5, -popp etc. */
 export function extractBaseName(appName: string): string | null {
 	const match = appName.match(/^(.+)-(?:popp|q\d+)$/)

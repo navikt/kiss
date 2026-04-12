@@ -66,6 +66,7 @@ export const auditLogActionEnum = [
 	"deployment_verification_synced",
 	"application_renamed",
 	"application_primary_changed",
+	"application_deleted",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

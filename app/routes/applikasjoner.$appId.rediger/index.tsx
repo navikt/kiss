@@ -26,6 +26,7 @@ import {
 	setIncludeInReport,
 } from "~/db/queries/audit-evidence.server"
 import {
+	deleteApplication,
 	findLinkCandidates,
 	getApplicationDetail,
 	linkApplication,
@@ -78,6 +79,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const configuredIds = new Set(oracleInstances.map((i) => i.instanceId))
 	const availableOracleInstances = allOracleInstances.filter((i) => !configuredIds.has(i.id))
 
+	const canDelete = detail.linkedApps.length === 0 && detail.environments.length === 0
+
 	return data({
 		app: detail.app,
 		teams: detail.teams,
@@ -92,6 +95,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		oraclePersistence: detail.persistence
 			.filter((p) => p.type === "oracle")
 			.map((p) => ({ id: p.id, name: p.name, oracleInstanceId: p.oracleInstanceId })),
+		canDelete,
 	})
 }
 
@@ -107,7 +111,10 @@ export async function action({ params, request }: ActionFunctionArgs) {
 	const intent = formData.get("intent") as string
 	const performer = "system"
 
-	if (intent === "rename") {
+	if (intent === "delete") {
+		await deleteApplication(appId, performer)
+		return redirect("/applikasjoner")
+	} else if (intent === "rename") {
 		const newName = (formData.get("name") as string)?.trim()
 		if (!newName) throw new Response("Navn kan ikke være tomt", { status: 400 })
 		await renameApplication(appId, newName, performer)
@@ -340,6 +347,7 @@ export default function ApplikasjonRediger() {
 		oracleInstances,
 		availableOracleInstances,
 		oraclePersistence,
+		canDelete,
 	} = useLoaderData<typeof loader>()
 
 	return (
@@ -693,6 +701,30 @@ export default function ApplikasjonRediger() {
 							))}
 						</Table.Body>
 					</Table>
+				</Box>
+			)}
+
+			{/* Delete application */}
+			{canDelete && (
+				<Box padding="space-16" borderRadius="8" borderColor="danger-subtle" borderWidth="1">
+					<VStack gap="space-8">
+						<Heading size="medium" level="3">
+							Slett applikasjon
+						</Heading>
+						<BodyLong>
+							Denne applikasjonen finnes ikke på Nais og har ingen lenkede applikasjoner. Du kan slette den permanent.
+							Alle tilhørende vurderinger, screening-svar og annen data vil bli fjernet.
+						</BodyLong>
+						<Form
+							method="post"
+							onSubmit={(e) => !confirm(`Er du sikker på at du vil slette ${app.name}?`) && e.preventDefault()}
+						>
+							<input type="hidden" name="intent" value="delete" />
+							<Button variant="danger" size="small" type="submit">
+								Slett {app.name}
+							</Button>
+						</Form>
+					</VStack>
 				</Box>
 			)}
 		</VStack>
