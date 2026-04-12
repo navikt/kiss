@@ -10,6 +10,7 @@ import {
 	Table,
 	Tag,
 	Textarea,
+	TextField,
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
@@ -24,7 +25,14 @@ import {
 	saveAuditEvidenceSnapshot,
 	setIncludeInReport,
 } from "~/db/queries/audit-evidence.server"
-import { findLinkCandidates, getApplicationDetail, linkApplication, unlinkApplication } from "~/db/queries/nais.server"
+import {
+	findLinkCandidates,
+	getApplicationDetail,
+	linkApplication,
+	promoteToPrimary,
+	renameApplication,
+	unlinkApplication,
+} from "~/db/queries/nais.server"
 import {
 	addApplicationElement,
 	confirmApplicationElement,
@@ -99,7 +107,21 @@ export async function action({ params, request }: ActionFunctionArgs) {
 	const intent = formData.get("intent") as string
 	const performer = "system"
 
-	if (intent === "link") {
+	if (intent === "rename") {
+		const newName = (formData.get("name") as string)?.trim()
+		if (!newName) throw new Response("Navn kan ikke være tomt", { status: 400 })
+		await renameApplication(appId, newName, performer)
+	} else if (intent === "promoteToPrimary") {
+		const newPrimaryId = formData.get("newPrimaryId") as string
+		if (!newPrimaryId) throw new Response("Mangler newPrimaryId", { status: 400 })
+		await promoteToPrimary(newPrimaryId, appId, performer)
+		return redirect(`/applikasjoner/${newPrimaryId}/rediger`)
+	} else if (intent === "promoteThis") {
+		// This app is a child, and wants to become primary
+		const currentPrimaryId = formData.get("currentPrimaryId") as string
+		if (!currentPrimaryId) throw new Response("Mangler currentPrimaryId", { status: 400 })
+		await promoteToPrimary(appId, currentPrimaryId, performer)
+	} else if (intent === "link") {
 		const linkedId = formData.get("linkedId") as string
 		if (!linkedId) throw new Response("Mangler linkedId", { status: 400 })
 		await linkApplication(linkedId, appId, performer)
@@ -328,11 +350,36 @@ export default function ApplikasjonRediger() {
 
 			{/* Primary app notice */}
 			{primaryApp && (
-				<BodyLong>
-					Denne applikasjonen er lenket til primærapplikasjonen{" "}
-					<Link to={`/applikasjoner/${primaryApp.id}/detaljer`}>{primaryApp.name}</Link>.
-				</BodyLong>
+				<Box>
+					<BodyLong spacing>
+						Denne applikasjonen er lenket til primærapplikasjonen{" "}
+						<Link to={`/applikasjoner/${primaryApp.id}/detaljer`}>{primaryApp.name}</Link>.
+					</BodyLong>
+					<Form method="post">
+						<input type="hidden" name="intent" value="promoteThis" />
+						<input type="hidden" name="currentPrimaryId" value={primaryApp.id} />
+						<Button variant="secondary" size="small" type="submit">
+							Gjør denne til hovedapplikasjon
+						</Button>
+					</Form>
+				</Box>
 			)}
+
+			{/* Rename */}
+			<Box>
+				<Heading size="medium" level="3" spacing>
+					Navn
+				</Heading>
+				<Form method="post">
+					<input type="hidden" name="intent" value="rename" />
+					<HStack gap="space-4" align="end">
+						<TextField label="Applikasjonsnavn" name="name" defaultValue={app.name} size="small" />
+						<Button variant="secondary" size="small" type="submit">
+							Lagre
+						</Button>
+					</HStack>
+				</Form>
+			</Box>
 
 			{/* Teams */}
 			<Box>
@@ -571,6 +618,7 @@ export default function ApplikasjonRediger() {
 							<Table.Row>
 								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
 								<Table.HeaderCell scope="col" />
+								<Table.HeaderCell scope="col" />
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
@@ -578,6 +626,15 @@ export default function ApplikasjonRediger() {
 								<Table.Row key={la.id}>
 									<Table.DataCell>
 										<Link to={`/applikasjoner/${la.id}/detaljer`}>{la.name}</Link>
+									</Table.DataCell>
+									<Table.DataCell>
+										<Form method="post">
+											<input type="hidden" name="intent" value="promoteToPrimary" />
+											<input type="hidden" name="newPrimaryId" value={la.id} />
+											<Button variant="tertiary" size="xsmall" type="submit">
+												Gjør til hovedapplikasjon
+											</Button>
+										</Form>
 									</Table.DataCell>
 									<Table.DataCell>
 										<Form method="post">

@@ -659,6 +659,82 @@ export async function unlinkApplication(applicationId: string, performedBy: stri
 	})
 }
 
+/** Rename an application. */
+export async function renameApplication(appId: string, newName: string, performedBy: string) {
+	const [app] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, appId))
+		.limit(1)
+
+	await db
+		.update(monitoredApplications)
+		.set({ name: newName, updatedBy: performedBy, updatedAt: new Date() })
+		.where(eq(monitoredApplications.id, appId))
+
+	await writeAuditLog({
+		action: "application_renamed",
+		entityType: "monitored_application",
+		entityId: appId,
+		previousValue: JSON.stringify({ name: app?.name }),
+		newValue: JSON.stringify({ name: newName }),
+		performedBy,
+	})
+}
+
+/** Promote a linked app to become the new primary in a group.
+ *  - newPrimaryId becomes the primary (primaryApplicationId = null)
+ *  - currentPrimaryId becomes a child of the new primary
+ *  - All other children of currentPrimaryId are moved to point to newPrimaryId
+ */
+export async function promoteToPrimary(newPrimaryId: string, currentPrimaryId: string, performedBy: string) {
+	const [newPrimary] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, newPrimaryId))
+		.limit(1)
+	const [currentPrimary] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, currentPrimaryId))
+		.limit(1)
+
+	await db.transaction(async (tx) => {
+		// Promote the new primary: clear its primaryApplicationId
+		await tx
+			.update(monitoredApplications)
+			.set({ primaryApplicationId: null, updatedBy: performedBy, updatedAt: new Date() })
+			.where(eq(monitoredApplications.id, newPrimaryId))
+
+		// Move all existing children of the old primary to point to the new primary
+		await tx
+			.update(monitoredApplications)
+			.set({ primaryApplicationId: newPrimaryId, updatedBy: performedBy, updatedAt: new Date() })
+			.where(eq(monitoredApplications.primaryApplicationId, currentPrimaryId))
+
+		// Demote the old primary: make it a child of the new primary
+		await tx
+			.update(monitoredApplications)
+			.set({ primaryApplicationId: newPrimaryId, updatedBy: performedBy, updatedAt: new Date() })
+			.where(eq(monitoredApplications.id, currentPrimaryId))
+	})
+
+	await writeAuditLog({
+		action: "application_primary_changed",
+		entityType: "monitored_application",
+		entityId: newPrimaryId,
+		previousValue: JSON.stringify({
+			primaryId: currentPrimaryId,
+			primaryName: currentPrimary?.name,
+		}),
+		newValue: JSON.stringify({
+			primaryId: newPrimaryId,
+			primaryName: newPrimary?.name,
+		}),
+		performedBy,
+	})
+}
+
 /** Find potential link candidates based on matching Docker images. */
 /** Extract base application name by stripping environment suffixes like -q0, -q1, -q2, -q5, -popp etc. */
 export function extractBaseName(appName: string): string | null {
