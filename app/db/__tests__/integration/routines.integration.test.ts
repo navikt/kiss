@@ -52,10 +52,10 @@ async function createTestScreeningQuestion(sectionId: string, text: string) {
 	return (result.rows[0] as { id: string }).id
 }
 
-async function createTestChoice(questionId: string, value: string, label: string) {
+async function createTestChoice(questionId: string, label: string) {
 	const db = getTestDb()
 	const result = await db.execute(
-		/* sql */ `INSERT INTO screening_question_choices (question_id, value, label) VALUES ('${questionId}', '${value}', '${label}') RETURNING id`,
+		/* sql */ `INSERT INTO screening_question_choices (question_id, label) VALUES ('${questionId}', '${label}') RETURNING id`,
 	)
 	return (result.rows[0] as { id: string }).id
 }
@@ -431,10 +431,10 @@ describe("Routines integration tests", () => {
 		it("should find apps requiring routine based on screening answer", async () => {
 			const sectionId = await createTestSection("Security", "security")
 			const questionId = await createTestScreeningQuestion(sectionId, "Handles PII?")
-			await createTestChoice(questionId, "yes", "Yes")
+			await createTestChoice(questionId, "Yes")
 
 			const appId = await createTestApp("My App")
-			await createTestScreeningAnswer(appId, questionId, "yes")
+			await createTestScreeningAnswer(appId, questionId, "Yes")
 
 			const routine = await createRoutine({
 				sectionId,
@@ -442,7 +442,7 @@ describe("Routines integration tests", () => {
 				description: null,
 				frequency: "quarterly",
 				screeningQuestionId: questionId,
-				screeningChoiceValue: "yes",
+				screeningChoiceValue: "Yes",
 				responsibleRole: null,
 				controlIds: [],
 				technologyElementIds: [],
@@ -458,15 +458,15 @@ describe("Routines integration tests", () => {
 		it("should filter apps by technology elements", async () => {
 			const sectionId = await createTestSection("Security", "security")
 			const questionId = await createTestScreeningQuestion(sectionId, "Uses containers?")
-			await createTestChoice(questionId, "yes", "Yes")
+			await createTestChoice(questionId, "Yes")
 			const elemId = await createTestTechElement("Docker")
 
 			const app1Id = await createTestApp("Docker App")
-			await createTestScreeningAnswer(app1Id, questionId, "yes")
+			await createTestScreeningAnswer(app1Id, questionId, "Yes")
 			await confirmAppTechElement(app1Id, elemId)
 
 			const app2Id = await createTestApp("Non-Docker App")
-			await createTestScreeningAnswer(app2Id, questionId, "yes")
+			await createTestScreeningAnswer(app2Id, questionId, "Yes")
 
 			const routine = await createRoutine({
 				sectionId,
@@ -474,7 +474,7 @@ describe("Routines integration tests", () => {
 				description: null,
 				frequency: "quarterly",
 				screeningQuestionId: questionId,
-				screeningChoiceValue: "yes",
+				screeningChoiceValue: "Yes",
 				responsibleRole: null,
 				controlIds: [],
 				technologyElementIds: [elemId],
@@ -490,11 +490,11 @@ describe("Routines integration tests", () => {
 		it("should return no apps when screening answer doesn't match", async () => {
 			const sectionId = await createTestSection("Security", "security")
 			const questionId = await createTestScreeningQuestion(sectionId, "Handles PII?")
-			await createTestChoice(questionId, "yes", "Yes")
-			await createTestChoice(questionId, "no", "No")
+			await createTestChoice(questionId, "Yes")
+			await createTestChoice(questionId, "No")
 
 			const appId = await createTestApp("Safe App")
-			await createTestScreeningAnswer(appId, questionId, "no")
+			await createTestScreeningAnswer(appId, questionId, "No")
 
 			const routine = await createRoutine({
 				sectionId,
@@ -502,7 +502,7 @@ describe("Routines integration tests", () => {
 				description: null,
 				frequency: "quarterly",
 				screeningQuestionId: questionId,
-				screeningChoiceValue: "yes",
+				screeningChoiceValue: "Yes",
 				responsibleRole: null,
 				controlIds: [],
 				technologyElementIds: [],
@@ -540,10 +540,10 @@ describe("Routines integration tests", () => {
 		it("should identify overdue routine", async () => {
 			const sectionId = await createTestSection("Security", "security")
 			const questionId = await createTestScreeningQuestion(sectionId, "Active?")
-			await createTestChoice(questionId, "yes", "Yes")
+			await createTestChoice(questionId, "Yes")
 
 			const appId = await createTestApp("Overdue App")
-			await createTestScreeningAnswer(appId, questionId, "yes")
+			await createTestScreeningAnswer(appId, questionId, "Yes")
 
 			const routine = await createRoutine({
 				sectionId,
@@ -551,7 +551,7 @@ describe("Routines integration tests", () => {
 				description: null,
 				frequency: "weekly",
 				screeningQuestionId: questionId,
-				screeningChoiceValue: "yes",
+				screeningChoiceValue: "Yes",
 				responsibleRole: null,
 				controlIds: [],
 				technologyElementIds: [],
