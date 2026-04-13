@@ -142,16 +142,26 @@ export default function RutineDetaljer() {
 					</VStack>
 				)}
 
-				{routine.responsibleRole && (
-					<VStack gap="space-2">
-						<Label size="small">Ansvarlig rolle</Label>
-						<HStack>
-							<Tag variant="alt1" size="small">
-								{routine.responsibleRole}
-							</Tag>
-						</HStack>
-					</VStack>
-				)}
+				{(() => {
+					const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible
+					if (!effectiveRole) return null
+					const isInherited = !routine.responsibleRole
+					return (
+						<VStack gap="space-2">
+							<Label size="small">Ansvarlig rolle</Label>
+							<HStack gap="space-2" align="center">
+								<Tag variant="alt1" size="small">
+									{effectiveRole}
+								</Tag>
+								{isInherited && (
+									<BodyShort size="small" textColor="subtle">
+										(arvet fra krav)
+									</BodyShort>
+								)}
+							</HStack>
+						</VStack>
+					)
+				})()}
 
 				{routine.controls.length > 0 && (
 					<VStack gap="space-2">

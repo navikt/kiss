@@ -76,6 +76,7 @@ export async function getRoutine(id: string) {
 			id: frameworkControls.id,
 			controlId: frameworkControls.controlId,
 			shortTitle: frameworkControls.shortTitle,
+			responsible: frameworkControls.responsible,
 			domainSlug: frameworkDomains.code,
 		})
 		.from(routineControls)
@@ -89,6 +90,7 @@ export async function getRoutine(id: string) {
 		id: c.id,
 		controlId: c.controlId,
 		name: c.shortTitle ?? c.controlId,
+		responsible: c.responsible,
 		domainSlug: c.domainSlug,
 	}))
 

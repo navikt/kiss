@@ -29,6 +29,16 @@ import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { frequencyLabels, isRoutineFrequency, ROUTINE_FREQUENCIES } from "~/lib/routine-frequencies"
 
+const PREDEFINED_ROLES = [
+	"Seksjonsleder",
+	"Teknologileder",
+	"Teamleder",
+	"Utvikler",
+	"Arkitekt",
+	"Sikkerhetsansvarlig",
+	"Testleder",
+] as const
+
 interface QuestionLink {
 	key: string
 	questionId: string
@@ -134,6 +144,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
 export default function NyRutine() {
 	const { section, screeningQuestions, technologyElements, controls } = useLoaderData<typeof loader>()
 	const [questionLinks, setQuestionLinks] = useState<QuestionLink[]>([])
+	const [selectedControlIds, setSelectedControlIds] = useState<string[]>([])
+	const [responsibleRole, setResponsibleRole] = useState("")
+	const [roleManuallySet, setRoleManuallySet] = useState(false)
+
+	const handleControlChange = (newIds: string[]) => {
+		setSelectedControlIds(newIds)
+		if (!roleManuallySet) {
+			const firstControl = controls.find((c) => newIds.includes(c.id))
+			setResponsibleRole(firstControl?.responsible ?? "")
+		}
+	}
+
+	const handleRoleChange = (value: string) => {
+		setResponsibleRole(value)
+		setRoleManuallySet(true)
+	}
 
 	const addQuestionLink = () => {
 		setQuestionLinks((prev) => [...prev, { key: crypto.randomUUID(), questionId: "", choiceValue: "" }])
@@ -270,22 +296,29 @@ export default function NyRutine() {
 						</CheckboxGroup>
 					)}
 
-					<Select label="Ansvarlig rolle" name="responsibleRole">
+					<Select
+						label="Ansvarlig rolle"
+						name="responsibleRole"
+						value={responsibleRole}
+						onChange={(e) => handleRoleChange(e.target.value)}
+					>
 						<option value="">Velg rolle (valgfritt)</option>
-						<option value="Seksjonsleder">Seksjonsleder</option>
-						<option value="Teknologileder">Teknologileder</option>
-						<option value="Teamleder">Teamleder</option>
-						<option value="Utvikler">Utvikler</option>
-						<option value="Arkitekt">Arkitekt</option>
-						<option value="Sikkerhetsansvarlig">Sikkerhetsansvarlig</option>
-						<option value="Testleder">Testleder</option>
+						{PREDEFINED_ROLES.map((role) => (
+							<option key={role} value={role}>
+								{role}
+							</option>
+						))}
+						{responsibleRole && !PREDEFINED_ROLES.includes(responsibleRole as (typeof PREDEFINED_ROLES)[number]) && (
+							<option value={responsibleRole}>{responsibleRole} (fra krav)</option>
+						)}
 					</Select>
 
 					{controls.length > 0 && (
-						<CheckboxGroup legend="Tilknyttede krav">
+						<CheckboxGroup legend="Tilknyttede krav" value={selectedControlIds} onChange={handleControlChange}>
 							{controls.map((ctrl) => (
 								<Checkbox key={ctrl.id} name="controlIds" value={ctrl.id}>
 									{ctrl.controlId} – {ctrl.name}
+									{ctrl.responsible && ` (${ctrl.responsible})`}
 								</Checkbox>
 							))}
 						</CheckboxGroup>
