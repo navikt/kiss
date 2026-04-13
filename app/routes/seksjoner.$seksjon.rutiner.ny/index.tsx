@@ -52,6 +52,12 @@ interface QuestionLink {
 	choiceValue: string
 }
 
+interface PersistenceLinkItem {
+	key: string
+	persistenceType: string
+	dataClassification: string
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
@@ -111,12 +117,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const description = formData.get("description")
 	const frequency = formData.get("frequency")
 	const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
-	const persistenceTypeRaw = (formData.get("persistenceType") as string)?.trim() || null
-	const dataClassificationRaw = (formData.get("dataClassification") as string)?.trim() || null
-	const persistenceType = persistenceTypeRaw as PersistenceType | null
-	const dataClassification = dataClassificationRaw as DataClassification | null
 	const technologyElementIds = formData.getAll("technologyElementIds")
 	const controlIds = formData.getAll("controlIds") as string[]
+
+	// Parse persistence links from form
+	const plTypes = formData.getAll("plPersistenceType") as string[]
+	const plClassifications = formData.getAll("plDataClassification") as string[]
+	const persistenceLinks = plTypes
+		.map((t, i) => ({
+			persistenceType: (t.trim() || null) as PersistenceType | null,
+			dataClassification: (plClassifications[i]?.trim() || null) as DataClassification | null,
+		}))
+		.filter((l) => l.persistenceType || l.dataClassification)
 
 	if (!name || typeof name !== "string" || !name.trim()) {
 		throw data({ message: "Navn er påkrevd" }, { status: 400 })
@@ -141,8 +153,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		description: typeof description === "string" && description.trim() ? description.trim() : null,
 		frequency,
 		responsibleRole,
-		persistenceType,
-		dataClassification,
+		persistenceLinks,
 		screeningQuestionId: firstLink?.questionId ?? null,
 		screeningChoiceValue: firstLink?.choiceValue ?? null,
 		screeningQuestionLinks,
@@ -160,6 +171,19 @@ export default function NyRutine() {
 	const [selectedControlIds, setSelectedControlIds] = useState<string[]>([])
 	const [responsibleRole, setResponsibleRole] = useState("")
 	const [roleManuallySet, setRoleManuallySet] = useState(false)
+	const [persistenceLinks, setPersistenceLinks] = useState<PersistenceLinkItem[]>([])
+
+	const addPersistenceLink = () => {
+		setPersistenceLinks((prev) => [...prev, { key: crypto.randomUUID(), persistenceType: "", dataClassification: "" }])
+	}
+
+	const removePersistenceLink = (index: number) => {
+		setPersistenceLinks((prev) => prev.filter((_, i) => i !== index))
+	}
+
+	const updatePersistenceLink = (index: number, field: "persistenceType" | "dataClassification", value: string) => {
+		setPersistenceLinks((prev) => prev.map((link, i) => (i !== index ? link : { ...link, [field]: value })))
+	}
 
 	const handleControlChange = (newIds: string[]) => {
 		setSelectedControlIds(newIds)
@@ -326,24 +350,73 @@ export default function NyRutine() {
 						)}
 					</Select>
 
-					<HStack gap="space-4" align="start" wrap>
-						<Select label="Databasetype" name="persistenceType" style={{ minWidth: "14rem" }}>
-							<option value="">Ikke angitt</option>
-							{persistenceTypeEnum.map((t) => (
-								<option key={t} value={t}>
-									{persistenceTypeLabels[t]}
-								</option>
-							))}
-						</Select>
-						<Select label="Dataklassifisering" name="dataClassification" style={{ minWidth: "14rem" }}>
-							<option value="">Ikke angitt</option>
-							{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(([value, label]) => (
-								<option key={value} value={value}>
-									{label}
-								</option>
-							))}
-						</Select>
-					</HStack>
+					<VStack gap="space-2">
+						<Label size="small">Database og klassifisering</Label>
+						<BodyShort size="small" textColor="subtle">
+							Knytt rutinen til én eller flere databasetyper og/eller dataklassifiseringer.
+						</BodyShort>
+						{persistenceLinks.map((link, index) => (
+							<HStack key={link.key} gap="space-2" align="end" wrap>
+								<div style={{ flex: 1, minWidth: "12rem" }}>
+									<Select
+										label={index === 0 ? "Databasetype" : undefined}
+										hideLabel={index > 0}
+										aria-label="Databasetype"
+										size="small"
+										value={link.persistenceType}
+										onChange={(e) => updatePersistenceLink(index, "persistenceType", e.target.value)}
+									>
+										<option value="">Ikke angitt</option>
+										{persistenceTypeEnum.map((t) => (
+											<option key={t} value={t}>
+												{persistenceTypeLabels[t]}
+											</option>
+										))}
+									</Select>
+								</div>
+								<div style={{ flex: 1, minWidth: "12rem" }}>
+									<Select
+										label={index === 0 ? "Dataklassifisering" : undefined}
+										hideLabel={index > 0}
+										aria-label="Dataklassifisering"
+										size="small"
+										value={link.dataClassification}
+										onChange={(e) => updatePersistenceLink(index, "dataClassification", e.target.value)}
+									>
+										<option value="">Ikke angitt</option>
+										{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(
+											([value, label]) => (
+												<option key={value} value={value}>
+													{label}
+												</option>
+											),
+										)}
+									</Select>
+								</div>
+								<input type="hidden" name="plPersistenceType" value={link.persistenceType} />
+								<input type="hidden" name="plDataClassification" value={link.dataClassification} />
+								<Button
+									type="button"
+									variant="tertiary-neutral"
+									size="small"
+									icon={<TrashIcon aria-hidden />}
+									onClick={() => removePersistenceLink(index)}
+									aria-label="Fjern kobling"
+								/>
+							</HStack>
+						))}
+						<div>
+							<Button
+								type="button"
+								variant="secondary"
+								size="xsmall"
+								icon={<PlusIcon aria-hidden />}
+								onClick={addPersistenceLink}
+							>
+								Legg til kobling
+							</Button>
+						</div>
+					</VStack>
 
 					{controls.length > 0 && (
 						<CheckboxGroup legend="Tilknyttede krav" value={selectedControlIds} onChange={handleControlChange}>

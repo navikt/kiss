@@ -17,6 +17,7 @@ import {
 } from "../schema/framework"
 import {
 	routineControls,
+	routinePersistenceLinks,
 	routineReviewAttachments,
 	routineReviewLinks,
 	routineReviewParticipants,
@@ -35,23 +36,23 @@ export async function getRoutinesForSection(sectionId: string) {
 
 	return Promise.all(
 		rows.map(async (r) => {
-			const elements = await db
-				.select({
-					id: technologyElements.id,
-					name: technologyElements.name,
-				})
-				.from(routineTechnologyElements)
-				.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-				.where(eq(routineTechnologyElements.routineId, r.id))
-
-			const [reviewCount] = await db
-				.select({ count: sql<number>`count(*)::int` })
-				.from(routineReviews)
-				.where(eq(routineReviews.routineId, r.id))
+			const [elements, persLinks, [reviewCount]] = await Promise.all([
+				db
+					.select({
+						id: technologyElements.id,
+						name: technologyElements.name,
+					})
+					.from(routineTechnologyElements)
+					.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
+					.where(eq(routineTechnologyElements.routineId, r.id)),
+				db.select().from(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, r.id)),
+				db.select({ count: sql<number>`count(*)::int` }).from(routineReviews).where(eq(routineReviews.routineId, r.id)),
+			])
 
 			return {
 				...r,
 				technologyElements: elements,
+				persistenceLinks: persLinks,
 				reviewCount: reviewCount?.count ?? 0,
 			}
 		}),
@@ -62,34 +63,32 @@ export async function getRoutine(id: string) {
 	const [routine] = await db.select().from(routines).where(eq(routines.id, id)).limit(1)
 	if (!routine) return null
 
-	const elements = await db
-		.select({
-			id: technologyElements.id,
-			name: technologyElements.name,
-		})
-		.from(routineTechnologyElements)
-		.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-		.where(eq(routineTechnologyElements.routineId, id))
-
-	const screeningLinks = await db
-		.select()
-		.from(routineScreeningQuestions)
-		.where(eq(routineScreeningQuestions.routineId, id))
-
-	const controlRows = await db
-		.selectDistinct({
-			id: frameworkControls.id,
-			controlId: frameworkControls.controlId,
-			shortTitle: frameworkControls.shortTitle,
-			responsible: frameworkControls.responsible,
-			domainSlug: frameworkDomains.code,
-		})
-		.from(routineControls)
-		.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
-		.innerJoin(frameworkRiskControlMappings, eq(frameworkControls.id, frameworkRiskControlMappings.controlId))
-		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
-		.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
-		.where(eq(routineControls.routineId, id))
+	const [elements, screeningLinks, persLinks, controlRows] = await Promise.all([
+		db
+			.select({
+				id: technologyElements.id,
+				name: technologyElements.name,
+			})
+			.from(routineTechnologyElements)
+			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
+			.where(eq(routineTechnologyElements.routineId, id)),
+		db.select().from(routineScreeningQuestions).where(eq(routineScreeningQuestions.routineId, id)),
+		db.select().from(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, id)),
+		db
+			.selectDistinct({
+				id: frameworkControls.id,
+				controlId: frameworkControls.controlId,
+				shortTitle: frameworkControls.shortTitle,
+				responsible: frameworkControls.responsible,
+				domainSlug: frameworkDomains.code,
+			})
+			.from(routineControls)
+			.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
+			.innerJoin(frameworkRiskControlMappings, eq(frameworkControls.id, frameworkRiskControlMappings.controlId))
+			.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+			.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+			.where(eq(routineControls.routineId, id)),
+	])
 
 	const controls = controlRows.map((c) => ({
 		id: c.id,
@@ -99,7 +98,13 @@ export async function getRoutine(id: string) {
 		domainSlug: c.domainSlug,
 	}))
 
-	return { ...routine, technologyElements: elements, screeningQuestions: screeningLinks, controls }
+	return {
+		...routine,
+		technologyElements: elements,
+		screeningQuestions: screeningLinks,
+		persistenceLinks: persLinks,
+		controls,
+	}
 }
 
 export async function createRoutine(params: {
@@ -108,8 +113,10 @@ export async function createRoutine(params: {
 	description: string | null
 	frequency: RoutineFrequency
 	responsibleRole: string | null
-	persistenceType: PersistenceType | null
-	dataClassification: DataClassification | null
+	persistenceLinks: Array<{
+		persistenceType: PersistenceType | null
+		dataClassification: DataClassification | null
+	}>
 	screeningQuestionId: string | null
 	screeningChoiceValue: string | null
 	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
@@ -125,8 +132,6 @@ export async function createRoutine(params: {
 			description: params.description,
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
-			persistenceType: params.persistenceType,
-			dataClassification: params.dataClassification,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
 			createdBy: params.createdBy,
@@ -148,6 +153,17 @@ export async function createRoutine(params: {
 			params.controlIds.map((controlId) => ({
 				routineId: routine.id,
 				controlId,
+			})),
+		)
+	}
+
+	// Insert persistence links
+	if (params.persistenceLinks.length > 0) {
+		await db.insert(routinePersistenceLinks).values(
+			params.persistenceLinks.map((link) => ({
+				routineId: routine.id,
+				persistenceType: link.persistenceType,
+				dataClassification: link.dataClassification,
 			})),
 		)
 	}
@@ -177,8 +193,7 @@ export async function createRoutine(params: {
 			sectionId: params.sectionId,
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
-			persistenceType: params.persistenceType,
-			dataClassification: params.dataClassification,
+			persistenceLinks: params.persistenceLinks,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningQuestionLinks: links,
 			technologyElementIds: params.technologyElementIds,
@@ -196,8 +211,10 @@ export async function updateRoutine(params: {
 	description: string | null
 	frequency: RoutineFrequency
 	responsibleRole: string | null
-	persistenceType: PersistenceType | null
-	dataClassification: DataClassification | null
+	persistenceLinks: Array<{
+		persistenceType: PersistenceType | null
+		dataClassification: DataClassification | null
+	}>
 	screeningQuestionId: string | null
 	screeningChoiceValue: string | null
 	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
@@ -214,8 +231,6 @@ export async function updateRoutine(params: {
 			description: params.description,
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
-			persistenceType: params.persistenceType,
-			dataClassification: params.dataClassification,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
 			updatedBy: params.updatedBy,
@@ -246,6 +261,18 @@ export async function updateRoutine(params: {
 		)
 	}
 
+	// Replace persistence links
+	await db.delete(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, params.id))
+	if (params.persistenceLinks.length > 0) {
+		await db.insert(routinePersistenceLinks).values(
+			params.persistenceLinks.map((link) => ({
+				routineId: params.id,
+				persistenceType: link.persistenceType,
+				dataClassification: link.dataClassification,
+			})),
+		)
+	}
+
 	// Replace screening question links
 	await db.delete(routineScreeningQuestions).where(eq(routineScreeningQuestions.routineId, params.id))
 	const links = params.screeningQuestionLinks ?? []
@@ -271,8 +298,7 @@ export async function updateRoutine(params: {
 		metadata: {
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
-			persistenceType: params.persistenceType,
-			dataClassification: params.dataClassification,
+			persistenceLinks: params.persistenceLinks,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningQuestionLinks: links,
 			technologyElementIds: params.technologyElementIds,
@@ -765,9 +791,9 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 
 	if (matchingRoutineIds.size === 0) return []
 
-	// Step 3: Load matched routines with tech elements and screening questions in batch
+	// Step 3: Load matched routines with tech elements, screening questions, and persistence links in batch
 	const routineIdList = [...matchingRoutineIds]
-	const [routineRows, allElements, allScreeningLinks] = await Promise.all([
+	const [routineRows, allElements, allScreeningLinks, allPersLinks] = await Promise.all([
 		db.select().from(routines).where(inArray(routines.id, routineIdList)),
 		db
 			.select({
@@ -779,6 +805,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
 			.where(inArray(routineTechnologyElements.routineId, routineIdList)),
 		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, routineIdList)),
+		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, routineIdList)),
 	])
 
 	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
@@ -792,6 +819,12 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		const list = screenByRoutine.get(s.routineId) ?? []
 		list.push(s)
 		screenByRoutine.set(s.routineId, list)
+	}
+	const persByRoutine = new Map<string, typeof allPersLinks>()
+	for (const p of allPersLinks) {
+		const list = persByRoutine.get(p.routineId) ?? []
+		list.push(p)
+		persByRoutine.set(p.routineId, list)
 	}
 
 	// Step 4: Filter by technology elements if required
@@ -840,6 +873,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			...routine,
 			technologyElements: techElems,
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
+			persistenceLinks: persByRoutine.get(routine.id) ?? [],
 			controls: [],
 		}
 
@@ -879,22 +913,33 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	const appTypes = new Set(appPersistence.map((p) => p.type))
 	const appClassifications = new Set(appPersistence.map((p) => p.dataClassification).filter(Boolean))
 
-	// Find routines that have persistenceType or dataClassification set
-	const candidateRoutines = await db
-		.select()
-		.from(routines)
-		.where(sql`${routines.persistenceType} IS NOT NULL OR ${routines.dataClassification} IS NOT NULL`)
+	// Find routines that have any persistence links
+	const allPersLinks = await db.select().from(routinePersistenceLinks)
+	if (allPersLinks.length === 0) return []
 
-	if (candidateRoutines.length === 0) return []
+	// Group persistence links by routine
+	const persLinksByRoutine = new Map<string, typeof allPersLinks>()
+	for (const link of allPersLinks) {
+		const list = persLinksByRoutine.get(link.routineId) ?? []
+		list.push(link)
+		persLinksByRoutine.set(link.routineId, list)
+	}
 
-	// Filter to routines that match the app's persistence
+	// Get all routines that have persistence links
+	const routineIds = [...persLinksByRoutine.keys()].filter((id) => !excludeRoutineIds.has(id))
+	if (routineIds.length === 0) return []
+
+	const candidateRoutines = await db.select().from(routines).where(inArray(routines.id, routineIds))
+
+	// Filter to routines where at least one persistence link matches the app
 	const matchingRoutines = candidateRoutines.filter((r) => {
-		if (excludeRoutineIds.has(r.id)) return false
-
-		const typeMatch = !r.persistenceType || appTypes.has(r.persistenceType as PersistenceType)
-		const classMatch = !r.dataClassification || appClassifications.has(r.dataClassification as DataClassification)
-
-		return typeMatch && classMatch
+		const links = persLinksByRoutine.get(r.id) ?? []
+		return links.some((link) => {
+			const typeMatch = !link.persistenceType || appTypes.has(link.persistenceType as PersistenceType)
+			const classMatch =
+				!link.dataClassification || appClassifications.has(link.dataClassification as DataClassification)
+			return typeMatch && classMatch
+		})
 	})
 
 	if (matchingRoutines.length === 0) return []
@@ -952,6 +997,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			...routine,
 			technologyElements: elemsByRoutine.get(routine.id) ?? [],
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
+			persistenceLinks: persLinksByRoutine.get(routine.id) ?? [],
 			controls: [],
 		}
 
@@ -993,7 +1039,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 	// Deduplicate
 	const uniqueIds = [...new Set(selectedRoutineIds)]
 
-	const [routineRows, allElements, allScreeningLinks] = await Promise.all([
+	const [routineRows, allElements, allScreeningLinks, allPersLinks] = await Promise.all([
 		db.select().from(routines).where(inArray(routines.id, uniqueIds)),
 		db
 			.select({
@@ -1005,6 +1051,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
 			.where(inArray(routineTechnologyElements.routineId, uniqueIds)),
 		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, uniqueIds)),
+		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, uniqueIds)),
 	])
 
 	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
@@ -1018,6 +1065,12 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		const list = screenByRoutine.get(s.routineId) ?? []
 		list.push(s)
 		screenByRoutine.set(s.routineId, list)
+	}
+	const persByRoutine2 = new Map<string, typeof allPersLinks>()
+	for (const p of allPersLinks) {
+		const list = persByRoutine2.get(p.routineId) ?? []
+		list.push(p)
+		persByRoutine2.set(p.routineId, list)
 	}
 
 	const [appRow] = await db
@@ -1043,6 +1096,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			...routine,
 			technologyElements: elemsByRoutine.get(routine.id) ?? [],
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
+			persistenceLinks: persByRoutine2.get(routine.id) ?? [],
 			controls: [],
 		}
 

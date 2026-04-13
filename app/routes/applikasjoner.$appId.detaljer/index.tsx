@@ -1070,17 +1070,21 @@ export default function ApplikasjonDetalj() {
 												<Table.DataCell>
 													{dl.matchSource === "persistence" ? (
 														<HStack gap="space-4" wrap>
-															{dl.routine?.persistenceType && (
-																<Tag variant="info" size="xsmall">
-																	{persistenceLabels[dl.routine.persistenceType] ?? dl.routine.persistenceType}
-																</Tag>
-															)}
-															{dl.routine?.dataClassification && (
-																<Tag variant="warning" size="xsmall">
-																	{dataClassificationLabels[dl.routine.dataClassification as DataClassification] ??
-																		dl.routine.dataClassification}
-																</Tag>
-															)}
+															{(dl.routine?.persistenceLinks ?? []).map((pl) => (
+																<HStack key={`${pl.persistenceType}-${pl.dataClassification}`} gap="space-2" wrap>
+																	{pl.persistenceType && (
+																		<Tag variant="info" size="xsmall">
+																			{persistenceLabels[pl.persistenceType] ?? pl.persistenceType}
+																		</Tag>
+																	)}
+																	{pl.dataClassification && (
+																		<Tag variant="warning" size="xsmall">
+																			{dataClassificationLabels[pl.dataClassification as DataClassification] ??
+																				pl.dataClassification}
+																		</Tag>
+																	)}
+																</HStack>
+															))}
 														</HStack>
 													) : dl.matchSource === "screening_selection" ? (
 														<Tag variant="alt1" size="xsmall">

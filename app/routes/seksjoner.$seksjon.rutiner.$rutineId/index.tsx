@@ -148,22 +148,23 @@ export default function RutineDetaljer() {
 					</VStack>
 				)}
 
-				{(routine.persistenceType || routine.dataClassification) && (
+				{routine.persistenceLinks.length > 0 && (
 					<VStack gap="space-2">
 						<Label size="small">Database og klassifisering</Label>
-						<HStack gap="space-2" wrap>
-							{routine.persistenceType && (
-								<Tag variant="info" size="small">
-									{persistenceTypeLabels[routine.persistenceType as PersistenceType] ?? routine.persistenceType}
-								</Tag>
-							)}
-							{routine.dataClassification && (
-								<Tag variant="warning" size="small">
-									{dataClassificationLabels[routine.dataClassification as DataClassification] ??
-										routine.dataClassification}
-								</Tag>
-							)}
-						</HStack>
+						{routine.persistenceLinks.map((pl) => (
+							<HStack key={pl.id} gap="space-2" wrap>
+								{pl.persistenceType && (
+									<Tag variant="info" size="small">
+										{persistenceTypeLabels[pl.persistenceType as PersistenceType] ?? pl.persistenceType}
+									</Tag>
+								)}
+								{pl.dataClassification && (
+									<Tag variant="warning" size="small">
+										{dataClassificationLabels[pl.dataClassification as DataClassification] ?? pl.dataClassification}
+									</Tag>
+								)}
+							</HStack>
+						))}
 					</VStack>
 				)}
 

@@ -16,8 +16,6 @@ export const routines = pgTable("routines", {
 	description: text("description"),
 	frequency: text("frequency", { enum: ROUTINE_FREQUENCIES }).notNull(),
 	responsibleRole: text("responsible_role"),
-	persistenceType: text("persistence_type", { enum: persistenceTypeEnum }),
-	dataClassification: text("data_classification", { enum: dataClassificationEnum }),
 	screeningQuestionId: uuid("screening_question_id").references(() => screeningQuestions.id, {
 		onDelete: "set null",
 	}),
@@ -26,6 +24,17 @@ export const routines = pgTable("routines", {
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedBy: text("updated_by").notNull(),
+})
+
+// ─── Routine ↔ Persistence linking ───────────────────────────────────────
+
+export const routinePersistenceLinks = pgTable("routine_persistence_links", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	routineId: uuid("routine_id")
+		.notNull()
+		.references(() => routines.id, { onDelete: "cascade" }),
+	persistenceType: text("persistence_type", { enum: persistenceTypeEnum }),
+	dataClassification: text("data_classification", { enum: dataClassificationEnum }),
 })
 
 // ─── Routine ↔ Screening Question linking ────────────────────────────────
