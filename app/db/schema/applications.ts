@@ -78,6 +78,15 @@ export const persistenceTypeEnum = [
 ] as const
 export type PersistenceType = (typeof persistenceTypeEnum)[number]
 
+export const dataClassificationEnum = ["not_critical", "critical", "financial_regulation"] as const
+export type DataClassification = (typeof dataClassificationEnum)[number]
+
+export const dataClassificationLabels: Record<DataClassification, string> = {
+	not_critical: "Ikke kritiske data",
+	critical: "Kritiske data",
+	financial_regulation: "Data underlagt økonomireglementet i staten",
+}
+
 export const applicationPersistence = pgTable("application_persistence", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")
@@ -91,6 +100,8 @@ export const applicationPersistence = pgTable("application_persistence", {
 	auditLogging: boolean("audit_logging"),
 	auditLogUrl: text("audit_log_url"),
 	oracleInstanceId: text("oracle_instance_id"),
+	dataClassification: text("data_classification", { enum: dataClassificationEnum }),
+	manuallyAdded: boolean("manually_added").notNull().default(false),
 	extra: text("extra"),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -1,4 +1,12 @@
-import { DownloadIcon, ExternalLinkIcon, EyeIcon, UploadIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
+import {
+	DownloadIcon,
+	ExternalLinkIcon,
+	EyeIcon,
+	PlusIcon,
+	TrashIcon,
+	UploadIcon,
+	XMarkOctagonIcon,
+} from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
@@ -17,19 +25,22 @@ import {
 	Modal,
 	ReadMore,
 	Search,
+	Select,
 	Table,
 	Tabs,
 	Tag,
 	Textarea,
+	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useCallback, useRef, useState } from "react"
+import { type ChangeEvent, useCallback, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import {
 	data,
 	Link,
 	redirect,
 	useActionData,
+	useFetcher,
 	useLoaderData,
 	useNavigation,
 	useSearchParams,
@@ -42,14 +53,18 @@ import { getOracleInstancesForApp, getSnapshotHistory } from "~/db/queries/audit
 import { getOracleAuditSummariesForApp } from "~/db/queries/audit-logging.server"
 import {
 	acknowledgeUnknownApp,
+	addManualPersistence,
+	deleteManualPersistence,
 	getActiveAcknowledgments,
 	getApplicationDetail,
 	resolveAppNames,
 	revokeAcknowledgment,
+	updatePersistenceClassification,
 } from "~/db/queries/nais.server"
 import { generateAppComplianceReport, getReportsForApp } from "~/db/queries/reports.server"
 import { createReview, getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
+import { type DataClassification, dataClassificationLabels, persistenceTypeEnum } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
@@ -327,6 +342,53 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!ruleApplication) throw new Response("Mangler applikasjonsnavn", { status: 400 })
 		await revokeAcknowledgment(appId, ruleApplication, authedUser.navIdent)
 		return data({ success: true, message: `Kvittering for ${ruleApplication} er trukket tilbake.`, error: null })
+	}
+
+	if (intent === "add-persistence") {
+		const type = formData.get("persistenceType") as string
+		const name = (formData.get("persistenceName") as string)?.trim()
+		const classification = (formData.get("dataClassification") as string) || null
+
+		if (!type || !name) {
+			return data({ success: false, message: null, error: "Type og navn er påkrevd" })
+		}
+		if (!persistenceTypeEnum.includes(type as (typeof persistenceTypeEnum)[number])) {
+			return data({ success: false, message: null, error: "Ugyldig type" })
+		}
+		const validClassification =
+			classification && ["not_critical", "critical", "financial_regulation"].includes(classification)
+				? (classification as DataClassification)
+				: null
+
+		await addManualPersistence(
+			appId,
+			type as (typeof persistenceTypeEnum)[number],
+			name,
+			validClassification,
+			authedUser.navIdent,
+		)
+		return data({ success: true, message: `Database "${name}" lagt til.`, error: null })
+	}
+
+	if (intent === "update-classification") {
+		const persistenceId = formData.get("persistenceId") as string
+		const classification = (formData.get("dataClassification") as string) || null
+		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
+
+		const validClassification =
+			classification && ["not_critical", "critical", "financial_regulation"].includes(classification)
+				? (classification as DataClassification)
+				: null
+
+		await updatePersistenceClassification(persistenceId, validClassification, authedUser.navIdent)
+		return data({ success: true, message: "Klassifisering oppdatert.", error: null })
+	}
+
+	if (intent === "delete-persistence") {
+		const persistenceId = formData.get("persistenceId") as string
+		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
+		await deleteManualPersistence(persistenceId, authedUser.navIdent)
+		return data({ success: true, message: "Database slettet.", error: null })
 	}
 
 	return data({ success: false, message: null, error: "Ukjent handling" })
@@ -848,105 +910,36 @@ export default function ApplikasjonDetalj() {
 
 				{/* Persistering */}
 				<Tabs.Panel value="persistering" style={{ paddingTop: "var(--ax-space-6)" }}>
-					{persistence.length > 0 ? (
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Type</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Versjon</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Tier</Table.HeaderCell>
-									<Table.HeaderCell scope="col">HA</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Audit logging</Table.HeaderCell>
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{persistence.map((p) => (
-									<Table.Row key={p.id}>
-										<Table.DataCell>
-											<HStack gap="space-2" align="center">
-												<Tag variant={persistenceVariants[p.type] ?? "neutral"} size="xsmall">
-													{persistenceLabels[p.type] ?? p.type}
-												</Tag>
-												{p.oracleInstanceId && p.oracleInstanceId === p.name && (
-													<Tag variant="neutral" size="xsmall">
-														Manuelt konfigurert
-													</Tag>
-												)}
-											</HStack>
-										</Table.DataCell>
-										<Table.DataCell>{p.name}</Table.DataCell>
-										<Table.DataCell>{p.version ?? "–"}</Table.DataCell>
-										<Table.DataCell>{p.tier ?? "–"}</Table.DataCell>
-										<Table.DataCell>
-											{p.highAvailability === true ? (
-												<Tag variant="success" size="xsmall">
-													Ja
-												</Tag>
-											) : p.highAvailability === false ? (
-												<Tag variant="error" size="xsmall">
-													Nei
-												</Tag>
-											) : (
-												"–"
-											)}
-										</Table.DataCell>
-										<Table.DataCell>
-											{p.type === "oracle" && oracleAuditSummaries[p.id] ? (
-												<VStack gap="space-2">
-													<Tag
-														variant={conclusionConfig[oracleAuditSummaries[p.id].conclusion]?.variant ?? "neutral"}
-														size="xsmall"
-													>
-														{conclusionConfig[oracleAuditSummaries[p.id].conclusion]?.label ??
-															oracleAuditSummaries[p.id].conclusion}
-													</Tag>
-													<Detail style={{ color: "var(--ax-text-subtle)" }}>
-														{oracleAuditSummaries[p.id].reason}
-													</Detail>
-													{oracleAuditSummaries[p.id].findings.length > 0 && (
-														<ReadMore header="Funn" size="small" defaultOpen={false}>
-															<VStack gap="space-2">
-																{oracleAuditSummaries[p.id].findings.map((f, i) => (
-																	// biome-ignore lint/suspicious/noArrayIndexKey: static findings list
-																	<HStack key={i} gap="space-2" align="center" wrap>
-																		<Tag variant={findingSeverityVariant[f.severity] ?? "info"} size="xsmall">
-																			{f.severity}
-																		</Tag>
-																		<Detail>{f.message}</Detail>
-																	</HStack>
-																))}
-															</VStack>
-														</ReadMore>
-													)}
-												</VStack>
-											) : p.auditLogging === true ? (
-												p.auditLogUrl ? (
-													<AkselLink href={p.auditLogUrl} target="_blank" rel="noopener noreferrer">
-														<Tag variant="success" size="xsmall">
-															Ja – se logg (åpnes i nytt vindu)
-														</Tag>
-													</AkselLink>
-												) : (
-													<Tag variant="success" size="xsmall">
-														Ja
-													</Tag>
-												)
-											) : p.auditLogging === false ? (
-												<Tag variant="error" size="xsmall">
-													Nei
-												</Tag>
-											) : (
-												"–"
-											)}
-										</Table.DataCell>
-									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
-					) : (
-						<BodyLong>Ingen kjent persistens fra Nais.</BodyLong>
-					)}
+					<VStack gap="space-8">
+						<AddPersistenceForm />
+
+						{persistence.length > 0 ? (
+							// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1
+							<section className="table-scroll" tabIndex={0} aria-label="Databaser og lagring">
+								<Table size="small">
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell scope="col">Type</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Klassifisering</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Versjon</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Tier</Table.HeaderCell>
+											<Table.HeaderCell scope="col">HA</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Audit logging</Table.HeaderCell>
+											<Table.HeaderCell scope="col" />
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{persistence.map((p) => (
+											<PersistenceRow key={p.id} p={p} oracleAuditSummaries={oracleAuditSummaries} />
+										))}
+									</Table.Body>
+								</Table>
+							</section>
+						) : (
+							<BodyLong>Ingen kjent persistens. Legg til en database manuelt ovenfor.</BodyLong>
+						)}
+					</VStack>
 				</Tabs.Panel>
 
 				{/* Revisjonsbevis */}
@@ -2080,4 +2073,201 @@ interface AccessPolicyRule {
 	ruleApplication: string
 	ruleNamespace: string | null
 	ruleCluster: string | null
+}
+
+function AddPersistenceForm() {
+	const fetcher = useFetcher()
+	const isSubmitting = fetcher.state !== "idle"
+
+	return (
+		<Box background="sunken" padding="space-8" borderRadius="8">
+			<fetcher.Form method="post">
+				<input type="hidden" name="intent" value="add-persistence" />
+				<VStack gap="space-4">
+					<Heading size="xsmall" level="3">
+						Legg til database manuelt
+					</Heading>
+					<HStack gap="space-4" align="end" wrap>
+						<Select label="Type" name="persistenceType" style={{ minWidth: "12rem" }}>
+							{persistenceTypeEnum.map((t) => (
+								<option key={t} value={t}>
+									{persistenceLabels[t] ?? t}
+								</option>
+							))}
+						</Select>
+						<TextField label="Navn" name="persistenceName" size="small" style={{ minWidth: "14rem" }} />
+						<Select label="Dataklassifisering" name="dataClassification">
+							<option value="">Ikke satt</option>
+							{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(([value, label]) => (
+								<option key={value} value={value}>
+									{label}
+								</option>
+							))}
+						</Select>
+						<Button
+							type="submit"
+							variant="secondary"
+							size="small"
+							icon={<PlusIcon aria-hidden />}
+							loading={isSubmitting}
+						>
+							Legg til
+						</Button>
+					</HStack>
+				</VStack>
+			</fetcher.Form>
+		</Box>
+	)
+}
+
+function PersistenceRow({
+	p,
+	oracleAuditSummaries,
+}: {
+	p: {
+		id: string
+		type: string
+		name: string
+		version: string | null
+		tier: string | null
+		highAvailability: boolean | null
+		auditLogging: boolean | null
+		auditLogUrl: string | null
+		oracleInstanceId: string | null
+		dataClassification: string | null
+		manuallyAdded: boolean
+	}
+	oracleAuditSummaries: Record<
+		string,
+		{
+			conclusion: string
+			reason: string
+			findings: Array<{ severity: string; message: string }>
+		}
+	>
+}) {
+	const classificationFetcher = useFetcher()
+	const deleteFetcher = useFetcher()
+
+	return (
+		<Table.Row>
+			<Table.DataCell>
+				<HStack gap="space-2" align="center">
+					<Tag variant={persistenceVariants[p.type] ?? "neutral"} size="xsmall">
+						{persistenceLabels[p.type] ?? p.type}
+					</Tag>
+					{p.manuallyAdded && (
+						<Tag variant="neutral" size="xsmall">
+							Manuelt
+						</Tag>
+					)}
+					{!p.manuallyAdded && p.oracleInstanceId && p.oracleInstanceId === p.name && (
+						<Tag variant="neutral" size="xsmall">
+							Manuelt konfigurert
+						</Tag>
+					)}
+				</HStack>
+			</Table.DataCell>
+			<Table.DataCell>{p.name}</Table.DataCell>
+			<Table.DataCell>
+				<classificationFetcher.Form method="post">
+					<input type="hidden" name="intent" value="update-classification" />
+					<input type="hidden" name="persistenceId" value={p.id} />
+					<Select
+						label="Dataklassifisering"
+						hideLabel
+						size="small"
+						name="dataClassification"
+						defaultValue={p.dataClassification ?? ""}
+						onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+							const form = e.currentTarget.form
+							if (form) classificationFetcher.submit(form)
+						}}
+					>
+						<option value="">Ikke satt</option>
+						{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(([value, label]) => (
+							<option key={value} value={value}>
+								{label}
+							</option>
+						))}
+					</Select>
+				</classificationFetcher.Form>
+			</Table.DataCell>
+			<Table.DataCell>{p.version ?? "–"}</Table.DataCell>
+			<Table.DataCell>{p.tier ?? "–"}</Table.DataCell>
+			<Table.DataCell>
+				{p.highAvailability === true ? (
+					<Tag variant="success" size="xsmall">
+						Ja
+					</Tag>
+				) : p.highAvailability === false ? (
+					<Tag variant="error" size="xsmall">
+						Nei
+					</Tag>
+				) : (
+					"–"
+				)}
+			</Table.DataCell>
+			<Table.DataCell>
+				{p.type === "oracle" && oracleAuditSummaries[p.id] ? (
+					<VStack gap="space-2">
+						<Tag variant={conclusionConfig[oracleAuditSummaries[p.id].conclusion]?.variant ?? "neutral"} size="xsmall">
+							{conclusionConfig[oracleAuditSummaries[p.id].conclusion]?.label ?? oracleAuditSummaries[p.id].conclusion}
+						</Tag>
+						<Detail style={{ color: "var(--ax-text-subtle)" }}>{oracleAuditSummaries[p.id].reason}</Detail>
+						{oracleAuditSummaries[p.id].findings.length > 0 && (
+							<ReadMore header="Funn" size="small" defaultOpen={false}>
+								<VStack gap="space-2">
+									{oracleAuditSummaries[p.id].findings.map((f, i) => (
+										// biome-ignore lint/suspicious/noArrayIndexKey: static findings list
+										<HStack key={i} gap="space-2" align="center" wrap>
+											<Tag variant={findingSeverityVariant[f.severity] ?? "info"} size="xsmall">
+												{f.severity}
+											</Tag>
+											<Detail>{f.message}</Detail>
+										</HStack>
+									))}
+								</VStack>
+							</ReadMore>
+						)}
+					</VStack>
+				) : p.auditLogging === true ? (
+					p.auditLogUrl ? (
+						<AkselLink href={p.auditLogUrl} target="_blank" rel="noopener noreferrer">
+							<Tag variant="success" size="xsmall">
+								Ja – se logg (åpnes i nytt vindu)
+							</Tag>
+						</AkselLink>
+					) : (
+						<Tag variant="success" size="xsmall">
+							Ja
+						</Tag>
+					)
+				) : p.auditLogging === false ? (
+					<Tag variant="error" size="xsmall">
+						Nei
+					</Tag>
+				) : (
+					"–"
+				)}
+			</Table.DataCell>
+			<Table.DataCell>
+				{p.manuallyAdded && (
+					<deleteFetcher.Form method="post">
+						<input type="hidden" name="intent" value="delete-persistence" />
+						<input type="hidden" name="persistenceId" value={p.id} />
+						<Button
+							type="submit"
+							variant="tertiary-neutral"
+							size="xsmall"
+							icon={<TrashIcon aria-hidden />}
+							loading={deleteFetcher.state !== "idle"}
+						>
+							Slett
+						</Button>
+					</deleteFetcher.Form>
+				)}
+			</Table.DataCell>
+		</Table.Row>
+	)
 }

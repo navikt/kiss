@@ -67,6 +67,9 @@ export const auditLogActionEnum = [
 	"application_renamed",
 	"application_primary_changed",
 	"application_deleted",
+	"persistence_added",
+	"persistence_updated",
+	"persistence_deleted",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

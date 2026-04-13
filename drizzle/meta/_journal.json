@@ -127,6 +127,13 @@
       "when": 1781597000000,
       "tag": "0017_simplify_screening_choices",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781698000000,
+      "tag": "0018_persistence_manual_databases",
+      "breakpoints": true
     }
   ]
 }

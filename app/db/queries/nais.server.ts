@@ -8,6 +8,7 @@ import {
 	applicationEnvironments,
 	applicationPersistence,
 	applicationTeamMappings,
+	type DataClassification,
 	type LinkSuggestionMatchType,
 	type LinkSuggestionStatus,
 	linkSuggestions,
@@ -1285,4 +1286,88 @@ export async function getActiveAcknowledgments(applicationId: string): Promise<A
 		.where(
 			and(eq(accessPolicyAcknowledgments.applicationId, applicationId), isNull(accessPolicyAcknowledgments.revokedAt)),
 		)
+}
+
+export async function addManualPersistence(
+	applicationId: string,
+	type: PersistenceType,
+	name: string,
+	dataClassification: DataClassification | null,
+	performedBy: string,
+) {
+	const [inserted] = await db
+		.insert(applicationPersistence)
+		.values({
+			applicationId,
+			type,
+			name,
+			dataClassification,
+			manuallyAdded: true,
+		})
+		.returning()
+
+	await writeAuditLog({
+		action: "persistence_added",
+		entityType: "application_persistence",
+		entityId: inserted.id,
+		newValue: JSON.stringify({ type, name, dataClassification }),
+		metadata: { applicationId },
+		performedBy,
+	})
+
+	return inserted
+}
+
+export async function updatePersistenceClassification(
+	persistenceId: string,
+	classification: DataClassification | null,
+	performedBy: string,
+) {
+	const [existing] = await db
+		.select()
+		.from(applicationPersistence)
+		.where(eq(applicationPersistence.id, persistenceId))
+		.limit(1)
+
+	if (!existing) throw new Error("Persistens-oppføring ikke funnet")
+
+	await db
+		.update(applicationPersistence)
+		.set({ dataClassification: classification, updatedAt: new Date() })
+		.where(eq(applicationPersistence.id, persistenceId))
+
+	await writeAuditLog({
+		action: "persistence_updated",
+		entityType: "application_persistence",
+		entityId: persistenceId,
+		previousValue: JSON.stringify({ dataClassification: existing.dataClassification }),
+		newValue: JSON.stringify({ dataClassification: classification }),
+		metadata: { applicationId: existing.applicationId, name: existing.name },
+		performedBy,
+	})
+}
+
+export async function deleteManualPersistence(persistenceId: string, performedBy: string) {
+	const [existing] = await db
+		.select()
+		.from(applicationPersistence)
+		.where(and(eq(applicationPersistence.id, persistenceId), eq(applicationPersistence.manuallyAdded, true)))
+		.limit(1)
+
+	if (!existing) throw new Error("Kan bare slette manuelt lagt til databaser")
+
+	await db.delete(applicationPersistence).where(eq(applicationPersistence.id, persistenceId))
+
+	await writeAuditLog({
+		action: "persistence_deleted",
+		entityType: "application_persistence",
+		entityId: persistenceId,
+		previousValue: JSON.stringify({
+			type: existing.type,
+			name: existing.name,
+			dataClassification: existing.dataClassification,
+		}),
+		metadata: { applicationId: existing.applicationId },
+		performedBy,
+	})
 }
