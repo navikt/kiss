@@ -409,7 +409,7 @@ export default function ApplikasjonDetalj() {
 					<Tabs.Tab value="oversikt" label="Oversikt" />
 					<Tabs.Tab value="kontroller" label="Kontroller" />
 					<Tabs.Tab value="autentisering" label="Autentisering" />
-					<Tabs.Tab value="tilgangspolicy" label="Autoriserte applikasjoner" />
+					<Tabs.Tab value="autoriserte-applikasjoner" label="Autoriserte applikasjoner" />
 					<Tabs.Tab value="miljoer" label="Miljøer" />
 					{environments.length > 0 && <Tabs.Tab value="deployments" label="Deployments" />}
 					<Tabs.Tab value="persistering" label="Persistering" />
@@ -746,12 +746,11 @@ export default function ApplikasjonDetalj() {
 				</Tabs.Panel>
 
 				{/* Autoriserte applikasjoner */}
-				<Tabs.Panel value="tilgangspolicy" style={{ paddingTop: "var(--ax-space-6)" }}>
+				<Tabs.Panel value="autoriserte-applikasjoner" style={{ paddingTop: "var(--ax-space-6)" }}>
 					<AuthorizedAppsPanel
 						accessPolicyRules={accessPolicyRules}
 						knownApps={knownApps}
 						acknowledgments={acknowledgments}
-						appName={app.name}
 						submit={submit}
 						setAckTarget={setAckTarget}
 						setAckComment={setAckComment}
@@ -1691,7 +1690,6 @@ function AuthorizedAppsPanel({
 	accessPolicyRules,
 	knownApps,
 	acknowledgments,
-	appName,
 	submit,
 	setAckTarget,
 	setAckComment,
@@ -1700,7 +1698,6 @@ function AuthorizedAppsPanel({
 	accessPolicyRules: AccessPolicyRule[]
 	knownApps: Record<string, { status: string; appId?: string }>
 	acknowledgments: Record<string, { comment: string; acknowledgedBy: string; acknowledgedAt: string }>
-	appName: string
 	submit: ReturnType<typeof useSubmit>
 	setAckTarget: (target: string | null) => void
 	setAckComment: (comment: string) => void
@@ -1708,6 +1705,19 @@ function AuthorizedAppsPanel({
 }) {
 	const [searchQuery, setSearchQuery] = useState("")
 	const [sort, setSort] = useState<{ orderBy: string; direction: "ascending" | "descending" } | undefined>()
+	const [trafficData, setTrafficData] = useState<TrafficRow[] | null>(null)
+	const [fileName, setFileName] = useState<string | null>(null)
+	const fileInputRef = useRef<HTMLInputElement>(null)
+
+	const handleFile = useCallback((file: File) => {
+		const reader = new FileReader()
+		reader.onload = (e) => {
+			const text = e.target?.result as string
+			setTrafficData(parseTrafficCsv(text))
+			setFileName(file.name)
+		}
+		reader.readAsText(file)
+	}, [])
 
 	const handleSort = (sortKey: string) =>
 		setSort((prev) =>
@@ -1717,6 +1727,7 @@ function AuthorizedAppsPanel({
 		)
 
 	const inboundRules = accessPolicyRules.filter((r) => r.direction === "inbound")
+	const trafficByApp = trafficData ? new Map(trafficData.map((t) => [t.appName, t])) : null
 
 	const filteredRules = inboundRules.filter((rule) => {
 		if (!searchQuery) return true
@@ -1745,11 +1756,26 @@ function AuthorizedAppsPanel({
 							statusSortOrder[getStatusKey(knownApps[b.ruleApplication], acknowledgments[b.ruleApplication])] ?? 99
 						return dir * (statusA - statusB)
 					}
+					case "callCount": {
+						const countA = trafficByApp?.get(a.ruleApplication)?.count ?? -1
+						const countB = trafficByApp?.get(b.ruleApplication)?.count ?? -1
+						return dir * (countA - countB)
+					}
+					case "trafficStatus": {
+						const hasA = trafficByApp?.has(a.ruleApplication) ? 0 : 1
+						const hasB = trafficByApp?.has(b.ruleApplication) ? 0 : 1
+						return dir * (hasA - hasB)
+					}
 					default:
 						return 0
 				}
 			})
 		: filteredRules
+
+	// Unknown callers: apps in traffic data that are NOT in the access policy
+	const policyAppNames = new Set(inboundRules.map((r) => r.ruleApplication))
+	const unknownCallers = trafficData?.filter((t) => !policyAppNames.has(t.appName)) ?? []
+	const noTrafficCount = trafficByApp ? inboundRules.filter((r) => !trafficByApp.has(r.ruleApplication)).length : 0
 
 	return (
 		<VStack gap="space-4">
@@ -1772,15 +1798,63 @@ function AuthorizedAppsPanel({
 					<BodyShort size="small" textColor="subtle">
 						Disse applikasjonene har tillatelse til å kalle dette API-et over nettverket.
 					</BodyShort>
-					<Search
-						label="Søk i autoriserte applikasjoner"
-						variant="simple"
-						size="small"
-						value={searchQuery}
-						onChange={setSearchQuery}
-						onClear={() => setSearchQuery("")}
-						placeholder="Filtrer på applikasjon, namespace eller kluster"
-					/>
+					<HStack gap="space-4" align="end">
+						<div style={{ flex: 1 }}>
+							<Search
+								label="Søk i autoriserte applikasjoner"
+								variant="simple"
+								size="small"
+								value={searchQuery}
+								onChange={setSearchQuery}
+								onClear={() => setSearchQuery("")}
+								placeholder="Filtrer på applikasjon, namespace eller klynge"
+							/>
+						</div>
+						{!trafficData ? (
+							<div>
+								<input
+									ref={fileInputRef}
+									type="file"
+									accept=".csv"
+									style={{ display: "none" }}
+									onChange={(e) => {
+										const file = e.target.files?.[0]
+										if (file) handleFile(file)
+									}}
+								/>
+								<Button
+									variant="secondary"
+									size="small"
+									icon={<UploadIcon aria-hidden />}
+									onClick={() => fileInputRef.current?.click()}
+								>
+									Last opp trafikkdata
+								</Button>
+							</div>
+						) : (
+							<HStack gap="space-2" align="center">
+								<Detail textColor="subtle">{fileName}</Detail>
+								<Button
+									variant="tertiary"
+									size="xsmall"
+									onClick={() => {
+										setTrafficData(null)
+										setFileName(null)
+									}}
+								>
+									Fjern
+								</Button>
+							</HStack>
+						)}
+					</HStack>
+
+					{trafficData && noTrafficCount > 0 && (
+						<Alert variant="warning" size="small">
+							{noTrafficCount} av {inboundRules.length} autoriserte applikasjoner har ingen registrert trafikk i den
+							opplastede perioden.
+						</Alert>
+					)}
+
 					{filteredRules.length === 0 ? (
 						<Box padding="space-6" borderRadius="8" background="sunken">
 							<BodyShort>Ingen treff for «{searchQuery}».</BodyShort>
@@ -1798,11 +1872,21 @@ function AuthorizedAppsPanel({
 											Namespace
 										</Table.ColumnHeader>
 										<Table.ColumnHeader sortKey="cluster" sortable scope="col">
-											Kluster
+											Klynge
 										</Table.ColumnHeader>
 										<Table.ColumnHeader sortKey="status" sortable scope="col">
 											Status
 										</Table.ColumnHeader>
+										{trafficData && (
+											<>
+												<Table.ColumnHeader sortKey="callCount" sortable scope="col" align="right">
+													Antall kall
+												</Table.ColumnHeader>
+												<Table.ColumnHeader sortKey="trafficStatus" sortable scope="col">
+													Trafikk
+												</Table.ColumnHeader>
+											</>
+										)}
 										<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
 									</Table.Row>
 								</Table.Header>
@@ -1811,6 +1895,7 @@ function AuthorizedAppsPanel({
 										const resolution = knownApps[rule.ruleApplication]
 										const ack = acknowledgments[rule.ruleApplication]
 										const isUnknown = !resolution || resolution.status === "unknown"
+										const traffic = trafficByApp?.get(rule.ruleApplication)
 										return (
 											<Table.Row key={rule.id}>
 												<Table.DataCell>
@@ -1876,6 +1961,24 @@ function AuthorizedAppsPanel({
 														</HStack>
 													)}
 												</Table.DataCell>
+												{trafficByApp && (
+													<>
+														<Table.DataCell align="right">
+															{traffic ? traffic.count.toLocaleString("nb-NO") : "–"}
+														</Table.DataCell>
+														<Table.DataCell>
+															{traffic ? (
+																<Tag variant="success" size="xsmall">
+																	Aktiv
+																</Tag>
+															) : (
+																<Tag variant="warning" size="xsmall">
+																	Ingen trafikk
+																</Tag>
+															)}
+														</Table.DataCell>
+													</>
+												)}
 												<Table.DataCell>
 													{isUnknown &&
 														(ack ? (
@@ -1923,7 +2026,50 @@ function AuthorizedAppsPanel({
 				</VStack>
 			)}
 
-			<TrafficComparison accessPolicyRules={accessPolicyRules} appName={appName} />
+			{/* Unknown callers from traffic data */}
+			{unknownCallers.length > 0 && (
+				<VStack gap="space-2">
+					<Heading size="xsmall" level="4">
+						Kallende applikasjoner uten autorisasjon ({unknownCallers.length})
+					</Heading>
+					<BodyShort size="small" textColor="subtle">
+						Disse applikasjonene har trafikk i loggen, men er ikke blant de autoriserte applikasjonene.
+					</BodyShort>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table container needs keyboard focus */}
+					<section className="table-scroll" tabIndex={0} aria-label="Kallende applikasjoner uten autorisasjon">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Klynge</Table.HeaderCell>
+									<Table.HeaderCell scope="col" align="right">
+										Antall kall
+									</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{unknownCallers
+									.sort((a, b) => b.count - a.count)
+									.map((t) => (
+										<Table.Row key={`${t.cluster}:${t.namespace}:${t.appName}`}>
+											<Table.DataCell>
+												<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{t.appName}</code>
+											</Table.DataCell>
+											<Table.DataCell>
+												<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{t.namespace}</code>
+											</Table.DataCell>
+											<Table.DataCell>
+												<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{t.cluster}</code>
+											</Table.DataCell>
+											<Table.DataCell align="right">{t.count.toLocaleString("nb-NO")}</Table.DataCell>
+										</Table.Row>
+									))}
+							</Table.Body>
+						</Table>
+					</section>
+				</VStack>
+			)}
 		</VStack>
 	)
 }
@@ -1934,189 +2080,4 @@ interface AccessPolicyRule {
 	ruleApplication: string
 	ruleNamespace: string | null
 	ruleCluster: string | null
-}
-
-function TrafficComparison({ accessPolicyRules, appName }: { accessPolicyRules: AccessPolicyRule[]; appName: string }) {
-	const [trafficData, setTrafficData] = useState<TrafficRow[] | null>(null)
-	const [fileName, setFileName] = useState<string | null>(null)
-	const fileInputRef = useRef<HTMLInputElement>(null)
-
-	const handleFile = useCallback((file: File) => {
-		const reader = new FileReader()
-		reader.onload = (e) => {
-			const text = e.target?.result as string
-			const parsed = parseTrafficCsv(text)
-			setTrafficData(parsed)
-			setFileName(file.name)
-		}
-		reader.readAsText(file)
-	}, [])
-
-	if (!trafficData) {
-		return (
-			<Box padding="space-6" borderRadius="8" background="sunken" style={{ marginTop: "var(--ax-space-6)" }}>
-				<VStack gap="space-4">
-					<Heading size="xsmall" level="4">
-						Sammenstill med faktisk trafikk
-					</Heading>
-					<BodyShort size="small">
-						Last opp en CSV-fil med trafikkdata (f.eks. fra Kibana) for å se hvilke applikasjoner i tilgangspolicyen som
-						faktisk kaller {appName}, og hvilke som har tilgang uten å bruke den.
-					</BodyShort>
-					<BodyShort size="small" textColor="subtle">
-						Forventet format: <code>"cluster:namespace:appnavn",antall</code>
-					</BodyShort>
-					<div>
-						<input
-							ref={fileInputRef}
-							type="file"
-							accept=".csv"
-							style={{ display: "none" }}
-							onChange={(e) => {
-								const file = e.target.files?.[0]
-								if (file) handleFile(file)
-							}}
-						/>
-						<Button
-							variant="secondary"
-							size="small"
-							icon={<UploadIcon aria-hidden />}
-							onClick={() => fileInputRef.current?.click()}
-						>
-							Last opp CSV
-						</Button>
-					</div>
-				</VStack>
-			</Box>
-		)
-	}
-
-	const inboundRules = accessPolicyRules.filter((r) => r.direction === "inbound")
-	const trafficByApp = new Map(trafficData.map((t) => [t.appName, t]))
-
-	// Cross-reference: for each inbound rule, find matching traffic
-	const comparison = inboundRules.map((rule) => {
-		const traffic = trafficByApp.get(rule.ruleApplication)
-		return {
-			rule,
-			callCount: traffic?.count ?? 0,
-			hasTraffic: !!traffic,
-		}
-	})
-
-	// Apps in traffic data that are NOT in the access policy
-	const policyAppNames = new Set(inboundRules.map((r) => r.ruleApplication))
-	const unknownCallers = trafficData.filter((t) => !policyAppNames.has(t.appName))
-
-	// Sort: no-traffic first (these are the interesting ones), then by call count ascending
-	comparison.sort((a, b) => {
-		if (a.hasTraffic !== b.hasTraffic) return a.hasTraffic ? 1 : -1
-		return a.callCount - b.callCount
-	})
-
-	const noTrafficCount = comparison.filter((c) => !c.hasTraffic).length
-
-	return (
-		<VStack gap="space-4" style={{ marginTop: "var(--ax-space-6)" }}>
-			<HStack justify="space-between" align="center">
-				<Heading size="xsmall" level="4">
-					Trafikksammenstilling
-				</Heading>
-				<HStack gap="space-4" align="center">
-					<Detail textColor="subtle">{fileName}</Detail>
-					<Button
-						variant="tertiary"
-						size="xsmall"
-						onClick={() => {
-							setTrafficData(null)
-							setFileName(null)
-						}}
-					>
-						Fjern
-					</Button>
-				</HStack>
-			</HStack>
-
-			{noTrafficCount > 0 && (
-				<Alert variant="warning" size="small">
-					{noTrafficCount} av {inboundRules.length} applikasjoner i tilgangspolicyen har ingen registrert trafikk i den
-					opplastede perioden.
-				</Alert>
-			)}
-
-			<Table size="small">
-				<Table.Header>
-					<Table.Row>
-						<Table.HeaderCell scope="col">Applikasjon (tilgangspolicy)</Table.HeaderCell>
-						<Table.HeaderCell scope="col" align="right">
-							Antall kall
-						</Table.HeaderCell>
-						<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{comparison.map((c) => (
-						<Table.Row key={c.rule.id}>
-							<Table.DataCell>
-								<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{c.rule.ruleApplication}</code>
-							</Table.DataCell>
-							<Table.DataCell align="right">{c.hasTraffic ? c.callCount.toLocaleString("nb-NO") : "–"}</Table.DataCell>
-							<Table.DataCell>
-								{c.hasTraffic ? (
-									<Tag variant="success" size="xsmall">
-										Aktiv
-									</Tag>
-								) : (
-									<Tag variant="warning" size="xsmall">
-										Ingen trafikk
-									</Tag>
-								)}
-							</Table.DataCell>
-						</Table.Row>
-					))}
-				</Table.Body>
-			</Table>
-
-			{unknownCallers.length > 0 && (
-				<VStack gap="space-2">
-					<Heading size="xsmall" level="4">
-						Kallende applikasjoner uten tilgangspolicy ({unknownCallers.length})
-					</Heading>
-					<BodyShort size="small" textColor="subtle">
-						Disse applikasjonene har trafikk i loggen, men er ikke i tilgangspolicyen.
-					</BodyShort>
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
-									Antall kall
-								</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{unknownCallers
-								.sort((a, b) => b.count - a.count)
-								.map((t) => (
-									<Table.Row key={`${t.cluster}:${t.namespace}:${t.appName}`}>
-										<Table.DataCell>
-											<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{t.appName}</code>
-										</Table.DataCell>
-										<Table.DataCell>
-											<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{t.namespace}</code>
-										</Table.DataCell>
-										<Table.DataCell>
-											<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{t.cluster}</code>
-										</Table.DataCell>
-										<Table.DataCell align="right">{t.count.toLocaleString("nb-NO")}</Table.DataCell>
-									</Table.Row>
-								))}
-						</Table.Body>
-					</Table>
-				</VStack>
-			)}
-		</VStack>
-	)
 }
