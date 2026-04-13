@@ -310,11 +310,18 @@ export default function EditScreeningQuestion() {
 						<option value="boolean">Ja/Nei</option>
 						<option value="single_choice">Egendefinerte valg</option>
 						<option value="persistence">Persistens (databaser)</option>
+						<option value="ruleset">Regelsett</option>
 					</Select>
 					{answerType === "persistence" && (
 						<BodyShort size="small" textColor="subtle">
 							Spørsmål av typen «Persistens» lar brukeren oppgi hvilke databaser applikasjonen bruker, med type, navn og
 							klassifisering. Ingen valgmuligheter eller effekter trengs.
+						</BodyShort>
+					)}
+					{answerType === "ruleset" && (
+						<BodyShort size="small" textColor="subtle">
+							Spørsmål av typen «Regelsett» lar brukeren velge et regelsett fra seksjonen som svar. Ingen valgmuligheter
+							eller effekter trengs.
 						</BodyShort>
 					)}
 					{technologyElements.length > 0 && (
@@ -331,22 +338,6 @@ export default function EditScreeningQuestion() {
 							))}
 						</CheckboxGroup>
 					)}
-					{rulesets.length > 0 && (
-						<Select
-							label="Regelsett"
-							name="rulesetId"
-							size="small"
-							defaultValue={question.rulesetId ?? ""}
-							style={{ maxWidth: "20rem" }}
-						>
-							<option value="">— Ikke valgt —</option>
-							{rulesets.map((rs) => (
-								<option key={rs.id} value={rs.id}>
-									{rs.name}
-								</option>
-							))}
-						</Select>
-					)}
 					<div>
 						<Button type="submit" size="small" variant="primary">
 							{isNew ? "Opprett spørsmål" : "Lagre endringer"}
@@ -356,7 +347,7 @@ export default function EditScreeningQuestion() {
 			</Form>
 
 			{/* Choices management — hidden for persistence type */}
-			{answerType !== "persistence" && (
+			{answerType !== "persistence" && answerType !== "ruleset" && (
 				<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
 					<VStack gap="space-6">
 						<Heading size="small" level="3">

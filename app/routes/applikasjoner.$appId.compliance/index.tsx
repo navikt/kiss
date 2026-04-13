@@ -30,6 +30,7 @@ import {
 	getAppPersistence,
 	updatePersistenceClassification,
 } from "~/db/queries/nais.server"
+import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import { getScreeningDataForApp, saveRoutineSelection, saveScreeningAnswer } from "~/db/queries/screening.server"
 import {
 	type DataClassification,
@@ -78,6 +79,22 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const hasPersistenceQuestion = screeningData.questions.some((q) => q.answerType === "persistence")
 	const persistence = hasPersistenceQuestion ? await getAppPersistence(appId) : []
 
+	// Load rulesets if any screening question uses the ruleset answerType
+	const hasRulesetQuestion = screeningData.questions.some((q) => q.answerType === "ruleset")
+	const rulesetOptions: { id: string; name: string }[] = []
+	if (hasRulesetQuestion && screeningData.sectionIds.length > 0) {
+		const allRulesets = await Promise.all(screeningData.sectionIds.map((sid) => getRulesetsForSection(sid)))
+		const seen = new Set<string>()
+		for (const sectionRulesets of allRulesets) {
+			for (const rs of sectionRulesets) {
+				if (!seen.has(rs.id)) {
+					seen.add(rs.id)
+					rulesetOptions.push({ id: rs.id, name: rs.name })
+				}
+			}
+		}
+	}
+
 	// Compute filter options from all assessments before filtering
 	const responsibleOptions = uniqueSorted(result.assessments.map((a) => a.responsible))
 	const technologyOptions = uniqueSorted(result.assessments.map((a) => a.technologyElementName))
@@ -120,6 +137,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			dataClassification: p.dataClassification,
 			manuallyAdded: p.manuallyAdded,
 		})),
+		rulesetOptions,
 		filters: { ansvarlig, teknologielement, frekvens, status, domene },
 		options: { responsibleOptions, technologyOptions, frequencyOptions, domainOptions, statusOptions },
 	})
@@ -260,6 +278,7 @@ export default function ComplianceAssessment() {
 		allRisks,
 		screening,
 		persistence,
+		rulesetOptions,
 		filters,
 		options,
 	} = useLoaderData<typeof loader>()
@@ -510,6 +529,8 @@ export default function ComplianceAssessment() {
 											)}
 											{q.answerType === "persistence" ? (
 												<ScreeningPersistenceForm entries={persistence} />
+											) : q.answerType === "ruleset" ? (
+												<ScreeningRulesetForm question={q} rulesets={rulesetOptions} />
 											) : (
 												<ScreeningAnswerForm question={q} />
 											)}
@@ -835,6 +856,47 @@ function AssessmentCard({
 				</HStack>
 			</Form>
 		</div>
+	)
+}
+
+type RulesetOption = ReturnType<typeof useLoaderData<typeof loader>>["rulesetOptions"][number]
+
+function ScreeningRulesetForm({ question: q, rulesets }: { question: ScreeningQuestion; rulesets: RulesetOption[] }) {
+	const selectedRuleset = rulesets.find((rs) => rs.id === q.answer)
+
+	return (
+		<VStack gap="space-4">
+			<Form method="post">
+				<input type="hidden" name="intent" value="screening" />
+				<input type="hidden" name="questionId" value={q.id} />
+				<HStack gap="space-4" align="end">
+					<Select label="Velg regelsett" name="answer" size="small" defaultValue={q.answer ?? ""}>
+						<option value="">— Ikke valgt —</option>
+						{rulesets.map((rs) => (
+							<option key={rs.id} value={rs.id}>
+								{rs.name}
+							</option>
+						))}
+					</Select>
+					<Button type="submit" size="small" variant="secondary-neutral">
+						Lagre
+					</Button>
+					{q.answer !== null && (
+						<HStack gap="space-2" align="center">
+							<Tag variant="success" size="xsmall">
+								Besvart: {selectedRuleset?.name ?? q.answer}
+							</Tag>
+							{q.answeredBy && (
+								<BodyShort size="small" textColor="subtle">
+									av {q.answeredBy}
+									{q.answeredAt && ` — ${new Date(q.answeredAt).toLocaleDateString("nb-NO")}`}
+								</BodyShort>
+							)}
+						</HStack>
+					)}
+				</HStack>
+			</Form>
+		</VStack>
 	)
 }
 

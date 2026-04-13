@@ -604,6 +604,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 	}
 
 	return {
+		sectionIds,
 		questions: questions.map((q) => {
 			const saved = answerMap.get(q.id)
 			const choices = choicesByQuestion.get(q.id) ?? []
