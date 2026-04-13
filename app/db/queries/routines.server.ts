@@ -1,7 +1,12 @@
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
-import { type DataClassification, monitoredApplications, type PersistenceType } from "../schema/applications"
+import {
+	applicationPersistence,
+	type DataClassification,
+	monitoredApplications,
+	type PersistenceType,
+} from "../schema/applications"
 import {
 	applicationTechnologyElements,
 	frameworkControls,
@@ -834,6 +839,118 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		const fullRoutine = {
 			...routine,
 			technologyElements: techElems,
+			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
+			controls: [],
+		}
+
+		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+
+		results.push({
+			routine: fullRoutine,
+			applicationId,
+			applicationName: appName,
+			lastReviewDate,
+			deadline,
+			overdue: isOverdue(deadline),
+		})
+	}
+
+	return results
+}
+
+// ─── Routines matched by persistence type / data classification ──────────
+
+export async function getRoutineDeadlinesForAppByPersistence(
+	applicationId: string,
+	excludeRoutineIds: Set<string> = new Set(),
+) {
+	// Get the app's persistence entries
+	const appPersistence = await db
+		.select({
+			type: applicationPersistence.type,
+			dataClassification: applicationPersistence.dataClassification,
+		})
+		.from(applicationPersistence)
+		.where(eq(applicationPersistence.applicationId, applicationId))
+
+	if (appPersistence.length === 0) return []
+
+	const appTypes = new Set(appPersistence.map((p) => p.type))
+	const appClassifications = new Set(appPersistence.map((p) => p.dataClassification).filter(Boolean))
+
+	// Find routines that have persistenceType or dataClassification set
+	const candidateRoutines = await db
+		.select()
+		.from(routines)
+		.where(sql`${routines.persistenceType} IS NOT NULL OR ${routines.dataClassification} IS NOT NULL`)
+
+	if (candidateRoutines.length === 0) return []
+
+	// Filter to routines that match the app's persistence
+	const matchingRoutines = candidateRoutines.filter((r) => {
+		if (excludeRoutineIds.has(r.id)) return false
+
+		const typeMatch = !r.persistenceType || appTypes.has(r.persistenceType as PersistenceType)
+		const classMatch = !r.dataClassification || appClassifications.has(r.dataClassification as DataClassification)
+
+		return typeMatch && classMatch
+	})
+
+	if (matchingRoutines.length === 0) return []
+
+	const routineIdList = matchingRoutines.map((r) => r.id)
+
+	// Load tech elements and screening links in batch
+	const [allElements, allScreeningLinks] = await Promise.all([
+		db
+			.select({
+				routineId: routineTechnologyElements.routineId,
+				id: technologyElements.id,
+				name: technologyElements.name,
+			})
+			.from(routineTechnologyElements)
+			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
+			.where(inArray(routineTechnologyElements.routineId, routineIdList)),
+		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, routineIdList)),
+	])
+
+	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
+	for (const e of allElements) {
+		const list = elemsByRoutine.get(e.routineId) ?? []
+		list.push({ id: e.id, name: e.name })
+		elemsByRoutine.set(e.routineId, list)
+	}
+	const screenByRoutine = new Map<string, typeof allScreeningLinks>()
+	for (const s of allScreeningLinks) {
+		const list = screenByRoutine.get(s.routineId) ?? []
+		list.push(s)
+		screenByRoutine.set(s.routineId, list)
+	}
+
+	const [appRow] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+	const appName = appRow?.name ?? ""
+
+	// Get latest reviews
+	const latestReviews = await db
+		.selectDistinctOn([routineReviews.routineId], {
+			routineId: routineReviews.routineId,
+			reviewedAt: routineReviews.reviewedAt,
+		})
+		.from(routineReviews)
+		.where(and(inArray(routineReviews.routineId, routineIdList), eq(routineReviews.applicationId, applicationId)))
+		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+
+	const results: RoutineDeadlineInfo[] = []
+	for (const routine of matchingRoutines) {
+		const fullRoutine = {
+			...routine,
+			technologyElements: elemsByRoutine.get(routine.id) ?? [],
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
 			controls: [],
 		}

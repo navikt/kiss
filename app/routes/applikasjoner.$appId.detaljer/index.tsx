@@ -62,7 +62,12 @@ import {
 	updatePersistenceClassification,
 } from "~/db/queries/nais.server"
 import { generateAppComplianceReport, getReportsForApp } from "~/db/queries/reports.server"
-import { createReview, getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
+import {
+	createReview,
+	getReviewsForApp,
+	getRoutineDeadlinesForApp,
+	getRoutineDeadlinesForAppByPersistence,
+} from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
 import {
 	type DataClassification,
@@ -123,13 +128,23 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
 	const { getApplicationElements } = await import("~/db/queries/technology-elements.server")
-	const [appElements, routineDeadlines, completedReviews, allSections, appReports] = await Promise.all([
+	const [appElements, screeningRoutines, completedReviews, allSections, appReports] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesForApp(appId),
 		getReviewsForApp(appId),
 		getSections(),
 		getReportsForApp(appId),
 	])
+
+	// Find routines matching via persistence type/classification, excluding already-matched ones
+	const screeningRoutineIds = new Set(screeningRoutines.map((d) => d.routine?.id).filter(Boolean) as string[])
+	const persistenceRoutines = await getRoutineDeadlinesForAppByPersistence(appId, screeningRoutineIds)
+
+	// Tag each deadline with its match source
+	const routineDeadlines = [
+		...screeningRoutines.map((d) => ({ ...d, matchSource: "screening" as const })),
+		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
+	]
 
 	// Build section ID → slug lookup for routine links
 	const sectionSlugMap = Object.fromEntries(allSections.map((s) => [s.id, s.slug]))
@@ -1018,65 +1033,89 @@ export default function ApplikasjonDetalj() {
 						{routineDeadlines.length === 0 ? (
 							<BodyShort>Ingen rutiner er knyttet til denne applikasjonen.</BodyShort>
 						) : (
-							<Table size="small">
-								<Table.Header>
-									<Table.Row>
-										<Table.HeaderCell>Rutine</Table.HeaderCell>
-										<Table.HeaderCell>Frekvens</Table.HeaderCell>
-										<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
-										<Table.HeaderCell>Frist</Table.HeaderCell>
-										<Table.HeaderCell>Status</Table.HeaderCell>
-										<Table.HeaderCell />
-									</Table.Row>
-								</Table.Header>
-								<Table.Body>
-									{routineDeadlines.map((dl) => (
-										<Table.Row key={dl.routine?.id ?? "unknown"}>
-											<Table.DataCell>
-												{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
-													<Link to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}>
-														{dl.routine?.name ?? "—"}
-													</Link>
-												) : (
-													(dl.routine?.name ?? "—")
-												)}
-											</Table.DataCell>
-											<Table.DataCell>{getFrequencyLabel(dl.routine?.frequency)}</Table.DataCell>
-											<Table.DataCell>
-												{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
-											</Table.DataCell>
-											<Table.DataCell>{new Date(dl.deadline).toLocaleDateString("nb-NO")}</Table.DataCell>
-											<Table.DataCell>
-												{dl.overdue ? (
-													<Tag variant="error" size="small">
-														Over frist
-													</Tag>
-												) : dl.lastReviewDate ? (
-													<Tag variant="success" size="small">
-														OK
-													</Tag>
-												) : (
-													<Tag variant="warning" size="small">
-														Ikke gjennomført
-													</Tag>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>
-												{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] && (
-													<form method="post" style={{ display: "inline" }}>
-														<input type="hidden" name="intent" value="create-draft" />
-														<input type="hidden" name="routineId" value={dl.routine.id} />
-														<input type="hidden" name="sectionSlug" value={sectionSlugMap[dl.routine.sectionId]} />
-														<Button type="submit" variant="tertiary" size="xsmall">
-															Ny gjennomgang
-														</Button>
-													</form>
-												)}
-											</Table.DataCell>
+							<section className="table-scroll" aria-label="Rutinestatus">
+								<Table size="small">
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell>Rutine</Table.HeaderCell>
+											<Table.HeaderCell>Kobling</Table.HeaderCell>
+											<Table.HeaderCell>Frekvens</Table.HeaderCell>
+											<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
+											<Table.HeaderCell>Frist</Table.HeaderCell>
+											<Table.HeaderCell>Status</Table.HeaderCell>
+											<Table.HeaderCell />
 										</Table.Row>
-									))}
-								</Table.Body>
-							</Table>
+									</Table.Header>
+									<Table.Body>
+										{routineDeadlines.map((dl) => (
+											<Table.Row key={dl.routine?.id ?? "unknown"}>
+												<Table.DataCell>
+													{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+														<Link to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}>
+															{dl.routine?.name ?? "—"}
+														</Link>
+													) : (
+														(dl.routine?.name ?? "—")
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{dl.matchSource === "persistence" ? (
+														<HStack gap="space-4" wrap>
+															{dl.routine?.persistenceType && (
+																<Tag variant="info" size="xsmall">
+																	{persistenceLabels[dl.routine.persistenceType] ?? dl.routine.persistenceType}
+																</Tag>
+															)}
+															{dl.routine?.dataClassification && (
+																<Tag variant="warning" size="xsmall">
+																	{dataClassificationLabels[dl.routine.dataClassification as DataClassification] ??
+																		dl.routine.dataClassification}
+																</Tag>
+															)}
+														</HStack>
+													) : (
+														<Tag variant="neutral" size="xsmall">
+															Screening
+														</Tag>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>{getFrequencyLabel(dl.routine?.frequency)}</Table.DataCell>
+												<Table.DataCell>
+													{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
+												</Table.DataCell>
+												<Table.DataCell>{new Date(dl.deadline).toLocaleDateString("nb-NO")}</Table.DataCell>
+												<Table.DataCell>
+													{dl.overdue ? (
+														<Tag variant="error" size="small">
+															Over frist
+														</Tag>
+													) : dl.lastReviewDate ? (
+														<Tag variant="success" size="small">
+															OK
+														</Tag>
+													) : (
+														<Tag variant="warning" size="small">
+															Ikke gjennomført
+														</Tag>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] && (
+														<form method="post" style={{ display: "inline" }}>
+															<input type="hidden" name="intent" value="create-draft" />
+															<input type="hidden" name="routineId" value={dl.routine.id} />
+															<input type="hidden" name="sectionSlug" value={sectionSlugMap[dl.routine.sectionId]} />
+															<Button type="submit" variant="tertiary" size="xsmall">
+																Ny gjennomgang
+															</Button>
+														</form>
+													)}
+												</Table.DataCell>
+											</Table.Row>
+										))}
+									</Table.Body>
+								</Table>
+							</section>
 						)}
 
 						{/* Gjennomførte rutinegjennomganger */}
