@@ -716,6 +716,7 @@ export interface RoutineDeadlineInfo {
 	lastReviewDate: Date | null
 	deadline: Date
 	overdue: boolean
+	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
 }
 
 export async function getRoutineDeadlinesForSection(sectionId: string): Promise<RoutineDeadlineInfo[]> {
@@ -932,19 +933,23 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	const candidateRoutines = await db.select().from(routines).where(inArray(routines.id, routineIds))
 
 	// Filter to routines where at least one persistence link matches the app
-	const matchingRoutines = candidateRoutines.filter((r) => {
+	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number]; matchedLinks: typeof allPersLinks }> = []
+	for (const r of candidateRoutines) {
 		const links = persLinksByRoutine.get(r.id) ?? []
-		return links.some((link) => {
+		const matched = links.filter((link) => {
 			const typeMatch = !link.persistenceType || appTypes.has(link.persistenceType as PersistenceType)
 			const classMatch =
 				!link.dataClassification || appClassifications.has(link.dataClassification as DataClassification)
 			return typeMatch && classMatch
 		})
-	})
+		if (matched.length > 0) {
+			matchingRoutines.push({ routine: r, matchedLinks: matched })
+		}
+	}
 
 	if (matchingRoutines.length === 0) return []
 
-	const routineIdList = matchingRoutines.map((r) => r.id)
+	const routineIdList = matchingRoutines.map((m) => m.routine.id)
 
 	// Load tech elements and screening links in batch
 	const [allElements, allScreeningLinks] = await Promise.all([
@@ -992,7 +997,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
 
 	const results: RoutineDeadlineInfo[] = []
-	for (const routine of matchingRoutines) {
+	for (const { routine, matchedLinks } of matchingRoutines) {
 		const fullRoutine = {
 			...routine,
 			technologyElements: elemsByRoutine.get(routine.id) ?? [],
@@ -1011,6 +1016,10 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			lastReviewDate,
 			deadline,
 			overdue: isOverdue(deadline),
+			matchedPersistenceLinks: matchedLinks.map((l) => ({
+				persistenceType: l.persistenceType,
+				dataClassification: l.dataClassification,
+			})),
 		})
 	}
 

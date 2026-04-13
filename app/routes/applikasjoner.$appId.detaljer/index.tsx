@@ -1070,7 +1070,7 @@ export default function ApplikasjonDetalj() {
 												<Table.DataCell>
 													{dl.matchSource === "persistence" ? (
 														<HStack gap="space-4" wrap>
-															{(dl.routine?.persistenceLinks ?? []).map((pl) => (
+															{(dl.matchedPersistenceLinks ?? []).map((pl) => (
 																<HStack key={`${pl.persistenceType}-${pl.dataClassification}`} gap="space-2" wrap>
 																	{pl.persistenceType && (
 																		<Tag variant="info" size="xsmall">
