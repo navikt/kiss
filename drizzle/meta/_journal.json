@@ -134,6 +134,13 @@
       "when": 1781698000000,
       "tag": "0018_persistence_manual_databases",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781799000000,
+      "tag": "0019_routine_persistence_fields",
+      "breakpoints": true
     }
   ]
 }

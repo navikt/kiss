@@ -25,6 +25,13 @@ import {
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
+import {
+	type DataClassification,
+	dataClassificationLabels,
+	type PersistenceType,
+	persistenceTypeEnum,
+	persistenceTypeLabels,
+} from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { frequencyLabels, isRoutineFrequency, ROUTINE_FREQUENCIES } from "~/lib/routine-frequencies"
@@ -104,6 +111,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const description = formData.get("description")
 	const frequency = formData.get("frequency")
 	const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
+	const persistenceTypeRaw = (formData.get("persistenceType") as string)?.trim() || null
+	const dataClassificationRaw = (formData.get("dataClassification") as string)?.trim() || null
+	const persistenceType = persistenceTypeRaw as PersistenceType | null
+	const dataClassification = dataClassificationRaw as DataClassification | null
 	const technologyElementIds = formData.getAll("technologyElementIds")
 	const controlIds = formData.getAll("controlIds") as string[]
 
@@ -130,6 +141,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		description: typeof description === "string" && description.trim() ? description.trim() : null,
 		frequency,
 		responsibleRole,
+		persistenceType,
+		dataClassification,
 		screeningQuestionId: firstLink?.questionId ?? null,
 		screeningChoiceValue: firstLink?.choiceValue ?? null,
 		screeningQuestionLinks,
@@ -312,6 +325,25 @@ export default function NyRutine() {
 							<option value={responsibleRole}>{responsibleRole} (fra krav)</option>
 						)}
 					</Select>
+
+					<HStack gap="space-4" align="start" wrap>
+						<Select label="Databasetype" name="persistenceType" style={{ minWidth: "14rem" }}>
+							<option value="">Ikke angitt</option>
+							{persistenceTypeEnum.map((t) => (
+								<option key={t} value={t}>
+									{persistenceTypeLabels[t]}
+								</option>
+							))}
+						</Select>
+						<Select label="Dataklassifisering" name="dataClassification" style={{ minWidth: "14rem" }}>
+							<option value="">Ikke angitt</option>
+							{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(([value, label]) => (
+								<option key={value} value={value}>
+									{label}
+								</option>
+							))}
+						</Select>
+					</HStack>
 
 					{controls.length > 0 && (
 						<CheckboxGroup legend="Tilknyttede krav" value={selectedControlIds} onChange={handleControlChange}>

@@ -88,6 +88,8 @@ async function buildRoutinesExport(sectionId: string) {
 				beskrivelse: r.description,
 				frekvens: getFrequencyLabel(r.frequency),
 				ansvarligRolle: r.responsibleRole,
+				databasetype: r.persistenceType,
+				dataklassifisering: r.dataClassification,
 				teknologielementer: r.technologyElements.map((te) => te.name),
 				tilknyttedeKrav:
 					detail?.controls.map((c) => ({

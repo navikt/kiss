@@ -78,6 +78,17 @@ export const persistenceTypeEnum = [
 ] as const
 export type PersistenceType = (typeof persistenceTypeEnum)[number]
 
+export const persistenceTypeLabels: Record<PersistenceType, string> = {
+	cloud_sql_postgres: "Cloud SQL (PostgreSQL)",
+	nais_postgres: "Nais Postgres",
+	on_prem_postgres: "On-prem PostgreSQL",
+	opensearch: "OpenSearch",
+	bucket: "GCS Bucket",
+	valkey: "Valkey (cache)",
+	oracle: "Oracle",
+	other: "Annet",
+}
+
 export const dataClassificationEnum = ["not_critical", "critical", "financial_regulation"] as const
 export type DataClassification = (typeof dataClassificationEnum)[number]
 

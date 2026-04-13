@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
-import { monitoredApplications } from "../schema/applications"
+import { type DataClassification, monitoredApplications, type PersistenceType } from "../schema/applications"
 import {
 	applicationTechnologyElements,
 	frameworkControls,
@@ -103,6 +103,8 @@ export async function createRoutine(params: {
 	description: string | null
 	frequency: RoutineFrequency
 	responsibleRole: string | null
+	persistenceType: PersistenceType | null
+	dataClassification: DataClassification | null
 	screeningQuestionId: string | null
 	screeningChoiceValue: string | null
 	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
@@ -118,6 +120,8 @@ export async function createRoutine(params: {
 			description: params.description,
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
+			persistenceType: params.persistenceType,
+			dataClassification: params.dataClassification,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
 			createdBy: params.createdBy,
@@ -168,6 +172,8 @@ export async function createRoutine(params: {
 			sectionId: params.sectionId,
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
+			persistenceType: params.persistenceType,
+			dataClassification: params.dataClassification,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningQuestionLinks: links,
 			technologyElementIds: params.technologyElementIds,
@@ -185,6 +191,8 @@ export async function updateRoutine(params: {
 	description: string | null
 	frequency: RoutineFrequency
 	responsibleRole: string | null
+	persistenceType: PersistenceType | null
+	dataClassification: DataClassification | null
 	screeningQuestionId: string | null
 	screeningChoiceValue: string | null
 	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
@@ -201,6 +209,8 @@ export async function updateRoutine(params: {
 			description: params.description,
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
+			persistenceType: params.persistenceType,
+			dataClassification: params.dataClassification,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
 			updatedBy: params.updatedBy,
@@ -256,6 +266,8 @@ export async function updateRoutine(params: {
 		metadata: {
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
+			persistenceType: params.persistenceType,
+			dataClassification: params.dataClassification,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningQuestionLinks: links,
 			technologyElementIds: params.technologyElementIds,

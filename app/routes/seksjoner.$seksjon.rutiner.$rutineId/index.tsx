@@ -12,6 +12,12 @@ import {
 } from "~/db/queries/routines.server"
 import { getScreeningQuestion } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import {
+	type DataClassification,
+	dataClassificationLabels,
+	type PersistenceType,
+	persistenceTypeLabels,
+} from "~/db/schema/applications"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
@@ -138,6 +144,25 @@ export default function RutineDetaljer() {
 									{te.name}
 								</Tag>
 							))}
+						</HStack>
+					</VStack>
+				)}
+
+				{(routine.persistenceType || routine.dataClassification) && (
+					<VStack gap="space-2">
+						<Label size="small">Database og klassifisering</Label>
+						<HStack gap="space-2" wrap>
+							{routine.persistenceType && (
+								<Tag variant="info" size="small">
+									{persistenceTypeLabels[routine.persistenceType as PersistenceType] ?? routine.persistenceType}
+								</Tag>
+							)}
+							{routine.dataClassification && (
+								<Tag variant="warning" size="small">
+									{dataClassificationLabels[routine.dataClassification as DataClassification] ??
+										routine.dataClassification}
+								</Tag>
+							)}
 						</HStack>
 					</VStack>
 				)}

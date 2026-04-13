@@ -64,23 +64,19 @@ import {
 import { generateAppComplianceReport, getReportsForApp } from "~/db/queries/reports.server"
 import { createReview, getReviewsForApp, getRoutineDeadlinesForApp } from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
-import { type DataClassification, dataClassificationLabels, persistenceTypeEnum } from "~/db/schema/applications"
+import {
+	type DataClassification,
+	dataClassificationLabels,
+	persistenceTypeEnum,
+	persistenceTypeLabels,
+} from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 import { compliancePercent } from "~/lib/utils"
 
-const persistenceLabels: Record<string, string> = {
-	cloud_sql_postgres: "Cloud SQL (PostgreSQL)",
-	nais_postgres: "Nais Postgres",
-	on_prem_postgres: "On-prem PostgreSQL",
-	opensearch: "OpenSearch",
-	bucket: "GCS Bucket",
-	valkey: "Valkey (cache)",
-	oracle: "Oracle",
-	other: "Annet",
-}
+const persistenceLabels = persistenceTypeLabels as Record<string, string>
 
 const persistenceVariants: Record<
 	string,

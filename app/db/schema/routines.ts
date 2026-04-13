@@ -1,6 +1,6 @@
 import { integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
-import { monitoredApplications } from "./applications"
+import { dataClassificationEnum, monitoredApplications, persistenceTypeEnum } from "./applications"
 import { frameworkControls, technologyElements } from "./framework"
 import { sections } from "./organization"
 import { screeningQuestions } from "./screening"
@@ -16,6 +16,8 @@ export const routines = pgTable("routines", {
 	description: text("description"),
 	frequency: text("frequency", { enum: ROUTINE_FREQUENCIES }).notNull(),
 	responsibleRole: text("responsible_role"),
+	persistenceType: text("persistence_type", { enum: persistenceTypeEnum }),
+	dataClassification: text("data_classification", { enum: dataClassificationEnum }),
 	screeningQuestionId: uuid("screening_question_id").references(() => screeningQuestions.id, {
 		onDelete: "set null",
 	}),
