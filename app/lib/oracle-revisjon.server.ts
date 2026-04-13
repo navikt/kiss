@@ -11,6 +11,7 @@ export interface OracleInstance {
 	name: string
 	schema: string
 	type: string
+	group: string | null
 }
 
 export interface AuditEvidenceResult {
@@ -31,6 +32,7 @@ export interface AuditEvidenceSection {
 export interface AuditEvidence {
 	collectedAt: string
 	instanceId: string
+	instanceGroup: string | null
 	overallStatus: "OK" | "PARTIAL" | "FAILED"
 	sections: AuditEvidenceSection[]
 }
@@ -44,6 +46,7 @@ export interface AuditFinding {
 }
 
 export interface AuditEvidenceSummary {
+	instanceGroup: string | null
 	conclusion: AuditConclusion
 	reason: string
 	unifiedAuditingEnabled: boolean
@@ -97,6 +100,8 @@ async function fetchWithAuth(path: string, headers: Record<string, string> = {})
 
 // --- Mock data ---
 
+const MOCK_ORACLE_GROUP = "1e97cbc6-0687-4d23-aebd-c611035279c1"
+
 function getMockInstances(): OracleInstance[] {
 	const schemas = [
 		{ prefix: "pen", schema: "PEN", type: "pensjon" },
@@ -111,14 +116,17 @@ function getMockInstances(): OracleInstance[] {
 			name: `${prefix}${env}`.toUpperCase(),
 			schema: `${schema}${env.toUpperCase()}`,
 			type,
+			group: env === "" ? MOCK_ORACLE_GROUP : null,
 		})),
 	)
 }
 
 function getMockEvidence(instanceId: string): AuditEvidence {
+	const instance = getMockInstances().find((i) => i.id === instanceId)
 	return {
 		collectedAt: new Date().toISOString(),
 		instanceId,
+		instanceGroup: instance?.group ?? null,
 		overallStatus: "OK",
 		sections: [
 			{
@@ -191,6 +199,7 @@ function getMockSummary(instanceId: string): AuditEvidenceSummary {
 	const conclusions: AuditConclusion[] = ["FULLSTENDIG", "MANGELFULL", "AV", "UKJENT"]
 	const hash = [...instanceId].reduce((acc, c) => acc + c.charCodeAt(0), 0)
 	const conclusion = conclusions[hash % conclusions.length]
+	const instance = getMockInstances().find((i) => i.id === instanceId)
 
 	const findingsMap: Record<AuditConclusion, AuditFinding[]> = {
 		FULLSTENDIG: [{ severity: "INFO", message: "Alle tabeller i skjemaet har audit-dekning" }],
@@ -213,6 +222,7 @@ function getMockSummary(instanceId: string): AuditEvidenceSummary {
 	}
 
 	return {
+		instanceGroup: instance?.group ?? null,
 		conclusion,
 		reason: reasonMap[conclusion],
 		unifiedAuditingEnabled: conclusion !== "AV",

@@ -44,6 +44,7 @@ import {
 } from "~/db/queries/technology-elements.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import { filterInstancesByAccess } from "~/lib/oracle-access.server"
 import { getAuditEvidence, getAuditEvidenceExcel, getOracleInstances } from "~/lib/oracle-revisjon.server"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -67,6 +68,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
+	// Filter Oracle instances by user's Azure AD group membership
+	const accessibleInstances = filterInstancesByAccess(allOracleInstances, authedUser.groups)
+	const accessibleInstanceIds = new Set(accessibleInstances.map((i) => i.id))
+	const filteredOracleInstances = oracleInstances.filter((i) => accessibleInstanceIds.has(i.instanceId))
+
 	const relevantCandidates = [
 		...new Map(
 			candidates
@@ -76,8 +82,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		).values(),
 	]
 
-	const configuredIds = new Set(oracleInstances.map((i) => i.instanceId))
-	const availableOracleInstances = allOracleInstances.filter((i) => !configuredIds.has(i.id))
+	const configuredIds = new Set(filteredOracleInstances.map((i) => i.instanceId))
+	const availableOracleInstances = accessibleInstances.filter((i) => !configuredIds.has(i.id))
 
 	const canDelete = detail.linkedApps.length === 0 && detail.environments.length === 0
 
@@ -90,7 +96,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		appElements,
 		availableElements: allElements.filter((e) => !appElements.some((ae) => ae.id === e.id)),
 		availableTeams,
-		oracleInstances,
+		oracleInstances: filteredOracleInstances,
 		availableOracleInstances,
 		oraclePersistence: detail.persistence
 			.filter((p) => p.type === "oracle")

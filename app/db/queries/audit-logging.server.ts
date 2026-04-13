@@ -273,6 +273,7 @@ export async function getOracleAuditSummariesForApp(
 
 function dbSummaryToApiSummary(row: typeof persistenceAuditSummaries.$inferSelect): AuditEvidenceSummary {
 	return {
+		instanceGroup: null,
 		conclusion: row.conclusion,
 		reason: row.reason ?? "",
 		unifiedAuditingEnabled: row.unifiedAuditingEnabled ?? false,

@@ -80,6 +80,8 @@ import {
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
+import { filterInstancesByAccess } from "~/lib/oracle-access.server"
+import { getOracleInstances } from "~/lib/oracle-revisjon.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 import { compliancePercent } from "~/lib/utils"
 
@@ -198,13 +200,21 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		}
 	}
 
+	const allOracleInstances = await getOracleInstances()
 	const oracleInstances = await getOracleInstancesForApp(appId)
+
+	// Filter Oracle instances by user's Azure AD group membership
+	const accessibleInstanceIds = new Set(
+		filterInstancesByAccess(allOracleInstances, user?.groups ?? []).map((i) => i.id),
+	)
+	const filteredOracleInstances = oracleInstances.filter((i) => accessibleInstanceIds.has(i.instanceId))
+	const totalOracleInstanceCount = oracleInstances.length
 
 	// Ensure persistence entries exist for configured Oracle instances
 	const oraclePersistenceInstanceIds = new Set(
 		detail.persistence.filter((p) => p.type === "oracle").map((p) => p.oracleInstanceId ?? p.name),
 	)
-	const orphanInstances = oracleInstances.filter((inst) => !oraclePersistenceInstanceIds.has(inst.instanceId))
+	const orphanInstances = filteredOracleInstances.filter((inst) => !oraclePersistenceInstanceIds.has(inst.instanceId))
 
 	if (orphanInstances.length > 0) {
 		const { ensureOraclePersistenceEntries } = await import("~/db/queries/audit-logging.server")
@@ -215,8 +225,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		detail.persistence.push(...newEntries)
 	}
 
-	// Fetch full snapshot history for configured instances
-	const snapshotHistoryPromises = oracleInstances.map(async (inst) => {
+	// Fetch full snapshot history for accessible instances only
+	const snapshotHistoryPromises = filteredOracleInstances.map(async (inst) => {
 		const history = await getSnapshotHistory(appId, inst.instanceId)
 		return { instanceId: inst.instanceId, history }
 	})
@@ -273,7 +283,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			createdBy: r.createdBy,
 			reportBucketPath: r.reportBucketPath,
 		})),
-		oracleInstances: oracleInstances.map((inst) => ({
+		oracleInstances: filteredOracleInstances.map((inst) => ({
 			...inst,
 			configuredAt: inst.configuredAt.toISOString(),
 			latestSnapshot: inst.latestSnapshot
@@ -283,6 +293,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 					}
 				: null,
 		})),
+		totalOracleInstanceCount,
 		instanceSnapshotHistories: instanceSnapshotHistories.map(({ instanceId, history }) => ({
 			instanceId,
 			snapshots: history.map((s) => ({
@@ -446,6 +457,7 @@ export default function ApplikasjonDetalj() {
 		assessments,
 		appReports,
 		oracleInstances,
+		totalOracleInstanceCount,
 		instanceSnapshotHistories,
 	} = useLoaderData<typeof loader>()
 
@@ -975,6 +987,12 @@ export default function ApplikasjonDetalj() {
 				{oracleInstances.length > 0 && (
 					<Tabs.Panel value="revisjonsbevis" style={{ paddingTop: "var(--ax-space-6)" }}>
 						<VStack gap="space-12">
+							{totalOracleInstanceCount > oracleInstances.length && (
+								<Alert variant="info" size="small">
+									Viser {oracleInstances.length} av {totalOracleInstanceCount} databaseinstanser. Du har ikke tilgang
+									til alle instanser.
+								</Alert>
+							)}
 							{instanceSnapshotHistories.map(({ instanceId, snapshots }) => (
 								<Box key={instanceId} borderWidth="1" borderColor="neutral-subtle" padding="space-8" borderRadius="8">
 									<VStack gap="space-6">
