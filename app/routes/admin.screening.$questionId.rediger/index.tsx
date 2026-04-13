@@ -144,13 +144,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				for (const pc of pending) {
 					// Skip auto-created boolean choices if they match
 					const existingChoices = await getChoicesForQuestion(q.id)
-					const existing = existingChoices.find((c) => c.value === pc.value)
+					const existing = existingChoices.find((c) => c.label === pc.label)
 					const choiceId = existing
 						? existing.id
 						: (
 								await createChoice({
 									questionId: q.id,
-									value: pc.value,
 									label: pc.label,
 									requiresComment: pc.requiresComment,
 									requiresLink: pc.requiresLink,
@@ -177,12 +176,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "addChoice") {
-		const value = (formData.get("value") as string)?.trim()
 		const label = (formData.get("label") as string)?.trim()
 		const requiresComment = formData.get("requiresComment") === "on"
 		const requiresLink = formData.get("requiresLink") === "on"
-		if (!value || !label) throw new Response("Mangler data", { status: 400 })
-		await createChoice({ questionId, value, label, requiresComment, requiresLink })
+		if (!label) throw new Response("Mangler data", { status: 400 })
+		await createChoice({ questionId, label, requiresComment, requiresLink })
 	}
 
 	if (intent === "updateChoice") {
@@ -232,7 +230,6 @@ interface PendingEffectItem {
 
 interface PendingChoice {
 	clientId: string
-	value: string
 	label: string
 	requiresComment: boolean
 	requiresLink: boolean
@@ -341,8 +338,7 @@ export default function EditScreeningQuestion() {
 						<Form method="post">
 							<input type="hidden" name="intent" value="addChoice" />
 							<HStack gap="space-4" align="end" wrap>
-								<TextField label="Verdi" name="value" size="small" />
-								<TextField label="Visningsnavn" name="label" size="small" />
+								<TextField label="Navn" name="label" size="small" />
 								<Checkbox name="requiresComment" size="small">
 									Krev kommentar
 								</Checkbox>
@@ -427,7 +423,6 @@ export default function EditScreeningQuestion() {
 
 type ServerChoice = {
 	id: string
-	value: string
 	label: string
 	requiresComment: boolean
 	requiresLink: boolean
@@ -466,9 +461,6 @@ function ChoiceCard({
 			<VStack gap="space-4">
 				<HStack justify="space-between" align="center">
 					<HStack gap="space-4" align="center">
-						<Tag variant="info" size="small">
-							{choice.value}
-						</Tag>
 						<Heading size="xsmall" level="4">
 							{choiceLabel}
 						</Heading>
@@ -605,12 +597,10 @@ function AddPendingChoiceForm({
 	function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
 		e.preventDefault()
 		const fd = new FormData(e.currentTarget)
-		const value = (fd.get("value") as string)?.trim()
 		const label = (fd.get("label") as string)?.trim()
-		if (!value || !label) return
+		if (!label) return
 		onAdd({
 			clientId: crypto.randomUUID(),
-			value,
 			label,
 			requiresComment: fd.get("requiresComment") === "on",
 			requiresLink: fd.get("requiresLink") === "on",
@@ -623,8 +613,7 @@ function AddPendingChoiceForm({
 	return (
 		<form onSubmit={handleSubmit}>
 			<HStack gap="space-4" align="end" wrap>
-				<TextField label="Verdi" name="value" size="small" />
-				<TextField label="Visningsnavn" name="label" size="small" />
+				<TextField label="Navn" name="label" size="small" />
 				<Checkbox name="requiresComment" size="small">
 					Krev kommentar
 				</Checkbox>

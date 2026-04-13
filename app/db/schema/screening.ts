@@ -24,7 +24,6 @@ export const screeningQuestionChoices = pgTable("screening_question_choices", {
 	questionId: uuid("question_id")
 		.notNull()
 		.references(() => screeningQuestions.id, { onDelete: "cascade" }),
-	value: text("value").notNull(),
 	label: text("label").notNull(),
 	requiresComment: boolean("requires_comment").notNull().default(false),
 	requiresLink: boolean("requires_link").notNull().default(false),

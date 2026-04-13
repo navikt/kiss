@@ -60,8 +60,8 @@ export async function createScreeningQuestion(
 	// Auto-create default choices for boolean questions
 	if (answerType === "boolean") {
 		await db.insert(screeningQuestionChoices).values([
-			{ questionId: q.id, value: "ja", label: "Ja", displayOrder: 0 },
-			{ questionId: q.id, value: "nei", label: "Nei", displayOrder: 1 },
+			{ questionId: q.id, label: "Ja", displayOrder: 0 },
+			{ questionId: q.id, label: "Nei", displayOrder: 1 },
 		])
 	}
 
@@ -140,7 +140,6 @@ export async function getChoicesForQuestion(questionId: string) {
 
 export async function createChoice(params: {
 	questionId: string
-	value: string
 	label: string
 	requiresComment?: boolean
 	requiresLink?: boolean
@@ -150,7 +149,6 @@ export async function createChoice(params: {
 		.insert(screeningQuestionChoices)
 		.values({
 			questionId: params.questionId,
-			value: params.value,
 			label: params.label,
 			requiresComment: params.requiresComment ?? false,
 			requiresLink: params.requiresLink ?? false,
@@ -349,7 +347,7 @@ async function applyChoiceEffects(applicationId: string, questionId: string, ans
 		.select({ id: screeningQuestionChoices.id })
 		.from(screeningQuestionChoices)
 		.where(
-			sql`${screeningQuestionChoices.questionId} = ${questionId} AND ${screeningQuestionChoices.value} = ${answerValue}`,
+			sql`${screeningQuestionChoices.questionId} = ${questionId} AND ${screeningQuestionChoices.label} = ${answerValue}`,
 		)
 		.limit(1)
 
@@ -498,7 +496,6 @@ export async function getScreeningDataForApp(applicationId: string) {
 				answerLink: saved?.link ?? null,
 				choices: choices.map((c) => ({
 					id: c.id,
-					value: c.value,
 					label: c.label,
 					requiresComment: c.requiresComment,
 					requiresLink: c.requiresLink,

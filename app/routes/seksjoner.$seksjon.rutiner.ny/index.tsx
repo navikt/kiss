@@ -228,7 +228,7 @@ export default function NyRutine() {
 										>
 											<option value="">Velg …</option>
 											{question?.choices.map((c) => (
-												<option key={c.id} value={c.value}>
+												<option key={c.id} value={c.label}>
 													{c.label}
 												</option>
 											))}

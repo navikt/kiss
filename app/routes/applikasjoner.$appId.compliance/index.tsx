@@ -483,7 +483,7 @@ type ScreeningQuestion = ReturnType<typeof useLoaderData<typeof loader>>["screen
 
 function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 	const [selectedValue, setSelectedValue] = useState<string>(q.answer ?? "")
-	const selectedChoice = q.choices.find((c) => c.value === selectedValue)
+	const selectedChoice = q.choices.find((c) => c.label === selectedValue)
 
 	if (q.answerType === "boolean" && q.choices.length === 2) {
 		return (
@@ -502,7 +502,7 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 						>
 							<HStack gap="space-4">
 								{q.choices.map((c) => (
-									<Radio key={c.value} value={c.value}>
+									<Radio key={c.label} value={c.label}>
 										{c.label}
 									</Radio>
 								))}
@@ -513,7 +513,7 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 						</Button>
 						{q.answer !== null && (
 							<Tag variant="success" size="xsmall">
-								Besvart: {q.choices.find((c) => c.value === q.answer)?.label ?? q.answer}
+								Besvart: {q.answer}
 							</Tag>
 						)}
 					</HStack>
@@ -546,7 +546,7 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 							Velg svar
 						</option>
 						{q.choices.map((c) => (
-							<option key={c.value} value={c.value}>
+							<option key={c.label} value={c.label}>
 								{c.label}
 							</option>
 						))}
@@ -556,7 +556,7 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 					</Button>
 					{q.answer !== null && (
 						<Tag variant="success" size="xsmall">
-							Besvart: {q.choices.find((c) => c.value === q.answer)?.label ?? q.answer}
+							Besvart: {q.answer}
 						</Tag>
 					)}
 				</HStack>

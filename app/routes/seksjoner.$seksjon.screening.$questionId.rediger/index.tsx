@@ -96,7 +96,6 @@ interface PendingEffectItem {
 
 interface PendingChoice {
 	clientId: string
-	value: string
 	label: string
 	requiresComment: boolean
 	requiresLink: boolean
@@ -138,13 +137,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				const pending = JSON.parse(pendingChoicesJson) as PendingChoice[]
 				for (const pc of pending) {
 					const existingChoices = await getChoicesForQuestion(q.id)
-					const existing = existingChoices.find((c) => c.value === pc.value)
+					const existing = existingChoices.find((c) => c.label === pc.label)
 					const choiceId = existing
 						? existing.id
 						: (
 								await createChoice({
 									questionId: q.id,
-									value: pc.value,
 									label: pc.label,
 									requiresComment: pc.requiresComment,
 									requiresLink: pc.requiresLink,
@@ -171,12 +169,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "addChoice") {
-		const value = (formData.get("value") as string)?.trim()
 		const label = (formData.get("label") as string)?.trim()
 		const requiresComment = formData.get("requiresComment") === "on"
 		const requiresLink = formData.get("requiresLink") === "on"
-		if (!value || !label) throw new Response("Mangler data", { status: 400 })
-		await createChoice({ questionId, value, label, requiresComment, requiresLink })
+		if (!label) throw new Response("Mangler data", { status: 400 })
+		await createChoice({ questionId, label, requiresComment, requiresLink })
 	}
 
 	if (intent === "updateChoice") {

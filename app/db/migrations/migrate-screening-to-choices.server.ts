@@ -44,12 +44,12 @@ export async function migrateScreeningToChoices() {
 		// Create default Ja/Nei choices for boolean questions
 		const [jaChoice] = await db
 			.insert(screeningQuestionChoices)
-			.values({ questionId: question.id, value: "ja", label: "Ja", displayOrder: 0 })
+			.values({ questionId: question.id, label: "Ja", displayOrder: 0 })
 			.returning()
 
 		const [neiChoice] = await db
 			.insert(screeningQuestionChoices)
-			.values({ questionId: question.id, value: "nei", label: "Nei", displayOrder: 1 })
+			.values({ questionId: question.id, label: "Nei", displayOrder: 1 })
 			.returning()
 
 		results.choicesCreated += 2

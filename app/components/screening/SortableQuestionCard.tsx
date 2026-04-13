@@ -15,7 +15,6 @@ export type ChoiceEffect = {
 
 export type QuestionChoice = {
 	id: string
-	value: string
 	label: string
 	requiresComment: boolean
 	requiresLink: boolean
