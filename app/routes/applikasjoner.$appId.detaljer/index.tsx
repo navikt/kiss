@@ -1,4 +1,4 @@
-import { DownloadIcon, ExternalLinkIcon, EyeIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, ExternalLinkIcon, EyeIcon, UploadIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
@@ -22,7 +22,7 @@ import {
 	Textarea,
 	VStack,
 } from "@navikt/ds-react"
-import { useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -893,6 +893,9 @@ export default function ApplikasjonDetalj() {
 								</VStack>
 							)
 						})()}
+
+						{/* Traffic comparison — upload CSV to cross-reference with access policy */}
+						<TrafficComparison accessPolicyRules={accessPolicyRules} appName={app.name} />
 
 						<Modal ref={ackModalRef} header={{ heading: `Kvitter ut ${ackTarget}` }} onClose={() => setAckTarget(null)}>
 							<Modal.Body>
@@ -1778,3 +1781,222 @@ function DeploymentVerificationPanel({
 }
 
 export { RouteErrorBoundary as ErrorBoundary }
+
+// ─── Traffic Comparison Component ───────────────────────────────────────────
+
+interface TrafficRow {
+	appName: string
+	namespace: string
+	cluster: string
+	count: number
+}
+
+function parseTrafficCsv(text: string): TrafficRow[] {
+	const lines = text.trim().split("\n")
+	if (lines.length < 2) return []
+
+	return lines.slice(1).flatMap((line) => {
+		// Handle quoted CSV: "cluster:namespace:app","1,234"
+		const match = line.match(/^"([^"]+)"[,;]"?([^"]*)"?$/)
+		if (!match) return []
+		const parts = match[1].split(":")
+		if (parts.length !== 3) return []
+		const countStr = match[2].replace(/,/g, "")
+		const count = Number.parseInt(countStr, 10)
+		if (Number.isNaN(count)) return []
+		return [{ cluster: parts[0], namespace: parts[1], appName: parts[2], count }]
+	})
+}
+
+interface AccessPolicyRule {
+	id: string
+	direction: string
+	ruleApplication: string
+	ruleNamespace: string | null
+	ruleCluster: string | null
+}
+
+function TrafficComparison({ accessPolicyRules, appName }: { accessPolicyRules: AccessPolicyRule[]; appName: string }) {
+	const [trafficData, setTrafficData] = useState<TrafficRow[] | null>(null)
+	const [fileName, setFileName] = useState<string | null>(null)
+	const fileInputRef = useRef<HTMLInputElement>(null)
+
+	const handleFile = useCallback((file: File) => {
+		const reader = new FileReader()
+		reader.onload = (e) => {
+			const text = e.target?.result as string
+			const parsed = parseTrafficCsv(text)
+			setTrafficData(parsed)
+			setFileName(file.name)
+		}
+		reader.readAsText(file)
+	}, [])
+
+	if (!trafficData) {
+		return (
+			<Box padding="space-6" borderRadius="8" background="sunken" style={{ marginTop: "var(--ax-space-6)" }}>
+				<VStack gap="space-4">
+					<Heading size="xsmall" level="4">
+						Sammenstill med faktisk trafikk
+					</Heading>
+					<BodyShort size="small">
+						Last opp en CSV-fil med trafikkdata (f.eks. fra Kibana) for å se hvilke applikasjoner i tilgangspolicyen som
+						faktisk kaller {appName}, og hvilke som har tilgang uten å bruke den.
+					</BodyShort>
+					<BodyShort size="small" textColor="subtle">
+						Forventet format: <code>"cluster:namespace:appnavn",antall</code>
+					</BodyShort>
+					<div>
+						<input
+							ref={fileInputRef}
+							type="file"
+							accept=".csv"
+							style={{ display: "none" }}
+							onChange={(e) => {
+								const file = e.target.files?.[0]
+								if (file) handleFile(file)
+							}}
+						/>
+						<Button
+							variant="secondary"
+							size="small"
+							icon={<UploadIcon aria-hidden />}
+							onClick={() => fileInputRef.current?.click()}
+						>
+							Last opp CSV
+						</Button>
+					</div>
+				</VStack>
+			</Box>
+		)
+	}
+
+	const inboundRules = accessPolicyRules.filter((r) => r.direction === "inbound")
+	const trafficByApp = new Map(trafficData.map((t) => [t.appName, t]))
+
+	// Cross-reference: for each inbound rule, find matching traffic
+	const comparison = inboundRules.map((rule) => {
+		const traffic = trafficByApp.get(rule.ruleApplication)
+		return {
+			rule,
+			callCount: traffic?.count ?? 0,
+			hasTraffic: !!traffic,
+		}
+	})
+
+	// Apps in traffic data that are NOT in the access policy
+	const policyAppNames = new Set(inboundRules.map((r) => r.ruleApplication))
+	const unknownCallers = trafficData.filter((t) => !policyAppNames.has(t.appName))
+
+	// Sort: no-traffic first (these are the interesting ones), then by call count ascending
+	comparison.sort((a, b) => {
+		if (a.hasTraffic !== b.hasTraffic) return a.hasTraffic ? 1 : -1
+		return a.callCount - b.callCount
+	})
+
+	const noTrafficCount = comparison.filter((c) => !c.hasTraffic).length
+
+	return (
+		<VStack gap="space-4" style={{ marginTop: "var(--ax-space-6)" }}>
+			<HStack justify="space-between" align="center">
+				<Heading size="xsmall" level="4">
+					Trafikksammenstilling
+				</Heading>
+				<HStack gap="space-4" align="center">
+					<Detail textColor="subtle">{fileName}</Detail>
+					<Button
+						variant="tertiary"
+						size="xsmall"
+						onClick={() => {
+							setTrafficData(null)
+							setFileName(null)
+						}}
+					>
+						Fjern
+					</Button>
+				</HStack>
+			</HStack>
+
+			{noTrafficCount > 0 && (
+				<Alert variant="warning" size="small">
+					{noTrafficCount} av {inboundRules.length} applikasjoner i tilgangspolicyen har ingen registrert trafikk i den
+					opplastede perioden.
+				</Alert>
+			)}
+
+			<Table size="small">
+				<Table.Header>
+					<Table.Row>
+						<Table.HeaderCell scope="col">Applikasjon (tilgangspolicy)</Table.HeaderCell>
+						<Table.HeaderCell scope="col" align="right">
+							Antall kall
+						</Table.HeaderCell>
+						<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+					</Table.Row>
+				</Table.Header>
+				<Table.Body>
+					{comparison.map((c) => (
+						<Table.Row key={c.rule.id}>
+							<Table.DataCell>
+								<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{c.rule.ruleApplication}</code>
+							</Table.DataCell>
+							<Table.DataCell align="right">{c.hasTraffic ? c.callCount.toLocaleString("nb-NO") : "–"}</Table.DataCell>
+							<Table.DataCell>
+								{c.hasTraffic ? (
+									<Tag variant="success" size="xsmall">
+										Aktiv
+									</Tag>
+								) : (
+									<Tag variant="warning" size="xsmall">
+										Ingen trafikk
+									</Tag>
+								)}
+							</Table.DataCell>
+						</Table.Row>
+					))}
+				</Table.Body>
+			</Table>
+
+			{unknownCallers.length > 0 && (
+				<VStack gap="space-2">
+					<Heading size="xsmall" level="4">
+						Kallende applikasjoner uten tilgangspolicy ({unknownCallers.length})
+					</Heading>
+					<BodyShort size="small" textColor="subtle">
+						Disse applikasjonene har trafikk i loggen, men er ikke i tilgangspolicyen.
+					</BodyShort>
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
+								<Table.HeaderCell scope="col" align="right">
+									Antall kall
+								</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{unknownCallers
+								.sort((a, b) => b.count - a.count)
+								.map((t) => (
+									<Table.Row key={`${t.cluster}:${t.namespace}:${t.appName}`}>
+										<Table.DataCell>
+											<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{t.appName}</code>
+										</Table.DataCell>
+										<Table.DataCell>
+											<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{t.namespace}</code>
+										</Table.DataCell>
+										<Table.DataCell>
+											<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{t.cluster}</code>
+										</Table.DataCell>
+										<Table.DataCell align="right">{t.count.toLocaleString("nb-NO")}</Table.DataCell>
+									</Table.Row>
+								))}
+						</Table.Body>
+					</Table>
+				</VStack>
+			)}
+		</VStack>
+	)
+}
