@@ -241,6 +241,7 @@ interface PendingChoice {
 export default function EditScreeningQuestion() {
 	const { isNew, question, choices, controls, sectionId, returnPath } = useLoaderData<typeof loader>()
 	const [pendingChoices, setPendingChoices] = useState<PendingChoice[]>([])
+	const [answerType, setAnswerType] = useState(question.answerType ?? "boolean")
 	const [deleteTarget, setDeleteTarget] = useState<{
 		type: "choice" | "effect"
 		id: string
@@ -269,6 +270,24 @@ export default function EditScreeningQuestion() {
 						defaultValue={question.description ?? ""}
 						minRows={5}
 					/>
+					<Select
+						label="Svartype"
+						name="answerType"
+						size="small"
+						value={answerType}
+						onChange={(e) => setAnswerType(e.target.value)}
+						style={{ maxWidth: "20rem" }}
+					>
+						<option value="boolean">Ja/Nei</option>
+						<option value="single_choice">Egendefinerte valg</option>
+						<option value="persistence">Persistens (databaser)</option>
+					</Select>
+					{answerType === "persistence" && (
+						<BodyShort size="small" textColor="subtle">
+							Spørsmål av typen «Persistens» lar brukeren oppgi hvilke databaser applikasjonen bruker, med type, navn og
+							klassifisering. Ingen valgmuligheter eller effekter trengs.
+						</BodyShort>
+					)}
 					<div>
 						<Button type="submit" size="small" variant="primary">
 							{isNew ? "Opprett spørsmål" : "Lagre endringer"}
@@ -277,83 +296,85 @@ export default function EditScreeningQuestion() {
 				</VStack>
 			</Form>
 
-			{/* Choices management */}
-			<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-				<VStack gap="space-6">
-					<Heading size="small" level="3">
-						Valgmuligheter
-					</Heading>
+			{/* Choices management — hidden for persistence type */}
+			{answerType !== "persistence" && (
+				<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+					<VStack gap="space-6">
+						<Heading size="small" level="3">
+							Valgmuligheter
+						</Heading>
 
-					{/* Existing / pending choices */}
-					{(isNew ? pendingChoices : choices).map((choice) => (
-						<ChoiceCard
-							key={"clientId" in choice ? choice.clientId : choice.id}
-							choice={choice}
-							controls={controls}
-							onDeleteChoice={(label) => {
-								const id = "clientId" in choice ? choice.clientId : choice.id
-								setDeleteTarget({ type: "choice", id, label })
-								deleteModalRef.current?.showModal()
-							}}
-							onDeleteEffect={(effectId, label) => {
-								setDeleteTarget({ type: "effect", id: effectId, label })
-								deleteModalRef.current?.showModal()
-							}}
-							onAddPendingEffect={
-								isNew
-									? (choiceClientId, eff) => {
-											setPendingChoices((prev) =>
-												prev.map((c) => (c.clientId === choiceClientId ? { ...c, effects: [...c.effects, eff] } : c)),
-											)
-										}
-									: undefined
-							}
-							onRemovePendingEffect={
-								isNew
-									? (choiceClientId, effClientId) => {
-											setPendingChoices((prev) =>
-												prev.map((c) =>
-													c.clientId === choiceClientId
-														? { ...c, effects: c.effects.filter((e) => e.clientId !== effClientId) }
-														: c,
-												),
-											)
-										}
-									: undefined
-							}
-							onRemovePendingChoice={
-								isNew
-									? (clientId) => setPendingChoices((prev) => prev.filter((c) => c.clientId !== clientId))
-									: undefined
-							}
-						/>
-					))}
+						{/* Existing / pending choices */}
+						{(isNew ? pendingChoices : choices).map((choice) => (
+							<ChoiceCard
+								key={"clientId" in choice ? choice.clientId : choice.id}
+								choice={choice}
+								controls={controls}
+								onDeleteChoice={(label) => {
+									const id = "clientId" in choice ? choice.clientId : choice.id
+									setDeleteTarget({ type: "choice", id, label })
+									deleteModalRef.current?.showModal()
+								}}
+								onDeleteEffect={(effectId, label) => {
+									setDeleteTarget({ type: "effect", id: effectId, label })
+									deleteModalRef.current?.showModal()
+								}}
+								onAddPendingEffect={
+									isNew
+										? (choiceClientId, eff) => {
+												setPendingChoices((prev) =>
+													prev.map((c) => (c.clientId === choiceClientId ? { ...c, effects: [...c.effects, eff] } : c)),
+												)
+											}
+										: undefined
+								}
+								onRemovePendingEffect={
+									isNew
+										? (choiceClientId, effClientId) => {
+												setPendingChoices((prev) =>
+													prev.map((c) =>
+														c.clientId === choiceClientId
+															? { ...c, effects: c.effects.filter((e) => e.clientId !== effClientId) }
+															: c,
+													),
+												)
+											}
+										: undefined
+								}
+								onRemovePendingChoice={
+									isNew
+										? (clientId) => setPendingChoices((prev) => prev.filter((c) => c.clientId !== clientId))
+										: undefined
+								}
+							/>
+						))}
 
-					{/* Add choice form */}
-					{isNew ? (
-						<AddPendingChoiceForm
-							existingCount={(pendingChoices ?? []).length}
-							onAdd={(choice) => setPendingChoices((prev) => [...prev, choice])}
-						/>
-					) : (
-						<Form method="post">
-							<input type="hidden" name="intent" value="addChoice" />
-							<HStack gap="space-4" align="end" wrap>
-								<TextField label="Navn" name="label" size="small" />
-								<Checkbox name="requiresComment" size="small">
-									Krev kommentar
-								</Checkbox>
-								<Checkbox name="requiresLink" size="small">
-									Krev lenke
-								</Checkbox>
-								<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
-									Legg til valg
-								</Button>
-							</HStack>
-						</Form>
-					)}
-				</VStack>
-			</Box>
+						{/* Add choice form */}
+						{isNew ? (
+							<AddPendingChoiceForm
+								existingCount={(pendingChoices ?? []).length}
+								onAdd={(choice) => setPendingChoices((prev) => [...prev, choice])}
+							/>
+						) : (
+							<Form method="post">
+								<input type="hidden" name="intent" value="addChoice" />
+								<HStack gap="space-4" align="end" wrap>
+									<TextField label="Navn" name="label" size="small" />
+									<Checkbox name="requiresComment" size="small">
+										Krev kommentar
+									</Checkbox>
+									<Checkbox name="requiresLink" size="small">
+										Krev lenke
+									</Checkbox>
+									<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
+										Legg til valg
+									</Button>
+								</HStack>
+							</Form>
+						)}
+					</VStack>
+				</Box>
+			)}
 
 			{/* Delete confirmation modal */}
 			<Modal

@@ -1,3 +1,4 @@
+import { PlusIcon, TrashIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
@@ -10,6 +11,7 @@ import {
 	Radio,
 	RadioGroup,
 	Select,
+	Table,
 	Tag,
 	Textarea,
 	TextField,
@@ -22,7 +24,19 @@ import { ComplianceComment, ComplianceStatusBadge } from "~/components/Complianc
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments, saveAssessment, saveAssessmentComment } from "~/db/queries/applications.server"
 import { getAllRisks } from "~/db/queries/framework.server"
+import {
+	addManualPersistence,
+	deleteManualPersistence,
+	getAppPersistence,
+	updatePersistenceClassification,
+} from "~/db/queries/nais.server"
 import { getScreeningDataForApp, saveRoutineSelection, saveScreeningAnswer } from "~/db/queries/screening.server"
+import {
+	type DataClassification,
+	dataClassificationLabels,
+	persistenceTypeEnum,
+	persistenceTypeLabels,
+} from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isComplianceStatus, statusLabels } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -60,6 +74,10 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	])
 	if (!result) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
+	// Load persistence data if any screening question uses the persistence answerType
+	const hasPersistenceQuestion = screeningData.questions.some((q) => q.answerType === "persistence")
+	const persistence = hasPersistenceQuestion ? await getAppPersistence(appId) : []
+
 	// Compute filter options from all assessments before filtering
 	const responsibleOptions = uniqueSorted(result.assessments.map((a) => a.responsible))
 	const technologyOptions = uniqueSorted(result.assessments.map((a) => a.technologyElementName))
@@ -95,6 +113,13 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			...q,
 			descriptionHtml: renderMarkdown(q.description),
 		})),
+		persistence: persistence.map((p) => ({
+			id: p.id,
+			type: p.type,
+			name: p.name,
+			dataClassification: p.dataClassification,
+			manuallyAdded: p.manuallyAdded,
+		})),
 		filters: { ansvarlig, teknologielement, frekvens, status, domene },
 		options: { responsibleOptions, technologyOptions, frequencyOptions, domainOptions, statusOptions },
 	})
@@ -129,6 +154,53 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 		await saveRoutineSelection(appId, choiceEffectId, routineId, authedUser.navIdent)
 
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
+	if (intent === "add-persistence") {
+		const type = formData.get("persistenceType") as string
+		const name = (formData.get("persistenceName") as string)?.trim()
+		const classification = (formData.get("dataClassification") as string) || null
+
+		if (!type || !name) {
+			return data({ success: false, controlId: "screening", screening: true })
+		}
+		if (!persistenceTypeEnum.includes(type as (typeof persistenceTypeEnum)[number])) {
+			return data({ success: false, controlId: "screening", screening: true })
+		}
+		const validClassification =
+			classification && ["not_critical", "critical", "financial_regulation"].includes(classification)
+				? (classification as DataClassification)
+				: null
+
+		await addManualPersistence(
+			appId,
+			type as (typeof persistenceTypeEnum)[number],
+			name,
+			validClassification,
+			authedUser.navIdent,
+		)
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
+	if (intent === "update-persistence-classification") {
+		const persistenceId = formData.get("persistenceId") as string
+		const classification = (formData.get("dataClassification") as string) || null
+		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
+
+		const validClassification =
+			classification && ["not_critical", "critical", "financial_regulation"].includes(classification)
+				? (classification as DataClassification)
+				: null
+
+		await updatePersistenceClassification(persistenceId, validClassification, authedUser.navIdent)
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
+	if (intent === "delete-persistence") {
+		const persistenceId = formData.get("persistenceId") as string
+		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
+		await deleteManualPersistence(persistenceId, authedUser.navIdent)
 		return data({ success: true, controlId: "screening", screening: true })
 	}
 
@@ -187,6 +259,7 @@ export default function ComplianceAssessment() {
 		primaryId,
 		allRisks,
 		screening,
+		persistence,
 		filters,
 		options,
 	} = useLoaderData<typeof loader>()
@@ -435,7 +508,11 @@ export default function ComplianceAssessment() {
 													))}
 												</HStack>
 											)}
-											<ScreeningAnswerForm question={q} />
+											{q.answerType === "persistence" ? (
+												<ScreeningPersistenceForm entries={persistence} />
+											) : (
+												<ScreeningAnswerForm question={q} />
+											)}
 										</VStack>
 									</div>
 								))}
@@ -742,6 +819,128 @@ function AssessmentCard({
 				</HStack>
 			</Form>
 		</div>
+	)
+}
+
+type PersistenceEntry = ReturnType<typeof useLoaderData<typeof loader>>["persistence"][number]
+
+const persistenceVariants: Record<string, "info" | "warning" | "alt1" | "alt2" | "alt3" | "neutral"> = {
+	cloud_sql_postgres: "info",
+	nais_postgres: "info",
+	on_prem_postgres: "warning",
+	opensearch: "alt1",
+	bucket: "alt2",
+	valkey: "alt3",
+	oracle: "warning",
+	other: "neutral",
+}
+
+function ScreeningPersistenceForm({ entries }: { entries: PersistenceEntry[] }) {
+	const fetcher = useFetcher()
+
+	return (
+		<VStack gap="space-6">
+			{entries.length > 0 && (
+				<section className="table-scroll" aria-label="Registrerte databaser">
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell>Type</Table.HeaderCell>
+								<Table.HeaderCell>Navn</Table.HeaderCell>
+								<Table.HeaderCell>Klassifisering</Table.HeaderCell>
+								<Table.HeaderCell />
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{entries.map((p) => (
+								<Table.Row key={p.id}>
+									<Table.DataCell>
+										<Tag variant={persistenceVariants[p.type] ?? "neutral"} size="xsmall">
+											{persistenceTypeLabels[p.type as keyof typeof persistenceTypeLabels] ?? p.type}
+										</Tag>
+									</Table.DataCell>
+									<Table.DataCell>{p.name}</Table.DataCell>
+									<Table.DataCell>
+										<fetcher.Form method="post">
+											<input type="hidden" name="intent" value="update-persistence-classification" />
+											<input type="hidden" name="persistenceId" value={p.id} />
+											<Select
+												label="Klassifisering"
+												hideLabel
+												name="dataClassification"
+												size="small"
+												defaultValue={p.dataClassification ?? ""}
+												onChange={(e) => {
+													const form = e.target.closest("form")
+													if (form) fetcher.submit(form)
+												}}
+											>
+												<option value="">Ikke satt</option>
+												{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(
+													([value, label]) => (
+														<option key={value} value={value}>
+															{label}
+														</option>
+													),
+												)}
+											</Select>
+										</fetcher.Form>
+									</Table.DataCell>
+									<Table.DataCell>
+										{p.manuallyAdded && (
+											<fetcher.Form method="post">
+												<input type="hidden" name="intent" value="delete-persistence" />
+												<input type="hidden" name="persistenceId" value={p.id} />
+												<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />}>
+													Slett
+												</Button>
+											</fetcher.Form>
+										)}
+									</Table.DataCell>
+								</Table.Row>
+							))}
+						</Table.Body>
+					</Table>
+				</section>
+			)}
+
+			{entries.length === 0 && (
+				<BodyShort size="small" textColor="subtle">
+					Ingen databaser registrert ennå.
+				</BodyShort>
+			)}
+
+			<fetcher.Form method="post">
+				<input type="hidden" name="intent" value="add-persistence" />
+				<HStack gap="space-4" align="end" wrap>
+					<Select label="Type" name="persistenceType" size="small" style={{ minWidth: "12rem" }}>
+						{persistenceTypeEnum.map((t) => (
+							<option key={t} value={t}>
+								{persistenceTypeLabels[t] ?? t}
+							</option>
+						))}
+					</Select>
+					<TextField label="Navn" name="persistenceName" size="small" style={{ minWidth: "14rem" }} />
+					<Select label="Dataklassifisering" name="dataClassification" size="small">
+						<option value="">Ikke satt</option>
+						{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(([value, label]) => (
+							<option key={value} value={value}>
+								{label}
+							</option>
+						))}
+					</Select>
+					<Button
+						type="submit"
+						variant="secondary-neutral"
+						size="small"
+						icon={<PlusIcon aria-hidden />}
+						loading={fetcher.state !== "idle"}
+					>
+						Legg til
+					</Button>
+				</HStack>
+			</fetcher.Form>
+		</VStack>
 	)
 }
 
