@@ -5,6 +5,12 @@ import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import {
+	type DataClassification,
+	dataClassificationLabels,
+	type PersistenceType,
+	persistenceTypeLabels,
+} from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
@@ -73,6 +79,7 @@ export default function SeksjonRutinerIndex() {
 							<Table.HeaderCell>Navn</Table.HeaderCell>
 							<Table.HeaderCell>Frekvens</Table.HeaderCell>
 							<Table.HeaderCell>Teknologielementer</Table.HeaderCell>
+							<Table.HeaderCell>Databasekoblinger</Table.HeaderCell>
 							<Table.HeaderCell>Gjennomganger</Table.HeaderCell>
 							<Table.HeaderCell />
 						</Table.Row>
@@ -90,6 +97,25 @@ export default function SeksjonRutinerIndex() {
 											<Tag key={te.id} variant="info" size="small">
 												{te.name}
 											</Tag>
+										))}
+									</HStack>
+								</Table.DataCell>
+								<Table.DataCell>
+									<HStack gap="space-2" wrap>
+										{routine.persistenceLinks.map((pl) => (
+											<HStack key={pl.id} gap="space-1" wrap>
+												{pl.persistenceType && (
+													<Tag variant="info" size="xsmall">
+														{persistenceTypeLabels[pl.persistenceType as PersistenceType] ?? pl.persistenceType}
+													</Tag>
+												)}
+												{pl.dataClassification && (
+													<Tag variant="warning" size="xsmall">
+														{dataClassificationLabels[pl.dataClassification as DataClassification] ??
+															pl.dataClassification}
+													</Tag>
+												)}
+											</HStack>
 										))}
 									</HStack>
 								</Table.DataCell>
