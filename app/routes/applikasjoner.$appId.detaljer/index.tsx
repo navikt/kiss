@@ -1652,12 +1652,14 @@ interface TrafficRow {
 }
 
 function parseTrafficCsv(text: string): TrafficRow[] {
-	const lines = text.trim().split("\n")
+	const lines = text.trim().split(/\r?\n/)
 	if (lines.length < 2) return []
 
 	return lines.slice(1).flatMap((line) => {
-		// Handle quoted CSV: "cluster:namespace:app","1,234"
-		const match = line.match(/^"([^"]+)"[,;]"?([^"]*)"?$/)
+		const trimmed = line.trim()
+		if (!trimmed) return []
+		// Handle quoted CSV: "cluster:namespace:app","1,234" or "cluster:namespace:app",1234
+		const match = trimmed.match(/^"([^"]+)"[,;]"?([^"]*)"?$/)
 		if (!match) return []
 		const parts = match[1].split(":")
 		if (parts.length !== 3) return []
