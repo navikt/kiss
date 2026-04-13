@@ -46,6 +46,7 @@ export async function createScreeningQuestion(
 	createdBy: string,
 	sectionId?: string | null,
 	answerType = "boolean",
+	rulesetId?: string | null,
 ) {
 	const [q] = await db
 		.insert(screeningQuestions)
@@ -57,6 +58,7 @@ export async function createScreeningQuestion(
 			updatedBy: createdBy,
 			sectionId: sectionId ?? null,
 			answerType,
+			rulesetId: rulesetId ?? null,
 		})
 		.returning()
 
@@ -85,10 +87,11 @@ export async function updateScreeningQuestion(
 	description: string | null,
 	displayOrder: number,
 	updatedBy: string,
+	rulesetId?: string | null,
 ) {
 	const [q] = await db
 		.update(screeningQuestions)
-		.set({ questionText, description, displayOrder, updatedAt: new Date(), updatedBy })
+		.set({ questionText, description, displayOrder, updatedAt: new Date(), updatedBy, rulesetId: rulesetId ?? null })
 		.where(eq(screeningQuestions.id, id))
 		.returning()
 

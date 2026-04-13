@@ -199,6 +199,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 				"Z999999",
 				null,
 				"boolean",
+				null,
 			)
 		})
 
@@ -223,6 +224,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 				"Oppdatert beskrivelse",
 				1,
 				"Z999999",
+				null,
 			)
 		})
 

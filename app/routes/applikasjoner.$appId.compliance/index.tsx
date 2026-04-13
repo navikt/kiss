@@ -612,6 +612,7 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 									{q.answeredBy && (
 										<BodyShort size="small" textColor="subtle">
 											av {q.answeredBy}
+											{q.answeredAt && ` — ${new Date(q.answeredAt).toLocaleDateString("nb-NO")}`}
 										</BodyShort>
 									)}
 								</HStack>
@@ -688,6 +689,7 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 								{q.answeredBy && (
 									<BodyShort size="small" textColor="subtle">
 										av {q.answeredBy}
+										{q.answeredAt && ` — ${new Date(q.answeredAt).toLocaleDateString("nb-NO")}`}
 									</BodyShort>
 								)}
 							</HStack>

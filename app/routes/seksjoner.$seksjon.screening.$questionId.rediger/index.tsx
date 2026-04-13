@@ -2,6 +2,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, redirect } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
+import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import {
 	addChoiceEffect,
 	createChoice,
@@ -41,7 +42,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const isNew = questionId === "ny"
 
 	if (isNew) {
-		const [controls, technologyElementsList] = await Promise.all([getAllControls(), getAllTechnologyElements()])
+		const [controls, technologyElementsList, sectionRulesets] = await Promise.all([
+			getAllControls(),
+			getAllTechnologyElements(),
+			getRulesetsForSection(sectionId),
+		])
 		return data({
 			isNew: true,
 			question: {
@@ -51,11 +56,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				descriptionHtml: "",
 				displayOrder: 0,
 				answerType: "boolean",
+				rulesetId: null as string | null,
 				technologyElementIds: [] as string[],
 			},
 			choices: [],
 			controls,
 			technologyElements: technologyElementsList,
+			rulesets: sectionRulesets.map((rs) => ({ id: rs.id, name: rs.name })),
 			seksjon,
 			sectionId,
 			sectionName,
@@ -74,10 +81,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		}),
 	)
 
-	const [controls, technologyElementsList, questionTechElements] = await Promise.all([
+	const [controls, technologyElementsList, questionTechElements, sectionRulesets] = await Promise.all([
 		getAllControls(),
 		getAllTechnologyElements(),
 		getQuestionTechnologyElements(questionId),
+		getRulesetsForSection(sectionId),
 	])
 
 	return data({
@@ -90,6 +98,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		choices: choicesWithEffects,
 		controls,
 		technologyElements: technologyElementsList,
+		rulesets: sectionRulesets.map((rs) => ({ id: rs.id, name: rs.name })),
 		seksjon,
 		sectionId,
 		sectionName,
@@ -132,6 +141,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const displayOrder = Number(formData.get("displayOrder") ?? 0)
 		const answerType = (formData.get("answerType") as string) || "boolean"
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
+		const rulesetId = (formData.get("rulesetId") as string) || null
 		if (!questionText?.trim()) throw new Response("Ugyldig data", { status: 400 })
 
 		if (questionId === "ny") {
@@ -142,6 +152,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				authedUser.navIdent,
 				sectionId,
 				answerType,
+				rulesetId,
 			)
 
 			await setQuestionTechnologyElements(q.id, technologyElementIds.filter(Boolean))
@@ -178,7 +189,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return redirect(returnPath)
 		}
 
-		await updateScreeningQuestion(questionId, questionText.trim(), description, displayOrder, authedUser.navIdent)
+		await updateScreeningQuestion(
+			questionId,
+			questionText.trim(),
+			description,
+			displayOrder,
+			authedUser.navIdent,
+			rulesetId,
+		)
 		await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean))
 		return redirect(returnPath)
 	}

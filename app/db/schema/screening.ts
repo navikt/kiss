@@ -3,6 +3,7 @@ import { monitoredApplications } from "./applications"
 import { complianceStatusEnum } from "./compliance"
 import { frameworkControls, technologyElements } from "./framework"
 import { sections } from "./organization"
+import { rulesets } from "./rulesets"
 
 /** Extended effect enum that includes screening-specific effects beyond compliance statuses. */
 export const screeningEffectEnum = [...complianceStatusEnum, "select_routine"] as const
@@ -17,6 +18,7 @@ export const screeningEffectLabels: Record<string, string> = {
 export const screeningQuestions = pgTable("screening_questions", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	sectionId: uuid("section_id").references(() => sections.id, { onDelete: "cascade" }),
+	rulesetId: uuid("ruleset_id").references(() => rulesets.id, { onDelete: "set null" }),
 	questionText: text("question_text").notNull(),
 	description: text("description"),
 	answerType: text("answer_type").notNull().default("boolean"),

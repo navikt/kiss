@@ -169,6 +169,13 @@
       "when": 1781903000000,
       "tag": "0023_routine_applies_to_all",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1781904000000,
+      "tag": "0024_screening_question_ruleset",
+      "breakpoints": true
     }
   ]
 }

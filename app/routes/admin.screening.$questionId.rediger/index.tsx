@@ -76,11 +76,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				descriptionHtml: "",
 				displayOrder: 0,
 				answerType: "boolean",
+				rulesetId: null as string | null,
 				technologyElementIds: [] as string[],
 			},
 			choices: [],
 			controls,
 			technologyElements: technologyElementsList,
+			rulesets: [] as { id: string; name: string }[],
 			seksjon: seksjonSlug,
 			sectionId,
 			sectionName,
@@ -115,6 +117,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		choices: choicesWithEffects,
 		controls,
 		technologyElements: technologyElementsList,
+		rulesets: [] as { id: string; name: string }[],
 		seksjon: seksjonSlug,
 		sectionId,
 		sectionName,
@@ -139,6 +142,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const displayOrder = Number(formData.get("displayOrder") ?? 0)
 		const answerType = (formData.get("answerType") as string) || "boolean"
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
+		const rulesetId = (formData.get("rulesetId") as string) || null
 		if (!questionText?.trim()) throw new Response("Ugyldig data", { status: 400 })
 
 		if (questionId === "ny") {
@@ -149,6 +153,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				authedUser.navIdent,
 				sectionId,
 				answerType,
+				rulesetId,
 			)
 
 			await setQuestionTechnologyElements(q.id, technologyElementIds.filter(Boolean))
@@ -187,7 +192,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return redirect(returnPath)
 		}
 
-		await updateScreeningQuestion(questionId, questionText.trim(), description, displayOrder, authedUser.navIdent)
+		await updateScreeningQuestion(
+			questionId,
+			questionText.trim(),
+			description,
+			displayOrder,
+			authedUser.navIdent,
+			rulesetId,
+		)
 		await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean))
 		return redirect(returnPath)
 	}
@@ -255,7 +267,7 @@ interface PendingChoice {
 }
 
 export default function EditScreeningQuestion() {
-	const { isNew, question, choices, controls, technologyElements, sectionId, returnPath } =
+	const { isNew, question, choices, controls, technologyElements, rulesets, sectionId, returnPath } =
 		useLoaderData<typeof loader>()
 	const [pendingChoices, setPendingChoices] = useState<PendingChoice[]>([])
 	const [answerType, setAnswerType] = useState(question.answerType ?? "boolean")
@@ -318,6 +330,22 @@ export default function EditScreeningQuestion() {
 								</Checkbox>
 							))}
 						</CheckboxGroup>
+					)}
+					{rulesets.length > 0 && (
+						<Select
+							label="Regelsett"
+							name="rulesetId"
+							size="small"
+							defaultValue={question.rulesetId ?? ""}
+							style={{ maxWidth: "20rem" }}
+						>
+							<option value="">— Ikke valgt —</option>
+							{rulesets.map((rs) => (
+								<option key={rs.id} value={rs.id}>
+									{rs.name}
+								</option>
+							))}
+						</Select>
 					)}
 					<div>
 						<Button type="submit" size="small" variant="primary">
