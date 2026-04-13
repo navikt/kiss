@@ -267,7 +267,7 @@ interface PendingChoice {
 }
 
 export default function EditScreeningQuestion() {
-	const { isNew, question, choices, controls, technologyElements, rulesets, sectionId, returnPath } =
+	const { isNew, question, choices, controls, technologyElements, sectionId, returnPath } =
 		useLoaderData<typeof loader>()
 	const [pendingChoices, setPendingChoices] = useState<PendingChoice[]>([])
 	const [answerType, setAnswerType] = useState(question.answerType ?? "boolean")
