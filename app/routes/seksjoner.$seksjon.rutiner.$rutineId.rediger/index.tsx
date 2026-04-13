@@ -116,6 +116,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const description = (formData.get("description") as string)?.trim() || null
 		const frequency = formData.get("frequency") as string
 		const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
+		const appliesToAllInSection = formData.get("appliesToAllInSection") === "on"
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
 		const controlIds = formData.getAll("controlIds") as string[]
 
@@ -148,6 +149,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			description,
 			frequency,
 			responsibleRole,
+			appliesToAllInSection,
 			persistenceLinks,
 			screeningQuestionId: firstLink?.questionId ?? null,
 			screeningChoiceValue: firstLink?.choiceValue ?? null,
@@ -266,6 +268,10 @@ export default function RedigerRutine() {
 							</option>
 						))}
 					</Select>
+
+					<Checkbox name="appliesToAllInSection" defaultChecked={routine.appliesToAllInSection === 1} size="small">
+						Gjelder alle applikasjoner i seksjonen
+					</Checkbox>
 
 					<VStack gap="space-2">
 						<Label size="small">Innledende spørsmål</Label>

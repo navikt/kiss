@@ -16,6 +16,7 @@ export const routines = pgTable("routines", {
 	description: text("description"),
 	frequency: text("frequency", { enum: ROUTINE_FREQUENCIES }).notNull(),
 	responsibleRole: text("responsible_role"),
+	appliesToAllInSection: integer("applies_to_all_in_section").notNull().default(0),
 	screeningQuestionId: uuid("screening_question_id").references(() => screeningQuestions.id, {
 		onDelete: "set null",
 	}),

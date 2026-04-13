@@ -117,6 +117,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const description = formData.get("description")
 	const frequency = formData.get("frequency")
 	const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
+	const appliesToAllInSection = formData.get("appliesToAllInSection") === "on"
 	const technologyElementIds = formData.getAll("technologyElementIds")
 	const controlIds = formData.getAll("controlIds") as string[]
 
@@ -153,6 +154,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		description: typeof description === "string" && description.trim() ? description.trim() : null,
 		frequency,
 		responsibleRole,
+		appliesToAllInSection,
 		persistenceLinks,
 		screeningQuestionId: firstLink?.questionId ?? null,
 		screeningChoiceValue: firstLink?.choiceValue ?? null,
@@ -236,6 +238,10 @@ export default function NyRutine() {
 							</option>
 						))}
 					</Select>
+
+					<Checkbox name="appliesToAllInSection" size="small">
+						Gjelder alle applikasjoner i seksjonen
+					</Checkbox>
 
 					<VStack gap="space-2">
 						<Label size="small">Innledende spørsmål</Label>

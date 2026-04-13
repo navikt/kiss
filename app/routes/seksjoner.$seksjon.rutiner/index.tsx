@@ -88,7 +88,14 @@ export default function SeksjonRutinerIndex() {
 						{routines.map((routine) => (
 							<Table.Row key={routine.id}>
 								<Table.DataCell>
-									<Link to={`./${routine.id}`}>{routine.name}</Link>
+									<HStack gap="space-2" align="center" wrap>
+										<Link to={`./${routine.id}`}>{routine.name}</Link>
+										{routine.appliesToAllInSection === 1 && (
+											<Tag variant="alt3" size="xsmall">
+												Gjelder alle
+											</Tag>
+										)}
+									</HStack>
 								</Table.DataCell>
 								<Table.DataCell>{getFrequencyLabel(routine.frequency)}</Table.DataCell>
 								<Table.DataCell>

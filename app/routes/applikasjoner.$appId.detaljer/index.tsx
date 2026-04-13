@@ -68,6 +68,7 @@ import {
 	getRoutineDeadlinesForApp,
 	getRoutineDeadlinesForAppByPersistence,
 	getRoutineDeadlinesForAppByScreeningSelection,
+	getRoutineDeadlinesForAppBySection,
 } from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
 import {
@@ -148,11 +149,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	])
 	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(appId, alreadyMatchedIds)
 
+	// Find routines that apply to all apps in sections this app belongs to
+	const allMatchedIds = new Set([
+		...alreadyMatchedIds,
+		...(screeningSelectionRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
+	])
+	const sectionWideRoutines = await getRoutineDeadlinesForAppBySection(appId, allMatchedIds)
+
 	// Tag each deadline with its match source
 	const routineDeadlines = [
 		...screeningRoutines.map((d) => ({ ...d, matchSource: "screening" as const })),
 		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
 		...screeningSelectionRoutines.map((d) => ({ ...d, matchSource: "screening_selection" as const })),
+		...sectionWideRoutines.map((d) => ({ ...d, matchSource: "section" as const })),
 	]
 
 	// Build section ID → slug lookup for routine links
@@ -1089,6 +1098,10 @@ export default function ApplikasjonDetalj() {
 													) : dl.matchSource === "screening_selection" ? (
 														<Tag variant="alt1" size="xsmall">
 															Valgt via spørsmål
+														</Tag>
+													) : dl.matchSource === "section" ? (
+														<Tag variant="alt3" size="xsmall">
+															Gjelder alle i seksjonen
 														</Tag>
 													) : (
 														<Tag variant="neutral" size="xsmall">
