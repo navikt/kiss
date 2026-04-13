@@ -2,8 +2,16 @@ import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
-import { applicationTechnologyElements, technologyElements } from "../schema/framework"
 import {
+	applicationTechnologyElements,
+	frameworkControls,
+	frameworkDomains,
+	frameworkRiskControlMappings,
+	frameworkRisks,
+	technologyElements,
+} from "../schema/framework"
+import {
+	routineControls,
 	routineReviewAttachments,
 	routineReviewLinks,
 	routineReviewParticipants,
@@ -63,7 +71,28 @@ export async function getRoutine(id: string) {
 		.from(routineScreeningQuestions)
 		.where(eq(routineScreeningQuestions.routineId, id))
 
-	return { ...routine, technologyElements: elements, screeningQuestions: screeningLinks }
+	const controlRows = await db
+		.selectDistinct({
+			id: frameworkControls.id,
+			controlId: frameworkControls.controlId,
+			shortTitle: frameworkControls.shortTitle,
+			domainSlug: frameworkDomains.code,
+		})
+		.from(routineControls)
+		.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
+		.innerJoin(frameworkRiskControlMappings, eq(frameworkControls.id, frameworkRiskControlMappings.controlId))
+		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+		.where(eq(routineControls.routineId, id))
+
+	const controls = controlRows.map((c) => ({
+		id: c.id,
+		controlId: c.controlId,
+		name: c.shortTitle ?? c.controlId,
+		domainSlug: c.domainSlug,
+	}))
+
+	return { ...routine, technologyElements: elements, screeningQuestions: screeningLinks, controls }
 }
 
 export async function createRoutine(params: {
@@ -71,10 +100,12 @@ export async function createRoutine(params: {
 	name: string
 	description: string | null
 	frequency: RoutineFrequency
+	responsibleRole: string | null
 	screeningQuestionId: string | null
 	screeningChoiceValue: string | null
 	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
 	technologyElementIds: string[]
+	controlIds: string[]
 	createdBy: string
 }) {
 	const [routine] = await db
@@ -84,6 +115,7 @@ export async function createRoutine(params: {
 			name: params.name,
 			description: params.description,
 			frequency: params.frequency,
+			responsibleRole: params.responsibleRole,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
 			createdBy: params.createdBy,
@@ -96,6 +128,15 @@ export async function createRoutine(params: {
 			params.technologyElementIds.map((elementId) => ({
 				routineId: routine.id,
 				elementId,
+			})),
+		)
+	}
+
+	if (params.controlIds.length > 0) {
+		await db.insert(routineControls).values(
+			params.controlIds.map((controlId) => ({
+				routineId: routine.id,
+				controlId,
 			})),
 		)
 	}
@@ -124,9 +165,11 @@ export async function createRoutine(params: {
 		metadata: {
 			sectionId: params.sectionId,
 			frequency: params.frequency,
+			responsibleRole: params.responsibleRole,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningQuestionLinks: links,
 			technologyElementIds: params.technologyElementIds,
+			controlIds: params.controlIds,
 		},
 		performedBy: params.createdBy,
 	})
@@ -139,10 +182,12 @@ export async function updateRoutine(params: {
 	name: string
 	description: string | null
 	frequency: RoutineFrequency
+	responsibleRole: string | null
 	screeningQuestionId: string | null
 	screeningChoiceValue: string | null
 	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
 	technologyElementIds: string[]
+	controlIds: string[]
 	updatedBy: string
 }) {
 	const prev = await getRoutine(params.id)
@@ -153,6 +198,7 @@ export async function updateRoutine(params: {
 			name: params.name,
 			description: params.description,
 			frequency: params.frequency,
+			responsibleRole: params.responsibleRole,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
 			updatedBy: params.updatedBy,
@@ -168,6 +214,17 @@ export async function updateRoutine(params: {
 			params.technologyElementIds.map((elementId) => ({
 				routineId: params.id,
 				elementId,
+			})),
+		)
+	}
+
+	// Replace control links
+	await db.delete(routineControls).where(eq(routineControls.routineId, params.id))
+	if (params.controlIds.length > 0) {
+		await db.insert(routineControls).values(
+			params.controlIds.map((controlId) => ({
+				routineId: params.id,
+				controlId,
 			})),
 		)
 	}
@@ -196,9 +253,11 @@ export async function updateRoutine(params: {
 		newValue: params.name,
 		metadata: {
 			frequency: params.frequency,
+			responsibleRole: params.responsibleRole,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningQuestionLinks: links,
 			technologyElementIds: params.technologyElementIds,
+			controlIds: params.controlIds,
 		},
 		performedBy: params.updatedBy,
 	})
@@ -762,6 +821,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			...routine,
 			technologyElements: techElems,
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
+			controls: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null

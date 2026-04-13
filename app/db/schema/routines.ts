@@ -1,7 +1,7 @@
 import { integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
 import { monitoredApplications } from "./applications"
-import { technologyElements } from "./framework"
+import { frameworkControls, technologyElements } from "./framework"
 import { sections } from "./organization"
 import { screeningQuestions } from "./screening"
 
@@ -15,6 +15,7 @@ export const routines = pgTable("routines", {
 	name: text("name").notNull(),
 	description: text("description"),
 	frequency: text("frequency", { enum: ROUTINE_FREQUENCIES }).notNull(),
+	responsibleRole: text("responsible_role"),
 	screeningQuestionId: uuid("screening_question_id").references(() => screeningQuestions.id, {
 		onDelete: "set null",
 	}),
@@ -36,6 +37,18 @@ export const routineScreeningQuestions = pgTable("routine_screening_questions", 
 		.notNull()
 		.references(() => screeningQuestions.id, { onDelete: "cascade" }),
 	choiceValue: text("choice_value"),
+})
+
+// ─── Routine ↔ Framework Control linking ─────────────────────────────────
+
+export const routineControls = pgTable("routine_controls", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	routineId: uuid("routine_id")
+		.notNull()
+		.references(() => routines.id, { onDelete: "cascade" }),
+	controlId: uuid("control_id")
+		.notNull()
+		.references(() => frameworkControls.id, { onDelete: "cascade" }),
 })
 
 // ─── Routine ↔ Technology Element linking ────────────────────────────────

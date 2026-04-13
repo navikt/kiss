@@ -18,6 +18,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useLoaderData } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import { deleteRoutine, getRoutine, updateRoutine } from "~/db/queries/routines.server"
 import {
 	getChoicesForQuestion,
@@ -50,10 +51,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const routine = await getRoutine(rutineId)
 	if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
 
-	const [globalQuestions, sectionQuestions, technologyElements] = await Promise.all([
+	const [globalQuestions, sectionQuestions, technologyElements, controls] = await Promise.all([
 		getScreeningQuestions(),
 		getSectionScreeningQuestions(section.id),
 		getAllTechnologyElements(),
+		getAllControlsForSelection(),
 	])
 
 	const allQuestions = [...globalQuestions, ...sectionQuestions]
@@ -71,6 +73,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		routine,
 		questionsWithChoices,
 		technologyElements,
+		controls,
 	})
 }
 
@@ -89,7 +92,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const name = (formData.get("name") as string)?.trim()
 		const description = (formData.get("description") as string)?.trim() || null
 		const frequency = formData.get("frequency") as string
+		const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
+		const controlIds = formData.getAll("controlIds") as string[]
 
 		if (!name) throw new Response("Navn er påkrevd", { status: 400 })
 		if (!isRoutineFrequency(frequency)) throw new Response("Ugyldig frekvens", { status: 400 })
@@ -109,10 +114,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			name,
 			description,
 			frequency,
+			responsibleRole,
 			screeningQuestionId: firstLink?.questionId ?? null,
 			screeningChoiceValue: firstLink?.choiceValue ?? null,
 			screeningQuestionLinks,
 			technologyElementIds,
+			controlIds,
 			updatedBy: authedUser.navIdent,
 		})
 
@@ -128,7 +135,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RedigerRutine() {
-	const { seksjon, routine, questionsWithChoices, technologyElements } = useLoaderData<typeof loader>()
+	const { seksjon, routine, questionsWithChoices, technologyElements, controls } = useLoaderData<typeof loader>()
 
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
 
@@ -284,6 +291,32 @@ export default function RedigerRutine() {
 							{technologyElements.map((te) => (
 								<Checkbox key={te.id} name="technologyElementIds" value={te.id}>
 									{te.name}
+								</Checkbox>
+							))}
+						</CheckboxGroup>
+					)}
+
+					<Select
+						label="Ansvarlig rolle"
+						name="responsibleRole"
+						size="small"
+						defaultValue={routine.responsibleRole ?? ""}
+					>
+						<option value="">Velg rolle (valgfritt)</option>
+						<option value="Seksjonsleder">Seksjonsleder</option>
+						<option value="Teknologileder">Teknologileder</option>
+						<option value="Teamleder">Teamleder</option>
+						<option value="Utvikler">Utvikler</option>
+						<option value="Arkitekt">Arkitekt</option>
+						<option value="Sikkerhetsansvarlig">Sikkerhetsansvarlig</option>
+						<option value="Testleder">Testleder</option>
+					</Select>
+
+					{controls.length > 0 && (
+						<CheckboxGroup legend="Tilknyttede krav" size="small" defaultValue={routine.controls.map((c) => c.id)}>
+							{controls.map((ctrl) => (
+								<Checkbox key={ctrl.id} name="controlIds" value={ctrl.id}>
+									{ctrl.controlId} – {ctrl.name}
 								</Checkbox>
 							))}
 						</CheckboxGroup>
