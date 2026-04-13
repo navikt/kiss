@@ -16,6 +16,7 @@ import {
 	Label,
 	Modal,
 	ReadMore,
+	Search,
 	Table,
 	Tabs,
 	Tag,
@@ -408,7 +409,7 @@ export default function ApplikasjonDetalj() {
 					<Tabs.Tab value="oversikt" label="Oversikt" />
 					<Tabs.Tab value="kontroller" label="Kontroller" />
 					<Tabs.Tab value="autentisering" label="Autentisering" />
-					<Tabs.Tab value="tilgangspolicy" label="Tilgangspolicy" />
+					<Tabs.Tab value="tilgangspolicy" label="Autoriserte applikasjoner" />
 					<Tabs.Tab value="miljoer" label="Miljøer" />
 					{environments.length > 0 && <Tabs.Tab value="deployments" label="Deployments" />}
 					<Tabs.Tab value="persistering" label="Persistering" />
@@ -744,198 +745,57 @@ export default function ApplikasjonDetalj() {
 					)}
 				</Tabs.Panel>
 
-				{/* Tilgangspolicy */}
+				{/* Autoriserte applikasjoner */}
 				<Tabs.Panel value="tilgangspolicy" style={{ paddingTop: "var(--ax-space-6)" }}>
-					<VStack gap="space-4">
-						<Alert variant="info" size="small">
-							Tilgangspolicyen definerer hvilke applikasjoner som har nettverkstilgang til å kalle denne applikasjonen,
-							og som kan utstede tokens via TokenX eller Entra ID. Policyen hentes automatisk fra{" "}
-							<code>spec.accessPolicy.inbound.rules</code> i Nais-manifestet.
-						</Alert>
+					<AuthorizedAppsPanel
+						accessPolicyRules={accessPolicyRules}
+						knownApps={knownApps}
+						acknowledgments={acknowledgments}
+						appName={app.name}
+						submit={submit}
+						setAckTarget={setAckTarget}
+						setAckComment={setAckComment}
+						ackModalRef={ackModalRef}
+					/>
 
-						{(() => {
-							const inboundRules = accessPolicyRules.filter((r) => r.direction === "inbound")
-							if (inboundRules.length === 0) {
-								return (
-									<BodyLong>
-										Ingen tilgangspolicyregler funnet. Applikasjonen har enten ikke definert{" "}
-										<code>accessPolicy.inbound.rules</code> i sitt Nais-manifest, eller den har ikke blitt synkronisert
-										ennå.
-									</BodyLong>
-								)
-							}
-							return (
-								<VStack gap="space-2">
-									<Heading size="xsmall" level="4">
-										Innkommende tilgang ({inboundRules.length}{" "}
-										{inboundRules.length === 1 ? "applikasjon" : "applikasjoner"})
-									</Heading>
-									<BodyShort size="small" textColor="subtle">
-										Disse applikasjonene har tillatelse til å kalle dette API-et over nettverket.
-									</BodyShort>
-									<Table size="small">
-										<Table.Header>
-											<Table.Row>
-												<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-												<Table.HeaderCell scope="col">Namespace</Table.HeaderCell>
-												<Table.HeaderCell scope="col">Kluster</Table.HeaderCell>
-												<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-												<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
-											</Table.Row>
-										</Table.Header>
-										<Table.Body>
-											{inboundRules.map((rule) => {
-												const resolution = knownApps[rule.ruleApplication]
-												const ack = acknowledgments[rule.ruleApplication]
-												const isUnknown = !resolution || resolution.status === "unknown"
-												return (
-													<Table.Row key={rule.id}>
-														<Table.DataCell>
-															{resolution?.status === "monitored" ? (
-																<Link to={`/applikasjoner/${resolution.appId}/detaljer`}>
-																	<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleApplication}</code>
-																</Link>
-															) : (
-																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleApplication}</code>
-															)}
-														</Table.DataCell>
-														<Table.DataCell>
-															{rule.ruleNamespace ? (
-																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleNamespace}</code>
-															) : (
-																<BodyShort size="small" textColor="subtle">
-																	Samme
-																</BodyShort>
-															)}
-														</Table.DataCell>
-														<Table.DataCell>
-															{rule.ruleCluster ? (
-																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleCluster}</code>
-															) : (
-																<BodyShort size="small" textColor="subtle">
-																	Samme
-																</BodyShort>
-															)}
-														</Table.DataCell>
-														<Table.DataCell>
-															{resolution?.status === "monitored" ? (
-																<Tag variant="success" size="xsmall">
-																	Overvåket
-																</Tag>
-															) : resolution?.status === "discovered" ? (
-																<Tag variant="info" size="xsmall">
-																	Nais
-																</Tag>
-															) : ack ? (
-																<VStack gap="space-1">
-																	<HStack gap="space-2" align="center">
-																		<Tag variant="neutral" size="xsmall">
-																			Kvittert
-																		</Tag>
-																	</HStack>
-																	<BodyShort size="small" textColor="subtle">
-																		{ack.comment}
-																	</BodyShort>
-																	<Detail textColor="subtle">
-																		{ack.acknowledgedBy}, {new Date(ack.acknowledgedAt).toLocaleDateString("nb-NO")}
-																	</Detail>
-																</VStack>
-															) : (
-																<HStack gap="space-1" align="center">
-																	<XMarkOctagonIcon
-																		aria-hidden
-																		fontSize="1rem"
-																		style={{ color: "var(--ax-text-warning)" }}
-																	/>
-																	<Tag variant="warning" size="xsmall">
-																		Ukjent
-																	</Tag>
-																</HStack>
-															)}
-														</Table.DataCell>
-														<Table.DataCell>
-															{isUnknown &&
-																(ack ? (
-																	<Button
-																		variant="tertiary-neutral"
-																		size="xsmall"
-																		onClick={() =>
-																			submit(
-																				{
-																					intent: "revoke-acknowledgment",
-																					ruleApplication: rule.ruleApplication,
-																				},
-																				{ method: "POST" },
-																			)
-																		}
-																	>
-																		Trekk tilbake
-																	</Button>
-																) : (
-																	<Button
-																		variant="tertiary"
-																		size="xsmall"
-																		onClick={() => {
-																			setAckTarget(rule.ruleApplication)
-																			setAckComment("")
-																			ackModalRef.current?.showModal()
-																		}}
-																	>
-																		Kvitter ut
-																	</Button>
-																))}
-														</Table.DataCell>
-													</Table.Row>
-												)
-											})}
-										</Table.Body>
-									</Table>
-								</VStack>
-							)
-						})()}
-
-						{/* Traffic comparison — upload CSV to cross-reference with access policy */}
-						<TrafficComparison accessPolicyRules={accessPolicyRules} appName={app.name} />
-
-						<Modal ref={ackModalRef} header={{ heading: `Kvitter ut ${ackTarget}` }} onClose={() => setAckTarget(null)}>
-							<Modal.Body>
-								<Textarea
-									label="Kommentar (obligatorisk)"
-									description="Beskriv hvorfor denne applikasjonen er reell selv om den er ukjent i KISS"
-									value={ackComment}
-									onChange={(e) => setAckComment(e.target.value)}
-									minRows={3}
-								/>
-							</Modal.Body>
-							<Modal.Footer>
-								<Button
-									onClick={() => {
-										if (!ackTarget || !ackComment.trim()) return
-										submit(
-											{ intent: "acknowledge-app", ruleApplication: ackTarget, comment: ackComment },
-											{ method: "POST" },
-										)
-										ackModalRef.current?.close()
-										setAckTarget(null)
-										setAckComment("")
-									}}
-									disabled={!ackComment.trim()}
-								>
-									Bekreft
-								</Button>
-								<Button
-									variant="secondary"
-									onClick={() => {
-										ackModalRef.current?.close()
-										setAckTarget(null)
-										setAckComment("")
-									}}
-								>
-									Avbryt
-								</Button>
-							</Modal.Footer>
-						</Modal>
-					</VStack>
+					<Modal ref={ackModalRef} header={{ heading: `Kvitter ut ${ackTarget}` }} onClose={() => setAckTarget(null)}>
+						<Modal.Body>
+							<Textarea
+								label="Kommentar (obligatorisk)"
+								description="Beskriv hvorfor denne applikasjonen er reell selv om den er ukjent i KISS"
+								value={ackComment}
+								onChange={(e) => setAckComment(e.target.value)}
+								minRows={3}
+							/>
+						</Modal.Body>
+						<Modal.Footer>
+							<Button
+								onClick={() => {
+									if (!ackTarget || !ackComment.trim()) return
+									submit(
+										{ intent: "acknowledge-app", ruleApplication: ackTarget, comment: ackComment },
+										{ method: "POST" },
+									)
+									ackModalRef.current?.close()
+									setAckTarget(null)
+									setAckComment("")
+								}}
+								disabled={!ackComment.trim()}
+							>
+								Bekreft
+							</Button>
+							<Button
+								variant="secondary"
+								onClick={() => {
+									ackModalRef.current?.close()
+									setAckTarget(null)
+									setAckComment("")
+								}}
+							>
+								Avbryt
+							</Button>
+						</Modal.Footer>
+					</Modal>
 				</Tabs.Panel>
 
 				{/* Miljøer */}
@@ -1806,6 +1666,264 @@ function parseTrafficCsv(text: string): TrafficRow[] {
 		if (Number.isNaN(count)) return []
 		return [{ cluster: parts[0], namespace: parts[1], appName: parts[2], count }]
 	})
+}
+
+const statusSortOrder: Record<string, number> = {
+	monitored: 0,
+	discovered: 1,
+	acknowledged: 2,
+	unknown: 3,
+}
+
+function getStatusKey(
+	resolution: { status: string; appId?: string } | undefined,
+	ack: { comment: string; acknowledgedBy: string; acknowledgedAt: string } | undefined,
+): string {
+	if (resolution?.status === "monitored") return "monitored"
+	if (resolution?.status === "discovered") return "discovered"
+	if (ack) return "acknowledged"
+	return "unknown"
+}
+
+function AuthorizedAppsPanel({
+	accessPolicyRules,
+	knownApps,
+	acknowledgments,
+	appName,
+	submit,
+	setAckTarget,
+	setAckComment,
+	ackModalRef,
+}: {
+	accessPolicyRules: AccessPolicyRule[]
+	knownApps: Record<string, { status: string; appId?: string }>
+	acknowledgments: Record<string, { comment: string; acknowledgedBy: string; acknowledgedAt: string }>
+	appName: string
+	submit: ReturnType<typeof useSubmit>
+	setAckTarget: (target: string | null) => void
+	setAckComment: (comment: string) => void
+	ackModalRef: React.RefObject<HTMLDialogElement | null>
+}) {
+	const [searchQuery, setSearchQuery] = useState("")
+	const [sort, setSort] = useState<{ orderBy: string; direction: "ascending" | "descending" } | undefined>()
+
+	const handleSort = (sortKey: string) =>
+		setSort((prev) =>
+			prev?.orderBy === sortKey && prev.direction === "ascending"
+				? { orderBy: sortKey, direction: "descending" }
+				: { orderBy: sortKey, direction: "ascending" },
+		)
+
+	const inboundRules = accessPolicyRules.filter((r) => r.direction === "inbound")
+
+	const filteredRules = inboundRules.filter((rule) => {
+		if (!searchQuery) return true
+		const q = searchQuery.toLowerCase()
+		return (
+			rule.ruleApplication.toLowerCase().includes(q) ||
+			(rule.ruleNamespace?.toLowerCase().includes(q) ?? false) ||
+			(rule.ruleCluster?.toLowerCase().includes(q) ?? false)
+		)
+	})
+
+	const sortedRules = sort
+		? [...filteredRules].sort((a, b) => {
+				const dir = sort.direction === "ascending" ? 1 : -1
+				switch (sort.orderBy) {
+					case "appName":
+						return dir * a.ruleApplication.localeCompare(b.ruleApplication, "nb")
+					case "namespace":
+						return dir * (a.ruleNamespace ?? "").localeCompare(b.ruleNamespace ?? "", "nb")
+					case "cluster":
+						return dir * (a.ruleCluster ?? "").localeCompare(b.ruleCluster ?? "", "nb")
+					case "status": {
+						const statusA =
+							statusSortOrder[getStatusKey(knownApps[a.ruleApplication], acknowledgments[a.ruleApplication])] ?? 99
+						const statusB =
+							statusSortOrder[getStatusKey(knownApps[b.ruleApplication], acknowledgments[b.ruleApplication])] ?? 99
+						return dir * (statusA - statusB)
+					}
+					default:
+						return 0
+				}
+			})
+		: filteredRules
+
+	return (
+		<VStack gap="space-4">
+			<Alert variant="info" size="small">
+				Autoriserte applikasjoner er de som har nettverkstilgang til å kalle denne applikasjonen, og som kan utstede
+				tokens via TokenX eller Entra ID. Oversikten hentes automatisk fra <code>spec.accessPolicy.inbound.rules</code>{" "}
+				i Nais-manifestet.
+			</Alert>
+
+			{inboundRules.length === 0 ? (
+				<BodyLong>
+					Ingen autoriserte applikasjoner funnet. Applikasjonen har enten ikke definert{" "}
+					<code>accessPolicy.inbound.rules</code> i sitt Nais-manifest, eller den har ikke blitt synkronisert ennå.
+				</BodyLong>
+			) : (
+				<VStack gap="space-2">
+					<Heading size="xsmall" level="4">
+						Innkommende tilgang ({inboundRules.length} {inboundRules.length === 1 ? "applikasjon" : "applikasjoner"})
+					</Heading>
+					<BodyShort size="small" textColor="subtle">
+						Disse applikasjonene har tillatelse til å kalle dette API-et over nettverket.
+					</BodyShort>
+					<Search
+						label="Søk i autoriserte applikasjoner"
+						variant="simple"
+						size="small"
+						value={searchQuery}
+						onChange={setSearchQuery}
+						onClear={() => setSearchQuery("")}
+						placeholder="Filtrer på applikasjon, namespace eller kluster"
+					/>
+					{filteredRules.length === 0 ? (
+						<Box padding="space-6" borderRadius="8" background="sunken">
+							<BodyShort>Ingen treff for «{searchQuery}».</BodyShort>
+						</Box>
+					) : (
+						// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table container needs keyboard focus
+						<section className="table-scroll" tabIndex={0} aria-label="Autoriserte applikasjoner">
+							<Table size="small" sort={sort} onSortChange={handleSort}>
+								<Table.Header>
+									<Table.Row>
+										<Table.ColumnHeader sortKey="appName" sortable scope="col">
+											Applikasjon
+										</Table.ColumnHeader>
+										<Table.ColumnHeader sortKey="namespace" sortable scope="col">
+											Namespace
+										</Table.ColumnHeader>
+										<Table.ColumnHeader sortKey="cluster" sortable scope="col">
+											Kluster
+										</Table.ColumnHeader>
+										<Table.ColumnHeader sortKey="status" sortable scope="col">
+											Status
+										</Table.ColumnHeader>
+										<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
+									</Table.Row>
+								</Table.Header>
+								<Table.Body>
+									{sortedRules.map((rule) => {
+										const resolution = knownApps[rule.ruleApplication]
+										const ack = acknowledgments[rule.ruleApplication]
+										const isUnknown = !resolution || resolution.status === "unknown"
+										return (
+											<Table.Row key={rule.id}>
+												<Table.DataCell>
+													{resolution?.status === "monitored" ? (
+														<Link to={`/applikasjoner/${resolution.appId}/detaljer`}>
+															<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleApplication}</code>
+														</Link>
+													) : (
+														<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleApplication}</code>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{rule.ruleNamespace ? (
+														<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleNamespace}</code>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															Samme
+														</BodyShort>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{rule.ruleCluster ? (
+														<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{rule.ruleCluster}</code>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															Samme
+														</BodyShort>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{resolution?.status === "monitored" ? (
+														<Tag variant="success" size="xsmall">
+															Overvåket
+														</Tag>
+													) : resolution?.status === "discovered" ? (
+														<Tag variant="info" size="xsmall">
+															Nais
+														</Tag>
+													) : ack ? (
+														<VStack gap="space-1">
+															<HStack gap="space-2" align="center">
+																<Tag variant="neutral" size="xsmall">
+																	Kvittert
+																</Tag>
+															</HStack>
+															<BodyShort size="small" textColor="subtle">
+																{ack.comment}
+															</BodyShort>
+															<Detail textColor="subtle">
+																{ack.acknowledgedBy}, {new Date(ack.acknowledgedAt).toLocaleDateString("nb-NO")}
+															</Detail>
+														</VStack>
+													) : (
+														<HStack gap="space-1" align="center">
+															<XMarkOctagonIcon
+																aria-hidden
+																fontSize="1rem"
+																style={{ color: "var(--ax-text-warning)" }}
+															/>
+															<Tag variant="warning" size="xsmall">
+																Ukjent
+															</Tag>
+														</HStack>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{isUnknown &&
+														(ack ? (
+															<Button
+																variant="tertiary-neutral"
+																size="xsmall"
+																onClick={() =>
+																	submit(
+																		{
+																			intent: "revoke-acknowledgment",
+																			ruleApplication: rule.ruleApplication,
+																		},
+																		{ method: "POST" },
+																	)
+																}
+															>
+																Trekk tilbake
+															</Button>
+														) : (
+															<Button
+																variant="tertiary"
+																size="xsmall"
+																onClick={() => {
+																	setAckTarget(rule.ruleApplication)
+																	setAckComment("")
+																	ackModalRef.current?.showModal()
+																}}
+															>
+																Kvitter ut
+															</Button>
+														))}
+												</Table.DataCell>
+											</Table.Row>
+										)
+									})}
+								</Table.Body>
+							</Table>
+						</section>
+					)}
+					{searchQuery && filteredRules.length < inboundRules.length && (
+						<BodyShort size="small" textColor="subtle">
+							Viser {filteredRules.length} av {inboundRules.length} applikasjoner
+						</BodyShort>
+					)}
+				</VStack>
+			)}
+
+			<TrafficComparison accessPolicyRules={accessPolicyRules} appName={appName} />
+		</VStack>
+	)
 }
 
 interface AccessPolicyRule {
