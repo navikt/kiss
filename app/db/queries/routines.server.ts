@@ -692,7 +692,13 @@ export async function getLatestReviewForApp(routineId: string, applicationId: st
 	const [review] = await db
 		.select()
 		.from(routineReviews)
-		.where(and(eq(routineReviews.routineId, routineId), eq(routineReviews.applicationId, applicationId)))
+		.where(
+			and(
+				eq(routineReviews.routineId, routineId),
+				eq(routineReviews.applicationId, applicationId),
+				eq(routineReviews.status, "completed"),
+			),
+		)
 		.orderBy(desc(routineReviews.reviewedAt))
 		.limit(1)
 
@@ -854,14 +860,20 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		.limit(1)
 	const appName = appRow?.name ?? ""
 
-	// Step 5: Get latest reviews for all matching routines in batch
+	// Step 5: Get latest completed reviews for all matching routines in batch
 	const latestReviews = await db
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
 			reviewedAt: routineReviews.reviewedAt,
 		})
 		.from(routineReviews)
-		.where(and(inArray(routineReviews.routineId, routineIdList), eq(routineReviews.applicationId, applicationId)))
+		.where(
+			and(
+				inArray(routineReviews.routineId, routineIdList),
+				eq(routineReviews.applicationId, applicationId),
+				eq(routineReviews.status, "completed"),
+			),
+		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
 	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
 
@@ -991,14 +1003,20 @@ export async function getRoutineDeadlinesForAppByPersistence(
 		.limit(1)
 	const appName = appRow?.name ?? ""
 
-	// Get latest reviews
+	// Get latest completed reviews
 	const latestReviews = await db
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
 			reviewedAt: routineReviews.reviewedAt,
 		})
 		.from(routineReviews)
-		.where(and(inArray(routineReviews.routineId, routineIdList), eq(routineReviews.applicationId, applicationId)))
+		.where(
+			and(
+				inArray(routineReviews.routineId, routineIdList),
+				eq(routineReviews.applicationId, applicationId),
+				eq(routineReviews.status, "completed"),
+			),
+		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
 	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
 
@@ -1101,7 +1119,13 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			reviewedAt: routineReviews.reviewedAt,
 		})
 		.from(routineReviews)
-		.where(and(inArray(routineReviews.routineId, uniqueIds), eq(routineReviews.applicationId, applicationId)))
+		.where(
+			and(
+				inArray(routineReviews.routineId, uniqueIds),
+				eq(routineReviews.applicationId, applicationId),
+				eq(routineReviews.status, "completed"),
+			),
+		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
 	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
 
@@ -1204,7 +1228,13 @@ export async function getRoutineDeadlinesForAppBySection(
 			reviewedAt: routineReviews.reviewedAt,
 		})
 		.from(routineReviews)
-		.where(and(inArray(routineReviews.routineId, routineIdList), eq(routineReviews.applicationId, applicationId)))
+		.where(
+			and(
+				inArray(routineReviews.routineId, routineIdList),
+				eq(routineReviews.applicationId, applicationId),
+				eq(routineReviews.status, "completed"),
+			),
+		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
 	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
 
