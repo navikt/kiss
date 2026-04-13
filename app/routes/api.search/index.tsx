@@ -19,6 +19,23 @@ interface SearchResult {
 	subtitle?: string
 }
 
+/** Score a result by how closely it matches the query (lower = better). */
+function searchScore(name: string, query: string): number {
+	const n = name.toLowerCase()
+	const q = query.toLowerCase()
+
+	if (n === q) return 0
+	if (n.startsWith(q)) return 1 + n.length / 1000
+	// Word-boundary match (segment after - or space starts with query)
+	const segments = n.split(/[-\s]/)
+	if (segments.some((s) => s === q)) return 2 + n.length / 1000
+	if (segments.some((s) => s.startsWith(q))) return 3 + n.length / 1000
+	// Contains anywhere
+	const idx = n.indexOf(q)
+	if (idx >= 0) return 4 + idx / n.length + n.length / 1000
+	return 100
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
 	const url = new URL(request.url)
 	const query = url.searchParams.get("q")?.trim()
@@ -154,6 +171,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			}
 		}),
 	]
+
+	results.sort((a, b) => searchScore(a.title, query) - searchScore(b.title, query))
 
 	return Response.json({ results: results.slice(0, 20) })
 }
