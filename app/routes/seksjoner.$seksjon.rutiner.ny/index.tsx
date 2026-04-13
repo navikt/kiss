@@ -16,6 +16,7 @@ import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import { createRoutine } from "~/db/queries/routines.server"
 import {
 	getChoicesForQuestion,
@@ -49,10 +50,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 	}
 
-	const [globalQuestions, sectionQuestions, technologyElements] = await Promise.all([
+	const [globalQuestions, sectionQuestions, technologyElements, controls] = await Promise.all([
 		getScreeningQuestions(),
 		getSectionScreeningQuestions(section.id),
 		getAllTechnologyElements(),
+		getAllControlsForSelection(),
 	])
 
 	const allQuestions = [...globalQuestions, ...sectionQuestions]
@@ -68,6 +70,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		section,
 		screeningQuestions: questionsWithChoices,
 		technologyElements,
+		controls,
 	})
 }
 
@@ -90,7 +93,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const name = formData.get("name")
 	const description = formData.get("description")
 	const frequency = formData.get("frequency")
+	const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
 	const technologyElementIds = formData.getAll("technologyElementIds")
+	const controlIds = formData.getAll("controlIds") as string[]
 
 	if (!name || typeof name !== "string" || !name.trim()) {
 		throw data({ message: "Navn er påkrevd" }, { status: 400 })
@@ -114,10 +119,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		name: name.trim(),
 		description: typeof description === "string" && description.trim() ? description.trim() : null,
 		frequency,
+		responsibleRole,
 		screeningQuestionId: firstLink?.questionId ?? null,
 		screeningChoiceValue: firstLink?.choiceValue ?? null,
 		screeningQuestionLinks,
 		technologyElementIds: technologyElementIds.filter((id): id is string => typeof id === "string"),
+		controlIds: controlIds.filter(Boolean),
 		createdBy: authedUser.navIdent,
 	})
 
@@ -125,7 +132,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function NyRutine() {
-	const { section, screeningQuestions, technologyElements } = useLoaderData<typeof loader>()
+	const { section, screeningQuestions, technologyElements, controls } = useLoaderData<typeof loader>()
 	const [questionLinks, setQuestionLinks] = useState<QuestionLink[]>([])
 
 	const addQuestionLink = () => {
@@ -258,6 +265,27 @@ export default function NyRutine() {
 							{technologyElements.map((el) => (
 								<Checkbox key={el.id} name="technologyElementIds" value={el.id}>
 									{el.name}
+								</Checkbox>
+							))}
+						</CheckboxGroup>
+					)}
+
+					<Select label="Ansvarlig rolle" name="responsibleRole">
+						<option value="">Velg rolle (valgfritt)</option>
+						<option value="Seksjonsleder">Seksjonsleder</option>
+						<option value="Teknologileder">Teknologileder</option>
+						<option value="Teamleder">Teamleder</option>
+						<option value="Utvikler">Utvikler</option>
+						<option value="Arkitekt">Arkitekt</option>
+						<option value="Sikkerhetsansvarlig">Sikkerhetsansvarlig</option>
+						<option value="Testleder">Testleder</option>
+					</Select>
+
+					{controls.length > 0 && (
+						<CheckboxGroup legend="Tilknyttede krav">
+							{controls.map((ctrl) => (
+								<Checkbox key={ctrl.id} name="controlIds" value={ctrl.id}>
+									{ctrl.controlId} – {ctrl.name}
 								</Checkbox>
 							))}
 						</CheckboxGroup>

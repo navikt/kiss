@@ -128,6 +128,8 @@ describe("Routines integration tests", () => {
 				frequency: "quarterly",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test-user",
 			})
@@ -149,6 +151,8 @@ describe("Routines integration tests", () => {
 				frequency: "quarterly",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [elemId],
 				createdBy: "test-user",
 			})
@@ -159,6 +163,8 @@ describe("Routines integration tests", () => {
 				frequency: "monthly",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test-user",
 			})
@@ -186,6 +192,8 @@ describe("Routines integration tests", () => {
 				frequency: "semi_annually",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [elemId],
 				createdBy: "test-user",
 			})
@@ -212,6 +220,8 @@ describe("Routines integration tests", () => {
 				frequency: "quarterly",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [elem1],
 				createdBy: "test-user",
 			})
@@ -223,6 +233,8 @@ describe("Routines integration tests", () => {
 				frequency: "monthly",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [elem2],
 				updatedBy: "admin-user",
 			})
@@ -251,6 +263,8 @@ describe("Routines integration tests", () => {
 				frequency: "annually",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test-user",
 			})
@@ -297,6 +311,8 @@ describe("Routines integration tests", () => {
 				frequency: "annually",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test-user",
 			})
@@ -335,6 +351,8 @@ describe("Routines integration tests", () => {
 				frequency: "annually",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test-user",
 			})
@@ -372,6 +390,8 @@ describe("Routines integration tests", () => {
 				frequency: "monthly",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test-user",
 			})
@@ -423,6 +443,8 @@ describe("Routines integration tests", () => {
 				frequency: "quarterly",
 				screeningQuestionId: questionId,
 				screeningChoiceValue: "yes",
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test-user",
 			})
@@ -453,6 +475,8 @@ describe("Routines integration tests", () => {
 				frequency: "quarterly",
 				screeningQuestionId: questionId,
 				screeningChoiceValue: "yes",
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [elemId],
 				createdBy: "test-user",
 			})
@@ -479,6 +503,8 @@ describe("Routines integration tests", () => {
 				frequency: "quarterly",
 				screeningQuestionId: questionId,
 				screeningChoiceValue: "yes",
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test-user",
 			})
@@ -526,6 +552,8 @@ describe("Routines integration tests", () => {
 				frequency: "weekly",
 				screeningQuestionId: questionId,
 				screeningChoiceValue: "yes",
+				responsibleRole: null,
+				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test-user",
 			})

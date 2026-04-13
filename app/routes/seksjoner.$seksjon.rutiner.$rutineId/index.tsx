@@ -142,6 +142,32 @@ export default function RutineDetaljer() {
 					</VStack>
 				)}
 
+				{routine.responsibleRole && (
+					<VStack gap="space-2">
+						<Label size="small">Ansvarlig rolle</Label>
+						<HStack>
+							<Tag variant="alt1" size="small">
+								{routine.responsibleRole}
+							</Tag>
+						</HStack>
+					</VStack>
+				)}
+
+				{routine.controls.length > 0 && (
+					<VStack gap="space-2">
+						<Label size="small">Tilknyttede krav</Label>
+						<HStack gap="space-2" wrap>
+							{routine.controls.map((ctrl) => (
+								<Tag key={ctrl.id} variant="info" size="small">
+									<Link to={`/kontrollrammeverk/${ctrl.domainSlug}/${ctrl.controlId}`}>
+										{ctrl.controlId} – {ctrl.name}
+									</Link>
+								</Tag>
+							))}
+						</HStack>
+					</VStack>
+				)}
+
 				{screeningQuestion && (
 					<VStack gap="space-2">
 						<Label size="small">Innledende spørsmål</Label>
