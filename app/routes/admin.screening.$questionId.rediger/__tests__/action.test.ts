@@ -21,6 +21,7 @@ const mockDeleteChoiceEffect = vi.fn()
 const mockCreateChoice = vi.fn()
 const mockDeleteChoice = vi.fn()
 const mockGetChoicesForQuestion = vi.fn()
+const mockSetQuestionTechnologyElements = vi.fn()
 vi.mock("~/db/queries/screening.server", () => ({
 	createScreeningQuestion: mockCreateScreeningQuestion,
 	updateScreeningQuestion: mockUpdateScreeningQuestion,
@@ -31,11 +32,17 @@ vi.mock("~/db/queries/screening.server", () => ({
 	getScreeningQuestion: vi.fn(),
 	getChoicesForQuestion: mockGetChoicesForQuestion,
 	getChoiceEffects: vi.fn().mockResolvedValue([]),
+	getQuestionTechnologyElements: vi.fn().mockResolvedValue([]),
+	setQuestionTechnologyElements: mockSetQuestionTechnologyElements,
 	updateChoice: vi.fn(),
 }))
 
 vi.mock("~/db/queries/framework.server", () => ({
 	getAllControls: vi.fn(),
+}))
+
+vi.mock("~/db/queries/technology-elements.server", () => ({
+	getAllTechnologyElements: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock("~/lib/markdown.server", () => ({

@@ -4,6 +4,7 @@ import {
 	Box,
 	Button,
 	Checkbox,
+	CheckboxGroup,
 	Heading,
 	HStack,
 	Modal,
@@ -27,11 +28,14 @@ import {
 	deleteChoiceEffect,
 	getChoiceEffects,
 	getChoicesForQuestion,
+	getQuestionTechnologyElements,
 	getScreeningQuestion,
+	setQuestionTechnologyElements,
 	updateChoice,
 	updateScreeningQuestion,
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
 import { screeningEffectLabels } from "~/db/schema/screening"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
@@ -62,7 +66,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const returnPath = seksjonSlug ? `/admin/screening?seksjon=${seksjonSlug}` : "/admin/screening"
 
 	if (isNew) {
-		const controls = await getAllControls()
+		const [controls, technologyElementsList] = await Promise.all([getAllControls(), getAllTechnologyElements()])
 		return data({
 			isNew: true,
 			question: {
@@ -72,9 +76,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				descriptionHtml: "",
 				displayOrder: 0,
 				answerType: "boolean",
+				technologyElementIds: [] as string[],
 			},
 			choices: [],
 			controls,
+			technologyElements: technologyElementsList,
 			seksjon: seksjonSlug,
 			sectionId,
 			sectionName,
@@ -93,16 +99,22 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		}),
 	)
 
-	const controls = await getAllControls()
+	const [controls, technologyElementsList, questionTechElements] = await Promise.all([
+		getAllControls(),
+		getAllTechnologyElements(),
+		getQuestionTechnologyElements(questionId),
+	])
 
 	return data({
 		isNew: false,
 		question: {
 			...question,
 			descriptionHtml: renderMarkdown(question.description),
+			technologyElementIds: questionTechElements.map((e) => e.elementId),
 		},
 		choices: choicesWithEffects,
 		controls,
+		technologyElements: technologyElementsList,
 		seksjon: seksjonSlug,
 		sectionId,
 		sectionName,
@@ -126,6 +138,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const description = (formData.get("description") as string)?.trim() || null
 		const displayOrder = Number(formData.get("displayOrder") ?? 0)
 		const answerType = (formData.get("answerType") as string) || "boolean"
+		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
 		if (!questionText?.trim()) throw new Response("Ugyldig data", { status: 400 })
 
 		if (questionId === "ny") {
@@ -137,6 +150,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				sectionId,
 				answerType,
 			)
+
+			await setQuestionTechnologyElements(q.id, technologyElementIds.filter(Boolean))
 
 			// Handle pending choices with effects for new questions
 			const pendingChoicesJson = formData.get("pendingChoices") as string | null
@@ -173,6 +188,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 
 		await updateScreeningQuestion(questionId, questionText.trim(), description, displayOrder, authedUser.navIdent)
+		await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean))
 		return redirect(returnPath)
 	}
 
@@ -239,7 +255,8 @@ interface PendingChoice {
 }
 
 export default function EditScreeningQuestion() {
-	const { isNew, question, choices, controls, sectionId, returnPath } = useLoaderData<typeof loader>()
+	const { isNew, question, choices, controls, technologyElements, sectionId, returnPath } =
+		useLoaderData<typeof loader>()
 	const [pendingChoices, setPendingChoices] = useState<PendingChoice[]>([])
 	const [answerType, setAnswerType] = useState(question.answerType ?? "boolean")
 	const [deleteTarget, setDeleteTarget] = useState<{
@@ -287,6 +304,20 @@ export default function EditScreeningQuestion() {
 							Spørsmål av typen «Persistens» lar brukeren oppgi hvilke databaser applikasjonen bruker, med type, navn og
 							klassifisering. Ingen valgmuligheter eller effekter trengs.
 						</BodyShort>
+					)}
+					{technologyElements.length > 0 && (
+						<CheckboxGroup
+							legend="Teknologielementer"
+							description="Velg hvilke teknologielementer spørsmålet gjelder for. Ingen valg betyr at spørsmålet gjelder for alle applikasjoner."
+							size="small"
+							defaultValue={question.technologyElementIds}
+						>
+							{technologyElements.map((te) => (
+								<Checkbox key={te.id} name="technologyElementIds" value={te.id}>
+									{te.name}
+								</Checkbox>
+							))}
+						</CheckboxGroup>
 					)}
 					<div>
 						<Button type="submit" size="small" variant="primary">

@@ -1,7 +1,7 @@
 import { boolean, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
 import { monitoredApplications } from "./applications"
 import { complianceStatusEnum } from "./compliance"
-import { frameworkControls } from "./framework"
+import { frameworkControls, technologyElements } from "./framework"
 import { sections } from "./organization"
 
 /** Extended effect enum that includes screening-specific effects beyond compliance statuses. */
@@ -89,6 +89,21 @@ export const screeningQuestionEffects = pgTable("screening_question_effects", {
 	noComment: text("no_comment"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+/** Links screening questions to technology elements. Questions without links apply to all apps. */
+export const screeningQuestionTechnologyElements = pgTable(
+	"screening_question_technology_elements",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		questionId: uuid("question_id")
+			.notNull()
+			.references(() => screeningQuestions.id, { onDelete: "cascade" }),
+		elementId: uuid("element_id")
+			.notNull()
+			.references(() => technologyElements.id, { onDelete: "cascade" }),
+	},
+	(t) => [unique().on(t.questionId, t.elementId)],
+)
 
 /** Per-application routine selections from screening questions with select_routine effects. */
 export const screeningRoutineSelections = pgTable(

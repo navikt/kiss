@@ -605,9 +605,16 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 								Lagre
 							</Button>
 							{q.answer !== null && (
-								<Tag variant="success" size="xsmall">
-									Besvart: {q.answer}
-								</Tag>
+								<HStack gap="space-2" align="center">
+									<Tag variant="success" size="xsmall">
+										Besvart: {q.answer}
+									</Tag>
+									{q.answeredBy && (
+										<BodyShort size="small" textColor="subtle">
+											av {q.answeredBy}
+										</BodyShort>
+									)}
+								</HStack>
 							)}
 						</HStack>
 						{selectedChoice?.requiresComment && (
@@ -674,9 +681,16 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 							Lagre
 						</Button>
 						{q.answer !== null && (
-							<Tag variant="success" size="xsmall">
-								Besvart: {q.answer}
-							</Tag>
+							<HStack gap="space-2" align="center">
+								<Tag variant="success" size="xsmall">
+									Besvart: {q.answer}
+								</Tag>
+								{q.answeredBy && (
+									<BodyShort size="small" textColor="subtle">
+										av {q.answeredBy}
+									</BodyShort>
+								)}
+							</HStack>
 						)}
 					</HStack>
 					{selectedChoice?.requiresComment && (

@@ -2,7 +2,7 @@ import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationEnvironments, naisTeams } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
-import { frameworkControls } from "../schema/framework"
+import { applicationTechnologyElements, frameworkControls } from "../schema/framework"
 import { routineControls, routines } from "../schema/routines"
 import {
 	screeningAnswers,
@@ -10,6 +10,7 @@ import {
 	screeningQuestionChoices,
 	screeningQuestionEffects,
 	screeningQuestions,
+	screeningQuestionTechnologyElements,
 	screeningRoutineSelections,
 } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
@@ -128,6 +129,27 @@ export async function deleteScreeningQuestion(id: string, performedBy: string) {
 		entityId: id,
 		performedBy,
 	})
+}
+
+// ─── Question Technology Elements ────────────────────────────────────────
+
+export async function getQuestionTechnologyElements(questionId: string) {
+	return db
+		.select({ elementId: screeningQuestionTechnologyElements.elementId })
+		.from(screeningQuestionTechnologyElements)
+		.where(eq(screeningQuestionTechnologyElements.questionId, questionId))
+}
+
+export async function setQuestionTechnologyElements(questionId: string, elementIds: string[]) {
+	await db
+		.delete(screeningQuestionTechnologyElements)
+		.where(eq(screeningQuestionTechnologyElements.questionId, questionId))
+
+	if (elementIds.length > 0) {
+		await db
+			.insert(screeningQuestionTechnologyElements)
+			.values(elementIds.map((elementId) => ({ questionId, elementId })))
+	}
 }
 
 // ─── Choices CRUD ────────────────────────────────────────────────────────
@@ -440,12 +462,63 @@ export async function getScreeningDataForApp(applicationId: string) {
 			.orderBy(screeningQuestions.displayOrder)
 	}
 
-	const questions = [...globalQuestions, ...sectionQuestions]
+	const allQuestions = [...globalQuestions, ...sectionQuestions]
+
+	// Load technology element links for all questions
+	const allQuestionTechLinks =
+		allQuestions.length > 0
+			? await db
+					.select()
+					.from(screeningQuestionTechnologyElements)
+					.where(
+						inArray(
+							screeningQuestionTechnologyElements.questionId,
+							allQuestions.map((q) => q.id),
+						),
+					)
+			: []
+
+	const techElementsByQuestion = new Map<string, string[]>()
+	for (const link of allQuestionTechLinks) {
+		const list = techElementsByQuestion.get(link.questionId) ?? []
+		list.push(link.elementId)
+		techElementsByQuestion.set(link.questionId, list)
+	}
+
+	// Get app's technology element IDs for filtering
+	const appTechRows = await db
+		.select({ elementId: applicationTechnologyElements.elementId })
+		.from(applicationTechnologyElements)
+		.where(eq(applicationTechnologyElements.applicationId, applicationId))
+	const appTechElementIds = new Set(appTechRows.map((r) => r.elementId))
+
+	// Filter: include questions with no tech links (apply to all) or matching at least one app tech element
+	const questions = allQuestions.filter((q) => {
+		const requiredElements = techElementsByQuestion.get(q.id)
+		if (!requiredElements || requiredElements.length === 0) return true
+		return requiredElements.some((elId) => appTechElementIds.has(elId))
+	})
+
 	const answers = await getScreeningAnswersForApp(applicationId)
 
-	const answerMap = new Map<string, { answer: string | null; comment: string | null; link: string | null }>()
+	const answerMap = new Map<
+		string,
+		{
+			answer: string | null
+			comment: string | null
+			link: string | null
+			answeredBy: string | null
+			answeredAt: Date | null
+		}
+	>()
 	for (const a of answers) {
-		answerMap.set(a.questionId, { answer: a.answer, comment: a.comment, link: a.link })
+		answerMap.set(a.questionId, {
+			answer: a.answer,
+			comment: a.comment,
+			link: a.link,
+			answeredBy: a.answeredBy,
+			answeredAt: a.answeredAt,
+		})
 	}
 
 	// Load choices for all questions
@@ -569,6 +642,8 @@ export async function getScreeningDataForApp(applicationId: string) {
 				answer: saved?.answer ?? null,
 				answerComment: saved?.comment ?? null,
 				answerLink: saved?.link ?? null,
+				answeredBy: saved?.answeredBy ?? null,
+				answeredAt: saved?.answeredAt?.toISOString() ?? null,
 				choices: choicesWithRoutines,
 				affectedControls: [...affectedControls],
 			}

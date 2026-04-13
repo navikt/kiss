@@ -10,11 +10,14 @@ import {
 	deleteChoiceEffect,
 	getChoiceEffects,
 	getChoicesForQuestion,
+	getQuestionTechnologyElements,
 	getScreeningQuestion,
+	setQuestionTechnologyElements,
 	updateChoice,
 	updateScreeningQuestion,
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -38,7 +41,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const isNew = questionId === "ny"
 
 	if (isNew) {
-		const controls = await getAllControls()
+		const [controls, technologyElementsList] = await Promise.all([getAllControls(), getAllTechnologyElements()])
 		return data({
 			isNew: true,
 			question: {
@@ -48,9 +51,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				descriptionHtml: "",
 				displayOrder: 0,
 				answerType: "boolean",
+				technologyElementIds: [] as string[],
 			},
 			choices: [],
 			controls,
+			technologyElements: technologyElementsList,
 			seksjon,
 			sectionId,
 			sectionName,
@@ -69,16 +74,22 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		}),
 	)
 
-	const controls = await getAllControls()
+	const [controls, technologyElementsList, questionTechElements] = await Promise.all([
+		getAllControls(),
+		getAllTechnologyElements(),
+		getQuestionTechnologyElements(questionId),
+	])
 
 	return data({
 		isNew: false,
 		question: {
 			...question,
 			descriptionHtml: renderMarkdown(question.description),
+			technologyElementIds: questionTechElements.map((e) => e.elementId),
 		},
 		choices: choicesWithEffects,
 		controls,
+		technologyElements: technologyElementsList,
 		seksjon,
 		sectionId,
 		sectionName,
@@ -120,6 +131,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const description = (formData.get("description") as string)?.trim() || null
 		const displayOrder = Number(formData.get("displayOrder") ?? 0)
 		const answerType = (formData.get("answerType") as string) || "boolean"
+		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
 		if (!questionText?.trim()) throw new Response("Ugyldig data", { status: 400 })
 
 		if (questionId === "ny") {
@@ -131,6 +143,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				sectionId,
 				answerType,
 			)
+
+			await setQuestionTechnologyElements(q.id, technologyElementIds.filter(Boolean))
 
 			const pendingChoicesJson = formData.get("pendingChoices") as string | null
 			if (pendingChoicesJson) {
@@ -165,6 +179,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 
 		await updateScreeningQuestion(questionId, questionText.trim(), description, displayOrder, authedUser.navIdent)
+		await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean))
 		return redirect(returnPath)
 	}
 
