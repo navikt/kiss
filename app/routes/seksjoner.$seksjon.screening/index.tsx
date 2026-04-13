@@ -3,7 +3,7 @@ import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, us
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { DownloadIcon, PlusIcon } from "@navikt/aksel-icons"
 import { Alert, BodyLong, Button, Heading, HStack, Modal, VStack } from "@navikt/ds-react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useFetcher, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -82,6 +82,10 @@ export default function SectionScreening() {
 	const [deleteTarget, setDeleteTarget] = useState<{ id: string; text: string } | null>(null)
 	const [questions, setQuestions] = useState(loaderQuestions)
 	const fetcher = useFetcher()
+
+	useEffect(() => {
+		setQuestions(loaderQuestions)
+	}, [loaderQuestions])
 
 	const sensors = useSensors(
 		useSensor(PointerSensor),
