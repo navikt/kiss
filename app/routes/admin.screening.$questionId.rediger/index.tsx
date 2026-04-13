@@ -32,9 +32,10 @@ import {
 	updateScreeningQuestion,
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { screeningEffectLabels } from "~/db/schema/screening"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
-import { getStatusLabel, statusLabels } from "~/lib/compliance-status"
+import { getStatusLabel } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -516,7 +517,7 @@ function ChoiceCard({
 										<Table.DataCell>
 											{e.effect ? (
 												<Tag variant="neutral" size="xsmall">
-													{getStatusLabel(e.effect)}
+													{screeningEffectLabels[e.effect] ?? getStatusLabel(e.effect)}
 												</Tag>
 											) : (
 												<BodyShort size="small" textColor="subtle">
@@ -570,7 +571,7 @@ function ChoiceCard({
 							</Select>
 							<Select label="Effekt" name="effect" size="small">
 								<option value="">Ingen</option>
-								{Object.entries(statusLabels).map(([v, l]) => (
+								{Object.entries(screeningEffectLabels).map(([v, l]) => (
 									<option key={v} value={v}>
 										{l}
 									</option>
@@ -666,7 +667,7 @@ function AddPendingEffectForm({
 				</Select>
 				<Select label="Effekt" name="effect" size="small">
 					<option value="">Ingen</option>
-					{Object.entries(statusLabels).map(([v, l]) => (
+					{Object.entries(screeningEffectLabels).map(([v, l]) => (
 						<option key={v} value={v}>
 							{l}
 						</option>

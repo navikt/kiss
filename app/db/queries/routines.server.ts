@@ -25,7 +25,7 @@ import {
 	routines,
 	routineTechnologyElements,
 } from "../schema/routines"
-import { screeningAnswers } from "../schema/screening"
+import { screeningAnswers, screeningRoutineSelections } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 
 // ─── Routine CRUD ────────────────────────────────────────────────────────
@@ -948,6 +948,97 @@ export async function getRoutineDeadlinesForAppByPersistence(
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const routine of matchingRoutines) {
+		const fullRoutine = {
+			...routine,
+			technologyElements: elemsByRoutine.get(routine.id) ?? [],
+			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
+			controls: [],
+		}
+
+		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+
+		results.push({
+			routine: fullRoutine,
+			applicationId,
+			applicationName: appName,
+			lastReviewDate,
+			deadline,
+			overdue: isOverdue(deadline),
+		})
+	}
+
+	return results
+}
+
+// ─── Routines matched by screening routine selections ────────────────────
+
+export async function getRoutineDeadlinesForAppByScreeningSelection(
+	applicationId: string,
+	excludeRoutineIds: Set<string> = new Set(),
+) {
+	const selections = await db
+		.select({ routineId: screeningRoutineSelections.routineId })
+		.from(screeningRoutineSelections)
+		.where(
+			and(eq(screeningRoutineSelections.applicationId, applicationId), isNotNull(screeningRoutineSelections.routineId)),
+		)
+
+	const selectedRoutineIds = selections
+		.map((s) => s.routineId)
+		.filter((id): id is string => id !== null && !excludeRoutineIds.has(id))
+
+	if (selectedRoutineIds.length === 0) return []
+
+	// Deduplicate
+	const uniqueIds = [...new Set(selectedRoutineIds)]
+
+	const [routineRows, allElements, allScreeningLinks] = await Promise.all([
+		db.select().from(routines).where(inArray(routines.id, uniqueIds)),
+		db
+			.select({
+				routineId: routineTechnologyElements.routineId,
+				id: technologyElements.id,
+				name: technologyElements.name,
+			})
+			.from(routineTechnologyElements)
+			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
+			.where(inArray(routineTechnologyElements.routineId, uniqueIds)),
+		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, uniqueIds)),
+	])
+
+	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
+	for (const e of allElements) {
+		const list = elemsByRoutine.get(e.routineId) ?? []
+		list.push({ id: e.id, name: e.name })
+		elemsByRoutine.set(e.routineId, list)
+	}
+	const screenByRoutine = new Map<string, typeof allScreeningLinks>()
+	for (const s of allScreeningLinks) {
+		const list = screenByRoutine.get(s.routineId) ?? []
+		list.push(s)
+		screenByRoutine.set(s.routineId, list)
+	}
+
+	const [appRow] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+	const appName = appRow?.name ?? ""
+
+	const latestReviews = await db
+		.selectDistinctOn([routineReviews.routineId], {
+			routineId: routineReviews.routineId,
+			reviewedAt: routineReviews.reviewedAt,
+		})
+		.from(routineReviews)
+		.where(and(inArray(routineReviews.routineId, uniqueIds), eq(routineReviews.applicationId, applicationId)))
+		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+
+	const results: RoutineDeadlineInfo[] = []
+	for (const routine of routineRows) {
 		const fullRoutine = {
 			...routine,
 			technologyElements: elemsByRoutine.get(routine.id) ?? [],

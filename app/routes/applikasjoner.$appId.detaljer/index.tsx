@@ -67,6 +67,7 @@ import {
 	getReviewsForApp,
 	getRoutineDeadlinesForApp,
 	getRoutineDeadlinesForAppByPersistence,
+	getRoutineDeadlinesForAppByScreeningSelection,
 } from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
 import {
@@ -140,10 +141,18 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const screeningRoutineIds = new Set(screeningRoutines.map((d) => d.routine?.id).filter(Boolean) as string[])
 	const persistenceRoutines = await getRoutineDeadlinesForAppByPersistence(appId, screeningRoutineIds)
 
+	// Find routines explicitly selected via screening questions
+	const alreadyMatchedIds = new Set([
+		...screeningRoutineIds,
+		...(persistenceRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
+	])
+	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(appId, alreadyMatchedIds)
+
 	// Tag each deadline with its match source
 	const routineDeadlines = [
 		...screeningRoutines.map((d) => ({ ...d, matchSource: "screening" as const })),
 		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
+		...screeningSelectionRoutines.map((d) => ({ ...d, matchSource: "screening_selection" as const })),
 	]
 
 	// Build section ID → slug lookup for routine links
@@ -1073,6 +1082,10 @@ export default function ApplikasjonDetalj() {
 																</Tag>
 															)}
 														</HStack>
+													) : dl.matchSource === "screening_selection" ? (
+														<Tag variant="alt1" size="xsmall">
+															Valgt via spørsmål
+														</Tag>
 													) : (
 														<Tag variant="neutral" size="xsmall">
 															Screening

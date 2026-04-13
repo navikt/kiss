@@ -3,12 +3,14 @@ import { db } from "../connection.server"
 import { applicationEnvironments, naisTeams } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import { frameworkControls } from "../schema/framework"
+import { routineControls, routines } from "../schema/routines"
 import {
 	screeningAnswers,
 	screeningChoiceEffects,
 	screeningQuestionChoices,
 	screeningQuestionEffects,
 	screeningQuestions,
+	screeningRoutineSelections,
 } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 
@@ -357,7 +359,7 @@ async function applyChoiceEffects(applicationId: string, questionId: string, ans
 	const effects = await db.select().from(screeningChoiceEffects).where(eq(screeningChoiceEffects.choiceId, choice.id))
 
 	for (const effect of effects) {
-		if (!effect.effect) continue
+		if (!effect.effect || effect.effect === "select_routine") continue
 
 		const [existing] = await db
 			.select()
@@ -459,7 +461,9 @@ export async function getScreeningDataForApp(applicationId: string) {
 	// Load choice effects for displaying affected controls
 	const allChoiceEffects = await db
 		.select({
+			id: screeningChoiceEffects.id,
 			choiceId: screeningChoiceEffects.choiceId,
+			controlId: screeningChoiceEffects.controlId,
 			controlTextId: frameworkControls.controlId,
 			effect: screeningChoiceEffects.effect,
 		})
@@ -471,6 +475,56 @@ export async function getScreeningDataForApp(applicationId: string) {
 		const list = effectsByChoice.get(e.choiceId) ?? []
 		list.push(e)
 		effectsByChoice.set(e.choiceId, list)
+	}
+
+	// Collect control UUIDs that have select_routine effects to load routine options
+	const selectRoutineControlIds = new Set<string>()
+	const selectRoutineEffectIds = new Set<string>()
+	for (const effects of effectsByChoice.values()) {
+		for (const e of effects) {
+			if (e.effect === "select_routine") {
+				selectRoutineControlIds.add(e.controlId)
+				selectRoutineEffectIds.add(e.id)
+			}
+		}
+	}
+
+	// Load routines linked to these controls via routineControls
+	const routineOptionsByControl = new Map<string, Array<{ id: string; name: string; sectionId: string }>>()
+	if (selectRoutineControlIds.size > 0) {
+		const linkedRoutines = await db
+			.select({
+				controlId: routineControls.controlId,
+				routineId: routines.id,
+				routineName: routines.name,
+				sectionId: routines.sectionId,
+			})
+			.from(routineControls)
+			.innerJoin(routines, eq(routineControls.routineId, routines.id))
+			.where(inArray(routineControls.controlId, [...selectRoutineControlIds]))
+
+		for (const lr of linkedRoutines) {
+			const list = routineOptionsByControl.get(lr.controlId) ?? []
+			list.push({ id: lr.routineId, name: lr.routineName, sectionId: lr.sectionId })
+			routineOptionsByControl.set(lr.controlId, list)
+		}
+	}
+
+	// Load existing routine selections for this app
+	const existingSelections = new Map<string, string | null>()
+	if (selectRoutineEffectIds.size > 0) {
+		const selections = await db
+			.select()
+			.from(screeningRoutineSelections)
+			.where(
+				and(
+					eq(screeningRoutineSelections.applicationId, applicationId),
+					inArray(screeningRoutineSelections.choiceEffectId, [...selectRoutineEffectIds]),
+				),
+			)
+		for (const s of selections) {
+			existingSelections.set(s.choiceEffectId, s.routineId)
+		}
 	}
 
 	return {
@@ -485,6 +539,27 @@ export async function getScreeningDataForApp(applicationId: string) {
 				}
 			}
 
+			// Build select_routine effects per choice
+			const choicesWithRoutines = choices.map((c) => {
+				const effects = effectsByChoice.get(c.id) ?? []
+				const routineSelections = effects
+					.filter((e) => e.effect === "select_routine")
+					.map((e) => ({
+						effectId: e.id,
+						controlTextId: e.controlTextId,
+						routines: routineOptionsByControl.get(e.controlId) ?? [],
+						selectedRoutineId: existingSelections.get(e.id) ?? null,
+					}))
+
+				return {
+					id: c.id,
+					label: c.label,
+					requiresComment: c.requiresComment,
+					requiresLink: c.requiresLink,
+					routineSelections,
+				}
+			})
+
 			return {
 				id: q.id,
 				questionText: q.questionText,
@@ -494,14 +569,60 @@ export async function getScreeningDataForApp(applicationId: string) {
 				answer: saved?.answer ?? null,
 				answerComment: saved?.comment ?? null,
 				answerLink: saved?.link ?? null,
-				choices: choices.map((c) => ({
-					id: c.id,
-					label: c.label,
-					requiresComment: c.requiresComment,
-					requiresLink: c.requiresLink,
-				})),
+				choices: choicesWithRoutines,
 				affectedControls: [...affectedControls],
 			}
 		}),
 	}
+}
+
+// ─── Screening routine selections ────────────────────────────────────────
+
+export async function saveRoutineSelection(
+	applicationId: string,
+	choiceEffectId: string,
+	routineId: string | null,
+	selectedBy: string,
+) {
+	await db
+		.insert(screeningRoutineSelections)
+		.values({
+			applicationId,
+			choiceEffectId,
+			routineId,
+			selectedBy,
+			selectedAt: new Date(),
+		})
+		.onConflictDoUpdate({
+			target: [screeningRoutineSelections.applicationId, screeningRoutineSelections.choiceEffectId],
+			set: {
+				routineId,
+				selectedBy,
+				selectedAt: new Date(),
+			},
+		})
+
+	await writeAuditLog({
+		action: "screening_routine_selected",
+		entityType: "screening_routine_selection",
+		entityId: `${applicationId}/${choiceEffectId}`,
+		newValue: routineId ?? "null",
+		performedBy: selectedBy,
+	})
+}
+
+/** Get all routine selections for an app (for the routines tab). */
+export async function getRoutineSelectionsForApp(applicationId: string) {
+	return db
+		.select({
+			routineId: screeningRoutineSelections.routineId,
+			effectId: screeningRoutineSelections.choiceEffectId,
+			controlTextId: frameworkControls.controlId,
+		})
+		.from(screeningRoutineSelections)
+		.innerJoin(screeningChoiceEffects, eq(screeningRoutineSelections.choiceEffectId, screeningChoiceEffects.id))
+		.innerJoin(frameworkControls, eq(screeningChoiceEffects.controlId, frameworkControls.id))
+		.where(
+			and(eq(screeningRoutineSelections.applicationId, applicationId), isNotNull(screeningRoutineSelections.routineId)),
+		)
 }

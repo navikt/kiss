@@ -4,6 +4,15 @@ import { complianceStatusEnum } from "./compliance"
 import { frameworkControls } from "./framework"
 import { sections } from "./organization"
 
+/** Extended effect enum that includes screening-specific effects beyond compliance statuses. */
+export const screeningEffectEnum = [...complianceStatusEnum, "select_routine"] as const
+export type ScreeningEffect = (typeof screeningEffectEnum)[number]
+
+export const screeningEffectLabels: Record<string, string> = {
+	not_relevant: "Ikke relevant",
+	select_routine: "Velg rutine",
+}
+
 /** Screening questions shown before detailed compliance assessment. */
 export const screeningQuestions = pgTable("screening_questions", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -40,7 +49,7 @@ export const screeningChoiceEffects = pgTable("screening_choice_effects", {
 	controlId: uuid("control_id")
 		.notNull()
 		.references(() => frameworkControls.id),
-	effect: text("effect", { enum: complianceStatusEnum }),
+	effect: text("effect", { enum: screeningEffectEnum }),
 	comment: text("comment"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
@@ -80,3 +89,21 @@ export const screeningQuestionEffects = pgTable("screening_question_effects", {
 	noComment: text("no_comment"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+/** Per-application routine selections from screening questions with select_routine effects. */
+export const screeningRoutineSelections = pgTable(
+	"screening_routine_selections",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id),
+		choiceEffectId: uuid("choice_effect_id")
+			.notNull()
+			.references(() => screeningChoiceEffects.id, { onDelete: "cascade" }),
+		routineId: uuid("routine_id"),
+		selectedBy: text("selected_by").notNull(),
+		selectedAt: timestamp("selected_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [unique().on(t.applicationId, t.choiceEffectId)],
+)

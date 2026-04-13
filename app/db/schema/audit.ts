@@ -70,6 +70,7 @@ export const auditLogActionEnum = [
 	"persistence_added",
 	"persistence_updated",
 	"persistence_deleted",
+	"screening_routine_selected",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

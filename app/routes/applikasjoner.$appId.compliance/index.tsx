@@ -17,12 +17,12 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, useActionData, useLoaderData, useSearchParams } from "react-router"
+import { data, Form, Link, useActionData, useFetcher, useLoaderData, useSearchParams } from "react-router"
 import { ComplianceComment, ComplianceStatusBadge } from "~/components/ComplianceStatus"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments, saveAssessment, saveAssessmentComment } from "~/db/queries/applications.server"
 import { getAllRisks } from "~/db/queries/framework.server"
-import { getScreeningDataForApp, saveScreeningAnswer } from "~/db/queries/screening.server"
+import { getScreeningDataForApp, saveRoutineSelection, saveScreeningAnswer } from "~/db/queries/screening.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isComplianceStatus, statusLabels } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -118,6 +118,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 		const answer = answerValue || null
 		await saveScreeningAnswer(appId, questionId, answer, authedUser.navIdent, answerComment, answerLink)
+
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
+	if (intent === "selectRoutine") {
+		const choiceEffectId = formData.get("choiceEffectId") as string
+		const routineId = (formData.get("routineId") as string) || null
+		if (!choiceEffectId) throw new Response("Mangler effekt-ID", { status: 400 })
+
+		await saveRoutineSelection(appId, choiceEffectId, routineId, authedUser.navIdent)
 
 		return data({ success: true, controlId: "screening", screening: true })
 	}
@@ -484,30 +494,105 @@ type ScreeningQuestion = ReturnType<typeof useLoaderData<typeof loader>>["screen
 function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 	const [selectedValue, setSelectedValue] = useState<string>(q.answer ?? "")
 	const selectedChoice = q.choices.find((c) => c.label === selectedValue)
+	const fetcher = useFetcher()
+
+	// Determine which choice has active routine selections (the answered one)
+	const answeredChoice = q.choices.find((c) => c.label === q.answer)
+	const routineSelections = answeredChoice?.routineSelections ?? []
 
 	if (q.answerType === "boolean" && q.choices.length === 2) {
 		return (
+			<VStack gap="space-4">
+				<Form method="post">
+					<input type="hidden" name="intent" value="screening" />
+					<input type="hidden" name="questionId" value={q.id} />
+					<VStack gap="space-4">
+						<HStack gap="space-4" align="end">
+							<RadioGroup
+								legend="Svar"
+								name="answer"
+								size="small"
+								defaultValue={q.answer ?? ""}
+								hideLegend
+								onChange={(val) => setSelectedValue(val)}
+							>
+								<HStack gap="space-4">
+									{q.choices.map((c) => (
+										<Radio key={c.label} value={c.label}>
+											{c.label}
+										</Radio>
+									))}
+								</HStack>
+							</RadioGroup>
+							<Button type="submit" size="small" variant="secondary-neutral">
+								Lagre
+							</Button>
+							{q.answer !== null && (
+								<Tag variant="success" size="xsmall">
+									Besvart: {q.answer}
+								</Tag>
+							)}
+						</HStack>
+						{selectedChoice?.requiresComment && (
+							<TextField label="Kommentar" name="answerComment" size="small" defaultValue={q.answerComment ?? ""} />
+						)}
+						{selectedChoice?.requiresLink && (
+							<TextField label="Lenke" name="answerLink" size="small" defaultValue={q.answerLink ?? ""} />
+						)}
+					</VStack>
+				</Form>
+				{routineSelections.map((rs) => (
+					<fetcher.Form method="post" key={rs.effectId}>
+						<input type="hidden" name="intent" value="selectRoutine" />
+						<input type="hidden" name="choiceEffectId" value={rs.effectId} />
+						<HStack gap="space-4" align="end">
+							<Select
+								label={`Velg rutine for ${rs.controlTextId}`}
+								name="routineId"
+								size="small"
+								defaultValue={rs.selectedRoutineId ?? ""}
+							>
+								<option value="">– Ikke valgt –</option>
+								{rs.routines.map((r) => (
+									<option key={r.id} value={r.id}>
+										{r.name}
+									</option>
+								))}
+							</Select>
+							<Button type="submit" size="small" variant="secondary-neutral">
+								Lagre
+							</Button>
+						</HStack>
+					</fetcher.Form>
+				))}
+			</VStack>
+		)
+	}
+
+	// single_choice with dropdown
+	return (
+		<VStack gap="space-4">
 			<Form method="post">
 				<input type="hidden" name="intent" value="screening" />
 				<input type="hidden" name="questionId" value={q.id} />
 				<VStack gap="space-4">
 					<HStack gap="space-4" align="end">
-						<RadioGroup
-							legend="Svar"
+						<Select
+							label="Svar"
 							name="answer"
 							size="small"
 							defaultValue={q.answer ?? ""}
-							hideLegend
-							onChange={(val) => setSelectedValue(val)}
+							onChange={(e) => setSelectedValue(e.target.value)}
 						>
-							<HStack gap="space-4">
-								{q.choices.map((c) => (
-									<Radio key={c.label} value={c.label}>
-										{c.label}
-									</Radio>
-								))}
-							</HStack>
-						</RadioGroup>
+							<option value="" disabled>
+								Velg svar
+							</option>
+							{q.choices.map((c) => (
+								<option key={c.label} value={c.label}>
+									{c.label}
+								</option>
+							))}
+						</Select>
 						<Button type="submit" size="small" variant="secondary-neutral">
 							Lagre
 						</Button>
@@ -525,49 +610,31 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 					)}
 				</VStack>
 			</Form>
-		)
-	}
-
-	// single_choice with dropdown
-	return (
-		<Form method="post">
-			<input type="hidden" name="intent" value="screening" />
-			<input type="hidden" name="questionId" value={q.id} />
-			<VStack gap="space-4">
-				<HStack gap="space-4" align="end">
-					<Select
-						label="Svar"
-						name="answer"
-						size="small"
-						defaultValue={q.answer ?? ""}
-						onChange={(e) => setSelectedValue(e.target.value)}
-					>
-						<option value="" disabled>
-							Velg svar
-						</option>
-						{q.choices.map((c) => (
-							<option key={c.label} value={c.label}>
-								{c.label}
-							</option>
-						))}
-					</Select>
-					<Button type="submit" size="small" variant="secondary-neutral">
-						Lagre
-					</Button>
-					{q.answer !== null && (
-						<Tag variant="success" size="xsmall">
-							Besvart: {q.answer}
-						</Tag>
-					)}
-				</HStack>
-				{selectedChoice?.requiresComment && (
-					<TextField label="Kommentar" name="answerComment" size="small" defaultValue={q.answerComment ?? ""} />
-				)}
-				{selectedChoice?.requiresLink && (
-					<TextField label="Lenke" name="answerLink" size="small" defaultValue={q.answerLink ?? ""} />
-				)}
-			</VStack>
-		</Form>
+			{routineSelections.map((rs) => (
+				<fetcher.Form method="post" key={rs.effectId}>
+					<input type="hidden" name="intent" value="selectRoutine" />
+					<input type="hidden" name="choiceEffectId" value={rs.effectId} />
+					<HStack gap="space-4" align="end">
+						<Select
+							label={`Velg rutine for ${rs.controlTextId}`}
+							name="routineId"
+							size="small"
+							defaultValue={rs.selectedRoutineId ?? ""}
+						>
+							<option value="">– Ikke valgt –</option>
+							{rs.routines.map((r) => (
+								<option key={r.id} value={r.id}>
+									{r.name}
+								</option>
+							))}
+						</Select>
+						<Button type="submit" size="small" variant="secondary-neutral">
+							Lagre
+						</Button>
+					</HStack>
+				</fetcher.Form>
+			))}
+		</VStack>
 	)
 }
 
