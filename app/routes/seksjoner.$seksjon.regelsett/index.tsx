@@ -1,3 +1,4 @@
+import { DownloadIcon } from "@navikt/aksel-icons"
 import { BodyLong, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
@@ -40,11 +41,22 @@ export default function SeksjonRegelsettIndex() {
 		<VStack gap="space-6">
 			<HStack justify="space-between" align="center">
 				<Heading size="large">Regelsett — {section.name}</Heading>
-				{canAdmin && (
-					<Button as={Link} to={`/seksjoner/${section.slug}/regelsett/ny`} variant="primary" size="small">
-						Opprett nytt regelsett
+				<HStack gap="space-2">
+					<Button
+						as="a"
+						href={`/api/seksjoner/${section.slug}/eksport?type=regelsett`}
+						variant="tertiary"
+						size="small"
+						icon={<DownloadIcon aria-hidden />}
+					>
+						Eksporter
 					</Button>
-				)}
+					{canAdmin && (
+						<Button as={Link} to={`/seksjoner/${section.slug}/regelsett/ny`} variant="primary" size="small">
+							Opprett nytt regelsett
+						</Button>
+					)}
+				</HStack>
 			</HStack>
 			<BodyLong>
 				Regelsett definerer regler og retningslinjer som skal følges. Hvert regelsett har en ansvarlig og en frekvens

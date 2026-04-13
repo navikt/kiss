@@ -83,4 +83,6 @@ export default [
 	route("dokumenter", "routes/dokumenter/index.tsx"),
 	route("hjelp/markdown", "routes/hjelp.markdown/index.tsx"),
 	route("api/dokumenter/:dokumentId", "routes/api.dokumenter.$dokumentId/index.tsx"),
+	route("api/seksjoner/:seksjon/eksport", "routes/api.seksjoner.$seksjon.eksport/index.tsx"),
+	route("api/eksport/screening", "routes/api.eksport.screening/index.tsx"),
 ] satisfies RouteConfig

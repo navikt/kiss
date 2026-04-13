@@ -1,3 +1,4 @@
+import { DownloadIcon } from "@navikt/aksel-icons"
 import { BodyShort, Box, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
@@ -38,6 +39,15 @@ export default function SeksjonRutinerIndex() {
 			<HStack justify="space-between" align="center">
 				<Heading size="large">Rutiner — {section.name}</Heading>
 				<HStack gap="space-2">
+					<Button
+						as="a"
+						href={`/api/seksjoner/${section.slug}/eksport?type=rutiner`}
+						variant="tertiary"
+						size="small"
+						icon={<DownloadIcon aria-hidden />}
+					>
+						Eksporter
+					</Button>
 					<Button as={Link} to="./mangler" variant="secondary" size="small">
 						Manglende
 					</Button>

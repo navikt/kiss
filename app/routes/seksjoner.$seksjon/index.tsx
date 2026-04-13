@@ -1,3 +1,4 @@
+import { DownloadIcon } from "@navikt/aksel-icons"
 import { BodyLong, BodyShort, Box, Button, Detail, Heading, HGrid, HStack, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
@@ -81,6 +82,15 @@ export default function SeksjonDashboard() {
 				</Button>
 				<Button as={Link} to={`/seksjoner/${seksjon}/audit-logging`} variant="secondary" size="small">
 					Audit logging
+				</Button>
+				<Button
+					as="a"
+					href={`/api/seksjoner/${seksjon}/eksport`}
+					variant="tertiary"
+					size="small"
+					icon={<DownloadIcon aria-hidden />}
+				>
+					Eksporter alt
 				</Button>
 				{canAdmin && (
 					<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">

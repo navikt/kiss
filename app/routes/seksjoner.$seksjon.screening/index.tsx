@@ -1,7 +1,7 @@
 import type { DragEndEvent } from "@dnd-kit/core"
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core"
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable"
-import { PlusIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, PlusIcon } from "@navikt/aksel-icons"
 import { Alert, BodyLong, Button, Heading, HStack, Modal, VStack } from "@navikt/ds-react"
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
@@ -77,7 +77,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function SectionScreening() {
-	const { questions: loaderQuestions, sectionName, screeningBasePath } = useLoaderData<typeof loader>()
+	const { questions: loaderQuestions, seksjon, sectionName, screeningBasePath } = useLoaderData<typeof loader>()
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
 	const [deleteTarget, setDeleteTarget] = useState<{ id: string; text: string } | null>(null)
 	const [questions, setQuestions] = useState(loaderQuestions)
@@ -111,15 +111,26 @@ export default function SectionScreening() {
 					<Heading size="xlarge" level="2">
 						Innledende spørsmål — {sectionName}
 					</Heading>
-					<Button
-						as={Link}
-						to={`${screeningBasePath}/ny/rediger`}
-						size="small"
-						variant="secondary"
-						icon={<PlusIcon aria-hidden />}
-					>
-						Nytt spørsmål
-					</Button>
+					<HStack gap="space-2">
+						<Button
+							as="a"
+							href={`/api/seksjoner/${seksjon}/eksport?type=screening`}
+							size="small"
+							variant="tertiary"
+							icon={<DownloadIcon aria-hidden />}
+						>
+							Eksporter
+						</Button>
+						<Button
+							as={Link}
+							to={`${screeningBasePath}/ny/rediger`}
+							size="small"
+							variant="secondary"
+							icon={<PlusIcon aria-hidden />}
+						>
+							Nytt spørsmål
+						</Button>
+					</HStack>
 				</HStack>
 				<BodyLong>
 					Definer spørsmål som vises før compliance-vurderingen. Svarene kan automatisk sette status på kontrollpunkter.
