@@ -141,6 +141,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const user = await getAuthenticatedUser(request)
 
+	// Breadcrumb context for team-context routes
+	const breadcrumbCtx =
+		params.seksjon && params.team
+			? await (async () => {
+					const { getTeamBreadcrumbContext } = await import("~/lib/breadcrumb-context.server")
+					return getTeamBreadcrumbContext(params.seksjon!, params.team!)
+				})()
+			: {}
+
 	const [detail, assessmentsResult] = await Promise.all([getApplicationDetail(appId), getAppAssessments(appId)])
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
@@ -340,6 +349,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	return data({
+		...breadcrumbCtx,
 		app: detail.app,
 		environments: detail.environments,
 		persistence: detail.persistence,

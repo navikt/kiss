@@ -387,6 +387,12 @@ export async function getTeamsForSection(sectionId: string) {
 	return teamsWithNais
 }
 
+/** Get a dev team by slug (lightweight lookup). */
+export async function getTeamBySlug(slug: string) {
+	const [team] = await db.select().from(devTeams).where(eq(devTeams.slug, slug)).limit(1)
+	return team ?? null
+}
+
 /** Get apps for a specific dev team. */
 export async function getTeamApps(teamSlug: string) {
 	const [team] = await db.select().from(devTeams).where(eq(devTeams.slug, teamSlug)).limit(1)
@@ -463,7 +469,7 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 		const { allIds, directIds } = await getTeamAppIds(team.id, team.sectionId)
 		for (const appId of allIds) {
 			if (!appToTeams.has(appId)) appToTeams.set(appId, new Set())
-			appToTeams.get(appId)!.add(team.id)
+			appToTeams.get(appId)?.add(team.id)
 			if (directIds.has(appId)) appSources.set(appId, "direct")
 			else if (!appSources.has(appId)) appSources.set(appId, "nais-team")
 		}

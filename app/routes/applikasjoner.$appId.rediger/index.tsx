@@ -56,6 +56,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)
 
+	// Breadcrumb context for team-context routes
+	const breadcrumbCtx =
+		params.seksjon && params.team
+			? await (async () => {
+					const { getTeamBreadcrumbContext } = await import("~/lib/breadcrumb-context.server")
+					return getTeamBreadcrumbContext(params.seksjon!, params.team!)
+				})()
+			: {}
+
 	const [detail, candidates, appElements, allElements, availableTeams, oracleInstances, allOracleInstances] =
 		await Promise.all([
 			getApplicationDetail(appId),
@@ -89,6 +98,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const canDelete = detail.linkedApps.length === 0 && detail.environments.length === 0
 
 	return data({
+		...breadcrumbCtx,
 		app: detail.app,
 		teams: detail.teams,
 		primaryApp: detail.primaryApp,
