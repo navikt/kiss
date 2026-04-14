@@ -276,10 +276,9 @@ export default function ComplianceAssessment() {
 
 				{screening.map((q) => (
 					<div key={q.id} className="compliance-sidebar-group">
-						<AkselLink href={`#q-${slugify(q.questionText)}`} className="compliance-sidebar-risk">
-							<span>
-								{q.answer !== null ? "✓" : "○"} {q.questionText}
-							</span>
+						<AkselLink href={`#q-${slugify(q.questionText)}`} className="compliance-sidebar-question">
+							<span className="compliance-sidebar-question-icon">{q.answer !== null ? "✓" : "○"}</span>
+							<span className="compliance-sidebar-question-text">{q.questionText}</span>
 						</AkselLink>
 					</div>
 				))}
