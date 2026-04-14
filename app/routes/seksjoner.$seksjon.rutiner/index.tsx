@@ -3,7 +3,7 @@ import { BodyShort, Box, Button, Heading, HGrid, HStack, Table, Tag, VStack } fr
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getAllControlsForSelection } from "~/db/queries/framework.server"
+import { getAllControls } from "~/db/queries/framework.server"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import {
@@ -29,7 +29,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 	}
 
-	const [routines, allControls] = await Promise.all([getRoutinesForSection(section.id), getAllControlsForSelection()])
+	const [routines, allControls] = await Promise.all([getRoutinesForSection(section.id), getAllControls()])
 
 	return data({
 		section,
@@ -166,11 +166,48 @@ function ControlCoverageSummary({
 	allControls,
 }: {
 	routines: Array<{ controls: Array<{ id: string; controlId: string; name: string }> }>
-	allControls: Array<{ id: string; controlId: string; name: string }>
+	allControls: Array<{ controlId: string; name: string; technologyElements: string[] }>
 }) {
-	const coveredControlIds = new Set(routines.flatMap((r) => r.controls.map((c) => c.id)))
-	const covered = allControls.filter((c) => coveredControlIds.has(c.id))
-	const uncovered = allControls.filter((c) => !coveredControlIds.has(c.id))
+	const coveredControlIds = new Set(routines.flatMap((r) => r.controls.map((c) => c.controlId)))
+
+	// Collect all unique tech elements
+	const techElementSet = new Set<string>()
+	for (const c of allControls) {
+		for (const te of c.technologyElements) techElementSet.add(te)
+	}
+	const techElements = [...techElementSet].sort()
+
+	// Controls without tech elements
+	const generalControls = allControls.filter((c) => c.technologyElements.length === 0)
+
+	type GroupData = {
+		label: string
+		covered: typeof allControls
+		uncovered: typeof allControls
+	}
+
+	const groups: GroupData[] = []
+
+	// General controls group
+	if (generalControls.length > 0) {
+		groups.push({
+			label: "Generelle krav",
+			covered: generalControls.filter((c) => coveredControlIds.has(c.controlId)),
+			uncovered: generalControls.filter((c) => !coveredControlIds.has(c.controlId)),
+		})
+	}
+
+	// Per tech element groups
+	for (const te of techElements) {
+		const teControls = allControls.filter((c) => c.technologyElements.includes(te))
+		groups.push({
+			label: te,
+			covered: teControls.filter((c) => coveredControlIds.has(c.controlId)),
+			uncovered: teControls.filter((c) => !coveredControlIds.has(c.controlId)),
+		})
+	}
+
+	const totalCovered = allControls.filter((c) => coveredControlIds.has(c.controlId)).length
 
 	return (
 		<VStack gap="space-4">
@@ -178,58 +215,73 @@ function ControlCoverageSummary({
 				<Heading size="medium" level="3">
 					Kravdekning
 				</Heading>
-				<Tag variant={uncovered.length === 0 ? "success" : "neutral"} size="small">
-					{covered.length} av {allControls.length} krav dekket
+				<Tag variant={totalCovered === allControls.length ? "success" : "neutral"} size="small">
+					{totalCovered} av {allControls.length} krav dekket
 				</Tag>
 			</HStack>
 
-			<HGrid columns={{ xs: 1, md: 2 }} gap="space-4">
-				{uncovered.length > 0 && (
-					<Box padding="space-4" borderRadius="8" borderWidth="1" borderColor="neutral-subtle">
-						<VStack gap="space-2">
-							<HStack gap="space-2" align="center">
-								<XMarkOctagonIcon aria-hidden fontSize="1.25rem" color="var(--ax-text-danger)" />
-								<Heading size="xsmall" level="4">
-									Krav uten rutiner ({uncovered.length})
-								</Heading>
-							</HStack>
-							<VStack gap="space-1">
-								{uncovered.map((c) => (
-									<HStack key={c.id} gap="space-2" align="center" wrap>
-										<Tag variant="error" size="xsmall">
-											{c.controlId}
-										</Tag>
-										<BodyShort size="small">{c.name}</BodyShort>
-									</HStack>
-								))}
-							</VStack>
-						</VStack>
-					</Box>
-				)}
+			<VStack gap="space-6">
+				{groups.map((group) => (
+					<VStack key={group.label} gap="space-2">
+						<HStack gap="space-4" align="center">
+							<Heading size="small" level="4">
+								{group.label}
+							</Heading>
+							<Tag variant={group.uncovered.length === 0 ? "success" : "neutral"} size="xsmall">
+								{group.covered.length} av {group.covered.length + group.uncovered.length} dekket
+							</Tag>
+						</HStack>
 
-				{covered.length > 0 && (
-					<Box padding="space-4" borderRadius="8" borderWidth="1" borderColor="neutral-subtle">
-						<VStack gap="space-2">
-							<HStack gap="space-2" align="center">
-								<CheckmarkCircleIcon aria-hidden fontSize="1.25rem" color="var(--ax-text-success)" />
-								<Heading size="xsmall" level="4">
-									Krav med rutiner ({covered.length})
-								</Heading>
-							</HStack>
-							<VStack gap="space-1">
-								{covered.map((c) => (
-									<HStack key={c.id} gap="space-2" align="center" wrap>
-										<Tag variant="success" size="xsmall">
-											{c.controlId}
-										</Tag>
-										<BodyShort size="small">{c.name}</BodyShort>
-									</HStack>
-								))}
-							</VStack>
-						</VStack>
-					</Box>
-				)}
-			</HGrid>
+						<HGrid columns={{ xs: 1, md: 2 }} gap="space-4">
+							{group.uncovered.length > 0 && (
+								<Box padding="space-4" borderRadius="8" borderWidth="1" borderColor="neutral-subtle">
+									<VStack gap="space-2">
+										<HStack gap="space-2" align="center">
+											<XMarkOctagonIcon aria-hidden fontSize="1.25rem" color="var(--ax-text-danger)" />
+											<Heading size="xsmall" level="5">
+												Uten rutiner ({group.uncovered.length})
+											</Heading>
+										</HStack>
+										<VStack gap="space-1">
+											{group.uncovered.map((c) => (
+												<HStack key={c.controlId} gap="space-2" align="center" wrap>
+													<Tag variant="error" size="xsmall">
+														{c.controlId}
+													</Tag>
+													<BodyShort size="small">{c.name}</BodyShort>
+												</HStack>
+											))}
+										</VStack>
+									</VStack>
+								</Box>
+							)}
+
+							{group.covered.length > 0 && (
+								<Box padding="space-4" borderRadius="8" borderWidth="1" borderColor="neutral-subtle">
+									<VStack gap="space-2">
+										<HStack gap="space-2" align="center">
+											<CheckmarkCircleIcon aria-hidden fontSize="1.25rem" color="var(--ax-text-success)" />
+											<Heading size="xsmall" level="5">
+												Med rutiner ({group.covered.length})
+											</Heading>
+										</HStack>
+										<VStack gap="space-1">
+											{group.covered.map((c) => (
+												<HStack key={c.controlId} gap="space-2" align="center" wrap>
+													<Tag variant="success" size="xsmall">
+														{c.controlId}
+													</Tag>
+													<BodyShort size="small">{c.name}</BodyShort>
+												</HStack>
+											))}
+										</VStack>
+									</VStack>
+								</Box>
+							)}
+						</HGrid>
+					</VStack>
+				))}
+			</VStack>
 		</VStack>
 	)
 }
