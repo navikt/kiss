@@ -264,7 +264,19 @@ export default function ComplianceAssessment() {
 	const { appId, appName, screening, persistence, rulesetOptions, entraGroupsData } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
-	const answeredCount = screening.filter((q) => q.answer !== null).length
+	const isQuestionAnswered = useCallback(
+		(q: (typeof screening)[number]) => {
+			if (q.answer !== null) return true
+			if (q.answerType === "persistence") return persistence.length > 0
+			if (q.answerType === "entra_id_groups") {
+				return entraGroupsData.naisGroupIds.length > 0 || entraGroupsData.manualGroups.length > 0
+			}
+			return false
+		},
+		[persistence, entraGroupsData],
+	)
+
+	const answeredCount = screening.filter(isQuestionAnswered).length
 
 	return (
 		<section className="compliance-layout" aria-label="Compliance-vurdering">
@@ -277,7 +289,7 @@ export default function ComplianceAssessment() {
 				{screening.map((q) => (
 					<div key={q.id} className="compliance-sidebar-group">
 						<AkselLink href={`#q-${slugify(q.questionText)}`} className="compliance-sidebar-question">
-							<span className="compliance-sidebar-question-icon">{q.answer !== null ? "✓" : "○"}</span>
+							<span className="compliance-sidebar-question-icon">{isQuestionAnswered(q) ? "✓" : "○"}</span>
 							<span className="compliance-sidebar-question-text">{q.questionText}</span>
 						</AkselLink>
 					</div>
