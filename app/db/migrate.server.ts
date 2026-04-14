@@ -12,6 +12,7 @@ export async function runMigrations() {
 	logger.info("Running database migrations...")
 	try {
 		await seedTrackingForPushedDatabase()
+		await repairTrackingTable()
 		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
 		logger.info("Database migrations completed successfully")
 	} catch (error) {
@@ -26,6 +27,9 @@ export async function runMigrations() {
  * If the database was set up with `db:push`, tables exist but
  * there is no migration tracking. This seeds the drizzle.__drizzle_migrations
  * table so `migrate()` skips already-applied migrations.
+ *
+ * Only seeds migrations whose CREATE TABLE targets actually exist in the
+ * database, so new table migrations are left for `migrate()` to execute.
  */
 async function seedTrackingForPushedDatabase() {
 	const [{ exists: trackingExists }] = (
@@ -61,11 +65,7 @@ async function seedTrackingForPushedDatabase() {
 		)
 	`)
 
-	// Get all existing public tables to know which migrations are already applied
-	const existingTablesResult = await db.execute<{ tablename: string }>(sql`
-		SELECT tablename FROM pg_tables WHERE schemaname = 'public'
-	`)
-	const existingTables = new Set(existingTablesResult.rows.map((r) => r.tablename))
+	const existingTables = await getExistingPublicTables()
 
 	const journalPath = path.join(MIGRATIONS_FOLDER, "meta", "_journal.json")
 	const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as {
@@ -76,10 +76,9 @@ async function seedTrackingForPushedDatabase() {
 	for (const entry of journal.entries) {
 		const sqlContent = fs.readFileSync(path.join(MIGRATIONS_FOLDER, `${entry.tag}.sql`)).toString()
 
-		// Only seed migrations whose CREATE TABLE targets already exist
-		const createTableMatch = sqlContent.match(/CREATE TABLE[^"]*"(\w+)"/)
-		if (createTableMatch && !existingTables.has(createTableMatch[1])) {
-			logger.info(`Skipping migration ${entry.tag} — table "${createTableMatch[1]}" does not exist yet`)
+		const newTable = extractCreateTableName(sqlContent)
+		if (newTable && !existingTables.has(newTable)) {
+			logger.info(`Skipping migration ${entry.tag} — table "${newTable}" does not exist yet`)
 			continue
 		}
 
@@ -92,4 +91,71 @@ async function seedTrackingForPushedDatabase() {
 	}
 
 	logger.info(`Seeded ${seeded} of ${journal.entries.length} migration(s) into tracking table`)
+}
+
+/**
+ * Removes tracking entries for migrations that were marked as applied
+ * but whose tables don't actually exist. This repairs cases where
+ * seedTrackingForPushedDatabase blindly seeded all entries.
+ */
+async function repairTrackingTable() {
+	const [{ exists: trackingExists }] = (
+		await db.execute<{ exists: boolean }>(sql`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+		) AS exists
+	`)
+	).rows
+
+	if (!trackingExists) return
+
+	const existingTables = await getExistingPublicTables()
+	const trackedHashes = (
+		await db.execute<{ id: number; hash: string }>(sql`
+		SELECT id, hash FROM drizzle."__drizzle_migrations" ORDER BY id
+	`)
+	).rows
+
+	const journalPath = path.join(MIGRATIONS_FOLDER, "meta", "_journal.json")
+	const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as {
+		entries: { idx: number; when: number; tag: string }[]
+	}
+
+	// Build hash → entry lookup
+	const hashToEntry = new Map<string, { tag: string; sqlContent: string }>()
+	for (const entry of journal.entries) {
+		const sqlContent = fs.readFileSync(path.join(MIGRATIONS_FOLDER, `${entry.tag}.sql`)).toString()
+		const hash = crypto.createHash("sha256").update(sqlContent).digest("hex")
+		hashToEntry.set(hash, { tag: entry.tag, sqlContent })
+	}
+
+	let removed = 0
+	for (const tracked of trackedHashes) {
+		const entry = hashToEntry.get(tracked.hash)
+		if (!entry) continue
+
+		const newTable = extractCreateTableName(entry.sqlContent)
+		if (newTable && !existingTables.has(newTable)) {
+			logger.info(`Removing stale tracking entry for ${entry.tag} — table "${newTable}" does not exist`)
+			await db.execute(sql`DELETE FROM drizzle."__drizzle_migrations" WHERE id = ${tracked.id}`)
+			removed++
+		}
+	}
+
+	if (removed > 0) {
+		logger.info(`Repaired tracking table: removed ${removed} stale entries`)
+	}
+}
+
+async function getExistingPublicTables(): Promise<Set<string>> {
+	const result = await db.execute<{ tablename: string }>(sql`
+		SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+	`)
+	return new Set(result.rows.map((r) => r.tablename))
+}
+
+function extractCreateTableName(sqlContent: string): string | null {
+	const match = sqlContent.match(/CREATE TABLE[^"]*"(\w+)"/)
+	return match?.[1] ?? null
 }

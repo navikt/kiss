@@ -1389,16 +1389,11 @@ export async function deleteManualPersistence(persistenceId: string, performedBy
 
 /** Get manually added groups for an application. */
 export async function getManualGroupsForApp(applicationId: string) {
-	try {
-		return await db
-			.select()
-			.from(applicationManualGroups)
-			.where(eq(applicationManualGroups.applicationId, applicationId))
-			.orderBy(applicationManualGroups.createdAt)
-	} catch {
-		// Table may not exist yet if migration 0025 hasn't been run
-		return []
-	}
+	return db
+		.select()
+		.from(applicationManualGroups)
+		.where(eq(applicationManualGroups.applicationId, applicationId))
+		.orderBy(applicationManualGroups.createdAt)
 }
 
 /** Add a manual group to an application. */
@@ -1408,51 +1403,41 @@ export async function addManualGroup(
 	groupName: string | null,
 	performedBy: string,
 ) {
-	try {
-		const [inserted] = await db
-			.insert(applicationManualGroups)
-			.values({ applicationId, groupId, groupName, createdBy: performedBy })
-			.onConflictDoNothing()
-			.returning()
+	const [inserted] = await db
+		.insert(applicationManualGroups)
+		.values({ applicationId, groupId, groupName, createdBy: performedBy })
+		.onConflictDoNothing()
+		.returning()
 
-		if (inserted) {
-			await writeAuditLog({
-				action: "manual_group_added",
-				entityType: "application",
-				entityId: applicationId,
-				newValue: JSON.stringify({ groupId, groupName }),
-				performedBy,
-			})
-		}
-
-		return inserted ?? null
-	} catch {
-		// Table may not exist yet if migration 0025 hasn't been run
-		return null
+	if (inserted) {
+		await writeAuditLog({
+			action: "manual_group_added",
+			entityType: "application",
+			entityId: applicationId,
+			newValue: JSON.stringify({ groupId, groupName }),
+			performedBy,
+		})
 	}
+
+	return inserted ?? null
 }
 
 /** Remove a manual group from an application. */
 export async function removeManualGroup(id: string, applicationId: string, performedBy: string) {
-	try {
-		const [deleted] = await db
-			.delete(applicationManualGroups)
-			.where(and(eq(applicationManualGroups.id, id), eq(applicationManualGroups.applicationId, applicationId)))
-			.returning()
+	const [deleted] = await db
+		.delete(applicationManualGroups)
+		.where(and(eq(applicationManualGroups.id, id), eq(applicationManualGroups.applicationId, applicationId)))
+		.returning()
 
-		if (deleted) {
-			await writeAuditLog({
-				action: "manual_group_removed",
-				entityType: "application",
-				entityId: applicationId,
-				previousValue: JSON.stringify({ groupId: deleted.groupId, groupName: deleted.groupName }),
-				performedBy,
-			})
-		}
-
-		return deleted ?? null
-	} catch {
-		// Table may not exist yet if migration 0025 hasn't been run
-		return null
+	if (deleted) {
+		await writeAuditLog({
+			action: "manual_group_removed",
+			entityType: "application",
+			entityId: applicationId,
+			previousValue: JSON.stringify({ groupId: deleted.groupId, groupName: deleted.groupName }),
+			performedBy,
+		})
 	}
+
+	return deleted ?? null
 }
