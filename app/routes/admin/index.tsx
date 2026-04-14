@@ -32,7 +32,7 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Administrer seksjoner, klynger og utviklingsteam.</BodyLong>
 				</Link>
-				<Link to="/nais-overvaking" className="admin-card">
+				<Link to="/admin/nais-overvaking" className="admin-card">
 					<Heading size="small" level="3">
 						Nais-overvåking
 					</Heading>

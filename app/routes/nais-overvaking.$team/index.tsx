@@ -63,7 +63,7 @@ export default function NaisTeamDetalj() {
 	return (
 		<VStack gap="space-8">
 			<div>
-				<Link to="/nais-overvaking">← Nais-overvåking</Link>
+				<Link to="/admin/nais-overvaking">← Nais-overvåking</Link>
 				<Heading size="xlarge" level="2" spacing>
 					{team.slug}
 				</Heading>

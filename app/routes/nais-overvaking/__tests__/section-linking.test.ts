@@ -32,7 +32,7 @@ const { action } = await import("../index")
 // --- Helpers ---------------------------------------------------------
 
 function makeRequest(formData: FormData): Request {
-	return new Request("http://localhost/nais-overvaking", {
+	return new Request("http://localhost/admin/nais-overvaking", {
 		method: "POST",
 		body: formData,
 	})

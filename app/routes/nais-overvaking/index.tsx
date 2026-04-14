@@ -228,7 +228,7 @@ export default function NaisOvervaking() {
 									{sortedUnlinkedTeams.map((team) => (
 										<Table.Row key={team.slug}>
 											<Table.DataCell>
-												<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
+												<Link to={`/admin/nais-overvaking/${team.slug}`}>{team.slug}</Link>
 												{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
 											</Table.DataCell>
 											<Table.DataCell align="right">{team.appCount}</Table.DataCell>
@@ -289,7 +289,7 @@ export default function NaisOvervaking() {
 										{sortTeams(s.teams).map((team) => (
 											<Table.Row key={team.slug}>
 												<Table.DataCell>
-													<Link to={`/nais-overvaking/${team.slug}`}>{team.slug}</Link>
+													<Link to={`/admin/nais-overvaking/${team.slug}`}>{team.slug}</Link>
 													{team.displayName && team.displayName !== team.slug && <> ({team.displayName})</>}
 												</Table.DataCell>
 												<Table.DataCell align="right">{team.appCount}</Table.DataCell>
@@ -341,7 +341,7 @@ export default function NaisOvervaking() {
 				</Modal.Footer>
 			</Modal>
 
-			<Link to="/nais-overvaking/endringslogg">Vis endringslogg</Link>
+			<Link to="/admin/nais-overvaking/endringslogg">Vis endringslogg</Link>
 		</VStack>
 	)
 }

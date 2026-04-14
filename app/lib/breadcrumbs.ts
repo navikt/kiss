@@ -135,7 +135,6 @@ function reviewLabel(data: Record<string, unknown>): string {
 const SEKSJONER: BreadcrumbSegment = { label: "Seksjoner", to: "/seksjoner" }
 const KONTROLLRAMMEVERK: BreadcrumbSegment = { label: "Kontrollrammeverk", to: "/kontrollrammeverk" }
 const MINE_TEAM: BreadcrumbSegment = { label: "Mine team", to: "/mine-team" }
-const NAIS: BreadcrumbSegment = { label: "Nais", to: "/nais-overvaking" }
 const ADMIN: BreadcrumbSegment = { label: "Admin", to: "/admin" }
 
 // ─── Rules (ordered most specific first) ────────────────────────────────────
@@ -409,18 +408,18 @@ const rules: BreadcrumbRule[] = [
 		segments: [{ label: appName }],
 	},
 
-	// ── Nais-overvåking ──
+	// ── Admin: Nais-overvåking ──
 	{
-		pattern: "nais-overvaking/endringslogg",
-		segments: [NAIS, { label: "Endringslogg" }],
+		pattern: "admin/nais-overvaking/endringslogg",
+		segments: [ADMIN, { label: "Nais-overvåking", to: "/admin/nais-overvaking" }, { label: "Endringslogg" }],
 	},
 	{
-		pattern: "nais-overvaking/:team",
-		segments: [NAIS, { label: naisTeamName }],
+		pattern: "admin/nais-overvaking/:team",
+		segments: [ADMIN, { label: "Nais-overvåking", to: "/admin/nais-overvaking" }, { label: naisTeamName }],
 	},
 	{
-		pattern: "nais-overvaking",
-		segments: [{ label: "Nais" }],
+		pattern: "admin/nais-overvaking",
+		segments: [ADMIN, { label: "Nais-overvåking" }],
 	},
 
 	// ── Admin ──

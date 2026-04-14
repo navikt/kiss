@@ -391,7 +391,7 @@ export default function RedigerSeksjon() {
 											{linkedNaisTeams.map((nt) => (
 												<Table.Row key={nt.slug}>
 													<Table.DataCell>
-														<AkselLink as={Link} to={`/nais-overvaking/${nt.slug}`}>
+														<AkselLink as={Link} to={`/admin/nais-overvaking/${nt.slug}`}>
 															{nt.slug}
 														</AkselLink>
 														{nt.displayName && nt.displayName !== nt.slug && <> ({nt.displayName})</>}

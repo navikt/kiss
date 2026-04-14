@@ -141,7 +141,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		...teamResults.map((team: (typeof teamResults)[number]) => ({
 			type: "team" as const,
 			id: team.slug,
-			url: `/nais-overvaking/${team.slug}`,
+			url: `/admin/nais-overvaking/${team.slug}`,
 			title: team.displayName ?? team.slug,
 			subtitle: team.slug,
 		})),

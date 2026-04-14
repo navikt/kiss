@@ -9,7 +9,6 @@ const navItems: NavItem[] = [
 	{ label: "Dashboard", href: "/dashboard" },
 	{ label: "Kontrollrammeverk", href: "/kontrollrammeverk" },
 	{ label: "Seksjoner", href: "/seksjoner" },
-	{ label: "Nais", href: "/nais-overvaking" },
 	{ label: "Admin", href: "/admin" },
 ]
 
