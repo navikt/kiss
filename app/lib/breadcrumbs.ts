@@ -329,6 +329,10 @@ const rules: BreadcrumbRule[] = [
 		segments: [SEKSJONER, { label: sectionName, to: sectionPath }, { label: "Audit logging" }],
 	},
 	{
+		pattern: "seksjoner/:seksjon/koblingsforslag",
+		segments: [SEKSJONER, { label: sectionName, to: sectionPath }, { label: "Koblingsforslag" }],
+	},
+	{
 		pattern: "seksjoner/:seksjon/rediger",
 		segments: [SEKSJONER, { label: sectionName, to: sectionPath }, { label: "Rediger" }],
 	},
