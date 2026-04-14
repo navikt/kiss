@@ -18,13 +18,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		try {
 			const roles = await getUserRoles(user.navIdent)
 			const firstSection = roles.find((r) => r.sectionSlug)
-			if (firstSection?.sectionSlug) {
-				if (landingPage === "mine-team") {
-					const firstTeam = roles.find((r) => r.devTeamId && r.devTeamName)
-					if (firstTeam?.devTeamId) {
-						return redirect(`/seksjoner/${firstSection.sectionSlug}/team/${firstTeam.devTeamId}`)
-					}
+			if (landingPage === "mine-team") {
+				const hasTeam = roles.some((r) => r.devTeamId)
+				if (hasTeam) {
+					return redirect("/mine-team")
 				}
+			}
+			if (firstSection?.sectionSlug) {
 				return redirect(`/seksjoner/${firstSection.sectionSlug}`)
 			}
 		} catch {

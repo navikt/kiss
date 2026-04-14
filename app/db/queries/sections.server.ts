@@ -432,6 +432,76 @@ export async function getTeamApps(teamSlug: string) {
 	return { team, apps }
 }
 
+/** Get aggregated apps across multiple dev teams (by IDs). */
+export async function getAppsForMultipleTeams(teamIds: string[]) {
+	if (teamIds.length === 0) return { teams: [], apps: [] }
+
+	const teamRows = await db
+		.select({
+			id: devTeams.id,
+			name: devTeams.name,
+			slug: devTeams.slug,
+			sectionId: devTeams.sectionId,
+			sectionName: sections.name,
+			sectionSlug: sections.slug,
+		})
+		.from(devTeams)
+		.innerJoin(sections, eq(devTeams.sectionId, sections.id))
+		.where(inArray(devTeams.id, teamIds))
+
+	const [totalControlsRow] = await db
+		.select({ count: count() })
+		.from(frameworkControls)
+		.where(isNull(frameworkControls.archivedAt))
+	const totalControls = totalControlsRow?.count ?? 0
+
+	// Collect app IDs from all teams, tracking which team each belongs to
+	const appToTeams = new Map<string, Set<string>>()
+	const appSources = new Map<string, "direct" | "nais-team">()
+
+	for (const team of teamRows) {
+		const { allIds, directIds } = await getTeamAppIds(team.id, team.sectionId)
+		for (const appId of allIds) {
+			if (!appToTeams.has(appId)) appToTeams.set(appId, new Set())
+			appToTeams.get(appId)!.add(team.id)
+			if (directIds.has(appId)) appSources.set(appId, "direct")
+			else if (!appSources.has(appId)) appSources.set(appId, "nais-team")
+		}
+	}
+
+	const allAppIds = [...appToTeams.keys()]
+	const [appRows, statsMap] = await Promise.all([
+		allAppIds.length > 0
+			? db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, allAppIds))
+			: Promise.resolve([]),
+		getBatchComplianceStats(allAppIds),
+	])
+
+	const appById = new Map(appRows.map((a) => [a.id, a]))
+
+	const apps = allAppIds
+		.map((appId) => {
+			const app = appById.get(appId)
+			if (!app) return null
+			const stats = statsMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0 }
+			return {
+				appId: app.id,
+				appName: app.name,
+				implemented: stats.implemented,
+				partial: stats.partial,
+				notImplemented: stats.notImplemented,
+				total: totalControls,
+				source: appSources.get(appId) ?? ("nais-team" as const),
+				teamIds: [...(appToTeams.get(appId) ?? [])],
+			}
+		})
+		.filter((a): a is NonNullable<typeof a> => a !== null)
+
+	apps.sort((a, b) => a.appName.localeCompare(b.appName, "nb"))
+
+	return { teams: teamRows, apps }
+}
+
 /** Link a Nais team to a dev team (by Nais team slug). */
 export async function linkNaisTeamToDevTeam(naisTeamSlug: string, devTeamId: string, performedBy: string) {
 	const [naisTeam] = await db.select().from(naisTeams).where(eq(naisTeams.slug, naisTeamSlug)).limit(1)

@@ -4,6 +4,7 @@ export default [
 	index("routes/_index/index.tsx"),
 	route("dashboard", "routes/dashboard/index.tsx"),
 	route("profil", "routes/profil/index.tsx"),
+	route("mine-team", "routes/mine-team/index.tsx"),
 	route("kontrollrammeverk", "routes/kontrollrammeverk/index.tsx"),
 	route("kontrollrammeverk/risiko/:risikoId", "routes/kontrollrammeverk.risiko.$risikoId/index.tsx"),
 	route("kontrollrammeverk/:domene", "routes/kontrollrammeverk.$domene/index.tsx"),
