@@ -89,7 +89,7 @@ export default function MineTeamPage() {
 					</Heading>
 					<div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ax-space-4)" }}>
 						{teams.map((t) => (
-							<Link key={t.id} to={`/seksjoner/${t.sectionSlug}/team/${t.id}`}>
+							<Link key={t.id} to={`/seksjoner/${t.sectionSlug}/team/${t.slug}`}>
 								<Tag variant="info" size="small">
 									{t.name}
 								</Tag>
