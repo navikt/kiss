@@ -6,6 +6,7 @@ import {
 	applicationAccessPolicyRules,
 	applicationAuthIntegrations,
 	applicationEnvironments,
+	applicationManualGroups,
 	applicationPersistence,
 	applicationTeamMappings,
 	type DataClassification,
@@ -1382,4 +1383,61 @@ export async function deleteManualPersistence(persistenceId: string, performedBy
 		metadata: { applicationId: existing.applicationId },
 		performedBy,
 	})
+}
+
+// ─── Manual Groups ───────────────────────────────────────────────────────
+
+/** Get manually added groups for an application. */
+export async function getManualGroupsForApp(applicationId: string) {
+	return db
+		.select()
+		.from(applicationManualGroups)
+		.where(eq(applicationManualGroups.applicationId, applicationId))
+		.orderBy(applicationManualGroups.createdAt)
+}
+
+/** Add a manual group to an application. */
+export async function addManualGroup(
+	applicationId: string,
+	groupId: string,
+	groupName: string | null,
+	performedBy: string,
+) {
+	const [inserted] = await db
+		.insert(applicationManualGroups)
+		.values({ applicationId, groupId, groupName, createdBy: performedBy })
+		.onConflictDoNothing()
+		.returning()
+
+	if (inserted) {
+		await writeAuditLog({
+			action: "manual_group_added",
+			entityType: "application",
+			entityId: applicationId,
+			newValue: JSON.stringify({ groupId, groupName }),
+			performedBy,
+		})
+	}
+
+	return inserted ?? null
+}
+
+/** Remove a manual group from an application. */
+export async function removeManualGroup(id: string, applicationId: string, performedBy: string) {
+	const [deleted] = await db
+		.delete(applicationManualGroups)
+		.where(and(eq(applicationManualGroups.id, id), eq(applicationManualGroups.applicationId, applicationId)))
+		.returning()
+
+	if (deleted) {
+		await writeAuditLog({
+			action: "manual_group_removed",
+			entityType: "application",
+			entityId: applicationId,
+			previousValue: JSON.stringify({ groupId: deleted.groupId, groupName: deleted.groupName }),
+			performedBy,
+		})
+	}
+
+	return deleted ?? null
 }

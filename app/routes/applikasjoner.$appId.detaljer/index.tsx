@@ -53,10 +53,13 @@ import { getOracleInstancesForApp, getSnapshotHistory } from "~/db/queries/audit
 import { getOracleAuditSummariesForApp } from "~/db/queries/audit-logging.server"
 import {
 	acknowledgeUnknownApp,
+	addManualGroup,
 	addManualPersistence,
 	deleteManualPersistence,
 	getActiveAcknowledgments,
 	getApplicationDetail,
+	getManualGroupsForApp,
+	removeManualGroup,
 	resolveAppNames,
 	revokeAcknowledgment,
 	updatePersistenceClassification,
@@ -240,13 +243,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { getDeploymentVerificationForAppWithFetch } = await import("~/db/queries/deployment-audit.server")
 	const deploymentVerifications = await getDeploymentVerificationForAppWithFetch(appId)
 
-	// Resolve Azure AD group names from auth integrations
+	// Resolve Azure AD group names from auth integrations and manual groups
+	const manualGroups = await getManualGroupsForApp(appId)
 	const allGroupIds: string[] = []
 	for (const auth of detail.authIntegrations) {
 		if (auth.groups) {
 			const groups = JSON.parse(auth.groups) as string[]
 			allGroupIds.push(...groups)
 		}
+	}
+	for (const mg of manualGroups) {
+		allGroupIds.push(mg.groupId)
 	}
 	const groupNames = await resolveGroupNames([...new Set(allGroupIds)])
 
@@ -266,6 +273,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			updatedAt: v.updatedAt.toISOString(),
 		})),
 		authIntegrations: detail.authIntegrations,
+		manualGroups: manualGroups.map((g) => ({ ...g, createdAt: g.createdAt.toISOString() })),
 		groupNames,
 		accessPolicyRules: detail.accessPolicyRules,
 		teams: detail.teams,
@@ -443,6 +451,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return data({ success: true, message: "Database slettet.", error: null })
 	}
 
+	if (intent === "add-manual-group") {
+		const groupId = (formData.get("groupId") as string)?.trim()
+		const groupName = (formData.get("groupName") as string)?.trim() || null
+		if (!groupId) return data({ success: false, message: null, error: "Mangler gruppe-ID" })
+		const result = await addManualGroup(appId, groupId, groupName, authedUser.navIdent)
+		if (!result) return data({ success: false, message: null, error: "Gruppen finnes allerede" })
+		return data({ success: true, message: `Gruppe "${groupName || groupId}" lagt til.`, error: null })
+	}
+
+	if (intent === "remove-manual-group") {
+		const manualGroupId = formData.get("manualGroupId") as string
+		if (!manualGroupId) throw new Response("Mangler gruppe-ID", { status: 400 })
+		await removeManualGroup(manualGroupId, appId, authedUser.navIdent)
+		return data({ success: true, message: "Gruppe fjernet.", error: null })
+	}
+
 	return data({ success: false, message: null, error: "Ukjent handling" })
 }
 
@@ -454,6 +478,7 @@ export default function ApplikasjonDetalj() {
 		oracleAuditSummaries,
 		deploymentVerifications,
 		authIntegrations,
+		manualGroups,
 		groupNames,
 		accessPolicyRules,
 		teams,
@@ -863,9 +888,15 @@ export default function ApplikasjonDetalj() {
 										</VStack>
 									)
 								})}
+
+							{/* Manuelt lagt til grupper */}
+							<ManualGroupsSection manualGroups={manualGroups} groupNames={groupNames} canAdmin={canAdmin} />
 						</VStack>
 					) : (
-						<BodyLong>Ingen autentiseringsintegrasjoner funnet.</BodyLong>
+						<VStack gap="space-4">
+							<BodyLong>Ingen autentiseringsintegrasjoner funnet.</BodyLong>
+							<ManualGroupsSection manualGroups={manualGroups} groupNames={groupNames} canAdmin={canAdmin} />
+						</VStack>
 					)}
 				</Tabs.Panel>
 
@@ -2373,5 +2404,199 @@ function PersistenceRow({
 				)}
 			</Table.DataCell>
 		</Table.Row>
+	)
+}
+
+// ─── Manual Groups ───────────────────────────────────────────────────────
+
+function ManualGroupsSection({
+	manualGroups,
+	groupNames,
+	canAdmin,
+}: {
+	manualGroups: Array<{ id: string; groupId: string; groupName: string | null; createdBy: string; createdAt: string }>
+	groupNames: Record<string, string>
+	canAdmin: boolean
+}) {
+	const addFetcher = useFetcher()
+	const removeFetcher = useFetcher()
+	const searchFetcher = useFetcher<{ results: Array<{ id: string; displayName: string }> }>()
+	const [searchQuery, setSearchQuery] = useState("")
+	const [showResults, setShowResults] = useState(false)
+	const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+	const searchResults = searchFetcher.data?.results ?? []
+	const isSearching = searchFetcher.state === "loading"
+
+	const handleSearch = useCallback(
+		(value: string) => {
+			setSearchQuery(value)
+			if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+			if (value.trim().length < 2) {
+				setShowResults(false)
+				return
+			}
+			searchTimeoutRef.current = setTimeout(() => {
+				searchFetcher.load(`/api/graph/groups?q=${encodeURIComponent(value.trim())}`)
+				setShowResults(true)
+			}, 300)
+		},
+		[searchFetcher],
+	)
+
+	const handleAddGroup = useCallback(
+		(groupId: string, displayName: string) => {
+			addFetcher.submit({ intent: "add-manual-group", groupId, groupName: displayName }, { method: "POST" })
+			setSearchQuery("")
+			setShowResults(false)
+		},
+		[addFetcher],
+	)
+
+	const existingGroupIds = new Set(manualGroups.map((g) => g.groupId))
+
+	return (
+		<VStack gap="space-2">
+			<Heading size="xsmall" level="4">
+				Manuelt lagt til grupper ({manualGroups.length})
+			</Heading>
+			<BodyShort size="small" textColor="subtle">
+				Grupper som er lagt til manuelt for ekstra tilgangsstyring, utover det som er konfigurert i Nais.
+			</BodyShort>
+
+			{canAdmin && (
+				<Box
+					padding="space-4"
+					borderRadius="8"
+					borderWidth="1"
+					borderColor="neutral-subtle"
+					style={{ position: "relative" }}
+				>
+					<VStack gap="space-2">
+						<Search
+							label="Søk etter gruppe (navn eller Object-ID)"
+							size="small"
+							value={searchQuery}
+							onChange={handleSearch}
+							onClear={() => {
+								setSearchQuery("")
+								setShowResults(false)
+							}}
+						/>
+
+						{showResults && (
+							<Box
+								padding="space-2"
+								borderRadius="8"
+								borderWidth="1"
+								borderColor="neutral-subtle"
+								shadow="dialog"
+								style={{
+									position: "absolute",
+									top: "100%",
+									left: 0,
+									right: 0,
+									zIndex: 10,
+									marginTop: "4px",
+									backgroundColor: "var(--ax-bg-default)",
+								}}
+							>
+								{isSearching ? (
+									<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-4)" }}>
+										Søker…
+									</BodyShort>
+								) : searchResults.length > 0 ? (
+									<VStack>
+										{searchResults.map((result) => {
+											const alreadyAdded = existingGroupIds.has(result.id)
+											return (
+												<Button
+													key={result.id}
+													variant="tertiary-neutral"
+													size="small"
+													style={{
+														justifyContent: "flex-start",
+														width: "100%",
+														textAlign: "left",
+													}}
+													onClick={() => handleAddGroup(result.id, result.displayName)}
+													disabled={alreadyAdded}
+												>
+													<VStack>
+														<BodyShort size="small" weight="semibold">
+															{result.displayName}
+															{alreadyAdded && " (allerede lagt til)"}
+														</BodyShort>
+														<Detail textColor="subtle">{result.id}</Detail>
+													</VStack>
+												</Button>
+											)
+										})}
+									</VStack>
+								) : (
+									<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-4)" }}>
+										Ingen grupper funnet
+									</BodyShort>
+								)}
+							</Box>
+						)}
+					</VStack>
+				</Box>
+			)}
+
+			{manualGroups.length > 0 && (
+				<Table size="small">
+					<Table.Header>
+						<Table.Row>
+							<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Lagt til av</Table.HeaderCell>
+							<Table.HeaderCell scope="col" style={{ width: "1px" }}>
+								<span className="navds-sr-only">Handlinger</span>
+							</Table.HeaderCell>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{manualGroups.map((group) => (
+							<Table.Row key={group.id}>
+								<Table.DataCell>
+									{groupNames[group.groupId] ?? group.groupName ?? (
+										<BodyShort size="small" textColor="subtle">
+											Ukjent
+										</BodyShort>
+									)}
+								</Table.DataCell>
+								<Table.DataCell>
+									<HStack gap="space-1" align="center">
+										<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{group.groupId}</code>
+										<CopyButton copyText={group.groupId} size="xsmall" />
+									</HStack>
+								</Table.DataCell>
+								<Table.DataCell>
+									<BodyShort size="small">{group.createdBy}</BodyShort>
+								</Table.DataCell>
+								<Table.DataCell>
+									{canAdmin && (
+										<removeFetcher.Form method="post">
+											<input type="hidden" name="intent" value="remove-manual-group" />
+											<input type="hidden" name="manualGroupId" value={group.id} />
+											<Button
+												type="submit"
+												variant="tertiary-neutral"
+												size="xsmall"
+												icon={<TrashIcon aria-hidden />}
+												loading={removeFetcher.state !== "idle"}
+											>
+												Fjern
+											</Button>
+										</removeFetcher.Form>
+									)}
+								</Table.DataCell>
+							</Table.Row>
+						))}
+					</Table.Body>
+				</Table>
+			)}
+		</VStack>
 	)
 }

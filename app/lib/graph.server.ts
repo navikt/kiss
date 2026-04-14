@@ -114,3 +114,63 @@ async function fetchGroupNamesBatch(token: string, groupIds: string[]): Promise<
 
 	return result
 }
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export interface GroupSearchResult {
+	id: string
+	displayName: string
+}
+
+/**
+ * Search for Azure AD groups by name or Object ID.
+ * If query looks like a UUID, does a direct lookup. Otherwise searches by displayName.
+ */
+export async function searchGroups(query: string): Promise<GroupSearchResult[]> {
+	if (!query || query.length < 2) return []
+
+	// Dev mode: return mock results
+	if (!process.env.AZURE_OPENID_CONFIG_TOKEN_ENDPOINT) {
+		if (UUID_REGEX.test(query)) {
+			return [{ id: query, displayName: `Gruppe ${query.slice(0, 8)}…` }]
+		}
+		return [
+			{ id: "00000000-0000-0000-0000-000000000001", displayName: `${query} - Testgruppe 1` },
+			{ id: "00000000-0000-0000-0000-000000000002", displayName: `${query} - Testgruppe 2` },
+		]
+	}
+
+	try {
+		const token = await getClientCredentialToken(GRAPH_SCOPE)
+
+		if (UUID_REGEX.test(query)) {
+			const name = await fetchSingleGroupName(token, query)
+			if (name) {
+				groupNameCache.set(query, name)
+				return [{ id: query, displayName: name }]
+			}
+			return []
+		}
+
+		const escaped = query.replace(/'/g, "''")
+		const url = `https://graph.microsoft.com/v1.0/groups?$filter=startswith(displayName,'${encodeURIComponent(escaped)}')&$select=id,displayName&$top=10&$orderby=displayName`
+
+		const response = await fetch(url, {
+			headers: { Authorization: `Bearer ${token}` },
+		})
+
+		if (!response.ok) {
+			logger.warn(`Graph group search failed: ${response.status}`)
+			return []
+		}
+
+		const data = (await response.json()) as { value: GraphGroupInfo[] }
+		for (const g of data.value) {
+			groupNameCache.set(g.id, g.displayName)
+		}
+		return data.value.map((g) => ({ id: g.id, displayName: g.displayName }))
+	} catch (error) {
+		logger.warn("Failed to search groups from Microsoft Graph", { error: String(error) })
+		return []
+	}
+}

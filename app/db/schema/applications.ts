@@ -214,3 +214,18 @@ export const naisDiscoveredApps = pgTable("nais_discovered_apps", {
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+export const applicationManualGroups = pgTable(
+	"application_manual_groups",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id),
+		groupId: text("group_id").notNull(),
+		groupName: text("group_name"),
+		createdBy: text("created_by").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [unique().on(t.applicationId, t.groupId)],
+)
