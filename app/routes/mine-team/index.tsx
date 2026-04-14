@@ -179,6 +179,7 @@ export default function MineTeamPage() {
 								<Table.HeaderCell scope="col" align="right">
 									Status %
 								</Table.HeaderCell>
+								<Table.HeaderCell scope="col" />
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
@@ -213,6 +214,9 @@ export default function MineTeamPage() {
 										<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
 										<Table.DataCell align="right">{unanswered}</Table.DataCell>
 										<Table.DataCell align="right">{pct}%</Table.DataCell>
+										<Table.DataCell>
+											<Link to={`/applikasjoner/${app.appId}/compliance`}>Vurder</Link>
+										</Table.DataCell>
 									</Table.Row>
 								)
 							})}
