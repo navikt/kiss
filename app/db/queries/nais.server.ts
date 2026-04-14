@@ -1389,11 +1389,16 @@ export async function deleteManualPersistence(persistenceId: string, performedBy
 
 /** Get manually added groups for an application. */
 export async function getManualGroupsForApp(applicationId: string) {
-	return db
-		.select()
-		.from(applicationManualGroups)
-		.where(eq(applicationManualGroups.applicationId, applicationId))
-		.orderBy(applicationManualGroups.createdAt)
+	try {
+		return await db
+			.select()
+			.from(applicationManualGroups)
+			.where(eq(applicationManualGroups.applicationId, applicationId))
+			.orderBy(applicationManualGroups.createdAt)
+	} catch {
+		// Table may not exist yet if migration 0025 hasn't been run
+		return []
+	}
 }
 
 /** Add a manual group to an application. */
