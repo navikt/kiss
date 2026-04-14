@@ -1,5 +1,6 @@
 import {
 	DownloadIcon,
+	ExclamationmarkTriangleIcon,
 	ExternalLinkIcon,
 	EyeIcon,
 	PlusIcon,
@@ -58,11 +59,13 @@ import {
 	deleteManualPersistence,
 	getActiveAcknowledgments,
 	getApplicationDetail,
+	getGroupAssessmentsForApp,
 	getManualGroupsForApp,
 	removeManualGroup,
 	resolveAppNames,
 	revokeAcknowledgment,
 	updatePersistenceClassification,
+	upsertGroupCriticality,
 } from "~/db/queries/nais.server"
 import { generateAppComplianceReport, getReportsForApp } from "~/db/queries/reports.server"
 import {
@@ -77,6 +80,9 @@ import { getSections } from "~/db/queries/sections.server"
 import {
 	type DataClassification,
 	dataClassificationLabels,
+	type GroupCriticality,
+	groupCriticalityEnum,
+	groupCriticalityLabels,
 	persistenceTypeEnum,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
@@ -245,17 +251,35 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Resolve Azure AD group names from auth integrations and manual groups
 	const manualGroups = await getManualGroupsForApp(appId)
-	const allGroupIds: string[] = []
+	const groupAssessments = await getGroupAssessmentsForApp(appId)
+	const naisGroupIds: string[] = []
 	for (const auth of detail.authIntegrations) {
 		if (auth.groups) {
 			const groups = JSON.parse(auth.groups) as string[]
-			allGroupIds.push(...groups)
+			naisGroupIds.push(...groups)
 		}
 	}
-	for (const mg of manualGroups) {
-		allGroupIds.push(mg.groupId)
+	const naisGroupIdSet = new Set(naisGroupIds)
+	const manualGroupIdSet = new Set(manualGroups.map((g) => g.groupId))
+
+	// Detect "ghost" groups: have assessments but are no longer in Nais or manual
+	const ghostGroupIds = groupAssessments
+		.filter((a) => !naisGroupIdSet.has(a.groupId) && !manualGroupIdSet.has(a.groupId))
+		.map((a) => a.groupId)
+
+	const allGroupIds = [...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds])]
+	const groupNames = await resolveGroupNames(allGroupIds)
+
+	// Build assessment lookup
+	const assessmentsByGroupId: Record<string, { criticality: GroupCriticality; updatedBy: string; updatedAt: string }> =
+		{}
+	for (const a of groupAssessments) {
+		assessmentsByGroupId[a.groupId] = {
+			criticality: a.criticality as GroupCriticality,
+			updatedBy: a.updatedBy,
+			updatedAt: a.updatedAt.toISOString(),
+		}
 	}
-	const groupNames = await resolveGroupNames([...new Set(allGroupIds)])
 
 	return data({
 		app: detail.app,
@@ -275,6 +299,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		authIntegrations: detail.authIntegrations,
 		manualGroups: manualGroups.map((g) => ({ ...g, createdAt: g.createdAt.toISOString() })),
 		groupNames,
+		assessmentsByGroupId,
+		naisGroupIds: [...naisGroupIdSet],
+		ghostGroupIds,
 		accessPolicyRules: detail.accessPolicyRules,
 		teams: detail.teams,
 		primaryApp: detail.primaryApp,
@@ -467,6 +494,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return data({ success: true, message: "Gruppe fjernet.", error: null })
 	}
 
+	if (intent === "set-group-criticality") {
+		const groupId = (formData.get("groupId") as string)?.trim()
+		const criticality = formData.get("criticality") as string
+		if (!groupId) return data({ success: false, message: null, error: "Mangler gruppe-ID" })
+		if (!groupCriticalityEnum.includes(criticality as GroupCriticality)) {
+			return data({ success: false, message: null, error: "Ugyldig kritikalitet" })
+		}
+		await upsertGroupCriticality(appId, groupId, criticality as GroupCriticality, authedUser.navIdent)
+		return data({ success: true, message: "Kritikalitet oppdatert.", error: null })
+	}
+
 	return data({ success: false, message: null, error: "Ukjent handling" })
 }
 
@@ -480,6 +518,9 @@ export default function ApplikasjonDetalj() {
 		authIntegrations,
 		manualGroups,
 		groupNames,
+		assessmentsByGroupId,
+		naisGroupIds,
+		ghostGroupIds,
 		accessPolicyRules,
 		teams,
 		primaryApp,
@@ -839,63 +880,29 @@ export default function ApplikasjonDetalj() {
 								</Table.Body>
 							</Table>
 
-							{/* Entra ID groups */}
-							{authIntegrations
-								.filter((a) => a.type === "entra_id" && a.groups)
-								.map((auth) => {
-									const groups = JSON.parse(auth.groups ?? "[]") as string[]
-									if (groups.length === 0) return null
-									return (
-										<VStack key={`groups-${auth.id}`} gap="space-2">
-											<Heading size="xsmall" level="4">
-												Entra ID-grupper ({groups.length})
-											</Heading>
-											<BodyShort size="small" textColor="subtle">
-												{auth.allowAllUsers
-													? "Alle brukere får utstedt token uavhengig av gruppemedlemskap."
-													: "Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha ytterligere tilgangskontroll som avgrenser tilgang."}
-											</BodyShort>
-											<Table size="small">
-												<Table.Header>
-													<Table.Row>
-														<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-														<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
-														<Table.HeaderCell scope="col" style={{ width: "1px" }}>
-															<span className="navds-sr-only">Kopier</span>
-														</Table.HeaderCell>
-													</Table.Row>
-												</Table.Header>
-												<Table.Body>
-													{groups.map((groupId) => (
-														<Table.Row key={groupId}>
-															<Table.DataCell>
-																{groupNames[groupId] ?? (
-																	<BodyShort size="small" textColor="subtle">
-																		Ukjent
-																	</BodyShort>
-																)}
-															</Table.DataCell>
-															<Table.DataCell>
-																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{groupId}</code>
-															</Table.DataCell>
-															<Table.DataCell>
-																<CopyButton copyText={groupId} size="xsmall" />
-															</Table.DataCell>
-														</Table.Row>
-													))}
-												</Table.Body>
-											</Table>
-										</VStack>
-									)
-								})}
-
-							{/* Manuelt lagt til grupper */}
-							<ManualGroupsSection manualGroups={manualGroups} groupNames={groupNames} canAdmin={canAdmin} />
+							{/* Entra ID groups – unified view with criticality */}
+							<GroupsSection
+								naisGroupIds={naisGroupIds}
+								manualGroups={manualGroups}
+								ghostGroupIds={ghostGroupIds}
+								groupNames={groupNames}
+								assessmentsByGroupId={assessmentsByGroupId}
+								authIntegrations={authIntegrations}
+								canAdmin={canAdmin}
+							/>
 						</VStack>
 					) : (
 						<VStack gap="space-4">
 							<BodyLong>Ingen autentiseringsintegrasjoner funnet.</BodyLong>
-							<ManualGroupsSection manualGroups={manualGroups} groupNames={groupNames} canAdmin={canAdmin} />
+							<GroupsSection
+								naisGroupIds={naisGroupIds}
+								manualGroups={manualGroups}
+								ghostGroupIds={ghostGroupIds}
+								groupNames={groupNames}
+								assessmentsByGroupId={assessmentsByGroupId}
+								authIntegrations={authIntegrations}
+								canAdmin={canAdmin}
+							/>
 						</VStack>
 					)}
 				</Tabs.Panel>
@@ -2407,19 +2414,46 @@ function PersistenceRow({
 	)
 }
 
-// ─── Manual Groups ───────────────────────────────────────────────────────
+// ─── Unified Groups Section ──────────────────────────────────────────────
 
-function ManualGroupsSection({
+const criticalityTagVariant: Record<string, "success" | "warning" | "neutral" | "error"> = {
+	low: "success",
+	medium: "warning",
+	high: "warning",
+	very_high: "error",
+}
+
+const criticalityTagColor: Record<string, string> = {
+	high: "var(--ax-bg-warning-moderate)",
+}
+
+type UnifiedGroup = {
+	groupId: string
+	source: "nais" | "manual" | "removed"
+	manualGroupDbId?: string
+	createdBy?: string
+}
+
+function GroupsSection({
+	naisGroupIds,
 	manualGroups,
+	ghostGroupIds,
 	groupNames,
+	assessmentsByGroupId,
+	authIntegrations,
 	canAdmin,
 }: {
+	naisGroupIds: string[]
 	manualGroups: Array<{ id: string; groupId: string; groupName: string | null; createdBy: string; createdAt: string }>
+	ghostGroupIds: string[]
 	groupNames: Record<string, string>
+	assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
+	authIntegrations: Array<{ type: string; allowAllUsers: boolean | null; groups: string | null }>
 	canAdmin: boolean
 }) {
 	const addFetcher = useFetcher()
 	const removeFetcher = useFetcher()
+	const criticalityFetcher = useFetcher()
 	const searchFetcher = useFetcher<{ results: Array<{ id: string; displayName: string }> }>()
 	const [searchQuery, setSearchQuery] = useState("")
 	const [showResults, setShowResults] = useState(false)
@@ -2453,17 +2487,44 @@ function ManualGroupsSection({
 		[addFetcher],
 	)
 
-	const existingGroupIds = new Set(manualGroups.map((g) => g.groupId))
+	// Build unified group list: Nais groups first, then manual-only, then ghost (removed)
+	const naisGroupIdSet = new Set(naisGroupIds)
+	const allExistingGroupIds = new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId)])
+
+	const unifiedGroups: UnifiedGroup[] = []
+	for (const gid of naisGroupIds) {
+		unifiedGroups.push({ groupId: gid, source: "nais" })
+	}
+	for (const mg of manualGroups) {
+		if (!naisGroupIdSet.has(mg.groupId)) {
+			unifiedGroups.push({ groupId: mg.groupId, source: "manual", manualGroupDbId: mg.id, createdBy: mg.createdBy })
+		}
+	}
+	for (const gid of ghostGroupIds) {
+		unifiedGroups.push({ groupId: gid, source: "removed" })
+	}
+
+	const totalGroupCount = unifiedGroups.length
+
+	const entraAuth = authIntegrations.find((a) => a.type === "entra_id")
+	const hasAllUsers = entraAuth?.allowAllUsers ?? false
 
 	return (
-		<VStack gap="space-2">
-			<Heading size="xsmall" level="4">
-				Manuelt lagt til grupper ({manualGroups.length})
-			</Heading>
-			<BodyShort size="small" textColor="subtle">
-				Grupper som er lagt til manuelt for ekstra tilgangsstyring, utover det som er konfigurert i Nais.
-			</BodyShort>
+		<VStack gap="space-4">
+			<VStack gap="space-2">
+				<Heading size="xsmall" level="4">
+					Entra ID-grupper ({totalGroupCount})
+				</Heading>
+				<BodyShort size="small" textColor="subtle">
+					{hasAllUsers
+						? "Alle brukere får utstedt token uavhengig av gruppemedlemskap."
+						: naisGroupIds.length > 0
+							? "Bruker må være medlem av minst én av gruppene for å få utstedt token. Applikasjonen kan ha ytterligere tilgangskontroll som avgrenser tilgang."
+							: "Ingen grupper er konfigurert i Nais-manifestet."}
+				</BodyShort>
+			</VStack>
 
+			{/* Add manual group search */}
 			{canAdmin && (
 				<Box
 					padding="space-4"
@@ -2474,7 +2535,7 @@ function ManualGroupsSection({
 				>
 					<VStack gap="space-2">
 						<Search
-							label="Søk etter gruppe (navn eller Object-ID)"
+							label="Legg til gruppe (søk på navn eller Object-ID)"
 							size="small"
 							value={searchQuery}
 							onChange={handleSearch}
@@ -2508,7 +2569,7 @@ function ManualGroupsSection({
 								) : searchResults.length > 0 ? (
 									<VStack>
 										{searchResults.map((result) => {
-											const alreadyAdded = existingGroupIds.has(result.id)
+											const alreadyAdded = allExistingGroupIds.has(result.id)
 											return (
 												<Button
 													key={result.id}
@@ -2544,58 +2605,136 @@ function ManualGroupsSection({
 				</Box>
 			)}
 
-			{manualGroups.length > 0 && (
-				<Table size="small">
-					<Table.Header>
-						<Table.Row>
-							<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Lagt til av</Table.HeaderCell>
-							<Table.HeaderCell scope="col" style={{ width: "1px" }}>
-								<span className="navds-sr-only">Handlinger</span>
-							</Table.HeaderCell>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{manualGroups.map((group) => (
-							<Table.Row key={group.id}>
-								<Table.DataCell>
-									{groupNames[group.groupId] ?? group.groupName ?? (
-										<BodyShort size="small" textColor="subtle">
-											Ukjent
-										</BodyShort>
-									)}
-								</Table.DataCell>
-								<Table.DataCell>
-									<HStack gap="space-1" align="center">
-										<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{group.groupId}</code>
-										<CopyButton copyText={group.groupId} size="xsmall" />
-									</HStack>
-								</Table.DataCell>
-								<Table.DataCell>
-									<BodyShort size="small">{group.createdBy}</BodyShort>
-								</Table.DataCell>
-								<Table.DataCell>
-									{canAdmin && (
-										<removeFetcher.Form method="post">
-											<input type="hidden" name="intent" value="remove-manual-group" />
-											<input type="hidden" name="manualGroupId" value={group.id} />
-											<Button
-												type="submit"
-												variant="tertiary-neutral"
-												size="xsmall"
-												icon={<TrashIcon aria-hidden />}
-												loading={removeFetcher.state !== "idle"}
-											>
-												Fjern
-											</Button>
-										</removeFetcher.Form>
-									)}
-								</Table.DataCell>
+			{/* Unified groups table */}
+			{unifiedGroups.length > 0 && (
+				<div className="table-scroll">
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Kritikalitet</Table.HeaderCell>
+								{canAdmin && (
+									<Table.HeaderCell scope="col" style={{ width: "1px" }}>
+										<span className="navds-sr-only">Handlinger</span>
+									</Table.HeaderCell>
+								)}
 							</Table.Row>
-						))}
-					</Table.Body>
-				</Table>
+						</Table.Header>
+						<Table.Body>
+							{unifiedGroups.map((ug) => {
+								const assessment = assessmentsByGroupId[ug.groupId]
+								const displayName =
+									groupNames[ug.groupId] ?? manualGroups.find((mg) => mg.groupId === ug.groupId)?.groupName ?? null
+
+								return (
+									<Table.Row key={`${ug.source}-${ug.groupId}`}>
+										<Table.DataCell>
+											{displayName ?? (
+												<BodyShort size="small" textColor="subtle">
+													Ukjent
+												</BodyShort>
+											)}
+										</Table.DataCell>
+										<Table.DataCell>
+											<HStack gap="space-1" align="center">
+												<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{ug.groupId}</code>
+												<CopyButton copyText={ug.groupId} size="xsmall" />
+											</HStack>
+										</Table.DataCell>
+										<Table.DataCell>
+											{ug.source === "nais" && (
+												<Tag variant="info" size="xsmall">
+													Nais
+												</Tag>
+											)}
+											{ug.source === "manual" && (
+												<Tag variant="neutral" size="xsmall">
+													Manuell
+												</Tag>
+											)}
+											{ug.source === "removed" && (
+												<Tag variant="error" size="xsmall">
+													<ExclamationmarkTriangleIcon aria-hidden fontSize="1rem" /> Borte fra manifest
+												</Tag>
+											)}
+										</Table.DataCell>
+										<Table.DataCell>
+											{canAdmin ? (
+												<criticalityFetcher.Form method="post">
+													<input type="hidden" name="intent" value="set-group-criticality" />
+													<input type="hidden" name="groupId" value={ug.groupId} />
+													<Select
+														label="Kritikalitet"
+														hideLabel
+														size="small"
+														value={assessment?.criticality ?? ""}
+														onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+															criticalityFetcher.submit(
+																{
+																	intent: "set-group-criticality",
+																	groupId: ug.groupId,
+																	criticality: e.target.value,
+																},
+																{ method: "POST" },
+															)
+														}}
+														style={{ minWidth: "120px" }}
+													>
+														<option value="" disabled>
+															Velg…
+														</option>
+														{groupCriticalityEnum.map((c) => (
+															<option key={c} value={c}>
+																{groupCriticalityLabels[c]}
+															</option>
+														))}
+													</Select>
+												</criticalityFetcher.Form>
+											) : assessment ? (
+												<Tag
+													variant={criticalityTagVariant[assessment.criticality] ?? "neutral"}
+													size="xsmall"
+													style={
+														assessment.criticality === "high"
+															? { backgroundColor: criticalityTagColor.high, borderColor: criticalityTagColor.high }
+															: undefined
+													}
+												>
+													{groupCriticalityLabels[assessment.criticality as GroupCriticality] ?? assessment.criticality}
+												</Tag>
+											) : (
+												<BodyShort size="small" textColor="subtle">
+													Ikke vurdert
+												</BodyShort>
+											)}
+										</Table.DataCell>
+										{canAdmin && (
+											<Table.DataCell>
+												{ug.source === "manual" && ug.manualGroupDbId && (
+													<removeFetcher.Form method="post">
+														<input type="hidden" name="intent" value="remove-manual-group" />
+														<input type="hidden" name="manualGroupId" value={ug.manualGroupDbId} />
+														<Button
+															type="submit"
+															variant="tertiary-neutral"
+															size="xsmall"
+															icon={<TrashIcon aria-hidden />}
+															loading={removeFetcher.state !== "idle"}
+														>
+															Fjern
+														</Button>
+													</removeFetcher.Form>
+												)}
+											</Table.DataCell>
+										)}
+									</Table.Row>
+								)
+							})}
+						</Table.Body>
+					</Table>
+				</div>
 			)}
 		</VStack>
 	)

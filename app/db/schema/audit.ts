@@ -73,6 +73,7 @@ export const auditLogActionEnum = [
 	"screening_routine_selected",
 	"manual_group_added",
 	"manual_group_removed",
+	"group_criticality_updated",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

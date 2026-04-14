@@ -229,3 +229,30 @@ export const applicationManualGroups = pgTable(
 	},
 	(t) => [unique().on(t.applicationId, t.groupId)],
 )
+
+export const groupCriticalityEnum = ["low", "medium", "high", "very_high"] as const
+export type GroupCriticality = (typeof groupCriticalityEnum)[number]
+
+export const groupCriticalityLabels: Record<GroupCriticality, string> = {
+	low: "Lav",
+	medium: "Middels",
+	high: "Høy",
+	very_high: "Svært høy",
+}
+
+export const applicationGroupAssessments = pgTable(
+	"application_group_assessments",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id),
+		groupId: text("group_id").notNull(),
+		criticality: text("criticality", { enum: groupCriticalityEnum }).notNull(),
+		assessedBy: text("assessed_by").notNull(),
+		assessedAt: timestamp("assessed_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [unique().on(t.applicationId, t.groupId)],
+)

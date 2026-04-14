@@ -183,6 +183,13 @@
       "when": 1781905000000,
       "tag": "0025_application_manual_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1781906000000,
+      "tag": "0026_application_group_assessments",
+      "breakpoints": true
     }
   ]
 }

@@ -6,10 +6,12 @@ import {
 	applicationAccessPolicyRules,
 	applicationAuthIntegrations,
 	applicationEnvironments,
+	applicationGroupAssessments,
 	applicationManualGroups,
 	applicationPersistence,
 	applicationTeamMappings,
 	type DataClassification,
+	type GroupCriticality,
 	type LinkSuggestionMatchType,
 	type LinkSuggestionStatus,
 	linkSuggestions,
@@ -1440,4 +1442,73 @@ export async function removeManualGroup(id: string, applicationId: string, perfo
 	}
 
 	return deleted ?? null
+}
+
+// ─── Group Criticality Assessments ───────────────────────────────────────
+
+/** Get all group criticality assessments for an application. */
+export async function getGroupAssessmentsForApp(applicationId: string) {
+	return db
+		.select()
+		.from(applicationGroupAssessments)
+		.where(eq(applicationGroupAssessments.applicationId, applicationId))
+}
+
+/** Set or update the criticality assessment for a group. */
+export async function upsertGroupCriticality(
+	applicationId: string,
+	groupId: string,
+	criticality: GroupCriticality,
+	performedBy: string,
+) {
+	const existing = await db
+		.select()
+		.from(applicationGroupAssessments)
+		.where(
+			and(
+				eq(applicationGroupAssessments.applicationId, applicationId),
+				eq(applicationGroupAssessments.groupId, groupId),
+			),
+		)
+		.then((rows) => rows[0] ?? null)
+
+	if (existing) {
+		const [updated] = await db
+			.update(applicationGroupAssessments)
+			.set({ criticality, updatedBy: performedBy, updatedAt: new Date() })
+			.where(eq(applicationGroupAssessments.id, existing.id))
+			.returning()
+
+		await writeAuditLog({
+			action: "group_criticality_updated",
+			entityType: "application",
+			entityId: applicationId,
+			previousValue: JSON.stringify({ groupId, criticality: existing.criticality }),
+			newValue: JSON.stringify({ groupId, criticality }),
+			performedBy,
+		})
+
+		return updated
+	}
+
+	const [inserted] = await db
+		.insert(applicationGroupAssessments)
+		.values({
+			applicationId,
+			groupId,
+			criticality,
+			assessedBy: performedBy,
+			updatedBy: performedBy,
+		})
+		.returning()
+
+	await writeAuditLog({
+		action: "group_criticality_updated",
+		entityType: "application",
+		entityId: applicationId,
+		newValue: JSON.stringify({ groupId, criticality }),
+		performedBy,
+	})
+
+	return inserted
 }
