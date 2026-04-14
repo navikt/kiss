@@ -1,4 +1,5 @@
 import { ExclamationmarkTriangleIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import type { SortState } from "@navikt/ds-react"
 import {
 	Link as AkselLink,
 	Alert,
@@ -20,7 +21,7 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { type ChangeEvent, useCallback, useRef, useState } from "react"
+import { type ChangeEvent, useCallback, useMemo, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useFetcher, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -782,6 +783,7 @@ function ScreeningEntraGroupsForm({
 	const [searchQuery, setSearchQuery] = useState("")
 	const [showResults, setShowResults] = useState(false)
 	const [dialogOpen, setDialogOpen] = useState(false)
+	const [sort, setSort] = useState<SortState>({ orderBy: "name", direction: "ascending" })
 	const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const searchInputRef = useRef<HTMLInputElement>(null)
 
@@ -789,6 +791,13 @@ function ScreeningEntraGroupsForm({
 
 	const searchResults = searchFetcher.data?.results ?? []
 	const isSearching = searchFetcher.state === "loading"
+
+	// Build unified group list
+	const naisGroupIdSet = useMemo(() => new Set(naisGroupIds), [naisGroupIds])
+	const allExistingGroupIds = useMemo(
+		() => new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId)]),
+		[naisGroupIds, manualGroups],
+	)
 
 	const handleSearch = useCallback(
 		(value: string) => {
@@ -808,17 +817,14 @@ function ScreeningEntraGroupsForm({
 
 	const handleAddGroup = useCallback(
 		(groupId: string, displayName: string) => {
+			if (allExistingGroupIds.has(groupId)) return
 			addFetcher.submit({ intent: "add-manual-group", groupId, groupName: displayName }, { method: "POST" })
 			setSearchQuery("")
 			setShowResults(false)
 			setDialogOpen(false)
 		},
-		[addFetcher],
+		[addFetcher, allExistingGroupIds],
 	)
-
-	// Build unified group list
-	const naisGroupIdSet = new Set(naisGroupIds)
-	const allExistingGroupIds = new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId)])
 
 	type UnifiedGroup = {
 		groupId: string
@@ -827,17 +833,49 @@ function ScreeningEntraGroupsForm({
 		createdBy?: string
 	}
 
-	const unifiedGroups: UnifiedGroup[] = []
-	for (const gid of naisGroupIds) {
-		unifiedGroups.push({ groupId: gid, source: "nais" })
-	}
-	for (const mg of manualGroups) {
-		if (!naisGroupIdSet.has(mg.groupId)) {
-			unifiedGroups.push({ groupId: mg.groupId, source: "manual", manualGroupDbId: mg.id, createdBy: mg.createdBy })
+	const unifiedGroups = useMemo(() => {
+		const groups: UnifiedGroup[] = []
+		for (const gid of naisGroupIds) {
+			groups.push({ groupId: gid, source: "nais" })
 		}
-	}
-	for (const gid of ghostGroupIds) {
-		unifiedGroups.push({ groupId: gid, source: "removed" })
+		for (const mg of manualGroups) {
+			if (!naisGroupIdSet.has(mg.groupId)) {
+				groups.push({ groupId: mg.groupId, source: "manual", manualGroupDbId: mg.id, createdBy: mg.createdBy })
+			}
+		}
+		for (const gid of ghostGroupIds) {
+			groups.push({ groupId: gid, source: "removed" })
+		}
+		return groups
+	}, [naisGroupIds, manualGroups, ghostGroupIds, naisGroupIdSet])
+
+	const sortedGroups = useMemo(() => {
+		const dir = sort.direction === "ascending" ? 1 : -1
+		return [...unifiedGroups].sort((a, b) => {
+			const nameA = groupNames[a.groupId] ?? manualGroups.find((mg) => mg.groupId === a.groupId)?.groupName ?? ""
+			const nameB = groupNames[b.groupId] ?? manualGroups.find((mg) => mg.groupId === b.groupId)?.groupName ?? ""
+			switch (sort.orderBy) {
+				case "name":
+					return dir * nameA.localeCompare(nameB, "nb")
+				case "source":
+					return dir * a.source.localeCompare(b.source)
+				case "criticality": {
+					const critA = assessmentsByGroupId[a.groupId]?.criticality ?? ""
+					const critB = assessmentsByGroupId[b.groupId]?.criticality ?? ""
+					return dir * critA.localeCompare(critB, "nb")
+				}
+				default:
+					return 0
+			}
+		})
+	}, [unifiedGroups, sort, groupNames, manualGroups, assessmentsByGroupId])
+
+	const handleSort = (sortKey: string) => {
+		setSort((prev) =>
+			prev.orderBy === sortKey
+				? { orderBy: sortKey, direction: prev.direction === "ascending" ? "descending" : "ascending" }
+				: { orderBy: sortKey, direction: "ascending" },
+		)
 	}
 
 	return (
@@ -846,19 +884,25 @@ function ScreeningEntraGroupsForm({
 			{unifiedGroups.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
 				<section className="table-scroll" tabIndex={0} aria-label="Entra ID-grupper">
-					<Table size="small">
+					<Table size="small" sort={sort} onSortChange={handleSort}>
 						<Table.Header>
 							<Table.Row>
-								<Table.HeaderCell scope="col">Gruppe</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Kritikalitet</Table.HeaderCell>
+								<Table.ColumnHeader sortKey="name" sortable scope="col">
+									Gruppe
+								</Table.ColumnHeader>
+								<Table.ColumnHeader sortKey="source" sortable scope="col">
+									Kilde
+								</Table.ColumnHeader>
+								<Table.ColumnHeader sortKey="criticality" sortable scope="col">
+									Kritikalitet
+								</Table.ColumnHeader>
 								<Table.HeaderCell scope="col" style={{ width: "1px" }}>
 									<span className="navds-sr-only">Handlinger</span>
 								</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
-							{unifiedGroups.map((ug) => {
+							{sortedGroups.map((ug) => {
 								const assessment = assessmentsByGroupId[ug.groupId]
 								const displayName =
 									groupNames[ug.groupId] ?? manualGroups.find((mg) => mg.groupId === ug.groupId)?.groupName ?? null
