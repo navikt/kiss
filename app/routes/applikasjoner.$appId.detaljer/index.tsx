@@ -80,6 +80,7 @@ import {
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import type { ComplianceStatus } from "~/lib/compliance-status"
+import { resolveGroupNames } from "~/lib/graph.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
 import { getOracleInstances } from "~/lib/oracle-revisjon.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
@@ -239,6 +240,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { getDeploymentVerificationForAppWithFetch } = await import("~/db/queries/deployment-audit.server")
 	const deploymentVerifications = await getDeploymentVerificationForAppWithFetch(appId)
 
+	// Resolve Azure AD group names from auth integrations
+	const allGroupIds: string[] = []
+	for (const auth of detail.authIntegrations) {
+		if (auth.groups) {
+			const groups = JSON.parse(auth.groups) as string[]
+			allGroupIds.push(...groups)
+		}
+	}
+	const groupNames = await resolveGroupNames([...new Set(allGroupIds)])
+
 	return data({
 		app: detail.app,
 		environments: detail.environments,
@@ -255,6 +266,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			updatedAt: v.updatedAt.toISOString(),
 		})),
 		authIntegrations: detail.authIntegrations,
+		groupNames,
 		accessPolicyRules: detail.accessPolicyRules,
 		teams: detail.teams,
 		primaryApp: detail.primaryApp,
@@ -442,6 +454,7 @@ export default function ApplikasjonDetalj() {
 		oracleAuditSummaries,
 		deploymentVerifications,
 		authIntegrations,
+		groupNames,
 		accessPolicyRules,
 		teams,
 		primaryApp,
@@ -820,6 +833,7 @@ export default function ApplikasjonDetalj() {
 											<Table size="small">
 												<Table.Header>
 													<Table.Row>
+														<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
 														<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
 														<Table.HeaderCell scope="col" style={{ width: "1px" }}>
 															<span className="navds-sr-only">Kopier</span>
@@ -829,6 +843,13 @@ export default function ApplikasjonDetalj() {
 												<Table.Body>
 													{groups.map((groupId) => (
 														<Table.Row key={groupId}>
+															<Table.DataCell>
+																{groupNames[groupId] ?? (
+																	<BodyShort size="small" textColor="subtle">
+																		Ukjent
+																	</BodyShort>
+																)}
+															</Table.DataCell>
 															<Table.DataCell>
 																<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{groupId}</code>
 															</Table.DataCell>
