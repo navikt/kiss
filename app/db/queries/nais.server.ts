@@ -964,26 +964,7 @@ export async function findLinkCandidates(): Promise<LinkCandidate[]> {
 
 /** Get link candidates filtered to apps belonging to a section (via team mappings or Nais team environments). */
 export async function getLinkCandidatesForSection(sectionId: string): Promise<LinkCandidate[]> {
-	// Get app IDs belonging to this section via dev team mappings
-	const teamAppRows = await db
-		.select({ appId: applicationTeamMappings.applicationId })
-		.from(applicationTeamMappings)
-		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-		.where(eq(devTeams.sectionId, sectionId))
-
-	// Get app IDs belonging to this section via Nais team environments
-	const sectionNaisTeamRows = await db.select().from(naisTeams).where(eq(naisTeams.sectionId, sectionId))
-	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
-
-	let naisAppRows: Array<{ appId: string }> = []
-	if (naisTeamIds.length > 0) {
-		naisAppRows = await db
-			.selectDistinct({ appId: applicationEnvironments.applicationId })
-			.from(applicationEnvironments)
-			.where(sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`)
-	}
-
-	const sectionAppIds = new Set([...teamAppRows.map((r) => r.appId), ...naisAppRows.map((r) => r.appId)])
+	const sectionAppIds = await getSectionAppIds(sectionId)
 	if (sectionAppIds.size === 0) return []
 
 	const allCandidates = await findLinkCandidates()
@@ -1044,6 +1025,37 @@ export async function getPendingLinkSuggestions() {
 		.innerJoin(sql`monitored_applications sa`, sql`sa.id = ${linkSuggestions.secondaryAppId}`)
 		.where(eq(linkSuggestions.status, "pending"))
 		.orderBy(desc(linkSuggestions.createdAt))
+}
+
+/** Get pending link suggestions scoped to a section (at least one app belongs to section). */
+export async function getPendingLinkSuggestionsForSection(sectionId: string) {
+	const sectionAppIds = await getSectionAppIds(sectionId)
+	if (sectionAppIds.size === 0) return []
+
+	const all = await getPendingLinkSuggestions()
+	return all.filter((s) => sectionAppIds.has(s.primaryAppId) || sectionAppIds.has(s.secondaryAppId))
+}
+
+/** Get app IDs belonging to a section via dev team or Nais team mappings. */
+async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
+	const teamAppRows = await db
+		.select({ appId: applicationTeamMappings.applicationId })
+		.from(applicationTeamMappings)
+		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+		.where(eq(devTeams.sectionId, sectionId))
+
+	const sectionNaisTeamRows = await db.select().from(naisTeams).where(eq(naisTeams.sectionId, sectionId))
+	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
+
+	let naisAppRows: Array<{ appId: string }> = []
+	if (naisTeamIds.length > 0) {
+		naisAppRows = await db
+			.selectDistinct({ appId: applicationEnvironments.applicationId })
+			.from(applicationEnvironments)
+			.where(sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`)
+	}
+
+	return new Set([...teamAppRows.map((r) => r.appId), ...naisAppRows.map((r) => r.appId)])
 }
 
 /** Accept a link suggestion: links the apps and marks suggestion as accepted. */

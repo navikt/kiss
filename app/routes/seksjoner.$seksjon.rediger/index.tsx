@@ -26,12 +26,10 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { linkAppToTeam } from "~/db/queries/applications.server"
 import {
 	getIgnoredAppsForSection,
-	getLinkCandidatesForSection,
 	getNaisTeamsForSection,
 	getUnassignedAppsForSection,
 	getUnlinkedNaisTeams,
 	ignoreAppForSection,
-	linkApplication,
 	linkNaisTeamToSection,
 	unignoreAppForSection,
 	unlinkNaisTeamFromSection,
@@ -53,13 +51,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const sectionId = result.section.id
 
-	const [teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, linkCandidates] = await Promise.all([
+	const [teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps] = await Promise.all([
 		getTeamsForSection(sectionId),
 		getNaisTeamsForSection(sectionId),
 		getUnlinkedNaisTeams(),
 		getUnassignedAppsForSection(sectionId),
 		getIgnoredAppsForSection(sectionId),
-		getLinkCandidatesForSection(sectionId),
 	])
 
 	return data({
@@ -92,11 +89,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			reason: a.reason,
 			ignoredBy: a.ignoredBy,
 			ignoredAt: a.ignoredAt?.toISOString() ?? null,
-		})),
-		linkCandidates: linkCandidates.map((c) => ({
-			matchType: c.matchType,
-			confidence: c.confidence,
-			apps: c.apps,
 		})),
 		seksjon,
 	})
@@ -166,24 +158,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirectToTab(seksjon, "applikasjoner")
 	}
 
-	if (intent === "link-app") {
-		const childId = formData.get("childId") as string
-		const parentId = formData.get("parentId") as string
-		if (!childId || !parentId) throw new Response("Mangler applikasjons-ID", { status: 400 })
-		await linkApplication(childId, parentId, userId)
-		return redirectToTab(seksjon, "kobling")
-	}
-
-	if (intent === "link-all-apps") {
-		const parentId = formData.get("parentId") as string
-		const childIds = formData.getAll("childId") as string[]
-		if (!parentId || childIds.length === 0) throw new Response("Mangler applikasjons-IDer", { status: 400 })
-		for (const childId of childIds) {
-			await linkApplication(childId, parentId, userId)
-		}
-		return redirectToTab(seksjon, "kobling")
-	}
-
 	if (intent === "bulk-assign-team") {
 		const teamId = formData.get("teamId") as string
 		const appIds = formData.getAll("appId") as string[]
@@ -199,7 +173,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RedigerSeksjon() {
-	const { section, teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, linkCandidates, seksjon } =
+	const { section, teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, seksjon } =
 		useLoaderData<typeof loader>()
 	const [searchParams, setSearchParams] = useSearchParams()
 	const activeTab = searchParams.get("fane") ?? "seksjon"
@@ -233,10 +207,6 @@ export default function RedigerSeksjon() {
 					<Tabs.Tab
 						value="applikasjoner"
 						label={`Applikasjoner uten team (${unassignedApps.length})${unassignedApps.length > 0 ? " ⚠" : ""}`}
-					/>
-					<Tabs.Tab
-						value="kobling"
-						label={`Koblingsforslag (${linkCandidates.length})${linkCandidates.length > 0 ? " 🔗" : ""}`}
 					/>
 				</Tabs.List>
 
@@ -596,139 +566,6 @@ export default function RedigerSeksjon() {
 									</Table>
 								</section>
 							</ReadMore>
-						)}
-					</VStack>
-				</Tabs.Panel>
-
-				{/* Tab: Koblingsforslag */}
-				<Tabs.Panel value="kobling" style={{ paddingTop: "var(--ax-space-6)" }}>
-					<VStack gap="space-6">
-						<Heading size="medium" level="3">
-							Koblingsforslag ({linkCandidates.length})
-						</Heading>
-
-						{linkCandidates.length > 0 ? (
-							<>
-								<Alert variant="info" size="small">
-									Disse applikasjonene har blitt identifisert som mulige paraply-koblinger basert på felles Docker-image
-									eller navnemønster.
-								</Alert>
-								<VStack gap="space-4">
-									{linkCandidates.map((candidate) => {
-										const prodApp = candidate.apps.find((a) => a.isProd) ?? candidate.apps[0]
-										const otherApps = candidate.apps.filter((a) => a.id !== prodApp.id)
-										const unlinkedApps = otherApps.filter((a) => !a.alreadyLinked)
-										return (
-											<div
-												key={candidate.apps.map((a) => a.id).join(",")}
-												style={{
-													border: "1px solid var(--ax-border-default)",
-													borderRadius: "var(--ax-border-radius-medium)",
-													padding: "var(--ax-space-4)",
-												}}
-											>
-												<VStack gap="space-2">
-													<HStack gap="space-4" align="center">
-														<Heading size="small" level="4">
-															<AkselLink as={Link} to={`/applikasjoner/${prodApp.id}/detaljer`}>
-																{prodApp.name}
-															</AkselLink>
-														</Heading>
-														<Tag
-															variant={
-																candidate.matchType === "both"
-																	? "success"
-																	: candidate.matchType === "image_match"
-																		? "info"
-																		: "warning"
-															}
-															size="xsmall"
-														>
-															{candidate.matchType === "both"
-																? "Image + navnemønster"
-																: candidate.matchType === "image_match"
-																	? "Felles image"
-																	: "Navnemønster"}
-														</Tag>
-														<Tag variant="neutral" size="xsmall">
-															{Math.round(candidate.confidence * 100)}% sannsynlighet
-														</Tag>
-														{unlinkedApps.length > 0 && (
-															<Form method="post">
-																<input type="hidden" name="intent" value="link-all-apps" />
-																<input type="hidden" name="parentId" value={prodApp.id} />
-																{unlinkedApps.map((app) => (
-																	<input key={app.id} type="hidden" name="childId" value={app.id} />
-																))}
-																<Button variant="tertiary" size="xsmall" type="submit">
-																	Koble alle ({unlinkedApps.length})
-																</Button>
-															</Form>
-														)}
-													</HStack>
-													<BodyShort size="small">Mulige koblinger ({otherApps.length}):</BodyShort>
-													{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-													<section className="table-scroll" tabIndex={0} aria-label="Koblingsforslag">
-														<Table size="small">
-															<Table.Header>
-																<Table.Row>
-																	<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-																	<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
-																	<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-																	<Table.HeaderCell scope="col" />
-																</Table.Row>
-															</Table.Header>
-															<Table.Body>
-																{otherApps.map((app) => (
-																	<Table.Row key={app.id}>
-																		<Table.DataCell>
-																			<AkselLink as={Link} to={`/applikasjoner/${app.id}/detaljer`}>
-																				{app.name}
-																			</AkselLink>
-																		</Table.DataCell>
-																		<Table.DataCell>
-																			<Tag variant="info" size="xsmall">
-																				{app.cluster}
-																			</Tag>
-																		</Table.DataCell>
-																		<Table.DataCell>
-																			{app.alreadyLinked ? (
-																				<Tag variant="success" size="xsmall">
-																					Allerede koblet
-																				</Tag>
-																			) : (
-																				<Tag variant="warning" size="xsmall">
-																					Ikke koblet
-																				</Tag>
-																			)}
-																		</Table.DataCell>
-																		<Table.DataCell>
-																			{!app.alreadyLinked && (
-																				<Form method="post">
-																					<input type="hidden" name="intent" value="link-app" />
-																					<input type="hidden" name="childId" value={app.id} />
-																					<input type="hidden" name="parentId" value={prodApp.id} />
-																					<Button variant="tertiary" size="xsmall" type="submit">
-																						Koble
-																					</Button>
-																				</Form>
-																			)}
-																		</Table.DataCell>
-																	</Table.Row>
-																))}
-															</Table.Body>
-														</Table>
-													</section>
-												</VStack>
-											</div>
-										)
-									})}
-								</VStack>
-							</>
-						) : (
-							<Alert variant="success" size="small">
-								Ingen koblingsforslag funnet for denne seksjonens applikasjoner.
-							</Alert>
 						)}
 					</VStack>
 				</Tabs.Panel>

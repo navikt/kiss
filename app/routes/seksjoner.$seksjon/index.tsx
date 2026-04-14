@@ -90,6 +90,11 @@ export default function SeksjonDashboard() {
 				<Button as={Link} to={`/seksjoner/${seksjon}/audit-logging`} variant="secondary" size="small">
 					Audit logging
 				</Button>
+				{canAdmin && (
+					<Button as={Link} to={`/seksjoner/${seksjon}/koblingsforslag`} variant="secondary" size="small">
+						Koblingsforslag
+					</Button>
+				)}
 				<Button
 					as="a"
 					href={`/api/seksjoner/${seksjon}/eksport`}

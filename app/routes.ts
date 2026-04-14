@@ -35,6 +35,7 @@ export default [
 		"routes/seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/index.tsx",
 	),
 	route("seksjoner/:seksjon/audit-logging", "routes/seksjoner.$seksjon.audit-logging/index.tsx"),
+	route("seksjoner/:seksjon/koblingsforslag", "routes/seksjoner.$seksjon.koblingsforslag/index.tsx"),
 	route("seksjoner/:seksjon/screening", "routes/seksjoner.$seksjon.screening/index.tsx"),
 	route(
 		"seksjoner/:seksjon/screening/:questionId/rediger",
@@ -66,7 +67,6 @@ export default [
 	route("admin/brukere", "routes/admin.brukere/index.tsx"),
 	route("admin/screening", "routes/admin.screening/index.tsx"),
 	route("admin/screening/:questionId/rediger", "routes/admin.screening.$questionId.rediger/index.tsx"),
-	route("admin/link-suggestions", "routes/admin.link-suggestions/index.tsx"),
 	route("admin/domener", "routes/admin.domener/index.tsx"),
 	route("admin/teknologielementer", "routes/admin.teknologielementer/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),
