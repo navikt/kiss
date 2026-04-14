@@ -136,7 +136,7 @@ export async function action({ params, request }: ActionFunctionArgs) {
 
 	if (intent === "delete") {
 		await deleteApplication(appId, performer)
-		return redirect("/applikasjoner")
+		return redirect("/dashboard")
 	} else if (intent === "rename") {
 		const newName = (formData.get("name") as string)?.trim()
 		if (!newName) throw new Response("Navn kan ikke være tomt", { status: 400 })

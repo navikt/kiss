@@ -1,6 +1,11 @@
 import { and, count, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
-import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
+import {
+	applicationEnvironments,
+	applicationTeamMappings,
+	monitoredApplications,
+	naisTeams,
+} from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import {
 	applicationTechnologyElements,
@@ -478,4 +483,110 @@ export async function saveAssessmentComment(
 			updatedAt: new Date(),
 		})
 		.where(eq(complianceAssessments.id, existing.id))
+}
+
+/** Get all monitored applications for a section's Nais teams, with compliance summary. */
+export async function getApplicationsForSection(sectionId: string) {
+	// Find apps belonging to nais teams linked to this section
+	const sectionNaisTeamRows = await db
+		.select({ id: naisTeams.id })
+		.from(naisTeams)
+		.where(eq(naisTeams.sectionId, sectionId))
+	if (sectionNaisTeamRows.length === 0) return []
+
+	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
+	const envApps = await db
+		.selectDistinct({ appId: applicationEnvironments.applicationId })
+		.from(applicationEnvironments)
+		.where(inArray(applicationEnvironments.naisTeamId, naisTeamIds))
+
+	const sectionAppIds = [...new Set(envApps.map((r) => r.appId))]
+	if (sectionAppIds.length === 0) return []
+
+	// Get primary apps only (exclude linked/child apps)
+	const apps = await db
+		.select()
+		.from(monitoredApplications)
+		.where(and(inArray(monitoredApplications.id, sectionAppIds), isNull(monitoredApplications.primaryApplicationId)))
+		.orderBy(monitoredApplications.name)
+
+	const appIds = apps.map((a) => a.id)
+	if (appIds.length === 0) return []
+
+	const [totalControlsRow] = await db
+		.select({ count: count() })
+		.from(frameworkControls)
+		.where(isNull(frameworkControls.archivedAt))
+	const totalControls = totalControlsRow?.count ?? 0
+
+	// Batch: linked (child) apps
+	const childApps = await db
+		.select({
+			id: monitoredApplications.id,
+			name: monitoredApplications.name,
+			primaryApplicationId: monitoredApplications.primaryApplicationId,
+		})
+		.from(monitoredApplications)
+		.where(
+			and(
+				isNotNull(monitoredApplications.primaryApplicationId),
+				inArray(monitoredApplications.primaryApplicationId, appIds),
+			),
+		)
+		.orderBy(monitoredApplications.name)
+
+	const childrenByParent = new Map<string, Array<{ id: string; name: string }>>()
+	for (const child of childApps) {
+		if (!child.primaryApplicationId) continue
+		const list = childrenByParent.get(child.primaryApplicationId) ?? []
+		list.push({ id: child.id, name: child.name })
+		childrenByParent.set(child.primaryApplicationId, list)
+	}
+
+	// Batch: team mappings
+	const allTeamMappings = await db
+		.select({ applicationId: applicationTeamMappings.applicationId, teamSlug: devTeams.slug })
+		.from(applicationTeamMappings)
+		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+		.where(inArray(applicationTeamMappings.applicationId, appIds))
+
+	const teamsByApp = new Map<string, string[]>()
+	for (const row of allTeamMappings) {
+		const teams = teamsByApp.get(row.applicationId) ?? []
+		teams.push(row.teamSlug)
+		teamsByApp.set(row.applicationId, teams)
+	}
+
+	// Batch: compliance stats
+	const complianceRows = await db
+		.select({
+			applicationId: complianceAssessments.applicationId,
+			status: complianceAssessments.status,
+			count: count(),
+		})
+		.from(complianceAssessments)
+		.where(inArray(complianceAssessments.applicationId, appIds))
+		.groupBy(complianceAssessments.applicationId, complianceAssessments.status)
+
+	const complianceByApp = new Map<string, { implemented: number; partial: number }>()
+	for (const row of complianceRows) {
+		const stats = complianceByApp.get(row.applicationId) ?? { implemented: 0, partial: 0 }
+		if (row.status === "implemented") stats.implemented = row.count
+		else if (row.status === "partially_implemented") stats.partial = row.count
+		complianceByApp.set(row.applicationId, stats)
+	}
+
+	return apps.map((app) => {
+		const assessmentAppId = app.primaryApplicationId ?? app.id
+		const stats = complianceByApp.get(assessmentAppId) ?? { implemented: 0, partial: 0 }
+		return {
+			id: app.id,
+			name: app.name,
+			teams: teamsByApp.get(app.id) ?? [],
+			controlsImplemented: stats.implemented,
+			controlsPartial: stats.partial,
+			controlsTotal: totalControls,
+			linkedApps: childrenByParent.get(app.id) ?? [],
+		}
+	})
 }

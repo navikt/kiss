@@ -134,7 +134,6 @@ function reviewLabel(data: Record<string, unknown>): string {
 
 const SEKSJONER: BreadcrumbSegment = { label: "Seksjoner", to: "/seksjoner" }
 const KONTROLLRAMMEVERK: BreadcrumbSegment = { label: "Kontrollrammeverk", to: "/kontrollrammeverk" }
-const APPLIKASJONER: BreadcrumbSegment = { label: "Applikasjoner", to: "/applikasjoner" }
 const MINE_TEAM: BreadcrumbSegment = { label: "Mine team", to: "/mine-team" }
 const NAIS: BreadcrumbSegment = { label: "Nais", to: "/nais-overvaking" }
 const ADMIN: BreadcrumbSegment = { label: "Admin", to: "/admin" }
@@ -392,26 +391,22 @@ const rules: BreadcrumbRule[] = [
 		segments: [{ label: "Mine team" }],
 	},
 
-	// ── Applikasjoner ──
+	// ── Applikasjoner (direkte, uten kontekst) ──
 	{
 		pattern: "applikasjoner/:appId/compliance-krav",
-		segments: [APPLIKASJONER, { label: appName, to: appPath }, { label: "Kravgjennomgang" }],
+		segments: [{ label: appName, to: appPath }, { label: "Kravgjennomgang" }],
 	},
 	{
 		pattern: "applikasjoner/:appId/compliance",
-		segments: [APPLIKASJONER, { label: appName, to: appPath }, { label: "Compliance" }],
+		segments: [{ label: appName, to: appPath }, { label: "Compliance" }],
 	},
 	{
 		pattern: "applikasjoner/:appId/rediger",
-		segments: [APPLIKASJONER, { label: appName, to: appPath }, { label: "Rediger" }],
+		segments: [{ label: appName, to: appPath }, { label: "Administrer" }],
 	},
 	{
 		pattern: "applikasjoner/:appId/detaljer",
-		segments: [APPLIKASJONER, { label: appName }],
-	},
-	{
-		pattern: "applikasjoner",
-		segments: [{ label: "Applikasjoner" }],
+		segments: [{ label: appName }],
 	},
 
 	// ── Nais-overvåking ──

@@ -15,7 +15,7 @@ export function useAppBasePath(): string {
 	const { appId } = useParams()
 	const { pathname } = useLocation()
 
-	if (!appId) return "/applikasjoner"
+	if (!appId) return "/"
 
 	const marker = `/applikasjoner/${appId}`
 	const idx = pathname.indexOf(marker)
