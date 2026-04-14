@@ -159,13 +159,18 @@ export async function searchGroups(query: string): Promise<GroupSearchResult[]> 
 		url.searchParams.set("$select", "id,displayName")
 		url.searchParams.set("$top", "10")
 		url.searchParams.set("$orderby", "displayName")
+		url.searchParams.set("$count", "true")
 
 		const response = await fetch(url.toString(), {
-			headers: { Authorization: `Bearer ${token}` },
+			headers: {
+				Authorization: `Bearer ${token}`,
+				ConsistencyLevel: "eventual",
+			},
 		})
 
 		if (!response.ok) {
-			logger.warn(`Graph group search failed: ${response.status}`)
+			const body = await response.text().catch(() => "")
+			logger.warn(`Graph group search failed: ${response.status}`, { body })
 			return []
 		}
 
