@@ -92,14 +92,24 @@ describe("computeAutoCompliance", () => {
 		expect(result.get("ctrl-1:null")!.hasOverdueRoutine).toBe(true)
 	})
 
-	it("returns 'not_implemented' when routine matches but never reviewed", () => {
+	it("returns 'partially_implemented' when routine matches but never reviewed and not overdue", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
 		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "section", false, null)]
 		const screeningEffects = new Map()
 
 		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
+		expect(result.get("ctrl-1:null")!.autoStatus).toBe("partially_implemented")
+		expect(result.get("ctrl-1:null")!.reason).toContain("ikke gjennomgått ennå")
+	})
+
+	it("returns 'not_implemented' when routine matches but never reviewed and overdue", () => {
+		const assessments = [makeAssessment("ctrl-1", null)]
+		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "section", true, null)]
+		const screeningEffects = new Map()
+
+		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
 		expect(result.get("ctrl-1:null")!.autoStatus).toBe("not_implemented")
-		expect(result.get("ctrl-1:null")!.reason).toContain("aldri gjennomgått")
+		expect(result.get("ctrl-1:null")!.reason).toContain("aldri gjennomgått og forfalt")
 	})
 
 	it("returns 'not_implemented' when screening says not_implemented even with routine match", () => {

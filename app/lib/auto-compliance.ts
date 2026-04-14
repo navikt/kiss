@@ -216,16 +216,27 @@ function computeStatusForAssessment(
 
 	// All routines have never been reviewed
 	if (anyNeverReviewed && controlRoutines.every((r) => r.lastReviewDate === null)) {
+		if (allOverdue) {
+			// Never reviewed AND deadline passed → not implemented
+			return {
+				autoStatus: "not_implemented",
+				reason: "Rutiner treffer men er aldri gjennomgått og forfalt",
+				sources,
+				matchingRoutineIds,
+				hasOverdueRoutine: true,
+			}
+		}
+		// Never reviewed but deadline not yet passed → partially implemented (routine exists, not executed yet)
 		return {
-			autoStatus: "not_implemented",
-			reason: "Rutiner treffer men er aldri gjennomgått",
+			autoStatus: "partially_implemented",
+			reason: "Rutiner treffer men er ikke gjennomgått ennå",
 			sources,
 			matchingRoutineIds,
 			hasOverdueRoutine: false,
 		}
 	}
 
-	// All matching routines are overdue
+	// All matching routines are overdue (but at least some have been reviewed before)
 	if (allOverdue) {
 		return {
 			autoStatus: "partially_implemented",
