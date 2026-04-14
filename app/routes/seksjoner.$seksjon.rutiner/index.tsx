@@ -78,6 +78,7 @@ export default function SeksjonRutinerIndex() {
 						<Table.Row>
 							<Table.HeaderCell>Navn</Table.HeaderCell>
 							<Table.HeaderCell>Frekvens</Table.HeaderCell>
+							<Table.HeaderCell>Krav</Table.HeaderCell>
 							<Table.HeaderCell>Teknologielementer</Table.HeaderCell>
 							<Table.HeaderCell>Databasekoblinger</Table.HeaderCell>
 							<Table.HeaderCell>Gjennomganger</Table.HeaderCell>
@@ -98,6 +99,15 @@ export default function SeksjonRutinerIndex() {
 									</HStack>
 								</Table.DataCell>
 								<Table.DataCell>{getFrequencyLabel(routine.frequency)}</Table.DataCell>
+								<Table.DataCell>
+									<HStack gap="space-1" wrap>
+										{routine.controls.map((c) => (
+											<Tag key={c.id} variant="alt1" size="xsmall">
+												{c.controlId}
+											</Tag>
+										))}
+									</HStack>
+								</Table.DataCell>
 								<Table.DataCell>
 									<HStack gap="space-1" wrap>
 										{routine.technologyElements.map((te) => (

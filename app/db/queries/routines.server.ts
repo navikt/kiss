@@ -38,7 +38,7 @@ export async function getRoutinesForSection(sectionId: string) {
 
 	return Promise.all(
 		rows.map(async (r) => {
-			const [elements, persLinks, [reviewCount]] = await Promise.all([
+			const [elements, persLinks, [reviewCount], controlRows] = await Promise.all([
 				db
 					.select({
 						id: technologyElements.id,
@@ -49,6 +49,15 @@ export async function getRoutinesForSection(sectionId: string) {
 					.where(eq(routineTechnologyElements.routineId, r.id)),
 				db.select().from(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, r.id)),
 				db.select({ count: sql<number>`count(*)::int` }).from(routineReviews).where(eq(routineReviews.routineId, r.id)),
+				db
+					.selectDistinct({
+						id: frameworkControls.id,
+						controlId: frameworkControls.controlId,
+						shortTitle: frameworkControls.shortTitle,
+					})
+					.from(routineControls)
+					.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
+					.where(eq(routineControls.routineId, r.id)),
 			])
 
 			return {
@@ -56,6 +65,11 @@ export async function getRoutinesForSection(sectionId: string) {
 				technologyElements: elements,
 				persistenceLinks: persLinks,
 				reviewCount: reviewCount?.count ?? 0,
+				controls: controlRows.map((c) => ({
+					id: c.id,
+					controlId: c.controlId,
+					name: c.shortTitle ?? c.controlId,
+				})),
 			}
 		}),
 	)
