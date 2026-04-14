@@ -8,6 +8,7 @@ import {
 	Button,
 	CopyButton,
 	Detail,
+	Dialog,
 	Heading,
 	HStack,
 	Radio,
@@ -780,7 +781,9 @@ function ScreeningEntraGroupsForm({
 	const searchFetcher = useFetcher<{ results: Array<{ id: string; displayName: string }> }>()
 	const [searchQuery, setSearchQuery] = useState("")
 	const [showResults, setShowResults] = useState(false)
+	const [dialogOpen, setDialogOpen] = useState(false)
 	const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const searchInputRef = useRef<HTMLInputElement>(null)
 
 	const { naisGroupIds, manualGroups, ghostGroupIds, groupNames, assessmentsByGroupId } = entraGroupsData
 
@@ -808,6 +811,7 @@ function ScreeningEntraGroupsForm({
 			addFetcher.submit({ intent: "add-manual-group", groupId, groupName: displayName }, { method: "POST" })
 			setSearchQuery("")
 			setShowResults(false)
+			setDialogOpen(false)
 		},
 		[addFetcher],
 	)
@@ -838,193 +842,203 @@ function ScreeningEntraGroupsForm({
 
 	return (
 		<VStack gap="space-6">
-			{/* Search to add group */}
-			<Box
-				padding="space-4"
-				borderRadius="8"
-				borderWidth="1"
-				borderColor="neutral-subtle"
-				style={{ position: "relative" }}
-			>
-				<VStack gap="space-2">
-					<Search
-						label="Legg til gruppe (søk på navn eller Object-ID)"
-						size="small"
-						value={searchQuery}
-						onChange={handleSearch}
-						onClear={() => {
-							setSearchQuery("")
-							setShowResults(false)
-						}}
-					/>
-
-					{showResults && (
-						<Box
-							padding="space-2"
-							borderRadius="8"
-							borderWidth="1"
-							borderColor="neutral-subtle"
-							shadow="dialog"
-							style={{
-								position: "absolute",
-								top: "100%",
-								left: 0,
-								right: 0,
-								zIndex: 10,
-								marginTop: "4px",
-								backgroundColor: "var(--ax-bg-default)",
-							}}
-						>
-							{isSearching ? (
-								<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-4)" }}>
-									Søker…
-								</BodyShort>
-							) : searchResults.length > 0 ? (
-								<VStack>
-									{searchResults.map((result) => {
-										const alreadyAdded = allExistingGroupIds.has(result.id)
-										return (
-											<Button
-												key={result.id}
-												variant="tertiary-neutral"
-												size="small"
-												style={{ justifyContent: "flex-start", width: "100%", textAlign: "left" }}
-												onClick={() => handleAddGroup(result.id, result.displayName)}
-												disabled={alreadyAdded}
-											>
-												<VStack>
-													<BodyShort size="small" weight="semibold">
-														{result.displayName}
-														{alreadyAdded && " (allerede lagt til)"}
-													</BodyShort>
-													<Detail textColor="subtle">{result.id}</Detail>
-												</VStack>
-											</Button>
-										)
-									})}
-								</VStack>
-							) : (
-								<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-4)" }}>
-									Ingen grupper funnet
-								</BodyShort>
-							)}
-						</Box>
-					)}
-				</VStack>
-			</Box>
-
-			{/* Unified groups table */}
+			{/* Groups table — two rows per group */}
 			{unifiedGroups.length > 0 ? (
-				<Table size="small">
-					<Table.Header>
-						<Table.Row>
-							<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
-							<Table.HeaderCell scope="col">Kritikalitet</Table.HeaderCell>
-							<Table.HeaderCell scope="col" style={{ width: "1px" }}>
-								<span className="navds-sr-only">Handlinger</span>
-							</Table.HeaderCell>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{unifiedGroups.map((ug) => {
-							const assessment = assessmentsByGroupId[ug.groupId]
-							const displayName =
-								groupNames[ug.groupId] ?? manualGroups.find((mg) => mg.groupId === ug.groupId)?.groupName ?? null
+				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+				<section className="table-scroll" tabIndex={0} aria-label="Entra ID-grupper">
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Gruppe</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Kritikalitet</Table.HeaderCell>
+								<Table.HeaderCell scope="col" style={{ width: "1px" }}>
+									<span className="navds-sr-only">Handlinger</span>
+								</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{unifiedGroups.map((ug) => {
+								const assessment = assessmentsByGroupId[ug.groupId]
+								const displayName =
+									groupNames[ug.groupId] ?? manualGroups.find((mg) => mg.groupId === ug.groupId)?.groupName ?? null
 
-							return (
-								<Table.Row key={`${ug.source}-${ug.groupId}`}>
-									<Table.DataCell>
-										{displayName ?? (
-											<BodyShort size="small" textColor="subtle">
-												Ukjent
-											</BodyShort>
-										)}
-									</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-1" align="center">
-											<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{ug.groupId}</code>
-											<CopyButton copyText={ug.groupId} size="xsmall" />
-										</HStack>
-									</Table.DataCell>
-									<Table.DataCell>
-										{ug.source === "nais" && (
-											<Tag variant="info" size="xsmall">
-												Nais
-											</Tag>
-										)}
-										{ug.source === "manual" && (
-											<Tag variant="neutral" size="xsmall">
-												Manuell
-											</Tag>
-										)}
-										{ug.source === "removed" && (
-											<Tag variant="error" size="xsmall">
-												<ExclamationmarkTriangleIcon aria-hidden fontSize="1rem" /> Borte fra manifest
-											</Tag>
-										)}
-									</Table.DataCell>
-									<Table.DataCell>
-										<criticalityFetcher.Form method="post">
-											<input type="hidden" name="intent" value="set-group-criticality" />
-											<input type="hidden" name="groupId" value={ug.groupId} />
-											<Select
-												label="Kritikalitet"
-												hideLabel
-												size="small"
-												value={assessment?.criticality ?? ""}
-												onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-													criticalityFetcher.submit(
-														{
-															intent: "set-group-criticality",
-															groupId: ug.groupId,
-															criticality: e.target.value,
-														},
-														{ method: "POST" },
-													)
-												}}
-												style={{ minWidth: "120px" }}
-											>
-												<option value="" disabled>
-													Velg…
-												</option>
-												{groupCriticalityEnum.map((c) => (
-													<option key={c} value={c}>
-														{groupCriticalityLabels[c]}
-													</option>
-												))}
-											</Select>
-										</criticalityFetcher.Form>
-									</Table.DataCell>
-									<Table.DataCell>
-										{ug.source === "manual" && ug.manualGroupDbId && (
-											<removeFetcher.Form method="post">
-												<input type="hidden" name="intent" value="remove-manual-group" />
-												<input type="hidden" name="manualGroupId" value={ug.manualGroupDbId} />
-												<Button
-													type="submit"
-													variant="tertiary-neutral"
-													size="xsmall"
-													icon={<TrashIcon aria-hidden />}
-													loading={removeFetcher.state !== "idle"}
-												>
-													Fjern
-												</Button>
-											</removeFetcher.Form>
-										)}
-									</Table.DataCell>
-								</Table.Row>
-							)
-						})}
-					</Table.Body>
-				</Table>
+								return (
+									<>
+										{/* Row 1: name, source, criticality, actions */}
+										<Table.Row key={`${ug.source}-${ug.groupId}`} style={{ borderBottom: "none" }}>
+											<Table.DataCell>
+												<BodyShort size="small" weight="semibold">
+													{displayName ?? <span style={{ color: "var(--ax-text-subtle)" }}>Ukjent</span>}
+												</BodyShort>
+											</Table.DataCell>
+											<Table.DataCell>
+												{ug.source === "nais" && (
+													<Tag variant="info" size="xsmall">
+														Nais
+													</Tag>
+												)}
+												{ug.source === "manual" && (
+													<Tag variant="neutral" size="xsmall">
+														Manuell
+													</Tag>
+												)}
+												{ug.source === "removed" && (
+													<Tag variant="error" size="xsmall">
+														<ExclamationmarkTriangleIcon aria-hidden fontSize="1rem" /> Borte
+													</Tag>
+												)}
+											</Table.DataCell>
+											<Table.DataCell>
+												<criticalityFetcher.Form method="post">
+													<input type="hidden" name="intent" value="set-group-criticality" />
+													<input type="hidden" name="groupId" value={ug.groupId} />
+													<Select
+														label="Kritikalitet"
+														hideLabel
+														size="small"
+														value={assessment?.criticality ?? ""}
+														onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+															criticalityFetcher.submit(
+																{
+																	intent: "set-group-criticality",
+																	groupId: ug.groupId,
+																	criticality: e.target.value,
+																},
+																{ method: "POST" },
+															)
+														}}
+														style={{ minWidth: "120px" }}
+													>
+														<option value="" disabled>
+															Velg…
+														</option>
+														{groupCriticalityEnum.map((c) => (
+															<option key={c} value={c}>
+																{groupCriticalityLabels[c]}
+															</option>
+														))}
+													</Select>
+												</criticalityFetcher.Form>
+											</Table.DataCell>
+											<Table.DataCell>
+												{ug.source === "manual" && ug.manualGroupDbId && (
+													<removeFetcher.Form method="post">
+														<input type="hidden" name="intent" value="remove-manual-group" />
+														<input type="hidden" name="manualGroupId" value={ug.manualGroupDbId} />
+														<Button
+															type="submit"
+															variant="tertiary-neutral"
+															size="xsmall"
+															icon={<TrashIcon aria-hidden />}
+															loading={removeFetcher.state !== "idle"}
+														>
+															Fjern
+														</Button>
+													</removeFetcher.Form>
+												)}
+											</Table.DataCell>
+										</Table.Row>
+										{/* Row 2: group ID */}
+										<Table.Row key={`${ug.source}-${ug.groupId}-id`}>
+											<Table.DataCell colSpan={4} style={{ paddingTop: 0 }}>
+												<HStack gap="space-1" align="center">
+													<Detail textColor="subtle" style={{ fontFamily: "monospace" }}>
+														{ug.groupId}
+													</Detail>
+													<CopyButton copyText={ug.groupId} size="xsmall" />
+												</HStack>
+											</Table.DataCell>
+										</Table.Row>
+									</>
+								)
+							})}
+						</Table.Body>
+					</Table>
+				</section>
 			) : (
 				<BodyShort size="small" textColor="subtle">
 					Ingen Entra ID-grupper registrert ennå.
 				</BodyShort>
 			)}
 
+			{/* Add group button + dialog */}
+			<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+				<Dialog.Trigger>
+					<Button variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
+						Legg til gruppe
+					</Button>
+				</Dialog.Trigger>
+				<Dialog.Popup
+					width="large"
+					position="center"
+					closeOnOutsideClick
+					initialFocusTo={() => searchInputRef.current}
+					aria-label="Legg til Entra ID-gruppe"
+				>
+					<Dialog.Header>Legg til Entra ID-gruppe</Dialog.Header>
+					<Dialog.Body>
+						<VStack gap="space-4">
+							<Search
+								ref={searchInputRef}
+								label="Søk på gruppenavn eller Object-ID"
+								size="small"
+								value={searchQuery}
+								onChange={handleSearch}
+								onClear={() => {
+									setSearchQuery("")
+									setShowResults(false)
+								}}
+								autoComplete="off"
+							/>
+							{showResults && (
+								<Box
+									borderRadius="8"
+									borderWidth="1"
+									borderColor="neutral-subtle"
+									style={{ maxHeight: "300px", overflowY: "auto" }}
+								>
+									{isSearching ? (
+										<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-8)" }}>
+											Søker…
+										</BodyShort>
+									) : searchResults.length > 0 ? (
+										<VStack>
+											{searchResults.map((result) => {
+												const alreadyAdded = allExistingGroupIds.has(result.id)
+												return (
+													<Button
+														key={result.id}
+														variant="tertiary-neutral"
+														size="small"
+														style={{ justifyContent: "flex-start", width: "100%", textAlign: "left" }}
+														onClick={() => handleAddGroup(result.id, result.displayName)}
+														disabled={alreadyAdded}
+													>
+														<VStack>
+															<BodyShort size="small" weight="semibold">
+																{result.displayName}
+																{alreadyAdded && " (allerede lagt til)"}
+															</BodyShort>
+															<Detail textColor="subtle">{result.id}</Detail>
+														</VStack>
+													</Button>
+												)
+											})}
+										</VStack>
+									) : (
+										<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-8)" }}>
+											Ingen grupper funnet
+										</BodyShort>
+									)}
+								</Box>
+							)}
+						</VStack>
+					</Dialog.Body>
+				</Dialog.Popup>
+			</Dialog>
+
+			{/* Confirm button */}
 			{(() => {
 				const allGroupsHaveCriticality =
 					unifiedGroups.length > 0 && unifiedGroups.every((ug) => assessmentsByGroupId[ug.groupId]?.criticality)
