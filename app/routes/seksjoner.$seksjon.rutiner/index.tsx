@@ -100,13 +100,16 @@ export default function SeksjonRutinerIndex() {
 								</Table.DataCell>
 								<Table.DataCell>{getFrequencyLabel(routine.frequency)}</Table.DataCell>
 								<Table.DataCell>
-									<HStack gap="space-1" wrap>
+									<VStack gap="space-1">
 										{routine.controls.map((c) => (
-											<Tag key={c.id} variant="alt1" size="xsmall">
-												{c.controlId}
-											</Tag>
+											<HStack key={c.id} gap="space-2" align="center" wrap>
+												<Tag variant="alt1" size="xsmall">
+													{c.controlId}
+												</Tag>
+												<BodyShort size="small">{c.name}</BodyShort>
+											</HStack>
 										))}
-									</HStack>
+									</VStack>
 								</Table.DataCell>
 								<Table.DataCell>
 									<HStack gap="space-1" wrap>
