@@ -1,9 +1,29 @@
-import { Alert, BodyLong, Button, Detail, Heading, HStack, Modal, Table, Tag, Textarea, VStack } from "@navikt/ds-react"
+import {
+	Alert,
+	BodyLong,
+	Button,
+	Detail,
+	Heading,
+	HStack,
+	Modal,
+	Select,
+	Table,
+	Tag,
+	Textarea,
+	VStack,
+} from "@navikt/ds-react"
 import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { type ApprovalStatus, approveRuleset, getRulesetDetail } from "~/db/queries/rulesets.server"
+import { getRoutinesForSection } from "~/db/queries/routines.server"
+import {
+	type ApprovalStatus,
+	approveRuleset,
+	getRulesetDetail,
+	linkRoutineToRuleset,
+	unlinkRoutineFromRuleset,
+} from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
@@ -48,6 +68,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		responsibleDisplay = ruleset.responsibleName ?? "Ikke angitt"
 	}
 
+	// Load section routines for linking (exclude already-linked ones)
+	const sectionRoutines = userIsAdmin ? await getRoutinesForSection(section.id) : []
+	const linkedRoutineIds = new Set(ruleset.linkedRoutines.map((r) => r.routineId))
+	const availableRoutines = sectionRoutines.filter((r) => !linkedRoutineIds.has(r.id))
+
 	return data({
 		section,
 		ruleset,
@@ -55,6 +80,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		canAdmin: userIsAdmin,
 		responsibleDisplay,
 		descriptionHtml: renderMarkdown(ruleset.description),
+		availableRoutines: availableRoutines.map((r) => ({ id: r.id, name: r.name })),
 	})
 }
 
@@ -93,13 +119,32 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return data<ActionResult>({ success: true, message: "Regelsett godkjent." })
 		}
 
+		case "link-routine": {
+			const routineId = formData.get("routineId")
+			if (typeof routineId !== "string" || !routineId) {
+				return data<ActionResult>({ success: false, error: "Velg en rutine." })
+			}
+			await linkRoutineToRuleset(regelSettId, routineId, authedUser.navIdent)
+			return data<ActionResult>({ success: true, message: "Rutine koblet til regelsettet." })
+		}
+
+		case "unlink-routine": {
+			const linkId = formData.get("linkId")
+			if (typeof linkId !== "string" || !linkId) {
+				return data<ActionResult>({ success: false, error: "Mangler kobling-ID." })
+			}
+			await unlinkRoutineFromRuleset(linkId)
+			return data<ActionResult>({ success: true, message: "Rutine fjernet fra regelsettet." })
+		}
+
 		default:
 			return data<ActionResult>({ success: false, error: "Ugyldig handling." })
 	}
 }
 
 export default function RegelsettDetalj() {
-	const { section, ruleset, canApprove, canAdmin, responsibleDisplay, descriptionHtml } = useLoaderData<typeof loader>()
+	const { section, ruleset, canApprove, canAdmin, responsibleDisplay, descriptionHtml, availableRoutines } =
+		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const [approveOpen, setApproveOpen] = useState(false)
 
@@ -203,6 +248,68 @@ export default function RegelsettDetalj() {
 					</section>
 				</VStack>
 			)}
+
+			<VStack gap="space-4">
+				<Heading size="small" level="3">
+					Tilknyttede rutiner
+				</Heading>
+				{ruleset.linkedRoutines.length > 0 && (
+					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+					<section className="table-scroll" tabIndex={0} aria-label="Tilknyttede rutiner">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Rutine</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Lagt til av</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Dato</Table.HeaderCell>
+									{canAdmin && <Table.HeaderCell scope="col" />}
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{ruleset.linkedRoutines.map((r) => (
+									<Table.Row key={r.linkId}>
+										<Table.DataCell>
+											<Link to={`/seksjoner/${section.slug}/rutiner/${r.routineId}`}>{r.routineName}</Link>
+										</Table.DataCell>
+										<Table.DataCell>{r.createdBy}</Table.DataCell>
+										<Table.DataCell>{new Date(r.createdAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+										{canAdmin && (
+											<Table.DataCell>
+												<Form method="post">
+													<input type="hidden" name="intent" value="unlink-routine" />
+													<input type="hidden" name="linkId" value={r.linkId} />
+													<Button variant="tertiary-neutral" size="xsmall" type="submit">
+														Fjern
+													</Button>
+												</Form>
+											</Table.DataCell>
+										)}
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				)}
+				{ruleset.linkedRoutines.length === 0 && <BodyLong>Ingen rutiner er koblet til dette regelsettet.</BodyLong>}
+				{canAdmin && availableRoutines.length > 0 && (
+					<Form method="post">
+						<input type="hidden" name="intent" value="link-routine" />
+						<HStack gap="space-4" align="end">
+							<Select label="Legg til rutine" name="routineId" size="small">
+								<option value="">Velg rutine…</option>
+								{availableRoutines.map((r) => (
+									<option key={r.id} value={r.id}>
+										{r.name}
+									</option>
+								))}
+							</Select>
+							<Button variant="secondary" size="small" type="submit">
+								Legg til
+							</Button>
+						</HStack>
+					</Form>
+				)}
+			</VStack>
 
 			{ruleset.approvals.length > 0 && (
 				<VStack gap="space-4">

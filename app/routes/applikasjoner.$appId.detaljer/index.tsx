@@ -74,6 +74,7 @@ import {
 	getReviewsForApp,
 	getRoutineDeadlinesForApp,
 	getRoutineDeadlinesForAppByPersistence,
+	getRoutineDeadlinesForAppByRuleset,
 	getRoutineDeadlinesForAppByScreeningSelection,
 	getRoutineDeadlinesForAppBySection,
 } from "~/db/queries/routines.server"
@@ -170,12 +171,20 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	])
 	const sectionWideRoutines = await getRoutineDeadlinesForAppBySection(appId, allMatchedIds)
 
+	// Find routines linked to rulesets in the app's sections
+	const allMatchedBeforeRuleset = new Set([
+		...allMatchedIds,
+		...(sectionWideRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
+	])
+	const rulesetRoutines = await getRoutineDeadlinesForAppByRuleset(appId, allMatchedBeforeRuleset)
+
 	// Tag each deadline with its match source
 	const routineDeadlines = [
 		...screeningRoutines.map((d) => ({ ...d, matchSource: "screening" as const })),
 		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
 		...screeningSelectionRoutines.map((d) => ({ ...d, matchSource: "screening_selection" as const })),
 		...sectionWideRoutines.map((d) => ({ ...d, matchSource: "section" as const })),
+		...rulesetRoutines.map((d) => ({ ...d, matchSource: "ruleset" as const })),
 	]
 
 	// Batch-load routine → control mappings for auto-compliance computation
@@ -1244,6 +1253,10 @@ export default function ApplikasjonDetalj() {
 													) : dl.matchSource === "section" ? (
 														<Tag variant="alt3" size="xsmall">
 															Gjelder alle i seksjonen
+														</Tag>
+													) : dl.matchSource === "ruleset" ? (
+														<Tag variant="alt2" size="xsmall">
+															Regelsett
 														</Tag>
 													) : (
 														<Tag variant="neutral" size="xsmall">

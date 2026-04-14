@@ -13,7 +13,7 @@ export interface AutoComplianceResult {
 	/** Human-readable reason for the auto-status */
 	reason: string
 	/** Which matching source(s) contributed */
-	sources: Array<"screening" | "persistence" | "screening_selection" | "section">
+	sources: Array<"screening" | "persistence" | "screening_selection" | "section" | "ruleset">
 	/** IDs of matching routines */
 	matchingRoutineIds: string[]
 	/** Whether at least one matching routine is overdue */
@@ -23,7 +23,7 @@ export interface AutoComplianceResult {
 interface RoutineMatch {
 	routineId: string
 	controlIds: string[]
-	matchSource: "screening" | "persistence" | "screening_selection" | "section"
+	matchSource: "screening" | "persistence" | "screening_selection" | "section" | "ruleset"
 	overdue: boolean
 	lastReviewDate: Date | null
 }
@@ -55,7 +55,7 @@ export function computeAutoCompliance(
 	}>,
 	routineDeadlines: Array<{
 		routine: { id: string; controls?: Array<{ id: string }> } | null
-		matchSource: "screening" | "persistence" | "screening_selection" | "section"
+		matchSource: "screening" | "persistence" | "screening_selection" | "section" | "ruleset"
 		overdue: boolean
 		lastReviewDate: Date | null
 	}>,

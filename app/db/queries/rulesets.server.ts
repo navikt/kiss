@@ -4,7 +4,15 @@ import { frequencyDays } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
 import { frameworkControls } from "../schema/framework"
 import { sections, type UserRole, userRoles, users } from "../schema/organization"
-import { type RulesetStatus, rulesetApprovals, rulesetAttachments, rulesetControls, rulesets } from "../schema/rulesets"
+import { routines } from "../schema/routines"
+import {
+	type RulesetStatus,
+	rulesetApprovals,
+	rulesetAttachments,
+	rulesetControls,
+	rulesetRoutines,
+	rulesets,
+} from "../schema/rulesets"
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -41,6 +49,13 @@ export interface RulesetDetail extends RulesetListItem {
 		linkId: string
 		controlId: string
 		shortTitle: string | null
+	}[]
+	linkedRoutines: {
+		linkId: string
+		routineId: string
+		routineName: string
+		createdBy: string
+		createdAt: Date
 	}[]
 	attachments: {
 		id: string
@@ -163,7 +178,7 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 
 	if (!row) return null
 
-	const [approvals, controls, attachments] = await Promise.all([
+	const [approvals, controls, attachments, linkedRoutineRows] = await Promise.all([
 		db
 			.select()
 			.from(rulesetApprovals)
@@ -185,6 +200,18 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 			.from(rulesetAttachments)
 			.where(eq(rulesetAttachments.rulesetId, rulesetId))
 			.orderBy(rulesetAttachments.uploadedAt),
+		db
+			.select({
+				linkId: rulesetRoutines.id,
+				routineId: routines.id,
+				routineName: routines.name,
+				createdBy: rulesetRoutines.createdBy,
+				createdAt: rulesetRoutines.createdAt,
+			})
+			.from(rulesetRoutines)
+			.innerJoin(routines, eq(rulesetRoutines.routineId, routines.id))
+			.where(eq(rulesetRoutines.rulesetId, rulesetId))
+			.orderBy(routines.name),
 	])
 
 	const latestApproval = approvals[0] ?? null
@@ -225,6 +252,13 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 			linkId: c.linkId,
 			controlId: c.controlId,
 			shortTitle: c.shortTitle,
+		})),
+		linkedRoutines: linkedRoutineRows.map((r) => ({
+			linkId: r.linkId,
+			routineId: r.routineId,
+			routineName: r.routineName,
+			createdBy: r.createdBy,
+			createdAt: r.createdAt,
 		})),
 		attachments: attachments.map((a) => ({
 			id: a.id,
@@ -395,4 +429,14 @@ export async function getRulesetsForControl(
 			),
 		}
 	})
+}
+
+// ─── Routine linking ──────────────────────────────────────────────────────
+
+export async function linkRoutineToRuleset(rulesetId: string, routineId: string, createdBy: string): Promise<void> {
+	await db.insert(rulesetRoutines).values({ rulesetId, routineId, createdBy }).onConflictDoNothing()
+}
+
+export async function unlinkRoutineFromRuleset(linkId: string): Promise<void> {
+	await db.delete(rulesetRoutines).where(eq(rulesetRoutines.id, linkId))
 }

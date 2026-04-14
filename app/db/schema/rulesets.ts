@@ -2,6 +2,7 @@ import { integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
 import { frameworkControls } from "./framework"
 import { sections } from "./organization"
+import { routines as routinesRef } from "./routines"
 
 // ─── Rulesets ─────────────────────────────────────────────────────────────
 
@@ -53,6 +54,20 @@ export const rulesetControls = pgTable("ruleset_controls", {
 	controlId: uuid("control_id")
 		.notNull()
 		.references(() => frameworkControls.id, { onDelete: "cascade" }),
+})
+
+// ─── Ruleset ↔ Routine linking ────────────────────────────────────────────
+
+export const rulesetRoutines = pgTable("ruleset_routines", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	rulesetId: uuid("ruleset_id")
+		.notNull()
+		.references(() => rulesets.id, { onDelete: "cascade" }),
+	routineId: uuid("routine_id")
+		.notNull()
+		.references(() => routinesRef.id, { onDelete: "cascade" }),
+	createdBy: text("created_by").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
 // ─── Ruleset Attachments ─────────────────────────────────────────────────
