@@ -169,3 +169,11 @@ export async function setUserLandingPage(navIdent: string, landingPage: LandingP
 			set: { landingPage, updatedAt: new Date() },
 		})
 }
+
+/** List all dev teams (lightweight, for profile page). */
+export async function getAllDevTeams() {
+	return db
+		.select({ id: devTeams.id, name: devTeams.name, sectionId: devTeams.sectionId })
+		.from(devTeams)
+		.orderBy(devTeams.name)
+}
