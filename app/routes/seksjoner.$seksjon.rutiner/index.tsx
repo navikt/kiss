@@ -1,8 +1,9 @@
-import { DownloadIcon } from "@navikt/aksel-icons"
-import { BodyShort, Box, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { CheckmarkCircleIcon, DownloadIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
+import { BodyShort, Box, Button, Heading, HGrid, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import {
@@ -28,17 +29,18 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 	}
 
-	const routines = await getRoutinesForSection(section.id)
+	const [routines, allControls] = await Promise.all([getRoutinesForSection(section.id), getAllControlsForSelection()])
 
 	return data({
 		section,
 		routines,
+		allControls,
 		canAdmin: user ? isAdmin(user) : false,
 	})
 }
 
 export default function SeksjonRutinerIndex() {
-	const { section, routines, canAdmin } = useLoaderData<typeof loader>()
+	const { section, routines, allControls, canAdmin } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-6">
@@ -152,6 +154,82 @@ export default function SeksjonRutinerIndex() {
 					</Table.Body>
 				</Table>
 			)}
+
+			{/* Kravdekning */}
+			<ControlCoverageSummary routines={routines} allControls={allControls} />
+		</VStack>
+	)
+}
+
+function ControlCoverageSummary({
+	routines,
+	allControls,
+}: {
+	routines: Array<{ controls: Array<{ id: string; controlId: string; name: string }> }>
+	allControls: Array<{ id: string; controlId: string; name: string }>
+}) {
+	const coveredControlIds = new Set(routines.flatMap((r) => r.controls.map((c) => c.id)))
+	const covered = allControls.filter((c) => coveredControlIds.has(c.id))
+	const uncovered = allControls.filter((c) => !coveredControlIds.has(c.id))
+
+	return (
+		<VStack gap="space-4">
+			<HStack gap="space-4" align="center">
+				<Heading size="medium" level="3">
+					Kravdekning
+				</Heading>
+				<Tag variant={uncovered.length === 0 ? "success" : "neutral"} size="small">
+					{covered.length} av {allControls.length} krav dekket
+				</Tag>
+			</HStack>
+
+			<HGrid columns={{ xs: 1, md: 2 }} gap="space-4">
+				{uncovered.length > 0 && (
+					<Box padding="space-4" borderRadius="8" borderWidth="1" borderColor="neutral-subtle">
+						<VStack gap="space-2">
+							<HStack gap="space-2" align="center">
+								<XMarkOctagonIcon aria-hidden fontSize="1.25rem" color="var(--ax-text-danger)" />
+								<Heading size="xsmall" level="4">
+									Krav uten rutiner ({uncovered.length})
+								</Heading>
+							</HStack>
+							<VStack gap="space-1">
+								{uncovered.map((c) => (
+									<HStack key={c.id} gap="space-2" align="center" wrap>
+										<Tag variant="error" size="xsmall">
+											{c.controlId}
+										</Tag>
+										<BodyShort size="small">{c.name}</BodyShort>
+									</HStack>
+								))}
+							</VStack>
+						</VStack>
+					</Box>
+				)}
+
+				{covered.length > 0 && (
+					<Box padding="space-4" borderRadius="8" borderWidth="1" borderColor="neutral-subtle">
+						<VStack gap="space-2">
+							<HStack gap="space-2" align="center">
+								<CheckmarkCircleIcon aria-hidden fontSize="1.25rem" color="var(--ax-text-success)" />
+								<Heading size="xsmall" level="4">
+									Krav med rutiner ({covered.length})
+								</Heading>
+							</HStack>
+							<VStack gap="space-1">
+								{covered.map((c) => (
+									<HStack key={c.id} gap="space-2" align="center" wrap>
+										<Tag variant="success" size="xsmall">
+											{c.controlId}
+										</Tag>
+										<BodyShort size="small">{c.name}</BodyShort>
+									</HStack>
+								))}
+							</VStack>
+						</VStack>
+					</Box>
+				)}
+			</HGrid>
 		</VStack>
 	)
 }
