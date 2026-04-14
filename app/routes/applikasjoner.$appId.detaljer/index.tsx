@@ -52,6 +52,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getOracleInstancesForApp, getSnapshotHistory } from "~/db/queries/audit-evidence.server"
 import { getOracleAuditSummariesForApp } from "~/db/queries/audit-logging.server"
+import { getScreeningEffectsByControlForApp } from "~/db/queries/compliance-auto.server"
 import {
 	acknowledgeUnknownApp,
 	addManualGroup,
@@ -88,6 +89,7 @@ import {
 } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
+import { computeAutoCompliance } from "~/lib/auto-compliance"
 import type { ComplianceStatus } from "~/lib/compliance-status"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
@@ -176,16 +178,62 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		...sectionWideRoutines.map((d) => ({ ...d, matchSource: "section" as const })),
 	]
 
+	// Batch-load routine → control mappings for auto-compliance computation
+	const allRoutineIds = [...new Set(routineDeadlines.map((d) => d.routine?.id).filter(Boolean) as string[])]
+	const routineControlsMap = new Map<string, Array<{ id: string }>>()
+	if (allRoutineIds.length > 0) {
+		const { routineControls: routineControlsTable } = await import("~/db/schema/routines")
+		const { db } = await import("~/db/connection.server")
+		const { inArray } = await import("drizzle-orm")
+		const controlRows = await db
+			.select({ routineId: routineControlsTable.routineId, controlId: routineControlsTable.controlId })
+			.from(routineControlsTable)
+			.where(inArray(routineControlsTable.routineId, allRoutineIds))
+		for (const row of controlRows) {
+			const list = routineControlsMap.get(row.routineId) ?? []
+			list.push({ id: row.controlId })
+			routineControlsMap.set(row.routineId, list)
+		}
+	}
+
+	// Build routine deadlines enriched with controls for auto-compliance
+	const deadlinesWithControls = routineDeadlines.map((d) => ({
+		...d,
+		routine: d.routine ? { ...d.routine, controls: routineControlsMap.get(d.routine.id) ?? [] } : d.routine,
+	}))
+
+	// Compute auto-compliance status
+	const screeningEffectsByControl = await getScreeningEffectsByControlForApp(appId)
+	const autoComplianceMap = computeAutoCompliance(
+		(assessmentsResult?.assessments ?? []).map((a) => ({
+			controlUuid: a.controlUuid,
+			technologyElementId: a.technologyElementId,
+			status: a.status as ComplianceStatus | null,
+		})),
+		deadlinesWithControls,
+		screeningEffectsByControl,
+	)
+
 	// Build section ID → slug lookup for routine links
 	const sectionSlugMap = Object.fromEntries(allSections.map((s) => [s.id, s.slug]))
 
-	const assessments = assessmentsResult?.assessments ?? []
+	const assessments = (assessmentsResult?.assessments ?? []).map((a) => {
+		const key = `${a.controlUuid}:${a.technologyElementId ?? "null"}`
+		const auto = autoComplianceMap.get(key)
+		const effectiveStatus = a.status ?? auto?.autoStatus ?? null
+		return {
+			...a,
+			autoStatus: auto?.autoStatus ?? null,
+			autoReason: auto?.reason ?? null,
+			effectiveStatus,
+		}
+	})
 	const totalControls = assessments.length
-	const implemented = assessments.filter((a) => a.status === "implemented").length
-	const partial = assessments.filter((a) => a.status === "partially_implemented").length
-	const notImplemented = assessments.filter((a) => a.status === "not_implemented").length
-	const notRelevant = assessments.filter((a) => a.status === "not_relevant").length
-	const notAssessed = assessments.filter((a) => !a.status).length
+	const implemented = assessments.filter((a) => a.effectiveStatus === "implemented").length
+	const partial = assessments.filter((a) => a.effectiveStatus === "partially_implemented").length
+	const notImplemented = assessments.filter((a) => a.effectiveStatus === "not_implemented").length
+	const notRelevant = assessments.filter((a) => a.effectiveStatus === "not_relevant").length
+	const notAssessed = assessments.filter((a) => !a.effectiveStatus).length
 
 	// Collect all referenced app names from auth inbound rules and access policy rules
 	const referencedAppNames = new Set<string>()
@@ -553,7 +601,8 @@ export default function ApplikasjonDetalj() {
 	const gitHubUrl = environments.find((e) => e.gitRepository)?.gitRepository ?? `https://github.com/navikt/${app.name}`
 
 	const controlsNeedingAttention = assessments.filter(
-		(a) => !a.status || a.status === "not_implemented" || a.status === "partially_implemented",
+		(a) =>
+			!a.effectiveStatus || a.effectiveStatus === "not_implemented" || a.effectiveStatus === "partially_implemented",
 	)
 
 	return (
@@ -751,8 +800,15 @@ export default function ApplikasjonDetalj() {
 											) : null}
 										</Table.DataCell>
 										<Table.DataCell>
-											{a.status ? (
-												<ComplianceStatusBadge status={a.status as ComplianceStatus} />
+											{a.effectiveStatus ? (
+												<HStack gap="space-2" align="center">
+													<ComplianceStatusBadge status={a.effectiveStatus as ComplianceStatus} />
+													{!a.status && a.autoStatus && (
+														<Tag variant="alt1" size="xsmall">
+															Beregnet
+														</Tag>
+													)}
+												</HStack>
 											) : (
 												<Tag variant="neutral" size="xsmall">
 													Ikke vurdert

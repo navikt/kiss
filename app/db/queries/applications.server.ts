@@ -208,11 +208,17 @@ export async function getAppAssessments(appId: string) {
 		primaryName = primary?.name ?? null
 	}
 
-	// Get app's technology elements
+	// Get app's confirmed technology elements (consistent with routine matching)
 	const appElements = await db
 		.select({ elementId: applicationTechnologyElements.elementId })
 		.from(applicationTechnologyElements)
-		.where(eq(applicationTechnologyElements.applicationId, assessmentAppId))
+		.where(
+			and(
+				eq(applicationTechnologyElements.applicationId, assessmentAppId),
+				isNotNull(applicationTechnologyElements.confirmedAt),
+				isNull(applicationTechnologyElements.rejectedAt),
+			),
+		)
 	const appElementIds = new Set(appElements.map((e) => e.elementId))
 
 	const controls = await db
