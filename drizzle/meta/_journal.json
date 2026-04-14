@@ -197,6 +197,13 @@
       "when": 1781907000000,
       "tag": "0027_ruleset_routines",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1781908000000,
+      "tag": "0028_user_preferences",
+      "breakpoints": true
     }
   ]
 }

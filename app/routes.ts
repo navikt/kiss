@@ -2,6 +2,8 @@ import { index, type RouteConfig, route } from "@react-router/dev/routes"
 
 export default [
 	index("routes/_index/index.tsx"),
+	route("dashboard", "routes/dashboard/index.tsx"),
+	route("profil", "routes/profil/index.tsx"),
 	route("kontrollrammeverk", "routes/kontrollrammeverk/index.tsx"),
 	route("kontrollrammeverk/risiko/:risikoId", "routes/kontrollrammeverk.risiko.$risikoId/index.tsx"),
 	route("kontrollrammeverk/:domene", "routes/kontrollrammeverk.$domene/index.tsx"),

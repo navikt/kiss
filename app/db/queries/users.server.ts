@@ -1,6 +1,14 @@
 import { eq } from "drizzle-orm"
 import { db } from "../connection.server"
-import { devTeams, sections, type UserRole, userRoles, users } from "../schema/organization"
+import {
+	devTeams,
+	type LandingPage,
+	sections,
+	type UserRole,
+	userPreferences,
+	userRoles,
+	users,
+} from "../schema/organization"
 
 export interface UserRoleEntry {
 	id: string
@@ -139,4 +147,25 @@ export async function listUsersWithRoles(): Promise<UserWithRoles[]> {
 		...u,
 		roles: rolesByUser.get(u.id) ?? [],
 	}))
+}
+
+// ─── User preferences ────────────────────────────────────────────────────
+
+export async function getUserLandingPage(navIdent: string): Promise<LandingPage> {
+	const [row] = await db
+		.select({ landingPage: userPreferences.landingPage })
+		.from(userPreferences)
+		.where(eq(userPreferences.navIdent, navIdent))
+		.limit(1)
+	return (row?.landingPage as LandingPage) ?? "dashboard"
+}
+
+export async function setUserLandingPage(navIdent: string, landingPage: LandingPage): Promise<void> {
+	await db
+		.insert(userPreferences)
+		.values({ navIdent, landingPage, updatedAt: new Date() })
+		.onConflictDoUpdate({
+			target: userPreferences.navIdent,
+			set: { landingPage, updatedAt: new Date() },
+		})
 }

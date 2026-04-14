@@ -49,15 +49,13 @@ export function UserMenu({ name, navIdent, isAdmin, isAuditor, sections }: UserM
 					</dl>
 				</ActionMenu.Label>
 
-				{/* Min profil link — only show if user is admin */}
-				{isAdmin && (
-					<ActionMenu.Item
-						onSelect={() => navigate("/admin/brukere")}
-						icon={<PersonIcon aria-hidden style={{ fontSize: "1.5rem" }} />}
-					>
-						Min profil
-					</ActionMenu.Item>
-				)}
+				{/* Min profil link */}
+				<ActionMenu.Item
+					onSelect={() => navigate("/profil")}
+					icon={<PersonIcon aria-hidden style={{ fontSize: "1.5rem" }} />}
+				>
+					Min profil
+				</ActionMenu.Item>
 
 				<ActionMenu.Divider />
 

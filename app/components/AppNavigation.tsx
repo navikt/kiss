@@ -6,7 +6,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-	{ label: "Dashboard", href: "/" },
+	{ label: "Dashboard", href: "/dashboard" },
 	{ label: "Kontrollrammeverk", href: "/kontrollrammeverk" },
 	{ label: "Applikasjoner", href: "/applikasjoner" },
 	{ label: "Seksjoner", href: "/seksjoner" },

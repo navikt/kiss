@@ -74,6 +74,24 @@ export const users = pgTable("users", {
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+// ─── User preferences ───────────────────────────────────────────────────
+
+export const landingPageEnum = ["dashboard", "min-seksjon", "mine-team"] as const
+export type LandingPage = (typeof landingPageEnum)[number]
+
+export const landingPageLabels: Record<LandingPage, string> = {
+	dashboard: "Dashboard",
+	"min-seksjon": "Min seksjon",
+	"mine-team": "Mine team",
+}
+
+export const userPreferences = pgTable("user_preferences", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	navIdent: text("nav_ident").notNull().unique(),
+	landingPage: text("landing_page", { enum: landingPageEnum }).notNull().default("dashboard"),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const userRoles = pgTable("user_roles", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	userId: uuid("user_id")
