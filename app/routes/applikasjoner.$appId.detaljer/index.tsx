@@ -655,6 +655,7 @@ export default function ApplikasjonDetalj() {
 					<Tabs.Tab value="persistering" label="Persistering" />
 					{oracleInstances.length > 0 && <Tabs.Tab value="revisjonsbevis" label="Revisjonsbevis" />}
 					<Tabs.Tab value="rutiner" label="Rutiner" />
+					{linkedApps.length > 0 && <Tabs.Tab value="lenkede-applikasjoner" label="Lenkede applikasjoner" />}
 					<Tabs.Tab value="rapporter" label="Rapporter" />
 				</Tabs.List>
 
@@ -711,26 +712,6 @@ export default function ApplikasjonDetalj() {
 								</Button>
 							</HStack>
 						</Box>
-
-						{/* Linked applications */}
-						{linkedApps.length > 0 && (
-							<Box>
-								<Heading size="medium" level="3" spacing>
-									Lenkede applikasjoner
-								</Heading>
-								<BodyLong spacing>
-									Disse applikasjonene er testdeploymenter eller varianter som arver compliance-vurderinger fra denne
-									applikasjonen.
-								</BodyLong>
-								<HStack gap="space-4" wrap>
-									{linkedApps.map((la) => (
-										<Tag key={la.id} variant="neutral" size="small">
-											<Link to={`/applikasjoner/${la.id}/detaljer`}>{la.name}</Link>
-										</Tag>
-									))}
-								</HStack>
-							</Box>
-						)}
 
 						{/* Teams */}
 						<Box>
@@ -1377,6 +1358,25 @@ export default function ApplikasjonDetalj() {
 				<Tabs.Panel value="rapporter" style={{ paddingTop: "var(--ax-space-6)" }}>
 					<ReportsPanel appReports={appReports} completedReviews={completedReviews} />
 				</Tabs.Panel>
+
+				{/* Lenkede applikasjoner */}
+				{linkedApps.length > 0 && (
+					<Tabs.Panel value="lenkede-applikasjoner" style={{ paddingTop: "var(--ax-space-6)" }}>
+						<VStack gap="space-8">
+							<BodyLong>
+								Disse applikasjonene er testdeploymenter eller varianter som arver compliance-vurderinger fra denne
+								applikasjonen.
+							</BodyLong>
+							<HStack gap="space-4" wrap>
+								{linkedApps.map((la) => (
+									<Tag key={la.id} variant="neutral" size="small">
+										<Link to={`/applikasjoner/${la.id}/detaljer`}>{la.name}</Link>
+									</Tag>
+								))}
+							</HStack>
+						</VStack>
+					</Tabs.Panel>
+				)}
 			</Tabs>
 		</VStack>
 	)
