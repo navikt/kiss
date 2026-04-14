@@ -1,6 +1,6 @@
 {
-  "id": "9a12e565-873e-4588-b4e2-774b9cae516b",
-  "prevId": "bcd504b2-b965-4985-a322-f772e0a14df3",
+  "id": "68210784-d833-4054-b4ba-06e4eed51719",
+  "prevId": "9a12e565-873e-4588-b4e2-774b9cae516b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -346,6 +346,80 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.application_manual_groups": {
+      "name": "application_manual_groups",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_name": {
+          "name": "group_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "application_manual_groups_application_id_monitored_applications_id_fk": {
+          "name": "application_manual_groups_application_id_monitored_applications_id_fk",
+          "tableFrom": "application_manual_groups",
+          "tableTo": "monitored_applications",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "application_manual_groups_application_id_group_id_unique": {
+          "name": "application_manual_groups_application_id_group_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "application_id",
+            "group_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.application_persistence": {
       "name": "application_persistence",
       "schema": "",
@@ -410,6 +484,19 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "data_classification": {
+          "name": "data_classification",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "manually_added": {
+          "name": "manually_added",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "extra": {
           "name": "extra",
@@ -1777,29 +1864,7 @@
           "notNull": true
         }
       },
-      "indexes": {
-        "idx_compliance_app_status": {
-          "name": "idx_compliance_app_status",
-          "columns": [
-            {
-              "expression": "application_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "compliance_assessments_application_id_monitored_applications_id_fk": {
           "name": "compliance_assessments_application_id_monitored_applications_id_fk",
@@ -3526,6 +3591,117 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.routine_controls": {
+      "name": "routine_controls",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "routine_id": {
+          "name": "routine_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "control_id": {
+          "name": "control_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "routine_controls_routine_id_routines_id_fk": {
+          "name": "routine_controls_routine_id_routines_id_fk",
+          "tableFrom": "routine_controls",
+          "tableTo": "routines",
+          "columnsFrom": [
+            "routine_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "routine_controls_control_id_framework_controls_id_fk": {
+          "name": "routine_controls_control_id_framework_controls_id_fk",
+          "tableFrom": "routine_controls",
+          "tableTo": "framework_controls",
+          "columnsFrom": [
+            "control_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.routine_persistence_links": {
+      "name": "routine_persistence_links",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "routine_id": {
+          "name": "routine_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "persistence_type": {
+          "name": "persistence_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "data_classification": {
+          "name": "data_classification",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "routine_persistence_links_routine_id_routines_id_fk": {
+          "name": "routine_persistence_links_routine_id_routines_id_fk",
+          "tableFrom": "routine_persistence_links",
+          "tableTo": "routines",
+          "columnsFrom": [
+            "routine_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.routine_review_attachments": {
       "name": "routine_review_attachments",
       "schema": "",
@@ -3987,6 +4163,19 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "responsible_role": {
+          "name": "responsible_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "applies_to_all_in_section": {
+          "name": "applies_to_all_in_section",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "screening_question_id": {
           "name": "screening_question_id",
@@ -4589,12 +4778,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "value": {
-          "name": "value",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "label": {
           "name": "label",
           "type": "text",
@@ -4742,6 +4925,74 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.screening_question_technology_elements": {
+      "name": "screening_question_technology_elements",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "question_id": {
+          "name": "question_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "element_id": {
+          "name": "element_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "screening_question_technology_elements_question_id_screening_questions_id_fk": {
+          "name": "screening_question_technology_elements_question_id_screening_questions_id_fk",
+          "tableFrom": "screening_question_technology_elements",
+          "tableTo": "screening_questions",
+          "columnsFrom": [
+            "question_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "screening_question_technology_elements_element_id_technology_elements_id_fk": {
+          "name": "screening_question_technology_elements_element_id_technology_elements_id_fk",
+          "tableFrom": "screening_question_technology_elements",
+          "tableTo": "technology_elements",
+          "columnsFrom": [
+            "element_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "screening_question_technology_elements_question_id_element_id_unique": {
+          "name": "screening_question_technology_elements_question_id_element_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "question_id",
+            "element_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.screening_questions": {
       "name": "screening_questions",
       "schema": "",
@@ -4755,6 +5006,12 @@
         },
         "section_id": {
           "name": "section_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ruleset_id": {
+          "name": "ruleset_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -4826,10 +5083,110 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "screening_questions_ruleset_id_rulesets_id_fk": {
+          "name": "screening_questions_ruleset_id_rulesets_id_fk",
+          "tableFrom": "screening_questions",
+          "tableTo": "rulesets",
+          "columnsFrom": [
+            "ruleset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.screening_routine_selections": {
+      "name": "screening_routine_selections",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "application_id": {
+          "name": "application_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "choice_effect_id": {
+          "name": "choice_effect_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "routine_id": {
+          "name": "routine_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "selected_by": {
+          "name": "selected_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "selected_at": {
+          "name": "selected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "screening_routine_selections_application_id_monitored_applications_id_fk": {
+          "name": "screening_routine_selections_application_id_monitored_applications_id_fk",
+          "tableFrom": "screening_routine_selections",
+          "tableTo": "monitored_applications",
+          "columnsFrom": [
+            "application_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "screening_routine_selections_choice_effect_id_screening_choice_effects_id_fk": {
+          "name": "screening_routine_selections_choice_effect_id_screening_choice_effects_id_fk",
+          "tableFrom": "screening_routine_selections",
+          "tableTo": "screening_choice_effects",
+          "columnsFrom": [
+            "choice_effect_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "screening_routine_selections_application_id_choice_effect_id_unique": {
+          "name": "screening_routine_selections_application_id_choice_effect_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "application_id",
+            "choice_effect_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

@@ -176,6 +176,13 @@
       "when": 1781904000000,
       "tag": "0024_screening_question_ruleset",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1776153927243,
+      "tag": "0025_application_manual_groups",
+      "breakpoints": true
     }
   ]
 }
