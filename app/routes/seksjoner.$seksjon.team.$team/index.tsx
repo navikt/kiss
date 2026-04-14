@@ -61,7 +61,7 @@ export default function TeamDashboard() {
 
 	return (
 		<VStack gap="space-8">
-			<HStack gap="space-4" align="center">
+			<HStack align="center" justify="space-between" wrap>
 				<Heading size="xlarge" level="2">
 					{teamName}
 				</Heading>
