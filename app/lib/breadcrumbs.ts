@@ -111,11 +111,6 @@ function teamName(data: Record<string, unknown>): string {
 	return team?.name ?? "Team"
 }
 
-function reportName(data: Record<string, unknown>): string {
-	const report = data.report as { name?: string } | undefined
-	return report?.name ?? "Rapport"
-}
-
 function riskLabel(data: Record<string, unknown>): string {
 	const risk = data.risk as { riskId?: string; name?: string } | undefined
 	if (risk?.riskId && risk?.name) return `${risk.riskId}: ${risk.name}`
@@ -141,7 +136,6 @@ const SEKSJONER: BreadcrumbSegment = { label: "Seksjoner", to: "/seksjoner" }
 const KONTROLLRAMMEVERK: BreadcrumbSegment = { label: "Kontrollrammeverk", to: "/kontrollrammeverk" }
 const APPLIKASJONER: BreadcrumbSegment = { label: "Applikasjoner", to: "/applikasjoner" }
 const MINE_TEAM: BreadcrumbSegment = { label: "Mine team", to: "/mine-team" }
-const RAPPORTER: BreadcrumbSegment = { label: "Rapporter", to: "/rapporter" }
 const NAIS: BreadcrumbSegment = { label: "Nais", to: "/nais-overvaking" }
 const ADMIN: BreadcrumbSegment = { label: "Admin", to: "/admin" }
 
@@ -420,20 +414,6 @@ const rules: BreadcrumbRule[] = [
 		segments: [{ label: "Applikasjoner" }],
 	},
 
-	// ── Rapporter ──
-	{
-		pattern: "rapporter/generer",
-		segments: [RAPPORTER, { label: "Generer" }],
-	},
-	{
-		pattern: "rapporter/:rapportId",
-		segments: [RAPPORTER, { label: reportName }],
-	},
-	{
-		pattern: "rapporter",
-		segments: [{ label: "Rapporter" }],
-	},
-
 	// ── Nais-overvåking ──
 	{
 		pattern: "nais-overvaking/endringslogg",
@@ -460,10 +440,10 @@ const rules: BreadcrumbRule[] = [
 	{ pattern: "admin/link-suggestions", segments: [ADMIN, { label: "Lenkeforslag" }] },
 	{ pattern: "admin/domener", segments: [ADMIN, { label: "Domener" }] },
 	{ pattern: "admin/teknologielementer", segments: [ADMIN, { label: "Teknologielementer" }] },
+	{ pattern: "admin/dokumenter", segments: [ADMIN, { label: "Dokumenter" }] },
 	{ pattern: "admin", segments: [{ label: "Admin" }] },
 
 	// ── Andre ──
-	{ pattern: "dokumenter", segments: [{ label: "Dokumenter" }] },
 	{ pattern: "hjelp/markdown", segments: [{ label: "Hjelp", to: "/" }, { label: "Markdown" }] },
 ]
 

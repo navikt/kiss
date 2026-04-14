@@ -69,13 +69,6 @@ export function canManageTeam(user: NavUser, devTeamId: string): boolean {
 	return hasRoleForTeam(user, "product_owner", devTeamId) || hasRoleForTeam(user, "tech_lead", devTeamId)
 }
 
-/** Kan se rapporter (admin, revisor, seksjonsleder, teknologileder) */
-export function canViewReports(user: NavUser, sectionId?: string): boolean {
-	if (isAdmin(user) || isAuditor(user)) return true
-	if (!sectionId) return false
-	return hasRoleForSection(user, "section_manager", sectionId) || hasRoleForSection(user, "tech_manager", sectionId)
-}
-
 /** Kan tildele roller (kun admin) */
 export function canAssignRoles(user: NavUser): boolean {
 	return isAdmin(user)

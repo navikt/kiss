@@ -81,9 +81,7 @@ export function UserMenu({ name, navIdent, isAdmin, isAuditor, sections }: UserM
 					<>
 						<ActionMenu.Group label="Roller">
 							{isAdmin && <ActionMenu.Item onSelect={() => navigate("/admin")}>Admin</ActionMenu.Item>}
-							{isAuditor && !isAdmin && (
-								<ActionMenu.Item onSelect={() => navigate("/rapporter")}>Revisor</ActionMenu.Item>
-							)}
+							{isAuditor && !isAdmin && <ActionMenu.Item onSelect={() => navigate("/admin")}>Revisor</ActionMenu.Item>}
 						</ActionMenu.Group>
 						<ActionMenu.Divider />
 					</>

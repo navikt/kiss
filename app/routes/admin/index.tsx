@@ -44,12 +44,6 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Last opp nye versjoner av kontrollrammeverket.</BodyLong>
 				</Link>
-				<Link to="/rapporter" className="admin-card">
-					<Heading size="small" level="3">
-						Rapporter
-					</Heading>
-					<BodyLong size="small">Generer og last ned compliance-rapporter.</BodyLong>
-				</Link>
 				<Link to="/admin/screening" className="admin-card">
 					<Heading size="small" level="3">
 						Innledende spørsmål
@@ -68,7 +62,7 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Administrer teknologielementer som brukes i kontroller og applikasjoner.</BodyLong>
 				</Link>
-				<Link to="/dokumenter" className="admin-card">
+				<Link to="/admin/dokumenter" className="admin-card">
 					<Heading size="small" level="3">
 						Dokumenter
 					</Heading>
