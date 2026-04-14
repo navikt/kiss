@@ -733,15 +733,23 @@ export default function ApplikasjonDetalj() {
 									<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Teknologielement</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
 								{controlsNeedingAttention.map((a) => (
-									<Table.Row key={a.controlUuid}>
+									<Table.Row key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`}>
 										<Table.DataCell>{a.domainName}</Table.DataCell>
 										<Table.DataCell>{a.controlId}</Table.DataCell>
 										<Table.DataCell>{a.controlName}</Table.DataCell>
+										<Table.DataCell>
+											{a.technologyElementName ? (
+												<Tag variant="info" size="xsmall">
+													{a.technologyElementName}
+												</Tag>
+											) : null}
+										</Table.DataCell>
 										<Table.DataCell>
 											{a.status ? (
 												<ComplianceStatusBadge status={a.status as ComplianceStatus} />
@@ -1134,6 +1142,7 @@ export default function ApplikasjonDetalj() {
 										<Table.Row>
 											<Table.HeaderCell>Rutine</Table.HeaderCell>
 											<Table.HeaderCell>Kobling</Table.HeaderCell>
+											<Table.HeaderCell>Teknologielement</Table.HeaderCell>
 											<Table.HeaderCell>Frekvens</Table.HeaderCell>
 											<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
 											<Table.HeaderCell>Frist</Table.HeaderCell>
@@ -1184,6 +1193,17 @@ export default function ApplikasjonDetalj() {
 														<Tag variant="neutral" size="xsmall">
 															Screening
 														</Tag>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													{dl.routine?.technologyElements && dl.routine.technologyElements.length > 0 && (
+														<HStack gap="space-2" wrap>
+															{dl.routine.technologyElements.map((te) => (
+																<Tag key={te.id} variant="info" size="xsmall">
+																	{te.name}
+																</Tag>
+															))}
+														</HStack>
 													)}
 												</Table.DataCell>
 												<Table.DataCell>{getFrequencyLabel(dl.routine?.frequency)}</Table.DataCell>
