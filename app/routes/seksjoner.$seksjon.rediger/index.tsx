@@ -1,4 +1,4 @@
-import { PencilIcon, PlusIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, PencilIcon, PlusIcon } from "@navikt/aksel-icons"
 import type { SortState } from "@navikt/ds-react"
 import {
 	Link as AkselLink,
@@ -195,9 +195,20 @@ export default function RedigerSeksjon() {
 
 	return (
 		<VStack gap="space-6">
-			<Heading size="xlarge" level="2" spacing>
-				Rediger seksjon: {section.name}
-			</Heading>
+			<HStack align="center" justify="space-between" wrap>
+				<Heading size="xlarge" level="2" spacing>
+					Rediger seksjon: {section.name}
+				</Heading>
+				<Button
+					as="a"
+					href={`/api/seksjoner/${seksjon}/eksport`}
+					variant="tertiary"
+					size="small"
+					icon={<DownloadIcon aria-hidden />}
+				>
+					Eksporter alt
+				</Button>
+			</HStack>
 
 			<Tabs value={activeTab} onChange={(tab) => setSearchParams({ fane: tab }, { replace: true })}>
 				<Tabs.List>
