@@ -24,6 +24,8 @@ export async function setupTestDatabase() {
 	})
 
 	pool = new pg.Pool({ connectionString: connectionUri })
+	// Prevent unhandled error events when container stops with idle connections
+	pool.on("error", () => {})
 	testDb = drizzle(pool, { schema })
 
 	return { db: testDb, pool, connectionUri }
