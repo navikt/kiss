@@ -153,12 +153,7 @@ export default function RegelsettDetalj() {
 	return (
 		<VStack gap="space-6">
 			<HStack justify="space-between" align="center">
-				<VStack gap="space-2">
-					<Detail>
-						<Link to={`/seksjoner/${section.slug}/regelsett`}>← Regelsett</Link>
-					</Detail>
-					<Heading size="large">{ruleset.name}</Heading>
-				</VStack>
+				<Heading size="large">{ruleset.name}</Heading>
 				<HStack gap="space-2">
 					{canApprove && (
 						<Button variant="primary" size="small" onClick={() => setApproveOpen(true)}>
