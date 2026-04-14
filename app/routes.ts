@@ -5,6 +5,14 @@ export default [
 	route("dashboard", "routes/dashboard/index.tsx"),
 	route("profil", "routes/profil/index.tsx"),
 	route("mine-team", "routes/mine-team/index.tsx"),
+	// Mine-team-context app routes (breadcrumbs reflect mine-team origin)
+	route("mine-team/applikasjoner/:appId/detaljer", "routes/ctx-mine-team.applikasjoner.$appId.detaljer/index.tsx"),
+	route("mine-team/applikasjoner/:appId/rediger", "routes/ctx-mine-team.applikasjoner.$appId.rediger/index.tsx"),
+	route("mine-team/applikasjoner/:appId/compliance", "routes/ctx-mine-team.applikasjoner.$appId.compliance/index.tsx"),
+	route(
+		"mine-team/applikasjoner/:appId/compliance-krav",
+		"routes/ctx-mine-team.applikasjoner.$appId.compliance-krav/index.tsx",
+	),
 	route("kontrollrammeverk", "routes/kontrollrammeverk/index.tsx"),
 	route("kontrollrammeverk/risiko/:risikoId", "routes/kontrollrammeverk.risiko.$risikoId/index.tsx"),
 	route("kontrollrammeverk/:domene", "routes/kontrollrammeverk.$domene/index.tsx"),
@@ -20,6 +28,23 @@ export default [
 	route("seksjoner/:seksjon/nais-team", "routes/seksjoner.$seksjon.nais-team/index.tsx"),
 	route("seksjoner/:seksjon/team/:team", "routes/seksjoner.$seksjon.team.$team/index.tsx"),
 	route("seksjoner/:seksjon/team/:team/rediger", "routes/seksjoner.$seksjon.team.$team.rediger/index.tsx"),
+	// Team-context app routes (breadcrumbs reflect team origin)
+	route(
+		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/detaljer",
+		"routes/ctx-team.applikasjoner.$appId.detaljer/index.tsx",
+	),
+	route(
+		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/rediger",
+		"routes/ctx-team.applikasjoner.$appId.rediger/index.tsx",
+	),
+	route(
+		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/compliance",
+		"routes/ctx-team.applikasjoner.$appId.compliance/index.tsx",
+	),
+	route(
+		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/compliance-krav",
+		"routes/ctx-team.applikasjoner.$appId.compliance-krav/index.tsx",
+	),
 	route("seksjoner/:seksjon/rutiner", "routes/seksjoner.$seksjon.rutiner/index.tsx"),
 	route("seksjoner/:seksjon/rutiner/ny", "routes/seksjoner.$seksjon.rutiner.ny/index.tsx"),
 	route("seksjoner/:seksjon/rutiner/mangler", "routes/seksjoner.$seksjon.rutiner.mangler/index.tsx"),

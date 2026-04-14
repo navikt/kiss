@@ -193,7 +193,7 @@ export default function MineTeamPage() {
 								return (
 									<Table.Row key={app.appId}>
 										<Table.DataCell>
-											<Link to={`/applikasjoner/${app.appId}/detaljer`}>{app.appName}</Link>
+											<Link to={`/mine-team/applikasjoner/${app.appId}/detaljer`}>{app.appName}</Link>
 										</Table.DataCell>
 										<Table.DataCell>
 											<div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ax-space-2)" }}>
@@ -215,7 +215,7 @@ export default function MineTeamPage() {
 										<Table.DataCell align="right">{unanswered}</Table.DataCell>
 										<Table.DataCell align="right">{pct}%</Table.DataCell>
 										<Table.DataCell>
-											<Link to={`/applikasjoner/${app.appId}/compliance`}>Vurder</Link>
+											<Link to={`/mine-team/applikasjoner/${app.appId}/compliance`}>Vurder</Link>
 										</Table.DataCell>
 									</Table.Row>
 								)

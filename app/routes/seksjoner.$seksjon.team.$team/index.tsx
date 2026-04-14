@@ -158,7 +158,9 @@ export default function TeamDashboard() {
 								return (
 									<Table.Row key={app.appId}>
 										<Table.DataCell>
-											<Link to={`/applikasjoner/${app.appId}/detaljer`}>{app.appName}</Link>
+											<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer`}>
+												{app.appName}
+											</Link>
 										</Table.DataCell>
 										<Table.DataCell>
 											<Tag variant={app.source === "direct" ? "neutral" : "info"} size="xsmall">
@@ -171,7 +173,9 @@ export default function TeamDashboard() {
 										<Table.DataCell align="right">{unanswered}</Table.DataCell>
 										<Table.DataCell align="right">{pct}%</Table.DataCell>
 										<Table.DataCell>
-											<Link to={`/applikasjoner/${app.appId}/compliance`}>Vurder</Link>
+											<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/compliance`}>
+												Vurder
+											</Link>
 										</Table.DataCell>
 									</Table.Row>
 								)

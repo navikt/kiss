@@ -17,6 +17,7 @@ import { ComplianceComment, ComplianceStatusBadge } from "~/components/Complianc
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments, saveAssessment, saveAssessmentComment } from "~/db/queries/applications.server"
 import { getAllRisks } from "~/db/queries/framework.server"
+import { useAppBasePath } from "~/hooks/useAppBasePath"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isComplianceStatus, statusLabels } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -153,6 +154,7 @@ export default function ComplianceKrav() {
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const [, setSearchParams] = useSearchParams()
+	const _appBase = useAppBasePath()
 
 	const hasActiveFilters = !!(
 		filters.ansvarlig ||
@@ -250,7 +252,7 @@ export default function ComplianceKrav() {
 					)}
 
 					{/* Summary table */}
-					<BackToQuestionsLink appId={appId} />
+					<BackToQuestionsLink />
 
 					<HStack gap="space-6" wrap>
 						{options.domainOptions.length > 0 && (
@@ -407,10 +409,11 @@ export default function ComplianceKrav() {
 	)
 }
 
-function BackToQuestionsLink({ appId }: { appId: string }) {
+function BackToQuestionsLink() {
+	const appBase = useAppBasePath()
 	return (
 		<HStack gap="space-4">
-			<Link to={`/applikasjoner/${appId}/compliance`} className="compliance-nav-link">
+			<Link to={`${appBase}/compliance`} className="compliance-nav-link">
 				← Tilbake til spørsmål
 			</Link>
 		</HStack>

@@ -88,6 +88,7 @@ import {
 	persistenceTypeEnum,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
+import { useAppBasePath } from "~/hooks/useAppBasePath"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
@@ -600,6 +601,7 @@ export default function ApplikasjonDetalj() {
 	const [searchParams, setSearchParams] = useSearchParams()
 	const activeTab = searchParams.get("fane") ?? "kontroller"
 	const submit = useSubmit()
+	const appBase = useAppBasePath()
 
 	const [ackTarget, setAckTarget] = useState<string | null>(null)
 	const [ackComment, setAckComment] = useState("")
@@ -622,7 +624,7 @@ export default function ApplikasjonDetalj() {
 						{app.name}
 					</Heading>
 					{canAdmin && (
-						<Button as={Link} to={`/applikasjoner/${app.id}/rediger`} variant="tertiary" size="small">
+						<Button as={Link} to={`${appBase}/rediger`} variant="tertiary" size="small">
 							Administrer
 						</Button>
 					)}
@@ -687,7 +689,7 @@ export default function ApplikasjonDetalj() {
 							</VStack>
 						</HStack>
 					</HStack>
-					<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
+					<Link to={`${appBase}/compliance`}>Gå til compliance-vurdering →</Link>
 				</HStack>
 			</Box>
 

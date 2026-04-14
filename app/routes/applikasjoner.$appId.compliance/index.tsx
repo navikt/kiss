@@ -48,6 +48,7 @@ import {
 	persistenceTypeEnum,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
+import { useAppBasePath } from "~/hooks/useAppBasePath"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -265,6 +266,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 export default function ComplianceAssessment() {
 	const { appId, appName, screening, persistence, rulesetOptions, entraGroupsData } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
+	const appBase = useAppBasePath()
 
 	const isQuestionAnswered = useCallback((q: (typeof screening)[number]) => {
 		if (q.answerType === "persistence" || q.answerType === "entra_id_groups") {
@@ -320,7 +322,7 @@ export default function ComplianceAssessment() {
 						<BodyShort size="small" textColor="subtle">
 							{answeredCount} av {screening.length} spørsmål besvart
 						</BodyShort>
-						<Link to={`/applikasjoner/${appId}/compliance-krav`}>
+						<Link to={`${appBase}/compliance-krav`}>
 							<Button as="span" size="small" variant="secondary">
 								Gå til kravgjennomgang →
 							</Button>
@@ -385,7 +387,7 @@ export default function ComplianceAssessment() {
 					{screening.length === 0 && (
 						<Alert variant="info" size="small">
 							Ingen innledende spørsmål er konfigurert for denne applikasjonen.{" "}
-							<Link to={`/applikasjoner/${appId}/compliance-krav`}>Gå direkte til kravgjennomgang</Link>.
+							<Link to={`${appBase}/compliance-krav`}>Gå direkte til kravgjennomgang</Link>.
 						</Alert>
 					)}
 				</VStack>

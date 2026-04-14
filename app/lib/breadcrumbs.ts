@@ -49,6 +49,18 @@ function rulesetDetailPath(params: Record<string, string>) {
 	return `/seksjoner/${params.seksjon}/regelsett/${params.regelSettId}`
 }
 
+function teamPath(params: Record<string, string>) {
+	return `/seksjoner/${params.seksjon}/team/${params.team}`
+}
+
+function teamAppPath(params: Record<string, string>) {
+	return `/seksjoner/${params.seksjon}/team/${params.team}/applikasjoner/${params.appId}/detaljer`
+}
+
+function mineTeamAppPath(params: Record<string, string>) {
+	return `/mine-team/applikasjoner/${params.appId}/detaljer`
+}
+
 function domainPath(params: Record<string, string>) {
 	return `/kontrollrammeverk/${params.domene}`
 }
@@ -128,6 +140,7 @@ function reviewLabel(data: Record<string, unknown>): string {
 const SEKSJONER: BreadcrumbSegment = { label: "Seksjoner", to: "/seksjoner" }
 const KONTROLLRAMMEVERK: BreadcrumbSegment = { label: "Kontrollrammeverk", to: "/kontrollrammeverk" }
 const APPLIKASJONER: BreadcrumbSegment = { label: "Applikasjoner", to: "/applikasjoner" }
+const MINE_TEAM: BreadcrumbSegment = { label: "Mine team", to: "/mine-team" }
 const RAPPORTER: BreadcrumbSegment = { label: "Rapporter", to: "/rapporter" }
 const NAIS: BreadcrumbSegment = { label: "Nais", to: "/nais-overvaking" }
 const ADMIN: BreadcrumbSegment = { label: "Admin", to: "/admin" }
@@ -243,6 +256,47 @@ const rules: BreadcrumbRule[] = [
 		segments: [SEKSJONER, { label: sectionName, to: sectionPath }, { label: "Regelsett" }],
 	},
 
+	// ── Seksjoner: Team → Applikasjoner (kontekstuell navigasjon) ──
+	{
+		pattern: "seksjoner/:seksjon/team/:team/applikasjoner/:appId/compliance-krav",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: teamName, to: teamPath },
+			{ label: appName, to: teamAppPath },
+			{ label: "Kravgjennomgang" },
+		],
+	},
+	{
+		pattern: "seksjoner/:seksjon/team/:team/applikasjoner/:appId/compliance",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: teamName, to: teamPath },
+			{ label: appName, to: teamAppPath },
+			{ label: "Compliance" },
+		],
+	},
+	{
+		pattern: "seksjoner/:seksjon/team/:team/applikasjoner/:appId/rediger",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: teamName, to: teamPath },
+			{ label: appName, to: teamAppPath },
+			{ label: "Administrer" },
+		],
+	},
+	{
+		pattern: "seksjoner/:seksjon/team/:team/applikasjoner/:appId/detaljer",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: teamName, to: teamPath },
+			{ label: appName },
+		],
+	},
+
 	// ── Seksjoner: Team ──
 	{
 		pattern: "seksjoner/:seksjon/team/:team/rediger",
@@ -322,7 +376,33 @@ const rules: BreadcrumbRule[] = [
 		segments: [{ label: "Kontrollrammeverk" }],
 	},
 
+	// ── Mine team → Applikasjoner (kontekstuell navigasjon) ──
+	{
+		pattern: "mine-team/applikasjoner/:appId/compliance-krav",
+		segments: [MINE_TEAM, { label: appName, to: mineTeamAppPath }, { label: "Kravgjennomgang" }],
+	},
+	{
+		pattern: "mine-team/applikasjoner/:appId/compliance",
+		segments: [MINE_TEAM, { label: appName, to: mineTeamAppPath }, { label: "Compliance" }],
+	},
+	{
+		pattern: "mine-team/applikasjoner/:appId/rediger",
+		segments: [MINE_TEAM, { label: appName, to: mineTeamAppPath }, { label: "Administrer" }],
+	},
+	{
+		pattern: "mine-team/applikasjoner/:appId/detaljer",
+		segments: [MINE_TEAM, { label: appName }],
+	},
+	{
+		pattern: "mine-team",
+		segments: [{ label: "Mine team" }],
+	},
+
 	// ── Applikasjoner ──
+	{
+		pattern: "applikasjoner/:appId/compliance-krav",
+		segments: [APPLIKASJONER, { label: appName, to: appPath }, { label: "Kravgjennomgang" }],
+	},
 	{
 		pattern: "applikasjoner/:appId/compliance",
 		segments: [APPLIKASJONER, { label: appName, to: appPath }, { label: "Compliance" }],

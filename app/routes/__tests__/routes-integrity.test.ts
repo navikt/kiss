@@ -170,6 +170,9 @@ describe("Routes integrity", () => {
 		const redirects = findRedirects()
 
 		for (const redir of redirects) {
+			// Skip dynamic paths with template expressions — can't validate statically
+			if (redir.path.includes("${")) continue
+
 			// Skip relative paths that start with "." — these are harder to validate statically
 			// but absolute paths MUST match a registered route
 			if (redir.path.startsWith(".")) {

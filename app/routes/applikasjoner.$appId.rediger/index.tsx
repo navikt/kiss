@@ -42,6 +42,7 @@ import {
 	rejectApplicationElement,
 	removeApplicationElement,
 } from "~/db/queries/technology-elements.server"
+import { useAppBasePath } from "~/hooks/useAppBasePath"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
@@ -108,6 +109,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 export async function action({ params, request }: ActionFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
+
+	// Extract the URL prefix for context-aware redirects
+	const url = new URL(request.url)
+	const marker = `/applikasjoner/${appId}`
+	const idx = url.pathname.indexOf(marker)
+	const appBase = idx !== -1 ? url.pathname.slice(0, idx + marker.length) : `/applikasjoner/${appId}`
 
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
@@ -203,7 +210,7 @@ export async function action({ params, request }: ActionFunctionArgs) {
 		throw new Response("Ugyldig handling", { status: 400 })
 	}
 
-	return redirect(`/applikasjoner/${appId}/rediger`)
+	return redirect(`${appBase}/rediger`)
 }
 
 type AppElement = {
@@ -355,6 +362,7 @@ export default function ApplikasjonRediger() {
 		oraclePersistence,
 		canDelete,
 	} = useLoaderData<typeof loader>()
+	const _appBase = useAppBasePath()
 
 	return (
 		<VStack gap="space-24">
