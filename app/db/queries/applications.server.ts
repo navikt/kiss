@@ -513,27 +513,40 @@ export async function getApplicationsForSection(sectionId: string) {
 	const appIds = apps.map((a) => a.id)
 	if (appIds.length === 0) return []
 
-	const [totalControlsRow] = await db
-		.select({ count: count() })
-		.from(frameworkControls)
-		.where(isNull(frameworkControls.archivedAt))
-	const totalControls = totalControlsRow?.count ?? 0
+	// Run 4 independent queries in parallel to reduce total time and connection hold duration
+	const [totalControlsResult, childApps, allTeamMappings, complianceRows] = await Promise.all([
+		db.select({ count: count() }).from(frameworkControls).where(isNull(frameworkControls.archivedAt)),
+		db
+			.select({
+				id: monitoredApplications.id,
+				name: monitoredApplications.name,
+				primaryApplicationId: monitoredApplications.primaryApplicationId,
+			})
+			.from(monitoredApplications)
+			.where(
+				and(
+					isNotNull(monitoredApplications.primaryApplicationId),
+					inArray(monitoredApplications.primaryApplicationId, appIds),
+				),
+			)
+			.orderBy(monitoredApplications.name),
+		db
+			.select({ applicationId: applicationTeamMappings.applicationId, teamSlug: devTeams.slug })
+			.from(applicationTeamMappings)
+			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+			.where(inArray(applicationTeamMappings.applicationId, appIds)),
+		db
+			.select({
+				applicationId: complianceAssessments.applicationId,
+				status: complianceAssessments.status,
+				count: count(),
+			})
+			.from(complianceAssessments)
+			.where(inArray(complianceAssessments.applicationId, appIds))
+			.groupBy(complianceAssessments.applicationId, complianceAssessments.status),
+	])
 
-	// Batch: linked (child) apps
-	const childApps = await db
-		.select({
-			id: monitoredApplications.id,
-			name: monitoredApplications.name,
-			primaryApplicationId: monitoredApplications.primaryApplicationId,
-		})
-		.from(monitoredApplications)
-		.where(
-			and(
-				isNotNull(monitoredApplications.primaryApplicationId),
-				inArray(monitoredApplications.primaryApplicationId, appIds),
-			),
-		)
-		.orderBy(monitoredApplications.name)
+	const totalControls = totalControlsResult[0]?.count ?? 0
 
 	const childrenByParent = new Map<string, Array<{ id: string; name: string }>>()
 	for (const child of childApps) {
@@ -543,30 +556,12 @@ export async function getApplicationsForSection(sectionId: string) {
 		childrenByParent.set(child.primaryApplicationId, list)
 	}
 
-	// Batch: team mappings
-	const allTeamMappings = await db
-		.select({ applicationId: applicationTeamMappings.applicationId, teamSlug: devTeams.slug })
-		.from(applicationTeamMappings)
-		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-		.where(inArray(applicationTeamMappings.applicationId, appIds))
-
 	const teamsByApp = new Map<string, string[]>()
 	for (const row of allTeamMappings) {
 		const teams = teamsByApp.get(row.applicationId) ?? []
 		teams.push(row.teamSlug)
 		teamsByApp.set(row.applicationId, teams)
 	}
-
-	// Batch: compliance stats
-	const complianceRows = await db
-		.select({
-			applicationId: complianceAssessments.applicationId,
-			status: complianceAssessments.status,
-			count: count(),
-		})
-		.from(complianceAssessments)
-		.where(inArray(complianceAssessments.applicationId, appIds))
-		.groupBy(complianceAssessments.applicationId, complianceAssessments.status)
 
 	const complianceByApp = new Map<string, { implemented: number; partial: number }>()
 	for (const row of complianceRows) {
