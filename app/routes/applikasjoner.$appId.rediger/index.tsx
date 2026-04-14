@@ -1,4 +1,4 @@
-import { CheckmarkIcon, XMarkIcon } from "@navikt/aksel-icons"
+import { CheckmarkIcon, DownloadIcon, XMarkIcon } from "@navikt/aksel-icons"
 import {
 	BodyLong,
 	BodyShort,
@@ -709,6 +709,22 @@ export default function ApplikasjonRediger() {
 					</Table>
 				</Box>
 			)}
+
+			{/* Export */}
+			<Box>
+				<Heading size="medium" level="3" spacing>
+					Eksport
+				</Heading>
+				<Button
+					as="a"
+					href={`/api/applikasjoner/${app.id}/export-xlsx`}
+					variant="secondary"
+					size="small"
+					icon={<DownloadIcon aria-hidden />}
+				>
+					Last ned compliance-rapport (XLSX)
+				</Button>
+			</Box>
 
 			{/* Delete application */}
 			{canDelete && (

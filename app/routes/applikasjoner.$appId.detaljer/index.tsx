@@ -598,7 +598,7 @@ export default function ApplikasjonDetalj() {
 	} = useLoaderData<typeof loader>()
 
 	const [searchParams, setSearchParams] = useSearchParams()
-	const activeTab = searchParams.get("fane") ?? "oversikt"
+	const activeTab = searchParams.get("fane") ?? "kontroller"
 	const submit = useSubmit()
 
 	const [ackTarget, setAckTarget] = useState<string | null>(null)
@@ -644,9 +644,85 @@ export default function ApplikasjonDetalj() {
 				</Alert>
 			)}
 
+			{/* Compliance summary */}
+			<Box padding="space-16" borderRadius="8" background="sunken">
+				<HStack gap="space-16" wrap justify="space-between" align="center">
+					<HStack gap="space-16" wrap align="center">
+						<Tag
+							variant={compliance.percent >= 80 ? "success" : compliance.percent >= 50 ? "warning" : "error"}
+							size="medium"
+						>
+							{compliance.percent} % compliance
+						</Tag>
+						<HStack gap="space-12" wrap>
+							<VStack align="center">
+								<BodyShort size="small" weight="semibold">
+									{compliance.implemented}
+								</BodyShort>
+								<Detail textColor="subtle">Implementert</Detail>
+							</VStack>
+							<VStack align="center">
+								<BodyShort size="small" weight="semibold">
+									{compliance.partial}
+								</BodyShort>
+								<Detail textColor="subtle">Delvis</Detail>
+							</VStack>
+							<VStack align="center">
+								<BodyShort size="small" weight="semibold">
+									{compliance.notImplemented}
+								</BodyShort>
+								<Detail textColor="subtle">Ikke impl.</Detail>
+							</VStack>
+							<VStack align="center">
+								<BodyShort size="small" weight="semibold">
+									{compliance.notRelevant}
+								</BodyShort>
+								<Detail textColor="subtle">Ikke relevant</Detail>
+							</VStack>
+							<VStack align="center">
+								<BodyShort size="small" weight="semibold">
+									{compliance.notAssessed}
+								</BodyShort>
+								<Detail textColor="subtle">Ikke vurdert</Detail>
+							</VStack>
+						</HStack>
+					</HStack>
+					<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
+				</HStack>
+			</Box>
+
+			{/* Teams and tech elements */}
+			<HStack gap="space-16" wrap>
+				{teams.length > 0 && (
+					<HStack gap="space-4" wrap align="center">
+						<Detail textColor="subtle">Team:</Detail>
+						{teams.map((t) => (
+							<Tag key={t.teamId} variant="info" size="xsmall">
+								{t.teamName}
+							</Tag>
+						))}
+					</HStack>
+				)}
+				{appElements.length > 0 && (
+					<HStack gap="space-4" wrap align="center">
+						<Detail textColor="subtle">Teknologi:</Detail>
+						{appElements.map((el) => (
+							<Tag
+								key={el.id}
+								variant={
+									el.rejectedAt ? "neutral" : el.confirmedAt ? "success" : el.source === "auto" ? "warning" : "alt1"
+								}
+								size="xsmall"
+							>
+								{el.name}
+							</Tag>
+						))}
+					</HStack>
+				)}
+			</HStack>
+
 			<Tabs value={activeTab} onChange={(tab) => setSearchParams({ fane: tab }, { replace: true })}>
 				<Tabs.List>
-					<Tabs.Tab value="oversikt" label="Oversikt" />
 					<Tabs.Tab value="kontroller" label="Kontroller" />
 					<Tabs.Tab value="autentisering" label="Autentisering" />
 					<Tabs.Tab value="autoriserte-applikasjoner" label="Autoriserte applikasjoner" />
@@ -658,110 +734,6 @@ export default function ApplikasjonDetalj() {
 					{linkedApps.length > 0 && <Tabs.Tab value="lenkede-applikasjoner" label="Lenkede applikasjoner" />}
 					<Tabs.Tab value="rapporter" label="Rapporter" />
 				</Tabs.List>
-
-				{/* Oversikt */}
-				<Tabs.Panel value="oversikt" style={{ paddingTop: "var(--ax-space-6)" }}>
-					<VStack gap="space-24">
-						{/* Compliance summary */}
-						<Box>
-							<Heading size="medium" level="3" spacing>
-								Compliance
-							</Heading>
-							<HStack gap="space-6" wrap>
-								<VStack gap="space-1">
-									<Label size="small">Total</Label>
-									<Heading size="large" level="4">
-										<Tag
-											variant={compliance.percent >= 80 ? "success" : compliance.percent >= 50 ? "warning" : "error"}
-										>
-											{compliance.percent} %
-										</Tag>
-									</Heading>
-								</VStack>
-								<VStack gap="space-1">
-									<Label size="small">Implementert</Label>
-									<BodyLong>{compliance.implemented}</BodyLong>
-								</VStack>
-								<VStack gap="space-1">
-									<Label size="small">Delvis</Label>
-									<BodyLong>{compliance.partial}</BodyLong>
-								</VStack>
-								<VStack gap="space-1">
-									<Label size="small">Ikke implementert</Label>
-									<BodyLong>{compliance.notImplemented}</BodyLong>
-								</VStack>
-								<VStack gap="space-1">
-									<Label size="small">Ikke relevant</Label>
-									<BodyLong>{compliance.notRelevant}</BodyLong>
-								</VStack>
-								<VStack gap="space-1">
-									<Label size="small">Ikke vurdert</Label>
-									<BodyLong>{compliance.notAssessed}</BodyLong>
-								</VStack>
-							</HStack>
-							<HStack gap="space-8" align="center">
-								<Link to={`/applikasjoner/${app.id}/compliance`}>Gå til compliance-vurdering →</Link>
-								<Button
-									as="a"
-									href={`/api/applikasjoner/${app.id}/export-xlsx`}
-									variant="secondary"
-									size="small"
-									icon={<DownloadIcon aria-hidden />}
-								>
-									Last ned XLSX
-								</Button>
-							</HStack>
-						</Box>
-
-						{/* Teams */}
-						<Box>
-							<Heading size="medium" level="3" spacing>
-								Team
-							</Heading>
-							{teams.length > 0 ? (
-								<HStack gap="space-4" wrap>
-									{teams.map((t) => (
-										<Tag key={t.teamId} variant="info" size="small">
-											{t.teamName}
-										</Tag>
-									))}
-								</HStack>
-							) : (
-								<BodyLong>Ikke tilknyttet noe utviklerteam.</BodyLong>
-							)}
-						</Box>
-
-						{/* Technology elements */}
-						<Box>
-							<Heading size="medium" level="3" spacing>
-								Teknologielementer
-							</Heading>
-							{appElements.length > 0 ? (
-								<HStack gap="space-4" wrap>
-									{appElements.map((el) => (
-										<Tag
-											key={el.id}
-											variant={
-												el.rejectedAt
-													? "neutral"
-													: el.confirmedAt
-														? "success"
-														: el.source === "auto"
-															? "warning"
-															: "alt1"
-											}
-											size="small"
-										>
-											{el.name}
-										</Tag>
-									))}
-								</HStack>
-							) : (
-								<BodyLong>Ingen teknologielementer er tilordnet.</BodyLong>
-							)}
-						</Box>
-					</VStack>
-				</Tabs.Panel>
 
 				{/* Kontroller */}
 				<Tabs.Panel value="kontroller" style={{ paddingTop: "var(--ax-space-6)" }}>
