@@ -264,17 +264,12 @@ export default function ComplianceAssessment() {
 	const { appId, appName, screening, persistence, rulesetOptions, entraGroupsData } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
-	const isQuestionAnswered = useCallback(
-		(q: (typeof screening)[number]) => {
-			if (q.answer !== null) return true
-			if (q.answerType === "persistence") return persistence.length > 0
-			if (q.answerType === "entra_id_groups") {
-				return entraGroupsData.naisGroupIds.length > 0 || entraGroupsData.manualGroups.length > 0
-			}
-			return false
-		},
-		[persistence, entraGroupsData],
-	)
+	const isQuestionAnswered = useCallback((q: (typeof screening)[number]) => {
+		if (q.answerType === "persistence" || q.answerType === "entra_id_groups") {
+			return q.answer === "confirmed"
+		}
+		return q.answer !== null
+	}, [])
 
 	const answeredCount = screening.filter(isQuestionAnswered).length
 
@@ -362,9 +357,17 @@ export default function ComplianceAssessment() {
 												</HStack>
 											)}
 											{q.answerType === "persistence" ? (
-												<ScreeningPersistenceForm entries={persistence} />
+												<ScreeningPersistenceForm
+													entries={persistence}
+													questionId={q.id}
+													confirmed={q.answer === "confirmed"}
+												/>
 											) : q.answerType === "entra_id_groups" ? (
-												<ScreeningEntraGroupsForm entraGroupsData={entraGroupsData} />
+												<ScreeningEntraGroupsForm
+													entraGroupsData={entraGroupsData}
+													questionId={q.id}
+													confirmed={q.answer === "confirmed"}
+												/>
 											) : q.answerType === "ruleset" ? (
 												<ScreeningRulesetForm question={q} rulesets={rulesetOptions} />
 											) : (
@@ -608,8 +611,19 @@ const persistenceVariants: Record<string, "info" | "warning" | "alt1" | "alt2" |
 	other: "neutral",
 }
 
-function ScreeningPersistenceForm({ entries }: { entries: PersistenceEntry[] }) {
+function ScreeningPersistenceForm({
+	entries,
+	questionId,
+	confirmed,
+}: {
+	entries: PersistenceEntry[]
+	questionId: string
+	confirmed: boolean
+}) {
 	const fetcher = useFetcher()
+
+	const allClassified = entries.length > 0 && entries.every((p) => p.dataClassification)
+	const canConfirm = allClassified && !confirmed
 
 	return (
 		<VStack gap="space-6">
@@ -713,6 +727,32 @@ function ScreeningPersistenceForm({ entries }: { entries: PersistenceEntry[] }) 
 					</Button>
 				</HStack>
 			</fetcher.Form>
+
+			<Form method="post">
+				<input type="hidden" name="intent" value="screening" />
+				<input type="hidden" name="questionId" value={questionId} />
+				<input type="hidden" name="answer" value="confirmed" />
+				<HStack gap="space-4" align="center">
+					<Button
+						type="submit"
+						size="small"
+						variant={confirmed ? "secondary-neutral" : "primary"}
+						disabled={!canConfirm}
+					>
+						{confirmed ? "✓ Bekreftet" : "Bekreft at all persistens er registrert"}
+					</Button>
+					{!allClassified && entries.length > 0 && (
+						<BodyShort size="small" textColor="subtle">
+							Alle databaser må ha klassifisering før du kan bekrefte.
+						</BodyShort>
+					)}
+					{entries.length === 0 && (
+						<BodyShort size="small" textColor="subtle">
+							Legg til minst én database før du kan bekrefte.
+						</BodyShort>
+					)}
+				</HStack>
+			</Form>
 		</VStack>
 	)
 }
@@ -721,6 +761,8 @@ function ScreeningPersistenceForm({ entries }: { entries: PersistenceEntry[] }) 
 
 function ScreeningEntraGroupsForm({
 	entraGroupsData,
+	questionId,
+	confirmed,
 }: {
 	entraGroupsData: {
 		naisGroupIds: string[]
@@ -729,6 +771,8 @@ function ScreeningEntraGroupsForm({
 		groupNames: Record<string, string>
 		assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
 	}
+	questionId: string
+	confirmed: boolean
 }) {
 	const addFetcher = useFetcher()
 	const removeFetcher = useFetcher()
@@ -980,6 +1024,39 @@ function ScreeningEntraGroupsForm({
 					Ingen Entra ID-grupper registrert ennå.
 				</BodyShort>
 			)}
+
+			{(() => {
+				const allGroupsHaveCriticality =
+					unifiedGroups.length > 0 && unifiedGroups.every((ug) => assessmentsByGroupId[ug.groupId]?.criticality)
+				const canConfirm = allGroupsHaveCriticality && !confirmed
+				return (
+					<Form method="post">
+						<input type="hidden" name="intent" value="screening" />
+						<input type="hidden" name="questionId" value={questionId} />
+						<input type="hidden" name="answer" value="confirmed" />
+						<HStack gap="space-4" align="center">
+							<Button
+								type="submit"
+								size="small"
+								variant={confirmed ? "secondary-neutral" : "primary"}
+								disabled={!canConfirm}
+							>
+								{confirmed ? "✓ Bekreftet" : "Bekreft at alle grupper er registrert"}
+							</Button>
+							{!allGroupsHaveCriticality && unifiedGroups.length > 0 && (
+								<BodyShort size="small" textColor="subtle">
+									Alle grupper må ha kritikalitet før du kan bekrefte.
+								</BodyShort>
+							)}
+							{unifiedGroups.length === 0 && (
+								<BodyShort size="small" textColor="subtle">
+									Legg til minst én gruppe før du kan bekrefte.
+								</BodyShort>
+							)}
+						</HStack>
+					</Form>
+				)
+			})()}
 		</VStack>
 	)
 }
