@@ -1,27 +1,59 @@
-import { BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import { PlusIcon } from "@navikt/aksel-icons"
+import {
+	Alert,
+	BodyLong,
+	Box,
+	Button,
+	Detail,
+	Heading,
+	HGrid,
+	HStack,
+	Modal,
+	Search,
+	Table,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
+import { useRef, useState } from "react"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getAvailableAppsForTeam, linkAppToTeam } from "~/db/queries/applications.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
-import { getSectionBySlug, getTeamApps } from "~/db/queries/sections.server"
-import { getAuthenticatedUser } from "~/lib/auth.server"
+import { getSectionBySlug, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
+import { getUserRoles } from "~/db/queries/users.server"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const seksjon = params.seksjon
-	const team = params.team
+	const teamSlug = params.team
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
-	if (!team) throw new Response("Mangler team", { status: 400 })
+	if (!teamSlug) throw new Response("Mangler team", { status: 400 })
 
 	const user = await getAuthenticatedUser(request)
 
-	const [result, section] = await Promise.all([getTeamApps(team), getSectionBySlug(seksjon)])
+	const [result, section, teamRecord] = await Promise.all([
+		getTeamApps(teamSlug),
+		getSectionBySlug(seksjon),
+		getTeamBySlug(teamSlug),
+	])
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
 
 	const appIds = result.apps.map((a) => a.appId)
 	const deploymentStats = await getDeploymentVerificationAggregate(appIds)
+
+	const admin = user ? isAdmin(user) : false
+	let canAddApp = admin
+
+	if (!canAddApp && user && teamRecord) {
+		const roles = await getUserRoles(user.navIdent)
+		canAddApp = roles.some((r) => r.devTeamId === teamRecord.id)
+	}
+
+	const availableApps = canAddApp && teamRecord ? await getAvailableAppsForTeam(teamRecord.id) : []
 
 	const totalControls = result.apps.reduce((sum, a) => sum + a.total, 0)
 	const totalImplemented = result.apps.reduce((sum, a) => sum + a.implemented, 0)
@@ -33,16 +65,52 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return data({
 		seksjon,
 		seksjonName: section?.name ?? seksjon,
-		team,
+		team: teamSlug,
+		teamId: teamRecord?.id ?? null,
 		teamName: result.team.name,
 		apps: result.apps,
-		canAdmin: user ? isAdmin(user) : false,
+		canAdmin: admin,
+		canAddApp,
+		availableApps,
 		totalImplemented,
 		totalPartial,
 		totalMangler,
 		overallPercent,
 		deploymentStats,
 	})
+}
+
+export async function action({ request, params }: ActionFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+	const teamSlug = params.team
+	const seksjon = params.seksjon
+	if (!teamSlug || !seksjon) throw new Response("Mangler parametere", { status: 400 })
+
+	const teamRecord = await getTeamBySlug(teamSlug)
+	if (!teamRecord) throw new Response("Team ikke funnet", { status: 404 })
+
+	// Check authorization: admin or team member
+	const admin = isAdmin(authedUser)
+	if (!admin) {
+		const roles = await getUserRoles(authedUser.navIdent)
+		const isMember = roles.some((r) => r.devTeamId === teamRecord.id)
+		if (!isMember) throw new Response("Ikke tilgang", { status: 403 })
+	}
+
+	const formData = await request.formData()
+	const intent = formData.get("intent")
+
+	if (intent === "add-app") {
+		const applicationId = formData.get("applicationId")
+		if (typeof applicationId !== "string" || !applicationId) {
+			return data({ success: false, error: "Velg en applikasjon." })
+		}
+		await linkAppToTeam(applicationId, teamRecord.id, authedUser.navIdent)
+		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}`)
+	}
+
+	throw new Response("Ugyldig handling", { status: 400 })
 }
 
 export default function TeamDashboard() {
@@ -52,12 +120,21 @@ export default function TeamDashboard() {
 		teamName,
 		apps,
 		canAdmin,
+		canAddApp,
+		availableApps,
 		totalImplemented,
 		totalPartial,
 		totalMangler,
 		overallPercent,
 		deploymentStats,
 	} = useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
+
+	const addAppModalRef = useRef<HTMLDialogElement>(null)
+	const [appSearch, setAppSearch] = useState("")
+	const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
+
+	const filteredApps = availableApps.filter((a) => a.name.toLowerCase().includes(appSearch.toLowerCase()))
 
 	return (
 		<VStack gap="space-8">
@@ -120,9 +197,27 @@ export default function TeamDashboard() {
 
 			<DeploymentSummaryCards stats={deploymentStats} />
 
-			<Heading size="large" level="3">
-				Applikasjoner
-			</Heading>
+			<HStack align="center" justify="space-between" wrap>
+				<Heading size="large" level="3">
+					Applikasjoner
+				</Heading>
+				{canAddApp && availableApps.length > 0 && (
+					<Button
+						variant="tertiary"
+						size="small"
+						icon={<PlusIcon aria-hidden />}
+						onClick={() => {
+							setAppSearch("")
+							setSelectedAppId(null)
+							addAppModalRef.current?.showModal()
+						}}
+					>
+						Legg til applikasjon
+					</Button>
+				)}
+			</HStack>
+
+			{actionData && "error" in actionData && <Alert variant="error">{actionData.error}</Alert>}
 
 			{apps.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
@@ -186,6 +281,63 @@ export default function TeamDashboard() {
 			) : (
 				<BodyLong>Ingen applikasjoner er tilknyttet dette teamet.</BodyLong>
 			)}
+
+			{/* Modal: Legg til applikasjon */}
+			<Modal ref={addAppModalRef} header={{ heading: "Legg til applikasjon" }}>
+				<Modal.Body>
+					<VStack gap="space-6">
+						<Search
+							label="Søk etter applikasjon"
+							value={appSearch}
+							onChange={setAppSearch}
+							onClear={() => setAppSearch("")}
+							size="small"
+						/>
+						{filteredApps.length > 0 ? (
+							<section
+								className="table-scroll"
+								// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1
+								tabIndex={0}
+								aria-label="Tilgjengelige applikasjoner"
+								style={{ maxHeight: "20rem", overflow: "auto" }}
+							>
+								<Table size="small">
+									<Table.Body>
+										{filteredApps.map((app) => (
+											<Table.Row
+												key={app.id}
+												selected={selectedAppId === app.id}
+												onClick={() => setSelectedAppId(app.id)}
+												style={{ cursor: "pointer" }}
+											>
+												<Table.DataCell>{app.name}</Table.DataCell>
+											</Table.Row>
+										))}
+									</Table.Body>
+								</Table>
+							</section>
+						) : (
+							<BodyLong size="small">
+								{appSearch ? "Ingen applikasjoner funnet." : "Ingen tilgjengelige applikasjoner."}
+							</BodyLong>
+						)}
+					</VStack>
+				</Modal.Body>
+				<Modal.Footer>
+					<Form method="post" onSubmit={() => addAppModalRef.current?.close()}>
+						<input type="hidden" name="intent" value="add-app" />
+						<input type="hidden" name="applicationId" value={selectedAppId ?? ""} />
+						<HStack gap="space-4">
+							<Button type="submit" size="small" disabled={!selectedAppId}>
+								Legg til
+							</Button>
+							<Button type="button" variant="secondary" size="small" onClick={() => addAppModalRef.current?.close()}>
+								Avbryt
+							</Button>
+						</HStack>
+					</Form>
+				</Modal.Footer>
+			</Modal>
 		</VStack>
 	)
 }
