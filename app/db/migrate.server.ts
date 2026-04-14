@@ -61,20 +61,35 @@ async function seedTrackingForPushedDatabase() {
 		)
 	`)
 
+	// Get all existing public tables to know which migrations are already applied
+	const existingTablesResult = await db.execute<{ tablename: string }>(sql`
+		SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+	`)
+	const existingTables = new Set(existingTablesResult.rows.map((r) => r.tablename))
+
 	const journalPath = path.join(MIGRATIONS_FOLDER, "meta", "_journal.json")
 	const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as {
 		entries: { idx: number; when: number; tag: string }[]
 	}
 
+	let seeded = 0
 	for (const entry of journal.entries) {
 		const sqlContent = fs.readFileSync(path.join(MIGRATIONS_FOLDER, `${entry.tag}.sql`)).toString()
-		const hash = crypto.createHash("sha256").update(sqlContent).digest("hex")
 
+		// Only seed migrations whose CREATE TABLE targets already exist
+		const createTableMatch = sqlContent.match(/CREATE TABLE[^"]*"(\w+)"/)
+		if (createTableMatch && !existingTables.has(createTableMatch[1])) {
+			logger.info(`Skipping migration ${entry.tag} — table "${createTableMatch[1]}" does not exist yet`)
+			continue
+		}
+
+		const hash = crypto.createHash("sha256").update(sqlContent).digest("hex")
 		await db.execute(sql`
 			INSERT INTO drizzle."__drizzle_migrations" (hash, created_at)
 			VALUES (${hash}, ${entry.when})
 		`)
+		seeded++
 	}
 
-	logger.info(`Seeded ${journal.entries.length} migration(s) into tracking table`)
+	logger.info(`Seeded ${seeded} of ${journal.entries.length} migration(s) into tracking table`)
 }
