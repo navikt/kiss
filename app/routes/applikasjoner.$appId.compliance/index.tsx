@@ -1,15 +1,19 @@
-import { PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import { ExclamationmarkTriangleIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
 	BodyLong,
 	BodyShort,
+	Box,
 	Button,
+	CopyButton,
+	Detail,
 	Heading,
 	HStack,
 	Label,
 	Radio,
 	RadioGroup,
+	Search,
 	Select,
 	Table,
 	Tag,
@@ -17,7 +21,7 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
+import { type ChangeEvent, useCallback, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useFetcher, useLoaderData, useSearchParams } from "react-router"
 import { ComplianceComment, ComplianceStatusBadge } from "~/components/ComplianceStatus"
@@ -25,21 +29,31 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAppAssessments, saveAssessment, saveAssessmentComment } from "~/db/queries/applications.server"
 import { getAllRisks } from "~/db/queries/framework.server"
 import {
+	addManualGroup,
 	addManualPersistence,
 	deleteManualPersistence,
+	getApplicationDetail,
 	getAppPersistence,
+	getGroupAssessmentsForApp,
+	getManualGroupsForApp,
+	removeManualGroup,
 	updatePersistenceClassification,
+	upsertGroupCriticality,
 } from "~/db/queries/nais.server"
 import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import { getScreeningDataForApp, saveRoutineSelection, saveScreeningAnswer } from "~/db/queries/screening.server"
 import {
 	type DataClassification,
 	dataClassificationLabels,
+	type GroupCriticality,
+	groupCriticalityEnum,
+	groupCriticalityLabels,
 	persistenceTypeEnum,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isComplianceStatus, statusLabels } from "~/lib/compliance-status"
+import { resolveGroupNames } from "~/lib/graph.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 
 function slugify(text: string) {
@@ -78,6 +92,55 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	// Load persistence data if any screening question uses the persistence answerType
 	const hasPersistenceQuestion = screeningData.questions.some((q) => q.answerType === "persistence")
 	const persistence = hasPersistenceQuestion ? await getAppPersistence(appId) : []
+
+	// Load Entra ID groups data if any screening question uses the entra_id_groups answerType
+	const hasEntraGroupsQuestion = screeningData.questions.some((q) => q.answerType === "entra_id_groups")
+	let entraGroupsData: {
+		naisGroupIds: string[]
+		manualGroups: Array<{ id: string; groupId: string; groupName: string | null; createdBy: string; createdAt: string }>
+		ghostGroupIds: string[]
+		groupNames: Record<string, string>
+		assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
+	} = { naisGroupIds: [], manualGroups: [], ghostGroupIds: [], groupNames: {}, assessmentsByGroupId: {} }
+
+	if (hasEntraGroupsQuestion) {
+		const [appDetail, manualGroups, groupAssessments] = await Promise.all([
+			getApplicationDetail(appId),
+			getManualGroupsForApp(appId),
+			getGroupAssessmentsForApp(appId),
+		])
+		const naisGroupIds: string[] = []
+		if (appDetail) {
+			for (const auth of appDetail.authIntegrations) {
+				if (auth.groups) {
+					const groups = JSON.parse(auth.groups) as string[]
+					naisGroupIds.push(...groups)
+				}
+			}
+		}
+		const naisGroupIdSet = new Set(naisGroupIds)
+		const manualGroupIdSet = new Set(manualGroups.map((g) => g.groupId))
+		const ghostGroupIds = groupAssessments
+			.filter((a) => !naisGroupIdSet.has(a.groupId) && !manualGroupIdSet.has(a.groupId))
+			.map((a) => a.groupId)
+		const allGroupIds = [...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds])]
+		const groupNames = await resolveGroupNames(allGroupIds)
+		const assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }> = {}
+		for (const a of groupAssessments) {
+			assessmentsByGroupId[a.groupId] = {
+				criticality: a.criticality,
+				updatedBy: a.updatedBy,
+				updatedAt: a.updatedAt.toISOString(),
+			}
+		}
+		entraGroupsData = {
+			naisGroupIds,
+			manualGroups: manualGroups.map((g) => ({ ...g, createdAt: g.createdAt.toISOString() })),
+			ghostGroupIds,
+			groupNames,
+			assessmentsByGroupId,
+		}
+	}
 
 	// Load rulesets if any screening question uses the ruleset answerType
 	const hasRulesetQuestion = screeningData.questions.some((q) => q.answerType === "ruleset")
@@ -138,6 +201,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			manuallyAdded: p.manuallyAdded,
 		})),
 		rulesetOptions,
+		entraGroupsData,
 		filters: { ansvarlig, teknologielement, frekvens, status, domene },
 		options: { responsibleOptions, technologyOptions, frequencyOptions, domainOptions, statusOptions },
 	})
@@ -222,6 +286,32 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return data({ success: true, controlId: "screening", screening: true })
 	}
 
+	if (intent === "add-manual-group") {
+		const groupId = (formData.get("groupId") as string)?.trim()
+		const groupName = (formData.get("groupName") as string)?.trim() || null
+		if (!groupId) return data({ success: false, controlId: "screening", screening: true })
+		await addManualGroup(appId, groupId, groupName, authedUser.navIdent)
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
+	if (intent === "remove-manual-group") {
+		const manualGroupId = formData.get("manualGroupId") as string
+		if (!manualGroupId) throw new Response("Mangler gruppe-ID", { status: 400 })
+		await removeManualGroup(manualGroupId, appId, authedUser.navIdent)
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
+	if (intent === "set-group-criticality") {
+		const groupId = (formData.get("groupId") as string)?.trim()
+		const criticality = formData.get("criticality") as string
+		if (!groupId) return data({ success: false, controlId: "screening", screening: true })
+		if (!groupCriticalityEnum.includes(criticality as GroupCriticality)) {
+			return data({ success: false, controlId: "screening", screening: true })
+		}
+		await upsertGroupCriticality(appId, groupId, criticality as GroupCriticality, authedUser.navIdent)
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
 	if (intent === "saveComment") {
 		const controlUuid = formData.get("controlUuid") as string
 		const controlId = formData.get("controlId") as string
@@ -279,6 +369,7 @@ export default function ComplianceAssessment() {
 		screening,
 		persistence,
 		rulesetOptions,
+		entraGroupsData,
 		filters,
 		options,
 	} = useLoaderData<typeof loader>()
@@ -529,6 +620,8 @@ export default function ComplianceAssessment() {
 											)}
 											{q.answerType === "persistence" ? (
 												<ScreeningPersistenceForm entries={persistence} />
+											) : q.answerType === "entra_id_groups" ? (
+												<ScreeningEntraGroupsForm entraGroupsData={entraGroupsData} />
 											) : q.answerType === "ruleset" ? (
 												<ScreeningRulesetForm question={q} rulesets={rulesetOptions} />
 											) : (
@@ -1018,6 +1111,273 @@ function ScreeningPersistenceForm({ entries }: { entries: PersistenceEntry[] }) 
 					</Button>
 				</HStack>
 			</fetcher.Form>
+		</VStack>
+	)
+}
+
+// ─── Screening Entra ID Groups Form ─────────────────────────────────────
+
+function ScreeningEntraGroupsForm({
+	entraGroupsData,
+}: {
+	entraGroupsData: {
+		naisGroupIds: string[]
+		manualGroups: Array<{ id: string; groupId: string; groupName: string | null; createdBy: string; createdAt: string }>
+		ghostGroupIds: string[]
+		groupNames: Record<string, string>
+		assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
+	}
+}) {
+	const addFetcher = useFetcher()
+	const removeFetcher = useFetcher()
+	const criticalityFetcher = useFetcher()
+	const searchFetcher = useFetcher<{ results: Array<{ id: string; displayName: string }> }>()
+	const [searchQuery, setSearchQuery] = useState("")
+	const [showResults, setShowResults] = useState(false)
+	const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+	const { naisGroupIds, manualGroups, ghostGroupIds, groupNames, assessmentsByGroupId } = entraGroupsData
+
+	const searchResults = searchFetcher.data?.results ?? []
+	const isSearching = searchFetcher.state === "loading"
+
+	const handleSearch = useCallback(
+		(value: string) => {
+			setSearchQuery(value)
+			if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+			if (value.trim().length < 2) {
+				setShowResults(false)
+				return
+			}
+			searchTimeoutRef.current = setTimeout(() => {
+				searchFetcher.load(`/api/graph/groups?q=${encodeURIComponent(value.trim())}`)
+				setShowResults(true)
+			}, 300)
+		},
+		[searchFetcher],
+	)
+
+	const handleAddGroup = useCallback(
+		(groupId: string, displayName: string) => {
+			addFetcher.submit({ intent: "add-manual-group", groupId, groupName: displayName }, { method: "POST" })
+			setSearchQuery("")
+			setShowResults(false)
+		},
+		[addFetcher],
+	)
+
+	// Build unified group list
+	const naisGroupIdSet = new Set(naisGroupIds)
+	const allExistingGroupIds = new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId)])
+
+	type UnifiedGroup = {
+		groupId: string
+		source: "nais" | "manual" | "removed"
+		manualGroupDbId?: string
+		createdBy?: string
+	}
+
+	const unifiedGroups: UnifiedGroup[] = []
+	for (const gid of naisGroupIds) {
+		unifiedGroups.push({ groupId: gid, source: "nais" })
+	}
+	for (const mg of manualGroups) {
+		if (!naisGroupIdSet.has(mg.groupId)) {
+			unifiedGroups.push({ groupId: mg.groupId, source: "manual", manualGroupDbId: mg.id, createdBy: mg.createdBy })
+		}
+	}
+	for (const gid of ghostGroupIds) {
+		unifiedGroups.push({ groupId: gid, source: "removed" })
+	}
+
+	return (
+		<VStack gap="space-6">
+			{/* Search to add group */}
+			<Box
+				padding="space-4"
+				borderRadius="8"
+				borderWidth="1"
+				borderColor="neutral-subtle"
+				style={{ position: "relative" }}
+			>
+				<VStack gap="space-2">
+					<Search
+						label="Legg til gruppe (søk på navn eller Object-ID)"
+						size="small"
+						value={searchQuery}
+						onChange={handleSearch}
+						onClear={() => {
+							setSearchQuery("")
+							setShowResults(false)
+						}}
+					/>
+
+					{showResults && (
+						<Box
+							padding="space-2"
+							borderRadius="8"
+							borderWidth="1"
+							borderColor="neutral-subtle"
+							shadow="dialog"
+							style={{
+								position: "absolute",
+								top: "100%",
+								left: 0,
+								right: 0,
+								zIndex: 10,
+								marginTop: "4px",
+								backgroundColor: "var(--ax-bg-default)",
+							}}
+						>
+							{isSearching ? (
+								<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-4)" }}>
+									Søker…
+								</BodyShort>
+							) : searchResults.length > 0 ? (
+								<VStack>
+									{searchResults.map((result) => {
+										const alreadyAdded = allExistingGroupIds.has(result.id)
+										return (
+											<Button
+												key={result.id}
+												variant="tertiary-neutral"
+												size="small"
+												style={{ justifyContent: "flex-start", width: "100%", textAlign: "left" }}
+												onClick={() => handleAddGroup(result.id, result.displayName)}
+												disabled={alreadyAdded}
+											>
+												<VStack>
+													<BodyShort size="small" weight="semibold">
+														{result.displayName}
+														{alreadyAdded && " (allerede lagt til)"}
+													</BodyShort>
+													<Detail textColor="subtle">{result.id}</Detail>
+												</VStack>
+											</Button>
+										)
+									})}
+								</VStack>
+							) : (
+								<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-4)" }}>
+									Ingen grupper funnet
+								</BodyShort>
+							)}
+						</Box>
+					)}
+				</VStack>
+			</Box>
+
+			{/* Unified groups table */}
+			{unifiedGroups.length > 0 ? (
+				<Table size="small">
+					<Table.Header>
+						<Table.Row>
+							<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Kritikalitet</Table.HeaderCell>
+							<Table.HeaderCell scope="col" style={{ width: "1px" }}>
+								<span className="navds-sr-only">Handlinger</span>
+							</Table.HeaderCell>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{unifiedGroups.map((ug) => {
+							const assessment = assessmentsByGroupId[ug.groupId]
+							const displayName =
+								groupNames[ug.groupId] ?? manualGroups.find((mg) => mg.groupId === ug.groupId)?.groupName ?? null
+
+							return (
+								<Table.Row key={`${ug.source}-${ug.groupId}`}>
+									<Table.DataCell>
+										{displayName ?? (
+											<BodyShort size="small" textColor="subtle">
+												Ukjent
+											</BodyShort>
+										)}
+									</Table.DataCell>
+									<Table.DataCell>
+										<HStack gap="space-1" align="center">
+											<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{ug.groupId}</code>
+											<CopyButton copyText={ug.groupId} size="xsmall" />
+										</HStack>
+									</Table.DataCell>
+									<Table.DataCell>
+										{ug.source === "nais" && (
+											<Tag variant="info" size="xsmall">
+												Nais
+											</Tag>
+										)}
+										{ug.source === "manual" && (
+											<Tag variant="neutral" size="xsmall">
+												Manuell
+											</Tag>
+										)}
+										{ug.source === "removed" && (
+											<Tag variant="error" size="xsmall">
+												<ExclamationmarkTriangleIcon aria-hidden fontSize="1rem" /> Borte fra manifest
+											</Tag>
+										)}
+									</Table.DataCell>
+									<Table.DataCell>
+										<criticalityFetcher.Form method="post">
+											<input type="hidden" name="intent" value="set-group-criticality" />
+											<input type="hidden" name="groupId" value={ug.groupId} />
+											<Select
+												label="Kritikalitet"
+												hideLabel
+												size="small"
+												value={assessment?.criticality ?? ""}
+												onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+													criticalityFetcher.submit(
+														{
+															intent: "set-group-criticality",
+															groupId: ug.groupId,
+															criticality: e.target.value,
+														},
+														{ method: "POST" },
+													)
+												}}
+												style={{ minWidth: "120px" }}
+											>
+												<option value="" disabled>
+													Velg…
+												</option>
+												{groupCriticalityEnum.map((c) => (
+													<option key={c} value={c}>
+														{groupCriticalityLabels[c]}
+													</option>
+												))}
+											</Select>
+										</criticalityFetcher.Form>
+									</Table.DataCell>
+									<Table.DataCell>
+										{ug.source === "manual" && ug.manualGroupDbId && (
+											<removeFetcher.Form method="post">
+												<input type="hidden" name="intent" value="remove-manual-group" />
+												<input type="hidden" name="manualGroupId" value={ug.manualGroupDbId} />
+												<Button
+													type="submit"
+													variant="tertiary-neutral"
+													size="xsmall"
+													icon={<TrashIcon aria-hidden />}
+													loading={removeFetcher.state !== "idle"}
+												>
+													Fjern
+												</Button>
+											</removeFetcher.Form>
+										)}
+									</Table.DataCell>
+								</Table.Row>
+							)
+						})}
+					</Table.Body>
+				</Table>
+			) : (
+				<BodyShort size="small" textColor="subtle">
+					Ingen Entra ID-grupper registrert ennå.
+				</BodyShort>
+			)}
 		</VStack>
 	)
 }
