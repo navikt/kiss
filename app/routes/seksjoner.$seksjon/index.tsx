@@ -67,9 +67,16 @@ export default function SeksjonDashboard() {
 
 	return (
 		<VStack gap="space-8">
-			<Heading size="xlarge" level="2">
-				Seksjon: {seksjonName}
-			</Heading>
+			<HStack align="center" justify="space-between" wrap>
+				<Heading size="xlarge" level="2">
+					Seksjon: {seksjonName}
+				</Heading>
+				{canAdmin && (
+					<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">
+						Administrer
+					</Button>
+				)}
+			</HStack>
 			<HStack gap="space-4" wrap>
 				<Button as={Link} to={`/seksjoner/${seksjon}/screening`} variant="secondary" size="small">
 					Screening-spørsmål
@@ -92,11 +99,6 @@ export default function SeksjonDashboard() {
 				>
 					Eksporter alt
 				</Button>
-				{canAdmin && (
-					<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="secondary" size="small">
-						Administrer
-					</Button>
-				)}
 			</HStack>
 			<BodyLong>Compliance-status for alle team i seksjonen.</BodyLong>
 
