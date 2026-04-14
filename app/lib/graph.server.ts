@@ -153,9 +153,14 @@ export async function searchGroups(query: string): Promise<GroupSearchResult[]> 
 		}
 
 		const escaped = query.replace(/'/g, "''")
-		const url = `https://graph.microsoft.com/v1.0/groups?$filter=startswith(displayName,'${encodeURIComponent(escaped)}')&$select=id,displayName&$top=10&$orderby=displayName`
+		const filter = `startswith(displayName,'${escaped}')`
+		const url = new URL("https://graph.microsoft.com/v1.0/groups")
+		url.searchParams.set("$filter", filter)
+		url.searchParams.set("$select", "id,displayName")
+		url.searchParams.set("$top", "10")
+		url.searchParams.set("$orderby", "displayName")
 
-		const response = await fetch(url, {
+		const response = await fetch(url.toString(), {
 			headers: { Authorization: `Bearer ${token}` },
 		})
 
