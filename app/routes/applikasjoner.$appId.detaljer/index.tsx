@@ -653,6 +653,84 @@ export default function ApplikasjonDetalj() {
 	const [controlSearch, setControlSearch] = useState("")
 	const [controlGroupBy, setControlGroupBy] = useState<string>("none")
 
+	// Routines tab state
+	const [routineSort, setRoutineSort] = useState<{ orderBy: string; direction: "ascending" | "descending" }>({
+		orderBy: "status",
+		direction: "descending",
+	})
+	const [routineSearch, setRoutineSearch] = useState("")
+	const [routineStatusFilter, setRoutineStatusFilter] = useState<string[]>([])
+
+	const routineStatusLabel = (dl: (typeof routineDeadlines)[number]): string => {
+		if (dl.overdue) return "Over frist"
+		if (dl.lastReviewDate) return "OK"
+		return "Ikke gjennomført"
+	}
+	const routineStatusKey = (dl: (typeof routineDeadlines)[number]): string => {
+		if (dl.overdue) return "overdue"
+		if (dl.lastReviewDate) return "ok"
+		return "never"
+	}
+	const matchSourceLabel = (s: string): string => {
+		const labels: Record<string, string> = {
+			persistence: "Persistering",
+			screening_selection: "Valgt via spørsmål",
+			section: "Seksjon",
+			ruleset: "Regelsett",
+			screening: "Screening",
+		}
+		return labels[s] ?? s
+	}
+
+	const filteredRoutines = routineDeadlines.filter((dl) => {
+		if (routineStatusFilter.length > 0 && !routineStatusFilter.includes(routineStatusKey(dl))) return false
+		if (routineSearch) {
+			const q = routineSearch.toLowerCase()
+			if (
+				!(dl.routine?.name ?? "").toLowerCase().includes(q) &&
+				!matchSourceLabel(dl.matchSource).toLowerCase().includes(q) &&
+				!getFrequencyLabel(dl.routine?.frequency).toLowerCase().includes(q) &&
+				!(dl.routine?.technologyElements ?? []).some((te) => te.name.toLowerCase().includes(q))
+			)
+				return false
+		}
+		return true
+	})
+
+	const sortedRoutines = [...filteredRoutines].sort((a, b) => {
+		const dir = routineSort.direction === "ascending" ? 1 : -1
+		const orderBy = routineSort.orderBy
+		let aVal: string
+		let bVal: string
+		if (orderBy === "name") {
+			aVal = a.routine?.name ?? ""
+			bVal = b.routine?.name ?? ""
+		} else if (orderBy === "matchSource") {
+			aVal = matchSourceLabel(a.matchSource)
+			bVal = matchSourceLabel(b.matchSource)
+		} else if (orderBy === "technologyElement") {
+			aVal = (a.routine?.technologyElements ?? []).map((te) => te.name).join(", ")
+			bVal = (b.routine?.technologyElements ?? []).map((te) => te.name).join(", ")
+		} else if (orderBy === "frequency") {
+			aVal = getFrequencyLabel(a.routine?.frequency)
+			bVal = getFrequencyLabel(b.routine?.frequency)
+		} else if (orderBy === "lastReview") {
+			aVal = a.lastReviewDate ? String(a.lastReviewDate) : ""
+			bVal = b.lastReviewDate ? String(b.lastReviewDate) : ""
+		} else if (orderBy === "deadline") {
+			aVal = String(a.deadline)
+			bVal = String(b.deadline)
+		} else if (orderBy === "status") {
+			const order = { overdue: "0", never: "1", ok: "2" }
+			aVal = order[routineStatusKey(a) as keyof typeof order] ?? "9"
+			bVal = order[routineStatusKey(b) as keyof typeof order] ?? "9"
+		} else {
+			aVal = ""
+			bVal = ""
+		}
+		return aVal.localeCompare(bVal, "nb") * dir
+	})
+
 	const statusLabel = (s: string | null): string => {
 		if (!s) return "Ikke vurdert"
 		const labels: Record<string, string> = {
@@ -1436,117 +1514,185 @@ export default function ApplikasjonDetalj() {
 						{routineDeadlines.length === 0 ? (
 							<BodyShort>Ingen rutiner er knyttet til denne applikasjonen.</BodyShort>
 						) : (
-							<section className="table-scroll" aria-label="Rutinestatus">
-								<Table size="small">
-									<Table.Header>
-										<Table.Row>
-											<Table.HeaderCell>Rutine</Table.HeaderCell>
-											<Table.HeaderCell>Kobling</Table.HeaderCell>
-											<Table.HeaderCell>Teknologielement</Table.HeaderCell>
-											<Table.HeaderCell>Frekvens</Table.HeaderCell>
-											<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
-											<Table.HeaderCell>Frist</Table.HeaderCell>
-											<Table.HeaderCell>Status</Table.HeaderCell>
-											<Table.HeaderCell />
-										</Table.Row>
-									</Table.Header>
-									<Table.Body>
-										{routineDeadlines.map((dl) => (
-											<Table.Row key={dl.routine?.id ?? "unknown"}>
-												<Table.DataCell>
-													{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
-														<Link to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}>
-															{dl.routine?.name ?? "—"}
-														</Link>
-													) : (
-														(dl.routine?.name ?? "—")
-													)}
-												</Table.DataCell>
-												<Table.DataCell>
-													{dl.matchSource === "persistence" ? (
-														<HStack gap="space-4" wrap>
-															{(dl.matchedPersistenceLinks ?? []).map((pl) => (
-																<HStack key={`${pl.persistenceType}-${pl.dataClassification}`} gap="space-2" wrap>
-																	{pl.persistenceType && (
-																		<Tag variant="info" size="xsmall">
-																			{persistenceLabels[pl.persistenceType] ?? pl.persistenceType}
-																		</Tag>
-																	)}
-																	{pl.dataClassification && (
-																		<Tag variant="warning" size="xsmall">
-																			{dataClassificationLabels[pl.dataClassification as DataClassification] ??
-																				pl.dataClassification}
-																		</Tag>
-																	)}
+							<VStack gap="space-4">
+								<HStack gap="space-4" wrap align="end">
+									<div style={{ flex: "1 1 200px", maxWidth: "300px" }}>
+										<Search
+											label="Søk i rutiner"
+											size="small"
+											value={routineSearch}
+											onChange={setRoutineSearch}
+											onClear={() => setRoutineSearch("")}
+										/>
+									</div>
+								</HStack>
+
+								<CheckboxGroup
+									legend="Filtrer på status"
+									size="small"
+									value={routineStatusFilter}
+									onChange={setRoutineStatusFilter}
+									hideLegend
+								>
+									<HStack gap="space-4" wrap>
+										<Checkbox value="ok">OK</Checkbox>
+										<Checkbox value="overdue">Over frist</Checkbox>
+										<Checkbox value="never">Ikke gjennomført</Checkbox>
+									</HStack>
+								</CheckboxGroup>
+
+								{sortedRoutines.length === 0 ? (
+									<BodyShort>Ingen rutiner matcher søket/filteret.</BodyShort>
+								) : (
+									<section className="table-scroll" aria-label="Rutinestatus">
+										<Table
+											size="small"
+											sort={routineSort}
+											onSortChange={(sortKey) =>
+												setRoutineSort((prev) =>
+													sortKey
+														? {
+																orderBy: sortKey,
+																direction:
+																	prev.orderBy === sortKey && prev.direction === "ascending"
+																		? "descending"
+																		: "ascending",
+															}
+														: prev,
+												)
+											}
+										>
+											<Table.Header>
+												<Table.Row>
+													<Table.ColumnHeader sortKey="name" sortable>
+														Rutine
+													</Table.ColumnHeader>
+													<Table.ColumnHeader sortKey="matchSource" sortable>
+														Kobling
+													</Table.ColumnHeader>
+													<Table.ColumnHeader sortKey="technologyElement" sortable>
+														Teknologielement
+													</Table.ColumnHeader>
+													<Table.ColumnHeader sortKey="frequency" sortable>
+														Frekvens
+													</Table.ColumnHeader>
+													<Table.ColumnHeader sortKey="lastReview" sortable>
+														Siste gjennomgang
+													</Table.ColumnHeader>
+													<Table.ColumnHeader sortKey="deadline" sortable>
+														Frist
+													</Table.ColumnHeader>
+													<Table.ColumnHeader sortKey="status" sortable>
+														Status
+													</Table.ColumnHeader>
+													<Table.HeaderCell />
+												</Table.Row>
+											</Table.Header>
+											<Table.Body>
+												{sortedRoutines.map((dl) => (
+													<Table.Row key={dl.routine?.id ?? "unknown"}>
+														<Table.DataCell>
+															{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+																<Link
+																	to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}
+																>
+																	{dl.routine?.name ?? "—"}
+																</Link>
+															) : (
+																(dl.routine?.name ?? "—")
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															{dl.matchSource === "persistence" ? (
+																<HStack gap="space-4" wrap>
+																	{(dl.matchedPersistenceLinks ?? []).map((pl) => (
+																		<HStack key={`${pl.persistenceType}-${pl.dataClassification}`} gap="space-2" wrap>
+																			{pl.persistenceType && (
+																				<Tag variant="info" size="xsmall">
+																					{persistenceLabels[pl.persistenceType] ?? pl.persistenceType}
+																				</Tag>
+																			)}
+																			{pl.dataClassification && (
+																				<Tag variant="warning" size="xsmall">
+																					{dataClassificationLabels[pl.dataClassification as DataClassification] ??
+																						pl.dataClassification}
+																				</Tag>
+																			)}
+																		</HStack>
+																	))}
 																</HStack>
-															))}
-														</HStack>
-													) : dl.matchSource === "screening_selection" ? (
-														<Tag variant="alt1" size="xsmall">
-															Valgt via spørsmål
-														</Tag>
-													) : dl.matchSource === "section" ? (
-														<Tag variant="alt3" size="xsmall">
-															Gjelder alle i seksjonen
-														</Tag>
-													) : dl.matchSource === "ruleset" ? (
-														<Tag variant="alt2" size="xsmall">
-															Regelsett
-														</Tag>
-													) : (
-														<Tag variant="neutral" size="xsmall">
-															Screening
-														</Tag>
-													)}
-												</Table.DataCell>
-												<Table.DataCell>
-													{dl.routine?.technologyElements && dl.routine.technologyElements.length > 0 && (
-														<HStack gap="space-2" wrap>
-															{dl.routine.technologyElements.map((te) => (
-																<Tag key={te.id} variant="info" size="xsmall">
-																	{te.name}
+															) : dl.matchSource === "screening_selection" ? (
+																<Tag variant="alt1" size="xsmall">
+																	Valgt via spørsmål
 																</Tag>
-															))}
-														</HStack>
-													)}
-												</Table.DataCell>
-												<Table.DataCell>{getFrequencyLabel(dl.routine?.frequency)}</Table.DataCell>
-												<Table.DataCell>
-													{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
-												</Table.DataCell>
-												<Table.DataCell>{new Date(dl.deadline).toLocaleDateString("nb-NO")}</Table.DataCell>
-												<Table.DataCell>
-													{dl.overdue ? (
-														<Tag variant="error" size="small">
-															Over frist
-														</Tag>
-													) : dl.lastReviewDate ? (
-														<Tag variant="success" size="small">
-															OK
-														</Tag>
-													) : (
-														<Tag variant="warning" size="small">
-															Ikke gjennomført
-														</Tag>
-													)}
-												</Table.DataCell>
-												<Table.DataCell>
-													{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] && (
-														<form method="post" style={{ display: "inline" }}>
-															<input type="hidden" name="intent" value="create-draft" />
-															<input type="hidden" name="routineId" value={dl.routine.id} />
-															<input type="hidden" name="sectionSlug" value={sectionSlugMap[dl.routine.sectionId]} />
-															<Button type="submit" variant="tertiary" size="xsmall">
-																Ny gjennomgang
-															</Button>
-														</form>
-													)}
-												</Table.DataCell>
-											</Table.Row>
-										))}
-									</Table.Body>
-								</Table>
-							</section>
+															) : dl.matchSource === "section" ? (
+																<Tag variant="alt3" size="xsmall">
+																	Gjelder alle i seksjonen
+																</Tag>
+															) : dl.matchSource === "ruleset" ? (
+																<Tag variant="alt2" size="xsmall">
+																	Regelsett
+																</Tag>
+															) : (
+																<Tag variant="neutral" size="xsmall">
+																	Screening
+																</Tag>
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															{dl.routine?.technologyElements && dl.routine.technologyElements.length > 0 && (
+																<HStack gap="space-2" wrap>
+																	{dl.routine.technologyElements.map((te) => (
+																		<Tag key={te.id} variant="info" size="xsmall">
+																			{te.name}
+																		</Tag>
+																	))}
+																</HStack>
+															)}
+														</Table.DataCell>
+														<Table.DataCell>{getFrequencyLabel(dl.routine?.frequency)}</Table.DataCell>
+														<Table.DataCell>
+															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
+														</Table.DataCell>
+														<Table.DataCell>{new Date(dl.deadline).toLocaleDateString("nb-NO")}</Table.DataCell>
+														<Table.DataCell>
+															{dl.overdue ? (
+																<Tag variant="error" size="small">
+																	Over frist
+																</Tag>
+															) : dl.lastReviewDate ? (
+																<Tag variant="success" size="small">
+																	OK
+																</Tag>
+															) : (
+																<Tag variant="warning" size="small">
+																	Ikke gjennomført
+																</Tag>
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] && (
+																<form method="post" style={{ display: "inline" }}>
+																	<input type="hidden" name="intent" value="create-draft" />
+																	<input type="hidden" name="routineId" value={dl.routine.id} />
+																	<input
+																		type="hidden"
+																		name="sectionSlug"
+																		value={sectionSlugMap[dl.routine.sectionId]}
+																	/>
+																	<Button type="submit" variant="tertiary" size="xsmall">
+																		Ny gjennomgang
+																	</Button>
+																</form>
+															)}
+														</Table.DataCell>
+													</Table.Row>
+												))}
+											</Table.Body>
+										</Table>
+									</section>
+								)}
+							</VStack>
 						)}
 
 						{/* Gjennomførte rutinegjennomganger */}
