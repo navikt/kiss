@@ -403,6 +403,17 @@ export async function generateAppComplianceReport(params: {
 
 	const auditEvidence = await getAuditEvidenceForReport(applicationId)
 
+	// Fetch review activities (Entra ID maintenance etc.)
+	const { getActivitiesForReviews } = await import("./routines.server")
+	const reviewActivities =
+		completedReviews.length > 0 ? await getActivitiesForReviews(completedReviews.map((r) => r.id)) : []
+	const activitiesByReviewId = new Map<string, typeof reviewActivities>()
+	for (const a of reviewActivities) {
+		const list = activitiesByReviewId.get(a.reviewId) ?? []
+		list.push(a)
+		activitiesByReviewId.set(a.reviewId, list)
+	}
+
 	const now = new Date()
 	const datePrefix = now.toISOString().slice(0, 10)
 	const fileId = crypto.randomUUID()
@@ -436,27 +447,47 @@ export async function generateAppComplianceReport(params: {
 			assessedBy: a.assessedBy,
 			assessedAt: a.assessedAt,
 		})),
-		reviews: completedReviews.map((r) => ({
-			id: r.id,
-			title: r.title,
-			routineId: r.routineId,
-			routineName: r.routineName,
-			routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
-			routineFrequency: r.routineFrequency,
-			reviewedAt: r.reviewedAt.toISOString(),
-			createdBy: r.createdBy,
-			summary: r.summary,
-			participants: r.participants.map((p) => ({ userIdent: p.userIdent, userName: p.userName })),
-			attachments: r.attachments.map((a) => ({
-				fileName: a.fileName,
-				contentType: a.contentType,
-				bucketPath: a.bucketPath,
-			})),
-			links: r.links.map((l) => ({
-				url: l.url,
-				title: l.title,
-			})),
-		})),
+		reviews: completedReviews.map((r) => {
+			const acts = activitiesByReviewId.get(r.id) ?? []
+			return {
+				id: r.id,
+				title: r.title,
+				routineId: r.routineId,
+				routineName: r.routineName,
+				routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
+				routineFrequency: r.routineFrequency,
+				reviewedAt: r.reviewedAt.toISOString(),
+				createdBy: r.createdBy,
+				summary: r.summary,
+				participants: r.participants.map((p) => ({ userIdent: p.userIdent, userName: p.userName })),
+				attachments: r.attachments.map((a) => ({
+					fileName: a.fileName,
+					contentType: a.contentType,
+					bucketPath: a.bucketPath,
+				})),
+				links: r.links.map((l) => ({
+					url: l.url,
+					title: l.title,
+				})),
+				activities: acts.map((act) => ({
+					id: act.id,
+					type: act.type,
+					status: act.status,
+					snapshotBefore: act.snapshotBefore,
+					snapshotAfter: act.snapshotAfter,
+					completedAt: act.completedAt?.toISOString() ?? null,
+					changes: act.changes.map((c) => ({
+						changeType: c.changeType,
+						groupId: c.groupId,
+						groupName: c.groupName,
+						previousValue: c.previousValue,
+						newValue: c.newValue,
+						performedBy: c.performedBy,
+						performedAt: c.performedAt.toISOString(),
+					})),
+				})),
+			}
+		}),
 		auditEvidence: auditEvidence.map((e) => ({
 			instanceId: e.instanceId,
 			overallStatus: e.overallStatus,
@@ -504,6 +535,7 @@ export async function generateAppComplianceReport(params: {
 		completedReviews,
 		pdfAttachmentBuffers,
 		auditEvidence,
+		activitiesByReviewId,
 	)
 
 	// Merge PDF attachments right after their cover pages
@@ -597,6 +629,7 @@ function buildAppPdf(
 		comment: string | null
 	}>,
 	reviews: Array<{
+		id: string
 		title: string
 		summary: string | null
 		reviewedAt: Date
@@ -615,6 +648,25 @@ function buildAppPdf(
 		overallStatus: string
 		collectedAt: Date
 	}>,
+	activitiesByReviewId: Map<
+		string,
+		Array<{
+			type: string
+			status: string
+			snapshotBefore: unknown
+			snapshotAfter: unknown
+			completedAt: Date | null
+			changes: Array<{
+				changeType: string
+				groupId: string
+				groupName: string | null
+				previousValue: string | null
+				newValue: string | null
+				performedBy: string
+				performedAt: Date
+			}>
+		}>
+	>,
 ): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const doc = new PDFDocCtor({ size: "A4", margin: 50, bufferPages: true })
@@ -767,6 +819,49 @@ function buildAppPdf(
 								doc.fontSize(8).fillColor(gray).text(link.url, { width: 495 })
 							}
 							doc.moveDown(0.2)
+						}
+					}
+
+					// Entra ID maintenance activities
+					const reviewActs = activitiesByReviewId.get(r.id) ?? []
+					for (const act of reviewActs) {
+						if (act.type === "entra_id_group_maintenance" && act.changes.length > 0) {
+							doc.moveDown(0.5)
+							doc.fontSize(10).fillColor(blue).text("Vedlikeholdsaktivitet — Entra ID-grupper")
+							doc.moveDown(0.2)
+							doc
+								.fontSize(9)
+								.fillColor(gray)
+								.text(`Status: ${act.status === "completed" ? "Fullført" : "Pågår"}`)
+							if (act.completedAt) {
+								doc.text(`Fullført: ${new Date(act.completedAt).toLocaleString("nb-NO")}`)
+							}
+							doc.moveDown(0.3)
+
+							// Changes table
+							doc.fontSize(9).fillColor(dark).text("Endringer:", { underline: true })
+							doc.moveDown(0.2)
+							const changeCw = [100, 140, 120, 120]
+							drawRow(doc, 50, changeCw, ["Type", "Gruppe", "Fra", "Til"], true, blue, dark)
+							for (const c of act.changes) {
+								if (doc.y > 760) doc.addPage()
+								const changeLabel =
+									c.changeType === "added" ? "Lagt til" : c.changeType === "removed" ? "Fjernet" : "Kritikalitet endret"
+								drawRow(
+									doc,
+									50,
+									changeCw,
+									[
+										changeLabel,
+										(c.groupName ?? c.groupId).slice(0, 30),
+										(c.previousValue ?? "–").slice(0, 25),
+										(c.newValue ?? "–").slice(0, 25),
+									],
+									false,
+									blue,
+									dark,
+								)
+							}
 						}
 					}
 				}
