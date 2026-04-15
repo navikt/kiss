@@ -449,6 +449,7 @@ export async function getTeamApps(teamSlug: string) {
 				implemented: stats.implemented,
 				partial: stats.partial,
 				notImplemented: stats.notImplemented,
+				notRelevant: stats.notRelevant,
 				total: totalControls,
 				source: directIds.has(appId) ? ("direct" as const) : ("nais-team" as const),
 			}
@@ -518,6 +519,7 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 				implemented: stats.implemented,
 				partial: stats.partial,
 				notImplemented: stats.notImplemented,
+				notRelevant: stats.notRelevant,
 				total: totalControls,
 				source: appSources.get(appId) ?? ("nais-team" as const),
 				teamIds: [...(appToTeams.get(appId) ?? [])],

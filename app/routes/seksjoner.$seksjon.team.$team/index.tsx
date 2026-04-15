@@ -58,9 +58,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const totalControls = result.apps.reduce((sum, a) => sum + a.total, 0)
 	const totalImplemented = result.apps.reduce((sum, a) => sum + a.implemented, 0)
 	const totalPartial = result.apps.reduce((sum, a) => sum + a.partial, 0)
-	const totalNotImplemented = result.apps.reduce((sum, a) => sum + a.notImplemented, 0)
-	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotImplemented
-	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls)
+	const totalNotRelevant = result.apps.reduce((sum, a) => sum + a.notRelevant, 0)
+	const totalMangler =
+		totalControls -
+		totalImplemented -
+		totalPartial -
+		totalNotRelevant -
+		result.apps.reduce((sum, a) => sum + a.notImplemented, 0)
+	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
 	return data({
 		seksjon,
@@ -247,9 +252,9 @@ export default function TeamDashboard() {
 						</Table.Header>
 						<Table.Body>
 							{apps.map((app) => {
-								const answered = app.implemented + app.partial + app.notImplemented
+								const answered = app.implemented + app.partial + app.notImplemented + app.notRelevant
 								const unanswered = Math.max(0, app.total - answered)
-								const pct = compliancePercent(app.implemented, app.partial, app.total)
+								const pct = compliancePercent(app.implemented, app.partial, app.total, app.notRelevant)
 								return (
 									<Table.Row key={app.appId}>
 										<Table.DataCell>

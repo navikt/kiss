@@ -30,7 +30,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const totalPartial = st.partial
 	const totalControls = st.total
 	const totalNotRelevant = st.notRelevant
-	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotRelevant
+	const totalMangler = totalControls - totalImplemented - totalPartial - st.notImplemented - totalNotRelevant
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
 	return data({
@@ -158,7 +158,7 @@ export default function SeksjonDashboard() {
 			<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
 				{teams.map((team) => {
 					const pct = compliancePercent(team.implemented, team.partial, team.total, team.notRelevant)
-					const mangler = team.total - team.implemented - team.partial - team.notRelevant
+					const mangler = team.total - team.implemented - team.partial - team.notImplemented - team.notRelevant
 					return (
 						<Link key={team.slug} to={`/seksjoner/${seksjon}/team/${team.slug}`} className="domain-status-card-link">
 							<div className="domain-status-header">
@@ -206,7 +206,12 @@ export default function SeksjonDashboard() {
 							unassigned.total,
 							unassigned.notRelevant,
 						)
-						const mangler = unassigned.total - unassigned.implemented - unassigned.partial - unassigned.notRelevant
+						const mangler =
+							unassigned.total -
+							unassigned.implemented -
+							unassigned.partial -
+							unassigned.notImplemented -
+							unassigned.notRelevant
 						return (
 							<Link to={`/seksjoner/${seksjon}/rediger?fane=applikasjoner`} className="domain-status-card-link">
 								<div className="domain-status-header">

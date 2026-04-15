@@ -28,8 +28,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const totalImplemented = apps.reduce((sum, a) => sum + a.implemented, 0)
 	const totalPartial = apps.reduce((sum, a) => sum + a.partial, 0)
 	const totalNotImplemented = apps.reduce((sum, a) => sum + a.notImplemented, 0)
-	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotImplemented
-	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls)
+	const totalNotRelevant = apps.reduce((sum, a) => sum + a.notRelevant, 0)
+	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotImplemented - totalNotRelevant
+	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
 	return data({
 		hasTeams: true as const,
@@ -184,9 +185,9 @@ export default function MineTeamPage() {
 						</Table.Header>
 						<Table.Body>
 							{apps.map((app) => {
-								const answered = app.implemented + app.partial + app.notImplemented
+								const answered = app.implemented + app.partial + app.notImplemented + app.notRelevant
 								const unanswered = Math.max(0, app.total - answered)
-								const pct = compliancePercent(app.implemented, app.partial, app.total)
+								const pct = compliancePercent(app.implemented, app.partial, app.total, app.notRelevant)
 								const appTeams = app.teamIds
 									.map((tid) => teamById.get(tid))
 									.filter((t): t is NonNullable<typeof t> => t != null)
