@@ -472,7 +472,7 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 						<input type="hidden" name="choiceEffectId" value={rs.effectId} />
 						<HStack gap="space-4" align="end">
 							<Select
-								label={`Velg rutine for ${rs.controlTextId}`}
+								label={`Velg rutine for ${rs.controlTextId}${rs.controlName ? `: ${rs.controlName}` : ""}`}
 								name="routineId"
 								size="small"
 								defaultValue={rs.selectedRoutineId ?? ""}
@@ -549,7 +549,7 @@ function ScreeningAnswerForm({ question: q }: { question: ScreeningQuestion }) {
 					<input type="hidden" name="choiceEffectId" value={rs.effectId} />
 					<HStack gap="space-4" align="end">
 						<Select
-							label={`Velg rutine for ${rs.controlTextId}`}
+							label={`Velg rutine for ${rs.controlTextId}${rs.controlName ? `: ${rs.controlName}` : ""}`}
 							name="routineId"
 							size="small"
 							defaultValue={rs.selectedRoutineId ?? ""}

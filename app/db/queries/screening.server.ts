@@ -542,6 +542,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 			choiceId: screeningChoiceEffects.choiceId,
 			controlId: screeningChoiceEffects.controlId,
 			controlTextId: frameworkControls.controlId,
+			controlName: frameworkControls.shortTitle,
 			effect: screeningChoiceEffects.effect,
 		})
 		.from(screeningChoiceEffects)
@@ -625,6 +626,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 					.map((e) => ({
 						effectId: e.id,
 						controlTextId: e.controlTextId,
+						controlName: e.controlName,
 						routines: routineOptionsByControl.get(e.controlId) ?? [],
 						selectedRoutineId: existingSelections.get(e.id) ?? null,
 					}))
