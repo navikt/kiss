@@ -84,8 +84,6 @@ describe("screening-derived control IDs", () => {
 		const domainId = await rawInsert("framework_domains", {
 			code: "TS",
 			name: "Teknisk sikkerhet",
-			created_by: "test",
-			updated_by: "test",
 		})
 
 		// Create 3 controls
@@ -93,22 +91,16 @@ describe("screening-derived control IDs", () => {
 			control_id: "K-TS.01",
 			short_title: "Control A",
 			requirement: "Req A",
-			created_by: "test",
-			updated_by: "test",
 		})
 		controlB = await rawInsert("framework_controls", {
 			control_id: "K-TS.02",
 			short_title: "Control B",
 			requirement: "Req B",
-			created_by: "test",
-			updated_by: "test",
 		})
 		controlC = await rawInsert("framework_controls", {
 			control_id: "K-TS.03",
 			short_title: "Control C",
 			requirement: "Req C",
-			created_by: "test",
-			updated_by: "test",
 		})
 
 		// Create risks linked to controls (for domain derivation)
@@ -116,11 +108,9 @@ describe("screening-derived control IDs", () => {
 			risk_id: "R-TS.01",
 			description: "Test risk",
 			domain_id: domainId,
-			created_by: "test",
-			updated_by: "test",
 		})
 		await rawExec(
-			`INSERT INTO framework_risk_control_mappings (risk_id, control_id, created_by, updated_by) VALUES ('${riskId}', '${controlA}', 'test', 'test'), ('${riskId}', '${controlB}', 'test', 'test'), ('${riskId}', '${controlC}', 'test', 'test')`,
+			`INSERT INTO framework_risk_control_mappings (risk_id, control_id) VALUES ('${riskId}', '${controlA}'), ('${riskId}', '${controlB}'), ('${riskId}', '${controlC}')`,
 		)
 	})
 
