@@ -38,6 +38,7 @@ import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addReviewLink,
+	autoCreateActivityForReview,
 	completeReview,
 	deleteReviewLink,
 	getReview,
@@ -92,8 +93,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		appAuthIntegrations = appDetail?.authIntegrations ?? []
 	}
 
-	// Load activity data
-	const activity = await getReviewActivity(gjennomgangId)
+	// Load activity data — auto-create if routine has activityType but review lacks activity
+	// (handles reviews created before the activity system was deployed)
+	let activity = await getReviewActivity(gjennomgangId)
+	if (!activity && routine.activityType) {
+		await autoCreateActivityForReview(gjennomgangId, rutineId, review.applicationId, "system")
+		activity = await getReviewActivity(gjennomgangId)
+	}
 	let entraGroupsData: {
 		naisGroupIds: string[]
 		manualGroups: Array<{ id: string; groupId: string; groupName: string | null; createdBy: string; createdAt: string }>
