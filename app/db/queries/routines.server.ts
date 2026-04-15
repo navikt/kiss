@@ -563,6 +563,16 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	if (!existing) return null
 	if (existing.status === "completed") return existing
 
+	// Complete any pending activity (captures snapshot-after)
+	const activity = await getReviewActivity(reviewId)
+	if (activity && activity.status === "pending") {
+		let snapshotAfter: EntraGroupSnapshot | null = null
+		if (activity.type === "entra_id_group_maintenance" && existing.applicationId) {
+			snapshotAfter = await buildEntraGroupSnapshot(existing.applicationId)
+		}
+		await completeReviewActivity(activity.id, snapshotAfter, performedBy)
+	}
+
 	await db.update(routineReviews).set({ status: "completed" }).where(eq(routineReviews.id, reviewId))
 
 	await writeAuditLog({
@@ -1479,6 +1489,76 @@ export type EntraGroupSnapshot = {
 		source: "nais" | "manual" | "removed"
 		criticality: string | null
 	}>
+}
+
+export async function buildEntraGroupSnapshot(applicationId: string): Promise<EntraGroupSnapshot> {
+	const { getAppAuthIntegrations, getManualGroupsForApp, getGroupAssessmentsForApp } = await import("./nais.server")
+	const { resolveGroupNames } = await import("../../lib/graph.server")
+
+	const [authIntegrations, manualGroups, groupAssessments] = await Promise.all([
+		getAppAuthIntegrations(applicationId),
+		getManualGroupsForApp(applicationId),
+		getGroupAssessmentsForApp(applicationId),
+	])
+
+	const naisGroupIds: string[] = []
+	for (const auth of authIntegrations) {
+		if (auth.groups) {
+			const groups = JSON.parse(auth.groups) as string[]
+			naisGroupIds.push(...groups)
+		}
+	}
+
+	const naisGroupIdSet = new Set(naisGroupIds)
+	const manualGroupIdSet = new Set(manualGroups.map((g) => g.groupId))
+	const ghostGroupIds = groupAssessments
+		.filter((a) => !naisGroupIdSet.has(a.groupId) && !manualGroupIdSet.has(a.groupId))
+		.map((a) => a.groupId)
+
+	const allGroupIds = [...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds])]
+	const groupNames = await resolveGroupNames(allGroupIds)
+
+	const assessmentsByGroupId = new Map(groupAssessments.map((a) => [a.groupId, a.criticality]))
+
+	const groups: EntraGroupSnapshot["groups"] = [
+		...naisGroupIds.map((id) => ({
+			groupId: id,
+			groupName: groupNames[id] ?? null,
+			source: "nais" as const,
+			criticality: assessmentsByGroupId.get(id) ?? null,
+		})),
+		...manualGroups.map((g) => ({
+			groupId: g.groupId,
+			groupName: groupNames[g.groupId] ?? null,
+			source: "manual" as const,
+			criticality: assessmentsByGroupId.get(g.groupId) ?? null,
+		})),
+		...ghostGroupIds.map((id) => ({
+			groupId: id,
+			groupName: groupNames[id] ?? null,
+			source: "removed" as const,
+			criticality: assessmentsByGroupId.get(id) ?? null,
+		})),
+	]
+
+	return { groups }
+}
+
+export async function autoCreateActivityForReview(
+	reviewId: string,
+	routineId: string,
+	applicationId: string | null,
+	performedBy: string,
+) {
+	const routine = await getRoutine(routineId)
+	if (!routine?.activityType) return null
+
+	let snapshotBefore: EntraGroupSnapshot | null = null
+	if (routine.activityType === "entra_id_group_maintenance" && applicationId) {
+		snapshotBefore = await buildEntraGroupSnapshot(applicationId)
+	}
+
+	return createReviewActivity(reviewId, routine.activityType, snapshotBefore, performedBy)
 }
 
 export async function createReviewActivity(

@@ -3,7 +3,12 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { createReview, getAppsRequiringRoutine, getRoutine } from "~/db/queries/routines.server"
+import {
+	autoCreateActivityForReview,
+	createReview,
+	getAppsRequiringRoutine,
+	getRoutine,
+} from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 
@@ -65,6 +70,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		createdBy: authedUser.navIdent,
 		participants,
 	})
+
+	await autoCreateActivityForReview(review.id, rutineId, applicationId, authedUser.navIdent)
 
 	return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}/gjennomgang/${review.id}`)
 }
