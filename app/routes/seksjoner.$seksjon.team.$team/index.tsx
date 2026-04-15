@@ -11,7 +11,6 @@ import {
 	Modal,
 	Search,
 	Table,
-	Tag,
 	VStack,
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
@@ -231,7 +230,6 @@ export default function TeamDashboard() {
 						<Table.Header>
 							<Table.Row>
 								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
 								<Table.HeaderCell scope="col" align="right">
 									Implementert
 								</Table.HeaderCell>
@@ -261,11 +259,6 @@ export default function TeamDashboard() {
 											<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer`}>
 												{app.appName}
 											</Link>
-										</Table.DataCell>
-										<Table.DataCell>
-											<Tag variant={app.source === "direct" ? "neutral" : "info"} size="xsmall">
-												{app.source === "direct" ? "Direkte" : "Nais-team"}
-											</Tag>
 										</Table.DataCell>
 										<Table.DataCell align="right">{app.implemented}</Table.DataCell>
 										<Table.DataCell align="right">{app.partial}</Table.DataCell>

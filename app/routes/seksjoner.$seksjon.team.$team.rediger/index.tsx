@@ -252,12 +252,48 @@ export default function RedigerTeam() {
 			{/* App management */}
 			<VStack gap="space-4">
 				<Heading size="medium" level="3">
-					Applikasjoner ({apps.length})
+					Applikasjoner fra Nais-team ({apps.filter((a) => a.source === "nais-team").length})
 				</Heading>
+				<BodyLong size="small">Disse applikasjonene kommer automatisk via koblede Nais-team.</BodyLong>
 
-				{apps.length > 0 && (
+				{apps.filter((a) => a.source === "nais-team").length > 0 ? (
 					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
-					<section className="table-scroll" tabIndex={0} aria-label="Tilknyttede applikasjoner">
+					<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner fra Nais-team">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{apps
+									.filter((a) => a.source === "nais-team")
+									.map((app) => (
+										<Table.Row key={app.appId}>
+											<Table.DataCell>
+												<AkselLink as={Link} to={`/applikasjoner/${app.appId}/detaljer`}>
+													{app.appName}
+												</AkselLink>
+											</Table.DataCell>
+										</Table.Row>
+									))}
+							</Table.Body>
+						</Table>
+					</section>
+				) : (
+					<BodyLong size="small">Ingen applikasjoner fra Nais-team.</BodyLong>
+				)}
+			</VStack>
+
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Direkte tilknyttede applikasjoner ({apps.filter((a) => a.source === "direct").length})
+				</Heading>
+				<BodyLong size="small">Disse applikasjonene er manuelt lagt til teamet.</BodyLong>
+
+				{apps.filter((a) => a.source === "direct").length > 0 && (
+					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+					<section className="table-scroll" tabIndex={0} aria-label="Direkte tilknyttede applikasjoner">
 						<Table size="small">
 							<Table.Header>
 								<Table.Row>
@@ -266,25 +302,27 @@ export default function RedigerTeam() {
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
-								{apps.map((app) => (
-									<Table.Row key={app.appId}>
-										<Table.DataCell>
-											<AkselLink as={Link} to={`/applikasjoner/${app.appId}/detaljer`}>
-												{app.appName}
-											</AkselLink>
-										</Table.DataCell>
-										<Table.DataCell align="right">
-											<Form method="post">
-												<input type="hidden" name="intent" value="unlink-app" />
-												<input type="hidden" name="applicationId" value={app.appId} />
-												<input type="hidden" name="teamId" value={teamId} />
-												<Button type="submit" variant="tertiary-neutral" size="xsmall">
-													Fjern
-												</Button>
-											</Form>
-										</Table.DataCell>
-									</Table.Row>
-								))}
+								{apps
+									.filter((a) => a.source === "direct")
+									.map((app) => (
+										<Table.Row key={app.appId}>
+											<Table.DataCell>
+												<AkselLink as={Link} to={`/applikasjoner/${app.appId}/detaljer`}>
+													{app.appName}
+												</AkselLink>
+											</Table.DataCell>
+											<Table.DataCell align="right">
+												<Form method="post">
+													<input type="hidden" name="intent" value="unlink-app" />
+													<input type="hidden" name="applicationId" value={app.appId} />
+													<input type="hidden" name="teamId" value={teamId} />
+													<Button type="submit" variant="tertiary-neutral" size="xsmall">
+														Fjern
+													</Button>
+												</Form>
+											</Table.DataCell>
+										</Table.Row>
+									))}
 							</Table.Body>
 						</Table>
 					</section>
