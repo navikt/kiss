@@ -93,6 +93,14 @@ import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import type { ComplianceStatus } from "~/lib/compliance-status"
+import {
+	complianceLabels,
+	complianceVariants,
+	establishmentLabels,
+	establishmentVariants,
+	type RoutineCompliance,
+	type RoutineEstablishment,
+} from "~/lib/compliance-status"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
 import { getOracleInstances } from "~/lib/oracle-revisjon.server"
@@ -244,6 +252,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			autoStatus: auto?.autoStatus ?? null,
 			autoReason: auto?.reason ?? null,
 			effectiveStatus: auto?.autoStatus ?? null,
+			establishment: auto?.establishment ?? "not_established",
+			routineCompliance: auto?.compliance ?? "not_applicable",
+			routinesEstablished: auto?.routinesEstablished ?? 0,
+			routinesCompleted: auto?.routinesCompleted ?? 0,
+			routinesOverdue: auto?.routinesOverdue ?? 0,
 		}
 	})
 	const totalControls = assessments.length
@@ -252,6 +265,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const notImplemented = assessments.filter((a) => a.effectiveStatus === "not_implemented").length
 	const notRelevant = assessments.filter((a) => a.effectiveStatus === "not_relevant").length
 	const notAssessed = assessments.filter((a) => !a.effectiveStatus).length
+
+	// Two-dimensional summary
+	const withRoutine = assessments.filter((a) => a.establishment === "established").length
+	const withoutRoutine = assessments.filter((a) => a.establishment === "not_established").length
+	const routineNotRelevant = assessments.filter((a) => a.establishment === "not_relevant").length
+	const routineCompleted = assessments.filter((a) => a.routineCompliance === "completed").length
+	const routineOverdue = assessments.filter((a) => a.routineCompliance === "overdue").length
+	const routineNeverReviewed = assessments.filter((a) => a.routineCompliance === "never_reviewed").length
 
 	// Collect all referenced app names from auth inbound rules and access policy rules
 	const referencedAppNames = new Set<string>()
@@ -389,6 +410,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			notAssessed,
 			percent: compliancePercent(implemented, partial, totalControls),
 			hasScreeningAnswers: assessmentsResult?.hasScreeningAnswers ?? false,
+			withRoutine,
+			withoutRoutine,
+			routineNotRelevant,
+			routineCompleted,
+			routineOverdue,
+			routineNeverReviewed,
 		},
 		assessments,
 		appReports: appReports.map((r) => ({
@@ -675,6 +702,12 @@ export default function ApplikasjonDetalj() {
 		} else if (orderBy === "status") {
 			aVal = statusLabel(a.effectiveStatus)
 			bVal = statusLabel(b.effectiveStatus)
+		} else if (orderBy === "establishment") {
+			aVal = a.establishment
+			bVal = b.establishment
+		} else if (orderBy === "routineCompliance") {
+			aVal = a.routineCompliance
+			bVal = b.routineCompliance
 		} else {
 			return 0
 		}
@@ -691,6 +724,10 @@ export default function ApplikasjonDetalj() {
 			else if (controlGroupBy === "controlName") key = a.controlName
 			else if (controlGroupBy === "technologyElementName") key = a.technologyElementName || "Ingen"
 			else if (controlGroupBy === "status") key = statusLabel(a.effectiveStatus)
+			else if (controlGroupBy === "establishment")
+				key = establishmentLabels[a.establishment as RoutineEstablishment] ?? a.establishment
+			else if (controlGroupBy === "routineCompliance")
+				key = complianceLabels[a.routineCompliance as RoutineCompliance] ?? a.routineCompliance
 			else key = ""
 			const list = groups.get(key) ?? []
 			list.push(a)
@@ -745,49 +782,95 @@ export default function ApplikasjonDetalj() {
 
 			{/* Compliance summary */}
 			<Box padding="space-16" borderRadius="8" background="sunken">
-				<HStack gap="space-16" wrap justify="space-between" align="center">
-					<HStack gap="space-16" wrap align="center">
-						<Tag
-							variant={compliance.percent >= 80 ? "success" : compliance.percent >= 50 ? "warning" : "error"}
-							size="medium"
-						>
-							{compliance.percent} % compliance
-						</Tag>
-						<HStack gap="space-12" wrap>
-							<VStack align="center">
-								<BodyShort size="small" weight="semibold">
-									{compliance.implemented}
-								</BodyShort>
-								<Detail textColor="subtle">Implementert</Detail>
-							</VStack>
-							<VStack align="center">
-								<BodyShort size="small" weight="semibold">
-									{compliance.partial}
-								</BodyShort>
-								<Detail textColor="subtle">Delvis</Detail>
-							</VStack>
-							<VStack align="center">
-								<BodyShort size="small" weight="semibold">
-									{compliance.notImplemented}
-								</BodyShort>
-								<Detail textColor="subtle">Ikke impl.</Detail>
-							</VStack>
-							<VStack align="center">
-								<BodyShort size="small" weight="semibold">
-									{compliance.notRelevant}
-								</BodyShort>
-								<Detail textColor="subtle">Ikke relevant</Detail>
-							</VStack>
-							<VStack align="center">
-								<BodyShort size="small" weight="semibold">
-									{compliance.notAssessed}
-								</BodyShort>
-								<Detail textColor="subtle">Ikke vurdert</Detail>
-							</VStack>
+				<VStack gap="space-12">
+					<HStack gap="space-16" wrap justify="space-between" align="center">
+						<HStack gap="space-16" wrap align="center">
+							<Tag
+								variant={compliance.percent >= 80 ? "success" : compliance.percent >= 50 ? "warning" : "error"}
+								size="medium"
+							>
+								{compliance.percent} % compliance
+							</Tag>
+							<HStack gap="space-12" wrap>
+								<VStack align="center">
+									<BodyShort size="small" weight="semibold">
+										{compliance.implemented}
+									</BodyShort>
+									<Detail textColor="subtle">Implementert</Detail>
+								</VStack>
+								<VStack align="center">
+									<BodyShort size="small" weight="semibold">
+										{compliance.partial}
+									</BodyShort>
+									<Detail textColor="subtle">Delvis</Detail>
+								</VStack>
+								<VStack align="center">
+									<BodyShort size="small" weight="semibold">
+										{compliance.notImplemented}
+									</BodyShort>
+									<Detail textColor="subtle">Ikke impl.</Detail>
+								</VStack>
+								<VStack align="center">
+									<BodyShort size="small" weight="semibold">
+										{compliance.notRelevant}
+									</BodyShort>
+									<Detail textColor="subtle">Ikke relevant</Detail>
+								</VStack>
+								<VStack align="center">
+									<BodyShort size="small" weight="semibold">
+										{compliance.notAssessed}
+									</BodyShort>
+									<Detail textColor="subtle">Ikke vurdert</Detail>
+								</VStack>
+							</HStack>
 						</HStack>
+						<Link to={`${appBase}/compliance`}>Gå til compliance-vurdering</Link>
 					</HStack>
-					<Link to={`${appBase}/compliance`}>Gå til compliance-vurdering</Link>
-				</HStack>
+
+					{/* Two-dimensional breakdown */}
+					<HStack gap="space-24" wrap>
+						<VStack gap="space-4">
+							<Detail weight="semibold" textColor="subtle">
+								Rutineetablering
+							</Detail>
+							<HStack gap="space-8" wrap>
+								<Tag variant="success" size="xsmall">
+									{compliance.withRoutine} etablert
+								</Tag>
+								<Tag variant="error" size="xsmall">
+									{compliance.withoutRoutine} mangler
+								</Tag>
+								{compliance.routineNotRelevant > 0 && (
+									<Tag variant="neutral" size="xsmall">
+										{compliance.routineNotRelevant} ikke relevant
+									</Tag>
+								)}
+							</HStack>
+						</VStack>
+						{compliance.withRoutine > 0 && (
+							<VStack gap="space-4">
+								<Detail weight="semibold" textColor="subtle">
+									Rutineetterlevelse
+								</Detail>
+								<HStack gap="space-8" wrap>
+									<Tag variant="success" size="xsmall">
+										{compliance.routineCompleted} gjennomført
+									</Tag>
+									{compliance.routineOverdue > 0 && (
+										<Tag variant="warning" size="xsmall">
+											{compliance.routineOverdue} forfalt
+										</Tag>
+									)}
+									{compliance.routineNeverReviewed > 0 && (
+										<Tag variant="error" size="xsmall">
+											{compliance.routineNeverReviewed} ikke gjennomført
+										</Tag>
+									)}
+								</HStack>
+							</VStack>
+						)}
+					</HStack>
+				</VStack>
 			</Box>
 
 			{/* Teams and tech elements */}
@@ -860,6 +943,8 @@ export default function ApplikasjonDetalj() {
 									<option value="controlName">Navn</option>
 									<option value="technologyElementName">Teknologielement</option>
 									<option value="status">Status</option>
+									<option value="establishment">Rutineetablering</option>
+									<option value="routineCompliance">Etterlevelse</option>
 								</Select>
 							</div>
 						</HStack>
@@ -918,6 +1003,12 @@ export default function ApplikasjonDetalj() {
 												<Table.ColumnHeader scope="col" sortKey="status" sortable>
 													Status
 												</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col" sortKey="establishment" sortable>
+													Rutine
+												</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col" sortKey="routineCompliance" sortable>
+													Etterlevelse
+												</Table.ColumnHeader>
 											</Table.Row>
 										</Table.Header>
 										<Table.Body>
@@ -948,6 +1039,24 @@ export default function ApplikasjonDetalj() {
 																Ikke vurdert
 															</Tag>
 														)}
+													</Table.DataCell>
+													<Table.DataCell>
+														<Tag
+															variant={establishmentVariants[a.establishment as RoutineEstablishment] ?? "neutral"}
+															size="xsmall"
+														>
+															{establishmentLabels[a.establishment as RoutineEstablishment] ?? a.establishment}
+														</Tag>
+													</Table.DataCell>
+													<Table.DataCell>
+														{a.routineCompliance !== "not_applicable" ? (
+															<Tag
+																variant={complianceVariants[a.routineCompliance as RoutineCompliance] ?? "neutral"}
+																size="xsmall"
+															>
+																{complianceLabels[a.routineCompliance as RoutineCompliance] ?? a.routineCompliance}
+															</Tag>
+														) : null}
 													</Table.DataCell>
 												</Table.Row>
 											))}

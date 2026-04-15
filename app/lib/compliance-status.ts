@@ -42,3 +42,37 @@ export function getStatusLabel(status: string | null | undefined, fallback = "Ik
 	if (status && isComplianceStatus(status)) return statusLabels[status]
 	return fallback
 }
+
+// ─── Two-dimensional compliance model ────────────────────────────────────
+
+/** Akse 1: Har kontrollen en tilknyttet rutine? */
+export type RoutineEstablishment = "established" | "not_established" | "not_relevant"
+
+export const establishmentLabels: Record<RoutineEstablishment, string> = {
+	established: "Rutine etablert",
+	not_established: "Mangler rutine",
+	not_relevant: "Ikke relevant",
+}
+
+export const establishmentVariants: Record<RoutineEstablishment, "success" | "error" | "neutral"> = {
+	established: "success",
+	not_established: "error",
+	not_relevant: "neutral",
+}
+
+/** Akse 2: Er rutinen gjennomført i henhold til frist? */
+export type RoutineCompliance = "completed" | "overdue" | "never_reviewed" | "not_applicable"
+
+export const complianceLabels: Record<RoutineCompliance, string> = {
+	completed: "Gjennomført",
+	overdue: "Forfalt",
+	never_reviewed: "Ikke gjennomført",
+	not_applicable: "Ikke aktuelt",
+}
+
+export const complianceVariants: Record<RoutineCompliance, "success" | "warning" | "error" | "neutral"> = {
+	completed: "success",
+	overdue: "warning",
+	never_reviewed: "error",
+	not_applicable: "neutral",
+}

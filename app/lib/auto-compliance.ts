@@ -3,9 +3,13 @@
  *
  * Derives a suggested compliance status per (control, technologyElement) for an application
  * based on routine matching and screening effects. This is computed on-the-fly and never
- * persisted — the manually/screening-set status in complianceAssessments remains authoritative.
+ * persisted.
+ *
+ * Two-dimensional model:
+ * - Akse 1 (establishment): Has the control got a matching routine?
+ * - Akse 2 (compliance): Has the routine been executed on time?
  */
-import type { ComplianceStatus } from "./compliance-status"
+import type { ComplianceStatus, RoutineCompliance, RoutineEstablishment } from "./compliance-status"
 
 export interface AutoComplianceResult {
 	/** The automatically derived compliance status, or null if undeterminable */
@@ -18,6 +22,18 @@ export interface AutoComplianceResult {
 	matchingRoutineIds: string[]
 	/** Whether at least one matching routine is overdue */
 	hasOverdueRoutine: boolean
+
+	// ─── Two-dimensional model ───────────────────────────────────
+	/** Akse 1: Er en rutine etablert for denne kontrollen? */
+	establishment: RoutineEstablishment
+	/** Akse 2: Er rutinen gjennomført i henhold til frist? */
+	compliance: RoutineCompliance
+	/** Antall rutiner som er koblet til kontrollen */
+	routinesEstablished: number
+	/** Antall rutiner gjennomført innen frist */
+	routinesCompleted: number
+	/** Antall rutiner som er forfalt */
+	routinesOverdue: number
 }
 
 interface RoutineMatch {
@@ -107,6 +123,13 @@ function computeStatusForAssessment(
 	const hasRoutines = controlRoutines.length > 0
 	const hasScreening = screening?.hasQuestions ?? false
 
+	// Two-dimensional counts
+	const routinesEstablished = new Set(controlRoutines.map((r) => r.routineId)).size
+	const routinesCompleted = new Set(
+		controlRoutines.filter((r) => r.lastReviewDate !== null && !r.overdue).map((r) => r.routineId),
+	).size
+	const routinesOverdue = new Set(controlRoutines.filter((r) => r.overdue).map((r) => r.routineId)).size
+
 	// Case 1: No data at all — cannot determine
 	if (!hasRoutines && !hasScreening) {
 		return {
@@ -115,6 +138,11 @@ function computeStatusForAssessment(
 			sources: [],
 			matchingRoutineIds: [],
 			hasOverdueRoutine: false,
+			establishment: "not_established",
+			compliance: "not_applicable",
+			routinesEstablished: 0,
+			routinesCompleted: 0,
+			routinesOverdue: 0,
 		}
 	}
 
@@ -127,19 +155,28 @@ function computeStatusForAssessment(
 				sources: [],
 				matchingRoutineIds: [],
 				hasOverdueRoutine: false,
+				establishment: "not_established",
+				compliance: "not_applicable",
+				routinesEstablished: 0,
+				routinesCompleted: 0,
+				routinesOverdue: 0,
 			}
 		}
 
 		// All screening questions answered — check what the effects say
 		const effects = screening?.effects
 		if (effects.length === 0) {
-			// Questions answered but no effects triggered (e.g. choice had no effects)
 			return {
 				autoStatus: null,
 				reason: "Screeningsvar ga ingen effekter for denne kontrollen",
 				sources: [],
 				matchingRoutineIds: [],
 				hasOverdueRoutine: false,
+				establishment: "not_established",
+				compliance: "not_applicable",
+				routinesEstablished: 0,
+				routinesCompleted: 0,
+				routinesOverdue: 0,
 			}
 		}
 
@@ -151,6 +188,11 @@ function computeStatusForAssessment(
 				sources: [],
 				matchingRoutineIds: [],
 				hasOverdueRoutine: false,
+				establishment: "not_relevant",
+				compliance: "not_applicable",
+				routinesEstablished: 0,
+				routinesCompleted: 0,
+				routinesOverdue: 0,
 			}
 		}
 
@@ -162,6 +204,11 @@ function computeStatusForAssessment(
 				sources: [],
 				matchingRoutineIds: [],
 				hasOverdueRoutine: false,
+				establishment: "not_established",
+				compliance: "not_applicable",
+				routinesEstablished: 0,
+				routinesCompleted: 0,
+				routinesOverdue: 0,
 			}
 		}
 
@@ -176,6 +223,11 @@ function computeStatusForAssessment(
 				sources: [],
 				matchingRoutineIds: [],
 				hasOverdueRoutine: false,
+				establishment: "not_established",
+				compliance: "not_applicable",
+				routinesEstablished: 0,
+				routinesCompleted: 0,
+				routinesOverdue: 0,
 			}
 		}
 
@@ -185,6 +237,11 @@ function computeStatusForAssessment(
 			sources: [],
 			matchingRoutineIds: [],
 			hasOverdueRoutine: false,
+			establishment: "not_established",
+			compliance: "not_applicable",
+			routinesEstablished: 0,
+			routinesCompleted: 0,
+			routinesOverdue: 0,
 		}
 	}
 
@@ -194,6 +251,14 @@ function computeStatusForAssessment(
 	const hasOverdueRoutine = controlRoutines.some((r) => r.overdue)
 	const allOverdue = controlRoutines.every((r) => r.overdue)
 	const anyNeverReviewed = controlRoutines.some((r) => r.lastReviewDate === null)
+
+	// Base two-dimensional fields for established routines
+	const baseDimensions = {
+		establishment: "established" as RoutineEstablishment,
+		routinesEstablished,
+		routinesCompleted,
+		routinesOverdue,
+	}
 
 	// Check if screening contradicts
 	if (hasScreening && screening) {
@@ -210,6 +275,8 @@ function computeStatusForAssessment(
 				sources,
 				matchingRoutineIds,
 				hasOverdueRoutine,
+				...baseDimensions,
+				compliance: "never_reviewed",
 			}
 		}
 	}
@@ -217,22 +284,24 @@ function computeStatusForAssessment(
 	// All routines have never been reviewed
 	if (anyNeverReviewed && controlRoutines.every((r) => r.lastReviewDate === null)) {
 		if (allOverdue) {
-			// Never reviewed AND deadline passed → not implemented
 			return {
 				autoStatus: "not_implemented",
 				reason: "Rutiner treffer men er aldri gjennomgått og forfalt",
 				sources,
 				matchingRoutineIds,
 				hasOverdueRoutine: true,
+				...baseDimensions,
+				compliance: "never_reviewed",
 			}
 		}
-		// Never reviewed but deadline not yet passed → partially implemented (routine exists, not executed yet)
 		return {
 			autoStatus: "partially_implemented",
 			reason: "Rutiner treffer men er ikke gjennomgått ennå",
 			sources,
 			matchingRoutineIds,
 			hasOverdueRoutine: false,
+			...baseDimensions,
+			compliance: "never_reviewed",
 		}
 	}
 
@@ -244,6 +313,8 @@ function computeStatusForAssessment(
 			sources,
 			matchingRoutineIds,
 			hasOverdueRoutine: true,
+			...baseDimensions,
+			compliance: "overdue",
 		}
 	}
 
@@ -255,6 +326,8 @@ function computeStatusForAssessment(
 			sources,
 			matchingRoutineIds,
 			hasOverdueRoutine: true,
+			...baseDimensions,
+			compliance: "overdue",
 		}
 	}
 
@@ -265,5 +338,7 @@ function computeStatusForAssessment(
 		sources,
 		matchingRoutineIds,
 		hasOverdueRoutine: false,
+		...baseDimensions,
+		compliance: "completed",
 	}
 }
