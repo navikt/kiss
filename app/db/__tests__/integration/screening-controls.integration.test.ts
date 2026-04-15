@@ -345,11 +345,15 @@ describe("screening-derived control IDs", () => {
 		const result = await getAppAssessments(appId)
 		expect(result).not.toBeNull()
 		// Without screening, all 3 controls should show (no tech element filtering)
-		expect(result!.assessments.length).toBe(3)
-		expect(result!.hasScreeningAnswers).toBe(false)
+		expect(result?.assessments.length).toBe(3)
+		expect(result?.hasScreeningAnswers).toBe(false)
+		// All controls should have their actual status (no screening override)
+		for (const a of result?.assessments ?? []) {
+			expect(a.isScreeningDerived).toBe(true)
+		}
 	})
 
-	it("getAppAssessments filters to screening-derived controls when answers exist", async () => {
+	it("getAppAssessments shows all controls but forces null status for non-screening controls", async () => {
 		// Create question → choice → effect → controlA only
 		const questionId = await rawInsert("screening_questions", {
 			question_text: "Filter test?",
@@ -378,10 +382,19 @@ describe("screening-derived control IDs", () => {
 
 		const result = await getAppAssessments(appId)
 		expect(result).not.toBeNull()
-		// Only controlA should appear (screening-derived)
-		expect(result!.assessments.length).toBe(1)
-		expect(result!.assessments[0].controlId).toBe("K-TS.01")
-		expect(result!.hasScreeningAnswers).toBe(true)
+		expect(result?.hasScreeningAnswers).toBe(true)
+		// All 3 controls should appear (not filtered out)
+		expect(result?.assessments.length).toBe(3)
+		// controlA is screening-derived
+		const asmtA = result?.assessments.find((a) => a.controlId === "K-TS.01")
+		expect(asmtA?.isScreeningDerived).toBe(true)
+		// controlB and controlC are NOT screening-derived → forced to null
+		const asmtB = result?.assessments.find((a) => a.controlId === "K-TS.02")
+		expect(asmtB?.isScreeningDerived).toBe(false)
+		expect(asmtB?.status).toBeNull()
+		const asmtC = result?.assessments.find((a) => a.controlId === "K-TS.03")
+		expect(asmtC?.isScreeningDerived).toBe(false)
+		expect(asmtC?.status).toBeNull()
 	})
 
 	it("batch function returns correct controls per app", async () => {
@@ -419,9 +432,9 @@ describe("screening-derived control IDs", () => {
 
 		const result = await getBatchScreeningDerivedControlIds([appId, app2Id])
 		// appId has no answers → empty set
-		expect(result.get(appId)!.size).toBe(0)
+		expect(result.get(appId)?.size).toBe(0)
 		// app2Id has answer linking to controlA
-		expect(result.get(app2Id)!.size).toBe(1)
-		expect(result.get(app2Id)!.has(controlA)).toBe(true)
+		expect(result.get(app2Id)?.size).toBe(1)
+		expect(result.get(app2Id)?.has(controlA)).toBe(true)
 	})
 })

@@ -244,11 +244,6 @@ export async function getAppAssessments(appId: string) {
 		.where(isNull(frameworkControls.archivedAt))
 		.orderBy(frameworkControls.controlId)
 
-	// Filter to screening-derived controls if screening has been answered
-	if (hasScreeningAnswers) {
-		controls = controls.filter((c) => screeningControlIds.has(c.id))
-	}
-
 	// Get all control → element mappings
 	const controlElements = await db
 		.select({
@@ -340,6 +335,9 @@ export async function getAppAssessments(appId: string) {
 		// If no matching elements, skip this control
 		if (ctrlElementIds.length > 0 && matchingElements.length === 0) continue
 
+		// Controls not connected via screening are forced to "ikke vurdert"
+		const isScreeningDerived = !hasScreeningAnswers || screeningControlIds.has(ctrl.id)
+
 		// Derive domain from linked risks (transitive: control → risk → domain)
 		const risks = risksByControlUuid.get(ctrl.id) ?? []
 		const riskDomainIds = [...new Set(risks.map((r) => r.domainId))]
@@ -370,10 +368,11 @@ export async function getAppAssessments(appId: string) {
 					description: r.description,
 				})),
 				predefinedAnswers: predefined,
-				status: assessment?.status ?? null,
-				comment: assessment?.comment ?? null,
-				assessedBy: assessment?.assessedBy ?? null,
-				assessedAt: assessment?.assessedAt?.toISOString() ?? null,
+				isScreeningDerived,
+				status: isScreeningDerived ? (assessment?.status ?? null) : null,
+				comment: isScreeningDerived ? (assessment?.comment ?? null) : null,
+				assessedBy: isScreeningDerived ? (assessment?.assessedBy ?? null) : null,
+				assessedAt: isScreeningDerived ? (assessment?.assessedAt?.toISOString() ?? null) : null,
 			})
 		}
 	}
