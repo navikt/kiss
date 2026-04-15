@@ -173,9 +173,10 @@ describe("Compliance integration tests", () => {
 
 		const assessment = result?.assessments[0]
 		expect(assessment?.controlId).toBe("K-TS.01")
-		expect(assessment?.status).toBe("partially_implemented")
-		expect(assessment?.comment).toBe("In progress")
-		expect(assessment?.assessedBy).toBe("assessor")
+		// status/comment/assessedBy are always null — complianceAssessments is deprecated
+		expect(assessment?.status).toBeNull()
+		expect(assessment?.comment).toBeNull()
+		expect(assessment?.assessedBy).toBeNull()
 		expect(assessment?.domainCode).toBe("TS")
 		expect(assessment?.domainName).toBe("Teknisk sikkerhet")
 	})
