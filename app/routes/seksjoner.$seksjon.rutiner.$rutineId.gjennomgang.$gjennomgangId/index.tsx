@@ -1075,13 +1075,6 @@ export default function GjennomgangDetalj() {
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
 			<div>
-				{review.applicationId && (
-					<Detail>
-						<Link to={`/applikasjoner/${review.applicationId}/detaljer?fane=rutiner`}>
-							← Tilbake til {review.applicationName ?? "applikasjon"}
-						</Link>
-					</Detail>
-				)}
 				<HStack gap="space-4" align="center">
 					<Heading size="xlarge" level="2">
 						{review.title}
