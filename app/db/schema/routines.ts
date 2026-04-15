@@ -1,4 +1,4 @@
-import { integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
 import { dataClassificationEnum, monitoredApplications, persistenceTypeEnum } from "./applications"
 import { frameworkControls, technologyElements } from "./framework"
@@ -6,6 +6,9 @@ import { sections } from "./organization"
 import { screeningQuestions } from "./screening"
 
 // ─── Routines ────────────────────────────────────────────────────────────
+
+export const ROUTINE_ACTIVITY_TYPES = ["entra_id_group_maintenance"] as const
+export type RoutineActivityType = (typeof ROUTINE_ACTIVITY_TYPES)[number]
 
 export const routines = pgTable("routines", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -21,6 +24,7 @@ export const routines = pgTable("routines", {
 		onDelete: "set null",
 	}),
 	screeningChoiceValue: text("screening_choice_value"),
+	activityType: text("activity_type", { enum: ROUTINE_ACTIVITY_TYPES }),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -134,4 +138,37 @@ export const routineReviewLinks = pgTable("routine_review_links", {
 	title: text("title"),
 	addedBy: text("added_by").notNull(),
 	addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ─── Review Activities ───────────────────────────────────────────────────
+
+export const REVIEW_ACTIVITY_STATUSES = ["pending", "completed"] as const
+export const ENTRA_CHANGE_TYPES = ["added", "removed", "criticality_changed"] as const
+export type EntraChangeType = (typeof ENTRA_CHANGE_TYPES)[number]
+
+export const routineReviewActivities = pgTable("routine_review_activities", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	reviewId: uuid("review_id")
+		.notNull()
+		.references(() => routineReviews.id, { onDelete: "cascade" }),
+	type: text("type", { enum: ROUTINE_ACTIVITY_TYPES }).notNull(),
+	status: text("status", { enum: REVIEW_ACTIVITY_STATUSES }).notNull().default("pending"),
+	snapshotBefore: jsonb("snapshot_before"),
+	snapshotAfter: jsonb("snapshot_after"),
+	completedAt: timestamp("completed_at", { withTimezone: true }),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const routineReviewActivityEntraChanges = pgTable("routine_review_activity_entra_changes", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	activityId: uuid("activity_id")
+		.notNull()
+		.references(() => routineReviewActivities.id, { onDelete: "cascade" }),
+	changeType: text("change_type", { enum: ENTRA_CHANGE_TYPES }).notNull(),
+	groupId: text("group_id").notNull(),
+	groupName: text("group_name"),
+	previousValue: text("previous_value"),
+	newValue: text("new_value"),
+	performedBy: text("performed_by").notNull(),
+	performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
 })

@@ -18,8 +18,12 @@ import {
 	technologyElements,
 } from "../schema/framework"
 import {
+	type EntraChangeType,
+	type RoutineActivityType,
 	routineControls,
 	routinePersistenceLinks,
+	routineReviewActivities,
+	routineReviewActivityEntraChanges,
 	routineReviewAttachments,
 	routineReviewLinks,
 	routineReviewParticipants,
@@ -162,6 +166,7 @@ export async function createRoutine(params: {
 	frequency: RoutineFrequency
 	responsibleRole: string | null
 	appliesToAllInSection: boolean
+	activityType?: RoutineActivityType | null
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
 		dataClassification: DataClassification | null
@@ -182,6 +187,7 @@ export async function createRoutine(params: {
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
 			appliesToAllInSection: params.appliesToAllInSection ? 1 : 0,
+			activityType: params.activityType ?? null,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
 			createdBy: params.createdBy,
@@ -262,6 +268,7 @@ export async function updateRoutine(params: {
 	frequency: RoutineFrequency
 	responsibleRole: string | null
 	appliesToAllInSection: boolean
+	activityType?: RoutineActivityType | null
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
 		dataClassification: DataClassification | null
@@ -283,6 +290,7 @@ export async function updateRoutine(params: {
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
 			appliesToAllInSection: params.appliesToAllInSection ? 1 : 0,
+			activityType: params.activityType ?? null,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
 			updatedBy: params.updatedBy,
@@ -1460,4 +1468,152 @@ export async function getCompletedReviewsForSection(sectionId: string) {
 			}
 		}),
 	)
+}
+
+// ─── Review Activities ───────────────────────────────────────────────────
+
+export type EntraGroupSnapshot = {
+	groups: Array<{
+		groupId: string
+		groupName: string | null
+		source: "nais" | "manual" | "removed"
+		criticality: string | null
+	}>
+}
+
+export async function createReviewActivity(
+	reviewId: string,
+	type: RoutineActivityType,
+	snapshotBefore: EntraGroupSnapshot | null,
+	performedBy: string,
+) {
+	const [activity] = await db
+		.insert(routineReviewActivities)
+		.values({
+			reviewId,
+			type,
+			snapshotBefore,
+		})
+		.returning()
+
+	await writeAuditLog({
+		action: "review_activity_created",
+		entityType: "routine_review_activity",
+		entityId: activity.id,
+		newValue: type,
+		metadata: { reviewId },
+		performedBy,
+	})
+
+	return activity
+}
+
+export async function getReviewActivity(reviewId: string) {
+	const [activity] = await db
+		.select()
+		.from(routineReviewActivities)
+		.where(eq(routineReviewActivities.reviewId, reviewId))
+		.limit(1)
+
+	if (!activity) return null
+
+	const changes = await db
+		.select()
+		.from(routineReviewActivityEntraChanges)
+		.where(eq(routineReviewActivityEntraChanges.activityId, activity.id))
+		.orderBy(routineReviewActivityEntraChanges.performedAt)
+
+	return { ...activity, changes }
+}
+
+export async function recordEntraChange(params: {
+	activityId: string
+	changeType: EntraChangeType
+	groupId: string
+	groupName: string | null
+	previousValue: string | null
+	newValue: string | null
+	performedBy: string
+}) {
+	const [change] = await db
+		.insert(routineReviewActivityEntraChanges)
+		.values({
+			activityId: params.activityId,
+			changeType: params.changeType,
+			groupId: params.groupId,
+			groupName: params.groupName,
+			previousValue: params.previousValue,
+			newValue: params.newValue,
+			performedBy: params.performedBy,
+		})
+		.returning()
+
+	await writeAuditLog({
+		action: "review_activity_entra_change",
+		entityType: "routine_review_activity",
+		entityId: params.activityId,
+		newValue: JSON.stringify({
+			changeType: params.changeType,
+			groupId: params.groupId,
+			groupName: params.groupName,
+		}),
+		performedBy: params.performedBy,
+	})
+
+	return change
+}
+
+export async function completeReviewActivity(
+	activityId: string,
+	snapshotAfter: EntraGroupSnapshot | null,
+	performedBy: string,
+) {
+	const [updated] = await db
+		.update(routineReviewActivities)
+		.set({
+			status: "completed",
+			snapshotAfter,
+			completedAt: new Date(),
+		})
+		.where(eq(routineReviewActivities.id, activityId))
+		.returning()
+
+	await writeAuditLog({
+		action: "review_activity_completed",
+		entityType: "routine_review_activity",
+		entityId: activityId,
+		performedBy,
+	})
+
+	return updated
+}
+
+export async function getActivitiesForReviews(reviewIds: string[]) {
+	if (reviewIds.length === 0) return []
+
+	const activities = await db
+		.select()
+		.from(routineReviewActivities)
+		.where(inArray(routineReviewActivities.reviewId, reviewIds))
+
+	if (activities.length === 0) return []
+
+	const activityIds = activities.map((a) => a.id)
+	const allChanges = await db
+		.select()
+		.from(routineReviewActivityEntraChanges)
+		.where(inArray(routineReviewActivityEntraChanges.activityId, activityIds))
+		.orderBy(routineReviewActivityEntraChanges.performedAt)
+
+	const changesByActivityId = new Map<string, typeof allChanges>()
+	for (const c of allChanges) {
+		const list = changesByActivityId.get(c.activityId) ?? []
+		list.push(c)
+		changesByActivityId.set(c.activityId, list)
+	}
+
+	return activities.map((a) => ({
+		...a,
+		changes: changesByActivityId.get(a.id) ?? [],
+	}))
 }

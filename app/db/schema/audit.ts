@@ -76,6 +76,9 @@ export const auditLogActionEnum = [
 	"group_criticality_updated",
 	"section_environment_excluded",
 	"section_environment_included",
+	"review_activity_created",
+	"review_activity_completed",
+	"review_activity_entra_change",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

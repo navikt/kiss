@@ -211,6 +211,13 @@
       "when": 1781909000000,
       "tag": "0029_section_excluded_environments",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1776284058610,
+      "tag": "0030_wise_beyonder",
+      "breakpoints": true
     }
   ]
 }

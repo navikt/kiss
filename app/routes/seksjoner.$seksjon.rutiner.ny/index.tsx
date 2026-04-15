@@ -32,6 +32,7 @@ import {
 	persistenceTypeEnum,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
+import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType } from "~/db/schema/routines"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { frequencyLabels, isRoutineFrequency, ROUTINE_FREQUENCIES } from "~/lib/routine-frequencies"
@@ -118,6 +119,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const frequency = formData.get("frequency")
 	const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
 	const appliesToAllInSection = formData.get("appliesToAllInSection") === "on"
+	const activityTypeRaw = (formData.get("activityType") as string)?.trim() || null
+	const activityType =
+		activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
+			? (activityTypeRaw as RoutineActivityType)
+			: null
 	const technologyElementIds = formData.getAll("technologyElementIds")
 	const controlIds = formData.getAll("controlIds") as string[]
 
@@ -155,6 +161,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		frequency,
 		responsibleRole,
 		appliesToAllInSection,
+		activityType,
 		persistenceLinks,
 		screeningQuestionId: firstLink?.questionId ?? null,
 		screeningChoiceValue: firstLink?.choiceValue ?? null,
@@ -434,6 +441,17 @@ export default function NyRutine() {
 							))}
 						</CheckboxGroup>
 					)}
+
+					<Select
+						label="Vedlikeholdsaktivitet"
+						description="Velg om gjennomganger av denne rutinen skal inkludere en strukturert vedlikeholdsaktivitet"
+						name="activityType"
+						defaultValue=""
+						size="small"
+					>
+						<option value="">Ingen</option>
+						<option value="entra_id_group_maintenance">Entra ID-gruppevedlikehold</option>
+					</Select>
 
 					<HStack gap="space-4">
 						<Button type="submit" variant="primary">
