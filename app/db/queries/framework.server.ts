@@ -1711,6 +1711,29 @@ export async function getControlDependents(controlUuid: string) {
 	}))
 }
 
+/** Get risks linked to a control via risk-control mappings. */
+export async function getControlLinkedRisks(controlUuid: string) {
+	const rows = await db
+		.select({
+			id: frameworkRisks.id,
+			riskId: frameworkRisks.riskId,
+			shortTitle: frameworkRisks.shortTitle,
+			description: frameworkRisks.description,
+			domainCode: frameworkDomains.code,
+		})
+		.from(frameworkRiskControlMappings)
+		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+		.where(eq(frameworkRiskControlMappings.controlId, controlUuid))
+		.orderBy(frameworkRisks.riskId)
+	return rows.map((r) => ({
+		id: r.id,
+		riskId: r.riskId,
+		name: r.shortTitle || r.description.split("\n")[0],
+		domainCode: r.domainCode,
+	}))
+}
+
 /** Add a dependency between controls. */
 export async function addControlDependency(controlUuid: string, dependsOnUuid: string, performer: string) {
 	await db

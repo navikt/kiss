@@ -3,7 +3,12 @@ import { Button, Detail, Heading, HStack, Label, Table, Tag, VStack } from "@nav
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getControlDependencies, getControlDependents, getControlDetail } from "~/db/queries/framework.server"
+import {
+	getControlDependencies,
+	getControlDependents,
+	getControlDetail,
+	getControlLinkedRisks,
+} from "~/db/queries/framework.server"
 import { type ApprovalStatus, getRulesetsForControl } from "~/db/queries/rulesets.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
@@ -38,12 +43,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const { getControlElements } = await import("~/db/queries/technology-elements.server")
 	const { getControlDomains } = await import("~/db/queries/framework.server")
-	const [controlElements, controlDomains, dependencies, dependents, linkedRulesets] = await Promise.all([
+	const [controlElements, controlDomains, dependencies, dependents, linkedRulesets, linkedRisks] = await Promise.all([
 		getControlElements(control.uuid),
 		getControlDomains(control.uuid),
 		getControlDependencies(control.uuid),
 		getControlDependents(control.uuid),
 		getRulesetsForControl(control.uuid),
+		getControlLinkedRisks(control.uuid),
 	])
 
 	const fieldHtml: Record<string, string> = {}
@@ -70,6 +76,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		dependencies,
 		dependents,
 		linkedRulesets,
+		linkedRisks,
 	})
 }
 
@@ -134,6 +141,7 @@ export default function ControlDetailPage() {
 		dependencies,
 		dependents,
 		linkedRulesets,
+		linkedRisks,
 	} = useLoaderData<typeof loader>()
 
 	return (
@@ -206,6 +214,21 @@ export default function ControlDetailPage() {
 							</HStack>
 						</VStack>
 					)}
+				</VStack>
+			)}
+
+			{linkedRisks.length > 0 && (
+				<VStack gap="space-2">
+					<Label size="small">Tilknyttede risikoer</Label>
+					<HStack gap="space-2" wrap>
+						{linkedRisks.map((risk) => (
+							<Link key={risk.id} to={`/kontrollrammeverk/risiko/${risk.riskId}`} style={{ textDecoration: "none" }}>
+								<Tag variant="warning" size="small">
+									{risk.riskId}: {risk.name}
+								</Tag>
+							</Link>
+						))}
+					</HStack>
 				</VStack>
 			)}
 
