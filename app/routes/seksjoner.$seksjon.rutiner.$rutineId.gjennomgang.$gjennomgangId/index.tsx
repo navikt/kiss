@@ -93,10 +93,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		appAuthIntegrations = appDetail?.authIntegrations ?? []
 	}
 
-	// Load activity data — auto-create if routine has activityType but review lacks activity
+	// Load activity data — auto-create only for draft reviews missing an activity
 	// (handles reviews created before the activity system was deployed)
 	let activity = await getReviewActivity(gjennomgangId)
-	if (!activity && routine.activityType) {
+	if (!activity && routine.activityType && review.status === "draft") {
 		await autoCreateActivityForReview(gjennomgangId, rutineId, review.applicationId, "system")
 		activity = await getReviewActivity(gjennomgangId)
 	}
