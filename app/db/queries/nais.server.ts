@@ -11,6 +11,7 @@ import {
 	applicationPersistence,
 	applicationTeamMappings,
 	type DataClassification,
+	devTeamNaisTeamMappings,
 	type GroupCriticality,
 	type LinkSuggestionMatchType,
 	type LinkSuggestionStatus,
@@ -308,12 +309,17 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
 		.where(and(...envConditions))
 
-	// Get apps that already have a dev team mapping
-	const linkedAppIds = new Set(
-		(await db.select({ appId: applicationTeamMappings.applicationId }).from(applicationTeamMappings)).map(
-			(r) => r.appId,
-		),
-	)
+	// Get apps that already have a dev team mapping (direct or via nais team link)
+	const [directLinkedRows, naisTeamLinkedRows] = await Promise.all([
+		db.select({ appId: applicationTeamMappings.applicationId }).from(applicationTeamMappings),
+		db
+			.selectDistinct({ appId: applicationEnvironments.applicationId })
+			.from(devTeamNaisTeamMappings)
+			.innerJoin(applicationEnvironments, eq(applicationEnvironments.naisTeamId, devTeamNaisTeamMappings.naisTeamId))
+			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+			.where(isNull(monitoredApplications.primaryApplicationId)),
+	])
+	const linkedAppIds = new Set([...directLinkedRows.map((r) => r.appId), ...naisTeamLinkedRows.map((r) => r.appId)])
 
 	// Get apps ignored for this section
 	const ignoredAppIds = new Set(
