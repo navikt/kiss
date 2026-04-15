@@ -24,6 +24,11 @@ const {
 	getLatestReviewForApp,
 	calculateDeadline,
 	isOverdue,
+	createReviewActivity,
+	getReviewActivity,
+	recordEntraChange,
+	completeReviewActivity,
+	getActivitiesForReviews,
 } = await import("~/db/queries/routines.server")
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -601,6 +606,256 @@ describe("Routines integration tests", () => {
 			const updatedRoutine = await getRoutine(routine.id)
 			const deadline = calculateDeadline(null, updatedRoutine?.createdAt ?? new Date(), "weekly")
 			expect(isOverdue(deadline)).toBe(true)
+		})
+	})
+
+	describe("Review Activities", () => {
+		it("should create and retrieve a review activity", async () => {
+			const sectionId = await createTestSection("act-section", "act-section")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Entra-rutine",
+				description: "Rutine med Entra-vedlikehold",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityType: "entra_id_group_maintenance",
+			})
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: null,
+				title: "Test gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+
+			const activity = await createReviewActivity(
+				review.id,
+				"entra_id_group_maintenance",
+				{
+					groups: [
+						{ groupId: "group-1", groupName: "Group 1", source: "nais", criticality: null },
+						{ groupId: "group-2", groupName: "Group 2", source: "manual", criticality: "high" },
+					],
+				},
+				"test",
+			)
+
+			expect(activity).toBeDefined()
+			expect(activity.id).toBeTruthy()
+			expect(activity.reviewId).toBe(review.id)
+			expect(activity.type).toBe("entra_id_group_maintenance")
+			expect(activity.status).toBe("pending")
+			expect(activity.snapshotBefore).toEqual({
+				groups: [
+					{ groupId: "group-1", groupName: "Group 1", source: "nais", criticality: null },
+					{ groupId: "group-2", groupName: "Group 2", source: "manual", criticality: "high" },
+				],
+			})
+			expect(activity.snapshotAfter).toBeNull()
+
+			const fetched = await getReviewActivity(review.id)
+			expect(fetched).toBeDefined()
+			expect(fetched?.id).toBe(activity.id)
+		})
+
+		it("should record Entra changes on an activity", async () => {
+			const sectionId = await createTestSection("act-changes-section", "act-changes-section")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Entra-rutine 2",
+				description: "Test",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityType: "entra_id_group_maintenance",
+			})
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: null,
+				title: "Gjennomgang 2",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+
+			const activity = await createReviewActivity(review.id, "entra_id_group_maintenance", { groups: [] }, "test")
+
+			await recordEntraChange({
+				activityId: activity.id,
+				changeType: "added",
+				groupId: "group-abc",
+				groupName: "Test Group ABC",
+				previousValue: null,
+				newValue: "group-abc",
+				performedBy: "test",
+			})
+
+			await recordEntraChange({
+				activityId: activity.id,
+				changeType: "criticality_changed",
+				groupId: "group-abc",
+				groupName: "Test Group ABC",
+				previousValue: "low",
+				newValue: "high",
+				performedBy: "test",
+			})
+
+			await recordEntraChange({
+				activityId: activity.id,
+				changeType: "removed",
+				groupId: "group-xyz",
+				groupName: "Old Group XYZ",
+				previousValue: "group-xyz",
+				newValue: null,
+				performedBy: "test",
+			})
+
+			const activities = await getActivitiesForReviews([review.id])
+			expect(activities).toHaveLength(1)
+			expect(activities[0].changes).toHaveLength(3)
+
+			const addChange = activities[0].changes.find((c) => c.changeType === "added")
+			expect(addChange?.groupId).toBe("group-abc")
+			expect(addChange?.groupName).toBe("Test Group ABC")
+			expect(addChange?.newValue).toBe("group-abc")
+
+			const critChange = activities[0].changes.find((c) => c.changeType === "criticality_changed")
+			expect(critChange?.previousValue).toBe("low")
+			expect(critChange?.newValue).toBe("high")
+
+			const removeChange = activities[0].changes.find((c) => c.changeType === "removed")
+			expect(removeChange?.groupId).toBe("group-xyz")
+			expect(removeChange?.previousValue).toBe("group-xyz")
+		})
+
+		it("should complete an activity with snapshot after", async () => {
+			const sectionId = await createTestSection("act-complete-section", "act-complete-section")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Entra-rutine 3",
+				description: "Test complete",
+				frequency: "quarterly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityType: "entra_id_group_maintenance",
+			})
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: null,
+				title: "Gjennomgang 3",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+
+			const activity = await createReviewActivity(
+				review.id,
+				"entra_id_group_maintenance",
+				{ groups: [{ groupId: "a", groupName: "A", source: "nais", criticality: null }] },
+				"test",
+			)
+
+			expect(activity.status).toBe("pending")
+			expect(activity.completedAt).toBeNull()
+
+			const completed = await completeReviewActivity(
+				activity.id,
+				{
+					groups: [
+						{ groupId: "a", groupName: "A", source: "nais", criticality: null },
+						{ groupId: "b", groupName: "B", source: "manual", criticality: "low" },
+					],
+				},
+				"test",
+			)
+
+			expect(completed.status).toBe("completed")
+			expect(completed.completedAt).toBeDefined()
+			expect(completed.snapshotAfter).toEqual({
+				groups: [
+					{ groupId: "a", groupName: "A", source: "nais", criticality: null },
+					{ groupId: "b", groupName: "B", source: "manual", criticality: "low" },
+				],
+			})
+		})
+
+		it("should return empty for reviews with no activities", async () => {
+			const activities = await getActivitiesForReviews([])
+			expect(activities).toEqual([])
+
+			const activities2 = await getActivitiesForReviews(["00000000-0000-0000-0000-000000000000"])
+			expect(activities2).toEqual([])
+		})
+
+		it("should support activityType on routine create and update", async () => {
+			const sectionId = await createTestSection("act-type-section", "act-type-section")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Med aktivitetstype",
+				description: "Test",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityType: "entra_id_group_maintenance",
+			})
+
+			const fetched = await getRoutine(routine.id)
+			expect(fetched?.activityType).toBe("entra_id_group_maintenance")
+
+			await updateRoutine({
+				id: routine.id,
+				name: "Uten aktivitetstype",
+				description: "Updated",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				updatedBy: "test",
+				activityType: null,
+			})
+
+			const updated = await getRoutine(routine.id)
+			expect(updated?.activityType).toBeNull()
 		})
 	})
 })
