@@ -617,14 +617,101 @@ export default function ApplikasjonDetalj() {
 	const [ackComment, setAckComment] = useState("")
 	const ackModalRef = useRef<HTMLDialogElement>(null)
 
+	// Controls tab state
+	const [controlSort, setControlSort] = useState<{ orderBy: string; direction: "ascending" | "descending" }>({
+		orderBy: "controlId",
+		direction: "ascending",
+	})
+	const [controlStatusFilter, setControlStatusFilter] = useState<string[]>([])
+	const [controlSearch, setControlSearch] = useState("")
+	const [controlGroupBy, setControlGroupBy] = useState<string>("none")
+
+	const statusLabel = (s: string | null): string => {
+		if (!s) return "Ikke vurdert"
+		const labels: Record<string, string> = {
+			implemented: "Implementert",
+			partially_implemented: "Delvis implementert",
+			not_implemented: "Ikke implementert",
+			not_relevant: "Ikke relevant",
+		}
+		return labels[s] ?? s
+	}
+
+	const filteredAssessments = assessments.filter((a) => {
+		if (controlStatusFilter.length > 0) {
+			const effectiveLabel = a.effectiveStatus ?? "not_assessed"
+			if (!controlStatusFilter.includes(effectiveLabel)) return false
+		}
+		if (controlSearch) {
+			const q = controlSearch.toLowerCase()
+			if (
+				!a.controlId.toLowerCase().includes(q) &&
+				!a.controlName.toLowerCase().includes(q) &&
+				!(a.domainName ?? "").toLowerCase().includes(q) &&
+				!(a.technologyElementName ?? "").toLowerCase().includes(q)
+			)
+				return false
+		}
+		return true
+	})
+
+	const sortedAssessments = [...filteredAssessments].sort((a, b) => {
+		const dir = controlSort.direction === "ascending" ? 1 : -1
+		const orderBy = controlSort.orderBy
+		let aVal: string
+		let bVal: string
+		if (orderBy === "domainName") {
+			aVal = a.domainName ?? ""
+			bVal = b.domainName ?? ""
+		} else if (orderBy === "controlId") {
+			aVal = a.controlId
+			bVal = b.controlId
+		} else if (orderBy === "controlName") {
+			aVal = a.controlName
+			bVal = b.controlName
+		} else if (orderBy === "technologyElementName") {
+			aVal = a.technologyElementName ?? ""
+			bVal = b.technologyElementName ?? ""
+		} else if (orderBy === "status") {
+			aVal = statusLabel(a.effectiveStatus)
+			bVal = statusLabel(b.effectiveStatus)
+		} else {
+			return 0
+		}
+		return aVal.localeCompare(bVal, "nb") * dir
+	})
+
+	const groupedAssessments: Array<{ groupLabel: string; items: typeof sortedAssessments }> = (() => {
+		if (controlGroupBy === "none") return [{ groupLabel: "", items: sortedAssessments }]
+		const groups = new Map<string, typeof sortedAssessments>()
+		for (const a of sortedAssessments) {
+			let key: string
+			if (controlGroupBy === "domainName") key = a.domainName || "Uten domene"
+			else if (controlGroupBy === "controlId") key = a.controlId
+			else if (controlGroupBy === "controlName") key = a.controlName
+			else if (controlGroupBy === "technologyElementName") key = a.technologyElementName || "Ingen"
+			else if (controlGroupBy === "status") key = statusLabel(a.effectiveStatus)
+			else key = ""
+			const list = groups.get(key) ?? []
+			list.push(a)
+			groups.set(key, list)
+		}
+		return [...groups.entries()]
+			.sort(([a], [b]) => a.localeCompare(b, "nb"))
+			.map(([groupLabel, items]) => ({ groupLabel, items }))
+	})()
+
+	const handleControlSort = (sortKey: string) => {
+		setControlSort((prev) =>
+			prev.orderBy === sortKey
+				? { orderBy: sortKey, direction: prev.direction === "ascending" ? "descending" : "ascending" }
+				: { orderBy: sortKey, direction: "ascending" },
+		)
+	}
+
 	const isOnPrem = environments.some((e) => e.cluster?.includes("-fss"))
 
 	const gitHubUrl = environments.find((e) => e.gitRepository)?.gitRepository ?? `https://github.com/navikt/${app.name}`
-
-	const controlsNeedingAttention = assessments.filter(
-		(a) =>
-			!a.effectiveStatus || a.effectiveStatus === "not_implemented" || a.effectiveStatus === "partially_implemented",
-	)
 
 	return (
 		<VStack gap="space-24">
@@ -749,53 +836,118 @@ export default function ApplikasjonDetalj() {
 
 				{/* Kontroller */}
 				<Tabs.Panel value="kontroller" style={{ paddingTop: "var(--ax-space-6)" }}>
-					{controlsNeedingAttention.length > 0 ? (
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Domene</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Teknologielement</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{controlsNeedingAttention.map((a) => (
-									<Table.Row key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`}>
-										<Table.DataCell>{a.domainName}</Table.DataCell>
-										<Table.DataCell>{a.controlId}</Table.DataCell>
-										<Table.DataCell>{a.controlName}</Table.DataCell>
-										<Table.DataCell>
-											{a.technologyElementName ? (
-												<Tag variant="info" size="xsmall">
-													{a.technologyElementName}
-												</Tag>
-											) : null}
-										</Table.DataCell>
-										<Table.DataCell>
-											{a.effectiveStatus ? (
-												<HStack gap="space-2" align="center">
-													<ComplianceStatusBadge status={a.effectiveStatus as ComplianceStatus} />
-													{!a.status && a.autoStatus && (
-														<Tag variant="alt1" size="xsmall">
-															Beregnet
-														</Tag>
-													)}
-												</HStack>
-											) : (
-												<Tag variant="neutral" size="xsmall">
-													Ikke vurdert
-												</Tag>
-											)}
-										</Table.DataCell>
-									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
-					) : (
-						<BodyLong>Alle kontroller er vurdert.</BodyLong>
-					)}
+					<VStack gap="space-6">
+						<HGrid columns={{ xs: 1, sm: "1fr 1fr 1fr" }} gap="space-4">
+							<Search
+								label="Søk i kontroller"
+								size="small"
+								value={controlSearch}
+								onChange={setControlSearch}
+								onClear={() => setControlSearch("")}
+							/>
+							<CheckboxGroup
+								legend="Filtrer på status"
+								size="small"
+								value={controlStatusFilter}
+								onChange={setControlStatusFilter}
+							>
+								<HStack gap="space-4" wrap>
+									<Checkbox value="implemented">Implementert</Checkbox>
+									<Checkbox value="partially_implemented">Delvis</Checkbox>
+									<Checkbox value="not_implemented">Ikke impl.</Checkbox>
+									<Checkbox value="not_relevant">Ikke relevant</Checkbox>
+									<Checkbox value="not_assessed">Ikke vurdert</Checkbox>
+								</HStack>
+							</CheckboxGroup>
+							<Select
+								label="Grupper etter"
+								size="small"
+								value={controlGroupBy}
+								onChange={(e) => setControlGroupBy(e.target.value)}
+							>
+								<option value="none">Ingen gruppering</option>
+								<option value="domainName">Domene</option>
+								<option value="controlId">Kontroll-ID</option>
+								<option value="controlName">Navn</option>
+								<option value="technologyElementName">Teknologielement</option>
+								<option value="status">Status</option>
+							</Select>
+						</HGrid>
+
+						<BodyShort size="small" textColor="subtle">
+							Viser {filteredAssessments.length} av {assessments.length} kontroller
+						</BodyShort>
+
+						{groupedAssessments.map((group) => (
+							<VStack key={group.groupLabel || "__all"} gap="space-4">
+								{group.groupLabel && (
+									<Heading size="small" level="4">
+										{group.groupLabel} ({group.items.length})
+									</Heading>
+								)}
+								{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+								<section className="table-scroll" tabIndex={0} aria-label="Kontrollstatus">
+									<Table
+										size="small"
+										sort={controlSort}
+										onSortChange={(sortKey) => handleControlSort(sortKey ?? "controlId")}
+									>
+										<Table.Header>
+											<Table.Row>
+												<Table.ColumnHeader scope="col" sortKey="domainName" sortable>
+													Domene
+												</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col" sortKey="controlId" sortable>
+													Kontroll-ID
+												</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col" sortKey="controlName" sortable>
+													Navn
+												</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col" sortKey="technologyElementName" sortable>
+													Teknologielement
+												</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col" sortKey="status" sortable>
+													Status
+												</Table.ColumnHeader>
+											</Table.Row>
+										</Table.Header>
+										<Table.Body>
+											{group.items.map((a) => (
+												<Table.Row key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`}>
+													<Table.DataCell>{a.domainName}</Table.DataCell>
+													<Table.DataCell>{a.controlId}</Table.DataCell>
+													<Table.DataCell>{a.controlName}</Table.DataCell>
+													<Table.DataCell>
+														{a.technologyElementName ? (
+															<Tag variant="info" size="xsmall">
+																{a.technologyElementName}
+															</Tag>
+														) : null}
+													</Table.DataCell>
+													<Table.DataCell>
+														{a.effectiveStatus ? (
+															<HStack gap="space-2" align="center">
+																<ComplianceStatusBadge status={a.effectiveStatus as ComplianceStatus} />
+																{!a.status && a.autoStatus && (
+																	<Tag variant="alt1" size="xsmall">
+																		Beregnet
+																	</Tag>
+																)}
+															</HStack>
+														) : (
+															<Tag variant="neutral" size="xsmall">
+																Ikke vurdert
+															</Tag>
+														)}
+													</Table.DataCell>
+												</Table.Row>
+											))}
+										</Table.Body>
+									</Table>
+								</section>
+							</VStack>
+						))}
+					</VStack>
 				</Tabs.Panel>
 
 				{/* Autentisering */}
