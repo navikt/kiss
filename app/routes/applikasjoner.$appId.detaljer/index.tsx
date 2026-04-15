@@ -837,42 +837,48 @@ export default function ApplikasjonDetalj() {
 				{/* Kontroller */}
 				<Tabs.Panel value="kontroller" style={{ paddingTop: "var(--ax-space-6)" }}>
 					<VStack gap="space-6">
-						<HGrid columns={{ xs: 1, sm: "1fr 1fr 1fr" }} gap="space-4">
-							<Search
-								label="Søk i kontroller"
-								size="small"
-								value={controlSearch}
-								onChange={setControlSearch}
-								onClear={() => setControlSearch("")}
-							/>
-							<CheckboxGroup
-								legend="Filtrer på status"
-								size="small"
-								value={controlStatusFilter}
-								onChange={setControlStatusFilter}
-							>
-								<HStack gap="space-4" wrap>
-									<Checkbox value="implemented">Implementert</Checkbox>
-									<Checkbox value="partially_implemented">Delvis</Checkbox>
-									<Checkbox value="not_implemented">Ikke impl.</Checkbox>
-									<Checkbox value="not_relevant">Ikke relevant</Checkbox>
-									<Checkbox value="not_assessed">Ikke vurdert</Checkbox>
-								</HStack>
-							</CheckboxGroup>
-							<Select
-								label="Grupper etter"
-								size="small"
-								value={controlGroupBy}
-								onChange={(e) => setControlGroupBy(e.target.value)}
-							>
-								<option value="none">Ingen gruppering</option>
-								<option value="domainName">Domene</option>
-								<option value="controlId">Kontroll-ID</option>
-								<option value="controlName">Navn</option>
-								<option value="technologyElementName">Teknologielement</option>
-								<option value="status">Status</option>
-							</Select>
-						</HGrid>
+						<HStack gap="space-4" wrap align="end">
+							<div style={{ flex: "1 1 200px", maxWidth: "300px" }}>
+								<Search
+									label="Søk i kontroller"
+									size="small"
+									value={controlSearch}
+									onChange={setControlSearch}
+									onClear={() => setControlSearch("")}
+								/>
+							</div>
+							<div style={{ minWidth: "180px" }}>
+								<Select
+									label="Grupper etter"
+									size="small"
+									value={controlGroupBy}
+									onChange={(e) => setControlGroupBy(e.target.value)}
+								>
+									<option value="none">Ingen gruppering</option>
+									<option value="domainName">Domene</option>
+									<option value="controlId">Kontroll-ID</option>
+									<option value="controlName">Navn</option>
+									<option value="technologyElementName">Teknologielement</option>
+									<option value="status">Status</option>
+								</Select>
+							</div>
+						</HStack>
+
+						<CheckboxGroup
+							legend="Filtrer på status"
+							size="small"
+							value={controlStatusFilter}
+							onChange={setControlStatusFilter}
+							hideLegend
+						>
+							<HStack gap="space-4" wrap>
+								<Checkbox value="implemented">Implementert</Checkbox>
+								<Checkbox value="partially_implemented">Delvis</Checkbox>
+								<Checkbox value="not_implemented">Ikke impl.</Checkbox>
+								<Checkbox value="not_relevant">Ikke relevant</Checkbox>
+								<Checkbox value="not_assessed">Ikke vurdert</Checkbox>
+							</HStack>
+						</CheckboxGroup>
 
 						<BodyShort size="small" textColor="subtle">
 							Viser {filteredAssessments.length} av {assessments.length} kontroller
