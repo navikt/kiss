@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, count, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	applicationEnvironments,
@@ -9,7 +9,7 @@ import {
 	sectionIgnoredApplications,
 } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
-import { frameworkControls } from "../schema/framework"
+import { applicationTechnologyElements, controlTechnologyElements, frameworkControls } from "../schema/framework"
 import { devTeams, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
@@ -67,7 +67,82 @@ async function getBatchComplianceStats(appIds: string[]): Promise<Map<string, Co
 	return result
 }
 
-/** Get all unique primary app IDs for a dev team (direct + via linked Nais teams, excluding ignored). */
+/**
+ * Compute the expected total number of assessment items per app.
+ * Mirrors the logic in getAppAssessments: for each active control,
+ * count matching (control-element ∩ app-element) pairs. Controls with
+ * no element mappings count as 1.
+ */
+async function getBatchExpectedTotals(appIds: string[]): Promise<Map<string, number>> {
+	const result = new Map<string, number>()
+	if (appIds.length === 0) return result
+	for (const id of appIds) result.set(id, 0)
+
+	// Active controls
+	const controls = await db
+		.select({ id: frameworkControls.id })
+		.from(frameworkControls)
+		.where(isNull(frameworkControls.archivedAt))
+
+	// Control → element mappings
+	const ctrlElRows = await db
+		.select({ controlId: controlTechnologyElements.controlId, elementId: controlTechnologyElements.elementId })
+		.from(controlTechnologyElements)
+	const elementsByControl = new Map<string, Set<string>>()
+	for (const ce of ctrlElRows) {
+		let s = elementsByControl.get(ce.controlId)
+		if (!s) {
+			s = new Set()
+			elementsByControl.set(ce.controlId, s)
+		}
+		s.add(ce.elementId)
+	}
+
+	// App → confirmed element IDs
+	const appElRows = await db
+		.select({
+			applicationId: applicationTechnologyElements.applicationId,
+			elementId: applicationTechnologyElements.elementId,
+		})
+		.from(applicationTechnologyElements)
+		.where(
+			and(
+				inArray(applicationTechnologyElements.applicationId, appIds),
+				isNotNull(applicationTechnologyElements.confirmedAt),
+				isNull(applicationTechnologyElements.rejectedAt),
+			),
+		)
+	const elementsByApp = new Map<string, Set<string>>()
+	for (const ae of appElRows) {
+		let s = elementsByApp.get(ae.applicationId)
+		if (!s) {
+			s = new Set()
+			elementsByApp.set(ae.applicationId, s)
+		}
+		s.add(ae.elementId)
+	}
+
+	for (const appId of appIds) {
+		const appElements = elementsByApp.get(appId) ?? new Set<string>()
+		let total = 0
+		for (const ctrl of controls) {
+			const ctrlElements = elementsByControl.get(ctrl.id)
+			if (!ctrlElements || ctrlElements.size === 0) {
+				total += 1
+			} else {
+				let matches = 0
+				for (const eid of ctrlElements) {
+					if (appElements.has(eid)) matches++
+				}
+				total += matches
+			}
+		}
+		result.set(appId, total)
+	}
+
+	return result
+}
+
 async function getTeamAppIds(teamId: string, sectionId: string) {
 	// Direct mappings
 	const directRows = await db
@@ -127,12 +202,6 @@ export async function getSectionDetail(seksjonSlug: string) {
 
 	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, section.id)).orderBy(devTeams.name)
 
-	const [totalControlsRow] = await db
-		.select({ count: count() })
-		.from(frameworkControls)
-		.where(isNull(frameworkControls.archivedAt))
-	const totalControls = totalControlsRow?.count ?? 0
-
 	// Phase 1: Collect all app IDs per team
 	const teamAppMaps: { team: (typeof teams)[0]; allIds: Set<string> }[] = []
 	const allAssignedAppIds = new Set<string>()
@@ -177,9 +246,12 @@ export async function getSectionDetail(seksjonSlug: string) {
 			.filter((id) => !allAssignedAppIds.has(id) && !ignoredAppIds.has(id))
 	}
 
-	// Phase 3: Batch-fetch compliance stats for ALL apps in one query
+	// Phase 3: Batch-fetch compliance stats and expected totals for ALL apps in one query
 	const allAppIds = [...allAssignedAppIds, ...unassignedAppIds.filter((id) => !allAssignedAppIds.has(id))]
-	const statsMap = await getBatchComplianceStats(allAppIds)
+	const [statsMap, totalsMap] = await Promise.all([
+		getBatchComplianceStats(allAppIds),
+		getBatchExpectedTotals(allAppIds),
+	])
 
 	// Phase 4: Build team stats from the pre-fetched map
 	const teamStats = teamAppMaps.map(({ team, allIds }) => {
@@ -187,6 +259,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 		let partial = 0
 		let notImplemented = 0
 		let notRelevant = 0
+		let total = 0
 
 		for (const appId of allIds) {
 			const stats = statsMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0 }
@@ -194,6 +267,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 			partial += stats.partial
 			notImplemented += stats.notImplemented
 			notRelevant += stats.notRelevant
+			total += totalsMap.get(appId) ?? 0
 		}
 
 		return {
@@ -204,7 +278,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 			partial,
 			notImplemented,
 			notRelevant,
-			total: totalControls * allIds.size,
+			total,
 		}
 	})
 
@@ -223,6 +297,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 		let uPartial = 0
 		let uNotImpl = 0
 		let uNotRel = 0
+		let uTotal = 0
 
 		for (const appId of unassignedAppIds) {
 			const stats = statsMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0 }
@@ -230,6 +305,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 			uPartial += stats.partial
 			uNotImpl += stats.notImplemented
 			uNotRel += stats.notRelevant
+			uTotal += totalsMap.get(appId) ?? 0
 		}
 
 		unassignedStats = {
@@ -238,7 +314,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 			partial: uPartial,
 			notImplemented: uNotImpl,
 			notRelevant: uNotRel,
-			total: totalControls * unassignedAppIds.length,
+			total: uTotal,
 		}
 
 		for (const id of unassignedAppIds) {
@@ -251,12 +327,14 @@ export async function getSectionDetail(seksjonSlug: string) {
 	let sectionPartial = 0
 	let sectionNotImplemented = 0
 	let sectionNotRelevant = 0
+	let sectionTotal = 0
 	for (const appId of allAppIds) {
 		const stats = statsMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0 }
 		sectionImplemented += stats.implemented
 		sectionPartial += stats.partial
 		sectionNotImplemented += stats.notImplemented
 		sectionNotRelevant += stats.notRelevant
+		sectionTotal += totalsMap.get(appId) ?? 0
 	}
 
 	const sectionTotals = {
@@ -265,7 +343,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 		partial: sectionPartial,
 		notImplemented: sectionNotImplemented,
 		notRelevant: sectionNotRelevant,
-		total: totalControls * allAppIds.length,
+		total: sectionTotal,
 	}
 
 	return { section, teams: teamStats, unassignedStats, allAppIds, sectionTotals }
@@ -420,20 +498,15 @@ export async function getTeamApps(teamSlug: string) {
 	const [team] = await db.select().from(devTeams).where(eq(devTeams.slug, teamSlug)).limit(1)
 	if (!team) return null
 
-	const [totalControlsRow] = await db
-		.select({ count: count() })
-		.from(frameworkControls)
-		.where(isNull(frameworkControls.archivedAt))
-	const totalControls = totalControlsRow?.count ?? 0
-
 	const { allIds, directIds } = await getTeamAppIds(team.id, team.sectionId)
 
 	const appIdList = [...allIds]
-	const [appRows, statsMap] = await Promise.all([
+	const [appRows, statsMap, totalsMap] = await Promise.all([
 		appIdList.length > 0
 			? db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, appIdList))
 			: Promise.resolve([]),
 		getBatchComplianceStats(appIdList),
+		getBatchExpectedTotals(appIdList),
 	])
 
 	const appById = new Map(appRows.map((a) => [a.id, a]))
@@ -450,7 +523,7 @@ export async function getTeamApps(teamSlug: string) {
 				partial: stats.partial,
 				notImplemented: stats.notImplemented,
 				notRelevant: stats.notRelevant,
-				total: totalControls,
+				total: totalsMap.get(appId) ?? 0,
 				source: directIds.has(appId) ? ("direct" as const) : ("nais-team" as const),
 			}
 		})
@@ -478,12 +551,6 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 		.innerJoin(sections, eq(devTeams.sectionId, sections.id))
 		.where(inArray(devTeams.id, teamIds))
 
-	const [totalControlsRow] = await db
-		.select({ count: count() })
-		.from(frameworkControls)
-		.where(isNull(frameworkControls.archivedAt))
-	const totalControls = totalControlsRow?.count ?? 0
-
 	// Collect app IDs from all teams, tracking which team each belongs to
 	const appToTeams = new Map<string, Set<string>>()
 	const appSources = new Map<string, "direct" | "nais-team">()
@@ -499,11 +566,12 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 	}
 
 	const allAppIds = [...appToTeams.keys()]
-	const [appRows, statsMap] = await Promise.all([
+	const [appRows, statsMap, totalsMap] = await Promise.all([
 		allAppIds.length > 0
 			? db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, allAppIds))
 			: Promise.resolve([]),
 		getBatchComplianceStats(allAppIds),
+		getBatchExpectedTotals(allAppIds),
 	])
 
 	const appById = new Map(appRows.map((a) => [a.id, a]))
@@ -520,7 +588,7 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 				partial: stats.partial,
 				notImplemented: stats.notImplemented,
 				notRelevant: stats.notRelevant,
-				total: totalControls,
+				total: totalsMap.get(appId) ?? 0,
 				source: appSources.get(appId) ?? ("nais-team" as const),
 				teamIds: [...(appToTeams.get(appId) ?? [])],
 			}
