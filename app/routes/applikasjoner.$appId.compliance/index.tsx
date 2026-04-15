@@ -900,8 +900,9 @@ function ScreeningEntraGroupsForm({
 						<Table.Header>
 							<Table.Row>
 								<Table.ColumnHeader sortKey="name" sortable scope="col">
-									Gruppe
+									Navn
 								</Table.ColumnHeader>
+								<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
 								<Table.ColumnHeader sortKey="source" sortable scope="col">
 									Kilde
 								</Table.ColumnHeader>
@@ -922,17 +923,17 @@ function ScreeningEntraGroupsForm({
 								return (
 									<Table.Row key={`${ug.source}-${ug.groupId}`}>
 										<Table.DataCell>
-											<VStack gap="space-1">
-												<BodyShort size="small" weight="semibold">
-													{displayName ?? <span style={{ color: "var(--ax-text-subtle)" }}>Ukjent</span>}
+											{displayName ?? (
+												<BodyShort size="small" textColor="subtle">
+													Ukjent
 												</BodyShort>
-												<HStack gap="space-1" align="center">
-													<Detail textColor="subtle" style={{ fontFamily: "monospace" }}>
-														{ug.groupId}
-													</Detail>
-													<CopyButton copyText={ug.groupId} size="xsmall" />
-												</HStack>
-											</VStack>
+											)}
+										</Table.DataCell>
+										<Table.DataCell>
+											<HStack gap="space-1" align="center">
+												<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{ug.groupId}</code>
+												<CopyButton copyText={ug.groupId} size="xsmall" />
+											</HStack>
 										</Table.DataCell>
 										<Table.DataCell>
 											{ug.source === "nais" && (
@@ -947,7 +948,7 @@ function ScreeningEntraGroupsForm({
 											)}
 											{ug.source === "removed" && (
 												<Tag variant="error" size="xsmall">
-													<ExclamationmarkTriangleIcon aria-hidden fontSize="1rem" /> Borte
+													<ExclamationmarkTriangleIcon aria-hidden fontSize="1rem" /> Borte fra manifest
 												</Tag>
 											)}
 										</Table.DataCell>
