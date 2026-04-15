@@ -314,17 +314,6 @@ export async function getAppAssessments(appId: string) {
 		predefinedByControl.set(pa.controlId, list)
 	}
 
-	// Fetch existing assessments for this app (include element ID)
-	const existingAssessments = await db
-		.select()
-		.from(complianceAssessments)
-		.where(eq(complianceAssessments.applicationId, assessmentAppId))
-	const assessmentLookup = new Map<string, (typeof existingAssessments)[number]>()
-	for (const a of existingAssessments) {
-		const key = `${a.controlId}:${a.technologyElementId ?? "null"}`
-		assessmentLookup.set(key, a)
-	}
-
 	const assessments = []
 	for (const ctrl of controls) {
 		const ctrlElementIds = elementsByControl.get(ctrl.id) ?? []
@@ -349,9 +338,6 @@ export async function getAppAssessments(appId: string) {
 		const elementsToAssess = matchingElements.length > 0 ? matchingElements : [null]
 
 		for (const elementId of elementsToAssess) {
-			const key = `${ctrl.id}:${elementId ?? "null"}`
-			const assessment = assessmentLookup.get(key)
-
 			assessments.push({
 				controlUuid: ctrl.id,
 				controlId: ctrl.controlId,
@@ -370,10 +356,10 @@ export async function getAppAssessments(appId: string) {
 				})),
 				predefinedAnswers: predefined,
 				isScreeningDerived,
-				status: isScreeningDerived ? (assessment?.status ?? null) : null,
-				comment: isScreeningDerived ? (assessment?.comment ?? null) : null,
-				assessedBy: isScreeningDerived ? (assessment?.assessedBy ?? null) : null,
-				assessedAt: isScreeningDerived ? (assessment?.assessedAt?.toISOString() ?? null) : null,
+				status: null,
+				comment: null,
+				assessedBy: null,
+				assessedAt: null,
 			})
 		}
 	}

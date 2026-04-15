@@ -221,13 +221,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		routine: d.routine ? { ...d.routine, controls: routineControlsMap.get(d.routine.id) ?? [] } : d.routine,
 	}))
 
-	// Compute auto-compliance status
+	// Compute auto-compliance status (sole source of compliance status)
 	const screeningEffectsByControl = await getScreeningEffectsByControlForApp(appId)
 	const autoComplianceMap = computeAutoCompliance(
 		(assessmentsResult?.assessments ?? []).map((a) => ({
 			controlUuid: a.controlUuid,
 			technologyElementId: a.technologyElementId,
-			status: a.status as ComplianceStatus | null,
+			status: null,
 		})),
 		deadlinesWithControls,
 		screeningEffectsByControl,
@@ -239,12 +239,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const assessments = (assessmentsResult?.assessments ?? []).map((a) => {
 		const key = `${a.controlUuid}:${a.technologyElementId ?? "null"}`
 		const auto = autoComplianceMap.get(key)
-		const effectiveStatus = a.status ?? auto?.autoStatus ?? null
 		return {
 			...a,
 			autoStatus: auto?.autoStatus ?? null,
 			autoReason: auto?.reason ?? null,
-			effectiveStatus,
+			effectiveStatus: auto?.autoStatus ?? null,
 		}
 	})
 	const totalControls = assessments.length

@@ -362,14 +362,20 @@ export async function saveScreeningAnswer(
 		performedBy: answeredBy,
 	})
 
-	// Apply effects
-	if (answer !== null) {
-		await applyChoiceEffects(applicationId, questionId, answer, answeredBy)
-	}
+	// Effects are now derived on-the-fly by computeAutoCompliance via getScreeningEffectsByControlForApp.
+	// No need to write to complianceAssessments anymore.
 }
 
-/** Apply choice-based effects to compliance assessments. */
-async function applyChoiceEffects(applicationId: string, questionId: string, answerValue: string, performedBy: string) {
+/**
+ * @deprecated Legacy: wrote screening effects to complianceAssessments. No longer called.
+ * Effects are now derived on-the-fly by computeAutoCompliance.
+ */
+async function _applyChoiceEffects(
+	applicationId: string,
+	questionId: string,
+	answerValue: string,
+	performedBy: string,
+) {
 	// Find the choice matching the answer
 	const [choice] = await db
 		.select({ id: screeningQuestionChoices.id })
