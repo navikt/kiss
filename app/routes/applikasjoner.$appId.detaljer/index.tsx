@@ -2842,8 +2842,7 @@ function GroupsSection({
 					<Table size="small">
 						<Table.Header>
 							<Table.Row>
-								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Gruppe-ID</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Gruppe</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Kritikalitet</Table.HeaderCell>
 								{canAdmin && (
@@ -2862,17 +2861,19 @@ function GroupsSection({
 								return (
 									<Table.Row key={`${ug.source}-${ug.groupId}`}>
 										<Table.DataCell>
-											{displayName ?? (
-												<BodyShort size="small" textColor="subtle">
-													Ukjent
-												</BodyShort>
-											)}
-										</Table.DataCell>
-										<Table.DataCell>
-											<HStack gap="space-1" align="center">
-												<code style={{ fontSize: "var(--ax-font-size-sm)" }}>{ug.groupId}</code>
-												<CopyButton copyText={ug.groupId} size="xsmall" />
-											</HStack>
+											<VStack gap="space-1">
+												{displayName ?? (
+													<BodyShort size="small" textColor="subtle">
+														Ukjent
+													</BodyShort>
+												)}
+												<HStack gap="space-1" align="center">
+													<Detail textColor="subtle" style={{ fontFamily: "monospace" }}>
+														{ug.groupId}
+													</Detail>
+													<CopyButton copyText={ug.groupId} size="xsmall" />
+												</HStack>
+											</VStack>
 										</Table.DataCell>
 										<Table.DataCell>
 											{ug.source === "nais" && (
