@@ -246,12 +246,10 @@ export async function getSectionDetail(seksjonSlug: string) {
 			.filter((id) => !allAssignedAppIds.has(id) && !ignoredAppIds.has(id))
 	}
 
-	// Phase 3: Batch-fetch compliance stats and expected totals for ALL apps in one query
+	// Phase 3: Batch-fetch compliance stats and expected totals for ALL apps (sequential to limit connections)
 	const allAppIds = [...allAssignedAppIds, ...unassignedAppIds.filter((id) => !allAssignedAppIds.has(id))]
-	const [statsMap, totalsMap] = await Promise.all([
-		getBatchComplianceStats(allAppIds),
-		getBatchExpectedTotals(allAppIds),
-	])
+	const statsMap = await getBatchComplianceStats(allAppIds)
+	const totalsMap = await getBatchExpectedTotals(allAppIds)
 
 	// Phase 4: Build team stats from the pre-fetched map
 	const teamStats = teamAppMaps.map(({ team, allIds }) => {
@@ -501,13 +499,12 @@ export async function getTeamApps(teamSlug: string) {
 	const { allIds, directIds } = await getTeamAppIds(team.id, team.sectionId)
 
 	const appIdList = [...allIds]
-	const [appRows, statsMap, totalsMap] = await Promise.all([
+	const appRows =
 		appIdList.length > 0
-			? db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, appIdList))
-			: Promise.resolve([]),
-		getBatchComplianceStats(appIdList),
-		getBatchExpectedTotals(appIdList),
-	])
+			? await db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, appIdList))
+			: []
+	const statsMap = await getBatchComplianceStats(appIdList)
+	const totalsMap = await getBatchExpectedTotals(appIdList)
 
 	const appById = new Map(appRows.map((a) => [a.id, a]))
 
@@ -566,13 +563,12 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 	}
 
 	const allAppIds = [...appToTeams.keys()]
-	const [appRows, statsMap, totalsMap] = await Promise.all([
+	const appRows =
 		allAppIds.length > 0
-			? db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, allAppIds))
-			: Promise.resolve([]),
-		getBatchComplianceStats(allAppIds),
-		getBatchExpectedTotals(allAppIds),
-	])
+			? await db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, allAppIds))
+			: []
+	const statsMap = await getBatchComplianceStats(allAppIds)
+	const totalsMap = await getBatchExpectedTotals(allAppIds)
 
 	const appById = new Map(appRows.map((a) => [a.id, a]))
 

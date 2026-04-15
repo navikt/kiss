@@ -35,44 +35,76 @@ import { writeAuditLog } from "./audit.server"
 
 export async function getRoutinesForSection(sectionId: string) {
 	const rows = await db.select().from(routines).where(eq(routines.sectionId, sectionId)).orderBy(routines.name)
+	if (rows.length === 0) return []
 
-	return Promise.all(
-		rows.map(async (r) => {
-			const [elements, persLinks, [reviewCount], controlRows] = await Promise.all([
-				db
-					.select({
-						id: technologyElements.id,
-						name: technologyElements.name,
-					})
-					.from(routineTechnologyElements)
-					.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-					.where(eq(routineTechnologyElements.routineId, r.id)),
-				db.select().from(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, r.id)),
-				db.select({ count: sql<number>`count(*)::int` }).from(routineReviews).where(eq(routineReviews.routineId, r.id)),
-				db
-					.selectDistinct({
-						id: frameworkControls.id,
-						controlId: frameworkControls.controlId,
-						shortTitle: frameworkControls.shortTitle,
-					})
-					.from(routineControls)
-					.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
-					.where(eq(routineControls.routineId, r.id)),
-			])
+	const routineIds = rows.map((r) => r.id)
 
-			return {
-				...r,
-				technologyElements: elements,
-				persistenceLinks: persLinks,
-				reviewCount: reviewCount?.count ?? 0,
-				controls: controlRows.map((c) => ({
-					id: c.id,
-					controlId: c.controlId,
-					name: c.shortTitle ?? c.controlId,
-				})),
-			}
-		}),
-	)
+	// Batch all sub-queries (4 queries total instead of 4×N)
+	const [allElements, allPersLinks, allReviewCounts, allControlRows] = await Promise.all([
+		db
+			.select({
+				routineId: routineTechnologyElements.routineId,
+				id: technologyElements.id,
+				name: technologyElements.name,
+			})
+			.from(routineTechnologyElements)
+			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
+			.where(inArray(routineTechnologyElements.routineId, routineIds)),
+		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, routineIds)),
+		db
+			.select({
+				routineId: routineReviews.routineId,
+				count: sql<number>`count(*)::int`,
+			})
+			.from(routineReviews)
+			.where(inArray(routineReviews.routineId, routineIds))
+			.groupBy(routineReviews.routineId),
+		db
+			.selectDistinct({
+				routineId: routineControls.routineId,
+				id: frameworkControls.id,
+				controlId: frameworkControls.controlId,
+				shortTitle: frameworkControls.shortTitle,
+			})
+			.from(routineControls)
+			.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
+			.where(inArray(routineControls.routineId, routineIds)),
+	])
+
+	// Group results by routineId
+	const elementsByRoutine = new Map<string, { id: string; name: string }[]>()
+	for (const el of allElements) {
+		const arr = elementsByRoutine.get(el.routineId) ?? []
+		arr.push({ id: el.id, name: el.name })
+		elementsByRoutine.set(el.routineId, arr)
+	}
+
+	const persLinksByRoutine = new Map<string, typeof allPersLinks>()
+	for (const pl of allPersLinks) {
+		const arr = persLinksByRoutine.get(pl.routineId) ?? []
+		arr.push(pl)
+		persLinksByRoutine.set(pl.routineId, arr)
+	}
+
+	const reviewCountByRoutine = new Map<string, number>()
+	for (const rc of allReviewCounts) {
+		reviewCountByRoutine.set(rc.routineId, rc.count)
+	}
+
+	const controlsByRoutine = new Map<string, { id: string; controlId: string; name: string }[]>()
+	for (const cr of allControlRows) {
+		const arr = controlsByRoutine.get(cr.routineId) ?? []
+		arr.push({ id: cr.id, controlId: cr.controlId, name: cr.shortTitle ?? cr.controlId })
+		controlsByRoutine.set(cr.routineId, arr)
+	}
+
+	return rows.map((r) => ({
+		...r,
+		technologyElements: elementsByRoutine.get(r.id) ?? [],
+		persistenceLinks: persLinksByRoutine.get(r.id) ?? [],
+		reviewCount: reviewCountByRoutine.get(r.id) ?? 0,
+		controls: controlsByRoutine.get(r.id) ?? [],
+	}))
 }
 
 export async function getRoutine(id: string) {
