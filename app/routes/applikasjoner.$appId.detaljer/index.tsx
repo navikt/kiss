@@ -661,11 +661,6 @@ export default function ApplikasjonDetalj() {
 	const [routineSearch, setRoutineSearch] = useState("")
 	const [routineStatusFilter, setRoutineStatusFilter] = useState<string[]>([])
 
-	const routineStatusLabel = (dl: (typeof routineDeadlines)[number]): string => {
-		if (dl.overdue) return "Over frist"
-		if (dl.lastReviewDate) return "OK"
-		return "Ikke gjennomført"
-	}
 	const routineStatusKey = (dl: (typeof routineDeadlines)[number]): string => {
 		if (dl.overdue) return "overdue"
 		if (dl.lastReviewDate) return "ok"
