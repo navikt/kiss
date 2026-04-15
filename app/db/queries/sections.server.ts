@@ -246,7 +246,29 @@ export async function getSectionDetail(seksjonSlug: string) {
 		}
 	}
 
-	return { section, teams: teamStats, unassignedStats, allAppIds: [...allAssignedAppIds] }
+	// Phase 6: Compute deduplicated section-level totals (apps shared across teams counted once)
+	let sectionImplemented = 0
+	let sectionPartial = 0
+	let sectionNotImplemented = 0
+	let sectionNotRelevant = 0
+	for (const appId of allAppIds) {
+		const stats = statsMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0 }
+		sectionImplemented += stats.implemented
+		sectionPartial += stats.partial
+		sectionNotImplemented += stats.notImplemented
+		sectionNotRelevant += stats.notRelevant
+	}
+
+	const sectionTotals = {
+		apps: allAppIds.length,
+		implemented: sectionImplemented,
+		partial: sectionPartial,
+		notImplemented: sectionNotImplemented,
+		notRelevant: sectionNotRelevant,
+		total: totalControls * allAppIds.length,
+	}
+
+	return { section, teams: teamStats, unassignedStats, allAppIds, sectionTotals }
 }
 
 /** Generate a URL-friendly slug from a name. */

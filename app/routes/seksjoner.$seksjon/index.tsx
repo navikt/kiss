@@ -23,12 +23,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const seksjonName = result.section.name
 	const teams = result.teams
 	const unassigned = result.unassignedStats
+	const st = result.sectionTotals
 
-	const totalApps = teams.reduce((sum, t) => sum + t.apps, 0) + unassigned.apps
-	const totalImplemented = teams.reduce((sum, t) => sum + t.implemented, 0) + unassigned.implemented
-	const totalPartial = teams.reduce((sum, t) => sum + t.partial, 0) + unassigned.partial
-	const totalControls = teams.reduce((sum, t) => sum + t.total, 0) + unassigned.total
-	const totalNotRelevant = teams.reduce((sum, t) => sum + t.notRelevant, 0) + unassigned.notRelevant
+	const totalApps = st.apps
+	const totalImplemented = st.implemented
+	const totalPartial = st.partial
+	const totalControls = st.total
+	const totalNotRelevant = st.notRelevant
 	const totalMangler = totalControls - totalImplemented - totalPartial - totalNotRelevant
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
