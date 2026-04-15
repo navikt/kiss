@@ -920,93 +920,87 @@ function ScreeningEntraGroupsForm({
 									groupNames[ug.groupId] ?? manualGroups.find((mg) => mg.groupId === ug.groupId)?.groupName ?? null
 
 								return (
-									<>
-										{/* Row 1: name, source, criticality, actions */}
-										<Table.Row key={`${ug.source}-${ug.groupId}`} style={{ borderBottom: "none" }}>
-											<Table.DataCell>
+									<Table.Row key={`${ug.source}-${ug.groupId}`}>
+										<Table.DataCell>
+											<VStack gap="space-1">
 												<BodyShort size="small" weight="semibold">
 													{displayName ?? <span style={{ color: "var(--ax-text-subtle)" }}>Ukjent</span>}
 												</BodyShort>
-											</Table.DataCell>
-											<Table.DataCell>
-												{ug.source === "nais" && (
-													<Tag variant="info" size="xsmall">
-														Nais
-													</Tag>
-												)}
-												{ug.source === "manual" && (
-													<Tag variant="neutral" size="xsmall">
-														Manuell
-													</Tag>
-												)}
-												{ug.source === "removed" && (
-													<Tag variant="error" size="xsmall">
-														<ExclamationmarkTriangleIcon aria-hidden fontSize="1rem" /> Borte
-													</Tag>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>
-												<criticalityFetcher.Form method="post">
-													<input type="hidden" name="intent" value="set-group-criticality" />
-													<input type="hidden" name="groupId" value={ug.groupId} />
-													<Select
-														label="Kritikalitet"
-														hideLabel
-														size="small"
-														value={assessment?.criticality ?? ""}
-														onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-															criticalityFetcher.submit(
-																{
-																	intent: "set-group-criticality",
-																	groupId: ug.groupId,
-																	criticality: e.target.value,
-																},
-																{ method: "POST" },
-															)
-														}}
-														style={{ minWidth: "120px" }}
-													>
-														<option value="" disabled>
-															Velg…
-														</option>
-														{groupCriticalityEnum.map((c) => (
-															<option key={c} value={c}>
-																{groupCriticalityLabels[c]}
-															</option>
-														))}
-													</Select>
-												</criticalityFetcher.Form>
-											</Table.DataCell>
-											<Table.DataCell>
-												{ug.source === "manual" && ug.manualGroupDbId && (
-													<removeFetcher.Form method="post">
-														<input type="hidden" name="intent" value="remove-manual-group" />
-														<input type="hidden" name="manualGroupId" value={ug.manualGroupDbId} />
-														<Button
-															type="submit"
-															variant="tertiary-neutral"
-															size="xsmall"
-															icon={<TrashIcon aria-hidden />}
-															loading={removeFetcher.state !== "idle"}
-														>
-															Fjern
-														</Button>
-													</removeFetcher.Form>
-												)}
-											</Table.DataCell>
-										</Table.Row>
-										{/* Row 2: group ID */}
-										<Table.Row key={`${ug.source}-${ug.groupId}-id`}>
-											<Table.DataCell colSpan={4} style={{ paddingTop: 0 }}>
 												<HStack gap="space-1" align="center">
 													<Detail textColor="subtle" style={{ fontFamily: "monospace" }}>
 														{ug.groupId}
 													</Detail>
 													<CopyButton copyText={ug.groupId} size="xsmall" />
 												</HStack>
-											</Table.DataCell>
-										</Table.Row>
-									</>
+											</VStack>
+										</Table.DataCell>
+										<Table.DataCell>
+											{ug.source === "nais" && (
+												<Tag variant="info" size="xsmall">
+													Nais
+												</Tag>
+											)}
+											{ug.source === "manual" && (
+												<Tag variant="neutral" size="xsmall">
+													Manuell
+												</Tag>
+											)}
+											{ug.source === "removed" && (
+												<Tag variant="error" size="xsmall">
+													<ExclamationmarkTriangleIcon aria-hidden fontSize="1rem" /> Borte
+												</Tag>
+											)}
+										</Table.DataCell>
+										<Table.DataCell>
+											<criticalityFetcher.Form method="post">
+												<input type="hidden" name="intent" value="set-group-criticality" />
+												<input type="hidden" name="groupId" value={ug.groupId} />
+												<Select
+													label="Kritikalitet"
+													hideLabel
+													size="small"
+													value={assessment?.criticality ?? ""}
+													onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+														criticalityFetcher.submit(
+															{
+																intent: "set-group-criticality",
+																groupId: ug.groupId,
+																criticality: e.target.value,
+															},
+															{ method: "POST" },
+														)
+													}}
+													style={{ minWidth: "120px" }}
+												>
+													<option value="" disabled>
+														Velg…
+													</option>
+													{groupCriticalityEnum.map((c) => (
+														<option key={c} value={c}>
+															{groupCriticalityLabels[c]}
+														</option>
+													))}
+												</Select>
+											</criticalityFetcher.Form>
+										</Table.DataCell>
+										<Table.DataCell>
+											{ug.source === "manual" && ug.manualGroupDbId && (
+												<removeFetcher.Form method="post">
+													<input type="hidden" name="intent" value="remove-manual-group" />
+													<input type="hidden" name="manualGroupId" value={ug.manualGroupDbId} />
+													<Button
+														type="submit"
+														variant="tertiary-neutral"
+														size="xsmall"
+														icon={<TrashIcon aria-hidden />}
+														loading={removeFetcher.state !== "idle"}
+													>
+														Fjern
+													</Button>
+												</removeFetcher.Form>
+											)}
+										</Table.DataCell>
+									</Table.Row>
 								)
 							})}
 						</Table.Body>

@@ -786,7 +786,7 @@ export default function ApplikasjonDetalj() {
 							</VStack>
 						</HStack>
 					</HStack>
-					<Link to={`${appBase}/compliance`}>Gå til compliance-vurdering →</Link>
+					<Link to={`${appBase}/compliance`}>Gå til compliance-vurdering</Link>
 				</HStack>
 			</Box>
 
