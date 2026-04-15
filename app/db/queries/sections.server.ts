@@ -27,9 +27,9 @@ export async function getSectionBySlug(slug: string) {
 
 type ComplianceStats = { implemented: number; partial: number; notImplemented: number; notRelevant: number }
 
-/** Get compliance assessment counts for multiple applications in a single query.
- * When screeningControlsMap is provided, only counts assessments for screening-derived controls.
- * Controls not connected via screening are treated as "ikke vurdert" (not counted).
+/**
+ * @deprecated Leser fra complianceAssessments (legacy). Compliance skal utledes fra screening/rutiner/regelsett.
+ * Beholdes midlertidig for bakoverkompatibilitet.
  */
 async function getBatchComplianceStats(
 	appIds: string[],

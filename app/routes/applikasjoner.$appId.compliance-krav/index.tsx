@@ -1,3 +1,7 @@
+/**
+ * @deprecated Legacy compliance-krav side. Bruker complianceAssessments direkte.
+ * Compliance-status skal utledes fra screening-spørsmål, regelsett og rutiner.
+ */
 import {
 	Link as AkselLink,
 	Alert,

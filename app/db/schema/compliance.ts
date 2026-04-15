@@ -5,6 +5,11 @@ import { frameworkControls, technologyElements } from "./framework"
 
 export { COMPLIANCE_STATUSES as complianceStatusEnum, type ComplianceStatus }
 
+/**
+ * @deprecated Legacy tabell. Compliance-status skal nå utledes fra screening-spørsmål,
+ * regelsett og rutiner — ikke direkte vurderinger per kontroll.
+ * Ikke bruk denne tabellen i nye funksjoner.
+ */
 export const complianceAssessments = pgTable("compliance_assessments", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")
@@ -24,6 +29,10 @@ export const complianceAssessments = pgTable("compliance_assessments", {
 	updatedBy: text("updated_by").notNull(),
 })
 
+/**
+ * @deprecated Legacy tabell. Historikk for complianceAssessments.
+ * Ikke bruk i nye funksjoner.
+ */
 export const complianceAssessmentHistory = pgTable("compliance_assessment_history", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	assessmentId: uuid("assessment_id")

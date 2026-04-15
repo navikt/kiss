@@ -381,7 +381,7 @@ export async function getAppAssessments(appId: string) {
 	return { app, assessments, isInherited, primaryName, hasScreeningAnswers }
 }
 
-/** Save a compliance assessment (upsert). */
+/** @deprecated Legacy: bruker complianceAssessments. Compliance skal utledes fra screening/rutiner/regelsett. */
 export async function saveAssessment(
 	appId: string,
 	controlUuid: string,
@@ -452,7 +452,7 @@ export async function saveAssessment(
 	}
 }
 
-/** Save only a comment on an existing assessment (without changing status). */
+/** @deprecated Legacy: bruker complianceAssessments. Compliance skal utledes fra screening/rutiner/regelsett. */
 export async function saveAssessmentComment(
 	appId: string,
 	controlUuid: string,
