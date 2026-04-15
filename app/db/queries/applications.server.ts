@@ -497,39 +497,65 @@ export async function saveAssessmentComment(
 
 /** Get all monitored applications for a section's Nais teams, with compliance summary. */
 export async function getApplicationsForSection(sectionId: string) {
-	// Find apps belonging to nais teams linked to this section
-	const sectionNaisTeamRows = await db
-		.select({ id: naisTeams.id })
-		.from(naisTeams)
-		.where(eq(naisTeams.sectionId, sectionId))
-	if (sectionNaisTeamRows.length === 0) return []
+	// Find apps from two sources:
+	// 1. Nais teams linked to this section (via applicationEnvironments)
+	// 2. Direct team mappings (via applicationTeamMappings for section's dev teams)
+
+	const [sectionNaisTeamRows, sectionDevTeamRows] = await Promise.all([
+		db.select({ id: naisTeams.id }).from(naisTeams).where(eq(naisTeams.sectionId, sectionId)),
+		db.select({ id: devTeams.id }).from(devTeams).where(eq(devTeams.sectionId, sectionId)),
+	])
 
 	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
+	const devTeamIds = sectionDevTeamRows.map((t) => t.id)
 
-	// Load excluded environments
-	const excludedRows = await db
-		.select({ cluster: sectionExcludedEnvironments.cluster })
-		.from(sectionExcludedEnvironments)
-		.where(eq(sectionExcludedEnvironments.sectionId, sectionId))
-	const excludedEnvs = new Set(excludedRows.map((r) => r.cluster))
+	if (naisTeamIds.length === 0 && devTeamIds.length === 0) return []
 
-	const envConditions = [inArray(applicationEnvironments.naisTeamId, naisTeamIds)]
-	if (excludedEnvs.size > 0) {
-		const excludedArray = [...excludedEnvs]
-		envConditions.push(
-			sql`${applicationEnvironments.cluster} NOT IN (${sql.join(
-				excludedArray.map((e) => sql`${e}`),
-				sql`, `,
-			)})`,
-		)
+	// Collect app IDs from both sources
+	const allAppIdSet = new Set<string>()
+
+	// Source 1: Nais team apps (with environment filtering)
+	if (naisTeamIds.length > 0) {
+		const excludedRows = await db
+			.select({ cluster: sectionExcludedEnvironments.cluster })
+			.from(sectionExcludedEnvironments)
+			.where(eq(sectionExcludedEnvironments.sectionId, sectionId))
+		const excludedEnvs = new Set(excludedRows.map((r) => r.cluster))
+
+		const envConditions = [inArray(applicationEnvironments.naisTeamId, naisTeamIds)]
+		if (excludedEnvs.size > 0) {
+			const excludedArray = [...excludedEnvs]
+			envConditions.push(
+				sql`${applicationEnvironments.cluster} NOT IN (${sql.join(
+					excludedArray.map((e) => sql`${e}`),
+					sql`, `,
+				)})`,
+			)
+		}
+
+		const envApps = await db
+			.selectDistinct({ appId: applicationEnvironments.applicationId })
+			.from(applicationEnvironments)
+			.where(and(...envConditions))
+
+		for (const row of envApps) {
+			allAppIdSet.add(row.appId)
+		}
 	}
 
-	const envApps = await db
-		.selectDistinct({ appId: applicationEnvironments.applicationId })
-		.from(applicationEnvironments)
-		.where(and(...envConditions))
+	// Source 2: Directly-mapped apps from section's dev teams
+	if (devTeamIds.length > 0) {
+		const directApps = await db
+			.select({ appId: applicationTeamMappings.applicationId })
+			.from(applicationTeamMappings)
+			.where(inArray(applicationTeamMappings.devTeamId, devTeamIds))
 
-	const sectionAppIds = [...new Set(envApps.map((r) => r.appId))]
+		for (const row of directApps) {
+			allAppIdSet.add(row.appId)
+		}
+	}
+
+	const sectionAppIds = [...allAppIdSet]
 	if (sectionAppIds.length === 0) return []
 
 	// Get primary apps only (exclude linked/child apps)
