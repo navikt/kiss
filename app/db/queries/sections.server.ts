@@ -12,6 +12,7 @@ import { complianceAssessments } from "../schema/compliance"
 import { applicationTechnologyElements, controlTechnologyElements, frameworkControls } from "../schema/framework"
 import { devTeams, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
+import { getBatchScreeningDerivedControlIds } from "./screening.server"
 
 /** Get all sections. */
 export async function getSections() {
@@ -69,11 +70,15 @@ async function getBatchComplianceStats(appIds: string[]): Promise<Map<string, Co
 
 /**
  * Compute the expected total number of assessment items per app.
- * Mirrors the logic in getAppAssessments: for each active control,
- * count matching (control-element ∩ app-element) pairs. Controls with
- * no element mappings count as 1.
+ * Uses screening-derived controls when available (from screening answers → routines/rulesets → controls).
+ * Falls back to all active controls if no screening answers exist for an app.
+ * For each control, count matching (control-element ∩ app-element) pairs.
+ * Controls with no element mappings count as 1.
  */
-async function getBatchExpectedTotals(appIds: string[]): Promise<Map<string, number>> {
+async function getBatchExpectedTotals(
+	appIds: string[],
+	screeningControlsMap?: Map<string, Set<string>>,
+): Promise<Map<string, number>> {
 	const result = new Map<string, number>()
 	if (appIds.length === 0) return result
 	for (const id of appIds) result.set(id, 0)
@@ -124,8 +129,13 @@ async function getBatchExpectedTotals(appIds: string[]): Promise<Map<string, num
 
 	for (const appId of appIds) {
 		const appElements = elementsByApp.get(appId) ?? new Set<string>()
+		// Use screening-derived controls if available, otherwise all controls
+		const screeningControls = screeningControlsMap?.get(appId)
+		const applicableControls =
+			screeningControls && screeningControls.size > 0 ? controls.filter((c) => screeningControls.has(c.id)) : controls
+
 		let total = 0
-		for (const ctrl of controls) {
+		for (const ctrl of applicableControls) {
 			const ctrlElements = elementsByControl.get(ctrl.id)
 			if (!ctrlElements || ctrlElements.size === 0) {
 				total += 1
@@ -249,7 +259,8 @@ export async function getSectionDetail(seksjonSlug: string) {
 	// Phase 3: Batch-fetch compliance stats and expected totals for ALL apps (sequential to limit connections)
 	const allAppIds = [...allAssignedAppIds, ...unassignedAppIds.filter((id) => !allAssignedAppIds.has(id))]
 	const statsMap = await getBatchComplianceStats(allAppIds)
-	const totalsMap = await getBatchExpectedTotals(allAppIds)
+	const screeningControlsMap = await getBatchScreeningDerivedControlIds(allAppIds)
+	const totalsMap = await getBatchExpectedTotals(allAppIds, screeningControlsMap)
 
 	// Phase 4: Build team stats from the pre-fetched map
 	const teamStats = teamAppMaps.map(({ team, allIds }) => {
@@ -504,7 +515,8 @@ export async function getTeamApps(teamSlug: string) {
 			? await db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, appIdList))
 			: []
 	const statsMap = await getBatchComplianceStats(appIdList)
-	const totalsMap = await getBatchExpectedTotals(appIdList)
+	const screeningControlsMap = await getBatchScreeningDerivedControlIds(appIdList)
+	const totalsMap = await getBatchExpectedTotals(appIdList, screeningControlsMap)
 
 	const appById = new Map(appRows.map((a) => [a.id, a]))
 
@@ -568,7 +580,8 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 			? await db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, allAppIds))
 			: []
 	const statsMap = await getBatchComplianceStats(allAppIds)
-	const totalsMap = await getBatchExpectedTotals(allAppIds)
+	const screeningControlsMap = await getBatchScreeningDerivedControlIds(allAppIds)
+	const totalsMap = await getBatchExpectedTotals(allAppIds, screeningControlsMap)
 
 	const appById = new Map(appRows.map((a) => [a.id, a]))
 

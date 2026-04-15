@@ -19,6 +19,7 @@ import {
 } from "../schema/framework"
 import { devTeams } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
+import { getScreeningDerivedControlIds } from "./screening.server"
 
 /** Get all monitored applications with compliance summary (excludes linked/child apps). */
 export async function getApplications() {
@@ -194,7 +195,7 @@ export async function getAllTeams() {
 	return db.select({ id: devTeams.id, name: devTeams.name, slug: devTeams.slug }).from(devTeams).orderBy(devTeams.name)
 }
 
-/** Get compliance assessments for an application, filtered by matching technology elements. */
+/** Get compliance assessments for an application, filtered by screening-derived controls and technology elements. */
 export async function getAppAssessments(appId: string) {
 	const [app] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.id, appId)).limit(1)
 	if (!app) return null
@@ -213,6 +214,10 @@ export async function getAppAssessments(appId: string) {
 		primaryName = primary?.name ?? null
 	}
 
+	// Get screening-derived control IDs (empty set = no screening answers → fallback to all)
+	const screeningControlIds = await getScreeningDerivedControlIds(assessmentAppId)
+	const hasScreeningAnswers = screeningControlIds.size > 0
+
 	// Get app's confirmed technology elements (consistent with routine matching)
 	const appElements = await db
 		.select({ elementId: applicationTechnologyElements.elementId })
@@ -226,7 +231,7 @@ export async function getAppAssessments(appId: string) {
 		)
 	const appElementIds = new Set(appElements.map((e) => e.elementId))
 
-	const controls = await db
+	let controls = await db
 		.select({
 			id: frameworkControls.id,
 			controlId: frameworkControls.controlId,
@@ -238,6 +243,11 @@ export async function getAppAssessments(appId: string) {
 		.from(frameworkControls)
 		.where(isNull(frameworkControls.archivedAt))
 		.orderBy(frameworkControls.controlId)
+
+	// Filter to screening-derived controls if screening has been answered
+	if (hasScreeningAnswers) {
+		controls = controls.filter((c) => screeningControlIds.has(c.id))
+	}
 
 	// Get all control → element mappings
 	const controlElements = await db
@@ -368,7 +378,7 @@ export async function getAppAssessments(appId: string) {
 		}
 	}
 
-	return { app, assessments, isInherited, primaryName }
+	return { app, assessments, isInherited, primaryName, hasScreeningAnswers }
 }
 
 /** Save a compliance assessment (upsert). */

@@ -389,6 +389,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			notRelevant,
 			notAssessed,
 			percent: compliancePercent(implemented, partial, totalControls),
+			hasScreeningAnswers: assessmentsResult?.hasScreeningAnswers ?? false,
 		},
 		assessments,
 		appReports: appReports.map((r) => ({
@@ -882,6 +883,9 @@ export default function ApplikasjonDetalj() {
 
 						<BodyShort size="small" textColor="subtle">
 							Viser {filteredAssessments.length} av {assessments.length} kontroller
+							{compliance.hasScreeningAnswers
+								? " (basert på screening-svar)"
+								: " (alle kontroller — ingen screening-svar)"}
 						</BodyShort>
 
 						{groupedAssessments.map((group) => (

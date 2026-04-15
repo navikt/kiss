@@ -1,9 +1,10 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
-import { applicationEnvironments, naisTeams } from "../schema/applications"
+import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import { applicationTechnologyElements, frameworkControls } from "../schema/framework"
 import { routineControls, routines } from "../schema/routines"
+import { rulesetControls } from "../schema/rulesets"
 import {
 	screeningAnswers,
 	screeningChoiceEffects,
@@ -704,4 +705,189 @@ export async function getRoutineSelectionsForApp(applicationId: string) {
 		.where(
 			and(eq(screeningRoutineSelections.applicationId, applicationId), isNotNull(screeningRoutineSelections.routineId)),
 		)
+}
+
+// ─── Screening-derived control IDs ───────────────────────────────────────
+
+/**
+ * Returns the set of framework control UUIDs that are relevant to an app
+ * based on its screening answers. Controls come from 3 paths:
+ * 1. Direct choice effects (screening_choice_effects.controlId)
+ * 2. Routines selected via screening (screening_routine_selections → routine_controls)
+ * 3. Rulesets linked to answered questions (screening_questions.rulesetId → ruleset_controls)
+ *
+ * Returns empty set if no screening answers exist (caller should use fallback = all controls).
+ * Handles primaryApplicationId inheritance.
+ */
+export async function getScreeningDerivedControlIds(appId: string): Promise<Set<string>> {
+	// Handle primary application inheritance
+	const [app] = await db
+		.select({ primaryApplicationId: monitoredApplications.primaryApplicationId })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, appId))
+		.limit(1)
+	const screeningAppId = app?.primaryApplicationId ?? appId
+
+	// Check if any screening answers exist
+	const [answerCount] = await db
+		.select({ count: sql<number>`count(*)::int` })
+		.from(screeningAnswers)
+		.where(eq(screeningAnswers.applicationId, screeningAppId))
+	if (!answerCount || answerCount.count === 0) return new Set()
+
+	// Path 1: Direct control effects from answered choices
+	const directEffects = await db
+		.selectDistinct({ controlId: screeningChoiceEffects.controlId })
+		.from(screeningAnswers)
+		.innerJoin(
+			screeningQuestionChoices,
+			and(
+				eq(screeningQuestionChoices.questionId, screeningAnswers.questionId),
+				eq(screeningQuestionChoices.label, screeningAnswers.answer),
+			),
+		)
+		.innerJoin(screeningChoiceEffects, eq(screeningChoiceEffects.choiceId, screeningQuestionChoices.id))
+		.where(and(eq(screeningAnswers.applicationId, screeningAppId), isNotNull(screeningChoiceEffects.controlId)))
+
+	// Path 2: Controls via routines selected through screening
+	const routineEffects = await db
+		.selectDistinct({ controlId: routineControls.controlId })
+		.from(screeningRoutineSelections)
+		.innerJoin(routineControls, eq(routineControls.routineId, screeningRoutineSelections.routineId))
+		.where(
+			and(
+				eq(screeningRoutineSelections.applicationId, screeningAppId),
+				isNotNull(screeningRoutineSelections.routineId),
+			),
+		)
+
+	// Path 3: Controls via rulesets linked to answered questions
+	const rulesetEffects = await db
+		.selectDistinct({ controlId: rulesetControls.controlId })
+		.from(screeningAnswers)
+		.innerJoin(screeningQuestions, eq(screeningQuestions.id, screeningAnswers.questionId))
+		.innerJoin(rulesetControls, eq(rulesetControls.rulesetId, screeningQuestions.rulesetId))
+		.where(and(eq(screeningAnswers.applicationId, screeningAppId), isNotNull(screeningQuestions.rulesetId)))
+
+	const controlIds = new Set<string>()
+	for (const r of directEffects) if (r.controlId) controlIds.add(r.controlId)
+	for (const r of routineEffects) controlIds.add(r.controlId)
+	for (const r of rulesetEffects) controlIds.add(r.controlId)
+	return controlIds
+}
+
+/**
+ * Batch version of getScreeningDerivedControlIds for dashboard pages.
+ * Returns Map<appId, Set<controlUuid>>. Empty set = no screening answers.
+ * Handles primaryApplicationId inheritance.
+ */
+export async function getBatchScreeningDerivedControlIds(appIds: string[]): Promise<Map<string, Set<string>>> {
+	const result = new Map<string, Set<string>>()
+	if (appIds.length === 0) return result
+	for (const id of appIds) result.set(id, new Set())
+
+	// Resolve primary application IDs
+	const apps = await db
+		.select({ id: monitoredApplications.id, primaryApplicationId: monitoredApplications.primaryApplicationId })
+		.from(monitoredApplications)
+		.where(inArray(monitoredApplications.id, appIds))
+	const screeningAppIdMap = new Map<string, string>()
+	for (const a of apps) {
+		screeningAppIdMap.set(a.id, a.primaryApplicationId ?? a.id)
+	}
+	const screeningAppIds = [...new Set(screeningAppIdMap.values())]
+
+	// Check which apps have screening answers
+	const answerCounts = await db
+		.select({
+			applicationId: screeningAnswers.applicationId,
+			count: sql<number>`count(*)::int`,
+		})
+		.from(screeningAnswers)
+		.where(inArray(screeningAnswers.applicationId, screeningAppIds))
+		.groupBy(screeningAnswers.applicationId)
+	const appsWithAnswers = new Set(answerCounts.filter((a) => a.count > 0).map((a) => a.applicationId))
+
+	const answeredScreeningAppIds = screeningAppIds.filter((id) => appsWithAnswers.has(id))
+	if (answeredScreeningAppIds.length === 0) return result
+
+	// Path 1: Direct control effects
+	const directRows = await db
+		.select({
+			applicationId: screeningAnswers.applicationId,
+			controlId: screeningChoiceEffects.controlId,
+		})
+		.from(screeningAnswers)
+		.innerJoin(
+			screeningQuestionChoices,
+			and(
+				eq(screeningQuestionChoices.questionId, screeningAnswers.questionId),
+				eq(screeningQuestionChoices.label, screeningAnswers.answer),
+			),
+		)
+		.innerJoin(screeningChoiceEffects, eq(screeningChoiceEffects.choiceId, screeningQuestionChoices.id))
+		.where(
+			and(
+				inArray(screeningAnswers.applicationId, answeredScreeningAppIds),
+				isNotNull(screeningChoiceEffects.controlId),
+			),
+		)
+
+	// Path 2: Controls via selected routines
+	const routineRows = await db
+		.select({
+			applicationId: screeningRoutineSelections.applicationId,
+			controlId: routineControls.controlId,
+		})
+		.from(screeningRoutineSelections)
+		.innerJoin(routineControls, eq(routineControls.routineId, screeningRoutineSelections.routineId))
+		.where(
+			and(
+				inArray(screeningRoutineSelections.applicationId, answeredScreeningAppIds),
+				isNotNull(screeningRoutineSelections.routineId),
+			),
+		)
+
+	// Path 3: Controls via rulesets
+	const rulesetRows = await db
+		.select({
+			applicationId: screeningAnswers.applicationId,
+			controlId: rulesetControls.controlId,
+		})
+		.from(screeningAnswers)
+		.innerJoin(screeningQuestions, eq(screeningQuestions.id, screeningAnswers.questionId))
+		.innerJoin(rulesetControls, eq(rulesetControls.rulesetId, screeningQuestions.rulesetId))
+		.where(
+			and(inArray(screeningAnswers.applicationId, answeredScreeningAppIds), isNotNull(screeningQuestions.rulesetId)),
+		)
+
+	// Build per-screeningApp control sets
+	const controlsByScreeningApp = new Map<string, Set<string>>()
+	for (const r of directRows) {
+		if (!r.controlId) continue
+		const s = controlsByScreeningApp.get(r.applicationId) ?? new Set()
+		s.add(r.controlId)
+		controlsByScreeningApp.set(r.applicationId, s)
+	}
+	for (const r of routineRows) {
+		const s = controlsByScreeningApp.get(r.applicationId) ?? new Set()
+		s.add(r.controlId)
+		controlsByScreeningApp.set(r.applicationId, s)
+	}
+	for (const r of rulesetRows) {
+		const s = controlsByScreeningApp.get(r.applicationId) ?? new Set()
+		s.add(r.controlId)
+		controlsByScreeningApp.set(r.applicationId, s)
+	}
+
+	// Map back to original appIds (handling primary inheritance)
+	for (const appId of appIds) {
+		const screeningAppId = screeningAppIdMap.get(appId) ?? appId
+		const controls = controlsByScreeningApp.get(screeningAppId)
+		if (controls && controls.size > 0) {
+			result.set(appId, controls)
+		}
+	}
+
+	return result
 }
