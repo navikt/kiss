@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
 
 export const sections = pgTable("sections", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -103,3 +103,17 @@ export const userRoles = pgTable("user_roles", {
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 })
+
+export const sectionExcludedEnvironments = pgTable(
+	"section_excluded_environments",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		sectionId: uuid("section_id")
+			.notNull()
+			.references(() => sections.id),
+		cluster: text("cluster").notNull(),
+		excludedBy: text("excluded_by").notNull(),
+		excludedAt: timestamp("excluded_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [unique("uq_section_cluster").on(table.sectionId, table.cluster)],
+)

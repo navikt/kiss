@@ -26,12 +26,16 @@ import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "reac
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getApplicationsForSection, linkAppToTeam } from "~/db/queries/applications.server"
 import {
+	excludeEnvironment,
 	getAppsPersistence,
+	getDiscoveredEnvironments,
+	getExcludedEnvironments,
 	getIgnoredAppsForSection,
 	getNaisTeamsForSection,
 	getUnassignedAppsForSection,
 	getUnlinkedNaisTeams,
 	ignoreAppForSection,
+	includeEnvironment,
 	linkNaisTeamToSection,
 	unignoreAppForSection,
 	unlinkNaisTeamFromSection,
@@ -64,13 +68,24 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const sectionId = result.section.id
 
-	const [teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, sectionApps] = await Promise.all([
+	const [
+		teams,
+		linkedNaisTeams,
+		unlinkedNaisTeams,
+		unassignedApps,
+		ignoredApps,
+		sectionApps,
+		discoveredEnvironments,
+		excludedEnvironments,
+	] = await Promise.all([
 		getTeamsForSection(sectionId),
 		getNaisTeamsForSection(sectionId),
 		getUnlinkedNaisTeams(),
 		getUnassignedAppsForSection(sectionId),
 		getIgnoredAppsForSection(sectionId),
 		getApplicationsForSection(sectionId),
+		getDiscoveredEnvironments(sectionId),
+		getExcludedEnvironments(sectionId),
 	])
 
 	const sectionAppIds = sectionApps.map((a) => a.id)
@@ -109,6 +124,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		})),
 		sectionApps,
 		persistenceMap: Object.fromEntries(persistenceMap),
+		discoveredEnvironments,
+		excludedEnvironments: [...excludedEnvironments],
 		seksjon,
 	})
 }
@@ -196,6 +213,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirectToTab(seksjon, "alle-applikasjoner")
 	}
 
+	if (intent === "toggle-environment") {
+		const cluster = formData.get("cluster") as string
+		const enabled = formData.get("enabled") === "true"
+		if (!cluster) throw new Response("Mangler cluster", { status: 400 })
+		if (enabled) {
+			await includeEnvironment(result.section.id, cluster, userId)
+		} else {
+			await excludeEnvironment(result.section.id, cluster, userId)
+		}
+		return redirectToTab(seksjon, "nais")
+	}
+
 	throw new Response("Ugyldig handling", { status: 400 })
 }
 
@@ -209,6 +238,8 @@ export default function RedigerSeksjon() {
 		ignoredApps,
 		sectionApps,
 		persistenceMap,
+		discoveredEnvironments,
+		excludedEnvironments,
 		seksjon,
 	} = useLoaderData<typeof loader>()
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -450,6 +481,61 @@ export default function RedigerSeksjon() {
 								</Form>
 							)}
 						</VStack>
+
+						{discoveredEnvironments.length > 0 && (
+							<VStack gap="space-4">
+								<Heading size="medium" level="3">
+									Miljøfilter
+								</Heading>
+								<BodyShort>
+									Velg hvilke Nais-miljøer som skal inkluderes. Applikasjoner som kun finnes i deaktiverte miljøer vil
+									ikke telle med i team, compliance-oppsummering eller applikasjonslister.
+								</BodyShort>
+								{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+								<section className="table-scroll" tabIndex={0} aria-label="Miljøfilter">
+									<Table size="small">
+										<Table.Header>
+											<Table.Row>
+												<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+												<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+												<Table.HeaderCell scope="col" />
+											</Table.Row>
+										</Table.Header>
+										<Table.Body>
+											{discoveredEnvironments.map((cluster) => {
+												const isExcluded = excludedEnvironments.includes(cluster)
+												return (
+													<Table.Row key={cluster}>
+														<Table.DataCell>{cluster}</Table.DataCell>
+														<Table.DataCell>
+															{isExcluded ? (
+																<Tag variant="neutral" size="small">
+																	Deaktivert
+																</Tag>
+															) : (
+																<Tag variant="success" size="small">
+																	Aktiv
+																</Tag>
+															)}
+														</Table.DataCell>
+														<Table.DataCell align="right">
+															<Form method="post">
+																<input type="hidden" name="intent" value="toggle-environment" />
+																<input type="hidden" name="cluster" value={cluster} />
+																<input type="hidden" name="enabled" value={isExcluded ? "true" : "false"} />
+																<Button type="submit" variant="tertiary-neutral" size="xsmall">
+																	{isExcluded ? "Aktiver" : "Deaktiver"}
+																</Button>
+															</Form>
+														</Table.DataCell>
+													</Table.Row>
+												)
+											})}
+										</Table.Body>
+									</Table>
+								</section>
+							</VStack>
+						)}
 					</VStack>
 				</Tabs.Panel>
 

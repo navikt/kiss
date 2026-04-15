@@ -10,7 +10,7 @@ import {
 } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
 import { applicationTechnologyElements, controlTechnologyElements, frameworkControls } from "../schema/framework"
-import { devTeams, sections } from "../schema/organization"
+import { devTeams, sectionExcludedEnvironments, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 import { getBatchScreeningDerivedControlIds } from "./screening.server"
 
@@ -162,7 +162,7 @@ async function getBatchExpectedTotals(appIds: string[]): Promise<Map<string, num
 	return result
 }
 
-async function getTeamAppIds(teamId: string, sectionId: string) {
+async function getTeamAppIds(teamId: string, sectionId: string, excludedEnvs?: Set<string>) {
 	// Direct mappings
 	const directRows = await db
 		.select({ appId: applicationTeamMappings.applicationId })
@@ -192,16 +192,25 @@ async function getTeamAppIds(teamId: string, sectionId: string) {
 			).map((r) => r.appId),
 		)
 
+		const envConditions = [
+			sql`${applicationEnvironments.naisTeamId} IN (${sql.join(linkedNaisTeamIds, sql`, `)})`,
+			isNull(monitoredApplications.primaryApplicationId),
+		]
+		if (excludedEnvs && excludedEnvs.size > 0) {
+			const excludedArray = [...excludedEnvs]
+			envConditions.push(
+				sql`${applicationEnvironments.cluster} NOT IN (${sql.join(
+					excludedArray.map((e) => sql`${e}`),
+					sql`, `,
+				)})`,
+			)
+		}
+
 		const naisAppRows = await db
 			.selectDistinct({ appId: applicationEnvironments.applicationId })
 			.from(applicationEnvironments)
 			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
-			.where(
-				and(
-					sql`${applicationEnvironments.naisTeamId} IN (${sql.join(linkedNaisTeamIds, sql`, `)})`,
-					isNull(monitoredApplications.primaryApplicationId),
-				),
-			)
+			.where(and(...envConditions))
 		for (const row of naisAppRows) {
 			if (!ignoredAppIds.has(row.appId)) {
 				naisAppIds.add(row.appId)
@@ -221,12 +230,19 @@ export async function getSectionDetail(seksjonSlug: string) {
 
 	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, section.id)).orderBy(devTeams.name)
 
+	// Load excluded environments for this section
+	const excludedEnvRows = await db
+		.select({ cluster: sectionExcludedEnvironments.cluster })
+		.from(sectionExcludedEnvironments)
+		.where(eq(sectionExcludedEnvironments.sectionId, section.id))
+	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
+
 	// Phase 1: Collect all app IDs per team
 	const teamAppMaps: { team: (typeof teams)[0]; allIds: Set<string> }[] = []
 	const allAssignedAppIds = new Set<string>()
 
 	for (const team of teams) {
-		const { allIds } = await getTeamAppIds(team.id, section.id)
+		const { allIds } = await getTeamAppIds(team.id, section.id, excludedEnvs)
 		teamAppMaps.push({ team, allIds })
 		for (const id of allIds) {
 			allAssignedAppIds.add(id)
@@ -240,16 +256,25 @@ export async function getSectionDetail(seksjonSlug: string) {
 	let unassignedAppIds: string[] = []
 
 	if (naisTeamIds.length > 0) {
+		const envConditions = [
+			sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`,
+			isNull(monitoredApplications.primaryApplicationId),
+		]
+		if (excludedEnvs.size > 0) {
+			const excludedArray = [...excludedEnvs]
+			envConditions.push(
+				sql`${applicationEnvironments.cluster} NOT IN (${sql.join(
+					excludedArray.map((e) => sql`${e}`),
+					sql`, `,
+				)})`,
+			)
+		}
+
 		const naisAppRows = await db
 			.selectDistinct({ appId: applicationEnvironments.applicationId })
 			.from(applicationEnvironments)
 			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
-			.where(
-				and(
-					sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`,
-					isNull(monitoredApplications.primaryApplicationId),
-				),
-			)
+			.where(and(...envConditions))
 
 		const ignoredAppIds = new Set(
 			(
