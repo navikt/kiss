@@ -332,8 +332,9 @@ export async function getAppAssessments(appId: string) {
 		const matchingElements = ctrlElementIds.filter((eid) => appElementIds.has(eid))
 
 		// If no control elements defined, show for all apps (backwards compat)
-		// If no matching elements, skip this control
-		if (ctrlElementIds.length > 0 && matchingElements.length === 0) continue
+		// If app has no confirmed elements, show all controls (elements not yet confirmed)
+		// If control has elements but none match the app's confirmed elements, skip
+		if (ctrlElementIds.length > 0 && matchingElements.length === 0 && appElementIds.size > 0) continue
 
 		// Controls not connected via screening are forced to "ikke vurdert"
 		const isScreeningDerived = !hasScreeningAnswers || screeningControlIds.has(ctrl.id)

@@ -145,6 +145,9 @@ async function getBatchExpectedTotals(appIds: string[]): Promise<Map<string, num
 			const ctrlElements = elementsByControl.get(ctrl.id)
 			if (!ctrlElements || ctrlElements.size === 0) {
 				total += 1
+			} else if (appElements.size === 0) {
+				// App has no confirmed elements — count all controls as 1
+				total += 1
 			} else {
 				let matches = 0
 				for (const eid of ctrlElements) {
