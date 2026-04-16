@@ -1234,14 +1234,7 @@ export default function ApplikasjonDetalj() {
 													</Table.DataCell>
 													<Table.DataCell>
 														{a.effectiveStatus ? (
-															<HStack gap="space-2" align="center">
-																<ComplianceStatusBadge status={a.effectiveStatus as ComplianceStatus} />
-																{!a.status && a.autoStatus && (
-																	<Tag variant="alt1" size="xsmall">
-																		Beregnet
-																	</Tag>
-																)}
-															</HStack>
+															<ComplianceStatusBadge status={a.effectiveStatus as ComplianceStatus} />
 														) : (
 															<Tag variant="neutral" size="xsmall">
 																Ikke vurdert
