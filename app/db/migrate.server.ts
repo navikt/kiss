@@ -4,21 +4,170 @@ import path from "node:path"
 import { sql } from "drizzle-orm"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { logger } from "~/lib/logger.server"
-import { db } from "./connection.server"
+import { db, pool } from "./connection.server"
 
 const MIGRATIONS_FOLDER = "./drizzle"
 
+// Advisory lock key for migrations (stable hash of "drizzle-migrations")
+const MIGRATION_LOCK_KEY = 728371946
+
+/**
+ * Critical tables that must exist after migrations complete.
+ * Used by verifyMigrationHealth() to catch missing migrations.
+ */
+const CRITICAL_TABLES = [
+	"sections",
+	"monitored_applications",
+	"framework_controls",
+	"framework_domains",
+	"framework_risks",
+	"routines",
+	"routine_reviews",
+	"screening_questions",
+	"screening_answers",
+	"users",
+	"audit_log",
+	"application_controls",
+	"application_control_history",
+] as const
+
 export async function runMigrations() {
-	logger.info("Running database migrations...")
+	const startTime = Date.now()
+	logger.info("[migrations] Starting database migration process")
+
+	const client = await pool.connect()
 	try {
-		await seedTrackingForPushedDatabase()
-		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
-		logger.info("Database migrations completed successfully")
+		// Acquire blocking advisory lock — waits if another pod is migrating
+		logger.info(`[migrations] Acquiring advisory lock (key=${MIGRATION_LOCK_KEY})...`)
+		await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY])
+		logger.info("[migrations] Advisory lock acquired")
+
+		try {
+			await logTrackingState("before")
+			await seedTrackingForPushedDatabase()
+			await logPendingMigrations()
+
+			logger.info("[migrations] Running drizzle migrate()...")
+			await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
+
+			await logTrackingState("after")
+			await verifyMigrationHealth()
+
+			const elapsed = Date.now() - startTime
+			logger.info(`[migrations] Migration process completed successfully in ${elapsed}ms`)
+		} finally {
+			await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY])
+			logger.info("[migrations] Advisory lock released")
+		}
 	} catch (error) {
-		logger.error("Database migration failed", error)
+		const elapsed = Date.now() - startTime
+		logger.error(`[migrations] Migration failed after ${elapsed}ms`, error)
 		throw error
+	} finally {
+		client.release()
 	}
 }
+
+/**
+ * Log the current state of the migration tracking table.
+ */
+async function logTrackingState(phase: "before" | "after") {
+	try {
+		const [{ exists }] = (
+			await db.execute<{ exists: boolean }>(sql`
+			SELECT EXISTS (
+				SELECT FROM information_schema.tables
+				WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+			) AS exists
+		`)
+		).rows
+
+		if (!exists) {
+			logger.info(`[migrations] [${phase}] Tracking table does not exist yet`)
+			return
+		}
+
+		const [{ count }] = (
+			await db.execute<{ count: string }>(sql`
+			SELECT COUNT(*)::text AS count FROM drizzle."__drizzle_migrations"
+		`)
+		).rows
+
+		logger.info(`[migrations] [${phase}] Tracking table exists with ${count} applied migration(s)`)
+	} catch (error) {
+		logger.warn(`[migrations] [${phase}] Could not read tracking state`, { details: String(error) })
+	}
+}
+
+/**
+ * Log which migrations from the journal are not yet in the tracking table.
+ */
+async function logPendingMigrations() {
+	try {
+		const [{ exists }] = (
+			await db.execute<{ exists: boolean }>(sql`
+			SELECT EXISTS (
+				SELECT FROM information_schema.tables
+				WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+			) AS exists
+		`)
+		).rows
+
+		if (!exists) {
+			logger.info("[migrations] No tracking table — all migrations are pending")
+			return
+		}
+
+		const tracked = (
+			await db.execute<{ hash: string }>(sql`
+			SELECT hash FROM drizzle."__drizzle_migrations"
+		`)
+		).rows
+		const trackedHashes = new Set(tracked.map((r) => r.hash))
+
+		const journal = readJournal()
+		const pending: string[] = []
+		for (const entry of journal.entries) {
+			const sqlContent = fs.readFileSync(path.join(MIGRATIONS_FOLDER, `${entry.tag}.sql`)).toString()
+			const hash = crypto.createHash("sha256").update(sqlContent).digest("hex")
+			if (!trackedHashes.has(hash)) {
+				pending.push(entry.tag)
+			}
+		}
+
+		if (pending.length === 0) {
+			logger.info("[migrations] No pending migrations")
+		} else {
+			logger.info(`[migrations] ${pending.length} pending migration(s): ${pending.join(", ")}`)
+		}
+	} catch (error) {
+		logger.warn("[migrations] Could not determine pending migrations", { details: String(error) })
+	}
+}
+
+/**
+ * Verify that all critical tables exist after migration.
+ * Throws if any are missing — this catches migration failures that were silently swallowed.
+ */
+export async function verifyMigrationHealth() {
+	const result = await db.execute<{ tablename: string }>(sql`
+		SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+	`)
+	const existingTables = new Set(result.rows.map((r) => r.tablename))
+
+	logger.info(`[migrations] Post-migration: ${existingTables.size} public table(s) in database`)
+
+	const missing = CRITICAL_TABLES.filter((t) => !existingTables.has(t))
+	if (missing.length > 0) {
+		const error = new Error(`[migrations] CRITICAL: Missing tables after migration: ${missing.join(", ")}`)
+		logger.error(error.message)
+		throw error
+	}
+
+	logger.info(`[migrations] Health check passed — all ${CRITICAL_TABLES.length} critical tables present`)
+}
+
+// ─── Seed tracking for db:push transition ───────────────────────────────
 
 /**
  * Handles transition from `db:push` to `migrate()`.
@@ -27,8 +176,10 @@ export async function runMigrations() {
  * there is no migration tracking. This seeds the drizzle.__drizzle_migrations
  * table so `migrate()` skips already-applied migrations.
  *
- * Only seeds migrations whose CREATE TABLE targets actually exist in the
- * database, so new table migrations are left for `migrate()` to execute.
+ * For each migration in the journal:
+ * - CREATE TABLE migrations: skip if ANY target table doesn't exist yet
+ * - ALTER TABLE ADD COLUMN: skip if the column doesn't exist yet
+ * - All other migrations: seed as applied if target tables exist
  */
 async function seedTrackingForPushedDatabase() {
 	const [{ exists: trackingExists }] = (
@@ -40,7 +191,10 @@ async function seedTrackingForPushedDatabase() {
 	`)
 	).rows
 
-	if (trackingExists) return
+	if (trackingExists) {
+		logger.info("[migrations] Tracking table already exists — skipping seed")
+		return
+	}
 
 	const [{ exists: tablesExist }] = (
 		await db.execute<{ exists: boolean }>(sql`
@@ -51,9 +205,12 @@ async function seedTrackingForPushedDatabase() {
 	`)
 	).rows
 
-	if (!tablesExist) return
+	if (!tablesExist) {
+		logger.info("[migrations] Fresh database (no public tables) — skipping seed")
+		return
+	}
 
-	logger.info("Detected database created with db:push — seeding migration tracking...")
+	logger.info("[migrations] Detected database created with db:push — seeding migration tracking...")
 
 	await db.execute(sql`CREATE SCHEMA IF NOT EXISTS drizzle`)
 	await db.execute(sql`
@@ -65,18 +222,41 @@ async function seedTrackingForPushedDatabase() {
 	`)
 
 	const existingTables = await getExistingPublicTables()
+	const existingColumns = await getExistingColumns()
 
-	const journalPath = path.join(MIGRATIONS_FOLDER, "meta", "_journal.json")
-	const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as {
-		entries: { idx: number; when: number; tag: string }[]
+	const journal = readJournal()
+
+	// Pre-process: find all tables/columns that are dropped by any migration.
+	// These may have been created in earlier migrations but removed later,
+	// so the CREATE/ADD should still be seeded as applied.
+	const droppedTables = new Set<string>()
+	const droppedColumns = new Set<string>()
+	for (const entry of journal.entries) {
+		const content = fs.readFileSync(path.join(MIGRATIONS_FOLDER, `${entry.tag}.sql`)).toString()
+		for (const t of extractDropTableNames(content)) droppedTables.add(t)
+		for (const c of extractDropColumns(content)) droppedColumns.add(c)
 	}
 
 	let seeded = 0
+	let skipped = 0
+	let stopSeeding = false
 	for (const entry of journal.entries) {
 		const sqlContent = fs.readFileSync(path.join(MIGRATIONS_FOLDER, `${entry.tag}.sql`)).toString()
 
-		if (migrationTargetsNewStructure(sqlContent, existingTables)) {
-			logger.info(`Skipping migration ${entry.tag} — targets structure that does not exist yet`)
+		// Drizzle uses a timestamp watermark: it only applies migrations AFTER
+		// the last tracked one. If we skip migration N but seed N+1, Drizzle will
+		// never go back to apply N. So once we skip, we must stop seeding entirely.
+		if (stopSeeding) {
+			logger.info(`[migrations] Seed SKIP ${entry.tag} — previous migration was skipped (watermark)`)
+			skipped++
+			continue
+		}
+
+		const skipReason = shouldSkipMigration(sqlContent, existingTables, existingColumns, droppedTables, droppedColumns)
+		if (skipReason) {
+			logger.info(`[migrations] Seed SKIP ${entry.tag} — ${skipReason}`)
+			skipped++
+			stopSeeding = true
 			continue
 		}
 
@@ -85,10 +265,18 @@ async function seedTrackingForPushedDatabase() {
 			INSERT INTO drizzle."__drizzle_migrations" (hash, created_at)
 			VALUES (${hash}, ${entry.when})
 		`)
+		logger.info(`[migrations] Seed APPLIED ${entry.tag}`)
 		seeded++
 	}
 
-	logger.info(`Seeded ${seeded} of ${journal.entries.length} migration(s) into tracking table`)
+	logger.info(`[migrations] Seeded ${seeded}, skipped ${skipped} of ${journal.entries.length} migration(s)`)
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────
+
+function readJournal(): { entries: { idx: number; when: number; tag: string }[] } {
+	const journalPath = path.join(MIGRATIONS_FOLDER, "meta", "_journal.json")
+	return JSON.parse(fs.readFileSync(journalPath, "utf-8"))
 }
 
 async function getExistingPublicTables(): Promise<Set<string>> {
@@ -98,27 +286,110 @@ async function getExistingPublicTables(): Promise<Set<string>> {
 	return new Set(result.rows.map((r) => r.tablename))
 }
 
-function extractCreateTableName(sqlContent: string): string | null {
-	const match = sqlContent.match(/CREATE TABLE[^"]*"(\w+)"/)
-	return match?.[1] ?? null
-}
-
-function extractAlterTableName(sqlContent: string): string | null {
-	const match = sqlContent.match(/ALTER TABLE[^"]*"(\w+)"/)
-	return match?.[1] ?? null
+async function getExistingColumns(): Promise<Set<string>> {
+	const result = await db.execute<{ table_name: string; column_name: string }>(sql`
+		SELECT table_name, column_name FROM information_schema.columns
+		WHERE table_schema = 'public'
+	`)
+	return new Set(result.rows.map((r) => `${r.table_name}.${r.column_name}`))
 }
 
 /**
- * Check if a migration creates new structure (table or column) that does not exist yet.
- * Returns true if the migration should be left for migrate() to execute.
+ * Determine if a migration should be SKIPPED during seed tracking
+ * (i.e. left for migrate() to execute because it targets new structure).
+ *
+ * Returns a reason string if skip, or null if should be seeded as applied.
+ *
+ * Handles the case where a migration creates a table/column that is later
+ * dropped by a subsequent migration — those are still seeded as applied.
  */
-function migrationTargetsNewStructure(sqlContent: string, existingTables: Set<string>): boolean {
-	const newTable = extractCreateTableName(sqlContent)
-	if (newTable && !existingTables.has(newTable)) return true
+function shouldSkipMigration(
+	sqlContent: string,
+	existingTables: Set<string>,
+	existingColumns: Set<string>,
+	droppedTables: Set<string>,
+	droppedColumns: Set<string>,
+): string | null {
+	// Check ALL CREATE TABLE statements — skip if ANY target table doesn't exist
+	// UNLESS the table was dropped by a later migration (create+drop = both applied)
+	const createTableNames = extractAllCreateTableNames(sqlContent)
+	for (const tableName of createTableNames) {
+		if (!existingTables.has(tableName) && !droppedTables.has(tableName)) {
+			return `table "${tableName}" does not exist`
+		}
+	}
 
-	// ALTER TABLE on a table that doesn't exist → also new
-	const alteredTable = extractAlterTableName(sqlContent)
-	if (alteredTable && !existingTables.has(alteredTable)) return true
+	// Check ALTER TABLE ADD COLUMN — skip if the column doesn't exist
+	// UNLESS the column was dropped by a later migration
+	const addedColumns = extractAlterTableAddColumns(sqlContent)
+	for (const { table, column } of addedColumns) {
+		if (!existingTables.has(table) && !droppedTables.has(table)) {
+			return `table "${table}" does not exist`
+		}
+		const colKey = `${table}.${column}`
+		if (!existingColumns.has(colKey) && !droppedColumns.has(colKey)) {
+			return `column "${colKey}" does not exist`
+		}
+	}
 
-	return false
+	return null
+}
+
+/** Extract all table names from CREATE TABLE statements. */
+function extractAllCreateTableNames(sqlContent: string): string[] {
+	const names: string[] = []
+	const regex = /CREATE TABLE[^"]*"(\w+)"/g
+	let match = regex.exec(sqlContent)
+	while (match) {
+		names.push(match[1])
+		match = regex.exec(sqlContent)
+	}
+	return names
+}
+
+/** Extract table.column pairs from ALTER TABLE ... ADD COLUMN statements. */
+function extractAlterTableAddColumns(sqlContent: string): Array<{ table: string; column: string }> {
+	const results: Array<{ table: string; column: string }> = []
+	const regex = /ALTER TABLE\s+"(\w+)"\s+ADD COLUMN\s+"(\w+)"/g
+	let match = regex.exec(sqlContent)
+	while (match) {
+		results.push({ table: match[1], column: match[2] })
+		match = regex.exec(sqlContent)
+	}
+	return results
+}
+
+/** Extract table names from DROP TABLE statements. */
+function extractDropTableNames(sqlContent: string): string[] {
+	const names: string[] = []
+	const regex = /DROP TABLE[^"]*"(\w+)"/g
+	let match = regex.exec(sqlContent)
+	while (match) {
+		names.push(match[1])
+		match = regex.exec(sqlContent)
+	}
+	return names
+}
+
+/** Extract table.column keys from ALTER TABLE ... DROP COLUMN statements. */
+function extractDropColumns(sqlContent: string): string[] {
+	const results: string[] = []
+	const regex = /ALTER TABLE\s+"(\w+)"\s+DROP COLUMN[^"]*"(\w+)"/g
+	let match = regex.exec(sqlContent)
+	while (match) {
+		results.push(`${match[1]}.${match[2]}`)
+		match = regex.exec(sqlContent)
+	}
+	return results
+}
+
+// Export internals for testing
+export const _testing = {
+	shouldSkipMigration,
+	extractAllCreateTableNames,
+	extractAlterTableAddColumns,
+	extractDropTableNames,
+	extractDropColumns,
+	CRITICAL_TABLES,
+	MIGRATION_LOCK_KEY,
 }

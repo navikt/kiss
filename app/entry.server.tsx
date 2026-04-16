@@ -11,15 +11,19 @@ import { startDeploymentAuditScheduler, stopDeploymentAuditScheduler } from "~/l
 import { logger } from "~/lib/logger.server"
 import { startNaisScheduler } from "~/lib/nais-scheduler.server"
 
-// Run database migrations, then start background schedulers
+// Run database migrations, then start background schedulers.
+// The promise is awaited in handleRequest to block traffic until ready.
+let migrationDone = false
 const migrationPromise = runMigrations()
 	.then(() => {
+		migrationDone = true
 		startNaisScheduler()
 		startAuditSummaryScheduler()
 		startDeploymentAuditScheduler()
 	})
 	.catch((error) => {
 		logger.error("Failed to run migrations, shutting down", error)
+		// Exit immediately — do not let the catch resolve normally
 		process.exit(1)
 	})
 
@@ -56,8 +60,14 @@ export default async function handleRequest(
 	routerContext: EntryContext,
 	_loadContext: AppLoadContext,
 ) {
-	// Ensure database migrations have completed before handling any requests
+	// Block until migrations complete. If they already finished, this resolves immediately.
 	await migrationPromise
+	if (!migrationDone) {
+		return new Response("Service Unavailable — database migrations have not completed", {
+			status: 503,
+			headers: { "Retry-After": "5" },
+		})
+	}
 
 	if (request.method.toUpperCase() === "HEAD") {
 		return new Response(null, {

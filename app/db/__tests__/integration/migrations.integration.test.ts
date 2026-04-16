@@ -2,7 +2,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import pg from "pg"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import * as schema from "../../schema/index"
 
 let container: StartedPostgreSqlContainer
@@ -18,112 +18,467 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { runMigrations } = await import("~/db/migrate.server")
+const { runMigrations, verifyMigrationHealth, _testing } = await import("~/db/migrate.server")
 
-describe("Database migration on empty database", () => {
+async function getTableNames(): Promise<string[]> {
+	const result = await testDb.execute<{ table_name: string }>(sql`
+		SELECT table_name FROM information_schema.tables
+		WHERE table_schema = 'public'
+		ORDER BY table_name
+	`)
+	return result.rows.map((r) => r.table_name)
+}
+
+async function getTrackingCount(): Promise<number> {
+	try {
+		const result = await testDb.execute<{ count: string }>(sql`
+			SELECT COUNT(*)::text AS count FROM drizzle."__drizzle_migrations"
+		`)
+		return Number(result.rows[0].count)
+	} catch {
+		return -1
+	}
+}
+
+async function trackingTableExists(): Promise<boolean> {
+	const result = await testDb.execute<{ exists: boolean }>(sql`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+		) AS exists
+	`)
+	return result.rows[0].exists
+}
+
+async function dropAllPublicTables() {
+	await testDb.execute(sql`
+		DO $$ DECLARE r RECORD;
+		BEGIN
+			FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+				EXECUTE 'DROP TABLE IF EXISTS "' || r.tablename || '" CASCADE';
+			END LOOP;
+		END $$
+	`)
+	await testDb.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`)
+}
+
+// ─── Test suite ─────────────────────────────────────────────────────────
+
+describe("Database migrations", () => {
 	beforeAll(async () => {
 		container = await new PostgreSqlContainer("postgres:17-alpine")
 			.withDatabase("kiss_migration_test")
 			.withUsername("test")
 			.withPassword("test")
 			.start()
-
-		pool = new pg.Pool({ connectionString: container.getConnectionUri() })
-		testDb = drizzle(pool, { schema })
 	})
 
 	afterAll(async () => {
-		await pool?.end()
+		try {
+			await pool?.end()
+		} catch {
+			// pool may already be ended by afterEach
+		}
 		await container?.stop()
 	})
 
-	it("should run migrations successfully on an empty database", async () => {
-		await runMigrations()
-
-		const result = await testDb.execute<{ table_name: string }>(sql`
-			SELECT table_name FROM information_schema.tables
-			WHERE table_schema = 'public'
-			ORDER BY table_name
-		`)
-
-		const tableNames = result.rows.map((r) => r.table_name)
-
-		const expectedTables = [
-			"application_auth_integrations",
-			"application_environments",
-			"application_persistence",
-			"application_team_mappings",
-			"audit_log",
-			"bucket_objects",
-			"clusters",
-			"compliance_assessment_history",
-			"compliance_assessments",
-			"dev_team_nais_team_mappings",
-			"dev_teams",
-			"documents",
-			"framework_controls",
-			"framework_domains",
-			"framework_field_history",
-			"framework_risk_control_mappings",
-			"framework_risks",
-			"framework_versions",
-			"monitored_applications",
-			"nais_teams",
-			"reports",
-			"routine_review_attachments",
-			"routine_review_links",
-			"routine_review_participants",
-			"routine_reviews",
-			"routines",
-			"screening_answers",
-			"screening_question_choices",
-			"screening_question_effects",
-			"screening_questions",
-			"sections",
-			"user_roles",
-			"users",
-		]
-
-		for (const table of expectedTables) {
-			expect(tableNames, `Missing table: ${table}`).toContain(table)
-		}
+	beforeEach(async () => {
+		pool = new pg.Pool({ connectionString: container.getConnectionUri() })
+		testDb = drizzle(pool, { schema })
+		await dropAllPublicTables()
 	})
 
-	it("should have created the migration tracking table", async () => {
-		const result = await testDb.execute<{ count: string }>(sql`
-			SELECT COUNT(*)::text AS count FROM drizzle."__drizzle_migrations"
-		`)
-
-		expect(Number(result.rows[0].count)).toBeGreaterThan(0)
+	afterEach(async () => {
+		await pool?.end()
 	})
 
-	it("should be idempotent — running migrations again does nothing", async () => {
-		await expect(runMigrations()).resolves.not.toThrow()
+	// ── 1. Fresh empty database ─────────────────────────────────────────
+
+	describe("fresh empty database", () => {
+		it("should apply all migrations and create all tables", async () => {
+			await runMigrations()
+
+			const tableNames = await getTableNames()
+
+			const expectedTables = [
+				"application_auth_integrations",
+				"application_control_history",
+				"application_controls",
+				"application_environments",
+				"application_group_assessments",
+				"application_manual_groups",
+				"application_persistence",
+				"application_team_mappings",
+				"audit_log",
+				"bucket_objects",
+				"clusters",
+				"compliance_assessment_history",
+				"compliance_assessments",
+				"control_technology_elements",
+				"dev_team_nais_team_mappings",
+				"dev_teams",
+				"documents",
+				"framework_controls",
+				"framework_domains",
+				"framework_field_history",
+				"framework_risk_control_mappings",
+				"framework_risks",
+				"framework_versions",
+				"monitored_applications",
+				"nais_teams",
+				"reports",
+				"routine_controls",
+				"routine_persistence_links",
+				"routine_review_activities",
+				"routine_review_activity_entra_changes",
+				"routine_review_attachments",
+				"routine_review_links",
+				"routine_review_participants",
+				"routine_reviews",
+				"routine_screening_questions",
+				"routine_technology_elements",
+				"routines",
+				"ruleset_controls",
+				"ruleset_routines",
+				"rulesets",
+				"screening_answers",
+				"screening_choice_effects",
+				"screening_question_choices",
+				"screening_question_effects",
+				"screening_question_technology_elements",
+				"screening_questions",
+				"screening_routine_selections",
+				"section_excluded_environments",
+				"section_ignored_applications",
+				"sections",
+				"technology_elements",
+				"user_preferences",
+				"user_roles",
+				"users",
+			]
+
+			for (const table of expectedTables) {
+				expect(tableNames, `Missing table: ${table}`).toContain(table)
+			}
+		})
+
+		it("should create the migration tracking table with all entries", async () => {
+			await runMigrations()
+
+			expect(await trackingTableExists()).toBe(true)
+			const count = await getTrackingCount()
+			expect(count).toBeGreaterThanOrEqual(34)
+		})
+
+		it("should include application_controls table (migration 0032)", async () => {
+			await runMigrations()
+
+			const tableNames = await getTableNames()
+			expect(tableNames).toContain("application_controls")
+			expect(tableNames).toContain("application_control_history")
+
+			// Verify the table has expected columns
+			const columns = await testDb.execute<{ column_name: string }>(sql`
+				SELECT column_name FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'application_controls'
+				ORDER BY column_name
+			`)
+			const colNames = columns.rows.map((r) => r.column_name)
+			expect(colNames).toContain("application_id")
+			expect(colNames).toContain("control_id")
+			expect(colNames).toContain("is_active")
+			expect(colNames).toContain("comment")
+		})
+
+		it("should include routine status column (migration 0033)", async () => {
+			await runMigrations()
+
+			const columns = await testDb.execute<{ column_name: string }>(sql`
+				SELECT column_name FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'routines'
+				ORDER BY column_name
+			`)
+			const colNames = columns.rows.map((r) => r.column_name)
+			expect(colNames).toContain("status")
+		})
 	})
 
-	it("should apply new migrations on subsequent startups", async () => {
-		const countBefore = await testDb.execute<{ count: string }>(sql`
-			SELECT COUNT(*)::text AS count FROM drizzle."__drizzle_migrations"
-		`)
-		const migrationsBefore = Number(countBefore.rows[0].count)
+	// ── 2. Idempotency ──────────────────────────────────────────────────
 
-		// Simulate adding a new migration by creating a test table
-		await testDb.execute(sql`
-			CREATE TABLE IF NOT EXISTS _migration_test_marker (id serial PRIMARY KEY)
-		`)
+	describe("idempotency", () => {
+		it("should be safe to run migrations multiple times", async () => {
+			await runMigrations()
+			const countAfterFirst = await getTrackingCount()
 
-		// Run migrations again — should complete without error
-		// (no new migration files, so count stays the same)
-		await runMigrations()
+			await expect(runMigrations()).resolves.not.toThrow()
+			const countAfterSecond = await getTrackingCount()
 
-		const countAfter = await testDb.execute<{ count: string }>(sql`
-			SELECT COUNT(*)::text AS count FROM drizzle."__drizzle_migrations"
-		`)
-		const migrationsAfter = Number(countAfter.rows[0].count)
+			expect(countAfterSecond).toBe(countAfterFirst)
+		})
 
-		expect(migrationsAfter).toBe(migrationsBefore)
+		it("should not duplicate tracking entries on repeated runs", async () => {
+			await runMigrations()
+			await runMigrations()
+			await runMigrations()
 
-		// Clean up test marker
-		await testDb.execute(sql`DROP TABLE _migration_test_marker`)
+			const result = await testDb.execute<{ hash: string; cnt: string }>(sql`
+				SELECT hash, COUNT(*)::text AS cnt FROM drizzle."__drizzle_migrations"
+				GROUP BY hash HAVING COUNT(*) > 1
+			`)
+			expect(result.rows).toHaveLength(0)
+		})
+	})
+
+	// ── 3. Partial migration state ──────────────────────────────────────
+	// Note: Drizzle uses a timestamp watermark — it only applies migrations
+	// with timestamps AFTER the last tracked one. You cannot "un-apply" an
+	// older migration and expect Drizzle to re-apply it.
+
+	describe("partial migration state", () => {
+		it("should apply the LAST migration when only its tracking entry is removed", async () => {
+			// Run all migrations first
+			await runMigrations()
+			const fullCount = await getTrackingCount()
+
+			// Remove ONLY the very last tracking entry (migration 0033)
+			// and undo its change (drop the routines.status column)
+			await testDb.execute(sql`
+				DELETE FROM drizzle."__drizzle_migrations"
+				WHERE id = (
+					SELECT id FROM drizzle."__drizzle_migrations"
+					ORDER BY id DESC LIMIT 1
+				)
+			`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "status"`)
+
+			const reducedCount = await getTrackingCount()
+			expect(reducedCount).toBe(fullCount - 1)
+
+			// Run migrations again — should re-apply only migration 0033
+			await runMigrations()
+
+			// Verify the status column was re-added
+			const columns = await testDb.execute<{ column_name: string }>(sql`
+				SELECT column_name FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'routines'
+			`)
+			expect(columns.rows.map((r) => r.column_name)).toContain("status")
+
+			const finalCount = await getTrackingCount()
+			expect(finalCount).toBe(fullCount)
+		})
+	})
+
+	// ── 4. db:push transition (seed tracking) ───────────────────────────
+
+	describe("db:push transition", () => {
+		it("should seed tracking and apply new migrations on a db:push database", async () => {
+			// First, run all migrations normally to create the full schema
+			await runMigrations()
+
+			// Now simulate a db:push database: tables exist but no tracking
+			await testDb.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`)
+			expect(await trackingTableExists()).toBe(false)
+
+			// Run migrations — should detect db:push, seed tracking, then complete
+			await runMigrations()
+
+			expect(await trackingTableExists()).toBe(true)
+			const count = await getTrackingCount()
+			expect(count).toBeGreaterThanOrEqual(34)
+		})
+
+		it("should correctly handle missing tables during seeding (watermark stop)", async () => {
+			// Run all migrations to get the full schema
+			await runMigrations()
+
+			// Drop tracking and drop the application_controls tables
+			// This simulates a db:push DB that was created before migration 0032
+			await testDb.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`)
+			await testDb.execute(sql`DROP TABLE IF EXISTS "application_control_history" CASCADE`)
+			await testDb.execute(sql`DROP TABLE IF EXISTS "application_controls" CASCADE`)
+			// Also drop what 0033 adds since seeding must stop at 0032
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "status"`)
+
+			// Run migrations — seed should stop at 0032 (tables don't exist),
+			// then migrate() applies 0032 and 0033
+			await runMigrations()
+
+			const tableNames = await getTableNames()
+			expect(tableNames).toContain("application_controls")
+			expect(tableNames).toContain("application_control_history")
+
+			// Verify routines.status column was also applied
+			const columns = await testDb.execute<{ column_name: string }>(sql`
+				SELECT column_name FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'routines'
+			`)
+			expect(columns.rows.map((r) => r.column_name)).toContain("status")
+		})
+	})
+
+	// ── 5. Advisory lock (concurrent migration) ─────────────────────────
+
+	describe("advisory lock", () => {
+		it("should prevent concurrent migration conflicts", async () => {
+			// Run two migrations concurrently — advisory lock ensures only one runs at a time
+			const [result1, result2] = await Promise.all([runMigrations(), runMigrations()])
+
+			// Both should succeed (second one waits for first, then finds nothing to do)
+			expect(result1).toBeUndefined()
+			expect(result2).toBeUndefined()
+
+			// No duplicate entries
+			const result = await testDb.execute<{ hash: string; cnt: string }>(sql`
+				SELECT hash, COUNT(*)::text AS cnt FROM drizzle."__drizzle_migrations"
+				GROUP BY hash HAVING COUNT(*) > 1
+			`)
+			expect(result.rows).toHaveLength(0)
+
+			// All tables exist
+			const tableNames = await getTableNames()
+			expect(tableNames).toContain("application_controls")
+			expect(tableNames).toContain("routines")
+		})
+	})
+
+	// ── 6. Post-migration health verification ───────────────────────────
+
+	describe("post-migration health check", () => {
+		it("should pass after successful migration", async () => {
+			await runMigrations()
+			await expect(verifyMigrationHealth()).resolves.not.toThrow()
+		})
+
+		it("should fail when critical tables are missing", async () => {
+			await runMigrations()
+
+			// Drop a critical table
+			await testDb.execute(sql`DROP TABLE IF EXISTS "application_control_history" CASCADE`)
+			await testDb.execute(sql`DROP TABLE IF EXISTS "application_controls" CASCADE`)
+
+			await expect(verifyMigrationHealth()).rejects.toThrow("Missing tables after migration")
+		})
+
+		it("should list all critical tables in CRITICAL_TABLES constant", () => {
+			expect(_testing.CRITICAL_TABLES).toContain("application_controls")
+			expect(_testing.CRITICAL_TABLES).toContain("application_control_history")
+			expect(_testing.CRITICAL_TABLES).toContain("sections")
+			expect(_testing.CRITICAL_TABLES).toContain("routines")
+			expect(_testing.CRITICAL_TABLES).toContain("users")
+		})
+	})
+})
+
+// ─── Unit tests for seed helpers ────────────────────────────────────────
+
+describe("Migration seed helpers", () => {
+	it("extractAllCreateTableNames should find all CREATE TABLE statements", () => {
+		const sqlContent = `
+			CREATE TABLE "table_a" ("id" uuid PRIMARY KEY);
+			CREATE TABLE "table_b" ("id" uuid PRIMARY KEY);
+		`
+		const names = _testing.extractAllCreateTableNames(sqlContent)
+		expect(names).toEqual(["table_a", "table_b"])
+	})
+
+	it("extractAllCreateTableNames should handle CREATE TABLE IF NOT EXISTS", () => {
+		const sqlContent = `CREATE TABLE IF NOT EXISTS "my_table" ("id" uuid);`
+		const names = _testing.extractAllCreateTableNames(sqlContent)
+		expect(names).toEqual(["my_table"])
+	})
+
+	it("extractAlterTableAddColumns should find ADD COLUMN statements", () => {
+		const sqlContent = `
+			ALTER TABLE "routines" ADD COLUMN "status" text DEFAULT 'active' NOT NULL;
+			ALTER TABLE "users" ADD COLUMN "last_login_at" timestamp;
+		`
+		const cols = _testing.extractAlterTableAddColumns(sqlContent)
+		expect(cols).toEqual([
+			{ table: "routines", column: "status" },
+			{ table: "users", column: "last_login_at" },
+		])
+	})
+
+	it("extractDropTableNames should find DROP TABLE statements", () => {
+		const sqlContent = `DROP TABLE "audit_evidence_sections" CASCADE;`
+		const names = _testing.extractDropTableNames(sqlContent)
+		expect(names).toEqual(["audit_evidence_sections"])
+	})
+
+	it("extractDropColumns should find DROP COLUMN statements", () => {
+		const sqlContent = `
+			ALTER TABLE "routines" DROP COLUMN IF EXISTS "persistence_type";
+			ALTER TABLE "routines" DROP COLUMN IF EXISTS "data_classification";
+		`
+		const cols = _testing.extractDropColumns(sqlContent)
+		expect(cols).toEqual(["routines.persistence_type", "routines.data_classification"])
+	})
+
+	it("shouldSkipMigration should skip when CREATE TABLE target doesn't exist", () => {
+		const sqlContent = `CREATE TABLE "new_table" ("id" uuid PRIMARY KEY);`
+		const tables = new Set(["sections", "users"])
+		const columns = new Set(["sections.id", "users.id"])
+
+		expect(_testing.shouldSkipMigration(sqlContent, tables, columns, new Set(), new Set())).toBe(
+			'table "new_table" does not exist',
+		)
+	})
+
+	it("shouldSkipMigration should skip when ANY CREATE TABLE target doesn't exist", () => {
+		const sqlContent = `
+			CREATE TABLE "existing_table" ("id" uuid PRIMARY KEY);
+			CREATE TABLE "new_table" ("id" uuid PRIMARY KEY);
+		`
+		const tables = new Set(["existing_table", "sections"])
+		const columns = new Set<string>()
+
+		expect(_testing.shouldSkipMigration(sqlContent, tables, columns, new Set(), new Set())).toBe(
+			'table "new_table" does not exist',
+		)
+	})
+
+	it("shouldSkipMigration should skip when ALTER TABLE ADD COLUMN targets missing column", () => {
+		const sqlContent = `ALTER TABLE "routines" ADD COLUMN "status" text DEFAULT 'active' NOT NULL;`
+		const tables = new Set(["routines"])
+		const columns = new Set(["routines.name", "routines.frequency"])
+
+		expect(_testing.shouldSkipMigration(sqlContent, tables, columns, new Set(), new Set())).toBe(
+			'column "routines.status" does not exist',
+		)
+	})
+
+	it("shouldSkipMigration should NOT skip when all targets exist", () => {
+		const sqlContent = `ALTER TABLE "routines" ADD COLUMN "status" text DEFAULT 'active' NOT NULL;`
+		const tables = new Set(["routines"])
+		const columns = new Set(["routines.name", "routines.status"])
+
+		expect(_testing.shouldSkipMigration(sqlContent, tables, columns, new Set(), new Set())).toBeNull()
+	})
+
+	it("shouldSkipMigration should NOT skip index-only migrations when table exists", () => {
+		const sqlContent = `CREATE INDEX "idx_test" ON "routines" ("name");`
+		const tables = new Set(["routines"])
+		const columns = new Set<string>()
+
+		expect(_testing.shouldSkipMigration(sqlContent, tables, columns, new Set(), new Set())).toBeNull()
+	})
+
+	it("shouldSkipMigration should NOT skip CREATE TABLE when table was later dropped", () => {
+		const sqlContent = `CREATE TABLE "old_table" ("id" uuid PRIMARY KEY);`
+		const tables = new Set(["sections"]) // old_table doesn't exist
+		const columns = new Set<string>()
+		const droppedTables = new Set(["old_table"]) // but it was dropped by a later migration
+
+		expect(_testing.shouldSkipMigration(sqlContent, tables, columns, droppedTables, new Set())).toBeNull()
+	})
+
+	it("shouldSkipMigration should NOT skip ADD COLUMN when column was later dropped", () => {
+		const sqlContent = `ALTER TABLE "routines" ADD COLUMN "old_col" text;`
+		const tables = new Set(["routines"])
+		const columns = new Set(["routines.name"]) // old_col doesn't exist
+		const droppedColumns = new Set(["routines.old_col"]) // but it was dropped later
+
+		expect(_testing.shouldSkipMigration(sqlContent, tables, columns, new Set(), droppedColumns)).toBeNull()
 	})
 })
