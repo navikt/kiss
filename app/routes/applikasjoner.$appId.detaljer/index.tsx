@@ -1223,7 +1223,9 @@ export default function ApplikasjonDetalj() {
 													colSpan={8}
 												>
 													<Table.DataCell>{a.domainName}</Table.DataCell>
-													<Table.DataCell>{a.controlId}</Table.DataCell>
+													<Table.DataCell>
+														<Link to={`/kontrollrammeverk/${a.domainCode}/${a.controlId}`}>{a.controlId}</Link>
+													</Table.DataCell>
 													<Table.DataCell>{a.controlName}</Table.DataCell>
 													<Table.DataCell>
 														{a.technologyElementName ? (
