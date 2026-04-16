@@ -27,6 +27,7 @@ export interface UserWithRoles {
 	navIdent: string
 	name: string
 	email: string | null
+	lastLoginAt: Date | null
 	roles: UserRoleEntry[]
 }
 
@@ -106,6 +107,7 @@ export async function listUsersWithRoles(): Promise<UserWithRoles[]> {
 			navIdent: users.navIdent,
 			name: users.name,
 			email: users.email,
+			lastLoginAt: users.lastLoginAt,
 		})
 		.from(users)
 		.orderBy(users.name)

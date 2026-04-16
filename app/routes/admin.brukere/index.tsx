@@ -153,6 +153,17 @@ function UserRow({ user }: { user: UserWithRoles }) {
 				<Table.DataCell>{user.name}</Table.DataCell>
 				<Table.DataCell>{user.email ?? "–"}</Table.DataCell>
 				<Table.DataCell>
+					{user.lastLoginAt
+						? new Date(user.lastLoginAt).toLocaleString("nb-NO", {
+								day: "2-digit",
+								month: "2-digit",
+								year: "numeric",
+								hour: "2-digit",
+								minute: "2-digit",
+							})
+						: "–"}
+				</Table.DataCell>
+				<Table.DataCell>
 					{user.roles.length === 0 ? (
 						<BodyLong size="small" textColor="subtle">
 							Ingen roller
@@ -288,6 +299,7 @@ export default function AdminBrukere() {
 								<Table.HeaderCell scope="col">NAV-ident</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
 								<Table.HeaderCell scope="col">E-post</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Sist logget inn</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Roller</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
@@ -297,7 +309,7 @@ export default function AdminBrukere() {
 							))}
 							{filtered.length === 0 && (
 								<Table.Row>
-									<Table.DataCell colSpan={4}>
+									<Table.DataCell colSpan={5}>
 										<BodyLong size="small" textColor="subtle">
 											{filter ? "Ingen brukere matcher søket." : "Ingen brukere registrert ennå."}
 										</BodyLong>
