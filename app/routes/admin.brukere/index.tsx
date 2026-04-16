@@ -1,6 +1,8 @@
+import { PlusIcon } from "@navikt/aksel-icons"
 import {
 	Alert,
 	BodyLong,
+	BodyShort,
 	Button,
 	Heading,
 	HStack,
@@ -78,7 +80,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
 			return data<ActionResult>({
 				success: true,
-				message: `Rolle «${userRoleLabels[role as UserRole]}» tildelt ${navIdent.trim().toUpperCase()}.`,
+				message: `Rolle «${userRoleLabels[role as UserRole]}» tildelt ${name.trim()}.`,
 			})
 		}
 
@@ -143,8 +145,80 @@ function RemoveRoleModal({
 	)
 }
 
-function UserRow({ user }: { user: UserWithRoles }) {
+function AddRoleModal({
+	open,
+	onClose,
+	user,
+	sections,
+	teams,
+}: {
+	open: boolean
+	onClose: () => void
+	user: UserWithRoles
+	sections: Array<{ id: string; name: string }>
+	teams: Array<{ id: string; name: string }>
+}) {
+	return (
+		<Modal open={open} onClose={onClose} header={{ heading: `Tildel rolle til ${user.name}` }}>
+			<Form method="post" onSubmit={onClose}>
+				<Modal.Body>
+					<input type="hidden" name="intent" value="assign-role" />
+					<input type="hidden" name="userId" value={user.id} />
+					<input type="hidden" name="navIdent" value={user.navIdent} />
+					<input type="hidden" name="name" value={user.name} />
+					<VStack gap="space-4">
+						<Select label="Rolle" name="role">
+							<option value="">Velg rolle</option>
+							{userRoleEnum.map((r) => (
+								<option key={r} value={r}>
+									{userRoleLabels[r]}
+								</option>
+							))}
+						</Select>
+						<Select label="Seksjon (valgfri)" name="sectionId">
+							<option value="">Ingen</option>
+							{sections.map((s) => (
+								<option key={s.id} value={s.id}>
+									{s.name}
+								</option>
+							))}
+						</Select>
+						<Select label="Team (valgfritt)" name="devTeamId">
+							<option value="">Ingen</option>
+							{teams.map((t) => (
+								<option key={t.id} value={t.id}>
+									{t.name}
+								</option>
+							))}
+						</Select>
+					</VStack>
+				</Modal.Body>
+				<Modal.Footer>
+					<HStack gap="space-4">
+						<Button type="submit" variant="primary">
+							Tildel rolle
+						</Button>
+						<Button type="button" variant="tertiary" onClick={onClose}>
+							Avbryt
+						</Button>
+					</HStack>
+				</Modal.Footer>
+			</Form>
+		</Modal>
+	)
+}
+
+function UserRow({
+	user,
+	sections,
+	teams,
+}: {
+	user: UserWithRoles
+	sections: Array<{ id: string; name: string }>
+	teams: Array<{ id: string; name: string }>
+}) {
 	const [removeOpen, setRemoveOpen] = useState<string | null>(null)
+	const [addRoleOpen, setAddRoleOpen] = useState(false)
 
 	return (
 		<>
@@ -164,33 +238,41 @@ function UserRow({ user }: { user: UserWithRoles }) {
 						: "–"}
 				</Table.DataCell>
 				<Table.DataCell>
-					{user.roles.length === 0 ? (
-						<BodyLong size="small" textColor="subtle">
-							Ingen roller
-						</BodyLong>
-					) : (
-						<HStack gap="space-2" wrap>
-							{user.roles.map((r) => {
-								const scope = r.sectionName ?? r.devTeamName
-								return (
-									<HStack key={r.id} gap="space-1" align="center">
-										<Tag variant="info" size="xsmall">
-											{userRoleLabels[r.role]}
-											{scope ? ` (${scope})` : ""}
-										</Tag>
-										<Button
-											variant="tertiary-neutral"
-											size="xsmall"
-											onClick={() => setRemoveOpen(r.id)}
-											aria-label={`Fjern rolle ${userRoleLabels[r.role]}`}
-										>
-											✕
-										</Button>
-									</HStack>
-								)
-							})}
-						</HStack>
-					)}
+					<HStack gap="space-2" wrap align="center">
+						{user.roles.length === 0 && (
+							<BodyShort size="small" textColor="subtle">
+								Ingen roller
+							</BodyShort>
+						)}
+						{user.roles.map((r) => {
+							const scope = r.sectionName ?? r.devTeamName
+							return (
+								<HStack key={r.id} gap="space-1" align="center">
+									<Tag variant="info" size="xsmall">
+										{userRoleLabels[r.role]}
+										{scope ? ` (${scope})` : ""}
+									</Tag>
+									<Button
+										variant="tertiary-neutral"
+										size="xsmall"
+										onClick={() => setRemoveOpen(r.id)}
+										aria-label={`Fjern rolle ${userRoleLabels[r.role]}`}
+									>
+										✕
+									</Button>
+								</HStack>
+							)
+						})}
+						<Button
+							variant="tertiary"
+							size="xsmall"
+							icon={<PlusIcon aria-hidden />}
+							onClick={() => setAddRoleOpen(true)}
+							aria-label={`Legg til rolle for ${user.name}`}
+						>
+							Rolle
+						</Button>
+					</HStack>
 				</Table.DataCell>
 			</Table.Row>
 			{user.roles.map((r) => (
@@ -203,6 +285,13 @@ function UserRow({ user }: { user: UserWithRoles }) {
 					userName={user.name}
 				/>
 			))}
+			<AddRoleModal
+				open={addRoleOpen}
+				onClose={() => setAddRoleOpen(false)}
+				user={user}
+				sections={sections}
+				teams={teams}
+			/>
 		</>
 	)
 }
@@ -225,7 +314,7 @@ export default function AdminBrukere() {
 			<Heading size="xlarge" level="2">
 				Brukere og roller
 			</Heading>
-			<BodyLong>Tildel og fjern roller for brukere. Roller kan scopes til en seksjon eller et team.</BodyLong>
+			<BodyLong>Administrer roller for brukere. Roller kan knyttes til en seksjon eller et team.</BodyLong>
 
 			{actionData && "success" in actionData && actionData.success && (
 				<Alert variant="success">{actionData.message}</Alert>
@@ -233,52 +322,6 @@ export default function AdminBrukere() {
 			{actionData && "success" in actionData && !actionData.success && (
 				<Alert variant="error">{actionData.error}</Alert>
 			)}
-
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Tildel rolle
-				</Heading>
-				<Form method="post">
-					<input type="hidden" name="intent" value="assign-role" />
-					<VStack gap="space-4">
-						<HStack gap="space-4" wrap>
-							<TextField label="NAV-ident" name="navIdent" htmlSize={12} />
-							<TextField label="Navn" name="name" htmlSize={30} />
-							<Select label="Rolle" name="role">
-								<option value="">Velg rolle</option>
-								{userRoleEnum.map((r) => (
-									<option key={r} value={r}>
-										{userRoleLabels[r]}
-									</option>
-								))}
-							</Select>
-						</HStack>
-						<HStack gap="space-4" wrap>
-							<Select label="Seksjon (valgfri)" name="sectionId">
-								<option value="">Ingen</option>
-								{sections.map((s) => (
-									<option key={s.id} value={s.id}>
-										{s.name}
-									</option>
-								))}
-							</Select>
-							<Select label="Team (valgfritt)" name="devTeamId">
-								<option value="">Ingen</option>
-								{teams.map((t) => (
-									<option key={t.id} value={t.id}>
-										{t.name}
-									</option>
-								))}
-							</Select>
-						</HStack>
-						<div>
-							<Button type="submit" variant="primary">
-								Tildel rolle
-							</Button>
-						</div>
-					</VStack>
-				</Form>
-			</VStack>
 
 			<VStack gap="space-4">
 				<Heading size="medium" level="3">
@@ -305,7 +348,7 @@ export default function AdminBrukere() {
 						</Table.Header>
 						<Table.Body>
 							{filtered.map((u) => (
-								<UserRow key={u.id} user={u} />
+								<UserRow key={u.id} user={u} sections={sections} teams={teams} />
 							))}
 							{filtered.length === 0 && (
 								<Table.Row>
