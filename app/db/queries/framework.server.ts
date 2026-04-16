@@ -4,8 +4,8 @@ import type { ParsedFramework } from "~/lib/excel-parser.server"
 import { deriveCronFrequency } from "~/lib/frequency-mapping"
 import { parseTechnologyElements } from "~/lib/technology-element-parser"
 import { db } from "../connection.server"
+import { applicationControls } from "../schema/application-controls"
 import { monitoredApplications } from "../schema/applications"
-import { complianceAssessments } from "../schema/compliance"
 import {
 	controlDependencies,
 	controlPredefinedAnswers,
@@ -83,18 +83,18 @@ export async function getDomainSummaries() {
 		.groupBy(frameworkRisks.domainId)
 	const riskCountMap = new Map(riskCounts.map((r) => [r.domainId, r.count]))
 
-	// Batch: compliance stats by controlId + status
+	// Batch: compliance stats by controlId + status from application_controls
 	const complianceByControl = new Map<string, Map<string, number>>()
 	if (allControlIds.length > 0) {
 		const compRows = await db
 			.select({
-				controlId: complianceAssessments.controlId,
-				status: complianceAssessments.status,
+				controlId: applicationControls.controlId,
+				status: applicationControls.status,
 				count: count(),
 			})
-			.from(complianceAssessments)
-			.where(inArray(complianceAssessments.controlId, allControlIds))
-			.groupBy(complianceAssessments.controlId, complianceAssessments.status)
+			.from(applicationControls)
+			.where(and(inArray(applicationControls.controlId, allControlIds), eq(applicationControls.isActive, true)))
+			.groupBy(applicationControls.controlId, applicationControls.status)
 
 		for (const row of compRows) {
 			let controlMap = complianceByControl.get(row.controlId)
@@ -102,7 +102,7 @@ export async function getDomainSummaries() {
 				controlMap = new Map()
 				complianceByControl.set(row.controlId, controlMap)
 			}
-			controlMap.set(row.status, row.count)
+			controlMap.set(row.status ?? "null", row.count)
 		}
 	}
 
@@ -277,14 +277,14 @@ export async function getDomainDetail(domainCode: string) {
 				.from(frameworkControls)
 				.where(and(eq(frameworkControls.id, mapping.controlId), isNull(frameworkControls.archivedAt)))
 			if (ctrl) {
-				// Fetch compliance assessments for this control
+				// Fetch compliance assessments for this control from application_controls
 				const assessments = await db
 					.select({
-						appId: complianceAssessments.applicationId,
-						status: complianceAssessments.status,
+						appId: applicationControls.applicationId,
+						status: applicationControls.status,
 					})
-					.from(complianceAssessments)
-					.where(eq(complianceAssessments.controlId, ctrl.id))
+					.from(applicationControls)
+					.where(and(eq(applicationControls.controlId, ctrl.id), eq(applicationControls.isActive, true)))
 
 				const assessmentMap = new Map(assessments.map((a) => [a.appId, a.status]))
 				let implemented = 0
@@ -1044,7 +1044,17 @@ export async function applyFrameworkImport(
 		for (const controlBizId of invalidatedControlIds) {
 			const controlUuid = controlIdToUuid.get(controlBizId)
 			if (controlUuid) {
-				await db.delete(complianceAssessments).where(eq(complianceAssessments.controlId, controlUuid))
+				// Soft-deactivate application_controls for invalidated controls
+				await db
+					.update(applicationControls)
+					.set({
+						isActive: false,
+						deactivatedAt: now,
+						deactivatedReason: "control_invalidated_by_framework_update",
+						updatedAt: now,
+						updatedBy: appliedBy,
+					})
+					.where(and(eq(applicationControls.controlId, controlUuid), eq(applicationControls.isActive, true)))
 			}
 		}
 	}

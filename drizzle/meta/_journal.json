@@ -225,6 +225,13 @@
       "when": 1781911000000,
       "tag": "0031_dear_dexter_bennett",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1776343471407,
+      "tag": "0032_application_controls",
+      "breakpoints": true
     }
   ]
 }

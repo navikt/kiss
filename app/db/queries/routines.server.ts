@@ -583,6 +583,12 @@ export async function completeReview(reviewId: string, performedBy: string) {
 		performedBy,
 	})
 
+	// Sync materialized compliance controls for the app after routine completion
+	if (existing.applicationId) {
+		const { syncApplicationControls } = await import("./application-controls.server")
+		await syncApplicationControls(existing.applicationId, performedBy)
+	}
+
 	return getReview(reviewId)
 }
 
