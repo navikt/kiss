@@ -1,5 +1,5 @@
 import type { SortState } from "@navikt/ds-react"
-import { BodyLong, BodyShort, Box, Detail, Heading, HGrid, HStack, Search, Table, VStack } from "@navikt/ds-react"
+import { BodyLong, Box, Detail, Heading, HGrid, Search, Table, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
@@ -21,7 +21,6 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
 	return data({
-		seksjon,
 		seksjonName: result.section.name,
 		apps: result.apps,
 		totalApps: result.apps.length,
@@ -35,7 +34,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 type SortKey = "appName" | "team" | "implemented" | "partial" | "notImplemented" | "unanswered" | "pct"
 
 export default function SeksjonApplikasjoner() {
-	const { seksjon, seksjonName, apps, totalApps, totalImplemented, totalPartial, overallPercent } =
+	const { seksjonName, apps, totalApps, totalImplemented, totalPartial, overallPercent } =
 		useLoaderData<typeof loader>()
 	const [search, setSearch] = useState("")
 	const [sort, setSort] = useState<SortState>({ orderBy: "appName", direction: "ascending" })
@@ -87,32 +86,6 @@ export default function SeksjonApplikasjoner() {
 
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "80rem" }}>
-			<nav aria-label="Brødsmulesti">
-				<HStack gap="space-2" as="ol" style={{ listStyle: "none", padding: 0, margin: 0 }}>
-					<li>
-						<Link to="/">🏠</Link>
-					</li>
-					<BodyShort as="li" aria-hidden>
-						›
-					</BodyShort>
-					<li>
-						<Link to="/seksjoner">Seksjoner</Link>
-					</li>
-					<BodyShort as="li" aria-hidden>
-						›
-					</BodyShort>
-					<li>
-						<Link to={`/seksjoner/${seksjon}`}>{seksjonName}</Link>
-					</li>
-					<BodyShort as="li" aria-hidden>
-						›
-					</BodyShort>
-					<li aria-current="page">
-						<BodyShort weight="semibold">Applikasjoner</BodyShort>
-					</li>
-				</HStack>
-			</nav>
-
 			<Heading size="xlarge" level="2">
 				Applikasjoner i {seksjonName}
 			</Heading>

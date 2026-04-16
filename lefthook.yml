@@ -6,3 +6,5 @@ pre-commit:
       run: pnpm biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
     typecheck:
       run: pnpm typecheck
+    test:
+      run: pnpm test
