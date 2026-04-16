@@ -248,7 +248,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	// Build section ID → slug lookup for routine links
 	const sectionSlugMap = Object.fromEntries(allSections.map((s) => [s.id, s.slug]))
 
-	const assessments = (assessmentsResult?.assessments ?? []).map((a) => {
+	const assessmentsBase = (assessmentsResult?.assessments ?? []).map((a) => {
 		const key = `${a.controlUuid}:${a.technologyElementId ?? "null"}`
 		const auto = autoComplianceMap.get(key)
 		return {
@@ -261,6 +261,22 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			routinesEstablished: auto?.routinesEstablished ?? 0,
 			routinesCompleted: auto?.routinesCompleted ?? 0,
 			routinesOverdue: auto?.routinesOverdue ?? 0,
+		}
+	})
+
+	// Load persisted application_controls to get IDs + comments
+	const { getActiveApplicationControls } = await import("~/db/queries/application-controls.server")
+	const persistedControls = await getActiveApplicationControls(appId)
+	const persistedMap = new Map(persistedControls.map((c) => [`${c.controlId}:${c.technologyElementId ?? "null"}`, c]))
+
+	const assessments = assessmentsBase.map((a) => {
+		const persisted = persistedMap.get(`${a.controlUuid}:${a.technologyElementId ?? "null"}`)
+		return {
+			...a,
+			applicationControlId: persisted?.id ?? null,
+			comment: persisted?.comment ?? null,
+			commentUpdatedAt: persisted?.commentUpdatedAt?.toISOString() ?? null,
+			commentUpdatedBy: persisted?.commentUpdatedBy ?? null,
 		}
 	})
 	const totalControls = assessments.length
@@ -604,7 +620,109 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return data({ success: true, message: "Kritikalitet oppdatert.", error: null })
 	}
 
+	if (intent === "save-control-comment") {
+		const applicationControlId = formData.get("applicationControlId") as string
+		if (!applicationControlId) return data({ success: false, message: null, error: "Mangler kontroll-ID" })
+		const comment = (formData.get("comment") as string)?.trim() || null
+		const { updateControlComment } = await import("~/db/queries/application-controls.server")
+		await updateControlComment(applicationControlId, comment, authedUser.navIdent)
+		return data({ success: true, message: "Kommentar lagret.", error: null })
+	}
+
 	return data({ success: false, message: null, error: "Ukjent handling" })
+}
+
+function ControlCommentPanel({
+	applicationControlId,
+	comment,
+	commentUpdatedAt,
+	commentUpdatedBy,
+}: {
+	applicationControlId: string | null
+	comment: string | null
+	commentUpdatedAt: string | null
+	commentUpdatedBy: string | null
+}) {
+	const fetcher = useFetcher()
+	const [isEditing, setIsEditing] = useState(false)
+	const [editValue, setEditValue] = useState(comment ?? "")
+	const isSaving = fetcher.state !== "idle"
+
+	if (!applicationControlId) {
+		return (
+			<Box padding="space-4">
+				<BodyShort size="small" textColor="subtle">
+					Kontroll er ikke synkronisert ennå. Kjør synkronisering for å aktivere kommentarer.
+				</BodyShort>
+			</Box>
+		)
+	}
+
+	const handleSave = () => {
+		fetcher.submit({ intent: "save-control-comment", applicationControlId, comment: editValue }, { method: "post" })
+		setIsEditing(false)
+	}
+
+	return (
+		<Box padding="space-4" paddingBlock="space-2">
+			<VStack gap="space-2">
+				<Label size="small">Kommentar</Label>
+				{isEditing ? (
+					<VStack gap="space-2">
+						<Textarea
+							label="Kommentar"
+							hideLabel
+							size="small"
+							value={editValue}
+							onChange={(e) => setEditValue(e.target.value)}
+							maxRows={5}
+							minRows={2}
+						/>
+						<HStack gap="space-2">
+							<Button size="xsmall" variant="primary" onClick={handleSave} loading={isSaving}>
+								Lagre
+							</Button>
+							<Button
+								size="xsmall"
+								variant="tertiary"
+								onClick={() => {
+									setIsEditing(false)
+									setEditValue(comment ?? "")
+								}}
+							>
+								Avbryt
+							</Button>
+						</HStack>
+					</VStack>
+				) : (
+					<HStack gap="space-4" align="center">
+						{comment ? (
+							<BodyShort size="small">{comment}</BodyShort>
+						) : (
+							<BodyShort size="small" textColor="subtle">
+								Ingen kommentar
+							</BodyShort>
+						)}
+						<Button size="xsmall" variant="tertiary" onClick={() => setIsEditing(true)}>
+							{comment ? "Rediger" : "Legg til"}
+						</Button>
+					</HStack>
+				)}
+				{commentUpdatedBy && commentUpdatedAt && (
+					<Detail textColor="subtle">
+						Sist oppdatert av {commentUpdatedBy},{" "}
+						{new Date(commentUpdatedAt).toLocaleDateString("nb-NO", {
+							day: "numeric",
+							month: "short",
+							year: "numeric",
+							hour: "2-digit",
+							minute: "2-digit",
+						})}
+					</Detail>
+				)}
+			</VStack>
+		</Box>
+	)
 }
 
 export default function ApplikasjonDetalj() {
@@ -1090,7 +1208,20 @@ export default function ApplikasjonDetalj() {
 										</Table.Header>
 										<Table.Body>
 											{group.items.map((a) => (
-												<Table.Row key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`}>
+												<Table.ExpandableRow
+													key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`}
+													content={
+														<ControlCommentPanel
+															applicationControlId={a.applicationControlId}
+															comment={a.comment}
+															commentUpdatedAt={a.commentUpdatedAt}
+															commentUpdatedBy={a.commentUpdatedBy}
+														/>
+													}
+													togglePlacement="right"
+													expandOnRowClick={false}
+													colSpan={8}
+												>
 													<Table.DataCell>{a.domainName}</Table.DataCell>
 													<Table.DataCell>{a.controlId}</Table.DataCell>
 													<Table.DataCell>{a.controlName}</Table.DataCell>
@@ -1135,7 +1266,7 @@ export default function ApplikasjonDetalj() {
 															</Tag>
 														) : null}
 													</Table.DataCell>
-												</Table.Row>
+												</Table.ExpandableRow>
 											))}
 										</Table.Body>
 									</Table>
