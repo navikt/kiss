@@ -1590,3 +1590,157 @@ export async function upsertGroupCriticality(
 
 	return inserted
 }
+
+// ─── Section-level Group Aggregation ─────────────────────────────────────
+
+export interface SectionGroupRow {
+	groupId: string
+	applications: Array<{
+		applicationId: string
+		applicationName: string
+		source: "nais" | "manual"
+	}>
+	criticality: GroupCriticality | null
+	assessedBy: string | null
+	assessedAt: Date | null
+}
+
+/** Get all Entra ID groups across all applications in a section. */
+export async function getSectionGroups(sectionId: string): Promise<SectionGroupRow[]> {
+	const sectionTeamRows = await db.select({ id: devTeams.id }).from(devTeams).where(eq(devTeams.sectionId, sectionId))
+	const teamIds = sectionTeamRows.map((t) => t.id)
+
+	const appIds: string[] = []
+
+	if (teamIds.length > 0) {
+		const appMappings = await db
+			.select({ applicationId: applicationTeamMappings.applicationId })
+			.from(applicationTeamMappings)
+			.where(inArray(applicationTeamMappings.devTeamId, teamIds))
+		for (const m of appMappings) {
+			if (!appIds.includes(m.applicationId)) appIds.push(m.applicationId)
+		}
+	}
+
+	// Also include apps linked via nais teams
+	const sectionNaisTeams = await db
+		.select({ id: naisTeams.id })
+		.from(naisTeams)
+		.where(eq(naisTeams.sectionId, sectionId))
+	const naisTeamIds = sectionNaisTeams.map((t) => t.id)
+
+	if (naisTeamIds.length > 0) {
+		const naisAppRows = await db
+			.selectDistinct({ appId: applicationEnvironments.applicationId })
+			.from(applicationEnvironments)
+			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+			.where(
+				and(
+					inArray(applicationEnvironments.naisTeamId, naisTeamIds),
+					isNull(monitoredApplications.primaryApplicationId),
+				),
+			)
+		for (const row of naisAppRows) {
+			if (!appIds.includes(row.appId)) appIds.push(row.appId)
+		}
+	}
+
+	if (appIds.length === 0) return []
+
+	// Get all app names
+	const apps = await db
+		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(inArray(monitoredApplications.id, appIds))
+	const appNameMap = new Map(apps.map((a) => [a.id, a.name]))
+
+	// Get groups from auth integrations (Nais)
+	const authIntegrations = await db
+		.select({
+			applicationId: applicationAuthIntegrations.applicationId,
+			groups: applicationAuthIntegrations.groups,
+		})
+		.from(applicationAuthIntegrations)
+		.where(inArray(applicationAuthIntegrations.applicationId, appIds))
+
+	// Get manual groups
+	const manualGroupRows = await db
+		.select()
+		.from(applicationManualGroups)
+		.where(inArray(applicationManualGroups.applicationId, appIds))
+
+	// Get all assessments
+	const assessments = await db
+		.select()
+		.from(applicationGroupAssessments)
+		.where(inArray(applicationGroupAssessments.applicationId, appIds))
+
+	// Build unified group map: groupId → { applications, assessment }
+	const groupMap = new Map<
+		string,
+		{
+			applications: Map<string, { applicationId: string; applicationName: string; source: "nais" | "manual" }>
+			criticality: GroupCriticality | null
+			assessedBy: string | null
+			assessedAt: Date | null
+		}
+	>()
+
+	const ensureGroup = (groupId: string) => {
+		if (!groupMap.has(groupId)) {
+			groupMap.set(groupId, { applications: new Map(), criticality: null, assessedBy: null, assessedAt: null })
+		}
+		// biome-ignore lint/style/noNonNullAssertion: guaranteed by set above
+		return groupMap.get(groupId)!
+	}
+
+	for (const ai of authIntegrations) {
+		if (!ai.groups) continue
+		try {
+			const groupIds = JSON.parse(ai.groups) as string[]
+			for (const gid of groupIds) {
+				const g = ensureGroup(gid)
+				if (!g.applications.has(ai.applicationId)) {
+					g.applications.set(ai.applicationId, {
+						applicationId: ai.applicationId,
+						applicationName: appNameMap.get(ai.applicationId) ?? "Ukjent",
+						source: "nais",
+					})
+				}
+			}
+		} catch {
+			// Invalid JSON — skip
+		}
+	}
+
+	for (const mg of manualGroupRows) {
+		const g = ensureGroup(mg.groupId)
+		if (!g.applications.has(mg.applicationId)) {
+			g.applications.set(mg.applicationId, {
+				applicationId: mg.applicationId,
+				applicationName: appNameMap.get(mg.applicationId) ?? "Ukjent",
+				source: "manual",
+			})
+		}
+	}
+
+	for (const a of assessments) {
+		const g = groupMap.get(a.groupId)
+		if (!g) continue
+		if (!g.assessedAt || a.updatedAt > g.assessedAt) {
+			g.criticality = a.criticality as GroupCriticality
+			g.assessedBy = a.assessedBy
+			g.assessedAt = a.assessedAt
+		}
+	}
+
+	return [...groupMap.entries()]
+		.map(([groupId, d]) => ({
+			groupId,
+			applications: [...d.applications.values()],
+			criticality: d.criticality,
+			assessedBy: d.assessedBy,
+			assessedAt: d.assessedAt,
+		}))
+		.sort((a, b) => a.groupId.localeCompare(b.groupId))
+}

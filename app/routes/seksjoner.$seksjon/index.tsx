@@ -87,6 +87,9 @@ export default function SeksjonDashboard() {
 				<Button as={Link} to={`/seksjoner/${seksjon}/regelsett`} variant="secondary" size="small">
 					Regelsett
 				</Button>
+				<Button as={Link} to={`/seksjoner/${seksjon}/entra-grupper`} variant="secondary" size="small">
+					Entra ID-grupper
+				</Button>
 				<Button as={Link} to={`/seksjoner/${seksjon}/audit-logging`} variant="secondary" size="small">
 					Audit logging
 				</Button>
