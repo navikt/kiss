@@ -192,7 +192,10 @@ export async function getAvailableTeamsForApp(applicationId: string) {
 
 /** Get all dev teams. */
 export async function getAllTeams() {
-	return db.select({ id: devTeams.id, name: devTeams.name, slug: devTeams.slug }).from(devTeams).orderBy(devTeams.name)
+	return db
+		.select({ id: devTeams.id, name: devTeams.name, slug: devTeams.slug, sectionId: devTeams.sectionId })
+		.from(devTeams)
+		.orderBy(devTeams.name)
 }
 
 /** Get compliance assessments for an application, filtered by screening-derived controls and technology elements. */

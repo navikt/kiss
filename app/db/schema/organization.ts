@@ -65,6 +65,20 @@ export const userRoleLabels: Record<UserRole, string> = {
 	developer: "Utvikler",
 }
 
+export type RoleScope = "global" | "section" | "team"
+
+export const roleScopeMap: Record<UserRole, RoleScope> = {
+	admin: "global",
+	auditor: "global",
+	section_manager: "section",
+	tech_manager: "section",
+	delivery_manager: "section",
+	system_owner: "section",
+	product_owner: "team",
+	tech_lead: "team",
+	developer: "team",
+}
+
 export const users = pgTable("users", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	navIdent: text("nav_ident").notNull().unique(),

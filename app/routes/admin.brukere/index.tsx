@@ -20,7 +20,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllTeams } from "~/db/queries/applications.server"
 import { getSections } from "~/db/queries/sections.server"
 import { assignRole, listUsersWithRoles, removeRole, type UserWithRoles } from "~/db/queries/users.server"
-import { type UserRole, userRoleEnum, userRoleLabels } from "~/db/schema/organization"
+import { roleScopeMap, type UserRole, userRoleEnum, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 
@@ -34,7 +34,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	return data({
 		users,
 		sections: sections.map((s) => ({ id: s.id, name: s.name })),
-		teams: teams.map((t) => ({ id: t.id, name: t.name })),
+		teams: teams.map((t) => ({ id: t.id, name: t.name, sectionId: t.sectionId })),
 	})
 }
 
@@ -156,41 +156,93 @@ function AddRoleModal({
 	onClose: () => void
 	user: UserWithRoles
 	sections: Array<{ id: string; name: string }>
-	teams: Array<{ id: string; name: string }>
+	teams: Array<{ id: string; name: string; sectionId: string }>
 }) {
+	const [selectedRole, setSelectedRole] = useState<UserRole | "">("")
+	const [selectedSectionId, setSelectedSectionId] = useState("")
+
+	const scope = selectedRole ? roleScopeMap[selectedRole] : null
+	const showSection = scope === "section" || scope === "team"
+	const showTeam = scope === "team"
+	const filteredTeams = showTeam ? teams.filter((t) => t.sectionId === selectedSectionId) : []
+
+	const handleClose = () => {
+		setSelectedRole("")
+		setSelectedSectionId("")
+		onClose()
+	}
+
 	return (
-		<Modal open={open} onClose={onClose} header={{ heading: `Tildel rolle til ${user.name}` }}>
-			<Form method="post" onSubmit={onClose}>
+		<Modal open={open} onClose={handleClose} header={{ heading: `Tildel rolle til ${user.name}` }}>
+			<Form method="post" onSubmit={handleClose}>
 				<Modal.Body>
 					<input type="hidden" name="intent" value="assign-role" />
-					<input type="hidden" name="userId" value={user.id} />
 					<input type="hidden" name="navIdent" value={user.navIdent} />
 					<input type="hidden" name="name" value={user.name} />
 					<VStack gap="space-4">
-						<Select label="Rolle" name="role">
+						<Select
+							label="Rolle"
+							name="role"
+							value={selectedRole}
+							onChange={(e) => {
+								setSelectedRole(e.target.value as UserRole | "")
+								setSelectedSectionId("")
+							}}
+						>
 							<option value="">Velg rolle</option>
-							{userRoleEnum.map((r) => (
-								<option key={r} value={r}>
-									{userRoleLabels[r]}
-								</option>
-							))}
+							<optgroup label="Globale roller">
+								{userRoleEnum
+									.filter((r) => roleScopeMap[r] === "global")
+									.map((r) => (
+										<option key={r} value={r}>
+											{userRoleLabels[r]}
+										</option>
+									))}
+							</optgroup>
+							<optgroup label="Seksjonsroller">
+								{userRoleEnum
+									.filter((r) => roleScopeMap[r] === "section")
+									.map((r) => (
+										<option key={r} value={r}>
+											{userRoleLabels[r]}
+										</option>
+									))}
+							</optgroup>
+							<optgroup label="Teamroller">
+								{userRoleEnum
+									.filter((r) => roleScopeMap[r] === "team")
+									.map((r) => (
+										<option key={r} value={r}>
+											{userRoleLabels[r]}
+										</option>
+									))}
+							</optgroup>
 						</Select>
-						<Select label="Seksjon (valgfri)" name="sectionId">
-							<option value="">Ingen</option>
-							{sections.map((s) => (
-								<option key={s.id} value={s.id}>
-									{s.name}
-								</option>
-							))}
-						</Select>
-						<Select label="Team (valgfritt)" name="devTeamId">
-							<option value="">Ingen</option>
-							{teams.map((t) => (
-								<option key={t.id} value={t.id}>
-									{t.name}
-								</option>
-							))}
-						</Select>
+						{showSection && (
+							<Select
+								label="Seksjon"
+								name="sectionId"
+								value={selectedSectionId}
+								onChange={(e) => setSelectedSectionId(e.target.value)}
+							>
+								<option value="">Velg seksjon</option>
+								{sections.map((s) => (
+									<option key={s.id} value={s.id}>
+										{s.name}
+									</option>
+								))}
+							</Select>
+						)}
+						{showTeam && (
+							<Select label="Team" name="devTeamId" disabled={!selectedSectionId}>
+								<option value="">{selectedSectionId ? "Velg team" : "Velg seksjon først"}</option>
+								{filteredTeams.map((t) => (
+									<option key={t.id} value={t.id}>
+										{t.name}
+									</option>
+								))}
+							</Select>
+						)}
 					</VStack>
 				</Modal.Body>
 				<Modal.Footer>
@@ -198,7 +250,7 @@ function AddRoleModal({
 						<Button type="submit" variant="primary">
 							Tildel rolle
 						</Button>
-						<Button type="button" variant="tertiary" onClick={onClose}>
+						<Button type="button" variant="tertiary" onClick={handleClose}>
 							Avbryt
 						</Button>
 					</HStack>
@@ -215,7 +267,7 @@ function UserRow({
 }: {
 	user: UserWithRoles
 	sections: Array<{ id: string; name: string }>
-	teams: Array<{ id: string; name: string }>
+	teams: Array<{ id: string; name: string; sectionId: string }>
 }) {
 	const [removeOpen, setRemoveOpen] = useState<string | null>(null)
 	const [addRoleOpen, setAddRoleOpen] = useState(false)
