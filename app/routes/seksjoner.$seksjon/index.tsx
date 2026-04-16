@@ -115,14 +115,16 @@ export default function SeksjonDashboard() {
 						<Detail>Team</Detail>
 					</VStack>
 				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{totalApps}
-						</Heading>
-						<Detail>Applikasjoner</Detail>
-					</VStack>
-				</Box>
+				<Link to={`/seksjoner/${seksjon}/applikasjoner`} style={{ textDecoration: "none", color: "inherit" }}>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalApps}
+							</Heading>
+							<Detail>Applikasjoner</Detail>
+						</VStack>
+					</Box>
+				</Link>
 				<Box padding="space-6" borderRadius="8" background="sunken">
 					<VStack align="center">
 						<Heading size="xlarge" level="3">

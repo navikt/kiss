@@ -24,6 +24,7 @@ export default [
 	route("admin/import", "routes/admin.import/index.tsx"),
 	route("seksjoner", "routes/seksjoner/index.tsx"),
 	route("seksjoner/:seksjon", "routes/seksjoner.$seksjon/index.tsx"),
+	route("seksjoner/:seksjon/applikasjoner", "routes/seksjoner.$seksjon.applikasjoner/index.tsx"),
 	route("seksjoner/:seksjon/rediger", "routes/seksjoner.$seksjon.rediger/index.tsx"),
 	route("seksjoner/:seksjon/nais-team", "routes/seksjoner.$seksjon.nais-team/index.tsx"),
 	route("seksjoner/:seksjon/team/:team", "routes/seksjoner.$seksjon.team.$team/index.tsx"),
