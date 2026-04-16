@@ -21,6 +21,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
 	return data({
+		seksjon,
 		seksjonName: result.section.name,
 		apps: result.apps,
 		totalApps: result.apps.length,
@@ -34,7 +35,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 type SortKey = "appName" | "team" | "implemented" | "partial" | "notImplemented" | "unanswered" | "pct"
 
 export default function SeksjonApplikasjoner() {
-	const { seksjonName, apps, totalApps, totalImplemented, totalPartial, overallPercent } =
+	const { seksjon, seksjonName, apps, totalApps, totalImplemented, totalPartial, overallPercent } =
 		useLoaderData<typeof loader>()
 	const [search, setSearch] = useState("")
 	const [sort, setSort] = useState<SortState>({ orderBy: "appName", direction: "ascending" })
@@ -170,7 +171,7 @@ export default function SeksjonApplikasjoner() {
 								return (
 									<Table.Row key={app.appId}>
 										<Table.DataCell>
-											<Link to={`/applikasjoner/${app.appId}/detaljer`}>{app.appName}</Link>
+											<Link to={`/seksjoner/${seksjon}/applikasjoner/${app.appId}/detaljer`}>{app.appName}</Link>
 										</Table.DataCell>
 										<Table.DataCell>
 											{app.teamNames.length > 0 ? app.teamNames.join(", ") : "Ikke tildelt"}

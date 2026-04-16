@@ -61,6 +61,14 @@ function mineTeamAppPath(params: Record<string, string>) {
 	return `/mine-team/applikasjoner/${params.appId}/detaljer`
 }
 
+function sectionAppsPath(params: Record<string, string>) {
+	return `/seksjoner/${params.seksjon}/applikasjoner`
+}
+
+function sectionAppPath(params: Record<string, string>) {
+	return `/seksjoner/${params.seksjon}/applikasjoner/${params.appId}/detaljer`
+}
+
 function domainPath(params: Record<string, string>) {
 	return `/kontrollrammeverk/${params.domene}`
 }
@@ -319,7 +327,48 @@ const rules: BreadcrumbRule[] = [
 		segments: [SEKSJONER, { label: sectionName, to: sectionPath }, { label: "Screening" }],
 	},
 
-	// ── Seksjoner: Applikasjoner ──
+	// ── Seksjoner: Applikasjoner (kontekstuell navigasjon) ──
+	{
+		pattern: "seksjoner/:seksjon/applikasjoner/:appId/compliance-krav",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: "Applikasjoner", to: sectionAppsPath },
+			{ label: appName, to: sectionAppPath },
+			{ label: "Kravgjennomgang" },
+		],
+	},
+	{
+		pattern: "seksjoner/:seksjon/applikasjoner/:appId/compliance",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: "Applikasjoner", to: sectionAppsPath },
+			{ label: appName, to: sectionAppPath },
+			{ label: "Compliance" },
+		],
+	},
+	{
+		pattern: "seksjoner/:seksjon/applikasjoner/:appId/rediger",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: "Applikasjoner", to: sectionAppsPath },
+			{ label: appName, to: sectionAppPath },
+			{ label: "Administrer" },
+		],
+	},
+	{
+		pattern: "seksjoner/:seksjon/applikasjoner/:appId/detaljer",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: "Applikasjoner", to: sectionAppsPath },
+			{ label: appName },
+		],
+	},
+
+	// ── Seksjoner: Applikasjoner (oversikt) ──
 	{
 		pattern: "seksjoner/:seksjon/applikasjoner",
 		segments: [SEKSJONER, { label: sectionName, to: sectionPath }, { label: "Applikasjoner" }],

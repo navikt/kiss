@@ -25,6 +25,20 @@ export default [
 	route("seksjoner", "routes/seksjoner/index.tsx"),
 	route("seksjoner/:seksjon", "routes/seksjoner.$seksjon/index.tsx"),
 	route("seksjoner/:seksjon/applikasjoner", "routes/seksjoner.$seksjon.applikasjoner/index.tsx"),
+	// Section-context app routes (breadcrumbs reflect section origin)
+	route(
+		"seksjoner/:seksjon/applikasjoner/:appId/detaljer",
+		"routes/ctx-seksjon.applikasjoner.$appId.detaljer/index.tsx",
+	),
+	route("seksjoner/:seksjon/applikasjoner/:appId/rediger", "routes/ctx-seksjon.applikasjoner.$appId.rediger/index.tsx"),
+	route(
+		"seksjoner/:seksjon/applikasjoner/:appId/compliance",
+		"routes/ctx-seksjon.applikasjoner.$appId.compliance/index.tsx",
+	),
+	route(
+		"seksjoner/:seksjon/applikasjoner/:appId/compliance-krav",
+		"routes/ctx-seksjon.applikasjoner.$appId.compliance-krav/index.tsx",
+	),
 	route("seksjoner/:seksjon/rediger", "routes/seksjoner.$seksjon.rediger/index.tsx"),
 	route("seksjoner/:seksjon/nais-team", "routes/seksjoner.$seksjon.nais-team/index.tsx"),
 	route("seksjoner/:seksjon/team/:team", "routes/seksjoner.$seksjon.team.$team/index.tsx"),
