@@ -68,6 +68,12 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Last opp dokumenter som kan lenkes til fra compliance-vurderinger.</BodyLong>
 				</Link>
+				<Link to="/admin/vedlikehold" className="admin-card">
+					<Heading size="small" level="3">
+						Vedlikehold
+					</Heading>
+					<BodyLong size="small">Synkronisering og vedlikeholdsoperasjoner for systemet.</BodyLong>
+				</Link>
 			</div>
 		</VStack>
 	)

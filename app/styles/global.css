@@ -497,6 +497,13 @@ body {
 	box-shadow: var(--ax-shadow-dialog);
 }
 
+.admin-maintenance-card {
+	padding: var(--ax-space-6);
+	background: var(--ax-bg-default);
+	border: 1px solid var(--ax-border-subtle);
+	border-radius: var(--ax-radius-8);
+}
+
 /* Skip-link (WCAG) */
 .skip-link {
 	position: absolute;
