@@ -1,7 +1,7 @@
 import { MagnifyingGlassIcon } from "@navikt/aksel-icons"
 import { BodyShort, Box, Detail, Dialog, HStack, Loader, Search, Tag, VStack } from "@navikt/ds-react"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useLocation, useNavigate } from "react-router"
+import { matchPath, useLocation, useNavigate } from "react-router"
 
 interface SearchResult {
 	type: "application" | "team" | "section" | "risk" | "control"
@@ -9,6 +9,7 @@ interface SearchResult {
 	url: string
 	title: string
 	subtitle?: string
+	teams?: Array<{ teamSlug: string; sectionSlug: string }>
 }
 
 const typeLabels: Record<SearchResult["type"], string> = {
@@ -25,6 +26,39 @@ const typeVariants: Record<SearchResult["type"], "info" | "neutral" | "alt1" | "
 	section: "alt1",
 	risk: "alt2",
 	control: "alt3",
+}
+
+/** Build a context-aware URL for an application search result. */
+export function resolveAppUrl(result: SearchResult, pathname: string): string {
+	if (result.type !== "application" || !result.teams?.length) return result.url
+
+	// Check if we're inside a team context
+	const teamMatch = matchPath("seksjoner/:seksjon/team/:team/*", pathname)
+	if (teamMatch) {
+		const { seksjon, team } = teamMatch.params
+		const belongsToTeam = result.teams.some((t) => t.teamSlug === team && t.sectionSlug === seksjon)
+		if (belongsToTeam) {
+			return `/seksjoner/${seksjon}/team/${team}/applikasjoner/${result.id}/detaljer`
+		}
+		// App doesn't belong to the team — check if it belongs to the section
+		const belongsToSection = result.teams.some((t) => t.sectionSlug === seksjon)
+		if (belongsToSection) {
+			return `/seksjoner/${seksjon}/applikasjoner/${result.id}/detaljer`
+		}
+		return result.url
+	}
+
+	// Check if we're inside a section context (not team)
+	const sectionMatch = matchPath("seksjoner/:seksjon/*", pathname)
+	if (sectionMatch) {
+		const { seksjon } = sectionMatch.params
+		const belongsToSection = result.teams.some((t) => t.sectionSlug === seksjon)
+		if (belongsToSection) {
+			return `/seksjoner/${seksjon}/applikasjoner/${result.id}/detaljer`
+		}
+	}
+
+	return result.url
 }
 
 function Kbd({ children }: { children: React.ReactNode }) {
@@ -60,6 +94,9 @@ export function SearchDialog() {
 
 	resultsRef.current = results
 	selectedIndexRef.current = selectedIndex
+
+	const pathnameRef = useRef(location.pathname)
+	pathnameRef.current = location.pathname
 
 	// Close dialog on navigation
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset on path change
@@ -97,7 +134,7 @@ export function SearchDialog() {
 				e.preventDefault()
 				const result = currentResults[selectedIndexRef.current]
 				if (result) {
-					navigate(result.url)
+					navigate(resolveAppUrl(result, pathnameRef.current))
 					setOpen(false)
 				}
 			}
@@ -135,10 +172,10 @@ export function SearchDialog() {
 
 	const handleSelect = useCallback(
 		(result: SearchResult) => {
-			navigate(result.url)
+			navigate(resolveAppUrl(result, location.pathname))
 			setOpen(false)
 		},
-		[navigate],
+		[navigate, location.pathname],
 	)
 
 	return (

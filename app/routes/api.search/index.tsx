@@ -1,8 +1,10 @@
-import { and, eq, ilike, isNull, or } from "drizzle-orm"
+import { and, eq, ilike, inArray, isNull, or } from "drizzle-orm"
 import type { LoaderFunctionArgs } from "react-router"
 import { db } from "~/db/connection.server"
 import { getControlDomainMap } from "~/db/queries/framework.server"
 import {
+	applicationTeamMappings,
+	devTeams,
 	frameworkControls,
 	frameworkDomains,
 	frameworkRisks,
@@ -17,6 +19,7 @@ interface SearchResult {
 	url: string
 	title: string
 	subtitle?: string
+	teams?: Array<{ teamSlug: string; sectionSlug: string }>
 }
 
 /** Score a result by how closely it matches the query (lower = better). */
@@ -130,6 +133,29 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const controlUuids = controlResults.map((c: (typeof controlResults)[number]) => c.id)
 	const controlDomains = await getControlDomainMap(controlUuids)
 
+	// Batch-lookup team/section memberships for applications
+	const appIds = appResults.map((a: (typeof appResults)[number]) => a.id)
+	const appTeamRows =
+		appIds.length > 0
+			? await db
+					.select({
+						applicationId: applicationTeamMappings.applicationId,
+						teamSlug: devTeams.slug,
+						sectionSlug: sections.slug,
+					})
+					.from(applicationTeamMappings)
+					.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+					.innerJoin(sections, eq(devTeams.sectionId, sections.id))
+					.where(inArray(applicationTeamMappings.applicationId, appIds))
+			: []
+
+	const teamsByApp = new Map<string, Array<{ teamSlug: string; sectionSlug: string }>>()
+	for (const row of appTeamRows) {
+		const list = teamsByApp.get(row.applicationId) ?? []
+		list.push({ teamSlug: row.teamSlug, sectionSlug: row.sectionSlug })
+		teamsByApp.set(row.applicationId, list)
+	}
+
 	const results: SearchResult[] = [
 		...appResults.map((app: (typeof appResults)[number]) => ({
 			type: "application" as const,
@@ -137,6 +163,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			url: `/applikasjoner/${app.id}/detaljer`,
 			title: app.name,
 			subtitle: app.description ?? undefined,
+			teams: teamsByApp.get(app.id),
 		})),
 		...teamResults.map((team: (typeof teamResults)[number]) => ({
 			type: "team" as const,
