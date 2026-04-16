@@ -20,6 +20,7 @@ import {
 import {
 	type EntraChangeType,
 	type RoutineActivityType,
+	type RoutineStatus,
 	routineControls,
 	routinePersistenceLinks,
 	routineReviewActivities,
@@ -176,6 +177,7 @@ export async function createRoutine(params: {
 	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
 	technologyElementIds: string[]
 	controlIds: string[]
+	status?: RoutineStatus
 	createdBy: string
 }) {
 	const [routine] = await db
@@ -190,6 +192,7 @@ export async function createRoutine(params: {
 			activityType: params.activityType ?? null,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
+			...(params.status && { status: params.status }),
 			createdBy: params.createdBy,
 			updatedBy: params.createdBy,
 		})
@@ -278,6 +281,7 @@ export async function updateRoutine(params: {
 	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
 	technologyElementIds: string[]
 	controlIds: string[]
+	status?: RoutineStatus
 	updatedBy: string
 }) {
 	const prev = await getRoutine(params.id)
@@ -293,6 +297,7 @@ export async function updateRoutine(params: {
 			activityType: params.activityType ?? null,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
+			...(params.status && { status: params.status }),
 			updatedBy: params.updatedBy,
 			updatedAt: new Date(),
 		})
@@ -470,6 +475,15 @@ export async function createReview(params: {
 	createdBy: string
 	participants: Array<{ userIdent: string; userName: string | null }>
 }) {
+	// Only allow reviews on active routines
+	const [routine] = await db
+		.select({ status: routines.status })
+		.from(routines)
+		.where(eq(routines.id, params.routineId))
+		.limit(1)
+	if (!routine) throw new Error(`Rutine ikke funnet: ${params.routineId}`)
+	if (routine.status !== "active") throw new Error("Kan ikke opprette gjennomgang for en rutine som ikke er aktiv")
+
 	const [review] = await db
 		.insert(routineReviews)
 		.values({
@@ -802,7 +816,10 @@ export interface RoutineDeadlineInfo {
 }
 
 export async function getRoutineDeadlinesForSection(sectionId: string): Promise<RoutineDeadlineInfo[]> {
-	const sectionRoutines = await db.select().from(routines).where(eq(routines.sectionId, sectionId))
+	const sectionRoutines = await db
+		.select()
+		.from(routines)
+		.where(and(eq(routines.sectionId, sectionId), eq(routines.status, "active")))
 
 	const results: RoutineDeadlineInfo[] = []
 
@@ -861,13 +878,16 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		for (const l of links) matchingRoutineIds.add(l.routineId)
 	}
 
-	// Also check legacy single-link field
+	// Also check legacy single-link field (active routines only)
 	for (const ans of appAnswers) {
 		const legacyRoutines = await db
 			.select({ id: routines.id })
 			.from(routines)
 			.where(
-				sql`${routines.screeningQuestionId} = ${ans.questionId} AND ${routines.screeningChoiceValue} = ${ans.answer}`,
+				and(
+					sql`${routines.screeningQuestionId} = ${ans.questionId} AND ${routines.screeningChoiceValue} = ${ans.answer}`,
+					eq(routines.status, "active"),
+				),
 			)
 		for (const r of legacyRoutines) matchingRoutineIds.add(r.id)
 	}
@@ -877,7 +897,10 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 	// Step 3: Load matched routines with tech elements, screening questions, and persistence links in batch
 	const routineIdList = [...matchingRoutineIds]
 	const [routineRows, allElements, allScreeningLinks, allPersLinks] = await Promise.all([
-		db.select().from(routines).where(inArray(routines.id, routineIdList)),
+		db
+			.select()
+			.from(routines)
+			.where(and(inArray(routines.id, routineIdList), eq(routines.status, "active"))),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -1018,7 +1041,10 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	const routineIds = [...persLinksByRoutine.keys()].filter((id) => !excludeRoutineIds.has(id))
 	if (routineIds.length === 0) return []
 
-	const candidateRoutines = await db.select().from(routines).where(inArray(routines.id, routineIds))
+	const candidateRoutines = await db
+		.select()
+		.from(routines)
+		.where(and(inArray(routines.id, routineIds), eq(routines.status, "active")))
 
 	// Filter to routines where at least one persistence link matches the app
 	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number]; matchedLinks: typeof allPersLinks }> = []
@@ -1143,7 +1169,10 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 	const uniqueIds = [...new Set(selectedRoutineIds)]
 
 	const [routineRows, allElements, allScreeningLinks, allPersLinks] = await Promise.all([
-		db.select().from(routines).where(inArray(routines.id, uniqueIds)),
+		db
+			.select()
+			.from(routines)
+			.where(and(inArray(routines.id, uniqueIds), eq(routines.status, "active"))),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -1241,11 +1270,17 @@ export async function getRoutineDeadlinesForAppBySection(
 	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
 	if (sectionIds.length === 0) return []
 
-	// Find routines that apply to all apps in these sections
+	// Find routines that apply to all apps in these sections (active only)
 	const sectionRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.sectionId, sectionIds), eq(routines.appliesToAllInSection, 1)))
+		.where(
+			and(
+				inArray(routines.sectionId, sectionIds),
+				eq(routines.appliesToAllInSection, 1),
+				eq(routines.status, "active"),
+			),
+		)
 
 	const matchingRoutines = sectionRoutines.filter((r) => !excludeRoutineIds.has(r.id))
 	if (matchingRoutines.length === 0) return []
@@ -1371,7 +1406,10 @@ export async function getRoutineDeadlinesForAppByRuleset(
 	if (uniqueIds.length === 0) return []
 
 	const [routineRows, allElements, allScreeningLinks, allPersLinks] = await Promise.all([
-		db.select().from(routines).where(inArray(routines.id, uniqueIds)),
+		db
+			.select()
+			.from(routines)
+			.where(and(inArray(routines.id, uniqueIds), eq(routines.status, "active"))),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,

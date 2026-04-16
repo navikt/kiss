@@ -28,6 +28,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		throw data({ message: `Fant ikke rutine: ${rutineId}` }, { status: 404 })
 	}
 
+	if (routine.status !== "active") {
+		throw data({ message: "Kun aktive rutiner kan ha nye gjennomganger" }, { status: 400 })
+	}
+
 	const apps = await getAppsRequiringRoutine(rutineId)
 
 	return data({ section, routine, apps })

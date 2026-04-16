@@ -34,7 +34,12 @@ import {
 	persistenceTypeEnum,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
-import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType } from "~/db/schema/routines"
+import {
+	ROUTINE_ACTIVITY_TYPES,
+	type RoutineActivityType,
+	type RoutineStatus,
+	routineStatusEnum,
+} from "~/db/schema/routines"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { frequencyLabels, isRoutineFrequency, ROUTINE_FREQUENCIES } from "~/lib/routine-frequencies"
@@ -125,6 +130,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				: null
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
 		const controlIds = formData.getAll("controlIds") as string[]
+		const statusRaw = formData.get("status") as string | null
+		const status =
+			statusRaw && routineStatusEnum.includes(statusRaw as RoutineStatus) ? (statusRaw as RoutineStatus) : undefined
 
 		// Parse persistence links from form
 		const plTypes = formData.getAll("plPersistenceType") as string[]
@@ -163,6 +171,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			screeningQuestionLinks,
 			technologyElementIds,
 			controlIds,
+			status,
 			updatedBy: authedUser.navIdent,
 		})
 
@@ -274,6 +283,12 @@ export default function RedigerRutine() {
 								{frequencyLabels[freq]}
 							</option>
 						))}
+					</Select>
+
+					<Select label="Status" name="status" defaultValue={routine.status ?? "active"} size="small">
+						<option value="draft">Utkast</option>
+						<option value="active">Aktiv</option>
+						<option value="archived">Arkivert</option>
 					</Select>
 
 					<Checkbox name="appliesToAllInSection" defaultChecked={routine.appliesToAllInSection === 1} size="small">

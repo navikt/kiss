@@ -1,0 +1,1 @@
+ALTER TABLE "routines" ADD COLUMN "status" text DEFAULT 'active' NOT NULL;

@@ -49,6 +49,7 @@ export default function SeksjonRutinerIndex() {
 	const [filterFrequency, setFilterFrequency] = useState("")
 	const [filterTechElement, setFilterTechElement] = useState("")
 	const [filterPersistence, setFilterPersistence] = useState("")
+	const [filterStatus, setFilterStatus] = useState("active")
 	const [sort, setSort] = useState<SortState | undefined>({ orderBy: "name", direction: "ascending" })
 
 	// Collect unique values for dropdown filters
@@ -91,9 +92,10 @@ export default function SeksjonRutinerIndex() {
 			if (filterFrequency && r.frequency !== filterFrequency) return false
 			if (filterTechElement && !r.technologyElements.some((te) => te.name === filterTechElement)) return false
 			if (filterPersistence && !r.persistenceLinks.some((pl) => pl.persistenceType === filterPersistence)) return false
+			if (filterStatus && r.status !== filterStatus) return false
 			return true
 		})
-	}, [routines, searchQuery, filterControl, filterFrequency, filterTechElement, filterPersistence])
+	}, [routines, searchQuery, filterControl, filterFrequency, filterTechElement, filterPersistence, filterStatus])
 
 	// Sort
 	const sorted = useMemo(() => {
@@ -130,7 +132,13 @@ export default function SeksjonRutinerIndex() {
 		)
 	}
 
-	const hasActiveFilters = searchQuery || filterControl || filterFrequency || filterTechElement || filterPersistence
+	const hasActiveFilters =
+		searchQuery ||
+		filterControl ||
+		filterFrequency ||
+		filterTechElement ||
+		filterPersistence ||
+		filterStatus !== "active"
 
 	return (
 		<VStack gap="space-6">
@@ -234,6 +242,12 @@ export default function SeksjonRutinerIndex() {
 								))}
 							</Select>
 						)}
+						<Select label="Status" size="small" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+							<option value="">Alle statuser</option>
+							<option value="active">Aktiv</option>
+							<option value="draft">Utkast</option>
+							<option value="archived">Arkivert</option>
+						</Select>
 					</HStack>
 
 					{hasActiveFilters && (
@@ -275,6 +289,16 @@ export default function SeksjonRutinerIndex() {
 											{routine.appliesToAllInSection === 1 && (
 												<Tag variant="alt3" size="xsmall">
 													Gjelder alle
+												</Tag>
+											)}
+											{routine.status === "draft" && (
+												<Tag variant="warning" size="xsmall">
+													Utkast
+												</Tag>
+											)}
+											{routine.status === "archived" && (
+												<Tag variant="neutral" size="xsmall">
+													Arkivert
 												</Tag>
 											)}
 										</HStack>

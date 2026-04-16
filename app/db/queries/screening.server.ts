@@ -585,7 +585,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 			})
 			.from(routineControls)
 			.innerJoin(routines, eq(routineControls.routineId, routines.id))
-			.where(inArray(routineControls.controlId, [...selectRoutineControlIds]))
+			.where(and(inArray(routineControls.controlId, [...selectRoutineControlIds]), eq(routines.status, "active")))
 
 		for (const lr of linkedRoutines) {
 			const list = routineOptionsByControl.get(lr.controlId) ?? []

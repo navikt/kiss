@@ -102,16 +102,30 @@ export default function RutineDetaljer() {
 					<Link to="..">{section.name} / Rutiner</Link>
 				</Detail>
 				<HStack gap="space-4" align="center" justify="space-between">
-					<Heading size="xlarge" level="2">
-						{routine.name}
-					</Heading>
+					<HStack gap="space-4" align="center">
+						<Heading size="xlarge" level="2">
+							{routine.name}
+						</Heading>
+						{routine.status === "draft" && (
+							<Tag variant="warning" size="small">
+								Utkast
+							</Tag>
+						)}
+						{routine.status === "archived" && (
+							<Tag variant="neutral" size="small">
+								Arkivert
+							</Tag>
+						)}
+					</HStack>
 					<HStack gap="space-2">
 						<Button as={Link} to="./rediger" variant="secondary" size="small">
 							Rediger
 						</Button>
-						<Button as={Link} to="./gjennomgang/ny" variant="primary" size="small">
-							Ny gjennomgang
-						</Button>
+						{routine.status === "active" && (
+							<Button as={Link} to="./gjennomgang/ny" variant="primary" size="small">
+								Ny gjennomgang
+							</Button>
+						)}
 					</HStack>
 				</HStack>
 			</VStack>
