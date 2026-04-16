@@ -42,7 +42,14 @@ import {
 } from "~/db/schema/routines"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
-import { frequencyLabels, isRoutineFrequency, ROUTINE_FREQUENCIES } from "~/lib/routine-frequencies"
+import {
+	frequencyLabels,
+	getStrictestFrequency,
+	isFrequencyAtLeastAsOften,
+	isRoutineFrequency,
+	ROUTINE_FREQUENCIES,
+	type RoutineFrequency,
+} from "~/lib/routine-frequencies"
 
 const PREDEFINED_ROLES = [
 	"Seksjonsleder",
@@ -147,6 +154,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!name) throw new Response("Navn er påkrevd", { status: 400 })
 		if (!isRoutineFrequency(frequency)) throw new Response("Ugyldig frekvens", { status: 400 })
 
+		// Validate frequency is at least as often as the strictest control requirement
+		if (controlIds.length > 0) {
+			const allControls = await getAllControlsForSelection()
+			const selectedControls = allControls.filter((c) => controlIds.includes(c.id))
+			const minFreq = getStrictestFrequency(selectedControls.map((c) => c.frequency))
+			if (minFreq && !isFrequencyAtLeastAsOften(frequency, minFreq)) {
+				throw new Response(`Frekvensen kan ikke være sjeldnere enn kravet (${frequencyLabels[minFreq]})`, {
+					status: 400,
+				})
+			}
+		}
+
 		// Parse multiple question links from form
 		const questionIds = formData.getAll("questionId") as string[]
 		const choiceValues = formData.getAll("choiceValue") as string[]
@@ -194,12 +213,26 @@ export default function RedigerRutine() {
 	const [selectedControlIds, setSelectedControlIds] = useState<string[]>(routine.controls.map((c) => c.id))
 	const [responsibleRole, setResponsibleRole] = useState(routine.responsibleRole ?? "")
 	const [roleManuallySet, setRoleManuallySet] = useState(!!routine.responsibleRole)
+	const [selectedFrequency, setSelectedFrequency] = useState(routine.frequency)
+
+	const selectedControls = controls.filter((c) => selectedControlIds.includes(c.id))
+	const minimumFrequency = getStrictestFrequency(selectedControls.map((c) => c.frequency))
 
 	const handleControlChange = (newIds: string[]) => {
 		setSelectedControlIds(newIds)
 		if (!roleManuallySet) {
 			const firstControl = controls.find((c) => newIds.includes(c.id))
 			setResponsibleRole(firstControl?.responsible ?? "")
+		}
+		// Auto-adjust frequency if current selection is too infrequent
+		const newSelectedControls = controls.filter((c) => newIds.includes(c.id))
+		const newMinFreq = getStrictestFrequency(newSelectedControls.map((c) => c.frequency))
+		if (
+			newMinFreq &&
+			isRoutineFrequency(selectedFrequency) &&
+			!isFrequencyAtLeastAsOften(selectedFrequency, newMinFreq)
+		) {
+			setSelectedFrequency(newMinFreq)
 		}
 	}
 
@@ -277,10 +310,22 @@ export default function RedigerRutine() {
 				<VStack gap="space-4">
 					<TextField label="Navn" name="name" defaultValue={routine.name} size="small" autoComplete="off" />
 					<MarkdownEditor label="Beskrivelse" name="description" defaultValue={routine.description ?? ""} />
-					<Select label="Frekvens" name="frequency" defaultValue={routine.frequency} size="small">
+					<Select
+						label="Frekvens"
+						name="frequency"
+						value={selectedFrequency}
+						onChange={(e) => setSelectedFrequency(e.target.value as RoutineFrequency)}
+						size="small"
+						description={minimumFrequency ? `Krav krever minimum: ${frequencyLabels[minimumFrequency]}` : undefined}
+					>
 						{ROUTINE_FREQUENCIES.map((freq) => (
-							<option key={freq} value={freq}>
+							<option
+								key={freq}
+								value={freq}
+								disabled={minimumFrequency ? !isFrequencyAtLeastAsOften(freq, minimumFrequency) : false}
+							>
 								{frequencyLabels[freq]}
+								{minimumFrequency === freq ? " (fra krav)" : ""}
 							</option>
 						))}
 					</Select>
@@ -402,7 +447,7 @@ export default function RedigerRutine() {
 						value={responsibleRole}
 						onChange={(e) => handleRoleChange(e.target.value)}
 					>
-						<option value="">Velg rolle (valgfritt)</option>
+						<option value="">Arves fra krav</option>
 						{PREDEFINED_ROLES.map((role) => (
 							<option key={role} value={role}>
 								{role}

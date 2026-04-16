@@ -35,7 +35,14 @@ import {
 import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType } from "~/db/schema/routines"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
-import { frequencyLabels, isRoutineFrequency, ROUTINE_FREQUENCIES } from "~/lib/routine-frequencies"
+import {
+	frequencyLabels,
+	getStrictestFrequency,
+	isFrequencyAtLeastAsOften,
+	isRoutineFrequency,
+	ROUTINE_FREQUENCIES,
+	type RoutineFrequency,
+} from "~/lib/routine-frequencies"
 
 const PREDEFINED_ROLES = [
 	"Seksjonsleder",
@@ -145,6 +152,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		throw data({ message: "Ugyldig frekvens" }, { status: 400 })
 	}
 
+	// Validate frequency is at least as often as the strictest control requirement
+	if (controlIds.length > 0) {
+		const allControls = await getAllControlsForSelection()
+		const selectedControls = allControls.filter((c) => controlIds.includes(c.id))
+		const minFreq = getStrictestFrequency(selectedControls.map((c) => c.frequency))
+		if (minFreq && !isFrequencyAtLeastAsOften(frequency, minFreq)) {
+			throw data(
+				{ message: `Frekvensen kan ikke være sjeldnere enn kravet (${frequencyLabels[minFreq]})` },
+				{ status: 400 },
+			)
+		}
+	}
+
 	// Parse multiple question links
 	const questionIds = formData.getAll("questionId") as string[]
 	const choiceValues = formData.getAll("choiceValue") as string[]
@@ -181,6 +201,10 @@ export default function NyRutine() {
 	const [responsibleRole, setResponsibleRole] = useState("")
 	const [roleManuallySet, setRoleManuallySet] = useState(false)
 	const [persistenceLinks, setPersistenceLinks] = useState<PersistenceLinkItem[]>([])
+	const [selectedFrequency, setSelectedFrequency] = useState<RoutineFrequency | "">("")
+
+	const selectedControls = controls.filter((c) => selectedControlIds.includes(c.id))
+	const minimumFrequency = getStrictestFrequency(selectedControls.map((c) => c.frequency))
 
 	const addPersistenceLink = () => {
 		setPersistenceLinks((prev) => [...prev, { key: crypto.randomUUID(), persistenceType: "", dataClassification: "" }])
@@ -199,6 +223,16 @@ export default function NyRutine() {
 		if (!roleManuallySet) {
 			const firstControl = controls.find((c) => newIds.includes(c.id))
 			setResponsibleRole(firstControl?.responsible ?? "")
+		}
+		// Auto-adjust frequency if current selection is too infrequent
+		const newSelectedControls = controls.filter((c) => newIds.includes(c.id))
+		const newMinFreq = getStrictestFrequency(newSelectedControls.map((c) => c.frequency))
+		if (
+			newMinFreq &&
+			isRoutineFrequency(selectedFrequency) &&
+			!isFrequencyAtLeastAsOften(selectedFrequency, newMinFreq)
+		) {
+			setSelectedFrequency(newMinFreq)
 		}
 	}
 
@@ -237,11 +271,22 @@ export default function NyRutine() {
 
 					<Textarea label="Beskrivelse" name="description" />
 
-					<Select label="Frekvens" name="frequency">
+					<Select
+						label="Frekvens"
+						name="frequency"
+						value={selectedFrequency}
+						onChange={(e) => setSelectedFrequency(e.target.value as RoutineFrequency)}
+						description={minimumFrequency ? `Krav krever minimum: ${frequencyLabels[minimumFrequency]}` : undefined}
+					>
 						<option value="">Velg frekvens</option>
 						{ROUTINE_FREQUENCIES.map((freq) => (
-							<option key={freq} value={freq}>
+							<option
+								key={freq}
+								value={freq}
+								disabled={minimumFrequency ? !isFrequencyAtLeastAsOften(freq, minimumFrequency) : false}
+							>
 								{frequencyLabels[freq]}
+								{minimumFrequency === freq ? " (fra krav)" : ""}
 							</option>
 						))}
 					</Select>
@@ -352,7 +397,7 @@ export default function NyRutine() {
 						value={responsibleRole}
 						onChange={(e) => handleRoleChange(e.target.value)}
 					>
-						<option value="">Velg rolle (valgfritt)</option>
+						<option value="">Arves fra krav</option>
 						{PREDEFINED_ROLES.map((role) => (
 							<option key={role} value={role}>
 								{role}

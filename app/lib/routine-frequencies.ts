@@ -40,3 +40,69 @@ export function getFrequencyLabel(frequency: string | null | undefined, fallback
 	if (frequency && isRoutineFrequency(frequency)) return frequencyLabels[frequency]
 	return fallback
 }
+
+/**
+ * Numeric rank for a frequency — lower means more frequent.
+ * Used to compare and validate frequency choices.
+ */
+export function frequencyRank(freq: RoutineFrequency): number {
+	return ROUTINE_FREQUENCIES.indexOf(freq)
+}
+
+/**
+ * Map from control cronFrequency values to RoutineFrequency.
+ * Controls store free-text frequency that gets derived into cronFrequency.
+ */
+const cronToRoutineFrequency: Record<string, RoutineFrequency> = {
+	monthly: "monthly",
+	quarterly: "quarterly",
+	tertiary: "tertially",
+	biannual: "semi_annually",
+	annual: "annually",
+}
+
+/**
+ * Parse a control's free-text frequency into a RoutineFrequency.
+ * First tries matching Norwegian labels, then cronFrequency values.
+ * Returns null if no match is found.
+ */
+export function parseControlFrequency(freqText: string | null | undefined): RoutineFrequency | null {
+	if (!freqText) return null
+	const lower = freqText.toLowerCase()
+
+	// Direct match against Norwegian labels
+	for (const [freq, label] of Object.entries(frequencyLabels)) {
+		if (lower.includes(label.toLowerCase())) return freq as RoutineFrequency
+	}
+
+	// Match against cronFrequency values
+	for (const [cron, routine] of Object.entries(cronToRoutineFrequency)) {
+		if (lower.includes(cron)) return routine
+	}
+
+	return null
+}
+
+/**
+ * Get the strictest (most frequent) RoutineFrequency from a list.
+ * Returns null if the list is empty or contains no parseable values.
+ */
+export function getStrictestFrequency(frequencies: (string | null | undefined)[]): RoutineFrequency | null {
+	let strictest: RoutineFrequency | null = null
+	for (const f of frequencies) {
+		const parsed = isRoutineFrequency(f) ? f : parseControlFrequency(f)
+		if (!parsed) continue
+		if (!strictest || frequencyRank(parsed) < frequencyRank(strictest)) {
+			strictest = parsed
+		}
+	}
+	return strictest
+}
+
+/**
+ * Check if a frequency is at least as often as the minimum.
+ * Returns true if freq is more frequent than or equal to minFreq.
+ */
+export function isFrequencyAtLeastAsOften(freq: RoutineFrequency, minFreq: RoutineFrequency): boolean {
+	return frequencyRank(freq) <= frequencyRank(minFreq)
+}

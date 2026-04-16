@@ -1784,6 +1784,7 @@ export async function getAllControlsForSelection() {
 			shortTitle: frameworkControls.shortTitle,
 			requirement: frameworkControls.requirement,
 			responsible: frameworkControls.responsible,
+			frequency: frameworkControls.frequency,
 		})
 		.from(frameworkControls)
 		.where(isNull(frameworkControls.archivedAt))
@@ -1793,5 +1794,6 @@ export async function getAllControlsForSelection() {
 		controlId: r.controlId,
 		name: r.shortTitle || shortName(r.requirement, r.controlId),
 		responsible: r.responsible,
+		frequency: r.frequency,
 	}))
 }
