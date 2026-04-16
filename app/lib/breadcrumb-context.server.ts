@@ -11,3 +11,14 @@ export async function getTeamBreadcrumbContext(seksjonSlug: string, teamSlug: st
 		teamName: team?.name ?? teamSlug,
 	}
 }
+
+/**
+ * Fetches section name for breadcrumb display in section-context routes.
+ * Returns { seksjonName } to be merged into loader data.
+ */
+export async function getSectionBreadcrumbContext(seksjonSlug: string) {
+	const section = await getSectionBySlug(seksjonSlug)
+	return {
+		seksjonName: section?.name ?? seksjonSlug,
+	}
+}

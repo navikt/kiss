@@ -67,14 +67,18 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
-	// Breadcrumb context for team-context routes
-	const breadcrumbCtx =
-		params.seksjon && params.team
-			? await (async () => {
-					const { getTeamBreadcrumbContext } = await import("~/lib/breadcrumb-context.server")
-					return getTeamBreadcrumbContext(params.seksjon!, params.team!)
-				})()
-			: {}
+	// Breadcrumb context for team/section-context routes
+	const breadcrumbCtx = await (async () => {
+		if (params.seksjon && params.team) {
+			const { getTeamBreadcrumbContext } = await import("~/lib/breadcrumb-context.server")
+			return getTeamBreadcrumbContext(params.seksjon, params.team)
+		}
+		if (params.seksjon) {
+			const { getSectionBreadcrumbContext } = await import("~/lib/breadcrumb-context.server")
+			return getSectionBreadcrumbContext(params.seksjon)
+		}
+		return {}
+	})()
 
 	const [screeningData, appDetail] = await Promise.all([getScreeningDataForApp(appId), getApplicationDetail(appId)])
 	if (!appDetail) throw new Response("Applikasjon ikke funnet", { status: 404 })

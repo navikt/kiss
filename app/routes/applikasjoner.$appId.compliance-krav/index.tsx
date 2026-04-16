@@ -52,14 +52,18 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const status = url.searchParams.get("status") ?? ""
 	const domene = url.searchParams.get("domene") ?? ""
 
-	// Breadcrumb context for team-context routes
-	const breadcrumbCtx =
-		params.seksjon && params.team
-			? await (async () => {
-					const { getTeamBreadcrumbContext } = await import("~/lib/breadcrumb-context.server")
-					return getTeamBreadcrumbContext(params.seksjon!, params.team!)
-				})()
-			: {}
+	// Breadcrumb context for team/section-context routes
+	const breadcrumbCtx = await (async () => {
+		if (params.seksjon && params.team) {
+			const { getTeamBreadcrumbContext } = await import("~/lib/breadcrumb-context.server")
+			return getTeamBreadcrumbContext(params.seksjon, params.team)
+		}
+		if (params.seksjon) {
+			const { getSectionBreadcrumbContext } = await import("~/lib/breadcrumb-context.server")
+			return getSectionBreadcrumbContext(params.seksjon)
+		}
+		return {}
+	})()
 
 	const [result, allRisks] = await Promise.all([getAppAssessments(appId), getAllRisks()])
 	if (!result) throw new Response("Applikasjon ikke funnet", { status: 404 })
