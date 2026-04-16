@@ -75,9 +75,8 @@ async function seedTrackingForPushedDatabase() {
 	for (const entry of journal.entries) {
 		const sqlContent = fs.readFileSync(path.join(MIGRATIONS_FOLDER, `${entry.tag}.sql`)).toString()
 
-		const newTable = extractCreateTableName(sqlContent)
-		if (newTable && !existingTables.has(newTable)) {
-			logger.info(`Skipping migration ${entry.tag} — table "${newTable}" does not exist yet`)
+		if (migrationTargetsNewStructure(sqlContent, existingTables)) {
+			logger.info(`Skipping migration ${entry.tag} — targets structure that does not exist yet`)
 			continue
 		}
 
@@ -102,4 +101,24 @@ async function getExistingPublicTables(): Promise<Set<string>> {
 function extractCreateTableName(sqlContent: string): string | null {
 	const match = sqlContent.match(/CREATE TABLE[^"]*"(\w+)"/)
 	return match?.[1] ?? null
+}
+
+function extractAlterTableName(sqlContent: string): string | null {
+	const match = sqlContent.match(/ALTER TABLE[^"]*"(\w+)"/)
+	return match?.[1] ?? null
+}
+
+/**
+ * Check if a migration creates new structure (table or column) that does not exist yet.
+ * Returns true if the migration should be left for migrate() to execute.
+ */
+function migrationTargetsNewStructure(sqlContent: string, existingTables: Set<string>): boolean {
+	const newTable = extractCreateTableName(sqlContent)
+	if (newTable && !existingTables.has(newTable)) return true
+
+	// ALTER TABLE on a table that doesn't exist → also new
+	const alteredTable = extractAlterTableName(sqlContent)
+	if (alteredTable && !existingTables.has(alteredTable)) return true
+
+	return false
 }

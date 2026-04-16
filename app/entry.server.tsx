@@ -12,7 +12,7 @@ import { logger } from "~/lib/logger.server"
 import { startNaisScheduler } from "~/lib/nais-scheduler.server"
 
 // Run database migrations, then start background schedulers
-runMigrations()
+const migrationPromise = runMigrations()
 	.then(() => {
 		startNaisScheduler()
 		startAuditSummaryScheduler()
@@ -49,13 +49,16 @@ export function handleError(error: unknown, { request }: { request: Request }) {
 	}
 }
 
-export default function handleRequest(
+export default async function handleRequest(
 	request: Request,
 	responseStatusCode: number,
 	responseHeaders: Headers,
 	routerContext: EntryContext,
 	_loadContext: AppLoadContext,
 ) {
+	// Ensure database migrations have completed before handling any requests
+	await migrationPromise
+
 	if (request.method.toUpperCase() === "HEAD") {
 		return new Response(null, {
 			status: responseStatusCode,
