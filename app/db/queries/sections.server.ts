@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
+import { applicationControls } from "../schema/application-controls"
 import {
 	applicationEnvironments,
 	applicationTeamMappings,
@@ -8,11 +9,9 @@ import {
 	naisTeams,
 	sectionIgnoredApplications,
 } from "../schema/applications"
-import { complianceAssessments } from "../schema/compliance"
 import { applicationTechnologyElements, controlTechnologyElements, frameworkControls } from "../schema/framework"
 import { devTeams, sectionExcludedEnvironments, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
-import { getBatchScreeningDerivedControlIds } from "./screening.server"
 
 /** Get all sections. */
 export async function getSections() {
@@ -28,13 +27,11 @@ export async function getSectionBySlug(slug: string) {
 type ComplianceStats = { implemented: number; partial: number; notImplemented: number; notRelevant: number }
 
 /**
- * @deprecated Leser fra complianceAssessments (legacy). Compliance skal utledes fra screening/rutiner/regelsett.
- * Beholdes midlertidig for bakoverkompatibilitet.
+ * Get compliance stats per app from the materialized application_controls table.
+ * Reads from application_controls (populated by syncApplicationControls).
+ * Falls back gracefully to zeros if no data has been synced yet.
  */
-async function getBatchComplianceStats(
-	appIds: string[],
-	screeningControlsMap?: Map<string, Set<string>>,
-): Promise<Map<string, ComplianceStats>> {
+async function getBatchComplianceStats(appIds: string[]): Promise<Map<string, ComplianceStats>> {
 	const result = new Map<string, ComplianceStats>()
 	if (appIds.length === 0) return result
 
@@ -44,36 +41,29 @@ async function getBatchComplianceStats(
 
 	const rows = await db
 		.select({
-			applicationId: complianceAssessments.applicationId,
-			controlId: complianceAssessments.controlId,
-			status: complianceAssessments.status,
+			applicationId: applicationControls.applicationId,
+			status: applicationControls.status,
+			cnt: sql<number>`count(*)::int`,
 		})
-		.from(complianceAssessments)
-		.where(inArray(complianceAssessments.applicationId, appIds))
+		.from(applicationControls)
+		.where(and(inArray(applicationControls.applicationId, appIds), eq(applicationControls.isActive, true)))
+		.groupBy(applicationControls.applicationId, applicationControls.status)
 
 	for (const row of rows) {
-		// Skip assessments for controls not connected via screening
-		if (screeningControlsMap) {
-			const screeningControls = screeningControlsMap.get(row.applicationId)
-			if (screeningControls && screeningControls.size > 0 && !screeningControls.has(row.controlId)) {
-				continue
-			}
-		}
-
 		const stats = result.get(row.applicationId)
 		if (!stats) continue
 		switch (row.status) {
 			case "implemented":
-				stats.implemented++
+				stats.implemented += row.cnt
 				break
 			case "partially_implemented":
-				stats.partial++
+				stats.partial += row.cnt
 				break
 			case "not_implemented":
-				stats.notImplemented++
+				stats.notImplemented += row.cnt
 				break
 			case "not_relevant":
-				stats.notRelevant++
+				stats.notRelevant += row.cnt
 				break
 		}
 	}
@@ -292,8 +282,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 
 	// Phase 3: Batch-fetch compliance stats and expected totals for ALL apps (sequential to limit connections)
 	const allAppIds = [...allAssignedAppIds, ...unassignedAppIds.filter((id) => !allAssignedAppIds.has(id))]
-	const screeningControlsMap = await getBatchScreeningDerivedControlIds(allAppIds)
-	const statsMap = await getBatchComplianceStats(allAppIds, screeningControlsMap)
+	const statsMap = await getBatchComplianceStats(allAppIds)
 	const totalsMap = await getBatchExpectedTotals(allAppIds)
 
 	// Phase 4: Build team stats from the pre-fetched map
@@ -548,8 +537,7 @@ export async function getTeamApps(teamSlug: string) {
 		appIdList.length > 0
 			? await db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, appIdList))
 			: []
-	const screeningControlsMap = await getBatchScreeningDerivedControlIds(appIdList)
-	const statsMap = await getBatchComplianceStats(appIdList, screeningControlsMap)
+	const statsMap = await getBatchComplianceStats(appIdList)
 	const totalsMap = await getBatchExpectedTotals(appIdList)
 
 	const appById = new Map(appRows.map((a) => [a.id, a]))
@@ -613,8 +601,7 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 		allAppIds.length > 0
 			? await db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, allAppIds))
 			: []
-	const screeningControlsMap = await getBatchScreeningDerivedControlIds(allAppIds)
-	const statsMap = await getBatchComplianceStats(allAppIds, screeningControlsMap)
+	const statsMap = await getBatchComplianceStats(allAppIds)
 	const totalsMap = await getBatchExpectedTotals(allAppIds)
 
 	const appById = new Map(appRows.map((a) => [a.id, a]))
@@ -782,8 +769,7 @@ export async function getSectionApps(seksjonSlug: string) {
 		allAppIds.length > 0
 			? await db.select().from(monitoredApplications).where(inArray(monitoredApplications.id, allAppIds))
 			: []
-	const screeningControlsMap = await getBatchScreeningDerivedControlIds(allAppIds)
-	const statsMap = await getBatchComplianceStats(allAppIds, screeningControlsMap)
+	const statsMap = await getBatchComplianceStats(allAppIds)
 	const totalsMap = await getBatchExpectedTotals(allAppIds)
 
 	const appById = new Map(appRows.map((a) => [a.id, a]))

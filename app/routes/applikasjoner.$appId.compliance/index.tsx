@@ -188,6 +188,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const answer = answerValue || null
 		await saveScreeningAnswer(appId, questionId, answer, authedUser.navIdent, answerComment, answerLink)
 
+		// Sync materialized compliance controls after screening answer change
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+
 		return data({ success: true, controlId: "screening", screening: true })
 	}
 
@@ -197,6 +201,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!choiceEffectId) throw new Response("Mangler effekt-ID", { status: 400 })
 
 		await saveRoutineSelection(appId, choiceEffectId, routineId, authedUser.navIdent)
+
+		// Sync materialized compliance controls after routine selection change
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
 
 		return data({ success: true, controlId: "screening", screening: true })
 	}
@@ -224,6 +232,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			validClassification,
 			authedUser.navIdent,
 		)
+
+		// Sync compliance controls (persistence affects tech element detection)
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+
 		return data({ success: true, controlId: "screening", screening: true })
 	}
 
@@ -238,6 +251,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				: null
 
 		await updatePersistenceClassification(persistenceId, validClassification, authedUser.navIdent)
+
+		// Sync compliance controls
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+
 		return data({ success: true, controlId: "screening", screening: true })
 	}
 
@@ -245,6 +263,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const persistenceId = formData.get("persistenceId") as string
 		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
 		await deleteManualPersistence(persistenceId, authedUser.navIdent)
+
+		// Sync compliance controls
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+
 		return data({ success: true, controlId: "screening", screening: true })
 	}
 

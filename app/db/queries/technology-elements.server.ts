@@ -337,6 +337,10 @@ export async function confirmApplicationElement(linkId: string, performedBy: str
 			metadata: { applicationId: row.appId, elementId: row.elementId },
 			performedBy,
 		})
+
+		// Sync materialized compliance controls after tech element confirmation
+		const { syncApplicationControls } = await import("./application-controls.server")
+		await syncApplicationControls(row.appId, performedBy)
 	}
 }
 
@@ -366,5 +370,9 @@ export async function rejectApplicationElement(linkId: string, reason: string, p
 			metadata: { applicationId: row.appId, elementId: row.elementId },
 			performedBy,
 		})
+
+		// Sync materialized compliance controls after tech element rejection
+		const { syncApplicationControls } = await import("./application-controls.server")
+		await syncApplicationControls(row.appId, performedBy)
 	}
 }
