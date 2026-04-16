@@ -1,13 +1,11 @@
-import { BodyShort, CopyButton, Detail, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
-import type { ChangeEvent } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Link, useFetcher, useLoaderData } from "react-router"
+import { BodyShort, CopyButton, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import type { LoaderFunctionArgs } from "react-router"
+import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getSectionGroups, upsertGroupCriticality } from "~/db/queries/nais.server"
+import { getSectionGroups } from "~/db/queries/nais.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
-import { type GroupCriticality, groupCriticalityEnum, groupCriticalityLabels } from "~/db/schema/applications"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { isAdmin, requireAdmin } from "~/lib/authorization.server"
+import { type GroupCriticality, groupCriticalityLabels } from "~/db/schema/applications"
+import { getAuthenticatedUser } from "~/lib/auth.server"
 import { resolveGroupNames } from "~/lib/graph.server"
 
 const criticalityTagVariant: Record<string, "success" | "warning" | "error" | "neutral"> = {
@@ -21,62 +19,22 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { seksjon } = params
 	if (!seksjon) throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 
-	const user = await getAuthenticatedUser(request)
+	await getAuthenticatedUser(request)
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 
 	const groups = await getSectionGroups(section.id)
 
-	// Resolve group names from Microsoft Graph
 	const groupIds = groups.map((g) => g.groupId)
 	const groupNames = groupIds.length > 0 ? await resolveGroupNames(groupIds) : {}
 
 	const notAssessedCount = groups.filter((g) => !g.criticality).length
 
-	return data({
-		section,
-		seksjon,
-		groups,
-		groupNames,
-		notAssessedCount,
-		canAdmin: user ? isAdmin(user) : false,
-	})
-}
-
-export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
-
-	const { seksjon } = params
-	if (!seksjon) throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
-
-	const formData = await request.formData()
-	const intent = formData.get("intent") as string
-
-	if (intent === "set-criticality") {
-		const applicationId = formData.get("applicationId") as string
-		const groupId = formData.get("groupId") as string
-		const criticality = formData.get("criticality") as string
-
-		if (!applicationId || !groupId || !criticality) {
-			throw data({ message: "Mangler påkrevde felter" }, { status: 400 })
-		}
-
-		if (!groupCriticalityEnum.includes(criticality as GroupCriticality)) {
-			throw data({ message: "Ugyldig kritikalitet" }, { status: 400 })
-		}
-
-		await upsertGroupCriticality(applicationId, groupId, criticality as GroupCriticality, authedUser.navIdent)
-		return data({ ok: true })
-	}
-
-	throw data({ message: "Ugyldig handling" }, { status: 400 })
+	return data({ section, seksjon, groups, groupNames, notAssessedCount })
 }
 
 export default function SeksjonEntraGrupper() {
-	const { section, seksjon, groups, groupNames, notAssessedCount, canAdmin } = useLoaderData<typeof loader>()
-	const criticalityFetcher = useFetcher()
+	const { section, seksjon, groups, groupNames, notAssessedCount } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-6">
@@ -105,8 +63,6 @@ export default function SeksjonEntraGrupper() {
 							{groups.map((g) => {
 								const displayName = groupNames[g.groupId] ?? null
 								const sources = [...new Set(g.applications.map((a) => a.source))]
-								// Use the first application for criticality update
-								const primaryAppId = g.applications[0]?.applicationId
 
 								return (
 									<Table.Row key={g.groupId}>
@@ -151,40 +107,7 @@ export default function SeksjonEntraGrupper() {
 											</HStack>
 										</Table.DataCell>
 										<Table.DataCell>
-											{canAdmin && primaryAppId ? (
-												<criticalityFetcher.Form method="post">
-													<input type="hidden" name="intent" value="set-criticality" />
-													<input type="hidden" name="applicationId" value={primaryAppId} />
-													<input type="hidden" name="groupId" value={g.groupId} />
-													<Select
-														label="Kritikalitet"
-														hideLabel
-														size="small"
-														value={g.criticality ?? ""}
-														onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-															criticalityFetcher.submit(
-																{
-																	intent: "set-criticality",
-																	applicationId: primaryAppId,
-																	groupId: g.groupId,
-																	criticality: e.target.value,
-																},
-																{ method: "POST" },
-															)
-														}}
-														style={{ minWidth: "120px" }}
-													>
-														<option value="" disabled>
-															Velg…
-														</option>
-														{groupCriticalityEnum.map((c) => (
-															<option key={c} value={c}>
-																{groupCriticalityLabels[c]}
-															</option>
-														))}
-													</Select>
-												</criticalityFetcher.Form>
-											) : g.criticality ? (
+											{g.criticality ? (
 												<Tag variant={criticalityTagVariant[g.criticality] ?? "neutral"} size="xsmall">
 													{groupCriticalityLabels[g.criticality as GroupCriticality] ?? g.criticality}
 												</Tag>
