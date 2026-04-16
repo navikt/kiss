@@ -1,6 +1,6 @@
 import type { JWTPayload } from "jose"
 import { createRemoteJWKSet, jwtVerify } from "jose"
-import { getUserRoles } from "~/db/queries/users.server"
+import { getUserRoles, upsertUser } from "~/db/queries/users.server"
 import type { UserRole } from "~/db/schema/organization"
 
 export interface UserRoleEntry {
@@ -98,6 +98,7 @@ export async function getAuthenticatedUser(request: Request): Promise<NavUser | 
 	const localUser = getLocalDevUser()
 	if (localUser) {
 		localUser.dbRoles = await loadDbRoles(localUser.navIdent)
+		trackLogin(localUser.navIdent, localUser.name, localUser.email)
 		return localUser
 	}
 
@@ -110,18 +111,19 @@ export async function getAuthenticatedUser(request: Request): Promise<NavUser | 
 		const claims = await validateToken(token)
 		const groups = claims.groups ?? []
 		const navIdent = claims.NAVident ?? "unknown"
+		const name = claims.name ?? "Ukjent bruker"
+		const email = claims.preferred_username
 		const dbRoles = await loadDbRoles(navIdent)
-		return {
-			navIdent,
-			name: claims.name ?? "Ukjent bruker",
-			email: claims.preferred_username,
-			groups,
-			token,
-			dbRoles,
-		}
+		trackLogin(navIdent, name, email)
+		return { navIdent, name, email, groups, token, dbRoles }
 	} catch {
 		return null
 	}
+}
+
+/** Fire-and-forget upsert to track user login. Errors are silently ignored. */
+function trackLogin(navIdent: string, name: string, email?: string) {
+	upsertUser(navIdent, name, email).catch(() => {})
 }
 
 export function requireUser(user: NavUser | null): NavUser {

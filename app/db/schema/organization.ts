@@ -70,6 +70,7 @@ export const users = pgTable("users", {
 	navIdent: text("nav_ident").notNull().unique(),
 	name: text("name").notNull(),
 	email: text("email"),
+	lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })

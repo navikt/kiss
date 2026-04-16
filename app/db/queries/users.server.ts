@@ -32,12 +32,13 @@ export interface UserWithRoles {
 
 /** Create or update a user record. Returns the user id. */
 export async function upsertUser(navIdent: string, name: string, email?: string): Promise<string> {
+	const now = new Date()
 	const [row] = await db
 		.insert(users)
-		.values({ navIdent, name, email: email ?? null })
+		.values({ navIdent, name, email: email ?? null, lastLoginAt: now })
 		.onConflictDoUpdate({
 			target: users.navIdent,
-			set: { name, email: email ?? null, updatedAt: new Date() },
+			set: { name, email: email ?? null, lastLoginAt: now, updatedAt: now },
 		})
 		.returning({ id: users.id })
 	return row.id
