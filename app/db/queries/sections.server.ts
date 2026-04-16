@@ -209,7 +209,31 @@ async function getTeamAppIds(teamId: string, sectionId: string, excludedEnvs?: S
 	}
 
 	// Merge: direct + nais (deduplicated)
-	const allIds = new Set([...directIds, ...naisAppIds])
+	const merged = new Set([...directIds, ...naisAppIds])
+
+	// Filter out apps whose ONLY environments are in excluded clusters
+	if (excludedEnvs && excludedEnvs.size > 0 && merged.size > 0) {
+		const appEnvRows = await db
+			.select({
+				appId: applicationEnvironments.applicationId,
+				cluster: applicationEnvironments.cluster,
+			})
+			.from(applicationEnvironments)
+			.where(inArray(applicationEnvironments.applicationId, [...merged]))
+		const appEnvMap = new Map<string, Set<string>>()
+		for (const row of appEnvRows) {
+			if (!appEnvMap.has(row.appId)) appEnvMap.set(row.appId, new Set())
+			appEnvMap.get(row.appId)?.add(row.cluster)
+		}
+		for (const appId of merged) {
+			const clusters = appEnvMap.get(appId)
+			if (clusters && clusters.size > 0 && [...clusters].every((c) => excludedEnvs.has(c))) {
+				merged.delete(appId)
+			}
+		}
+	}
+
+	const allIds = merged
 	return { allIds, directIds, naisAppIds }
 }
 
@@ -530,7 +554,13 @@ export async function getTeamApps(teamSlug: string) {
 	const [team] = await db.select().from(devTeams).where(eq(devTeams.slug, teamSlug)).limit(1)
 	if (!team) return null
 
-	const { allIds, directIds } = await getTeamAppIds(team.id, team.sectionId)
+	const excludedEnvRows = await db
+		.select({ cluster: sectionExcludedEnvironments.cluster })
+		.from(sectionExcludedEnvironments)
+		.where(eq(sectionExcludedEnvironments.sectionId, team.sectionId))
+	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
+
+	const { allIds, directIds } = await getTeamAppIds(team.id, team.sectionId, excludedEnvs)
 
 	const appIdList = [...allIds]
 	const appRows =
@@ -582,12 +612,27 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 		.innerJoin(sections, eq(devTeams.sectionId, sections.id))
 		.where(inArray(devTeams.id, teamIds))
 
+	// Load excluded environments per section (teams may belong to different sections)
+	const sectionIds = [...new Set(teamRows.map((t) => t.sectionId))]
+	const excludedEnvsBySection = new Map<string, Set<string>>()
+	if (sectionIds.length > 0) {
+		const rows = await db
+			.select({ sectionId: sectionExcludedEnvironments.sectionId, cluster: sectionExcludedEnvironments.cluster })
+			.from(sectionExcludedEnvironments)
+			.where(inArray(sectionExcludedEnvironments.sectionId, sectionIds))
+		for (const row of rows) {
+			if (!excludedEnvsBySection.has(row.sectionId)) excludedEnvsBySection.set(row.sectionId, new Set())
+			excludedEnvsBySection.get(row.sectionId)?.add(row.cluster)
+		}
+	}
+
 	// Collect app IDs from all teams, tracking which team each belongs to
 	const appToTeams = new Map<string, Set<string>>()
 	const appSources = new Map<string, "direct" | "nais-team">()
 
 	for (const team of teamRows) {
-		const { allIds, directIds } = await getTeamAppIds(team.id, team.sectionId)
+		const excludedEnvs = excludedEnvsBySection.get(team.sectionId)
+		const { allIds, directIds } = await getTeamAppIds(team.id, team.sectionId, excludedEnvs)
 		for (const appId of allIds) {
 			if (!appToTeams.has(appId)) appToTeams.set(appId, new Set())
 			appToTeams.get(appId)?.add(team.id)

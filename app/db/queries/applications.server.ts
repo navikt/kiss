@@ -500,17 +500,18 @@ export async function getApplicationsForSection(sectionId: string) {
 
 	if (naisTeamIds.length === 0 && devTeamIds.length === 0) return []
 
+	// Load excluded environments for this section
+	const excludedRows = await db
+		.select({ cluster: sectionExcludedEnvironments.cluster })
+		.from(sectionExcludedEnvironments)
+		.where(eq(sectionExcludedEnvironments.sectionId, sectionId))
+	const excludedEnvs = new Set(excludedRows.map((r) => r.cluster))
+
 	// Collect app IDs from both sources
 	const allAppIdSet = new Set<string>()
 
 	// Source 1: Nais team apps (with environment filtering)
 	if (naisTeamIds.length > 0) {
-		const excludedRows = await db
-			.select({ cluster: sectionExcludedEnvironments.cluster })
-			.from(sectionExcludedEnvironments)
-			.where(eq(sectionExcludedEnvironments.sectionId, sectionId))
-		const excludedEnvs = new Set(excludedRows.map((r) => r.cluster))
-
 		const envConditions = [inArray(applicationEnvironments.naisTeamId, naisTeamIds)]
 		if (excludedEnvs.size > 0) {
 			const excludedArray = [...excludedEnvs]
@@ -537,10 +538,35 @@ export async function getApplicationsForSection(sectionId: string) {
 		const directApps = await db
 			.select({ appId: applicationTeamMappings.applicationId })
 			.from(applicationTeamMappings)
-			.where(inArray(applicationTeamMappings.devTeamId, devTeamIds))
+			.innerJoin(monitoredApplications, eq(applicationTeamMappings.applicationId, monitoredApplications.id))
+			.where(
+				and(inArray(applicationTeamMappings.devTeamId, devTeamIds), isNull(monitoredApplications.primaryApplicationId)),
+			)
 
 		for (const row of directApps) {
 			allAppIdSet.add(row.appId)
+		}
+	}
+
+	// Filter out apps whose ONLY environments are in excluded clusters
+	if (excludedEnvs.size > 0 && allAppIdSet.size > 0) {
+		const appEnvRows = await db
+			.select({
+				appId: applicationEnvironments.applicationId,
+				cluster: applicationEnvironments.cluster,
+			})
+			.from(applicationEnvironments)
+			.where(inArray(applicationEnvironments.applicationId, [...allAppIdSet]))
+		const appEnvMap = new Map<string, Set<string>>()
+		for (const row of appEnvRows) {
+			if (!appEnvMap.has(row.appId)) appEnvMap.set(row.appId, new Set())
+			appEnvMap.get(row.appId)?.add(row.cluster)
+		}
+		for (const appId of allAppIdSet) {
+			const clusters = appEnvMap.get(appId)
+			if (clusters && clusters.size > 0 && [...clusters].every((c) => excludedEnvs.has(c))) {
+				allAppIdSet.delete(appId)
+			}
 		}
 	}
 

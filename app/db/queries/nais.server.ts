@@ -1610,7 +1610,14 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 	const sectionTeamRows = await db.select({ id: devTeams.id }).from(devTeams).where(eq(devTeams.sectionId, sectionId))
 	const teamIds = sectionTeamRows.map((t) => t.id)
 
-	const appIds: string[] = []
+	// Load excluded environments for this section
+	const excludedRows = await db
+		.select({ cluster: sectionExcludedEnvironments.cluster })
+		.from(sectionExcludedEnvironments)
+		.where(eq(sectionExcludedEnvironments.sectionId, sectionId))
+	const excludedEnvs = new Set(excludedRows.map((r) => r.cluster))
+
+	const appIdSet = new Set<string>()
 
 	if (teamIds.length > 0) {
 		const appMappings = await db
@@ -1618,7 +1625,7 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 			.from(applicationTeamMappings)
 			.where(inArray(applicationTeamMappings.devTeamId, teamIds))
 		for (const m of appMappings) {
-			if (!appIds.includes(m.applicationId)) appIds.push(m.applicationId)
+			appIdSet.add(m.applicationId)
 		}
 	}
 
@@ -1630,21 +1637,52 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 	const naisTeamIds = sectionNaisTeams.map((t) => t.id)
 
 	if (naisTeamIds.length > 0) {
+		const envConditions = [
+			inArray(applicationEnvironments.naisTeamId, naisTeamIds),
+			isNull(monitoredApplications.primaryApplicationId),
+		]
+		if (excludedEnvs.size > 0) {
+			const excludedArray = [...excludedEnvs]
+			envConditions.push(
+				sql`${applicationEnvironments.cluster} NOT IN (${sql.join(
+					excludedArray.map((e) => sql`${e}`),
+					sql`, `,
+				)})`,
+			)
+		}
 		const naisAppRows = await db
 			.selectDistinct({ appId: applicationEnvironments.applicationId })
 			.from(applicationEnvironments)
 			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
-			.where(
-				and(
-					inArray(applicationEnvironments.naisTeamId, naisTeamIds),
-					isNull(monitoredApplications.primaryApplicationId),
-				),
-			)
+			.where(and(...envConditions))
 		for (const row of naisAppRows) {
-			if (!appIds.includes(row.appId)) appIds.push(row.appId)
+			appIdSet.add(row.appId)
 		}
 	}
 
+	// Filter out apps whose ONLY environments are in excluded clusters
+	if (excludedEnvs.size > 0 && appIdSet.size > 0) {
+		const appEnvRows = await db
+			.select({
+				appId: applicationEnvironments.applicationId,
+				cluster: applicationEnvironments.cluster,
+			})
+			.from(applicationEnvironments)
+			.where(inArray(applicationEnvironments.applicationId, [...appIdSet]))
+		const appEnvMap = new Map<string, Set<string>>()
+		for (const row of appEnvRows) {
+			if (!appEnvMap.has(row.appId)) appEnvMap.set(row.appId, new Set())
+			appEnvMap.get(row.appId)?.add(row.cluster)
+		}
+		for (const appId of appIdSet) {
+			const clusters = appEnvMap.get(appId)
+			if (clusters && clusters.size > 0 && [...clusters].every((c) => excludedEnvs.has(c))) {
+				appIdSet.delete(appId)
+			}
+		}
+	}
+
+	const appIds = [...appIdSet]
 	if (appIds.length === 0) return []
 
 	// Get all app names
