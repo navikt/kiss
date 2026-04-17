@@ -784,7 +784,7 @@ function ControlRow({
 			}
 			togglePlacement="right"
 			expandOnRowClick={false}
-			colSpan={9}
+			colSpan={10}
 		>
 			{children}
 			<Table.DataCell>
@@ -1284,6 +1284,7 @@ export default function ApplikasjonDetalj() {
 													Etterlevelse
 												</Table.ColumnHeader>
 												<Table.ColumnHeader scope="col">Kommentar</Table.ColumnHeader>
+												<Table.HeaderCell />
 											</Table.Row>
 										</Table.Header>
 										<Table.Body>
