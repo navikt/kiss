@@ -1,9 +1,11 @@
 import { BodyShort, Box, Button, Detail, Heading, HStack, Label, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Link, redirect, useFetcher, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
+	approveRoutine,
 	calculateDeadline,
+	copyRoutine,
 	getAppsRequiringRoutine,
 	getLatestReviewForApp,
 	getReviewsForRoutine,
@@ -18,6 +20,8 @@ import {
 	type PersistenceType,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { canApproveRoutine, isAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
@@ -38,12 +42,13 @@ function formatDateTime(date: string | Date | null): string {
 	})
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
 	}
 
+	const user = await getAuthenticatedUser(request)
 	const section = await getSectionBySlug(seksjon)
 	if (!section) {
 		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
@@ -81,6 +86,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}),
 	)
 
+	const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+	const userCanApprove = user ? canApproveRoutine(user, effectiveRole, section.id) : false
+	const userCanAdmin = user ? isAdmin(user) : false
+
 	return data({
 		section,
 		routine,
@@ -88,12 +97,60 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		appsWithDeadlines,
 		screeningQuestion,
 		descriptionHtml: renderMarkdown(routine.description),
+		userCanApprove,
+		userCanAdmin,
 	})
 }
 
+export async function action({ request, params }: ActionFunctionArgs) {
+	const { seksjon, rutineId } = params
+	if (!seksjon || !rutineId) throw data({ message: "Mangler parametere" }, { status: 400 })
+
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+
+	const section = await getSectionBySlug(seksjon)
+	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
+
+	const routine = await getRoutine(rutineId)
+	if (!routine) throw data({ message: `Fant ikke rutine: ${rutineId}` }, { status: 404 })
+
+	const formData = await request.formData()
+	const intent = formData.get("intent")
+
+	if (intent === "approve") {
+		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
+			throw data({ message: "Du har ikke riktig rolle til å godkjenne denne rutinen" }, { status: 403 })
+		}
+		await approveRoutine(rutineId, authedUser.navIdent)
+		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
+	}
+
+	if (intent === "copy") {
+		if (!isAdmin(authedUser)) {
+			throw data({ message: "Kun admin kan kopiere rutiner" }, { status: 403 })
+		}
+		const copy = await copyRoutine(rutineId, authedUser.navIdent)
+		if (!copy) throw data({ message: "Kunne ikke kopiere rutine" }, { status: 500 })
+		return redirect(`/seksjoner/${seksjon}/rutiner/${copy.id}/rediger`)
+	}
+
+	throw data({ message: `Ukjent handling: ${intent}` }, { status: 400 })
+}
+
 export default function RutineDetaljer() {
-	const { section, routine, reviews, appsWithDeadlines, screeningQuestion, descriptionHtml } =
-		useLoaderData<typeof loader>()
+	const {
+		section,
+		routine,
+		reviews,
+		appsWithDeadlines,
+		screeningQuestion,
+		descriptionHtml,
+		userCanApprove,
+		userCanAdmin,
+	} = useLoaderData<typeof loader>()
+	const fetcher = useFetcher()
 
 	return (
 		<VStack gap="space-12">
@@ -111,6 +168,11 @@ export default function RutineDetaljer() {
 								Utkast
 							</Tag>
 						)}
+						{routine.status === "approved" && (
+							<Tag variant="success" size="small">
+								Godkjent
+							</Tag>
+						)}
 						{routine.status === "archived" && (
 							<Tag variant="neutral" size="small">
 								Arkivert
@@ -118,10 +180,28 @@ export default function RutineDetaljer() {
 						)}
 					</HStack>
 					<HStack gap="space-2">
-						<Button as={Link} to="./rediger" variant="secondary" size="small">
-							Rediger
-						</Button>
-						{routine.status === "active" && (
+						{routine.status !== "approved" && (
+							<Button as={Link} to="./rediger" variant="secondary" size="small">
+								Rediger
+							</Button>
+						)}
+						{routine.status === "approved" && userCanAdmin && (
+							<fetcher.Form method="post">
+								<input type="hidden" name="intent" value="copy" />
+								<Button type="submit" variant="secondary" size="small" loading={fetcher.state !== "idle"}>
+									Kopier for endring
+								</Button>
+							</fetcher.Form>
+						)}
+						{routine.status === "active" && userCanApprove && (
+							<fetcher.Form method="post">
+								<input type="hidden" name="intent" value="approve" />
+								<Button type="submit" variant="primary" size="small" loading={fetcher.state !== "idle"}>
+									Godkjenn
+								</Button>
+							</fetcher.Form>
+						)}
+						{(routine.status === "active" || routine.status === "approved") && (
 							<Button as={Link} to="./gjennomgang/ny" variant="primary" size="small">
 								Ny gjennomgang
 							</Button>
@@ -236,6 +316,37 @@ export default function RutineDetaljer() {
 					</VStack>
 				)}
 			</VStack>
+
+			{/* Approval info */}
+			{routine.status === "approved" && routine.approvedBy && (
+				<VStack gap="space-2">
+					<Label size="small">Godkjenning</Label>
+					<BodyShort size="small">
+						Godkjent av {routine.approvedBy}
+						{routine.approvedAt && <> den {formatDateTime(routine.approvedAt)}</>}
+					</BodyShort>
+				</VStack>
+			)}
+
+			{/* Source routine link */}
+			{routine.sourceRoutineId && (
+				<VStack gap="space-2">
+					<Label size="small">Opphav</Label>
+					<BodyShort size="small">
+						<Link to={`/seksjoner/${section.slug}/rutiner/${routine.sourceRoutineId}`}>Vis opprinnelig rutine</Link>
+					</BodyShort>
+				</VStack>
+			)}
+
+			{/* Replaced-by link */}
+			{routine.replacedByRoutineId && (
+				<VStack gap="space-2">
+					<Label size="small">Erstattet av</Label>
+					<BodyShort size="small">
+						<Link to={`/seksjoner/${section.slug}/rutiner/${routine.replacedByRoutineId}`}>Vis erstattende rutine</Link>
+					</BodyShort>
+				</VStack>
+			)}
 
 			{/* Apps requiring this routine */}
 			<VStack gap="space-4">

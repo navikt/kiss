@@ -285,6 +285,9 @@ export async function updateRoutine(params: {
 	updatedBy: string
 }) {
 	const prev = await getRoutine(params.id)
+	if (prev?.status === "approved") {
+		throw new Response("Kan ikke redigere en godkjent rutine", { status: 403 })
+	}
 
 	const [routine] = await db
 		.update(routines)
@@ -482,7 +485,8 @@ export async function createReview(params: {
 		.where(eq(routines.id, params.routineId))
 		.limit(1)
 	if (!routine) throw new Error(`Rutine ikke funnet: ${params.routineId}`)
-	if (routine.status !== "active") throw new Error("Kan ikke opprette gjennomgang for en rutine som ikke er aktiv")
+	if (routine.status !== "active" && routine.status !== "approved")
+		throw new Error("Kan ikke opprette gjennomgang for en rutine som ikke er aktiv eller godkjent")
 
 	const [review] = await db
 		.insert(routineReviews)
@@ -841,7 +845,7 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 	const sectionRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(eq(routines.sectionId, sectionId), eq(routines.status, "active")))
+		.where(and(eq(routines.sectionId, sectionId), inArray(routines.status, ["active", "approved"])))
 
 	const results: RoutineDeadlineInfo[] = []
 
@@ -908,7 +912,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			.where(
 				and(
 					sql`${routines.screeningQuestionId} = ${ans.questionId} AND ${routines.screeningChoiceValue} = ${ans.answer}`,
-					eq(routines.status, "active"),
+					inArray(routines.status, ["active", "approved"]),
 				),
 			)
 		for (const r of legacyRoutines) matchingRoutineIds.add(r.id)
@@ -922,7 +926,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		db
 			.select()
 			.from(routines)
-			.where(and(inArray(routines.id, routineIdList), eq(routines.status, "active"))),
+			.where(and(inArray(routines.id, routineIdList), inArray(routines.status, ["active", "approved"]))),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -1066,7 +1070,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.id, routineIds), eq(routines.status, "active")))
+		.where(and(inArray(routines.id, routineIds), inArray(routines.status, ["active", "approved"])))
 
 	// Filter to routines where at least one persistence link matches the app
 	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number]; matchedLinks: typeof allPersLinks }> = []
@@ -1194,7 +1198,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		db
 			.select()
 			.from(routines)
-			.where(and(inArray(routines.id, uniqueIds), eq(routines.status, "active"))),
+			.where(and(inArray(routines.id, uniqueIds), inArray(routines.status, ["active", "approved"]))),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -1300,7 +1304,7 @@ export async function getRoutineDeadlinesForAppBySection(
 			and(
 				inArray(routines.sectionId, sectionIds),
 				eq(routines.appliesToAllInSection, 1),
-				eq(routines.status, "active"),
+				inArray(routines.status, ["active", "approved"]),
 			),
 		)
 
@@ -1431,7 +1435,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 		db
 			.select()
 			.from(routines)
-			.where(and(inArray(routines.id, uniqueIds), eq(routines.status, "active"))),
+			.where(and(inArray(routines.id, uniqueIds), inArray(routines.status, ["active", "approved"]))),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -1762,4 +1766,149 @@ export async function getActivitiesForReviews(reviewIds: string[]) {
 		...a,
 		changes: changesByActivityId.get(a.id) ?? [],
 	}))
+}
+
+// ─── Routine Approval ────────────────────────────────────────────────────
+
+export async function approveRoutine(routineId: string, performedBy: string) {
+	const routine = await getRoutine(routineId)
+	if (!routine) return null
+	if (routine.status !== "active") {
+		throw new Response("Kun aktive rutiner kan godkjennes", { status: 400 })
+	}
+
+	const now = new Date()
+	const [updated] = await db
+		.update(routines)
+		.set({ status: "approved", approvedBy: performedBy, approvedAt: now, updatedBy: performedBy, updatedAt: now })
+		.where(eq(routines.id, routineId))
+		.returning()
+
+	await writeAuditLog({
+		action: "routine_approved",
+		entityType: "routine",
+		entityId: routineId,
+		newValue: "approved",
+		metadata: { routineName: routine.name, approvedBy: performedBy },
+		performedBy,
+	})
+
+	return updated
+}
+
+export async function copyRoutine(routineId: string, performedBy: string) {
+	const source = await getRoutine(routineId)
+	if (!source) return null
+
+	const [copy] = await db
+		.insert(routines)
+		.values({
+			sectionId: source.sectionId,
+			name: `${source.name} (kopi)`,
+			description: source.description,
+			frequency: source.frequency,
+			responsibleRole: source.responsibleRole,
+			appliesToAllInSection: source.appliesToAllInSection,
+			activityType: source.activityType,
+			screeningQuestionId: source.screeningQuestionId,
+			screeningChoiceValue: source.screeningChoiceValue,
+			status: "draft",
+			sourceRoutineId: routineId,
+			createdBy: performedBy,
+			updatedBy: performedBy,
+		})
+		.returning()
+
+	// Copy technology element links
+	if (source.technologyElements.length > 0) {
+		await db
+			.insert(routineTechnologyElements)
+			.values(source.technologyElements.map((el) => ({ routineId: copy.id, elementId: el.id })))
+	}
+
+	// Copy control links
+	if (source.controls.length > 0) {
+		await db.insert(routineControls).values(source.controls.map((c) => ({ routineId: copy.id, controlId: c.id })))
+	}
+
+	// Copy persistence links
+	if (source.persistenceLinks.length > 0) {
+		await db.insert(routinePersistenceLinks).values(
+			source.persistenceLinks.map((pl) => ({
+				routineId: copy.id,
+				persistenceType: pl.persistenceType,
+				dataClassification: pl.dataClassification,
+			})),
+		)
+	}
+
+	// Copy screening question links
+	if (source.screeningQuestions.length > 0) {
+		await db.insert(routineScreeningQuestions).values(
+			source.screeningQuestions.map((sq) => ({
+				routineId: copy.id,
+				questionId: sq.questionId,
+				choiceValue: sq.choiceValue,
+			})),
+		)
+	}
+
+	await writeAuditLog({
+		action: "routine_copied",
+		entityType: "routine",
+		entityId: copy.id,
+		metadata: { sourceRoutineId: routineId, sourceName: source.name },
+		performedBy,
+	})
+
+	return copy
+}
+
+export async function replaceRoutine(
+	newRoutineId: string,
+	oldRoutineId: string,
+	deadlinePolicy: "reset" | "continue",
+	performedBy: string,
+) {
+	const newRoutine = await getRoutine(newRoutineId)
+	const oldRoutine = await getRoutine(oldRoutineId)
+	if (!newRoutine || !oldRoutine) return null
+
+	const now = new Date()
+
+	// Approve the new routine
+	await db
+		.update(routines)
+		.set({ status: "approved", approvedBy: performedBy, approvedAt: now, updatedBy: performedBy, updatedAt: now })
+		.where(eq(routines.id, newRoutineId))
+
+	// Archive the old routine and mark replacement
+	await db
+		.update(routines)
+		.set({
+			status: "archived",
+			replacedByRoutineId: newRoutineId,
+			replacedAt: now,
+			updatedBy: performedBy,
+			updatedAt: now,
+		})
+		.where(eq(routines.id, oldRoutineId))
+
+	// If deadlinePolicy is "continue", copy the last review date reference
+	// by storing replacement metadata. The deadline calculation will check
+	// the old routine's last review when no reviews exist on the new one.
+	await writeAuditLog({
+		action: "routine_replaced",
+		entityType: "routine",
+		entityId: newRoutineId,
+		metadata: {
+			replacedRoutineId: oldRoutineId,
+			replacedRoutineName: oldRoutine.name,
+			newRoutineName: newRoutine.name,
+			deadlinePolicy,
+		},
+		performedBy,
+	})
+
+	return { newRoutine: newRoutineId, oldRoutine: oldRoutineId, deadlinePolicy }
 }

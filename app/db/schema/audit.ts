@@ -80,6 +80,9 @@ export const auditLogActionEnum = [
 	"review_activity_created",
 	"review_activity_completed",
 	"review_activity_entra_change",
+	"routine_approved",
+	"routine_copied",
+	"routine_replaced",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

@@ -74,6 +74,21 @@ export function canAssignRoles(user: NavUser): boolean {
 	return isAdmin(user)
 }
 
+/** Kan godkjenne en rutine basert på ansvarlig rolle */
+export function canApproveRoutine(user: NavUser, responsibleRole: string | null, sectionId: string): boolean {
+	if (isAdmin(user)) return true
+	if (!responsibleRole) return false
+
+	const roleMap: Record<string, UserRole> = {
+		Teknologileder: "tech_manager",
+		Produktleder: "product_owner",
+		Seksjonsleder: "section_manager",
+	}
+	const mappedRole = roleMap[responsibleRole]
+	if (!mappedRole) return false
+	return hasRoleForSection(user, mappedRole, sectionId)
+}
+
 // ---------------------------------------------------------------------------
 // Require-varianter (kaster 403)
 // ---------------------------------------------------------------------------

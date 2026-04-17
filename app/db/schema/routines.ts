@@ -10,7 +10,7 @@ import { screeningQuestions } from "./screening"
 export const ROUTINE_ACTIVITY_TYPES = ["entra_id_group_maintenance"] as const
 export type RoutineActivityType = (typeof ROUTINE_ACTIVITY_TYPES)[number]
 
-export const routineStatusEnum = ["draft", "active", "archived"] as const
+export const routineStatusEnum = ["draft", "active", "approved", "archived"] as const
 export type RoutineStatus = (typeof routineStatusEnum)[number]
 
 export const routines = pgTable("routines", {
@@ -29,6 +29,11 @@ export const routines = pgTable("routines", {
 	screeningChoiceValue: text("screening_choice_value"),
 	activityType: text("activity_type", { enum: ROUTINE_ACTIVITY_TYPES }),
 	status: text("status", { enum: routineStatusEnum }).notNull().default("active"),
+	approvedBy: text("approved_by"),
+	approvedAt: timestamp("approved_at", { withTimezone: true }),
+	sourceRoutineId: uuid("source_routine_id"),
+	replacedByRoutineId: uuid("replaced_by_routine_id"),
+	replacedAt: timestamp("replaced_at", { withTimezone: true }),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

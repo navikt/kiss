@@ -8,7 +8,10 @@ import {
 	Heading,
 	HStack,
 	Label,
+	LocalAlert,
 	Modal,
+	Radio,
+	RadioGroup,
 	Select,
 	TextField,
 	VStack,
@@ -19,7 +22,7 @@ import { data, Form, redirect, useLoaderData } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
-import { deleteRoutine, getRoutine, updateRoutine } from "~/db/queries/routines.server"
+import { approveRoutine, deleteRoutine, getRoutine, replaceRoutine, updateRoutine } from "~/db/queries/routines.server"
 import {
 	getChoicesForQuestion,
 	getScreeningQuestions,
@@ -41,7 +44,7 @@ import {
 	routineStatusEnum,
 } from "~/db/schema/routines"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
+import { canApproveRoutine, requireAdmin } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
 	getStrictestFrequency,
@@ -103,6 +106,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		})),
 	)
 
+	const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+	const userCanApprove = canApproveRoutine(authedUser, effectiveRole, section.id)
+
 	return data({
 		seksjon,
 		section,
@@ -110,6 +116,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		questionsWithChoices,
 		technologyElements,
 		controls,
+		userCanApprove,
 	})
 }
 
@@ -120,6 +127,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) throw new Response("Mangler parametere", { status: 400 })
+
+	// Block editing of approved routines
+	const existingRoutine = await getRoutine(rutineId)
+	if (existingRoutine?.status === "approved") {
+		throw new Response("Godkjente rutiner kan ikke redigeres. Lag en kopi for å gjøre endringer.", { status: 403 })
+	}
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
@@ -202,13 +215,112 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirect(`/seksjoner/${seksjon}/rutiner`)
 	}
 
+	if (intent === "approve-replace") {
+		const section = await getSectionBySlug(seksjon)
+		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+		const routine = await getRoutine(rutineId)
+		if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
+
+		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
+			throw new Response("Du har ikke riktig rolle til å godkjenne denne rutinen", { status: 403 })
+		}
+
+		const deadlinePolicy = formData.get("deadlinePolicy") as "reset" | "continue"
+		if (!deadlinePolicy || !["reset", "continue"].includes(deadlinePolicy)) {
+			throw new Response("Ugyldig fristpolicy", { status: 400 })
+		}
+
+		if (!routine.sourceRoutineId) {
+			throw new Response("Rutinen har ikke et opphav å erstatte", { status: 400 })
+		}
+
+		await replaceRoutine(rutineId, routine.sourceRoutineId, deadlinePolicy, authedUser.navIdent)
+		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
+	}
+
+	if (intent === "approve-as-new") {
+		const section = await getSectionBySlug(seksjon)
+		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+		const routine = await getRoutine(rutineId)
+		if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
+
+		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
+			throw new Response("Du har ikke riktig rolle til å godkjenne denne rutinen", { status: 403 })
+		}
+
+		await approveRoutine(rutineId, authedUser.navIdent)
+		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
+	}
+
 	throw new Response("Ugyldig handling", { status: 400 })
 }
 
+function ApproveReplaceModal({
+	modalRef,
+	routineName,
+	hasSource,
+}: {
+	modalRef: React.RefObject<HTMLDialogElement | null>
+	routineName: string
+	hasSource: boolean
+}) {
+	const [action, setAction] = useState<"replace" | "new">(hasSource ? "replace" : "new")
+	const [deadlinePolicy, setDeadlinePolicy] = useState<"continue" | "reset">("continue")
+
+	return (
+		<Modal ref={modalRef} header={{ heading: `Godkjenn rutine: ${routineName}` }}>
+			<Modal.Body>
+				<VStack gap="space-8">
+					{hasSource && (
+						<RadioGroup
+							legend="Hva skal skje med den opprinnelige rutinen?"
+							value={action}
+							onChange={(val) => setAction(val as "replace" | "new")}
+							size="small"
+						>
+							<Radio value="replace">Erstatt den opprinnelige rutinen</Radio>
+							<Radio value="new">Legg til som en ny rutine (behold begge)</Radio>
+						</RadioGroup>
+					)}
+					{action === "replace" && (
+						<RadioGroup
+							legend="Fristpolicy for applikasjoner"
+							description="Velg om applikasjonene som bruker den gamle rutinen skal beholde sin eksisterende frist eller starte på nytt."
+							value={deadlinePolicy}
+							onChange={(val) => setDeadlinePolicy(val as "continue" | "reset")}
+							size="small"
+						>
+							<Radio value="continue">Behold eksisterende frist (basert på ny frekvens fra forrige gjennomgang)</Radio>
+							<Radio value="reset">Krev ny gjennomgang (fristen starter fra nå)</Radio>
+						</RadioGroup>
+					)}
+				</VStack>
+			</Modal.Body>
+			<Modal.Footer>
+				<Form method="post" onSubmit={() => modalRef.current?.close()}>
+					<input type="hidden" name="intent" value={action === "replace" ? "approve-replace" : "approve-as-new"} />
+					{action === "replace" && <input type="hidden" name="deadlinePolicy" value={deadlinePolicy} />}
+					<HStack gap="space-4">
+						<Button type="submit" variant="primary" size="small">
+							Godkjenn
+						</Button>
+						<Button type="button" variant="secondary" size="small" onClick={() => modalRef.current?.close()}>
+							Avbryt
+						</Button>
+					</HStack>
+				</Form>
+			</Modal.Footer>
+		</Modal>
+	)
+}
+
 export default function RedigerRutine() {
-	const { seksjon, routine, questionsWithChoices, technologyElements, controls } = useLoaderData<typeof loader>()
+	const { routine, questionsWithChoices, technologyElements, controls, userCanApprove } = useLoaderData<typeof loader>()
 
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
+	const approveModalRef = useRef<HTMLDialogElement>(null)
 
 	const [selectedControlIds, setSelectedControlIds] = useState<string[]>(routine.controls.map((c) => c.id))
 	const [responsibleRole, setResponsibleRole] = useState(routine.responsibleRole ?? "")
@@ -304,6 +416,20 @@ export default function RedigerRutine() {
 			<Heading size="xlarge" level="2" spacing>
 				Rediger rutine: {routine.name}
 			</Heading>
+
+			{routine.sourceRoutineId && (
+				<LocalAlert status="announcement">
+					<LocalAlert.Header>
+						<LocalAlert.Title>Kopi av eksisterende rutine</LocalAlert.Title>
+					</LocalAlert.Header>
+					<LocalAlert.Content>
+						<BodyShort size="small">
+							Denne rutinen er en kopi. Når du er ferdig med endringer, kan du godkjenne den for å erstatte originalen
+							eller legge den til som en ny rutine.
+						</BodyShort>
+					</LocalAlert.Content>
+				</LocalAlert>
+			)}
 
 			<Form method="post">
 				<input type="hidden" name="intent" value="update" />
@@ -557,6 +683,11 @@ export default function RedigerRutine() {
 						<Button type="submit" variant="primary" size="small">
 							Lagre
 						</Button>
+						{routine.sourceRoutineId && userCanApprove && routine.status === "active" && (
+							<Button type="button" variant="primary" size="small" onClick={() => approveModalRef.current?.showModal()}>
+								Godkjenn
+							</Button>
+						)}
 						<Button
 							type="button"
 							variant="danger"
@@ -588,6 +719,14 @@ export default function RedigerRutine() {
 					</Form>
 				</Modal.Footer>
 			</Modal>
+
+			{routine.sourceRoutineId && (
+				<ApproveReplaceModal
+					modalRef={approveModalRef}
+					routineName={routine.name}
+					hasSource={!!routine.sourceRoutineId}
+				/>
+			)}
 		</VStack>
 	)
 }
