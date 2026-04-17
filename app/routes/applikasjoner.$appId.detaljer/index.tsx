@@ -938,7 +938,10 @@ export default function ApplikasjonDetalj() {
 		return labels[s] ?? s
 	}
 
-	const filteredAssessments = assessments.filter((a) => {
+	const relevantAssessments = assessments.filter((a) => a.effectiveStatus !== "not_relevant")
+	const notRelevantAssessments = assessments.filter((a) => a.effectiveStatus === "not_relevant")
+
+	const filteredAssessments = relevantAssessments.filter((a) => {
 		if (controlStatusFilter.length > 0) {
 			const effectiveLabel = a.effectiveStatus ?? "not_assessed"
 			if (!controlStatusFilter.includes(effectiveLabel)) return false
@@ -1234,17 +1237,31 @@ export default function ApplikasjonDetalj() {
 								<Checkbox value="implemented">Implementert</Checkbox>
 								<Checkbox value="partially_implemented">Delvis</Checkbox>
 								<Checkbox value="not_implemented">Ikke impl.</Checkbox>
-								<Checkbox value="not_relevant">Ikke relevant</Checkbox>
 								<Checkbox value="not_assessed">Ikke vurdert</Checkbox>
 							</HStack>
 						</CheckboxGroup>
 
 						<BodyShort size="small" textColor="subtle">
-							Viser {filteredAssessments.length} av {assessments.length} kontroller
+							Viser {filteredAssessments.length} av {relevantAssessments.length} kontroller
 							{compliance.hasScreeningAnswers
 								? " (basert på screening-svar)"
 								: " (alle kontroller — ingen screening-svar)"}
 						</BodyShort>
+
+						<HStack gap="space-8" wrap>
+							<Tag variant="success" size="xsmall">
+								{filteredAssessments.filter((a) => a.effectiveStatus === "implemented").length} implementert
+							</Tag>
+							<Tag variant="warning" size="xsmall">
+								{filteredAssessments.filter((a) => a.effectiveStatus === "partially_implemented").length} delvis
+							</Tag>
+							<Tag variant="error" size="xsmall">
+								{filteredAssessments.filter((a) => a.effectiveStatus === "not_implemented").length} ikke impl.
+							</Tag>
+							<Tag variant="neutral" size="xsmall">
+								{filteredAssessments.filter((a) => !a.effectiveStatus).length} ikke vurdert
+							</Tag>
+						</HStack>
 
 						{groupedAssessments.map((group) => (
 							<VStack key={group.groupLabel || "__all"} gap="space-4">
@@ -1336,6 +1353,61 @@ export default function ApplikasjonDetalj() {
 								</section>
 							</VStack>
 						))}
+
+						{notRelevantAssessments.length > 0 && (
+							<VStack gap="space-6" style={{ marginTop: "var(--ax-space-16)" }}>
+								<Heading size="small" level="3">
+									Ikke relevante kontroller
+								</Heading>
+								<HStack gap="space-8" wrap align="center">
+									<BodyShort size="small" textColor="subtle">
+										{notRelevantAssessments.length} kontroller
+									</BodyShort>
+									<Tag variant="neutral" size="xsmall">
+										{notRelevantAssessments.length} ikke relevant
+									</Tag>
+								</HStack>
+								{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+								<section className="table-scroll" tabIndex={0} aria-label="Ikke relevante kontroller">
+									<Table size="small">
+										<Table.Header>
+											<Table.Row>
+												<Table.ColumnHeader scope="col">Domene</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col">Kontroll-ID</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col">Navn</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col">Teknologielement</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col">Status</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col">Kommentar</Table.ColumnHeader>
+												<Table.HeaderCell />
+											</Table.Row>
+										</Table.Header>
+										<Table.Body>
+											{notRelevantAssessments.map((a) => (
+												<ControlRow key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`} item={a}>
+													<Table.DataCell>{a.domainName}</Table.DataCell>
+													<Table.DataCell>
+														<Link to={`/kontrollrammeverk/${a.domainCode}/${a.controlId}`}>{a.controlId}</Link>
+													</Table.DataCell>
+													<Table.DataCell>{a.controlName}</Table.DataCell>
+													<Table.DataCell>
+														{a.technologyElementName ? (
+															<Tag variant="info" size="xsmall">
+																{a.technologyElementName}
+															</Tag>
+														) : null}
+													</Table.DataCell>
+													<Table.DataCell>
+														<Tag variant="neutral" size="xsmall">
+															Ikke relevant
+														</Tag>
+													</Table.DataCell>
+												</ControlRow>
+											))}
+										</Table.Body>
+									</Table>
+								</section>
+							</VStack>
+						)}
 					</VStack>
 				</Tabs.Panel>
 
