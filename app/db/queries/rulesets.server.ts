@@ -387,12 +387,13 @@ export async function unlinkControlFromRuleset(linkId: string): Promise<void> {
 /** Get rulesets linked to a specific control (for the control detail page). */
 export async function getRulesetsForControl(
 	controlUuid: string,
-): Promise<{ id: string; name: string; sectionName: string; approvalStatus: ApprovalStatus }[]> {
+): Promise<{ id: string; name: string; sectionSlug: string; sectionName: string; approvalStatus: ApprovalStatus }[]> {
 	const rows = await db
 		.select({
 			id: rulesets.id,
 			name: rulesets.name,
 			status: rulesets.status,
+			sectionSlug: sections.slug,
 			sectionName: sections.name,
 		})
 		.from(rulesetControls)
@@ -422,6 +423,7 @@ export async function getRulesetsForControl(
 		return {
 			id: r.id,
 			name: r.name,
+			sectionSlug: r.sectionSlug,
 			sectionName: r.sectionName,
 			approvalStatus: computeApprovalStatus(
 				r.status as RulesetStatus,

@@ -93,7 +93,7 @@ const approvalStatusConfig: Record<
 function RulesetSection({
 	rulesets,
 }: {
-	rulesets: { id: string; name: string; sectionName: string; approvalStatus: ApprovalStatus }[]
+	rulesets: { id: string; name: string; sectionSlug: string; sectionName: string; approvalStatus: ApprovalStatus }[]
 }) {
 	return (
 		<VStack gap="space-4">
@@ -113,7 +113,9 @@ function RulesetSection({
 							const cfg = approvalStatusConfig[rs.approvalStatus]
 							return (
 								<Table.Row key={rs.id}>
-									<Table.DataCell>{rs.name}</Table.DataCell>
+									<Table.DataCell>
+										<Link to={`/seksjoner/${rs.sectionSlug}/regelsett/${rs.id}`}>{rs.name}</Link>
+									</Table.DataCell>
 									<Table.DataCell>{rs.sectionName}</Table.DataCell>
 									<Table.DataCell>
 										<Tag variant={cfg.variant} size="xsmall">
