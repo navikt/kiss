@@ -3,6 +3,7 @@ import {
 	ExclamationmarkTriangleIcon,
 	ExternalLinkIcon,
 	EyeIcon,
+	PencilWritingIcon,
 	PlusIcon,
 	TrashIcon,
 	UploadIcon,
@@ -738,6 +739,54 @@ function ControlCommentPanel({
 	)
 }
 
+function ControlRow({
+	item,
+	children,
+}: {
+	item: {
+		controlUuid: string
+		technologyElementId: string | null
+		applicationControlId: string | null
+		comment: string | null
+		commentUpdatedAt: string | null
+		commentUpdatedBy: string | null
+	}
+	children: React.ReactNode
+}) {
+	const [isOpen, setIsOpen] = useState(!!item.comment)
+
+	return (
+		<Table.ExpandableRow
+			key={`${item.controlUuid}:${item.technologyElementId ?? "null"}`}
+			open={isOpen}
+			onOpenChange={setIsOpen}
+			content={
+				<ControlCommentPanel
+					applicationControlId={item.applicationControlId}
+					comment={item.comment}
+					commentUpdatedAt={item.commentUpdatedAt}
+					commentUpdatedBy={item.commentUpdatedBy}
+				/>
+			}
+			togglePlacement="right"
+			expandOnRowClick={false}
+			colSpan={9}
+		>
+			{children}
+			<Table.DataCell>
+				<Button
+					size="xsmall"
+					variant="tertiary"
+					icon={item.comment ? <PencilWritingIcon aria-hidden /> : <PlusIcon aria-hidden />}
+					onClick={() => setIsOpen(true)}
+				>
+					{item.comment ? "Rediger" : "Legg til"}
+				</Button>
+			</Table.DataCell>
+		</Table.ExpandableRow>
+	)
+}
+
 export default function ApplikasjonDetalj() {
 	const {
 		app,
@@ -1217,24 +1266,12 @@ export default function ApplikasjonDetalj() {
 												<Table.ColumnHeader scope="col" sortKey="routineCompliance" sortable>
 													Etterlevelse
 												</Table.ColumnHeader>
+												<Table.ColumnHeader scope="col">Kommentar</Table.ColumnHeader>
 											</Table.Row>
 										</Table.Header>
 										<Table.Body>
 											{group.items.map((a) => (
-												<Table.ExpandableRow
-													key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`}
-													content={
-														<ControlCommentPanel
-															applicationControlId={a.applicationControlId}
-															comment={a.comment}
-															commentUpdatedAt={a.commentUpdatedAt}
-															commentUpdatedBy={a.commentUpdatedBy}
-														/>
-													}
-													togglePlacement="right"
-													expandOnRowClick={false}
-													colSpan={8}
-												>
+												<ControlRow key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`} item={a}>
 													<Table.DataCell>{a.domainName}</Table.DataCell>
 													<Table.DataCell>
 														<Link to={`/kontrollrammeverk/${a.domainCode}/${a.controlId}`}>{a.controlId}</Link>
@@ -1274,7 +1311,7 @@ export default function ApplikasjonDetalj() {
 															</Tag>
 														) : null}
 													</Table.DataCell>
-												</Table.ExpandableRow>
+												</ControlRow>
 											))}
 										</Table.Body>
 									</Table>
