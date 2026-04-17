@@ -651,16 +651,25 @@ function ControlCommentPanel({
 	comment,
 	commentUpdatedAt,
 	commentUpdatedBy,
+	startEditing = false,
 }: {
 	applicationControlId: string | null
 	comment: string | null
 	commentUpdatedAt: string | null
 	commentUpdatedBy: string | null
+	startEditing?: boolean
 }) {
 	const fetcher = useFetcher()
-	const [isEditing, setIsEditing] = useState(false)
+	const [isEditing, setIsEditing] = useState(startEditing)
 	const [editValue, setEditValue] = useState(comment ?? "")
 	const isSaving = fetcher.state !== "idle"
+
+	// Sync editing state when startEditing prop changes
+	const prevStartEditing = useRef(startEditing)
+	if (startEditing && !prevStartEditing.current) {
+		setIsEditing(true)
+	}
+	prevStartEditing.current = startEditing
 
 	if (!applicationControlId) {
 		return (
@@ -754,18 +763,23 @@ function ControlRow({
 	children: React.ReactNode
 }) {
 	const [isOpen, setIsOpen] = useState(!!item.comment)
+	const [editRequested, setEditRequested] = useState(false)
 
 	return (
 		<Table.ExpandableRow
 			key={`${item.controlUuid}:${item.technologyElementId ?? "null"}`}
 			open={isOpen}
-			onOpenChange={setIsOpen}
+			onOpenChange={(open) => {
+				setIsOpen(open)
+				if (!open) setEditRequested(false)
+			}}
 			content={
 				<ControlCommentPanel
 					applicationControlId={item.applicationControlId}
 					comment={item.comment}
 					commentUpdatedAt={item.commentUpdatedAt}
 					commentUpdatedBy={item.commentUpdatedBy}
+					startEditing={editRequested}
 				/>
 			}
 			togglePlacement="right"
@@ -778,7 +792,10 @@ function ControlRow({
 					size="xsmall"
 					variant="tertiary"
 					icon={item.comment ? <PencilWritingIcon aria-hidden /> : <PlusIcon aria-hidden />}
-					onClick={() => setIsOpen(true)}
+					onClick={() => {
+						setEditRequested(true)
+						setIsOpen(true)
+					}}
 				>
 					{item.comment ? "Rediger" : "Legg til"}
 				</Button>
