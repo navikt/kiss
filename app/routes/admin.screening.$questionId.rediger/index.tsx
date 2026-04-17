@@ -320,6 +320,7 @@ export default function EditScreeningQuestion() {
 						value={answerType}
 						onChange={(e) => {
 							const newType = e.target.value
+							const prevType = answerType
 							setAnswerType(newType)
 							if (newType === "boolean" && isNew) {
 								setPendingChoices([
@@ -340,6 +341,16 @@ export default function EditScreeningQuestion() {
 										effects: [],
 									},
 								])
+							} else if (prevType === "boolean" && newType !== "boolean" && isNew) {
+								// Clear default Ja/Nei choices if unmodified
+								setPendingChoices((prev) => {
+									const isDefault =
+										prev.length === 2 &&
+										prev[0].label === "Ja" &&
+										prev[1].label === "Nei" &&
+										prev.every((c) => c.effects.length === 0 && !c.requiresComment && !c.requiresLink)
+									return isDefault ? [] : prev
+								})
 							}
 						}}
 						style={{ maxWidth: "20rem" }}
