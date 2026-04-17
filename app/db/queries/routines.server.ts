@@ -62,7 +62,7 @@ export async function getRoutinesForSection(sectionId: string) {
 				count: sql<number>`count(*)::int`,
 			})
 			.from(routineReviews)
-			.where(inArray(routineReviews.routineId, routineIds))
+			.where(and(inArray(routineReviews.routineId, routineIds), sql`${routineReviews.status} != 'discarded'`))
 			.groupBy(routineReviews.routineId),
 		db
 			.selectDistinct({
@@ -402,7 +402,7 @@ export async function getReviewsForRoutine(routineId: string) {
 		})
 		.from(routineReviews)
 		.leftJoin(monitoredApplications, eq(routineReviews.applicationId, monitoredApplications.id))
-		.where(eq(routineReviews.routineId, routineId))
+		.where(and(eq(routineReviews.routineId, routineId), sql`${routineReviews.status} != 'discarded'`))
 		.orderBy(desc(routineReviews.reviewedAt))
 
 	return Promise.all(
@@ -424,7 +424,7 @@ export async function getReviewsForApp(applicationId: string) {
 		})
 		.from(routineReviews)
 		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
-		.where(eq(routineReviews.applicationId, applicationId))
+		.where(and(eq(routineReviews.applicationId, applicationId), sql`${routineReviews.status} != 'discarded'`))
 		.orderBy(desc(routineReviews.reviewedAt))
 
 	return Promise.all(
@@ -604,6 +604,28 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	}
 
 	return getReview(reviewId)
+}
+
+export async function discardReview(reviewId: string, performedBy: string) {
+	const existing = await getReview(reviewId)
+	if (!existing) return null
+	if (existing.status !== "draft") return null
+
+	await db.update(routineReviews).set({ status: "discarded" }).where(eq(routineReviews.id, reviewId))
+
+	await writeAuditLog({
+		action: "routine_review_discarded",
+		entityType: "routine_review",
+		entityId: reviewId,
+		previousValue: existing.title,
+		metadata: {
+			routineId: existing.routineId,
+			applicationId: existing.applicationId,
+		},
+		performedBy,
+	})
+
+	return { ...existing, status: "discarded" as const }
 }
 
 // ─── Review Links ────────────────────────────────────────────────────────
@@ -1509,7 +1531,7 @@ export async function getCompletedReviewsForSection(sectionId: string) {
 		.from(routineReviews)
 		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 		.leftJoin(monitoredApplications, eq(routineReviews.applicationId, monitoredApplications.id))
-		.where(inArray(routineReviews.routineId, routineIds))
+		.where(and(inArray(routineReviews.routineId, routineIds), sql`${routineReviews.status} != 'discarded'`))
 		.orderBy(desc(routineReviews.reviewedAt))
 
 	return Promise.all(

@@ -505,6 +505,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirect(`/seksjoner/${sectionSlug}/rutiner/${routineId}/gjennomgang/${review.id}`)
 	}
 
+	if (intent === "discard-review") {
+		const reviewId = formData.get("reviewId") as string
+		if (!reviewId) {
+			return data({ success: false, message: null, error: "Mangler gjennomgang-ID" })
+		}
+		const { discardReview } = await import("~/db/queries/routines.server")
+		const result = await discardReview(reviewId, authedUser.navIdent)
+		if (!result) {
+			return data({ success: false, message: null, error: "Kun gjennomganger med status utkast kan forkastes." })
+		}
+		return data({ success: true, message: "Gjennomgangen ble forkastet.", error: null })
+	}
+
 	if (intent === "generate-report") {
 		const includeReviews = formData.get("includeReviews") === "true"
 		const includeAttachments = formData.get("includeAttachments") === "true"
@@ -1835,6 +1848,7 @@ export default function ApplikasjonDetalj() {
 											<Table.HeaderCell>Status</Table.HeaderCell>
 											<Table.HeaderCell>Opprettet av</Table.HeaderCell>
 											<Table.HeaderCell>Deltakere</Table.HeaderCell>
+											<Table.HeaderCell />
 										</Table.Row>
 									</Table.Header>
 									<Table.Body>
@@ -1868,6 +1882,17 @@ export default function ApplikasjonDetalj() {
 													<Table.DataCell>{review.createdBy}</Table.DataCell>
 													<Table.DataCell>
 														{review.participants.length} ({confirmed} bekreftet)
+													</Table.DataCell>
+													<Table.DataCell>
+														{review.status === "draft" && (
+															<form method="post" style={{ display: "inline" }}>
+																<input type="hidden" name="intent" value="discard-review" />
+																<input type="hidden" name="reviewId" value={review.id} />
+																<Button type="submit" variant="tertiary-neutral" size="xsmall">
+																	Forkast
+																</Button>
+															</form>
+														)}
 													</Table.DataCell>
 												</Table.Row>
 											)

@@ -96,7 +96,7 @@ export const routineReviews = pgTable("routine_reviews", {
 	title: text("title").notNull(),
 	summary: text("summary"),
 	routineSnapshotPath: text("routine_snapshot_path"),
-	status: text("status", { enum: ["draft", "completed"] })
+	status: text("status", { enum: ["draft", "completed", "discarded"] })
 		.notNull()
 		.default("draft"),
 	reviewedAt: timestamp("reviewed_at", { withTimezone: true }).notNull(),

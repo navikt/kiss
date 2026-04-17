@@ -55,6 +55,7 @@ export const auditLogActionEnum = [
 	"routine_review_created",
 	"routine_review_updated",
 	"routine_review_completed",
+	"routine_review_discarded",
 	"routine_review_confirmed",
 	"routine_attachment_uploaded",
 	"review_link_added",
