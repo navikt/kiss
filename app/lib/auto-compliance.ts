@@ -39,6 +39,7 @@ export interface AutoComplianceResult {
 interface RoutineMatch {
 	routineId: string
 	controlIds: string[]
+	technologyElementIds: string[]
 	matchSource: "screening" | "persistence" | "screening_selection" | "section" | "ruleset"
 	overdue: boolean
 	lastReviewDate: Date | null
@@ -70,7 +71,11 @@ export function computeAutoCompliance(
 		status: ComplianceStatus | null
 	}>,
 	routineDeadlines: Array<{
-		routine: { id: string; controls?: Array<{ id: string }> } | null
+		routine: {
+			id: string
+			controls?: Array<{ id: string }>
+			technologyElementIds?: string[]
+		} | null
 		matchSource: "screening" | "persistence" | "screening_selection" | "section" | "ruleset"
 		overdue: boolean
 		lastReviewDate: Date | null
@@ -85,6 +90,7 @@ export function computeAutoCompliance(
 		routineMatches.push({
 			routineId: dl.routine.id,
 			controlIds,
+			technologyElementIds: dl.routine.technologyElementIds ?? [],
 			matchSource: dl.matchSource,
 			overdue: dl.overdue,
 			lastReviewDate: dl.lastReviewDate,
@@ -107,9 +113,19 @@ export function computeAutoCompliance(
 	for (const assessment of assessments) {
 		const key = `${assessment.controlUuid}:${assessment.technologyElementId ?? "null"}`
 		const controlRoutines = routinesByControl.get(assessment.controlUuid) ?? []
+
+		// Filter routines by technology element:
+		// - Routines with NO tech elements → match all assessment rows (general routine)
+		// - Routines WITH tech elements → only match assessment rows whose technologyElementId is in the list
+		const filteredRoutines = controlRoutines.filter((r) => {
+			if (r.technologyElementIds.length === 0) return true
+			if (!assessment.technologyElementId) return true
+			return r.technologyElementIds.includes(assessment.technologyElementId)
+		})
+
 		const screening = screeningEffectsByControl.get(assessment.controlUuid)
 
-		const autoResult = computeStatusForAssessment(controlRoutines, screening)
+		const autoResult = computeStatusForAssessment(filteredRoutines, screening)
 		result.set(key, autoResult)
 	}
 

@@ -17,8 +17,13 @@ const makeDeadline = (
 	matchSource: "screening" | "persistence" | "screening_selection" | "section",
 	overdue = false,
 	lastReviewDate: Date | null = new Date(),
+	technologyElementIds: string[] = [],
 ) => ({
-	routine: { id: routineId, controls: controlIds.map((id) => ({ id })) },
+	routine: {
+		id: routineId,
+		controls: controlIds.map((id) => ({ id })),
+		technologyElementIds,
+	},
 	matchSource,
 	overdue,
 	lastReviewDate,
@@ -130,7 +135,7 @@ describe("computeAutoCompliance", () => {
 		expect(result.get("ctrl-1:null")?.autoStatus).toBe("not_implemented")
 	})
 
-	it("handles multiple assessments with different tech elements", () => {
+	it("routine with no tech elements matches all assessment rows for the control", () => {
 		const assessments = [makeAssessment("ctrl-1", "elem-a"), makeAssessment("ctrl-1", "elem-b")]
 		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "persistence", false, new Date())]
 		const screeningEffects = new Map()
@@ -138,6 +143,32 @@ describe("computeAutoCompliance", () => {
 		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
 		expect(result.get("ctrl-1:elem-a")?.autoStatus).toBe("implemented")
 		expect(result.get("ctrl-1:elem-b")?.autoStatus).toBe("implemented")
+	})
+
+	it("routine with specific tech elements only matches assessments with those elements", () => {
+		const assessments = [makeAssessment("ctrl-1", "elem-db"), makeAssessment("ctrl-1", "elem-app")]
+		// Routine is only for "elem-db" (Database)
+		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "persistence", false, new Date(), ["elem-db"])]
+		const screeningEffects = new Map()
+
+		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
+		// Should match Database row
+		expect(result.get("ctrl-1:elem-db")?.autoStatus).toBe("implemented")
+		expect(result.get("ctrl-1:elem-db")?.establishment).toBe("established")
+		// Should NOT match Applikasjon row
+		expect(result.get("ctrl-1:elem-app")?.autoStatus).toBeNull()
+		expect(result.get("ctrl-1:elem-app")?.establishment).toBe("not_established")
+	})
+
+	it("routine with tech elements still matches assessment rows with no tech element", () => {
+		const assessments = [makeAssessment("ctrl-1", null), makeAssessment("ctrl-1", "elem-db")]
+		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "persistence", false, new Date(), ["elem-db"])]
+		const screeningEffects = new Map()
+
+		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
+		// No-tech-element assessment gets the routine (fallback)
+		expect(result.get("ctrl-1:null")?.autoStatus).toBe("implemented")
+		expect(result.get("ctrl-1:elem-db")?.autoStatus).toBe("implemented")
 	})
 
 	it("does not override manually set status in the computation", () => {

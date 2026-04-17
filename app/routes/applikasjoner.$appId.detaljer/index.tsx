@@ -214,25 +214,46 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	// Batch-load routine → control mappings for auto-compliance computation
 	const allRoutineIds = [...new Set(routineDeadlines.map((d) => d.routine?.id).filter(Boolean) as string[])]
 	const routineControlsMap = new Map<string, Array<{ id: string }>>()
+	const routineTechElementsMap = new Map<string, string[]>()
 	if (allRoutineIds.length > 0) {
-		const { routineControls: routineControlsTable } = await import("~/db/schema/routines")
+		const { routineControls: routineControlsTable, routineTechnologyElements } = await import("~/db/schema/routines")
 		const { db } = await import("~/db/connection.server")
 		const { inArray } = await import("drizzle-orm")
-		const controlRows = await db
-			.select({ routineId: routineControlsTable.routineId, controlId: routineControlsTable.controlId })
-			.from(routineControlsTable)
-			.where(inArray(routineControlsTable.routineId, allRoutineIds))
+		const [controlRows, techElementRows] = await Promise.all([
+			db
+				.select({ routineId: routineControlsTable.routineId, controlId: routineControlsTable.controlId })
+				.from(routineControlsTable)
+				.where(inArray(routineControlsTable.routineId, allRoutineIds)),
+			db
+				.select({
+					routineId: routineTechnologyElements.routineId,
+					elementId: routineTechnologyElements.elementId,
+				})
+				.from(routineTechnologyElements)
+				.where(inArray(routineTechnologyElements.routineId, allRoutineIds)),
+		])
 		for (const row of controlRows) {
 			const list = routineControlsMap.get(row.routineId) ?? []
 			list.push({ id: row.controlId })
 			routineControlsMap.set(row.routineId, list)
 		}
+		for (const row of techElementRows) {
+			const list = routineTechElementsMap.get(row.routineId) ?? []
+			list.push(row.elementId)
+			routineTechElementsMap.set(row.routineId, list)
+		}
 	}
 
-	// Build routine deadlines enriched with controls for auto-compliance
+	// Build routine deadlines enriched with controls + tech elements for auto-compliance
 	const deadlinesWithControls = routineDeadlines.map((d) => ({
 		...d,
-		routine: d.routine ? { ...d.routine, controls: routineControlsMap.get(d.routine.id) ?? [] } : d.routine,
+		routine: d.routine
+			? {
+					...d.routine,
+					controls: routineControlsMap.get(d.routine.id) ?? [],
+					technologyElementIds: routineTechElementsMap.get(d.routine.id) ?? [],
+				}
+			: d.routine,
 	}))
 
 	// Compute auto-compliance status (sole source of compliance status)
