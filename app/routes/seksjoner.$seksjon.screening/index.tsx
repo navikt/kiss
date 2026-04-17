@@ -2,7 +2,7 @@ import type { DragEndEvent } from "@dnd-kit/core"
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core"
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { DownloadIcon, PlusIcon } from "@navikt/aksel-icons"
-import { Alert, BodyLong, Button, Heading, HStack, Modal, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Chips, Heading, HStack, Modal, VStack } from "@navikt/ds-react"
 import { useEffect, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useFetcher, useLoaderData } from "react-router"
@@ -81,11 +81,24 @@ export default function SectionScreening() {
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
 	const [deleteTarget, setDeleteTarget] = useState<{ id: string; text: string } | null>(null)
 	const [questions, setQuestions] = useState(loaderQuestions)
+	const [answerTypeFilter, setAnswerTypeFilter] = useState<string[]>([])
 	const fetcher = useFetcher()
 
 	useEffect(() => {
 		setQuestions(loaderQuestions)
 	}, [loaderQuestions])
+
+	const answerTypeLabels: Record<string, string> = {
+		boolean: "Ja/Nei",
+		single_choice: "Egendefinerte valg",
+		persistence: "Persistens",
+		entra_id_groups: "Entra ID-grupper",
+		ruleset: "Regelsett",
+	}
+
+	const availableTypes = [...new Set(questions.map((q) => q.answerType))].sort()
+	const filteredQuestions =
+		answerTypeFilter.length > 0 ? questions.filter((q) => answerTypeFilter.includes(q.answerType)) : questions
 
 	const sensors = useSensors(
 		useSensor(PointerSensor),
@@ -141,13 +154,29 @@ export default function SectionScreening() {
 				</BodyLong>
 			</div>
 
-			{questions.length === 0 ? (
+			{availableTypes.length > 1 && (
+				<Chips size="small">
+					{availableTypes.map((type) => (
+						<Chips.Toggle
+							key={type}
+							selected={answerTypeFilter.includes(type)}
+							onClick={() =>
+								setAnswerTypeFilter((prev) => (prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]))
+							}
+						>
+							{answerTypeLabels[type] ?? type}
+						</Chips.Toggle>
+					))}
+				</Chips>
+			)}
+
+			{filteredQuestions.length === 0 ? (
 				<Alert variant="info">Ingen innledende spørsmål er definert ennå.</Alert>
 			) : (
 				<DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-					<SortableContext items={questions.map((q) => q.id)} strategy={verticalListSortingStrategy}>
+					<SortableContext items={filteredQuestions.map((q) => q.id)} strategy={verticalListSortingStrategy}>
 						<VStack gap="space-4">
-							{questions.map((q, index) => (
+							{filteredQuestions.map((q, index) => (
 								<SortableQuestionCard
 									key={q.id}
 									question={q}
