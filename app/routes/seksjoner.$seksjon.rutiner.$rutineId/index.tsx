@@ -99,6 +99,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		descriptionHtml: renderMarkdown(routine.description),
 		userCanApprove,
 		userCanAdmin,
+		effectiveRole,
 	})
 }
 
@@ -149,6 +150,7 @@ export default function RutineDetaljer() {
 		descriptionHtml,
 		userCanApprove,
 		userCanAdmin,
+		effectiveRole,
 	} = useLoaderData<typeof loader>()
 	const fetcher = useFetcher()
 
@@ -208,6 +210,21 @@ export default function RutineDetaljer() {
 						)}
 					</HStack>
 				</HStack>
+				{routine.status === "active" && !userCanApprove && (
+					<BodyShort size="small" textColor="subtle">
+						Godkjenning krever rollen{" "}
+						{effectiveRole ? (
+							<>
+								<strong>{effectiveRole}</strong> for seksjonen «{section.name}»
+							</>
+						) : (
+							<>
+								<strong>Admin</strong> (ingen ansvarlig rolle er satt)
+							</>
+						)}
+						. Roller tildeles av administrator.
+					</BodyShort>
+				)}
 			</VStack>
 
 			{/* Info section */}
