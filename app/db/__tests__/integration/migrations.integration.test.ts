@@ -240,8 +240,8 @@ describe("Database migrations", () => {
 			await runMigrations()
 			const fullCount = await getTrackingCount()
 
-			// Remove ONLY the very last tracking entry (migration 0033)
-			// and undo its change (drop the routines.status column)
+			// Remove ONLY the very last tracking entry (migration 0034)
+			// and undo its change (drop the routine approval columns)
 			await testDb.execute(sql`
 				DELETE FROM drizzle."__drizzle_migrations"
 				WHERE id = (
@@ -249,20 +249,24 @@ describe("Database migrations", () => {
 					ORDER BY id DESC LIMIT 1
 				)
 			`)
-			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "status"`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "approved_by"`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "approved_at"`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "source_routine_id"`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "replaced_by_routine_id"`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "replaced_at"`)
 
 			const reducedCount = await getTrackingCount()
 			expect(reducedCount).toBe(fullCount - 1)
 
-			// Run migrations again — should re-apply only migration 0033
+			// Run migrations again — should re-apply only migration 0034
 			await runMigrations()
 
-			// Verify the status column was re-added
+			// Verify the approved_by column was re-added
 			const columns = await testDb.execute<{ column_name: string }>(sql`
 				SELECT column_name FROM information_schema.columns
 				WHERE table_schema = 'public' AND table_name = 'routines'
 			`)
-			expect(columns.rows.map((r) => r.column_name)).toContain("status")
+			expect(columns.rows.map((r) => r.column_name)).toContain("approved_by")
 
 			const finalCount = await getTrackingCount()
 			expect(finalCount).toBe(fullCount)
@@ -297,11 +301,16 @@ describe("Database migrations", () => {
 			await testDb.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`)
 			await testDb.execute(sql`DROP TABLE IF EXISTS "application_control_history" CASCADE`)
 			await testDb.execute(sql`DROP TABLE IF EXISTS "application_controls" CASCADE`)
-			// Also drop what 0033 adds since seeding must stop at 0032
+			// Also drop what 0033 and 0034 add since seeding must stop at 0032
 			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "status"`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "approved_by"`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "approved_at"`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "source_routine_id"`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "replaced_by_routine_id"`)
+			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "replaced_at"`)
 
 			// Run migrations — seed should stop at 0032 (tables don't exist),
-			// then migrate() applies 0032 and 0033
+			// then migrate() applies 0032, 0033 and 0034
 			await runMigrations()
 
 			const tableNames = await getTableNames()
@@ -314,6 +323,7 @@ describe("Database migrations", () => {
 				WHERE table_schema = 'public' AND table_name = 'routines'
 			`)
 			expect(columns.rows.map((r) => r.column_name)).toContain("status")
+			expect(columns.rows.map((r) => r.column_name)).toContain("approved_by")
 		})
 	})
 
