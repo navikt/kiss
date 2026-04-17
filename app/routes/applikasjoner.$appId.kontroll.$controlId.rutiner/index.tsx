@@ -150,15 +150,32 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	)
 	const validRoutines = routinesWithReviews.filter((r) => r !== null)
 
+	// Load section slugs so we can build correct /seksjoner/:slug/ URLs
+	const uniqueSectionIds = [...new Set(validRoutines.map((r) => r.sectionId))]
+	const sectionSlugMap: Record<string, string> = {}
+	if (uniqueSectionIds.length > 0) {
+		const { db } = await import("~/db/connection.server")
+		const { sections } = await import("~/db/schema/organization")
+		const { inArray } = await import("drizzle-orm")
+		const sectionRows = await db
+			.select({ id: sections.id, slug: sections.slug })
+			.from(sections)
+			.where(inArray(sections.id, uniqueSectionIds))
+		for (const row of sectionRows) {
+			sectionSlugMap[row.id] = row.slug
+		}
+	}
+
 	return data({
 		app: appInfo,
 		control: { id: control.id, controlId: control.controlId, name: control.name },
 		routines: validRoutines,
+		sectionSlugMap,
 	})
 }
 
 export default function AppKontrollRutiner() {
-	const { app, control, routines } = useLoaderData<typeof loader>()
+	const { app, control, routines, sectionSlugMap } = useLoaderData<typeof loader>()
 	const appBase = useAppBasePath()
 
 	return (
@@ -212,7 +229,9 @@ export default function AppKontrollRutiner() {
 								<Table.Row key={`${r.id}-${r.matchSource}`}>
 									<Table.DataCell>
 										<HStack gap="space-2" align="center" wrap>
-											<Link to={`/seksjoner/${r.sectionId}/rutiner/${r.id}`}>{r.name}</Link>
+											<Link to={`/seksjoner/${sectionSlugMap[r.sectionId] ?? r.sectionId}/rutiner/${r.id}`}>
+												{r.name}
+											</Link>
 											{r.status === "approved" && (
 												<Tag variant="success" size="xsmall">
 													Godkjent
