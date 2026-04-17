@@ -94,15 +94,32 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	// Load routine→control mappings and filter to this control
 	const allRoutineIds = [...new Set(allDeadlines.map((d) => d.routine?.id).filter(Boolean) as string[])]
 	let routineIdsForControl = new Set<string>()
+	const routineTechElementMap = new Map<string, string[]>()
 	if (allRoutineIds.length > 0) {
-		const { routineControls } = await import("~/db/schema/routines")
+		const { routineControls, routineTechnologyElements } = await import("~/db/schema/routines")
+		const { technologyElements } = await import("~/db/schema/framework")
 		const { db } = await import("~/db/connection.server")
 		const { inArray, eq, and } = await import("drizzle-orm")
-		const rows = await db
-			.select({ routineId: routineControls.routineId })
-			.from(routineControls)
-			.where(and(inArray(routineControls.routineId, allRoutineIds), eq(routineControls.controlId, controlId)))
-		routineIdsForControl = new Set(rows.map((r) => r.routineId))
+		const [controlRows, techRows] = await Promise.all([
+			db
+				.select({ routineId: routineControls.routineId })
+				.from(routineControls)
+				.where(and(inArray(routineControls.routineId, allRoutineIds), eq(routineControls.controlId, controlId))),
+			db
+				.select({
+					routineId: routineTechnologyElements.routineId,
+					elementName: technologyElements.name,
+				})
+				.from(routineTechnologyElements)
+				.innerJoin(technologyElements, eq(technologyElements.id, routineTechnologyElements.elementId))
+				.where(inArray(routineTechnologyElements.routineId, allRoutineIds)),
+		])
+		routineIdsForControl = new Set(controlRows.map((r) => r.routineId))
+		for (const row of techRows) {
+			const existing = routineTechElementMap.get(row.routineId) ?? []
+			existing.push(row.elementName)
+			routineTechElementMap.set(row.routineId, existing)
+		}
 	}
 
 	// Filter deadlines to only routines linked to this control
@@ -127,6 +144,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				deadline: deadline.toISOString(),
 				overdue: isOverdue(deadline),
 				neverReviewed: !latestReview,
+				technologyElements: routineTechElementMap.get(routine.id) ?? [],
 			}
 		}),
 	)
@@ -181,6 +199,7 @@ export default function AppKontrollRutiner() {
 						<Table.Header>
 							<Table.Row>
 								<Table.HeaderCell scope="col">Rutine</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Teknologielement</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Siste gjennomgang</Table.HeaderCell>
@@ -200,6 +219,19 @@ export default function AppKontrollRutiner() {
 												</Tag>
 											)}
 										</HStack>
+									</Table.DataCell>
+									<Table.DataCell>
+										{r.technologyElements.length > 0 ? (
+											<HStack gap="space-2" wrap>
+												{r.technologyElements.map((el) => (
+													<Tag key={el} variant="info" size="xsmall">
+														{el}
+													</Tag>
+												))}
+											</HStack>
+										) : (
+											"—"
+										)}
 									</Table.DataCell>
 									<Table.DataCell>{getFrequencyLabel(r.frequency)}</Table.DataCell>
 									<Table.DataCell>
