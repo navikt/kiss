@@ -90,6 +90,10 @@ export default [
 		"routes/seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/index.tsx",
 	),
 	route("seksjoner/:seksjon/audit-logging", "routes/seksjoner.$seksjon.audit-logging/index.tsx"),
+	route(
+		"seksjoner/:seksjon/kontrollrammeverk/:domene/:kontrollId",
+		"routes/seksjoner.$seksjon.kontrollrammeverk.$domene.$kontrollId/index.tsx",
+	),
 	route("seksjoner/:seksjon/entra-grupper", "routes/seksjoner.$seksjon.entra-grupper/index.tsx"),
 	route("seksjoner/:seksjon/koblingsforslag", "routes/seksjoner.$seksjon.koblingsforslag/index.tsx"),
 	route("seksjoner/:seksjon/screening", "routes/seksjoner.$seksjon.screening/index.tsx"),

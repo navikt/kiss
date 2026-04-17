@@ -90,6 +90,7 @@ import {
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
 import { useAppBasePath } from "~/hooks/useAppBasePath"
+import { useSectionSlug } from "~/hooks/useSectionSlug"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
@@ -840,10 +841,18 @@ export default function ApplikasjonDetalj() {
 	const activeTab = searchParams.get("fane") ?? "kontroller"
 	const submit = useSubmit()
 	const appBase = useAppBasePath()
+	const sectionSlug = useSectionSlug()
 
 	const [ackTarget, setAckTarget] = useState<string | null>(null)
 	const [ackComment, setAckComment] = useState("")
 	const ackModalRef = useRef<HTMLDialogElement>(null)
+
+	function controlLink(domainCode: string, controlId: string): string {
+		if (sectionSlug) {
+			return `/seksjoner/${sectionSlug}/kontrollrammeverk/${domainCode}/${controlId}`
+		}
+		return `/kontrollrammeverk/${domainCode}/${controlId}`
+	}
 
 	// Controls tab state
 	const [controlSort, setControlSort] = useState<{ orderBy: string; direction: "ascending" | "descending" }>({
@@ -1309,7 +1318,7 @@ export default function ApplikasjonDetalj() {
 												<ControlRow key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`} item={a}>
 													<Table.DataCell>{a.domainName}</Table.DataCell>
 													<Table.DataCell>
-														<Link to={`/kontrollrammeverk/${a.domainCode}/${a.controlId}`}>{a.controlId}</Link>
+														<Link to={controlLink(a.domainCode, a.controlId)}>{a.controlId}</Link>
 													</Table.DataCell>
 													<Table.DataCell>{a.controlName}</Table.DataCell>
 													<Table.DataCell>
@@ -1397,7 +1406,7 @@ export default function ApplikasjonDetalj() {
 												<ControlRow key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`} item={a}>
 													<Table.DataCell>{a.domainName}</Table.DataCell>
 													<Table.DataCell>
-														<Link to={`/kontrollrammeverk/${a.domainCode}/${a.controlId}`}>{a.controlId}</Link>
+														<Link to={controlLink(a.domainCode, a.controlId)}>{a.controlId}</Link>
 													</Table.DataCell>
 													<Table.DataCell>{a.controlName}</Table.DataCell>
 													<Table.DataCell>
