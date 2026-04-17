@@ -55,7 +55,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				description: null,
 				descriptionHtml: "",
 				displayOrder: 0,
-				answerType: "boolean",
+				answerType: "",
 				rulesetId: null as string | null,
 				technologyElementIds: [] as string[],
 			},

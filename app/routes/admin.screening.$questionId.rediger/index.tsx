@@ -75,7 +75,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				description: null,
 				descriptionHtml: "",
 				displayOrder: 0,
-				answerType: "boolean",
+				answerType: "",
 				rulesetId: null as string | null,
 				technologyElementIds: [] as string[],
 			},
@@ -270,7 +270,7 @@ export default function EditScreeningQuestion() {
 	const { isNew, question, choices, controls, technologyElements, sectionId, returnPath } =
 		useLoaderData<typeof loader>()
 	const [pendingChoices, setPendingChoices] = useState<PendingChoice[]>([])
-	const [answerType, setAnswerType] = useState(question.answerType ?? "boolean")
+	const [answerType, setAnswerType] = useState(question.answerType ?? "")
 	const [deleteTarget, setDeleteTarget] = useState<{
 		type: "choice" | "effect"
 		id: string
@@ -299,14 +299,54 @@ export default function EditScreeningQuestion() {
 						defaultValue={question.description ?? ""}
 						minRows={5}
 					/>
+					{technologyElements.length > 0 && (
+						<CheckboxGroup
+							legend="Teknologielementer"
+							description="Velg hvilke teknologielementer spørsmålet gjelder for. Ingen valg betyr at spørsmålet gjelder for alle applikasjoner."
+							size="small"
+							defaultValue={question.technologyElementIds}
+						>
+							{technologyElements.map((te) => (
+								<Checkbox key={te.id} name="technologyElementIds" value={te.id}>
+									{te.name}
+								</Checkbox>
+							))}
+						</CheckboxGroup>
+					)}
 					<Select
 						label="Svartype"
 						name="answerType"
 						size="small"
 						value={answerType}
-						onChange={(e) => setAnswerType(e.target.value)}
+						onChange={(e) => {
+							const newType = e.target.value
+							setAnswerType(newType)
+							if (newType === "boolean" && isNew) {
+								setPendingChoices([
+									{
+										clientId: crypto.randomUUID(),
+										label: "Ja",
+										requiresComment: false,
+										requiresLink: false,
+										displayOrder: 0,
+										effects: [],
+									},
+									{
+										clientId: crypto.randomUUID(),
+										label: "Nei",
+										requiresComment: false,
+										requiresLink: false,
+										displayOrder: 1,
+										effects: [],
+									},
+								])
+							}
+						}}
 						style={{ maxWidth: "20rem" }}
 					>
+						<option value="" disabled>
+							– Velg svartype –
+						</option>
 						<option value="boolean">Ja/Nei</option>
 						<option value="single_choice">Egendefinerte valg</option>
 						<option value="persistence">Persistens (databaser)</option>
@@ -331,20 +371,6 @@ export default function EditScreeningQuestion() {
 							eller effekter trengs.
 						</BodyShort>
 					)}
-					{technologyElements.length > 0 && (
-						<CheckboxGroup
-							legend="Teknologielementer"
-							description="Velg hvilke teknologielementer spørsmålet gjelder for. Ingen valg betyr at spørsmålet gjelder for alle applikasjoner."
-							size="small"
-							defaultValue={question.technologyElementIds}
-						>
-							{technologyElements.map((te) => (
-								<Checkbox key={te.id} name="technologyElementIds" value={te.id}>
-									{te.name}
-								</Checkbox>
-							))}
-						</CheckboxGroup>
-					)}
 					<div>
 						<Button type="submit" size="small" variant="primary">
 							{isNew ? "Opprett spørsmål" : "Lagre endringer"}
@@ -353,85 +379,95 @@ export default function EditScreeningQuestion() {
 				</VStack>
 			</Form>
 
-			{/* Choices management — hidden for persistence type */}
-			{answerType !== "persistence" && answerType !== "entra_id_groups" && answerType !== "ruleset" && (
-				<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-					<VStack gap="space-6">
-						<Heading size="small" level="3">
-							Valgmuligheter
-						</Heading>
+			{/* Choices management — hidden for persistence/entra/ruleset/blank */}
+			{answerType !== "" &&
+				answerType !== "persistence" &&
+				answerType !== "entra_id_groups" &&
+				answerType !== "ruleset" && (
+					<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+						<VStack gap="space-6">
+							<Heading size="small" level="3">
+								Valgmuligheter
+							</Heading>
 
-						{/* Existing / pending choices */}
-						{(isNew ? pendingChoices : choices).map((choice) => (
-							<ChoiceCard
-								key={"clientId" in choice ? choice.clientId : choice.id}
-								choice={choice}
-								controls={controls}
-								onDeleteChoice={(label) => {
-									const id = "clientId" in choice ? choice.clientId : choice.id
-									setDeleteTarget({ type: "choice", id, label })
-									deleteModalRef.current?.showModal()
-								}}
-								onDeleteEffect={(effectId, label) => {
-									setDeleteTarget({ type: "effect", id: effectId, label })
-									deleteModalRef.current?.showModal()
-								}}
-								onAddPendingEffect={
-									isNew
-										? (choiceClientId, eff) => {
-												setPendingChoices((prev) =>
-													prev.map((c) => (c.clientId === choiceClientId ? { ...c, effects: [...c.effects, eff] } : c)),
-												)
-											}
-										: undefined
-								}
-								onRemovePendingEffect={
-									isNew
-										? (choiceClientId, effClientId) => {
-												setPendingChoices((prev) =>
-													prev.map((c) =>
-														c.clientId === choiceClientId
-															? { ...c, effects: c.effects.filter((e) => e.clientId !== effClientId) }
-															: c,
-													),
-												)
-											}
-										: undefined
-								}
-								onRemovePendingChoice={
-									isNew
-										? (clientId) => setPendingChoices((prev) => prev.filter((c) => c.clientId !== clientId))
-										: undefined
-								}
-							/>
-						))}
+							{/* Existing / pending choices */}
+							{(isNew ? pendingChoices : choices).map((choice) => (
+								<ChoiceCard
+									key={"clientId" in choice ? choice.clientId : choice.id}
+									choice={choice}
+									controls={controls}
+									onDeleteChoice={
+										answerType === "boolean"
+											? undefined
+											: (label) => {
+													const id = "clientId" in choice ? choice.clientId : choice.id
+													setDeleteTarget({ type: "choice", id, label })
+													deleteModalRef.current?.showModal()
+												}
+									}
+									onDeleteEffect={(effectId, label) => {
+										setDeleteTarget({ type: "effect", id: effectId, label })
+										deleteModalRef.current?.showModal()
+									}}
+									onAddPendingEffect={
+										isNew
+											? (choiceClientId, eff) => {
+													setPendingChoices((prev) =>
+														prev.map((c) =>
+															c.clientId === choiceClientId ? { ...c, effects: [...c.effects, eff] } : c,
+														),
+													)
+												}
+											: undefined
+									}
+									onRemovePendingEffect={
+										isNew
+											? (choiceClientId, effClientId) => {
+													setPendingChoices((prev) =>
+														prev.map((c) =>
+															c.clientId === choiceClientId
+																? { ...c, effects: c.effects.filter((e) => e.clientId !== effClientId) }
+																: c,
+														),
+													)
+												}
+											: undefined
+									}
+									onRemovePendingChoice={
+										isNew && answerType !== "boolean"
+											? (clientId) => setPendingChoices((prev) => prev.filter((c) => c.clientId !== clientId))
+											: undefined
+									}
+								/>
+							))}
 
-						{/* Add choice form */}
-						{isNew ? (
-							<AddPendingChoiceForm
-								existingCount={(pendingChoices ?? []).length}
-								onAdd={(choice) => setPendingChoices((prev) => [...prev, choice])}
-							/>
-						) : (
-							<Form method="post">
-								<input type="hidden" name="intent" value="addChoice" />
-								<HStack gap="space-4" align="end" wrap>
-									<TextField label="Navn" name="label" size="small" />
-									<Checkbox name="requiresComment" size="small">
-										Krev kommentar
-									</Checkbox>
-									<Checkbox name="requiresLink" size="small">
-										Krev lenke
-									</Checkbox>
-									<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
-										Legg til valg
-									</Button>
-								</HStack>
-							</Form>
-						)}
-					</VStack>
-				</Box>
-			)}
+							{/* Add choice form — hidden for boolean (Ja/Nei are fixed) */}
+							{answerType !== "boolean" &&
+								(isNew ? (
+									<AddPendingChoiceForm
+										existingCount={(pendingChoices ?? []).length}
+										onAdd={(choice) => setPendingChoices((prev) => [...prev, choice])}
+									/>
+								) : (
+									<Form method="post">
+										<input type="hidden" name="intent" value="addChoice" />
+										<HStack gap="space-4" align="end" wrap>
+											<TextField label="Navn" name="label" size="small" />
+											<Checkbox name="requiresComment" size="small">
+												Krev kommentar
+											</Checkbox>
+											<Checkbox name="requiresLink" size="small">
+												Krev lenke
+											</Checkbox>
+											<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
+												Legg til valg
+											</Button>
+										</HStack>
+									</Form>
+								))}
+						</VStack>
+					</Box>
+				)}
 
 			{/* Delete confirmation modal */}
 			<Modal
@@ -525,7 +561,7 @@ function ChoiceCard({
 }: {
 	choice: ServerChoice | PendingChoice
 	controls: Array<{ controlId: string; name: string }>
-	onDeleteChoice: (label: string) => void
+	onDeleteChoice?: (label: string) => void
 	onDeleteEffect: (effectId: string, label: string) => void
 	onAddPendingEffect?: (choiceClientId: string, eff: PendingEffectItem) => void
 	onRemovePendingEffect?: (choiceClientId: string, effClientId: string) => void
@@ -554,21 +590,23 @@ function ChoiceCard({
 							</Tag>
 						)}
 					</HStack>
-					<Button
-						type="button"
-						size="xsmall"
-						variant="tertiary-neutral"
-						icon={<TrashIcon aria-hidden />}
-						onClick={() => {
-							if (isPending && onRemovePendingChoice) {
-								onRemovePendingChoice(choice.clientId)
-							} else {
-								onDeleteChoice(choiceLabel)
-							}
-						}}
-					>
-						Slett
-					</Button>
+					{(onDeleteChoice || (isPending && onRemovePendingChoice)) && (
+						<Button
+							type="button"
+							size="xsmall"
+							variant="tertiary-neutral"
+							icon={<TrashIcon aria-hidden />}
+							onClick={() => {
+								if (isPending && onRemovePendingChoice) {
+									onRemovePendingChoice(choice.clientId)
+								} else if (onDeleteChoice) {
+									onDeleteChoice(choiceLabel)
+								}
+							}}
+						>
+							Slett
+						</Button>
+					)}
 				</HStack>
 
 				{/* Effects table for this choice */}
