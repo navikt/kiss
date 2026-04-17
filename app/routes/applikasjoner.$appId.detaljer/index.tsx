@@ -1330,10 +1330,7 @@ export default function ApplikasjonDetalj() {
 													</Table.DataCell>
 													<Table.DataCell>
 														{a.establishment === "established" ? (
-															<Link
-																to={`${appBase}/kontroll/${a.controlUuid}/rutiner`}
-																style={{ textDecoration: "none" }}
-															>
+															<Link to={`${appBase}/kontroll/${a.controlUuid}/rutiner`}>
 																<Tag
 																	variant={establishmentVariants[a.establishment as RoutineEstablishment] ?? "neutral"}
 																	size="xsmall"
