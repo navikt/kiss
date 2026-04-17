@@ -1,6 +1,19 @@
 import { CheckmarkCircleIcon, DownloadIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
 import type { SortState } from "@navikt/ds-react"
-import { BodyShort, Box, Button, Heading, HGrid, HStack, Search, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import {
+	BodyShort,
+	Box,
+	Button,
+	Chips,
+	Heading,
+	HGrid,
+	HStack,
+	Search,
+	Select,
+	Table,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
 import { useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
@@ -49,7 +62,7 @@ export default function SeksjonRutinerIndex() {
 	const [filterFrequency, setFilterFrequency] = useState("")
 	const [filterTechElement, setFilterTechElement] = useState("")
 	const [filterPersistence, setFilterPersistence] = useState("")
-	const [filterStatus, setFilterStatus] = useState("active")
+	const [filterStatus, setFilterStatus] = useState<string[]>(["draft", "active"])
 	const [sort, setSort] = useState<SortState | undefined>({ orderBy: "name", direction: "ascending" })
 
 	// Collect unique values for dropdown filters
@@ -92,7 +105,7 @@ export default function SeksjonRutinerIndex() {
 			if (filterFrequency && r.frequency !== filterFrequency) return false
 			if (filterTechElement && !r.technologyElements.some((te) => te.name === filterTechElement)) return false
 			if (filterPersistence && !r.persistenceLinks.some((pl) => pl.persistenceType === filterPersistence)) return false
-			if (filterStatus && r.status !== filterStatus) return false
+			if (filterStatus.length > 0 && !filterStatus.includes(r.status)) return false
 			return true
 		})
 	}, [routines, searchQuery, filterControl, filterFrequency, filterTechElement, filterPersistence, filterStatus])
@@ -132,13 +145,15 @@ export default function SeksjonRutinerIndex() {
 		)
 	}
 
+	const defaultStatuses = ["draft", "active"]
 	const hasActiveFilters =
 		searchQuery ||
 		filterControl ||
 		filterFrequency ||
 		filterTechElement ||
 		filterPersistence ||
-		filterStatus !== "active"
+		filterStatus.length !== defaultStatuses.length ||
+		!defaultStatuses.every((s) => filterStatus.includes(s))
 
 	return (
 		<VStack gap="space-6">
@@ -242,13 +257,27 @@ export default function SeksjonRutinerIndex() {
 								))}
 							</Select>
 						)}
-						<Select label="Status" size="small" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-							<option value="">Alle statuser</option>
-							<option value="active">Aktiv</option>
-							<option value="draft">Utkast</option>
-							<option value="archived">Arkivert</option>
-						</Select>
 					</HStack>
+
+					<Chips size="small">
+						{(
+							[
+								["draft", "Utkast"],
+								["active", "Aktiv"],
+								["archived", "Arkivert"],
+							] as const
+						).map(([value, label]) => (
+							<Chips.Toggle
+								key={value}
+								selected={filterStatus.includes(value)}
+								onClick={() =>
+									setFilterStatus((prev) => (prev.includes(value) ? prev.filter((s) => s !== value) : [...prev, value]))
+								}
+							>
+								{label}
+							</Chips.Toggle>
+						))}
+					</Chips>
 
 					{hasActiveFilters && (
 						<BodyShort size="small" textColor="subtle">
