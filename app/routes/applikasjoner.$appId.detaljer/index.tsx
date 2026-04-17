@@ -1329,12 +1329,26 @@ export default function ApplikasjonDetalj() {
 														)}
 													</Table.DataCell>
 													<Table.DataCell>
-														<Tag
-															variant={establishmentVariants[a.establishment as RoutineEstablishment] ?? "neutral"}
-															size="xsmall"
-														>
-															{establishmentLabels[a.establishment as RoutineEstablishment] ?? a.establishment}
-														</Tag>
+														{a.establishment === "established" ? (
+															<Link
+																to={`${appBase}/kontroll/${a.controlUuid}/rutiner`}
+																style={{ textDecoration: "none" }}
+															>
+																<Tag
+																	variant={establishmentVariants[a.establishment as RoutineEstablishment] ?? "neutral"}
+																	size="xsmall"
+																>
+																	{establishmentLabels[a.establishment as RoutineEstablishment] ?? a.establishment}
+																</Tag>
+															</Link>
+														) : (
+															<Tag
+																variant={establishmentVariants[a.establishment as RoutineEstablishment] ?? "neutral"}
+																size="xsmall"
+															>
+																{establishmentLabels[a.establishment as RoutineEstablishment] ?? a.establishment}
+															</Tag>
+														)}
 													</Table.DataCell>
 													<Table.DataCell>
 														{a.routineCompliance !== "not_applicable" ? (
