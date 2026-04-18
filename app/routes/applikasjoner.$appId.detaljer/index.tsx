@@ -406,7 +406,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		.filter((a) => !naisGroupIdSet.has(a.groupId) && !manualGroupIdSet.has(a.groupId))
 		.map((a) => a.groupId)
 
-	const allGroupIds = [...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds])]
+	// Collect Oracle instance group IDs for name resolution
+	const oracleGroupIds = allOracleInstances
+		.filter((i) => filteredOracleInstances.some((f) => f.instanceId === i.id) && i.group !== null)
+		.map((i) => i.group as string)
+
+	const allGroupIds = [
+		...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds, ...oracleGroupIds]),
+	]
 	const groupNames = await resolveGroupNames(allGroupIds)
 
 	// Build assessment lookup
@@ -488,16 +495,23 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				: null,
 		})),
 		totalOracleInstanceCount,
-		instanceSnapshotHistories: instanceSnapshotHistories.map(({ instanceId, history }) => ({
-			instanceId,
-			snapshots: history.map((s) => ({
-				id: s.id,
-				overallStatus: s.overallStatus,
-				collectedAt: s.collectedAt.toISOString(),
-				fetchedAt: s.fetchedAt.toISOString(),
-				fetchedBy: s.fetchedBy,
-			})),
-		})),
+		instanceSnapshotHistories: instanceSnapshotHistories.map(({ instanceId, history }) => {
+			const meta = allOracleInstances.find((i) => i.id === instanceId)
+			return {
+				instanceId,
+				instanceName: meta?.name ?? instanceId.toUpperCase(),
+				instanceType: meta?.type ?? null,
+				instanceSchema: meta?.schema ?? null,
+				instanceGroup: meta?.group ?? null,
+				snapshots: history.map((s) => ({
+					id: s.id,
+					overallStatus: s.overallStatus,
+					collectedAt: s.collectedAt.toISOString(),
+					fetchedAt: s.fetchedAt.toISOString(),
+					fetchedBy: s.fetchedBy,
+				})),
+			}
+		}),
 	})
 }
 
@@ -1754,68 +1768,95 @@ export default function ApplikasjonDetalj() {
 									til alle instanser.
 								</Alert>
 							)}
-							{instanceSnapshotHistories.map(({ instanceId, snapshots }) => (
-								<Box key={instanceId} borderWidth="1" borderColor="neutral-subtle" padding="space-8" borderRadius="8">
-									<VStack gap="space-6">
-										<Heading size="small" level="3">
-											{instanceId.toUpperCase()}
-										</Heading>
-										{snapshots.length > 0 ? (
-											// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1
-											<section className="table-scroll" tabIndex={0} aria-label={`Revisjonsbevis for ${instanceId}`}>
-												<Table size="small">
-													<Table.Header>
-														<Table.Row>
-															<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-															<Table.HeaderCell scope="col">Innsamlet</Table.HeaderCell>
-															<Table.HeaderCell scope="col">Hentet</Table.HeaderCell>
-															<Table.HeaderCell scope="col">Hentet av</Table.HeaderCell>
-															<Table.HeaderCell scope="col" />
-														</Table.Row>
-													</Table.Header>
-													<Table.Body>
-														{snapshots.map((s) => (
-															<Table.Row key={s.id}>
-																<Table.DataCell>
-																	<Tag
-																		variant={
-																			s.overallStatus === "OK"
-																				? "success"
-																				: s.overallStatus === "PARTIAL"
-																					? "warning"
-																					: "error"
-																		}
-																		size="xsmall"
-																	>
-																		{s.overallStatus}
-																	</Tag>
-																</Table.DataCell>
-																<Table.DataCell>{new Date(s.collectedAt).toLocaleString("nb-NO")}</Table.DataCell>
-																<Table.DataCell>{new Date(s.fetchedAt).toLocaleString("nb-NO")}</Table.DataCell>
-																<Table.DataCell>{s.fetchedBy}</Table.DataCell>
-																<Table.DataCell>
-																	<a href={`/api/revisjonsbevis/${s.id}/excel`}>
-																		<Button
-																			variant="tertiary"
-																			size="xsmall"
-																			as="span"
-																			icon={<DownloadIcon aria-hidden />}
-																		>
-																			Excel
-																		</Button>
-																	</a>
-																</Table.DataCell>
+							{instanceSnapshotHistories.map(
+								({ instanceId, instanceName, instanceType, instanceSchema, instanceGroup, snapshots }) => (
+									<Box key={instanceId} borderWidth="1" borderColor="neutral-subtle" padding="space-8" borderRadius="8">
+										<VStack gap="space-6">
+											<VStack gap="space-2">
+												<HStack gap="space-8" align="center" wrap={false}>
+													<Heading size="small" level="3">
+														{instanceName}
+													</Heading>
+													{instanceType && (
+														<Tag variant="neutral" size="xsmall">
+															{instanceType}
+														</Tag>
+													)}
+												</HStack>
+												{(instanceSchema || instanceGroup) && (
+													<HStack gap="space-12">
+														{instanceSchema && (
+															<Detail>
+																<span style={{ color: "var(--ax-text-subtle)" }}>Skjema: </span>
+																{instanceSchema}
+															</Detail>
+														)}
+														{instanceGroup && (
+															<Detail>
+																<span style={{ color: "var(--ax-text-subtle)" }}>Gruppe: </span>
+																{groupNames[instanceGroup] ?? instanceGroup}
+															</Detail>
+														)}
+													</HStack>
+												)}
+											</VStack>
+											{snapshots.length > 0 ? (
+												// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1
+												<section className="table-scroll" tabIndex={0} aria-label={`Bevis for ${instanceName}`}>
+													<Table size="small">
+														<Table.Header>
+															<Table.Row>
+																<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+																<Table.HeaderCell scope="col">Innsamlet</Table.HeaderCell>
+																<Table.HeaderCell scope="col">Hentet</Table.HeaderCell>
+																<Table.HeaderCell scope="col">Hentet av</Table.HeaderCell>
+																<Table.HeaderCell scope="col" />
 															</Table.Row>
-														))}
-													</Table.Body>
-												</Table>
-											</section>
-										) : (
-											<BodyShort>Ingen revisjonsbevis er hentet ennå.</BodyShort>
-										)}
-									</VStack>
-								</Box>
-							))}
+														</Table.Header>
+														<Table.Body>
+															{snapshots.map((s) => (
+																<Table.Row key={s.id}>
+																	<Table.DataCell>
+																		<Tag
+																			variant={
+																				s.overallStatus === "OK"
+																					? "success"
+																					: s.overallStatus === "PARTIAL"
+																						? "warning"
+																						: "error"
+																			}
+																			size="xsmall"
+																		>
+																			{s.overallStatus}
+																		</Tag>
+																	</Table.DataCell>
+																	<Table.DataCell>{new Date(s.collectedAt).toLocaleString("nb-NO")}</Table.DataCell>
+																	<Table.DataCell>{new Date(s.fetchedAt).toLocaleString("nb-NO")}</Table.DataCell>
+																	<Table.DataCell>{s.fetchedBy}</Table.DataCell>
+																	<Table.DataCell>
+																		<a href={`/api/revisjonsbevis/${s.id}/excel`}>
+																			<Button
+																				variant="tertiary"
+																				size="xsmall"
+																				as="span"
+																				icon={<DownloadIcon aria-hidden />}
+																			>
+																				Excel
+																			</Button>
+																		</a>
+																	</Table.DataCell>
+																</Table.Row>
+															))}
+														</Table.Body>
+													</Table>
+												</section>
+											) : (
+												<BodyShort>Ingen revisjonsbevis er hentet ennå.</BodyShort>
+											)}
+										</VStack>
+									</Box>
+								),
+							)}
 						</VStack>
 					</Tabs.Panel>
 				)}
