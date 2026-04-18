@@ -52,6 +52,18 @@ function listSqlFiles(): string[] {
  * ≤ Date.now(). No more future timestamps are permitted.
  */
 const MAX_FUTURE_WINDOW_MS = 2 * 60 * 60 * 1000 // 2 hours
+const STRICT_INCREMENT_MS = 60_000 // 1 minute — mandatory for new future-dated entries
+
+/**
+ * All entries up to and including this index are "legacy" and exempt from the
+ * strict 1-minute increment rule. Starting at FIRST_STRICT_IDX, all future-
+ * dated entries must increment by exactly STRICT_INCREMENT_MS.
+ *
+ * This is set to 35 because entries 0–34 already exist with variable gaps
+ * (some as large as 16.7 minutes). We can't change those, but going forward
+ * every new entry must use exactly 1 minute to preserve capacity.
+ */
+const FIRST_STRICT_IDX = 35
 
 describe("Drizzle migration integrity", () => {
 	const journal = loadJournal()
@@ -205,6 +217,47 @@ describe("Drizzle migration integrity", () => {
 			`Last entry "${last.tag}" jumped ${last.when - secondLast.when}ms from predecessor. ` +
 				`Maximum allowed jump is ${maxJump}ms (2 hours).`,
 		).toBeLessThanOrEqual(maxJump)
+	})
+
+	// ─── 5b. Strict 1-minute increments for new future-dated entries ──────
+
+	it("new entries (idx >= FIRST_STRICT_IDX) use exactly 1-minute increments", () => {
+		const violations: string[] = []
+
+		for (let i = Math.max(FIRST_STRICT_IDX, 1); i < entries.length; i++) {
+			const prev = entries[i - 1]
+			const curr = entries[i]
+			const gap = curr.when - prev.when
+
+			if (gap !== STRICT_INCREMENT_MS) {
+				violations.push(
+					`Entry ${curr.idx} "${curr.tag}": gap from previous is ${gap}ms (${(gap / 60_000).toFixed(1)} min), ` +
+						`expected exactly ${STRICT_INCREMENT_MS}ms (1 min). ` +
+						`This wastes future timestamp capacity.`,
+				)
+			}
+		}
+
+		expect(
+			violations,
+			`Entries from idx ${FIRST_STRICT_IDX} onward must use exactly 1-minute increments ` +
+				`to preserve room for 120 migrations:\n${violations.join("\n")}`,
+		).toEqual([])
+	})
+
+	it("there is room for at least 120 migrations at 1-minute increments before the cutoff", () => {
+		if (entries.length === 0) return
+
+		const highestWhen = entries[entries.length - 1].when
+		const cutoff = highestWhen + MAX_FUTURE_WINDOW_MS
+		const capacityMs = cutoff - highestWhen
+		const remainingSlots = Math.floor(capacityMs / STRICT_INCREMENT_MS)
+
+		expect(
+			remainingSlots,
+			`Only ${remainingSlots} migration slots remain before the 2h cutoff ` +
+				`(${new Date(cutoff).toISOString()}). Need at least 120.`,
+		).toBeGreaterThanOrEqual(120)
 	})
 
 	// ─── 6. File naming convention ────────────────────────────────────────
