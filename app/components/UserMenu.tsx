@@ -1,4 +1,4 @@
-import { ChevronDownIcon, MoonIcon, PersonIcon, SunIcon } from "@navikt/aksel-icons"
+import { MoonIcon, PersonIcon, SunIcon } from "@navikt/aksel-icons"
 import { ActionMenu, BodyShort, Detail, InternalHeader } from "@navikt/ds-react"
 import { useNavigate } from "react-router"
 import { useTheme } from "~/hooks/useTheme"
@@ -24,16 +24,7 @@ export function UserMenu({ name, navIdent, isAdmin, isAuditor, sections }: UserM
 	return (
 		<ActionMenu>
 			<ActionMenu.Trigger>
-				<InternalHeader.Button
-					style={{
-						paddingRight: "var(--ax-space-16)",
-						paddingLeft: "var(--ax-space-16)",
-						gap: "var(--ax-space-8)",
-					}}
-				>
-					<BodyShort size="small">{name}</BodyShort>
-					<ChevronDownIcon title="Brukermeny" />
-				</InternalHeader.Button>
+				<InternalHeader.User name={name} description={isAdmin ? "Administrator" : undefined} />
 			</ActionMenu.Trigger>
 
 			<ActionMenu.Content align="end">
