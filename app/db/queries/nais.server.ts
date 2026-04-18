@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	type AuthIntegrationType,
@@ -1119,7 +1119,8 @@ export async function getPendingLinkSuggestionsForSection(sectionId: string) {
 	return all.filter((s) => sectionAppIds.has(s.primaryAppId) || sectionAppIds.has(s.secondaryAppId))
 }
 
-/** Get app IDs belonging to a section via dev team or Nais team mappings. */
+/** Get app IDs belonging to a section via dev team or Nais team mappings.
+ * Apps that only exist in excluded/deactivated environments are omitted. */
 async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 	const teamAppRows = await db
 		.select({ appId: applicationTeamMappings.applicationId })
@@ -1130,12 +1131,30 @@ async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 	const sectionNaisTeamRows = await db.select().from(naisTeams).where(eq(naisTeams.sectionId, sectionId))
 	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
 
+	// Fetch excluded clusters so we only include apps with at least one active environment
+	const excludedClusters = await getExcludedEnvironments(sectionId)
+
 	let naisAppRows: Array<{ appId: string }> = []
 	if (naisTeamIds.length > 0) {
-		naisAppRows = await db
+		const baseQuery = db
 			.selectDistinct({ appId: applicationEnvironments.applicationId })
 			.from(applicationEnvironments)
 			.where(sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`)
+
+		if (excludedClusters.size > 0) {
+			const excludedList = [...excludedClusters]
+			naisAppRows = await db
+				.selectDistinct({ appId: applicationEnvironments.applicationId })
+				.from(applicationEnvironments)
+				.where(
+					and(
+						sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`,
+						notInArray(applicationEnvironments.cluster, excludedList),
+					),
+				)
+		} else {
+			naisAppRows = await baseQuery
+		}
 	}
 
 	return new Set([...teamAppRows.map((r) => r.appId), ...naisAppRows.map((r) => r.appId)])
