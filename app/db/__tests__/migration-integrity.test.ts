@@ -65,6 +65,50 @@ const STRICT_INCREMENT_MS = 60_000 // 1 minute — mandatory for new future-date
  */
 const FIRST_STRICT_IDX = 35
 
+/**
+ * Frozen allowlist of all legacy journal entries (idx 0–34).
+ * Prevents accidental or AI-generated modifications to existing entries.
+ * New entries must NOT be added here — they are validated by the strict
+ * 1-minute increment rule instead.
+ */
+const LEGACY_ENTRIES: ReadonlyArray<{ idx: number; when: number; tag: string }> = [
+	{ idx: 0, when: 1774771294110, tag: "0000_hesitant_jimmy_woo" },
+	{ idx: 1, when: 1775460944075, tag: "0001_windy_sally_floyd" },
+	{ idx: 2, when: 1775560526499, tag: "0002_unique_penance" },
+	{ idx: 3, when: 1775561612871, tag: "0003_naive_night_nurse" },
+	{ idx: 4, when: 1775629692320, tag: "0004_swift_quentin_quire" },
+	{ idx: 5, when: 1775664083618, tag: "0005_left_dexter_bennett" },
+	{ idx: 6, when: 1775677263244, tag: "0006_glamorous_madame_hydra" },
+	{ idx: 7, when: 1775678818309, tag: "0007_noisy_lady_deathstrike" },
+	{ idx: 8, when: 1775687992962, tag: "0008_spooky_black_knight" },
+	{ idx: 9, when: 1775690181861, tag: "0009_useful_joseph" },
+	{ idx: 10, when: 1775715926361, tag: "0010_acoustic_mordo" },
+	{ idx: 11, when: 1775721902688, tag: "0011_whole_the_hand" },
+	{ idx: 12, when: 1775799250883, tag: "0012_magical_dakota_north" },
+	{ idx: 13, when: 1775804099500, tag: "0013_public_millenium_guard" },
+	{ idx: 14, when: 1775816743143, tag: "0014_deployment_verification_summaries" },
+	{ idx: 15, when: 1775937793000, tag: "0015_compliance_app_status_index" },
+	{ idx: 16, when: 1781596000000, tag: "0016_routine_controls_and_role" },
+	{ idx: 17, when: 1781597000000, tag: "0017_simplify_screening_choices" },
+	{ idx: 18, when: 1781698000000, tag: "0018_persistence_manual_databases" },
+	{ idx: 19, when: 1781799000000, tag: "0019_routine_persistence_fields" },
+	{ idx: 20, when: 1781900000000, tag: "0020_screening_routine_selections" },
+	{ idx: 21, when: 1781901000000, tag: "0021_routine_persistence_links" },
+	{ idx: 22, when: 1781902000000, tag: "0022_screening_question_technology_elements" },
+	{ idx: 23, when: 1781903000000, tag: "0023_routine_applies_to_all" },
+	{ idx: 24, when: 1781904000000, tag: "0024_screening_question_ruleset" },
+	{ idx: 25, when: 1781905000000, tag: "0025_application_manual_groups" },
+	{ idx: 26, when: 1781906000000, tag: "0026_application_group_assessments" },
+	{ idx: 27, when: 1781907000000, tag: "0027_ruleset_routines" },
+	{ idx: 28, when: 1781908000000, tag: "0028_user_preferences" },
+	{ idx: 29, when: 1781909000000, tag: "0029_section_excluded_environments" },
+	{ idx: 30, when: 1781910000000, tag: "0030_wise_beyonder" },
+	{ idx: 31, when: 1781911000000, tag: "0031_dear_dexter_bennett" },
+	{ idx: 32, when: 1781912000000, tag: "0032_application_controls" },
+	{ idx: 33, when: 1781913000000, tag: "0033_routine_status" },
+	{ idx: 34, when: 1781914000000, tag: "0034_routine_approval" },
+]
+
 describe("Drizzle migration integrity", () => {
 	const journal = loadJournal()
 	const sqlFiles = listSqlFiles()
@@ -122,6 +166,28 @@ describe("Drizzle migration integrity", () => {
 
 	it("SQL file count matches journal entry count", () => {
 		expect(sqlFiles.length, `${sqlFiles.length} SQL files but ${entries.length} journal entries`).toBe(entries.length)
+	})
+
+	// ─── 2b. Legacy entry allowlist ───────────────────────────────────────
+
+	it("legacy journal entries (idx 0–34) have not been modified", () => {
+		const violations: string[] = []
+
+		for (const expected of LEGACY_ENTRIES) {
+			const actual = entries[expected.idx]
+			if (!actual) {
+				violations.push(`Entry idx=${expected.idx} is missing from journal`)
+				continue
+			}
+			if (actual.when !== expected.when) {
+				violations.push(`Entry ${expected.idx} "${expected.tag}": when changed from ${expected.when} to ${actual.when}`)
+			}
+			if (actual.tag !== expected.tag) {
+				violations.push(`Entry ${expected.idx}: tag changed from "${expected.tag}" to "${actual.tag}"`)
+			}
+		}
+
+		expect(violations, `Legacy entries were modified:\n${violations.join("\n")}`).toEqual([])
 	})
 
 	// ─── 3. Timestamp ordering ────────────────────────────────────────────
