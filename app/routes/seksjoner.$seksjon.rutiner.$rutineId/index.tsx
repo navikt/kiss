@@ -17,6 +17,8 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import {
 	type DataClassification,
 	dataClassificationLabels,
+	type GroupAccessClassification,
+	groupAccessClassificationLabels,
 	type PersistenceType,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
@@ -276,6 +278,19 @@ export default function RutineDetaljer() {
 								)}
 							</HStack>
 						))}
+					</VStack>
+				)}
+
+				{routine.groupClassifications.length > 0 && (
+					<VStack gap="space-2">
+						<Label size="small">Tilgangsklassifisering for Entra ID-grupper</Label>
+						<HStack gap="space-2" wrap>
+							{routine.groupClassifications.map((gc) => (
+								<Tag key={gc.id} variant="info" size="small">
+									{groupAccessClassificationLabels[gc.classification as GroupAccessClassification] ?? gc.classification}
+								</Tag>
+							))}
+						</HStack>
 					</VStack>
 				)}
 

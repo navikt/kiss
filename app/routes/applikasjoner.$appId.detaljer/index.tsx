@@ -74,6 +74,7 @@ import {
 	createReview,
 	getReviewsForApp,
 	getRoutineDeadlinesForApp,
+	getRoutineDeadlinesForAppByGroupClassification,
 	getRoutineDeadlinesForAppByPersistence,
 	getRoutineDeadlinesForAppByRuleset,
 	getRoutineDeadlinesForAppByScreeningSelection,
@@ -181,10 +182,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const screeningRoutineIds = new Set(screeningRoutines.map((d) => d.routine?.id).filter(Boolean) as string[])
 	const persistenceRoutines = await getRoutineDeadlinesForAppByPersistence(appId, screeningRoutineIds)
 
-	// Find routines explicitly selected via screening questions
-	const alreadyMatchedIds = new Set([
+	// Find routines matching via Entra group access classification
+	const afterPersistenceIds = new Set([
 		...screeningRoutineIds,
 		...(persistenceRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
+	])
+	const groupClassificationRoutines = await getRoutineDeadlinesForAppByGroupClassification(appId, afterPersistenceIds)
+
+	// Find routines explicitly selected via screening questions
+	const alreadyMatchedIds = new Set([
+		...afterPersistenceIds,
+		...(groupClassificationRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(appId, alreadyMatchedIds)
 
@@ -206,6 +214,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const routineDeadlines = [
 		...screeningRoutines.map((d) => ({ ...d, matchSource: "screening" as const })),
 		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
+		...groupClassificationRoutines.map((d) => ({ ...d, matchSource: "group_classification" as const })),
 		...screeningSelectionRoutines.map((d) => ({ ...d, matchSource: "screening_selection" as const })),
 		...sectionWideRoutines.map((d) => ({ ...d, matchSource: "section" as const })),
 		...rulesetRoutines.map((d) => ({ ...d, matchSource: "ruleset" as const })),
@@ -900,6 +909,7 @@ export default function ApplikasjonDetalj() {
 	const matchSourceLabel = (s: string): string => {
 		const labels: Record<string, string> = {
 			persistence: "Persistering",
+			group_classification: "Tilgangsklassifisering",
 			screening_selection: "Valgt via spørsmål",
 			section: "Seksjon",
 			ruleset: "Regelsett",

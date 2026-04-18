@@ -1,6 +1,11 @@
 import { integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
-import { dataClassificationEnum, monitoredApplications, persistenceTypeEnum } from "./applications"
+import {
+	dataClassificationEnum,
+	groupAccessClassificationEnum,
+	monitoredApplications,
+	persistenceTypeEnum,
+} from "./applications"
 import { frameworkControls, technologyElements } from "./framework"
 import { sections } from "./organization"
 import { screeningQuestions } from "./screening"
@@ -49,6 +54,16 @@ export const routinePersistenceLinks = pgTable("routine_persistence_links", {
 		.references(() => routines.id, { onDelete: "cascade" }),
 	persistenceType: text("persistence_type", { enum: persistenceTypeEnum }),
 	dataClassification: text("data_classification", { enum: dataClassificationEnum }),
+})
+
+// ─── Routine ↔ Group Access Classification linking ───────────────────────
+
+export const routineGroupClassificationLinks = pgTable("routine_group_classification_links", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	routineId: uuid("routine_id")
+		.notNull()
+		.references(() => routines.id, { onDelete: "cascade" }),
+	classification: text("classification", { enum: groupAccessClassificationEnum }).notNull(),
 })
 
 // ─── Routine ↔ Screening Question linking ────────────────────────────────

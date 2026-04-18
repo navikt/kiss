@@ -17,7 +17,7 @@ export interface AutoComplianceResult {
 	/** Human-readable reason for the auto-status */
 	reason: string
 	/** Which matching source(s) contributed */
-	sources: Array<"screening" | "persistence" | "screening_selection" | "section" | "ruleset">
+	sources: Array<"screening" | "persistence" | "group_classification" | "screening_selection" | "section" | "ruleset">
 	/** IDs of matching routines */
 	matchingRoutineIds: string[]
 	/** Whether at least one matching routine is overdue */
@@ -40,7 +40,7 @@ interface RoutineMatch {
 	routineId: string
 	controlIds: string[]
 	technologyElementIds: string[]
-	matchSource: "screening" | "persistence" | "screening_selection" | "section" | "ruleset"
+	matchSource: "screening" | "persistence" | "group_classification" | "screening_selection" | "section" | "ruleset"
 	overdue: boolean
 	lastReviewDate: Date | null
 }
@@ -76,7 +76,7 @@ export function computeAutoCompliance(
 			controls?: Array<{ id: string }>
 			technologyElementIds?: string[]
 		} | null
-		matchSource: "screening" | "persistence" | "screening_selection" | "section" | "ruleset"
+		matchSource: "screening" | "persistence" | "group_classification" | "screening_selection" | "section" | "ruleset"
 		overdue: boolean
 		lastReviewDate: Date | null
 	}>,

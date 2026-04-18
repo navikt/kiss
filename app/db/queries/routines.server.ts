@@ -2,9 +2,13 @@ import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
 import {
+	applicationAuthIntegrations,
 	applicationEnvironments,
+	applicationManualGroups,
 	applicationPersistence,
 	type DataClassification,
+	entraGroupClassifications,
+	type GroupAccessClassification,
 	monitoredApplications,
 	naisTeams,
 	type PersistenceType,
@@ -22,6 +26,7 @@ import {
 	type RoutineActivityType,
 	type RoutineStatus,
 	routineControls,
+	routineGroupClassificationLinks,
 	routinePersistenceLinks,
 	routineReviewActivities,
 	routineReviewActivityEntraChanges,
@@ -116,7 +121,7 @@ export async function getRoutine(id: string) {
 	const [routine] = await db.select().from(routines).where(eq(routines.id, id)).limit(1)
 	if (!routine) return null
 
-	const [elements, screeningLinks, persLinks, controlRows] = await Promise.all([
+	const [elements, screeningLinks, persLinks, controlRows, gcLinks] = await Promise.all([
 		db
 			.select({
 				id: technologyElements.id,
@@ -141,6 +146,7 @@ export async function getRoutine(id: string) {
 			.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
 			.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
 			.where(eq(routineControls.routineId, id)),
+		db.select().from(routineGroupClassificationLinks).where(eq(routineGroupClassificationLinks.routineId, id)),
 	])
 
 	const controls = controlRows.map((c) => ({
@@ -157,6 +163,7 @@ export async function getRoutine(id: string) {
 		screeningQuestions: screeningLinks,
 		persistenceLinks: persLinks,
 		controls,
+		groupClassifications: gcLinks,
 	}
 }
 
@@ -177,6 +184,7 @@ export async function createRoutine(params: {
 	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
 	technologyElementIds: string[]
 	controlIds: string[]
+	groupClassifications?: GroupAccessClassification[]
 	status?: RoutineStatus
 	createdBy: string
 }) {
@@ -223,6 +231,17 @@ export async function createRoutine(params: {
 				routineId: routine.id,
 				persistenceType: link.persistenceType,
 				dataClassification: link.dataClassification,
+			})),
+		)
+	}
+
+	// Insert group classification links
+	const gcLinks = params.groupClassifications ?? []
+	if (gcLinks.length > 0) {
+		await db.insert(routineGroupClassificationLinks).values(
+			gcLinks.map((classification) => ({
+				routineId: routine.id,
+				classification,
 			})),
 		)
 	}
@@ -281,6 +300,7 @@ export async function updateRoutine(params: {
 	screeningQuestionLinks?: Array<{ questionId: string; choiceValue: string | null }>
 	technologyElementIds: string[]
 	controlIds: string[]
+	groupClassifications?: GroupAccessClassification[]
 	status?: RoutineStatus
 	updatedBy: string
 }) {
@@ -337,6 +357,18 @@ export async function updateRoutine(params: {
 				routineId: params.id,
 				persistenceType: link.persistenceType,
 				dataClassification: link.dataClassification,
+			})),
+		)
+	}
+
+	// Replace group classification links
+	await db.delete(routineGroupClassificationLinks).where(eq(routineGroupClassificationLinks.routineId, params.id))
+	const gcLinks = params.groupClassifications ?? []
+	if (gcLinks.length > 0) {
+		await db.insert(routineGroupClassificationLinks).values(
+			gcLinks.map((classification) => ({
+				routineId: params.id,
+				classification,
 			})),
 		)
 	}
@@ -1013,6 +1045,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
 			persistenceLinks: persByRoutine.get(routine.id) ?? [],
 			controls: [],
+			groupClassifications: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
@@ -1150,6 +1183,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
 			persistenceLinks: persLinksByRoutine.get(routine.id) ?? [],
 			controls: [],
+			groupClassifications: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
@@ -1166,6 +1200,169 @@ export async function getRoutineDeadlinesForAppByPersistence(
 				persistenceType: l.persistenceType,
 				dataClassification: l.dataClassification,
 			})),
+		})
+	}
+
+	return results
+}
+
+// ─── Routines matched by Entra group access classification ───────────────
+
+export async function getRoutineDeadlinesForAppByGroupClassification(
+	applicationId: string,
+	excludeRoutineIds: Set<string> = new Set(),
+) {
+	// Get group IDs from auth integrations (JSON array in groups column)
+	const authIntegrations = await db
+		.select({ groups: applicationAuthIntegrations.groups })
+		.from(applicationAuthIntegrations)
+		.where(eq(applicationAuthIntegrations.applicationId, applicationId))
+
+	const groupIds = new Set<string>()
+	for (const ai of authIntegrations) {
+		if (!ai.groups) continue
+		try {
+			const parsed = JSON.parse(ai.groups) as string[]
+			for (const gid of parsed) groupIds.add(gid)
+		} catch {
+			// Invalid JSON — skip
+		}
+	}
+
+	// Also include manually added groups
+	const manualGroups = await db
+		.select({ groupId: applicationManualGroups.groupId })
+		.from(applicationManualGroups)
+		.where(eq(applicationManualGroups.applicationId, applicationId))
+	for (const mg of manualGroups) groupIds.add(mg.groupId)
+
+	if (groupIds.size === 0) return []
+
+	// Get classifications for these groups
+	const classifications = await db
+		.select({
+			groupId: entraGroupClassifications.groupId,
+			classification: entraGroupClassifications.classification,
+		})
+		.from(entraGroupClassifications)
+		.where(inArray(entraGroupClassifications.groupId, [...groupIds]))
+
+	if (classifications.length === 0) return []
+
+	const appClassifications = new Set(classifications.map((c) => c.classification))
+
+	// Find routines with matching group classification links
+	const allGcLinks = await db.select().from(routineGroupClassificationLinks)
+	if (allGcLinks.length === 0) return []
+
+	const gcLinksByRoutine = new Map<string, typeof allGcLinks>()
+	for (const link of allGcLinks) {
+		const list = gcLinksByRoutine.get(link.routineId) ?? []
+		list.push(link)
+		gcLinksByRoutine.set(link.routineId, list)
+	}
+
+	const routineIds = [...gcLinksByRoutine.keys()].filter((id) => !excludeRoutineIds.has(id))
+	if (routineIds.length === 0) return []
+
+	const candidateRoutines = await db
+		.select()
+		.from(routines)
+		.where(and(inArray(routines.id, routineIds), inArray(routines.status, ["active", "approved"])))
+
+	// Filter to routines where at least one classification link matches
+	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number] }> = []
+	for (const r of candidateRoutines) {
+		const links = gcLinksByRoutine.get(r.id) ?? []
+		const hasMatch = links.some((link) => appClassifications.has(link.classification))
+		if (hasMatch) {
+			matchingRoutines.push({ routine: r })
+		}
+	}
+
+	if (matchingRoutines.length === 0) return []
+
+	const routineIdList = matchingRoutines.map((m) => m.routine.id)
+
+	// Load tech elements, screening links, and persistence links in batch
+	const [allElements, allScreeningLinks, allPersLinks] = await Promise.all([
+		db
+			.select({
+				routineId: routineTechnologyElements.routineId,
+				id: technologyElements.id,
+				name: technologyElements.name,
+			})
+			.from(routineTechnologyElements)
+			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
+			.where(inArray(routineTechnologyElements.routineId, routineIdList)),
+		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, routineIdList)),
+		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, routineIdList)),
+	])
+
+	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
+	for (const e of allElements) {
+		const list = elemsByRoutine.get(e.routineId) ?? []
+		list.push({ id: e.id, name: e.name })
+		elemsByRoutine.set(e.routineId, list)
+	}
+	const screenByRoutine = new Map<string, typeof allScreeningLinks>()
+	for (const s of allScreeningLinks) {
+		const list = screenByRoutine.get(s.routineId) ?? []
+		list.push(s)
+		screenByRoutine.set(s.routineId, list)
+	}
+	const persLinksByRoutine = new Map<string, typeof allPersLinks>()
+	for (const p of allPersLinks) {
+		const list = persLinksByRoutine.get(p.routineId) ?? []
+		list.push(p)
+		persLinksByRoutine.set(p.routineId, list)
+	}
+
+	const [appRow] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+	const appName = appRow?.name ?? ""
+
+	// Get latest completed reviews
+	const latestReviews = await db
+		.selectDistinctOn([routineReviews.routineId], {
+			routineId: routineReviews.routineId,
+			reviewedAt: routineReviews.reviewedAt,
+		})
+		.from(routineReviews)
+		.where(
+			and(
+				inArray(routineReviews.routineId, routineIdList),
+				eq(routineReviews.applicationId, applicationId),
+				eq(routineReviews.status, "completed"),
+			),
+		)
+		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+
+	const results: RoutineDeadlineInfo[] = []
+	for (const { routine } of matchingRoutines) {
+		const fullRoutine = {
+			...routine,
+			technologyElements: elemsByRoutine.get(routine.id) ?? [],
+			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
+			persistenceLinks: persLinksByRoutine.get(routine.id) ?? [],
+			controls: [],
+			groupClassifications: [],
+		}
+
+		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+
+		results.push({
+			routine: fullRoutine,
+			applicationId,
+			applicationName: appName,
+			lastReviewDate,
+			deadline,
+			overdue: isOverdue(deadline),
 		})
 	}
 
@@ -1262,6 +1459,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
 			persistenceLinks: persByRoutine2.get(routine.id) ?? [],
 			controls: [],
+			groupClassifications: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
@@ -1377,6 +1575,7 @@ export async function getRoutineDeadlinesForAppBySection(
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
 			persistenceLinks: persByRoutine.get(routine.id) ?? [],
 			controls: [],
+			groupClassifications: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
@@ -1499,6 +1698,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
 			persistenceLinks: persByRoutine.get(routine.id) ?? [],
 			controls: [],
+			groupClassifications: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
@@ -1838,6 +2038,16 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 				routineId: copy.id,
 				persistenceType: pl.persistenceType,
 				dataClassification: pl.dataClassification,
+			})),
+		)
+	}
+
+	// Copy group classification links
+	if (source.groupClassifications.length > 0) {
+		await db.insert(routineGroupClassificationLinks).values(
+			source.groupClassifications.map((gc) => ({
+				routineId: copy.id,
+				classification: gc.classification as GroupAccessClassification,
 			})),
 		)
 	}

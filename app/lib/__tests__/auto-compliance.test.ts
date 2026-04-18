@@ -14,7 +14,7 @@ const makeAssessment = (
 const makeDeadline = (
 	routineId: string,
 	controlIds: string[],
-	matchSource: "screening" | "persistence" | "screening_selection" | "section",
+	matchSource: "screening" | "persistence" | "group_classification" | "screening_selection" | "section",
 	overdue = false,
 	lastReviewDate: Date | null = new Date(),
 	technologyElementIds: string[] = [],
@@ -260,5 +260,34 @@ describe("computeAutoCompliance", () => {
 		expect(result.size).toBe(2)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBe("implemented")
 		expect(result.get("ctrl-2:elem-x")?.autoStatus).toBeNull()
+	})
+
+	it("recognizes group_classification match source", () => {
+		const assessments = [makeAssessment("ctrl-1", null)]
+		const deadlines = [makeDeadline("routine-gc", ["ctrl-1"], "group_classification", false, new Date())]
+		const screeningEffects = new Map()
+
+		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
+		const auto = result.get("ctrl-1:null")
+		expect(auto).toBeDefined()
+		expect(auto?.autoStatus).toBe("implemented")
+		expect(auto?.sources).toContain("group_classification")
+		expect(auto?.matchingRoutineIds).toContain("routine-gc")
+	})
+
+	it("combines group_classification and screening sources", () => {
+		const assessments = [makeAssessment("ctrl-1", null)]
+		const deadlines = [
+			makeDeadline("routine-gc", ["ctrl-1"], "group_classification", false, new Date()),
+			makeDeadline("routine-scr", ["ctrl-1"], "screening", false, new Date()),
+		]
+		const screeningEffects = new Map()
+
+		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
+		const auto = result.get("ctrl-1:null")
+		expect(auto?.autoStatus).toBe("implemented")
+		expect(auto?.sources).toContain("group_classification")
+		expect(auto?.sources).toContain("screening")
+		expect(auto?.routinesEstablished).toBe(2)
 	})
 })

@@ -8,11 +8,7 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { ComplianceStatus, RoutineCompliance, RoutineEstablishment } from "~/lib/compliance-status"
 import { db } from "../connection.server"
-import {
-	type ApplicationControlHistoryAction,
-	applicationControlHistory,
-	applicationControls,
-} from "../schema/application-controls"
+import { applicationControlHistory, applicationControls } from "../schema/application-controls"
 import { monitoredApplications } from "../schema/applications"
 import { routineControls as routineControlsTable } from "../schema/routines"
 

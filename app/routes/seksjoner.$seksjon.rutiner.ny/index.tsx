@@ -28,6 +28,8 @@ import { getAllTechnologyElements } from "~/db/queries/technology-elements.serve
 import {
 	type DataClassification,
 	dataClassificationLabels,
+	type GroupAccessClassification,
+	groupAccessClassificationLabels,
 	type PersistenceType,
 	persistenceTypeEnum,
 	persistenceTypeLabels,
@@ -133,6 +135,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			: null
 	const technologyElementIds = formData.getAll("technologyElementIds")
 	const controlIds = formData.getAll("controlIds") as string[]
+	const groupClassifications = formData.getAll("groupClassifications") as string[]
 
 	// Parse persistence links from form
 	const plTypes = formData.getAll("plPersistenceType") as string[]
@@ -188,6 +191,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		screeningQuestionLinks,
 		technologyElementIds: technologyElementIds.filter((id): id is string => typeof id === "string"),
 		controlIds: controlIds.filter(Boolean),
+		groupClassifications: groupClassifications.filter(Boolean) as GroupAccessClassification[],
 		createdBy: authedUser.navIdent,
 	})
 
@@ -475,6 +479,17 @@ export default function NyRutine() {
 							</Button>
 						</div>
 					</VStack>
+
+					<CheckboxGroup
+						legend="Tilgangsklassifisering for Entra ID-grupper"
+						description="Rutinen gjelder for applikasjoner som har Entra ID-grupper med valgte tilgangsmetoder."
+					>
+						{Object.entries(groupAccessClassificationLabels).map(([key, label]) => (
+							<Checkbox key={key} name="groupClassifications" value={key}>
+								{label}
+							</Checkbox>
+						))}
+					</CheckboxGroup>
 
 					{controls.length > 0 && (
 						<CheckboxGroup legend="Tilknyttede krav" value={selectedControlIds} onChange={handleControlChange}>

@@ -12,6 +12,8 @@ import {
 	applicationTeamMappings,
 	type DataClassification,
 	devTeamNaisTeamMappings,
+	entraGroupClassifications,
+	type GroupAccessClassification,
 	type GroupCriticality,
 	type LinkSuggestionMatchType,
 	type LinkSuggestionStatus,
@@ -1603,6 +1605,7 @@ export interface SectionGroupRow {
 	criticality: GroupCriticality | null
 	assessedBy: string | null
 	assessedAt: Date | null
+	classification: GroupAccessClassification | null
 }
 
 /** Get all Entra ID groups across all applications in a section. */
@@ -1713,7 +1716,7 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 		.from(applicationGroupAssessments)
 		.where(inArray(applicationGroupAssessments.applicationId, appIds))
 
-	// Build unified group map: groupId → { applications, assessment }
+	// Build unified group map: groupId → { applications, assessment, classification }
 	const groupMap = new Map<
 		string,
 		{
@@ -1721,12 +1724,19 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 			criticality: GroupCriticality | null
 			assessedBy: string | null
 			assessedAt: Date | null
+			classification: GroupAccessClassification | null
 		}
 	>()
 
 	const ensureGroup = (groupId: string) => {
 		if (!groupMap.has(groupId)) {
-			groupMap.set(groupId, { applications: new Map(), criticality: null, assessedBy: null, assessedAt: null })
+			groupMap.set(groupId, {
+				applications: new Map(),
+				criticality: null,
+				assessedBy: null,
+				assessedAt: null,
+				classification: null,
+			})
 		}
 		// biome-ignore lint/style/noNonNullAssertion: guaranteed by set above
 		return groupMap.get(groupId)!
@@ -1772,6 +1782,19 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 		}
 	}
 
+	// Load global group classifications
+	const allGroupIds = [...groupMap.keys()]
+	if (allGroupIds.length > 0) {
+		const classifications = await db
+			.select()
+			.from(entraGroupClassifications)
+			.where(inArray(entraGroupClassifications.groupId, allGroupIds))
+		for (const c of classifications) {
+			const g = groupMap.get(c.groupId)
+			if (g) g.classification = c.classification as GroupAccessClassification
+		}
+	}
+
 	return [...groupMap.entries()]
 		.map(([groupId, d]) => ({
 			groupId,
@@ -1779,6 +1802,81 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 			criticality: d.criticality,
 			assessedBy: d.assessedBy,
 			assessedAt: d.assessedAt,
+			classification: d.classification,
 		}))
 		.sort((a, b) => a.groupId.localeCompare(b.groupId))
+}
+
+// ─── Entra Group Access Classification ───────────────────────────────────
+
+/** Get classification for a single group. */
+export async function getGroupClassification(groupId: string) {
+	const [row] = await db
+		.select()
+		.from(entraGroupClassifications)
+		.where(eq(entraGroupClassifications.groupId, groupId))
+		.limit(1)
+	return row ?? null
+}
+
+/** Batch-get classifications for multiple groups. Returns a map groupId → classification. */
+export async function getGroupClassifications(groupIds: string[]): Promise<Map<string, GroupAccessClassification>> {
+	if (groupIds.length === 0) return new Map()
+	const rows = await db
+		.select()
+		.from(entraGroupClassifications)
+		.where(inArray(entraGroupClassifications.groupId, groupIds))
+	return new Map(rows.map((r) => [r.groupId, r.classification as GroupAccessClassification]))
+}
+
+/** Set or update the access classification for a group. */
+export async function upsertGroupClassification(
+	groupId: string,
+	classification: GroupAccessClassification,
+	performedBy: string,
+) {
+	const existing = await db
+		.select()
+		.from(entraGroupClassifications)
+		.where(eq(entraGroupClassifications.groupId, groupId))
+		.then((rows) => rows[0] ?? null)
+
+	if (existing) {
+		const [updated] = await db
+			.update(entraGroupClassifications)
+			.set({ classification, updatedBy: performedBy, updatedAt: new Date() })
+			.where(eq(entraGroupClassifications.id, existing.id))
+			.returning()
+
+		await writeAuditLog({
+			action: "group_classification_updated",
+			entityType: "entra_group",
+			entityId: groupId,
+			previousValue: JSON.stringify({ classification: existing.classification }),
+			newValue: JSON.stringify({ classification }),
+			performedBy,
+		})
+
+		return updated
+	}
+
+	const [inserted] = await db
+		.insert(entraGroupClassifications)
+		.values({
+			groupId,
+			classification,
+			createdBy: performedBy,
+			updatedBy: performedBy,
+		})
+		.returning()
+
+	await writeAuditLog({
+		action: "group_classification_updated",
+		entityType: "entra_group",
+		entityId: groupId,
+		newValue: JSON.stringify({ classification }),
+		performedBy,
+	})
+
+	return inserted
 }

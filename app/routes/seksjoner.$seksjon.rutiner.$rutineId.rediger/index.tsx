@@ -33,6 +33,8 @@ import { getAllTechnologyElements } from "~/db/queries/technology-elements.serve
 import {
 	type DataClassification,
 	dataClassificationLabels,
+	type GroupAccessClassification,
+	groupAccessClassificationLabels,
 	type PersistenceType,
 	persistenceTypeEnum,
 	persistenceTypeLabels,
@@ -150,6 +152,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				: null
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
 		const controlIds = formData.getAll("controlIds") as string[]
+		const groupClassifications = formData.getAll("groupClassifications") as string[]
 		const statusRaw = formData.get("status") as string | null
 		const status =
 			statusRaw && routineStatusEnum.includes(statusRaw as RoutineStatus) ? (statusRaw as RoutineStatus) : undefined
@@ -203,6 +206,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			screeningQuestionLinks,
 			technologyElementIds,
 			controlIds,
+			groupClassifications: groupClassifications.filter(Boolean) as GroupAccessClassification[],
 			status,
 			updatedBy: authedUser.navIdent,
 		})
@@ -651,6 +655,19 @@ export default function RedigerRutine() {
 							</Button>
 						</div>
 					</VStack>
+
+					<CheckboxGroup
+						legend="Tilgangsklassifisering for Entra ID-grupper"
+						description="Rutinen gjelder for applikasjoner som har Entra ID-grupper med valgte tilgangsmetoder."
+						size="small"
+						defaultValue={routine.groupClassifications.map((gc) => gc.classification)}
+					>
+						{Object.entries(groupAccessClassificationLabels).map(([key, label]) => (
+							<Checkbox key={key} name="groupClassifications" value={key}>
+								{label}
+							</Checkbox>
+						))}
+					</CheckboxGroup>
 
 					{controls.length > 0 && (
 						<CheckboxGroup

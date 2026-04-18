@@ -256,3 +256,25 @@ export const applicationGroupAssessments = pgTable(
 	},
 	(t) => [unique().on(t.applicationId, t.groupId)],
 )
+
+// ─── Entra Group Access Classification ────────────────────────────────────
+
+export const groupAccessClassificationEnum = ["mine_tilganger", "identrutina", "nais_console", "annet"] as const
+export type GroupAccessClassification = (typeof groupAccessClassificationEnum)[number]
+
+export const groupAccessClassificationLabels: Record<GroupAccessClassification, string> = {
+	mine_tilganger: "Mine Tilganger",
+	identrutina: "Identrutina",
+	nais_console: "Nais Console",
+	annet: "Annet",
+}
+
+export const entraGroupClassifications = pgTable("entra_group_classifications", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	groupId: text("group_id").notNull().unique(),
+	classification: text("classification", { enum: groupAccessClassificationEnum }).notNull(),
+	createdBy: text("created_by").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedBy: text("updated_by").notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
