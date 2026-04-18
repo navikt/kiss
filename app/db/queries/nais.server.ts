@@ -28,7 +28,7 @@ import { auditLog } from "../schema/audit"
 import { applicationOracleInstances, auditEvidenceSnapshots } from "../schema/audit-evidence"
 import { complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import { deploymentVerificationSummaries } from "../schema/deployment-audit"
-import { devTeams, sectionExcludedEnvironments, sections } from "../schema/organization"
+import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { screeningAnswers } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 
@@ -208,6 +208,16 @@ export async function upsertAppEnvironment(
 	await db
 		.insert(applicationEnvironments)
 		.values({ applicationId, cluster, namespace, naisTeamId, imageName, gitRepository })
+
+	// Auto-register new cluster in section_environments via subquery (ON CONFLICT DO NOTHING preserves manual toggles)
+	if (naisTeamId) {
+		await db.execute(
+			sql`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
+				SELECT section_id, ${cluster}, true, 'nais-sync', 'nais-sync'
+				FROM nais_teams WHERE id = ${naisTeamId} AND section_id IS NOT NULL
+				ON CONFLICT DO NOTHING`,
+		)
+	}
 	return true
 }
 
@@ -278,9 +288,9 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 
 	// Load excluded environments
 	const excludedRows = await db
-		.select({ cluster: sectionExcludedEnvironments.cluster })
-		.from(sectionExcludedEnvironments)
-		.where(eq(sectionExcludedEnvironments.sectionId, sectionId))
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false)))
 	const excludedEnvs = new Set(excludedRows.map((r) => r.cluster))
 
 	// Get all apps from those nais teams' environments (excludes linked/child apps)
@@ -376,39 +386,31 @@ export async function getIgnoredAppsForSection(sectionId: string) {
 		.orderBy(monitoredApplications.name)
 }
 
-/** Get distinct clusters discovered for a section's Nais teams. */
-export async function getDiscoveredEnvironments(sectionId: string): Promise<string[]> {
-	const sectionNaisTeams = await db
-		.select({ id: naisTeams.id })
-		.from(naisTeams)
-		.where(eq(naisTeams.sectionId, sectionId))
-	if (sectionNaisTeams.length === 0) return []
-
-	const naisTeamIds = sectionNaisTeams.map((t) => t.id)
+/** Get all environments for a section with included status. */
+export async function getSectionEnvironments(sectionId: string): Promise<{ cluster: string; included: boolean }[]> {
 	const rows = await db
-		.selectDistinct({ cluster: applicationEnvironments.cluster })
-		.from(applicationEnvironments)
-		.where(sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`)
-		.orderBy(applicationEnvironments.cluster)
-
-	return rows.map((r) => r.cluster)
+		.select({ cluster: sectionEnvironments.cluster, included: sectionEnvironments.included })
+		.from(sectionEnvironments)
+		.where(eq(sectionEnvironments.sectionId, sectionId))
+		.orderBy(sectionEnvironments.cluster)
+	return rows
 }
 
-/** Get excluded environments for a section. */
+/** Get excluded environments for a section (clusters with included=false). */
 export async function getExcludedEnvironments(sectionId: string): Promise<Set<string>> {
 	const rows = await db
-		.select({ cluster: sectionExcludedEnvironments.cluster })
-		.from(sectionExcludedEnvironments)
-		.where(eq(sectionExcludedEnvironments.sectionId, sectionId))
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false)))
 	return new Set(rows.map((r) => r.cluster))
 }
 
-/** Exclude a cluster for a section. */
+/** Exclude a cluster for a section (idempotent). */
 export async function excludeEnvironment(sectionId: string, cluster: string, performedBy: string) {
 	await db
-		.insert(sectionExcludedEnvironments)
-		.values({ sectionId, cluster, excludedBy: performedBy })
-		.onConflictDoNothing()
+		.update(sectionEnvironments)
+		.set({ included: false, updatedBy: performedBy, updatedAt: new Date() })
+		.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.cluster, cluster)))
 	await writeAuditLog({
 		action: "section_environment_excluded",
 		entityType: "section",
@@ -418,11 +420,12 @@ export async function excludeEnvironment(sectionId: string, cluster: string, per
 	})
 }
 
-/** Include (re-enable) a cluster for a section. */
+/** Include (re-enable) a cluster for a section (idempotent). */
 export async function includeEnvironment(sectionId: string, cluster: string, performedBy: string) {
 	await db
-		.delete(sectionExcludedEnvironments)
-		.where(and(eq(sectionExcludedEnvironments.sectionId, sectionId), eq(sectionExcludedEnvironments.cluster, cluster)))
+		.update(sectionEnvironments)
+		.set({ included: true, updatedBy: performedBy, updatedAt: new Date() })
+		.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.cluster, cluster)))
 	await writeAuditLog({
 		action: "section_environment_included",
 		entityType: "section",
@@ -653,14 +656,14 @@ export async function getApplicationDetail(applicationId: string) {
 		.where(eq(applicationEnvironments.applicationId, applicationId))
 		.orderBy(applicationEnvironments.cluster)
 
-	// Mark environments as excluded if their Nais team's section has excluded that cluster
+	// Filter out environments in clusters that are excluded (included=false) in the Nais team's section
 	const sectionIds = [...new Set(environments.map((e) => e.naisTeamSectionId).filter(Boolean) as string[])]
-	let excludedBySection = new Map<string, Set<string>>() // sectionId → Set<cluster>
+	const excludedBySection = new Map<string, Set<string>>() // sectionId → Set<cluster>
 	if (sectionIds.length > 0) {
 		const exclusionRows = await db
-			.select({ sectionId: sectionExcludedEnvironments.sectionId, cluster: sectionExcludedEnvironments.cluster })
-			.from(sectionExcludedEnvironments)
-			.where(inArray(sectionExcludedEnvironments.sectionId, sectionIds))
+			.select({ sectionId: sectionEnvironments.sectionId, cluster: sectionEnvironments.cluster })
+			.from(sectionEnvironments)
+			.where(and(inArray(sectionEnvironments.sectionId, sectionIds), eq(sectionEnvironments.included, false)))
 		for (const row of exclusionRows) {
 			const set = excludedBySection.get(row.sectionId) ?? new Set<string>()
 			set.add(row.cluster)
@@ -1702,9 +1705,9 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 
 	// Load excluded environments for this section
 	const excludedRows = await db
-		.select({ cluster: sectionExcludedEnvironments.cluster })
-		.from(sectionExcludedEnvironments)
-		.where(eq(sectionExcludedEnvironments.sectionId, sectionId))
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false)))
 	const excludedEnvs = new Set(excludedRows.map((r) => r.cluster))
 
 	const appIdSet = new Set<string>()

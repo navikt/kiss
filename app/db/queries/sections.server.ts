@@ -10,7 +10,7 @@ import {
 	sectionIgnoredApplications,
 } from "../schema/applications"
 import { applicationTechnologyElements, controlTechnologyElements, frameworkControls } from "../schema/framework"
-import { devTeams, sectionExcludedEnvironments, sections } from "../schema/organization"
+import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
 /** Get all sections. */
@@ -246,9 +246,9 @@ export async function getSectionDetail(seksjonSlug: string) {
 
 	// Load excluded environments for this section
 	const excludedEnvRows = await db
-		.select({ cluster: sectionExcludedEnvironments.cluster })
-		.from(sectionExcludedEnvironments)
-		.where(eq(sectionExcludedEnvironments.sectionId, section.id))
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, section.id), eq(sectionEnvironments.included, false)))
 	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
 
 	// Phase 1: Collect all app IDs per team
@@ -555,9 +555,9 @@ export async function getTeamApps(teamSlug: string) {
 	if (!team) return null
 
 	const excludedEnvRows = await db
-		.select({ cluster: sectionExcludedEnvironments.cluster })
-		.from(sectionExcludedEnvironments)
-		.where(eq(sectionExcludedEnvironments.sectionId, team.sectionId))
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, team.sectionId), eq(sectionEnvironments.included, false)))
 	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
 
 	const { allIds, directIds } = await getTeamAppIds(team.id, team.sectionId, excludedEnvs)
@@ -617,9 +617,9 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 	const excludedEnvsBySection = new Map<string, Set<string>>()
 	if (sectionIds.length > 0) {
 		const rows = await db
-			.select({ sectionId: sectionExcludedEnvironments.sectionId, cluster: sectionExcludedEnvironments.cluster })
-			.from(sectionExcludedEnvironments)
-			.where(inArray(sectionExcludedEnvironments.sectionId, sectionIds))
+			.select({ sectionId: sectionEnvironments.sectionId, cluster: sectionEnvironments.cluster })
+			.from(sectionEnvironments)
+			.where(and(inArray(sectionEnvironments.sectionId, sectionIds), eq(sectionEnvironments.included, false)))
 		for (const row of rows) {
 			if (!excludedEnvsBySection.has(row.sectionId)) excludedEnvsBySection.set(row.sectionId, new Set())
 			excludedEnvsBySection.get(row.sectionId)?.add(row.cluster)
@@ -750,9 +750,9 @@ export async function getSectionApps(seksjonSlug: string) {
 	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, section.id)).orderBy(devTeams.name)
 
 	const excludedEnvRows = await db
-		.select({ cluster: sectionExcludedEnvironments.cluster })
-		.from(sectionExcludedEnvironments)
-		.where(eq(sectionExcludedEnvironments.sectionId, section.id))
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, section.id), eq(sectionEnvironments.included, false)))
 	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
 
 	// Collect app IDs per team

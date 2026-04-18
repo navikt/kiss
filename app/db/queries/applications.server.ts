@@ -17,7 +17,7 @@ import {
 	frameworkRisks,
 	technologyElements,
 } from "../schema/framework"
-import { devTeams, sectionExcludedEnvironments } from "../schema/organization"
+import { devTeams, sectionEnvironments } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 import { getScreeningDerivedControlIds } from "./screening.server"
 
@@ -502,9 +502,9 @@ export async function getApplicationsForSection(sectionId: string) {
 
 	// Load excluded environments for this section
 	const excludedRows = await db
-		.select({ cluster: sectionExcludedEnvironments.cluster })
-		.from(sectionExcludedEnvironments)
-		.where(eq(sectionExcludedEnvironments.sectionId, sectionId))
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false)))
 	const excludedEnvs = new Set(excludedRows.map((r) => r.cluster))
 
 	// Collect app IDs from both sources

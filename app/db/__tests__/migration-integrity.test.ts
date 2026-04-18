@@ -66,7 +66,7 @@ const STRICT_INCREMENT_MS = 60_000 // 1 minute — mandatory for new future-date
 const FIRST_STRICT_IDX = 35
 
 /**
- * Frozen allowlist of all legacy journal entries (idx 0–34).
+ * Frozen allowlist of all legacy journal entries (idx 0–37).
  * Prevents accidental or AI-generated modifications to existing entries.
  * New entries must NOT be added here — they are validated by the strict
  * 1-minute increment rule instead.
@@ -107,6 +107,9 @@ const LEGACY_ENTRIES: ReadonlyArray<{ idx: number; when: number; tag: string }> 
 	{ idx: 32, when: 1781912000000, tag: "0032_application_controls" },
 	{ idx: 33, when: 1781913000000, tag: "0033_routine_status" },
 	{ idx: 34, when: 1781914000000, tag: "0034_routine_approval" },
+	{ idx: 35, when: 1781914060000, tag: "0035_entra_group_classifications" },
+	{ idx: 36, when: 1781914120000, tag: "0036_section_environments" },
+	{ idx: 37, when: 1781914180000, tag: "0037_drop_section_excluded_environments" },
 ]
 
 describe("Drizzle migration integrity", () => {
@@ -170,7 +173,7 @@ describe("Drizzle migration integrity", () => {
 
 	// ─── 2b. Legacy entry allowlist ───────────────────────────────────────
 
-	it("legacy journal entries (idx 0–34) have not been modified", () => {
+	it("legacy journal entries (idx 0–37) have not been modified", () => {
 		const violations: string[] = []
 
 		for (const expected of LEGACY_ENTRIES) {

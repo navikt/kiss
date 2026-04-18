@@ -28,10 +28,9 @@ import { getApplicationsForSection, linkAppToTeam } from "~/db/queries/applicati
 import {
 	excludeEnvironment,
 	getAppsPersistence,
-	getDiscoveredEnvironments,
-	getExcludedEnvironments,
 	getIgnoredAppsForSection,
 	getNaisTeamsForSection,
+	getSectionEnvironments,
 	getUnassignedAppsForSection,
 	getUnlinkedNaisTeams,
 	ignoreAppForSection,
@@ -68,25 +67,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const sectionId = result.section.id
 
-	const [
-		teams,
-		linkedNaisTeams,
-		unlinkedNaisTeams,
-		unassignedApps,
-		ignoredApps,
-		sectionApps,
-		discoveredEnvironments,
-		excludedEnvironments,
-	] = await Promise.all([
-		getTeamsForSection(sectionId),
-		getNaisTeamsForSection(sectionId),
-		getUnlinkedNaisTeams(),
-		getUnassignedAppsForSection(sectionId),
-		getIgnoredAppsForSection(sectionId),
-		getApplicationsForSection(sectionId),
-		getDiscoveredEnvironments(sectionId),
-		getExcludedEnvironments(sectionId),
-	])
+	const [teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, sectionApps, sectionEnvironmentsList] =
+		await Promise.all([
+			getTeamsForSection(sectionId),
+			getNaisTeamsForSection(sectionId),
+			getUnlinkedNaisTeams(),
+			getUnassignedAppsForSection(sectionId),
+			getIgnoredAppsForSection(sectionId),
+			getApplicationsForSection(sectionId),
+			getSectionEnvironments(sectionId),
+		])
 
 	const sectionAppIds = sectionApps.map((a) => a.id)
 	const persistenceMap = await getAppsPersistence(sectionAppIds)
@@ -124,8 +114,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		})),
 		sectionApps,
 		persistenceMap: Object.fromEntries(persistenceMap),
-		discoveredEnvironments,
-		excludedEnvironments: [...excludedEnvironments],
+		sectionEnvironments: sectionEnvironmentsList,
 		seksjon,
 	})
 }
@@ -238,8 +227,7 @@ export default function RedigerSeksjon() {
 		ignoredApps,
 		sectionApps,
 		persistenceMap,
-		discoveredEnvironments,
-		excludedEnvironments,
+		sectionEnvironments: sectionEnvironmentsList,
 		seksjon,
 	} = useLoaderData<typeof loader>()
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -482,60 +470,63 @@ export default function RedigerSeksjon() {
 							)}
 						</VStack>
 
-						{discoveredEnvironments.length > 0 && (
-							<VStack gap="space-4">
-								<Heading size="medium" level="3">
-									Miljøfilter
-								</Heading>
-								<BodyShort>
-									Velg hvilke Nais-miljøer som skal inkluderes. Applikasjoner som kun finnes i deaktiverte miljøer vil
-									ikke telle med i team, compliance-oppsummering eller applikasjonslister.
-								</BodyShort>
-								{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-								<section className="table-scroll" tabIndex={0} aria-label="Miljøfilter">
-									<Table size="small">
-										<Table.Header>
+						<VStack gap="space-4">
+							<Heading size="medium" level="3">
+								Miljøfilter
+							</Heading>
+							<BodyShort>
+								Velg hvilke Nais-miljøer som skal inkluderes. Applikasjoner som kun finnes i deaktiverte miljøer vil
+								ikke telle med i team, compliance-oppsummering eller applikasjonslister.
+							</BodyShort>
+							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+							<section className="table-scroll" tabIndex={0} aria-label="Miljøfilter">
+								<Table size="small">
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+											<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+											<Table.HeaderCell scope="col" />
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{sectionEnvironmentsList.length === 0 ? (
 											<Table.Row>
-												<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
-												<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-												<Table.HeaderCell scope="col" />
+												<Table.DataCell colSpan={3}>
+													Ingen miljøer registrert ennå. Kjør Nais-sync for å oppdage miljøer.
+												</Table.DataCell>
 											</Table.Row>
-										</Table.Header>
-										<Table.Body>
-											{discoveredEnvironments.map((cluster) => {
-												const isExcluded = excludedEnvironments.includes(cluster)
-												return (
-													<Table.Row key={cluster}>
-														<Table.DataCell>{cluster}</Table.DataCell>
-														<Table.DataCell>
-															{isExcluded ? (
-																<Tag variant="neutral" size="small">
-																	Deaktivert
-																</Tag>
-															) : (
-																<Tag variant="success" size="small">
-																	Aktiv
-																</Tag>
-															)}
-														</Table.DataCell>
-														<Table.DataCell align="right">
-															<Form method="post">
-																<input type="hidden" name="intent" value="toggle-environment" />
-																<input type="hidden" name="cluster" value={cluster} />
-																<input type="hidden" name="enabled" value={isExcluded ? "true" : "false"} />
-																<Button type="submit" variant="tertiary-neutral" size="xsmall">
-																	{isExcluded ? "Aktiver" : "Deaktiver"}
-																</Button>
-															</Form>
-														</Table.DataCell>
-													</Table.Row>
-												)
-											})}
-										</Table.Body>
-									</Table>
-								</section>
-							</VStack>
-						)}
+										) : (
+											sectionEnvironmentsList.map(({ cluster, included }) => (
+												<Table.Row key={cluster}>
+													<Table.DataCell>{cluster}</Table.DataCell>
+													<Table.DataCell>
+														{included ? (
+															<Tag variant="success" size="small">
+																Aktiv
+															</Tag>
+														) : (
+															<Tag variant="neutral" size="small">
+																Deaktivert
+															</Tag>
+														)}
+													</Table.DataCell>
+													<Table.DataCell align="right">
+														<Form method="post">
+															<input type="hidden" name="intent" value="toggle-environment" />
+															<input type="hidden" name="cluster" value={cluster} />
+															<input type="hidden" name="enabled" value={included ? "false" : "true"} />
+															<Button type="submit" variant="tertiary-neutral" size="xsmall">
+																{included ? "Deaktiver" : "Aktiver"}
+															</Button>
+														</Form>
+													</Table.DataCell>
+												</Table.Row>
+											))
+										)}
+									</Table.Body>
+								</Table>
+							</section>
+						</VStack>
 					</VStack>
 				</Tabs.Panel>
 

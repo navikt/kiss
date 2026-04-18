@@ -253,6 +253,20 @@
       "when": 1781914060000,
       "tag": "0035_entra_group_classifications",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1781914120000,
+      "tag": "0036_section_environments",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1781914180000,
+      "tag": "0037_drop_section_excluded_environments",
+      "breakpoints": true
     }
   ]
 }
