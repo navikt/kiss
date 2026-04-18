@@ -1678,9 +1678,16 @@ export default function ApplikasjonDetalj() {
 								{environments.map((env) => (
 									<Table.Row key={env.id}>
 										<Table.DataCell>
-											<Tag variant="neutral" size="xsmall">
-												{env.cluster}
-											</Tag>
+											<HStack gap="space-8" align="center">
+												<Tag variant="neutral" size="xsmall">
+													{env.cluster}
+												</Tag>
+												{env.isExcluded && (
+													<Tag variant="warning" size="xsmall">
+														Ekskludert
+													</Tag>
+												)}
+											</HStack>
 										</Table.DataCell>
 										<Table.DataCell>{env.namespace}</Table.DataCell>
 										<Table.DataCell>{env.naisTeamSlug ?? "–"}</Table.DataCell>

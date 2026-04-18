@@ -645,12 +645,34 @@ export async function getApplicationDetail(applicationId: string) {
 			imageName: applicationEnvironments.imageName,
 			gitRepository: applicationEnvironments.gitRepository,
 			naisTeamSlug: naisTeams.slug,
+			naisTeamSectionId: naisTeams.sectionId,
 			discoveredAt: applicationEnvironments.discoveredAt,
 		})
 		.from(applicationEnvironments)
 		.leftJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
 		.where(eq(applicationEnvironments.applicationId, applicationId))
 		.orderBy(applicationEnvironments.cluster)
+
+	// Mark environments as excluded if their Nais team's section has excluded that cluster
+	const sectionIds = [...new Set(environments.map((e) => e.naisTeamSectionId).filter(Boolean) as string[])]
+	let excludedBySection = new Map<string, Set<string>>() // sectionId → Set<cluster>
+	if (sectionIds.length > 0) {
+		const exclusionRows = await db
+			.select({ sectionId: sectionExcludedEnvironments.sectionId, cluster: sectionExcludedEnvironments.cluster })
+			.from(sectionExcludedEnvironments)
+			.where(inArray(sectionExcludedEnvironments.sectionId, sectionIds))
+		for (const row of exclusionRows) {
+			const set = excludedBySection.get(row.sectionId) ?? new Set<string>()
+			set.add(row.cluster)
+			excludedBySection.set(row.sectionId, set)
+		}
+	}
+	const environmentsWithExcluded = environments.map((env) => ({
+		...env,
+		isExcluded: env.naisTeamSectionId
+			? (excludedBySection.get(env.naisTeamSectionId)?.has(env.cluster ?? "") ?? false)
+			: false,
+	}))
 
 	const persistence = await getAppPersistence(applicationId)
 	const authIntegrations = await getAppAuthIntegrations(applicationId)
@@ -682,7 +704,7 @@ export async function getApplicationDetail(applicationId: string) {
 
 	return {
 		app,
-		environments,
+		environments: environmentsWithExcluded,
 		persistence,
 		authIntegrations,
 		accessPolicyRules,
@@ -1064,10 +1086,11 @@ export async function getLinkCandidatesForSection(sectionId: string): Promise<Li
 	// Collect all unique app IDs in these candidates
 	const candidateAppIds = [...new Set(sectionCandidates.flatMap((c) => c.apps.map((a) => a.id)))]
 
-	// Find apps that have at least one environment in a NON-excluded cluster
+	// Find apps that have at least one environment in a NON-excluded cluster,
+	// and capture the first active cluster for each app (for display purposes)
 	const excludedList = [...excludedClusters]
 	const activeAppRows = await db
-		.selectDistinct({ appId: applicationEnvironments.applicationId })
+		.select({ appId: applicationEnvironments.applicationId, cluster: applicationEnvironments.cluster })
 		.from(applicationEnvironments)
 		.where(
 			and(
@@ -1075,12 +1098,27 @@ export async function getLinkCandidatesForSection(sectionId: string): Promise<Li
 				notInArray(applicationEnvironments.cluster, excludedList),
 			),
 		)
-	const activeAppIds = new Set(activeAppRows.map((r) => r.appId))
 
-	// Filter each candidate: remove apps that have NO active environments,
+	// Build map: appId → best active cluster (prefer prod-* over others)
+	const activeAppIds = new Set(activeAppRows.map((r) => r.appId))
+	const bestCluster = new Map<string, string>()
+	for (const row of activeAppRows) {
+		if (!row.cluster) continue
+		const current = bestCluster.get(row.appId)
+		if (!current || row.cluster.startsWith("prod")) {
+			bestCluster.set(row.appId, row.cluster)
+		}
+	}
+
+	// Filter each candidate: remove apps with no active environments, update displayed cluster,
 	// then drop the candidate if fewer than 2 apps remain
 	return sectionCandidates
-		.map((c) => ({ ...c, apps: c.apps.filter((a) => activeAppIds.has(a.id)) }))
+		.map((c) => ({
+			...c,
+			apps: c.apps
+				.filter((a) => activeAppIds.has(a.id))
+				.map((a) => ({ ...a, cluster: bestCluster.get(a.id) ?? a.cluster })),
+		}))
 		.filter((c) => c.apps.length >= 2)
 }
 
