@@ -152,9 +152,6 @@ export default function TeamDashboard() {
 					</Button>
 				)}
 			</HStack>
-			<BodyLong>
-				Compliance-status per applikasjon for {teamName} i seksjon <Link to={`/seksjoner/${seksjon}`}>{seksjon}</Link>.
-			</BodyLong>
 
 			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 5 }}>
 				<Box padding="space-6" borderRadius="8" background="sunken">
