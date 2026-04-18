@@ -1880,3 +1880,26 @@ export async function upsertGroupClassification(
 
 	return inserted
 }
+
+export async function deleteGroupClassification(groupId: string, performedBy: string) {
+	const existing = await db
+		.select()
+		.from(entraGroupClassifications)
+		.where(eq(entraGroupClassifications.groupId, groupId))
+		.then((rows) => rows[0] ?? null)
+
+	if (!existing) return null
+
+	await db.delete(entraGroupClassifications).where(eq(entraGroupClassifications.id, existing.id))
+
+	await writeAuditLog({
+		action: "group_classification_updated",
+		entityType: "entra_group",
+		entityId: groupId,
+		previousValue: JSON.stringify({ classification: existing.classification }),
+		newValue: JSON.stringify({ classification: null }),
+		performedBy,
+	})
+
+	return existing
+}

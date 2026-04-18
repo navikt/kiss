@@ -14,7 +14,7 @@ import { useMemo, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, useFetcher, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getSectionGroups, upsertGroupClassification } from "~/db/queries/nais.server"
+import { deleteGroupClassification, getSectionGroups, upsertGroupClassification } from "~/db/queries/nais.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import {
 	type GroupAccessClassification,
@@ -79,15 +79,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	if (intent === "classify-group") {
 		const groupId = formData.get("groupId") as string
-		const classification = formData.get("classification") as GroupAccessClassification
-		if (!groupId || !classification) {
-			throw data({ message: "Mangler gruppeid eller klassifisering" }, { status: 400 })
+		const classification = formData.get("classification") as string
+		if (!groupId) {
+			throw data({ message: "Mangler gruppeid" }, { status: 400 })
+		}
+		if (!classification) {
+			await deleteGroupClassification(groupId, authedUser.navIdent)
+			return data({ ok: true })
 		}
 		const validClassifications: string[] = ["mine_tilganger", "identrutina", "nais_console", "annet"]
 		if (!validClassifications.includes(classification)) {
 			throw data({ message: `Ugyldig klassifisering: ${classification}` }, { status: 400 })
 		}
-		await upsertGroupClassification(groupId, classification, authedUser.navIdent)
+		await upsertGroupClassification(groupId, classification as GroupAccessClassification, authedUser.navIdent)
 		return data({ ok: true })
 	}
 
@@ -133,9 +137,7 @@ function ClassificationSelect({
 				value={value}
 				onChange={(e) => {
 					setValue(e.target.value)
-					if (e.target.value) {
-						fetcher.submit({ intent: "classify-group", groupId, classification: e.target.value }, { method: "post" })
-					}
+					fetcher.submit({ intent: "classify-group", groupId, classification: e.target.value }, { method: "post" })
 				}}
 			>
 				<option value="">– Velg –</option>
@@ -277,9 +279,12 @@ export default function SeksjonEntraGrupper() {
 									<Table.Row key={g.groupId}>
 										<Table.DataCell>
 											<VStack gap="space-1">
-												<BodyShort size="small" weight="semibold">
-													{displayName ?? "Ukjent gruppe"}
-												</BodyShort>
+												<HStack gap="space-1" align="center">
+													<BodyShort size="small" weight="semibold">
+														{displayName ?? "Ukjent gruppe"}
+													</BodyShort>
+													{displayName && <CopyButton copyText={displayName} size="xsmall" />}
+												</HStack>
 												<HStack gap="space-1" align="center">
 													<Detail textColor="subtle" style={{ fontFamily: "monospace" }}>
 														{g.groupId}
