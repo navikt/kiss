@@ -667,12 +667,14 @@ export async function getApplicationDetail(applicationId: string) {
 			excludedBySection.set(row.sectionId, set)
 		}
 	}
-	const environmentsWithExcluded = environments.map((env) => ({
-		...env,
-		isExcluded: env.naisTeamSectionId
-			? (excludedBySection.get(env.naisTeamSectionId)?.has(env.cluster ?? "") ?? false)
-			: false,
-	}))
+	const environmentsWithExcluded = environments
+		.map((env) => ({
+			...env,
+			isExcluded: env.naisTeamSectionId
+				? (excludedBySection.get(env.naisTeamSectionId)?.has(env.cluster ?? "") ?? false)
+				: false,
+		}))
+		.filter((env) => !env.isExcluded)
 
 	const persistence = await getAppPersistence(applicationId)
 	const authIntegrations = await getAppAuthIntegrations(applicationId)
