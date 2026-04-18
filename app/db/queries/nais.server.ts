@@ -1045,7 +1045,8 @@ export async function findLinkCandidates(): Promise<LinkCandidate[]> {
 	return [...candidateMap.values()].sort((a, b) => b.confidence - a.confidence)
 }
 
-/** Get link candidates filtered to apps belonging to a section (via team mappings or Nais team environments). */
+/** Get link candidates filtered to apps belonging to a section (via team mappings or Nais team environments).
+ * Apps that only exist in excluded/deactivated clusters are filtered out from each candidate's app list. */
 export async function getLinkCandidatesForSection(sectionId: string): Promise<LinkCandidate[]> {
 	const sectionAppIds = await getSectionAppIds(sectionId)
 	if (sectionAppIds.size === 0) return []
@@ -1053,7 +1054,34 @@ export async function getLinkCandidatesForSection(sectionId: string): Promise<Li
 	const allCandidates = await findLinkCandidates()
 
 	// Filter to candidates where at least one app belongs to this section
-	return allCandidates.filter((c) => c.apps.some((a) => sectionAppIds.has(a.id)))
+	const sectionCandidates = allCandidates.filter((c) => c.apps.some((a) => sectionAppIds.has(a.id)))
+	if (sectionCandidates.length === 0) return []
+
+	// Build set of apps that should be excluded (only exist in excluded clusters)
+	const excludedClusters = await getExcludedEnvironments(sectionId)
+	if (excludedClusters.size === 0) return sectionCandidates
+
+	// Collect all unique app IDs in these candidates
+	const candidateAppIds = [...new Set(sectionCandidates.flatMap((c) => c.apps.map((a) => a.id)))]
+
+	// Find apps that have at least one environment in a NON-excluded cluster
+	const excludedList = [...excludedClusters]
+	const activeAppRows = await db
+		.selectDistinct({ appId: applicationEnvironments.applicationId })
+		.from(applicationEnvironments)
+		.where(
+			and(
+				inArray(applicationEnvironments.applicationId, candidateAppIds),
+				notInArray(applicationEnvironments.cluster, excludedList),
+			),
+		)
+	const activeAppIds = new Set(activeAppRows.map((r) => r.appId))
+
+	// Filter each candidate: remove apps that have NO active environments,
+	// then drop the candidate if fewer than 2 apps remain
+	return sectionCandidates
+		.map((c) => ({ ...c, apps: c.apps.filter((a) => activeAppIds.has(a.id)) }))
+		.filter((c) => c.apps.length >= 2)
 }
 
 // ─── Link Suggestions ────────────────────────────────────────────────────
