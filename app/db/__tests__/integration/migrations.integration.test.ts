@@ -240,8 +240,8 @@ describe("Database migrations", () => {
 			await runMigrations()
 			const fullCount = await getTrackingCount()
 
-			// Remove ONLY the very last tracking entry (migration 0034)
-			// and undo its change (drop the routine approval columns)
+			// Remove ONLY the very last tracking entry (migration 0035)
+			// and undo its change (drop the tables it created)
 			await testDb.execute(sql`
 				DELETE FROM drizzle."__drizzle_migrations"
 				WHERE id = (
@@ -249,24 +249,21 @@ describe("Database migrations", () => {
 					ORDER BY id DESC LIMIT 1
 				)
 			`)
-			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "approved_by"`)
-			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "approved_at"`)
-			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "source_routine_id"`)
-			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "replaced_by_routine_id"`)
-			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "replaced_at"`)
+			await testDb.execute(sql`DROP TABLE IF EXISTS "routine_group_classification_links"`)
+			await testDb.execute(sql`DROP TABLE IF EXISTS "entra_group_classifications"`)
 
 			const reducedCount = await getTrackingCount()
 			expect(reducedCount).toBe(fullCount - 1)
 
-			// Run migrations again — should re-apply only migration 0034
+			// Run migrations again — should re-apply only migration 0035
 			await runMigrations()
 
-			// Verify the approved_by column was re-added
-			const columns = await testDb.execute<{ column_name: string }>(sql`
-				SELECT column_name FROM information_schema.columns
-				WHERE table_schema = 'public' AND table_name = 'routines'
+			// Verify the entra_group_classifications table was re-created
+			const tables = await testDb.execute<{ table_name: string }>(sql`
+				SELECT table_name FROM information_schema.tables
+				WHERE table_schema = 'public' AND table_name = 'entra_group_classifications'
 			`)
-			expect(columns.rows.map((r) => r.column_name)).toContain("approved_by")
+			expect(tables.rows.map((r) => r.table_name)).toContain("entra_group_classifications")
 
 			const finalCount = await getTrackingCount()
 			expect(finalCount).toBe(fullCount)
