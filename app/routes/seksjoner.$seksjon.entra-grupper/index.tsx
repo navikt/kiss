@@ -1,5 +1,16 @@
-import { BodyShort, CopyButton, Detail, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
-import { useState } from "react"
+import {
+	BodyShort,
+	CopyButton,
+	Detail,
+	Heading,
+	HStack,
+	Select,
+	type SortState,
+	Table,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
+import { useMemo, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, useFetcher, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -139,18 +150,61 @@ function ClassificationSelect({
 }
 
 type FilterValue = "alle" | "ikke_klassifisert" | GroupAccessClassification
+type SortKey = "gruppe" | "kilde" | "kritikalitet" | "tilgangsmetode"
+
+const criticalityOrder: Record<string, number> = { very_high: 0, high: 1, medium: 2, low: 3 }
+const classificationOrder: Record<string, number> = { mine_tilganger: 0, identrutina: 1, nais_console: 2, annet: 3 }
 
 export default function SeksjonEntraGrupper() {
 	const { section, seksjon, groups, groupNames, notAssessedCount, notClassifiedCount, canEdit } =
 		useLoaderData<typeof loader>()
 	const [searchParams, setSearchParams] = useSearchParams()
 	const filter = (searchParams.get("filter") as FilterValue) ?? "alle"
+	const [sort, setSort] = useState<SortState>({ orderBy: "gruppe", direction: "ascending" })
 
 	const filteredGroups = groups.filter((g) => {
 		if (filter === "alle") return true
 		if (filter === "ikke_klassifisert") return !g.classification
 		return g.classification === filter
 	})
+
+	const sorted = useMemo(() => {
+		const dir = sort.direction === "ascending" ? 1 : -1
+		return [...filteredGroups].sort((a, b) => {
+			switch (sort.orderBy as SortKey) {
+				case "gruppe": {
+					const nameA = (groupNames[a.groupId] ?? "").toLowerCase()
+					const nameB = (groupNames[b.groupId] ?? "").toLowerCase()
+					return nameA.localeCompare(nameB, "nb") * dir
+				}
+				case "kilde": {
+					const srcA = [...new Set(a.applications.map((app) => app.source))].sort().join(",")
+					const srcB = [...new Set(b.applications.map((app) => app.source))].sort().join(",")
+					return srcA.localeCompare(srcB, "nb") * dir
+				}
+				case "kritikalitet": {
+					const ordA = a.criticality ? (criticalityOrder[a.criticality] ?? 99) : 99
+					const ordB = b.criticality ? (criticalityOrder[b.criticality] ?? 99) : 99
+					return (ordA - ordB) * dir
+				}
+				case "tilgangsmetode": {
+					const ordA = a.classification ? (classificationOrder[a.classification] ?? 99) : 99
+					const ordB = b.classification ? (classificationOrder[b.classification] ?? 99) : 99
+					return (ordA - ordB) * dir
+				}
+				default:
+					return 0
+			}
+		})
+	}, [filteredGroups, sort, groupNames])
+
+	const handleSort = (sortKey: string) => {
+		setSort((prev) =>
+			prev.orderBy === sortKey
+				? { orderBy: sortKey, direction: prev.direction === "ascending" ? "descending" : "ascending" }
+				: { orderBy: sortKey, direction: "ascending" },
+		)
+	}
 
 	return (
 		<VStack gap="space-6">
@@ -192,22 +246,30 @@ export default function SeksjonEntraGrupper() {
 
 			{groups.length === 0 ? (
 				<BodyShort textColor="subtle">Ingen Entra ID-grupper funnet for denne seksjonen.</BodyShort>
-			) : filteredGroups.length === 0 ? (
+			) : sorted.length === 0 ? (
 				<BodyShort textColor="subtle">Ingen grupper matcher filteret.</BodyShort>
 			) : (
 				<div className="table-scroll">
-					<Table size="small" zebraStripes>
+					<Table size="small" zebraStripes sort={sort} onSortChange={handleSort}>
 						<Table.Header>
 							<Table.Row>
-								<Table.HeaderCell scope="col">Gruppe</Table.HeaderCell>
+								<Table.ColumnHeader scope="col" sortKey="gruppe" sortable>
+									Gruppe
+								</Table.ColumnHeader>
 								<Table.HeaderCell scope="col">Applikasjoner</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Kritikalitet</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Tilgangsmetode</Table.HeaderCell>
+								<Table.ColumnHeader scope="col" sortKey="kilde" sortable>
+									Kilde
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" sortKey="kritikalitet" sortable>
+									Kritikalitet
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" sortKey="tilgangsmetode" sortable>
+									Tilgangsmetode
+								</Table.ColumnHeader>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
-							{filteredGroups.map((g) => {
+							{sorted.map((g) => {
 								const displayName = groupNames[g.groupId] ?? null
 								const sources = [...new Set(g.applications.map((a) => a.source))]
 
