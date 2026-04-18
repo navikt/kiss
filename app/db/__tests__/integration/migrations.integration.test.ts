@@ -1,3 +1,5 @@
+import fs from "node:fs"
+import path from "node:path"
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
@@ -236,12 +238,23 @@ describe("Database migrations", () => {
 
 	describe("partial migration state", () => {
 		it("should apply the LAST migration when only its tracking entry is removed", async () => {
+			// Dynamically determine what the last migration does so this test
+			// never needs manual updating when new migrations are added.
+			const journalPath = path.resolve(__dirname, "../../../../drizzle/meta/_journal.json")
+			const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8"))
+			const lastEntry = journal.entries[journal.entries.length - 1]
+			const migrationSql = fs.readFileSync(path.resolve(__dirname, `../../../../drizzle/${lastEntry.tag}.sql`), "utf-8")
+
+			const createdTables = _testing.extractAllCreateTableNames(migrationSql)
+			const addedColumns = _testing.extractAlterTableAddColumns(migrationSql)
+			const hasVerifiableChanges = createdTables.length > 0 || addedColumns.length > 0
+			expect(hasVerifiableChanges).toBe(true)
+
 			// Run all migrations first
 			await runMigrations()
 			const fullCount = await getTrackingCount()
 
-			// Remove ONLY the very last tracking entry (migration 0035)
-			// and undo its change (drop the tables it created)
+			// Remove ONLY the very last tracking entry
 			await testDb.execute(sql`
 				DELETE FROM drizzle."__drizzle_migrations"
 				WHERE id = (
@@ -249,21 +262,44 @@ describe("Database migrations", () => {
 					ORDER BY id DESC LIMIT 1
 				)
 			`)
-			await testDb.execute(sql`DROP TABLE IF EXISTS "routine_group_classification_links"`)
-			await testDb.execute(sql`DROP TABLE IF EXISTS "entra_group_classifications"`)
+
+			// Undo changes: drop created tables (in reverse order for FK deps)
+			// and drop added columns
+			for (const table of [...createdTables].reverse()) {
+				await testDb.execute(sql.raw(`DROP TABLE IF EXISTS "${table}" CASCADE`))
+			}
+			for (const { table, column } of addedColumns) {
+				await testDb.execute(sql.raw(`ALTER TABLE "${table}" DROP COLUMN IF EXISTS "${column}"`))
+			}
 
 			const reducedCount = await getTrackingCount()
 			expect(reducedCount).toBe(fullCount - 1)
 
-			// Run migrations again — should re-apply only migration 0035
+			// Run migrations again — should re-apply only the last migration
 			await runMigrations()
 
-			// Verify the entra_group_classifications table was re-created
-			const tables = await testDb.execute<{ table_name: string }>(sql`
-				SELECT table_name FROM information_schema.tables
-				WHERE table_schema = 'public' AND table_name = 'entra_group_classifications'
-			`)
-			expect(tables.rows.map((r) => r.table_name)).toContain("entra_group_classifications")
+			// Verify created tables were re-created
+			if (createdTables.length > 0) {
+				const tables = await testDb.execute<{ table_name: string }>(sql`
+					SELECT table_name FROM information_schema.tables
+					WHERE table_schema = 'public'
+				`)
+				const tableNames = tables.rows.map((r) => r.table_name)
+				for (const t of createdTables) {
+					expect(tableNames).toContain(t)
+				}
+			}
+
+			// Verify added columns were re-added
+			for (const { table, column } of addedColumns) {
+				const cols = await testDb.execute<{ column_name: string }>(
+					sql.raw(`
+					SELECT column_name FROM information_schema.columns
+					WHERE table_schema = 'public' AND table_name = '${table}'
+				`),
+				)
+				expect(cols.rows.map((r) => r.column_name)).toContain(column)
+			}
 
 			const finalCount = await getTrackingCount()
 			expect(finalCount).toBe(fullCount)
