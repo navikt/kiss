@@ -7,7 +7,7 @@ CREATE TABLE "section_environments" (
 	"added_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_by" text DEFAULT 'migration' NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "uq_section_cluster" UNIQUE("section_id","cluster")
+	CONSTRAINT "uq_section_environments_cluster" UNIQUE("section_id","cluster")
 );
 
 ALTER TABLE "section_environments" ADD CONSTRAINT "section_environments_section_id_sections_id_fk"

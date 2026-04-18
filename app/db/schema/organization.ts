@@ -133,5 +133,5 @@ export const sectionEnvironments = pgTable(
 		updatedBy: text("updated_by").notNull(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	},
-	(table) => [unique("uq_section_cluster").on(table.sectionId, table.cluster)],
+	(table) => [unique("uq_section_environments_cluster").on(table.sectionId, table.cluster)],
 )

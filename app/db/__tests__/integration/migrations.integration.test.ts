@@ -150,9 +150,11 @@ describe("Database migrations", () => {
 				"screening_question_technology_elements",
 				"screening_questions",
 				"screening_routine_selections",
-				"section_excluded_environments",
+				"section_environments",
 				"section_ignored_applications",
 				"sections",
+				"entra_group_classifications",
+				"routine_group_classification_links",
 				"technology_elements",
 				"user_preferences",
 				"user_roles",
@@ -169,7 +171,7 @@ describe("Database migrations", () => {
 
 			expect(await trackingTableExists()).toBe(true)
 			const count = await getTrackingCount()
-			expect(count).toBeGreaterThanOrEqual(34)
+			expect(count).toBeGreaterThanOrEqual(38)
 		})
 
 		it("should include application_controls table (migration 0032)", async () => {
@@ -247,7 +249,8 @@ describe("Database migrations", () => {
 
 			const createdTables = _testing.extractAllCreateTableNames(migrationSql)
 			const addedColumns = _testing.extractAlterTableAddColumns(migrationSql)
-			const hasVerifiableChanges = createdTables.length > 0 || addedColumns.length > 0
+			const droppedTables = _testing.extractDropTableNames(migrationSql)
+			const hasVerifiableChanges = createdTables.length > 0 || addedColumns.length > 0 || droppedTables.length > 0
 			expect(hasVerifiableChanges).toBe(true)
 
 			// Run all migrations first
@@ -263,13 +266,17 @@ describe("Database migrations", () => {
 				)
 			`)
 
-			// Undo changes: drop created tables (in reverse order for FK deps)
-			// and drop added columns
+			// Undo changes: drop created tables (in reverse order for FK deps),
+			// drop added columns, and re-create dropped tables (minimally)
 			for (const table of [...createdTables].reverse()) {
 				await testDb.execute(sql.raw(`DROP TABLE IF EXISTS "${table}" CASCADE`))
 			}
 			for (const { table, column } of addedColumns) {
 				await testDb.execute(sql.raw(`ALTER TABLE "${table}" DROP COLUMN IF EXISTS "${column}"`))
+			}
+			for (const table of droppedTables) {
+				// Re-create minimally so the DROP can be re-applied
+				await testDb.execute(sql.raw(`CREATE TABLE IF NOT EXISTS "${table}" ("_placeholder" text)`))
 			}
 
 			const reducedCount = await getTrackingCount()
@@ -301,6 +308,18 @@ describe("Database migrations", () => {
 				expect(cols.rows.map((r) => r.column_name)).toContain(column)
 			}
 
+			// Verify dropped tables were dropped again
+			if (droppedTables.length > 0) {
+				const tables = await testDb.execute<{ table_name: string }>(sql`
+					SELECT table_name FROM information_schema.tables
+					WHERE table_schema = 'public'
+				`)
+				const tableNames = tables.rows.map((r) => r.table_name)
+				for (const t of droppedTables) {
+					expect(tableNames, `Table "${t}" should have been dropped`).not.toContain(t)
+				}
+			}
+
 			const finalCount = await getTrackingCount()
 			expect(finalCount).toBe(fullCount)
 		})
@@ -322,7 +341,7 @@ describe("Database migrations", () => {
 
 			expect(await trackingTableExists()).toBe(true)
 			const count = await getTrackingCount()
-			expect(count).toBeGreaterThanOrEqual(34)
+			expect(count).toBeGreaterThanOrEqual(38)
 		})
 
 		it("should correctly handle missing tables during seeding (watermark stop)", async () => {
@@ -341,14 +360,32 @@ describe("Database migrations", () => {
 			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "source_routine_id"`)
 			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "replaced_by_routine_id"`)
 			await testDb.execute(sql`ALTER TABLE "routines" DROP COLUMN IF EXISTS "replaced_at"`)
+			// Undo 0035: drop tables it created
+			await testDb.execute(sql`DROP TABLE IF EXISTS "entra_group_classifications" CASCADE`)
+			await testDb.execute(sql`DROP TABLE IF EXISTS "routine_group_classification_links" CASCADE`)
+			// Undo 0036: drop section_environments
+			await testDb.execute(sql`DROP TABLE IF EXISTS "section_environments" CASCADE`)
+			// Undo 0037: re-create section_excluded_environments so 0036 seed + 0037 DROP can re-apply
+			await testDb.execute(sql`
+				CREATE TABLE IF NOT EXISTS "section_excluded_environments" (
+					"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+					"section_id" uuid NOT NULL,
+					"cluster" text NOT NULL,
+					"excluded_by" text NOT NULL DEFAULT 'test',
+					"excluded_at" timestamp with time zone DEFAULT now() NOT NULL,
+					CONSTRAINT "uq_section_cluster" UNIQUE("section_id","cluster")
+				)
+			`)
 
 			// Run migrations — seed should stop at 0032 (tables don't exist),
-			// then migrate() applies 0032, 0033 and 0034
+			// then migrate() applies 0032 through 0037
 			await runMigrations()
 
 			const tableNames = await getTableNames()
 			expect(tableNames).toContain("application_controls")
 			expect(tableNames).toContain("application_control_history")
+			expect(tableNames).toContain("section_environments")
+			expect(tableNames).not.toContain("section_excluded_environments")
 
 			// Verify routines.status column was also applied
 			const columns = await testDb.execute<{ column_name: string }>(sql`
