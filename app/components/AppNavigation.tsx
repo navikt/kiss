@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { Link, useLocation } from "react-router"
 
 interface NavItem {
@@ -5,15 +6,45 @@ interface NavItem {
 	href: string
 }
 
-const navItems: NavItem[] = [
+const baseNavItems: NavItem[] = [
 	{ label: "Dashboard", href: "/dashboard" },
 	{ label: "Kontrollrammeverk", href: "/kontrollrammeverk" },
 	{ label: "Seksjoner", href: "/seksjoner" },
 	{ label: "Admin", href: "/admin" },
 ]
 
-export function AppNavigation() {
+interface AppNavigationProps {
+	sections: { sectionName: string; sectionSlug: string }[]
+	teams: { teamName: string; teamSlug: string; sectionSlug: string }[]
+}
+
+export function AppNavigation({ sections, teams }: AppNavigationProps) {
 	const location = useLocation()
+
+	const navItems = useMemo(() => {
+		const items = [...baseNavItems]
+		const seksjonerIdx = items.findIndex((i) => i.href === "/seksjoner")
+
+		let insertAt = seksjonerIdx + 1
+
+		if (sections.length === 1) {
+			const s = sections[0]
+			items.splice(insertAt, 0, { label: s.sectionName, href: `/seksjoner/${s.sectionSlug}` })
+			insertAt++
+		}
+
+		if (teams.length === 1) {
+			const t = teams[0]
+			items.splice(insertAt, 0, {
+				label: t.teamName,
+				href: `/seksjoner/${t.sectionSlug}/team/${t.teamSlug}`,
+			})
+		} else if (teams.length > 1) {
+			items.splice(insertAt, 0, { label: "Mine team", href: "/mine-team" })
+		}
+
+		return items
+	}, [sections, teams])
 
 	return (
 		<nav className="app-nav" aria-label="Hovednavigasjon">

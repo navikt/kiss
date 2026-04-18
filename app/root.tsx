@@ -39,10 +39,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 
 	let userSections: { sectionName: string; sectionSlug: string; roleLabel: string }[] = []
+	let userTeams: { teamName: string; teamSlug: string; sectionSlug: string }[] = []
 	if (user) {
 		try {
 			const fullRoles = await getUserRoles(user.navIdent)
 			const sectionMap = new Map<string, { sectionName: string; sectionSlug: string; roleLabel: string }>()
+			const teamMap = new Map<string, { teamName: string; teamSlug: string; sectionSlug: string }>()
 			for (const r of fullRoles) {
 				if (r.sectionId && r.sectionName && r.sectionSlug) {
 					if (!sectionMap.has(r.sectionId)) {
@@ -53,8 +55,18 @@ export async function loader({ request }: LoaderFunctionArgs) {
 						})
 					}
 				}
+				if (r.devTeamId && r.devTeamName && r.devTeamSlug && r.sectionSlug) {
+					if (!teamMap.has(r.devTeamId)) {
+						teamMap.set(r.devTeamId, {
+							teamName: r.devTeamName,
+							teamSlug: r.devTeamSlug,
+							sectionSlug: r.sectionSlug,
+						})
+					}
+				}
 			}
 			userSections = [...sectionMap.values()]
+			userTeams = [...teamMap.values()]
 		} catch {
 			// DB unavailable during startup
 		}
@@ -70,6 +82,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 					isAdmin: isAdmin(user),
 					isAuditor: isAuditor(user),
 					sections: userSections,
+					teams: userTeams,
 				}
 			: null,
 	})
@@ -127,6 +140,7 @@ function AppShell({
 		isAdmin: boolean
 		isAuditor: boolean
 		sections: { sectionName: string; sectionSlug: string; roleLabel: string }[]
+		teams: { teamName: string; teamSlug: string; sectionSlug: string }[]
 	} | null
 }) {
 	const { theme } = useTheme()
@@ -155,7 +169,7 @@ function AppShell({
 					/>
 				)}
 			</InternalHeader>
-			<AppNavigation />
+			<AppNavigation sections={user?.sections ?? []} teams={user?.teams ?? []} />
 			<main id="main-content" className="app-main">
 				<Breadcrumbs />
 				<Outlet />
