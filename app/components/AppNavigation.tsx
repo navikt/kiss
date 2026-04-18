@@ -46,13 +46,24 @@ export function AppNavigation({ sections, teams }: AppNavigationProps) {
 		return items
 	}, [sections, teams])
 
+	// Find the single most specific (longest href) match
+	const activeHref = useMemo(() => {
+		let best = ""
+		for (const item of navItems) {
+			const matches = location.pathname === item.href || (item.href !== "/" && location.pathname.startsWith(item.href))
+			if (matches && item.href.length > best.length) {
+				best = item.href
+			}
+		}
+		return best
+	}, [navItems, location.pathname])
+
 	return (
 		<nav className="app-nav" aria-label="Hovednavigasjon">
 			<div className="app-nav-content">
 				<ul className="app-nav-list">
 					{navItems.map((item) => {
-						const isActive =
-							location.pathname === item.href || (item.href !== "/" && location.pathname.startsWith(item.href))
+						const isActive = item.href === activeHref
 						return (
 							<li key={item.href}>
 								<Link
