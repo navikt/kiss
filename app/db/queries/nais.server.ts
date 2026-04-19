@@ -1899,26 +1899,6 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 
 // ─── Entra Group Access Classification ───────────────────────────────────
 
-/** Get classification for a single group. */
-export async function getGroupClassification(groupId: string) {
-	const [row] = await db
-		.select()
-		.from(entraGroupClassifications)
-		.where(eq(entraGroupClassifications.groupId, groupId))
-		.limit(1)
-	return row ?? null
-}
-
-/** Batch-get classifications for multiple groups. Returns a map groupId → classification. */
-export async function getGroupClassifications(groupIds: string[]): Promise<Map<string, GroupAccessClassification>> {
-	if (groupIds.length === 0) return new Map()
-	const rows = await db
-		.select()
-		.from(entraGroupClassifications)
-		.where(inArray(entraGroupClassifications.groupId, groupIds))
-	return new Map(rows.map((r) => [r.groupId, r.classification as GroupAccessClassification]))
-}
-
 /** Set or update the access classification for a group. */
 export async function upsertGroupClassification(
 	groupId: string,

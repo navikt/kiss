@@ -491,38 +491,6 @@ const controlFieldMap: Record<string, keyof typeof frameworkControls.$inferInser
 	commonPitfalls: "commonPitfalls",
 }
 
-/** Update a single field on a control. */
-export async function updateControlField(controlIdStr: string, fieldName: string, value: string, performedBy: string) {
-	const column = controlFieldMap[fieldName]
-	if (!column) throw new Error(`Ugyldig felt: ${fieldName}`)
-
-	const [ctrl] = await db
-		.select()
-		.from(frameworkControls)
-		.where(sql`${frameworkControls.archivedAt} IS NULL AND ${frameworkControls.controlId} = ${controlIdStr}`)
-		.limit(1)
-
-	if (!ctrl) throw new Error(`Kontroll ${controlIdStr} finnes ikke.`)
-
-	const previousValue = (ctrl as Record<string, unknown>)[column] as string | null
-	const newValue = value.trim() || null
-
-	await db
-		.update(frameworkControls)
-		.set({ [column]: newValue })
-		.where(eq(frameworkControls.id, ctrl.id))
-
-	await writeAuditLog({
-		action: "control_field_updated",
-		entityType: "framework_control",
-		entityId: controlIdStr,
-		previousValue,
-		newValue,
-		metadata: { field: fieldName },
-		performedBy,
-	})
-}
-
 /** Update multiple fields on a control in one go. Only changed fields are written. */
 export async function updateControlFields(controlIdStr: string, fields: Record<string, string>, performedBy: string) {
 	const [ctrl] = await db
@@ -597,9 +565,6 @@ export async function stageFrameworkImport(
 
 	return version.id
 }
-
-// Keep backward-compatible alias
-export const stageFrameworkVersion = stageFrameworkImport
 
 /**
  * Parse comma/semicolon-separated technology element text and sync junction entries.
@@ -1074,20 +1039,11 @@ export async function applyFrameworkImport(
 	})
 }
 
-// Keep backward-compatible alias
-export const activateFrameworkVersion = (versionId: string, activatedBy: string, parsed?: ParsedFramework) => {
-	if (!parsed) throw new Error("parsed is required for activateFrameworkVersion")
-	return applyFrameworkImport(versionId, parsed, activatedBy)
-}
-
 /** Get the current pending framework import, or null. */
 export async function getPendingFrameworkImport() {
 	const [version] = await db.select().from(frameworkVersions).where(eq(frameworkVersions.status, "pending")).limit(1)
 	return version ?? null
 }
-
-// Keep backward-compatible alias
-export const getStagingFrameworkVersion = getPendingFrameworkImport
 
 /** Discard a pending framework import by setting its status to superseded. */
 export async function discardPendingImport() {
@@ -1343,15 +1299,6 @@ export async function computeImportDiff(parsed: ParsedFramework, previousParsed?
 	}
 }
 
-// Keep backward-compatible alias
-export const getStagingDiff = async () => {
-	const pending = await getPendingFrameworkImport()
-	if (!pending) return null
-	// Re-parse the file is not practical here, so we compute from live vs pending metadata
-	// For the route, we store parsed data and pass it through
-	return null
-}
-
 // ── Predefined answers ──
 
 export async function addPredefinedAnswer(
@@ -1450,14 +1397,6 @@ export async function deletePredefinedAnswer(answerId: string, performedBy: stri
 		newValue: JSON.stringify({ label: existing.label }),
 		performedBy,
 	})
-}
-
-export async function getPredefinedAnswersForControl(controlUuid: string) {
-	return db
-		.select()
-		.from(controlPredefinedAnswers)
-		.where(eq(controlPredefinedAnswers.controlId, controlUuid))
-		.orderBy(controlPredefinedAnswers.displayOrder)
 }
 
 // ─── Domain CRUD ─────────────────────────────────────────────────────────
@@ -1627,13 +1566,6 @@ export async function getControlDomains(controlUuid: string): Promise<ControlDom
 		.orderBy(frameworkDomains.id, frameworkDomains.displayOrder)
 
 	return rows
-}
-
-/** Get the primary (lowest displayOrder) domain for a control. */
-export async function getControlPrimaryDomain(controlUuid: string): Promise<ControlDomain | null> {
-	const domains = await getControlDomains(controlUuid)
-	if (domains.length === 0) return null
-	return domains.sort((a, b) => a.displayOrder - b.displayOrder)[0]
 }
 
 /**

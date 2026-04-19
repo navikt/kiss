@@ -907,11 +907,6 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 	return results
 }
 
-export async function getOverdueRoutinesForSection(sectionId: string) {
-	const all = await getRoutineDeadlinesForSection(sectionId)
-	return all.filter((d) => d.overdue)
-}
-
 export async function getRoutineDeadlinesForApp(applicationId: string) {
 	// Step 1: Find which routines this app matches via screening answers
 	// Get all screening answers for this app
