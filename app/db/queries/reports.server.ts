@@ -1,3 +1,4 @@
+/// <reference types="pdfkit" />
 import { desc, eq, isNull, sql } from "drizzle-orm"
 import { getStatusLabel } from "../../lib/compliance-status"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
@@ -616,8 +617,7 @@ export async function generateAppComplianceReport(params: {
 }
 
 function buildAppPdf(
-	// biome-ignore lint/suspicious/noExplicitAny: pdfkit constructor type varies across versions
-	PDFDocCtor: any,
+	PDFDocCtor: new (options?: PDFKit.PDFDocumentOptions) => PDFKit.PDFDocument,
 	app: { name: string; namespace: string | null; cluster: string | null },
 	assessments: Array<{
 		controlId: string

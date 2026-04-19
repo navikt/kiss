@@ -1,4 +1,7 @@
+/// <reference types="pdfkit" />
 import { marked, type Token, type Tokens } from "marked"
+
+type PdfDocument = PDFKit.PDFDocument
 
 interface PdfStyle {
 	fontSize: number
@@ -20,22 +23,19 @@ const defaultStyle: PdfStyle = {
  * Render markdown text into a pdfkit document with basic formatting.
  * Supports headings, bold, italic, lists, blockquotes, code blocks, and paragraphs.
  */
-// biome-ignore lint/suspicious/noExplicitAny: pdfkit doc type
-export function renderMarkdownToPdf(doc: any, markdown: string, options?: { width?: number }) {
+export function renderMarkdownToPdf(doc: PdfDocument, markdown: string, options?: { width?: number }) {
 	const width = options?.width ?? 495
 	const tokens = marked.lexer(markdown)
 	renderTokens(doc, tokens, { ...defaultStyle }, width)
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: pdfkit doc type
-function renderTokens(doc: any, tokens: Token[], style: PdfStyle, width: number) {
+function renderTokens(doc: PdfDocument, tokens: Token[], style: PdfStyle, width: number) {
 	for (const token of tokens) {
 		renderToken(doc, token, style, width)
 	}
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: pdfkit doc type
-function renderToken(doc: any, token: Token, style: PdfStyle, width: number) {
+function renderToken(doc: PdfDocument, token: Token, style: PdfStyle, width: number) {
 	switch (token.type) {
 		case "heading": {
 			const t = token as Tokens.Heading
@@ -130,8 +130,7 @@ function renderToken(doc: any, token: Token, style: PdfStyle, width: number) {
 	}
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: pdfkit doc type
-function renderInlineTokens(doc: any, tokens: Token[], style: PdfStyle, width: number) {
+function renderInlineTokens(doc: PdfDocument, tokens: Token[], style: PdfStyle, width: number) {
 	const segments = flattenInlineTokens(tokens)
 
 	for (let i = 0; i < segments.length; i++) {
