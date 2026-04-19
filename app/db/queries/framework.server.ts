@@ -598,9 +598,6 @@ export async function stageFrameworkImport(
 	return version.id
 }
 
-// Keep backward-compatible alias
-export const stageFrameworkVersion = stageFrameworkImport
-
 /**
  * Parse comma/semicolon-separated technology element text and sync junction entries.
  * Matches element names case-insensitively against existing technology elements.
@@ -1074,20 +1071,11 @@ export async function applyFrameworkImport(
 	})
 }
 
-// Keep backward-compatible alias
-export const activateFrameworkVersion = (versionId: string, activatedBy: string, parsed?: ParsedFramework) => {
-	if (!parsed) throw new Error("parsed is required for activateFrameworkVersion")
-	return applyFrameworkImport(versionId, parsed, activatedBy)
-}
-
 /** Get the current pending framework import, or null. */
 export async function getPendingFrameworkImport() {
 	const [version] = await db.select().from(frameworkVersions).where(eq(frameworkVersions.status, "pending")).limit(1)
 	return version ?? null
 }
-
-// Keep backward-compatible alias
-export const getStagingFrameworkVersion = getPendingFrameworkImport
 
 /** Discard a pending framework import by setting its status to superseded. */
 export async function discardPendingImport() {
@@ -1341,15 +1329,6 @@ export async function computeImportDiff(parsed: ParsedFramework, previousParsed?
 			description: e.description,
 		})),
 	}
-}
-
-// Keep backward-compatible alias
-export const getStagingDiff = async () => {
-	const pending = await getPendingFrameworkImport()
-	if (!pending) return null
-	// Re-parse the file is not practical here, so we compute from live vs pending metadata
-	// For the route, we store parsed data and pass it through
-	return null
 }
 
 // ── Predefined answers ──
