@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationPersistence, monitoredApplications } from "../schema/applications"
 import { applicationTechnologyElements, controlTechnologyElements, technologyElements } from "../schema/framework"
@@ -42,26 +42,6 @@ export async function getApplicationElements(appId: string) {
 		.innerJoin(technologyElements, eq(applicationTechnologyElements.elementId, technologyElements.id))
 		.where(eq(applicationTechnologyElements.applicationId, appId))
 		.orderBy(technologyElements.displayOrder)
-}
-
-/** Get technology element IDs for a set of applications (batch). */
-export async function getApplicationElementIds(appIds: string[]): Promise<Map<string, string[]>> {
-	if (appIds.length === 0) return new Map()
-	const rows = await db
-		.select({
-			appId: applicationTechnologyElements.applicationId,
-			elementId: applicationTechnologyElements.elementId,
-		})
-		.from(applicationTechnologyElements)
-		.where(inArray(applicationTechnologyElements.applicationId, appIds))
-
-	const map = new Map<string, string[]>()
-	for (const row of rows) {
-		const list = map.get(row.appId) ?? []
-		list.push(row.elementId)
-		map.set(row.appId, list)
-	}
-	return map
 }
 
 /** Create a new technology element. */
@@ -276,30 +256,6 @@ export async function removeApplicationElement(appId: string, elementId: string)
 				eq(applicationTechnologyElements.elementId, elementId),
 			),
 		)
-}
-
-/**
- * Get the matching element IDs between a control and an application.
- * Returns the intersection of control elements and app elements.
- */
-export async function getMatchingElements(controlUuid: string, appId: string) {
-	const rows = await db
-		.select({
-			elementId: technologyElements.id,
-			elementName: technologyElements.name,
-		})
-		.from(controlTechnologyElements)
-		.innerJoin(technologyElements, eq(controlTechnologyElements.elementId, technologyElements.id))
-		.innerJoin(
-			applicationTechnologyElements,
-			and(
-				eq(applicationTechnologyElements.elementId, technologyElements.id),
-				eq(applicationTechnologyElements.applicationId, appId),
-			),
-		)
-		.where(eq(controlTechnologyElements.controlId, controlUuid))
-		.orderBy(technologyElements.displayOrder)
-	return rows
 }
 
 /** Sync technology elements for all monitored applications. */

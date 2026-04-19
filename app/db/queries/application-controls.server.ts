@@ -475,32 +475,6 @@ export async function getBatchComplianceStatsFromControls(appIds: string[]): Pro
 	return result
 }
 
-/**
- * Get the total number of active controls per app from application_controls.
- * Replaces getBatchExpectedTotals for apps that have been synced.
- */
-export async function getBatchExpectedTotalsFromControls(appIds: string[]): Promise<Map<string, number>> {
-	const result = new Map<string, number>()
-	if (appIds.length === 0) return result
-
-	for (const id of appIds) result.set(id, 0)
-
-	const rows = await db
-		.select({
-			applicationId: applicationControls.applicationId,
-			cnt: sql<number>`count(*)::int`,
-		})
-		.from(applicationControls)
-		.where(and(inArray(applicationControls.applicationId, appIds), eq(applicationControls.isActive, true)))
-		.groupBy(applicationControls.applicationId)
-
-	for (const row of rows) {
-		result.set(row.applicationId, row.cnt)
-	}
-
-	return result
-}
-
 // ─── Read helpers ────────────────────────────────────────────────────────
 
 /** Get all active application controls for an app. */
@@ -509,9 +483,4 @@ export async function getActiveApplicationControls(appId: string) {
 		.select()
 		.from(applicationControls)
 		.where(and(eq(applicationControls.applicationId, appId), eq(applicationControls.isActive, true)))
-}
-
-/** Get all application controls for an app (including deactivated, for history). */
-export async function getAllApplicationControls(appId: string) {
-	return db.select().from(applicationControls).where(eq(applicationControls.applicationId, appId))
 }

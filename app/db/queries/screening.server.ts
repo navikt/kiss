@@ -202,15 +202,6 @@ export async function deleteChoice(choiceId: string) {
 	await db.delete(screeningQuestionChoices).where(eq(screeningQuestionChoices.id, choiceId))
 }
 
-export async function reorderChoices(orderedIds: string[]) {
-	for (let i = 0; i < orderedIds.length; i++) {
-		await db
-			.update(screeningQuestionChoices)
-			.set({ displayOrder: i })
-			.where(eq(screeningQuestionChoices.id, orderedIds[i]))
-	}
-}
-
 // ─── Choice Effects CRUD ─────────────────────────────────────────────────
 
 export async function getChoiceEffects(choiceId: string) {
@@ -697,22 +688,6 @@ export async function saveRoutineSelection(
 		newValue: routineId ?? "null",
 		performedBy: selectedBy,
 	})
-}
-
-/** Get all routine selections for an app (for the routines tab). */
-export async function getRoutineSelectionsForApp(applicationId: string) {
-	return db
-		.select({
-			routineId: screeningRoutineSelections.routineId,
-			effectId: screeningRoutineSelections.choiceEffectId,
-			controlTextId: frameworkControls.controlId,
-		})
-		.from(screeningRoutineSelections)
-		.innerJoin(screeningChoiceEffects, eq(screeningRoutineSelections.choiceEffectId, screeningChoiceEffects.id))
-		.innerJoin(frameworkControls, eq(screeningChoiceEffects.controlId, frameworkControls.id))
-		.where(
-			and(eq(screeningRoutineSelections.applicationId, applicationId), isNotNull(screeningRoutineSelections.routineId)),
-		)
 }
 
 // ─── Screening-derived control IDs ───────────────────────────────────────
