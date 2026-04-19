@@ -9,7 +9,6 @@ import {
 	screeningAnswers,
 	screeningChoiceEffects,
 	screeningQuestionChoices,
-	screeningQuestionEffects,
 	screeningQuestions,
 	screeningQuestionTechnologyElements,
 	screeningRoutineSelections,
@@ -250,62 +249,6 @@ export async function addChoiceEffect(params: {
 
 export async function deleteChoiceEffect(effectId: string) {
 	await db.delete(screeningChoiceEffects).where(eq(screeningChoiceEffects.id, effectId))
-}
-
-// ─── Legacy Effects (kept during migration) ──────────────────────────────
-
-export async function getEffectsForQuestion(questionId: string) {
-	return db
-		.select({
-			id: screeningQuestionEffects.id,
-			questionId: screeningQuestionEffects.questionId,
-			controlId: screeningQuestionEffects.controlId,
-			controlTextId: frameworkControls.controlId,
-			controlName: frameworkControls.shortTitle,
-			yesEffect: screeningQuestionEffects.yesEffect,
-			noEffect: screeningQuestionEffects.noEffect,
-			yesComment: screeningQuestionEffects.yesComment,
-			noComment: screeningQuestionEffects.noComment,
-		})
-		.from(screeningQuestionEffects)
-		.innerJoin(frameworkControls, eq(screeningQuestionEffects.controlId, frameworkControls.id))
-		.where(eq(screeningQuestionEffects.questionId, questionId))
-		.orderBy(frameworkControls.controlId)
-}
-
-export async function addEffect(params: {
-	questionId: string
-	controlTextId: string
-	yesEffect: string | null
-	noEffect: string | null
-	yesComment: string | null
-	noComment: string | null
-}) {
-	const [ctrl] = await db
-		.select({ id: frameworkControls.id })
-		.from(frameworkControls)
-		.where(eq(frameworkControls.controlId, params.controlTextId))
-		.limit(1)
-
-	if (!ctrl) throw new Error(`Kontroll ${params.controlTextId} ikke funnet`)
-
-	const [effect] = await db
-		.insert(screeningQuestionEffects)
-		.values({
-			questionId: params.questionId,
-			controlId: ctrl.id,
-			yesEffect: (params.yesEffect as ComplianceStatus) || null,
-			noEffect: (params.noEffect as ComplianceStatus) || null,
-			yesComment: params.yesComment || null,
-			noComment: params.noComment || null,
-		})
-		.returning()
-
-	return effect
-}
-
-export async function deleteEffect(effectId: string) {
-	await db.delete(screeningQuestionEffects).where(eq(screeningQuestionEffects.id, effectId))
 }
 
 // ─── Answers ─────────────────────────────────────────────────────────────
