@@ -1,12 +1,12 @@
 import { and, count, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
+import { applicationControls } from "../schema/application-controls"
 import {
 	applicationEnvironments,
 	applicationTeamMappings,
 	monitoredApplications,
 	naisTeams,
 } from "../schema/applications"
-import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import {
 	applicationTechnologyElements,
 	controlPredefinedAnswers,
@@ -83,13 +83,13 @@ export async function getApplications() {
 	// Batch: compliance stats for all apps
 	const complianceRows = await db
 		.select({
-			applicationId: complianceAssessments.applicationId,
-			status: complianceAssessments.status,
+			applicationId: applicationControls.applicationId,
+			status: applicationControls.status,
 			count: count(),
 		})
-		.from(complianceAssessments)
-		.where(inArray(complianceAssessments.applicationId, appIds))
-		.groupBy(complianceAssessments.applicationId, complianceAssessments.status)
+		.from(applicationControls)
+		.where(and(inArray(applicationControls.applicationId, appIds), eq(applicationControls.isActive, true)))
+		.groupBy(applicationControls.applicationId, applicationControls.status)
 
 	const complianceByApp = new Map<string, { implemented: number; partial: number }>()
 	for (const row of complianceRows) {
@@ -370,120 +370,6 @@ export async function getAppAssessments(appId: string) {
 	return { app, assessments, isInherited, primaryName, hasScreeningAnswers }
 }
 
-/** @deprecated Legacy: bruker complianceAssessments. Compliance skal utledes fra screening/rutiner/regelsett. */
-export async function saveAssessment(
-	appId: string,
-	controlUuid: string,
-	status: string,
-	comment: string,
-	performedBy: string,
-	technologyElementId?: string | null,
-) {
-	// Find existing assessment matching (app, control, element)
-	const conditions = [
-		sql`${complianceAssessments.applicationId} = ${appId}`,
-		sql`${complianceAssessments.controlId} = ${controlUuid}`,
-	]
-	if (technologyElementId) {
-		conditions.push(sql`${complianceAssessments.technologyElementId} = ${technologyElementId}`)
-	} else {
-		conditions.push(sql`${complianceAssessments.technologyElementId} IS NULL`)
-	}
-
-	const [existing] = await db.select().from(complianceAssessments).where(sql.join(conditions, sql` AND `)).limit(1)
-
-	if (existing) {
-		// Write history before updating
-		await db.insert(complianceAssessmentHistory).values({
-			assessmentId: existing.id,
-			previousStatus: existing.status,
-			newStatus: status as ComplianceStatus,
-			previousComment: existing.comment,
-			newComment: comment || null,
-			changedBy: performedBy,
-		})
-
-		await db
-			.update(complianceAssessments)
-			.set({
-				status: status as ComplianceStatus,
-				comment: comment || null,
-				assessedBy: performedBy,
-				assessedAt: new Date(),
-				updatedBy: performedBy,
-				updatedAt: new Date(),
-			})
-			.where(eq(complianceAssessments.id, existing.id))
-	} else {
-		const [newAssessment] = await db
-			.insert(complianceAssessments)
-			.values({
-				applicationId: appId,
-				controlId: controlUuid,
-				technologyElementId: technologyElementId ?? null,
-				status: status as ComplianceStatus,
-				comment: comment || null,
-				assessedBy: performedBy,
-				createdBy: performedBy,
-				updatedBy: performedBy,
-			})
-			.returning()
-
-		// Write initial history
-		await db.insert(complianceAssessmentHistory).values({
-			assessmentId: newAssessment.id,
-			previousStatus: null,
-			newStatus: status as ComplianceStatus,
-			previousComment: null,
-			newComment: comment || null,
-			changedBy: performedBy,
-		})
-	}
-}
-
-/** @deprecated Legacy: bruker complianceAssessments. Compliance skal utledes fra screening/rutiner/regelsett. */
-export async function saveAssessmentComment(
-	appId: string,
-	controlUuid: string,
-	comment: string,
-	performedBy: string,
-	technologyElementId?: string | null,
-) {
-	const conditions = [
-		sql`${complianceAssessments.applicationId} = ${appId}`,
-		sql`${complianceAssessments.controlId} = ${controlUuid}`,
-	]
-	if (technologyElementId) {
-		conditions.push(sql`${complianceAssessments.technologyElementId} = ${technologyElementId}`)
-	} else {
-		conditions.push(sql`${complianceAssessments.technologyElementId} IS NULL`)
-	}
-
-	const [existing] = await db.select().from(complianceAssessments).where(sql.join(conditions, sql` AND `)).limit(1)
-
-	if (!existing) {
-		throw new Error("Kan ikke lagre kommentar uten en eksisterende vurdering")
-	}
-
-	await db.insert(complianceAssessmentHistory).values({
-		assessmentId: existing.id,
-		previousStatus: existing.status,
-		newStatus: existing.status,
-		previousComment: existing.comment,
-		newComment: comment || null,
-		changedBy: performedBy,
-	})
-
-	await db
-		.update(complianceAssessments)
-		.set({
-			comment: comment || null,
-			updatedBy: performedBy,
-			updatedAt: new Date(),
-		})
-		.where(eq(complianceAssessments.id, existing.id))
-}
-
 /** Get all monitored applications for a section's Nais teams, with compliance summary. */
 export async function getApplicationsForSection(sectionId: string) {
 	// Find apps from two sources:
@@ -607,13 +493,13 @@ export async function getApplicationsForSection(sectionId: string) {
 			.where(inArray(applicationTeamMappings.applicationId, appIds)),
 		db
 			.select({
-				applicationId: complianceAssessments.applicationId,
-				status: complianceAssessments.status,
+				applicationId: applicationControls.applicationId,
+				status: applicationControls.status,
 				count: count(),
 			})
-			.from(complianceAssessments)
-			.where(inArray(complianceAssessments.applicationId, appIds))
-			.groupBy(complianceAssessments.applicationId, complianceAssessments.status),
+			.from(applicationControls)
+			.where(and(inArray(applicationControls.applicationId, appIds), eq(applicationControls.isActive, true)))
+			.groupBy(applicationControls.applicationId, applicationControls.status),
 	])
 
 	const totalControls = totalControlsResult[0]?.count ?? 0

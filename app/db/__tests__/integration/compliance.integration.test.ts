@@ -12,7 +12,8 @@ vi.mock("~/db/connection.server", () => ({
 }))
 
 const { stageFrameworkImport, applyFrameworkImport } = await import("~/db/queries/framework.server")
-const { saveAssessment, getAppAssessments } = await import("~/db/queries/applications.server")
+const { saveAssessment } = await import("~/db/queries/applications.deprecated.server")
+const { getAppAssessments } = await import("~/db/queries/applications.server")
 
 function makeParsedFramework(): ParsedFramework {
 	return {

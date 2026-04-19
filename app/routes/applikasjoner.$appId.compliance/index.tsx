@@ -23,7 +23,7 @@ import {
 } from "@navikt/ds-react"
 import { type ChangeEvent, useCallback, useMemo, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, useActionData, useFetcher, useLoaderData } from "react-router"
+import { data, Form, useActionData, useFetcher, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addManualGroup,
@@ -48,7 +48,6 @@ import {
 	persistenceTypeEnum,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
-import { useAppBasePath } from "~/hooks/useAppBasePath"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -301,9 +300,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function ComplianceAssessment() {
-	const { appId, appName, screening, persistence, rulesetOptions, entraGroupsData } = useLoaderData<typeof loader>()
+	const { appName, screening, persistence, rulesetOptions, entraGroupsData } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
-	const appBase = useAppBasePath()
 
 	const isQuestionAnswered = useCallback((q: (typeof screening)[number]) => {
 		if (q.answerType === "persistence" || q.answerType === "entra_id_groups") {
@@ -330,16 +328,6 @@ export default function ComplianceAssessment() {
 						</AkselLink>
 					</div>
 				))}
-
-				<div className="compliance-sidebar-group">
-					<AkselLink
-						href={`/applikasjoner/${appId}/compliance-krav`}
-						className="compliance-sidebar-domain"
-						style={{ fontWeight: "bold" }}
-					>
-						Kravgjennomgang →
-					</AkselLink>
-				</div>
 			</nav>
 
 			{/* Main content */}
@@ -359,11 +347,6 @@ export default function ComplianceAssessment() {
 						<BodyShort size="small" textColor="subtle">
 							{answeredCount} av {screening.length} spørsmål besvart
 						</BodyShort>
-						<Link to={`${appBase}/compliance-krav`}>
-							<Button as="span" size="small" variant="secondary">
-								Gå til kravgjennomgang →
-							</Button>
-						</Link>
 					</HStack>
 
 					{screening.length > 0 && (
@@ -423,8 +406,7 @@ export default function ComplianceAssessment() {
 
 					{screening.length === 0 && (
 						<Alert variant="info" size="small">
-							Ingen innledende spørsmål er konfigurert for denne applikasjonen.{" "}
-							<Link to={`${appBase}/compliance-krav`}>Gå direkte til kravgjennomgang</Link>.
+							Ingen innledende spørsmål er konfigurert for denne applikasjonen.
 						</Alert>
 					)}
 				</VStack>

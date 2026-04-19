@@ -10,10 +10,6 @@ export default [
 	route("mine-team/applikasjoner/:appId/rediger", "routes/ctx-mine-team.applikasjoner.$appId.rediger/index.tsx"),
 	route("mine-team/applikasjoner/:appId/compliance", "routes/ctx-mine-team.applikasjoner.$appId.compliance/index.tsx"),
 	route(
-		"mine-team/applikasjoner/:appId/compliance-krav",
-		"routes/ctx-mine-team.applikasjoner.$appId.compliance-krav/index.tsx",
-	),
-	route(
 		"mine-team/applikasjoner/:appId/kontroll/:controlId/rutiner",
 		"routes/ctx-mine-team.applikasjoner.$appId.kontroll.$controlId.rutiner/index.tsx",
 	),
@@ -40,10 +36,6 @@ export default [
 		"routes/ctx-seksjon.applikasjoner.$appId.compliance/index.tsx",
 	),
 	route(
-		"seksjoner/:seksjon/applikasjoner/:appId/compliance-krav",
-		"routes/ctx-seksjon.applikasjoner.$appId.compliance-krav/index.tsx",
-	),
-	route(
 		"seksjoner/:seksjon/applikasjoner/:appId/kontroll/:controlId/rutiner",
 		"routes/ctx-seksjon.applikasjoner.$appId.kontroll.$controlId.rutiner/index.tsx",
 	),
@@ -63,10 +55,6 @@ export default [
 	route(
 		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/compliance",
 		"routes/ctx-team.applikasjoner.$appId.compliance/index.tsx",
-	),
-	route(
-		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/compliance-krav",
-		"routes/ctx-team.applikasjoner.$appId.compliance-krav/index.tsx",
 	),
 	route(
 		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/kontroll/:controlId/rutiner",
@@ -113,7 +101,6 @@ export default [
 	route("applikasjoner/:appId/detaljer", "routes/applikasjoner.$appId.detaljer/index.tsx"),
 	route("applikasjoner/:appId/rediger", "routes/applikasjoner.$appId.rediger/index.tsx"),
 	route("applikasjoner/:appId/compliance", "routes/applikasjoner.$appId.compliance/index.tsx"),
-	route("applikasjoner/:appId/compliance-krav", "routes/applikasjoner.$appId.compliance-krav/index.tsx"),
 	route(
 		"applikasjoner/:appId/kontroll/:controlId/rutiner",
 		"routes/applikasjoner.$appId.kontroll.$controlId.rutiner/index.tsx",
