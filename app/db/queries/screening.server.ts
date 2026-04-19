@@ -1,7 +1,8 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
-import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
+import type { ComplianceStatus } from "../schema/compliance"
+
 import { applicationTechnologyElements, frameworkControls } from "../schema/framework"
 import { routineControls, routines } from "../schema/routines"
 import { rulesetControls } from "../schema/rulesets"
@@ -353,90 +354,7 @@ export async function saveScreeningAnswer(
 		performedBy: answeredBy,
 	})
 
-	// Effects are now derived on-the-fly by computeAutoCompliance via getScreeningEffectsByControlForApp.
-	// No need to write to complianceAssessments anymore.
-}
-
-/**
- * @deprecated Legacy: wrote screening effects to complianceAssessments. No longer called.
- * Effects are now derived on-the-fly by computeAutoCompliance.
- */
-async function _applyChoiceEffects(
-	applicationId: string,
-	questionId: string,
-	answerValue: string,
-	performedBy: string,
-) {
-	// Find the choice matching the answer
-	const [choice] = await db
-		.select({ id: screeningQuestionChoices.id })
-		.from(screeningQuestionChoices)
-		.where(
-			sql`${screeningQuestionChoices.questionId} = ${questionId} AND ${screeningQuestionChoices.label} = ${answerValue}`,
-		)
-		.limit(1)
-
-	if (!choice) return
-
-	// Get effects for this choice
-	const effects = await db.select().from(screeningChoiceEffects).where(eq(screeningChoiceEffects.choiceId, choice.id))
-
-	for (const effect of effects) {
-		if (!effect.effect || effect.effect === "select_routine") continue
-
-		const [existing] = await db
-			.select()
-			.from(complianceAssessments)
-			.where(
-				sql`${complianceAssessments.applicationId} = ${applicationId} AND ${complianceAssessments.controlId} = ${effect.controlId}`,
-			)
-			.limit(1)
-
-		if (existing) {
-			await db.insert(complianceAssessmentHistory).values({
-				assessmentId: existing.id,
-				previousStatus: existing.status,
-				newStatus: effect.effect,
-				previousComment: existing.comment,
-				newComment: effect.comment ?? existing.comment,
-				changedBy: `screening:${performedBy}`,
-			})
-
-			await db
-				.update(complianceAssessments)
-				.set({
-					status: effect.effect,
-					comment: effect.comment ?? existing.comment,
-					assessedBy: `screening:${performedBy}`,
-					assessedAt: new Date(),
-					updatedAt: new Date(),
-					updatedBy: performedBy,
-				})
-				.where(eq(complianceAssessments.id, existing.id))
-		} else {
-			const [inserted] = await db
-				.insert(complianceAssessments)
-				.values({
-					applicationId,
-					controlId: effect.controlId,
-					status: effect.effect,
-					comment: effect.comment,
-					assessedBy: `screening:${performedBy}`,
-					assessedAt: new Date(),
-					createdBy: performedBy,
-					updatedBy: performedBy,
-				})
-				.returning()
-
-			await db.insert(complianceAssessmentHistory).values({
-				assessmentId: inserted.id,
-				previousStatus: null,
-				newStatus: effect.effect,
-				newComment: effect.comment,
-				changedBy: `screening:${performedBy}`,
-			})
-		}
-	}
+	// Effects are derived on-the-fly by computeAutoCompliance via getScreeningEffectsByControlForApp.
 }
 
 // ─── Loading all screening data for compliance page ──────────────────────

@@ -5,8 +5,8 @@ import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
+import { applicationControls } from "../schema/application-controls"
 import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
-import { complianceAssessments } from "../schema/compliance"
 import { frameworkControls, frameworkDomains, frameworkRiskControlMappings, frameworkRisks } from "../schema/framework"
 import { devTeams, sections } from "../schema/organization"
 import { reports } from "../schema/reports"
@@ -130,16 +130,45 @@ export async function generateComplianceReport(params: {
 
 	const allRows: AssessmentRow[] = []
 
+	// Read auto-computed compliance from the materialized application_controls table
+	// (replaces the deprecated complianceAssessments source).
+	const appIds = apps.map((a) => a.id)
+	const acRows =
+		appIds.length > 0
+			? await db
+					.select({
+						applicationId: applicationControls.applicationId,
+						controlId: applicationControls.controlId,
+						technologyElementId: applicationControls.technologyElementId,
+						status: applicationControls.status,
+						comment: applicationControls.comment,
+						commentUpdatedAt: applicationControls.commentUpdatedAt,
+						commentUpdatedBy: applicationControls.commentUpdatedBy,
+						updatedAt: applicationControls.updatedAt,
+						updatedBy: applicationControls.updatedBy,
+					})
+					.from(applicationControls)
+					.where(sql`${applicationControls.applicationId} IN ${appIds} AND ${applicationControls.isActive} = true`)
+			: []
+
+	// Pick a single representative row per (appId, controlId): prefer the row with no
+	// technology element; otherwise pick the first deterministically.
+	const acByKey = new Map<string, (typeof acRows)[number]>()
+	for (const ac of acRows) {
+		const key = `${ac.applicationId}:${ac.controlId}`
+		const existing = acByKey.get(key)
+		if (!existing) {
+			acByKey.set(key, ac)
+			continue
+		}
+		if (existing.technologyElementId !== null && ac.technologyElementId === null) {
+			acByKey.set(key, ac)
+		}
+	}
+
 	for (const app of apps) {
 		for (const ctrl of controls) {
-			const [assessment] = await db
-				.select()
-				.from(complianceAssessments)
-				.where(
-					sql`${complianceAssessments.applicationId} = ${app.id} AND ${complianceAssessments.controlId} = ${ctrl.id}`,
-				)
-				.limit(1)
-
+			const ac = acByKey.get(`${app.id}:${ctrl.id}`)
 			const ctrlDomain = controlDomainLookup.get(ctrl.id)
 			allRows.push({
 				appName: app.name,
@@ -147,10 +176,10 @@ export async function generateComplianceReport(params: {
 				controlName: ctrl.shortTitle ?? ctrl.requirement?.split("\n")[0] ?? ctrl.controlId,
 				domain: ctrlDomain?.name ?? "",
 				domainCode: ctrlDomain?.code ?? "",
-				status: assessment?.status ?? null,
-				comment: assessment?.comment ?? null,
-				assessedBy: assessment?.assessedBy ?? null,
-				assessedAt: assessment?.assessedAt?.toISOString() ?? null,
+				status: ac?.status ?? null,
+				comment: ac?.comment ?? null,
+				assessedBy: ac?.commentUpdatedBy ?? ac?.updatedBy ?? null,
+				assessedAt: (ac?.commentUpdatedAt ?? ac?.updatedAt)?.toISOString() ?? null,
 			})
 		}
 	}

@@ -876,7 +876,11 @@ export async function deleteApplication(appId: string, performedBy: string) {
 	if (env) throw new Error("Kan ikke slette applikasjon som finnes på Nais")
 
 	await db.transaction(async (tx) => {
-		// Delete compliance history (references assessments, not the app directly)
+		// Cleanup deprecated complianceAssessments rows for this app to satisfy FK constraints.
+		// The complianceAssessments/complianceAssessmentHistory tables are deprecated (no new rows
+		// are written) but kept for historical audit-trail. Per-app cleanup on app deletion
+		// remains because the FK from compliance_assessments.application_id → monitored_applications.id
+		// requires it.
 		const assessmentIds = await tx
 			.select({ id: complianceAssessments.id })
 			.from(complianceAssessments)
