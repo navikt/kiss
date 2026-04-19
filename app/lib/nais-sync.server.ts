@@ -75,7 +75,7 @@ export async function syncNaisAppsForTeam(
 			if (envIsNew) newEnvs++
 
 			for (const res of app.persistence) {
-				const isNewRes = await upsertAppPersistence(appId, res.type, res.name, {
+				const isNewRes = await upsertAppPersistence(appId, res.type, res.name, SYNC_PERFORMER, {
 					version: res.version,
 					tier: res.tier,
 					highAvailability: res.highAvailability,
@@ -86,7 +86,7 @@ export async function syncNaisAppsForTeam(
 			}
 
 			for (const auth of app.authIntegrations) {
-				await upsertAppAuthIntegration(appId, auth.type, {
+				await upsertAppAuthIntegration(appId, auth.type, SYNC_PERFORMER, {
 					allowAllUsers: auth.allowAllUsers,
 					claimsExtra: auth.claimsExtra,
 					groups: auth.groups,

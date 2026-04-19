@@ -309,105 +309,110 @@ export async function updateRoutine(params: {
 		throw new Response("Kan ikke redigere en godkjent rutine", { status: 403 })
 	}
 
-	const [routine] = await db
-		.update(routines)
-		.set({
-			name: params.name,
-			description: params.description,
-			frequency: params.frequency,
-			responsibleRole: params.responsibleRole,
-			appliesToAllInSection: params.appliesToAllInSection ? 1 : 0,
-			activityType: params.activityType ?? null,
-			screeningQuestionId: params.screeningQuestionId,
-			screeningChoiceValue: params.screeningChoiceValue,
-			...(params.status && { status: params.status }),
-			updatedBy: params.updatedBy,
-			updatedAt: new Date(),
-		})
-		.where(eq(routines.id, params.id))
-		.returning()
+	return db.transaction(async (tx) => {
+		const [routine] = await tx
+			.update(routines)
+			.set({
+				name: params.name,
+				description: params.description,
+				frequency: params.frequency,
+				responsibleRole: params.responsibleRole,
+				appliesToAllInSection: params.appliesToAllInSection ? 1 : 0,
+				activityType: params.activityType ?? null,
+				screeningQuestionId: params.screeningQuestionId,
+				screeningChoiceValue: params.screeningChoiceValue,
+				...(params.status && { status: params.status }),
+				updatedBy: params.updatedBy,
+				updatedAt: new Date(),
+			})
+			.where(eq(routines.id, params.id))
+			.returning()
 
-	// Replace technology element links
-	await db.delete(routineTechnologyElements).where(eq(routineTechnologyElements.routineId, params.id))
-	if (params.technologyElementIds.length > 0) {
-		await db.insert(routineTechnologyElements).values(
-			params.technologyElementIds.map((elementId) => ({
-				routineId: params.id,
-				elementId,
-			})),
+		// Replace technology element links
+		await tx.delete(routineTechnologyElements).where(eq(routineTechnologyElements.routineId, params.id))
+		if (params.technologyElementIds.length > 0) {
+			await tx.insert(routineTechnologyElements).values(
+				params.technologyElementIds.map((elementId) => ({
+					routineId: params.id,
+					elementId,
+				})),
+			)
+		}
+
+		// Replace control links
+		await tx.delete(routineControls).where(eq(routineControls.routineId, params.id))
+		if (params.controlIds.length > 0) {
+			await tx.insert(routineControls).values(
+				params.controlIds.map((controlId) => ({
+					routineId: params.id,
+					controlId,
+				})),
+			)
+		}
+
+		// Replace persistence links
+		await tx.delete(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, params.id))
+		if (params.persistenceLinks.length > 0) {
+			await tx.insert(routinePersistenceLinks).values(
+				params.persistenceLinks.map((link) => ({
+					routineId: params.id,
+					persistenceType: link.persistenceType,
+					dataClassification: link.dataClassification,
+				})),
+			)
+		}
+
+		// Replace group classification links
+		await tx.delete(routineGroupClassificationLinks).where(eq(routineGroupClassificationLinks.routineId, params.id))
+		const gcLinks = params.groupClassifications ?? []
+		if (gcLinks.length > 0) {
+			await tx.insert(routineGroupClassificationLinks).values(
+				gcLinks.map((classification) => ({
+					routineId: params.id,
+					classification,
+				})),
+			)
+		}
+
+		// Replace screening question links
+		await tx.delete(routineScreeningQuestions).where(eq(routineScreeningQuestions.routineId, params.id))
+		const links = params.screeningQuestionLinks ?? []
+		if (params.screeningQuestionId && !links.some((l) => l.questionId === params.screeningQuestionId)) {
+			links.push({ questionId: params.screeningQuestionId, choiceValue: params.screeningChoiceValue })
+		}
+		if (links.length > 0) {
+			await tx.insert(routineScreeningQuestions).values(
+				links.map((link) => ({
+					routineId: params.id,
+					questionId: link.questionId,
+					choiceValue: link.choiceValue,
+				})),
+			)
+		}
+
+		await writeAuditLog(
+			{
+				action: "routine_updated",
+				entityType: "routine",
+				entityId: params.id,
+				previousValue: prev?.name ?? null,
+				newValue: params.name,
+				metadata: {
+					frequency: params.frequency,
+					responsibleRole: params.responsibleRole,
+					persistenceLinks: params.persistenceLinks,
+					screeningQuestionId: params.screeningQuestionId,
+					screeningQuestionLinks: links,
+					technologyElementIds: params.technologyElementIds,
+					controlIds: params.controlIds,
+				},
+				performedBy: params.updatedBy,
+			},
+			tx,
 		)
-	}
 
-	// Replace control links
-	await db.delete(routineControls).where(eq(routineControls.routineId, params.id))
-	if (params.controlIds.length > 0) {
-		await db.insert(routineControls).values(
-			params.controlIds.map((controlId) => ({
-				routineId: params.id,
-				controlId,
-			})),
-		)
-	}
-
-	// Replace persistence links
-	await db.delete(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, params.id))
-	if (params.persistenceLinks.length > 0) {
-		await db.insert(routinePersistenceLinks).values(
-			params.persistenceLinks.map((link) => ({
-				routineId: params.id,
-				persistenceType: link.persistenceType,
-				dataClassification: link.dataClassification,
-			})),
-		)
-	}
-
-	// Replace group classification links
-	await db.delete(routineGroupClassificationLinks).where(eq(routineGroupClassificationLinks.routineId, params.id))
-	const gcLinks = params.groupClassifications ?? []
-	if (gcLinks.length > 0) {
-		await db.insert(routineGroupClassificationLinks).values(
-			gcLinks.map((classification) => ({
-				routineId: params.id,
-				classification,
-			})),
-		)
-	}
-
-	// Replace screening question links
-	await db.delete(routineScreeningQuestions).where(eq(routineScreeningQuestions.routineId, params.id))
-	const links = params.screeningQuestionLinks ?? []
-	if (params.screeningQuestionId && !links.some((l) => l.questionId === params.screeningQuestionId)) {
-		links.push({ questionId: params.screeningQuestionId, choiceValue: params.screeningChoiceValue })
-	}
-	if (links.length > 0) {
-		await db.insert(routineScreeningQuestions).values(
-			links.map((link) => ({
-				routineId: params.id,
-				questionId: link.questionId,
-				choiceValue: link.choiceValue,
-			})),
-		)
-	}
-
-	await writeAuditLog({
-		action: "routine_updated",
-		entityType: "routine",
-		entityId: params.id,
-		previousValue: prev?.name ?? null,
-		newValue: params.name,
-		metadata: {
-			frequency: params.frequency,
-			responsibleRole: params.responsibleRole,
-			persistenceLinks: params.persistenceLinks,
-			screeningQuestionId: params.screeningQuestionId,
-			screeningQuestionLinks: links,
-			technologyElementIds: params.technologyElementIds,
-			controlIds: params.controlIds,
-		},
-		performedBy: params.updatedBy,
+		return routine
 	})
-
-	return routine
 }
 
 export async function deleteRoutine(id: string, performedBy: string) {
@@ -879,25 +884,246 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 		.from(routines)
 		.where(and(eq(routines.sectionId, sectionId), inArray(routines.status, ["active", "approved"])))
 
+	if (sectionRoutines.length === 0) return []
+
+	const routineIds = sectionRoutines.map((r) => r.id)
+
+	// Batch: load related data for all routines in one query each
+	const [allElements, allScreeningLinks, allPersLinks, allControls, allGcLinks] = await Promise.all([
+		db
+			.select({
+				routineId: routineTechnologyElements.routineId,
+				id: technologyElements.id,
+				name: technologyElements.name,
+			})
+			.from(routineTechnologyElements)
+			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
+			.where(inArray(routineTechnologyElements.routineId, routineIds)),
+		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, routineIds)),
+		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, routineIds)),
+		db
+			.selectDistinct({
+				routineId: routineControls.routineId,
+				id: frameworkControls.id,
+				controlId: frameworkControls.controlId,
+				shortTitle: frameworkControls.shortTitle,
+				responsible: frameworkControls.responsible,
+				domainSlug: frameworkDomains.code,
+			})
+			.from(routineControls)
+			.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
+			.innerJoin(frameworkRiskControlMappings, eq(frameworkControls.id, frameworkRiskControlMappings.controlId))
+			.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+			.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+			.where(inArray(routineControls.routineId, routineIds)),
+		db
+			.select()
+			.from(routineGroupClassificationLinks)
+			.where(inArray(routineGroupClassificationLinks.routineId, routineIds)),
+	])
+
+	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
+	for (const e of allElements) {
+		const list = elemsByRoutine.get(e.routineId) ?? []
+		list.push({ id: e.id, name: e.name })
+		elemsByRoutine.set(e.routineId, list)
+	}
+	const screenByRoutine = new Map<string, typeof allScreeningLinks>()
+	for (const s of allScreeningLinks) {
+		const list = screenByRoutine.get(s.routineId) ?? []
+		list.push(s)
+		screenByRoutine.set(s.routineId, list)
+	}
+	const persByRoutine = new Map<string, typeof allPersLinks>()
+	for (const p of allPersLinks) {
+		const list = persByRoutine.get(p.routineId) ?? []
+		list.push(p)
+		persByRoutine.set(p.routineId, list)
+	}
+	const controlsByRoutine = new Map<
+		string,
+		Array<{ id: string; controlId: string; name: string; responsible: string | null; domainSlug: string }>
+	>()
+	for (const c of allControls) {
+		const list = controlsByRoutine.get(c.routineId) ?? []
+		list.push({
+			id: c.id,
+			controlId: c.controlId,
+			name: c.shortTitle ?? c.controlId,
+			responsible: c.responsible,
+			domainSlug: c.domainSlug,
+		})
+		controlsByRoutine.set(c.routineId, list)
+	}
+	const gcByRoutine = new Map<string, typeof allGcLinks>()
+	for (const g of allGcLinks) {
+		const list = gcByRoutine.get(g.routineId) ?? []
+		list.push(g)
+		gcByRoutine.set(g.routineId, list)
+	}
+
+	// Build full-routine objects matching getRoutine() shape
+	const fullRoutineById = new Map<string, NonNullable<Awaited<ReturnType<typeof getRoutine>>>>()
+	for (const r of sectionRoutines) {
+		fullRoutineById.set(r.id, {
+			...r,
+			technologyElements: elemsByRoutine.get(r.id) ?? [],
+			screeningQuestions: screenByRoutine.get(r.id) ?? [],
+			persistenceLinks: persByRoutine.get(r.id) ?? [],
+			controls: controlsByRoutine.get(r.id) ?? [],
+			groupClassifications: gcByRoutine.get(r.id) ?? [],
+		})
+	}
+
+	// Build (routineId -> question links) using new join table or legacy fallback
+	const questionLinksByRoutine = new Map<string, Array<{ questionId: string; choiceValue: string | null }>>()
+	for (const r of sectionRoutines) {
+		const fromJoin = (screenByRoutine.get(r.id) ?? []).map((s) => ({
+			questionId: s.questionId,
+			choiceValue: s.choiceValue,
+		}))
+		if (fromJoin.length > 0) {
+			questionLinksByRoutine.set(r.id, fromJoin)
+		} else if (r.screeningQuestionId && r.screeningChoiceValue) {
+			questionLinksByRoutine.set(r.id, [{ questionId: r.screeningQuestionId, choiceValue: r.screeningChoiceValue }])
+		}
+	}
+
+	const allQuestionIds = new Set<string>()
+	for (const links of questionLinksByRoutine.values()) {
+		for (const l of links) {
+			if (l.choiceValue) allQuestionIds.add(l.questionId)
+		}
+	}
+
+	if (allQuestionIds.size === 0) return []
+
+	// Batch-load all relevant screening answers
+	const allAnswers = await db
+		.select({
+			questionId: screeningAnswers.questionId,
+			answer: screeningAnswers.answer,
+			applicationId: screeningAnswers.applicationId,
+		})
+		.from(screeningAnswers)
+		.where(inArray(screeningAnswers.questionId, [...allQuestionIds]))
+
+	// Map (questionId|answer) -> set of applicationIds
+	const answersByKey = new Map<string, Set<string>>()
+	for (const a of allAnswers) {
+		const key = `${a.questionId}|${a.answer}`
+		const set = answersByKey.get(key) ?? new Set<string>()
+		set.add(a.applicationId)
+		answersByKey.set(key, set)
+	}
+
+	// Determine candidate apps per routine (before tech-element filtering)
+	const appsByRoutine = new Map<string, Set<string>>()
+	const candidateAppIds = new Set<string>()
+	for (const [routineId, links] of questionLinksByRoutine) {
+		const appSet = new Set<string>()
+		for (const l of links) {
+			if (!l.choiceValue) continue
+			const matching = answersByKey.get(`${l.questionId}|${l.choiceValue}`)
+			if (matching) {
+				for (const id of matching) appSet.add(id)
+			}
+		}
+		if (appSet.size > 0) {
+			appsByRoutine.set(routineId, appSet)
+			for (const id of appSet) candidateAppIds.add(id)
+		}
+	}
+
+	if (candidateAppIds.size === 0) return []
+
+	// Batch-load app tech elements for all candidate apps
+	const appTechRows = await db
+		.select({
+			applicationId: applicationTechnologyElements.applicationId,
+			elementId: applicationTechnologyElements.elementId,
+		})
+		.from(applicationTechnologyElements)
+		.where(
+			and(
+				inArray(applicationTechnologyElements.applicationId, [...candidateAppIds]),
+				isNotNull(applicationTechnologyElements.confirmedAt),
+				isNull(applicationTechnologyElements.rejectedAt),
+			),
+		)
+	const elementsByApp = new Map<string, Set<string>>()
+	for (const row of appTechRows) {
+		const set = elementsByApp.get(row.applicationId) ?? new Set<string>()
+		set.add(row.elementId)
+		elementsByApp.set(row.applicationId, set)
+	}
+
+	// Filter apps per routine by tech-element requirement
+	const finalAppsByRoutine = new Map<string, string[]>()
+	const finalAppIds = new Set<string>()
+	for (const [routineId, appSet] of appsByRoutine) {
+		const elems = elemsByRoutine.get(routineId) ?? []
+		const filtered: string[] = []
+		for (const appId of appSet) {
+			if (elems.length === 0) {
+				filtered.push(appId)
+			} else {
+				const appElems = elementsByApp.get(appId)
+				if (appElems && elems.some((e) => appElems.has(e.id))) {
+					filtered.push(appId)
+				}
+			}
+		}
+		if (filtered.length > 0) {
+			finalAppsByRoutine.set(routineId, filtered)
+			for (const id of filtered) finalAppIds.add(id)
+		}
+	}
+
+	if (finalAppIds.size === 0) return []
+
+	// Batch-load app names
+	const appRows = await db
+		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(inArray(monitoredApplications.id, [...finalAppIds]))
+	const appNameById = new Map(appRows.map((a) => [a.id, a.name]))
+
+	// Batch-load latest completed reviews per (routineId, applicationId).
+	// Uses DISTINCT ON over (routineId, applicationId) to pick the most recent.
+	const latestReviews = await db
+		.selectDistinctOn([routineReviews.routineId, routineReviews.applicationId], {
+			routineId: routineReviews.routineId,
+			applicationId: routineReviews.applicationId,
+			reviewedAt: routineReviews.reviewedAt,
+		})
+		.from(routineReviews)
+		.where(
+			and(
+				inArray(routineReviews.routineId, routineIds),
+				inArray(routineReviews.applicationId, [...finalAppIds]),
+				eq(routineReviews.status, "completed"),
+			),
+		)
+		.orderBy(routineReviews.routineId, routineReviews.applicationId, desc(routineReviews.reviewedAt))
+	const reviewByPair = new Map<string, Date | null>()
+	for (const r of latestReviews) {
+		reviewByPair.set(`${r.routineId}|${r.applicationId}`, r.reviewedAt)
+	}
+
+	// Build results
 	const results: RoutineDeadlineInfo[] = []
-
 	for (const routine of sectionRoutines) {
-		const fullRoutine = await getRoutine(routine.id)
-		const apps = await getAppsRequiringRoutine(routine.id)
-
-		for (const app of apps) {
-			const lastReview = await getLatestReviewForApp(routine.id, app.id)
-			const deadline = calculateDeadline(
-				lastReview?.reviewedAt ?? null,
-				routine.createdAt,
-				routine.frequency as RoutineFrequency,
-			)
-
+		const apps = finalAppsByRoutine.get(routine.id) ?? []
+		const fullRoutine = fullRoutineById.get(routine.id) ?? null
+		for (const appId of apps) {
+			const lastReviewDate = reviewByPair.get(`${routine.id}|${appId}`) ?? null
+			const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 			results.push({
 				routine: fullRoutine,
-				applicationId: app.id,
-				applicationName: app.name,
-				lastReviewDate: lastReview?.reviewedAt ?? null,
+				applicationId: appId,
+				applicationName: appNameById.get(appId) ?? "",
+				lastReviewDate,
 				deadline,
 				overdue: isOverdue(deadline),
 			})

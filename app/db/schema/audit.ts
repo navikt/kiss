@@ -84,6 +84,10 @@ export const auditLogActionEnum = [
 	"routine_copied",
 	"routine_replaced",
 	"group_classification_updated",
+	"nais_persistence_added",
+	"nais_persistence_updated",
+	"nais_auth_integration_added",
+	"nais_auth_integration_updated",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]
