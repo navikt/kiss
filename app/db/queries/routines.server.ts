@@ -171,6 +171,10 @@ export async function getRoutine(id: string) {
 	}
 }
 
+/**
+ * Oppretter en ny rutine med tilhørende koblinger (screening, teknologielementer,
+ * kontroller, persistens, gruppeklassifiseringer). Skriver audit-logg.
+ */
 export async function createRoutine(params: {
 	sectionId: string
 	name: string
@@ -287,6 +291,10 @@ export async function createRoutine(params: {
 	return routine
 }
 
+/**
+ * Oppdaterer en eksisterende rutine. Kaster 403 hvis rutinen er godkjent
+ * (godkjente rutiner er låst). Erstatter alle koblinger og skriver audit-logg.
+ */
 export async function updateRoutine(params: {
 	id: string
 	name: string
@@ -414,6 +422,7 @@ export async function updateRoutine(params: {
 	return routine
 }
 
+/** Sletter en rutine og alle tilhørende koblinger. Skriver audit-logg. */
 export async function deleteRoutine(id: string, performedBy: string) {
 	const prev = await getRoutine(id)
 	if (!prev) return null
@@ -507,6 +516,10 @@ async function enrichReview(review: typeof routineReviews.$inferSelect) {
 	return { ...review, participants, attachments, links }
 }
 
+/**
+ * Oppretter en gjennomgang (review) av en rutine for en gitt applikasjon.
+ * Kaster feil hvis rutinen ikke er aktiv eller godkjent. Skriver audit-logg.
+ */
 export async function createReview(params: {
 	routineId: string
 	applicationId: string | null
@@ -615,6 +628,11 @@ export async function updateReview(
 	return getReview(reviewId)
 }
 
+/**
+ * Markerer en gjennomgang som fullført. Fullfører eventuell pågående aktivitet
+ * (med snapshot-after for Entra-grupper) og synker materialiserte
+ * compliance-kontroller for tilknyttet applikasjon.
+ */
 export async function completeReview(reviewId: string, performedBy: string) {
 	const existing = await getReview(reviewId)
 	if (!existing) return null
@@ -649,6 +667,7 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	return getReview(reviewId)
 }
 
+/** Forkaster en gjennomgang i draft-status. Returnerer null hvis ikke draft. */
 export async function discardReview(reviewId: string, performedBy: string) {
 	const existing = await getReview(reviewId)
 	if (!existing) return null
@@ -854,6 +873,10 @@ export async function getLatestReviewForApp(routineId: string, applicationId: st
 	return review ?? null
 }
 
+/**
+ * Beregner neste frist for en rutine basert på frekvens. Bruker `lastReviewDate`
+ * hvis tilgjengelig, ellers `routineCreatedAt` som baseline.
+ */
 export function calculateDeadline(
 	lastReviewDate: Date | null,
 	routineCreatedAt: Date,
@@ -866,6 +889,7 @@ export function calculateDeadline(
 	return deadline
 }
 
+/** Returnerer true hvis fristen ligger i fortid. */
 export function isOverdue(deadline: Date): boolean {
 	return new Date() > deadline
 }
@@ -1766,6 +1790,11 @@ export type EntraGroupSnapshot = {
 	}>
 }
 
+/**
+ * Bygger et øyeblikksbilde av Entra ID-grupper for en applikasjon — inkluderer
+ * Nais auth-grupper, manuelt registrerte grupper og lagrede vurderinger.
+ * Eksternt kall: resolver gruppenavn via Microsoft Graph.
+ */
 export async function buildEntraGroupSnapshot(applicationId: string): Promise<EntraGroupSnapshot> {
 	const { getAppAuthIntegrations, getManualGroupsForApp, getGroupAssessmentsForApp } = await import("./nais.server")
 	const { resolveGroupNames } = await import("../../lib/graph.server")
@@ -1975,6 +2004,10 @@ export async function getActivitiesForReviews(reviewIds: string[]) {
 
 // ─── Routine Approval ────────────────────────────────────────────────────
 
+/**
+ * Godkjenner en rutine (kun mulig fra status `active`). Godkjente rutiner
+ * kan ikke redigeres etterpå — kun erstattes via {@link replaceRoutine}.
+ */
 export async function approveRoutine(routineId: string, performedBy: string) {
 	const routine = await getRoutine(routineId)
 	if (!routine) return null
@@ -2001,6 +2034,10 @@ export async function approveRoutine(routineId: string, performedBy: string) {
 	return updated
 }
 
+/**
+ * Lager en draft-kopi av en eksisterende rutine med alle koblinger.
+ * Brukes som utgangspunkt for å erstatte en godkjent rutine.
+ */
 export async function copyRoutine(routineId: string, performedBy: string) {
 	const source = await getRoutine(routineId)
 	if (!source) return null
@@ -2079,6 +2116,12 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 	return copy
 }
 
+/**
+ * Erstatter en godkjent rutine med en ny. `deadlinePolicy` (`"reset"` eller
+ * `"continue"`) blir lagret i audit-metadata for sporing — selve fristlogikken
+ * er ikke implementert ennå, og verdien påvirker per i dag ikke hvordan
+ * eksisterende frister behandles.
+ */
 export async function replaceRoutine(
 	newRoutineId: string,
 	oldRoutineId: string,

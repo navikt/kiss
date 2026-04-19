@@ -939,6 +939,10 @@ export interface LinkCandidate {
 	}>
 }
 
+/**
+ * Finner kandidater for å koble sammen relaterte applikasjoner basert på
+ * delte miljøer/navnemønstre. Brukes på koblingsforslag-siden.
+ */
 export async function findLinkCandidates(): Promise<LinkCandidate[]> {
 	// Get all apps with their environments
 	const allApps = await db
@@ -1473,6 +1477,10 @@ export async function getActiveAcknowledgments(applicationId: string): Promise<A
 		)
 }
 
+/**
+ * Legger til en manuell persistens-oppføring (kun for typer som ikke
+ * automatisk oppdages fra Nais). Skriver audit-logg.
+ */
 export async function addManualPersistence(
 	applicationId: string,
 	type: PersistenceType,

@@ -52,6 +52,10 @@ const DATABASE_TYPES = ["cloud_sql_postgres", "nais_postgres", "on_prem_postgres
 
 // ─── Unified status computation ─────────────────────────────────────────────
 
+/**
+ * Beregner samlet audit-status for en persistens basert på: Oracle-revisjonsdata,
+ * Nais auditLogging-flagg, eller manuell bekreftelse. Ren funksjon.
+ */
 export function computeAuditStatus(
 	persistenceType: string,
 	auditLogging: boolean | null,
@@ -346,6 +350,10 @@ async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 
 // ─── Section audit overview query ───────────────────────────────────────────
 
+/**
+ * Returnerer aggregert oversikt over audit-status for alle persistenser
+ * i en seksjon (én rad per persistens med status, type og evt. bekreftelse).
+ */
 export async function getSectionAuditOverview(sectionSlug: string): Promise<AuditOverviewRow[]> {
 	const [section] = await db.select({ id: sections.id }).from(sections).where(eq(sections.slug, sectionSlug)).limit(1)
 	if (!section) return []
@@ -526,6 +534,10 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 
 // ─── Manual confirmation CRUD ───────────────────────────────────────────────
 
+/**
+ * Oppretter en manuell audit-bekreftelse for en persistens. Kjører i transaksjon
+ * og skriver audit-logg-entry samtidig.
+ */
 export async function createAuditConfirmation(params: {
 	persistenceId: string
 	enabledAt: string
@@ -629,6 +641,10 @@ export async function updateAuditConfirmation(params: {
 	})
 }
 
+/**
+ * Tilbakekaller en audit-bekreftelse atomisk (kun hvis ikke allerede revoked).
+ * Kjører i transaksjon og skriver audit-logg.
+ */
 export async function revokeAuditConfirmation(params: {
 	confirmationId: string
 	performedBy: string
