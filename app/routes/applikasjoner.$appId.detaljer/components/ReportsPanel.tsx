@@ -96,38 +96,45 @@ export function ReportsPanel({
 										{allSelected ? "Fjern alle" : "Velg alle"}
 									</Button>
 								</HStack>
-								<Table size="small">
-									<Table.Header>
-										<Table.Row>
-											<Table.HeaderCell style={{ width: "2rem" }} />
-											<Table.HeaderCell>Tittel</Table.HeaderCell>
-											<Table.HeaderCell>Rutine</Table.HeaderCell>
-											<Table.HeaderCell>Dato</Table.HeaderCell>
-											<Table.HeaderCell>Av</Table.HeaderCell>
-										</Table.Row>
-									</Table.Header>
-									<Table.Body>
-										{completed.map((review) => (
-											<Table.Row key={review.id} onClick={() => toggleReview(review.id)} style={{ cursor: "pointer" }}>
-												<Table.DataCell>
-													<Checkbox
-														size="small"
-														hideLabel
-														checked={selectedReviewIds.includes(review.id)}
-														onChange={() => toggleReview(review.id)}
-														onClick={(e) => e.stopPropagation()}
-													>
-														Velg
-													</Checkbox>
-												</Table.DataCell>
-												<Table.DataCell>{review.title}</Table.DataCell>
-												<Table.DataCell>{review.routineName}</Table.DataCell>
-												<Table.DataCell>{new Date(review.reviewedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
-												<Table.DataCell>{review.createdBy}</Table.DataCell>
+								{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */}
+								<section className="table-scroll" tabIndex={0} aria-label="Gjennomganger">
+									<Table size="small">
+										<Table.Header>
+											<Table.Row>
+												<Table.HeaderCell style={{ width: "2rem" }} />
+												<Table.HeaderCell>Tittel</Table.HeaderCell>
+												<Table.HeaderCell>Rutine</Table.HeaderCell>
+												<Table.HeaderCell>Dato</Table.HeaderCell>
+												<Table.HeaderCell>Av</Table.HeaderCell>
 											</Table.Row>
-										))}
-									</Table.Body>
-								</Table>
+										</Table.Header>
+										<Table.Body>
+											{completed.map((review) => (
+												<Table.Row
+													key={review.id}
+													onClick={() => toggleReview(review.id)}
+													style={{ cursor: "pointer" }}
+												>
+													<Table.DataCell>
+														<Checkbox
+															size="small"
+															hideLabel
+															checked={selectedReviewIds.includes(review.id)}
+															onChange={() => toggleReview(review.id)}
+															onClick={(e) => e.stopPropagation()}
+														>
+															Velg
+														</Checkbox>
+													</Table.DataCell>
+													<Table.DataCell>{review.title}</Table.DataCell>
+													<Table.DataCell>{review.routineName}</Table.DataCell>
+													<Table.DataCell>{new Date(review.reviewedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+													<Table.DataCell>{review.createdBy}</Table.DataCell>
+												</Table.Row>
+											))}
+										</Table.Body>
+									</Table>
+								</section>
 							</VStack>
 						</Box>
 					)}
@@ -180,62 +187,65 @@ export function ReportsPanel({
 				{appReports.length === 0 ? (
 					<BodyShort>Ingen rapporter er generert ennå.</BodyShort>
 				) : (
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell>Rapport</Table.HeaderCell>
-								<Table.HeaderCell>Generert</Table.HeaderCell>
-								<Table.HeaderCell>Av</Table.HeaderCell>
-								<Table.HeaderCell>Vis</Table.HeaderCell>
-								<Table.HeaderCell>Last ned</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{appReports.map((r) => (
-								<Table.Row key={r.id}>
-									<Table.DataCell>{r.name}</Table.DataCell>
-									<Table.DataCell>
-										{new Date(r.createdAt).toLocaleString("nb-NO", {
-											day: "numeric",
-											month: "short",
-											year: "numeric",
-											hour: "2-digit",
-											minute: "2-digit",
-										})}
-									</Table.DataCell>
-									<Table.DataCell>{r.createdBy}</Table.DataCell>
-									<Table.DataCell>
-										{r.reportBucketPath && (
-											<Button
-												as="a"
-												href={`/api/rapporter/${r.id}/pdf`}
-												target="_blank"
-												rel="noopener noreferrer"
-												variant="tertiary"
-												size="xsmall"
-												icon={<EyeIcon aria-hidden />}
-											>
-												Vis
-											</Button>
-										)}
-									</Table.DataCell>
-									<Table.DataCell>
-										{r.reportBucketPath && (
-											<Button
-												as="a"
-												href={`/api/rapporter/${r.id}/pdf?download=true`}
-												variant="tertiary"
-												size="xsmall"
-												icon={<DownloadIcon aria-hidden />}
-											>
-												Last ned
-											</Button>
-										)}
-									</Table.DataCell>
+					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */
+					<section className="table-scroll" tabIndex={0} aria-label="Genererte rapporter">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell>Rapport</Table.HeaderCell>
+									<Table.HeaderCell>Generert</Table.HeaderCell>
+									<Table.HeaderCell>Av</Table.HeaderCell>
+									<Table.HeaderCell>Vis</Table.HeaderCell>
+									<Table.HeaderCell>Last ned</Table.HeaderCell>
 								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
+							</Table.Header>
+							<Table.Body>
+								{appReports.map((r) => (
+									<Table.Row key={r.id}>
+										<Table.DataCell>{r.name}</Table.DataCell>
+										<Table.DataCell>
+											{new Date(r.createdAt).toLocaleString("nb-NO", {
+												day: "numeric",
+												month: "short",
+												year: "numeric",
+												hour: "2-digit",
+												minute: "2-digit",
+											})}
+										</Table.DataCell>
+										<Table.DataCell>{r.createdBy}</Table.DataCell>
+										<Table.DataCell>
+											{r.reportBucketPath && (
+												<Button
+													as="a"
+													href={`/api/rapporter/${r.id}/pdf`}
+													target="_blank"
+													rel="noopener noreferrer"
+													variant="tertiary"
+													size="xsmall"
+													icon={<EyeIcon aria-hidden />}
+												>
+													Vis
+												</Button>
+											)}
+										</Table.DataCell>
+										<Table.DataCell>
+											{r.reportBucketPath && (
+												<Button
+													as="a"
+													href={`/api/rapporter/${r.id}/pdf?download=true`}
+													variant="tertiary"
+													size="xsmall"
+													icon={<DownloadIcon aria-hidden />}
+												>
+													Last ned
+												</Button>
+											)}
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
 				)}
 			</Box>
 		</VStack>

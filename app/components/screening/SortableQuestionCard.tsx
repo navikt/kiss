@@ -144,45 +144,48 @@ export function SortableQuestionCard({
 						<BodyShort size="small" textColor="subtle">
 							Effekter
 						</BodyShort>
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Valg</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Effekt</Table.HeaderCell>
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{q.choices.flatMap((c) =>
-									c.effects.map((e) => (
-										<Table.Row key={e.id}>
-											<Table.DataCell>
-												<Tag variant="alt3" size="xsmall">
-													{c.label}
-												</Tag>
-											</Table.DataCell>
-											<Table.DataCell>
-												<Tag variant="info" size="xsmall">
-													{e.controlTextId}
-													{e.controlName ? ` – ${e.controlName}` : ""}
-												</Tag>
-											</Table.DataCell>
-											<Table.DataCell>
-												{e.effect ? (
-													<Tag variant="neutral" size="xsmall">
-														{getStatusLabel(e.effect)}
+						{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */}
+						<section className="table-scroll" tabIndex={0} aria-label="Effekter for valg">
+							<Table size="small">
+								<Table.Header>
+									<Table.Row>
+										<Table.HeaderCell scope="col">Valg</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Effekt</Table.HeaderCell>
+									</Table.Row>
+								</Table.Header>
+								<Table.Body>
+									{q.choices.flatMap((c) =>
+										c.effects.map((e) => (
+											<Table.Row key={e.id}>
+												<Table.DataCell>
+													<Tag variant="alt3" size="xsmall">
+														{c.label}
 													</Tag>
-												) : (
-													<BodyShort size="small" textColor="subtle">
-														—
-													</BodyShort>
-												)}
-											</Table.DataCell>
-										</Table.Row>
-									)),
-								)}
-							</Table.Body>
-						</Table>
+												</Table.DataCell>
+												<Table.DataCell>
+													<Tag variant="info" size="xsmall">
+														{e.controlTextId}
+														{e.controlName ? ` – ${e.controlName}` : ""}
+													</Tag>
+												</Table.DataCell>
+												<Table.DataCell>
+													{e.effect ? (
+														<Tag variant="neutral" size="xsmall">
+															{getStatusLabel(e.effect)}
+														</Tag>
+													) : (
+														<BodyShort size="small" textColor="subtle">
+															—
+														</BodyShort>
+													)}
+												</Table.DataCell>
+											</Table.Row>
+										)),
+									)}
+								</Table.Body>
+							</Table>
+						</section>
 					</VStack>
 				)}
 			</VStack>

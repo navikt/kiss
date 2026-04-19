@@ -286,111 +286,114 @@ export default function SeksjonRutinerIndex() {
 						</BodyShort>
 					)}
 
-					<Table sort={sort} onSortChange={handleSort}>
-						<Table.Header>
-							<Table.Row>
-								<Table.ColumnHeader sortKey="name" sortable>
-									Navn
-								</Table.ColumnHeader>
-								<Table.ColumnHeader sortKey="frequency" sortable>
-									Frekvens
-								</Table.ColumnHeader>
-								<Table.ColumnHeader sortKey="controls" sortable>
-									Krav
-								</Table.ColumnHeader>
-								<Table.ColumnHeader sortKey="techElements" sortable>
-									Teknologielementer
-								</Table.ColumnHeader>
-								<Table.ColumnHeader sortKey="persistence" sortable>
-									Databasekoblinger
-								</Table.ColumnHeader>
-								<Table.ColumnHeader sortKey="reviewCount" sortable>
-									Gjennomganger
-								</Table.ColumnHeader>
-								<Table.HeaderCell />
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{sorted.map((routine) => (
-								<Table.Row key={routine.id}>
-									<Table.DataCell>
-										<HStack gap="space-2" align="center" wrap>
-											<Link to={`./${routine.id}`}>{routine.name}</Link>
-											{routine.appliesToAllInSection === 1 && (
-												<Tag variant="alt3" size="xsmall">
-													Gjelder alle
-												</Tag>
-											)}
-											{routine.status === "draft" && (
-												<Tag variant="warning" size="xsmall">
-													Utkast
-												</Tag>
-											)}
-											{routine.status === "approved" && (
-												<Tag variant="success" size="xsmall">
-													Godkjent
-												</Tag>
-											)}
-											{routine.status === "archived" && (
-												<Tag variant="neutral" size="xsmall">
-													Arkivert
-												</Tag>
-											)}
-										</HStack>
-									</Table.DataCell>
-									<Table.DataCell>{getFrequencyLabel(routine.frequency)}</Table.DataCell>
-									<Table.DataCell>
-										<VStack gap="space-1">
-											{routine.controls.map((c) => (
-												<HStack key={c.id} gap="space-2" align="center" wrap>
-													<Tag variant="alt1" size="xsmall">
-														{c.controlId}
-													</Tag>
-													<BodyShort size="small">{c.name}</BodyShort>
-												</HStack>
-											))}
-										</VStack>
-									</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-1" wrap>
-											{routine.technologyElements.map((te) => (
-												<Tag key={te.id} variant="info" size="small">
-													{te.name}
-												</Tag>
-											))}
-										</HStack>
-									</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-2" wrap>
-											{routine.persistenceLinks.map((pl) => (
-												<HStack key={pl.id} gap="space-1" wrap>
-													{pl.persistenceType && (
-														<Tag variant="info" size="xsmall">
-															{persistenceTypeLabels[pl.persistenceType as PersistenceType] ?? pl.persistenceType}
-														</Tag>
-													)}
-													{pl.dataClassification && (
-														<Tag variant="warning" size="xsmall">
-															{dataClassificationLabels[pl.dataClassification as DataClassification] ??
-																pl.dataClassification}
-														</Tag>
-													)}
-												</HStack>
-											))}
-										</HStack>
-									</Table.DataCell>
-									<Table.DataCell>{routine.reviewCount}</Table.DataCell>
-									<Table.DataCell>
-										{canAdmin && (
-											<Button as={Link} to={`./${routine.id}/rediger`} variant="tertiary" size="small">
-												Rediger
-											</Button>
-										)}
-									</Table.DataCell>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */}
+					<section className="table-scroll" tabIndex={0} aria-label="Rutiner">
+						<Table sort={sort} onSortChange={handleSort}>
+							<Table.Header>
+								<Table.Row>
+									<Table.ColumnHeader sortKey="name" sortable>
+										Navn
+									</Table.ColumnHeader>
+									<Table.ColumnHeader sortKey="frequency" sortable>
+										Frekvens
+									</Table.ColumnHeader>
+									<Table.ColumnHeader sortKey="controls" sortable>
+										Krav
+									</Table.ColumnHeader>
+									<Table.ColumnHeader sortKey="techElements" sortable>
+										Teknologielementer
+									</Table.ColumnHeader>
+									<Table.ColumnHeader sortKey="persistence" sortable>
+										Databasekoblinger
+									</Table.ColumnHeader>
+									<Table.ColumnHeader sortKey="reviewCount" sortable>
+										Gjennomganger
+									</Table.ColumnHeader>
+									<Table.HeaderCell />
 								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
+							</Table.Header>
+							<Table.Body>
+								{sorted.map((routine) => (
+									<Table.Row key={routine.id}>
+										<Table.DataCell>
+											<HStack gap="space-2" align="center" wrap>
+												<Link to={`./${routine.id}`}>{routine.name}</Link>
+												{routine.appliesToAllInSection === 1 && (
+													<Tag variant="alt3" size="xsmall">
+														Gjelder alle
+													</Tag>
+												)}
+												{routine.status === "draft" && (
+													<Tag variant="warning" size="xsmall">
+														Utkast
+													</Tag>
+												)}
+												{routine.status === "approved" && (
+													<Tag variant="success" size="xsmall">
+														Godkjent
+													</Tag>
+												)}
+												{routine.status === "archived" && (
+													<Tag variant="neutral" size="xsmall">
+														Arkivert
+													</Tag>
+												)}
+											</HStack>
+										</Table.DataCell>
+										<Table.DataCell>{getFrequencyLabel(routine.frequency)}</Table.DataCell>
+										<Table.DataCell>
+											<VStack gap="space-1">
+												{routine.controls.map((c) => (
+													<HStack key={c.id} gap="space-2" align="center" wrap>
+														<Tag variant="alt1" size="xsmall">
+															{c.controlId}
+														</Tag>
+														<BodyShort size="small">{c.name}</BodyShort>
+													</HStack>
+												))}
+											</VStack>
+										</Table.DataCell>
+										<Table.DataCell>
+											<HStack gap="space-1" wrap>
+												{routine.technologyElements.map((te) => (
+													<Tag key={te.id} variant="info" size="small">
+														{te.name}
+													</Tag>
+												))}
+											</HStack>
+										</Table.DataCell>
+										<Table.DataCell>
+											<HStack gap="space-2" wrap>
+												{routine.persistenceLinks.map((pl) => (
+													<HStack key={pl.id} gap="space-1" wrap>
+														{pl.persistenceType && (
+															<Tag variant="info" size="xsmall">
+																{persistenceTypeLabels[pl.persistenceType as PersistenceType] ?? pl.persistenceType}
+															</Tag>
+														)}
+														{pl.dataClassification && (
+															<Tag variant="warning" size="xsmall">
+																{dataClassificationLabels[pl.dataClassification as DataClassification] ??
+																	pl.dataClassification}
+															</Tag>
+														)}
+													</HStack>
+												))}
+											</HStack>
+										</Table.DataCell>
+										<Table.DataCell>{routine.reviewCount}</Table.DataCell>
+										<Table.DataCell>
+											{canAdmin && (
+												<Button as={Link} to={`./${routine.id}/rediger`} variant="tertiary" size="small">
+													Rediger
+												</Button>
+											)}
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
 				</VStack>
 			)}
 

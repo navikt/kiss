@@ -572,7 +572,6 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 						variant="primary"
 						size="small"
 						onClick={handleUpload}
-						disabled={uploading}
 						loading={uploading}
 						icon={<UploadIcon aria-hidden />}
 					>
@@ -1052,7 +1051,7 @@ function DiscardSection() {
 								<Form method="post">
 									<input type="hidden" name="intent" value="discard-review" />
 									<HStack gap="space-4">
-										<Button type="submit" variant="danger" size="small" disabled={isSubmitting} loading={isSubmitting}>
+										<Button type="submit" variant="danger" size="small" loading={isSubmitting}>
 											Ja, forkast
 										</Button>
 										<Button type="button" variant="secondary" size="small" onClick={() => setDialogOpen(false)}>
@@ -1113,7 +1112,7 @@ function CompleteSection() {
 						variant="primary"
 						size="small"
 						onClick={handleComplete}
-						disabled={!confirmed || isSubmitting}
+						disabled={!confirmed}
 						loading={isSubmitting}
 					>
 						Fullfør gjennomgang

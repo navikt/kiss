@@ -622,62 +622,68 @@ function ChoiceCard({
 
 				{/* Effects table for this choice */}
 				{effects.length > 0 && (
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Effekt</Table.HeaderCell>
-								<Table.HeaderCell scope="col" />
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{effects.map((e) => {
-								const effectId = "clientId" in e ? e.clientId : e.id
-								return (
-									<Table.Row key={effectId}>
-										<Table.DataCell>
-											<Tag variant="info" size="xsmall">
-												{e.controlTextId}
-												{e.controlName ? ` – ${e.controlName}` : ""}
-											</Tag>
-										</Table.DataCell>
-										<Table.DataCell>
-											{e.effect ? (
-												<Tag variant="neutral" size="xsmall">
-													{screeningEffectLabels[e.effect] ?? getStatusLabel(e.effect)}
+					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */
+					<section className="table-scroll" tabIndex={0} aria-label="Effekter for valg">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Effekt</Table.HeaderCell>
+									<Table.HeaderCell scope="col" />
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{effects.map((e) => {
+									const effectId = "clientId" in e ? e.clientId : e.id
+									return (
+										<Table.Row key={effectId}>
+											<Table.DataCell>
+												<Tag variant="info" size="xsmall">
+													{e.controlTextId}
+													{e.controlName ? ` – ${e.controlName}` : ""}
 												</Tag>
-											) : (
-												<BodyShort size="small" textColor="subtle">
-													—
-												</BodyShort>
-											)}
-										</Table.DataCell>
-										<Table.DataCell>
-											{isPending && onRemovePendingEffect ? (
-												<Button
-													type="button"
-													size="xsmall"
-													variant="tertiary-neutral"
-													icon={<TrashIcon aria-hidden />}
-													onClick={() => onRemovePendingEffect(choice.clientId, effectId)}
-												/>
-											) : (
-												<Button
-													type="button"
-													size="xsmall"
-													variant="tertiary-neutral"
-													icon={<TrashIcon aria-hidden />}
-													onClick={() =>
-														onDeleteEffect(effectId, `${e.controlTextId}${e.controlName ? ` – ${e.controlName}` : ""}`)
-													}
-												/>
-											)}
-										</Table.DataCell>
-									</Table.Row>
-								)
-							})}
-						</Table.Body>
-					</Table>
+											</Table.DataCell>
+											<Table.DataCell>
+												{e.effect ? (
+													<Tag variant="neutral" size="xsmall">
+														{screeningEffectLabels[e.effect] ?? getStatusLabel(e.effect)}
+													</Tag>
+												) : (
+													<BodyShort size="small" textColor="subtle">
+														—
+													</BodyShort>
+												)}
+											</Table.DataCell>
+											<Table.DataCell>
+												{isPending && onRemovePendingEffect ? (
+													<Button
+														type="button"
+														size="xsmall"
+														variant="tertiary-neutral"
+														icon={<TrashIcon aria-hidden />}
+														onClick={() => onRemovePendingEffect(choice.clientId, effectId)}
+													/>
+												) : (
+													<Button
+														type="button"
+														size="xsmall"
+														variant="tertiary-neutral"
+														icon={<TrashIcon aria-hidden />}
+														onClick={() =>
+															onDeleteEffect(
+																effectId,
+																`${e.controlTextId}${e.controlName ? ` – ${e.controlName}` : ""}`,
+															)
+														}
+													/>
+												)}
+											</Table.DataCell>
+										</Table.Row>
+									)
+								})}
+							</Table.Body>
+						</Table>
+					</section>
 				)}
 
 				{/* Add effect form for this choice */}

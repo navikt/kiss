@@ -390,42 +390,45 @@ export default function RutineDetaljer() {
 						<BodyShort>Ingen applikasjoner krever denne rutinen.</BodyShort>
 					</Box>
 				) : (
-					<Table>
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell>Applikasjon</Table.HeaderCell>
-								<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
-								<Table.HeaderCell>Frist</Table.HeaderCell>
-								<Table.HeaderCell>Status</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{appsWithDeadlines.map((app) => (
-								<Table.Row key={app.id}>
-									<Table.DataCell>
-										<Link to={`/applikasjoner/${app.id}/detaljer`}>{app.name}</Link>
-									</Table.DataCell>
-									<Table.DataCell>{formatDate(app.lastReviewDate)}</Table.DataCell>
-									<Table.DataCell>{formatDate(app.deadline)}</Table.DataCell>
-									<Table.DataCell>
-										{app.neverReviewed ? (
-											<Tag variant="warning" size="small">
-												Ikke gjennomført
-											</Tag>
-										) : app.overdue ? (
-											<Tag variant="error" size="small">
-												Over frist
-											</Tag>
-										) : (
-											<Tag variant="success" size="small">
-												OK
-											</Tag>
-										)}
-									</Table.DataCell>
+					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */
+					<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner for rutinen">
+						<Table>
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell>Applikasjon</Table.HeaderCell>
+									<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
+									<Table.HeaderCell>Frist</Table.HeaderCell>
+									<Table.HeaderCell>Status</Table.HeaderCell>
 								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
+							</Table.Header>
+							<Table.Body>
+								{appsWithDeadlines.map((app) => (
+									<Table.Row key={app.id}>
+										<Table.DataCell>
+											<Link to={`/applikasjoner/${app.id}/detaljer`}>{app.name}</Link>
+										</Table.DataCell>
+										<Table.DataCell>{formatDate(app.lastReviewDate)}</Table.DataCell>
+										<Table.DataCell>{formatDate(app.deadline)}</Table.DataCell>
+										<Table.DataCell>
+											{app.neverReviewed ? (
+												<Tag variant="warning" size="small">
+													Ikke gjennomført
+												</Tag>
+											) : app.overdue ? (
+												<Tag variant="error" size="small">
+													Over frist
+												</Tag>
+											) : (
+												<Tag variant="success" size="small">
+													OK
+												</Tag>
+											)}
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
 				)}
 			</VStack>
 
@@ -439,59 +442,62 @@ export default function RutineDetaljer() {
 						<BodyShort>Ingen gjennomganger er registrert ennå.</BodyShort>
 					</Box>
 				) : (
-					<Table>
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell>Dato</Table.HeaderCell>
-								<Table.HeaderCell>Applikasjon</Table.HeaderCell>
-								<Table.HeaderCell>Tittel</Table.HeaderCell>
-								<Table.HeaderCell>Status</Table.HeaderCell>
-								<Table.HeaderCell>Opprettet av</Table.HeaderCell>
-								<Table.HeaderCell>Deltakere</Table.HeaderCell>
-								<Table.HeaderCell>Vedlegg</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{reviews.map((review) => {
-								const confirmedCount = review.participants.filter((p) => p.confirmedAt).length
-								return (
-									<Table.Row key={review.id}>
-										<Table.DataCell>{formatDateTime(review.reviewedAt)}</Table.DataCell>
-										<Table.DataCell>
-											{review.applicationId ? (
-												<Link to={`/applikasjoner/${review.applicationId}/detaljer`}>
-													{review.applicationName ?? "Ukjent"}
-												</Link>
-											) : (
-												"—"
-											)}
-										</Table.DataCell>
-										<Table.DataCell>
-											<Link to={`./gjennomgang/${review.id}`}>{review.title}</Link>
-										</Table.DataCell>
-										<Table.DataCell>
-											{review.status === "completed" ? (
-												<Tag variant="success" size="xsmall">
-													Fullført
-												</Tag>
-											) : (
-												<Tag variant="warning" size="xsmall">
-													Utkast
-												</Tag>
-											)}
-										</Table.DataCell>
-										<Table.DataCell>{review.createdBy}</Table.DataCell>
-										<Table.DataCell>
-											{review.participants.length > 0
-												? `${confirmedCount}/${review.participants.length} bekreftet`
-												: "—"}
-										</Table.DataCell>
-										<Table.DataCell>{review.attachments.length}</Table.DataCell>
-									</Table.Row>
-								)
-							})}
-						</Table.Body>
-					</Table>
+					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */
+					<section className="table-scroll" tabIndex={0} aria-label="Gjennomganger">
+						<Table>
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell>Dato</Table.HeaderCell>
+									<Table.HeaderCell>Applikasjon</Table.HeaderCell>
+									<Table.HeaderCell>Tittel</Table.HeaderCell>
+									<Table.HeaderCell>Status</Table.HeaderCell>
+									<Table.HeaderCell>Opprettet av</Table.HeaderCell>
+									<Table.HeaderCell>Deltakere</Table.HeaderCell>
+									<Table.HeaderCell>Vedlegg</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{reviews.map((review) => {
+									const confirmedCount = review.participants.filter((p) => p.confirmedAt).length
+									return (
+										<Table.Row key={review.id}>
+											<Table.DataCell>{formatDateTime(review.reviewedAt)}</Table.DataCell>
+											<Table.DataCell>
+												{review.applicationId ? (
+													<Link to={`/applikasjoner/${review.applicationId}/detaljer`}>
+														{review.applicationName ?? "Ukjent"}
+													</Link>
+												) : (
+													"—"
+												)}
+											</Table.DataCell>
+											<Table.DataCell>
+												<Link to={`./gjennomgang/${review.id}`}>{review.title}</Link>
+											</Table.DataCell>
+											<Table.DataCell>
+												{review.status === "completed" ? (
+													<Tag variant="success" size="xsmall">
+														Fullført
+													</Tag>
+												) : (
+													<Tag variant="warning" size="xsmall">
+														Utkast
+													</Tag>
+												)}
+											</Table.DataCell>
+											<Table.DataCell>{review.createdBy}</Table.DataCell>
+											<Table.DataCell>
+												{review.participants.length > 0
+													? `${confirmedCount}/${review.participants.length} bekreftet`
+													: "—"}
+											</Table.DataCell>
+											<Table.DataCell>{review.attachments.length}</Table.DataCell>
+										</Table.Row>
+									)
+								})}
+							</Table.Body>
+						</Table>
+					</section>
 				)}
 			</VStack>
 		</VStack>

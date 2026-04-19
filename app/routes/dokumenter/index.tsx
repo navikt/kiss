@@ -307,60 +307,63 @@ export default function Dokumenter() {
 				{documents.length === 0 ? (
 					<BodyLong>Ingen dokumenter er lastet opp ennå.</BodyLong>
 				) : (
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell>Tittel</Table.HeaderCell>
-								<Table.HeaderCell>Filnavn</Table.HeaderCell>
-								<Table.HeaderCell>Type</Table.HeaderCell>
-								<Table.HeaderCell>Størrelse</Table.HeaderCell>
-								<Table.HeaderCell>Lastet opp</Table.HeaderCell>
-								<Table.HeaderCell>Lenke</Table.HeaderCell>
-								<Table.HeaderCell>Slett</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{(documents as DocumentRow[]).map((doc) => {
-								const docUrl = `/api/dokumenter/${doc.id}`
-								return (
-									<Table.Row key={doc.id}>
-										<Table.DataCell>
-											{doc.title}
-											{doc.description && (
-												<BodyLong size="small" className="text-subtle">
-													{doc.description}
-												</BodyLong>
-											)}
-										</Table.DataCell>
-										<Table.DataCell>{doc.originalFileName}</Table.DataCell>
-										<Table.DataCell>
-											<Tag variant={getFileTypeVariant(doc.contentType)} size="xsmall">
-												{getFileTypeLabel(doc.contentType)}
-											</Tag>
-										</Table.DataCell>
-										<Table.DataCell>{formatFileSize(doc.sizeBytes)}</Table.DataCell>
-										<Table.DataCell>{new Date(doc.uploadedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
-										<Table.DataCell>
-											<CopyButton copyText={docUrl} text="Kopier" size="xsmall" />
-										</Table.DataCell>
-										<Table.DataCell>
-											<Button
-												type="button"
-												variant="danger"
-												size="xsmall"
-												onClick={() => {
-													if (window.confirm(`Slett «${doc.title}»?`)) handleDelete(doc.id)
-												}}
-												disabled={isSubmitting}
-											>
-												Slett
-											</Button>
-										</Table.DataCell>
-									</Table.Row>
-								)
-							})}
-						</Table.Body>
-					</Table>
+					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */
+					<section className="table-scroll" tabIndex={0} aria-label="Dokumenter">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell>Tittel</Table.HeaderCell>
+									<Table.HeaderCell>Filnavn</Table.HeaderCell>
+									<Table.HeaderCell>Type</Table.HeaderCell>
+									<Table.HeaderCell>Størrelse</Table.HeaderCell>
+									<Table.HeaderCell>Lastet opp</Table.HeaderCell>
+									<Table.HeaderCell>Lenke</Table.HeaderCell>
+									<Table.HeaderCell>Slett</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{(documents as DocumentRow[]).map((doc) => {
+									const docUrl = `/api/dokumenter/${doc.id}`
+									return (
+										<Table.Row key={doc.id}>
+											<Table.DataCell>
+												{doc.title}
+												{doc.description && (
+													<BodyLong size="small" className="text-subtle">
+														{doc.description}
+													</BodyLong>
+												)}
+											</Table.DataCell>
+											<Table.DataCell>{doc.originalFileName}</Table.DataCell>
+											<Table.DataCell>
+												<Tag variant={getFileTypeVariant(doc.contentType)} size="xsmall">
+													{getFileTypeLabel(doc.contentType)}
+												</Tag>
+											</Table.DataCell>
+											<Table.DataCell>{formatFileSize(doc.sizeBytes)}</Table.DataCell>
+											<Table.DataCell>{new Date(doc.uploadedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+											<Table.DataCell>
+												<CopyButton copyText={docUrl} text="Kopier" size="xsmall" />
+											</Table.DataCell>
+											<Table.DataCell>
+												<Button
+													type="button"
+													variant="danger"
+													size="xsmall"
+													onClick={() => {
+														if (window.confirm(`Slett «${doc.title}»?`)) handleDelete(doc.id)
+													}}
+													disabled={isSubmitting}
+												>
+													Slett
+												</Button>
+											</Table.DataCell>
+										</Table.Row>
+									)
+								})}
+							</Table.Body>
+						</Table>
+					</section>
 				)}
 			</VStack>
 		</VStack>

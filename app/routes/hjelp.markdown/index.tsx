@@ -47,45 +47,48 @@ export default function MarkdownHelp() {
 				</BodyLong>
 			</div>
 
-			<Table size="small">
-				<Table.Header>
-					<Table.Row>
-						<Table.HeaderCell scope="col" style={{ width: "30%" }}>
-							Beskrivelse
-						</Table.HeaderCell>
-						<Table.HeaderCell scope="col" style={{ width: "35%" }}>
-							Markdown
-						</Table.HeaderCell>
-						<Table.HeaderCell scope="col" style={{ width: "35%" }}>
-							Resultat
-						</Table.HeaderCell>
-					</Table.Row>
-				</Table.Header>
-				<Table.Body>
-					{examples.map((e) => (
-						<Table.Row key={e.markdown}>
-							<Table.DataCell>{e.description}</Table.DataCell>
-							<Table.DataCell>
-								<Box
-									as="pre"
-									style={{
-										margin: 0,
-										whiteSpace: "pre-wrap",
-										fontFamily: "monospace",
-										fontSize: "var(--ax-font-size-small)",
-									}}
-								>
-									{e.markdown}
-								</Box>
-							</Table.DataCell>
-							<Table.DataCell>
-								{/* biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized server-side */}
-								<div className="markdown-content" dangerouslySetInnerHTML={{ __html: e.html }} />
-							</Table.DataCell>
+			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */}
+			<section className="table-scroll" tabIndex={0} aria-label="Markdown-eksempler">
+				<Table size="small">
+					<Table.Header>
+						<Table.Row>
+							<Table.HeaderCell scope="col" style={{ width: "30%" }}>
+								Beskrivelse
+							</Table.HeaderCell>
+							<Table.HeaderCell scope="col" style={{ width: "35%" }}>
+								Markdown
+							</Table.HeaderCell>
+							<Table.HeaderCell scope="col" style={{ width: "35%" }}>
+								Resultat
+							</Table.HeaderCell>
 						</Table.Row>
-					))}
-				</Table.Body>
-			</Table>
+					</Table.Header>
+					<Table.Body>
+						{examples.map((e) => (
+							<Table.Row key={e.markdown}>
+								<Table.DataCell>{e.description}</Table.DataCell>
+								<Table.DataCell>
+									<Box
+										as="pre"
+										style={{
+											margin: 0,
+											whiteSpace: "pre-wrap",
+											fontFamily: "monospace",
+											fontSize: "var(--ax-font-size-small)",
+										}}
+									>
+										{e.markdown}
+									</Box>
+								</Table.DataCell>
+								<Table.DataCell>
+									{/* biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized server-side */}
+									<div className="markdown-content" dangerouslySetInnerHTML={{ __html: e.html }} />
+								</Table.DataCell>
+							</Table.Row>
+						))}
+					</Table.Body>
+				</Table>
+			</section>
 
 			<VStack gap="space-4">
 				<Heading size="small" level="3">

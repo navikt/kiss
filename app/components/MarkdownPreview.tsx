@@ -1,8 +1,32 @@
 import { useEffect, useState } from "react"
 
+const ALLOWED_TAGS = [
+	"p",
+	"br",
+	"strong",
+	"b",
+	"em",
+	"i",
+	"ul",
+	"ol",
+	"li",
+	"a",
+	"code",
+	"pre",
+	"h1",
+	"h2",
+	"h3",
+	"h4",
+	"h5",
+	"h6",
+	"blockquote",
+]
+const ALLOWED_ATTR = ["href", "target", "rel"]
+
 async function renderPreview(content: string, setHtml: (html: string) => void) {
-	const { marked } = await import("marked")
-	setHtml(marked.parse(content, { async: false }) as string)
+	const [{ marked }, { default: DOMPurify }] = await Promise.all([import("marked"), import("isomorphic-dompurify")])
+	const raw = marked.parse(content, { async: false }) as string
+	setHtml(DOMPurify.sanitize(raw, { ALLOWED_TAGS, ALLOWED_ATTR }))
 }
 
 export function MarkdownPreview({ content }: { content: string }) {
@@ -24,7 +48,7 @@ export function MarkdownPreview({ content }: { content: string }) {
 				minHeight: "10rem",
 				overflowY: "auto",
 			}}
-			// biome-ignore lint/security/noDangerouslySetInnerHtml: client-side preview only
+			// biome-ignore lint/security/noDangerouslySetInnerHtml: client-side preview, sanitized via DOMPurify above
 			dangerouslySetInnerHTML={{ __html: html }}
 		/>
 	)

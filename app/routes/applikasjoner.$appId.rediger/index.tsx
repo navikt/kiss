@@ -596,46 +596,49 @@ export default function ApplikasjonRediger() {
 						Koble Oracle-databaser oppdaget av Nais til riktig Oracle-instans. Dette sikrer at audit
 						logging-oppsummeringer hentes for riktig database.
 					</BodyLong>
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Database (oppdaget)</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Koblet Oracle-instans</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{oraclePersistence.map((p) => (
-								<Table.Row key={p.id}>
-									<Table.DataCell>{p.name}</Table.DataCell>
-									<Table.DataCell>
-										<Form method="post">
-											<input type="hidden" name="intent" value="linkPersistenceToOracle" />
-											<input type="hidden" name="persistenceId" value={p.id} />
-											<HStack gap="space-2" align="end">
-												<Select
-													label="Oracle-instans"
-													name="oracleInstanceId"
-													size="small"
-													hideLabel
-													defaultValue={p.oracleInstanceId ?? ""}
-												>
-													<option value="">Bruk databasenavn ({p.name})</option>
-													{oracleInstances.map((inst) => (
-														<option key={inst.id} value={inst.instanceId}>
-															{inst.instanceId.toUpperCase()}
-														</option>
-													))}
-												</Select>
-												<Button variant="secondary" size="small" type="submit">
-													Lagre
-												</Button>
-											</HStack>
-										</Form>
-									</Table.DataCell>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */}
+					<section className="table-scroll" tabIndex={0} aria-label="Databasekoblinger">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Database (oppdaget)</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Koblet Oracle-instans</Table.HeaderCell>
 								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
+							</Table.Header>
+							<Table.Body>
+								{oraclePersistence.map((p) => (
+									<Table.Row key={p.id}>
+										<Table.DataCell>{p.name}</Table.DataCell>
+										<Table.DataCell>
+											<Form method="post">
+												<input type="hidden" name="intent" value="linkPersistenceToOracle" />
+												<input type="hidden" name="persistenceId" value={p.id} />
+												<HStack gap="space-2" align="end">
+													<Select
+														label="Oracle-instans"
+														name="oracleInstanceId"
+														size="small"
+														hideLabel
+														defaultValue={p.oracleInstanceId ?? ""}
+													>
+														<option value="">Bruk databasenavn ({p.name})</option>
+														{oracleInstances.map((inst) => (
+															<option key={inst.id} value={inst.instanceId}>
+																{inst.instanceId.toUpperCase()}
+															</option>
+														))}
+													</Select>
+													<Button variant="secondary" size="small" type="submit">
+														Lagre
+													</Button>
+												</HStack>
+											</Form>
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
 				</Box>
 			)}
 
@@ -649,42 +652,45 @@ export default function ApplikasjonRediger() {
 						Disse applikasjonene er testdeploymenter eller varianter som arver compliance-vurderinger fra denne
 						applikasjonen.
 					</BodyLong>
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-								<Table.HeaderCell scope="col" />
-								<Table.HeaderCell scope="col" />
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{linkedApps.map((la) => (
-								<Table.Row key={la.id}>
-									<Table.DataCell>
-										<Link to={`/applikasjoner/${la.id}/detaljer`}>{la.name}</Link>
-									</Table.DataCell>
-									<Table.DataCell>
-										<Form method="post">
-											<input type="hidden" name="intent" value="promoteToPrimary" />
-											<input type="hidden" name="newPrimaryId" value={la.id} />
-											<Button variant="tertiary" size="xsmall" type="submit">
-												Gjør til hovedapplikasjon
-											</Button>
-										</Form>
-									</Table.DataCell>
-									<Table.DataCell>
-										<Form method="post">
-											<input type="hidden" name="intent" value="unlink" />
-											<input type="hidden" name="unlinkId" value={la.id} />
-											<Button variant="tertiary-neutral" size="xsmall" type="submit">
-												Fjern kobling
-											</Button>
-										</Form>
-									</Table.DataCell>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */}
+					<section className="table-scroll" tabIndex={0} aria-label="Tilgangsgivende applikasjoner">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+									<Table.HeaderCell scope="col" />
+									<Table.HeaderCell scope="col" />
 								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
+							</Table.Header>
+							<Table.Body>
+								{linkedApps.map((la) => (
+									<Table.Row key={la.id}>
+										<Table.DataCell>
+											<Link to={`/applikasjoner/${la.id}/detaljer`}>{la.name}</Link>
+										</Table.DataCell>
+										<Table.DataCell>
+											<Form method="post">
+												<input type="hidden" name="intent" value="promoteToPrimary" />
+												<input type="hidden" name="newPrimaryId" value={la.id} />
+												<Button variant="tertiary" size="xsmall" type="submit">
+													Gjør til hovedapplikasjon
+												</Button>
+											</Form>
+										</Table.DataCell>
+										<Table.DataCell>
+											<Form method="post">
+												<input type="hidden" name="intent" value="unlink" />
+												<input type="hidden" name="unlinkId" value={la.id} />
+												<Button variant="tertiary-neutral" size="xsmall" type="submit">
+													Fjern kobling
+												</Button>
+											</Form>
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
 				</Box>
 			)}
 
@@ -697,38 +703,41 @@ export default function ApplikasjonRediger() {
 					<BodyLong spacing>
 						Disse applikasjonene bruker samme Docker image og kan være testdeploymenter av denne applikasjonen.
 					</BodyLong>
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
-								<Table.HeaderCell scope="col" />
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{linkSuggestions.map((s) => (
-								<Table.Row key={s.id}>
-									<Table.DataCell>
-										<Link to={`/applikasjoner/${s.id}/detaljer`}>{s.name}</Link>
-									</Table.DataCell>
-									<Table.DataCell>
-										<Tag variant={s.isProd ? "success" : "neutral"} size="xsmall">
-											{s.cluster}
-										</Tag>
-									</Table.DataCell>
-									<Table.DataCell>
-										<Form method="post">
-											<input type="hidden" name="intent" value="link" />
-											<input type="hidden" name="linkedId" value={s.id} />
-											<Button variant="tertiary" size="xsmall" type="submit">
-												Koble hit
-											</Button>
-										</Form>
-									</Table.DataCell>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */}
+					<section className="table-scroll" tabIndex={0} aria-label="Tilgangsmottakende applikasjoner">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+									<Table.HeaderCell scope="col" />
 								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
+							</Table.Header>
+							<Table.Body>
+								{linkSuggestions.map((s) => (
+									<Table.Row key={s.id}>
+										<Table.DataCell>
+											<Link to={`/applikasjoner/${s.id}/detaljer`}>{s.name}</Link>
+										</Table.DataCell>
+										<Table.DataCell>
+											<Tag variant={s.isProd ? "success" : "neutral"} size="xsmall">
+												{s.cluster}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											<Form method="post">
+												<input type="hidden" name="intent" value="link" />
+												<input type="hidden" name="linkedId" value={s.id} />
+												<Button variant="tertiary" size="xsmall" type="submit">
+													Koble hit
+												</Button>
+											</Form>
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
 				</Box>
 			)}
 

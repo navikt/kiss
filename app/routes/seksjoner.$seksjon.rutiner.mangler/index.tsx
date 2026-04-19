@@ -41,48 +41,53 @@ function DeadlineTable({ items }: { items: RoutineDeadlineInfo[] }) {
 	}
 
 	return (
-		<Table>
-			<Table.Header>
-				<Table.Row>
-					<Table.HeaderCell>Rutine</Table.HeaderCell>
-					<Table.HeaderCell>Applikasjon</Table.HeaderCell>
-					<Table.HeaderCell>Frekvens</Table.HeaderCell>
-					<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
-					<Table.HeaderCell>Frist</Table.HeaderCell>
-					<Table.HeaderCell>Status</Table.HeaderCell>
-				</Table.Row>
-			</Table.Header>
-			<Table.Body>
-				{items.map((item, index) => (
-					<Table.Row key={`${item.routine?.id ?? index}-${item.applicationId}`}>
-						<Table.DataCell>
-							{item.routine ? <Link to={`../${item.routine.id}`}>{item.routine.name}</Link> : "—"}
-						</Table.DataCell>
-						<Table.DataCell>
-							<Link to={`/applikasjoner/${item.applicationId}/detaljer`}>{item.applicationName}</Link>
-						</Table.DataCell>
-						<Table.DataCell>{item.routine?.frequency ? getFrequencyLabel(item.routine.frequency) : "—"}</Table.DataCell>
-						<Table.DataCell>{formatDate(item.lastReviewDate)}</Table.DataCell>
-						<Table.DataCell>{formatDate(item.deadline)}</Table.DataCell>
-						<Table.DataCell>
-							{!item.lastReviewDate ? (
-								<Tag variant="neutral" size="small">
-									Ikke gjennomført
-								</Tag>
-							) : item.overdue ? (
-								<Tag variant="error" size="small">
-									Over frist
-								</Tag>
-							) : (
-								<Tag variant="warning" size="small">
-									Kommende
-								</Tag>
-							)}
-						</Table.DataCell>
+		/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */
+		<section className="table-scroll" tabIndex={0} aria-label="Manglende rutiner">
+			<Table>
+				<Table.Header>
+					<Table.Row>
+						<Table.HeaderCell>Rutine</Table.HeaderCell>
+						<Table.HeaderCell>Applikasjon</Table.HeaderCell>
+						<Table.HeaderCell>Frekvens</Table.HeaderCell>
+						<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
+						<Table.HeaderCell>Frist</Table.HeaderCell>
+						<Table.HeaderCell>Status</Table.HeaderCell>
 					</Table.Row>
-				))}
-			</Table.Body>
-		</Table>
+				</Table.Header>
+				<Table.Body>
+					{items.map((item, index) => (
+						<Table.Row key={`${item.routine?.id ?? index}-${item.applicationId}`}>
+							<Table.DataCell>
+								{item.routine ? <Link to={`../${item.routine.id}`}>{item.routine.name}</Link> : "—"}
+							</Table.DataCell>
+							<Table.DataCell>
+								<Link to={`/applikasjoner/${item.applicationId}/detaljer`}>{item.applicationName}</Link>
+							</Table.DataCell>
+							<Table.DataCell>
+								{item.routine?.frequency ? getFrequencyLabel(item.routine.frequency) : "—"}
+							</Table.DataCell>
+							<Table.DataCell>{formatDate(item.lastReviewDate)}</Table.DataCell>
+							<Table.DataCell>{formatDate(item.deadline)}</Table.DataCell>
+							<Table.DataCell>
+								{!item.lastReviewDate ? (
+									<Tag variant="neutral" size="small">
+										Ikke gjennomført
+									</Tag>
+								) : item.overdue ? (
+									<Tag variant="error" size="small">
+										Over frist
+									</Tag>
+								) : (
+									<Tag variant="warning" size="small">
+										Kommende
+									</Tag>
+								)}
+							</Table.DataCell>
+						</Table.Row>
+					))}
+				</Table.Body>
+			</Table>
+		</section>
 	)
 }
 

@@ -220,73 +220,76 @@ export default function AppKontrollRutiner() {
 						)}
 					</HStack>
 
-					<Table>
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Rutine</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Teknologielement</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Siste gjennomgang</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Frist</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{routines.map((r) => (
-								<Table.Row key={`${r.id}-${r.matchSource}`}>
-									<Table.DataCell>
-										<HStack gap="space-2" align="center" wrap>
-											<Link to={`/seksjoner/${sectionSlugMap[r.sectionId] ?? r.sectionId}/rutiner/${r.id}`}>
-												{r.name}
-											</Link>
-											{r.status === "approved" && (
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */}
+					<section className="table-scroll" tabIndex={0} aria-label="Rutiner for kontrollen">
+						<Table>
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Rutine</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Teknologielement</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Siste gjennomgang</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Frist</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{routines.map((r) => (
+									<Table.Row key={`${r.id}-${r.matchSource}`}>
+										<Table.DataCell>
+											<HStack gap="space-2" align="center" wrap>
+												<Link to={`/seksjoner/${sectionSlugMap[r.sectionId] ?? r.sectionId}/rutiner/${r.id}`}>
+													{r.name}
+												</Link>
+												{r.status === "approved" && (
+													<Tag variant="success" size="xsmall">
+														Godkjent
+													</Tag>
+												)}
+											</HStack>
+										</Table.DataCell>
+										<Table.DataCell>
+											{r.technologyElements.length > 0 ? (
+												<HStack gap="space-2" wrap>
+													{r.technologyElements.map((el) => (
+														<Tag key={el} variant="info" size="xsmall">
+															{el}
+														</Tag>
+													))}
+												</HStack>
+											) : (
+												"—"
+											)}
+										</Table.DataCell>
+										<Table.DataCell>{getFrequencyLabel(r.frequency)}</Table.DataCell>
+										<Table.DataCell>
+											<Tag variant="neutral" size="xsmall">
+												{matchSourceLabels[r.matchSource] ?? r.matchSource}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>{formatDate(r.lastReviewDate)}</Table.DataCell>
+										<Table.DataCell>{formatDate(r.deadline)}</Table.DataCell>
+										<Table.DataCell>
+											{r.neverReviewed ? (
+												<Tag variant="warning" size="xsmall">
+													Ikke gjennomført
+												</Tag>
+											) : r.overdue ? (
+												<Tag variant="error" size="xsmall">
+													Forfalt
+												</Tag>
+											) : (
 												<Tag variant="success" size="xsmall">
-													Godkjent
+													OK
 												</Tag>
 											)}
-										</HStack>
-									</Table.DataCell>
-									<Table.DataCell>
-										{r.technologyElements.length > 0 ? (
-											<HStack gap="space-2" wrap>
-												{r.technologyElements.map((el) => (
-													<Tag key={el} variant="info" size="xsmall">
-														{el}
-													</Tag>
-												))}
-											</HStack>
-										) : (
-											"—"
-										)}
-									</Table.DataCell>
-									<Table.DataCell>{getFrequencyLabel(r.frequency)}</Table.DataCell>
-									<Table.DataCell>
-										<Tag variant="neutral" size="xsmall">
-											{matchSourceLabels[r.matchSource] ?? r.matchSource}
-										</Tag>
-									</Table.DataCell>
-									<Table.DataCell>{formatDate(r.lastReviewDate)}</Table.DataCell>
-									<Table.DataCell>{formatDate(r.deadline)}</Table.DataCell>
-									<Table.DataCell>
-										{r.neverReviewed ? (
-											<Tag variant="warning" size="xsmall">
-												Ikke gjennomført
-											</Tag>
-										) : r.overdue ? (
-											<Tag variant="error" size="xsmall">
-												Forfalt
-											</Tag>
-										) : (
-											<Tag variant="success" size="xsmall">
-												OK
-											</Tag>
-										)}
-									</Table.DataCell>
-								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
 				</VStack>
 			)}
 		</VStack>
