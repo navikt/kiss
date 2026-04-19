@@ -236,33 +236,7 @@ async function seed() {
 
 	console.log(`  ✓ ${riskCount} risks, ${controlCount} controls`)
 
-	// 8. Sample compliance assessments
-	const [pensjonRegler] = apps.filter((a) => a.name === "pensjon-regler")
-	if (pensjonRegler && controlUuidMap["K-ST.01"] && controlUuidMap["K-TS.01"]) {
-		await db.insert(schema.complianceAssessments).values({
-			applicationId: pensjonRegler.id,
-			controlId: controlUuidMap["K-ST.01"],
-			status: "implemented",
-			comment: "Gjennomgått Q1 2026. Se https://jira.nav.no/browse/KISS-123",
-			assessedBy: "A123456",
-			createdBy: "seed",
-			updatedBy: "seed",
-		})
-
-		await db.insert(schema.complianceAssessments).values({
-			applicationId: pensjonRegler.id,
-			controlId: controlUuidMap["K-TS.01"],
-			status: "partially_implemented",
-			comment: "AD-grupper er satt opp, men periodisk gjennomgang mangler.",
-			assessedBy: "B654321",
-			createdBy: "seed",
-			updatedBy: "seed",
-		})
-
-		console.log("  ✓ Sample compliance assessments")
-	}
-
-	// 9. Users
+	// 8. Users
 	await db
 		.insert(schema.users)
 		.values([

@@ -258,16 +258,6 @@ const rules: BreadcrumbRule[] = [
 
 	// ── Seksjoner: Team → Applikasjoner (kontekstuell navigasjon) ──
 	{
-		pattern: "seksjoner/:seksjon/team/:team/applikasjoner/:appId/compliance-krav",
-		segments: [
-			SEKSJONER,
-			{ label: sectionName, to: sectionPath },
-			{ label: teamName, to: teamPath },
-			{ label: appName, to: teamAppPath },
-			{ label: "Kravgjennomgang" },
-		],
-	},
-	{
 		pattern: "seksjoner/:seksjon/team/:team/applikasjoner/:appId/compliance",
 		segments: [
 			SEKSJONER,
@@ -328,16 +318,6 @@ const rules: BreadcrumbRule[] = [
 	},
 
 	// ── Seksjoner: Applikasjoner (kontekstuell navigasjon) ──
-	{
-		pattern: "seksjoner/:seksjon/applikasjoner/:appId/compliance-krav",
-		segments: [
-			SEKSJONER,
-			{ label: sectionName, to: sectionPath },
-			{ label: "Applikasjoner", to: sectionAppsPath },
-			{ label: appName, to: sectionAppPath },
-			{ label: "Kravgjennomgang" },
-		],
-	},
 	{
 		pattern: "seksjoner/:seksjon/applikasjoner/:appId/compliance",
 		segments: [
@@ -429,10 +409,6 @@ const rules: BreadcrumbRule[] = [
 
 	// ── Mine team → Applikasjoner (kontekstuell navigasjon) ──
 	{
-		pattern: "mine-team/applikasjoner/:appId/compliance-krav",
-		segments: [MINE_TEAM, { label: appName, to: mineTeamAppPath }, { label: "Kravgjennomgang" }],
-	},
-	{
 		pattern: "mine-team/applikasjoner/:appId/compliance",
 		segments: [MINE_TEAM, { label: appName, to: mineTeamAppPath }, { label: "Compliance" }],
 	},
@@ -450,10 +426,6 @@ const rules: BreadcrumbRule[] = [
 	},
 
 	// ── Applikasjoner (direkte, uten kontekst) ──
-	{
-		pattern: "applikasjoner/:appId/compliance-krav",
-		segments: [{ label: appName, to: appPath }, { label: "Kravgjennomgang" }],
-	},
 	{
 		pattern: "applikasjoner/:appId/compliance",
 		segments: [{ label: appName, to: appPath }, { label: "Compliance" }],
