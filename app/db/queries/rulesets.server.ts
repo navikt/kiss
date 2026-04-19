@@ -335,13 +335,6 @@ export async function archiveRuleset(rulesetId: string, updatedBy: string): Prom
 		.where(eq(rulesets.id, rulesetId))
 }
 
-export async function activateRuleset(rulesetId: string, updatedBy: string): Promise<void> {
-	await db
-		.update(rulesets)
-		.set({ status: "active", updatedAt: new Date(), updatedBy })
-		.where(eq(rulesets.id, rulesetId))
-}
-
 export async function approveRuleset(input: {
 	rulesetId: string
 	approvedBy: string
