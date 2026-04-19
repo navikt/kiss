@@ -46,3 +46,7 @@ docker-compose.override.yml
 
 # Compiled server entry
 server.js
+
+# Symlinks (worktree)
+/node_modules
+/.react-router
