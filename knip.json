@@ -10,17 +10,13 @@
 		"app/lib/nais.server.ts",
 		"app/lib/nais-sync.server.ts",
 		"app/lib/assessment-history.ts",
-		"app/lib/storage/index.server.ts"
+		"app/lib/storage/index.server.ts",
+		"server.ts"
 	],
 	"project": ["app/**/*.{ts,tsx}"],
 	"ignoreDependencies": [
-		"@react-router/node",
-		"@navikt/aksel-icons",
 		"compression",
 		"express",
-		"isbot",
-		"winston",
-		"@testcontainers/postgresql",
 		"testcontainers",
 		"@types/compression",
 		"@types/express"
