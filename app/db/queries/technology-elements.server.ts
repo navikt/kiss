@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationPersistence, monitoredApplications } from "../schema/applications"
 import { applicationTechnologyElements, controlTechnologyElements, technologyElements } from "../schema/framework"

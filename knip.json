@@ -14,13 +14,7 @@
 		"server.ts"
 	],
 	"project": ["app/**/*.{ts,tsx}"],
-	"ignoreDependencies": [
-		"compression",
-		"express",
-		"testcontainers",
-		"@types/compression",
-		"@types/express"
-	],
+	"ignoreDependencies": ["compression", "express", "testcontainers", "@types/compression", "@types/express"],
 	"ignoreExportsUsedInFile": true,
 	"ignoreBinaries": ["docker-compose", "createdb"]
 }
