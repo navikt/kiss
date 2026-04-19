@@ -478,11 +478,12 @@ export async function unignoreAppForSection(sectionId: string, applicationId: st
 	})
 }
 
-/** Upsert a persistence resource for an application. */
+/** Upsert a persistence resource for an application. Returns true when a new row was inserted. */
 export async function upsertAppPersistence(
 	applicationId: string,
 	type: PersistenceType,
 	name: string,
+	performedBy: string,
 	opts?: {
 		version?: string | null
 		tier?: string | null
@@ -504,37 +505,83 @@ export async function upsertAppPersistence(
 		.limit(1)
 
 	if (existing) {
+		const next = {
+			version: opts?.version ?? existing.version,
+			tier: opts?.tier ?? existing.tier,
+			highAvailability: opts?.highAvailability ?? existing.highAvailability,
+			auditLogging: opts?.auditLogging ?? existing.auditLogging,
+			auditLogUrl: opts?.auditLogUrl ?? existing.auditLogUrl,
+		}
+		const changed =
+			next.version !== existing.version ||
+			next.tier !== existing.tier ||
+			next.highAvailability !== existing.highAvailability ||
+			next.auditLogging !== existing.auditLogging ||
+			next.auditLogUrl !== existing.auditLogUrl
+
+		if (!changed) return false
+
 		await db
 			.update(applicationPersistence)
-			.set({
-				version: opts?.version ?? existing.version,
-				tier: opts?.tier ?? existing.tier,
-				highAvailability: opts?.highAvailability ?? existing.highAvailability,
-				auditLogging: opts?.auditLogging ?? existing.auditLogging,
-				auditLogUrl: opts?.auditLogUrl ?? existing.auditLogUrl,
-				updatedAt: new Date(),
-			})
+			.set({ ...next, updatedAt: new Date() })
 			.where(eq(applicationPersistence.id, existing.id))
+
+		await writeAuditLog({
+			action: "nais_persistence_updated",
+			entityType: "application_persistence",
+			entityId: existing.id,
+			previousValue: JSON.stringify({
+				version: existing.version,
+				tier: existing.tier,
+				highAvailability: existing.highAvailability,
+				auditLogging: existing.auditLogging,
+				auditLogUrl: existing.auditLogUrl,
+			}),
+			newValue: JSON.stringify(next),
+			metadata: { applicationId, type, name },
+			performedBy,
+		})
 		return false
 	}
 
-	await db.insert(applicationPersistence).values({
-		applicationId,
-		type,
-		name,
-		version: opts?.version ?? null,
-		tier: opts?.tier ?? null,
-		highAvailability: opts?.highAvailability ?? null,
-		auditLogging: opts?.auditLogging ?? null,
-		auditLogUrl: opts?.auditLogUrl ?? null,
+	const [inserted] = await db
+		.insert(applicationPersistence)
+		.values({
+			applicationId,
+			type,
+			name,
+			version: opts?.version ?? null,
+			tier: opts?.tier ?? null,
+			highAvailability: opts?.highAvailability ?? null,
+			auditLogging: opts?.auditLogging ?? null,
+			auditLogUrl: opts?.auditLogUrl ?? null,
+		})
+		.returning({ id: applicationPersistence.id })
+
+	await writeAuditLog({
+		action: "nais_persistence_added",
+		entityType: "application_persistence",
+		entityId: inserted.id,
+		newValue: JSON.stringify({
+			type,
+			name,
+			version: opts?.version ?? null,
+			tier: opts?.tier ?? null,
+			highAvailability: opts?.highAvailability ?? null,
+			auditLogging: opts?.auditLogging ?? null,
+			auditLogUrl: opts?.auditLogUrl ?? null,
+		}),
+		metadata: { applicationId },
+		performedBy,
 	})
 	return true
 }
 
-/** Upsert an auth integration for an application. */
+/** Upsert an auth integration for an application. Returns true when a new row was inserted. */
 export async function upsertAppAuthIntegration(
 	applicationId: string,
 	type: AuthIntegrationType,
+	performedBy: string,
 	opts?: {
 		allowAllUsers?: boolean | null
 		claimsExtra?: string[] | null
@@ -556,29 +603,75 @@ export async function upsertAppAuthIntegration(
 	const inboundRulesStr = opts?.inboundRules?.length ? JSON.stringify(opts.inboundRules) : null
 
 	if (existing) {
+		const next = {
+			enabled: true,
+			allowAllUsers: opts?.allowAllUsers ?? existing.allowAllUsers,
+			claimsExtra: claimsExtraStr ?? existing.claimsExtra,
+			groups: groupsStr ?? existing.groups,
+			sidecarEnabled: opts?.sidecarEnabled ?? existing.sidecarEnabled,
+			inboundRules: inboundRulesStr ?? existing.inboundRules,
+		}
+		const changed =
+			next.enabled !== existing.enabled ||
+			next.allowAllUsers !== existing.allowAllUsers ||
+			next.claimsExtra !== existing.claimsExtra ||
+			next.groups !== existing.groups ||
+			next.sidecarEnabled !== existing.sidecarEnabled ||
+			next.inboundRules !== existing.inboundRules
+
+		if (!changed) return false
+
 		await db
 			.update(applicationAuthIntegrations)
-			.set({
-				enabled: true,
-				allowAllUsers: opts?.allowAllUsers ?? existing.allowAllUsers,
-				claimsExtra: claimsExtraStr ?? existing.claimsExtra,
-				groups: groupsStr ?? existing.groups,
-				sidecarEnabled: opts?.sidecarEnabled ?? existing.sidecarEnabled,
-				inboundRules: inboundRulesStr ?? existing.inboundRules,
-				updatedAt: new Date(),
-			})
+			.set({ ...next, updatedAt: new Date() })
 			.where(eq(applicationAuthIntegrations.id, existing.id))
+
+		await writeAuditLog({
+			action: "nais_auth_integration_updated",
+			entityType: "application_auth_integration",
+			entityId: existing.id,
+			previousValue: JSON.stringify({
+				enabled: existing.enabled,
+				allowAllUsers: existing.allowAllUsers,
+				claimsExtra: existing.claimsExtra,
+				groups: existing.groups,
+				sidecarEnabled: existing.sidecarEnabled,
+				inboundRules: existing.inboundRules,
+			}),
+			newValue: JSON.stringify(next),
+			metadata: { applicationId, type },
+			performedBy,
+		})
 		return false
 	}
 
-	await db.insert(applicationAuthIntegrations).values({
-		applicationId,
-		type,
-		allowAllUsers: opts?.allowAllUsers ?? null,
-		claimsExtra: claimsExtraStr,
-		groups: groupsStr,
-		sidecarEnabled: opts?.sidecarEnabled ?? null,
-		inboundRules: inboundRulesStr,
+	const [inserted] = await db
+		.insert(applicationAuthIntegrations)
+		.values({
+			applicationId,
+			type,
+			allowAllUsers: opts?.allowAllUsers ?? null,
+			claimsExtra: claimsExtraStr,
+			groups: groupsStr,
+			sidecarEnabled: opts?.sidecarEnabled ?? null,
+			inboundRules: inboundRulesStr,
+		})
+		.returning({ id: applicationAuthIntegrations.id })
+
+	await writeAuditLog({
+		action: "nais_auth_integration_added",
+		entityType: "application_auth_integration",
+		entityId: inserted.id,
+		newValue: JSON.stringify({
+			type,
+			allowAllUsers: opts?.allowAllUsers ?? null,
+			claimsExtra: claimsExtraStr,
+			groups: groupsStr,
+			sidecarEnabled: opts?.sidecarEnabled ?? null,
+			inboundRules: inboundRulesStr,
+		}),
+		metadata: { applicationId },
+		performedBy,
 	})
 	return true
 }

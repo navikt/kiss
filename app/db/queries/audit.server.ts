@@ -1,18 +1,21 @@
 import { desc, eq, sql } from "drizzle-orm"
-import { db } from "../connection.server"
+import { type DbOrTx, db } from "../connection.server"
 import { type AuditLogAction, auditLog } from "../schema/audit"
 
-/** Write an audit log entry. */
-export async function writeAuditLog(entry: {
-	action: AuditLogAction
-	entityType: string
-	entityId: string
-	previousValue?: string | null
-	newValue?: string | null
-	metadata?: Record<string, unknown>
-	performedBy: string
-}) {
-	await db.insert(auditLog).values({
+/** Write an audit log entry. Pass `tx` to make the write atomic with surrounding work. */
+export async function writeAuditLog(
+	entry: {
+		action: AuditLogAction
+		entityType: string
+		entityId: string
+		previousValue?: string | null
+		newValue?: string | null
+		metadata?: Record<string, unknown>
+		performedBy: string
+	},
+	tx?: DbOrTx,
+) {
+	await (tx ?? db).insert(auditLog).values({
 		action: entry.action,
 		entityType: entry.entityType,
 		entityId: entry.entityId,

@@ -22,6 +22,7 @@ const {
 	confirmParticipation,
 	getAppsRequiringRoutine,
 	getLatestReviewForApp,
+	getRoutineDeadlinesForSection,
 	calculateDeadline,
 	isOverdue,
 	createReviewActivity,
@@ -612,6 +613,133 @@ describe("Routines integration tests", () => {
 			const updatedRoutine = await getRoutine(routine.id)
 			const deadline = calculateDeadline(null, updatedRoutine?.createdAt ?? new Date(), "weekly")
 			expect(isOverdue(deadline)).toBe(true)
+		})
+	})
+
+	// ─── getRoutineDeadlinesForSection ───────────────────────────────────
+
+	describe("getRoutineDeadlinesForSection", () => {
+		it("returnerer rader for flere rutiner og apper sortert deterministisk på app-navn", async () => {
+			const sectionId = await createTestSection("Sec-DLF1", "sec-dlf1")
+			const q1 = await createTestScreeningQuestion(sectionId, "Q1?")
+			await createTestChoice(q1, "Yes")
+			const q2 = await createTestScreeningQuestion(sectionId, "Q2?")
+			await createTestChoice(q2, "Yes")
+
+			// Apper opprettes i "feil" alfabetisk rekkefølge
+			const charlieId = await createTestApp("Charlie")
+			const alphaId = await createTestApp("Alpha")
+			const bravoId = await createTestApp("Bravo")
+
+			for (const id of [charlieId, alphaId, bravoId]) {
+				await createTestScreeningAnswer(id, q1, "Yes")
+				await createTestScreeningAnswer(id, q2, "Yes")
+			}
+
+			const r1 = await createRoutine({
+				sectionId,
+				name: "Rutine A",
+				description: null,
+				frequency: "monthly",
+				screeningQuestionId: q1,
+				screeningChoiceValue: "Yes",
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+			const r2 = await createRoutine({
+				sectionId,
+				name: "Rutine B",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: q2,
+				screeningChoiceValue: "Yes",
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			const rows = await getRoutineDeadlinesForSection(sectionId)
+
+			expect(rows.length).toBe(6)
+			// Per rutine: app-navn skal være alfabetisk uavhengig av opprettelsesrekkefølge
+			const appsR1 = rows.filter((r) => r.routine?.id === r1.id).map((r) => r.applicationName)
+			const appsR2 = rows.filter((r) => r.routine?.id === r2.id).map((r) => r.applicationName)
+			expect(appsR1).toEqual(["Alpha", "Bravo", "Charlie"])
+			expect(appsR2).toEqual(["Alpha", "Bravo", "Charlie"])
+		})
+
+		it("filtrerer apper på tech-element-krav per rutine", async () => {
+			const sectionId = await createTestSection("Sec-DLF2", "sec-dlf2")
+			const q = await createTestScreeningQuestion(sectionId, "Q?")
+			await createTestChoice(q, "Yes")
+			const dockerId = await createTestTechElement("Docker")
+
+			const dockerApp = await createTestApp("Docker-app")
+			const plainApp = await createTestApp("Plain-app")
+			await createTestScreeningAnswer(dockerApp, q, "Yes")
+			await createTestScreeningAnswer(plainApp, q, "Yes")
+			await confirmAppTechElement(dockerApp, dockerId)
+
+			await createRoutine({
+				sectionId,
+				name: "Container",
+				description: null,
+				frequency: "monthly",
+				screeningQuestionId: q,
+				screeningChoiceValue: "Yes",
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [dockerId],
+				createdBy: "test-user",
+			})
+
+			const rows = await getRoutineDeadlinesForSection(sectionId)
+			expect(rows.map((r) => r.applicationName)).toEqual(["Docker-app"])
+		})
+
+		it("velger seneste completed review per (rutine, app)", async () => {
+			const sectionId = await createTestSection("Sec-DLF3", "sec-dlf3")
+			const q = await createTestScreeningQuestion(sectionId, "Q?")
+			await createTestChoice(q, "Yes")
+			const appId = await createTestApp("App")
+			await createTestScreeningAnswer(appId, q, "Yes")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Rev-routine",
+				description: null,
+				frequency: "monthly",
+				screeningQuestionId: q,
+				screeningChoiceValue: "Yes",
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			const db = getTestDb()
+			await db.execute(/* sql */ `
+				INSERT INTO routine_reviews (routine_id, application_id, title, status, reviewed_at, created_by, updated_by)
+				VALUES
+					('${routine.id}', '${appId}', 'old', 'completed', NOW() - INTERVAL '5 days', 'u', 'u'),
+					('${routine.id}', '${appId}', 'new', 'completed', NOW() - INTERVAL '1 days', 'u', 'u')
+			`)
+
+			const rows = await getRoutineDeadlinesForSection(sectionId)
+			expect(rows.length).toBe(1)
+			const expected = await getLatestReviewForApp(routine.id, appId)
+			expect(rows[0].lastReviewDate?.getTime()).toBe(expected?.reviewedAt.getTime())
 		})
 	})
 

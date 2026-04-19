@@ -126,6 +126,12 @@ export const auditLogActionEnum = [
 	"audit_summary_synced",
 	"deployment_verification_synced",
 
+	// Nais upserts (persistens og auth-integrasjoner)
+	"nais_persistence_added",
+	"nais_persistence_updated",
+	"nais_auth_integration_added",
+	"nais_auth_integration_updated",
+
 	// Rapporter
 	"report_generated",
 ] as const

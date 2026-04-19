@@ -109,3 +109,6 @@ pool.on("error", (err) => {
 
 export const db = drizzle(pool, { schema })
 export { pool }
+
+/** Either the main `db` instance or a transaction object — useful for functions that may run inside a tx. */
+export type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]

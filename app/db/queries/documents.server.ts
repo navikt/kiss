@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm"
 import { db } from "../connection.server"
-import { auditLog } from "../schema/audit"
 import { documents } from "../schema/documents"
+import { writeAuditLog } from "./audit.server"
 
 export async function getAllDocuments() {
 	return db.select().from(documents).orderBy(desc(documents.uploadedAt))
@@ -23,7 +23,7 @@ export async function createDocument(params: {
 }) {
 	const [doc] = await db.insert(documents).values(params).returning()
 
-	await db.insert(auditLog).values({
+	await writeAuditLog({
 		action: "document_uploaded",
 		entityType: "document",
 		entityId: doc.id,
@@ -40,7 +40,7 @@ export async function deleteDocument(id: string, deletedBy: string) {
 
 	await db.delete(documents).where(eq(documents.id, id))
 
-	await db.insert(auditLog).values({
+	await writeAuditLog({
 		action: "document_deleted",
 		entityType: "document",
 		entityId: id,

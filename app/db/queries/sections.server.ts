@@ -459,17 +459,22 @@ export async function updateSection(id: string, name: string, description: strin
 
 /** Delete a section and all its teams. */
 export async function deleteSection(id: string, performedBy: string) {
-	const [prev] = await db.select().from(sections).where(eq(sections.id, id)).limit(1)
-	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, id))
-	await db.delete(devTeams).where(eq(devTeams.sectionId, id))
-	await db.delete(sections).where(eq(sections.id, id))
-	await writeAuditLog({
-		action: "section_deleted",
-		entityType: "section",
-		entityId: id,
-		previousValue: prev?.name ?? null,
-		metadata: { deletedTeams: teams.map((t) => t.name) },
-		performedBy,
+	await db.transaction(async (tx) => {
+		const [prev] = await tx.select().from(sections).where(eq(sections.id, id)).limit(1)
+		const teams = await tx.select().from(devTeams).where(eq(devTeams.sectionId, id))
+		await tx.delete(devTeams).where(eq(devTeams.sectionId, id))
+		await tx.delete(sections).where(eq(sections.id, id))
+		await writeAuditLog(
+			{
+				action: "section_deleted",
+				entityType: "section",
+				entityId: id,
+				previousValue: prev?.name ?? null,
+				metadata: { deletedTeams: teams.map((t) => t.name) },
+				performedBy,
+			},
+			tx,
+		)
 	})
 }
 
