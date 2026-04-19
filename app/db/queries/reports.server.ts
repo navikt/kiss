@@ -1,4 +1,5 @@
 import { desc, eq, isNull, sql } from "drizzle-orm"
+import type PDFDocument from "pdfkit"
 import { getStatusLabel } from "../../lib/compliance-status"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
@@ -616,8 +617,7 @@ export async function generateAppComplianceReport(params: {
 }
 
 function buildAppPdf(
-	// biome-ignore lint/suspicious/noExplicitAny: pdfkit constructor type varies across versions
-	PDFDocCtor: any,
+	PDFDocCtor: typeof PDFDocument,
 	app: { name: string; namespace: string | null; cluster: string | null },
 	assessments: Array<{
 		controlId: string
@@ -938,7 +938,7 @@ function buildAppPdf(
 }
 
 function drawRow(
-	doc: PDFKit.PDFDocument,
+	doc: InstanceType<typeof PDFDocument>,
 	x: number,
 	widths: number[],
 	cells: string[],
