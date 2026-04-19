@@ -1,7 +1,7 @@
-/// <reference types="pdfkit" />
 import { marked, type Token, type Tokens } from "marked"
+import type PDFDocument from "pdfkit"
 
-type PdfDocument = PDFKit.PDFDocument
+type PdfDocument = InstanceType<typeof PDFDocument>
 
 interface PdfStyle {
 	fontSize: number
