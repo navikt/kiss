@@ -1,324 +1,32 @@
-import { PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import { TrashIcon } from "@navikt/aksel-icons"
 import {
-	BodyLong,
 	BodyShort,
 	Button,
 	Checkbox,
 	CheckboxGroup,
 	Heading,
 	HStack,
-	Label,
 	LocalAlert,
-	Modal,
-	Radio,
-	RadioGroup,
 	Select,
-	TextField,
 	VStack,
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, redirect, useLoaderData } from "react-router"
-import { MarkdownEditor } from "~/components/MarkdownEditor"
+import { Form, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getAllControlsForSelection } from "~/db/queries/framework.server"
-import { approveRoutine, deleteRoutine, getRoutine, replaceRoutine, updateRoutine } from "~/db/queries/routines.server"
-import {
-	getChoicesForQuestion,
-	getScreeningQuestions,
-	getSectionScreeningQuestions,
-} from "~/db/queries/screening.server"
-import { getSectionBySlug } from "~/db/queries/sections.server"
-import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
-import {
-	type DataClassification,
-	dataClassificationLabels,
-	type GroupAccessClassification,
-	groupAccessClassificationLabels,
-	type PersistenceType,
-	persistenceTypeEnum,
-	persistenceTypeLabels,
-} from "~/db/schema/applications"
-import {
-	ROUTINE_ACTIVITY_TYPES,
-	type RoutineActivityType,
-	type RoutineStatus,
-	routineStatusEnum,
-} from "~/db/schema/routines"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { canApproveRoutine, requireAdmin } from "~/lib/authorization.server"
-import {
-	frequencyLabels,
-	getStrictestFrequency,
-	isFrequencyAtLeastAsOften,
-	isRoutineFrequency,
-	ROUTINE_FREQUENCIES,
-	type RoutineFrequency,
-} from "~/lib/routine-frequencies"
+import { groupAccessClassificationLabels } from "~/db/schema/applications"
+import { getStrictestFrequency, isFrequencyAtLeastAsOften, isRoutineFrequency } from "~/lib/routine-frequencies"
+import { ApproveReplaceModal } from "./components/ApproveReplaceModal"
+import { DeleteRoutineModal } from "./components/DeleteRoutineModal"
+import { GrunnleggendeFields } from "./components/GrunnleggendeFields"
+import { KontrollerField } from "./components/KontrollerField"
+import { PersistenceLinks } from "./components/PersistenceLinks"
+import { ScreeningQuestionLinks } from "./components/ScreeningQuestionLinks"
+import type { loader } from "./loader.server"
+import { type PersistenceLinkItem, PREDEFINED_ROLES, type QuestionLink } from "./shared"
 
-const PREDEFINED_ROLES = [
-	"Seksjonsleder",
-	"Teknologileder",
-	"Teamleder",
-	"Utvikler",
-	"Arkitekt",
-	"Sikkerhetsansvarlig",
-	"Testleder",
-] as const
-
-interface QuestionLink {
-	key: string
-	questionId: string
-	choiceValue: string
-}
-
-interface PersistenceLinkItem {
-	key: string
-	persistenceType: string
-	dataClassification: string
-}
-
-export async function loader({ request, params }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
-
-	const { seksjon, rutineId } = params
-	if (!seksjon || !rutineId) throw new Response("Mangler parametere", { status: 400 })
-
-	const section = await getSectionBySlug(seksjon)
-	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
-
-	const routine = await getRoutine(rutineId)
-	if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
-
-	const [globalQuestions, sectionQuestions, technologyElements, controls] = await Promise.all([
-		getScreeningQuestions(),
-		getSectionScreeningQuestions(section.id),
-		getAllTechnologyElements(),
-		getAllControlsForSelection(),
-	])
-
-	const allQuestions = [...globalQuestions, ...sectionQuestions]
-	const questionsWithChoices = await Promise.all(
-		allQuestions.map(async (q) => ({
-			...q,
-			isSection: q.sectionId !== null,
-			choices: await getChoicesForQuestion(q.id),
-		})),
-	)
-
-	const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
-	const userCanApprove = canApproveRoutine(authedUser, effectiveRole, section.id)
-
-	return data({
-		seksjon,
-		section,
-		routine,
-		questionsWithChoices,
-		technologyElements,
-		controls,
-		userCanApprove,
-	})
-}
-
-export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
-
-	const { seksjon, rutineId } = params
-	if (!seksjon || !rutineId) throw new Response("Mangler parametere", { status: 400 })
-
-	// Block editing of approved routines
-	const existingRoutine = await getRoutine(rutineId)
-	if (existingRoutine?.status === "approved") {
-		throw new Response("Godkjente rutiner kan ikke redigeres. Lag en kopi for å gjøre endringer.", { status: 403 })
-	}
-
-	const formData = await request.formData()
-	const intent = formData.get("intent") as string
-
-	if (intent === "update") {
-		const name = (formData.get("name") as string)?.trim()
-		const description = (formData.get("description") as string)?.trim() || null
-		const frequency = formData.get("frequency") as string
-		const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
-		const appliesToAllInSection = formData.get("appliesToAllInSection") === "on"
-		const activityTypeRaw = (formData.get("activityType") as string)?.trim() || null
-		const activityType =
-			activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
-				? (activityTypeRaw as RoutineActivityType)
-				: null
-		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
-		const controlIds = formData.getAll("controlIds") as string[]
-		const groupClassifications = formData.getAll("groupClassifications") as string[]
-		const statusRaw = formData.get("status") as string | null
-		const status =
-			statusRaw && routineStatusEnum.includes(statusRaw as RoutineStatus) ? (statusRaw as RoutineStatus) : undefined
-
-		// Parse persistence links from form
-		const plTypes = formData.getAll("plPersistenceType") as string[]
-		const plClassifications = formData.getAll("plDataClassification") as string[]
-		const persistenceLinks = plTypes
-			.map((t, i) => ({
-				persistenceType: (t.trim() || null) as PersistenceType | null,
-				dataClassification: (plClassifications[i]?.trim() || null) as DataClassification | null,
-			}))
-			.filter((l) => l.persistenceType || l.dataClassification)
-
-		if (!name) throw new Response("Navn er påkrevd", { status: 400 })
-		if (!isRoutineFrequency(frequency)) throw new Response("Ugyldig frekvens", { status: 400 })
-
-		// Validate frequency is at least as often as the strictest control requirement
-		if (controlIds.length > 0) {
-			const allControls = await getAllControlsForSelection()
-			const selectedControls = allControls.filter((c) => controlIds.includes(c.id))
-			const minFreq = getStrictestFrequency(selectedControls.map((c) => c.frequency))
-			if (minFreq && !isFrequencyAtLeastAsOften(frequency, minFreq)) {
-				throw new Response(`Frekvensen kan ikke være sjeldnere enn kravet (${frequencyLabels[minFreq]})`, {
-					status: 400,
-				})
-			}
-		}
-
-		// Parse multiple question links from form
-		const questionIds = formData.getAll("questionId") as string[]
-		const choiceValues = formData.getAll("choiceValue") as string[]
-		const screeningQuestionLinks = questionIds
-			.map((qId, i) => ({ questionId: qId, choiceValue: choiceValues[i] ?? "" }))
-			.filter((l) => l.questionId)
-
-		// Keep first link as legacy single field for backward compat
-		const firstLink = screeningQuestionLinks[0]
-
-		await updateRoutine({
-			id: rutineId,
-			name,
-			description,
-			frequency,
-			responsibleRole,
-			appliesToAllInSection,
-			activityType,
-			persistenceLinks,
-			screeningQuestionId: firstLink?.questionId ?? null,
-			screeningChoiceValue: firstLink?.choiceValue ?? null,
-			screeningQuestionLinks,
-			technologyElementIds,
-			controlIds,
-			groupClassifications: groupClassifications.filter(Boolean) as GroupAccessClassification[],
-			status,
-			updatedBy: authedUser.navIdent,
-		})
-
-		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
-	}
-
-	if (intent === "delete") {
-		await deleteRoutine(rutineId, authedUser.navIdent)
-		return redirect(`/seksjoner/${seksjon}/rutiner`)
-	}
-
-	if (intent === "approve-replace") {
-		const section = await getSectionBySlug(seksjon)
-		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
-		const routine = await getRoutine(rutineId)
-		if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
-
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
-		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
-			throw new Response("Du har ikke riktig rolle til å godkjenne denne rutinen", { status: 403 })
-		}
-
-		const deadlinePolicy = formData.get("deadlinePolicy") as "reset" | "continue"
-		if (!deadlinePolicy || !["reset", "continue"].includes(deadlinePolicy)) {
-			throw new Response("Ugyldig fristpolicy", { status: 400 })
-		}
-
-		if (!routine.sourceRoutineId) {
-			throw new Response("Rutinen har ikke et opphav å erstatte", { status: 400 })
-		}
-
-		await replaceRoutine(rutineId, routine.sourceRoutineId, deadlinePolicy, authedUser.navIdent)
-		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
-	}
-
-	if (intent === "approve-as-new") {
-		const section = await getSectionBySlug(seksjon)
-		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
-		const routine = await getRoutine(rutineId)
-		if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
-
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
-		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
-			throw new Response("Du har ikke riktig rolle til å godkjenne denne rutinen", { status: 403 })
-		}
-
-		await approveRoutine(rutineId, authedUser.navIdent)
-		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
-	}
-
-	throw new Response("Ugyldig handling", { status: 400 })
-}
-
-function ApproveReplaceModal({
-	modalRef,
-	routineName,
-	hasSource,
-}: {
-	modalRef: React.RefObject<HTMLDialogElement | null>
-	routineName: string
-	hasSource: boolean
-}) {
-	const [action, setAction] = useState<"replace" | "new">(hasSource ? "replace" : "new")
-	const [deadlinePolicy, setDeadlinePolicy] = useState<"continue" | "reset">("continue")
-
-	return (
-		<Modal ref={modalRef} header={{ heading: `Godkjenn rutine: ${routineName}` }}>
-			<Modal.Body>
-				<VStack gap="space-8">
-					{hasSource && (
-						<RadioGroup
-							legend="Hva skal skje med den opprinnelige rutinen?"
-							value={action}
-							onChange={(val) => setAction(val as "replace" | "new")}
-							size="small"
-						>
-							<Radio value="replace">Erstatt den opprinnelige rutinen</Radio>
-							<Radio value="new">Legg til som en ny rutine (behold begge)</Radio>
-						</RadioGroup>
-					)}
-					{action === "replace" && (
-						<RadioGroup
-							legend="Fristpolicy for applikasjoner"
-							description="Velg om applikasjonene som bruker den gamle rutinen skal beholde sin eksisterende frist eller starte på nytt."
-							value={deadlinePolicy}
-							onChange={(val) => setDeadlinePolicy(val as "continue" | "reset")}
-							size="small"
-						>
-							<Radio value="continue">Behold eksisterende frist (basert på ny frekvens fra forrige gjennomgang)</Radio>
-							<Radio value="reset">Krev ny gjennomgang (fristen starter fra nå)</Radio>
-						</RadioGroup>
-					)}
-				</VStack>
-			</Modal.Body>
-			<Modal.Footer>
-				<Form method="post" onSubmit={() => modalRef.current?.close()}>
-					<input type="hidden" name="intent" value={action === "replace" ? "approve-replace" : "approve-as-new"} />
-					{action === "replace" && <input type="hidden" name="deadlinePolicy" value={deadlinePolicy} />}
-					<HStack gap="space-4">
-						<Button type="submit" variant="primary" size="small">
-							Godkjenn
-						</Button>
-						<Button type="button" variant="secondary" size="small" onClick={() => modalRef.current?.close()}>
-							Avbryt
-						</Button>
-					</HStack>
-				</Form>
-			</Modal.Footer>
-		</Modal>
-	)
-}
+export { action } from "./action.server"
+export { loader } from "./loader.server"
+export { RouteErrorBoundary as ErrorBoundary }
 
 export default function RedigerRutine() {
 	const { routine, questionsWithChoices, technologyElements, controls, userCanApprove } = useLoaderData<typeof loader>()
@@ -395,7 +103,6 @@ export default function RedigerRutine() {
 		)
 	}
 
-	// Persistence links state
 	const initialPersistenceLinks: PersistenceLinkItem[] = routine.persistenceLinks.map((pl) => ({
 		key: pl.id,
 		persistenceType: pl.persistenceType ?? "",
@@ -438,123 +145,23 @@ export default function RedigerRutine() {
 			<Form method="post">
 				<input type="hidden" name="intent" value="update" />
 				<VStack gap="space-4">
-					<TextField label="Navn" name="name" defaultValue={routine.name} size="small" autoComplete="off" />
-					<MarkdownEditor label="Beskrivelse" name="description" defaultValue={routine.description ?? ""} />
-					<Select
-						label="Frekvens"
-						name="frequency"
-						value={selectedFrequency}
-						onChange={(e) => setSelectedFrequency(e.target.value as RoutineFrequency)}
-						size="small"
-						description={minimumFrequency ? `Krav krever minimum: ${frequencyLabels[minimumFrequency]}` : undefined}
-					>
-						{ROUTINE_FREQUENCIES.map((freq) => (
-							<option
-								key={freq}
-								value={freq}
-								disabled={minimumFrequency ? !isFrequencyAtLeastAsOften(freq, minimumFrequency) : false}
-							>
-								{frequencyLabels[freq]}
-								{minimumFrequency === freq ? " (fra krav)" : ""}
-							</option>
-						))}
-					</Select>
+					<GrunnleggendeFields
+						name={routine.name}
+						description={routine.description}
+						frequency={selectedFrequency}
+						onFrequencyChange={setSelectedFrequency}
+						minimumFrequency={minimumFrequency}
+						status={routine.status}
+						appliesToAllInSection={routine.appliesToAllInSection === 1}
+					/>
 
-					<Select label="Status" name="status" defaultValue={routine.status ?? "active"} size="small">
-						<option value="draft">Utkast</option>
-						<option value="active">Aktiv</option>
-						<option value="archived">Arkivert</option>
-					</Select>
-
-					<Checkbox name="appliesToAllInSection" defaultChecked={routine.appliesToAllInSection === 1} size="small">
-						Gjelder alle applikasjoner i seksjonen
-					</Checkbox>
-
-					<VStack gap="space-2">
-						<Label size="small">Innledende spørsmål</Label>
-						<BodyShort size="small" textColor="subtle">
-							Knytt rutinen til ett eller flere spørsmål. Apper som svarer med valgt svarverdi vil måtte gjennomføre
-							rutinen.
-						</BodyShort>
-						{questionLinks.map((link, index) => {
-							const question = questionsWithChoices.find((q) => q.id === link.questionId)
-							return (
-								<HStack key={link.key} gap="space-2" align="end" style={{ flexWrap: "wrap" }}>
-									<div style={{ flex: 2, minWidth: "15rem" }}>
-										<Select
-											label={index === 0 ? "Spørsmål" : undefined}
-											hideLabel={index > 0}
-											aria-label="Spørsmål"
-											size="small"
-											value={link.questionId}
-											onChange={(e) => updateQuestionLink(index, "questionId", e.target.value)}
-										>
-											<option value="">Velg spørsmål …</option>
-											{questionsWithChoices.filter((q) => q.isSection).length > 0 && (
-												<optgroup label="Seksjonens spørsmål">
-													{questionsWithChoices
-														.filter((q) => q.isSection)
-														.map((q) => (
-															<option key={q.id} value={q.id}>
-																{q.questionText}
-															</option>
-														))}
-												</optgroup>
-											)}
-											<optgroup label="Globale spørsmål">
-												{questionsWithChoices
-													.filter((q) => !q.isSection)
-													.map((q) => (
-														<option key={q.id} value={q.id}>
-															{q.questionText}
-														</option>
-													))}
-											</optgroup>
-										</Select>
-									</div>
-									<div style={{ flex: 1, minWidth: "10rem" }}>
-										<Select
-											label={index === 0 ? "Svarverdi" : undefined}
-											hideLabel={index > 0}
-											aria-label="Svarverdi"
-											size="small"
-											value={link.choiceValue}
-											onChange={(e) => updateQuestionLink(index, "choiceValue", e.target.value)}
-											disabled={!question || question.choices.length === 0}
-										>
-											<option value="">Velg …</option>
-											{question?.choices.map((c) => (
-												<option key={c.id} value={c.label}>
-													{c.label}
-												</option>
-											))}
-										</Select>
-									</div>
-									<input type="hidden" name="questionId" value={link.questionId} />
-									<input type="hidden" name="choiceValue" value={link.choiceValue} />
-									<Button
-										type="button"
-										variant="tertiary-neutral"
-										size="small"
-										icon={<TrashIcon aria-hidden />}
-										onClick={() => removeQuestionLink(index)}
-										aria-label="Fjern spørsmål"
-									/>
-								</HStack>
-							)
-						})}
-						<div>
-							<Button
-								type="button"
-								variant="secondary"
-								size="xsmall"
-								icon={<PlusIcon aria-hidden />}
-								onClick={addQuestionLink}
-							>
-								Legg til spørsmål
-							</Button>
-						</div>
-					</VStack>
+					<ScreeningQuestionLinks
+						links={questionLinks}
+						questionsWithChoices={questionsWithChoices}
+						onAdd={addQuestionLink}
+						onRemove={removeQuestionLink}
+						onUpdate={updateQuestionLink}
+					/>
 
 					{technologyElements.length > 0 && (
 						<CheckboxGroup
@@ -588,73 +195,12 @@ export default function RedigerRutine() {
 						)}
 					</Select>
 
-					<VStack gap="space-2">
-						<Label size="small">Database og klassifisering</Label>
-						<BodyShort size="small" textColor="subtle">
-							Knytt rutinen til én eller flere databasetyper og/eller dataklassifiseringer.
-						</BodyShort>
-						{persistenceLinks.map((link, index) => (
-							<HStack key={link.key} gap="space-2" align="end" wrap>
-								<div style={{ flex: 1, minWidth: "12rem" }}>
-									<Select
-										label={index === 0 ? "Databasetype" : undefined}
-										hideLabel={index > 0}
-										aria-label="Databasetype"
-										size="small"
-										value={link.persistenceType}
-										onChange={(e) => updatePersistenceLink(index, "persistenceType", e.target.value)}
-									>
-										<option value="">Ikke angitt</option>
-										{persistenceTypeEnum.map((t) => (
-											<option key={t} value={t}>
-												{persistenceTypeLabels[t]}
-											</option>
-										))}
-									</Select>
-								</div>
-								<div style={{ flex: 1, minWidth: "12rem" }}>
-									<Select
-										label={index === 0 ? "Dataklassifisering" : undefined}
-										hideLabel={index > 0}
-										aria-label="Dataklassifisering"
-										size="small"
-										value={link.dataClassification}
-										onChange={(e) => updatePersistenceLink(index, "dataClassification", e.target.value)}
-									>
-										<option value="">Ikke angitt</option>
-										{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(
-											([value, label]) => (
-												<option key={value} value={value}>
-													{label}
-												</option>
-											),
-										)}
-									</Select>
-								</div>
-								<input type="hidden" name="plPersistenceType" value={link.persistenceType} />
-								<input type="hidden" name="plDataClassification" value={link.dataClassification} />
-								<Button
-									type="button"
-									variant="tertiary-neutral"
-									size="small"
-									icon={<TrashIcon aria-hidden />}
-									onClick={() => removePersistenceLink(index)}
-									aria-label="Fjern kobling"
-								/>
-							</HStack>
-						))}
-						<div>
-							<Button
-								type="button"
-								variant="secondary"
-								size="xsmall"
-								icon={<PlusIcon aria-hidden />}
-								onClick={addPersistenceLink}
-							>
-								Legg til kobling
-							</Button>
-						</div>
-					</VStack>
+					<PersistenceLinks
+						links={persistenceLinks}
+						onAdd={addPersistenceLink}
+						onRemove={removePersistenceLink}
+						onUpdate={updatePersistenceLink}
+					/>
 
 					<CheckboxGroup
 						legend="Tilgangsklassifisering for Entra ID-grupper"
@@ -669,21 +215,7 @@ export default function RedigerRutine() {
 						))}
 					</CheckboxGroup>
 
-					{controls.length > 0 && (
-						<CheckboxGroup
-							legend="Tilknyttede krav"
-							size="small"
-							value={selectedControlIds}
-							onChange={handleControlChange}
-						>
-							{controls.map((ctrl) => (
-								<Checkbox key={ctrl.id} name="controlIds" value={ctrl.id}>
-									{ctrl.controlId} – {ctrl.name}
-									{ctrl.responsible && ` (${ctrl.responsible})`}
-								</Checkbox>
-							))}
-						</CheckboxGroup>
-					)}
+					<KontrollerField controls={controls} selectedControlIds={selectedControlIds} onChange={handleControlChange} />
 
 					<Select
 						label="Vedlikeholdsaktivitet"
@@ -718,24 +250,7 @@ export default function RedigerRutine() {
 				</VStack>
 			</Form>
 
-			<Modal ref={deleteModalRef} header={{ heading: `Slett rutine: ${routine.name}` }}>
-				<Modal.Body>
-					<BodyLong>Er du sikker på at du vil slette rutinen «{routine.name}»?</BodyLong>
-				</Modal.Body>
-				<Modal.Footer>
-					<Form method="post" onSubmit={() => deleteModalRef.current?.close()}>
-						<input type="hidden" name="intent" value="delete" />
-						<HStack gap="space-4">
-							<Button type="submit" variant="danger" size="small">
-								Slett
-							</Button>
-							<Button type="button" variant="secondary" size="small" onClick={() => deleteModalRef.current?.close()}>
-								Avbryt
-							</Button>
-						</HStack>
-					</Form>
-				</Modal.Footer>
-			</Modal>
+			<DeleteRoutineModal modalRef={deleteModalRef} routineName={routine.name} />
 
 			{routine.sourceRoutineId && (
 				<ApproveReplaceModal
@@ -747,5 +262,3 @@ export default function RedigerRutine() {
 		</VStack>
 	)
 }
-
-export { RouteErrorBoundary as ErrorBoundary }
