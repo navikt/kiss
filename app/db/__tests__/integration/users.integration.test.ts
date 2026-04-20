@@ -68,11 +68,18 @@ describe("users.server integration tests", () => {
 
 		it("updates existing user on conflict and bumps lastLoginAt", async () => {
 			const id1 = await upsertUser("X123456", "Old Name")
+			const db = getTestDb()
+			const beforeRows = await db.execute(/* sql */ `SELECT last_login_at FROM users WHERE id = '${id1}'`)
+			const firstLastLoginAt = new Date((beforeRows.rows[0] as { last_login_at: string }).last_login_at)
+
+			await new Promise((resolve) => setTimeout(resolve, 10))
+
 			const id2 = await upsertUser("X123456", "New Name", "new@nav.no")
 			expect(id2).toBe(id1)
-			const db = getTestDb()
-			const rows = await db.execute(/* sql */ `SELECT name, email FROM users WHERE id = '${id1}'`)
+			const rows = await db.execute(/* sql */ `SELECT name, email, last_login_at FROM users WHERE id = '${id1}'`)
 			expect(rows.rows[0]).toMatchObject({ name: "New Name", email: "new@nav.no" })
+			const updatedLastLoginAt = new Date((rows.rows[0] as { last_login_at: string }).last_login_at)
+			expect(updatedLastLoginAt.getTime()).toBeGreaterThan(firstLastLoginAt.getTime())
 		})
 	})
 

@@ -182,7 +182,9 @@ describe("rulesets.server integration tests", () => {
 			await linkControlToRuleset(rulesetId, controlId)
 
 			const detail = await getRulesetDetail(rulesetId)
-			expect(detail?.controls.length).toBeGreaterThanOrEqual(1)
+			// Asserts exact duplicate count so this test fails when the schema is fixed
+			// with a unique constraint on (ruleset_id, control_id).
+			expect(detail?.controls).toHaveLength(2)
 		})
 	})
 

@@ -134,10 +134,22 @@ describe("technology-elements.server integration tests", () => {
 			await addControlElement(controlId, el.id, "admin")
 			const linked = await getControlElements(controlId)
 			expect(linked.map((e) => e.slug)).toEqual(["postgres"])
+			const addedAuditEntries = await getAuditEntries("control_element_added", controlId)
+			expect(addedAuditEntries).toHaveLength(1)
+			expect(addedAuditEntries[0]).toEqual({
+				action: "control_element_added",
+				performed_by: "admin",
+			})
 
 			await removeControlElement(controlId, el.id, "admin")
 			const after = await getControlElements(controlId)
 			expect(after).toHaveLength(0)
+			const removedAuditEntries = await getAuditEntries("control_element_removed", controlId)
+			expect(removedAuditEntries).toHaveLength(1)
+			expect(removedAuditEntries[0]).toEqual({
+				action: "control_element_removed",
+				performed_by: "admin",
+			})
 		})
 	})
 
