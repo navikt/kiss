@@ -1,0 +1,47 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"description": "Mapping fra Storybook story-IDer til dokumentasjonsbilder. Brukes av capture-screenshots.ts --docs.",
+	"targetDir": "screenshots/docs",
+	"screenshots": [
+		{
+			"storyId": "fullskjerm--dashboard",
+			"filename": "kiss-dashboard.png",
+			"description": "KISS Dashboard med seksjonsoversikt"
+		},
+		{
+			"storyId": "fullskjerm--kontrollrammeverk",
+			"filename": "kiss-kontrollrammeverk.png",
+			"description": "Kontrollrammeverk med domener og kontroller"
+		},
+		{
+			"storyId": "fullskjerm--seksjoner",
+			"filename": "kiss-seksjoner.png",
+			"description": "Oversikt over alle seksjoner"
+		},
+		{
+			"storyId": "fullskjerm--seksjon-detaljer",
+			"filename": "kiss-seksjon-detaljer.png",
+			"description": "Seksjon med team-compliance og deployment-statistikk"
+		},
+		{
+			"storyId": "fullskjerm--team-detaljer",
+			"filename": "kiss-team-detaljer.png",
+			"description": "Team med applikasjoner og compliance-oversikt"
+		},
+		{
+			"storyId": "fullskjerm--applikasjon-detaljer",
+			"filename": "kiss-applikasjon-detaljer.png",
+			"description": "Applikasjon med kontroller og compliance-vurdering"
+		},
+		{
+			"storyId": "fullskjerm--mine-team",
+			"filename": "kiss-mine-team.png",
+			"description": "Mine team med applikasjoner og compliance"
+		},
+		{
+			"storyId": "fullskjerm--nais-overvaking",
+			"filename": "kiss-nais-overvaking.png",
+			"description": "Nais-overvåking med team og applikasjoner"
+		}
+	]
+}

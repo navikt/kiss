@@ -14,7 +14,8 @@
 		"noEmit": true,
 		"rootDirs": [".", "./.react-router/types"],
 		"paths": {
-			"~/*": ["./app/*"]
+			"~/*": ["./app/*"],
+			"@storybook-mocks/*": ["./.storybook/mocks/*"]
 		},
 		"types": ["vite/client", "node"]
 	},

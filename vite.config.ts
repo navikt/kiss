@@ -3,6 +3,8 @@ import path from "node:path"
 import { reactRouter } from "@react-router/dev/vite"
 import { defineConfig } from "vite"
 
+const isStorybook = !!process.env.STORYBOOK
+
 function getBuildVersion(): string {
 	const now = new Date()
 	const time = now
@@ -26,7 +28,7 @@ function getBuildVersion(): string {
 }
 
 export default defineConfig({
-	plugins: [reactRouter()],
+	plugins: [...(!isStorybook ? [reactRouter()] : [])],
 	define: {
 		__BUILD_VERSION__: JSON.stringify(getBuildVersion()),
 	},
