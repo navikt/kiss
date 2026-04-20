@@ -35,6 +35,7 @@ type Assessment = {
 	technologyElementName: string | null
 	effectiveStatus: string | null
 	autoReason: string | null
+	screeningDetails: Array<{ questionTitle: string; answer: string; effect: string }>
 	establishment: string
 	routineCompliance: string
 	applicationControlId: string | null

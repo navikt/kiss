@@ -118,6 +118,12 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 	// Group by control: what screening says for each control
 	const result = new Map<string, ScreeningEffectsForControl>()
 
+	// Build question title lookup
+	const questionTitleById = new Map<string, string>()
+	for (const q of allQuestions) {
+		questionTitleById.set(q.id, q.questionText)
+	}
+
 	// First, find which controls have any screening effects at all
 	const controlsWithEffects = new Set<string>()
 	// Map: choiceId → effects
@@ -143,11 +149,17 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 					effects: [],
 					allQuestionsAnswered: true,
 					hasQuestions: true,
+					details: [],
 				}
 				entry.hasQuestions = true
 
 				if (answerValue === choice.label) {
 					entry.effects.push(effect.effect)
+					entry.details.push({
+						questionTitle: questionTitleById.get(questionId) ?? questionId,
+						answer: answerValue,
+						effect: effect.effect,
+					})
 				}
 
 				// Track whether all questions that affect this control are answered
@@ -170,4 +182,12 @@ export interface ScreeningEffectsForControl {
 	allQuestionsAnswered: boolean
 	/** Whether any screening questions target this control */
 	hasQuestions: boolean
+	/** Details about which questions/answers produced the effects */
+	details: ScreeningEffectDetail[]
+}
+
+export interface ScreeningEffectDetail {
+	questionTitle: string
+	answer: string
+	effect: string
 }

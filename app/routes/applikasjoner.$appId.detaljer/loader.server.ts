@@ -167,6 +167,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			routinesEstablished: auto?.routinesEstablished ?? 0,
 			routinesCompleted: auto?.routinesCompleted ?? 0,
 			routinesOverdue: auto?.routinesOverdue ?? 0,
+			screeningDetails: auto?.screeningDetails ?? [],
 		}
 	})
 
