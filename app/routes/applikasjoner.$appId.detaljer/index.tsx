@@ -109,9 +109,16 @@ export default function ApplikasjonDetalj() {
 
 			<Box background="sunken" padding="space-12" borderRadius="8">
 				<VStack gap="space-4">
-					<Heading size="small" level="3">
-						Oppsummert compliance
-					</Heading>
+					<HStack gap="space-16" wrap justify="space-between" align="center">
+						<Heading size="small" level="3">
+							Oppsummert compliance
+						</Heading>
+						<Link to={`${appBase}/compliance`}>
+							<Button as="span" size="small" variant="secondary">
+								Gå til compliance-screening
+							</Button>
+						</Link>
+					</HStack>
 					<HStack gap="space-16" wrap>
 						<BodyShort>
 							<strong>Gjennomføring:</strong>{" "}
