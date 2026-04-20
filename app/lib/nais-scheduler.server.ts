@@ -40,12 +40,3 @@ export function startNaisScheduler() {
 		intervalId = setInterval(runSync, SYNC_INTERVAL_MS)
 	}, INITIAL_DELAY_MS)
 }
-
-/** Stop the scheduler (for graceful shutdown). */
-export function stopNaisScheduler() {
-	if (intervalId) {
-		clearInterval(intervalId)
-		intervalId = null
-		logger.info("[nais-scheduler] Stopped")
-	}
-}

@@ -224,7 +224,7 @@ export function SearchDialog() {
 				<Dialog.Body style={{ padding: 0, maxHeight: "400px", overflowY: "auto" }}>
 					{loading && (
 						<HStack justify="center" padding="space-24">
-							<Loader size="medium" />
+							<Loader size="medium" title="Søker..." />
 						</HStack>
 					)}
 
