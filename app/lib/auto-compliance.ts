@@ -34,6 +34,10 @@ export interface AutoComplianceResult {
 	routinesCompleted: number
 	/** Antall rutiner som er forfalt */
 	routinesOverdue: number
+
+	// ─── Screening details ──────────────────────────────────────
+	/** Which screening questions/answers contributed to this status */
+	screeningDetails: Array<{ questionId: string; questionTitle: string; answer: string; effect: string }>
 }
 
 interface RoutineMatch {
@@ -49,6 +53,7 @@ interface ScreeningEffectsForControl {
 	effects: string[]
 	allQuestionsAnswered: boolean
 	hasQuestions: boolean
+	details: Array<{ questionId: string; questionTitle: string; answer: string; effect: string }>
 }
 
 /**
@@ -138,6 +143,7 @@ function computeStatusForAssessment(
 ): AutoComplianceResult {
 	const hasRoutines = controlRoutines.length > 0
 	const hasScreening = screening?.hasQuestions ?? false
+	const screeningDetails = screening?.details ?? []
 
 	// Two-dimensional counts
 	const routinesEstablished = new Set(controlRoutines.map((r) => r.routineId)).size
@@ -159,6 +165,7 @@ function computeStatusForAssessment(
 			routinesEstablished: 0,
 			routinesCompleted: 0,
 			routinesOverdue: 0,
+			screeningDetails,
 		}
 	}
 
@@ -176,6 +183,7 @@ function computeStatusForAssessment(
 				routinesEstablished: 0,
 				routinesCompleted: 0,
 				routinesOverdue: 0,
+				screeningDetails,
 			}
 		}
 
@@ -193,6 +201,7 @@ function computeStatusForAssessment(
 				routinesEstablished: 0,
 				routinesCompleted: 0,
 				routinesOverdue: 0,
+				screeningDetails,
 			}
 		}
 
@@ -209,6 +218,7 @@ function computeStatusForAssessment(
 				routinesEstablished: 0,
 				routinesCompleted: 0,
 				routinesOverdue: 0,
+				screeningDetails,
 			}
 		}
 
@@ -225,6 +235,7 @@ function computeStatusForAssessment(
 				routinesEstablished: 0,
 				routinesCompleted: 0,
 				routinesOverdue: 0,
+				screeningDetails,
 			}
 		}
 
@@ -244,6 +255,7 @@ function computeStatusForAssessment(
 				routinesEstablished: 0,
 				routinesCompleted: 0,
 				routinesOverdue: 0,
+				screeningDetails,
 			}
 		}
 
@@ -258,6 +270,7 @@ function computeStatusForAssessment(
 			routinesEstablished: 0,
 			routinesCompleted: 0,
 			routinesOverdue: 0,
+			screeningDetails,
 		}
 	}
 
@@ -280,7 +293,21 @@ function computeStatusForAssessment(
 	if (hasScreening && screening) {
 		const allNotRelevant = screening.effects.every((e) => e === "not_relevant")
 		if (allNotRelevant && screening.effects.length > 0 && screening.allQuestionsAnswered) {
-			// Screening says not relevant but routines match — routines take precedence
+			// Screening explicitly says not relevant — this is a conscious human decision
+			// that should override automatic routine matching
+			return {
+				autoStatus: "not_relevant",
+				reason: "Screeningsvar indikerer at kontrollen ikke er relevant",
+				sources: [],
+				matchingRoutineIds: [],
+				hasOverdueRoutine: false,
+				establishment: "not_relevant",
+				compliance: "not_applicable",
+				routinesEstablished: 0,
+				routinesCompleted: 0,
+				routinesOverdue: 0,
+				screeningDetails,
+			}
 		}
 
 		const anyNotImplemented = screening.effects.some((e) => e === "not_implemented")
@@ -293,6 +320,7 @@ function computeStatusForAssessment(
 				hasOverdueRoutine,
 				...baseDimensions,
 				compliance: "never_reviewed",
+				screeningDetails,
 			}
 		}
 	}
@@ -308,6 +336,7 @@ function computeStatusForAssessment(
 				hasOverdueRoutine: true,
 				...baseDimensions,
 				compliance: "never_reviewed",
+				screeningDetails,
 			}
 		}
 		return {
@@ -318,6 +347,7 @@ function computeStatusForAssessment(
 			hasOverdueRoutine: false,
 			...baseDimensions,
 			compliance: "never_reviewed",
+			screeningDetails,
 		}
 	}
 
@@ -331,6 +361,7 @@ function computeStatusForAssessment(
 			hasOverdueRoutine: true,
 			...baseDimensions,
 			compliance: "overdue",
+			screeningDetails,
 		}
 	}
 
@@ -344,6 +375,7 @@ function computeStatusForAssessment(
 			hasOverdueRoutine: true,
 			...baseDimensions,
 			compliance: "overdue",
+			screeningDetails,
 		}
 	}
 
@@ -356,5 +388,6 @@ function computeStatusForAssessment(
 		hasOverdueRoutine: false,
 		...baseDimensions,
 		compliance: "completed",
+		screeningDetails,
 	}
 }

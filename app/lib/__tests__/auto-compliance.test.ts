@@ -29,6 +29,13 @@ const makeDeadline = (
 	lastReviewDate,
 })
 
+const makeScreening = (effects: string[], allQuestionsAnswered: boolean, hasQuestions = true) => ({
+	effects,
+	allQuestionsAnswered,
+	hasQuestions,
+	details: effects.map((e, i) => ({ questionId: `q-${i}`, questionTitle: "Test-spørsmål", answer: "Ja", effect: e })),
+})
+
 describe("computeAutoCompliance", () => {
 	it("returns null when no routines and no screening", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
@@ -44,16 +51,7 @@ describe("computeAutoCompliance", () => {
 
 	it("returns 'not_relevant' when screening says not_relevant and no routines match", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
-		const screeningEffects = new Map([
-			[
-				"ctrl-1",
-				{
-					effects: ["not_relevant"],
-					allQuestionsAnswered: true,
-					hasQuestions: true,
-				},
-			],
-		])
+		const screeningEffects = new Map([["ctrl-1", makeScreening(["not_relevant"], true)]])
 
 		const result = computeAutoCompliance(assessments, [], screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBe("not_relevant")
@@ -61,16 +59,7 @@ describe("computeAutoCompliance", () => {
 
 	it("returns null when screening questions are not yet answered", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
-		const screeningEffects = new Map([
-			[
-				"ctrl-1",
-				{
-					effects: [],
-					allQuestionsAnswered: false,
-					hasQuestions: true,
-				},
-			],
-		])
+		const screeningEffects = new Map([["ctrl-1", makeScreening([], false)]])
 
 		const result = computeAutoCompliance(assessments, [], screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBeNull()
@@ -120,16 +109,7 @@ describe("computeAutoCompliance", () => {
 	it("returns 'not_implemented' when screening says not_implemented even with routine match", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
 		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "persistence", false, new Date())]
-		const screeningEffects = new Map([
-			[
-				"ctrl-1",
-				{
-					effects: ["not_implemented"],
-					allQuestionsAnswered: true,
-					hasQuestions: true,
-				},
-			],
-		])
+		const screeningEffects = new Map([["ctrl-1", makeScreening(["not_implemented"], true)]])
 
 		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBe("not_implemented")
@@ -201,16 +181,7 @@ describe("computeAutoCompliance", () => {
 
 	it("returns null when screening answers gave no effects", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
-		const screeningEffects = new Map([
-			[
-				"ctrl-1",
-				{
-					effects: [],
-					allQuestionsAnswered: true,
-					hasQuestions: true,
-				},
-			],
-		])
+		const screeningEffects = new Map([["ctrl-1", makeScreening([], true)]])
 
 		const result = computeAutoCompliance(assessments, [], screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBeNull()
@@ -219,16 +190,7 @@ describe("computeAutoCompliance", () => {
 
 	it("returns 'implemented' from screening effects when all say implemented", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
-		const screeningEffects = new Map([
-			[
-				"ctrl-1",
-				{
-					effects: ["implemented", "implemented"],
-					allQuestionsAnswered: true,
-					hasQuestions: true,
-				},
-			],
-		])
+		const screeningEffects = new Map([["ctrl-1", makeScreening(["implemented", "implemented"], true)]])
 
 		const result = computeAutoCompliance(assessments, [], screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBe("implemented")
@@ -236,16 +198,7 @@ describe("computeAutoCompliance", () => {
 
 	it("returns 'partially_implemented' from mixed screening effects", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
-		const screeningEffects = new Map([
-			[
-				"ctrl-1",
-				{
-					effects: ["implemented", "not_relevant"],
-					allQuestionsAnswered: true,
-					hasQuestions: true,
-				},
-			],
-		])
+		const screeningEffects = new Map([["ctrl-1", makeScreening(["implemented", "not_relevant"], true)]])
 
 		const result = computeAutoCompliance(assessments, [], screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBe("partially_implemented")
@@ -273,6 +226,21 @@ describe("computeAutoCompliance", () => {
 		expect(auto?.autoStatus).toBe("implemented")
 		expect(auto?.sources).toContain("group_classification")
 		expect(auto?.matchingRoutineIds).toContain("routine-gc")
+	})
+
+	it("returns 'not_relevant' when screening says not_relevant even with routine match", () => {
+		const assessments = [makeAssessment("ctrl-1", null)]
+		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "persistence", false, new Date())]
+		const screeningEffects = new Map([["ctrl-1", makeScreening(["not_relevant"], true)]])
+
+		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
+		const auto = result.get("ctrl-1:null")
+		expect(auto?.autoStatus).toBe("not_relevant")
+		expect(auto?.establishment).toBe("not_relevant")
+		expect(auto?.sources).toEqual([])
+		expect(auto?.matchingRoutineIds).toEqual([])
+		expect(auto?.routinesEstablished).toBe(0)
+		expect(auto?.hasOverdueRoutine).toBe(false)
 	})
 
 	it("combines group_classification and screening sources", () => {
