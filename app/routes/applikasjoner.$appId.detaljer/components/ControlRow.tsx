@@ -1,5 +1,5 @@
 import { PencilWritingIcon, PlusIcon } from "@navikt/aksel-icons"
-import { Button, Table } from "@navikt/ds-react"
+import { BodyShort, Box, Button, Detail, HStack, Table, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import { ControlCommentPanel } from "./ControlCommentPanel"
 
@@ -12,6 +12,7 @@ export function ControlRow({
 		controlUuid: string
 		technologyElementId: string | null
 		applicationControlId: string | null
+		autoReason: string | null
 		comment: string | null
 		commentUpdatedAt: string | null
 		commentUpdatedBy: string | null
@@ -31,13 +32,27 @@ export function ControlRow({
 				if (!open) setEditRequested(false)
 			}}
 			content={
-				<ControlCommentPanel
-					applicationControlId={item.applicationControlId}
-					comment={item.comment}
-					commentUpdatedAt={item.commentUpdatedAt}
-					commentUpdatedBy={item.commentUpdatedBy}
-					startEditing={editRequested}
-				/>
+				<VStack gap="space-4">
+					{item.autoReason && (
+						<Box padding="space-4" paddingBlock="space-2">
+							<HStack gap="space-4" align="center">
+								<Detail weight="semibold" textColor="subtle">
+									Begrunnelse:
+								</Detail>
+								<BodyShort size="small" textColor="subtle">
+									{item.autoReason}
+								</BodyShort>
+							</HStack>
+						</Box>
+					)}
+					<ControlCommentPanel
+						applicationControlId={item.applicationControlId}
+						comment={item.comment}
+						commentUpdatedAt={item.commentUpdatedAt}
+						commentUpdatedBy={item.commentUpdatedBy}
+						startEditing={editRequested}
+					/>
+				</VStack>
 			}
 			togglePlacement="right"
 			expandOnRowClick={false}

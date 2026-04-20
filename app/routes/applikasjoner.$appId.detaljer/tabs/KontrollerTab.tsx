@@ -34,6 +34,7 @@ type Assessment = {
 	technologyElementId: string | null
 	technologyElementName: string | null
 	effectiveStatus: string | null
+	autoReason: string | null
 	establishment: string
 	routineCompliance: string
 	applicationControlId: string | null
