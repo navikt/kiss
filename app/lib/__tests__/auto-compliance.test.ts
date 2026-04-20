@@ -275,6 +275,25 @@ describe("computeAutoCompliance", () => {
 		expect(auto?.matchingRoutineIds).toContain("routine-gc")
 	})
 
+	it("returns 'not_relevant' when screening says not_relevant even with routine match", () => {
+		const assessments = [makeAssessment("ctrl-1", null)]
+		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "persistence", false, new Date())]
+		const screeningEffects = new Map([
+			[
+				"ctrl-1",
+				{
+					effects: ["not_relevant"],
+					allQuestionsAnswered: true,
+					hasQuestions: true,
+				},
+			],
+		])
+
+		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
+		expect(result.get("ctrl-1:null")?.autoStatus).toBe("not_relevant")
+		expect(result.get("ctrl-1:null")?.establishment).toBe("not_relevant")
+	})
+
 	it("combines group_classification and screening sources", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
 		const deadlines = [

@@ -280,7 +280,20 @@ function computeStatusForAssessment(
 	if (hasScreening && screening) {
 		const allNotRelevant = screening.effects.every((e) => e === "not_relevant")
 		if (allNotRelevant && screening.effects.length > 0 && screening.allQuestionsAnswered) {
-			// Screening says not relevant but routines match — routines take precedence
+			// Screening explicitly says not relevant — this is a conscious human decision
+			// that should override automatic routine matching
+			return {
+				autoStatus: "not_relevant",
+				reason: "Screeningsvar indikerer at kontrollen ikke er relevant",
+				sources,
+				matchingRoutineIds,
+				hasOverdueRoutine: false,
+				establishment: "not_relevant",
+				compliance: "not_applicable",
+				routinesEstablished,
+				routinesCompleted: 0,
+				routinesOverdue: 0,
+			}
 		}
 
 		const anyNotImplemented = screening.effects.some((e) => e === "not_implemented")
