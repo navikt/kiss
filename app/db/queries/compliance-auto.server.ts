@@ -156,6 +156,7 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 				if (answerValue === choice.label) {
 					entry.effects.push(effect.effect)
 					entry.details.push({
+						questionId,
 						questionTitle: questionTitleById.get(questionId) ?? questionId,
 						answer: answerValue,
 						effect: effect.effect,
@@ -187,6 +188,7 @@ export interface ScreeningEffectsForControl {
 }
 
 export interface ScreeningEffectDetail {
+	questionId: string
 	questionTitle: string
 	answer: string
 	effect: string

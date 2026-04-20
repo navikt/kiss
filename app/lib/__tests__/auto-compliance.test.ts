@@ -33,7 +33,7 @@ const makeScreening = (effects: string[], allQuestionsAnswered: boolean, hasQues
 	effects,
 	allQuestionsAnswered,
 	hasQuestions,
-	details: effects.map((e) => ({ questionTitle: "Test-spørsmål", answer: "Ja", effect: e })),
+	details: effects.map((e, i) => ({ questionId: `q-${i}`, questionTitle: "Test-spørsmål", answer: "Ja", effect: e })),
 })
 
 describe("computeAutoCompliance", () => {

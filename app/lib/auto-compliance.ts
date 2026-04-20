@@ -37,7 +37,7 @@ export interface AutoComplianceResult {
 
 	// ─── Screening details ──────────────────────────────────────
 	/** Which screening questions/answers contributed to this status */
-	screeningDetails: Array<{ questionTitle: string; answer: string; effect: string }>
+	screeningDetails: Array<{ questionId: string; questionTitle: string; answer: string; effect: string }>
 }
 
 interface RoutineMatch {
@@ -53,7 +53,7 @@ interface ScreeningEffectsForControl {
 	effects: string[]
 	allQuestionsAnswered: boolean
 	hasQuestions: boolean
-	details: Array<{ questionTitle: string; answer: string; effect: string }>
+	details: Array<{ questionId: string; questionTitle: string; answer: string; effect: string }>
 }
 
 /**

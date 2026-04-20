@@ -15,7 +15,7 @@ export function ControlRow({
 		technologyElementId: string | null
 		applicationControlId: string | null
 		autoReason: string | null
-		screeningDetails: Array<{ questionTitle: string; answer: string; effect: string }>
+		screeningDetails: Array<{ questionId: string; questionTitle: string; answer: string; effect: string }>
 		comment: string | null
 		commentUpdatedAt: string | null
 		commentUpdatedBy: string | null
@@ -52,7 +52,7 @@ export function ControlRow({
 								{item.screeningDetails.length > 0 && (
 									<List size="small" as="ul" aria-label="Screening-svar som påvirker denne kontrollen">
 										{item.screeningDetails.map((d) => (
-											<List.Item key={`${d.questionTitle}-${d.answer}`}>
+											<List.Item key={`${d.questionId}-${d.effect}`}>
 												{d.questionTitle}: <strong>{d.answer}</strong>{" "}
 												<Tag variant={statusVariants[d.effect as ComplianceStatus] ?? "neutral"} size="xsmall">
 													{effectLabel(d.effect)}

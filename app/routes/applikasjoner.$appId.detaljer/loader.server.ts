@@ -160,7 +160,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		return {
 			...a,
 			autoStatus: auto?.autoStatus ?? null,
-			autoReason: auto?.reason ?? null,
+			autoReason: auto?.autoStatus != null ? (auto?.reason ?? null) : null,
 			effectiveStatus: auto?.autoStatus ?? null,
 			establishment: auto?.establishment ?? "not_established",
 			routineCompliance: auto?.compliance ?? "not_applicable",
