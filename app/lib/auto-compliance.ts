@@ -285,7 +285,7 @@ function computeStatusForAssessment(
 			return {
 				autoStatus: "not_relevant",
 				reason: "Screeningsvar indikerer at kontrollen ikke er relevant",
-				sources: ["screening"],
+				sources: [],
 				matchingRoutineIds: [],
 				hasOverdueRoutine: false,
 				establishment: "not_relevant",

@@ -293,7 +293,7 @@ describe("computeAutoCompliance", () => {
 		const auto = result.get("ctrl-1:null")
 		expect(auto?.autoStatus).toBe("not_relevant")
 		expect(auto?.establishment).toBe("not_relevant")
-		expect(auto?.sources).toEqual(["screening"])
+		expect(auto?.sources).toEqual([])
 		expect(auto?.matchingRoutineIds).toEqual([])
 		expect(auto?.routinesEstablished).toBe(0)
 		expect(auto?.hasOverdueRoutine).toBe(false)
