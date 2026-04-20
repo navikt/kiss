@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
 import {
@@ -44,7 +44,11 @@ import { writeAuditLog } from "./audit.server"
 // ─── Routine CRUD ────────────────────────────────────────────────────────
 
 export async function getRoutinesForSection(sectionId: string) {
-	const rows = await db.select().from(routines).where(eq(routines.sectionId, sectionId)).orderBy(routines.name)
+	const rows = await db
+		.select()
+		.from(routines)
+		.where(and(eq(routines.sectionId, sectionId), ne(routines.status, "deleted")))
+		.orderBy(routines.name)
 	if (rows.length === 0) return []
 
 	const routineIds = rows.map((r) => r.id)
@@ -414,7 +418,10 @@ export async function deleteRoutine(id: string, performedBy: string) {
 	const prev = await getRoutine(id)
 	if (!prev) return null
 
-	await db.delete(routines).where(eq(routines.id, id))
+	await db
+		.update(routines)
+		.set({ status: "deleted", updatedBy: performedBy, updatedAt: new Date() })
+		.where(eq(routines.id, id))
 
 	await writeAuditLog({
 		action: "routine_deleted",
@@ -1715,7 +1722,10 @@ export async function getRoutineDeadlinesForAppByRuleset(
 // ─── Completed reviews for section ───────────────────────────────────────
 
 export async function getCompletedReviewsForSection(sectionId: string) {
-	const sectionRoutines = await db.select({ id: routines.id }).from(routines).where(eq(routines.sectionId, sectionId))
+	const sectionRoutines = await db
+		.select({ id: routines.id })
+		.from(routines)
+		.where(and(eq(routines.sectionId, sectionId), ne(routines.status, "deleted")))
 
 	if (sectionRoutines.length === 0) return []
 

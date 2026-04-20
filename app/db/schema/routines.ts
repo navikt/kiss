@@ -15,7 +15,7 @@ import { screeningQuestions } from "./screening"
 export const ROUTINE_ACTIVITY_TYPES = ["entra_id_group_maintenance"] as const
 export type RoutineActivityType = (typeof ROUTINE_ACTIVITY_TYPES)[number]
 
-export const routineStatusEnum = ["draft", "active", "approved", "archived"] as const
+export const routineStatusEnum = ["draft", "active", "approved", "archived", "deleted"] as const
 export type RoutineStatus = (typeof routineStatusEnum)[number]
 
 export const routines = pgTable("routines", {

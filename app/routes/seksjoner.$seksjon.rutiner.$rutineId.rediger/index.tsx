@@ -39,12 +39,7 @@ import {
 	persistenceTypeEnum,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
-import {
-	ROUTINE_ACTIVITY_TYPES,
-	type RoutineActivityType,
-	type RoutineStatus,
-	routineStatusEnum,
-} from "~/db/schema/routines"
+import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType, type RoutineStatus } from "~/db/schema/routines"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { canApproveRoutine, requireAdmin } from "~/lib/authorization.server"
 import {
@@ -55,6 +50,8 @@ import {
 	ROUTINE_FREQUENCIES,
 	type RoutineFrequency,
 } from "~/lib/routine-frequencies"
+
+const EDITABLE_STATUSES: RoutineStatus[] = ["draft", "active"]
 
 const PREDEFINED_ROLES = [
 	"Seksjonsleder",
@@ -81,7 +78,6 @@ interface PersistenceLinkItem {
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
 
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) throw new Response("Mangler parametere", { status: 400 })
@@ -91,6 +87,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const routine = await getRoutine(rutineId)
 	if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
+	if (routine.sectionId !== section.id) throw new Response("Rutine ikke funnet", { status: 404 })
 
 	const [globalQuestions, sectionQuestions, technologyElements, controls] = await Promise.all([
 		getScreeningQuestions(),
@@ -125,15 +122,21 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
 
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) throw new Response("Mangler parametere", { status: 400 })
 
-	// Block editing of approved routines
+	// Verify routine exists and belongs to the correct section
+	const section = await getSectionBySlug(seksjon)
+	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+
 	const existingRoutine = await getRoutine(rutineId)
-	if (existingRoutine?.status === "approved") {
-		throw new Response("Godkjente rutiner kan ikke redigeres. Lag en kopi for å gjøre endringer.", { status: 403 })
+	if (!existingRoutine) throw new Response("Rutine ikke funnet", { status: 404 })
+	if (existingRoutine.sectionId !== section.id) throw new Response("Rutine ikke funnet", { status: 404 })
+
+	// Only draft and active routines can be edited (allowlist to guard against unknown statuses)
+	if (!EDITABLE_STATUSES.includes(existingRoutine.status as RoutineStatus)) {
+		throw new Response(`Rutiner med status «${existingRoutine.status}» kan ikke redigeres.`, { status: 403 })
 	}
 
 	const formData = await request.formData()
@@ -155,7 +158,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const groupClassifications = formData.getAll("groupClassifications") as string[]
 		const statusRaw = formData.get("status") as string | null
 		const status =
-			statusRaw && routineStatusEnum.includes(statusRaw as RoutineStatus) ? (statusRaw as RoutineStatus) : undefined
+			statusRaw && EDITABLE_STATUSES.includes(statusRaw as RoutineStatus) ? (statusRaw as RoutineStatus) : undefined
 
 		// Parse persistence links from form
 		const plTypes = formData.getAll("plPersistenceType") as string[]
@@ -215,17 +218,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "delete") {
+		requireAdmin(authedUser)
+		if (existingRoutine.status !== "draft") {
+			throw new Response("Kun draft-rutiner kan slettes.", { status: 403 })
+		}
 		await deleteRoutine(rutineId, authedUser.navIdent)
 		return redirect(`/seksjoner/${seksjon}/rutiner`)
 	}
 
 	if (intent === "approve-replace") {
-		const section = await getSectionBySlug(seksjon)
-		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
-		const routine = await getRoutine(rutineId)
-		if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
-
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole =
+			existingRoutine.responsibleRole || existingRoutine.controls.find((c) => c.responsible)?.responsible || null
 		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw new Response("Du har ikke riktig rolle til å godkjenne denne rutinen", { status: 403 })
 		}
@@ -235,21 +238,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			throw new Response("Ugyldig fristpolicy", { status: 400 })
 		}
 
-		if (!routine.sourceRoutineId) {
+		if (!existingRoutine.sourceRoutineId) {
 			throw new Response("Rutinen har ikke et opphav å erstatte", { status: 400 })
 		}
 
-		await replaceRoutine(rutineId, routine.sourceRoutineId, deadlinePolicy, authedUser.navIdent)
+		await replaceRoutine(rutineId, existingRoutine.sourceRoutineId, deadlinePolicy, authedUser.navIdent)
 		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
 	}
 
 	if (intent === "approve-as-new") {
-		const section = await getSectionBySlug(seksjon)
-		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
-		const routine = await getRoutine(rutineId)
-		if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
-
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole =
+			existingRoutine.responsibleRole || existingRoutine.controls.find((c) => c.responsible)?.responsible || null
 		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw new Response("Du har ikke riktig rolle til å godkjenne denne rutinen", { status: 403 })
 		}

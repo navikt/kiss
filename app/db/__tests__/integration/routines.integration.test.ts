@@ -270,7 +270,7 @@ describe("Routines integration tests", () => {
 			expect(auditResult.rows.length).toBeGreaterThanOrEqual(1)
 		})
 
-		it("should delete a routine and cascade reviews", async () => {
+		it("should soft-delete a routine and keep reviews", async () => {
 			const sectionId = await createTestSection("Security", "security")
 
 			const routine = await createRoutine({
@@ -302,13 +302,19 @@ describe("Routines integration tests", () => {
 			await deleteRoutine(routine.id, "admin-user")
 
 			const fetched = await getRoutine(routine.id)
-			expect(fetched).toBeNull()
+			expect(fetched).not.toBeNull()
+			expect(fetched!.status).toBe("deleted")
 
+			// Deleted routines should not appear in section listings
+			const sectionRoutines = await getRoutinesForSection(sectionId)
+			expect(sectionRoutines.find((r) => r.id === routine.id)).toBeUndefined()
+
+			// Reviews should be preserved after soft delete
 			const db = getTestDb()
 			const reviewResult = await db.execute(
 				/* sql */ `SELECT * FROM routine_reviews WHERE routine_id = '${routine.id}'`,
 			)
-			expect(reviewResult.rows).toHaveLength(0)
+			expect(reviewResult.rows.length).toBe(1)
 
 			const auditResult = await db.execute(
 				/* sql */ `SELECT * FROM audit_log WHERE action = 'routine_deleted' AND entity_id = '${routine.id}'`,

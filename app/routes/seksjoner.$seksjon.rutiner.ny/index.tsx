@@ -36,7 +36,6 @@ import {
 } from "~/db/schema/applications"
 import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType } from "~/db/schema/routines"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
 	getStrictestFrequency,
@@ -70,8 +69,7 @@ interface PersistenceLinkItem {
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
+	requireUser(user)
 
 	const { seksjon } = params
 	if (!seksjon) {
@@ -110,7 +108,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
 
 	const { seksjon } = params
 	if (!seksjon) {
