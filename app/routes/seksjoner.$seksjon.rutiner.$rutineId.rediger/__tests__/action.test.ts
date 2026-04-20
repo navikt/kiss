@@ -9,11 +9,11 @@ vi.mock("~/lib/auth.server", () => ({
 	requireUser: mockRequireUser,
 }))
 
-const mockRequireAdmin = vi.fn()
 const mockCanApproveRoutine = vi.fn()
+const mockRequireAdmin = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
-	requireAdmin: mockRequireAdmin,
 	canApproveRoutine: mockCanApproveRoutine,
+	requireAdmin: mockRequireAdmin,
 }))
 
 const mockGetRoutine = vi.fn()
@@ -60,11 +60,20 @@ const fakeUser = {
 	dbRoles: [{ role: "admin" as const, sectionId: null, devTeamId: null }],
 }
 
+const fakeNonAdminUser = {
+	navIdent: "T654321",
+	name: "Ikke-Admin",
+	groups: [],
+	token: "t",
+	dbRoles: [],
+}
+
 const fakeSection = { id: "section-1", name: "Test", slug: "test-seksjon" }
 
 function makeRoutine(overrides: Record<string, unknown> = {}) {
 	return {
 		id: "routine-1",
+		sectionId: fakeSection.id,
 		name: "Test rutine",
 		status: "active",
 		responsibleRole: "Teknologileder",
@@ -100,14 +109,14 @@ function callAction(formData: FormData) {
 // --- Tests -----------------------------------------------------------
 
 beforeEach(() => {
-	vi.clearAllMocks()
+	vi.resetAllMocks()
 	mockGetAuthenticatedUser.mockResolvedValue(fakeUser)
 	mockRequireUser.mockReturnValue(fakeUser)
-	mockRequireAdmin.mockReturnValue(undefined)
+	mockRequireAdmin.mockImplementation(() => undefined)
 	mockGetSectionBySlug.mockResolvedValue(fakeSection)
 })
 
-describe("approved routine edit guard", () => {
+describe("routine edit guards", () => {
 	it("rejects editing an approved routine with 403", async () => {
 		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "approved" }))
 
@@ -118,6 +127,55 @@ describe("approved routine edit guard", () => {
 
 		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
 		expect(mockUpdateRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects editing an archived routine with 403", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "archived" }))
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "New name")
+		fd.set("frequency", "annually")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockUpdateRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects editing a deleted routine with 403", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "deleted" }))
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "New name")
+		fd.set("frequency", "annually")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockUpdateRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects editing a routine with unknown status with 403", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "bogus" }))
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "New name")
+		fd.set("frequency", "annually")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockUpdateRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects when routine belongs to a different section (IDOR)", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ sectionId: "other-section-id" }))
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "IDOR attempt")
+		fd.set("frequency", "annually")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 404 })
+		expect(mockUpdateRoutine).not.toHaveBeenCalled()
+		expect(mockDeleteRoutine).not.toHaveBeenCalled()
 	})
 
 	it("allows editing a draft routine", async () => {
@@ -133,13 +191,25 @@ describe("approved routine edit guard", () => {
 		expect(response.status).toBe(302)
 		expect(mockUpdateRoutine).toHaveBeenCalled()
 	})
+
+	it("allows editing an active routine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active" }))
+		mockUpdateRoutine.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "Updated name")
+		fd.set("frequency", "annually")
+
+		const response = await callAction(fd)
+		expect(response.status).toBe(302)
+		expect(mockUpdateRoutine).toHaveBeenCalled()
+	})
 })
 
 describe("approve-replace intent", () => {
 	it("replaces source routine when user has approval rights", async () => {
-		mockGetRoutine
-			.mockResolvedValueOnce(makeRoutine({ status: "active" })) // guard check
-			.mockResolvedValueOnce(makeRoutine({ status: "active", sourceRoutineId: "original-1" })) // intent check
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active", sourceRoutineId: "original-1" }))
 		mockCanApproveRoutine.mockReturnValue(true)
 		mockReplaceRoutine.mockResolvedValue(undefined)
 
@@ -153,9 +223,7 @@ describe("approve-replace intent", () => {
 	})
 
 	it("rejects replacement without approval rights", async () => {
-		mockGetRoutine
-			.mockResolvedValueOnce(makeRoutine({ status: "active" }))
-			.mockResolvedValueOnce(makeRoutine({ status: "active", sourceRoutineId: "original-1" }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active", sourceRoutineId: "original-1" }))
 		mockCanApproveRoutine.mockReturnValue(false)
 
 		const fd = new FormData()
@@ -167,9 +235,7 @@ describe("approve-replace intent", () => {
 	})
 
 	it("rejects replacement when routine has no source", async () => {
-		mockGetRoutine
-			.mockResolvedValueOnce(makeRoutine({ status: "active" }))
-			.mockResolvedValueOnce(makeRoutine({ status: "active", sourceRoutineId: null }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active", sourceRoutineId: null }))
 		mockCanApproveRoutine.mockReturnValue(true)
 
 		const fd = new FormData()
@@ -182,9 +248,7 @@ describe("approve-replace intent", () => {
 
 describe("approve-as-new intent", () => {
 	it("approves routine as new without replacing source", async () => {
-		mockGetRoutine
-			.mockResolvedValueOnce(makeRoutine({ status: "active" }))
-			.mockResolvedValueOnce(makeRoutine({ status: "active" }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active" }))
 		mockCanApproveRoutine.mockReturnValue(true)
 		mockApproveRoutine.mockResolvedValue(undefined)
 
@@ -197,9 +261,7 @@ describe("approve-as-new intent", () => {
 	})
 
 	it("rejects approval without correct role", async () => {
-		mockGetRoutine
-			.mockResolvedValueOnce(makeRoutine({ status: "active" }))
-			.mockResolvedValueOnce(makeRoutine({ status: "active" }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active" }))
 		mockCanApproveRoutine.mockReturnValue(false)
 
 		const fd = new FormData()
@@ -207,5 +269,96 @@ describe("approve-as-new intent", () => {
 
 		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
 		expect(mockApproveRoutine).not.toHaveBeenCalled()
+	})
+})
+
+describe("non-admin user access", () => {
+	beforeEach(() => {
+		mockGetAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
+		mockRequireUser.mockReturnValue(fakeNonAdminUser)
+		mockRequireAdmin.mockImplementation(() => {
+			throw new Response("Forbidden", { status: 403 })
+		})
+	})
+
+	it("allows non-admin user to update a draft routine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft" }))
+		mockUpdateRoutine.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "Oppdatert av ikke-admin")
+		fd.set("frequency", "annually")
+
+		const response = await callAction(fd)
+		expect(response.status).toBe(302)
+		expect(mockUpdateRoutine).toHaveBeenCalled()
+		expect(mockRequireAdmin).not.toHaveBeenCalled()
+	})
+
+	it("allows non-admin user to update an active routine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active" }))
+		mockUpdateRoutine.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "Oppdatert aktiv rutine av ikke-admin")
+		fd.set("frequency", "annually")
+
+		const response = await callAction(fd)
+		expect(response.status).toBe(302)
+		expect(mockUpdateRoutine).toHaveBeenCalled()
+		expect(mockRequireAdmin).not.toHaveBeenCalled()
+	})
+
+	it("ignores approved status in update intent for non-admin", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft" }))
+		mockUpdateRoutine.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "Forsøk på godkjenning via update")
+		fd.set("frequency", "annually")
+		fd.set("status", "approved")
+
+		const response = await callAction(fd)
+		expect(response.status).toBe(302)
+		// "approved" should be silently ignored, not passed to updateRoutine
+		const updateCall = mockUpdateRoutine.mock.calls[0][0]
+		expect(updateCall.status).toBeUndefined()
+	})
+
+	it("rejects non-admin user from deleting a routine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft" }))
+
+		const fd = new FormData()
+		fd.set("intent", "delete")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockDeleteRoutine).not.toHaveBeenCalled()
+	})
+})
+
+describe("delete intent restrictions", () => {
+	it("allows admin to delete a draft routine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft" }))
+		mockDeleteRoutine.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "delete")
+
+		const response = await callAction(fd)
+		expect(response.status).toBe(302)
+		expect(mockDeleteRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+	})
+
+	it("rejects deletion of active routine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active" }))
+
+		const fd = new FormData()
+		fd.set("intent", "delete")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockDeleteRoutine).not.toHaveBeenCalled()
 	})
 })
