@@ -378,25 +378,33 @@ export function mockAppDetaljerData() {
 }
 
 function mockAssessment(
-	controlUuid: string,
-	_controlName: string,
+	controlId: string,
+	controlName: string,
 	status: string | null,
 	reason: string,
 	screeningDetails: Array<{ questionId: string; questionTitle: string; answer: string; effect: string }> = [],
 ) {
+	const domainCode = controlId.split(".")[0]?.replace("K-", "") ?? "ST"
+	const domainNames: Record<string, string> = { ST: "Sikkerhetstesting", TS: "Tilgangsstyring", PD: "Persondata" }
 	return {
-		controlUuid,
+		controlUuid: `uuid-${controlId}`,
+		controlId,
+		controlName,
+		domainCode,
+		domainName: domainNames[domainCode] ?? domainCode,
 		technologyElementId: null,
+		technologyElementName: null,
 		autoStatus: status,
 		autoReason: status != null ? reason : null,
 		effectiveStatus: status,
 		establishment: status === "not_relevant" ? "not_relevant" : status != null ? "established" : "not_established",
-		routineCompliance: status === "implemented" ? "compliant" : status === "partially_implemented" ? "overdue" : "not_applicable",
+		routineCompliance:
+			status === "implemented" ? "compliant" : status === "partially_implemented" ? "overdue" : "not_applicable",
 		routinesEstablished: status === "not_relevant" ? 0 : status != null ? 1 : 0,
 		routinesCompleted: status === "implemented" ? 1 : 0,
 		routinesOverdue: status === "partially_implemented" ? 1 : 0,
 		screeningDetails,
-		applicationControlId: `ac-${controlUuid}`,
+		applicationControlId: `ac-${controlId}`,
 		comment: null,
 		commentUpdatedAt: null,
 		commentUpdatedBy: null,
