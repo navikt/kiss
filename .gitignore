@@ -50,3 +50,6 @@ server.js
 # Symlinks (worktree)
 /node_modules
 /.react-router
+
+# Generated screenshots
+screenshots/
