@@ -3,12 +3,12 @@ import { mockMineTeamData, mockMineTeamEmptyData } from "@storybook-mocks/data"
 import { renderWithLoader } from "@storybook-mocks/router"
 import MineTeamPage from "../index"
 
-const meta: Meta = {
+const meta = {
 	title: "Sider/Mine team",
 	component: MineTeamPage,
-}
+} satisfies Meta<typeof MineTeamPage>
 export default meta
-type Story = StoryObj
+type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
 	render: () => renderWithLoader(MineTeamPage, mockMineTeamData()),

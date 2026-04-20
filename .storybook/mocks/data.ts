@@ -307,7 +307,7 @@ export function mockNaisOvervakingData() {
 			{ id: "s-01", name: "Pensjon og uføre" },
 			{ id: "s-02", name: "Arbeid og ytelser" },
 		],
-		lastSync: new Date().toISOString(),
+		lastSync: "2025-03-15T10:30:00.000Z",
 	}
 }
 
@@ -334,7 +334,7 @@ export function mockAppDetaljerData() {
 		primaryApp: null,
 		linkedApps: [],
 		appElements: [
-			{ id: "elem-1", name: "PostgreSQL", source: "nais", confirmedAt: new Date().toISOString(), rejectedAt: null },
+			{ id: "elem-1", name: "PostgreSQL", source: "nais", confirmedAt: "2025-01-15T08:00:00.000Z", rejectedAt: null },
 			{ id: "elem-2", name: "Kafka", source: "nais", confirmedAt: null, rejectedAt: null },
 		],
 		routineDeadlines: [],

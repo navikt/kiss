@@ -3,12 +3,12 @@ import { mockTeamDetailData } from "@storybook-mocks/data"
 import { renderWithLoader } from "@storybook-mocks/router"
 import TeamDashboard from "../index"
 
-const meta: Meta = {
+const meta = {
 	title: "Sider/Seksjoner/Team",
 	component: TeamDashboard,
-}
+} satisfies Meta<typeof TeamDashboard>
 export default meta
-type Story = StoryObj
+type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
 	render: () =>

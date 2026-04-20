@@ -3,12 +3,12 @@ import { mockSeksjonDetailData } from "@storybook-mocks/data"
 import { renderWithLoader } from "@storybook-mocks/router"
 import SeksjonDashboard from "../index"
 
-const meta: Meta = {
+const meta = {
 	title: "Sider/Seksjoner/Seksjon",
 	component: SeksjonDashboard,
-}
+} satisfies Meta<typeof SeksjonDashboard>
 export default meta
-type Story = StoryObj
+type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
 	render: () => renderWithLoader(SeksjonDashboard, mockSeksjonDetailData(), "/seksjoner/pensjon-og-ufore"),

@@ -17,7 +17,6 @@ import {
 } from "@storybook-mocks/data"
 import { renderWithLayout } from "@storybook-mocks/router"
 import ApplikasjonDetalj from "./routes/applikasjoner.$appId.detaljer/index"
-// Lazy imports to avoid server module issues
 import Dashboard from "./routes/dashboard/index"
 import Kontrollrammeverk from "./routes/kontrollrammeverk/index"
 import MineTeamPage from "./routes/mine-team/index"

@@ -3,12 +3,12 @@ import { mockNaisOvervakingData } from "@storybook-mocks/data"
 import { renderWithLoader } from "@storybook-mocks/router"
 import NaisOvervaking from "../index"
 
-const meta: Meta = {
+const meta = {
 	title: "Sider/Nais-overvåking",
 	component: NaisOvervaking,
-}
+} satisfies Meta<typeof NaisOvervaking>
 export default meta
-type Story = StoryObj
+type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
 	render: () => renderWithLoader(NaisOvervaking, mockNaisOvervakingData()),

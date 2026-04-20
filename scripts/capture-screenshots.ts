@@ -108,11 +108,7 @@ async function runDocsMode(url: string, theme: string) {
 	const mapping = loadMapping()
 	const targetDir = resolve(__dirname, "..", mapping.targetDir)
 
-	if (!existsSync(targetDir)) {
-		console.error(`Målmappe finnes ikke: ${targetDir}`)
-		console.error("Sjekk at targetDir i screenshot-mapping.json er korrekt.")
-		process.exit(1)
-	}
+	mkdirSync(targetDir, { recursive: true })
 
 	mkdirSync(OUTPUT_DIR, { recursive: true })
 

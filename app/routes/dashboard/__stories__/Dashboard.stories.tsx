@@ -3,12 +3,12 @@ import { mockDeploymentStats } from "@storybook-mocks/data"
 import { renderWithLoader } from "@storybook-mocks/router"
 import Dashboard from "../index"
 
-const meta: Meta = {
+const meta = {
 	title: "Sider/Dashboard",
 	component: Dashboard,
-}
+} satisfies Meta<typeof Dashboard>
 export default meta
-type Story = StoryObj
+type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
 	render: () =>
