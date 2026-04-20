@@ -5,6 +5,7 @@ import {
 	BodyShort,
 	Box,
 	Button,
+	Detail,
 	Heading,
 	HStack,
 	Tabs,
@@ -15,7 +16,7 @@ import { Link, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { useAppBasePath } from "~/hooks/useAppBasePath"
 import { useSectionSlug } from "~/hooks/useSectionSlug"
-import { compliancePercent } from "~/lib/utils"
+
 import type { loader } from "./loader.server"
 import { AutentiseringTab } from "./tabs/AutentiseringTab"
 import { AutoriserteAppsTab } from "./tabs/AutoriserteAppsTab"
@@ -107,37 +108,99 @@ export default function ApplikasjonDetalj() {
 				</Box>
 			)}
 
-			<Box background="sunken" padding="space-12" borderRadius="8">
-				<VStack gap="space-4">
+			<Box background="sunken" padding="space-16" borderRadius="8">
+				<VStack gap="space-12">
 					<HStack gap="space-16" wrap justify="space-between" align="center">
-						<Heading size="small" level="3">
-							Oppsummert compliance
-						</Heading>
+						<HStack gap="space-16" wrap align="center">
+							<Tag
+								variant={compliance.percent >= 80 ? "success" : compliance.percent >= 50 ? "warning" : "error"}
+								size="medium"
+							>
+								{compliance.percent} % compliance
+							</Tag>
+							<HStack gap="space-12" wrap>
+								<VStack align="center">
+									<BodyShort size="small" weight="semibold">
+										{compliance.implemented}
+									</BodyShort>
+									<Detail textColor="subtle">Implementert</Detail>
+								</VStack>
+								<VStack align="center">
+									<BodyShort size="small" weight="semibold">
+										{compliance.partial}
+									</BodyShort>
+									<Detail textColor="subtle">Delvis</Detail>
+								</VStack>
+								<VStack align="center">
+									<BodyShort size="small" weight="semibold">
+										{compliance.notImplemented}
+									</BodyShort>
+									<Detail textColor="subtle">Ikke impl.</Detail>
+								</VStack>
+								<VStack align="center">
+									<BodyShort size="small" weight="semibold">
+										{compliance.notRelevant}
+									</BodyShort>
+									<Detail textColor="subtle">Ikke relevant</Detail>
+								</VStack>
+								<VStack align="center">
+									<BodyShort size="small" weight="semibold">
+										{compliance.notAssessed}
+									</BodyShort>
+									<Detail textColor="subtle">Ikke vurdert</Detail>
+								</VStack>
+							</HStack>
+						</HStack>
 						<Link to={`${appBase}/compliance`}>
 							<Button as="span" size="small" variant="secondary">
 								Gå til compliance-screening
 							</Button>
 						</Link>
 					</HStack>
-					<HStack gap="space-16" wrap>
-						<BodyShort>
-							<strong>Gjennomføring:</strong>{" "}
-							{compliancePercent(
-								compliance.implemented ?? 0,
-								compliance.partial ?? 0,
-								compliance.totalControls ?? 0,
-								compliance.notRelevant ?? 0,
-							)}
-							% ({compliance.implemented} av {compliance.totalControls})
-						</BodyShort>
-						{compliance.hasScreeningAnswers && (
-							<BodyShort>
-								<strong>Rutiner:</strong>{" "}
-								{compliancePercent(compliance.routineCompleted ?? 0, 0, compliance.withRoutine ?? 0)}% (
-								{compliance.routineCompleted} av {compliance.withRoutine})
-							</BodyShort>
+
+					<HStack gap="space-24" wrap>
+						<VStack gap="space-4">
+							<Detail weight="semibold" textColor="subtle">
+								Rutineetablering
+							</Detail>
+							<HStack gap="space-8" wrap>
+								<Tag variant="success" size="xsmall">
+									{compliance.withRoutine} etablert
+								</Tag>
+								<Tag variant="error" size="xsmall">
+									{compliance.withoutRoutine} mangler
+								</Tag>
+								{compliance.routineNotRelevant > 0 && (
+									<Tag variant="neutral" size="xsmall">
+										{compliance.routineNotRelevant} ikke relevant
+									</Tag>
+								)}
+							</HStack>
+						</VStack>
+						{compliance.withRoutine > 0 && (
+							<VStack gap="space-4">
+								<Detail weight="semibold" textColor="subtle">
+									Rutineetterlevelse
+								</Detail>
+								<HStack gap="space-8" wrap>
+									<Tag variant="success" size="xsmall">
+										{compliance.routineCompleted} gjennomført
+									</Tag>
+									{compliance.routineOverdue > 0 && (
+										<Tag variant="warning" size="xsmall">
+											{compliance.routineOverdue} forfalt
+										</Tag>
+									)}
+									{compliance.routineNeverReviewed > 0 && (
+										<Tag variant="error" size="xsmall">
+											{compliance.routineNeverReviewed} ikke gjennomført
+										</Tag>
+									)}
+								</HStack>
+							</VStack>
 						)}
 					</HStack>
+
 					{!compliance.hasScreeningAnswers && (
 						<BodyShort textColor="subtle" size="small">
 							⚠️ Ingen screening-svar registrert. Utfør screening for å få mer presis rutinematching.
