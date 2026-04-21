@@ -21,6 +21,9 @@ export function screeningKey(controlId: string, techElementId: string): string {
 	return `${controlId}:${techElementId}`
 }
 
+/** Sentinel value used as the tech element part of a screening key for global questions. */
+export const TECH_ELEMENT_ALL = "all" as const
+
 /**
  * For each control that has screening choice effects, get the applicable
  * screening status for an application.
@@ -153,7 +156,7 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 				// Determine composite keys: scope effects to the question's tech elements
 				let keys: string[]
 				if (questionTechElements.length === 0) {
-					keys = [screeningKey(effect.controlId, "all")]
+					keys = [screeningKey(effect.controlId, TECH_ELEMENT_ALL)]
 				} else {
 					// Only create keys for tech elements the app actually has
 					keys = questionTechElements

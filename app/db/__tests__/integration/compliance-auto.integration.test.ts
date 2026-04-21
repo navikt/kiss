@@ -10,7 +10,9 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { getScreeningEffectsByControlForApp } = await import("~/db/queries/compliance-auto.server")
+const { getScreeningEffectsByControlForApp, screeningKey, TECH_ELEMENT_ALL } = await import(
+	"~/db/queries/compliance-auto.server"
+)
 
 async function rawInsert(table: string, values: Record<string, unknown>): Promise<string> {
 	const db = getTestDb()
@@ -98,7 +100,7 @@ describe("compliance-auto.server integration tests", () => {
 		})
 
 		const result = await getScreeningEffectsByControlForApp(appId)
-		const entry = result.get(controlA)
+		const entry = result.get(screeningKey(controlA, TECH_ELEMENT_ALL))
 		expect(entry).toBeDefined()
 		expect(entry?.hasQuestions).toBe(true)
 		expect(entry?.allQuestionsAnswered).toBe(false)
@@ -123,7 +125,7 @@ describe("compliance-auto.server integration tests", () => {
 		)
 
 		const result = await getScreeningEffectsByControlForApp(appId)
-		const entry = result.get(controlA)
+		const entry = result.get(screeningKey(controlA, TECH_ELEMENT_ALL))
 		expect(entry).toBeDefined()
 		expect(entry?.allQuestionsAnswered).toBe(true)
 		expect(entry?.effects).toEqual(["implemented"])
@@ -146,7 +148,7 @@ describe("compliance-auto.server integration tests", () => {
 		)
 
 		const result = await getScreeningEffectsByControlForApp(appId)
-		expect(result.has(controlA)).toBe(false)
+		expect(result.has(screeningKey(controlA, TECH_ELEMENT_ALL))).toBe(false)
 	})
 
 	it("filters questions to the app's section (global + section-scoped)", async () => {
@@ -181,8 +183,8 @@ describe("compliance-auto.server integration tests", () => {
 		)
 
 		const result = await getScreeningEffectsByControlForApp(appId)
-		expect(result.has(controlA)).toBe(false)
-		expect(result.get(controlB)?.effects).toEqual(["implemented"])
+		expect(result.has(screeningKey(controlA, TECH_ELEMENT_ALL))).toBe(false)
+		expect(result.get(screeningKey(controlB, TECH_ELEMENT_ALL))?.effects).toEqual(["implemented"])
 	})
 
 	it("filters questions by required technology elements (excludes when app lacks the tech)", async () => {
@@ -204,7 +206,7 @@ describe("compliance-auto.server integration tests", () => {
 
 		// App does NOT have the tech element confirmed → question filtered out
 		let result = await getScreeningEffectsByControlForApp(appId)
-		expect(result.has(controlA)).toBe(false)
+		expect(result.has(screeningKey(controlA, elementId))).toBe(false)
 
 		// Confirm the tech element on the app
 		await rawExec(
@@ -212,7 +214,7 @@ describe("compliance-auto.server integration tests", () => {
 		)
 
 		result = await getScreeningEffectsByControlForApp(appId)
-		expect(result.get(controlA)?.effects).toEqual(["implemented"])
+		expect(result.get(screeningKey(controlA, elementId))?.effects).toEqual(["implemented"])
 	})
 
 	it("marks allQuestionsAnswered=false when only some questions affecting a control are answered", async () => {
@@ -238,7 +240,7 @@ describe("compliance-auto.server integration tests", () => {
 		)
 
 		const result = await getScreeningEffectsByControlForApp(appId)
-		const entry = result.get(controlA)
+		const entry = result.get(screeningKey(controlA, TECH_ELEMENT_ALL))
 		expect(entry?.allQuestionsAnswered).toBe(false)
 		expect(entry?.effects).toEqual(["implemented"])
 	})

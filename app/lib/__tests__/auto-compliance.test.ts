@@ -368,4 +368,18 @@ describe("mergeScreeningEffects", () => {
 
 		expect(merged?.allQuestionsAnswered).toBe(false)
 	})
+
+	it("ORs hasQuestions correctly when both are false", () => {
+		const a = makeScreening([], true, false)
+		const b = makeScreening([], true, false)
+		const merged = mergeScreeningEffects(a, b)
+		expect(merged?.hasQuestions).toBe(false)
+	})
+
+	it("ORs hasQuestions correctly when one is true", () => {
+		const a = makeScreening([], true, true)
+		const b = makeScreening([], true, false)
+		const merged = mergeScreeningEffects(a, b)
+		expect(merged?.hasQuestions).toBe(true)
+	})
 })

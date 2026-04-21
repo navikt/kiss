@@ -49,6 +49,8 @@ interface RoutineMatch {
 	lastReviewDate: Date | null
 }
 
+import { TECH_ELEMENT_ALL } from "~/db/queries/compliance-auto.server"
+
 interface ScreeningEffectsForControl {
 	effects: string[]
 	allQuestionsAnswered: boolean
@@ -70,7 +72,7 @@ export function mergeScreeningEffects(
 	return {
 		effects: [...a.effects, ...b.effects],
 		allQuestionsAnswered: a.allQuestionsAnswered && b.allQuestionsAnswered,
-		hasQuestions: true,
+		hasQuestions: a.hasQuestions || b.hasQuestions,
 		details: [...a.details, ...b.details],
 	}
 }
@@ -165,7 +167,7 @@ export function computeAutoCompliance(
 			screening = allScreeningByControl.get(assessment.controlUuid)
 		} else {
 			const specificKey = `${assessment.controlUuid}:${assessment.technologyElementId}`
-			const globalKey = `${assessment.controlUuid}:all`
+			const globalKey = `${assessment.controlUuid}:${TECH_ELEMENT_ALL}`
 			screening = mergeScreeningEffects(
 				screeningEffectsByControl.get(specificKey),
 				screeningEffectsByControl.get(globalKey),
