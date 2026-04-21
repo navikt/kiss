@@ -57,6 +57,25 @@ interface ScreeningEffectsForControl {
 }
 
 /**
+ * Merge two screening effects (e.g. global + tech-specific).
+ * Missing buckets are neutral – they don't affect the merged result.
+ */
+export function mergeScreeningEffects(
+	a: ScreeningEffectsForControl | undefined,
+	b: ScreeningEffectsForControl | undefined,
+): ScreeningEffectsForControl | undefined {
+	if (!a && !b) return undefined
+	if (!a) return b
+	if (!b) return a
+	return {
+		effects: [...a.effects, ...b.effects],
+		allQuestionsAnswered: a.allQuestionsAnswered && b.allQuestionsAnswered,
+		hasQuestions: true,
+		details: [...a.details, ...b.details],
+	}
+}
+
+/**
  * Compute auto-compliance status for all (control, techElement) assessment pairs.
  *
  * Takes already-loaded data (routine deadlines + screening effects) and returns
@@ -115,6 +134,16 @@ export function computeAutoCompliance(
 	// Step 3: Compute auto-status for each assessment
 	const result = new Map<string, AutoComplianceResult>()
 
+	// Pre-compute merged screening per control for null-tech-element assessments.
+	// These rows represent controls with no tech element breakdown, so all
+	// tech-scoped + global screening effects apply.
+	const allScreeningByControl = new Map<string, ScreeningEffectsForControl>()
+	for (const [compositeKey, value] of screeningEffectsByControl) {
+		const controlId = compositeKey.substring(0, compositeKey.indexOf(":"))
+		const existing = allScreeningByControl.get(controlId)
+		allScreeningByControl.set(controlId, mergeScreeningEffects(existing, value)!)
+	}
+
 	for (const assessment of assessments) {
 		const key = `${assessment.controlUuid}:${assessment.technologyElementId ?? "null"}`
 		const controlRoutines = routinesByControl.get(assessment.controlUuid) ?? []
@@ -128,7 +157,20 @@ export function computeAutoCompliance(
 			return r.technologyElementIds.includes(assessment.technologyElementId)
 		})
 
-		const screening = screeningEffectsByControl.get(assessment.controlUuid)
+		// Look up screening effects scoped by technology element:
+		// - Non-null tech element: merge tech-specific + global ("all") effects
+		// - Null tech element: merge ALL effects for the control (backward-compatible)
+		let screening: ScreeningEffectsForControl | undefined
+		if (assessment.technologyElementId === null) {
+			screening = allScreeningByControl.get(assessment.controlUuid)
+		} else {
+			const specificKey = `${assessment.controlUuid}:${assessment.technologyElementId}`
+			const globalKey = `${assessment.controlUuid}:all`
+			screening = mergeScreeningEffects(
+				screeningEffectsByControl.get(specificKey),
+				screeningEffectsByControl.get(globalKey),
+			)
+		}
 
 		const autoResult = computeStatusForAssessment(filteredRoutines, screening)
 		result.set(key, autoResult)

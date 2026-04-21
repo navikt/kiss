@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { computeAutoCompliance } from "../auto-compliance"
+import { computeAutoCompliance, mergeScreeningEffects } from "../auto-compliance"
 
 const makeAssessment = (
 	controlUuid: string,
@@ -51,7 +51,7 @@ describe("computeAutoCompliance", () => {
 
 	it("returns 'not_relevant' when screening says not_relevant and no routines match", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
-		const screeningEffects = new Map([["ctrl-1", makeScreening(["not_relevant"], true)]])
+		const screeningEffects = new Map([["ctrl-1:all", makeScreening(["not_relevant"], true)]])
 
 		const result = computeAutoCompliance(assessments, [], screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBe("not_relevant")
@@ -59,7 +59,7 @@ describe("computeAutoCompliance", () => {
 
 	it("returns null when screening questions are not yet answered", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
-		const screeningEffects = new Map([["ctrl-1", makeScreening([], false)]])
+		const screeningEffects = new Map([["ctrl-1:all", makeScreening([], false)]])
 
 		const result = computeAutoCompliance(assessments, [], screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBeNull()
@@ -109,7 +109,7 @@ describe("computeAutoCompliance", () => {
 	it("returns 'not_implemented' when screening says not_implemented even with routine match", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
 		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "persistence", false, new Date())]
-		const screeningEffects = new Map([["ctrl-1", makeScreening(["not_implemented"], true)]])
+		const screeningEffects = new Map([["ctrl-1:all", makeScreening(["not_implemented"], true)]])
 
 		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBe("not_implemented")
@@ -181,7 +181,7 @@ describe("computeAutoCompliance", () => {
 
 	it("returns null when screening answers gave no effects", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
-		const screeningEffects = new Map([["ctrl-1", makeScreening([], true)]])
+		const screeningEffects = new Map([["ctrl-1:all", makeScreening([], true)]])
 
 		const result = computeAutoCompliance(assessments, [], screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBeNull()
@@ -190,7 +190,7 @@ describe("computeAutoCompliance", () => {
 
 	it("returns 'implemented' from screening effects when all say implemented", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
-		const screeningEffects = new Map([["ctrl-1", makeScreening(["implemented", "implemented"], true)]])
+		const screeningEffects = new Map([["ctrl-1:all", makeScreening(["implemented", "implemented"], true)]])
 
 		const result = computeAutoCompliance(assessments, [], screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBe("implemented")
@@ -198,7 +198,7 @@ describe("computeAutoCompliance", () => {
 
 	it("returns 'partially_implemented' from mixed screening effects", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
-		const screeningEffects = new Map([["ctrl-1", makeScreening(["implemented", "not_relevant"], true)]])
+		const screeningEffects = new Map([["ctrl-1:all", makeScreening(["implemented", "not_relevant"], true)]])
 
 		const result = computeAutoCompliance(assessments, [], screeningEffects)
 		expect(result.get("ctrl-1:null")?.autoStatus).toBe("partially_implemented")
@@ -231,7 +231,7 @@ describe("computeAutoCompliance", () => {
 	it("returns 'not_relevant' when screening says not_relevant even with routine match", () => {
 		const assessments = [makeAssessment("ctrl-1", null)]
 		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "persistence", false, new Date())]
-		const screeningEffects = new Map([["ctrl-1", makeScreening(["not_relevant"], true)]])
+		const screeningEffects = new Map([["ctrl-1:all", makeScreening(["not_relevant"], true)]])
 
 		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
 		const auto = result.get("ctrl-1:null")
@@ -257,5 +257,115 @@ describe("computeAutoCompliance", () => {
 		expect(auto?.sources).toContain("group_classification")
 		expect(auto?.sources).toContain("screening")
 		expect(auto?.routinesEstablished).toBe(2)
+	})
+
+	// ─── Technology-element-scoped screening tests ──────────────────
+
+	it("tech-scoped screening only applies to matching assessment rows", () => {
+		const assessments = [makeAssessment("ctrl-1", "elem-db"), makeAssessment("ctrl-1", "elem-app")]
+		// Screening for "Database" only → not_relevant
+		const screeningEffects = new Map([["ctrl-1:elem-db", makeScreening(["not_relevant"], true)]])
+
+		const result = computeAutoCompliance(assessments, [], screeningEffects)
+		// Database row should be not_relevant
+		expect(result.get("ctrl-1:elem-db")?.autoStatus).toBe("not_relevant")
+		// Applikasjon row should have NO screening → null
+		expect(result.get("ctrl-1:elem-app")?.autoStatus).toBeNull()
+		expect(result.get("ctrl-1:elem-app")?.reason).toContain("Ingen rutiner eller screeningspørsmål")
+	})
+
+	it("global screening (key=all) applies to all tech element assessment rows", () => {
+		const assessments = [makeAssessment("ctrl-1", "elem-db"), makeAssessment("ctrl-1", "elem-app")]
+		const screeningEffects = new Map([["ctrl-1:all", makeScreening(["not_relevant"], true)]])
+
+		const result = computeAutoCompliance(assessments, [], screeningEffects)
+		expect(result.get("ctrl-1:elem-db")?.autoStatus).toBe("not_relevant")
+		expect(result.get("ctrl-1:elem-app")?.autoStatus).toBe("not_relevant")
+	})
+
+	it("merges global + tech-specific screening for matching tech element", () => {
+		const assessments = [makeAssessment("ctrl-1", "elem-db"), makeAssessment("ctrl-1", "elem-app")]
+		const screeningEffects = new Map([
+			["ctrl-1:all", makeScreening(["implemented"], true)],
+			["ctrl-1:elem-db", makeScreening(["not_relevant"], true)],
+		])
+
+		const result = computeAutoCompliance(assessments, [], screeningEffects)
+		// Database: merged "implemented" + "not_relevant" → partially_implemented (mixed)
+		expect(result.get("ctrl-1:elem-db")?.autoStatus).toBe("partially_implemented")
+		// Applikasjon: only global "implemented"
+		expect(result.get("ctrl-1:elem-app")?.autoStatus).toBe("implemented")
+	})
+
+	it("null tech element assessment gets all screening effects (backward-compatible)", () => {
+		const assessments = [makeAssessment("ctrl-1", null)]
+		const screeningEffects = new Map([
+			["ctrl-1:all", makeScreening(["not_relevant"], true)],
+			["ctrl-1:elem-db", makeScreening(["not_relevant"], true)],
+		])
+
+		const result = computeAutoCompliance(assessments, [], screeningEffects)
+		// Null tech element → merged all effects
+		expect(result.get("ctrl-1:null")?.autoStatus).toBe("not_relevant")
+	})
+
+	it("handles global answered + tech-specific unanswered correctly", () => {
+		const assessments = [makeAssessment("ctrl-1", "elem-db")]
+		const screeningEffects = new Map([
+			["ctrl-1:all", makeScreening(["implemented"], true)],
+			["ctrl-1:elem-db", makeScreening([], false)],
+		])
+
+		const result = computeAutoCompliance(assessments, [], screeningEffects)
+		// allQuestionsAnswered is false because tech-specific has unanswered questions
+		expect(result.get("ctrl-1:elem-db")?.autoStatus).toBeNull()
+		expect(result.get("ctrl-1:elem-db")?.reason).toContain("ikke ferdig besvart")
+	})
+
+	it("tech-specific screening only, no global", () => {
+		const assessments = [makeAssessment("ctrl-1", "elem-db"), makeAssessment("ctrl-1", "elem-app")]
+		const screeningEffects = new Map([["ctrl-1:elem-db", makeScreening(["implemented"], true)]])
+
+		const result = computeAutoCompliance(assessments, [], screeningEffects)
+		expect(result.get("ctrl-1:elem-db")?.autoStatus).toBe("implemented")
+		// elem-app gets no screening at all
+		expect(result.get("ctrl-1:elem-app")?.autoStatus).toBeNull()
+	})
+})
+
+describe("mergeScreeningEffects", () => {
+	it("returns undefined when both inputs are undefined", () => {
+		expect(mergeScreeningEffects(undefined, undefined)).toBeUndefined()
+	})
+
+	it("returns a when b is undefined", () => {
+		const a = makeScreening(["not_relevant"], true)
+		expect(mergeScreeningEffects(a, undefined)).toBe(a)
+	})
+
+	it("returns b when a is undefined", () => {
+		const b = makeScreening(["implemented"], true)
+		expect(mergeScreeningEffects(undefined, b)).toBe(b)
+	})
+
+	it("merges effects and details from both", () => {
+		const a = makeScreening(["not_relevant"], true)
+		const b = makeScreening(["implemented"], true)
+		const merged = mergeScreeningEffects(a, b)
+		expect(merged).toBeDefined()
+
+		expect(merged?.effects).toEqual(["not_relevant", "implemented"])
+		expect(merged?.details).toHaveLength(2)
+		expect(merged?.allQuestionsAnswered).toBe(true)
+		expect(merged?.hasQuestions).toBe(true)
+	})
+
+	it("ANDs allQuestionsAnswered correctly", () => {
+		const answered = makeScreening(["implemented"], true)
+		const unanswered = makeScreening([], false)
+		const merged = mergeScreeningEffects(answered, unanswered)
+		expect(merged).toBeDefined()
+
+		expect(merged?.allQuestionsAnswered).toBe(false)
 	})
 })

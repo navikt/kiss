@@ -16,11 +16,17 @@ import {
 	screeningQuestionTechnologyElements,
 } from "../schema/screening"
 
+/** Build a composite key for screening effects: "controlId:techElementId" or "controlId:all". */
+export function screeningKey(controlId: string, techElementId: string): string {
+	return `${controlId}:${techElementId}`
+}
+
 /**
  * For each control that has screening choice effects, get the applicable
  * screening status for an application.
  *
- * Returns a map: controlId (UUID) → { effects, allAnswered, hasQuestions }
+ * Returns a map keyed by "controlId:techElementId" (for tech-scoped questions)
+ * or "controlId:all" (for global questions without tech element constraints).
  */
 export async function getScreeningEffectsByControlForApp(applicationId: string) {
 	// 1. Get app's confirmed tech elements
@@ -115,7 +121,7 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 			: []
 
 	// 8. Build: for each question, which choice did the app select, and what effects does it produce?
-	// Group by control: what screening says for each control
+	// Group by composite key "controlId:techElementId" or "controlId:all" (for global questions).
 	const result = new Map<string, ScreeningEffectsForControl>()
 
 	// Build question title lookup
@@ -124,51 +130,63 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 		questionTitleById.set(q.id, q.questionText)
 	}
 
-	// First, find which controls have any screening effects at all
-	const controlsWithEffects = new Set<string>()
 	// Map: choiceId → effects
 	const effectsByChoice = new Map<string, typeof allEffects>()
 	for (const e of allEffects) {
-		controlsWithEffects.add(e.controlId)
 		const list = effectsByChoice.get(e.choiceId) ?? []
 		list.push(e)
 		effectsByChoice.set(e.choiceId, list)
 	}
 
-	// For each question, determine what the answer means for each control
+	// For each question, determine what the answer means for each control,
+	// scoped by the question's technology elements.
 	for (const questionId of applicableQuestionIds) {
 		const choices = choicesByQuestion.get(questionId) ?? []
 		const answerValue = answerByQuestion.get(questionId)
+		const questionTechElements = techByQuestion.get(questionId) ?? []
 
 		for (const choice of choices) {
 			const effects = effectsByChoice.get(choice.id) ?? []
 			for (const effect of effects) {
 				if (!effect.effect || effect.effect === "select_routine") continue
 
-				const entry = result.get(effect.controlId) ?? {
-					effects: [],
-					allQuestionsAnswered: true,
-					hasQuestions: true,
-					details: [],
-				}
-				entry.hasQuestions = true
-
-				if (answerValue === choice.label) {
-					entry.effects.push(effect.effect)
-					entry.details.push({
-						questionId,
-						questionTitle: questionTitleById.get(questionId) ?? questionId,
-						answer: answerValue,
-						effect: effect.effect,
-					})
+				// Determine composite keys: scope effects to the question's tech elements
+				let keys: string[]
+				if (questionTechElements.length === 0) {
+					keys = [screeningKey(effect.controlId, "all")]
+				} else {
+					// Only create keys for tech elements the app actually has
+					keys = questionTechElements
+						.filter((te) => appTechElementIds.has(te))
+						.map((te) => screeningKey(effect.controlId, te))
 				}
 
-				// Track whether all questions that affect this control are answered
-				if (!answerValue) {
-					entry.allQuestionsAnswered = false
-				}
+				for (const key of keys) {
+					const entry = result.get(key) ?? {
+						effects: [],
+						allQuestionsAnswered: true,
+						hasQuestions: true,
+						details: [],
+					}
+					entry.hasQuestions = true
 
-				result.set(effect.controlId, entry)
+					if (answerValue === choice.label) {
+						entry.effects.push(effect.effect)
+						entry.details.push({
+							questionId,
+							questionTitle: questionTitleById.get(questionId) ?? questionId,
+							answer: answerValue,
+							effect: effect.effect,
+						})
+					}
+
+					// Track whether all questions that affect this control are answered
+					if (!answerValue) {
+						entry.allQuestionsAnswered = false
+					}
+
+					result.set(key, entry)
+				}
 			}
 		}
 	}
