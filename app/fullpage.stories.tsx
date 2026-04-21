@@ -11,6 +11,7 @@ import {
 	mockKontrollrammeverkData,
 	mockMineTeamData,
 	mockNaisOvervakingData,
+	mockOracleProfilerData,
 	mockSeksjonDetailData,
 	mockSeksjonerData,
 	mockTeamDetailData,
@@ -23,6 +24,7 @@ import MineTeamPage from "./routes/mine-team/index"
 import NaisOvervaking from "./routes/nais-overvaking/index"
 import Seksjoner from "./routes/seksjoner/index"
 import SeksjonDashboard from "./routes/seksjoner.$seksjon/index"
+import SeksjonOracleProfiler from "./routes/seksjoner.$seksjon.oracle-profiler/index"
 import TeamDashboard from "./routes/seksjoner.$seksjon.team.$team/index"
 
 const meta: Meta = {
@@ -135,5 +137,13 @@ export const NaisOvervakingStory: Story = {
 	render: () =>
 		renderWithLayout(NaisOvervaking, mockNaisOvervakingData(), {
 			path: "/admin/nais-overvaking",
+		}),
+}
+
+export const OracleProfilerStory: Story = {
+	name: "Oracle-profiler",
+	render: () =>
+		renderWithLayout(SeksjonOracleProfiler, mockOracleProfilerData(), {
+			path: "/seksjoner/pensjon-og-ufore/oracle-profiler",
 		}),
 }

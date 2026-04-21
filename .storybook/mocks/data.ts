@@ -369,6 +369,7 @@ export function mockAppDetaljerData() {
 		],
 		oracleInstances: [],
 		totalOracleInstanceCount: 0,
+		oracleProfiles: [],
 		instanceSnapshotHistories: [],
 		sectionSlugMap: { "s-01": "pensjon-og-ufore" },
 		canAdmin: true,
@@ -415,6 +416,45 @@ function mockAssessment(
 
 export function mockAdminData() {
 	return null
+}
+
+// ─── Oracle profiler ────────────────────────────────────────────────
+
+export function mockOracleProfilerData() {
+	return {
+		section: { id: "s-01", name: "Pensjon og uføre", slug: "pensjon-og-ufore" },
+		seksjon: "pensjon-og-ufore",
+		profiles: [
+			{
+				instanceId: "pensjon-db-01",
+				profileName: "DEFAULT",
+				applications: [
+					{ applicationId: "app-1", applicationName: "pensjon-sak" },
+					{ applicationId: "app-2", applicationName: "pensjon-vedtak" },
+				],
+				criticality: "low",
+				assessedBy: "A123456",
+				assessedAt: "2026-04-15T10:30:00Z",
+			},
+			{
+				instanceId: "pensjon-db-01",
+				profileName: "APP_USER",
+				applications: [{ applicationId: "app-1", applicationName: "pensjon-sak" }],
+				criticality: "high",
+				assessedBy: "A123456",
+				assessedAt: "2026-04-15T10:31:00Z",
+			},
+			{
+				instanceId: "pensjon-db-02",
+				profileName: "BATCH_USER",
+				applications: [{ applicationId: "app-3", applicationName: "pensjon-batch" }],
+				criticality: null,
+				assessedBy: null,
+				assessedAt: null,
+			},
+		],
+		notAssessedCount: 1,
+	}
 }
 
 // ─── Deployment stats ───────────────────────────────────────────────

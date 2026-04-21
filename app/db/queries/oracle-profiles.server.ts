@@ -223,15 +223,22 @@ export async function getSectionOracleProfiles(sectionId: string): Promise<Secti
 		}
 	>()
 
+	// Pre-index assessments by (applicationId:instanceId) for O(1) lookup
+	const assessmentsByAppAndInstance = new Map<string, typeof assessments>()
+	for (const assessment of assessments) {
+		const assessmentKey = `${assessment.applicationId}:${assessment.instanceId}`
+		const existing = assessmentsByAppAndInstance.get(assessmentKey)
+		if (existing) {
+			existing.push(assessment)
+		} else {
+			assessmentsByAppAndInstance.set(assessmentKey, [assessment])
+		}
+	}
+
 	// Add applications that have Oracle instances
 	for (const link of instanceLinks) {
-		// For each linked instance, we'll add profile entries when we have assessments
 		const appName = appNameMap.get(link.applicationId) ?? "Ukjent"
-
-		// Find assessments for this app+instance
-		const appAssessments = assessments.filter(
-			(a) => a.applicationId === link.applicationId && a.instanceId === link.instanceId,
-		)
+		const appAssessments = assessmentsByAppAndInstance.get(`${link.applicationId}:${link.instanceId}`) ?? []
 
 		for (const assessment of appAssessments) {
 			const key = `${assessment.instanceId}:${assessment.profileName}`
@@ -253,11 +260,11 @@ export async function getSectionOracleProfiles(sectionId: string): Promise<Secti
 				applicationName: appName,
 			})
 
-			// Use the latest/most-critical assessment
+			// Use the most recently updated assessment
 			if (!entry.assessedAt || assessment.updatedAt > entry.assessedAt) {
 				entry.criticality = assessment.criticality as GroupCriticality
 				entry.assessedBy = assessment.assessedBy
-				entry.assessedAt = assessment.assessedAt
+				entry.assessedAt = assessment.updatedAt
 			}
 		}
 	}

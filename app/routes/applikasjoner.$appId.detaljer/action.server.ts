@@ -20,6 +20,7 @@ import {
 	persistenceTypeEnum,
 } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { isAdmin } from "~/lib/authorization.server"
 
 export async function action({ request, params }: ActionFunctionArgs) {
 	const appId = params.appId
@@ -189,6 +190,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "set-oracle-profile-criticality") {
+		if (!isAdmin(authedUser)) {
+			return data({ success: false, message: null, error: "Ikke autorisert" })
+		}
 		const instanceId = (formData.get("instanceId") as string)?.trim()
 		const profileName = (formData.get("profileName") as string)?.trim()
 		const criticality = formData.get("criticality") as string
