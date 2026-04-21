@@ -1,4 +1,4 @@
-CREATE TABLE "oracle_profile_assessments" (
+CREATE TABLE IF NOT EXISTS "oracle_profile_assessments" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"application_id" uuid NOT NULL,
 	"instance_id" text NOT NULL,
@@ -11,4 +11,11 @@ CREATE TABLE "oracle_profile_assessments" (
 	CONSTRAINT "uq_oracle_profile_assessment" UNIQUE("application_id","instance_id","profile_name")
 );
 
-ALTER TABLE "oracle_profile_assessments" ADD CONSTRAINT "oracle_profile_assessments_application_id_monitored_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."monitored_applications"("id") ON DELETE no action ON UPDATE no action;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'oracle_profile_assessments_application_id_monitored_applications_id_fk'
+  ) THEN
+    ALTER TABLE "oracle_profile_assessments" ADD CONSTRAINT "oracle_profile_assessments_application_id_monitored_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."monitored_applications"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $$;
