@@ -10,6 +10,7 @@ import {
 	updatePersistenceClassification,
 	upsertGroupCriticality,
 } from "~/db/queries/nais.server"
+import { isInstanceLinkedToApp, upsertOracleProfileCriticality } from "~/db/queries/oracle-profiles.server"
 import { generateAppComplianceReport } from "~/db/queries/reports.server"
 import { createReview } from "~/db/queries/routines.server"
 import {
@@ -185,6 +186,30 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 		await upsertGroupCriticality(appId, groupId, criticality as GroupCriticality, authedUser.navIdent)
 		return data({ success: true, message: "Kritikalitet oppdatert.", error: null })
+	}
+
+	if (intent === "set-oracle-profile-criticality") {
+		const instanceId = (formData.get("instanceId") as string)?.trim()
+		const profileName = (formData.get("profileName") as string)?.trim()
+		const criticality = formData.get("criticality") as string
+		if (!instanceId || !profileName) {
+			return data({ success: false, message: null, error: "Mangler instans-ID eller profilnavn" })
+		}
+		if (!groupCriticalityEnum.includes(criticality as GroupCriticality)) {
+			return data({ success: false, message: null, error: "Ugyldig kritikalitet" })
+		}
+		const linked = await isInstanceLinkedToApp(appId, instanceId)
+		if (!linked) {
+			return data({ success: false, message: null, error: "Instansen er ikke knyttet til denne applikasjonen" })
+		}
+		await upsertOracleProfileCriticality(
+			appId,
+			instanceId,
+			profileName,
+			criticality as GroupCriticality,
+			authedUser.navIdent,
+		)
+		return data({ success: true, message: "Profilkritikalitet oppdatert.", error: null })
 	}
 
 	if (intent === "save-control-comment") {

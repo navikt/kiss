@@ -62,6 +62,7 @@ export default function ApplikasjonDetalj() {
 		appReports,
 		oracleInstances,
 		totalOracleInstanceCount,
+		oracleProfiles,
 		instanceSnapshotHistories,
 	} = useLoaderData<typeof loader>()
 
@@ -320,7 +321,12 @@ export default function ApplikasjonDetalj() {
 				)}
 
 				<Tabs.Panel value="persistering" style={{ paddingTop: "var(--ax-space-6)" }}>
-					<PersisteringTab persistence={persistence} oracleAuditSummaries={oracleAuditSummaries} />
+					<PersisteringTab
+						persistence={persistence}
+						oracleAuditSummaries={oracleAuditSummaries}
+						oracleProfiles={oracleProfiles}
+						canAdmin={canAdmin}
+					/>
 				</Tabs.Panel>
 
 				{oracleInstances.length > 0 && (

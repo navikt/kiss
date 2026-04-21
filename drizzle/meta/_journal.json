@@ -267,6 +267,13 @@
       "when": 1781914180000,
       "tag": "0037_drop_section_excluded_environments",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1776773802000,
+      "tag": "0038_oracle_profile_assessments",
+      "breakpoints": true
     }
   ]
 }

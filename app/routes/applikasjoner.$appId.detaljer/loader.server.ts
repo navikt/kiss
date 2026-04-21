@@ -11,6 +11,7 @@ import {
 	getManualGroupsForApp,
 	resolveAppNames,
 } from "~/db/queries/nais.server"
+import { getOracleProfileAssessments } from "~/db/queries/oracle-profiles.server"
 import { getReportsForApp } from "~/db/queries/reports.server"
 import {
 	getReviewsForApp,
@@ -28,7 +29,7 @@ import { isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
-import { getOracleInstances } from "~/lib/oracle-revisjon.server"
+import { getOracleInstances, getOracleProfiles } from "~/lib/oracle-revisjon.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -291,6 +292,34 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		}
 	}
 
+	// Fetch Oracle profiles for each linked instance and merge with DB assessments
+	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
+	const profileAssessments = await getOracleProfileAssessments(appId)
+	const oracleProfileResults = await Promise.allSettled(
+		filteredOracleInstances.map(async (inst) => {
+			const profiles = await getOracleProfiles(inst.instanceId)
+			const meta = oracleInstanceMetaById.get(inst.instanceId)
+			const instanceName = meta?.name ?? inst.instanceId.toUpperCase()
+			return { instanceId: inst.instanceId, instanceName, profiles: profiles?.profiles ?? [] }
+		}),
+	)
+	const oracleProfiles = oracleProfileResults.flatMap((result) => {
+		if (result.status !== "fulfilled") return []
+		const { instanceId, instanceName, profiles } = result.value
+		return profiles.map((p) => {
+			const key = `${instanceId}:${p.name.toUpperCase().trim()}`
+			const assessment = profileAssessments[key]
+			return {
+				instanceId,
+				instanceName,
+				profileName: p.name.toUpperCase().trim(),
+				criticality: assessment?.criticality ?? null,
+				updatedBy: assessment?.updatedBy ?? null,
+				updatedAt: assessment?.updatedAt ?? null,
+			}
+		})
+	})
+
 	return data({
 		...breadcrumbCtx,
 		app: detail.app,
@@ -359,8 +388,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				: null,
 		})),
 		totalOracleInstanceCount,
+		oracleProfiles,
 		instanceSnapshotHistories: (() => {
-			const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
 			return instanceSnapshotHistories.map(({ instanceId, history }) => {
 				const meta = oracleInstanceMetaById.get(instanceId)
 				return {

@@ -59,6 +59,15 @@ export interface AuditEvidenceSummary {
 	findings: AuditFinding[]
 }
 
+export interface OracleProfilesResponse {
+	instanceId: string
+	profiles: OracleProfile[]
+}
+
+export interface OracleProfile {
+	name: string
+}
+
 // --- Internal helpers ---
 
 function isDevMode(): boolean {
@@ -236,10 +245,18 @@ function getMockSummary(instanceId: string): AuditEvidenceSummary {
 	}
 }
 
+function getMockProfiles(instanceId: string): OracleProfilesResponse {
+	return {
+		instanceId,
+		profiles: [{ name: "DEFAULT" }, { name: "APP_USER" }, { name: "CONNECT" }, { name: "BATCH_USER" }],
+	}
+}
+
 // --- In-memory cache (TTL 1 hour) ---
 
 const SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000
 const summaryCache = new Map<string, { data: AuditEvidenceSummary | null; fetchedAt: number }>()
+const profilesCache = new Map<string, { data: OracleProfilesResponse; fetchedAt: number }>()
 
 function getCachedSummary(instanceId: string): AuditEvidenceSummary | null | undefined {
 	const entry = summaryCache.get(instanceId)
@@ -339,6 +356,32 @@ export async function getAuditEvidenceSummary(instanceId: string): Promise<Audit
 		return summary
 	} catch (error) {
 		logger.error("Failed to fetch audit evidence summary", { instanceId, error })
+		return null
+	}
+}
+
+export async function getOracleProfiles(instanceId: string): Promise<OracleProfilesResponse | null> {
+	if (isDevMode()) {
+		logger.warn("ORACLE_REVISJON_BASE_URL not set — returning mock profiles", { instanceId })
+		return getMockProfiles(instanceId)
+	}
+
+	const cached = profilesCache.get(instanceId)
+	if (cached && Date.now() - cached.fetchedAt < SUMMARY_CACHE_TTL_MS) {
+		return cached.data
+	}
+
+	try {
+		if (!ORACLE_REVISJON_SCOPE || !ORACLE_REVISJON_BASE_URL) {
+			return null
+		}
+
+		const response = await fetchWithAuth(`/api/m2m/${encodeURIComponent(instanceId)}/profiles`)
+		const data = (await response.json()) as OracleProfilesResponse
+		profilesCache.set(instanceId, { data, fetchedAt: Date.now() })
+		return data
+	} catch (error) {
+		logger.error("Failed to fetch Oracle profiles", { instanceId, error })
 		return null
 	}
 }

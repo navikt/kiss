@@ -84,6 +84,7 @@ export const auditLogActionEnum = [
 	"manual_group_removed",
 	"group_criticality_updated",
 	"group_classification_updated",
+	"oracle_profile_criticality_updated",
 
 	// Screening (spørsmål, svar og predefinerte svar)
 	"predefined_answer_created",
