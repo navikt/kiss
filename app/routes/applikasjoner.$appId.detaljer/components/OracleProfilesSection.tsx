@@ -1,5 +1,5 @@
 import { BodyShort, Heading, Select, Table, Tag, VStack } from "@navikt/ds-react"
-import { type ChangeEvent, useCallback } from "react"
+import { type ChangeEvent, useEffect, useState } from "react"
 import { useFetcher } from "react-router"
 import { type GroupCriticality, groupCriticalityEnum, groupCriticalityLabels } from "~/db/schema/applications"
 import { criticalityTagColor, criticalityTagVariant } from "../shared"
@@ -8,29 +8,65 @@ export interface OracleProfileDisplay {
 	instanceId: string
 	instanceName: string
 	profileName: string
-	criticality: string | null
+	criticality: GroupCriticality | null
 	updatedBy: string | null
 	updatedAt: string | null
 }
 
-export function OracleProfilesSection({ profiles, canAdmin }: { profiles: OracleProfileDisplay[]; canAdmin: boolean }) {
-	const criticalityFetcher = useFetcher()
+function CriticalitySelect({
+	instanceId,
+	profileName,
+	currentValue,
+}: {
+	instanceId: string
+	profileName: string
+	currentValue: GroupCriticality | null
+}) {
+	const fetcher = useFetcher()
+	const [value, setValue] = useState(currentValue ?? "")
 
-	const handleCriticalityChange = useCallback(
-		(instanceId: string, profileName: string, value: string) => {
-			criticalityFetcher.submit(
-				{
-					intent: "set-oracle-profile-criticality",
-					instanceId,
-					profileName,
-					criticality: value,
-				},
-				{ method: "POST" },
-			)
-		},
-		[criticalityFetcher],
+	useEffect(() => {
+		setValue(currentValue ?? "")
+	}, [currentValue])
+
+	return (
+		<fetcher.Form method="post">
+			<input type="hidden" name="intent" value="set-oracle-profile-criticality" />
+			<input type="hidden" name="instanceId" value={instanceId} />
+			<input type="hidden" name="profileName" value={profileName} />
+			<Select
+				label="Kritikalitet"
+				hideLabel
+				size="small"
+				value={value}
+				onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+					setValue(e.target.value)
+					fetcher.submit(
+						{
+							intent: "set-oracle-profile-criticality",
+							instanceId,
+							profileName,
+							criticality: e.target.value,
+						},
+						{ method: "POST" },
+					)
+				}}
+				style={{ minWidth: "120px" }}
+			>
+				<option value="" disabled>
+					Velg…
+				</option>
+				{groupCriticalityEnum.map((c) => (
+					<option key={c} value={c}>
+						{groupCriticalityLabels[c]}
+					</option>
+				))}
+			</Select>
+		</fetcher.Form>
 	)
+}
 
+export function OracleProfilesSection({ profiles, canAdmin }: { profiles: OracleProfileDisplay[]; canAdmin: boolean }) {
 	if (profiles.length === 0) return null
 
 	return (
@@ -65,30 +101,11 @@ export function OracleProfilesSection({ profiles, canAdmin }: { profiles: Oracle
 								</Table.DataCell>
 								<Table.DataCell>
 									{canAdmin ? (
-										<criticalityFetcher.Form method="post">
-											<input type="hidden" name="intent" value="set-oracle-profile-criticality" />
-											<input type="hidden" name="instanceId" value={p.instanceId} />
-											<input type="hidden" name="profileName" value={p.profileName} />
-											<Select
-												label="Kritikalitet"
-												hideLabel
-												size="small"
-												value={p.criticality ?? ""}
-												onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-													handleCriticalityChange(p.instanceId, p.profileName, e.target.value)
-												}}
-												style={{ minWidth: "120px" }}
-											>
-												<option value="" disabled>
-													Velg…
-												</option>
-												{groupCriticalityEnum.map((c) => (
-													<option key={c} value={c}>
-														{groupCriticalityLabels[c]}
-													</option>
-												))}
-											</Select>
-										</criticalityFetcher.Form>
+										<CriticalitySelect
+											instanceId={p.instanceId}
+											profileName={p.profileName}
+											currentValue={p.criticality}
+										/>
 									) : p.criticality ? (
 										<Tag
 											variant={criticalityTagVariant[p.criticality] ?? "neutral"}
@@ -99,7 +116,7 @@ export function OracleProfilesSection({ profiles, canAdmin }: { profiles: Oracle
 													: undefined
 											}
 										>
-											{groupCriticalityLabels[p.criticality as GroupCriticality] ?? p.criticality}
+											{groupCriticalityLabels[p.criticality] ?? p.criticality}
 										</Tag>
 									) : (
 										<BodyShort size="small" textColor="subtle">

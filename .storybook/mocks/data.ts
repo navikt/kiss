@@ -456,12 +456,11 @@ export function mockOracleProfilerData() {
 				instanceId: "pensjon-db-02",
 				profileName: "BATCH_USER",
 				applications: [{ applicationId: "app-3", applicationName: "pensjon-batch" }],
-				criticality: null,
-				assessedBy: null,
-				assessedAt: null,
+				criticality: "medium",
+				assessedBy: "A123456",
+				assessedAt: "2026-04-15T10:32:00Z",
 			},
 		],
-		notAssessedCount: 1,
 	}
 }
 

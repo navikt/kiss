@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react"
-import { MemoryRouter } from "react-router"
+import { createMemoryRouter, RouterProvider } from "react-router"
 import type { OracleProfileDisplay } from "../components/OracleProfilesSection"
 import { OracleProfilesSection } from "../components/OracleProfilesSection"
 
@@ -46,16 +46,21 @@ const mockProfiles: OracleProfileDisplay[] = [
 	},
 ]
 
+function DataRouterWrapper({ children }: { children: React.ReactNode }) {
+	const router = createMemoryRouter([{ path: "/", element: children }], { initialEntries: ["/"] })
+	return <RouterProvider router={router} />
+}
+
 const meta = {
 	title: "Komponenter/OracleProfilesSection",
 	component: OracleProfilesSection,
 	decorators: [
 		(Story) => (
-			<MemoryRouter>
+			<DataRouterWrapper>
 				<div style={{ maxWidth: "900px", padding: "var(--ax-space-8)" }}>
 					<Story />
 				</div>
-			</MemoryRouter>
+			</DataRouterWrapper>
 		),
 	],
 } satisfies Meta<typeof OracleProfilesSection>

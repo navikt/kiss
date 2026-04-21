@@ -25,23 +25,20 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const profiles = await getSectionOracleProfiles(section.id)
 
-	const notAssessedCount = profiles.filter((p) => !p.criticality).length
-
 	return data({
 		section,
 		seksjon,
 		profiles: profiles.map((p) => ({
 			...p,
-			assessedAt: p.assessedAt?.toISOString() ?? null,
+			assessedAt: p.assessedAt.toISOString(),
 		})),
-		notAssessedCount,
 	})
 }
 
 type SortKey = "instans" | "profil" | "kritikalitet" | "applikasjoner"
 
 export default function SeksjonOracleProfiler() {
-	const { section, seksjon, profiles, notAssessedCount } = useLoaderData<typeof loader>()
+	const { section, seksjon, profiles } = useLoaderData<typeof loader>()
 	const [sort, setSort] = useState<SortState>({ orderBy: "instans", direction: "ascending" })
 
 	const sorted = useMemo(() => {
@@ -79,7 +76,6 @@ export default function SeksjonOracleProfiler() {
 				<Heading size="large">Oracle Database-profiler — {section.name}</Heading>
 				<BodyShort textColor="subtle">
 					Oversikt over Oracle Database-profiler som er vurdert for applikasjoner i seksjonen.
-					{notAssessedCount > 0 && ` ${notAssessedCount} av ${profiles.length} mangler kritikalitetsvurdering.`}
 				</BodyShort>
 			</VStack>
 
@@ -129,15 +125,9 @@ export default function SeksjonOracleProfiler() {
 										</VStack>
 									</Table.DataCell>
 									<Table.DataCell>
-										{p.criticality ? (
-											<Tag variant={criticalityTagVariant[p.criticality] ?? "neutral"} size="xsmall">
-												{groupCriticalityLabels[p.criticality as GroupCriticality] ?? p.criticality}
-											</Tag>
-										) : (
-											<BodyShort size="small" textColor="subtle">
-												Ikke vurdert
-											</BodyShort>
-										)}
+										<Tag variant={criticalityTagVariant[p.criticality] ?? "neutral"} size="xsmall">
+											{groupCriticalityLabels[p.criticality as GroupCriticality] ?? p.criticality}
+										</Tag>
 									</Table.DataCell>
 								</Table.Row>
 							))}

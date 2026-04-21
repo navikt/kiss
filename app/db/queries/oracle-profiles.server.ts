@@ -4,6 +4,7 @@ import {
 	applicationEnvironments,
 	applicationTeamMappings,
 	type GroupCriticality,
+	groupCriticalityEnum,
 	monitoredApplications,
 	naisTeams,
 } from "../schema/applications"
@@ -79,17 +80,18 @@ export async function upsertOracleProfileCriticality(
 /** Get all profile assessments for an application, keyed by "instanceId:profileName". */
 export async function getOracleProfileAssessments(
 	applicationId: string,
-): Promise<Record<string, { criticality: string; updatedBy: string; updatedAt: string }>> {
+): Promise<Record<string, { criticality: GroupCriticality; updatedBy: string; updatedAt: string }>> {
 	const rows = await db
 		.select()
 		.from(oracleProfileAssessments)
 		.where(eq(oracleProfileAssessments.applicationId, applicationId))
 
-	const result: Record<string, { criticality: string; updatedBy: string; updatedAt: string }> = {}
+	const result: Record<string, { criticality: GroupCriticality; updatedBy: string; updatedAt: string }> = {}
 	for (const row of rows) {
+		if (!groupCriticalityEnum.includes(row.criticality as GroupCriticality)) continue
 		const key = `${row.instanceId}:${row.profileName}`
 		result[key] = {
-			criticality: row.criticality,
+			criticality: row.criticality as GroupCriticality,
 			updatedBy: row.updatedBy,
 			updatedAt: row.updatedAt.toISOString(),
 		}
@@ -121,9 +123,9 @@ export interface SectionOracleProfileRow {
 		applicationId: string
 		applicationName: string
 	}>
-	criticality: GroupCriticality | null
-	assessedBy: string | null
-	assessedAt: Date | null
+	criticality: GroupCriticality
+	assessedBy: string
+	assessedAt: Date
 }
 
 /** Get all Oracle profiles with assessments across all applications in a section. */
@@ -217,15 +219,16 @@ export async function getSectionOracleProfiles(sectionId: string): Promise<Secti
 			instanceId: string
 			profileName: string
 			applications: Map<string, { applicationId: string; applicationName: string }>
-			criticality: GroupCriticality | null
-			assessedBy: string | null
-			assessedAt: Date | null
+			criticality: GroupCriticality
+			assessedBy: string
+			assessedAt: Date
 		}
 	>()
 
 	// Pre-index assessments by (applicationId:instanceId) for O(1) lookup
 	const assessmentsByAppAndInstance = new Map<string, typeof assessments>()
 	for (const assessment of assessments) {
+		if (!groupCriticalityEnum.includes(assessment.criticality as GroupCriticality)) continue
 		const assessmentKey = `${assessment.applicationId}:${assessment.instanceId}`
 		const existing = assessmentsByAppAndInstance.get(assessmentKey)
 		if (existing) {
@@ -242,18 +245,21 @@ export async function getSectionOracleProfiles(sectionId: string): Promise<Secti
 
 		for (const assessment of appAssessments) {
 			const key = `${assessment.instanceId}:${assessment.profileName}`
-			if (!profileMap.has(key)) {
+			const entry = profileMap.get(key)
+
+			if (!entry) {
 				profileMap.set(key, {
 					instanceId: assessment.instanceId,
 					profileName: assessment.profileName,
-					applications: new Map(),
-					criticality: null,
-					assessedBy: null,
-					assessedAt: null,
+					applications: new Map([
+						[link.applicationId, { applicationId: link.applicationId, applicationName: appName }],
+					]),
+					criticality: assessment.criticality as GroupCriticality,
+					assessedBy: assessment.updatedBy,
+					assessedAt: assessment.updatedAt,
 				})
+				continue
 			}
-			const entry = profileMap.get(key)
-			if (!entry) continue
 
 			entry.applications.set(link.applicationId, {
 				applicationId: link.applicationId,
@@ -261,9 +267,9 @@ export async function getSectionOracleProfiles(sectionId: string): Promise<Secti
 			})
 
 			// Use the most recently updated assessment
-			if (!entry.assessedAt || assessment.updatedAt > entry.assessedAt) {
+			if (assessment.updatedAt > entry.assessedAt) {
 				entry.criticality = assessment.criticality as GroupCriticality
-				entry.assessedBy = assessment.assessedBy
+				entry.assessedBy = assessment.updatedBy
 				entry.assessedAt = assessment.updatedAt
 			}
 		}
