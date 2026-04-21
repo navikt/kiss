@@ -129,6 +129,10 @@ export async function setIncludeInReport(appId: string, instanceId: string, incl
 
 // ─── Snapshot Storage ─────────────────────────────────────────────────────
 
+/**
+ * Lagrer Excel-vedlegg for en Oracle-revisjonsbevis-snapshot i bucket og
+ * registrerer metadata-rad i databasen. Returnerer ny snapshot-ID.
+ */
 export async function saveAuditEvidenceSnapshot(
 	appId: string,
 	instanceId: string,
@@ -219,6 +223,10 @@ export async function getSnapshot(snapshotId: string): Promise<SnapshotDetail | 
 
 // ─── Report Queries ───────────────────────────────────────────────────────
 
+/**
+ * Henter siste audit-evidence-snapshot per Oracle-instans markert for inkludering
+ * i rapporten for en applikasjon.
+ */
 export async function getAuditEvidenceForReport(appId: string): Promise<ReportEvidence[]> {
 	const instances = await db
 		.select()

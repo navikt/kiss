@@ -154,6 +154,10 @@ export async function getRulesetsForSection(sectionId: string): Promise<RulesetL
 	})
 }
 
+/**
+ * Henter regelsett-detaljer inkludert tilknyttede kontroller, rutiner og
+ * gjeldende godkjenningsstatus. Returnerer null hvis ikke funnet.
+ */
 export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail | null> {
 	const [row] = await db
 		.select({
@@ -278,6 +282,7 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 
 // ─── Mutations ────────────────────────────────────────────────────────────
 
+/** Oppretter et nytt regelsett (status `draft`). Returnerer ny ruleset-ID. */
 export async function createRuleset(input: {
 	sectionId: string
 	name: string
@@ -335,6 +340,10 @@ export async function archiveRuleset(rulesetId: string, updatedBy: string): Prom
 		.where(eq(rulesets.id, rulesetId))
 }
 
+/**
+ * Godkjenner et regelsett ved å skrive en ny godkjenningsrad og sette
+ * `validUntil` basert på frekvensen. Returnerer ID til godkjenningsraden.
+ */
 export async function approveRuleset(input: {
 	rulesetId: string
 	approvedBy: string

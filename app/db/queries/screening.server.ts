@@ -39,6 +39,10 @@ export async function getScreeningQuestion(id: string) {
 	return q ?? null
 }
 
+/**
+ * Oppretter et nytt screening-spørsmål, evt. avgrenset til en seksjon eller koblet
+ * til et regelsett. Skriver audit-logg.
+ */
 export async function createScreeningQuestion(
 	questionText: string,
 	description: string | null,
@@ -384,6 +388,12 @@ async function _applyChoiceEffects(
 
 // ─── Loading all screening data for compliance page ──────────────────────
 
+/**
+ * Henter alle screening-data (globale + seksjonsspesifikke spørsmål, valg,
+ * effekter, eksisterende svar, valgte rutiner) for en applikasjon og samler
+ * resultatet i ett retur-objekt for compliance-siden. Internt utføres
+ * flere DB-spørringer.
+ */
 export async function getScreeningDataForApp(applicationId: string) {
 	// Get global questions + section-scoped questions for the app's section(s)
 	const globalQuestions = await getScreeningQuestions()
@@ -600,6 +610,10 @@ export async function getScreeningDataForApp(applicationId: string) {
 
 // ─── Screening routine selections ────────────────────────────────────────
 
+/**
+ * Lagrer brukerens valgte rutine for en gitt screening-effekt
+ * (choice → routine-mapping per applikasjon). Erstatter eksisterende valg.
+ */
 export async function saveRoutineSelection(
 	applicationId: string,
 	choiceEffectId: string,
