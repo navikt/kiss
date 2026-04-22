@@ -17,10 +17,11 @@ import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRecentAuditLog } from "~/db/queries/audit.server"
 import {
+	archiveSection,
 	createSection,
-	deleteSection,
 	getSections,
 	getTeamsForSection,
+	unarchiveSection,
 	updateSection,
 } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
@@ -31,6 +32,8 @@ interface SectionWithTeams {
 	name: string
 	slug: string
 	description: string | null
+	archivedAt: Date | null
+	archivedBy: string | null
 	teams: {
 		id: string
 		name: string
@@ -44,7 +47,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)
 
-	const allSections = await getSections()
+	const allSections = await getSections({ includeArchived: true })
 	const sectionsWithTeams: SectionWithTeams[] = await Promise.all(
 		allSections.map(async (section) => {
 			const teams = await getTeamsForSection(section.id)
@@ -53,6 +56,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				name: section.name,
 				slug: section.slug,
 				description: section.description,
+				archivedAt: section.archivedAt,
+				archivedBy: section.archivedBy,
 				teams: teams.map((t) => ({
 					id: t.id,
 					name: t.name,
@@ -102,13 +107,22 @@ export async function action({ request }: ActionFunctionArgs) {
 			return data<ActionResult>({ success: true, message: `Seksjon «${name.trim()}» oppdatert.` })
 		}
 
-		case "delete-section": {
+		case "archive-section": {
 			const id = formData.get("id")
 			if (typeof id !== "string") {
 				return data<ActionResult>({ success: false, error: "Mangler seksjon-ID." })
 			}
-			await deleteSection(id, userId)
-			return data<ActionResult>({ success: true, message: "Seksjon slettet." })
+			await archiveSection(id, userId)
+			return data<ActionResult>({ success: true, message: "Seksjon arkivert." })
+		}
+
+		case "unarchive-section": {
+			const id = formData.get("id")
+			if (typeof id !== "string") {
+				return data<ActionResult>({ success: false, error: "Mangler seksjon-ID." })
+			}
+			await unarchiveSection(id, userId)
+			return data<ActionResult>({ success: true, message: "Seksjon reaktivert." })
 		}
 
 		default:
@@ -149,17 +163,21 @@ function EditSectionModal({
 	)
 }
 
-function DeleteConfirmModal({
+function ConfirmModal({
 	open,
 	onClose,
 	title,
 	message,
+	confirmLabel,
+	confirmVariant,
 	formData,
 }: {
 	open: boolean
 	onClose: () => void
 	title: string
 	message: string
+	confirmLabel: string
+	confirmVariant: "danger" | "primary"
 	formData: Record<string, string>
 }) {
 	return (
@@ -173,8 +191,8 @@ function DeleteConfirmModal({
 						<input key={key} type="hidden" name={key} value={value} />
 					))}
 					<HStack gap="space-4">
-						<Button type="submit" variant="danger">
-							Slett
+						<Button type="submit" variant={confirmVariant}>
+							{confirmLabel}
 						</Button>
 						<Button type="button" variant="tertiary" onClick={onClose}>
 							Avbryt
@@ -188,15 +206,23 @@ function DeleteConfirmModal({
 
 function SectionCard({ section }: { section: SectionWithTeams }) {
 	const [editSectionOpen, setEditSectionOpen] = useState(false)
-	const [deleteSectionOpen, setDeleteSectionOpen] = useState(false)
+	const [archiveOpen, setArchiveOpen] = useState(false)
+	const isArchived = section.archivedAt !== null
 
 	return (
 		<VStack gap="space-4" className="admin-card" key={section.id}>
 			<HStack gap="space-4" align="center" justify="space-between">
 				<VStack gap="space-2">
-					<Heading size="medium" level="3">
-						{section.name}
-					</Heading>
+					<HStack gap="space-2" align="center">
+						<Heading size="medium" level="3">
+							{section.name}
+						</Heading>
+						{isArchived && (
+							<Tag variant="warning" size="small">
+								Arkivert
+							</Tag>
+						)}
+					</HStack>
 					{section.description && <BodyLong size="small">{section.description}</BodyLong>}
 					<Tag variant="neutral" size="small">
 						{section.teams.length} team
@@ -206,20 +232,32 @@ function SectionCard({ section }: { section: SectionWithTeams }) {
 					<Button as={Link} to={`/seksjoner/${section.slug}/rediger`} variant="secondary" size="small">
 						Rediger
 					</Button>
-					<Button variant="danger" size="small" onClick={() => setDeleteSectionOpen(true)}>
-						Slett
-					</Button>
+					{isArchived ? (
+						<Button variant="primary" size="small" onClick={() => setArchiveOpen(true)}>
+							Reaktiver
+						</Button>
+					) : (
+						<Button variant="danger" size="small" onClick={() => setArchiveOpen(true)}>
+							Arkiver
+						</Button>
+					)}
 				</HStack>
 			</HStack>
 
 			<EditSectionModal section={section} open={editSectionOpen} onClose={() => setEditSectionOpen(false)} />
 
-			<DeleteConfirmModal
-				open={deleteSectionOpen}
-				onClose={() => setDeleteSectionOpen(false)}
-				title={`Slett seksjon: ${section.name}`}
-				message={`Er du sikker på at du vil slette seksjonen «${section.name}»? Alle ${section.teams.length} team i seksjonen vil også bli slettet.`}
-				formData={{ intent: "delete-section", id: section.id }}
+			<ConfirmModal
+				open={archiveOpen}
+				onClose={() => setArchiveOpen(false)}
+				title={isArchived ? `Reaktiver seksjon: ${section.name}` : `Arkiver seksjon: ${section.name}`}
+				message={
+					isArchived
+						? `Vil du reaktivere seksjonen «${section.name}»? Den blir igjen synlig i seksjonslisten.`
+						: `Vil du arkivere seksjonen «${section.name}»? Seksjonen blir skjult fra seksjonslisten, men data og historikk beholdes. Du kan reaktivere den senere.`
+				}
+				confirmLabel={isArchived ? "Reaktiver" : "Arkiver"}
+				confirmVariant={isArchived ? "primary" : "danger"}
+				formData={{ intent: isArchived ? "unarchive-section" : "archive-section", id: section.id }}
 			/>
 		</VStack>
 	)
@@ -229,6 +267,8 @@ const actionLabels: Record<string, string> = {
 	section_created: "Seksjon opprettet",
 	section_updated: "Seksjon oppdatert",
 	section_deleted: "Seksjon slettet",
+	section_archived: "Seksjon arkivert",
+	section_unarchived: "Seksjon reaktivert",
 	team_created: "Team opprettet",
 	team_updated: "Team oppdatert",
 	team_deleted: "Team slettet",
@@ -244,7 +284,7 @@ export default function AdminSeksjoner() {
 			<Heading size="xlarge" level="2">
 				Administrer seksjoner
 			</Heading>
-			<BodyLong>Opprett, rediger og slett seksjoner og utviklingsteam.</BodyLong>
+			<BodyLong>Opprett, rediger og arkiver seksjoner og utviklingsteam.</BodyLong>
 
 			{actionData && "success" in actionData && actionData.success && (
 				<Alert variant="success">{actionData.message}</Alert>
@@ -313,11 +353,13 @@ export default function AdminSeksjoner() {
 										<Table.DataCell>
 											<Tag
 												variant={
-													entry.action.includes("deleted")
-														? "error"
-														: entry.action.includes("created")
-															? "success"
-															: "info"
+													entry.action.includes("unarchived")
+														? "success"
+														: entry.action.includes("deleted") || entry.action.includes("archived")
+															? "warning"
+															: entry.action.includes("created")
+																? "success"
+																: "info"
 												}
 												size="xsmall"
 											>

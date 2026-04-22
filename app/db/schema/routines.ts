@@ -23,7 +23,7 @@ export const routines = pgTable("routines", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	sectionId: uuid("section_id")
 		.notNull()
-		.references(() => sections.id, { onDelete: "cascade" }),
+		.references(() => sections.id, { onDelete: "restrict" }),
 	name: text("name").notNull(),
 	description: text("description"),
 	frequency: text("frequency", { enum: ROUTINE_FREQUENCIES }).notNull(),

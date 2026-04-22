@@ -350,7 +350,7 @@ function extractAllCreateTableNames(sqlContent: string): string[] {
 /** Extract table.column pairs from ALTER TABLE ... ADD COLUMN statements. */
 function extractAlterTableAddColumns(sqlContent: string): Array<{ table: string; column: string }> {
 	const results: Array<{ table: string; column: string }> = []
-	const regex = /ALTER TABLE\s+"(\w+)"\s+ADD COLUMN\s+"(\w+)"/g
+	const regex = /ALTER TABLE\s+"(\w+)"\s+ADD COLUMN\s+(?:IF NOT EXISTS\s+)?"(\w+)"/g
 	let match = regex.exec(sqlContent)
 	while (match) {
 		results.push({ table: match[1], column: match[2] })

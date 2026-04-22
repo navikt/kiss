@@ -13,9 +13,13 @@ import { applicationTechnologyElements, controlTechnologyElements, frameworkCont
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
-/** Get all sections. */
-export async function getSections() {
-	return db.select().from(sections).orderBy(sections.name)
+/** Get sections. By default only active (non-archived) sections are returned. */
+export async function getSections(options: { includeArchived?: boolean } = {}) {
+	const query = db.select().from(sections)
+	if (!options.includeArchived) {
+		return query.where(isNull(sections.archivedAt)).orderBy(sections.name)
+	}
+	return query.orderBy(sections.name)
 }
 
 /** Get a section by slug (lightweight lookup). */
@@ -457,19 +461,73 @@ export async function updateSection(id: string, name: string, description: strin
 	return section
 }
 
-/** Delete a section and all its teams. */
-export async function deleteSection(id: string, performedBy: string) {
-	const [prev] = await db.select().from(sections).where(eq(sections.id, id)).limit(1)
-	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, id))
-	await db.delete(devTeams).where(eq(devTeams.sectionId, id))
-	await db.delete(sections).where(eq(sections.id, id))
-	await writeAuditLog({
-		action: "section_deleted",
-		entityType: "section",
-		entityId: id,
-		previousValue: prev?.name ?? null,
-		metadata: { deletedTeams: teams.map((t) => t.name) },
-		performedBy,
+/**
+ * Arkiverer en seksjon (soft-delete). Seksjonen blir skjult fra brukervendte
+ * lister, men beholder all data og historikk. FK-er til seksjonen forblir
+ * gyldige (alle FK-er er nå ON DELETE RESTRICT, så hard delete er umulig).
+ *
+ * UPDATE er guarded mot `archived_at IS NULL` og audit-loggen skrives kun
+ * dersom UPDATE faktisk endret en rad. Dette gjør operasjonen idempotent og
+ * trygg under samtidige kall (TOCTOU-sikker uten å trenge SELECT FOR UPDATE).
+ * UPDATE og audit-skriving kjører i samme transaksjon (AGENTS.md regel 6).
+ */
+export async function archiveSection(id: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [section] = await tx
+			.update(sections)
+			.set({ archivedAt: new Date(), archivedBy: performedBy, updatedBy: performedBy, updatedAt: new Date() })
+			.where(and(eq(sections.id, id), isNull(sections.archivedAt)))
+			.returning()
+		if (!section) {
+			const [existing] = await tx.select().from(sections).where(eq(sections.id, id)).limit(1)
+			if (!existing) throw new Error(`Seksjon med id ${id} finnes ikke`)
+			return existing
+		}
+		await writeAuditLog(
+			{
+				action: "section_archived",
+				entityType: "section",
+				entityId: id,
+				previousValue: section.name,
+				newValue: section.name,
+				metadata: { slug: section.slug },
+				performedBy,
+			},
+			tx,
+		)
+		return section
+	})
+}
+
+/**
+ * Reaktiverer en arkivert seksjon. Guarded UPDATE + atomisk audit-skriving,
+ * samme TOCTOU-sikre mønster som archiveSection.
+ */
+export async function unarchiveSection(id: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [section] = await tx
+			.update(sections)
+			.set({ archivedAt: null, archivedBy: null, updatedBy: performedBy, updatedAt: new Date() })
+			.where(and(eq(sections.id, id), isNotNull(sections.archivedAt)))
+			.returning()
+		if (!section) {
+			const [existing] = await tx.select().from(sections).where(eq(sections.id, id)).limit(1)
+			if (!existing) throw new Error(`Seksjon med id ${id} finnes ikke`)
+			return existing
+		}
+		await writeAuditLog(
+			{
+				action: "section_unarchived",
+				entityType: "section",
+				entityId: id,
+				previousValue: section.name,
+				newValue: section.name,
+				metadata: { slug: section.slug },
+				performedBy,
+			},
+			tx,
+		)
+		return section
 	})
 }
 

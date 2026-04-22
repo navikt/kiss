@@ -10,8 +10,17 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { createSection, updateSection, deleteSection, createTeam, updateTeam, deleteTeam, getTeamsForSection } =
-	await import("~/db/queries/sections.server")
+const {
+	createSection,
+	updateSection,
+	archiveSection,
+	unarchiveSection,
+	getSections,
+	createTeam,
+	updateTeam,
+	deleteTeam,
+	getTeamsForSection,
+} = await import("~/db/queries/sections.server")
 
 async function getAuditByEntity(entityType: string, entityId: string) {
 	const db = getTestDb()
@@ -74,24 +83,92 @@ describe("sections.server integration tests", () => {
 			expect(updateEntry).toMatchObject({ previous_value: "Original", new_value: "Renamed", performed_by: "editor" })
 		})
 
-		it("deletes a section and cascades dev teams", async () => {
-			const section = await createSection("To Delete", null, "admin")
+		it("archives a section instead of deleting it (soft-delete)", async () => {
+			const section = await createSection("To Archive", null, "admin")
 			await createTeam(section.id, "Team A", null, "admin")
 			await createTeam(section.id, "Team B", null, "admin")
 
-			await deleteSection(section.id, "deleter")
+			const archived = await archiveSection(section.id, "archiver")
+			expect(archived.archivedAt).not.toBeNull()
+			expect(archived.archivedBy).toBe("archiver")
 
 			const db = getTestDb()
-			const sectionRow = await db.execute(/* sql */ `SELECT id FROM sections WHERE id = '${section.id}'`)
-			expect(sectionRow.rows).toHaveLength(0)
+			const sectionRow = await db.execute(/* sql */ `SELECT id, archived_at FROM sections WHERE id = '${section.id}'`)
+			expect(sectionRow.rows).toHaveLength(1)
+			expect(sectionRow.rows[0].archived_at).not.toBeNull()
 
 			const teamRows = await db.execute(/* sql */ `SELECT id FROM dev_teams WHERE section_id = '${section.id}'`)
-			expect(teamRows.rows).toHaveLength(0)
+			expect(teamRows.rows).toHaveLength(2)
 
 			const audit = await getAuditByEntity("section", section.id)
-			const deleteEntry = audit.find((a) => a.action === "section_deleted")
-			expect(deleteEntry).toBeDefined()
-			expect(deleteEntry?.previous_value).toBe("To Delete")
+			const archiveEntry = audit.find((a) => a.action === "section_archived")
+			expect(archiveEntry).toBeDefined()
+			expect(archiveEntry?.previous_value).toBe("To Archive")
+		})
+
+		it("excludes archived sections from getSections() by default", async () => {
+			const active = await createSection("Active Section", null, "admin")
+			const toArchive = await createSection("Archived Section", null, "admin")
+			await archiveSection(toArchive.id, "admin")
+
+			const visible = await getSections()
+			expect(visible.map((s) => s.id)).toContain(active.id)
+			expect(visible.map((s) => s.id)).not.toContain(toArchive.id)
+
+			const all = await getSections({ includeArchived: true })
+			expect(all.map((s) => s.id)).toEqual(expect.arrayContaining([active.id, toArchive.id]))
+		})
+
+		it("reactivates an archived section", async () => {
+			const section = await createSection("Will return", null, "admin")
+			await archiveSection(section.id, "admin")
+			const reactivated = await unarchiveSection(section.id, "reactivator")
+
+			expect(reactivated.archivedAt).toBeNull()
+			expect(reactivated.archivedBy).toBeNull()
+
+			const audit = await getAuditByEntity("section", section.id)
+			expect(audit.find((a) => a.action === "section_unarchived")?.performed_by).toBe("reactivator")
+		})
+
+		it("rejects raw deletion of a section that has dev teams (FK RESTRICT)", async () => {
+			const section = await createSection("Protected", null, "admin")
+			await createTeam(section.id, "Has team", null, "admin")
+
+			const db = getTestDb()
+			await expect(db.execute(/* sql */ `DELETE FROM sections WHERE id = '${section.id}'`)).rejects.toThrow()
+
+			const stillThere = await db.execute(/* sql */ `SELECT id FROM sections WHERE id = '${section.id}'`)
+			expect(stillThere.rows).toHaveLength(1)
+		})
+
+		it("avviser kobling av nais-team til arkivert seksjon (linkNaisTeamToSection)", async () => {
+			const { linkNaisTeamToSection } = await import("~/db/queries/nais.server")
+			const section = await createSection("Arkivert link", null, "admin")
+			await archiveSection(section.id, "admin")
+
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, display_name, status) VALUES ('team-x', 'Team X', 'monitored')`,
+			)
+
+			await expect(linkNaisTeamToSection("team-x", section.id, "admin")).rejects.toThrow(/arkivert/)
+
+			const linked = await db.execute(/* sql */ `SELECT section_id FROM nais_teams WHERE slug = 'team-x'`)
+			expect((linked.rows[0] as { section_id: string | null }).section_id).toBeNull()
+		})
+
+		it("kaster og logger ikke audit hvis nais-team-slug ikke finnes", async () => {
+			const { linkNaisTeamToSection } = await import("~/db/queries/nais.server")
+			const section = await createSection("Aktiv", null, "admin")
+			const db = getTestDb()
+
+			await expect(linkNaisTeamToSection("does-not-exist", section.id, "admin")).rejects.toThrow(/finnes ikke/)
+
+			const audit = await db.execute(
+				/* sql */ `SELECT 1 FROM audit_log WHERE action = 'nais_team_section_linked' AND entity_id = 'does-not-exist'`,
+			)
+			expect(audit.rows).toHaveLength(0)
 		})
 	})
 
