@@ -70,6 +70,7 @@ export function RutinerTab({
 		const labels: Record<string, string> = {
 			persistence: "Persistering",
 			group_classification: "Tilgangsklassifisering",
+			oracle_role_criticality: "Oracle-roller",
 			screening_selection: "Valgt via spørsmål",
 			section: "Seksjon",
 			ruleset: "Regelsett",
@@ -255,6 +256,10 @@ export function RutinerTab({
 												) : dl.matchSource === "group_classification" ? (
 													<Tag variant="info" size="xsmall">
 														Tilgangsklassifisering
+													</Tag>
+												) : dl.matchSource === "oracle_role_criticality" ? (
+													<Tag variant="warning" size="xsmall">
+														Oracle-roller
 													</Tag>
 												) : (
 													<Tag variant="neutral" size="xsmall">

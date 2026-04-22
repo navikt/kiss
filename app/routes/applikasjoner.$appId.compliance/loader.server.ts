@@ -6,14 +6,20 @@ import {
 	getGroupAssessmentsForApp,
 	getManualGroupsForApp,
 } from "~/db/queries/nais.server"
+import { getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
 import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import { getScreeningDataForApp } from "~/db/queries/screening.server"
+import { getAuthenticatedUser } from "~/lib/auth.server"
+import { isAdmin } from "~/lib/authorization.server"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
+
+	const user = await getAuthenticatedUser(request)
+	const canAdmin = user ? isAdmin(user) : false
 
 	const breadcrumbCtx = await (async () => {
 		if (params.seksjon && params.team) {
@@ -93,6 +99,58 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	}
 
+	// Oracle roles data for screening
+	const hasOracleRolesQuestion = screeningData.questions.some((q) => q.answerType === "oracle_roles")
+	let oracleRolesData: {
+		roles: Array<{ instanceId: string; roleName: string; authType: string | null; common: boolean | null }>
+		assessments: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
+	} = { roles: [], assessments: {} }
+
+	if (hasOracleRolesQuestion) {
+		const { getOracleInstancesForApp } = await import("~/db/queries/audit-evidence.server")
+		const { getOracleRoles, getOracleInstances } = await import("~/lib/oracle-revisjon.server")
+		const { filterInstancesByAccess } = await import("~/lib/oracle-access.server")
+
+		const allInstances = await getOracleInstances()
+		const instanceGroupMap = new Map(allInstances.map((i) => [i.id, i]))
+
+		const appInstances = await getOracleInstancesForApp(appId)
+		const filteredInstances = filterInstancesByAccess(
+			appInstances
+				.filter((inst) => instanceGroupMap.has(inst.instanceId))
+				.map((inst) => ({ ...inst, group: instanceGroupMap.get(inst.instanceId)!.group ?? null })),
+			user?.groups ?? [],
+		)
+
+		const roleResults = await Promise.allSettled(filteredInstances.map((inst) => getOracleRoles(inst.instanceId)))
+
+		const allRoles: typeof oracleRolesData.roles = []
+		for (let i = 0; i < filteredInstances.length; i++) {
+			const result = roleResults[i]
+			if (result.status === "fulfilled" && result.value) {
+				for (const role of result.value.roles) {
+					allRoles.push({
+						instanceId: filteredInstances[i].instanceId,
+						roleName: role.name,
+						authType: role.authType ?? null,
+						common: role.common ?? null,
+					})
+				}
+			}
+		}
+
+		const allAssessments = await getOracleRoleAssessments(appId)
+		const accessibleInstanceIds = new Set(filteredInstances.map((inst) => inst.instanceId))
+		const assessments: typeof allAssessments = {}
+		for (const [key, value] of Object.entries(allAssessments)) {
+			const instanceId = key.split(":")[0]
+			if (accessibleInstanceIds.has(instanceId)) {
+				assessments[key] = value
+			}
+		}
+		oracleRolesData = { roles: allRoles, assessments }
+	}
+
 	return data({
 		...breadcrumbCtx,
 		appId,
@@ -110,5 +168,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		})),
 		rulesetOptions,
 		entraGroupsData,
+		oracleRolesData,
+		canAdmin,
 	})
 }

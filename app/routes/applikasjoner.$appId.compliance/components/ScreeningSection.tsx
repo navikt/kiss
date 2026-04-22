@@ -1,8 +1,9 @@
 import { Link as AkselLink, Alert, BodyLong, BodyShort, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
 import { useCallback } from "react"
-import type { EntraGroupsData, PersistenceEntry, RulesetOption, ScreeningQuestion } from "../shared"
+import type { EntraGroupsData, OracleRolesData, PersistenceEntry, RulesetOption, ScreeningQuestion } from "../shared"
 import { slugify } from "../shared"
 import { EntraGroupsSection } from "./EntraGroupsSection"
+import { OracleRolesScreeningSection } from "./OracleRolesScreeningSection"
 import { PersistenceSection } from "./PersistenceSection"
 import { RulesetSection } from "./RulesetSection"
 import { ScreeningAnswerForm } from "./ScreeningAnswerForm"
@@ -12,10 +13,12 @@ type Props = {
 	persistence: PersistenceEntry[]
 	rulesetOptions: RulesetOption[]
 	entraGroupsData: EntraGroupsData
+	oracleRolesData: OracleRolesData
+	canAdmin: boolean
 }
 
 function isQuestionAnswered(q: ScreeningQuestion) {
-	if (q.answerType === "persistence" || q.answerType === "entra_id_groups") {
+	if (q.answerType === "persistence" || q.answerType === "entra_id_groups" || q.answerType === "oracle_roles") {
 		return q.answer === "confirmed"
 	}
 	return q.answer !== null
@@ -42,7 +45,14 @@ export function ScreeningSidebar({ screening }: { screening: ScreeningQuestion[]
 	)
 }
 
-export function ScreeningSection({ screening, persistence, rulesetOptions, entraGroupsData }: Props) {
+export function ScreeningSection({
+	screening,
+	persistence,
+	rulesetOptions,
+	entraGroupsData,
+	oracleRolesData,
+	canAdmin,
+}: Props) {
 	const answeredCount = screening.filter(isQuestionAnswered).length
 
 	return (
@@ -91,6 +101,13 @@ export function ScreeningSection({ screening, persistence, rulesetOptions, entra
 											entraGroupsData={entraGroupsData}
 											questionId={q.id}
 											confirmed={q.answer === "confirmed"}
+										/>
+									) : q.answerType === "oracle_roles" ? (
+										<OracleRolesScreeningSection
+											oracleRolesData={oracleRolesData}
+											questionId={q.id}
+											confirmed={q.answer === "confirmed"}
+											canAdmin={canAdmin}
 										/>
 									) : q.answerType === "ruleset" ? (
 										<RulesetSection question={q} rulesets={rulesetOptions} />

@@ -8,6 +8,7 @@ import {
 	getLatestReviewForApp,
 	getRoutineDeadlinesForApp,
 	getRoutineDeadlinesForAppByGroupClassification,
+	getRoutineDeadlinesForAppByOracleRoleCriticality,
 	getRoutineDeadlinesForAppByPersistence,
 	getRoutineDeadlinesForAppByRuleset,
 	getRoutineDeadlinesForAppByScreeningSelection,
@@ -27,6 +28,7 @@ const matchSourceLabels: Record<string, string> = {
 	screening: "Screening",
 	persistence: "Database/klassifisering",
 	group_classification: "Tilgangsklassifisering",
+	oracle_role_criticality: "Oracle-roller",
 	screening_selection: "Spørsmålsvalg",
 	section: "Gjelder hele seksjonen",
 	ruleset: "Regelsett",
@@ -74,9 +76,14 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		...(persistenceRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 	const groupClassificationRoutines = await getRoutineDeadlinesForAppByGroupClassification(appId, afterPersistenceIds)
-	const alreadyMatchedIds = new Set([
+	const afterGroupIds = new Set([
 		...afterPersistenceIds,
 		...(groupClassificationRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
+	])
+	const oracleRoleCriticalityRoutines = await getRoutineDeadlinesForAppByOracleRoleCriticality(appId, afterGroupIds)
+	const alreadyMatchedIds = new Set([
+		...afterGroupIds,
+		...(oracleRoleCriticalityRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(appId, alreadyMatchedIds)
 	const allMatchedIds = new Set([
@@ -94,6 +101,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		...screeningRoutines.map((d) => ({ ...d, matchSource: "screening" as const })),
 		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
 		...groupClassificationRoutines.map((d) => ({ ...d, matchSource: "group_classification" as const })),
+		...oracleRoleCriticalityRoutines.map((d) => ({ ...d, matchSource: "oracle_role_criticality" as const })),
 		...screeningSelectionRoutines.map((d) => ({ ...d, matchSource: "screening_selection" as const })),
 		...sectionWideRoutines.map((d) => ({ ...d, matchSource: "section" as const })),
 		...rulesetRoutines.map((d) => ({ ...d, matchSource: "ruleset" as const })),

@@ -362,6 +362,7 @@ export default function EditScreeningQuestion() {
 						<option value="single_choice">Egendefinerte valg</option>
 						<option value="persistence">Persistens (databaser)</option>
 						<option value="entra_id_groups">Entra ID-grupper</option>
+						<option value="oracle_roles">Oracle-roller</option>
 						<option value="ruleset">Regelsett</option>
 					</Select>
 					{answerType === "persistence" && (
@@ -382,6 +383,12 @@ export default function EditScreeningQuestion() {
 							eller effekter trengs.
 						</BodyShort>
 					)}
+					{answerType === "oracle_roles" && (
+						<BodyShort size="small" textColor="subtle">
+							Spørsmål av typen «Oracle-roller» lar brukeren vurdere kritikalitet for Oracle-roller knyttet til
+							applikasjonens databaser. Ingen valgmuligheter eller effekter trengs.
+						</BodyShort>
+					)}
 					<div>
 						<Button type="submit" size="small" variant="primary">
 							{isNew ? "Opprett spørsmål" : "Lagre endringer"}
@@ -390,10 +397,11 @@ export default function EditScreeningQuestion() {
 				</VStack>
 			</Form>
 
-			{/* Choices management — hidden for persistence/entra/ruleset/blank */}
+			{/* Choices management — hidden for persistence/entra/oracle_roles/ruleset/blank */}
 			{answerType !== "" &&
 				answerType !== "persistence" &&
 				answerType !== "entra_id_groups" &&
+				answerType !== "oracle_roles" &&
 				answerType !== "ruleset" && (
 					<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
 						<VStack gap="space-6">

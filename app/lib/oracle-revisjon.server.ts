@@ -236,16 +236,53 @@ function getMockSummary(instanceId: string): AuditEvidenceSummary {
 	}
 }
 
+function getMockRoles(instanceId: string): OracleRolesResponse {
+	return {
+		instanceId,
+		roles: [
+			{ name: "CONNECT", authType: "NONE", common: true, oracleMaintained: true },
+			{ name: "DBA", authType: "NONE", common: true, oracleMaintained: true },
+			{ name: "RESOURCE", authType: "NONE", common: true, oracleMaintained: true },
+			{ name: "APP_USER", authType: "NONE", common: false, oracleMaintained: false },
+			{ name: "BATCH_ROLE", authType: "NONE", common: false, oracleMaintained: false },
+		],
+	}
+}
+
+export interface OracleRolesResponse {
+	instanceId: string
+	roles: OracleRole[]
+}
+
+export interface OracleRole {
+	name: string
+	authType: string | null
+	common: boolean | null
+	oracleMaintained: boolean | null
+}
+
 // --- In-memory cache (TTL 1 hour) ---
 
 const SUMMARY_CACHE_TTL_MS = 60 * 60 * 1000
+const ROLES_CACHE_TTL_MS = 60 * 60 * 1000
 const summaryCache = new Map<string, { data: AuditEvidenceSummary | null; fetchedAt: number }>()
+const rolesCache = new Map<string, { data: OracleRolesResponse; fetchedAt: number }>()
 
 function getCachedSummary(instanceId: string): AuditEvidenceSummary | null | undefined {
 	const entry = summaryCache.get(instanceId)
 	if (!entry) return undefined
 	if (Date.now() - entry.fetchedAt > SUMMARY_CACHE_TTL_MS) {
 		summaryCache.delete(instanceId)
+		return undefined
+	}
+	return entry.data
+}
+
+function getCachedRoles(instanceId: string): OracleRolesResponse | undefined {
+	const entry = rolesCache.get(instanceId)
+	if (!entry) return undefined
+	if (Date.now() - entry.fetchedAt > ROLES_CACHE_TTL_MS) {
+		rolesCache.delete(instanceId)
 		return undefined
 	}
 	return entry.data
@@ -339,6 +376,32 @@ export async function getAuditEvidenceSummary(instanceId: string): Promise<Audit
 		return summary
 	} catch (error) {
 		logger.error("Failed to fetch audit evidence summary", { instanceId, error })
+		return null
+	}
+}
+
+export async function getOracleRoles(instanceId: string): Promise<OracleRolesResponse | null> {
+	if (isDevMode()) {
+		logger.warn("ORACLE_REVISJON_BASE_URL not set — returning mock roles", { instanceId })
+		return getMockRoles(instanceId)
+	}
+
+	const cached = getCachedRoles(instanceId)
+	if (cached) {
+		return cached
+	}
+
+	try {
+		if (!ORACLE_REVISJON_SCOPE || !ORACLE_REVISJON_BASE_URL) {
+			return null
+		}
+
+		const response = await fetchWithAuth(`/api/m2m/${encodeURIComponent(instanceId)}/roles`)
+		const data = (await response.json()) as OracleRolesResponse
+		rolesCache.set(instanceId, { data, fetchedAt: Date.now() })
+		return data
+	} catch (error) {
+		logger.error("Failed to fetch Oracle roles", { instanceId, error })
 		return null
 	}
 }

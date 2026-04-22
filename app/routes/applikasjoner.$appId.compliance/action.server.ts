@@ -140,5 +140,33 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return data({ success: true, controlId: "screening", screening: true })
 	}
 
+	if (intent === "set-oracle-role-criticality") {
+		const { isAdmin } = await import("~/lib/authorization.server")
+		if (!isAdmin(authedUser)) {
+			return data({ success: false, controlId: "screening", screening: true })
+		}
+		const instanceId = (formData.get("instanceId") as string)?.trim()
+		const roleName = (formData.get("roleName") as string)?.trim()
+		const criticality = formData.get("criticality") as string
+		if (!instanceId || !roleName) return data({ success: false, controlId: "screening", screening: true })
+		if (!groupCriticalityEnum.includes(criticality as GroupCriticality)) {
+			return data({ success: false, controlId: "screening", screening: true })
+		}
+		const { isInstanceLinkedToApp, upsertOracleRoleCriticality } = await import("~/db/queries/oracle-roles.server")
+		const linked = await isInstanceLinkedToApp(appId, instanceId)
+		if (!linked) return data({ success: false, controlId: "screening", screening: true })
+		const { getOracleInstances } = await import("~/lib/oracle-revisjon.server")
+		const { canUserSeeInstance } = await import("~/lib/oracle-access.server")
+		const allInstances = await getOracleInstances()
+		const instance = allInstances.find((i) => i.id === instanceId)
+		if (!instance || !canUserSeeInstance(instance, authedUser.groups)) {
+			return data({ success: false, controlId: "screening", screening: true })
+		}
+		await upsertOracleRoleCriticality(appId, instanceId, roleName, criticality as GroupCriticality, authedUser.navIdent)
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
 	throw new Response("Ukjent handling", { status: 400 })
 }

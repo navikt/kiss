@@ -1,5 +1,5 @@
 import { boolean, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
-import { monitoredApplications } from "./applications"
+import { groupCriticalityEnum, monitoredApplications } from "./applications"
 
 // ─── Oracle Instances ────────────────────────────────────────────────────
 
@@ -35,3 +35,25 @@ export const auditEvidenceSnapshots = pgTable("audit_evidence_snapshots", {
 	fetchedBy: text("fetched_by").notNull(),
 	bucketPath: text("bucket_path").notNull(),
 })
+
+// ─── Oracle Role Criticality Assessments ─────────────────────────────────
+
+export { groupCriticalityEnum } from "./applications"
+
+export const oracleRoleAssessments = pgTable(
+	"oracle_role_assessments",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id),
+		instanceId: text("instance_id").notNull(),
+		roleName: text("role_name").notNull(),
+		criticality: text("criticality", { enum: groupCriticalityEnum }).notNull(),
+		assessedBy: text("assessed_by").notNull(),
+		assessedAt: timestamp("assessed_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [unique("uq_oracle_role_assessment").on(t.applicationId, t.instanceId, t.roleName)],
+)

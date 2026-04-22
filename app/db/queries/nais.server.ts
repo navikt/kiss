@@ -1196,7 +1196,7 @@ export async function getPendingLinkSuggestionsForSection(sectionId: string) {
 
 /** Get app IDs belonging to a section via dev team or Nais team mappings.
  * Apps that only exist in excluded/deactivated environments are omitted. */
-async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
+export async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 	const teamAppRows = await db
 		.select({ appId: applicationTeamMappings.applicationId })
 		.from(applicationTeamMappings)

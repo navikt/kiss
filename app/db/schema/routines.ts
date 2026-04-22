@@ -3,6 +3,7 @@ import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
 import {
 	dataClassificationEnum,
 	groupAccessClassificationEnum,
+	groupCriticalityEnum,
 	monitoredApplications,
 	persistenceTypeEnum,
 } from "./applications"
@@ -64,6 +65,16 @@ export const routineGroupClassificationLinks = pgTable("routine_group_classifica
 		.notNull()
 		.references(() => routines.id, { onDelete: "cascade" }),
 	classification: text("classification", { enum: groupAccessClassificationEnum }).notNull(),
+})
+
+// ─── Routine ↔ Oracle Role Criticality linking ───────────────────────────
+
+export const routineOracleRoleCriticalityLinks = pgTable("routine_oracle_role_criticality_links", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	routineId: uuid("routine_id")
+		.notNull()
+		.references(() => routines.id, { onDelete: "cascade" }),
+	criticality: text("criticality", { enum: groupCriticalityEnum }).notNull(),
 })
 
 // ─── Routine ↔ Screening Question linking ────────────────────────────────

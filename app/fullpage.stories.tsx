@@ -7,15 +7,18 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import {
 	mockAppDetaljerData,
+	mockComplianceData,
 	mockDeploymentStats,
 	mockKontrollrammeverkData,
 	mockMineTeamData,
 	mockNaisOvervakingData,
+	mockOracleRollerData,
 	mockSeksjonDetailData,
 	mockSeksjonerData,
 	mockTeamDetailData,
 } from "@storybook-mocks/data"
 import { renderWithLayout } from "@storybook-mocks/router"
+import ComplianceAssessment from "./routes/applikasjoner.$appId.compliance/index"
 import ApplikasjonDetalj from "./routes/applikasjoner.$appId.detaljer/index"
 import Dashboard from "./routes/dashboard/index"
 import Kontrollrammeverk from "./routes/kontrollrammeverk/index"
@@ -23,6 +26,7 @@ import MineTeamPage from "./routes/mine-team/index"
 import NaisOvervaking from "./routes/nais-overvaking/index"
 import Seksjoner from "./routes/seksjoner/index"
 import SeksjonDashboard from "./routes/seksjoner.$seksjon/index"
+import SeksjonOracleRoller from "./routes/seksjoner.$seksjon.oracle-roller/index"
 import TeamDashboard from "./routes/seksjoner.$seksjon.team.$team/index"
 
 const meta: Meta = {
@@ -135,5 +139,21 @@ export const NaisOvervakingStory: Story = {
 	render: () =>
 		renderWithLayout(NaisOvervaking, mockNaisOvervakingData(), {
 			path: "/admin/nais-overvaking",
+		}),
+}
+
+export const OracleRollerStory: Story = {
+	name: "Oracle-roller",
+	render: () =>
+		renderWithLayout(SeksjonOracleRoller, mockOracleRollerData(), {
+			path: "/seksjoner/pensjon-og-ufore/oracle-roller",
+		}),
+}
+
+export const ComplianceStory: Story = {
+	name: "Compliance-vurdering",
+	render: () =>
+		renderWithLayout(ComplianceAssessment, mockComplianceData(), {
+			path: "/applikasjoner/app-1/compliance",
 		}),
 }

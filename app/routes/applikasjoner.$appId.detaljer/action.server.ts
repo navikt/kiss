@@ -10,6 +10,7 @@ import {
 	updatePersistenceClassification,
 	upsertGroupCriticality,
 } from "~/db/queries/nais.server"
+import { isInstanceLinkedToApp, upsertOracleRoleCriticality } from "~/db/queries/oracle-roles.server"
 import { generateAppComplianceReport } from "~/db/queries/reports.server"
 import { createReview } from "~/db/queries/routines.server"
 import {
@@ -19,6 +20,7 @@ import {
 	persistenceTypeEnum,
 } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { isAdmin } from "~/lib/authorization.server"
 
 export async function action({ request, params }: ActionFunctionArgs) {
 	const appId = params.appId
@@ -185,6 +187,36 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 		await upsertGroupCriticality(appId, groupId, criticality as GroupCriticality, authedUser.navIdent)
 		return data({ success: true, message: "Kritikalitet oppdatert.", error: null })
+	}
+
+	if (intent === "set-oracle-role-criticality") {
+		if (!isAdmin(authedUser)) {
+			return data({ success: false, message: null, error: "Ikke autorisert" })
+		}
+		const instanceId = (formData.get("instanceId") as string)?.trim()
+		const roleName = (formData.get("roleName") as string)?.trim()
+		const criticality = formData.get("criticality") as string
+		if (!instanceId || !roleName) {
+			return data({ success: false, message: null, error: "Mangler instans-ID eller rollenavn" })
+		}
+		if (!groupCriticalityEnum.includes(criticality as GroupCriticality)) {
+			return data({ success: false, message: null, error: "Ugyldig kritikalitet" })
+		}
+		const linked = await isInstanceLinkedToApp(appId, instanceId)
+		if (!linked) {
+			return data({ success: false, message: null, error: "Instansen er ikke knyttet til denne applikasjonen" })
+		}
+		const { getOracleInstances } = await import("~/lib/oracle-revisjon.server")
+		const { canUserSeeInstance } = await import("~/lib/oracle-access.server")
+		const allInstances = await getOracleInstances()
+		const instance = allInstances.find((i) => i.id === instanceId)
+		if (!instance || !canUserSeeInstance(instance, authedUser.groups)) {
+			return data({ success: false, message: null, error: "Ingen tilgang til denne instansen" })
+		}
+		await upsertOracleRoleCriticality(appId, instanceId, roleName, criticality as GroupCriticality, authedUser.navIdent)
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+		return data({ success: true, message: "Rollekritikalitet oppdatert.", error: null })
 	}
 
 	if (intent === "save-control-comment") {

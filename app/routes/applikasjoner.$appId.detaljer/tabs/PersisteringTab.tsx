@@ -1,10 +1,13 @@
 import { BodyLong, Table, VStack } from "@navikt/ds-react"
 import { AddPersistenceForm } from "../components/AddPersistenceForm"
+import { type OracleRoleDisplay, OracleRolesSection } from "../components/OracleRolesSection"
 import { PersistenceRow } from "../components/PersistenceRow"
 
 export function PersisteringTab({
 	persistence,
 	oracleAuditSummaries,
+	oracleRoles,
+	canAdmin,
 }: {
 	persistence: Array<{
 		id: string
@@ -27,6 +30,8 @@ export function PersisteringTab({
 			findings: Array<{ severity: string; message: string }>
 		}
 	>
+	oracleRoles: OracleRoleDisplay[]
+	canAdmin: boolean
 }) {
 	return (
 		<VStack gap="space-8">
@@ -58,6 +63,8 @@ export function PersisteringTab({
 			) : (
 				<BodyLong>Ingen kjent persistens. Legg til en database manuelt ovenfor.</BodyLong>
 			)}
+
+			<OracleRolesSection roles={oracleRoles} canAdmin={canAdmin} />
 		</VStack>
 	)
 }
