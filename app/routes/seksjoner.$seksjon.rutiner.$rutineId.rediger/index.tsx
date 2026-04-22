@@ -34,7 +34,10 @@ import {
 	type DataClassification,
 	dataClassificationLabels,
 	type GroupAccessClassification,
+	type GroupCriticality,
 	groupAccessClassificationLabels,
+	groupCriticalityEnum,
+	groupCriticalityLabels,
 	type PersistenceType,
 	persistenceTypeEnum,
 	persistenceTypeLabels,
@@ -156,6 +159,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
 		const controlIds = formData.getAll("controlIds") as string[]
 		const groupClassifications = formData.getAll("groupClassifications") as string[]
+		const oracleRoleCriticalities = formData.getAll("oracleRoleCriticalities") as string[]
 		const statusRaw = formData.get("status") as string | null
 		const status =
 			statusRaw && EDITABLE_STATUSES.includes(statusRaw as RoutineStatus) ? (statusRaw as RoutineStatus) : undefined
@@ -210,6 +214,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			technologyElementIds,
 			controlIds,
 			groupClassifications: groupClassifications.filter(Boolean) as GroupAccessClassification[],
+			oracleRoleCriticalities: oracleRoleCriticalities.filter((v): v is GroupCriticality =>
+				groupCriticalityEnum.includes(v as GroupCriticality),
+			),
 			status,
 			updatedBy: authedUser.navIdent,
 		})
@@ -663,6 +670,19 @@ export default function RedigerRutine() {
 					>
 						{Object.entries(groupAccessClassificationLabels).map(([key, label]) => (
 							<Checkbox key={key} name="groupClassifications" value={key}>
+								{label}
+							</Checkbox>
+						))}
+					</CheckboxGroup>
+
+					<CheckboxGroup
+						legend="Kritikalitet for Oracle-roller"
+						description="Rutinen gjelder for applikasjoner som har Oracle-roller med valgte kritikalitetsnivåer."
+						size="small"
+						defaultValue={routine.oracleRoleCriticalities?.map((orc) => orc.criticality) ?? []}
+					>
+						{Object.entries(groupCriticalityLabels).map(([key, label]) => (
+							<Checkbox key={key} name="oracleRoleCriticalities" value={key}>
 								{label}
 							</Checkbox>
 						))}

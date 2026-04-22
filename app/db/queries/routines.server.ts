@@ -9,10 +9,12 @@ import {
 	type DataClassification,
 	entraGroupClassifications,
 	type GroupAccessClassification,
+	type GroupCriticality,
 	monitoredApplications,
 	naisTeams,
 	type PersistenceType,
 } from "../schema/applications"
+import { oracleRoleAssessments } from "../schema/audit-evidence"
 import {
 	applicationTechnologyElements,
 	frameworkControls,
@@ -27,6 +29,7 @@ import {
 	type RoutineStatus,
 	routineControls,
 	routineGroupClassificationLinks,
+	routineOracleRoleCriticalityLinks,
 	routinePersistenceLinks,
 	routineReviewActivities,
 	routineReviewActivityEntraChanges,
@@ -125,7 +128,7 @@ export async function getRoutine(id: string) {
 	const [routine] = await db.select().from(routines).where(eq(routines.id, id)).limit(1)
 	if (!routine) return null
 
-	const [elements, screeningLinks, persLinks, controlRows, gcLinks] = await Promise.all([
+	const [elements, screeningLinks, persLinks, controlRows, gcLinks, orcLinks] = await Promise.all([
 		db
 			.select({
 				id: technologyElements.id,
@@ -151,6 +154,7 @@ export async function getRoutine(id: string) {
 			.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
 			.where(eq(routineControls.routineId, id)),
 		db.select().from(routineGroupClassificationLinks).where(eq(routineGroupClassificationLinks.routineId, id)),
+		db.select().from(routineOracleRoleCriticalityLinks).where(eq(routineOracleRoleCriticalityLinks.routineId, id)),
 	])
 
 	const controls = controlRows.map((c) => ({
@@ -168,6 +172,7 @@ export async function getRoutine(id: string) {
 		persistenceLinks: persLinks,
 		controls,
 		groupClassifications: gcLinks,
+		oracleRoleCriticalities: orcLinks,
 	}
 }
 
@@ -193,6 +198,7 @@ export async function createRoutine(params: {
 	technologyElementIds: string[]
 	controlIds: string[]
 	groupClassifications?: GroupAccessClassification[]
+	oracleRoleCriticalities?: GroupCriticality[]
 	status?: RoutineStatus
 	createdBy: string
 }) {
@@ -250,6 +256,17 @@ export async function createRoutine(params: {
 			gcLinks.map((classification) => ({
 				routineId: routine.id,
 				classification,
+			})),
+		)
+	}
+
+	// Insert oracle role criticality links
+	const orcLinks = params.oracleRoleCriticalities ?? []
+	if (orcLinks.length > 0) {
+		await db.insert(routineOracleRoleCriticalityLinks).values(
+			orcLinks.map((criticality) => ({
+				routineId: routine.id,
+				criticality,
 			})),
 		)
 	}
@@ -313,6 +330,7 @@ export async function updateRoutine(params: {
 	technologyElementIds: string[]
 	controlIds: string[]
 	groupClassifications?: GroupAccessClassification[]
+	oracleRoleCriticalities?: GroupCriticality[]
 	status?: RoutineStatus
 	updatedBy: string
 }) {
@@ -381,6 +399,18 @@ export async function updateRoutine(params: {
 			gcLinks.map((classification) => ({
 				routineId: params.id,
 				classification,
+			})),
+		)
+	}
+
+	// Replace oracle role criticality links
+	await db.delete(routineOracleRoleCriticalityLinks).where(eq(routineOracleRoleCriticalityLinks.routineId, params.id))
+	const orcLinks = params.oracleRoleCriticalities ?? []
+	if (orcLinks.length > 0) {
+		await db.insert(routineOracleRoleCriticalityLinks).values(
+			orcLinks.map((criticality) => ({
+				routineId: params.id,
+				criticality,
 			})),
 		)
 	}
@@ -1072,6 +1102,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			persistenceLinks: persByRoutine.get(routine.id) ?? [],
 			controls: [],
 			groupClassifications: [],
+			oracleRoleCriticalities: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
@@ -1210,6 +1241,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			persistenceLinks: persLinksByRoutine.get(routine.id) ?? [],
 			controls: [],
 			groupClassifications: [],
+			oracleRoleCriticalities: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
@@ -1377,6 +1409,139 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 			persistenceLinks: persLinksByRoutine.get(routine.id) ?? [],
 			controls: [],
 			groupClassifications: [],
+			oracleRoleCriticalities: [],
+		}
+
+		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+
+		results.push({
+			routine: fullRoutine,
+			applicationId,
+			applicationName: appName,
+			lastReviewDate,
+			deadline,
+			overdue: isOverdue(deadline),
+		})
+	}
+
+	return results
+}
+
+// ─── Routines matched by Oracle role criticality ─────────────────────────
+
+export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
+	applicationId: string,
+	excludeRoutineIds: Set<string> = new Set(),
+) {
+	// Get the app's oracle role assessments
+	const assessments = await db
+		.select({ criticality: oracleRoleAssessments.criticality })
+		.from(oracleRoleAssessments)
+		.where(eq(oracleRoleAssessments.applicationId, applicationId))
+
+	if (assessments.length === 0) return []
+
+	const appCriticalities = [...new Set(assessments.map((a) => a.criticality))]
+
+	// Find routine IDs with matching criticality directly in SQL
+	const excludeIds = [...excludeRoutineIds]
+	const matchingLinks = await db
+		.select({ routineId: routineOracleRoleCriticalityLinks.routineId })
+		.from(routineOracleRoleCriticalityLinks)
+		.where(
+			and(
+				inArray(routineOracleRoleCriticalityLinks.criticality, appCriticalities),
+				excludeIds.length > 0
+					? sql`${routineOracleRoleCriticalityLinks.routineId} NOT IN (${sql.join(
+							excludeIds.map((id) => sql`${id}`),
+							sql`, `,
+						)})`
+					: undefined,
+			),
+		)
+
+	if (matchingLinks.length === 0) return []
+
+	const routineIds = [...new Set(matchingLinks.map((l) => l.routineId))]
+
+	const candidateRoutines = await db
+		.select()
+		.from(routines)
+		.where(and(inArray(routines.id, routineIds), inArray(routines.status, ["active", "approved"])))
+
+	if (candidateRoutines.length === 0) return []
+
+	const routineIdList = candidateRoutines.map((r) => r.id)
+
+	// Load tech elements, screening links, and persistence links in batch
+	const [allElements, allScreeningLinks, allPersLinks] = await Promise.all([
+		db
+			.select({
+				routineId: routineTechnologyElements.routineId,
+				id: technologyElements.id,
+				name: technologyElements.name,
+			})
+			.from(routineTechnologyElements)
+			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
+			.where(inArray(routineTechnologyElements.routineId, routineIdList)),
+		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, routineIdList)),
+		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, routineIdList)),
+	])
+
+	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
+	for (const e of allElements) {
+		const list = elemsByRoutine.get(e.routineId) ?? []
+		list.push({ id: e.id, name: e.name })
+		elemsByRoutine.set(e.routineId, list)
+	}
+	const screenByRoutine = new Map<string, typeof allScreeningLinks>()
+	for (const s of allScreeningLinks) {
+		const list = screenByRoutine.get(s.routineId) ?? []
+		list.push(s)
+		screenByRoutine.set(s.routineId, list)
+	}
+	const persLinksByRoutine = new Map<string, typeof allPersLinks>()
+	for (const p of allPersLinks) {
+		const list = persLinksByRoutine.get(p.routineId) ?? []
+		list.push(p)
+		persLinksByRoutine.set(p.routineId, list)
+	}
+
+	const [appRow] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+	const appName = appRow?.name ?? ""
+
+	// Get latest completed reviews
+	const latestReviews = await db
+		.selectDistinctOn([routineReviews.routineId], {
+			routineId: routineReviews.routineId,
+			reviewedAt: routineReviews.reviewedAt,
+		})
+		.from(routineReviews)
+		.where(
+			and(
+				inArray(routineReviews.routineId, routineIdList),
+				eq(routineReviews.applicationId, applicationId),
+				eq(routineReviews.status, "completed"),
+			),
+		)
+		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+
+	const results: RoutineDeadlineInfo[] = []
+	for (const routine of candidateRoutines) {
+		const fullRoutine = {
+			...routine,
+			technologyElements: elemsByRoutine.get(routine.id) ?? [],
+			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
+			persistenceLinks: persLinksByRoutine.get(routine.id) ?? [],
+			controls: [],
+			groupClassifications: [],
+			oracleRoleCriticalities: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
@@ -1486,6 +1651,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			persistenceLinks: persByRoutine2.get(routine.id) ?? [],
 			controls: [],
 			groupClassifications: [],
+			oracleRoleCriticalities: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
@@ -1602,6 +1768,7 @@ export async function getRoutineDeadlinesForAppBySection(
 			persistenceLinks: persByRoutine.get(routine.id) ?? [],
 			controls: [],
 			groupClassifications: [],
+			oracleRoleCriticalities: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
@@ -1725,6 +1892,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			persistenceLinks: persByRoutine.get(routine.id) ?? [],
 			controls: [],
 			groupClassifications: [],
+			oracleRoleCriticalities: [],
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null

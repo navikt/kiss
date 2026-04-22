@@ -369,6 +369,12 @@ export function mockAppDetaljerData() {
 		],
 		oracleInstances: [],
 		totalOracleInstanceCount: 0,
+		oracleRoles: [
+			{ instanceId: "pensjon-db-01", instanceName: "PENSJON_DB_01", roleName: "CONNECT", oracleMaintained: true, common: true, criticality: "low", updatedBy: "A123456", updatedAt: "2026-04-15T10:30:00Z" },
+			{ instanceId: "pensjon-db-01", instanceName: "PENSJON_DB_01", roleName: "DBA", oracleMaintained: true, common: true, criticality: "very_high", updatedBy: "A123456", updatedAt: "2026-04-15T10:31:00Z" },
+			{ instanceId: "pensjon-db-01", instanceName: "PENSJON_DB_01", roleName: "APP_USER", oracleMaintained: false, common: false, criticality: "high", updatedBy: "A123456", updatedAt: "2026-04-15T10:32:00Z" },
+			{ instanceId: "pensjon-db-01", instanceName: "PENSJON_DB_01", roleName: "BATCH_ROLE", oracleMaintained: false, common: false, criticality: null, updatedBy: null, updatedAt: null },
+		],
 		instanceSnapshotHistories: [],
 		sectionSlugMap: { "s-01": "pensjon-og-ufore" },
 		canAdmin: true,
@@ -427,5 +433,139 @@ export function mockDeploymentStats() {
 		deployedLast90Days: 11,
 		neverDeployed: 2,
 		avgDaysSinceLastDeploy: 15,
+	}
+}
+
+// ─── Compliance-vurdering ────────────────────────────────────────────
+
+export function mockComplianceData() {
+	return {
+		appName: "pensjon-sak",
+		screening: [
+			{
+				id: "q-1",
+				questionText: "Behandler applikasjonen personopplysninger?",
+				descriptionHtml: "<p>Svaret påvirker om DPIA-relaterte kontrollpunkter er relevante.</p>",
+				answerType: "boolean",
+				answer: "ja",
+				choices: [
+					{ value: "ja", label: "Ja" },
+					{ value: "nei", label: "Nei" },
+				],
+				affectedControls: ["K-PD.01", "K-PD.02"],
+				sortOrder: 1,
+			},
+			{
+				id: "q-2",
+				questionText: "Hvilke lagringsløsninger bruker applikasjonen?",
+				descriptionHtml: "<p>Velg lagringstyper som brukes. Påvirker persistens-kontrollpunkter.</p>",
+				answerType: "persistence",
+				answer: "confirmed",
+				choices: [],
+				affectedControls: ["K-TS.02"],
+				sortOrder: 2,
+			},
+			{
+				id: "q-3",
+				questionText: "Hvilke Entra ID-grupper bruker applikasjonen?",
+				descriptionHtml: "<p>Klassifiser gruppene etter tilgangsmetode.</p>",
+				answerType: "entra_id_groups",
+				answer: "confirmed",
+				choices: [],
+				affectedControls: ["K-TS.01"],
+				sortOrder: 3,
+			},
+			{
+				id: "q-4",
+				questionText: "Hvilke Oracle-roller har applikasjonen?",
+				descriptionHtml: "<p>Vurder kritikaliteten til hver Oracle-rolle.</p>",
+				answerType: "oracle_roles",
+				answer: null,
+				choices: [],
+				affectedControls: ["K-TS.01", "K-TS.02"],
+				sortOrder: 4,
+			},
+			{
+				id: "q-5",
+				questionText: "Er applikasjonen eksponert eksternt?",
+				descriptionHtml: null,
+				answerType: "single_choice",
+				answer: null,
+				choices: [
+					{ value: "ja", label: "Ja, tilgjengelig for eksterne brukere" },
+					{ value: "intern", label: "Kun intern tilgang" },
+				],
+				affectedControls: ["K-ST.01"],
+				sortOrder: 5,
+			},
+		],
+		persistence: [
+			{ type: "cloud_sql_postgres", name: "pensjon-sak-db", environment: "prod-gcp" },
+			{ type: "oracle", name: "PENSJON_DB_01", environment: "on-prem" },
+		],
+		rulesetOptions: [
+			{ id: "rs-1", name: "Standard sikkerhetskrav", controlCount: 5 },
+			{ id: "rs-2", name: "Personvern-krav", controlCount: 3 },
+		],
+		entraGroupsData: {
+			groups: [
+				{ id: "g-1", displayName: "pensjon-sak-read", classification: "application_access" },
+				{ id: "g-2", displayName: "pensjon-sak-admin", classification: "privileged_access" },
+			],
+			assessments: {
+				"g-1": { criticality: "low" },
+				"g-2": { criticality: "high" },
+			},
+		},
+		oracleRolesData: {
+			roles: [
+				{ instanceId: "pensjon-db-01", roleName: "CONNECT", authType: "PASSWORD", common: true },
+				{ instanceId: "pensjon-db-01", roleName: "DBA", authType: "PASSWORD", common: true },
+				{ instanceId: "pensjon-db-01", roleName: "APP_USER", authType: null, common: false },
+				{ instanceId: "pensjon-db-01", roleName: "BATCH_ROLE", authType: null, common: false },
+			],
+			assessments: {
+				"pensjon-db-01:CONNECT": { criticality: "low", updatedBy: "A123456", updatedAt: "2026-04-15T10:30:00Z" },
+				"pensjon-db-01:DBA": { criticality: "very_high", updatedBy: "A123456", updatedAt: "2026-04-15T10:31:00Z" },
+			},
+		},
+	}
+}
+
+// ─── Oracle roller ──────────────────────────────────────────────────
+
+export function mockOracleRollerData() {
+	return {
+		section: { id: "s-01", name: "Pensjon og uføre", slug: "pensjon-og-ufore" },
+		seksjon: "pensjon-og-ufore",
+		roles: [
+			{
+				instanceId: "pensjon-db-01",
+				roleName: "CONNECT",
+				applications: [
+					{ applicationId: "app-1", applicationName: "pensjon-sak" },
+					{ applicationId: "app-2", applicationName: "pensjon-vedtak" },
+				],
+				criticality: "low",
+				assessedBy: "A123456",
+				assessedAt: "2026-04-15T10:30:00Z",
+			},
+			{
+				instanceId: "pensjon-db-01",
+				roleName: "DBA",
+				applications: [{ applicationId: "app-1", applicationName: "pensjon-sak" }],
+				criticality: "very_high",
+				assessedBy: "A123456",
+				assessedAt: "2026-04-15T10:31:00Z",
+			},
+			{
+				instanceId: "pensjon-db-02",
+				roleName: "APP_USER",
+				applications: [{ applicationId: "app-3", applicationName: "pensjon-batch" }],
+				criticality: "high",
+				assessedBy: "A123456",
+				assessedAt: "2026-04-15T10:32:00Z",
+			},
+		],
 	}
 }

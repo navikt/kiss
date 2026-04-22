@@ -29,7 +29,10 @@ import {
 	type DataClassification,
 	dataClassificationLabels,
 	type GroupAccessClassification,
+	type GroupCriticality,
 	groupAccessClassificationLabels,
+	groupCriticalityEnum,
+	groupCriticalityLabels,
 	type PersistenceType,
 	persistenceTypeEnum,
 	persistenceTypeLabels,
@@ -133,6 +136,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const technologyElementIds = formData.getAll("technologyElementIds")
 	const controlIds = formData.getAll("controlIds") as string[]
 	const groupClassifications = formData.getAll("groupClassifications") as string[]
+	const oracleRoleCriticalities = formData.getAll("oracleRoleCriticalities") as string[]
 
 	// Parse persistence links from form
 	const plTypes = formData.getAll("plPersistenceType") as string[]
@@ -189,6 +193,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		technologyElementIds: technologyElementIds.filter((id): id is string => typeof id === "string"),
 		controlIds: controlIds.filter(Boolean),
 		groupClassifications: groupClassifications.filter(Boolean) as GroupAccessClassification[],
+		oracleRoleCriticalities: oracleRoleCriticalities.filter((v): v is GroupCriticality =>
+			groupCriticalityEnum.includes(v as GroupCriticality),
+		),
 		createdBy: authedUser.navIdent,
 	})
 
@@ -483,6 +490,17 @@ export default function NyRutine() {
 					>
 						{Object.entries(groupAccessClassificationLabels).map(([key, label]) => (
 							<Checkbox key={key} name="groupClassifications" value={key}>
+								{label}
+							</Checkbox>
+						))}
+					</CheckboxGroup>
+
+					<CheckboxGroup
+						legend="Kritikalitet for Oracle-roller"
+						description="Rutinen gjelder for applikasjoner som har Oracle-roller med valgte kritikalitetsnivåer."
+					>
+						{Object.entries(groupCriticalityLabels).map(([key, label]) => (
+							<Checkbox key={key} name="oracleRoleCriticalities" value={key}>
 								{label}
 							</Checkbox>
 						))}

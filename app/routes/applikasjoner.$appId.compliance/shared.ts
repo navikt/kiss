@@ -8,6 +8,7 @@ export type ScreeningQuestion = LoaderData["screening"][number]
 export type RulesetOption = LoaderData["rulesetOptions"][number]
 export type PersistenceEntry = LoaderData["persistence"][number]
 export type EntraGroupsData = LoaderData["entraGroupsData"]
+export type OracleRolesData = LoaderData["oracleRolesData"]
 
 export const persistenceVariants: Record<string, "info" | "warning" | "alt1" | "alt2" | "alt3" | "neutral"> = {
 	cloud_sql_postgres: "info",

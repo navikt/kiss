@@ -16,6 +16,7 @@ import {
 	getReviewsForApp,
 	getRoutineDeadlinesForApp,
 	getRoutineDeadlinesForAppByGroupClassification,
+	getRoutineDeadlinesForAppByOracleRoleCriticality,
 	getRoutineDeadlinesForAppByPersistence,
 	getRoutineDeadlinesForAppByRuleset,
 	getRoutineDeadlinesForAppByScreeningSelection,
@@ -28,7 +29,7 @@ import { isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
-import { getOracleInstances } from "~/lib/oracle-revisjon.server"
+import { getOracleInstances, getOracleRoles } from "~/lib/oracle-revisjon.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -71,9 +72,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	])
 	const groupClassificationRoutines = await getRoutineDeadlinesForAppByGroupClassification(appId, afterPersistenceIds)
 
-	const alreadyMatchedIds = new Set([
+	const afterGroupIds = new Set([
 		...afterPersistenceIds,
 		...(groupClassificationRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
+	])
+	const oracleRoleCriticalityRoutines = await getRoutineDeadlinesForAppByOracleRoleCriticality(appId, afterGroupIds)
+
+	const alreadyMatchedIds = new Set([
+		...afterGroupIds,
+		...(oracleRoleCriticalityRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(appId, alreadyMatchedIds)
 
@@ -93,6 +100,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		...screeningRoutines.map((d) => ({ ...d, matchSource: "screening" as const })),
 		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
 		...groupClassificationRoutines.map((d) => ({ ...d, matchSource: "group_classification" as const })),
+		...oracleRoleCriticalityRoutines.map((d) => ({ ...d, matchSource: "oracle_role_criticality" as const })),
 		...screeningSelectionRoutines.map((d) => ({ ...d, matchSource: "screening_selection" as const })),
 		...sectionWideRoutines.map((d) => ({ ...d, matchSource: "section" as const })),
 		...rulesetRoutines.map((d) => ({ ...d, matchSource: "ruleset" as const })),
@@ -252,6 +260,37 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const oracleAuditSummaries = await getOracleAuditSummariesForApp(detail.persistence)
 
+	// Fetch Oracle roles for each linked instance and merge with DB assessments
+	const { getOracleRoleAssessments } = await import("~/db/queries/oracle-roles.server")
+	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
+	const roleAssessments = await getOracleRoleAssessments(appId)
+	const oracleRoleResults = await Promise.allSettled(
+		filteredOracleInstances.map(async (inst) => {
+			const roles = await getOracleRoles(inst.instanceId)
+			const meta = oracleInstanceMetaById.get(inst.instanceId)
+			const instanceName = meta?.name ?? inst.instanceId.toUpperCase()
+			return { instanceId: inst.instanceId, instanceName, roles: roles?.roles ?? [] }
+		}),
+	)
+	const oracleRoles = oracleRoleResults.flatMap((result) => {
+		if (result.status !== "fulfilled") return []
+		const { instanceId, instanceName, roles } = result.value
+		return roles.map((r) => {
+			const key = `${instanceId}:${r.name.toUpperCase().trim()}`
+			const assessment = roleAssessments[key]
+			return {
+				instanceId,
+				instanceName,
+				roleName: r.name.toUpperCase().trim(),
+				oracleMaintained: r.oracleMaintained,
+				common: r.common,
+				criticality: assessment?.criticality ?? null,
+				updatedBy: assessment?.updatedBy ?? null,
+				updatedAt: assessment?.updatedAt ?? null,
+			}
+		})
+	})
+
 	const { getDeploymentVerificationForAppWithFetch } = await import("~/db/queries/deployment-audit.server")
 	const deploymentVerifications = await getDeploymentVerificationForAppWithFetch(appId)
 
@@ -359,6 +398,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				: null,
 		})),
 		totalOracleInstanceCount,
+		oracleRoles,
 		instanceSnapshotHistories: (() => {
 			const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
 			return instanceSnapshotHistories.map(({ instanceId, history }) => {
