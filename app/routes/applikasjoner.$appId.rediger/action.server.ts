@@ -8,10 +8,11 @@ import {
 	setIncludeInReport,
 } from "~/db/queries/audit-evidence.server"
 import {
-	deleteApplication,
+	archiveApplication,
 	linkApplication,
 	promoteToPrimary,
 	renameApplication,
+	unarchiveApplication,
 	unlinkApplication,
 } from "~/db/queries/nais.server"
 import {
@@ -41,9 +42,11 @@ export async function action({ params, request }: ActionFunctionArgs) {
 	const intent = formData.get("intent") as string
 	const performer = "system"
 
-	if (intent === "delete") {
-		await deleteApplication(appId, performer)
+	if (intent === "archive") {
+		await archiveApplication(appId, authedUser.navIdent)
 		return redirect("/dashboard")
+	} else if (intent === "unarchive") {
+		await unarchiveApplication(appId, authedUser.navIdent)
 	} else if (intent === "rename") {
 		const newName = (formData.get("name") as string)?.trim()
 		if (!newName) throw new Response("Navn kan ikke være tomt", { status: 400 })

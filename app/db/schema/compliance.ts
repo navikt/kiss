@@ -14,7 +14,7 @@ export const complianceAssessments = pgTable("compliance_assessments", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")
 		.notNull()
-		.references(() => monitoredApplications.id),
+		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	controlId: uuid("control_id")
 		.notNull()
 		.references(() => frameworkControls.id),

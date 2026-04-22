@@ -123,7 +123,7 @@ export const applicationTechnologyElements = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		applicationId: uuid("application_id")
 			.notNull()
-			.references(() => monitoredApplications.id, { onDelete: "cascade" }),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		elementId: uuid("element_id")
 			.notNull()
 			.references(() => technologyElements.id, { onDelete: "cascade" }),

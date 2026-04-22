@@ -68,7 +68,7 @@ export async function generateComplianceReport(params: {
 				apps = await db
 					.select({ id: monitoredApplications.id, name: monitoredApplications.name })
 					.from(monitoredApplications)
-					.where(sql`${monitoredApplications.id} IN ${uniqueAppIds}`)
+					.where(sql`${monitoredApplications.id} IN ${uniqueAppIds} AND ${monitoredApplications.archivedAt} IS NULL`)
 					.orderBy(monitoredApplications.name)
 			}
 		}
@@ -76,6 +76,7 @@ export async function generateComplianceReport(params: {
 		apps = await db
 			.select({ id: monitoredApplications.id, name: monitoredApplications.name })
 			.from(monitoredApplications)
+			.where(isNull(monitoredApplications.archivedAt))
 			.orderBy(monitoredApplications.name)
 	}
 

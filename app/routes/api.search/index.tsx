@@ -59,7 +59,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				description: monitoredApplications.description,
 			})
 			.from(monitoredApplications)
-			.where(or(ilike(monitoredApplications.name, pattern), ilike(monitoredApplications.description, pattern)))
+			.where(
+				and(
+					isNull(monitoredApplications.archivedAt),
+					or(ilike(monitoredApplications.name, pattern), ilike(monitoredApplications.description, pattern)),
+				),
+			)
 			.limit(limit),
 
 		// Nais teams

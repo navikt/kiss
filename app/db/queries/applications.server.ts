@@ -21,12 +21,12 @@ import { devTeams, sectionEnvironments } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 import { getScreeningDerivedControlIds } from "./screening.server"
 
-/** Get all monitored applications with compliance summary (excludes linked/child apps). */
+/** Get all monitored applications with compliance summary (excludes linked/child apps and archived). */
 export async function getApplications() {
 	const apps = await db
 		.select()
 		.from(monitoredApplications)
-		.where(isNull(monitoredApplications.primaryApplicationId))
+		.where(and(isNull(monitoredApplications.primaryApplicationId), isNull(monitoredApplications.archivedAt)))
 		.orderBy(monitoredApplications.name)
 
 	const [totalControlsRow] = await db
@@ -51,6 +51,7 @@ export async function getApplications() {
 			and(
 				isNotNull(monitoredApplications.primaryApplicationId),
 				inArray(monitoredApplications.primaryApplicationId, appIds),
+				isNull(monitoredApplications.archivedAt),
 			),
 		)
 		.orderBy(monitoredApplications.name)
@@ -170,6 +171,7 @@ export async function getAvailableAppsForTeam(devTeamId: string) {
 		.where(
 			and(
 				isNull(monitoredApplications.primaryApplicationId),
+				isNull(monitoredApplications.archivedAt),
 				sql`${monitoredApplications.id} NOT IN (${linkedAppIds})`,
 			),
 		)
@@ -463,7 +465,13 @@ export async function getApplicationsForSection(sectionId: string) {
 	const apps = await db
 		.select()
 		.from(monitoredApplications)
-		.where(and(inArray(monitoredApplications.id, sectionAppIds), isNull(monitoredApplications.primaryApplicationId)))
+		.where(
+			and(
+				inArray(monitoredApplications.id, sectionAppIds),
+				isNull(monitoredApplications.primaryApplicationId),
+				isNull(monitoredApplications.archivedAt),
+			),
+		)
 		.orderBy(monitoredApplications.name)
 
 	const appIds = apps.map((a) => a.id)
@@ -483,6 +491,7 @@ export async function getApplicationsForSection(sectionId: string) {
 				and(
 					isNotNull(monitoredApplications.primaryApplicationId),
 					inArray(monitoredApplications.primaryApplicationId, appIds),
+					isNull(monitoredApplications.archivedAt),
 				),
 			)
 			.orderBy(monitoredApplications.name),

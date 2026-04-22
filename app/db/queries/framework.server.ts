@@ -44,7 +44,7 @@ export async function getDomainSummaries() {
 	const [appCountRow] = await db
 		.select({ count: count() })
 		.from(monitoredApplications)
-		.where(isNull(monitoredApplications.primaryApplicationId))
+		.where(and(isNull(monitoredApplications.primaryApplicationId), isNull(monitoredApplications.archivedAt)))
 	const totalApps = appCountRow?.count ?? 0
 
 	// Batch: get all control IDs per domain via risk→control mappings
@@ -257,6 +257,7 @@ export async function getDomainDetail(domainCode: string) {
 	const allApps = await db
 		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
 		.from(monitoredApplications)
+		.where(isNull(monitoredApplications.archivedAt))
 
 	const risks = await db
 		.select()

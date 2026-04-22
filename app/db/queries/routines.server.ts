@@ -872,7 +872,7 @@ export async function getAppsRequiringRoutine(routineId: string) {
 		return db
 			.select()
 			.from(monitoredApplications)
-			.where(inArray(monitoredApplications.id, filteredIds))
+			.where(and(inArray(monitoredApplications.id, filteredIds), isNull(monitoredApplications.archivedAt)))
 			.orderBy(monitoredApplications.name)
 	}
 
@@ -880,7 +880,7 @@ export async function getAppsRequiringRoutine(routineId: string) {
 	return db
 		.select()
 		.from(monitoredApplications)
-		.where(inArray(monitoredApplications.id, appIds))
+		.where(and(inArray(monitoredApplications.id, appIds), isNull(monitoredApplications.archivedAt)))
 		.orderBy(monitoredApplications.name)
 }
 
