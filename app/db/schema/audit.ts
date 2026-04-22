@@ -44,6 +44,8 @@ export const auditLogActionEnum = [
 	"section_created",
 	"section_updated",
 	"section_deleted",
+	"section_archived",
+	"section_unarchived",
 	"team_created",
 	"team_updated",
 	"team_deleted",

@@ -10,7 +10,7 @@ export const naisTeams = pgTable("nais_teams", {
 	displayName: text("display_name"),
 	appCount: integer("app_count").notNull().default(0),
 	status: text("status", { enum: naisTeamStatusEnum }).notNull().default("pending"),
-	sectionId: uuid("section_id").references(() => sections.id),
+	sectionId: uuid("section_id").references(() => sections.id, { onDelete: "restrict" }),
 	devTeamId: uuid("dev_team_id").references(() => devTeams.id),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
@@ -122,7 +122,7 @@ export const sectionIgnoredApplications = pgTable("section_ignored_applications"
 	id: uuid("id").primaryKey().defaultRandom(),
 	sectionId: uuid("section_id")
 		.notNull()
-		.references(() => sections.id),
+		.references(() => sections.id, { onDelete: "restrict" }),
 	applicationId: uuid("application_id")
 		.notNull()
 		.references(() => monitoredApplications.id),

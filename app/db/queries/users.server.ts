@@ -10,6 +10,8 @@ import {
 	users,
 } from "../schema/organization"
 
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+
 export interface UserRoleEntry {
 	id: string
 	role: UserRole
@@ -33,9 +35,10 @@ export interface UserWithRoles {
 }
 
 /** Create or update a user record. Returns the user id. */
-export async function upsertUser(navIdent: string, name: string, email?: string): Promise<string> {
+export async function upsertUser(navIdent: string, name: string, email?: string, tx?: DbExecutor): Promise<string> {
+	const executor = tx ?? db
 	const now = new Date()
-	const [row] = await db
+	const [row] = await executor
 		.insert(users)
 		.values({ navIdent, name, email: email ?? null, lastLoginAt: now })
 		.onConflictDoUpdate({
@@ -73,7 +76,14 @@ export async function getUserRoles(navIdent: string): Promise<UserRoleEntry[]> {
 	}))
 }
 
-/** Assign a role to a user. Upserts the user first. */
+/**
+ * Assign a role to a user. Hele operasjonen — inkludert upsertUser, guard og
+ * INSERT i user_roles — kjører i én transaksjon. Avviser rollebinding mot
+ * arkiverte/ikke-eksisterende seksjoner, og verifiserer også at devTeamId (om
+ * satt) tilhører en aktiv seksjon. Seksjonsraden(e) låses med `SELECT ... FOR
+ * SHARE` slik at en samtidig `archiveSection` ikke kan committe mellom guard
+ * og INSERT.
+ */
 export async function assignRole(
 	navIdent: string,
 	name: string,
@@ -82,18 +92,43 @@ export async function assignRole(
 	sectionId?: string,
 	devTeamId?: string,
 ): Promise<string> {
-	const userId = await upsertUser(navIdent, name)
-	const [row] = await db
-		.insert(userRoles)
-		.values({
-			userId,
-			role,
-			sectionId: sectionId ?? null,
-			devTeamId: devTeamId ?? null,
-			createdBy,
-		})
-		.returning({ id: userRoles.id })
-	return row.id
+	return db.transaction(async (tx) => {
+		const userId = await upsertUser(navIdent, name, undefined, tx)
+		if (sectionId) {
+			const [section] = await tx
+				.select({ archivedAt: sections.archivedAt })
+				.from(sections)
+				.where(eq(sections.id, sectionId))
+				.limit(1)
+				.for("share")
+			if (!section) throw new Error(`Seksjon med id ${sectionId} finnes ikke`)
+			if (section.archivedAt) throw new Error(`Seksjon med id ${sectionId} er arkivert`)
+		}
+		if (devTeamId) {
+			const [teamSection] = await tx
+				.select({ teamId: devTeams.id, archivedAt: sections.archivedAt })
+				.from(devTeams)
+				.innerJoin(sections, eq(devTeams.sectionId, sections.id))
+				.where(eq(devTeams.id, devTeamId))
+				.limit(1)
+				.for("share", { of: [sections] })
+			if (!teamSection) throw new Error(`Dev-team med id ${devTeamId} finnes ikke`)
+			if (teamSection.archivedAt) {
+				throw new Error(`Dev-team med id ${devTeamId} tilhører en arkivert seksjon`)
+			}
+		}
+		const [row] = await tx
+			.insert(userRoles)
+			.values({
+				userId,
+				role,
+				sectionId: sectionId ?? null,
+				devTeamId: devTeamId ?? null,
+				createdBy,
+			})
+			.returning({ id: userRoles.id })
+		return row.id
+	})
 }
 
 /** Remove a role assignment by id. */

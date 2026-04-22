@@ -2,17 +2,23 @@ import { desc, eq, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type AuditLogAction, auditLog } from "../schema/audit"
 
-/** Write an audit log entry. */
-export async function writeAuditLog(entry: {
-	action: AuditLogAction
-	entityType: string
-	entityId: string
-	previousValue?: string | null
-	newValue?: string | null
-	metadata?: Record<string, unknown>
-	performedBy: string
-}) {
-	await db.insert(auditLog).values({
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+/** Write an audit log entry. Accepts an optional transaction handle. */
+export async function writeAuditLog(
+	entry: {
+		action: AuditLogAction
+		entityType: string
+		entityId: string
+		previousValue?: string | null
+		newValue?: string | null
+		metadata?: Record<string, unknown>
+		performedBy: string
+	},
+	tx?: DbExecutor,
+) {
+	const executor = tx ?? db
+	await executor.insert(auditLog).values({
 		action: entry.action,
 		entityType: entry.entityType,
 		entityId: entry.entityId,

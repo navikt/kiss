@@ -127,6 +127,47 @@ describe("users.server integration tests", () => {
 			expect(users[1].name).toBe("Beta User")
 			expect(users[0].roles[0]?.role).toBe("section_manager")
 		})
+
+		it("avviser tildeling av rolle mot arkivert seksjon", async () => {
+			const sectionId = await createSection("sec-arch")
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `UPDATE sections SET archived_at = now(), archived_by = 'admin' WHERE id = '${sectionId}'`,
+			)
+			await expect(assignRole("X20", "Crafted POST", "section_manager", "admin", sectionId)).rejects.toThrow(/arkivert/)
+		})
+
+		it("avviser team-rolle mot dev-team i arkivert seksjon (selv uten sectionId)", async () => {
+			const sectionId = await createSection("sec-team-arch")
+			const teamId = await createTeam(sectionId, "team-arch")
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `UPDATE sections SET archived_at = now(), archived_by = 'admin' WHERE id = '${sectionId}'`,
+			)
+			await expect(assignRole("X21", "Crafted POST", "tech_lead", "admin", undefined, teamId)).rejects.toThrow(
+				/arkivert/,
+			)
+		})
+
+		it("oppdaterer ikke users.last_login_at hvis seksjon-guard avviser tildelingen", async () => {
+			const sectionId = await createSection("sec-rb")
+			await assignRole("X22", "Existing User", "admin", "admin")
+			const db = getTestDb()
+			const before = await db.execute(/* sql */ `SELECT last_login_at FROM users WHERE nav_ident = 'X22'`)
+			const beforeLogin = (before.rows[0] as { last_login_at: string }).last_login_at
+
+			await db.execute(
+				/* sql */ `UPDATE sections SET archived_at = now(), archived_by = 'admin' WHERE id = '${sectionId}'`,
+			)
+			await new Promise((resolve) => setTimeout(resolve, 10))
+			await expect(assignRole("X22", "Existing User", "section_manager", "admin", sectionId)).rejects.toThrow(
+				/arkivert/,
+			)
+
+			const after = await db.execute(/* sql */ `SELECT last_login_at FROM users WHERE nav_ident = 'X22'`)
+			const afterLogin = (after.rows[0] as { last_login_at: string }).last_login_at
+			expect(afterLogin).toBe(beforeLogin)
+		})
 	})
 
 	describe("user preferences", () => {

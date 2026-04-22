@@ -17,7 +17,7 @@ export const screeningEffectLabels: Record<string, string> = {
 /** Screening questions shown before detailed compliance assessment. */
 export const screeningQuestions = pgTable("screening_questions", {
 	id: uuid("id").primaryKey().defaultRandom(),
-	sectionId: uuid("section_id").references(() => sections.id, { onDelete: "cascade" }),
+	sectionId: uuid("section_id").references(() => sections.id, { onDelete: "restrict" }),
 	rulesetId: uuid("ruleset_id").references(() => rulesets.id, { onDelete: "set null" }),
 	questionText: text("question_text").notNull(),
 	description: text("description"),

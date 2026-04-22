@@ -232,16 +232,35 @@ export async function getLastSyncTimestamp(): Promise<Date | null> {
 	return row?.performedAt ?? null
 }
 
-/** Link a Nais team to a section. */
+/**
+ * Link a Nais team to a section. Avviser arkiverte og ikke-eksisterende seksjoner.
+ * Hele operasjonen kjører i én transaksjon: seksjonen låses (`SELECT ... FOR SHARE`)
+ * slik at en samtidig `archiveSection` ikke kan committe mellom guard-sjekken og
+ * UPDATE. Audit-loggen skrives på samme transaksjon (AGENTS.md regel 6).
+ */
 export async function linkNaisTeamToSection(naisTeamSlug: string, sectionId: string, performedBy: string) {
-	const [section] = await db.select().from(sections).where(eq(sections.id, sectionId)).limit(1)
-	await db.update(naisTeams).set({ sectionId }).where(eq(naisTeams.slug, naisTeamSlug))
-	await writeAuditLog({
-		action: "nais_team_section_linked",
-		entityType: "nais_team",
-		entityId: naisTeamSlug,
-		newValue: section?.name ?? sectionId,
-		performedBy,
+	return db.transaction(async (tx) => {
+		const [section] = await tx.select().from(sections).where(eq(sections.id, sectionId)).limit(1).for("share")
+		if (!section) throw new Error(`Seksjon med id ${sectionId} finnes ikke`)
+		if (section.archivedAt) throw new Error(`Kan ikke koble til arkivert seksjon «${section.name}»`)
+		const updated = await tx
+			.update(naisTeams)
+			.set({ sectionId })
+			.where(eq(naisTeams.slug, naisTeamSlug))
+			.returning({ slug: naisTeams.slug })
+		if (updated.length === 0) {
+			throw new Error(`Nais-team med slug «${naisTeamSlug}» finnes ikke`)
+		}
+		await writeAuditLog(
+			{
+				action: "nais_team_section_linked",
+				entityType: "nais_team",
+				entityId: naisTeamSlug,
+				newValue: section.name,
+				performedBy,
+			},
+			tx,
+		)
 	})
 }
 

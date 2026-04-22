@@ -59,7 +59,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getApplicationElements(appId),
 		getRoutineDeadlinesForApp(appId),
 		getReviewsForApp(appId),
-		getSections(),
+		getSections({ includeArchived: true }),
 		getReportsForApp(appId),
 	])
 

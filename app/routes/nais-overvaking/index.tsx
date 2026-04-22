@@ -30,14 +30,14 @@ import { getAuthenticatedUser } from "~/lib/auth.server"
 import { runFullNaisSync } from "~/lib/nais-sync.server"
 
 export async function loader(_args: LoaderFunctionArgs) {
-	const [teams, appCounts, lastSync, allSections] = await Promise.all([
+	const [teams, appCounts, lastSync, allSectionsIncludingArchived] = await Promise.all([
 		getNaisTeams(),
 		getNaisTeamAppCounts(),
 		getLastSyncTimestamp(),
-		getSections(),
+		getSections({ includeArchived: true }),
 	])
 
-	const sectionMap = new Map(allSections.map((s) => [s.id, s.name]))
+	const sectionMap = new Map(allSectionsIncludingArchived.map((s) => [s.id, s.name]))
 
 	const naisTeams = teams.map((t) => ({
 		slug: t.slug,
@@ -50,7 +50,11 @@ export async function loader(_args: LoaderFunctionArgs) {
 
 	return data({
 		teams: naisTeams,
-		sections: allSections.map((s) => ({ id: s.id, name: s.name })),
+		sections: allSectionsIncludingArchived.map((s) => ({
+			id: s.id,
+			name: s.name,
+			archived: s.archivedAt !== null,
+		})),
 		lastSync: lastSync ? new Date(lastSync).toISOString() : null,
 	})
 }
@@ -240,11 +244,13 @@ export default function NaisOvervaking() {
 													<HStack gap="space-2" align="end">
 														<Select label="" name="sectionId" size="small" hideLabel style={{ minWidth: "10rem" }}>
 															<option value="">Velg seksjon</option>
-															{sections.map((s) => (
-																<option key={s.id} value={s.id}>
-																	{s.name}
-																</option>
-															))}
+															{sections
+																.filter((s) => !s.archived)
+																.map((s) => (
+																	<option key={s.id} value={s.id}>
+																		{s.name}
+																	</option>
+																))}
 														</Select>
 														<Button variant="tertiary" size="xsmall" type="submit">
 															Koble
