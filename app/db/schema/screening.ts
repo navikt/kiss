@@ -27,6 +27,8 @@ export const screeningQuestions = pgTable("screening_questions", {
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedBy: text("updated_by").notNull(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 /** Available choices for a screening question (e.g. "Ja", "Nei", "Delvis"). */
@@ -34,12 +36,14 @@ export const screeningQuestionChoices = pgTable("screening_question_choices", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	questionId: uuid("question_id")
 		.notNull()
-		.references(() => screeningQuestions.id, { onDelete: "cascade" }),
+		.references(() => screeningQuestions.id, { onDelete: "restrict" }),
 	label: text("label").notNull(),
 	requiresComment: boolean("requires_comment").notNull().default(false),
 	requiresLink: boolean("requires_link").notNull().default(false),
 	displayOrder: integer("display_order").notNull().default(0),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 /** What effect choosing a specific choice has on a control's compliance status. */
@@ -47,13 +51,15 @@ export const screeningChoiceEffects = pgTable("screening_choice_effects", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	choiceId: uuid("choice_id")
 		.notNull()
-		.references(() => screeningQuestionChoices.id, { onDelete: "cascade" }),
+		.references(() => screeningQuestionChoices.id, { onDelete: "restrict" }),
 	controlId: uuid("control_id")
 		.notNull()
 		.references(() => frameworkControls.id),
 	effect: text("effect", { enum: screeningEffectEnum }),
 	comment: text("comment"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 /** Per-application answers to screening questions. */
@@ -66,7 +72,7 @@ export const screeningAnswers = pgTable(
 			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		questionId: uuid("question_id")
 			.notNull()
-			.references(() => screeningQuestions.id, { onDelete: "cascade" }),
+			.references(() => screeningQuestions.id, { onDelete: "restrict" }),
 		answer: text("answer"),
 		comment: text("comment"),
 		link: text("link"),
@@ -81,7 +87,7 @@ export const screeningQuestionEffects = pgTable("screening_question_effects", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	questionId: uuid("question_id")
 		.notNull()
-		.references(() => screeningQuestions.id, { onDelete: "cascade" }),
+		.references(() => screeningQuestions.id, { onDelete: "restrict" }),
 	controlId: uuid("control_id")
 		.notNull()
 		.references(() => frameworkControls.id),
@@ -99,7 +105,7 @@ export const screeningQuestionTechnologyElements = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		questionId: uuid("question_id")
 			.notNull()
-			.references(() => screeningQuestions.id, { onDelete: "cascade" }),
+			.references(() => screeningQuestions.id, { onDelete: "restrict" }),
 		elementId: uuid("element_id")
 			.notNull()
 			.references(() => technologyElements.id, { onDelete: "cascade" }),
@@ -117,7 +123,7 @@ export const screeningRoutineSelections = pgTable(
 			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		choiceEffectId: uuid("choice_effect_id")
 			.notNull()
-			.references(() => screeningChoiceEffects.id, { onDelete: "cascade" }),
+			.references(() => screeningChoiceEffects.id, { onDelete: "restrict" }),
 		routineId: uuid("routine_id"),
 		selectedBy: text("selected_by").notNull(),
 		selectedAt: timestamp("selected_at", { withTimezone: true }).notNull().defaultNow(),

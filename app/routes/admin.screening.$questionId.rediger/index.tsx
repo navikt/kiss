@@ -22,10 +22,10 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
 import {
 	addChoiceEffect,
+	archiveChoice,
+	archiveChoiceEffect,
 	createChoice,
 	createScreeningQuestion,
-	deleteChoice,
-	deleteChoiceEffect,
 	getChoiceEffects,
 	getChoicesForQuestion,
 	getQuestionTechnologyElements,
@@ -223,7 +223,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "deleteChoice") {
 		const choiceId = formData.get("choiceId") as string
 		if (!choiceId) throw new Response("Mangler ID", { status: 400 })
-		await deleteChoice(choiceId)
+		await archiveChoice(choiceId, authedUser.navIdent)
 	}
 
 	if (intent === "addEffect") {
@@ -243,7 +243,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "deleteEffect") {
 		const effectId = formData.get("effectId") as string
 		if (!effectId) throw new Response("Mangler effect-ID", { status: 400 })
-		await deleteChoiceEffect(effectId)
+		await archiveChoiceEffect(effectId, authedUser.navIdent)
 	}
 
 	return data({ success: true })
@@ -488,17 +488,23 @@ export default function EditScreeningQuestion() {
 					</Box>
 				)}
 
-			{/* Delete confirmation modal */}
+			{/* Archive confirmation modal */}
 			<Modal
 				ref={deleteModalRef}
-				header={{ heading: deleteTarget?.type === "choice" ? "Slett valg" : "Slett effekt" }}
+				header={{ heading: deleteTarget?.type === "choice" ? "Arkiver valg" : "Arkiver effekt" }}
 				onClose={() => setDeleteTarget(null)}
 			>
 				<Modal.Body>
 					<BodyShort>
-						Er du sikker på at du vil slette{" "}
-						{deleteTarget?.type === "choice" ? `valget «${deleteTarget.label}»` : `effekten for ${deleteTarget?.label}`}
-						?{deleteTarget?.type === "choice" && " Alle tilhørende effekter vil også slettes."}
+						{deleteTarget?.type === "choice" && !isNew
+							? `Er du sikker på at du vil arkivere valget «${deleteTarget.label}»? Tilhørende effekter arkiveres også. Eksisterende svar bevares for historikk.`
+							: deleteTarget?.type === "effect" && !isNew
+								? `Er du sikker på at du vil arkivere effekten for ${deleteTarget?.label}? Effekten påvirker ikke lenger compliance-vurderingen.`
+								: `Er du sikker på at du vil fjerne ${
+										deleteTarget?.type === "choice"
+											? `valget «${deleteTarget.label}»`
+											: `effekten for ${deleteTarget?.label}`
+									}?${deleteTarget?.type === "choice" ? " Alle tilhørende effekter vil også fjernes." : ""}`}
 					</BodyShort>
 				</Modal.Body>
 				<Modal.Footer>
@@ -511,7 +517,7 @@ export default function EditScreeningQuestion() {
 									Avbryt
 								</Button>
 								<Button type="submit" variant="danger" size="small">
-									Slett valg
+									Arkiver valg
 								</Button>
 							</HStack>
 						</Form>
@@ -524,7 +530,7 @@ export default function EditScreeningQuestion() {
 									Avbryt
 								</Button>
 								<Button type="submit" variant="danger" size="small">
-									Slett effekt
+									Arkiver effekt
 								</Button>
 							</HStack>
 						</Form>
@@ -545,7 +551,7 @@ export default function EditScreeningQuestion() {
 									deleteModalRef.current?.close()
 								}}
 							>
-								Slett {deleteTarget?.type === "choice" ? "valg" : "effekt"}
+								Fjern {deleteTarget?.type === "choice" ? "valg" : "effekt"}
 							</Button>
 						</HStack>
 					)}

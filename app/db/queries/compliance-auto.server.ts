@@ -53,14 +53,17 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 		.where(and(eq(applicationEnvironments.applicationId, applicationId), isNotNull(naisTeams.sectionId)))
 	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
 
-	// 3. Load all applicable questions (global + section-scoped)
-	const globalQuestions = await db.select().from(screeningQuestions).where(isNull(screeningQuestions.sectionId))
+	// 3. Load all applicable questions (global + section-scoped, kun aktive)
+	const globalQuestions = await db
+		.select()
+		.from(screeningQuestions)
+		.where(and(isNull(screeningQuestions.sectionId), isNull(screeningQuestions.archivedAt)))
 	let sectionQuestions: typeof globalQuestions = []
 	if (sectionIds.length > 0) {
 		sectionQuestions = await db
 			.select()
 			.from(screeningQuestions)
-			.where(inArray(screeningQuestions.sectionId, sectionIds))
+			.where(and(inArray(screeningQuestions.sectionId, sectionIds), isNull(screeningQuestions.archivedAt)))
 	}
 	const allQuestions = [...globalQuestions, ...sectionQuestions]
 	if (allQuestions.length === 0) return new Map<string, ScreeningEffectsForControl>()
@@ -97,11 +100,16 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 		}
 	}
 
-	// 6. Load choices for applicable questions
+	// 6. Load choices for applicable questions (kun aktive)
 	const allChoices = await db
 		.select()
 		.from(screeningQuestionChoices)
-		.where(inArray(screeningQuestionChoices.questionId, [...applicableQuestionIds]))
+		.where(
+			and(
+				inArray(screeningQuestionChoices.questionId, [...applicableQuestionIds]),
+				isNull(screeningQuestionChoices.archivedAt),
+			),
+		)
 	const choicesByQuestion = new Map<string, typeof allChoices>()
 	for (const c of allChoices) {
 		const list = choicesByQuestion.get(c.questionId) ?? []
@@ -109,7 +117,7 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 		choicesByQuestion.set(c.questionId, list)
 	}
 
-	// 7. Load all choice effects
+	// 7. Load all choice effects (kun aktive)
 	const choiceIds = allChoices.map((c) => c.id)
 	const allEffects =
 		choiceIds.length > 0
@@ -120,7 +128,7 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 						effect: screeningChoiceEffects.effect,
 					})
 					.from(screeningChoiceEffects)
-					.where(inArray(screeningChoiceEffects.choiceId, choiceIds))
+					.where(and(inArray(screeningChoiceEffects.choiceId, choiceIds), isNull(screeningChoiceEffects.archivedAt)))
 			: []
 
 	// 8. Build: for each question, which choice did the app select, and what effects does it produce?

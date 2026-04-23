@@ -14,13 +14,17 @@ vi.mock("~/lib/authorization.server", () => ({
 	requireAdmin: mockRequireAdmin,
 }))
 
-const mockDeleteScreeningQuestion = vi.fn()
+const mockArchiveScreeningQuestion = vi.fn()
+const mockUnarchiveScreeningQuestion = vi.fn()
 const mockReorderScreeningQuestions = vi.fn()
 vi.mock("~/db/queries/screening.server", () => ({
-	deleteScreeningQuestion: mockDeleteScreeningQuestion,
+	archiveScreeningQuestion: mockArchiveScreeningQuestion,
+	unarchiveScreeningQuestion: mockUnarchiveScreeningQuestion,
 	reorderScreeningQuestions: mockReorderScreeningQuestions,
 	getScreeningQuestions: vi.fn(),
-	getEffectsForQuestion: vi.fn(),
+	getSectionScreeningQuestions: vi.fn(),
+	getChoicesForQuestion: vi.fn(),
+	getChoiceEffects: vi.fn(),
 }))
 
 vi.mock("~/lib/markdown.server", () => ({
@@ -76,9 +80,9 @@ describe("admin.screening action – authorization", () => {
 			})
 		})
 
-		it("rejects delete for non-admin", async () => {
+		it("rejects archive for non-admin", async () => {
 			const formData = new FormData()
-			formData.set("intent", "deleteQuestion")
+			formData.set("intent", "archiveQuestion")
 			formData.set("questionId", "some-id")
 
 			try {
@@ -89,7 +93,7 @@ describe("admin.screening action – authorization", () => {
 				expect((thrown as Response).status).toBe(403)
 			}
 
-			expect(mockDeleteScreeningQuestion).not.toHaveBeenCalled()
+			expect(mockArchiveScreeningQuestion).not.toHaveBeenCalled()
 		})
 
 		it("rejects reorder for non-admin", async () => {
@@ -116,14 +120,24 @@ describe("admin.screening action – authorization", () => {
 			mockRequireAdmin.mockImplementation(() => {})
 		})
 
-		it("allows delete for admin", async () => {
+		it("allows archive for admin", async () => {
 			const formData = new FormData()
-			formData.set("intent", "deleteQuestion")
+			formData.set("intent", "archiveQuestion")
 			formData.set("questionId", "some-id")
 
 			await callAction(formData)
 
-			expect(mockDeleteScreeningQuestion).toHaveBeenCalledWith("some-id", "Z999999")
+			expect(mockArchiveScreeningQuestion).toHaveBeenCalledWith("some-id", "Z999999")
+		})
+
+		it("allows unarchive for admin", async () => {
+			const formData = new FormData()
+			formData.set("intent", "unarchiveQuestion")
+			formData.set("questionId", "some-id")
+
+			await callAction(formData)
+
+			expect(mockUnarchiveScreeningQuestion).toHaveBeenCalledWith("some-id", "Z999999")
 		})
 
 		it("allows reorder for admin", async () => {
