@@ -1,7 +1,7 @@
 import { Heading, VStack } from "@navikt/ds-react"
 import { useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { DeleteSection } from "./components/DeleteSection"
+import { ArchiveSection } from "./components/ArchiveSection"
 import { ExportSection } from "./components/ExportSection"
 import { LinkedAppsSection } from "./components/LinkedAppsSection"
 import { LinkSuggestionsSection } from "./components/LinkSuggestionsSection"
@@ -32,7 +32,6 @@ export default function ApplikasjonRediger() {
 		oraclePersistence,
 		canDelete,
 	} = useLoaderData<typeof loader>()
-
 	return (
 		<VStack gap="space-24">
 			<Heading size="xlarge" level="2" spacing>
@@ -59,7 +58,9 @@ export default function ApplikasjonRediger() {
 
 			<ExportSection appId={app.id} />
 
-			{canDelete && <DeleteSection appName={app.name} />}
+			{(canDelete || app.archivedAt) && (
+				<ArchiveSection appName={app.name} archivedAt={app.archivedAt} archivedBy={app.archivedBy} />
+			)}
 		</VStack>
 	)
 }

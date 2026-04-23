@@ -63,7 +63,7 @@ export const screeningAnswers = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		applicationId: uuid("application_id")
 			.notNull()
-			.references(() => monitoredApplications.id),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		questionId: uuid("question_id")
 			.notNull()
 			.references(() => screeningQuestions.id, { onDelete: "cascade" }),
@@ -114,7 +114,7 @@ export const screeningRoutineSelections = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		applicationId: uuid("application_id")
 			.notNull()
-			.references(() => monitoredApplications.id),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		choiceEffectId: uuid("choice_effect_id")
 			.notNull()
 			.references(() => screeningChoiceEffects.id, { onDelete: "cascade" }),

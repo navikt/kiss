@@ -22,7 +22,7 @@ export const applicationControls = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		applicationId: uuid("application_id")
 			.notNull()
-			.references(() => monitoredApplications.id, { onDelete: "cascade" }),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		controlId: uuid("control_id")
 			.notNull()
 			.references(() => frameworkControls.id, { onDelete: "cascade" }),

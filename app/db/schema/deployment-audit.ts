@@ -55,7 +55,7 @@ export const deploymentVerificationSummaries = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		applicationId: uuid("application_id")
 			.notNull()
-			.references(() => monitoredApplications.id),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		environment: text("environment").notNull(),
 		teamSlug: text("team_slug").notNull(),
 		appName: text("app_name").notNull(),

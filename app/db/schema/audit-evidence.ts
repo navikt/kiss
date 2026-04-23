@@ -9,7 +9,7 @@ export const applicationOracleInstances = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		applicationId: uuid("application_id")
 			.notNull()
-			.references(() => monitoredApplications.id),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		instanceId: text("instance_id").notNull(),
 		includeInReport: boolean("include_in_report").notNull().default(true),
 		configuredBy: text("configured_by").notNull(),
@@ -27,7 +27,7 @@ export const auditEvidenceSnapshots = pgTable("audit_evidence_snapshots", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")
 		.notNull()
-		.references(() => monitoredApplications.id),
+		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	instanceId: text("instance_id").notNull(),
 	overallStatus: text("overall_status", { enum: auditEvidenceOverallStatusEnum }).notNull(),
 	collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
@@ -46,7 +46,7 @@ export const oracleRoleAssessments = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		applicationId: uuid("application_id")
 			.notNull()
-			.references(() => monitoredApplications.id),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		instanceId: text("instance_id").notNull(),
 		roleName: text("role_name").notNull(),
 		criticality: text("criticality", { enum: groupCriticalityEnum }).notNull(),

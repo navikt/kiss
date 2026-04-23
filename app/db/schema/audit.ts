@@ -69,6 +69,8 @@ export const auditLogActionEnum = [
 	"application_renamed",
 	"application_primary_changed",
 	"application_deleted",
+	"application_archived",
+	"application_unarchived",
 
 	// Seksjon ↔ applikasjon/miljø
 	"section_app_ignored",

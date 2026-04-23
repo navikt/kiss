@@ -122,7 +122,7 @@ export const routineReviews = pgTable("routine_reviews", {
 		.notNull()
 		.references(() => routines.id, { onDelete: "cascade" }),
 	applicationId: uuid("application_id").references(() => monitoredApplications.id, {
-		onDelete: "set null",
+		onDelete: "restrict",
 	}),
 	title: text("title").notNull(),
 	summary: text("summary"),

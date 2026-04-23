@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	type AuthIntegrationType,
@@ -25,11 +25,7 @@ import {
 	sectionIgnoredApplications,
 } from "../schema/applications"
 import { auditLog } from "../schema/audit"
-import { applicationOracleInstances, auditEvidenceSnapshots } from "../schema/audit-evidence"
-import { complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
-import { deploymentVerificationSummaries } from "../schema/deployment-audit"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
-import { screeningAnswers } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 
 /** Get all Nais teams. */
@@ -869,73 +865,111 @@ export async function promoteToPrimary(newPrimaryId: string, currentPrimaryId: s
 	})
 }
 
-/** Delete an application that has no linked apps and no Nais environments. */
-export async function deleteApplication(appId: string, performedBy: string) {
-	const [app] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, appId))
-		.limit(1)
-	if (!app) throw new Error("Applikasjon ikke funnet")
-
-	// Verify no linked apps
-	const [linked] = await db
-		.select({ id: monitoredApplications.id })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.primaryApplicationId, appId))
-		.limit(1)
-	if (linked) throw new Error("Kan ikke slette applikasjon med lenkede applikasjoner")
-
-	// Verify no environments
-	const [env] = await db
-		.select({ id: applicationEnvironments.id })
-		.from(applicationEnvironments)
-		.where(eq(applicationEnvironments.applicationId, appId))
-		.limit(1)
-	if (env) throw new Error("Kan ikke slette applikasjon som finnes på Nais")
-
-	await db.transaction(async (tx) => {
-		// Delete compliance history (references assessments, not the app directly)
-		const assessmentIds = await tx
-			.select({ id: complianceAssessments.id })
-			.from(complianceAssessments)
-			.where(eq(complianceAssessments.applicationId, appId))
-		if (assessmentIds.length > 0) {
-			await tx.delete(complianceAssessmentHistory).where(
-				inArray(
-					complianceAssessmentHistory.assessmentId,
-					assessmentIds.map((a) => a.id),
+/**
+ * Arkiverer en applikasjon (soft-delete). Applikasjonen blir skjult fra
+ * brukervendte lister, men beholder all data, compliance-historikk og
+ * relasjoner. FK-er til monitored_applications er ON DELETE RESTRICT, så
+ * fysisk sletting er umulig så lenge noen referanser finnes.
+ *
+ * TOCTOU-sikkerhet: precondition-sjekkene (ingen lenkede applikasjoner,
+ * ingen Nais-miljøer, ikke allerede arkivert) er alle uttrykt som NOT
+ * EXISTS-sub-queries i UPDATE-en sin WHERE-klausul. UPDATE og NOT EXISTS
+ * evalueres atomisk under samme rad-lås, så samtidige inserts av
+ * environments eller child-apps kan ikke smyge forbi sjekkene. Dersom
+ * UPDATE returnerer 0 rader, kjøres et oppfølgings-SELECT for å gi en
+ * presis feilmelding (ikke funnet vs. har miljø vs. har lenket app).
+ * UPDATE og audit-skriving kjører i samme transaksjon (AGENTS.md regel 6).
+ */
+export async function archiveApplication(appId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(monitoredApplications)
+			.set({
+				archivedAt: new Date(),
+				archivedBy: performedBy,
+				updatedAt: new Date(),
+				updatedBy: performedBy,
+			})
+			.where(
+				and(
+					eq(monitoredApplications.id, appId),
+					isNull(monitoredApplications.archivedAt),
+					sql`NOT EXISTS (SELECT 1 FROM ${applicationEnvironments} WHERE ${applicationEnvironments.applicationId} = ${appId})`,
+					sql`NOT EXISTS (SELECT 1 FROM ${monitoredApplications} child WHERE child.primary_application_id = ${appId})`,
 				),
 			)
+			.returning()
+		if (!archived) {
+			const [existing] = await tx
+				.select()
+				.from(monitoredApplications)
+				.where(eq(monitoredApplications.id, appId))
+				.limit(1)
+			if (!existing) throw new Error("Applikasjon ikke funnet")
+			if (existing.archivedAt) return existing
+			const [linked] = await tx
+				.select({ id: monitoredApplications.id })
+				.from(monitoredApplications)
+				.where(eq(monitoredApplications.primaryApplicationId, appId))
+				.limit(1)
+			if (linked) throw new Error("Kan ikke arkivere applikasjon med lenkede applikasjoner")
+			throw new Error("Kan ikke arkivere applikasjon som finnes på Nais")
 		}
-		await tx.delete(complianceAssessments).where(eq(complianceAssessments.applicationId, appId))
-
-		// Delete from all FK tables
-		await tx.delete(applicationTeamMappings).where(eq(applicationTeamMappings.applicationId, appId))
-		await tx.delete(applicationPersistence).where(eq(applicationPersistence.applicationId, appId))
-		await tx.delete(sectionIgnoredApplications).where(eq(sectionIgnoredApplications.applicationId, appId))
-		await tx
-			.delete(linkSuggestions)
-			.where(or(eq(linkSuggestions.primaryAppId, appId), eq(linkSuggestions.secondaryAppId, appId)))
-		await tx.delete(applicationAuthIntegrations).where(eq(applicationAuthIntegrations.applicationId, appId))
-		await tx.delete(applicationAccessPolicyRules).where(eq(applicationAccessPolicyRules.applicationId, appId))
-		await tx.delete(accessPolicyAcknowledgments).where(eq(accessPolicyAcknowledgments.applicationId, appId))
-		await tx.delete(screeningAnswers).where(eq(screeningAnswers.applicationId, appId))
-		await tx.delete(deploymentVerificationSummaries).where(eq(deploymentVerificationSummaries.applicationId, appId))
-		await tx.delete(applicationOracleInstances).where(eq(applicationOracleInstances.applicationId, appId))
-		await tx.delete(auditEvidenceSnapshots).where(eq(auditEvidenceSnapshots.applicationId, appId))
-		// applicationTechnologyElements has onDelete: cascade, handled by DB
-
-		// Delete the application itself
-		await tx.delete(monitoredApplications).where(eq(monitoredApplications.id, appId))
+		await writeAuditLog(
+			{
+				action: "application_archived",
+				entityType: "monitored_application",
+				entityId: appId,
+				previousValue: JSON.stringify({ name: archived.name }),
+				newValue: JSON.stringify({ name: archived.name, archivedAt: archived.archivedAt }),
+				performedBy,
+			},
+			tx,
+		)
+		return archived
 	})
+}
 
-	await writeAuditLog({
-		action: "application_deleted",
-		entityType: "monitored_application",
-		entityId: appId,
-		previousValue: JSON.stringify({ name: app.name }),
-		performedBy,
+/**
+ * Reaktiverer en arkivert applikasjon. Guarded UPDATE + atomisk audit-
+ * skriving. Vi SELECT-er først med FOR UPDATE for å låse raden og fange
+ * den faktiske `archivedAt`-tidsstemplingen, slik at audit-loggen
+ * registrerer når applikasjonen var arkivert (ikke bare at den nå er
+ * gjenopprettet).
+ */
+export async function unarchiveApplication(appId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.id, appId))
+			.for("update")
+			.limit(1)
+		if (!existing) throw new Error("Applikasjon ikke funnet")
+		if (!existing.archivedAt) return existing
+		const previousArchivedAt = existing.archivedAt
+		const [app] = await tx
+			.update(monitoredApplications)
+			.set({
+				archivedAt: null,
+				archivedBy: null,
+				updatedAt: new Date(),
+				updatedBy: performedBy,
+			})
+			.where(eq(monitoredApplications.id, appId))
+			.returning()
+		await writeAuditLog(
+			{
+				action: "application_unarchived",
+				entityType: "monitored_application",
+				entityId: appId,
+				previousValue: JSON.stringify({ name: app.name, archivedAt: previousArchivedAt }),
+				newValue: JSON.stringify({ name: app.name }),
+				performedBy,
+			},
+			tx,
+		)
+		return app
 	})
 }
 /** Extract base application name by stripping environment suffixes like -q0, -q1, -q2, -q5, -popp etc. */
@@ -971,6 +1005,7 @@ export async function findLinkCandidates(): Promise<LinkCandidate[]> {
 			primaryApplicationId: monitoredApplications.primaryApplicationId,
 		})
 		.from(monitoredApplications)
+		.where(isNull(monitoredApplications.archivedAt))
 
 	const envs = await db
 		.select({

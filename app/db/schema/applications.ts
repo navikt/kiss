@@ -1,4 +1,4 @@
-import { boolean, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
+import { type AnyPgColumn, boolean, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
 import { devTeams, sections } from "./organization"
 
 export const naisTeamStatusEnum = ["pending", "monitored", "ignored"] as const
@@ -22,18 +22,22 @@ export const monitoredApplications = pgTable("monitored_applications", {
 	name: text("name").notNull(),
 	description: text("description"),
 	addedManually: boolean("added_manually").notNull().default(false),
-	primaryApplicationId: uuid("primary_application_id"),
+	primaryApplicationId: uuid("primary_application_id").references((): AnyPgColumn => monitoredApplications.id, {
+		onDelete: "restrict",
+	}),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedBy: text("updated_by").notNull(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 export const applicationEnvironments = pgTable("application_environments", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")
 		.notNull()
-		.references(() => monitoredApplications.id),
+		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	cluster: text("cluster").notNull(),
 	namespace: text("namespace").notNull(),
 	imageName: text("image_name"),
@@ -46,7 +50,7 @@ export const applicationTeamMappings = pgTable("application_team_mappings", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")
 		.notNull()
-		.references(() => monitoredApplications.id),
+		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	devTeamId: uuid("dev_team_id")
 		.notNull()
 		.references(() => devTeams.id),
@@ -102,7 +106,7 @@ export const applicationPersistence = pgTable("application_persistence", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")
 		.notNull()
-		.references(() => monitoredApplications.id),
+		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	type: text("type", { enum: persistenceTypeEnum }).notNull(),
 	name: text("name").notNull(),
 	version: text("version"),
@@ -125,7 +129,7 @@ export const sectionIgnoredApplications = pgTable("section_ignored_applications"
 		.references(() => sections.id, { onDelete: "restrict" }),
 	applicationId: uuid("application_id")
 		.notNull()
-		.references(() => monitoredApplications.id),
+		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	reason: text("reason"),
 	ignoredAt: timestamp("ignored_at", { withTimezone: true }).notNull().defaultNow(),
 	ignoredBy: text("ignored_by").notNull(),
@@ -143,10 +147,10 @@ export const linkSuggestions = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		primaryAppId: uuid("primary_app_id")
 			.notNull()
-			.references(() => monitoredApplications.id),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		secondaryAppId: uuid("secondary_app_id")
 			.notNull()
-			.references(() => monitoredApplications.id),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		matchType: text("match_type", { enum: linkSuggestionMatchTypeEnum }).notNull(),
 		confidence: text("confidence").notNull(),
 		status: text("status", { enum: linkSuggestionStatusEnum }).notNull().default("pending"),
@@ -164,7 +168,7 @@ export const applicationAuthIntegrations = pgTable("application_auth_integration
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")
 		.notNull()
-		.references(() => monitoredApplications.id),
+		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	type: text("type", { enum: authIntegrationTypeEnum }).notNull(),
 	enabled: boolean("enabled").notNull().default(true),
 	allowAllUsers: boolean("allow_all_users"),
@@ -183,7 +187,7 @@ export const applicationAccessPolicyRules = pgTable("application_access_policy_r
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")
 		.notNull()
-		.references(() => monitoredApplications.id),
+		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	direction: text("direction", { enum: accessPolicyDirectionEnum }).notNull(),
 	ruleApplication: text("rule_application").notNull(),
 	ruleNamespace: text("rule_namespace"),
@@ -196,7 +200,7 @@ export const accessPolicyAcknowledgments = pgTable("access_policy_acknowledgment
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")
 		.notNull()
-		.references(() => monitoredApplications.id),
+		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	ruleApplication: text("rule_application").notNull(),
 	comment: text("comment").notNull(),
 	acknowledgedBy: text("acknowledged_by").notNull(),
@@ -221,7 +225,7 @@ export const applicationManualGroups = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		applicationId: uuid("application_id")
 			.notNull()
-			.references(() => monitoredApplications.id),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		groupId: text("group_id").notNull(),
 		groupName: text("group_name"),
 		createdBy: text("created_by").notNull(),
@@ -246,7 +250,7 @@ export const applicationGroupAssessments = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		applicationId: uuid("application_id")
 			.notNull()
-			.references(() => monitoredApplications.id),
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		groupId: text("group_id").notNull(),
 		criticality: text("criticality", { enum: groupCriticalityEnum }).notNull(),
 		assessedBy: text("assessed_by").notNull(),
