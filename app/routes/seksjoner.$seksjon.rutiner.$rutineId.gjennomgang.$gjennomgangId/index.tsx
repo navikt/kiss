@@ -46,6 +46,7 @@ import {
 	getReview,
 	getReviewActivity,
 	getRoutine,
+	getRoutineArchivedStatusByReviewId,
 	recordEntraChange,
 	updateReview,
 } from "~/db/queries/routines.server"
@@ -197,6 +198,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
 
+	// Soft-delete-guard: enhver mutasjon på en gjennomgang som tilhører en
+	// arkivert rutine blokkeres med 403. Brukeren må reaktivere rutinen først.
+	// Dette er forsvar i dybden — query-laget guarder også enkelt-operasjoner.
+	// Lettvekts JOIN-spørring (ikke full getReview()/getRoutine()) for å unngå
+	// unødvendige subqueries per POST.
+	const archiveStatus = await getRoutineArchivedStatusByReviewId(gjennomgangId)
+	if (archiveStatus?.archivedAt) {
+		throw data(
+			{ message: "Kan ikke endre gjennomganger på en arkivert rutine. Reaktiver rutinen først." },
+			{ status: 403 },
+		)
+	}
+
 	if (intent === "update-review") {
 		const title = (formData.get("title") as string)?.trim()
 		const summary = (formData.get("summary") as string)?.trim() || null
@@ -279,7 +293,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!linkId) {
 			return data<ActionResult>({ success: false, error: "Mangler lenke-ID", intent: "delete-link" })
 		}
-		await deleteReviewLink(linkId, authedUser.navIdent)
+		const deleted = await deleteReviewLink(linkId, gjennomgangId, authedUser.navIdent)
+		if (!deleted) {
+			return data<ActionResult>({ success: false, error: "Fant ikke lenken.", intent: "delete-link" }, { status: 404 })
+		}
 		return data<ActionResult>({ success: true, message: "Lenke fjernet.", intent: "delete-link" })
 	}
 

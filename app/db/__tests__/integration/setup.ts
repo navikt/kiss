@@ -39,3 +39,7 @@ export async function teardownTestDatabase() {
 export function getTestDb() {
 	return testDb
 }
+
+export function getTestPool() {
+	return pool
+}

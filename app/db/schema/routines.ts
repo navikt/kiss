@@ -44,6 +44,8 @@ export const routines = pgTable("routines", {
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedBy: text("updated_by").notNull(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Routine ↔ Persistence linking ───────────────────────────────────────
@@ -52,7 +54,7 @@ export const routinePersistenceLinks = pgTable("routine_persistence_links", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	routineId: uuid("routine_id")
 		.notNull()
-		.references(() => routines.id, { onDelete: "cascade" }),
+		.references(() => routines.id, { onDelete: "restrict" }),
 	persistenceType: text("persistence_type", { enum: persistenceTypeEnum }),
 	dataClassification: text("data_classification", { enum: dataClassificationEnum }),
 })
@@ -63,7 +65,7 @@ export const routineGroupClassificationLinks = pgTable("routine_group_classifica
 	id: uuid("id").primaryKey().defaultRandom(),
 	routineId: uuid("routine_id")
 		.notNull()
-		.references(() => routines.id, { onDelete: "cascade" }),
+		.references(() => routines.id, { onDelete: "restrict" }),
 	classification: text("classification", { enum: groupAccessClassificationEnum }).notNull(),
 })
 
@@ -73,7 +75,7 @@ export const routineOracleRoleCriticalityLinks = pgTable("routine_oracle_role_cr
 	id: uuid("id").primaryKey().defaultRandom(),
 	routineId: uuid("routine_id")
 		.notNull()
-		.references(() => routines.id, { onDelete: "cascade" }),
+		.references(() => routines.id, { onDelete: "restrict" }),
 	criticality: text("criticality", { enum: groupCriticalityEnum }).notNull(),
 })
 
@@ -83,7 +85,7 @@ export const routineScreeningQuestions = pgTable("routine_screening_questions", 
 	id: uuid("id").primaryKey().defaultRandom(),
 	routineId: uuid("routine_id")
 		.notNull()
-		.references(() => routines.id, { onDelete: "cascade" }),
+		.references(() => routines.id, { onDelete: "restrict" }),
 	questionId: uuid("question_id")
 		.notNull()
 		.references(() => screeningQuestions.id, { onDelete: "cascade" }),
@@ -96,7 +98,7 @@ export const routineControls = pgTable("routine_controls", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	routineId: uuid("routine_id")
 		.notNull()
-		.references(() => routines.id, { onDelete: "cascade" }),
+		.references(() => routines.id, { onDelete: "restrict" }),
 	controlId: uuid("control_id")
 		.notNull()
 		.references(() => frameworkControls.id, { onDelete: "cascade" }),
@@ -108,7 +110,7 @@ export const routineTechnologyElements = pgTable("routine_technology_elements", 
 	id: uuid("id").primaryKey().defaultRandom(),
 	routineId: uuid("routine_id")
 		.notNull()
-		.references(() => routines.id, { onDelete: "cascade" }),
+		.references(() => routines.id, { onDelete: "restrict" }),
 	elementId: uuid("element_id")
 		.notNull()
 		.references(() => technologyElements.id, { onDelete: "cascade" }),
@@ -120,7 +122,7 @@ export const routineReviews = pgTable("routine_reviews", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	routineId: uuid("routine_id")
 		.notNull()
-		.references(() => routines.id, { onDelete: "cascade" }),
+		.references(() => routines.id, { onDelete: "restrict" }),
 	applicationId: uuid("application_id").references(() => monitoredApplications.id, {
 		onDelete: "restrict",
 	}),
