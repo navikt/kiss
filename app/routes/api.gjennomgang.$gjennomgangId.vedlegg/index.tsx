@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs } from "react-router"
 import { saveBucketObject } from "~/db/queries/buckets.server"
-import { addReviewAttachment, getReview } from "~/db/queries/routines.server"
+import { addReviewAttachment, getReview, getRoutineArchivedStatusByReviewId } from "~/db/queries/routines.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
@@ -27,6 +27,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return Response.json(
 			{ success: false, error: "Kan ikke laste opp vedlegg til en fullført gjennomgang." },
 			{ status: 400 },
+		)
+	}
+
+	// Soft-delete-guard: blokker opplasting hvis foreldre-rutinen er arkivert.
+	// Lettvekts JOIN-spørring (unngår full getRoutine() med subqueries).
+	const archiveStatus = await getRoutineArchivedStatusByReviewId(gjennomgangId)
+	if (archiveStatus?.archivedAt) {
+		return Response.json(
+			{
+				success: false,
+				error: "Kan ikke laste opp vedlegg til en gjennomgang på en arkivert rutine. Reaktiver rutinen først.",
+			},
+			{ status: 403 },
 		)
 	}
 

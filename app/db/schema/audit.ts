@@ -104,6 +104,8 @@ export const auditLogActionEnum = [
 	"routine_created",
 	"routine_updated",
 	"routine_deleted",
+	"routine_archived",
+	"routine_unarchived",
 	"routine_approved",
 	"routine_copied",
 	"routine_replaced",

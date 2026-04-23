@@ -16,7 +16,7 @@ const {
 	getRoutine,
 	getRoutinesForSection,
 	updateRoutine,
-	deleteRoutine,
+	archiveRoutine,
 	createReview,
 	getReviewsForRoutine,
 	confirmParticipation,
@@ -104,6 +104,11 @@ describe("Routines integration tests", () => {
 			DELETE FROM routine_review_attachments;
 			DELETE FROM routine_review_participants;
 			DELETE FROM routine_reviews;
+			DELETE FROM routine_persistence_links;
+			DELETE FROM routine_group_classification_links;
+			DELETE FROM routine_oracle_role_criticality_links;
+			DELETE FROM routine_screening_questions;
+			DELETE FROM routine_controls;
 			DELETE FROM routine_technology_elements;
 			DELETE FROM routines;
 			DELETE FROM screening_answers;
@@ -299,13 +304,14 @@ describe("Routines integration tests", () => {
 				participants: [],
 			})
 
-			await deleteRoutine(routine.id, "admin-user")
+			await archiveRoutine(routine.id, "admin-user")
 
 			const fetched = await getRoutine(routine.id)
 			expect(fetched).not.toBeNull()
-			expect(fetched!.status).toBe("deleted")
+			expect(fetched?.archivedAt).not.toBeNull()
+			expect(fetched?.archivedBy).toBe("admin-user")
 
-			// Deleted routines should not appear in section listings
+			// Archived routines should not appear in section listings
 			const sectionRoutines = await getRoutinesForSection(sectionId)
 			expect(sectionRoutines.find((r) => r.id === routine.id)).toBeUndefined()
 
@@ -317,7 +323,7 @@ describe("Routines integration tests", () => {
 			expect(reviewResult.rows.length).toBe(1)
 
 			const auditResult = await db.execute(
-				/* sql */ `SELECT * FROM audit_log WHERE action = 'routine_deleted' AND entity_id = '${routine.id}'`,
+				/* sql */ `SELECT * FROM audit_log WHERE action = 'routine_archived' AND entity_id = '${routine.id}'`,
 			)
 			expect(auditResult.rows.length).toBeGreaterThanOrEqual(1)
 		})

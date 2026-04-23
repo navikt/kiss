@@ -50,7 +50,7 @@ export async function getRoutinesForSection(sectionId: string) {
 	const rows = await db
 		.select()
 		.from(routines)
-		.where(and(eq(routines.sectionId, sectionId), ne(routines.status, "deleted")))
+		.where(and(eq(routines.sectionId, sectionId), isNull(routines.archivedAt)))
 		.orderBy(routines.name)
 	if (rows.length === 0) return []
 
@@ -452,25 +452,98 @@ export async function updateRoutine(params: {
 	return routine
 }
 
-/** Sletter en rutine og alle tilhørende koblinger. Skriver audit-logg. */
-export async function deleteRoutine(id: string, performedBy: string) {
-	const prev = await getRoutine(id)
-	if (!prev) return null
-
-	await db
-		.update(routines)
-		.set({ status: "deleted", updatedBy: performedBy, updatedAt: new Date() })
-		.where(eq(routines.id, id))
-
-	await writeAuditLog({
-		action: "routine_deleted",
-		entityType: "routine",
-		entityId: id,
-		previousValue: prev.name,
-		performedBy,
+/**
+ * Arkiverer (soft-delete) en rutine. Rutinen blir skjult fra brukervendte
+ * lister via filteret isNull(archived_at), men beholder all konfigurasjon,
+ * gjennomganger og audit-logg. FK-er fra rutinekonfigurasjon og historikk
+ * er ON DELETE RESTRICT, så fysisk DELETE er umulig.
+ *
+ * TOCTOU-sikkerhet: guarded UPDATE WHERE archived_at IS NULL evalueres
+ * atomisk. UPDATE og audit-skriving kjører i samme transaksjon (AGENTS.md
+ * regel 6).
+ */
+export async function archiveRoutine(id: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(routines)
+			.set({
+				archivedAt: new Date(),
+				archivedBy: performedBy,
+				updatedAt: new Date(),
+				updatedBy: performedBy,
+			})
+			.where(and(eq(routines.id, id), isNull(routines.archivedAt)))
+			.returning()
+		if (!archived) {
+			const [existing] = await tx.select().from(routines).where(eq(routines.id, id)).limit(1)
+			if (!existing) return null
+			return existing
+		}
+		await writeAuditLog(
+			{
+				action: "routine_archived",
+				entityType: "routine",
+				entityId: id,
+				previousValue: JSON.stringify({ name: archived.name }),
+				newValue: JSON.stringify({ name: archived.name, archivedAt: archived.archivedAt }),
+				performedBy,
+			},
+			tx,
+		)
+		return archived
 	})
+}
 
-	return prev
+/**
+ * Reaktiverer en arkivert rutine. SELECT FOR UPDATE for å låse raden og
+ * fange faktisk pre-update archived_at, slik at audit-loggens previousValue
+ * registrerer når rutinen var arkivert.
+ *
+ * Legacy-håndtering: hvis rutinen har status='deleted' (fra det gamle
+ * hard-delete-mønsteret, backfilled av migrasjon 0042), tilbakestilles
+ * status til 'draft' i samme UPDATE. Ellers ville rutinen blitt liggende
+ * i en inkonsistent tilstand der status-guarder fortsatt blokkerer
+ * redigering, samtidig som archivedAt-baserte filtre slipper den gjennom.
+ */
+export async function unarchiveRoutine(id: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx.select().from(routines).where(eq(routines.id, id)).for("update").limit(1)
+		if (!existing) return null
+		if (!existing.archivedAt) return existing
+		const previousArchivedAt = existing.archivedAt
+		const previousStatus = existing.status
+		const restoreLegacyStatus = previousStatus === "deleted"
+		const [routine] = await tx
+			.update(routines)
+			.set({
+				archivedAt: null,
+				archivedBy: null,
+				...(restoreLegacyStatus ? { status: "draft" as const } : {}),
+				updatedAt: new Date(),
+				updatedBy: performedBy,
+			})
+			.where(eq(routines.id, id))
+			.returning()
+		await writeAuditLog(
+			{
+				action: "routine_unarchived",
+				entityType: "routine",
+				entityId: id,
+				previousValue: JSON.stringify({
+					name: routine.name,
+					archivedAt: previousArchivedAt,
+					...(restoreLegacyStatus ? { status: previousStatus } : {}),
+				}),
+				newValue: JSON.stringify({
+					name: routine.name,
+					...(restoreLegacyStatus ? { status: routine.status } : {}),
+				}),
+				performedBy,
+			},
+			tx,
+		)
+		return routine
+	})
 }
 
 // ─── Routine Reviews ─────────────────────────────────────────────────────
@@ -548,7 +621,8 @@ async function enrichReview(review: typeof routineReviews.$inferSelect) {
 
 /**
  * Oppretter en gjennomgang (review) av en rutine for en gitt applikasjon.
- * Kaster feil hvis rutinen ikke er aktiv eller godkjent. Skriver audit-logg.
+ * Kaster feil hvis rutinen ikke er aktiv eller godkjent, eller hvis den er
+ * arkivert (soft-deleted). Skriver audit-logg.
  */
 export async function createReview(params: {
 	routineId: string
@@ -560,53 +634,67 @@ export async function createReview(params: {
 	createdBy: string
 	participants: Array<{ userIdent: string; userName: string | null }>
 }) {
-	// Only allow reviews on active routines
-	const [routine] = await db
-		.select({ status: routines.status })
-		.from(routines)
-		.where(eq(routines.id, params.routineId))
-		.limit(1)
-	if (!routine) throw new Error(`Rutine ikke funnet: ${params.routineId}`)
-	if (routine.status !== "active" && routine.status !== "approved")
-		throw new Error("Kan ikke opprette gjennomgang for en rutine som ikke er aktiv eller godkjent")
+	// Atomisk: hele lookup → guard → INSERT-kjeden kjøres i tx med
+	// FOR SHARE-lås på routine-raden, så samtidig archiveRoutine() blokkeres
+	// til vår tx er ferdig (lukker TOCTOU mellom guard og INSERT).
+	return db.transaction(async (tx) => {
+		const [routine] = await tx
+			.select({ status: routines.status, archivedAt: routines.archivedAt })
+			.from(routines)
+			.where(eq(routines.id, params.routineId))
+			.for("share")
+			.limit(1)
+		if (!routine) throw new Response(`Rutine ikke funnet: ${params.routineId}`, { status: 404 })
+		if (routine.archivedAt)
+			throw new Response("Kan ikke opprette gjennomgang for en arkivert rutine. Reaktiver rutinen først.", {
+				status: 403,
+			})
+		if (routine.status !== "active" && routine.status !== "approved")
+			throw new Response("Kan ikke opprette gjennomgang for en rutine som ikke er aktiv eller godkjent", {
+				status: 400,
+			})
 
-	const [review] = await db
-		.insert(routineReviews)
-		.values({
-			routineId: params.routineId,
-			applicationId: params.applicationId,
-			title: params.title,
-			summary: params.summary,
-			routineSnapshotPath: params.routineSnapshotPath,
-			reviewedAt: params.reviewedAt,
-			createdBy: params.createdBy,
-		})
-		.returning()
+		const [review] = await tx
+			.insert(routineReviews)
+			.values({
+				routineId: params.routineId,
+				applicationId: params.applicationId,
+				title: params.title,
+				summary: params.summary,
+				routineSnapshotPath: params.routineSnapshotPath,
+				reviewedAt: params.reviewedAt,
+				createdBy: params.createdBy,
+			})
+			.returning()
 
-	if (params.participants.length > 0) {
-		await db.insert(routineReviewParticipants).values(
-			params.participants.map((p) => ({
-				reviewId: review.id,
-				userIdent: p.userIdent,
-				userName: p.userName,
-			})),
+		if (params.participants.length > 0) {
+			await tx.insert(routineReviewParticipants).values(
+				params.participants.map((p) => ({
+					reviewId: review.id,
+					userIdent: p.userIdent,
+					userName: p.userName,
+				})),
+			)
+		}
+
+		await writeAuditLog(
+			{
+				action: "routine_review_created",
+				entityType: "routine_review",
+				entityId: review.id,
+				newValue: params.title,
+				metadata: {
+					routineId: params.routineId,
+					applicationId: params.applicationId,
+					participantCount: params.participants.length,
+				},
+				performedBy: params.createdBy,
+			},
+			tx,
 		)
-	}
 
-	await writeAuditLog({
-		action: "routine_review_created",
-		entityType: "routine_review",
-		entityId: review.id,
-		newValue: params.title,
-		metadata: {
-			routineId: params.routineId,
-			applicationId: params.applicationId,
-			participantCount: params.participants.length,
-		},
-		performedBy: params.createdBy,
+		return review
 	})
-
-	return review
 }
 
 export async function updateReview(
@@ -630,29 +718,58 @@ export async function updateReview(
 	if (params.applicationId !== undefined) updates.applicationId = params.applicationId
 	if (params.reviewedAt !== undefined) updates.reviewedAt = params.reviewedAt
 
-	if (Object.keys(updates).length > 0) {
-		await db.update(routineReviews).set(updates).where(eq(routineReviews.id, reviewId))
-	}
-
-	if (params.participants !== undefined) {
-		await db.delete(routineReviewParticipants).where(eq(routineReviewParticipants.reviewId, reviewId))
-		if (params.participants.length > 0) {
-			await db.insert(routineReviewParticipants).values(
-				params.participants.map((p) => ({
-					reviewId,
-					userIdent: p.userIdent,
-					userName: p.userName,
-				})),
-			)
+	// Atomisk: archive-guard + status-guard + UPDATE/participants i tx med
+	// FOR SHARE-lås på foreldre-rutinen og henter review-status atomisk så
+	// samtidig archiveRoutine() / completeReview() blokkeres / detekteres.
+	await db.transaction(async (tx) => {
+		const [snapshot] = await tx
+			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, reviewId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (!snapshot) {
+			throw new Response("Gjennomgang ikke funnet.", { status: 404 })
 		}
-	}
+		if (snapshot.archivedAt) {
+			throw new Response("Kan ikke endre gjennomganger på en arkivert rutine. Reaktiver rutinen først.", {
+				status: 403,
+			})
+		}
+		if (snapshot.reviewStatus === "completed") {
+			// Status endret seg fra ikke-completed (pre-check) til completed
+			// inne i tx-vinduet (samtidig completeReview-race) → 409 Conflict.
+			throw new Response("Gjennomgangen kan ikke endres lenger (status endret seg).", { status: 409 })
+		}
 
-	await writeAuditLog({
-		action: "routine_review_updated",
-		entityType: "routine_review",
-		entityId: reviewId,
-		newValue: JSON.stringify(updates),
-		performedBy,
+		if (Object.keys(updates).length > 0) {
+			await tx.update(routineReviews).set(updates).where(eq(routineReviews.id, reviewId))
+		}
+
+		if (params.participants !== undefined) {
+			await tx.delete(routineReviewParticipants).where(eq(routineReviewParticipants.reviewId, reviewId))
+			if (params.participants.length > 0) {
+				await tx.insert(routineReviewParticipants).values(
+					params.participants.map((p) => ({
+						reviewId,
+						userIdent: p.userIdent,
+						userName: p.userName,
+					})),
+				)
+			}
+		}
+
+		await writeAuditLog(
+			{
+				action: "routine_review_updated",
+				entityType: "routine_review",
+				entityId: reviewId,
+				newValue: JSON.stringify(updates),
+				performedBy,
+			},
+			tx,
+		)
 	})
 
 	return getReview(reviewId)
@@ -668,28 +785,65 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	if (!existing) return null
 	if (existing.status === "completed") return existing
 
-	// Complete any pending activity (captures snapshot-after)
+	// Bygg Entra-snapshot UTENFOR tx (eksternt HTTP-kall mot Microsoft Graph).
+	// Selve activity-completion + status-UPDATE går inn i samme tx for å
+	// hindre inkonsistente tilstander (aktivitet=completed, review≠completed).
 	const activity = await getReviewActivity(reviewId)
-	if (activity && activity.status === "pending") {
-		let snapshotAfter: EntraGroupSnapshot | null = null
-		if (activity.type === "entra_id_group_maintenance" && existing.applicationId) {
-			snapshotAfter = await buildEntraGroupSnapshot(existing.applicationId)
-		}
-		await completeReviewActivity(activity.id, snapshotAfter, performedBy)
+	let snapshotAfter: EntraGroupSnapshot | null = null
+	if (activity?.status === "pending" && activity.type === "entra_id_group_maintenance" && existing.applicationId) {
+		snapshotAfter = await buildEntraGroupSnapshot(existing.applicationId)
 	}
 
-	await db.update(routineReviews).set({ status: "completed" }).where(eq(routineReviews.id, reviewId))
+	// Atomisk: archive-guard + activity-complete + status UPDATE i samme tx
+	// med FOR SHARE-lås på foreldre-rutinen så samtidig archiveRoutine()
+	// blokkeres til vår tx er ferdig. Audit + compliance-sync hopper over
+	// hvis status-UPDATE matchet 0 rader (samtidig completion-race).
+	const statusChanged = await db.transaction(async (tx) => {
+		const [archiveStatus] = await tx
+			.select({ archivedAt: routines.archivedAt })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, reviewId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (archiveStatus?.archivedAt) {
+			throw new Response("Kan ikke fullføre gjennomganger på en arkivert rutine. Reaktiver rutinen først.", {
+				status: 403,
+			})
+		}
 
-	await writeAuditLog({
-		action: "routine_review_completed",
-		entityType: "routine_review",
-		entityId: reviewId,
-		newValue: "completed",
-		performedBy,
+		// Aktivitet fullføres innenfor tx slik at den rolles back hvis
+		// status-UPDATE feiler eller archive-guarden kaster.
+		if (activity && activity.status === "pending") {
+			await completeReviewActivity(activity.id, snapshotAfter, performedBy, tx)
+		}
+
+		const updated = await tx
+			.update(routineReviews)
+			.set({ status: "completed" })
+			.where(and(eq(routineReviews.id, reviewId), ne(routineReviews.status, "completed")))
+			.returning({ id: routineReviews.id })
+
+		// Status endret seg mellom pre-check og UPDATE (samtidig completeReview)
+		// → hopp over audit; en annen request har allerede skrevet completion.
+		if (updated.length === 0) return false
+
+		await writeAuditLog(
+			{
+				action: "routine_review_completed",
+				entityType: "routine_review",
+				entityId: reviewId,
+				newValue: "completed",
+				performedBy,
+			},
+			tx,
+		)
+		return true
 	})
 
-	// Sync materialized compliance controls for the app after routine completion
-	if (existing.applicationId) {
+	// Sync materialiserte compliance-kontroller — utenfor tx fordi det er
+	// en stor batch-operasjon. Kjør kun hvis vi faktisk fullførte review-en.
+	if (statusChanged && existing.applicationId) {
 		const { syncApplicationControls } = await import("./application-controls.server")
 		await syncApplicationControls(existing.applicationId, performedBy)
 	}
@@ -703,62 +857,176 @@ export async function discardReview(reviewId: string, performedBy: string) {
 	if (!existing) return null
 	if (existing.status !== "draft") return null
 
-	await db.update(routineReviews).set({ status: "discarded" }).where(eq(routineReviews.id, reviewId))
+	// Atomisk: kjøres i transaksjon med FOR SHARE på foreldre-rutinen (blokkerer
+	// samtidig archiveRoutine) og atomisk UPDATE...WHERE status='draft' RETURNING
+	// som re-validerer review-status inne i tx (lukker TOCTOU mot completeReview
+	// e.l.). Pre-check utenfor tx beholdes så ikke-draft-reviews fortsatt
+	// returnerer null (bevarer kallerens kontrakt) i stedet for å kaste 403.
+	return db.transaction(async (tx) => {
+		const [archiveStatus] = await tx
+			.select({ archivedAt: routines.archivedAt })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, reviewId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (archiveStatus?.archivedAt) {
+			throw new Response("Kan ikke kassere gjennomganger på en arkivert rutine. Reaktiver rutinen først.", {
+				status: 403,
+			})
+		}
 
-	await writeAuditLog({
-		action: "routine_review_discarded",
-		entityType: "routine_review",
-		entityId: reviewId,
-		previousValue: existing.title,
-		metadata: {
-			routineId: existing.routineId,
-			applicationId: existing.applicationId,
-		},
-		performedBy,
+		const updated = await tx
+			.update(routineReviews)
+			.set({ status: "discarded" })
+			.where(and(eq(routineReviews.id, reviewId), eq(routineReviews.status, "draft")))
+			.returning({ id: routineReviews.id })
+
+		// Status endret seg mellom pre-check og UPDATE (f.eks. samtidig
+		// completeReview) → respekter kontrakten og returner null.
+		if (updated.length === 0) return null
+
+		await writeAuditLog(
+			{
+				action: "routine_review_discarded",
+				entityType: "routine_review",
+				entityId: reviewId,
+				previousValue: existing.title,
+				metadata: {
+					routineId: existing.routineId,
+					applicationId: existing.applicationId,
+				},
+				performedBy,
+			},
+			tx,
+		)
+
+		return { ...existing, status: "discarded" as const }
 	})
+}
 
-	return { ...existing, status: "discarded" as const }
+/**
+ * Lettvekts-helper som henter `archivedAt` (og routineId) for foreldre-rutinen
+ * til en gjennomgang via én enkelt JOIN-spørring. Brukes av soft-delete-guards
+ * i actions/loaders/queries der vi kun trenger å sjekke arkivert-status, og
+ * der full `getReview()`/`getRoutine()` (med subqueries på participants,
+ * attachments, kontroller, teknologielementer osv.) ville vært unødvendig
+ * tungt per request.
+ *
+ * Returnerer `null` hvis gjennomgangen ikke finnes.
+ */
+export async function getRoutineArchivedStatusByReviewId(
+	reviewId: string,
+): Promise<{ routineId: string; archivedAt: Date | null } | null> {
+	const [row] = await db
+		.select({
+			routineId: routines.id,
+			archivedAt: routines.archivedAt,
+		})
+		.from(routineReviews)
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+		.where(eq(routineReviews.id, reviewId))
+		.limit(1)
+	return row ?? null
 }
 
 // ─── Review Links ────────────────────────────────────────────────────────
 
 export async function addReviewLink(params: { reviewId: string; url: string; title: string | null; addedBy: string }) {
-	const [link] = await db
-		.insert(routineReviewLinks)
-		.values({
-			reviewId: params.reviewId,
-			url: params.url,
-			title: params.title,
-			addedBy: params.addedBy,
-		})
-		.returning()
+	// Atomisk: archive-guard + INSERT i tx med FOR SHARE-lås på foreldre-
+	// rutinen så samtidig archiveRoutine() blokkeres til vår tx er ferdig
+	// (lukker TOCTOU mellom action-level archived-guard og INSERT).
+	return db.transaction(async (tx) => {
+		const [archiveStatus] = await tx
+			.select({ archivedAt: routines.archivedAt })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, params.reviewId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (!archiveStatus) {
+			throw new Response("Gjennomgang ikke funnet.", { status: 404 })
+		}
+		if (archiveStatus.archivedAt) {
+			throw new Response("Kan ikke legge til lenker på en arkivert rutine. Reaktiver rutinen først.", { status: 403 })
+		}
 
-	await writeAuditLog({
-		action: "review_link_added",
-		entityType: "routine_review",
-		entityId: params.reviewId,
-		newValue: params.url,
-		performedBy: params.addedBy,
+		const [link] = await tx
+			.insert(routineReviewLinks)
+			.values({
+				reviewId: params.reviewId,
+				url: params.url,
+				title: params.title,
+				addedBy: params.addedBy,
+			})
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "review_link_added",
+				entityType: "routine_review",
+				entityId: params.reviewId,
+				newValue: params.url,
+				performedBy: params.addedBy,
+			},
+			tx,
+		)
+
+		return link
 	})
-
-	return link
 }
 
-export async function deleteReviewLink(linkId: string, performedBy: string) {
-	const [link] = await db.select().from(routineReviewLinks).where(eq(routineReviewLinks.id, linkId)).limit(1)
-	if (!link) return null
+/**
+ * Sletter en review-lenke. Tar `expectedReviewId` for å forhindre IDOR
+ * (kun lenker som tilhører den oppgitte gjennomgangen kan slettes via en
+ * gitt rute-kontekst). Avviser også sletting hvis foreldre-rutinen er
+ * arkivert.
+ *
+ * Hele operasjonen kjøres i en transaksjon med `FOR SHARE`-lås på
+ * foreldre-rutinen, slik at en samtidig `archiveRoutine()` blokkeres til
+ * vår transaksjon er ferdig — sjekk og DELETE blir atomisk og lukker
+ * TOCTOU-vinduet mellom archived-sjekk og sletting.
+ */
+export async function deleteReviewLink(linkId: string, expectedReviewId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		// Lås foreldre-rutinen (FOR SHARE) — blokkerer samtidig archive,
+		// men tillater andre lesere. JOIN-spørring henter reviewId, routineId
+		// og archivedAt i ett kall.
+		const [archiveStatus] = await tx
+			.select({
+				reviewId: routineReviewLinks.reviewId,
+				archivedAt: routines.archivedAt,
+			})
+			.from(routineReviewLinks)
+			.innerJoin(routineReviews, eq(routineReviewLinks.reviewId, routineReviews.id))
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviewLinks.id, linkId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (!archiveStatus) return null
+		if (archiveStatus.reviewId !== expectedReviewId) {
+			throw new Response("Lenken tilhører ikke denne gjennomgangen.", { status: 403 })
+		}
+		if (archiveStatus.archivedAt) {
+			throw new Response("Kan ikke slette lenker på en arkivert rutine. Reaktiver rutinen først.", { status: 403 })
+		}
 
-	await db.delete(routineReviewLinks).where(eq(routineReviewLinks.id, linkId))
+		const [link] = await tx.delete(routineReviewLinks).where(eq(routineReviewLinks.id, linkId)).returning()
+		if (!link) return null
 
-	await writeAuditLog({
-		action: "review_link_deleted",
-		entityType: "routine_review",
-		entityId: link.reviewId,
-		newValue: link.url,
-		performedBy,
+		await writeAuditLog(
+			{
+				action: "review_link_deleted",
+				entityType: "routine_review",
+				entityId: link.reviewId,
+				newValue: link.url,
+				performedBy,
+			},
+			tx,
+		)
+
+		return link
 	})
-
-	return link
 }
 
 export async function confirmParticipation(reviewId: string, userIdent: string) {
@@ -938,7 +1206,12 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 	const sectionRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(eq(routines.sectionId, sectionId), inArray(routines.status, ["active", "approved"])))
+		.where(
+			and(
+				eq(routines.sectionId, sectionId),
+				and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+			),
+		)
 
 	const results: RoutineDeadlineInfo[] = []
 
@@ -1000,7 +1273,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			.where(
 				and(
 					sql`${routines.screeningQuestionId} = ${ans.questionId} AND ${routines.screeningChoiceValue} = ${ans.answer}`,
-					inArray(routines.status, ["active", "approved"]),
+					and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
 				),
 			)
 		for (const r of legacyRoutines) matchingRoutineIds.add(r.id)
@@ -1014,7 +1287,12 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		db
 			.select()
 			.from(routines)
-			.where(and(inArray(routines.id, routineIdList), inArray(routines.status, ["active", "approved"]))),
+			.where(
+				and(
+					inArray(routines.id, routineIdList),
+					and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+				),
+			),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -1160,7 +1438,12 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.id, routineIds), inArray(routines.status, ["active", "approved"])))
+		.where(
+			and(
+				inArray(routines.id, routineIds),
+				and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+			),
+		)
 
 	// Filter to routines where at least one persistence link matches the app
 	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number]; matchedLinks: typeof allPersLinks }> = []
@@ -1326,7 +1609,12 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.id, routineIds), inArray(routines.status, ["active", "approved"])))
+		.where(
+			and(
+				inArray(routines.id, routineIds),
+				and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+			),
+		)
 
 	// Filter to routines where at least one classification link matches
 	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number] }> = []
@@ -1468,7 +1756,12 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.id, routineIds), inArray(routines.status, ["active", "approved"])))
+		.where(
+			and(
+				inArray(routines.id, routineIds),
+				and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+			),
+		)
 
 	if (candidateRoutines.length === 0) return []
 
@@ -1586,7 +1879,12 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		db
 			.select()
 			.from(routines)
-			.where(and(inArray(routines.id, uniqueIds), inArray(routines.status, ["active", "approved"]))),
+			.where(
+				and(
+					inArray(routines.id, uniqueIds),
+					and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+				),
+			),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -1694,7 +1992,7 @@ export async function getRoutineDeadlinesForAppBySection(
 			and(
 				inArray(routines.sectionId, sectionIds),
 				eq(routines.appliesToAllInSection, 1),
-				inArray(routines.status, ["active", "approved"]),
+				and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
 			),
 		)
 
@@ -1827,7 +2125,12 @@ export async function getRoutineDeadlinesForAppByRuleset(
 		db
 			.select()
 			.from(routines)
-			.where(and(inArray(routines.id, uniqueIds), inArray(routines.status, ["active", "approved"]))),
+			.where(
+				and(
+					inArray(routines.id, uniqueIds),
+					and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+				),
+			),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -1917,7 +2220,7 @@ export async function getCompletedReviewsForSection(sectionId: string) {
 	const sectionRoutines = await db
 		.select({ id: routines.id })
 		.from(routines)
-		.where(and(eq(routines.sectionId, sectionId), ne(routines.status, "deleted")))
+		.where(and(eq(routines.sectionId, sectionId), isNull(routines.archivedAt)))
 
 	if (sectionRoutines.length === 0) return []
 
@@ -2115,12 +2418,16 @@ export async function recordEntraChange(params: {
 	return change
 }
 
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+
 export async function completeReviewActivity(
 	activityId: string,
 	snapshotAfter: EntraGroupSnapshot | null,
 	performedBy: string,
+	tx?: DbExecutor,
 ) {
-	const [updated] = await db
+	const executor = tx ?? db
+	const [updated] = await executor
 		.update(routineReviewActivities)
 		.set({
 			status: "completed",
@@ -2130,12 +2437,15 @@ export async function completeReviewActivity(
 		.where(eq(routineReviewActivities.id, activityId))
 		.returning()
 
-	await writeAuditLog({
-		action: "review_activity_completed",
-		entityType: "routine_review_activity",
-		entityId: activityId,
-		performedBy,
-	})
+	await writeAuditLog(
+		{
+			action: "review_activity_completed",
+			entityType: "routine_review_activity",
+			entityId: activityId,
+			performedBy,
+		},
+		tx,
+	)
 
 	return updated
 }
@@ -2183,23 +2493,49 @@ export async function approveRoutine(routineId: string, performedBy: string) {
 		throw new Response("Kun aktive rutiner kan godkjennes", { status: 400 })
 	}
 
-	const now = new Date()
-	const [updated] = await db
-		.update(routines)
-		.set({ status: "approved", approvedBy: performedBy, approvedAt: now, updatedBy: performedBy, updatedAt: now })
-		.where(eq(routines.id, routineId))
-		.returning()
+	// Atomisk: archive-guard + UPDATE i tx med FOR SHARE-lås på rutinen så
+	// samtidig archiveRoutine() blokkeres til vår tx er ferdig. UPDATE re-
+	// validerer status='active' og archived_at IS NULL i WHERE-clauselen, så
+	// status-endring mellom pre-check og UPDATE (f.eks. samtidig replaceRoutine
+	// eller manuell statusendring) gir 0 oppdaterte rader → 409 Conflict.
+	return db.transaction(async (tx) => {
+		const [locked] = await tx
+			.select({ archivedAt: routines.archivedAt })
+			.from(routines)
+			.where(eq(routines.id, routineId))
+			.for("share")
+			.limit(1)
+		if (!locked) return null
+		if (locked.archivedAt) {
+			throw new Response("Arkiverte rutiner kan ikke godkjennes. Reaktiver rutinen først.", { status: 403 })
+		}
 
-	await writeAuditLog({
-		action: "routine_approved",
-		entityType: "routine",
-		entityId: routineId,
-		newValue: "approved",
-		metadata: { routineName: routine.name, approvedBy: performedBy },
-		performedBy,
+		const now = new Date()
+		const [updated] = await tx
+			.update(routines)
+			.set({ status: "approved", approvedBy: performedBy, approvedAt: now, updatedBy: performedBy, updatedAt: now })
+			.where(and(eq(routines.id, routineId), eq(routines.status, "active"), isNull(routines.archivedAt)))
+			.returning()
+		if (!updated) {
+			throw new Response("Rutinen kan ikke godkjennes lenger (status eller archived_at endret seg).", {
+				status: 409,
+			})
+		}
+
+		await writeAuditLog(
+			{
+				action: "routine_approved",
+				entityType: "routine",
+				entityId: routineId,
+				newValue: "approved",
+				metadata: { routineName: routine.name, approvedBy: performedBy },
+				performedBy,
+			},
+			tx,
+		)
+
+		return updated
 	})
-
-	return updated
 }
 
 /**
@@ -2210,78 +2546,91 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 	const source = await getRoutine(routineId)
 	if (!source) return null
 
-	const [copy] = await db
-		.insert(routines)
-		.values({
-			sectionId: source.sectionId,
-			name: `${source.name} (kopi)`,
-			description: source.description,
-			frequency: source.frequency,
-			responsibleRole: source.responsibleRole,
-			appliesToAllInSection: source.appliesToAllInSection,
-			activityType: source.activityType,
-			screeningQuestionId: source.screeningQuestionId,
-			screeningChoiceValue: source.screeningChoiceValue,
-			status: "draft",
-			sourceRoutineId: routineId,
-			createdBy: performedBy,
-			updatedBy: performedBy,
-		})
-		.returning()
+	// Atomisk: archive-guard + INSERTs i tx med FOR SHARE-lås på kilde-rutinen
+	// så samtidig archiveRoutine() blokkeres til vi har kopiert ferdig.
+	return db.transaction(async (tx) => {
+		const [locked] = await tx
+			.select({ archivedAt: routines.archivedAt })
+			.from(routines)
+			.where(eq(routines.id, routineId))
+			.for("share")
+			.limit(1)
+		if (!locked) return null
+		if (locked.archivedAt) {
+			throw new Response("Arkiverte rutiner kan ikke kopieres. Reaktiver rutinen først.", { status: 403 })
+		}
 
-	// Copy technology element links
-	if (source.technologyElements.length > 0) {
-		await db
-			.insert(routineTechnologyElements)
-			.values(source.technologyElements.map((el) => ({ routineId: copy.id, elementId: el.id })))
-	}
+		const [copy] = await tx
+			.insert(routines)
+			.values({
+				sectionId: source.sectionId,
+				name: `${source.name} (kopi)`,
+				description: source.description,
+				frequency: source.frequency,
+				responsibleRole: source.responsibleRole,
+				appliesToAllInSection: source.appliesToAllInSection,
+				activityType: source.activityType,
+				screeningQuestionId: source.screeningQuestionId,
+				screeningChoiceValue: source.screeningChoiceValue,
+				status: "draft",
+				sourceRoutineId: routineId,
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
+			.returning()
 
-	// Copy control links
-	if (source.controls.length > 0) {
-		await db.insert(routineControls).values(source.controls.map((c) => ({ routineId: copy.id, controlId: c.id })))
-	}
+		if (source.technologyElements.length > 0) {
+			await tx
+				.insert(routineTechnologyElements)
+				.values(source.technologyElements.map((el) => ({ routineId: copy.id, elementId: el.id })))
+		}
 
-	// Copy persistence links
-	if (source.persistenceLinks.length > 0) {
-		await db.insert(routinePersistenceLinks).values(
-			source.persistenceLinks.map((pl) => ({
-				routineId: copy.id,
-				persistenceType: pl.persistenceType,
-				dataClassification: pl.dataClassification,
-			})),
+		if (source.controls.length > 0) {
+			await tx.insert(routineControls).values(source.controls.map((c) => ({ routineId: copy.id, controlId: c.id })))
+		}
+
+		if (source.persistenceLinks.length > 0) {
+			await tx.insert(routinePersistenceLinks).values(
+				source.persistenceLinks.map((pl) => ({
+					routineId: copy.id,
+					persistenceType: pl.persistenceType,
+					dataClassification: pl.dataClassification,
+				})),
+			)
+		}
+
+		if (source.groupClassifications.length > 0) {
+			await tx.insert(routineGroupClassificationLinks).values(
+				source.groupClassifications.map((gc) => ({
+					routineId: copy.id,
+					classification: gc.classification as GroupAccessClassification,
+				})),
+			)
+		}
+
+		if (source.screeningQuestions.length > 0) {
+			await tx.insert(routineScreeningQuestions).values(
+				source.screeningQuestions.map((sq) => ({
+					routineId: copy.id,
+					questionId: sq.questionId,
+					choiceValue: sq.choiceValue,
+				})),
+			)
+		}
+
+		await writeAuditLog(
+			{
+				action: "routine_copied",
+				entityType: "routine",
+				entityId: copy.id,
+				metadata: { sourceRoutineId: routineId, sourceName: source.name },
+				performedBy,
+			},
+			tx,
 		)
-	}
 
-	// Copy group classification links
-	if (source.groupClassifications.length > 0) {
-		await db.insert(routineGroupClassificationLinks).values(
-			source.groupClassifications.map((gc) => ({
-				routineId: copy.id,
-				classification: gc.classification as GroupAccessClassification,
-			})),
-		)
-	}
-
-	// Copy screening question links
-	if (source.screeningQuestions.length > 0) {
-		await db.insert(routineScreeningQuestions).values(
-			source.screeningQuestions.map((sq) => ({
-				routineId: copy.id,
-				questionId: sq.questionId,
-				choiceValue: sq.choiceValue,
-			})),
-		)
-	}
-
-	await writeAuditLog({
-		action: "routine_copied",
-		entityType: "routine",
-		entityId: copy.id,
-		metadata: { sourceRoutineId: routineId, sourceName: source.name },
-		performedBy,
+		return copy
 	})
-
-	return copy
 }
 
 /**

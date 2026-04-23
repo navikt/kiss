@@ -65,7 +65,7 @@ export const rulesetRoutines = pgTable("ruleset_routines", {
 		.references(() => rulesets.id, { onDelete: "cascade" }),
 	routineId: uuid("routine_id")
 		.notNull()
-		.references(() => routinesRef.id, { onDelete: "cascade" }),
+		.references(() => routinesRef.id, { onDelete: "restrict" }),
 	createdBy: text("created_by").notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })

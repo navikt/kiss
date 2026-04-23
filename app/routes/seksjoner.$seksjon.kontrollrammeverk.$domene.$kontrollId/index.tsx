@@ -85,7 +85,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	// Fetch routines linked to this control for this section
 	const { db } = await import("~/db/connection.server")
 	const { routines, routineControls } = await import("~/db/schema/routines")
-	const { eq, and, inArray } = await import("drizzle-orm")
+	const { eq, and, inArray, isNull } = await import("drizzle-orm")
 
 	const sectionRoutines = await db
 		.select({
@@ -102,6 +102,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				eq(routines.sectionId, section.id),
 				eq(routineControls.controlId, control.uuid),
 				inArray(routines.status, ["draft", "active", "approved"]),
+				isNull(routines.archivedAt),
 			),
 		)
 

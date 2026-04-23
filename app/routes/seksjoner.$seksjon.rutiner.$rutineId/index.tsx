@@ -1,4 +1,16 @@
-import { BodyShort, Box, Button, Detail, Heading, HStack, Label, Table, Tag, VStack } from "@navikt/ds-react"
+import {
+	BodyShort,
+	Box,
+	Button,
+	Detail,
+	Heading,
+	HStack,
+	Label,
+	LocalAlert,
+	Table,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useFetcher, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -121,6 +133,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const formData = await request.formData()
 	const intent = formData.get("intent")
 
+	// Arkiverte rutiner kan ikke godkjennes eller kopieres — reaktiver først.
+	if (routine.archivedAt && (intent === "approve" || intent === "copy")) {
+		throw data({ message: "Arkiverte rutiner kan ikke endres. Reaktiver rutinen først." }, { status: 403 })
+	}
+
 	if (intent === "approve") {
 		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
 		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
@@ -177,19 +194,25 @@ export default function RutineDetaljer() {
 								Godkjent
 							</Tag>
 						)}
-						{routine.status === "archived" && (
+						{routine.archivedAt ? (
 							<Tag variant="neutral" size="small">
 								Arkivert
 							</Tag>
+						) : (
+							routine.status === "archived" && (
+								<Tag variant="neutral" size="small">
+									Arkivert
+								</Tag>
+							)
 						)}
 					</HStack>
 					<HStack gap="space-2">
-						{routine.status !== "approved" && (
+						{(routine.status !== "approved" || routine.archivedAt) && (
 							<Button as={Link} to="./rediger" variant="secondary" size="small">
 								Rediger
 							</Button>
 						)}
-						{routine.status === "approved" && userCanAdmin && (
+						{!routine.archivedAt && routine.status === "approved" && userCanAdmin && (
 							<fetcher.Form method="post">
 								<input type="hidden" name="intent" value="copy" />
 								<Button type="submit" variant="secondary" size="small" loading={fetcher.state !== "idle"}>
@@ -197,7 +220,7 @@ export default function RutineDetaljer() {
 								</Button>
 							</fetcher.Form>
 						)}
-						{routine.status === "active" && userCanApprove && (
+						{!routine.archivedAt && routine.status === "active" && userCanApprove && (
 							<fetcher.Form method="post">
 								<input type="hidden" name="intent" value="approve" />
 								<Button type="submit" variant="primary" size="small" loading={fetcher.state !== "idle"}>
@@ -205,13 +228,27 @@ export default function RutineDetaljer() {
 								</Button>
 							</fetcher.Form>
 						)}
-						{(routine.status === "active" || routine.status === "approved") && (
+						{!routine.archivedAt && (routine.status === "active" || routine.status === "approved") && (
 							<Button as={Link} to="./gjennomgang/ny" variant="primary" size="small">
 								Ny gjennomgang
 							</Button>
 						)}
 					</HStack>
 				</HStack>
+				{routine.archivedAt && (
+					<LocalAlert status="warning">
+						<LocalAlert.Header>
+							<LocalAlert.Title>Rutinen er arkivert</LocalAlert.Title>
+						</LocalAlert.Header>
+						<LocalAlert.Content>
+							<BodyShort size="small">
+								Arkivert {new Date(routine.archivedAt).toLocaleString("nb-NO")}
+								{routine.archivedBy ? ` av ${routine.archivedBy}` : ""}. Godkjenning, kopiering og nye gjennomganger er
+								deaktivert til rutinen reaktiveres. Bruk «Rediger» for å reaktivere.
+							</BodyShort>
+						</LocalAlert.Content>
+					</LocalAlert>
+				)}
 				{routine.status === "active" && !userCanApprove && (
 					<BodyShort size="small" textColor="subtle">
 						Godkjenning krever rollen{" "}

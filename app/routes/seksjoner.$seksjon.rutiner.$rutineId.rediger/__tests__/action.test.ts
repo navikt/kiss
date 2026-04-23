@@ -18,13 +18,15 @@ vi.mock("~/lib/authorization.server", () => ({
 
 const mockGetRoutine = vi.fn()
 const mockUpdateRoutine = vi.fn()
-const mockDeleteRoutine = vi.fn()
+const mockArchiveRoutine = vi.fn()
+const mockUnarchiveRoutine = vi.fn()
 const mockApproveRoutine = vi.fn()
 const mockReplaceRoutine = vi.fn()
 vi.mock("~/db/queries/routines.server", () => ({
 	getRoutine: mockGetRoutine,
 	updateRoutine: mockUpdateRoutine,
-	deleteRoutine: mockDeleteRoutine,
+	archiveRoutine: mockArchiveRoutine,
+	unarchiveRoutine: mockUnarchiveRoutine,
 	approveRoutine: mockApproveRoutine,
 	replaceRoutine: mockReplaceRoutine,
 }))
@@ -175,7 +177,7 @@ describe("routine edit guards", () => {
 
 		await expect(callAction(fd)).rejects.toMatchObject({ status: 404 })
 		expect(mockUpdateRoutine).not.toHaveBeenCalled()
-		expect(mockDeleteRoutine).not.toHaveBeenCalled()
+		expect(mockArchiveRoutine).not.toHaveBeenCalled()
 	})
 
 	it("allows editing a draft routine", async () => {
@@ -335,21 +337,21 @@ describe("non-admin user access", () => {
 		fd.set("intent", "delete")
 
 		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
-		expect(mockDeleteRoutine).not.toHaveBeenCalled()
+		expect(mockArchiveRoutine).not.toHaveBeenCalled()
 	})
 })
 
 describe("delete intent restrictions", () => {
 	it("allows admin to delete a draft routine", async () => {
 		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft" }))
-		mockDeleteRoutine.mockResolvedValue(undefined)
+		mockArchiveRoutine.mockResolvedValue(undefined)
 
 		const fd = new FormData()
 		fd.set("intent", "delete")
 
 		const response = await callAction(fd)
 		expect(response.status).toBe(302)
-		expect(mockDeleteRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
 	})
 
 	it("rejects deletion of active routine", async () => {
@@ -359,6 +361,99 @@ describe("delete intent restrictions", () => {
 		fd.set("intent", "delete")
 
 		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
-		expect(mockDeleteRoutine).not.toHaveBeenCalled()
+		expect(mockArchiveRoutine).not.toHaveBeenCalled()
+	})
+})
+
+describe("archive/unarchive intent", () => {
+	it("admin can unarchive a routine with archivedAt set", async () => {
+		mockGetRoutine.mockResolvedValue(
+			makeRoutine({ status: "draft", archivedAt: new Date("2026-01-01"), archivedBy: "old-admin" }),
+		)
+		mockUnarchiveRoutine.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "unarchive")
+
+		const response = await callAction(fd)
+		expect(response.status).toBe(302)
+		expect(mockUnarchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+	})
+
+	it("admin can unarchive a legacy soft-deleted routine (status='deleted' + archivedAt)", async () => {
+		mockGetRoutine.mockResolvedValue(
+			makeRoutine({ status: "deleted", archivedAt: new Date("2025-06-01"), archivedBy: "legacy-admin" }),
+		)
+		mockUnarchiveRoutine.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "unarchive")
+
+		// Må fungere selv om status='deleted' (utenfor EDITABLE_STATUSES) — unarchive
+		// håndteres før status-guarden.
+		const response = await callAction(fd)
+		expect(response.status).toBe(302)
+		expect(mockUnarchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+	})
+
+	it("rejects unarchive on a routine that is not archived with 409", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active", archivedAt: null }))
+
+		const fd = new FormData()
+		fd.set("intent", "unarchive")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 409 })
+		expect(mockUnarchiveRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects non-admin from unarchiving", async () => {
+		mockGetAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
+		mockRequireUser.mockReturnValue(fakeNonAdminUser)
+		mockRequireAdmin.mockImplementation(() => {
+			throw new Response("forbidden", { status: 403 })
+		})
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft", archivedAt: new Date() }))
+
+		const fd = new FormData()
+		fd.set("intent", "unarchive")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockUnarchiveRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects update intent on an archived routine with 403 (archivedAt guard)", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft", archivedAt: new Date() }))
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "Try edit")
+		fd.set("frequency", "annually")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockUpdateRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects delete intent on an archived routine with 403 (archivedAt guard)", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft", archivedAt: new Date() }))
+
+		const fd = new FormData()
+		fd.set("intent", "delete")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockArchiveRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects approve-replace intent on an archived routine with 403 (archivedAt guard)", async () => {
+		mockGetRoutine.mockResolvedValue(
+			makeRoutine({ status: "draft", archivedAt: new Date(), sourceRoutineId: "old-routine" }),
+		)
+		mockCanApproveRoutine.mockReturnValue(true)
+
+		const fd = new FormData()
+		fd.set("intent", "approve-replace")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockApproveRoutine).not.toHaveBeenCalled()
+		expect(mockReplaceRoutine).not.toHaveBeenCalled()
 	})
 })

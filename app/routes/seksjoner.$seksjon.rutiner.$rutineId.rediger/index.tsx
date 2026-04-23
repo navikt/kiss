@@ -22,7 +22,14 @@ import { data, Form, redirect, useLoaderData } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
-import { approveRoutine, deleteRoutine, getRoutine, replaceRoutine, updateRoutine } from "~/db/queries/routines.server"
+import {
+	approveRoutine,
+	archiveRoutine,
+	getRoutine,
+	replaceRoutine,
+	unarchiveRoutine,
+	updateRoutine,
+} from "~/db/queries/routines.server"
 import {
 	getChoicesForQuestion,
 	getScreeningQuestions,
@@ -137,13 +144,29 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (!existingRoutine) throw new Response("Rutine ikke funnet", { status: 404 })
 	if (existingRoutine.sectionId !== section.id) throw new Response("Rutine ikke funnet", { status: 404 })
 
+	const formData = await request.formData()
+	const intent = formData.get("intent") as string
+
+	// Unarchive må håndteres før status-guarden, ellers blir backfillede rader
+	// (status='deleted' + archivedAt) blokkert fra reaktivering.
+	if (intent === "unarchive") {
+		requireAdmin(authedUser)
+		if (!existingRoutine.archivedAt) {
+			throw new Response("Rutinen er ikke arkivert.", { status: 409 })
+		}
+		await unarchiveRoutine(rutineId, authedUser.navIdent)
+		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}/rediger`)
+	}
+
+	// Arkiverte rutiner kan ikke redigeres eller slettes på nytt — bare reaktiveres.
+	if (existingRoutine.archivedAt) {
+		throw new Response("Arkiverte rutiner kan ikke endres. Reaktiver rutinen først.", { status: 403 })
+	}
+
 	// Only draft and active routines can be edited (allowlist to guard against unknown statuses)
 	if (!EDITABLE_STATUSES.includes(existingRoutine.status as RoutineStatus)) {
 		throw new Response(`Rutiner med status «${existingRoutine.status}» kan ikke redigeres.`, { status: 403 })
 	}
-
-	const formData = await request.formData()
-	const intent = formData.get("intent") as string
 
 	if (intent === "update") {
 		const name = (formData.get("name") as string)?.trim()
@@ -229,7 +252,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (existingRoutine.status !== "draft") {
 			throw new Response("Kun draft-rutiner kan slettes.", { status: 403 })
 		}
-		await deleteRoutine(rutineId, authedUser.navIdent)
+		await archiveRoutine(rutineId, authedUser.navIdent)
 		return redirect(`/seksjoner/${seksjon}/rutiner`)
 	}
 
@@ -419,6 +442,41 @@ export default function RedigerRutine() {
 
 	const updatePersistenceLink = (index: number, field: "persistenceType" | "dataClassification", value: string) => {
 		setPersistenceLinks((prev) => prev.map((link, i) => (i !== index ? link : { ...link, [field]: value })))
+	}
+
+	// Når rutinen er arkivert (soft-deleted) er hele skjemaet read-only.
+	// Action-laget avviser uansett alle mutasjoner med 403 (unntatt
+	// `unarchive`), så vi short-circuit-er UI-en til å kun vise banneret
+	// + Reaktiver-knappen for å unngå forvirrende submit-feil.
+	if (routine.archivedAt) {
+		return (
+			<VStack gap="space-8">
+				<Heading size="xlarge" level="2" spacing>
+					Rediger rutine: {routine.name}
+				</Heading>
+
+				<LocalAlert status="warning">
+					<LocalAlert.Header>
+						<LocalAlert.Title>Rutinen er arkivert</LocalAlert.Title>
+					</LocalAlert.Header>
+					<LocalAlert.Content>
+						<VStack gap="space-8">
+							<BodyShort size="small">
+								Arkivert {new Date(routine.archivedAt).toLocaleString("nb-NO")}
+								{routine.archivedBy ? ` av ${routine.archivedBy}` : ""}. Den er skjult fra oversikter, men all
+								konfigurasjon, gjennomganger og audit-logg er bevart. Reaktiver rutinen for å redigere den.
+							</BodyShort>
+							<Form method="post">
+								<input type="hidden" name="intent" value="unarchive" />
+								<Button variant="secondary" size="small" type="submit">
+									Reaktiver rutine
+								</Button>
+							</Form>
+						</VStack>
+					</LocalAlert.Content>
+				</LocalAlert>
+			</VStack>
+		)
 	}
 
 	return (

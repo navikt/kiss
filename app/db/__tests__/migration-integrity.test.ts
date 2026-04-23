@@ -356,4 +356,119 @@ describe("Drizzle migration integrity", () => {
 
 		expect(gaps, `Gaps in SQL file numbering:\n${gaps.join("\n")}`).toEqual([])
 	})
+
+	// ─── 7. FK-constraint-rename coverage ─────────────────────────────────
+	//
+	// Når en migrasjon endrer ON DELETE-policy på en FK ved å
+	// DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT, må DROP-en treffe det
+	// faktiske constraint-navnet i Postgres. Tabeller opprettet med inline
+	// REFERENCES (uten eksplisitt CONSTRAINT-navn) får default-navnet
+	// `<tabell>_<kolonne>_fkey`, mens Drizzle-genererte navn er
+	// `<tabell>_<kolonne>_<ref-tabell>_<ref-kol>_fk`. Hvis migrasjonen kun
+	// dropper Drizzle-navnet vil den gamle CASCADE-FK-en overleve som
+	// duplikat ved siden av den nye RESTRICT-FK-en.
+	//
+	// Denne testen finner alle inline-FK-er definert i migrasjons-historien
+	// og verifiserer at hvis en senere migrasjon ADD CONSTRAINT-er den
+	// "Drizzle-navngitte" FK-en på samme (tabell, kolonne), så har den
+	// migrasjonen også DROP IF EXISTS for default-Postgres-navnet.
+
+	it("migrations that re-add FKs also drop legacy inline constraint names", () => {
+		const inlineFks = new Map<string, { table: string; column: string; sourceFile: string }>()
+		const explicitFks = new Map<string, { table: string; column: string; constraintName: string; sourceFile: string }>()
+
+		// Pass 1: katalogisér alle FK-er på child-tabeller mot routines.id (eller andre referansetabeller).
+		// Inline-mønster: `"col" type ... REFERENCES "ref"("col") ...` inni CREATE TABLE.
+		// Eksplisitt: `CONSTRAINT "name" FOREIGN KEY ("col") REFERENCES ...`.
+		for (const file of sqlFiles) {
+			const sql = readFileSync(join(DRIZZLE_DIR, file), "utf-8")
+
+			// CREATE TABLE-blokker for å fange inline-FK med tabellkontekst
+			const createTableRegex = /CREATE TABLE (?:IF NOT EXISTS )?"([^"]+)"\s*\(([\s\S]*?)\n\)/gi
+			for (const m of sql.matchAll(createTableRegex)) {
+				const table = m[1]
+				const body = m[2]
+				// Inline FK uten CONSTRAINT-navn: «"col" type ... REFERENCES "ref"("rcol")»
+				const inlineRegex = /"([a-z_][a-z0-9_]*)"\s+[a-z]+[^,]*?REFERENCES\s+"[^"]+"\("[^"]+"\)/gi
+				for (const im of body.matchAll(inlineRegex)) {
+					const col = im[1]
+					const key = `${table}.${col}`
+					if (!inlineFks.has(key)) {
+						inlineFks.set(key, { table, column: col, sourceFile: file })
+					}
+				}
+				// Eksplisitt CONSTRAINT inni CREATE TABLE
+				const inlineNamedRegex = /CONSTRAINT\s+"([^"]+)"\s+FOREIGN KEY\s*\(\s*"([^"]+)"\s*\)/gi
+				for (const nm of body.matchAll(inlineNamedRegex)) {
+					const name = nm[1]
+					const col = nm[2]
+					const key = `${table}.${col}`
+					if (!explicitFks.has(key)) {
+						explicitFks.set(key, { table, column: col, constraintName: name, sourceFile: file })
+					}
+				}
+			}
+
+			// ALTER TABLE ... ADD CONSTRAINT (utenfor CREATE TABLE)
+			const addConstraintRegex =
+				/ALTER TABLE\s+"([^"]+)"\s+ADD CONSTRAINT\s+"([^"]+)"\s+FOREIGN KEY\s*\(\s*"([^"]+)"\s*\)/gi
+			for (const am of sql.matchAll(addConstraintRegex)) {
+				const table = am[1]
+				const name = am[2]
+				const col = am[3]
+				const key = `${table}.${col}`
+				if (!explicitFks.has(key) && !inlineFks.has(key)) {
+					explicitFks.set(key, { table, column: col, constraintName: name, sourceFile: file })
+				}
+			}
+		}
+
+		// Pass 2: for hver migrasjon som ADD CONSTRAINT-er en FK med Drizzle-navn,
+		// verifiser at vi har DROP IF EXISTS for både legacy default-navn (..._fkey)
+		// og eventuelt eldre eksplisitt navn på (tabell, kolonne).
+		const failures: string[] = []
+		for (const file of sqlFiles) {
+			const sql = readFileSync(join(DRIZZLE_DIR, file), "utf-8")
+			const reAdd = /ALTER TABLE\s+"([^"]+)"\s+ADD CONSTRAINT\s+"([^"]+)"\s+FOREIGN KEY\s*\(\s*"([^"]+)"\s*\)/gi
+			const dropsInFile = new Set<string>()
+			const reDrop = /DROP CONSTRAINT IF EXISTS\s+"([^"]+)"/gi
+			for (const dm of sql.matchAll(reDrop)) {
+				dropsInFile.add(dm[1])
+			}
+			for (const mm of sql.matchAll(reAdd)) {
+				const table = mm[1]
+				const newName = mm[2]
+				const col = mm[3]
+				const key = `${table}.${col}`
+				const inlineSrc = inlineFks.get(key)
+				const explicitSrc = explicitFks.get(key)
+				// Bare relevant hvis denne migrasjonen ER nyere enn en kjent original FK
+				// (samme migrasjon som opprettet inline FK trenger ikke å droppe den).
+				const isReadd =
+					(inlineSrc && inlineSrc.sourceFile !== file) ||
+					(explicitSrc && explicitSrc.sourceFile !== file && explicitSrc.constraintName !== newName)
+				if (!isReadd) continue
+
+				// Sjekk at default-Postgres-navnet droppes hvis det fantes en inline-FK
+				if (inlineSrc) {
+					const legacy = `${table}_${col}_fkey`
+					if (!dropsInFile.has(legacy)) {
+						failures.push(
+							`${file}: ADD CONSTRAINT "${newName}" på (${table}.${col}) mangler DROP CONSTRAINT IF EXISTS "${legacy}" — tabellen ble opprettet inline i ${inlineSrc.sourceFile} og har sannsynligvis Postgres-default-navnet.`,
+						)
+					}
+				}
+				// Sjekk at eldre eksplisitt navn droppes hvis det er forskjellig fra det nye
+				if (explicitSrc && explicitSrc.constraintName !== newName) {
+					if (!dropsInFile.has(explicitSrc.constraintName)) {
+						failures.push(
+							`${file}: ADD CONSTRAINT "${newName}" på (${table}.${col}) mangler DROP CONSTRAINT IF EXISTS "${explicitSrc.constraintName}" — eldre navn fra ${explicitSrc.sourceFile}.`,
+						)
+					}
+				}
+			}
+		}
+
+		expect(failures, failures.join("\n")).toEqual([])
+	})
 })

@@ -28,6 +28,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		throw data({ message: `Fant ikke rutine: ${rutineId}` }, { status: 404 })
 	}
 
+	if (routine.archivedAt) {
+		throw data(
+			{ message: "Kan ikke opprette gjennomgang for en arkivert rutine. Reaktiver rutinen først." },
+			{ status: 403 },
+		)
+	}
+
 	if (routine.status !== "active") {
 		throw data({ message: "Kun aktive rutiner kan ha nye gjennomganger" }, { status: 400 })
 	}
