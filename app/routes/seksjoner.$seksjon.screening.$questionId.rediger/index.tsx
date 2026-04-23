@@ -5,10 +5,10 @@ import { getAllControls } from "~/db/queries/framework.server"
 import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import {
 	addChoiceEffect,
+	archiveChoice,
+	archiveChoiceEffect,
 	createChoice,
 	createScreeningQuestion,
-	deleteChoice,
-	deleteChoiceEffect,
 	getChoiceEffects,
 	getChoicesForQuestion,
 	getQuestionTechnologyElements,
@@ -220,7 +220,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "deleteChoice") {
 		const choiceId = formData.get("choiceId") as string
 		if (!choiceId) throw new Response("Mangler ID", { status: 400 })
-		await deleteChoice(choiceId)
+		await archiveChoice(choiceId, authedUser.navIdent)
 	}
 
 	if (intent === "addEffect") {
@@ -240,7 +240,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "deleteEffect") {
 		const effectId = formData.get("effectId") as string
 		if (!effectId) throw new Response("Mangler effect-ID", { status: 400 })
-		await deleteChoiceEffect(effectId)
+		await archiveChoiceEffect(effectId, authedUser.navIdent)
 	}
 
 	return data({ success: true })

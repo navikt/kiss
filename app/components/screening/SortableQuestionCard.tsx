@@ -1,8 +1,8 @@
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { DragVerticalIcon, PencilIcon, TrashIcon } from "@navikt/aksel-icons"
+import { ArrowsCirclepathIcon, DragVerticalIcon, PencilIcon, TrashIcon } from "@navikt/aksel-icons"
 import { BodyShort, Box, Button, Heading, HStack, ReadMore, Table, Tag, VStack } from "@navikt/ds-react"
-import { Link } from "react-router"
+import { Form, Link } from "react-router"
 import { getStatusLabel } from "~/lib/compliance-status"
 
 export type ChoiceEffect = {
@@ -28,6 +28,7 @@ export type QuestionItem = {
 	answerType: string
 	descriptionHtml: string | null
 	choices: QuestionChoice[]
+	archivedAt?: Date | string | null
 }
 
 export function SortableQuestionCard({
@@ -42,11 +43,12 @@ export function SortableQuestionCard({
 	onDelete: () => void
 }) {
 	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: q.id })
+	const isArchived = !!q.archivedAt
 
 	const style = {
 		transform: CSS.Transform.toString(transform),
 		transition,
-		opacity: isDragging ? 0.5 : 1,
+		opacity: isDragging ? 0.5 : isArchived ? 0.6 : 1,
 	}
 
 	return (
@@ -85,20 +87,42 @@ export function SortableQuestionCard({
 						<Heading size="small" level="3">
 							{q.questionText}
 						</Heading>
+						{isArchived && (
+							<Tag variant="warning" size="small">
+								Arkivert
+							</Tag>
+						)}
 					</HStack>
 					<HStack gap="space-2">
-						<Button
-							as={Link}
-							to={`${editPath}/${q.id}/rediger`}
-							size="xsmall"
-							variant="tertiary-neutral"
-							icon={<PencilIcon aria-hidden />}
-						>
-							Rediger
-						</Button>
-						<Button size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />} onClick={onDelete}>
-							Slett
-						</Button>
+						{!isArchived && (
+							<Button
+								as={Link}
+								to={`${editPath}/${q.id}/rediger`}
+								size="xsmall"
+								variant="tertiary-neutral"
+								icon={<PencilIcon aria-hidden />}
+							>
+								Rediger
+							</Button>
+						)}
+						{isArchived ? (
+							<Form method="post">
+								<input type="hidden" name="intent" value="unarchiveQuestion" />
+								<input type="hidden" name="questionId" value={q.id} />
+								<Button
+									type="submit"
+									size="xsmall"
+									variant="tertiary-neutral"
+									icon={<ArrowsCirclepathIcon aria-hidden />}
+								>
+									Reaktiver
+								</Button>
+							</Form>
+						) : (
+							<Button size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />} onClick={onDelete}>
+								Arkiver
+							</Button>
+						)}
 					</HStack>
 				</HStack>
 

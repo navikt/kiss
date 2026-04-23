@@ -9,11 +9,12 @@ import { data, Form, Link, useFetcher, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { SortableQuestionCard } from "~/components/screening/SortableQuestionCard"
 import {
-	deleteScreeningQuestion,
+	archiveScreeningQuestion,
 	getChoiceEffects,
 	getChoicesForQuestion,
 	getSectionScreeningQuestions,
 	reorderScreeningQuestions,
+	unarchiveScreeningQuestion,
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
@@ -31,7 +32,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
 
-	const questions = await getSectionScreeningQuestions(section.id)
+	const questions = await getSectionScreeningQuestions(section.id, { includeArchived: true })
 
 	const questionsWithEffects = await Promise.all(
 		questions.map(async (q) => {
@@ -63,10 +64,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
 
-	if (intent === "deleteQuestion") {
+	if (intent === "archiveQuestion") {
 		const questionId = formData.get("questionId") as string
 		if (!questionId) throw new Response("Mangler ID", { status: 400 })
-		await deleteScreeningQuestion(questionId, authedUser.navIdent)
+		await archiveScreeningQuestion(questionId, authedUser.navIdent)
+	} else if (intent === "unarchiveQuestion") {
+		const questionId = formData.get("questionId") as string
+		if (!questionId) throw new Response("Mangler ID", { status: 400 })
+		await unarchiveScreeningQuestion(questionId, authedUser.navIdent)
 	} else if (intent === "reorder") {
 		const orderedIds = JSON.parse(formData.get("orderedIds") as string) as string[]
 		if (!Array.isArray(orderedIds)) throw new Response("Ugyldig data", { status: 400 })
@@ -193,22 +198,23 @@ export default function SectionScreening() {
 				</DndContext>
 			)}
 
-			<Modal ref={deleteModalRef} header={{ heading: "Slett spørsmål" }} onClose={() => setDeleteTarget(null)}>
+			<Modal ref={deleteModalRef} header={{ heading: "Arkiver spørsmål" }} onClose={() => setDeleteTarget(null)}>
 				<Modal.Body>
 					<BodyLong>
-						Er du sikker på at du vil slette spørsmålet «{deleteTarget?.text}»? Dette kan ikke angres.
+						Er du sikker på at du vil arkivere spørsmålet «{deleteTarget?.text}»? Spørsmålet vil ikke lenger vises i
+						compliance-vurderingen, men kan reaktiveres senere. Eksisterende svar bevares.
 					</BodyLong>
 				</Modal.Body>
 				<Modal.Footer>
 					<Form method="post" onSubmit={() => deleteModalRef.current?.close()}>
-						<input type="hidden" name="intent" value="deleteQuestion" />
+						<input type="hidden" name="intent" value="archiveQuestion" />
 						<input type="hidden" name="questionId" value={deleteTarget?.id ?? ""} />
 						<HStack gap="space-4">
 							<Button type="button" size="small" variant="secondary" onClick={() => deleteModalRef.current?.close()}>
 								Avbryt
 							</Button>
 							<Button type="submit" size="small" variant="danger">
-								Slett spørsmål
+								Arkiver spørsmål
 							</Button>
 						</HStack>
 					</Form>

@@ -97,6 +97,12 @@ export const auditLogActionEnum = [
 	"screening_question_created",
 	"screening_question_updated",
 	"screening_question_deleted",
+	"screening_question_archived",
+	"screening_question_unarchived",
+	"screening_choice_archived",
+	"screening_choice_unarchived",
+	"screening_choice_effect_archived",
+	"screening_choice_effect_unarchived",
 	"screening_answer_saved",
 	"screening_routine_selected",
 

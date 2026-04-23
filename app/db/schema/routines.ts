@@ -88,7 +88,7 @@ export const routineScreeningQuestions = pgTable("routine_screening_questions", 
 		.references(() => routines.id, { onDelete: "restrict" }),
 	questionId: uuid("question_id")
 		.notNull()
-		.references(() => screeningQuestions.id, { onDelete: "cascade" }),
+		.references(() => screeningQuestions.id, { onDelete: "restrict" }),
 	choiceValue: text("choice_value"),
 })
 

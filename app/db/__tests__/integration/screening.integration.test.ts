@@ -13,17 +13,20 @@ vi.mock("~/db/connection.server", () => ({
 const {
 	createScreeningQuestion,
 	updateScreeningQuestion,
-	deleteScreeningQuestion,
+	archiveScreeningQuestion,
+	unarchiveScreeningQuestion,
 	reorderScreeningQuestions,
 	getScreeningQuestions,
 	getSectionScreeningQuestions,
 	getChoicesForQuestion,
 	createChoice,
 	updateChoice,
-	deleteChoice,
+	archiveChoice,
+	unarchiveChoice,
 	addChoiceEffect,
 	getChoiceEffects,
-	deleteChoiceEffect,
+	archiveChoiceEffect,
+	unarchiveChoiceEffect,
 	saveScreeningAnswer,
 	getScreeningAnswersForApp,
 	setQuestionTechnologyElements,
@@ -149,19 +152,46 @@ describe("screening.server integration tests", () => {
 			expect(all.map((q) => q.questionText)).toEqual(["C", "A", "B"])
 		})
 
-		it("deletes a question with audit log", async () => {
-			const q = await createScreeningQuestion("ToDelete", null, 0, "admin")
-			await deleteScreeningQuestion(q.id, "admin")
-			const all = await getScreeningQuestions()
-			expect(all.find((x) => x.id === q.id)).toBeUndefined()
+		it("archives a question (soft-delete) with audit log and supports unarchive", async () => {
+			const q = await createScreeningQuestion("ToArchive", null, 0, "admin")
+			await archiveScreeningQuestion(q.id, "admin")
 
-			const audit = await getAuditByAction("screening_question_deleted")
+			// Default lookup hides archived
+			const visible = await getScreeningQuestions()
+			expect(visible.find((x) => x.id === q.id)).toBeUndefined()
+
+			// includeArchived shows them
+			const all = await getScreeningQuestions({ includeArchived: true })
+			const archived = all.find((x) => x.id === q.id)
+			expect(archived).toBeDefined()
+			expect(archived?.archivedAt).not.toBeNull()
+			expect(archived?.archivedBy).toBe("admin")
+
+			const audit = await getAuditByAction("screening_question_archived")
 			expect(audit.find((a) => a.entity_id === q.id)).toBeDefined()
+
+			// Idempotent: archiving twice should not produce a second audit entry
+			await archiveScreeningQuestion(q.id, "admin")
+			const auditAgain = await getAuditByAction("screening_question_archived")
+			expect(auditAgain.filter((a) => a.entity_id === q.id)).toHaveLength(1)
+
+			// Unarchive
+			await unarchiveScreeningQuestion(q.id, "admin")
+			const visibleAfter = await getScreeningQuestions()
+			expect(visibleAfter.find((x) => x.id === q.id)).toBeDefined()
+
+			const unarchiveAudit = await getAuditByAction("screening_question_unarchived")
+			expect(unarchiveAudit.find((a) => a.entity_id === q.id)).toBeDefined()
+		})
+
+		it("returns null when archiving a missing question", async () => {
+			const result = await archiveScreeningQuestion("00000000-0000-0000-0000-000000000000", "admin")
+			expect(result).toBeNull()
 		})
 	})
 
 	describe("Choices CRUD", () => {
-		it("creates, updates and deletes choices", async () => {
+		it("creates, updates and archives choices", async () => {
 			const q = await createScreeningQuestion("Q", null, 0, "admin", null, "single")
 			const choice = await createChoice({ questionId: q.id, label: "Maybe", displayOrder: 0 })
 			expect(choice.label).toBe("Maybe")
@@ -170,9 +200,58 @@ describe("screening.server integration tests", () => {
 			expect(updated.label).toBe("Possibly")
 			expect(updated.requiresComment).toBe(true)
 
-			await deleteChoice(choice.id)
+			await archiveChoice(choice.id, "admin")
 			const remaining = await getChoicesForQuestion(q.id)
 			expect(remaining).toHaveLength(0)
+
+			const all = await getChoicesForQuestion(q.id, { includeArchived: true })
+			expect(all).toHaveLength(1)
+			expect(all[0].archivedAt).not.toBeNull()
+
+			const audit = await getAuditByAction("screening_choice_archived")
+			expect(audit.find((a) => a.entity_id === choice.id)).toBeDefined()
+
+			// Idempotent
+			await archiveChoice(choice.id, "admin")
+			const auditAgain = await getAuditByAction("screening_choice_archived")
+			expect(auditAgain.filter((a) => a.entity_id === choice.id)).toHaveLength(1)
+
+			// Unarchive
+			await unarchiveChoice(choice.id, "admin")
+			const remainingAfter = await getChoicesForQuestion(q.id)
+			expect(remainingAfter).toHaveLength(1)
+		})
+
+		it("cascade-archives child effects when choice is archived (with audit entries)", async () => {
+			const q = await createScreeningQuestion("Q?", null, 0, "admin")
+			const choices = await getChoicesForQuestion(q.id)
+			const ja = choices.find((c) => c.label === "Ja")!
+			await createControl("K-CASCADE.01")
+			const eff = await addChoiceEffect({
+				choiceId: ja.id,
+				controlTextId: "K-CASCADE.01",
+				effect: "implemented",
+				comment: null,
+			})
+
+			// Confirm effect is active before archiving choice
+			expect(await getChoiceEffects(ja.id)).toHaveLength(1)
+
+			await archiveChoice(ja.id, "admin")
+
+			// Choice is archived
+			const archivedChoice = (await getChoicesForQuestion(q.id, { includeArchived: true })).find((c) => c.id === ja.id)
+			expect(archivedChoice?.archivedAt).not.toBeNull()
+
+			// Effect should also be archived
+			expect(await getChoiceEffects(ja.id)).toHaveLength(0)
+			const effectsIncludingArchived = await getChoiceEffects(ja.id, { includeArchived: true })
+			expect(effectsIncludingArchived).toHaveLength(1)
+			expect(effectsIncludingArchived[0].archivedAt).not.toBeNull()
+
+			// Audit entry exists for cascaded effect
+			const effAudit = await getAuditByAction("screening_choice_effect_archived")
+			expect(effAudit.find((a) => a.entity_id === eff.id)).toBeDefined()
 		})
 	})
 
@@ -196,9 +275,21 @@ describe("screening.server integration tests", () => {
 			expect(list).toHaveLength(1)
 			expect(list[0].controlTextId).toBe("K-S.01")
 
-			await deleteChoiceEffect(eff.id)
+			await archiveChoiceEffect(eff.id, "admin")
 			const empty = await getChoiceEffects(ja!.id)
 			expect(empty).toHaveLength(0)
+
+			const all = await getChoiceEffects(ja!.id, { includeArchived: true })
+			expect(all).toHaveLength(1)
+			expect(all[0].archivedAt).not.toBeNull()
+
+			const audit = await getAuditByAction("screening_choice_effect_archived")
+			expect(audit.find((a) => a.entity_id === eff.id)).toBeDefined()
+
+			// Unarchive
+			await unarchiveChoiceEffect(eff.id, "admin")
+			const after = await getChoiceEffects(ja!.id)
+			expect(after).toHaveLength(1)
 		})
 
 		it("throws if control text id does not exist", async () => {

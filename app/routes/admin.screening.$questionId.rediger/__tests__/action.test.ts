@@ -17,18 +17,18 @@ vi.mock("~/lib/authorization.server", () => ({
 const mockCreateScreeningQuestion = vi.fn()
 const mockUpdateScreeningQuestion = vi.fn()
 const mockAddChoiceEffect = vi.fn()
-const mockDeleteChoiceEffect = vi.fn()
+const mockArchiveChoiceEffect = vi.fn()
 const mockCreateChoice = vi.fn()
-const mockDeleteChoice = vi.fn()
+const mockArchiveChoice = vi.fn()
 const mockGetChoicesForQuestion = vi.fn()
 const mockSetQuestionTechnologyElements = vi.fn()
 vi.mock("~/db/queries/screening.server", () => ({
 	createScreeningQuestion: mockCreateScreeningQuestion,
 	updateScreeningQuestion: mockUpdateScreeningQuestion,
 	addChoiceEffect: mockAddChoiceEffect,
-	deleteChoiceEffect: mockDeleteChoiceEffect,
+	archiveChoiceEffect: mockArchiveChoiceEffect,
 	createChoice: mockCreateChoice,
-	deleteChoice: mockDeleteChoice,
+	archiveChoice: mockArchiveChoice,
 	getScreeningQuestion: vi.fn(),
 	getChoicesForQuestion: mockGetChoicesForQuestion,
 	getChoiceEffects: vi.fn().mockResolvedValue([]),
@@ -149,7 +149,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 			expect(mockAddChoiceEffect).not.toHaveBeenCalled()
 		})
 
-		it("rejects delete effect for non-admin", async () => {
+		it("rejects archive effect for non-admin", async () => {
 			const formData = new FormData()
 			formData.set("intent", "deleteEffect")
 			formData.set("effectId", "effect-1")
@@ -162,7 +162,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 				expect((thrown as Response).status).toBe(403)
 			}
 
-			expect(mockDeleteChoiceEffect).not.toHaveBeenCalled()
+			expect(mockArchiveChoiceEffect).not.toHaveBeenCalled()
 		})
 	})
 
@@ -245,14 +245,24 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 			})
 		})
 
-		it("allows delete effect for admin", async () => {
+		it("allows archive effect for admin (passes performedBy)", async () => {
 			const formData = new FormData()
 			formData.set("intent", "deleteEffect")
 			formData.set("effectId", "effect-1")
 
 			await callAction(formData)
 
-			expect(mockDeleteChoiceEffect).toHaveBeenCalledWith("effect-1")
+			expect(mockArchiveChoiceEffect).toHaveBeenCalledWith("effect-1", "Z999999")
+		})
+
+		it("allows archive choice for admin (passes performedBy)", async () => {
+			const formData = new FormData()
+			formData.set("intent", "deleteChoice")
+			formData.set("choiceId", "choice-1")
+
+			await callAction(formData)
+
+			expect(mockArchiveChoice).toHaveBeenCalledWith("choice-1", "Z999999")
 		})
 	})
 })

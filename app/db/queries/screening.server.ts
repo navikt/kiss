@@ -17,20 +17,24 @@ import { writeAuditLog } from "./audit.server"
 
 // ─── Questions CRUD ──────────────────────────────────────────────────────
 
-export async function getScreeningQuestions() {
+export async function getScreeningQuestions(opts: { includeArchived?: boolean } = {}) {
+	const conds = [isNull(screeningQuestions.sectionId)]
+	if (!opts.includeArchived) conds.push(isNull(screeningQuestions.archivedAt))
 	return db
 		.select()
 		.from(screeningQuestions)
-		.where(isNull(screeningQuestions.sectionId))
+		.where(and(...conds))
 		.orderBy(screeningQuestions.displayOrder)
 }
 
 /** Get screening questions scoped to a section. */
-export async function getSectionScreeningQuestions(sectionId: string) {
+export async function getSectionScreeningQuestions(sectionId: string, opts: { includeArchived?: boolean } = {}) {
+	const conds = [eq(screeningQuestions.sectionId, sectionId)]
+	if (!opts.includeArchived) conds.push(isNull(screeningQuestions.archivedAt))
 	return db
 		.select()
 		.from(screeningQuestions)
-		.where(eq(screeningQuestions.sectionId, sectionId))
+		.where(and(...conds))
 		.orderBy(screeningQuestions.displayOrder)
 }
 
@@ -127,14 +131,82 @@ export async function reorderScreeningQuestions(orderedIds: string[], performedB
 	})
 }
 
-export async function deleteScreeningQuestion(id: string, performedBy: string) {
-	await db.delete(screeningQuestions).where(eq(screeningQuestions.id, id))
+/**
+ * Logisk arkivering av et screening-spørsmål. Setter archived_at/archived_by
+ * atomisk via guarded UPDATE WHERE archived_at IS NULL, og skriver audit-logg
+ * i samme transaksjon (AGENTS.md regel 5 + 6).
+ *
+ * Returnerer det arkiverte spørsmålet, eller den eksisterende raden hvis den
+ * allerede var arkivert (idempotent), eller null hvis spørsmålet ikke finnes.
+ */
+export async function archiveScreeningQuestion(id: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(screeningQuestions)
+			.set({
+				archivedAt: new Date(),
+				archivedBy: performedBy,
+				updatedAt: new Date(),
+				updatedBy: performedBy,
+			})
+			.where(and(eq(screeningQuestions.id, id), isNull(screeningQuestions.archivedAt)))
+			.returning()
+		if (!archived) {
+			const [existing] = await tx.select().from(screeningQuestions).where(eq(screeningQuestions.id, id)).limit(1)
+			return existing ?? null
+		}
+		await writeAuditLog(
+			{
+				action: "screening_question_archived",
+				entityType: "screening_question",
+				entityId: id,
+				previousValue: JSON.stringify({ questionText: archived.questionText }),
+				newValue: JSON.stringify({ questionText: archived.questionText, archivedAt: archived.archivedAt }),
+				performedBy,
+			},
+			tx,
+		)
+		return archived
+	})
+}
 
-	await writeAuditLog({
-		action: "screening_question_deleted",
-		entityType: "screening_question",
-		entityId: id,
-		performedBy,
+/**
+ * Reaktiverer et arkivert screening-spørsmål. Idempotent: returnerer
+ * eksisterende rad uten endringer hvis den ikke var arkivert.
+ */
+export async function unarchiveScreeningQuestion(id: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(screeningQuestions)
+			.where(eq(screeningQuestions.id, id))
+			.for("update")
+			.limit(1)
+		if (!existing) return null
+		if (!existing.archivedAt) return existing
+		const previousArchivedAt = existing.archivedAt
+		const [restored] = await tx
+			.update(screeningQuestions)
+			.set({
+				archivedAt: null,
+				archivedBy: null,
+				updatedAt: new Date(),
+				updatedBy: performedBy,
+			})
+			.where(eq(screeningQuestions.id, id))
+			.returning()
+		await writeAuditLog(
+			{
+				action: "screening_question_unarchived",
+				entityType: "screening_question",
+				entityId: id,
+				previousValue: JSON.stringify({ questionText: restored.questionText, archivedAt: previousArchivedAt }),
+				newValue: JSON.stringify({ questionText: restored.questionText }),
+				performedBy,
+			},
+			tx,
+		)
+		return restored
 	})
 }
 
@@ -161,11 +233,13 @@ export async function setQuestionTechnologyElements(questionId: string, elementI
 
 // ─── Choices CRUD ────────────────────────────────────────────────────────
 
-export async function getChoicesForQuestion(questionId: string) {
+export async function getChoicesForQuestion(questionId: string, opts: { includeArchived?: boolean } = {}) {
+	const conds = [eq(screeningQuestionChoices.questionId, questionId)]
+	if (!opts.includeArchived) conds.push(isNull(screeningQuestionChoices.archivedAt))
 	return db
 		.select()
 		.from(screeningQuestionChoices)
-		.where(eq(screeningQuestionChoices.questionId, questionId))
+		.where(and(...conds))
 		.orderBy(screeningQuestionChoices.displayOrder)
 }
 
@@ -201,13 +275,101 @@ export async function updateChoice(
 	return choice
 }
 
-export async function deleteChoice(choiceId: string) {
-	await db.delete(screeningQuestionChoices).where(eq(screeningQuestionChoices.id, choiceId))
+/**
+ * Logisk arkivering av et svaralternativ. Tilhørende choice-effekter blir også
+ * arkivert i samme transaksjon (kaskade), siden valget ikke lenger eksisterer
+ * i UI etter arkivering. Audit-logg skrives for både choice og hver effekt.
+ * Idempotent: returnerer eksisterende rad uten endringer hvis den allerede var
+ * arkivert, og null hvis raden ikke finnes.
+ */
+export async function archiveChoice(choiceId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(screeningQuestionChoices)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(and(eq(screeningQuestionChoices.id, choiceId), isNull(screeningQuestionChoices.archivedAt)))
+			.returning()
+		if (!archived) {
+			const [existing] = await tx
+				.select()
+				.from(screeningQuestionChoices)
+				.where(eq(screeningQuestionChoices.id, choiceId))
+				.limit(1)
+			return existing ?? null
+		}
+		await writeAuditLog(
+			{
+				action: "screening_choice_archived",
+				entityType: "screening_question_choice",
+				entityId: choiceId,
+				previousValue: JSON.stringify({ label: archived.label, questionId: archived.questionId }),
+				newValue: JSON.stringify({ label: archived.label, archivedAt: archived.archivedAt }),
+				performedBy,
+			},
+			tx,
+		)
+
+		// Cascade-archive child effects (still in same tx)
+		const cascadedEffects = await tx
+			.update(screeningChoiceEffects)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(and(eq(screeningChoiceEffects.choiceId, choiceId), isNull(screeningChoiceEffects.archivedAt)))
+			.returning()
+		for (const eff of cascadedEffects) {
+			await writeAuditLog(
+				{
+					action: "screening_choice_effect_archived",
+					entityType: "screening_choice_effect",
+					entityId: eff.id,
+					previousValue: JSON.stringify({ choiceId: eff.choiceId, controlId: eff.controlId, effect: eff.effect }),
+					newValue: JSON.stringify({ archivedAt: eff.archivedAt, cascadedFromChoice: choiceId }),
+					performedBy,
+					metadata: { cascade: "choice_archived" },
+				},
+				tx,
+			)
+		}
+		return archived
+	})
+}
+
+/** Reaktiverer et arkivert svaralternativ. Idempotent. */
+export async function unarchiveChoice(choiceId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(screeningQuestionChoices)
+			.where(eq(screeningQuestionChoices.id, choiceId))
+			.for("update")
+			.limit(1)
+		if (!existing) return null
+		if (!existing.archivedAt) return existing
+		const previousArchivedAt = existing.archivedAt
+		const [restored] = await tx
+			.update(screeningQuestionChoices)
+			.set({ archivedAt: null, archivedBy: null })
+			.where(eq(screeningQuestionChoices.id, choiceId))
+			.returning()
+		await writeAuditLog(
+			{
+				action: "screening_choice_unarchived",
+				entityType: "screening_question_choice",
+				entityId: choiceId,
+				previousValue: JSON.stringify({ label: restored.label, archivedAt: previousArchivedAt }),
+				newValue: JSON.stringify({ label: restored.label }),
+				performedBy,
+			},
+			tx,
+		)
+		return restored
+	})
 }
 
 // ─── Choice Effects CRUD ─────────────────────────────────────────────────
 
-export async function getChoiceEffects(choiceId: string) {
+export async function getChoiceEffects(choiceId: string, opts: { includeArchived?: boolean } = {}) {
+	const conds = [eq(screeningChoiceEffects.choiceId, choiceId)]
+	if (!opts.includeArchived) conds.push(isNull(screeningChoiceEffects.archivedAt))
 	return db
 		.select({
 			id: screeningChoiceEffects.id,
@@ -217,10 +379,12 @@ export async function getChoiceEffects(choiceId: string) {
 			controlName: frameworkControls.shortTitle,
 			effect: screeningChoiceEffects.effect,
 			comment: screeningChoiceEffects.comment,
+			archivedAt: screeningChoiceEffects.archivedAt,
+			archivedBy: screeningChoiceEffects.archivedBy,
 		})
 		.from(screeningChoiceEffects)
 		.innerJoin(frameworkControls, eq(screeningChoiceEffects.controlId, frameworkControls.id))
-		.where(eq(screeningChoiceEffects.choiceId, choiceId))
+		.where(and(...conds))
 		.orderBy(frameworkControls.controlId)
 }
 
@@ -251,8 +415,78 @@ export async function addChoiceEffect(params: {
 	return eff
 }
 
-export async function deleteChoiceEffect(effectId: string) {
-	await db.delete(screeningChoiceEffects).where(eq(screeningChoiceEffects.id, effectId))
+/**
+ * Logisk arkivering av en choice-effect (kontroll-konsekvens av et valg).
+ * Audit-logg skrives i samme transaksjon. Idempotent.
+ */
+export async function archiveChoiceEffect(effectId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(screeningChoiceEffects)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(and(eq(screeningChoiceEffects.id, effectId), isNull(screeningChoiceEffects.archivedAt)))
+			.returning()
+		if (!archived) {
+			const [existing] = await tx
+				.select()
+				.from(screeningChoiceEffects)
+				.where(eq(screeningChoiceEffects.id, effectId))
+				.limit(1)
+			return existing ?? null
+		}
+		await writeAuditLog(
+			{
+				action: "screening_choice_effect_archived",
+				entityType: "screening_choice_effect",
+				entityId: effectId,
+				previousValue: JSON.stringify({
+					choiceId: archived.choiceId,
+					controlId: archived.controlId,
+					effect: archived.effect,
+				}),
+				newValue: JSON.stringify({ archivedAt: archived.archivedAt }),
+				performedBy,
+			},
+			tx,
+		)
+		return archived
+	})
+}
+
+/** Reaktiverer en arkivert choice-effect. Idempotent. */
+export async function unarchiveChoiceEffect(effectId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(screeningChoiceEffects)
+			.where(eq(screeningChoiceEffects.id, effectId))
+			.for("update")
+			.limit(1)
+		if (!existing) return null
+		if (!existing.archivedAt) return existing
+		const previousArchivedAt = existing.archivedAt
+		const [restored] = await tx
+			.update(screeningChoiceEffects)
+			.set({ archivedAt: null, archivedBy: null })
+			.where(eq(screeningChoiceEffects.id, effectId))
+			.returning()
+		await writeAuditLog(
+			{
+				action: "screening_choice_effect_unarchived",
+				entityType: "screening_choice_effect",
+				entityId: effectId,
+				previousValue: JSON.stringify({ archivedAt: previousArchivedAt }),
+				newValue: JSON.stringify({
+					choiceId: restored.choiceId,
+					controlId: restored.controlId,
+					effect: restored.effect,
+				}),
+				performedBy,
+			},
+			tx,
+		)
+		return restored
+	})
 }
 
 // ─── Answers ─────────────────────────────────────────────────────────────
@@ -412,7 +646,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 		sectionQuestions = await db
 			.select()
 			.from(screeningQuestions)
-			.where(inArray(screeningQuestions.sectionId, sectionIds))
+			.where(and(inArray(screeningQuestions.sectionId, sectionIds), isNull(screeningQuestions.archivedAt)))
 			.orderBy(screeningQuestions.displayOrder)
 	}
 
@@ -475,8 +709,12 @@ export async function getScreeningDataForApp(applicationId: string) {
 		})
 	}
 
-	// Load choices for all questions
-	const allChoices = await db.select().from(screeningQuestionChoices).orderBy(screeningQuestionChoices.displayOrder)
+	// Load choices for all questions (kun aktive)
+	const allChoices = await db
+		.select()
+		.from(screeningQuestionChoices)
+		.where(isNull(screeningQuestionChoices.archivedAt))
+		.orderBy(screeningQuestionChoices.displayOrder)
 
 	const choicesByQuestion = new Map<string, (typeof allChoices)[number][]>()
 	for (const c of allChoices) {
@@ -485,7 +723,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 		choicesByQuestion.set(c.questionId, list)
 	}
 
-	// Load choice effects for displaying affected controls
+	// Load choice effects for displaying affected controls (kun aktive)
 	const allChoiceEffects = await db
 		.select({
 			id: screeningChoiceEffects.id,
@@ -497,6 +735,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 		})
 		.from(screeningChoiceEffects)
 		.innerJoin(frameworkControls, eq(screeningChoiceEffects.controlId, frameworkControls.id))
+		.where(isNull(screeningChoiceEffects.archivedAt))
 
 	const effectsByChoice = new Map<string, (typeof allChoiceEffects)[number][]>()
 	for (const e of allChoiceEffects) {
@@ -675,7 +914,7 @@ export async function getScreeningDerivedControlIds(appId: string): Promise<Set<
 		.where(eq(screeningAnswers.applicationId, screeningAppId))
 	if (!answerCount || answerCount.count === 0) return new Set()
 
-	// Path 1: Direct control effects from answered choices
+	// Path 1: Direct control effects from answered choices (kun aktive valg/effekter)
 	const directEffects = await db
 		.selectDistinct({ controlId: screeningChoiceEffects.controlId })
 		.from(screeningAnswers)
@@ -684,16 +923,42 @@ export async function getScreeningDerivedControlIds(appId: string): Promise<Set<
 			and(
 				eq(screeningQuestionChoices.questionId, screeningAnswers.questionId),
 				eq(screeningQuestionChoices.label, screeningAnswers.answer),
+				isNull(screeningQuestionChoices.archivedAt),
 			),
 		)
-		.innerJoin(screeningChoiceEffects, eq(screeningChoiceEffects.choiceId, screeningQuestionChoices.id))
+		.innerJoin(
+			screeningChoiceEffects,
+			and(eq(screeningChoiceEffects.choiceId, screeningQuestionChoices.id), isNull(screeningChoiceEffects.archivedAt)),
+		)
+		.innerJoin(
+			screeningQuestions,
+			and(eq(screeningQuestions.id, screeningAnswers.questionId), isNull(screeningQuestions.archivedAt)),
+		)
 		.where(and(eq(screeningAnswers.applicationId, screeningAppId), isNotNull(screeningChoiceEffects.controlId)))
 
-	// Path 2: Controls via routines selected through screening
+	// Path 2: Controls via routines selected through screening (kun via aktive choice-effects)
 	const routineEffects = await db
 		.selectDistinct({ controlId: routineControls.controlId })
 		.from(screeningRoutineSelections)
 		.innerJoin(routineControls, eq(routineControls.routineId, screeningRoutineSelections.routineId))
+		.innerJoin(
+			screeningChoiceEffects,
+			and(
+				eq(screeningChoiceEffects.id, screeningRoutineSelections.choiceEffectId),
+				isNull(screeningChoiceEffects.archivedAt),
+			),
+		)
+		.innerJoin(
+			screeningQuestionChoices,
+			and(
+				eq(screeningQuestionChoices.id, screeningChoiceEffects.choiceId),
+				isNull(screeningQuestionChoices.archivedAt),
+			),
+		)
+		.innerJoin(
+			screeningQuestions,
+			and(eq(screeningQuestions.id, screeningQuestionChoices.questionId), isNull(screeningQuestions.archivedAt)),
+		)
 		.where(
 			and(
 				eq(screeningRoutineSelections.applicationId, screeningAppId),
@@ -701,11 +966,14 @@ export async function getScreeningDerivedControlIds(appId: string): Promise<Set<
 			),
 		)
 
-	// Path 3: Controls via rulesets linked to answered questions
+	// Path 3: Controls via rulesets linked to answered questions (kun aktive spørsmål)
 	const rulesetEffects = await db
 		.selectDistinct({ controlId: rulesetControls.controlId })
 		.from(screeningAnswers)
-		.innerJoin(screeningQuestions, eq(screeningQuestions.id, screeningAnswers.questionId))
+		.innerJoin(
+			screeningQuestions,
+			and(eq(screeningQuestions.id, screeningAnswers.questionId), isNull(screeningQuestions.archivedAt)),
+		)
 		.innerJoin(rulesetControls, eq(rulesetControls.rulesetId, screeningQuestions.rulesetId))
 		.where(and(eq(screeningAnswers.applicationId, screeningAppId), isNotNull(screeningQuestions.rulesetId)))
 
@@ -751,7 +1019,7 @@ export async function getBatchScreeningDerivedControlIds(appIds: string[]): Prom
 	const answeredScreeningAppIds = screeningAppIds.filter((id) => appsWithAnswers.has(id))
 	if (answeredScreeningAppIds.length === 0) return result
 
-	// Path 1: Direct control effects
+	// Path 1: Direct control effects (kun aktive valg/effekter/spørsmål)
 	const directRows = await db
 		.select({
 			applicationId: screeningAnswers.applicationId,
@@ -763,9 +1031,17 @@ export async function getBatchScreeningDerivedControlIds(appIds: string[]): Prom
 			and(
 				eq(screeningQuestionChoices.questionId, screeningAnswers.questionId),
 				eq(screeningQuestionChoices.label, screeningAnswers.answer),
+				isNull(screeningQuestionChoices.archivedAt),
 			),
 		)
-		.innerJoin(screeningChoiceEffects, eq(screeningChoiceEffects.choiceId, screeningQuestionChoices.id))
+		.innerJoin(
+			screeningChoiceEffects,
+			and(eq(screeningChoiceEffects.choiceId, screeningQuestionChoices.id), isNull(screeningChoiceEffects.archivedAt)),
+		)
+		.innerJoin(
+			screeningQuestions,
+			and(eq(screeningQuestions.id, screeningAnswers.questionId), isNull(screeningQuestions.archivedAt)),
+		)
 		.where(
 			and(
 				inArray(screeningAnswers.applicationId, answeredScreeningAppIds),
@@ -773,7 +1049,7 @@ export async function getBatchScreeningDerivedControlIds(appIds: string[]): Prom
 			),
 		)
 
-	// Path 2: Controls via selected routines
+	// Path 2: Controls via selected routines (kun via aktive choice-effects)
 	const routineRows = await db
 		.select({
 			applicationId: screeningRoutineSelections.applicationId,
@@ -781,6 +1057,24 @@ export async function getBatchScreeningDerivedControlIds(appIds: string[]): Prom
 		})
 		.from(screeningRoutineSelections)
 		.innerJoin(routineControls, eq(routineControls.routineId, screeningRoutineSelections.routineId))
+		.innerJoin(
+			screeningChoiceEffects,
+			and(
+				eq(screeningChoiceEffects.id, screeningRoutineSelections.choiceEffectId),
+				isNull(screeningChoiceEffects.archivedAt),
+			),
+		)
+		.innerJoin(
+			screeningQuestionChoices,
+			and(
+				eq(screeningQuestionChoices.id, screeningChoiceEffects.choiceId),
+				isNull(screeningQuestionChoices.archivedAt),
+			),
+		)
+		.innerJoin(
+			screeningQuestions,
+			and(eq(screeningQuestions.id, screeningQuestionChoices.questionId), isNull(screeningQuestions.archivedAt)),
+		)
 		.where(
 			and(
 				inArray(screeningRoutineSelections.applicationId, answeredScreeningAppIds),
@@ -788,14 +1082,17 @@ export async function getBatchScreeningDerivedControlIds(appIds: string[]): Prom
 			),
 		)
 
-	// Path 3: Controls via rulesets
+	// Path 3: Controls via rulesets (kun aktive spørsmål)
 	const rulesetRows = await db
 		.select({
 			applicationId: screeningAnswers.applicationId,
 			controlId: rulesetControls.controlId,
 		})
 		.from(screeningAnswers)
-		.innerJoin(screeningQuestions, eq(screeningQuestions.id, screeningAnswers.questionId))
+		.innerJoin(
+			screeningQuestions,
+			and(eq(screeningQuestions.id, screeningAnswers.questionId), isNull(screeningQuestions.archivedAt)),
+		)
 		.innerJoin(rulesetControls, eq(rulesetControls.rulesetId, screeningQuestions.rulesetId))
 		.where(
 			and(inArray(screeningAnswers.applicationId, answeredScreeningAppIds), isNotNull(screeningQuestions.rulesetId)),
