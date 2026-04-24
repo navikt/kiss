@@ -35,6 +35,15 @@
 		}
 	},
 	"files": {
-		"includes": ["app/**", "*.ts", "*.tsx", "*.json", "*.css"]
-	}
+		"includes": ["app/**", "*.ts", "*.tsx", "*.json", "*.css", "drizzle/meta/_journal.json"]
+	},
+	"overrides": [
+		{
+			"includes": ["drizzle/meta/_journal.json"],
+			"formatter": {
+				"indentStyle": "space",
+				"indentWidth": 2
+			}
+		}
+	]
 }
