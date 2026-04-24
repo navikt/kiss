@@ -134,6 +134,8 @@ export const auditLogActionEnum = [
 	// Dokumenter
 	"document_uploaded",
 	"document_deleted",
+	"document_archived",
+	"document_unarchived",
 
 	// Revisjonsbevis og automatiske synkroniseringer
 	"audit_confirmation_created",

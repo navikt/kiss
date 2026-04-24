@@ -18,7 +18,7 @@ import type { ActionFunctionArgs } from "react-router"
 import { data, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { saveBucketObject } from "~/db/queries/buckets.server"
-import { createDocument, deleteDocument, getAllDocuments } from "~/db/queries/documents.server"
+import { archiveDocument, createDocument, getAllDocuments, unarchiveDocument } from "~/db/queries/documents.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
@@ -32,17 +32,20 @@ interface DocumentRow {
 	sizeBytes: number
 	uploadedAt: string
 	description: string | null
+	archivedAt: string | null
+	archivedBy: string | null
 }
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
 export async function loader() {
-	const docs = await getAllDocuments()
+	const docs = await getAllDocuments({ includeArchived: true })
 
 	return data({
 		documents: docs.map((d) => ({
 			...d,
 			uploadedAt: d.uploadedAt.toISOString(),
+			archivedAt: d.archivedAt ? d.archivedAt.toISOString() : null,
 		})),
 	})
 }
@@ -55,18 +58,32 @@ export async function action({ request }: ActionFunctionArgs) {
 	const formData = await request.formData()
 	const intent = formData.get("intent")
 
-	if (intent === "delete") {
+	if (intent === "archive") {
 		const documentId = formData.get("documentId")
 		if (typeof documentId !== "string") {
 			return data<ActionResult>({ success: false, error: "Mangler dokument-ID." })
 		}
 
-		const deleted = await deleteDocument(documentId, user.navIdent)
-		if (!deleted) {
+		const archived = await archiveDocument(documentId, user.navIdent)
+		if (!archived) {
 			return data<ActionResult>({ success: false, error: "Dokumentet ble ikke funnet." })
 		}
 
-		return data<ActionResult>({ success: true, message: "Dokumentet ble slettet." })
+		return data<ActionResult>({ success: true, message: "Dokumentet ble arkivert." })
+	}
+
+	if (intent === "unarchive") {
+		const documentId = formData.get("documentId")
+		if (typeof documentId !== "string") {
+			return data<ActionResult>({ success: false, error: "Mangler dokument-ID." })
+		}
+
+		const unarchived = await unarchiveDocument(documentId, user.navIdent)
+		if (!unarchived) {
+			return data<ActionResult>({ success: false, error: "Dokumentet ble ikke funnet." })
+		}
+
+		return data<ActionResult>({ success: true, message: "Dokumentet ble reaktivert." })
 	}
 
 	const file = formData.get("file")
@@ -193,9 +210,16 @@ export default function Dokumenter() {
 		setDescription("")
 	}
 
-	function handleDelete(documentId: string) {
+	function handleArchive(documentId: string) {
 		const formData = new FormData()
-		formData.set("intent", "delete")
+		formData.set("intent", "archive")
+		formData.set("documentId", documentId)
+		submit(formData, { method: "post" })
+	}
+
+	function handleUnarchive(documentId: string) {
+		const formData = new FormData()
+		formData.set("intent", "unarchive")
 		formData.set("documentId", documentId)
 		submit(formData, { method: "post" })
 	}
@@ -315,13 +339,15 @@ export default function Dokumenter() {
 								<Table.HeaderCell>Type</Table.HeaderCell>
 								<Table.HeaderCell>Størrelse</Table.HeaderCell>
 								<Table.HeaderCell>Lastet opp</Table.HeaderCell>
+								<Table.HeaderCell>Status</Table.HeaderCell>
 								<Table.HeaderCell>Lenke</Table.HeaderCell>
-								<Table.HeaderCell>Slett</Table.HeaderCell>
+								<Table.HeaderCell>Handling</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
 							{(documents as DocumentRow[]).map((doc) => {
 								const docUrl = `/api/dokumenter/${doc.id}`
+								const isArchived = doc.archivedAt !== null
 								return (
 									<Table.Row key={doc.id}>
 										<Table.DataCell>
@@ -341,20 +367,50 @@ export default function Dokumenter() {
 										<Table.DataCell>{formatFileSize(doc.sizeBytes)}</Table.DataCell>
 										<Table.DataCell>{new Date(doc.uploadedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
 										<Table.DataCell>
+											{isArchived ? (
+												<Tag variant="neutral" size="xsmall">
+													Arkivert
+												</Tag>
+											) : (
+												<Tag variant="success" size="xsmall">
+													Aktiv
+												</Tag>
+											)}
+										</Table.DataCell>
+										<Table.DataCell>
 											<CopyButton copyText={docUrl} text="Kopier" size="xsmall" />
 										</Table.DataCell>
 										<Table.DataCell>
-											<Button
-												type="button"
-												variant="danger"
-												size="xsmall"
-												onClick={() => {
-													if (window.confirm(`Slett «${doc.title}»?`)) handleDelete(doc.id)
-												}}
-												disabled={isSubmitting}
-											>
-												Slett
-											</Button>
+											{isArchived ? (
+												<Button
+													type="button"
+													variant="secondary"
+													size="xsmall"
+													onClick={() => {
+														if (window.confirm(`Reaktiver «${doc.title}»?`)) handleUnarchive(doc.id)
+													}}
+													disabled={isSubmitting}
+												>
+													Reaktiver
+												</Button>
+											) : (
+												<Button
+													type="button"
+													variant="danger"
+													size="xsmall"
+													onClick={() => {
+														if (
+															window.confirm(
+																`Arkiver «${doc.title}»? Filen bevares og lenken vil fortsatt fungere, men dokumentet skjules fra aktive lister.`,
+															)
+														)
+															handleArchive(doc.id)
+													}}
+													disabled={isSubmitting}
+												>
+													Arkiver
+												</Button>
+											)}
 										</Table.DataCell>
 									</Table.Row>
 								)

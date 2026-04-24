@@ -10,4 +10,6 @@ export const documents = pgTable("documents", {
 	bucketPath: text("bucket_path").notNull(),
 	uploadedBy: text("uploaded_by").notNull(),
 	uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })

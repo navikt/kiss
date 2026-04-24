@@ -10,7 +10,7 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { getAllDocuments, getDocumentById, createDocument, deleteDocument } = await import(
+const { getAllDocuments, getDocumentById, createDocument, archiveDocument, unarchiveDocument } = await import(
 	"~/db/queries/documents.server"
 )
 
@@ -116,39 +116,111 @@ describe("documents.server integration tests", () => {
 		})
 	})
 
-	describe("deleteDocument", () => {
-		it("removes the document and writes an audit entry", async () => {
+	describe("archiveDocument / unarchiveDocument", () => {
+		it("arkiverer dokumentet og skriver audit", async () => {
 			const doc = await createDocument({
-				title: "ToDelete",
-				originalFileName: "del.pdf",
+				title: "ToArchive",
+				originalFileName: "arc.pdf",
 				contentType: "application/pdf",
 				sizeBytes: 10,
-				bucketPath: "del",
+				bucketPath: "arc",
 				uploadedBy: "u1",
 			})
 
-			const result = await deleteDocument(doc.id, "deleter")
+			const result = await archiveDocument(doc.id, "arkivar")
 			expect(result?.id).toBe(doc.id)
+			expect(result?.archivedAt).toBeInstanceOf(Date)
+			expect(result?.archivedBy).toBe("arkivar")
 
-			const after = await getDocumentById(doc.id)
-			expect(after).toBeNull()
+			// Standardlisten skjuler arkiverte dokumenter
+			const visible = await getAllDocuments()
+			expect(visible.map((d) => d.id)).not.toContain(doc.id)
+
+			// Med includeArchived skal det fortsatt være med
+			const all = await getAllDocuments({ includeArchived: true })
+			expect(all.map((d) => d.id)).toContain(doc.id)
+
+			// getDocumentById returnerer arkiverte dokumenter (historiske lenker)
+			const fetched = await getDocumentById(doc.id)
+			expect(fetched?.id).toBe(doc.id)
+			expect(fetched?.archivedAt).toBeInstanceOf(Date)
 
 			const rows = await getAuditRows(doc.id)
-			const actions = rows.map((r) => r.action)
-			expect(actions).toContain("document_uploaded")
-			expect(actions).toContain("document_deleted")
-
-			const deleted = rows.find((r) => r.action === "document_deleted")
-			expect(deleted?.performed_by).toBe("deleter")
-			expect(JSON.parse(deleted?.previous_value ?? "{}")).toMatchObject({
-				title: "ToDelete",
-				fileName: "del.pdf",
+			const archived = rows.find((r) => r.action === "document_archived")
+			expect(archived?.performed_by).toBe("arkivar")
+			expect(JSON.parse(archived?.previous_value ?? "{}")).toMatchObject({
+				title: "ToArchive",
+				fileName: "arc.pdf",
 			})
 		})
 
-		it("returns null when the document does not exist", async () => {
-			const result = await deleteDocument("00000000-0000-0000-0000-000000000000", "u")
-			expect(result).toBeNull()
+		it("er idempotent: re-arkivering skriver ikke nytt audit", async () => {
+			const doc = await createDocument({
+				title: "Idem",
+				originalFileName: "i.pdf",
+				contentType: "application/pdf",
+				sizeBytes: 1,
+				bucketPath: "i",
+				uploadedBy: "u",
+			})
+
+			await archiveDocument(doc.id, "arkivar")
+			await archiveDocument(doc.id, "arkivar")
+
+			const rows = await getAuditRows(doc.id)
+			const archived = rows.filter((r) => r.action === "document_archived")
+			expect(archived).toHaveLength(1)
+		})
+
+		it("returnerer null for ukjent id", async () => {
+			const r = await archiveDocument("00000000-0000-0000-0000-000000000000", "u")
+			expect(r).toBeNull()
+		})
+
+		it("returnerer null for ukjent id (unarchive)", async () => {
+			const r = await unarchiveDocument("00000000-0000-0000-0000-000000000000", "u")
+			expect(r).toBeNull()
+		})
+
+		it("reaktiverer arkivert dokument og skriver audit", async () => {
+			const doc = await createDocument({
+				title: "Re",
+				originalFileName: "r.pdf",
+				contentType: "application/pdf",
+				sizeBytes: 1,
+				bucketPath: "r",
+				uploadedBy: "u",
+			})
+			await archiveDocument(doc.id, "arkivar")
+			const result = await unarchiveDocument(doc.id, "reaktivator")
+			expect(result?.id).toBe(doc.id)
+			expect(result?.archivedAt).toBeNull()
+			expect(result?.archivedBy).toBeNull()
+
+			const visible = await getAllDocuments()
+			expect(visible.map((d) => d.id)).toContain(doc.id)
+
+			const rows = await getAuditRows(doc.id)
+			const unarchived = rows.find((r) => r.action === "document_unarchived")
+			expect(unarchived?.performed_by).toBe("reaktivator")
+		})
+
+		it("er idempotent: re-aktivering skriver ikke nytt audit", async () => {
+			const doc = await createDocument({
+				title: "ReIdem",
+				originalFileName: "ri.pdf",
+				contentType: "application/pdf",
+				sizeBytes: 1,
+				bucketPath: "ri",
+				uploadedBy: "u",
+			})
+			await archiveDocument(doc.id, "arkivar")
+			await unarchiveDocument(doc.id, "u")
+			await unarchiveDocument(doc.id, "u")
+
+			const rows = await getAuditRows(doc.id)
+			const unarchived = rows.filter((r) => r.action === "document_unarchived")
+			expect(unarchived).toHaveLength(1)
 		})
 	})
 })
