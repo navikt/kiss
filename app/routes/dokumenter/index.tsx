@@ -14,7 +14,7 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
-import type { ActionFunctionArgs } from "react-router"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { saveBucketObject } from "~/db/queries/buckets.server"
@@ -38,7 +38,8 @@ interface DocumentRow {
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
-export async function loader() {
+export async function loader({ request }: LoaderFunctionArgs) {
+	requireUser(await getAuthenticatedUser(request))
 	const docs = await getAllDocuments({ includeArchived: true })
 
 	return data({
