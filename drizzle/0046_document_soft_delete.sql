@@ -14,5 +14,5 @@
 -- og 0045 (technology_elements). Idempotens er sikret via IF NOT EXISTS.
 
 -- ── Nye kolonner ────────────────────────────────────────────────────────
-ALTER TABLE "documents" ADD COLUMN IF NOT EXISTS "archived_at" timestamp with time zone;
+ALTER TABLE "documents" ADD COLUMN IF NOT EXISTS "archived_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "documents" ADD COLUMN IF NOT EXISTS "archived_by" text;
