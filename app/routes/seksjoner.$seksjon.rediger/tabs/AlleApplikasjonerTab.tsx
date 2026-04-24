@@ -65,7 +65,7 @@ export function AlleApplikasjonerTab({
 							{sectionApps.map((app) => {
 								const pct = compliancePercent(app.controlsImplemented, app.controlsPartial, app.controlsTotal)
 								const linkedTeamSlugs = app.teams
-								const availableTeams = teams.filter((t) => !linkedTeamSlugs.includes(t.slug))
+								const availableTeams = teams.filter((t) => !t.archivedAt && !linkedTeamSlugs.includes(t.slug))
 								const appPersistence = persistenceMap[app.id] ?? []
 								const uniqueTypes = [...new Set(appPersistence.map((p) => p.type))]
 								return (

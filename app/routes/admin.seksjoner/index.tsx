@@ -272,6 +272,8 @@ const actionLabels: Record<string, string> = {
 	team_created: "Team opprettet",
 	team_updated: "Team oppdatert",
 	team_deleted: "Team slettet",
+	team_archived: "Team arkivert",
+	team_unarchived: "Team reaktivert",
 }
 
 export default function AdminSeksjoner() {

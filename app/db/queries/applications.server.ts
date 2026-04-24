@@ -115,26 +115,44 @@ export async function getApplications() {
 	})
 }
 
-/** Link an application to a dev team. */
+/**
+ * Link an application to a dev team. Avviser kobling mot et arkivert dev-team.
+ * Teamraden låses med `SELECT ... FOR SHARE` slik at en samtidig
+ * `archiveTeam` ikke kan committe mellom guard og INSERT. INSERT og
+ * audit-skriving kjører i samme transaksjon (AGENTS.md regel 6).
+ */
 export async function linkAppToTeam(applicationId: string, devTeamId: string, performedBy: string) {
-	const [mapping] = await db
-		.insert(applicationTeamMappings)
-		.values({ applicationId, devTeamId, createdBy: performedBy })
-		.returning()
+	return db.transaction(async (tx) => {
+		const [team] = await tx
+			.select({ id: devTeams.id, name: devTeams.name, archivedAt: devTeams.archivedAt })
+			.from(devTeams)
+			.where(eq(devTeams.id, devTeamId))
+			.limit(1)
+			.for("share")
+		if (!team) throw new Error(`Dev-team med id ${devTeamId} finnes ikke`)
+		if (team.archivedAt) throw new Error(`Dev-team med id ${devTeamId} er arkivert`)
 
-	const [app] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.id, applicationId))
-	const [team] = await db.select().from(devTeams).where(eq(devTeams.id, devTeamId))
+		const [mapping] = await tx
+			.insert(applicationTeamMappings)
+			.values({ applicationId, devTeamId, createdBy: performedBy })
+			.returning()
 
-	await writeAuditLog({
-		action: "app_team_linked",
-		entityType: "application_team_mapping",
-		entityId: mapping.id,
-		newValue: `${app?.name ?? applicationId} ↔ ${team?.name ?? devTeamId}`,
-		metadata: { applicationId, devTeamId },
-		performedBy,
+		const [app] = await tx.select().from(monitoredApplications).where(eq(monitoredApplications.id, applicationId))
+
+		await writeAuditLog(
+			{
+				action: "app_team_linked",
+				entityType: "application_team_mapping",
+				entityId: mapping.id,
+				newValue: `${app?.name ?? applicationId} ↔ ${team.name}`,
+				metadata: { applicationId, devTeamId },
+				performedBy,
+			},
+			tx,
+		)
+
+		return mapping
 	})
-
-	return mapping
 }
 
 /** Unlink an application from a dev team. */
@@ -188,16 +206,19 @@ export async function getAvailableTeamsForApp(applicationId: string) {
 	return db
 		.select({ id: devTeams.id, name: devTeams.name })
 		.from(devTeams)
-		.where(sql`${devTeams.id} NOT IN (${linkedTeamIds})`)
+		.where(and(isNull(devTeams.archivedAt), sql`${devTeams.id} NOT IN (${linkedTeamIds})`))
 		.orderBy(devTeams.name)
 }
 
-/** Get all dev teams. */
-export async function getAllTeams() {
-	return db
+/** Get all dev teams. By default only active (non-archived) teams are returned. */
+export async function getAllTeams(options: { includeArchived?: boolean } = {}) {
+	const query = db
 		.select({ id: devTeams.id, name: devTeams.name, slug: devTeams.slug, sectionId: devTeams.sectionId })
 		.from(devTeams)
-		.orderBy(devTeams.name)
+	if (!options.includeArchived) {
+		return query.where(isNull(devTeams.archivedAt)).orderBy(devTeams.name)
+	}
+	return query.orderBy(devTeams.name)
 }
 
 /** Get compliance assessments for an application, filtered by screening-derived controls and technology elements. */

@@ -49,6 +49,8 @@ export const auditLogActionEnum = [
 	"team_created",
 	"team_updated",
 	"team_deleted",
+	"team_archived",
+	"team_unarchived",
 	"dev_team_nais_team_linked",
 	"dev_team_nais_team_unlinked",
 

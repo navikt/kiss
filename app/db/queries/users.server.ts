@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	devTeams,
@@ -106,14 +106,19 @@ export async function assignRole(
 		}
 		if (devTeamId) {
 			const [teamSection] = await tx
-				.select({ teamId: devTeams.id, archivedAt: sections.archivedAt })
+				.select({
+					teamId: devTeams.id,
+					teamArchivedAt: devTeams.archivedAt,
+					sectionArchivedAt: sections.archivedAt,
+				})
 				.from(devTeams)
 				.innerJoin(sections, eq(devTeams.sectionId, sections.id))
 				.where(eq(devTeams.id, devTeamId))
 				.limit(1)
-				.for("share", { of: [sections] })
+				.for("share", { of: [devTeams, sections] })
 			if (!teamSection) throw new Error(`Dev-team med id ${devTeamId} finnes ikke`)
-			if (teamSection.archivedAt) {
+			if (teamSection.teamArchivedAt) throw new Error(`Dev-team med id ${devTeamId} er arkivert`)
+			if (teamSection.sectionArchivedAt) {
 				throw new Error(`Dev-team med id ${devTeamId} tilhører en arkivert seksjon`)
 			}
 		}
@@ -212,10 +217,12 @@ export async function setUserLandingPage(navIdent: string, landingPage: LandingP
 		})
 }
 
-/** List all dev teams (lightweight, for profile page). */
-export async function getAllDevTeams() {
+/** List all dev teams (lightweight, for profile page). Arkiverte teams skjules som standard. */
+export async function getAllDevTeams(options: { includeArchived?: boolean } = {}) {
+	const where = options.includeArchived ? undefined : isNull(devTeams.archivedAt)
 	return db
 		.select({ id: devTeams.id, name: devTeams.name, sectionId: devTeams.sectionId })
 		.from(devTeams)
+		.where(where)
 		.orderBy(devTeams.name)
 }

@@ -54,7 +54,7 @@ export default function RedigerSeksjon() {
 			<Tabs value={activeTab} onChange={(tab) => setSearchParams({ fane: tab }, { replace: true })}>
 				<Tabs.List>
 					<Tabs.Tab value="seksjon" label="Seksjon" />
-					<Tabs.Tab value="team" label={`Utviklingsteam (${teams.length})`} />
+					<Tabs.Tab value="team" label={`Utviklingsteam (${teams.filter((t) => !t.archivedAt).length})`} />
 					<Tabs.Tab value="nais" label={`Nais-team (${linkedNaisTeams.length})`} />
 					<Tabs.Tab
 						value="applikasjoner"

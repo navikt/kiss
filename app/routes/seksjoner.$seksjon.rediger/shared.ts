@@ -21,6 +21,7 @@ export type TeamItem = {
 	slug: string
 	description: string | null
 	linkedNaisTeams: string[]
+	archivedAt: string | null
 }
 
 export type LinkedNaisTeam = {
