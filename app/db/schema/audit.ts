@@ -35,6 +35,8 @@ export const auditLogActionEnum = [
 	"technology_element_created",
 	"technology_element_updated",
 	"technology_element_deleted",
+	"technology_element_archived",
+	"technology_element_unarchived",
 	"technology_element_confirmed",
 	"technology_element_rejected",
 	"control_element_added",

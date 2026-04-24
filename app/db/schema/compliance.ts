@@ -18,7 +18,9 @@ export const complianceAssessments = pgTable("compliance_assessments", {
 	controlId: uuid("control_id")
 		.notNull()
 		.references(() => frameworkControls.id),
-	technologyElementId: uuid("technology_element_id").references(() => technologyElements.id),
+	technologyElementId: uuid("technology_element_id").references(() => technologyElements.id, {
+		onDelete: "restrict",
+	}),
 	status: text("status", { enum: COMPLIANCE_STATUSES }).notNull(),
 	comment: text("comment"),
 	assessedBy: text("assessed_by").notNull(),

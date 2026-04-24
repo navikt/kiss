@@ -828,7 +828,7 @@ export async function applyFrameworkImport(
 		"commonPitfalls",
 	] as const
 
-	// Load all technology elements for name matching
+	// Load all technology elements for name matching (inkluderer arkiverte: rammeverksimport er autoritativ)
 	const allTechElements = await db.select().from(technologyElements)
 	const techElementByName = new Map(allTechElements.map((e) => [e.name.toLowerCase().trim(), e]))
 
@@ -1115,7 +1115,7 @@ export async function computeImportDiff(parsed: ParsedFramework, previousParsed?
 		}
 	}
 
-	// Load all technology elements for name matching
+	// Load all technology elements for name matching (inkluderer arkiverte: rammeverksimport er autoritativ)
 	const allTechElements = await db.select().from(technologyElements)
 	const techElementByName = new Map(allTechElements.map((e) => [e.name.toLowerCase().trim(), e]))
 

@@ -16,10 +16,11 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
+	archiveTechnologyElement,
 	createTechnologyElement,
-	deleteTechnologyElement,
 	getAllTechnologyElements,
 	getTechnologyElementWithCounts,
+	unarchiveTechnologyElement,
 	updateTechnologyElement,
 } from "~/db/queries/technology-elements.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
@@ -33,6 +34,7 @@ interface ElementRow {
 	displayOrder: number
 	controlCount: number
 	appCount: number
+	archivedAt: string | null
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -42,7 +44,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		throw new Response("Ikke tilgang", { status: 403 })
 	}
 
-	const rawElements = await getAllTechnologyElements()
+	const rawElements = await getAllTechnologyElements({ includeArchived: true })
 	const elements: ElementRow[] = await Promise.all(
 		rawElements.map(async (el) => {
 			const detail = await getTechnologyElementWithCounts(el.id)
@@ -54,6 +56,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				displayOrder: el.displayOrder,
 				controlCount: detail?.controlCount ?? 0,
 				appCount: detail?.appCount ?? 0,
+				archivedAt: el.archivedAt ? el.archivedAt.toISOString() : null,
 			}
 		}),
 	)
@@ -124,14 +127,30 @@ export async function action({ request }: ActionFunctionArgs) {
 			}
 		}
 
-		case "delete-element": {
+		case "archive-element": {
 			const id = formData.get("id")
 			if (typeof id !== "string") {
 				return data<ActionResult>({ success: false, error: "Mangler element-ID." })
 			}
 			try {
-				await deleteTechnologyElement(id, userId)
-				return data<ActionResult>({ success: true, message: "Element slettet." })
+				await archiveTechnologyElement(id, userId)
+				return data<ActionResult>({ success: true, message: "Element arkivert." })
+			} catch (err) {
+				return data<ActionResult>({
+					success: false,
+					error: err instanceof Error ? err.message : "Ukjent feil",
+				})
+			}
+		}
+
+		case "unarchive-element": {
+			const id = formData.get("id")
+			if (typeof id !== "string") {
+				return data<ActionResult>({ success: false, error: "Mangler element-ID." })
+			}
+			try {
+				await unarchiveTechnologyElement(id, userId)
+				return data<ActionResult>({ success: true, message: "Element reaktivert." })
 			} catch (err) {
 				return data<ActionResult>({
 					success: false,
@@ -177,39 +196,35 @@ function EditElementModal({ element, open, onClose }: { element: ElementRow; ope
 	)
 }
 
-function DeleteElementModal({ element, open, onClose }: { element: ElementRow; open: boolean; onClose: () => void }) {
+function ArchiveElementModal({ element, open, onClose }: { element: ElementRow; open: boolean; onClose: () => void }) {
 	const inUse = element.controlCount > 0 || element.appCount > 0
 	return (
-		<Modal open={open} onClose={onClose} header={{ heading: `Slett element: ${element.name}` }}>
+		<Modal open={open} onClose={onClose} header={{ heading: `Arkiver element: ${element.name}` }}>
 			<Modal.Body>
-				{inUse ? (
-					<Alert variant="warning">
-						Elementet kan ikke slettes fordi det er brukt av {element.controlCount} kontroll(er) og {element.appCount}{" "}
-						applikasjon(er). Fjern tilknytningene først.
-					</Alert>
-				) : (
-					<BodyLong>Er du sikker på at du vil slette elementet «{element.name}»?</BodyLong>
-				)}
+				<BodyLong>
+					Elementet skjules fra velgere og auto-detect, men beholder all data og historikk. Eksisterende koblinger
+					(kontroller, applikasjoner, rutiner, screening) påvirkes ikke.
+					{inUse && (
+						<>
+							{" "}
+							Elementet er i dag brukt av {element.controlCount} kontroll(er) og {element.appCount} applikasjon(er).
+						</>
+					)}
+				</BodyLong>
 			</Modal.Body>
 			<Modal.Footer>
-				{inUse ? (
-					<Button type="button" variant="secondary" onClick={onClose}>
-						Lukk
-					</Button>
-				) : (
-					<Form method="post" onSubmit={onClose}>
-						<input type="hidden" name="intent" value="delete-element" />
-						<input type="hidden" name="id" value={element.id} />
-						<HStack gap="space-4">
-							<Button type="submit" variant="danger">
-								Slett
-							</Button>
-							<Button type="button" variant="tertiary" onClick={onClose}>
-								Avbryt
-							</Button>
-						</HStack>
-					</Form>
-				)}
+				<Form method="post" onSubmit={onClose}>
+					<input type="hidden" name="intent" value="archive-element" />
+					<input type="hidden" name="id" value={element.id} />
+					<HStack gap="space-4">
+						<Button type="submit" variant="danger">
+							Arkiver
+						</Button>
+						<Button type="button" variant="tertiary" onClick={onClose}>
+							Avbryt
+						</Button>
+					</HStack>
+				</Form>
 			</Modal.Footer>
 		</Modal>
 	)
@@ -220,7 +235,7 @@ export default function AdminTeknologielementer() {
 	const actionData = useActionData<typeof action>()
 	const formRef = useRef<HTMLFormElement>(null)
 	const [editingElement, setEditingElement] = useState<ElementRow | null>(null)
-	const [deletingElement, setDeletingElement] = useState<ElementRow | null>(null)
+	const [archivingElement, setArchivingElement] = useState<ElementRow | null>(null)
 
 	return (
 		<VStack gap="space-6">
@@ -299,7 +314,16 @@ export default function AdminTeknologielementer() {
 							<Table.Body>
 								{elements.map((el) => (
 									<Table.Row key={el.id}>
-										<Table.DataCell>{el.name}</Table.DataCell>
+										<Table.DataCell>
+											<HStack gap="space-2" align="center">
+												{el.name}
+												{el.archivedAt && (
+													<Tag variant="neutral" size="xsmall">
+														Arkivert
+													</Tag>
+												)}
+											</HStack>
+										</Table.DataCell>
 										<Table.DataCell>
 											<Tag variant="info" size="xsmall">
 												{el.slug}
@@ -311,12 +335,24 @@ export default function AdminTeknologielementer() {
 										<Table.DataCell align="right">{el.appCount}</Table.DataCell>
 										<Table.DataCell>
 											<HStack gap="space-2">
-												<Button variant="tertiary" size="xsmall" onClick={() => setEditingElement(el)}>
-													Rediger
-												</Button>
-												<Button variant="tertiary" size="xsmall" onClick={() => setDeletingElement(el)}>
-													Slett
-												</Button>
+												{!el.archivedAt && (
+													<Button variant="tertiary" size="xsmall" onClick={() => setEditingElement(el)}>
+														Rediger
+													</Button>
+												)}
+												{el.archivedAt ? (
+													<Form method="post">
+														<input type="hidden" name="intent" value="unarchive-element" />
+														<input type="hidden" name="id" value={el.id} />
+														<Button type="submit" variant="tertiary" size="xsmall">
+															Reaktiver
+														</Button>
+													</Form>
+												) : (
+													<Button variant="tertiary" size="xsmall" onClick={() => setArchivingElement(el)}>
+														Arkiver
+													</Button>
+												)}
 											</HStack>
 										</Table.DataCell>
 									</Table.Row>
@@ -333,11 +369,11 @@ export default function AdminTeknologielementer() {
 				<EditElementModal element={editingElement} open={!!editingElement} onClose={() => setEditingElement(null)} />
 			)}
 
-			{deletingElement && (
-				<DeleteElementModal
-					element={deletingElement}
-					open={!!deletingElement}
-					onClose={() => setDeletingElement(null)}
+			{archivingElement && (
+				<ArchiveElementModal
+					element={archivingElement}
+					open={!!archivingElement}
+					onClose={() => setArchivingElement(null)}
 				/>
 			)}
 		</VStack>

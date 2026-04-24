@@ -2,7 +2,7 @@ import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
-import { applicationTechnologyElements, frameworkControls } from "../schema/framework"
+import { applicationTechnologyElements, frameworkControls, technologyElements } from "../schema/framework"
 import { routineControls, routines } from "../schema/routines"
 import { rulesetControls } from "../schema/rulesets"
 import {
@@ -220,15 +220,34 @@ export async function getQuestionTechnologyElements(questionId: string) {
 }
 
 export async function setQuestionTechnologyElements(questionId: string, elementIds: string[]) {
-	await db
-		.delete(screeningQuestionTechnologyElements)
-		.where(eq(screeningQuestionTechnologyElements.questionId, questionId))
+	await db.transaction(async (tx) => {
+		// Bevar koblinger til arkiverte elementer: edit-skjemaet rendrer bare aktive
+		// elementer, så hvis vi gjør full replacement vil arkiverte koblinger forsvinne
+		// stille. Vi finner derfor først eksisterende koblinger til arkiverte elementer
+		// og legger dem til i settet før replacement.
+		const existing = await tx
+			.select({
+				elementId: screeningQuestionTechnologyElements.elementId,
+				archivedAt: technologyElements.archivedAt,
+			})
+			.from(screeningQuestionTechnologyElements)
+			.innerJoin(technologyElements, eq(technologyElements.id, screeningQuestionTechnologyElements.elementId))
+			.where(eq(screeningQuestionTechnologyElements.questionId, questionId))
+			.for("share", { of: technologyElements })
 
-	if (elementIds.length > 0) {
-		await db
-			.insert(screeningQuestionTechnologyElements)
-			.values(elementIds.map((elementId) => ({ questionId, elementId })))
-	}
+		const archivedToPreserve = existing.filter((e) => e.archivedAt).map((e) => e.elementId)
+		const finalIds = Array.from(new Set([...elementIds, ...archivedToPreserve]))
+
+		await tx
+			.delete(screeningQuestionTechnologyElements)
+			.where(eq(screeningQuestionTechnologyElements.questionId, questionId))
+
+		if (finalIds.length > 0) {
+			await tx
+				.insert(screeningQuestionTechnologyElements)
+				.values(finalIds.map((elementId) => ({ questionId, elementId })))
+		}
+	})
 }
 
 // ─── Choices CRUD ────────────────────────────────────────────────────────
