@@ -113,7 +113,7 @@ export const routineTechnologyElements = pgTable("routine_technology_elements", 
 		.references(() => routines.id, { onDelete: "restrict" }),
 	elementId: uuid("element_id")
 		.notNull()
-		.references(() => technologyElements.id, { onDelete: "cascade" }),
+		.references(() => technologyElements.id, { onDelete: "restrict" }),
 })
 
 // ─── Routine Reviews ─────────────────────────────────────────────────────

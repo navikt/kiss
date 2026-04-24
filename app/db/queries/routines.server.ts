@@ -357,16 +357,34 @@ export async function updateRoutine(params: {
 		.where(eq(routines.id, params.id))
 		.returning()
 
-	// Replace technology element links
-	await db.delete(routineTechnologyElements).where(eq(routineTechnologyElements.routineId, params.id))
-	if (params.technologyElementIds.length > 0) {
-		await db.insert(routineTechnologyElements).values(
-			params.technologyElementIds.map((elementId) => ({
-				routineId: params.id,
-				elementId,
-			})),
-		)
-	}
+	// Replace technology element links — bevar koblinger til arkiverte elementer
+	// (edit-skjemaet viser bare aktive elementer, så uten denne preserve-logikken
+	// ville arkiverte koblinger forsvinne stille ved lagring). Pakkes i tx med
+	// FOR SHARE på technology_elements for å hindre at arkivering skjer mellom
+	// lesing av arkivstatus og innsetting av nye koblinger.
+	await db.transaction(async (tx) => {
+		const existingTechLinks = await tx
+			.select({
+				elementId: routineTechnologyElements.elementId,
+				archivedAt: technologyElements.archivedAt,
+			})
+			.from(routineTechnologyElements)
+			.innerJoin(technologyElements, eq(technologyElements.id, routineTechnologyElements.elementId))
+			.where(eq(routineTechnologyElements.routineId, params.id))
+			.for("share", { of: technologyElements })
+		const archivedTechToPreserve = existingTechLinks.filter((e) => e.archivedAt).map((e) => e.elementId)
+		const finalTechIds = Array.from(new Set([...params.technologyElementIds, ...archivedTechToPreserve]))
+
+		await tx.delete(routineTechnologyElements).where(eq(routineTechnologyElements.routineId, params.id))
+		if (finalTechIds.length > 0) {
+			await tx.insert(routineTechnologyElements).values(
+				finalTechIds.map((elementId) => ({
+					routineId: params.id,
+					elementId,
+				})),
+			)
+		}
+	})
 
 	// Replace control links
 	await db.delete(routineControls).where(eq(routineControls.routineId, params.id))

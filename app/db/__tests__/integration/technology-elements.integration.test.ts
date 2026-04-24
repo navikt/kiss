@@ -13,7 +13,8 @@ vi.mock("~/db/connection.server", () => ({
 const {
 	createTechnologyElement,
 	updateTechnologyElement,
-	deleteTechnologyElement,
+	archiveTechnologyElement,
+	unarchiveTechnologyElement,
 	getAllTechnologyElements,
 	addControlElement,
 	removeControlElement,
@@ -98,31 +99,64 @@ describe("technology-elements.server integration tests", () => {
 			expect(all.map((e) => e.slug)).toEqual(["a", "c", "b"])
 		})
 
-		it("deletes an unused element", async () => {
+		it("archives an element and reactivates it (idempotent + atomic + audit-in-tx)", async () => {
 			const el = await createTechnologyElement("Temp", "temp", null, 0, "admin")
-			await deleteTechnologyElement(el.id, "admin")
+			const archived = await archiveTechnologyElement(el.id, "admin")
+			expect(archived.archivedAt).toBeInstanceOf(Date)
+			expect(archived.archivedBy).toBe("admin")
 
-			const audit = await getAuditEntries("technology_element_deleted", el.id)
+			// Idempotent: andre kall returnerer samme rad uten ekstra audit
+			await archiveTechnologyElement(el.id, "admin")
+			let audit = await getAuditEntries("technology_element_archived", el.id)
 			expect(audit).toHaveLength(1)
 
-			const all = await getAllTechnologyElements()
-			expect(all.find((e) => e.id === el.id)).toBeUndefined()
+			// Default getAllTechnologyElements skjuler arkiverte
+			const active = await getAllTechnologyElements()
+			expect(active.find((e) => e.id === el.id)).toBeUndefined()
+			const all = await getAllTechnologyElements({ includeArchived: true })
+			expect(all.find((e) => e.id === el.id)).toBeDefined()
+
+			// Reactivate
+			const reactivated = await unarchiveTechnologyElement(el.id, "reactivator")
+			expect(reactivated.archivedAt).toBeNull()
+			expect(reactivated.archivedBy).toBeNull()
+			audit = await getAuditEntries("technology_element_unarchived", el.id)
+			expect(audit).toHaveLength(1)
 		})
 
-		it("refuses to delete an element used by a control", async () => {
+		it("hard delete is blocked by FK RESTRICT when used by a control", async () => {
 			const el = await createTechnologyElement("Used", "used", null, 0, "admin")
 			const controlId = await createControl("K-XX.01")
 			await addControlElement(controlId, el.id, "admin")
 
-			await expect(deleteTechnologyElement(el.id, "admin")).rejects.toThrow(/brukt av/)
+			const db = getTestDb()
+			await expect(db.execute(/* sql */ `DELETE FROM technology_elements WHERE id = '${el.id}'`)).rejects.toThrow()
 		})
 
-		it("refuses to delete an element used by an application", async () => {
-			const el = await createTechnologyElement("Used2", "used2", null, 0, "admin")
-			const appId = await createApp("App1")
-			await addApplicationElement(appId, el.id)
+		it("rejects updateTechnologyElement on archived element", async () => {
+			const el = await createTechnologyElement("Frozen", "frozen", null, 0, "admin")
+			await archiveTechnologyElement(el.id, "admin")
+			await expect(updateTechnologyElement(el.id, { name: "X" }, "admin")).rejects.toThrow(/arkivert/i)
+		})
 
-			await expect(deleteTechnologyElement(el.id, "admin")).rejects.toThrow(/brukt av/)
+		it("rejects updateTechnologyElement with not-found error for unknown id", async () => {
+			await expect(
+				updateTechnologyElement("00000000-0000-0000-0000-000000000000", { name: "X" }, "admin"),
+			).rejects.toThrow(/ikke funnet/i)
+		})
+
+		it("rejects addControlElement to archived element", async () => {
+			const el = await createTechnologyElement("Old", "old", null, 0, "admin")
+			await archiveTechnologyElement(el.id, "admin")
+			const controlId = await createControl("K-YY.01")
+			await expect(addControlElement(controlId, el.id, "admin")).rejects.toThrow(/arkivert/i)
+		})
+
+		it("rejects addApplicationElement to archived element", async () => {
+			const el = await createTechnologyElement("Old2", "old2", null, 0, "admin")
+			await archiveTechnologyElement(el.id, "admin")
+			const appId = await createApp("App1")
+			await expect(addApplicationElement(appId, el.id)).rejects.toThrow(/arkivert/i)
 		})
 	})
 
@@ -176,6 +210,47 @@ describe("technology-elements.server integration tests", () => {
 			const linked = await getApplicationElements(app)
 			expect(linked.map((e) => e.slug)).toEqual(["cache"])
 			expect(linked[0].source).toBe("manual")
+		})
+
+		it("syncApplicationTechnologyElements bevarer auto-koblinger til arkiverte elementer", async () => {
+			const { syncApplicationTechnologyElements } = await import("~/db/queries/technology-elements.server")
+			const el = await createTechnologyElement("Applikasjon", "applikasjon", null, 0, "admin")
+			const app = await createApp("PreservedApp")
+
+			// Første sync gir auto-kobling (slug "applikasjon" tildeles alle apper)
+			await syncApplicationTechnologyElements(app)
+			let linked = await getApplicationElements(app)
+			expect(linked.map((e) => e.slug)).toEqual(["applikasjon"])
+
+			// Arkiver elementet
+			await archiveTechnologyElement(el.id, "admin")
+
+			// Re-sync skal IKKE fjerne den eksisterende auto-koblingen
+			await syncApplicationTechnologyElements(app)
+			linked = await getApplicationElements(app)
+			expect(linked.map((e) => e.slug)).toEqual(["applikasjon"])
+		})
+
+		it("setQuestionTechnologyElements bevarer arkiverte koblinger ved full replacement", async () => {
+			const { setQuestionTechnologyElements, getQuestionTechnologyElements } = await import(
+				"~/db/queries/screening.server"
+			)
+			const db = getTestDb()
+			const elActive = await createTechnologyElement("Aktiv", "aktiv-q", null, 0, "admin")
+			const elArchived = await createTechnologyElement("Arkivert", "arkivert-q", null, 0, "admin")
+			const r = await db.execute(
+				/* sql */ `INSERT INTO screening_questions (question_text, answer_type, display_order, created_by, updated_by) VALUES ('Q1', 'boolean', 0, 'test', 'test') RETURNING id`,
+			)
+			const qId = (r.rows[0] as { id: string }).id
+
+			await setQuestionTechnologyElements(qId, [elActive.id, elArchived.id])
+			await archiveTechnologyElement(elArchived.id, "admin")
+
+			// Edit-skjema rendrer kun aktive elementer; vi sender derfor bare elActive
+			await setQuestionTechnologyElements(qId, [elActive.id])
+
+			const linked = await getQuestionTechnologyElements(qId)
+			expect(linked.map((l) => l.elementId).sort()).toEqual([elActive.id, elArchived.id].sort())
 		})
 	})
 })

@@ -27,7 +27,7 @@ export const applicationControls = pgTable(
 			.notNull()
 			.references(() => frameworkControls.id, { onDelete: "cascade" }),
 		technologyElementId: uuid("technology_element_id").references(() => technologyElements.id, {
-			onDelete: "cascade",
+			onDelete: "restrict",
 		}),
 
 		// Auto-computed compliance status

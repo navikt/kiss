@@ -108,7 +108,7 @@ export const screeningQuestionTechnologyElements = pgTable(
 			.references(() => screeningQuestions.id, { onDelete: "restrict" }),
 		elementId: uuid("element_id")
 			.notNull()
-			.references(() => technologyElements.id, { onDelete: "cascade" }),
+			.references(() => technologyElements.id, { onDelete: "restrict" }),
 	},
 	(t) => [unique().on(t.questionId, t.elementId)],
 )

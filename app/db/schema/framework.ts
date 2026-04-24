@@ -105,6 +105,8 @@ export const technologyElements = pgTable("technology_elements", {
 	description: text("description"),
 	displayOrder: integer("display_order").notNull().default(0),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 export const controlTechnologyElements = pgTable("control_technology_elements", {
@@ -114,7 +116,7 @@ export const controlTechnologyElements = pgTable("control_technology_elements", 
 		.references(() => frameworkControls.id, { onDelete: "cascade" }),
 	elementId: uuid("element_id")
 		.notNull()
-		.references(() => technologyElements.id, { onDelete: "cascade" }),
+		.references(() => technologyElements.id, { onDelete: "restrict" }),
 })
 
 export const applicationTechnologyElements = pgTable(
@@ -126,7 +128,7 @@ export const applicationTechnologyElements = pgTable(
 			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 		elementId: uuid("element_id")
 			.notNull()
-			.references(() => technologyElements.id, { onDelete: "cascade" }),
+			.references(() => technologyElements.id, { onDelete: "restrict" }),
 		source: text("source").notNull().default("manual"),
 		confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
 		confirmedBy: text("confirmed_by"),
