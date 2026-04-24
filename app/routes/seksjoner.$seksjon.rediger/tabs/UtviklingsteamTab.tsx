@@ -44,9 +44,16 @@ export function UtviklingsteamTab({
 							{teams.map((team) => (
 								<Table.Row key={team.id}>
 									<Table.DataCell>
-										<AkselLink as={Link} to={`/seksjoner/${seksjon}/team/${team.slug}`}>
-											{team.name}
-										</AkselLink>
+										<HStack gap="space-2" align="center" wrap>
+											<AkselLink as={Link} to={`/seksjoner/${seksjon}/team/${team.slug}`}>
+												{team.name}
+											</AkselLink>
+											{team.archivedAt && (
+												<Tag variant="neutral" size="xsmall">
+													Arkivert
+												</Tag>
+											)}
+										</HStack>
 									</Table.DataCell>
 									<Table.DataCell>{team.description ?? "–"}</Table.DataCell>
 									<Table.DataCell>

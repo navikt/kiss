@@ -309,6 +309,13 @@
       "when": 1781914540000,
       "tag": "0043_screening_soft_delete_and_restrict_fks",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1781914600000,
+      "tag": "0044_dev_team_soft_delete_and_restrict_fks",
+      "breakpoints": true
     }
   ]
 }

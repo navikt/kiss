@@ -50,26 +50,33 @@ export function ApplikasjonerUtenTeamTab({
 							{unassignedApps.length} {unassignedApps.length === 1 ? "applikasjon" : "applikasjoner"} fra seksjonens
 							Nais-team er ikke koblet til et utviklingsteam.
 						</Alert>
-						{teams.length > 0 && selectedApps.length > 0 && (
-							<Form method="post">
-								<input type="hidden" name="intent" value="bulk-assign-team" />
-								{selectedApps.map((id) => (
-									<input key={id} type="hidden" name="appId" value={id} />
-								))}
-								<HStack gap="space-4" align="end">
-									<Select label="Utviklingsteam" name="teamId" size="small">
-										{teams.map((t) => (
-											<option key={t.id} value={t.id}>
-												{t.name}
-											</option>
+						{(() => {
+							const activeTeams = teams.filter((t) => !t.archivedAt)
+							return (
+								activeTeams.length > 0 &&
+								selectedApps.length > 0 && (
+									<Form method="post">
+										<input type="hidden" name="intent" value="bulk-assign-team" />
+										{selectedApps.map((id) => (
+											<input key={id} type="hidden" name="appId" value={id} />
 										))}
-									</Select>
-									<Button type="submit" variant="primary" size="small">
-										Koble {selectedApps.length} {selectedApps.length === 1 ? "applikasjon" : "applikasjoner"} til team
-									</Button>
-								</HStack>
-							</Form>
-						)}
+										<HStack gap="space-4" align="end">
+											<Select label="Utviklingsteam" name="teamId" size="small">
+												{activeTeams.map((t) => (
+													<option key={t.id} value={t.id}>
+														{t.name}
+													</option>
+												))}
+											</Select>
+											<Button type="submit" variant="primary" size="small">
+												Koble {selectedApps.length} {selectedApps.length === 1 ? "applikasjon" : "applikasjoner"} til
+												team
+											</Button>
+										</HStack>
+									</Form>
+								)
+							)
+						})()}
 						{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 						<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner uten team">
 							<Table

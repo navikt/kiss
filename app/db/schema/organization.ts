@@ -36,6 +36,8 @@ export const devTeams = pgTable("dev_teams", {
 	name: text("name").notNull(),
 	slug: text("slug").notNull(),
 	description: text("description"),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -116,7 +118,7 @@ export const userRoles = pgTable("user_roles", {
 		.references(() => users.id),
 	role: text("role", { enum: userRoleEnum }).notNull(),
 	sectionId: uuid("section_id").references(() => sections.id, { onDelete: "restrict" }),
-	devTeamId: uuid("dev_team_id").references(() => devTeams.id),
+	devTeamId: uuid("dev_team_id").references(() => devTeams.id, { onDelete: "restrict" }),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 })

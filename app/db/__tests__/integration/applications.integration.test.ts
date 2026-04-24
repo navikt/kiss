@@ -13,6 +13,7 @@ vi.mock("~/db/connection.server", () => ({
 
 const { stageFrameworkImport, applyFrameworkImport } = await import("~/db/queries/framework.server")
 const { getApplications, linkAppToTeam, unlinkAppFromTeam } = await import("~/db/queries/applications.server")
+const { archiveTeam } = await import("~/db/queries/sections.server")
 
 function makeParsedFramework(): ParsedFramework {
 	return {
@@ -159,6 +160,22 @@ describe("Applications integration tests", () => {
 		const actions = (auditResult.rows as Array<{ action: string }>).map((r) => r.action)
 		expect(actions).toContain("app_team_linked")
 		expect(actions).toContain("app_team_unlinked")
+	})
+
+	it("should reject linking an application to an archived dev team", async () => {
+		const sectionId = await createTestSection("IT", "it-section")
+		const teamId = await createTestDevTeam("Backend Team", "backend", sectionId)
+		const appId = await createTestApp("App One")
+
+		await archiveTeam(teamId, "admin")
+
+		await expect(linkAppToTeam(appId, teamId, "admin")).rejects.toThrow(/arkivert/i)
+
+		const db = getTestDb()
+		const mappings = await db.execute(
+			/* sql */ `SELECT * FROM application_team_mappings WHERE application_id = '${appId}'`,
+		)
+		expect(mappings.rows).toHaveLength(0)
 	})
 
 	it("should return applications with compliance summary from getApplications", async () => {

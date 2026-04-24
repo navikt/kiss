@@ -11,7 +11,7 @@ export const naisTeams = pgTable("nais_teams", {
 	appCount: integer("app_count").notNull().default(0),
 	status: text("status", { enum: naisTeamStatusEnum }).notNull().default("pending"),
 	sectionId: uuid("section_id").references(() => sections.id, { onDelete: "restrict" }),
-	devTeamId: uuid("dev_team_id").references(() => devTeams.id),
+	devTeamId: uuid("dev_team_id").references(() => devTeams.id, { onDelete: "restrict" }),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
 	reviewedBy: text("reviewed_by"),
@@ -53,7 +53,7 @@ export const applicationTeamMappings = pgTable("application_team_mappings", {
 		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	devTeamId: uuid("dev_team_id")
 		.notNull()
-		.references(() => devTeams.id),
+		.references(() => devTeams.id, { onDelete: "restrict" }),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 })
@@ -62,7 +62,7 @@ export const devTeamNaisTeamMappings = pgTable("dev_team_nais_team_mappings", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	devTeamId: uuid("dev_team_id")
 		.notNull()
-		.references(() => devTeams.id, { onDelete: "cascade" }),
+		.references(() => devTeams.id, { onDelete: "restrict" }),
 	naisTeamId: uuid("nais_team_id")
 		.notNull()
 		.references(() => naisTeams.id, { onDelete: "cascade" }),

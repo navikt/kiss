@@ -1,4 +1,4 @@
-import { PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import { ArchiveIcon, ArrowCirclepathIcon, PlusIcon } from "@navikt/aksel-icons"
 import {
 	Link as AkselLink,
 	Alert,
@@ -9,6 +9,7 @@ import {
 	Modal,
 	Select,
 	Table,
+	Tag,
 	Textarea,
 	TextField,
 	VStack,
@@ -20,11 +21,12 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
 import { getNaisTeamsForSection } from "~/db/queries/nais.server"
 import {
-	deleteTeam,
+	archiveTeam,
 	getNaisTeamsForDevTeam,
 	getSectionBySlug,
 	getTeamApps,
 	linkNaisTeamToDevTeam,
+	unarchiveTeam,
 	unlinkNaisTeamFromDevTeam,
 	updateTeam,
 } from "~/db/queries/sections.server"
@@ -58,6 +60,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		teamId: result.team.id,
 		teamName: result.team.name,
 		teamDescription: result.team.description,
+		teamArchivedAt: result.team.archivedAt,
 		apps: result.apps,
 		availableApps,
 		linkedNaisTeams,
@@ -87,11 +90,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirect(`/seksjoner/${seksjon}/team/${updated.slug}/rediger`)
 	}
 
-	if (intent === "delete-team") {
+	if (intent === "archive-team") {
 		const teamId = formData.get("teamId") as string
 		if (!teamId) throw new Response("Mangler team-ID", { status: 400 })
-		await deleteTeam(teamId, userId)
+		await archiveTeam(teamId, userId)
 		return redirect(`/seksjoner/${seksjon}/rediger?fane=team`)
+	}
+
+	if (intent === "unarchive-team") {
+		const teamId = formData.get("teamId") as string
+		if (!teamId) throw new Response("Mangler team-ID", { status: 400 })
+		await unarchiveTeam(teamId, userId)
+		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
 	}
 
 	if (intent === "link-nais-to-devteam") {
@@ -136,19 +146,34 @@ export default function RedigerTeam() {
 		teamId,
 		teamName,
 		teamDescription,
+		teamArchivedAt,
 		apps,
 		availableApps,
 		linkedNaisTeams,
 		availableNaisTeams,
 	} = useLoaderData<typeof loader>()
 
-	const deleteModalRef = useRef<HTMLDialogElement>(null)
+	const archiveModalRef = useRef<HTMLDialogElement>(null)
+	const isArchived = teamArchivedAt !== null
 
 	return (
 		<VStack gap="space-8">
-			<Heading size="xlarge" level="2" spacing>
-				Rediger team: {teamName}
-			</Heading>
+			<HStack gap="space-8" align="center" wrap>
+				<Heading size="xlarge" level="2" spacing>
+					Rediger team: {teamName}
+				</Heading>
+				{isArchived && (
+					<Tag variant="neutral" size="small">
+						Arkivert
+					</Tag>
+				)}
+			</HStack>
+
+			{isArchived && (
+				<Alert variant="warning" size="small">
+					Teamet er arkivert og er skjult fra brukervendte lister. Reaktiver det for å bruke det igjen.
+				</Alert>
+			)}
 
 			{/* Edit team details */}
 			<VStack gap="space-4">
@@ -159,21 +184,39 @@ export default function RedigerTeam() {
 					<input type="hidden" name="intent" value="update-team" />
 					<input type="hidden" name="teamId" value={teamId} />
 					<VStack gap="space-4">
-						<TextField label="Navn" name="name" defaultValue={teamName} size="small" />
-						<Textarea label="Beskrivelse" name="description" defaultValue={teamDescription ?? ""} size="small" />
+						<TextField label="Navn" name="name" defaultValue={teamName} size="small" readOnly={isArchived} />
+						<Textarea
+							label="Beskrivelse"
+							name="description"
+							defaultValue={teamDescription ?? ""}
+							size="small"
+							readOnly={isArchived}
+						/>
 						<HStack gap="space-4">
-							<Button type="submit" variant="primary" size="small">
-								Lagre
-							</Button>
-							<Button
-								type="button"
-								variant="danger"
-								size="small"
-								icon={<TrashIcon aria-hidden />}
-								onClick={() => deleteModalRef.current?.showModal()}
-							>
-								Slett team
-							</Button>
+							{!isArchived && (
+								<Button type="submit" variant="primary" size="small">
+									Lagre
+								</Button>
+							)}
+							{isArchived ? (
+								<Form method="post">
+									<input type="hidden" name="intent" value="unarchive-team" />
+									<input type="hidden" name="teamId" value={teamId} />
+									<Button type="submit" variant="secondary" size="small" icon={<ArrowCirclepathIcon aria-hidden />}>
+										Reaktiver team
+									</Button>
+								</Form>
+							) : (
+								<Button
+									type="button"
+									variant="danger"
+									size="small"
+									icon={<ArchiveIcon aria-hidden />}
+									onClick={() => archiveModalRef.current?.showModal()}
+								>
+									Arkiver team
+								</Button>
+							)}
 						</HStack>
 					</VStack>
 				</Form>
@@ -351,20 +394,23 @@ export default function RedigerTeam() {
 				{availableApps.length === 0 && apps.length === 0 && <BodyLong>Ingen applikasjoner tilgjengelig.</BodyLong>}
 			</VStack>
 
-			{/* Delete team modal */}
-			<Modal ref={deleteModalRef} header={{ heading: `Slett team: ${teamName}` }}>
+			{/* Archive team modal */}
+			<Modal ref={archiveModalRef} header={{ heading: `Arkiver team: ${teamName}` }}>
 				<Modal.Body>
-					<BodyLong>Er du sikker på at du vil slette teamet «{teamName}»? Dette kan ikke angres.</BodyLong>
+					<BodyLong>
+						Er du sikker på at du vil arkivere teamet «{teamName}»? Teamet skjules fra brukervendte lister, men all
+						historikk og koblinger bevares. Du kan reaktivere teamet senere fra denne siden.
+					</BodyLong>
 				</Modal.Body>
 				<Modal.Footer>
-					<Form method="post" onSubmit={() => deleteModalRef.current?.close()}>
-						<input type="hidden" name="intent" value="delete-team" />
+					<Form method="post" onSubmit={() => archiveModalRef.current?.close()}>
+						<input type="hidden" name="intent" value="archive-team" />
 						<input type="hidden" name="teamId" value={teamId} />
 						<HStack gap="space-4">
 							<Button type="submit" variant="danger" size="small">
-								Slett
+								Arkiver
 							</Button>
-							<Button type="button" variant="secondary" size="small" onClick={() => deleteModalRef.current?.close()}>
+							<Button type="button" variant="secondary" size="small" onClick={() => archiveModalRef.current?.close()}>
 								Avbryt
 							</Button>
 						</HStack>

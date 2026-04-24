@@ -246,7 +246,11 @@ export async function getSectionDetail(seksjonSlug: string) {
 	const [section] = await db.select().from(sections).where(eq(sections.slug, seksjonSlug)).limit(1)
 	if (!section) return null
 
-	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, section.id)).orderBy(devTeams.name)
+	const teams = await db
+		.select()
+		.from(devTeams)
+		.where(and(eq(devTeams.sectionId, section.id), isNull(devTeams.archivedAt)))
+		.orderBy(devTeams.name)
 
 	// Load excluded environments for this section
 	const excludedEnvRows = await db
@@ -552,12 +556,15 @@ export async function createTeam(sectionId: string, name: string, description: s
 /** Update an existing dev team. */
 export async function updateTeam(id: string, name: string, description: string | null, updatedBy: string) {
 	const [prev] = await db.select().from(devTeams).where(eq(devTeams.id, id)).limit(1)
+	if (!prev) throw new Error(`Team ikke funnet: ${id}`)
+	if (prev.archivedAt) throw new Error("Kan ikke oppdatere arkivert team. Reaktiver teamet først.")
 	const slug = generateSlug(name)
 	const [team] = await db
 		.update(devTeams)
 		.set({ name, slug, description, updatedBy, updatedAt: new Date() })
-		.where(eq(devTeams.id, id))
+		.where(and(eq(devTeams.id, id), isNull(devTeams.archivedAt)))
 		.returning()
+	if (!team) throw new Error("Kan ikke oppdatere arkivert team. Reaktiver teamet først.")
 	await writeAuditLog({
 		action: "team_updated",
 		entityType: "team",
@@ -570,24 +577,84 @@ export async function updateTeam(id: string, name: string, description: string |
 	return team
 }
 
-/** Delete a dev team. */
-export async function deleteTeam(id: string, performedBy: string) {
-	const [prev] = await db.select().from(devTeams).where(eq(devTeams.id, id)).limit(1)
-	await db.delete(devTeams).where(eq(devTeams.id, id))
-	await writeAuditLog({
-		action: "team_deleted",
-		entityType: "team",
-		entityId: id,
-		previousValue: prev?.name ?? null,
-		metadata: { sectionId: prev?.sectionId },
-		performedBy,
+/**
+ * Arkiverer et dev-team (soft-delete). Teamet skjules fra brukervendte
+ * lister, men beholder all data og historikk. FK-er fra naisTeams,
+ * applicationTeamMappings, userRoles og devTeamNaisTeamMappings forblir
+ * gyldige (alle FK-er er ON DELETE RESTRICT, så hard delete er umulig).
+ *
+ * UPDATE er guarded mot `archived_at IS NULL` og audit-loggen skrives kun
+ * dersom UPDATE faktisk endret en rad. Idempotent og TOCTOU-sikker uten
+ * å trenge SELECT FOR UPDATE. UPDATE og audit-skriving kjører i samme
+ * transaksjon (AGENTS.md regel 6).
+ */
+export async function archiveTeam(id: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [team] = await tx
+			.update(devTeams)
+			.set({ archivedAt: new Date(), archivedBy: performedBy, updatedBy: performedBy, updatedAt: new Date() })
+			.where(and(eq(devTeams.id, id), isNull(devTeams.archivedAt)))
+			.returning()
+		if (!team) {
+			const [existing] = await tx.select().from(devTeams).where(eq(devTeams.id, id)).limit(1)
+			if (!existing) throw new Error(`Dev-team med id ${id} finnes ikke`)
+			return existing
+		}
+		await writeAuditLog(
+			{
+				action: "team_archived",
+				entityType: "team",
+				entityId: id,
+				previousValue: team.name,
+				newValue: team.name,
+				metadata: { sectionId: team.sectionId, slug: team.slug },
+				performedBy,
+			},
+			tx,
+		)
+		return team
+	})
+}
+
+/**
+ * Reaktiverer et arkivert dev-team. Guarded UPDATE + atomisk audit-skriving,
+ * samme TOCTOU-sikre mønster som archiveTeam.
+ */
+export async function unarchiveTeam(id: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [team] = await tx
+			.update(devTeams)
+			.set({ archivedAt: null, archivedBy: null, updatedBy: performedBy, updatedAt: new Date() })
+			.where(and(eq(devTeams.id, id), isNotNull(devTeams.archivedAt)))
+			.returning()
+		if (!team) {
+			const [existing] = await tx.select().from(devTeams).where(eq(devTeams.id, id)).limit(1)
+			if (!existing) throw new Error(`Dev-team med id ${id} finnes ikke`)
+			return existing
+		}
+		await writeAuditLog(
+			{
+				action: "team_unarchived",
+				entityType: "team",
+				entityId: id,
+				previousValue: team.name,
+				newValue: team.name,
+				metadata: { sectionId: team.sectionId, slug: team.slug },
+				performedBy,
+			},
+			tx,
+		)
+		return team
 	})
 }
 
 /** Get all teams for a section, ordered by name. */
 /** Get all teams for a section with linked Nais team counts. */
-export async function getTeamsForSection(sectionId: string) {
-	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, sectionId)).orderBy(devTeams.name)
+export async function getTeamsForSection(sectionId: string, options: { includeArchived?: boolean } = {}) {
+	const baseCondition = options.includeArchived
+		? eq(devTeams.sectionId, sectionId)
+		: and(eq(devTeams.sectionId, sectionId), isNull(devTeams.archivedAt))
+	const teams = await db.select().from(devTeams).where(baseCondition).orderBy(devTeams.name)
 	const teamsWithNais = await Promise.all(
 		teams.map(async (team) => {
 			const naisLinks = await db
@@ -742,33 +809,45 @@ export async function getAppsForMultipleTeams(teamIds: string[]) {
 
 /** Link a Nais team to a dev team (by Nais team slug). */
 export async function linkNaisTeamToDevTeam(naisTeamSlug: string, devTeamId: string, performedBy: string) {
-	const [naisTeam] = await db.select().from(naisTeams).where(eq(naisTeams.slug, naisTeamSlug)).limit(1)
-	if (!naisTeam) throw new Error(`Nais-team not found: ${naisTeamSlug}`)
+	return db.transaction(async (tx) => {
+		const [team] = await tx
+			.select({ id: devTeams.id, name: devTeams.name, archivedAt: devTeams.archivedAt })
+			.from(devTeams)
+			.where(eq(devTeams.id, devTeamId))
+			.limit(1)
+			.for("share")
+		if (!team) throw new Error(`Dev-team med id ${devTeamId} finnes ikke`)
+		if (team.archivedAt) throw new Error(`Dev-team med id ${devTeamId} er arkivert`)
 
-	const [existing] = await db
-		.select()
-		.from(devTeamNaisTeamMappings)
-		.where(and(eq(devTeamNaisTeamMappings.naisTeamId, naisTeam.id), eq(devTeamNaisTeamMappings.devTeamId, devTeamId)))
-		.limit(1)
-	if (existing) return existing
+		const [naisTeam] = await tx.select().from(naisTeams).where(eq(naisTeams.slug, naisTeamSlug)).limit(1)
+		if (!naisTeam) throw new Error(`Nais-team not found: ${naisTeamSlug}`)
 
-	const [mapping] = await db
-		.insert(devTeamNaisTeamMappings)
-		.values({ naisTeamId: naisTeam.id, devTeamId, createdBy: performedBy })
-		.returning()
+		const [existing] = await tx
+			.select()
+			.from(devTeamNaisTeamMappings)
+			.where(and(eq(devTeamNaisTeamMappings.naisTeamId, naisTeam.id), eq(devTeamNaisTeamMappings.devTeamId, devTeamId)))
+			.limit(1)
+		if (existing) return existing
 
-	const [team] = await db.select({ name: devTeams.name }).from(devTeams).where(eq(devTeams.id, devTeamId)).limit(1)
+		const [mapping] = await tx
+			.insert(devTeamNaisTeamMappings)
+			.values({ naisTeamId: naisTeam.id, devTeamId, createdBy: performedBy })
+			.returning()
 
-	await writeAuditLog({
-		action: "dev_team_nais_team_linked",
-		entityType: "dev_team_nais_team_mapping",
-		entityId: mapping.id,
-		newValue: `${team?.name ?? devTeamId} ↔ ${naisTeamSlug}`,
-		metadata: { devTeamId, naisTeamSlug },
-		performedBy,
+		await writeAuditLog(
+			{
+				action: "dev_team_nais_team_linked",
+				entityType: "dev_team_nais_team_mapping",
+				entityId: mapping.id,
+				newValue: `${team.name} ↔ ${naisTeamSlug}`,
+				metadata: { devTeamId, naisTeamSlug },
+				performedBy,
+			},
+			tx,
+		)
+
+		return mapping
 	})
-
-	return mapping
 }
 
 /** Unlink a Nais team from a dev team (by Nais team slug). */
@@ -812,7 +891,11 @@ export async function getSectionApps(seksjonSlug: string) {
 	const [section] = await db.select().from(sections).where(eq(sections.slug, seksjonSlug)).limit(1)
 	if (!section) return null
 
-	const teams = await db.select().from(devTeams).where(eq(devTeams.sectionId, section.id)).orderBy(devTeams.name)
+	const teams = await db
+		.select()
+		.from(devTeams)
+		.where(and(eq(devTeams.sectionId, section.id), isNull(devTeams.archivedAt)))
+		.orderBy(devTeams.name)
 
 	const excludedEnvRows = await db
 		.select({ cluster: sectionEnvironments.cluster })

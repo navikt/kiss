@@ -28,7 +28,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const [teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, sectionApps, sectionEnvironmentsList] =
 		await Promise.all([
-			getTeamsForSection(sectionId),
+			getTeamsForSection(sectionId, { includeArchived: true }),
 			getNaisTeamsForSection(sectionId),
 			getUnlinkedNaisTeams(),
 			getUnassignedAppsForSection(sectionId),
@@ -53,6 +53,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			slug: t.slug,
 			description: t.description,
 			linkedNaisTeams: t.linkedNaisTeams,
+			archivedAt: t.archivedAt?.toISOString() ?? null,
 		})),
 		linkedNaisTeams: linkedNaisTeams.map((t) => ({
 			slug: t.slug,

@@ -18,7 +18,8 @@ const {
 	getSections,
 	createTeam,
 	updateTeam,
-	deleteTeam,
+	archiveTeam,
+	unarchiveTeam,
 	getTeamsForSection,
 } = await import("~/db/queries/sections.server")
 
@@ -48,6 +49,7 @@ describe("sections.server integration tests", () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
 			DELETE FROM dev_team_nais_team_mappings;
+			DELETE FROM nais_teams;
 			DELETE FROM dev_teams;
 			DELETE FROM sections;
 			DELETE FROM audit_log;
@@ -197,17 +199,64 @@ describe("sections.server integration tests", () => {
 			expect(updateEntry?.new_value).toBe("New name")
 		})
 
-		it("deletes a team", async () => {
+		it("archives a team and reactivates it (idempotent + atomic + audit-in-tx)", async () => {
 			const section = await createSection("Sec", null, "admin")
 			const team = await createTeam(section.id, "Doomed", null, "admin")
-			await deleteTeam(team.id, "deleter")
+			const archived = await archiveTeam(team.id, "archiver")
+			expect(archived.archivedAt).toBeInstanceOf(Date)
+			expect(archived.archivedBy).toBe("archiver")
+
+			// Idempotent: second call returns same row, does not write extra audit
+			const archivedAgain = await archiveTeam(team.id, "archiver")
+			expect(archivedAgain.id).toBe(team.id)
 
 			const db = getTestDb()
-			const rows = await db.execute(/* sql */ `SELECT id FROM dev_teams WHERE id = '${team.id}'`)
-			expect(rows.rows).toHaveLength(0)
+			const rows = await db.execute(/* sql */ `SELECT id, archived_at FROM dev_teams WHERE id = '${team.id}'`)
+			expect(rows.rows).toHaveLength(1)
+			expect((rows.rows[0] as { archived_at: Date | null }).archived_at).not.toBeNull()
 
-			const audit = await getAuditByEntity("team", team.id)
-			expect(audit.find((a) => a.action === "team_deleted")?.previous_value).toBe("Doomed")
+			let audit = await getAuditByEntity("team", team.id)
+			expect(audit.filter((a) => a.action === "team_archived")).toHaveLength(1)
+
+			// Default getTeamsForSection excludes archived
+			const activeTeams = await getTeamsForSection(section.id)
+			expect(activeTeams.find((t) => t.id === team.id)).toBeUndefined()
+
+			// includeArchived returns it
+			const allTeams = await getTeamsForSection(section.id, { includeArchived: true })
+			expect(allTeams.find((t) => t.id === team.id)).toBeDefined()
+
+			// Reactivate
+			const reactivated = await unarchiveTeam(team.id, "reactivator")
+			expect(reactivated.archivedAt).toBeNull()
+			expect(reactivated.archivedBy).toBeNull()
+
+			audit = await getAuditByEntity("team", team.id)
+			expect(audit.filter((a) => a.action === "team_unarchived")).toHaveLength(1)
+		})
+
+		it("rejects updateTeam on an archived team", async () => {
+			const section = await createSection("Sec", null, "admin")
+			const team = await createTeam(section.id, "Frozen", null, "admin")
+			await archiveTeam(team.id, "admin")
+			await expect(updateTeam(team.id, "Tine", null, "admin")).rejects.toThrow(/arkivert/i)
+		})
+
+		it("rejects updateTeam with not-found error for unknown id (not archived error)", async () => {
+			await expect(updateTeam("00000000-0000-0000-0000-000000000000", "X", null, "admin")).rejects.toThrow(
+				/ikke funnet/i,
+			)
+		})
+
+		it("hard delete on dev_teams is blocked by FK RESTRICT (cannot remove team with mappings)", async () => {
+			const section = await createSection("Sec", null, "admin")
+			const team = await createTeam(section.id, "Linked", null, "admin")
+			const db = getTestDb()
+			// Insert a nais_team that references the dev_team to force FK RESTRICT
+			await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, dev_team_id) VALUES ('nt-${team.id.slice(0, 6)}', '${team.id}')`,
+			)
+			await expect(db.execute(/* sql */ `DELETE FROM dev_teams WHERE id = '${team.id}'`)).rejects.toThrow()
 		})
 
 		it("returns teams for a section ordered by name", async () => {
