@@ -23,6 +23,7 @@ export const rulesets = pgTable("rulesets", {
 	frequency: text("frequency", { enum: ROUTINE_FREQUENCIES }).notNull(),
 	status: text("status", { enum: rulesetStatusEnum }).notNull().default("draft"),
 	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
