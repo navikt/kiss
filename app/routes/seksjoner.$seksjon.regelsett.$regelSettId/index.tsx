@@ -21,13 +21,14 @@ import {
 	type ApprovalStatus,
 	approveRuleset,
 	getRulesetDetail,
+	getRulesetMeta,
 	linkRoutineToRuleset,
 	unlinkRoutineFromRuleset,
 } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { hasExactRoleForSection, isAdmin } from "~/lib/authorization.server"
+import { hasExactRoleForSection, isAdmin, requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
@@ -53,10 +54,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const canApprove =
 		user !== null &&
+		ruleset.status !== "archived" &&
 		((ruleset.responsibleIdent !== null && user.navIdent === ruleset.responsibleIdent) ||
 			(ruleset.responsibleRole !== null &&
 				hasExactRoleForSection(user, ruleset.responsibleRole as UserRole, section.id)))
 	const userIsAdmin = user ? isAdmin(user) : false
+	const canMutate = userIsAdmin && ruleset.status !== "archived"
 
 	// Build display text for responsible
 	let responsibleDisplay: string
@@ -68,8 +71,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		responsibleDisplay = ruleset.responsibleName ?? "Ikke angitt"
 	}
 
-	// Load section routines for linking (exclude already-linked ones)
-	const sectionRoutines = userIsAdmin ? await getRoutinesForSection(section.id) : []
+	// Load section routines for linking (exclude already-linked ones).
+	// Skip når brukeren ikke kan mutere (ikke-admin eller arkivert) for å unngå unødvendig DB-last.
+	const sectionRoutines = canMutate ? await getRoutinesForSection(section.id) : []
 	const linkedRoutineIds = new Set(ruleset.linkedRoutines.map((r) => r.routineId))
 	const availableRoutines = sectionRoutines.filter((r) => !linkedRoutineIds.has(r.id))
 
@@ -78,6 +82,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		ruleset,
 		canApprove,
 		canAdmin: userIsAdmin,
+		canMutate,
 		responsibleDisplay,
 		descriptionHtml: renderMarkdown(ruleset.description),
 		availableRoutines: availableRoutines.map((r) => ({ id: r.id, name: r.name })),
@@ -87,11 +92,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const { regelSettId } = params
-	if (!regelSettId) throw data({ message: "Mangler regelsett-ID" }, { status: 400 })
+	const { seksjon, regelSettId } = params
+	if (!seksjon || !regelSettId) throw data({ message: "Mangler parametere" }, { status: 400 })
 
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
+
+	const section = await getSectionBySlug(seksjon)
+	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 
 	const formData = await request.formData()
 	const intent = formData.get("intent")
@@ -99,7 +107,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	switch (intent) {
 		case "approve": {
 			const ruleset = await getRulesetDetail(regelSettId)
-			if (!ruleset) throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
+			if (!ruleset || ruleset.sectionId !== section.id) {
+				throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
+			}
+
+			if (ruleset.status === "archived") {
+				return data<ActionResult>({ success: false, error: "Kan ikke godkjenne et arkivert regelsett." })
+			}
 
 			const canApprove =
 				(ruleset.responsibleIdent !== null && authedUser.navIdent === ruleset.responsibleIdent) ||
@@ -108,32 +122,67 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (!canApprove) throw new Response("Ikke autorisert", { status: 403 })
 
 			const comment = formData.get("comment")
-			await approveRuleset({
+			const approvalId = await approveRuleset({
 				rulesetId: regelSettId,
 				approvedBy: authedUser.navIdent,
 				approvedByName: authedUser.name,
 				comment: typeof comment === "string" && comment.trim() ? comment.trim() : undefined,
 				frequency: ruleset.frequency,
 			})
+			if (!approvalId) {
+				return data<ActionResult>({
+					success: false,
+					error: "Regelsettet ble arkivert før godkjenningen kunne lagres.",
+				})
+			}
 
 			return data<ActionResult>({ success: true, message: "Regelsett godkjent." })
 		}
 
 		case "link-routine": {
+			requireAdmin(authedUser)
+			const meta = await getRulesetMeta(regelSettId)
+			if (!meta || meta.sectionId !== section.id) {
+				throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
+			}
+			if (meta.archivedAt) {
+				return data<ActionResult>({ success: false, error: "Kan ikke endre koblinger på et arkivert regelsett." })
+			}
 			const routineId = formData.get("routineId")
-			if (typeof routineId !== "string" || !routineId) {
+			if (typeof routineId !== "string" || !routineId.trim()) {
 				return data<ActionResult>({ success: false, error: "Velg en rutine." })
 			}
-			await linkRoutineToRuleset(regelSettId, routineId, authedUser.navIdent)
+			const linked = await linkRoutineToRuleset(regelSettId, routineId.trim(), authedUser.navIdent)
+			if (!linked) {
+				return data<ActionResult>({
+					success: false,
+					error:
+						"Kunne ikke koble rutinen til regelsettet. Rutinen kan være ugyldig eller tilhøre en annen seksjon, eller regelsettet kan være arkivert.",
+				})
+			}
 			return data<ActionResult>({ success: true, message: "Rutine koblet til regelsettet." })
 		}
 
 		case "unlink-routine": {
+			requireAdmin(authedUser)
+			const meta = await getRulesetMeta(regelSettId)
+			if (!meta || meta.sectionId !== section.id) {
+				throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
+			}
+			if (meta.archivedAt) {
+				return data<ActionResult>({ success: false, error: "Kan ikke endre koblinger på et arkivert regelsett." })
+			}
 			const linkId = formData.get("linkId")
-			if (typeof linkId !== "string" || !linkId) {
+			if (typeof linkId !== "string" || !linkId.trim()) {
 				return data<ActionResult>({ success: false, error: "Mangler kobling-ID." })
 			}
-			await unlinkRoutineFromRuleset(linkId)
+			const unlinked = await unlinkRoutineFromRuleset(regelSettId, linkId.trim())
+			if (!unlinked) {
+				return data<ActionResult>({
+					success: false,
+					error: "Regelsettet er arkivert eller finnes ikke.",
+				})
+			}
 			return data<ActionResult>({ success: true, message: "Rutine fjernet fra regelsettet." })
 		}
 
@@ -143,7 +192,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RegelsettDetalj() {
-	const { section, ruleset, canApprove, canAdmin, responsibleDisplay, descriptionHtml, availableRoutines } =
+	const { section, ruleset, canApprove, canAdmin, canMutate, responsibleDisplay, descriptionHtml, availableRoutines } =
 		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const [approveOpen, setApproveOpen] = useState(false)
@@ -257,7 +306,7 @@ export default function RegelsettDetalj() {
 									<Table.HeaderCell scope="col">Rutine</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Lagt til av</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Dato</Table.HeaderCell>
-									{canAdmin && <Table.HeaderCell scope="col" />}
+									{canMutate && <Table.HeaderCell scope="col" />}
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
@@ -268,7 +317,7 @@ export default function RegelsettDetalj() {
 										</Table.DataCell>
 										<Table.DataCell>{r.createdBy}</Table.DataCell>
 										<Table.DataCell>{new Date(r.createdAt).toLocaleDateString("nb-NO")}</Table.DataCell>
-										{canAdmin && (
+										{canMutate && (
 											<Table.DataCell>
 												<Form method="post">
 													<input type="hidden" name="intent" value="unlink-routine" />
@@ -286,7 +335,7 @@ export default function RegelsettDetalj() {
 					</section>
 				)}
 				{ruleset.linkedRoutines.length === 0 && <BodyLong>Ingen rutiner er koblet til dette regelsettet.</BodyLong>}
-				{canAdmin && availableRoutines.length > 0 && (
+				{canMutate && availableRoutines.length > 0 && (
 					<Form method="post">
 						<input type="hidden" name="intent" value="link-routine" />
 						<HStack gap="space-4" align="end">

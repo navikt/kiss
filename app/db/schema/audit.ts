@@ -137,6 +137,10 @@ export const auditLogActionEnum = [
 	"document_archived",
 	"document_unarchived",
 
+	// Regelsett
+	"ruleset_archived",
+	"ruleset_unarchived",
+
 	// Revisjonsbevis og automatiske synkroniseringer
 	"audit_confirmation_created",
 	"audit_confirmation_updated",
