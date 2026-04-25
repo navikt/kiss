@@ -20,7 +20,9 @@ import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import {
 	archiveRuleset,
 	getRulesetDetail,
+	getRulesetMeta,
 	linkControlToRuleset,
+	unarchiveRuleset,
 	unlinkControlFromRuleset,
 	updateRuleset,
 } from "~/db/queries/rulesets.server"
@@ -86,6 +88,30 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const formData = await request.formData()
 	const intent = formData.get("intent")
 
+	// Mutasjoner som krever at regelsettet er aktivt (ikke arkivert) — pluss
+	// `archive`/`unarchive` som er statusoverganger og som må valideres mot
+	// `seksjon`. Bruker lett `getRulesetMeta` for ren guard (arkiv-status og
+	// section-binding) — DB-laget har egne TOCTOU-guards, enten som guarded
+	// UPDATE eller via transaksjon + FOR SHARE, avhengig av mutasjonen.
+	if (intent === "update" || intent === "link-control" || intent === "unlink-control") {
+		const current = await getRulesetMeta(regelSettId)
+		if (!current || current.sectionId !== section.id) {
+			throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
+		}
+		if (current.archivedAt) {
+			return data<ActionResult>({
+				success: false,
+				error: "Regelsettet er arkivert. Reaktiver det før du gjør endringer.",
+			})
+		}
+	}
+	if (intent === "archive" || intent === "unarchive") {
+		const current = await getRulesetMeta(regelSettId)
+		if (!current || current.sectionId !== section.id) {
+			throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
+		}
+	}
+
 	switch (intent) {
 		case "update": {
 			const name = formData.get("name")
@@ -102,7 +128,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 			const isRoleBased = responsibleType === "role"
 
-			await updateRuleset(regelSettId, {
+			const updated = await updateRuleset(regelSettId, {
 				name: name.trim(),
 				description: typeof description === "string" ? description.trim() || null : undefined,
 				responsibleIdent: isRoleBased
@@ -124,12 +150,29 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				updatedBy: authedUser.navIdent,
 			})
 
+			if (!updated) {
+				return data<ActionResult>({
+					success: false,
+					error: "Regelsettet er arkivert eller finnes ikke.",
+				})
+			}
 			return data<ActionResult>({ success: true, message: "Regelsett oppdatert." })
 		}
 
 		case "archive": {
-			await archiveRuleset(regelSettId, authedUser.navIdent)
+			const archived = await archiveRuleset(regelSettId, authedUser.navIdent)
+			if (!archived) {
+				return data<ActionResult>({ success: false, error: "Fant ikke regelsettet." })
+			}
 			return redirect(`/seksjoner/${seksjon}/regelsett`)
+		}
+
+		case "unarchive": {
+			const unarchived = await unarchiveRuleset(regelSettId, authedUser.navIdent)
+			if (!unarchived) {
+				return data<ActionResult>({ success: false, error: "Fant ikke regelsettet." })
+			}
+			return data<ActionResult>({ success: true, message: "Regelsettet ble reaktivert." })
 		}
 
 		case "link-control": {
@@ -137,16 +180,28 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (typeof controlId !== "string" || !controlId.trim()) {
 				return data<ActionResult>({ success: false, error: "Velg et kontrollkrav." })
 			}
-			await linkControlToRuleset(regelSettId, controlId)
+			const linked = await linkControlToRuleset(regelSettId, controlId)
+			if (!linked) {
+				return data<ActionResult>({
+					success: false,
+					error: "Regelsettet er arkivert eller finnes ikke.",
+				})
+			}
 			return data<ActionResult>({ success: true, message: "Kontrollkrav koblet." })
 		}
 
 		case "unlink-control": {
 			const linkId = formData.get("linkId")
-			if (typeof linkId !== "string") {
+			if (typeof linkId !== "string" || !linkId.trim()) {
 				return data<ActionResult>({ success: false, error: "Mangler kobling-ID." })
 			}
-			await unlinkControlFromRuleset(linkId)
+			const unlinked = await unlinkControlFromRuleset(regelSettId, linkId)
+			if (!unlinked) {
+				return data<ActionResult>({
+					success: false,
+					error: "Regelsettet er arkivert eller finnes ikke.",
+				})
+			}
 			return data<ActionResult>({ success: true, message: "Kontrollkrav fjernet." })
 		}
 
@@ -177,128 +232,152 @@ export default function RegelsettRediger() {
 				<Alert variant="error">{actionData.error}</Alert>
 			)}
 
-			<Form method="post">
-				<input type="hidden" name="intent" value="update" />
-				<VStack gap="space-4">
-					<TextField label="Navn" name="name" defaultValue={ruleset.name} />
-					<MarkdownEditor label="Beskrivelse" name="description" defaultValue={ruleset.description ?? ""} />
+			{ruleset.status === "archived" && (
+				<Alert variant="info">Regelsettet er arkivert. Reaktiver det nederst på siden for å gjøre endringer.</Alert>
+			)}
 
-					<RadioGroup
-						legend="Ansvarlig"
-						value={responsibleType}
-						onChange={(val) => setResponsibleType(val as "person" | "role")}
-						name="responsibleType"
-					>
-						<Radio value="person">Navngitt person</Radio>
-						<Radio value="role">Rolle i seksjonen</Radio>
-					</RadioGroup>
-
-					{responsibleType === "person" ? (
-						<HStack gap="space-4" wrap>
-							<TextField
-								label="NAV-ident"
-								name="responsibleIdent"
-								defaultValue={ruleset.responsibleIdent ?? ""}
-								htmlSize={12}
-							/>
-							<TextField
-								label="Navn"
-								name="responsibleName"
-								defaultValue={ruleset.responsibleName ?? ""}
-								htmlSize={30}
-							/>
-						</HStack>
-					) : (
-						<Select label="Velg rolle" name="responsibleRole" defaultValue={ruleset.responsibleRole ?? ""}>
-							<option value="">Velg rolle</option>
-							{assignableRoles.map((role) => (
-								<option key={role} value={role}>
-									{userRoleLabels[role]}
-								</option>
-							))}
-						</Select>
-					)}
-
-					<Select label="Frekvens" name="frequency" defaultValue={ruleset.frequency}>
-						<option value="">Velg frekvens</option>
-						{frequencies.map((f) => (
-							<option key={f.value} value={f.value}>
-								{f.label}
-							</option>
-						))}
-					</Select>
-					<div>
-						<Button type="submit" variant="primary">
-							Lagre endringer
-						</Button>
-					</div>
-				</VStack>
-			</Form>
-
-			<VStack gap="space-4">
-				<Heading size="small" level="3">
-					Tilknyttede kontrollkrav
-				</Heading>
-				{ruleset.controls.length > 0 && (
-					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
-					<section className="table-scroll" tabIndex={0} aria-label="Tilknyttede kontrollkrav">
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-									<Table.HeaderCell scope="col" />
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{ruleset.controls.map((c) => (
-									<Table.Row key={c.linkId}>
-										<Table.DataCell>{c.controlId}</Table.DataCell>
-										<Table.DataCell>{c.shortTitle ?? "–"}</Table.DataCell>
-										<Table.DataCell>
-											<Form method="post">
-												<input type="hidden" name="intent" value="unlink-control" />
-												<input type="hidden" name="linkId" value={c.linkId} />
-												<Button type="submit" variant="tertiary-neutral" size="xsmall">
-													Fjern
-												</Button>
-											</Form>
-										</Table.DataCell>
-									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
-					</section>
-				)}
+			{ruleset.status !== "archived" && (
 				<Form method="post">
-					<input type="hidden" name="intent" value="link-control" />
-					<HStack gap="space-4" align="end">
-						<Select label="Legg til kontrollkrav" name="controlId">
-							<option value="">Velg kontrollkrav</option>
-							{availableControls.map((c) => (
-								<option key={c.id} value={c.id}>
-									{c.controlId} — {c.name}
+					<input type="hidden" name="intent" value="update" />
+					<VStack gap="space-4">
+						<TextField label="Navn" name="name" defaultValue={ruleset.name} />
+						<MarkdownEditor label="Beskrivelse" name="description" defaultValue={ruleset.description ?? ""} />
+
+						<RadioGroup
+							legend="Ansvarlig"
+							value={responsibleType}
+							onChange={(val) => setResponsibleType(val as "person" | "role")}
+							name="responsibleType"
+						>
+							<Radio value="person">Navngitt person</Radio>
+							<Radio value="role">Rolle i seksjonen</Radio>
+						</RadioGroup>
+
+						{responsibleType === "person" ? (
+							<HStack gap="space-4" wrap>
+								<TextField
+									label="NAV-ident"
+									name="responsibleIdent"
+									defaultValue={ruleset.responsibleIdent ?? ""}
+									htmlSize={12}
+								/>
+								<TextField
+									label="Navn"
+									name="responsibleName"
+									defaultValue={ruleset.responsibleName ?? ""}
+									htmlSize={30}
+								/>
+							</HStack>
+						) : (
+							<Select label="Velg rolle" name="responsibleRole" defaultValue={ruleset.responsibleRole ?? ""}>
+								<option value="">Velg rolle</option>
+								{assignableRoles.map((role) => (
+									<option key={role} value={role}>
+										{userRoleLabels[role]}
+									</option>
+								))}
+							</Select>
+						)}
+
+						<Select label="Frekvens" name="frequency" defaultValue={ruleset.frequency}>
+							<option value="">Velg frekvens</option>
+							{frequencies.map((f) => (
+								<option key={f.value} value={f.value}>
+									{f.label}
 								</option>
 							))}
 						</Select>
-						<Button type="submit" variant="secondary" size="small">
-							Legg til
-						</Button>
-					</HStack>
+						<div>
+							<Button type="submit" variant="primary">
+								Lagre endringer
+							</Button>
+						</div>
+					</VStack>
 				</Form>
-			</VStack>
+			)}
+
+			{ruleset.status !== "archived" && (
+				<VStack gap="space-4">
+					<Heading size="small" level="3">
+						Tilknyttede kontrollkrav
+					</Heading>
+					{ruleset.controls.length > 0 && (
+						/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+						<section className="table-scroll" tabIndex={0} aria-label="Tilknyttede kontrollkrav">
+							<Table size="small">
+								<Table.Header>
+									<Table.Row>
+										<Table.HeaderCell scope="col">Kontroll-ID</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+										<Table.HeaderCell scope="col" />
+									</Table.Row>
+								</Table.Header>
+								<Table.Body>
+									{ruleset.controls.map((c) => (
+										<Table.Row key={c.linkId}>
+											<Table.DataCell>{c.controlId}</Table.DataCell>
+											<Table.DataCell>{c.shortTitle ?? "–"}</Table.DataCell>
+											<Table.DataCell>
+												<Form method="post">
+													<input type="hidden" name="intent" value="unlink-control" />
+													<input type="hidden" name="linkId" value={c.linkId} />
+													<Button type="submit" variant="tertiary-neutral" size="xsmall">
+														Fjern
+													</Button>
+												</Form>
+											</Table.DataCell>
+										</Table.Row>
+									))}
+								</Table.Body>
+							</Table>
+						</section>
+					)}
+					<Form method="post">
+						<input type="hidden" name="intent" value="link-control" />
+						<HStack gap="space-4" align="end">
+							<Select label="Legg til kontrollkrav" name="controlId">
+								<option value="">Velg kontrollkrav</option>
+								{availableControls.map((c) => (
+									<option key={c.id} value={c.id}>
+										{c.controlId} — {c.name}
+									</option>
+								))}
+							</Select>
+							<Button type="submit" variant="secondary" size="small">
+								Legg til
+							</Button>
+						</HStack>
+					</Form>
+				</VStack>
+			)}
 
 			<VStack gap="space-4">
 				<Heading size="small" level="3">
 					Arkivering
 				</Heading>
-				<BodyLong size="small">Arkivering skjuler regelsettet fra oversikten.</BodyLong>
-				<Form method="post">
-					<input type="hidden" name="intent" value="archive" />
-					<Button type="submit" variant="danger" size="small">
-						Arkiver regelsett
-					</Button>
-				</Form>
+				{ruleset.status === "archived" ? (
+					<>
+						<BodyLong size="small">
+							Regelsettet er arkivert og vises ikke i oversikten. Reaktiver for å gjøre det synlig igjen.
+						</BodyLong>
+						<Form method="post">
+							<input type="hidden" name="intent" value="unarchive" />
+							<Button type="submit" variant="secondary" size="small">
+								Reaktiver regelsett
+							</Button>
+						</Form>
+					</>
+				) : (
+					<>
+						<BodyLong size="small">Arkivering skjuler regelsettet fra oversikten.</BodyLong>
+						<Form method="post">
+							<input type="hidden" name="intent" value="archive" />
+							<Button type="submit" variant="danger" size="small">
+								Arkiver regelsett
+							</Button>
+						</Form>
+					</>
+				)}
 			</VStack>
 		</VStack>
 	)

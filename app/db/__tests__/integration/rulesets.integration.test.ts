@@ -14,6 +14,7 @@ const {
 	createRuleset,
 	updateRuleset,
 	archiveRuleset,
+	unarchiveRuleset,
 	approveRuleset,
 	linkControlToRuleset,
 	unlinkControlFromRuleset,
@@ -68,6 +69,7 @@ describe("rulesets.server integration tests", () => {
 			DELETE FROM routines;
 			DELETE FROM framework_controls;
 			DELETE FROM sections;
+			DELETE FROM audit_log;
 		`)
 	})
 
@@ -103,11 +105,97 @@ describe("rulesets.server integration tests", () => {
 		it("archives a ruleset", async () => {
 			const sectionId = await createSectionRow("sec3")
 			const id = await createRuleset({ sectionId, name: "ToArchive", frequency: "annually", createdBy: "admin" })
-			await archiveRuleset(id, "admin")
+			const archived = await archiveRuleset(id, "admin")
+			expect(archived?.id).toBe(id)
+			expect(archived?.archivedAt).toBeInstanceOf(Date)
+			expect(archived?.archivedBy).toBe("admin")
 
 			const detail = await getRulesetDetail(id)
 			expect(detail?.status).toBe("archived")
 			expect(detail?.approvalStatus).toBe("expired")
+
+			// Skjult fra oversikten
+			const list = await getRulesetsForSection(sectionId)
+			expect(list.map((r) => r.id)).not.toContain(id)
+
+			// Audit
+			const db = getTestDb()
+			const r = await db.execute(
+				/* sql */ `SELECT action, performed_by FROM audit_log WHERE entity_id = '${id}' AND action = 'ruleset_archived'`,
+			)
+			expect(r.rows).toHaveLength(1)
+			expect((r.rows[0] as { performed_by: string }).performed_by).toBe("admin")
+		})
+
+		it("er idempotent: re-arkivering skriver ikke nytt audit", async () => {
+			const sectionId = await createSectionRow("sec3b")
+			const id = await createRuleset({ sectionId, name: "Idem", frequency: "annually", createdBy: "admin" })
+			await archiveRuleset(id, "admin")
+			await archiveRuleset(id, "admin")
+
+			const db = getTestDb()
+			const r = await db.execute(
+				/* sql */ `SELECT id FROM audit_log WHERE entity_id = '${id}' AND action = 'ruleset_archived'`,
+			)
+			expect(r.rows).toHaveLength(1)
+		})
+
+		it("archiveRuleset returnerer null for ukjent id", async () => {
+			const r = await archiveRuleset("00000000-0000-0000-0000-000000000000", "u")
+			expect(r).toBeNull()
+		})
+
+		it("reaktiverer arkivert regelsett uten godkjenning som draft", async () => {
+			const sectionId = await createSectionRow("sec3c")
+			const id = await createRuleset({ sectionId, name: "ReDraft", frequency: "annually", createdBy: "admin" })
+			await archiveRuleset(id, "admin")
+			const r = await unarchiveRuleset(id, "operator")
+			expect(r?.archivedAt).toBeNull()
+			expect(r?.archivedBy).toBeNull()
+			expect(r?.status).toBe("draft")
+
+			const detail = await getRulesetDetail(id)
+			expect(detail?.status).toBe("draft")
+
+			const db = getTestDb()
+			const audit = await db.execute(
+				/* sql */ `SELECT performed_by FROM audit_log WHERE entity_id = '${id}' AND action = 'ruleset_unarchived'`,
+			)
+			expect(audit.rows).toHaveLength(1)
+			expect((audit.rows[0] as { performed_by: string }).performed_by).toBe("operator")
+		})
+
+		it("reaktiverer arkivert regelsett med godkjenning som active", async () => {
+			const sectionId = await createSectionRow("sec3d")
+			const id = await createRuleset({ sectionId, name: "ReActive", frequency: "annually", createdBy: "admin" })
+			await approveRuleset({
+				rulesetId: id,
+				approvedBy: "a",
+				approvedByName: "A",
+				frequency: "annually",
+			})
+			await archiveRuleset(id, "admin")
+			const r = await unarchiveRuleset(id, "operator")
+			expect(r?.status).toBe("active")
+		})
+
+		it("er idempotent: re-aktivering skriver ikke nytt audit", async () => {
+			const sectionId = await createSectionRow("sec3e")
+			const id = await createRuleset({ sectionId, name: "ReIdem", frequency: "annually", createdBy: "admin" })
+			await archiveRuleset(id, "admin")
+			await unarchiveRuleset(id, "u")
+			await unarchiveRuleset(id, "u")
+
+			const db = getTestDb()
+			const r = await db.execute(
+				/* sql */ `SELECT id FROM audit_log WHERE entity_id = '${id}' AND action = 'ruleset_unarchived'`,
+			)
+			expect(r.rows).toHaveLength(1)
+		})
+
+		it("unarchiveRuleset returnerer null for ukjent id", async () => {
+			const r = await unarchiveRuleset("00000000-0000-0000-0000-000000000000", "u")
+			expect(r).toBeNull()
 		})
 	})
 
@@ -146,7 +234,7 @@ describe("rulesets.server integration tests", () => {
 			expect(detail?.controls[0].controlId).toBe("K-LR.01")
 
 			const linkId = detail?.controls[0].linkId as string
-			await unlinkControlFromRuleset(linkId)
+			await unlinkControlFromRuleset(rulesetId, linkId)
 
 			const after = await getRulesetDetail(rulesetId)
 			expect(after?.controls).toHaveLength(0)
@@ -199,9 +287,116 @@ describe("rulesets.server integration tests", () => {
 			expect(detail?.linkedRoutines).toHaveLength(1)
 			expect(detail?.linkedRoutines[0].routineName).toBe("Routine A")
 
-			await unlinkRoutineFromRuleset(detail?.linkedRoutines[0].linkId as string)
+			await unlinkRoutineFromRuleset(rulesetId, detail?.linkedRoutines[0].linkId as string)
 			const after = await getRulesetDetail(rulesetId)
 			expect(after?.linkedRoutines).toHaveLength(0)
+		})
+	})
+
+	describe("Archived guards on related mutations", () => {
+		it("updateRuleset returns false on archived ruleset", async () => {
+			const sectionId = await createSectionRow("secG1")
+			const id = await createRuleset({ sectionId, name: "X", frequency: "annually", createdBy: "admin" })
+			await archiveRuleset(id, "admin")
+			const ok = await updateRuleset(id, { name: "Forbidden", updatedBy: "admin" })
+			expect(ok).toBe(false)
+			const detail = await getRulesetDetail(id)
+			expect(detail?.name).toBe("X")
+		})
+
+		it("approveRuleset returns null on archived ruleset", async () => {
+			const sectionId = await createSectionRow("secG2")
+			const id = await createRuleset({ sectionId, name: "Y", frequency: "annually", createdBy: "admin" })
+			await archiveRuleset(id, "admin")
+			const approvalId = await approveRuleset({
+				rulesetId: id,
+				approvedBy: "admin",
+				approvedByName: "Admin",
+				frequency: "annually",
+			})
+			expect(approvalId).toBeNull()
+		})
+
+		it("linkControlToRuleset and unlinkControlFromRuleset are blocked when archived", async () => {
+			const sectionId = await createSectionRow("secG3")
+			const id = await createRuleset({ sectionId, name: "Z", frequency: "annually", createdBy: "admin" })
+			const controlA = await createControl("K-AA.01")
+			const controlB = await createControl("K-AA.02")
+			expect(await linkControlToRuleset(id, controlA)).toBe(true)
+			await archiveRuleset(id, "admin")
+			expect(await linkControlToRuleset(id, controlB)).toBe(false)
+			const detail = await getRulesetDetail(id)
+			const link = detail?.controls.find((c) => c.id === controlA)
+			expect(await unlinkControlFromRuleset(id, link?.linkId as string)).toBe(false)
+		})
+
+		it("linkRoutineToRuleset and unlinkRoutineFromRuleset are blocked when archived", async () => {
+			const sectionId = await createSectionRow("secG4")
+			const id = await createRuleset({ sectionId, name: "W", frequency: "annually", createdBy: "admin" })
+			const routineA = await createRoutineRow(sectionId, "Routine X")
+			const routineB = await createRoutineRow(sectionId, "Routine Y")
+			expect(await linkRoutineToRuleset(id, routineA, "admin")).toBe(true)
+			await archiveRuleset(id, "admin")
+			expect(await linkRoutineToRuleset(id, routineB, "admin")).toBe(false)
+			const detail = await getRulesetDetail(id)
+			const link = detail?.linkedRoutines[0]
+			expect(await unlinkRoutineFromRuleset(id, link?.linkId as string)).toBe(false)
+		})
+
+		it("linkRoutineToRuleset rejects routine from a different section", async () => {
+			const sectionA = await createSectionRow("secG6a")
+			const sectionB = await createSectionRow("secG6b")
+			const rulesetA = await createRuleset({
+				sectionId: sectionA,
+				name: "RA",
+				frequency: "annually",
+				createdBy: "admin",
+			})
+			const routineInB = await createRoutineRow(sectionB, "Routine in B")
+
+			expect(await linkRoutineToRuleset(rulesetA, routineInB, "admin")).toBe(false)
+			const detail = await getRulesetDetail(rulesetA)
+			expect(detail?.linkedRoutines).toHaveLength(0)
+		})
+
+		it("linkRoutineToRuleset rejects archived routine in same section", async () => {
+			const sectionId = await createSectionRow("secG7")
+			const ruleset = await createRuleset({
+				sectionId,
+				name: "R-arch-routine",
+				frequency: "annually",
+				createdBy: "admin",
+			})
+			const routineId = await createRoutineRow(sectionId, "Routine to archive")
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `UPDATE routines SET archived_at = NOW(), archived_by = 'admin' WHERE id = '${routineId}'`,
+			)
+
+			expect(await linkRoutineToRuleset(ruleset, routineId, "admin")).toBe(false)
+			const detail = await getRulesetDetail(ruleset)
+			expect(detail?.linkedRoutines).toHaveLength(0)
+		})
+
+		it("unlink is idempotent and rejects cross-resource link IDs", async () => {
+			const sectionId = await createSectionRow("secG5")
+			const rsA = await createRuleset({ sectionId, name: "A", frequency: "annually", createdBy: "admin" })
+			const rsB = await createRuleset({ sectionId, name: "B", frequency: "annually", createdBy: "admin" })
+			const ctrl = await createControl("K-CR.01")
+			expect(await linkControlToRuleset(rsA, ctrl)).toBe(true)
+			const detailA = await getRulesetDetail(rsA)
+			const linkInA = detailA?.controls[0].linkId as string
+
+			// Cross-resource: prøver å unlinke A's link via rsB → ingen sletting,
+			// men returnerer true (idempotent — linken finnes ikke i rsB).
+			expect(await unlinkControlFromRuleset(rsB, linkInA)).toBe(true)
+			const stillLinked = await getRulesetDetail(rsA)
+			expect(stillLinked?.controls).toHaveLength(1)
+
+			// Korrekt unlink
+			expect(await unlinkControlFromRuleset(rsA, linkInA)).toBe(true)
+			// Idempotent — andre kall returnerer fortsatt true selv om link er borte.
+			expect(await unlinkControlFromRuleset(rsA, linkInA)).toBe(true)
 		})
 	})
 
