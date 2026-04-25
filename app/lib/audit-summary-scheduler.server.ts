@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "../db/connection.server"
 import { applicationPersistence } from "../db/schema/applications"
 import { auditLog } from "../db/schema/audit"
@@ -72,7 +72,7 @@ async function syncAuditSummaries(): Promise<{
 					oracleInstanceId: applicationPersistence.oracleInstanceId,
 				})
 				.from(applicationPersistence)
-				.where(eq(applicationPersistence.type, "oracle"))
+				.where(and(eq(applicationPersistence.type, "oracle"), isNull(applicationPersistence.archivedAt)))
 
 			// Look up configured Oracle instances for auto-matching
 			const appIds = [...new Set(oraclePersistence.map((e) => e.applicationId))]

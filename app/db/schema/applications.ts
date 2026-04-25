@@ -1,4 +1,15 @@
-import { type AnyPgColumn, boolean, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
+import {
+	type AnyPgColumn,
+	boolean,
+	integer,
+	pgTable,
+	text,
+	timestamp,
+	unique,
+	uniqueIndex,
+	uuid,
+} from "drizzle-orm/pg-core"
 import { devTeams, sections } from "./organization"
 
 export const naisTeamStatusEnum = ["pending", "monitored", "ignored"] as const
@@ -102,25 +113,40 @@ export const dataClassificationLabels: Record<DataClassification, string> = {
 	financial_regulation: "Data underlagt økonomireglementet i staten",
 }
 
-export const applicationPersistence = pgTable("application_persistence", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	applicationId: uuid("application_id")
-		.notNull()
-		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
-	type: text("type", { enum: persistenceTypeEnum }).notNull(),
-	name: text("name").notNull(),
-	version: text("version"),
-	tier: text("tier"),
-	highAvailability: boolean("high_availability"),
-	auditLogging: boolean("audit_logging"),
-	auditLogUrl: text("audit_log_url"),
-	oracleInstanceId: text("oracle_instance_id"),
-	dataClassification: text("data_classification", { enum: dataClassificationEnum }),
-	manuallyAdded: boolean("manually_added").notNull().default(false),
-	extra: text("extra"),
-	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
-	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const applicationPersistence = pgTable(
+	"application_persistence",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
+		type: text("type", { enum: persistenceTypeEnum }).notNull(),
+		name: text("name").notNull(),
+		version: text("version"),
+		tier: text("tier"),
+		highAvailability: boolean("high_availability"),
+		auditLogging: boolean("audit_logging"),
+		auditLogUrl: text("audit_log_url"),
+		oracleInstanceId: text("oracle_instance_id"),
+		dataClassification: text("data_classification", { enum: dataClassificationEnum }),
+		manuallyAdded: boolean("manually_added").notNull().default(false),
+		extra: text("extra"),
+		discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(t) => [
+		// Partial unique: kun én aktiv rad per (applikasjon, type, navn). Stenger
+		// TOCTOU-luken i `ensureOraclePersistenceEntries` der to samtidige
+		// transaksjoner kunne ende opp med duplikat aktiv rad. Arkiverte rader
+		// (archived_at IS NOT NULL) er bevisst utelatt slik at historikk kan
+		// ligge ved siden av en ny aktiv rad.
+		uniqueIndex("application_persistence_active_unique_idx")
+			.on(t.applicationId, t.type, t.name)
+			.where(sql`archived_at IS NULL`),
+	],
+)
 
 export const sectionIgnoredApplications = pgTable("section_ignored_applications", {
 	id: uuid("id").primaryKey().defaultRandom(),

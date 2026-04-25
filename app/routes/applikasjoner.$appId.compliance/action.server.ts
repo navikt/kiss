@@ -3,8 +3,9 @@ import { data } from "react-router"
 import {
 	addManualGroup,
 	addManualPersistence,
-	deleteManualPersistence,
+	archiveManualPersistence,
 	removeManualGroup,
+	unarchiveManualPersistence,
 	updatePersistenceClassification,
 	upsertGroupCriticality,
 } from "~/db/queries/nais.server"
@@ -71,13 +72,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				? (classification as DataClassification)
 				: null
 
-		await addManualPersistence(
-			appId,
-			type as (typeof persistenceTypeEnum)[number],
-			name,
-			validClassification,
-			authedUser.navIdent,
-		)
+		try {
+			await addManualPersistence(
+				appId,
+				type as (typeof persistenceTypeEnum)[number],
+				name,
+				validClassification,
+				authedUser.navIdent,
+			)
+		} catch (err) {
+			console.error("addManualPersistence failed", err)
+			return data({
+				success: false,
+				controlId: "screening",
+				screening: true,
+				error: "Kunne ikke legge til database. Sjekk at navnet ikke allerede er i bruk.",
+			})
+		}
 
 		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
 		await syncApplicationControls(appId, authedUser.navIdent)
@@ -103,10 +114,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return data({ success: true, controlId: "screening", screening: true })
 	}
 
-	if (intent === "delete-persistence") {
-		const persistenceId = formData.get("persistenceId") as string
+	if (intent === "archive-persistence") {
+		const persistenceId = (formData.get("persistenceId") as string)?.trim()
 		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
-		await deleteManualPersistence(persistenceId, authedUser.navIdent)
+		await archiveManualPersistence(persistenceId, authedUser.navIdent)
+
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
+	if (intent === "unarchive-persistence") {
+		const persistenceId = (formData.get("persistenceId") as string)?.trim()
+		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
+		await unarchiveManualPersistence(persistenceId, authedUser.navIdent)
 
 		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
 		await syncApplicationControls(appId, authedUser.navIdent)

@@ -261,7 +261,7 @@ export async function syncApplicationTechnologyElements(appId: string) {
 		const persistence = await tx
 			.select({ type: applicationPersistence.type })
 			.from(applicationPersistence)
-			.where(eq(applicationPersistence.applicationId, appId))
+			.where(and(eq(applicationPersistence.applicationId, appId), isNull(applicationPersistence.archivedAt)))
 		for (const p of persistence) {
 			const slug = PERSISTENCE_TO_ELEMENT[p.type]
 			if (slug) addIfActive(slug)

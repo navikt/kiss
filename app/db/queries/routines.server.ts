@@ -1423,14 +1423,14 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	applicationId: string,
 	excludeRoutineIds: Set<string> = new Set(),
 ) {
-	// Get the app's persistence entries
+	// Get the app's persistence entries (filter out archived/soft-deleted)
 	const appPersistence = await db
 		.select({
 			type: applicationPersistence.type,
 			dataClassification: applicationPersistence.dataClassification,
 		})
 		.from(applicationPersistence)
-		.where(eq(applicationPersistence.applicationId, applicationId))
+		.where(and(eq(applicationPersistence.applicationId, applicationId), isNull(applicationPersistence.archivedAt)))
 
 	if (appPersistence.length === 0) return []
 

@@ -86,6 +86,8 @@ export const auditLogActionEnum = [
 	"persistence_added",
 	"persistence_updated",
 	"persistence_deleted",
+	"persistence_archived",
+	"persistence_unarchived",
 
 	// Manuelle grupperinger og kritikalitet/klassifisering
 	"manual_group_added",
