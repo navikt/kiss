@@ -4,9 +4,10 @@ import {
 	acknowledgeUnknownApp,
 	addManualGroup,
 	addManualPersistence,
-	deleteManualPersistence,
+	archiveManualPersistence,
 	removeManualGroup,
 	revokeAcknowledgment,
+	unarchiveManualPersistence,
 	updatePersistenceClassification,
 	upsertGroupCriticality,
 } from "~/db/queries/nais.server"
@@ -131,13 +132,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				? (classification as DataClassification)
 				: null
 
-		await addManualPersistence(
-			appId,
-			type as (typeof persistenceTypeEnum)[number],
-			name,
-			validClassification,
-			authedUser.navIdent,
-		)
+		try {
+			await addManualPersistence(
+				appId,
+				type as (typeof persistenceTypeEnum)[number],
+				name,
+				validClassification,
+				authedUser.navIdent,
+			)
+		} catch (err) {
+			console.error("addManualPersistence failed", err)
+			return data({
+				success: false,
+				message: null,
+				error: "Kunne ikke legge til database. Sjekk at navnet ikke allerede er i bruk.",
+			})
+		}
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
 		return data({ success: true, message: `Database "${name}" lagt til.`, error: null })
 	}
 
@@ -152,14 +164,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				: null
 
 		await updatePersistenceClassification(persistenceId, validClassification, authedUser.navIdent)
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
 		return data({ success: true, message: "Klassifisering oppdatert.", error: null })
 	}
 
-	if (intent === "delete-persistence") {
-		const persistenceId = formData.get("persistenceId") as string
+	if (intent === "archive-persistence") {
+		const persistenceId = (formData.get("persistenceId") as string)?.trim()
 		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
-		await deleteManualPersistence(persistenceId, authedUser.navIdent)
-		return data({ success: true, message: "Database slettet.", error: null })
+		await archiveManualPersistence(persistenceId, authedUser.navIdent)
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+		return data({ success: true, message: "Database arkivert.", error: null })
+	}
+
+	if (intent === "unarchive-persistence") {
+		const persistenceId = (formData.get("persistenceId") as string)?.trim()
+		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
+		await unarchiveManualPersistence(persistenceId, authedUser.navIdent)
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+		return data({ success: true, message: "Database reaktivert.", error: null })
 	}
 
 	if (intent === "add-manual-group") {

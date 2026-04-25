@@ -32,7 +32,7 @@ export function PersistenceRow({
 	>
 }) {
 	const classificationFetcher = useFetcher()
-	const deleteFetcher = useFetcher()
+	const archiveFetcher = useFetcher()
 
 	return (
 		<Table.Row>
@@ -138,19 +138,19 @@ export function PersistenceRow({
 			</Table.DataCell>
 			<Table.DataCell>
 				{p.manuallyAdded && (
-					<deleteFetcher.Form method="post">
-						<input type="hidden" name="intent" value="delete-persistence" />
+					<archiveFetcher.Form method="post">
+						<input type="hidden" name="intent" value="archive-persistence" />
 						<input type="hidden" name="persistenceId" value={p.id} />
 						<Button
 							type="submit"
 							variant="tertiary-neutral"
 							size="xsmall"
 							icon={<TrashIcon aria-hidden />}
-							loading={deleteFetcher.state !== "idle"}
+							loading={archiveFetcher.state !== "idle"}
 						>
-							Slett
+							Arkiver
 						</Button>
-					</deleteFetcher.Form>
+					</archiveFetcher.Form>
 				)}
 			</Table.DataCell>
 		</Table.Row>

@@ -383,6 +383,23 @@ function extractDropColumns(sqlContent: string): string[] {
 	return results
 }
 
+/** Extract index names from CREATE [UNIQUE] INDEX statements. */
+function extractCreateIndexNames(sqlContent: string): string[] {
+	// Strip SQL line comments først så ord som "CREATE INDEX" i kommentarer
+	// ikke gir falske treff. NB: forutsetter at migrasjonene ikke inneholder
+	// `--` inni string-literaler (vi har ingen slike i dag, og hvis det skulle
+	// bli aktuelt må denne stripper-en gjøres mer presis).
+	const stripped = sqlContent.replace(/--.*$/gm, "")
+	const names: string[] = []
+	const regex = /CREATE\s+(?:UNIQUE\s+)?INDEX[^"]*"(\w+)"/g
+	let match = regex.exec(stripped)
+	while (match) {
+		names.push(match[1])
+		match = regex.exec(stripped)
+	}
+	return names
+}
+
 // Export internals for testing
 export const _testing = {
 	shouldSkipMigration,
@@ -390,6 +407,7 @@ export const _testing = {
 	extractAlterTableAddColumns,
 	extractDropTableNames,
 	extractDropColumns,
+	extractCreateIndexNames,
 	CRITICAL_TABLES,
 	MIGRATION_LOCK_KEY,
 }

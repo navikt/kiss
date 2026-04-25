@@ -248,6 +248,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		const newEntries = await ensureOraclePersistenceEntries(
 			appId,
 			orphanInstances.map((i) => i.instanceId),
+			user?.navIdent ?? "system",
 		)
 		detail.persistence.push(...newEntries)
 	}

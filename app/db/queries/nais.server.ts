@@ -493,7 +493,13 @@ export async function unignoreAppForSection(sectionId: string, applicationId: st
 	})
 }
 
-/** Upsert a persistence resource for an application. */
+/**
+ * Upsert a persistence resource for an application. Hvis raden allerede
+ * eksisterer og er arkivert (f.eks. tidligere arkivert manuelt), reaktiveres
+ * den automatisk fordi Nais-sync er kilden for sannhet på faktisk
+ * tilstedeværelse i klyngen. Reaktivering audit-logges som
+ * `persistence_unarchived` med `performedBy: "nais-sync"`.
+ */
 export async function upsertAppPersistence(
 	applicationId: string,
 	type: PersistenceType,
@@ -506,44 +512,71 @@ export async function upsertAppPersistence(
 		auditLogUrl?: string | null
 	},
 ): Promise<boolean> {
-	const [existing] = await db
-		.select()
-		.from(applicationPersistence)
-		.where(
-			and(
-				eq(applicationPersistence.applicationId, applicationId),
-				eq(applicationPersistence.type, type),
-				eq(applicationPersistence.name, name),
-			),
-		)
-		.limit(1)
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(applicationPersistence)
+			.where(
+				and(
+					eq(applicationPersistence.applicationId, applicationId),
+					eq(applicationPersistence.type, type),
+					eq(applicationPersistence.name, name),
+				),
+			)
+			.orderBy(sql`${applicationPersistence.archivedAt} NULLS FIRST`, applicationPersistence.discoveredAt)
+			.for("update")
+			.limit(1)
 
-	if (existing) {
-		await db
-			.update(applicationPersistence)
-			.set({
-				version: opts?.version ?? existing.version,
-				tier: opts?.tier ?? existing.tier,
-				highAvailability: opts?.highAvailability ?? existing.highAvailability,
-				auditLogging: opts?.auditLogging ?? existing.auditLogging,
-				auditLogUrl: opts?.auditLogUrl ?? existing.auditLogUrl,
-				updatedAt: new Date(),
-			})
-			.where(eq(applicationPersistence.id, existing.id))
-		return false
-	}
+		if (existing) {
+			const wasArchived = existing.archivedAt !== null
+			const previousArchivedAt = existing.archivedAt
+			await tx
+				.update(applicationPersistence)
+				.set({
+					version: opts?.version ?? existing.version,
+					tier: opts?.tier ?? existing.tier,
+					highAvailability: opts?.highAvailability ?? existing.highAvailability,
+					auditLogging: opts?.auditLogging ?? existing.auditLogging,
+					auditLogUrl: opts?.auditLogUrl ?? existing.auditLogUrl,
+					updatedAt: new Date(),
+					archivedAt: null,
+					archivedBy: null,
+				})
+				.where(eq(applicationPersistence.id, existing.id))
 
-	await db.insert(applicationPersistence).values({
-		applicationId,
-		type,
-		name,
-		version: opts?.version ?? null,
-		tier: opts?.tier ?? null,
-		highAvailability: opts?.highAvailability ?? null,
-		auditLogging: opts?.auditLogging ?? null,
-		auditLogUrl: opts?.auditLogUrl ?? null,
+			if (wasArchived) {
+				await writeAuditLog(
+					{
+						action: "persistence_unarchived",
+						entityType: "application_persistence",
+						entityId: existing.id,
+						previousValue: JSON.stringify({
+							type: existing.type,
+							name: existing.name,
+							archivedAt: previousArchivedAt,
+						}),
+						newValue: JSON.stringify({ type: existing.type, name: existing.name }),
+						metadata: { applicationId, reason: "nais_resync" },
+						performedBy: "nais-sync",
+					},
+					tx,
+				)
+			}
+			return false
+		}
+
+		await tx.insert(applicationPersistence).values({
+			applicationId,
+			type,
+			name,
+			version: opts?.version ?? null,
+			tier: opts?.tier ?? null,
+			highAvailability: opts?.highAvailability ?? null,
+			auditLogging: opts?.auditLogging ?? null,
+			auditLogUrl: opts?.auditLogUrl ?? null,
+		})
+		return true
 	})
-	return true
 }
 
 /** Upsert an auth integration for an application. */
@@ -606,27 +639,34 @@ export async function getAppAuthIntegrations(applicationId: string) {
 		.where(eq(applicationAuthIntegrations.applicationId, applicationId))
 		.orderBy(applicationAuthIntegrations.type)
 }
-export async function getAppPersistence(applicationId: string) {
+/**
+ * Henter persistens-ressurser for en applikasjon. Filtrerer bort arkiverte
+ * rader. Sett `includeArchived: true` for admin-/historikk-visninger.
+ */
+export async function getAppPersistence(applicationId: string, opts?: { includeArchived?: boolean }) {
+	const conditions = [eq(applicationPersistence.applicationId, applicationId)]
+	if (!opts?.includeArchived) conditions.push(isNull(applicationPersistence.archivedAt))
 	return db
 		.select()
 		.from(applicationPersistence)
-		.where(eq(applicationPersistence.applicationId, applicationId))
+		.where(and(...conditions))
 		.orderBy(applicationPersistence.type, applicationPersistence.name)
 }
 
-/** Get persistence resources for multiple applications (batch). */
-export async function getAppsPersistence(applicationIds: string[]) {
+/**
+ * Get persistence resources for multiple applications (batch). Filtrerer bort
+ * arkiverte rader. Sett `includeArchived: true` for admin-/historikk-visninger.
+ */
+export async function getAppsPersistence(applicationIds: string[], opts?: { includeArchived?: boolean }) {
 	if (applicationIds.length === 0) return new Map<string, (typeof applicationPersistence.$inferSelect)[]>()
+
+	const conditions = [inArray(applicationPersistence.applicationId, applicationIds)]
+	if (!opts?.includeArchived) conditions.push(isNull(applicationPersistence.archivedAt))
 
 	const rows = await db
 		.select()
 		.from(applicationPersistence)
-		.where(
-			sql`${applicationPersistence.applicationId} IN (${sql.join(
-				applicationIds.map((id) => sql`${id}`),
-				sql`, `,
-			)})`,
-		)
+		.where(and(...conditions))
 		.orderBy(applicationPersistence.type, applicationPersistence.name)
 
 	const map = new Map<string, (typeof applicationPersistence.$inferSelect)[]>()
@@ -638,12 +678,26 @@ export async function getAppsPersistence(applicationIds: string[]) {
 	return map
 }
 
-/** Link an Oracle persistence entry to an Oracle instance ID. */
+/**
+ * Link an Oracle persistence entry to an Oracle instance ID. Avviser endring
+ * av arkiverte rader.
+ */
 export async function linkPersistenceToOracleInstance(persistenceId: string, oracleInstanceId: string | null) {
+	const [existing] = await db
+		.select({ id: applicationPersistence.id, archivedAt: applicationPersistence.archivedAt })
+		.from(applicationPersistence)
+		.where(eq(applicationPersistence.id, persistenceId))
+		.limit(1)
+	if (!existing) {
+		throw new Response("Persistens-oppføring ikke funnet", { status: 404 })
+	}
+	if (existing.archivedAt) {
+		throw new Response("Kan ikke koble en arkivert database. Reaktiver oppføringen først.", { status: 403 })
+	}
 	await db
 		.update(applicationPersistence)
 		.set({ oracleInstanceId, updatedAt: new Date() })
-		.where(eq(applicationPersistence.id, persistenceId))
+		.where(and(eq(applicationPersistence.id, persistenceId), isNull(applicationPersistence.archivedAt)))
 }
 
 /** Get application detail with environments, persistence, and linked apps. */
@@ -1534,6 +1588,10 @@ export async function getActiveAcknowledgments(applicationId: string): Promise<A
 /**
  * Legger til en manuell persistens-oppføring (kun for typer som ikke
  * automatisk oppdages fra Nais). Skriver audit-logg.
+ *
+ * Hvis det finnes en arkivert manuell rad med samme `applicationId + type +
+ * name`, reaktiveres den i stedet for å opprette duplikat (audit-logges som
+ * `persistence_unarchived`).
  */
 export async function addManualPersistence(
 	applicationId: string,
@@ -1542,27 +1600,86 @@ export async function addManualPersistence(
 	dataClassification: DataClassification | null,
 	performedBy: string,
 ) {
-	const [inserted] = await db
-		.insert(applicationPersistence)
-		.values({
-			applicationId,
-			type,
-			name,
-			dataClassification,
-			manuallyAdded: true,
-		})
-		.returning()
+	return db.transaction(async (tx) => {
+		// Søk på (appId, type, name) uten å filtrere på manuallyAdded — slik
+		// at vi konsistent kan oppdage at en aktiv rad allerede finnes (også
+		// når den ble opprettet via Nais-sync). Den partial unique-indeksen
+		// `application_persistence_active_unique_idx` ville uansett blokkert
+		// duplikat innsetting; vi gir heller en kontrollert feilmelding.
+		const [existing] = await tx
+			.select()
+			.from(applicationPersistence)
+			.where(
+				and(
+					eq(applicationPersistence.applicationId, applicationId),
+					eq(applicationPersistence.type, type),
+					eq(applicationPersistence.name, name),
+				),
+			)
+			.orderBy(sql`${applicationPersistence.archivedAt} NULLS FIRST`, applicationPersistence.discoveredAt)
+			.for("update")
+			.limit(1)
 
-	await writeAuditLog({
-		action: "persistence_added",
-		entityType: "application_persistence",
-		entityId: inserted.id,
-		newValue: JSON.stringify({ type, name, dataClassification }),
-		metadata: { applicationId },
-		performedBy,
+		if (existing && !existing.archivedAt) {
+			throw new Error(
+				"Det finnes allerede en aktiv persistens-oppføring med samme type og navn for denne applikasjonen",
+			)
+		}
+
+		if (existing?.archivedAt) {
+			const previousArchivedAt = existing.archivedAt
+			const [restored] = await tx
+				.update(applicationPersistence)
+				.set({
+					archivedAt: null,
+					archivedBy: null,
+					dataClassification,
+					manuallyAdded: true,
+					updatedAt: new Date(),
+				})
+				.where(eq(applicationPersistence.id, existing.id))
+				.returning()
+
+			await writeAuditLog(
+				{
+					action: "persistence_unarchived",
+					entityType: "application_persistence",
+					entityId: existing.id,
+					previousValue: JSON.stringify({ type, name, archivedAt: previousArchivedAt }),
+					newValue: JSON.stringify({ type, name, dataClassification }),
+					metadata: { applicationId, reason: "manual_re_add" },
+					performedBy,
+				},
+				tx,
+			)
+			return restored
+		}
+
+		const [inserted] = await tx
+			.insert(applicationPersistence)
+			.values({
+				applicationId,
+				type,
+				name,
+				dataClassification,
+				manuallyAdded: true,
+			})
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "persistence_added",
+				entityType: "application_persistence",
+				entityId: inserted.id,
+				newValue: JSON.stringify({ type, name, dataClassification }),
+				metadata: { applicationId },
+				performedBy,
+			},
+			tx,
+		)
+
+		return inserted
 	})
-
-	return inserted
 }
 
 export async function updatePersistenceClassification(
@@ -1570,53 +1687,148 @@ export async function updatePersistenceClassification(
 	classification: DataClassification | null,
 	performedBy: string,
 ) {
-	const [existing] = await db
-		.select()
-		.from(applicationPersistence)
-		.where(eq(applicationPersistence.id, persistenceId))
-		.limit(1)
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(applicationPersistence)
+			.where(eq(applicationPersistence.id, persistenceId))
+			.for("update")
+			.limit(1)
 
-	if (!existing) throw new Error("Persistens-oppføring ikke funnet")
+		if (!existing) throw new Error("Persistens-oppføring ikke funnet")
+		if (existing.archivedAt) throw new Error("Kan ikke endre arkivert persistens-oppføring")
 
-	await db
-		.update(applicationPersistence)
-		.set({ dataClassification: classification, updatedAt: new Date() })
-		.where(eq(applicationPersistence.id, persistenceId))
+		await tx
+			.update(applicationPersistence)
+			.set({ dataClassification: classification, updatedAt: new Date() })
+			.where(eq(applicationPersistence.id, persistenceId))
 
-	await writeAuditLog({
-		action: "persistence_updated",
-		entityType: "application_persistence",
-		entityId: persistenceId,
-		previousValue: JSON.stringify({ dataClassification: existing.dataClassification }),
-		newValue: JSON.stringify({ dataClassification: classification }),
-		metadata: { applicationId: existing.applicationId, name: existing.name },
-		performedBy,
+		await writeAuditLog(
+			{
+				action: "persistence_updated",
+				entityType: "application_persistence",
+				entityId: persistenceId,
+				previousValue: JSON.stringify({ dataClassification: existing.dataClassification }),
+				newValue: JSON.stringify({ dataClassification: classification }),
+				metadata: { applicationId: existing.applicationId, name: existing.name },
+				performedBy,
+			},
+			tx,
+		)
 	})
 }
 
-export async function deleteManualPersistence(persistenceId: string, performedBy: string) {
-	const [existing] = await db
-		.select()
-		.from(applicationPersistence)
-		.where(and(eq(applicationPersistence.id, persistenceId), eq(applicationPersistence.manuallyAdded, true)))
-		.limit(1)
+/**
+ * Arkiverer en manuelt opprettet persistens-oppføring. Kun rader med
+ * `manuallyAdded = true` kan arkiveres herfra — Nais-detekterte rader vil
+ * uansett dukke opp igjen ved neste sync, og må fjernes ved kilden.
+ *
+ * Idempotent: returnerer eksisterende rad uten å skrive audit hvis allerede
+ * arkivert. Atomisk guarded UPDATE i transaksjon, audit i samme tx.
+ */
+export async function archiveManualPersistence(persistenceId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(applicationPersistence)
+			.set({ archivedAt: new Date(), archivedBy: performedBy, updatedAt: new Date() })
+			.where(
+				and(
+					eq(applicationPersistence.id, persistenceId),
+					eq(applicationPersistence.manuallyAdded, true),
+					isNull(applicationPersistence.archivedAt),
+				),
+			)
+			.returning()
 
-	if (!existing) throw new Error("Kan bare slette manuelt lagt til databaser")
+		if (!archived) {
+			const [existing] = await tx
+				.select()
+				.from(applicationPersistence)
+				.where(eq(applicationPersistence.id, persistenceId))
+				.limit(1)
+			if (!existing) throw new Error("Persistens-oppføring ikke funnet")
+			if (!existing.manuallyAdded) throw new Error("Kan bare arkivere manuelt lagt til databaser")
+			if (existing.archivedAt) return existing
+			throw new Error("Kunne ikke arkivere persistens-oppføring")
+		}
 
-	await db.delete(applicationPersistence).where(eq(applicationPersistence.id, persistenceId))
+		await writeAuditLog(
+			{
+				action: "persistence_archived",
+				entityType: "application_persistence",
+				entityId: persistenceId,
+				previousValue: JSON.stringify({
+					type: archived.type,
+					name: archived.name,
+					dataClassification: archived.dataClassification,
+				}),
+				newValue: JSON.stringify({
+					type: archived.type,
+					name: archived.name,
+					archivedAt: archived.archivedAt,
+				}),
+				metadata: { applicationId: archived.applicationId },
+				performedBy,
+			},
+			tx,
+		)
 
-	await writeAuditLog({
-		action: "persistence_deleted",
-		entityType: "application_persistence",
-		entityId: persistenceId,
-		previousValue: JSON.stringify({
-			type: existing.type,
-			name: existing.name,
-			dataClassification: existing.dataClassification,
-		}),
-		metadata: { applicationId: existing.applicationId },
-		performedBy,
+		return archived
 	})
+}
+
+/**
+ * Reaktiverer en arkivert manuell persistens-oppføring. SELECT FOR UPDATE
+ * for å fange `archivedAt` i audit-loggen før vi nullstiller.
+ */
+export async function unarchiveManualPersistence(persistenceId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(applicationPersistence)
+			.where(eq(applicationPersistence.id, persistenceId))
+			.for("update")
+			.limit(1)
+
+		if (!existing) throw new Error("Persistens-oppføring ikke funnet")
+		if (!existing.manuallyAdded) throw new Error("Kan bare reaktivere manuelt lagt til databaser")
+		if (!existing.archivedAt) return existing
+
+		const previousArchivedAt = existing.archivedAt
+		const [restored] = await tx
+			.update(applicationPersistence)
+			.set({ archivedAt: null, archivedBy: null, updatedAt: new Date() })
+			.where(eq(applicationPersistence.id, persistenceId))
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "persistence_unarchived",
+				entityType: "application_persistence",
+				entityId: persistenceId,
+				previousValue: JSON.stringify({
+					type: restored.type,
+					name: restored.name,
+					archivedAt: previousArchivedAt,
+				}),
+				newValue: JSON.stringify({ type: restored.type, name: restored.name }),
+				metadata: { applicationId: restored.applicationId },
+				performedBy,
+			},
+			tx,
+		)
+
+		return restored
+	})
+}
+
+/**
+ * @deprecated Bruk `archiveManualPersistence` i stedet — denne funksjonen
+ * arkiverer nå raden i stedet for å hard-slette den, slik at audit-historikk
+ * og innkommende FK-er (audit-summaries/-confirmations) bevares.
+ */
+export async function deleteManualPersistence(persistenceId: string, performedBy: string) {
+	return archiveManualPersistence(persistenceId, performedBy)
 }
 
 // ─── Manual Groups ───────────────────────────────────────────────────────

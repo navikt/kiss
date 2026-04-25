@@ -74,10 +74,10 @@ export function PersistenceSection({
 									<Table.DataCell>
 										{p.manuallyAdded && (
 											<fetcher.Form method="post">
-												<input type="hidden" name="intent" value="delete-persistence" />
+												<input type="hidden" name="intent" value="archive-persistence" />
 												<input type="hidden" name="persistenceId" value={p.id} />
 												<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />}>
-													Slett
+													Arkiver
 												</Button>
 											</fetcher.Form>
 										)}

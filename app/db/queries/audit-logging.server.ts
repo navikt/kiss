@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
 import { db } from "../connection.server"
 import {
@@ -92,24 +92,103 @@ export function computeAuditStatus(
 // ─── Ensure persistence entries for Oracle instances ─────────────────────────
 
 /**
- * Create real `application_persistence` rows for Oracle instances that don't have one.
- * Returns the newly created entries (Drizzle-inferred shape).
+ * Sørg for at det finnes aktive `application_persistence`-rader for de gitte
+ * Oracle-instansene under `appId`. Hver instans behandles atomisk i sin egen
+ * transaksjon med `SELECT ... FOR UPDATE` for å hindre TOCTOU-duplikater
+ * mellom samtidige kall (loadere kjører parallelt med actions).
+ *
+ * Hvis det allerede finnes en aktiv rad: ingen endring. Hvis kun en arkivert
+ * rad finnes: reaktiveres (audit-logges som `persistence_unarchived` med
+ * `metadata.reason = "oracle_instance_ensure"`). Hvis ingen rad finnes:
+ * opprettes en ny aktiv rad. Returnerer alle berørte (nye eller reaktiverte)
+ * rader.
  */
-export async function ensureOraclePersistenceEntries(appId: string, instanceIds: string[]) {
+export async function ensureOraclePersistenceEntries(appId: string, instanceIds: string[], performedBy: string) {
+	const { writeAuditLog } = await import("./audit.server")
 	const results: (typeof applicationPersistence.$inferSelect)[] = []
 	for (const instanceId of instanceIds) {
-		const [row] = await db
-			.insert(applicationPersistence)
-			.values({
-				applicationId: appId,
-				type: "oracle",
-				name: instanceId,
-				oracleInstanceId: instanceId,
-			})
-			.returning()
-		if (row) results.push(row)
+		const affected = await ensureOneOraclePersistenceEntry(appId, instanceId, performedBy, writeAuditLog)
+		if (affected) results.push(affected)
 	}
 	return results
+}
+
+async function ensureOneOraclePersistenceEntry(
+	appId: string,
+	instanceId: string,
+	performedBy: string,
+	writeAuditLog: typeof import("./audit.server").writeAuditLog,
+): Promise<typeof applicationPersistence.$inferSelect | null> {
+	try {
+		return await db.transaction(async (tx) => {
+			// Deterministisk utvelgelse: foretrekk aktive rader (`archived_at IS NULL`)
+			// før eventuelle arkiverte duplikater. `FOR UPDATE` låser raden slik at
+			// to samtidige kall ikke ender opp med å reaktivere/sette inn duplikat.
+			const [existing] = await tx
+				.select()
+				.from(applicationPersistence)
+				.where(
+					and(
+						eq(applicationPersistence.applicationId, appId),
+						eq(applicationPersistence.type, "oracle"),
+						eq(applicationPersistence.name, instanceId),
+					),
+				)
+				.orderBy(sql`${applicationPersistence.archivedAt} NULLS FIRST`, applicationPersistence.discoveredAt)
+				.for("update")
+				.limit(1)
+
+			if (existing?.archivedAt) {
+				const previousArchivedAt = existing.archivedAt
+				const [restored] = await tx
+					.update(applicationPersistence)
+					.set({ archivedAt: null, archivedBy: null, updatedAt: new Date() })
+					.where(eq(applicationPersistence.id, existing.id))
+					.returning()
+				await writeAuditLog(
+					{
+						action: "persistence_unarchived",
+						entityType: "application_persistence",
+						entityId: existing.id,
+						previousValue: JSON.stringify({
+							type: existing.type,
+							name: existing.name,
+							archivedAt: previousArchivedAt,
+						}),
+						newValue: JSON.stringify({ type: existing.type, name: existing.name }),
+						metadata: { applicationId: appId, reason: "oracle_instance_ensure" },
+						performedBy,
+					},
+					tx,
+				)
+				return restored
+			}
+
+			if (existing) return null
+
+			const [row] = await tx
+				.insert(applicationPersistence)
+				.values({
+					applicationId: appId,
+					type: "oracle",
+					name: instanceId,
+					oracleInstanceId: instanceId,
+				})
+				.returning()
+			return row ?? null
+		})
+	} catch (err: unknown) {
+		// Concurrent INSERT race: en annen transaksjon vant innsettingen mot
+		// partial unique-indeksen `application_persistence_active_unique_idx`.
+		// Behandle som no-op — den vinnende transaksjonens rad er nå den
+		// aktive, og denne kalleren har ingen ny rad å rapportere.
+		if (isUniqueViolation(err)) return null
+		throw err
+	}
+}
+
+function isUniqueViolation(err: unknown): boolean {
+	return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "23505"
 }
 
 // ─── Cached Oracle audit summaries for app detail page ──────────────────────
@@ -397,6 +476,7 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 			and(
 				inArray(applicationPersistence.applicationId, [...sectionAppIds]),
 				inArray(applicationPersistence.type, [...DATABASE_TYPES]),
+				isNull(applicationPersistence.archivedAt),
 			),
 		)
 		.orderBy(monitoredApplications.name, applicationPersistence.type)
@@ -428,7 +508,11 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 		})
 		.from(applicationPersistence)
 		.where(
-			and(inArray(applicationPersistence.applicationId, [...sectionAppIds]), eq(applicationPersistence.type, "oracle")),
+			and(
+				inArray(applicationPersistence.applicationId, [...sectionAppIds]),
+				eq(applicationPersistence.type, "oracle"),
+				isNull(applicationPersistence.archivedAt),
+			),
 		)
 	for (const row of linkedInstances) {
 		if (!row.oracleInstanceId) continue

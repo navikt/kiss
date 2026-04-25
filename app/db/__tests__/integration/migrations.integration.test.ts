@@ -250,7 +250,9 @@ describe("Database migrations", () => {
 			const createdTables = _testing.extractAllCreateTableNames(migrationSql)
 			const addedColumns = _testing.extractAlterTableAddColumns(migrationSql)
 			const droppedTables = _testing.extractDropTableNames(migrationSql)
-			const hasVerifiableChanges = createdTables.length > 0 || addedColumns.length > 0 || droppedTables.length > 0
+			const createdIndexes = _testing.extractCreateIndexNames(migrationSql)
+			const hasVerifiableChanges =
+				createdTables.length > 0 || addedColumns.length > 0 || droppedTables.length > 0 || createdIndexes.length > 0
 			expect(hasVerifiableChanges).toBe(true)
 
 			// Run all migrations first
@@ -267,9 +269,14 @@ describe("Database migrations", () => {
 			`)
 
 			// Undo changes: drop created tables (in reverse order for FK deps),
-			// drop added columns, and re-create dropped tables (minimally)
+			// drop created indexes BEFORE columns (siden indeks kan referere
+			// til kolonnen og blokkere DROP COLUMN), drop added columns, og
+			// re-create dropped tables (minimally).
 			for (const table of [...createdTables].reverse()) {
 				await testDb.execute(sql.raw(`DROP TABLE IF EXISTS "${table}" CASCADE`))
+			}
+			for (const idx of createdIndexes) {
+				await testDb.execute(sql.raw(`DROP INDEX IF EXISTS "${idx}"`))
 			}
 			for (const { table, column } of addedColumns) {
 				await testDb.execute(sql.raw(`ALTER TABLE "${table}" DROP COLUMN IF EXISTS "${column}"`))
@@ -318,6 +325,14 @@ describe("Database migrations", () => {
 				for (const t of droppedTables) {
 					expect(tableNames, `Table "${t}" should have been dropped`).not.toContain(t)
 				}
+			}
+
+			// Verify created indexes were re-created
+			for (const idx of createdIndexes) {
+				const indexes = await testDb.execute<{ indexname: string }>(
+					sql.raw(`SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = '${idx}'`),
+				)
+				expect(indexes.rows.map((r) => r.indexname)).toContain(idx)
 			}
 
 			const finalCount = await getTrackingCount()
