@@ -176,7 +176,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (typeof linkId !== "string" || !linkId.trim()) {
 				return data<ActionResult>({ success: false, error: "Mangler kobling-ID." })
 			}
-			const unlinked = await unlinkRoutineFromRuleset(regelSettId, linkId.trim())
+			const unlinked = await unlinkRoutineFromRuleset(regelSettId, linkId.trim(), authedUser.navIdent)
 			if (!unlinked) {
 				return data<ActionResult>({
 					success: false,

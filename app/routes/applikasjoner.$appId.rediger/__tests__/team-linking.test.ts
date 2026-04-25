@@ -67,6 +67,7 @@ function callAction(formData: FormData, appId = "app-1") {
 describe("applikasjoner.$appId.detaljer action – team linking", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
+		mockRequireUser.mockReturnValue({ navIdent: "Z123456" })
 	})
 
 	it("links a team to an application", async () => {
@@ -82,7 +83,7 @@ describe("applikasjoner.$appId.detaljer action – team linking", () => {
 			expect((thrown as Response).status).toBe(302)
 		}
 
-		expect(mockLinkAppToTeam).toHaveBeenCalledWith("app-1", "team-1", "system")
+		expect(mockLinkAppToTeam).toHaveBeenCalledWith("app-1", "team-1", "Z123456")
 	})
 
 	it("unlinks a team from an application", async () => {
@@ -97,7 +98,7 @@ describe("applikasjoner.$appId.detaljer action – team linking", () => {
 			expect((thrown as Response).status).toBe(302)
 		}
 
-		expect(mockUnlinkAppFromTeam).toHaveBeenCalledWith("app-1", "team-1", "system")
+		expect(mockUnlinkAppFromTeam).toHaveBeenCalledWith("app-1", "team-1", "Z123456")
 	})
 
 	it("returns 400 when link-team is missing devTeamId", async () => {

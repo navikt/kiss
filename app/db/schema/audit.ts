@@ -41,6 +41,8 @@ export const auditLogActionEnum = [
 	"technology_element_rejected",
 	"control_element_added",
 	"control_element_removed",
+	"application_technology_element_added",
+	"application_technology_element_removed",
 
 	// Seksjoner og team
 	"section_created",
@@ -111,6 +113,8 @@ export const auditLogActionEnum = [
 	"screening_choice_effect_unarchived",
 	"screening_answer_saved",
 	"screening_routine_selected",
+	"screening_question_technology_element_added",
+	"screening_question_technology_element_removed",
 
 	// Rutiner og rutinegjennomganger
 	"routine_created",
@@ -132,6 +136,18 @@ export const auditLogActionEnum = [
 	"review_activity_created",
 	"review_activity_completed",
 	"review_activity_entra_change",
+	"routine_technology_element_added",
+	"routine_technology_element_removed",
+	"routine_control_added",
+	"routine_control_removed",
+	"routine_persistence_link_added",
+	"routine_persistence_link_removed",
+	"routine_group_classification_link_added",
+	"routine_group_classification_link_removed",
+	"routine_oracle_role_criticality_link_added",
+	"routine_oracle_role_criticality_link_removed",
+	"routine_screening_question_added",
+	"routine_screening_question_removed",
 
 	// Dokumenter
 	"document_uploaded",
@@ -142,6 +158,10 @@ export const auditLogActionEnum = [
 	// Regelsett
 	"ruleset_archived",
 	"ruleset_unarchived",
+	"ruleset_control_added",
+	"ruleset_control_removed",
+	"ruleset_routine_added",
+	"ruleset_routine_removed",
 
 	// Revisjonsbevis og automatiske synkroniseringer
 	"audit_confirmation_created",

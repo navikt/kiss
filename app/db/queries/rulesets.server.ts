@@ -505,26 +505,54 @@ export async function approveRuleset(input: {
 
 /**
  * Kobler et kontrollkrav til et regelsett. Atomisk guarded mot arkivering
- * via `SELECT FOR SHARE` på regelsett-raden — blokkerer samtidig
- * `archiveRuleset` (som tar exclusive lock) uten å serialisere parallelle
- * link-operasjoner mot ulike kontrollkrav. Returnerer `true` når
- * operasjonen kjøres mot et eksisterende, ikke-arkivert regelsett, `false`
- * hvis regelsettet ikke finnes eller er arkivert.
+ * via `SELECT FOR UPDATE` på regelsett-raden — blokkerer samtidig
+ * `archiveRuleset` og serialiserer parallelle link/unlink-operasjoner mot
+ * samme regelsett. Returnerer `true` når operasjonen kjøres mot et
+ * eksisterende, ikke-arkivert regelsett, `false` hvis regelsettet ikke
+ * finnes eller er arkivert.
  *
  * Merk: skjemaet har ingen unik begrensning på (ruleset_id, control_id),
- * så `onConflictDoNothing()` forhindrer ikke duplikater. Idempotens er
- * dermed ikke garantert på rad-nivå.
+ * så `onConflictDoNothing()` ville ikke forhindret duplikater. Idempotens
+ * sikres i stedet via `FOR UPDATE`-låsen + eksplisitt eksistens-sjekk:
+ * tradeoff er at samtidige link-/unlink-kall mot samme regelsett kjøres
+ * sekvensielt, men det er akseptabelt siden link-mutasjoner er sjeldne.
  */
-export async function linkControlToRuleset(rulesetId: string, controlId: string): Promise<boolean> {
+export async function linkControlToRuleset(
+	rulesetId: string,
+	controlId: string,
+	performedBy: string,
+): Promise<boolean> {
 	return db.transaction(async (tx) => {
 		const [locked] = await tx
 			.select({ archivedAt: rulesets.archivedAt })
 			.from(rulesets)
 			.where(eq(rulesets.id, rulesetId))
-			.for("share")
+			.for("update")
 			.limit(1)
 		if (!locked || locked.archivedAt) return false
-		await tx.insert(rulesetControls).values({ rulesetId, controlId }).onConflictDoNothing()
+		// Eksplisitt eksistens-sjekk under samme tx-lås: ruleset_controls har ingen
+		// unik begrensning på (ruleset_id, control_id), så onConflictDoNothing gir
+		// ingen reell idempotens. FOR UPDATE på regelsett-raden serialiserer
+		// samtidige link-kall, slik at sjekk → insert ikke kan kappes av en
+		// parallell transaksjon (FOR SHARE ville tillatt det).
+		const [existing] = await tx
+			.select({ id: rulesetControls.id })
+			.from(rulesetControls)
+			.where(and(eq(rulesetControls.rulesetId, rulesetId), eq(rulesetControls.controlId, controlId)))
+			.limit(1)
+		if (existing) return true
+		await tx.insert(rulesetControls).values({ rulesetId, controlId })
+		await writeAuditLog(
+			{
+				action: "ruleset_control_added",
+				entityType: "ruleset_control",
+				entityId: rulesetId,
+				newValue: JSON.stringify({ rulesetId, controlId }),
+				metadata: { controlId },
+				performedBy,
+			},
+			tx,
+		)
 		return true
 	})
 }
@@ -536,18 +564,37 @@ export async function linkControlToRuleset(rulesetId: string, controlId: string)
  * returnerer `true` hvis koblingen allerede er fjernet (sluttilstand er den
  * ønskede). Returnerer `false` hvis regelsettet er arkivert eller ikke finnes.
  */
-export async function unlinkControlFromRuleset(rulesetId: string, linkId: string): Promise<boolean> {
+export async function unlinkControlFromRuleset(
+	rulesetId: string,
+	linkId: string,
+	performedBy: string,
+): Promise<boolean> {
 	return db.transaction(async (tx) => {
+		// FOR UPDATE for å serialisere mot samtidige link/unlink-operasjoner på
+		// samme regelsett (samme semantikk som linkControlToRuleset).
 		const [locked] = await tx
 			.select({ archivedAt: rulesets.archivedAt })
 			.from(rulesets)
 			.where(eq(rulesets.id, rulesetId))
-			.for("share")
+			.for("update")
 			.limit(1)
 		if (!locked || locked.archivedAt) return false
-		await tx
+		const deleted = await tx
 			.delete(rulesetControls)
 			.where(and(eq(rulesetControls.id, linkId), eq(rulesetControls.rulesetId, rulesetId)))
+			.returning({ controlId: rulesetControls.controlId })
+		if (deleted.length === 0) return true
+		await writeAuditLog(
+			{
+				action: "ruleset_control_removed",
+				entityType: "ruleset_control",
+				entityId: rulesetId,
+				previousValue: JSON.stringify({ rulesetId, controlId: deleted[0].controlId, linkId }),
+				metadata: { controlId: deleted[0].controlId, linkId },
+				performedBy,
+			},
+			tx,
+		)
 		return true
 	})
 }
@@ -605,15 +652,16 @@ export async function getRulesetsForControl(
 
 /**
  * Kobler en rutine til et regelsett. Atomisk guarded mot arkivering via
- * `SELECT FOR SHARE` på regelsett-raden, og verifiserer at rutinen tilhører
- * samme seksjon som regelsettet (kryss-seksjon-kobling avvises) og ikke selv
- * er arkivert. Returnerer `false` hvis regelsettet ikke finnes/er arkivert
- * eller hvis rutinen ikke finnes/er arkivert/tilhører en annen seksjon.
+ * `SELECT FOR UPDATE` på regelsett-raden og `SELECT FOR SHARE` på rutine-raden,
+ * og verifiserer at rutinen tilhører samme seksjon som regelsettet
+ * (kryss-seksjon-kobling avvises) og ikke selv er arkivert. Returnerer `false`
+ * hvis regelsettet ikke finnes/er arkivert eller hvis rutinen ikke
+ * finnes/er arkivert/tilhører en annen seksjon.
  *
- * Merk: skjemaet har ingen unik begrensning på (ruleset_id, routine_id),
- * så `onConflictDoNothing()` forhindrer ikke duplikater. Idempotens er
- * dermed ikke garantert på rad-nivå (samme mønster som for
- * `linkControlToRuleset`).
+ * Merk: skjemaet har ingen unik begrensning på (ruleset_id, routine_id).
+ * Idempotens sikres via `FOR UPDATE`-låsen + eksplisitt eksistens-sjekk
+ * (samme mønster som for `linkControlToRuleset`); tradeoff er at parallelle
+ * link/unlink-kall mot samme regelsett serialiseres.
  */
 export async function linkRoutineToRuleset(rulesetId: string, routineId: string, createdBy: string): Promise<boolean> {
 	return db.transaction(async (tx) => {
@@ -621,7 +669,7 @@ export async function linkRoutineToRuleset(rulesetId: string, routineId: string,
 			.select({ archivedAt: rulesets.archivedAt, sectionId: rulesets.sectionId })
 			.from(rulesets)
 			.where(eq(rulesets.id, rulesetId))
-			.for("share")
+			.for("update")
 			.limit(1)
 		if (!locked || locked.archivedAt) return false
 
@@ -629,10 +677,33 @@ export async function linkRoutineToRuleset(rulesetId: string, routineId: string,
 			.select({ sectionId: routines.sectionId, archivedAt: routines.archivedAt })
 			.from(routines)
 			.where(eq(routines.id, routineId))
+			.for("share")
 			.limit(1)
 		if (!routine || routine.sectionId !== locked.sectionId || routine.archivedAt) return false
 
-		await tx.insert(rulesetRoutines).values({ rulesetId, routineId, createdBy }).onConflictDoNothing()
+		// Eksplisitt eksistens-sjekk: ruleset_routines har ingen unik begrensning
+		// på (ruleset_id, routine_id), så onConflictDoNothing gir ingen reell
+		// idempotens. FOR UPDATE på regelsett-raden serialiserer samtidige
+		// link-kall slik at vi ikke skriver duplikater eller falske audit-rader.
+		const [existing] = await tx
+			.select({ id: rulesetRoutines.id })
+			.from(rulesetRoutines)
+			.where(and(eq(rulesetRoutines.rulesetId, rulesetId), eq(rulesetRoutines.routineId, routineId)))
+			.limit(1)
+		if (existing) return true
+
+		await tx.insert(rulesetRoutines).values({ rulesetId, routineId, createdBy })
+		await writeAuditLog(
+			{
+				action: "ruleset_routine_added",
+				entityType: "ruleset_routine",
+				entityId: rulesetId,
+				newValue: JSON.stringify({ rulesetId, routineId }),
+				metadata: { routineId },
+				performedBy: createdBy,
+			},
+			tx,
+		)
 		return true
 	})
 }
@@ -643,18 +714,37 @@ export async function linkRoutineToRuleset(rulesetId: string, routineId: string,
  * også når koblingen allerede er fjernet. Returnerer `false` hvis regelsettet
  * er arkivert eller ikke finnes.
  */
-export async function unlinkRoutineFromRuleset(rulesetId: string, linkId: string): Promise<boolean> {
+export async function unlinkRoutineFromRuleset(
+	rulesetId: string,
+	linkId: string,
+	performedBy: string,
+): Promise<boolean> {
 	return db.transaction(async (tx) => {
+		// FOR UPDATE for å serialisere mot samtidige link/unlink-operasjoner på
+		// samme regelsett (samme semantikk som linkRoutineToRuleset).
 		const [locked] = await tx
 			.select({ archivedAt: rulesets.archivedAt })
 			.from(rulesets)
 			.where(eq(rulesets.id, rulesetId))
-			.for("share")
+			.for("update")
 			.limit(1)
 		if (!locked || locked.archivedAt) return false
-		await tx
+		const deleted = await tx
 			.delete(rulesetRoutines)
 			.where(and(eq(rulesetRoutines.id, linkId), eq(rulesetRoutines.rulesetId, rulesetId)))
+			.returning({ routineId: rulesetRoutines.routineId })
+		if (deleted.length === 0) return true
+		await writeAuditLog(
+			{
+				action: "ruleset_routine_removed",
+				entityType: "ruleset_routine",
+				entityId: rulesetId,
+				previousValue: JSON.stringify({ rulesetId, routineId: deleted[0].routineId, linkId }),
+				metadata: { routineId: deleted[0].routineId, linkId },
+				performedBy,
+			},
+			tx,
+		)
 		return true
 	})
 }

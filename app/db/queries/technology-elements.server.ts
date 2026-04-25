@@ -198,17 +198,31 @@ export async function addControlElement(controlId: string, elementId: string, pe
 	})
 }
 
-/** Remove a technology element from a control. */
+/** Remove a technology element from a control. Auditerer kun ved faktisk sletting. */
 export async function removeControlElement(controlId: string, elementId: string, performer: string) {
-	await db
-		.delete(controlTechnologyElements)
-		.where(and(eq(controlTechnologyElements.controlId, controlId), eq(controlTechnologyElements.elementId, elementId)))
-	await writeAuditLog({
-		action: "control_element_removed",
-		entityType: "control_technology_element",
-		entityId: controlId,
-		newValue: JSON.stringify({ controlId, elementId }),
-		performedBy: performer,
+	await db.transaction(async (tx) => {
+		const deleted = await tx
+			.delete(controlTechnologyElements)
+			.where(
+				and(eq(controlTechnologyElements.controlId, controlId), eq(controlTechnologyElements.elementId, elementId)),
+			)
+			.returning({ id: controlTechnologyElements.id })
+		if (deleted.length === 0) return
+		await writeAuditLog(
+			{
+				action: "control_element_removed",
+				entityType: "control_technology_element",
+				entityId: controlId,
+				previousValue: JSON.stringify({
+					controlId,
+					elementId,
+					deletedCount: deleted.length,
+					deletedIds: deleted.map(({ id }) => id),
+				}),
+				performedBy: performer,
+			},
+			tx,
+		)
 	})
 }
 
@@ -277,7 +291,7 @@ export async function syncApplicationTechnologyElements(appId: string) {
 		}
 
 		for (const elementId of elementIds) {
-			await tx
+			const inserted = await tx
 				.insert(applicationTechnologyElements)
 				.values({
 					applicationId: appId,
@@ -285,6 +299,20 @@ export async function syncApplicationTechnologyElements(appId: string) {
 					source: "auto",
 				})
 				.onConflictDoNothing()
+				.returning({ id: applicationTechnologyElements.id })
+			if (inserted.length > 0) {
+				await writeAuditLog(
+					{
+						action: "application_technology_element_added",
+						entityType: "application_technology_element",
+						entityId: appId,
+						newValue: JSON.stringify({ applicationId: appId, elementId, source: "auto" }),
+						metadata: { elementId, source: "auto" },
+						performedBy: "system:tech-element-sync",
+					},
+					tx,
+				)
+			}
 		}
 
 		// Remove auto-detected elements that no longer apply (but keep manual, rejected,
@@ -303,14 +331,30 @@ export async function syncApplicationTechnologyElements(appId: string) {
 
 		for (const row of currentAuto) {
 			if (!elementIds.has(row.elementId) && !row.rejectedAt && !archivedIds.has(row.elementId)) {
-				await tx.delete(applicationTechnologyElements).where(eq(applicationTechnologyElements.id, row.id))
+				const deleted = await tx
+					.delete(applicationTechnologyElements)
+					.where(eq(applicationTechnologyElements.id, row.id))
+					.returning({ id: applicationTechnologyElements.id })
+				if (deleted.length > 0) {
+					await writeAuditLog(
+						{
+							action: "application_technology_element_removed",
+							entityType: "application_technology_element",
+							entityId: appId,
+							previousValue: JSON.stringify({ applicationId: appId, elementId: row.elementId, source: "auto" }),
+							metadata: { elementId: row.elementId, source: "auto" },
+							performedBy: "system:tech-element-sync",
+						},
+						tx,
+					)
+				}
 			}
 		}
 	})
 }
 
 /** Manually add a technology element to an application. Avviser kobling til arkivert element. */
-export async function addApplicationElement(appId: string, elementId: string) {
+export async function addApplicationElement(appId: string, elementId: string, performedBy: string) {
 	return db.transaction(async (tx) => {
 		const [el] = await tx
 			.select({ archivedAt: technologyElements.archivedAt })
@@ -320,23 +364,51 @@ export async function addApplicationElement(appId: string, elementId: string) {
 			.limit(1)
 		if (!el) throw new Error(`Teknologielement ikke funnet: ${elementId}`)
 		if (el.archivedAt) throw new Error("Kan ikke koble applikasjon til arkivert teknologielement.")
-		await tx
+		const inserted = await tx
 			.insert(applicationTechnologyElements)
 			.values({ applicationId: appId, elementId, source: "manual" })
 			.onConflictDoNothing()
+			.returning({ id: applicationTechnologyElements.id })
+		if (inserted.length === 0) return
+		await writeAuditLog(
+			{
+				action: "application_technology_element_added",
+				entityType: "application_technology_element",
+				entityId: appId,
+				newValue: JSON.stringify({ applicationId: appId, elementId, source: "manual" }),
+				metadata: { elementId, source: "manual" },
+				performedBy,
+			},
+			tx,
+		)
 	})
 }
 
 /** Remove a technology element from an application. */
-export async function removeApplicationElement(appId: string, elementId: string) {
-	await db
-		.delete(applicationTechnologyElements)
-		.where(
-			and(
-				eq(applicationTechnologyElements.applicationId, appId),
-				eq(applicationTechnologyElements.elementId, elementId),
-			),
+export async function removeApplicationElement(appId: string, elementId: string, performedBy: string) {
+	await db.transaction(async (tx) => {
+		const deleted = await tx
+			.delete(applicationTechnologyElements)
+			.where(
+				and(
+					eq(applicationTechnologyElements.applicationId, appId),
+					eq(applicationTechnologyElements.elementId, elementId),
+				),
+			)
+			.returning({ id: applicationTechnologyElements.id, source: applicationTechnologyElements.source })
+		if (deleted.length === 0) return
+		await writeAuditLog(
+			{
+				action: "application_technology_element_removed",
+				entityType: "application_technology_element",
+				entityId: appId,
+				previousValue: JSON.stringify({ applicationId: appId, elementId, source: deleted[0].source }),
+				metadata: { elementId, source: deleted[0].source },
+				performedBy,
+			},
+			tx,
 		)
+	})
 }
 
 /** Sync technology elements for all monitored applications. */

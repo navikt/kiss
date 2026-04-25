@@ -155,7 +155,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				rulesetId,
 			)
 
-			await setQuestionTechnologyElements(q.id, technologyElementIds.filter(Boolean))
+			await setQuestionTechnologyElements(q.id, technologyElementIds.filter(Boolean), authedUser.navIdent)
 
 			const pendingChoicesJson = formData.get("pendingChoices") as string | null
 			if (pendingChoicesJson) {
@@ -197,7 +197,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			authedUser.navIdent,
 			rulesetId,
 		)
-		await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean))
+		await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean), authedUser.navIdent)
 		return redirect(returnPath)
 	}
 

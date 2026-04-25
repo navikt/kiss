@@ -180,7 +180,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (typeof controlId !== "string" || !controlId.trim()) {
 				return data<ActionResult>({ success: false, error: "Velg et kontrollkrav." })
 			}
-			const linked = await linkControlToRuleset(regelSettId, controlId.trim())
+			const linked = await linkControlToRuleset(regelSettId, controlId.trim(), authedUser.navIdent)
 			if (!linked) {
 				return data<ActionResult>({
 					success: false,
@@ -195,7 +195,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (typeof linkId !== "string" || !linkId.trim()) {
 				return data<ActionResult>({ success: false, error: "Mangler kobling-ID." })
 			}
-			const unlinked = await unlinkControlFromRuleset(regelSettId, linkId.trim())
+			const unlinked = await unlinkControlFromRuleset(regelSettId, linkId.trim(), authedUser.navIdent)
 			if (!unlinked) {
 				return data<ActionResult>({
 					success: false,
