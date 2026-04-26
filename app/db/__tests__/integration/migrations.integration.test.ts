@@ -251,8 +251,13 @@ describe("Database migrations", () => {
 			const addedColumns = _testing.extractAlterTableAddColumns(migrationSql)
 			const droppedTables = _testing.extractDropTableNames(migrationSql)
 			const createdIndexes = _testing.extractCreateIndexNames(migrationSql)
+			const addedConstraints = _testing.extractAddConstraints(migrationSql)
 			const hasVerifiableChanges =
-				createdTables.length > 0 || addedColumns.length > 0 || droppedTables.length > 0 || createdIndexes.length > 0
+				createdTables.length > 0 ||
+				addedColumns.length > 0 ||
+				droppedTables.length > 0 ||
+				createdIndexes.length > 0 ||
+				addedConstraints.length > 0
 			expect(hasVerifiableChanges).toBe(true)
 
 			// Run all migrations first
@@ -280,6 +285,9 @@ describe("Database migrations", () => {
 			}
 			for (const { table, column } of addedColumns) {
 				await testDb.execute(sql.raw(`ALTER TABLE "${table}" DROP COLUMN IF EXISTS "${column}"`))
+			}
+			for (const { table, constraint } of addedConstraints) {
+				await testDb.execute(sql.raw(`ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${constraint}"`))
 			}
 			for (const table of droppedTables) {
 				// Re-create minimally so the DROP can be re-applied
@@ -333,6 +341,20 @@ describe("Database migrations", () => {
 					sql.raw(`SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = '${idx}'`),
 				)
 				expect(indexes.rows.map((r) => r.indexname)).toContain(idx)
+			}
+
+			// Verify added constraints were re-applied (constraint-only migrations)
+			for (const { table, constraint } of addedConstraints) {
+				const constraints = await testDb.execute<{ conname: string }>(
+					sql.raw(`
+					SELECT conname FROM pg_constraint
+					WHERE conrelid = '"${table}"'::regclass AND conname = '${constraint}'
+				`),
+				)
+				expect(
+					constraints.rows.map((r) => r.conname),
+					`Constraint "${constraint}" on "${table}" should have been re-created`,
+				).toContain(constraint)
 			}
 
 			const finalCount = await getTrackingCount()

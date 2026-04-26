@@ -61,6 +61,7 @@ export async function getDomainSummaries() {
 		.where(
 			and(
 				inArray(frameworkRisks.domainId, domainIds),
+				isNull(frameworkRiskControlMappings.archivedAt),
 				isNull(frameworkRisks.archivedAt),
 				isNull(frameworkControls.archivedAt),
 			),
@@ -221,7 +222,9 @@ async function getControlTechnologyMap(controlUuids: string[]) {
 		})
 		.from(controlTechnologyElements)
 		.innerJoin(technologyElements, eq(controlTechnologyElements.elementId, technologyElements.id))
-		.where(inArray(controlTechnologyElements.controlId, controlUuids))
+		.where(
+			and(inArray(controlTechnologyElements.controlId, controlUuids), isNull(controlTechnologyElements.archivedAt)),
+		)
 		.orderBy(technologyElements.displayOrder)
 
 	const map = new Map<string, string[]>()
@@ -269,7 +272,7 @@ export async function getDomainDetail(domainCode: string) {
 		const mappings = await db
 			.select({ controlId: frameworkRiskControlMappings.controlId })
 			.from(frameworkRiskControlMappings)
-			.where(eq(frameworkRiskControlMappings.riskId, risk.id))
+			.where(and(eq(frameworkRiskControlMappings.riskId, risk.id), isNull(frameworkRiskControlMappings.archivedAt)))
 
 		const controls = []
 		for (const mapping of mappings) {
@@ -357,7 +360,7 @@ export async function getRiskDetail(riskIdStr: string) {
 	const mappings = await db
 		.select({ controlId: frameworkRiskControlMappings.controlId })
 		.from(frameworkRiskControlMappings)
-		.where(eq(frameworkRiskControlMappings.riskId, risk.id))
+		.where(and(eq(frameworkRiskControlMappings.riskId, risk.id), isNull(frameworkRiskControlMappings.archivedAt)))
 
 	const controls = []
 	for (const mapping of mappings) {
@@ -587,21 +590,30 @@ async function syncControlTechElements(
 	const existing = await db
 		.select({ id: controlTechnologyElements.id, elementId: controlTechnologyElements.elementId })
 		.from(controlTechnologyElements)
-		.where(eq(controlTechnologyElements.controlId, controlUuid))
+		.where(and(eq(controlTechnologyElements.controlId, controlUuid), isNull(controlTechnologyElements.archivedAt)))
 
 	const existingIds = new Set(existing.map((e) => e.elementId))
 
-	// Add missing
+	// Add missing — bruker partial unique index for race-sikkerhet.
 	for (const elementId of desiredIds) {
 		if (!existingIds.has(elementId)) {
-			await db.insert(controlTechnologyElements).values({ controlId: controlUuid, elementId }).onConflictDoNothing()
+			await db
+				.insert(controlTechnologyElements)
+				.values({ controlId: controlUuid, elementId })
+				.onConflictDoNothing({
+					target: [controlTechnologyElements.controlId, controlTechnologyElements.elementId],
+					where: isNull(controlTechnologyElements.archivedAt),
+				})
 		}
 	}
 
-	// Remove no-longer-matched
+	// Remove no-longer-matched (soft-delete)
 	for (const row of existing) {
 		if (!desiredIds.has(row.elementId)) {
-			await db.delete(controlTechnologyElements).where(eq(controlTechnologyElements.id, row.id))
+			await db
+				.update(controlTechnologyElements)
+				.set({ archivedAt: new Date(), archivedBy: "system:framework-import" })
+				.where(and(eq(controlTechnologyElements.id, row.id), isNull(controlTechnologyElements.archivedAt)))
 		}
 	}
 }
@@ -969,8 +981,11 @@ export async function applyFrameworkImport(
 	const controlIdToUuid = new Map(currentControls.map((c) => [c.controlId, c.id]))
 	const riskIdToUuid = new Map(currentRisks.map((r) => [r.riskId, r.id]))
 
-	// Get existing mappings
-	const existingMappings = await db.select().from(frameworkRiskControlMappings)
+	// Get existing active mappings
+	const existingMappings = await db
+		.select()
+		.from(frameworkRiskControlMappings)
+		.where(isNull(frameworkRiskControlMappings.archivedAt))
 	const existingMappingKeys = new Map<string, string>()
 	for (const m of existingMappings) {
 		existingMappingKeys.set(`${m.riskId}::${m.controlId}`, m.id)
@@ -987,10 +1002,13 @@ export async function applyFrameworkImport(
 		}
 	}
 
-	// Delete removed mappings
+	// Soft-delete fjernede mappings
 	for (const [key, id] of existingMappingKeys) {
 		if (!desiredMappingKeys.has(key)) {
-			await db.delete(frameworkRiskControlMappings).where(eq(frameworkRiskControlMappings.id, id))
+			await db
+				.update(frameworkRiskControlMappings)
+				.set({ archivedAt: new Date(), archivedBy: appliedBy })
+				.where(and(eq(frameworkRiskControlMappings.id, id), isNull(frameworkRiskControlMappings.archivedAt)))
 		}
 	}
 
@@ -1431,6 +1449,7 @@ export async function getDomainWithCounts(domainId: string) {
 		.where(
 			and(
 				eq(frameworkRisks.domainId, domainId),
+				isNull(frameworkRiskControlMappings.archivedAt),
 				isNull(frameworkRisks.archivedAt),
 				isNull(frameworkControls.archivedAt),
 			),
@@ -1560,6 +1579,7 @@ export async function getControlDomains(controlUuid: string): Promise<ControlDom
 		.where(
 			and(
 				eq(frameworkRiskControlMappings.controlId, controlUuid),
+				isNull(frameworkRiskControlMappings.archivedAt),
 				isNull(frameworkRisks.archivedAt),
 				isNull(frameworkDomains.archivedAt),
 			),
@@ -1591,6 +1611,7 @@ export async function getControlDomainMap(controlUuids: string[]): Promise<Map<s
 		.where(
 			and(
 				sql`${frameworkRiskControlMappings.controlId} IN ${controlUuids}`,
+				isNull(frameworkRiskControlMappings.archivedAt),
 				isNull(frameworkRisks.archivedAt),
 				isNull(frameworkDomains.archivedAt),
 			),
@@ -1667,7 +1688,9 @@ export async function getControlLinkedRisks(controlUuid: string) {
 		.from(frameworkRiskControlMappings)
 		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
 		.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
-		.where(eq(frameworkRiskControlMappings.controlId, controlUuid))
+		.where(
+			and(eq(frameworkRiskControlMappings.controlId, controlUuid), isNull(frameworkRiskControlMappings.archivedAt)),
+		)
 		.orderBy(frameworkRisks.riskId)
 	return rows.map((r) => ({
 		id: r.id,

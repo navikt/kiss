@@ -112,19 +112,24 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (allRoutineIds.length > 0) {
 		const { routineControls: routineControlsTable, routineTechnologyElements } = await import("~/db/schema/routines")
 		const { db } = await import("~/db/connection.server")
-		const { inArray } = await import("drizzle-orm")
+		const { inArray, and, isNull } = await import("drizzle-orm")
 		const [controlRows, techElementRows] = await Promise.all([
 			db
 				.select({ routineId: routineControlsTable.routineId, controlId: routineControlsTable.controlId })
 				.from(routineControlsTable)
-				.where(inArray(routineControlsTable.routineId, allRoutineIds)),
+				.where(and(inArray(routineControlsTable.routineId, allRoutineIds), isNull(routineControlsTable.archivedAt))),
 			db
 				.select({
 					routineId: routineTechnologyElements.routineId,
 					elementId: routineTechnologyElements.elementId,
 				})
 				.from(routineTechnologyElements)
-				.where(inArray(routineTechnologyElements.routineId, allRoutineIds)),
+				.where(
+					and(
+						inArray(routineTechnologyElements.routineId, allRoutineIds),
+						isNull(routineTechnologyElements.archivedAt),
+					),
+				),
 		])
 		for (const row of controlRows) {
 			const list = routineControlsMap.get(row.routineId) ?? []

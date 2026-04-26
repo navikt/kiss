@@ -99,6 +99,7 @@ describe("Applications integration tests", () => {
 			DELETE FROM nais_teams;
 			DELETE FROM framework_field_history;
 			DELETE FROM framework_risk_control_mappings;
+			DELETE FROM control_technology_elements;
 			DELETE FROM framework_controls;
 			DELETE FROM framework_risks;
 			DELETE FROM framework_domains;
@@ -151,7 +152,7 @@ describe("Applications integration tests", () => {
 		await unlinkAppFromTeam(appId, teamId, "admin")
 
 		const mappings = await db.execute(
-			/* sql */ `SELECT * FROM application_team_mappings WHERE application_id = '${appId}'`,
+			/* sql */ `SELECT * FROM application_team_mappings WHERE application_id = '${appId}' AND archived_at IS NULL`,
 		)
 		expect(mappings.rows).toHaveLength(0)
 

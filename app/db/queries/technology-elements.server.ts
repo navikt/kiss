@@ -20,7 +20,7 @@ export async function getControlElements(controlUuid: string) {
 		})
 		.from(controlTechnologyElements)
 		.innerJoin(technologyElements, eq(controlTechnologyElements.elementId, technologyElements.id))
-		.where(eq(controlTechnologyElements.controlId, controlUuid))
+		.where(and(eq(controlTechnologyElements.controlId, controlUuid), isNull(controlTechnologyElements.archivedAt)))
 		.orderBy(technologyElements.displayOrder)
 }
 
@@ -41,7 +41,9 @@ export async function getApplicationElements(appId: string) {
 		})
 		.from(applicationTechnologyElements)
 		.innerJoin(technologyElements, eq(applicationTechnologyElements.elementId, technologyElements.id))
-		.where(eq(applicationTechnologyElements.applicationId, appId))
+		.where(
+			and(eq(applicationTechnologyElements.applicationId, appId), isNull(applicationTechnologyElements.archivedAt)),
+		)
 		.orderBy(technologyElements.displayOrder)
 }
 
@@ -159,12 +161,18 @@ export async function getTechnologyElementWithCounts(id: string) {
 	const controlCount = await db
 		.select({ count: sql<number>`count(*)` })
 		.from(controlTechnologyElements)
-		.where(eq(controlTechnologyElements.elementId, id))
+		.where(and(eq(controlTechnologyElements.elementId, id), isNull(controlTechnologyElements.archivedAt)))
 	const appCount = await db
 		.select({ count: sql<number>`count(*)` })
 		.from(applicationTechnologyElements)
 		.innerJoin(monitoredApplications, eq(applicationTechnologyElements.applicationId, monitoredApplications.id))
-		.where(and(eq(applicationTechnologyElements.elementId, id), isNull(monitoredApplications.primaryApplicationId)))
+		.where(
+			and(
+				eq(applicationTechnologyElements.elementId, id),
+				isNull(applicationTechnologyElements.archivedAt),
+				isNull(monitoredApplications.primaryApplicationId),
+			),
+		)
 	return { ...el, controlCount: Number(controlCount[0].count), appCount: Number(appCount[0].count) }
 }
 
@@ -179,10 +187,16 @@ export async function addControlElement(controlId: string, elementId: string, pe
 			.limit(1)
 		if (!el) throw new Error(`Teknologielement ikke funnet: ${elementId}`)
 		if (el.archivedAt) throw new Error("Kan ikke koble kontroll til arkivert teknologielement.")
+		// control_technology_elements har partial unique index
+		// (control_id, element_id) WHERE archived_at IS NULL — bruk
+		// onConflictDoNothing for å unngå TOCTOU-race ved samtidige innsettinger.
 		const inserted = await tx
 			.insert(controlTechnologyElements)
 			.values({ controlId, elementId })
-			.onConflictDoNothing()
+			.onConflictDoNothing({
+				target: [controlTechnologyElements.controlId, controlTechnologyElements.elementId],
+				where: isNull(controlTechnologyElements.archivedAt),
+			})
 			.returning({ id: controlTechnologyElements.id })
 		if (inserted.length === 0) return
 		await writeAuditLog(
@@ -198,16 +212,21 @@ export async function addControlElement(controlId: string, elementId: string, pe
 	})
 }
 
-/** Remove a technology element from a control. Auditerer kun ved faktisk sletting. */
+/** Soft-delete (arkiver) en teknologielement-kobling fra en kontroll. Auditerer kun ved faktisk arkivering (no-op hvis raden allerede er arkivert). */
 export async function removeControlElement(controlId: string, elementId: string, performer: string) {
 	await db.transaction(async (tx) => {
-		const deleted = await tx
-			.delete(controlTechnologyElements)
+		const archived = await tx
+			.update(controlTechnologyElements)
+			.set({ archivedAt: new Date(), archivedBy: performer })
 			.where(
-				and(eq(controlTechnologyElements.controlId, controlId), eq(controlTechnologyElements.elementId, elementId)),
+				and(
+					eq(controlTechnologyElements.controlId, controlId),
+					eq(controlTechnologyElements.elementId, elementId),
+					isNull(controlTechnologyElements.archivedAt),
+				),
 			)
 			.returning({ id: controlTechnologyElements.id })
-		if (deleted.length === 0) return
+		if (archived.length === 0) return
 		await writeAuditLog(
 			{
 				action: "control_element_removed",
@@ -216,8 +235,8 @@ export async function removeControlElement(controlId: string, elementId: string,
 				previousValue: JSON.stringify({
 					controlId,
 					elementId,
-					deletedCount: deleted.length,
-					deletedIds: deleted.map(({ id }) => id),
+					archivedCount: archived.length,
+					archivedIds: archived.map(({ id }) => id),
 				}),
 				performedBy: performer,
 			},
@@ -291,6 +310,8 @@ export async function syncApplicationTechnologyElements(appId: string) {
 		}
 
 		for (const elementId of elementIds) {
+			// applicationTechnologyElements har partial unique index på (applicationId, elementId)
+			// WHERE archived_at IS NULL — onConflictDoNothing håndterer kollisjon med aktiv rad.
 			const inserted = await tx
 				.insert(applicationTechnologyElements)
 				.values({
@@ -298,7 +319,10 @@ export async function syncApplicationTechnologyElements(appId: string) {
 					elementId,
 					source: "auto",
 				})
-				.onConflictDoNothing()
+				.onConflictDoNothing({
+					target: [applicationTechnologyElements.applicationId, applicationTechnologyElements.elementId],
+					where: isNull(applicationTechnologyElements.archivedAt),
+				})
 				.returning({ id: applicationTechnologyElements.id })
 			if (inserted.length > 0) {
 				await writeAuditLog(
@@ -326,16 +350,21 @@ export async function syncApplicationTechnologyElements(appId: string) {
 			})
 			.from(applicationTechnologyElements)
 			.where(
-				and(eq(applicationTechnologyElements.applicationId, appId), eq(applicationTechnologyElements.source, "auto")),
+				and(
+					eq(applicationTechnologyElements.applicationId, appId),
+					eq(applicationTechnologyElements.source, "auto"),
+					isNull(applicationTechnologyElements.archivedAt),
+				),
 			)
 
 		for (const row of currentAuto) {
 			if (!elementIds.has(row.elementId) && !row.rejectedAt && !archivedIds.has(row.elementId)) {
-				const deleted = await tx
-					.delete(applicationTechnologyElements)
-					.where(eq(applicationTechnologyElements.id, row.id))
+				const archived = await tx
+					.update(applicationTechnologyElements)
+					.set({ archivedAt: new Date(), archivedBy: "system:tech-element-sync" })
+					.where(and(eq(applicationTechnologyElements.id, row.id), isNull(applicationTechnologyElements.archivedAt)))
 					.returning({ id: applicationTechnologyElements.id })
-				if (deleted.length > 0) {
+				if (archived.length > 0) {
 					await writeAuditLog(
 						{
 							action: "application_technology_element_removed",
@@ -367,7 +396,10 @@ export async function addApplicationElement(appId: string, elementId: string, pe
 		const inserted = await tx
 			.insert(applicationTechnologyElements)
 			.values({ applicationId: appId, elementId, source: "manual" })
-			.onConflictDoNothing()
+			.onConflictDoNothing({
+				target: [applicationTechnologyElements.applicationId, applicationTechnologyElements.elementId],
+				where: isNull(applicationTechnologyElements.archivedAt),
+			})
 			.returning({ id: applicationTechnologyElements.id })
 		if (inserted.length === 0) return
 		await writeAuditLog(
@@ -387,23 +419,25 @@ export async function addApplicationElement(appId: string, elementId: string, pe
 /** Remove a technology element from an application. */
 export async function removeApplicationElement(appId: string, elementId: string, performedBy: string) {
 	await db.transaction(async (tx) => {
-		const deleted = await tx
-			.delete(applicationTechnologyElements)
+		const archived = await tx
+			.update(applicationTechnologyElements)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
 			.where(
 				and(
 					eq(applicationTechnologyElements.applicationId, appId),
 					eq(applicationTechnologyElements.elementId, elementId),
+					isNull(applicationTechnologyElements.archivedAt),
 				),
 			)
 			.returning({ id: applicationTechnologyElements.id, source: applicationTechnologyElements.source })
-		if (deleted.length === 0) return
+		if (archived.length === 0) return
 		await writeAuditLog(
 			{
 				action: "application_technology_element_removed",
 				entityType: "application_technology_element",
 				entityId: appId,
-				previousValue: JSON.stringify({ applicationId: appId, elementId, source: deleted[0].source }),
-				metadata: { elementId, source: deleted[0].source },
+				previousValue: JSON.stringify({ applicationId: appId, elementId, source: archived[0].source }),
+				metadata: { elementId, source: archived[0].source },
 				performedBy,
 			},
 			tx,
@@ -431,7 +465,7 @@ export async function confirmApplicationElement(linkId: string, performedBy: str
 			rejectedBy: null,
 			rejectionReason: null,
 		})
-		.where(eq(applicationTechnologyElements.id, linkId))
+		.where(and(eq(applicationTechnologyElements.id, linkId), isNull(applicationTechnologyElements.archivedAt)))
 		.returning({
 			appId: applicationTechnologyElements.applicationId,
 			elementId: applicationTechnologyElements.elementId,
@@ -464,7 +498,7 @@ export async function rejectApplicationElement(linkId: string, reason: string, p
 			confirmedAt: null,
 			confirmedBy: null,
 		})
-		.where(eq(applicationTechnologyElements.id, linkId))
+		.where(and(eq(applicationTechnologyElements.id, linkId), isNull(applicationTechnologyElements.archivedAt)))
 		.returning({
 			appId: applicationTechnologyElements.applicationId,
 			elementId: applicationTechnologyElements.elementId,

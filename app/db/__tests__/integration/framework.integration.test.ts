@@ -99,6 +99,7 @@ describe("Framework integration tests", () => {
 			DELETE FROM framework_risk_control_mappings;
 			DELETE FROM compliance_assessments;
 			DELETE FROM compliance_assessment_history;
+			DELETE FROM control_technology_elements;
 			DELETE FROM framework_controls;
 			DELETE FROM framework_risks;
 			DELETE FROM framework_domains;

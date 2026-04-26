@@ -1,4 +1,5 @@
-import { boolean, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
+import { boolean, integer, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { monitoredApplications } from "./applications"
 import { complianceStatusEnum } from "./compliance"
 import { frameworkControls, technologyElements } from "./framework"
@@ -109,8 +110,14 @@ export const screeningQuestionTechnologyElements = pgTable(
 		elementId: uuid("element_id")
 			.notNull()
 			.references(() => technologyElements.id, { onDelete: "restrict" }),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
 	},
-	(t) => [unique().on(t.questionId, t.elementId)],
+	(t) => [
+		uniqueIndex("uq_screening_question_tech_element_active")
+			.on(t.questionId, t.elementId)
+			.where(sql`${t.archivedAt} IS NULL`),
+	],
 )
 
 /** Per-application routine selections from screening questions with select_routine effects. */

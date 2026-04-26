@@ -216,11 +216,26 @@ export async function getQuestionTechnologyElements(questionId: string) {
 	return db
 		.select({ elementId: screeningQuestionTechnologyElements.elementId })
 		.from(screeningQuestionTechnologyElements)
-		.where(eq(screeningQuestionTechnologyElements.questionId, questionId))
+		.where(
+			and(
+				eq(screeningQuestionTechnologyElements.questionId, questionId),
+				isNull(screeningQuestionTechnologyElements.archivedAt),
+			),
+		)
 }
 
 export async function setQuestionTechnologyElements(questionId: string, elementIds: string[], performedBy: string) {
 	await db.transaction(async (tx) => {
+		// Serialiser samtidige sets på samme spørsmål: lås parent-raden FOR UPDATE
+		// slik at to parallelle saves ikke kan arkivere hverandres nye rader (lost-
+		// update). Kort kritisk seksjon — alle reads/writes nedenfor er på samme
+		// questionId.
+		await tx
+			.select({ id: screeningQuestions.id })
+			.from(screeningQuestions)
+			.where(eq(screeningQuestions.id, questionId))
+			.for("update")
+
 		// Bevar koblinger til arkiverte elementer: edit-skjemaet rendrer bare aktive
 		// elementer, så hvis vi gjør full replacement vil arkiverte koblinger forsvinne
 		// stille. Vi finner derfor først eksisterende koblinger til arkiverte elementer
@@ -232,7 +247,12 @@ export async function setQuestionTechnologyElements(questionId: string, elementI
 			})
 			.from(screeningQuestionTechnologyElements)
 			.innerJoin(technologyElements, eq(technologyElements.id, screeningQuestionTechnologyElements.elementId))
-			.where(eq(screeningQuestionTechnologyElements.questionId, questionId))
+			.where(
+				and(
+					eq(screeningQuestionTechnologyElements.questionId, questionId),
+					isNull(screeningQuestionTechnologyElements.archivedAt),
+				),
+			)
 			.for("share", { of: technologyElements })
 
 		const archivedToPreserve = existing.filter((e) => e.archivedAt).map((e) => e.elementId)
@@ -245,14 +265,23 @@ export async function setQuestionTechnologyElements(questionId: string, elementI
 		const added = finalIds.filter((id) => !previousIds.has(id))
 		const removed = [...previousIds].filter((id) => !finalSet.has(id))
 
-		// No-op short-circuit: hvis settet er uendret, hopp over DELETE+INSERT-
+		// No-op short-circuit: hvis settet er uendret, hopp over soft-delete+INSERT-
 		// replacement. Sparer write-load og bevarer link-radenes `id` (ellers
 		// ville hver lagring rotert id-ene, selv uten reell endring).
 		if (added.length === 0 && removed.length === 0) return
 
+		// Soft-delete alle aktive koblinger og INSERT målsettet på nytt. Partial
+		// unique index `uq_screening_question_tech_element_active` sikrer at det
+		// ikke kan ligge to aktive rader for samme (questionId, elementId).
 		await tx
-			.delete(screeningQuestionTechnologyElements)
-			.where(eq(screeningQuestionTechnologyElements.questionId, questionId))
+			.update(screeningQuestionTechnologyElements)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(
+				and(
+					eq(screeningQuestionTechnologyElements.questionId, questionId),
+					isNull(screeningQuestionTechnologyElements.archivedAt),
+				),
+			)
 
 		if (finalIds.length > 0) {
 			await tx
@@ -717,9 +746,12 @@ export async function getScreeningDataForApp(applicationId: string) {
 					.select()
 					.from(screeningQuestionTechnologyElements)
 					.where(
-						inArray(
-							screeningQuestionTechnologyElements.questionId,
-							allQuestions.map((q) => q.id),
+						and(
+							inArray(
+								screeningQuestionTechnologyElements.questionId,
+								allQuestions.map((q) => q.id),
+							),
+							isNull(screeningQuestionTechnologyElements.archivedAt),
 						),
 					)
 			: []
@@ -735,7 +767,12 @@ export async function getScreeningDataForApp(applicationId: string) {
 	const appTechRows = await db
 		.select({ elementId: applicationTechnologyElements.elementId })
 		.from(applicationTechnologyElements)
-		.where(eq(applicationTechnologyElements.applicationId, applicationId))
+		.where(
+			and(
+				eq(applicationTechnologyElements.applicationId, applicationId),
+				isNull(applicationTechnologyElements.archivedAt),
+			),
+		)
 	const appTechElementIds = new Set(appTechRows.map((r) => r.elementId))
 
 	// Filter: include questions with no tech links (apply to all) or matching at least one app tech element
@@ -826,7 +863,14 @@ export async function getScreeningDataForApp(applicationId: string) {
 			})
 			.from(routineControls)
 			.innerJoin(routines, eq(routineControls.routineId, routines.id))
-			.where(and(inArray(routineControls.controlId, [...selectRoutineControlIds]), eq(routines.status, "active")))
+			.where(
+				and(
+					inArray(routineControls.controlId, [...selectRoutineControlIds]),
+					isNull(routineControls.archivedAt),
+					eq(routines.status, "active"),
+					isNull(routines.archivedAt),
+				),
+			)
 
 		for (const lr of linkedRoutines) {
 			const list = routineOptionsByControl.get(lr.controlId) ?? []

@@ -218,7 +218,7 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 			})
 			.from(rulesetControls)
 			.innerJoin(frameworkControls, eq(rulesetControls.controlId, frameworkControls.id))
-			.where(eq(rulesetControls.rulesetId, rulesetId))
+			.where(and(eq(rulesetControls.rulesetId, rulesetId), isNull(rulesetControls.archivedAt)))
 			.orderBy(frameworkControls.controlId),
 		db
 			.select()
@@ -235,7 +235,7 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 			})
 			.from(rulesetRoutines)
 			.innerJoin(routines, eq(rulesetRoutines.routineId, routines.id))
-			.where(eq(rulesetRoutines.rulesetId, rulesetId))
+			.where(and(eq(rulesetRoutines.rulesetId, rulesetId), isNull(rulesetRoutines.archivedAt)))
 			.orderBy(routines.name),
 	])
 
@@ -538,7 +538,13 @@ export async function linkControlToRuleset(
 		const [existing] = await tx
 			.select({ id: rulesetControls.id })
 			.from(rulesetControls)
-			.where(and(eq(rulesetControls.rulesetId, rulesetId), eq(rulesetControls.controlId, controlId)))
+			.where(
+				and(
+					eq(rulesetControls.rulesetId, rulesetId),
+					eq(rulesetControls.controlId, controlId),
+					isNull(rulesetControls.archivedAt),
+				),
+			)
 			.limit(1)
 		if (existing) return true
 		await tx.insert(rulesetControls).values({ rulesetId, controlId })
@@ -579,18 +585,25 @@ export async function unlinkControlFromRuleset(
 			.for("update")
 			.limit(1)
 		if (!locked || locked.archivedAt) return false
-		const deleted = await tx
-			.delete(rulesetControls)
-			.where(and(eq(rulesetControls.id, linkId), eq(rulesetControls.rulesetId, rulesetId)))
+		const archived = await tx
+			.update(rulesetControls)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(
+				and(
+					eq(rulesetControls.id, linkId),
+					eq(rulesetControls.rulesetId, rulesetId),
+					isNull(rulesetControls.archivedAt),
+				),
+			)
 			.returning({ controlId: rulesetControls.controlId })
-		if (deleted.length === 0) return true
+		if (archived.length === 0) return true
 		await writeAuditLog(
 			{
 				action: "ruleset_control_removed",
 				entityType: "ruleset_control",
 				entityId: rulesetId,
-				previousValue: JSON.stringify({ rulesetId, controlId: deleted[0].controlId, linkId }),
-				metadata: { controlId: deleted[0].controlId, linkId },
+				previousValue: JSON.stringify({ rulesetId, controlId: archived[0].controlId, linkId }),
+				metadata: { controlId: archived[0].controlId, linkId },
 				performedBy,
 			},
 			tx,
@@ -614,7 +627,9 @@ export async function getRulesetsForControl(
 		.from(rulesetControls)
 		.innerJoin(rulesets, eq(rulesetControls.rulesetId, rulesets.id))
 		.innerJoin(sections, eq(rulesets.sectionId, sections.id))
-		.where(and(eq(rulesetControls.controlId, controlUuid), isNull(rulesets.archivedAt)))
+		.where(
+			and(eq(rulesetControls.controlId, controlUuid), isNull(rulesetControls.archivedAt), isNull(rulesets.archivedAt)),
+		)
 		.orderBy(rulesets.name)
 
 	if (rows.length === 0) return []
@@ -688,7 +703,13 @@ export async function linkRoutineToRuleset(rulesetId: string, routineId: string,
 		const [existing] = await tx
 			.select({ id: rulesetRoutines.id })
 			.from(rulesetRoutines)
-			.where(and(eq(rulesetRoutines.rulesetId, rulesetId), eq(rulesetRoutines.routineId, routineId)))
+			.where(
+				and(
+					eq(rulesetRoutines.rulesetId, rulesetId),
+					eq(rulesetRoutines.routineId, routineId),
+					isNull(rulesetRoutines.archivedAt),
+				),
+			)
 			.limit(1)
 		if (existing) return true
 
@@ -729,18 +750,25 @@ export async function unlinkRoutineFromRuleset(
 			.for("update")
 			.limit(1)
 		if (!locked || locked.archivedAt) return false
-		const deleted = await tx
-			.delete(rulesetRoutines)
-			.where(and(eq(rulesetRoutines.id, linkId), eq(rulesetRoutines.rulesetId, rulesetId)))
+		const archived = await tx
+			.update(rulesetRoutines)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(
+				and(
+					eq(rulesetRoutines.id, linkId),
+					eq(rulesetRoutines.rulesetId, rulesetId),
+					isNull(rulesetRoutines.archivedAt),
+				),
+			)
 			.returning({ routineId: rulesetRoutines.routineId })
-		if (deleted.length === 0) return true
+		if (archived.length === 0) return true
 		await writeAuditLog(
 			{
 				action: "ruleset_routine_removed",
 				entityType: "ruleset_routine",
 				entityId: rulesetId,
-				previousValue: JSON.stringify({ rulesetId, routineId: deleted[0].routineId, linkId }),
-				metadata: { routineId: deleted[0].routineId, linkId },
+				previousValue: JSON.stringify({ rulesetId, routineId: archived[0].routineId, linkId }),
+				metadata: { routineId: archived[0].routineId, linkId },
 				performedBy,
 			},
 			tx,

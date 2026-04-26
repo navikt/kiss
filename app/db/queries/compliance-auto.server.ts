@@ -39,6 +39,7 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 		.where(
 			and(
 				eq(applicationTechnologyElements.applicationId, applicationId),
+				isNull(applicationTechnologyElements.archivedAt),
 				isNotNull(applicationTechnologyElements.confirmedAt),
 				isNull(applicationTechnologyElements.rejectedAt),
 			),
@@ -74,7 +75,12 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 	const techLinks = await db
 		.select()
 		.from(screeningQuestionTechnologyElements)
-		.where(inArray(screeningQuestionTechnologyElements.questionId, questionIds))
+		.where(
+			and(
+				inArray(screeningQuestionTechnologyElements.questionId, questionIds),
+				isNull(screeningQuestionTechnologyElements.archivedAt),
+			),
+		)
 	const techByQuestion = new Map<string, string[]>()
 	for (const link of techLinks) {
 		const list = techByQuestion.get(link.questionId) ?? []

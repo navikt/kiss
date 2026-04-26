@@ -67,8 +67,13 @@ export async function getRoutinesForSection(sectionId: string) {
 			})
 			.from(routineTechnologyElements)
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-			.where(inArray(routineTechnologyElements.routineId, routineIds)),
-		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, routineIds)),
+			.where(
+				and(inArray(routineTechnologyElements.routineId, routineIds), isNull(routineTechnologyElements.archivedAt)),
+			),
+		db
+			.select()
+			.from(routinePersistenceLinks)
+			.where(and(inArray(routinePersistenceLinks.routineId, routineIds), isNull(routinePersistenceLinks.archivedAt))),
 		db
 			.select({
 				routineId: routineReviews.routineId,
@@ -86,7 +91,7 @@ export async function getRoutinesForSection(sectionId: string) {
 			})
 			.from(routineControls)
 			.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
-			.where(inArray(routineControls.routineId, routineIds)),
+			.where(and(inArray(routineControls.routineId, routineIds), isNull(routineControls.archivedAt))),
 	])
 
 	// Group results by routineId
@@ -137,9 +142,15 @@ export async function getRoutine(id: string) {
 			})
 			.from(routineTechnologyElements)
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-			.where(eq(routineTechnologyElements.routineId, id)),
-		db.select().from(routineScreeningQuestions).where(eq(routineScreeningQuestions.routineId, id)),
-		db.select().from(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, id)),
+			.where(and(eq(routineTechnologyElements.routineId, id), isNull(routineTechnologyElements.archivedAt))),
+		db
+			.select()
+			.from(routineScreeningQuestions)
+			.where(and(eq(routineScreeningQuestions.routineId, id), isNull(routineScreeningQuestions.archivedAt))),
+		db
+			.select()
+			.from(routinePersistenceLinks)
+			.where(and(eq(routinePersistenceLinks.routineId, id), isNull(routinePersistenceLinks.archivedAt))),
 		db
 			.selectDistinct({
 				id: frameworkControls.id,
@@ -150,12 +161,28 @@ export async function getRoutine(id: string) {
 			})
 			.from(routineControls)
 			.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
-			.innerJoin(frameworkRiskControlMappings, eq(frameworkControls.id, frameworkRiskControlMappings.controlId))
+			.innerJoin(
+				frameworkRiskControlMappings,
+				and(
+					eq(frameworkControls.id, frameworkRiskControlMappings.controlId),
+					isNull(frameworkRiskControlMappings.archivedAt),
+				),
+			)
 			.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
 			.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
-			.where(eq(routineControls.routineId, id)),
-		db.select().from(routineGroupClassificationLinks).where(eq(routineGroupClassificationLinks.routineId, id)),
-		db.select().from(routineOracleRoleCriticalityLinks).where(eq(routineOracleRoleCriticalityLinks.routineId, id)),
+			.where(and(eq(routineControls.routineId, id), isNull(routineControls.archivedAt))),
+		db
+			.select()
+			.from(routineGroupClassificationLinks)
+			.where(
+				and(eq(routineGroupClassificationLinks.routineId, id), isNull(routineGroupClassificationLinks.archivedAt)),
+			),
+		db
+			.select()
+			.from(routineOracleRoleCriticalityLinks)
+			.where(
+				and(eq(routineOracleRoleCriticalityLinks.routineId, id), isNull(routineOracleRoleCriticalityLinks.archivedAt)),
+			),
 	])
 
 	const controls = controlRows.map((c) => ({
@@ -385,7 +412,7 @@ export async function updateRoutine(params: {
 			})
 			.from(routineTechnologyElements)
 			.innerJoin(technologyElements, eq(technologyElements.id, routineTechnologyElements.elementId))
-			.where(eq(routineTechnologyElements.routineId, params.id))
+			.where(and(eq(routineTechnologyElements.routineId, params.id), isNull(routineTechnologyElements.archivedAt)))
 			.for("share", { of: technologyElements })
 		const archivedTechToPreserve = existingTechLinks.filter((e) => e.archivedAt).map((e) => e.elementId)
 		const finalTechIds = Array.from(new Set([...params.technologyElementIds, ...archivedTechToPreserve]))
@@ -397,10 +424,13 @@ export async function updateRoutine(params: {
 		// så re-save normaliserer bort historiske duplikater (tabellen mangler unique-constraint).
 		const techExistingHasDuplicates = existingTechLinks.length !== prevTechIds.size
 
-		// No-op short-circuit: hopper over DELETE+INSERT når settet er uendret,
-		// både for å spare write-load og for å bevare link-radenes `id`.
+		// No-op short-circuit: hopper over UPDATE(archive)+INSERT når settet er
+		// uendret, både for å spare write-load og for å bevare link-radenes `id`.
 		if (techExistingHasDuplicates || techAdded.length > 0 || techRemoved.length > 0) {
-			await tx.delete(routineTechnologyElements).where(eq(routineTechnologyElements.routineId, params.id))
+			await tx
+				.update(routineTechnologyElements)
+				.set({ archivedAt: new Date(), archivedBy: params.updatedBy })
+				.where(and(eq(routineTechnologyElements.routineId, params.id), isNull(routineTechnologyElements.archivedAt)))
 			if (finalTechIds.length > 0) {
 				await tx.insert(routineTechnologyElements).values(
 					finalTechIds.map((elementId) => ({
@@ -415,7 +445,7 @@ export async function updateRoutine(params: {
 		const existingControls = await tx
 			.select({ controlId: routineControls.controlId })
 			.from(routineControls)
-			.where(eq(routineControls.routineId, params.id))
+			.where(and(eq(routineControls.routineId, params.id), isNull(routineControls.archivedAt)))
 		const prevControlIds = new Set(existingControls.map((c) => c.controlId))
 		const nextControlIds = [...new Set(params.controlIds)]
 		const nextControlSet = new Set(nextControlIds)
@@ -424,7 +454,10 @@ export async function updateRoutine(params: {
 		const controlExistingHasDuplicates = existingControls.length !== prevControlIds.size
 
 		if (controlExistingHasDuplicates || controlAdded.length > 0 || controlRemoved.length > 0) {
-			await tx.delete(routineControls).where(eq(routineControls.routineId, params.id))
+			await tx
+				.update(routineControls)
+				.set({ archivedAt: new Date(), archivedBy: params.updatedBy })
+				.where(and(eq(routineControls.routineId, params.id), isNull(routineControls.archivedAt)))
 			if (nextControlIds.length > 0) {
 				await tx.insert(routineControls).values(
 					nextControlIds.map((controlId) => ({
@@ -442,7 +475,7 @@ export async function updateRoutine(params: {
 				dataClassification: routinePersistenceLinks.dataClassification,
 			})
 			.from(routinePersistenceLinks)
-			.where(eq(routinePersistenceLinks.routineId, params.id))
+			.where(and(eq(routinePersistenceLinks.routineId, params.id), isNull(routinePersistenceLinks.archivedAt)))
 		const persistenceKey = (l: { persistenceType: string | null; dataClassification: string | null }) =>
 			JSON.stringify([l.persistenceType, l.dataClassification])
 		const prevPersistenceKeys = new Set(existingPersistence.map(persistenceKey))
@@ -471,7 +504,10 @@ export async function updateRoutine(params: {
 		const persistenceExistingHasDuplicates = existingPersistence.length !== prevPersistenceKeys.size
 
 		if (persistenceExistingHasDuplicates || persistenceAdded.length > 0 || persistenceRemoved.length > 0) {
-			await tx.delete(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, params.id))
+			await tx
+				.update(routinePersistenceLinks)
+				.set({ archivedAt: new Date(), archivedBy: params.updatedBy })
+				.where(and(eq(routinePersistenceLinks.routineId, params.id), isNull(routinePersistenceLinks.archivedAt)))
 			if (nextPersistence.length > 0) {
 				await tx.insert(routinePersistenceLinks).values(
 					nextPersistence.map((link) => ({
@@ -487,7 +523,12 @@ export async function updateRoutine(params: {
 		const existingGc = await tx
 			.select({ classification: routineGroupClassificationLinks.classification })
 			.from(routineGroupClassificationLinks)
-			.where(eq(routineGroupClassificationLinks.routineId, params.id))
+			.where(
+				and(
+					eq(routineGroupClassificationLinks.routineId, params.id),
+					isNull(routineGroupClassificationLinks.archivedAt),
+				),
+			)
 		const prevGcSet = new Set(existingGc.map((g) => g.classification))
 		const gcLinks = [...new Set(params.groupClassifications ?? [])]
 		const nextGcSet = new Set(gcLinks)
@@ -496,7 +537,15 @@ export async function updateRoutine(params: {
 		const gcExistingHasDuplicates = existingGc.length !== prevGcSet.size
 
 		if (gcExistingHasDuplicates || gcAdded.length > 0 || gcRemoved.length > 0) {
-			await tx.delete(routineGroupClassificationLinks).where(eq(routineGroupClassificationLinks.routineId, params.id))
+			await tx
+				.update(routineGroupClassificationLinks)
+				.set({ archivedAt: new Date(), archivedBy: params.updatedBy })
+				.where(
+					and(
+						eq(routineGroupClassificationLinks.routineId, params.id),
+						isNull(routineGroupClassificationLinks.archivedAt),
+					),
+				)
 			if (gcLinks.length > 0) {
 				await tx.insert(routineGroupClassificationLinks).values(
 					gcLinks.map((classification) => ({
@@ -511,7 +560,12 @@ export async function updateRoutine(params: {
 		const existingOrc = await tx
 			.select({ criticality: routineOracleRoleCriticalityLinks.criticality })
 			.from(routineOracleRoleCriticalityLinks)
-			.where(eq(routineOracleRoleCriticalityLinks.routineId, params.id))
+			.where(
+				and(
+					eq(routineOracleRoleCriticalityLinks.routineId, params.id),
+					isNull(routineOracleRoleCriticalityLinks.archivedAt),
+				),
+			)
 		const prevOrcSet = new Set(existingOrc.map((o) => o.criticality))
 		const orcLinks = [...new Set(params.oracleRoleCriticalities ?? [])]
 		const nextOrcSet = new Set(orcLinks)
@@ -521,8 +575,14 @@ export async function updateRoutine(params: {
 
 		if (orcExistingHasDuplicates || orcAdded.length > 0 || orcRemoved.length > 0) {
 			await tx
-				.delete(routineOracleRoleCriticalityLinks)
-				.where(eq(routineOracleRoleCriticalityLinks.routineId, params.id))
+				.update(routineOracleRoleCriticalityLinks)
+				.set({ archivedAt: new Date(), archivedBy: params.updatedBy })
+				.where(
+					and(
+						eq(routineOracleRoleCriticalityLinks.routineId, params.id),
+						isNull(routineOracleRoleCriticalityLinks.archivedAt),
+					),
+				)
 			if (orcLinks.length > 0) {
 				await tx.insert(routineOracleRoleCriticalityLinks).values(
 					orcLinks.map((criticality) => ({
@@ -540,7 +600,7 @@ export async function updateRoutine(params: {
 				choiceValue: routineScreeningQuestions.choiceValue,
 			})
 			.from(routineScreeningQuestions)
-			.where(eq(routineScreeningQuestions.routineId, params.id))
+			.where(and(eq(routineScreeningQuestions.routineId, params.id), isNull(routineScreeningQuestions.archivedAt)))
 		// Bruker JSON-stringify av tuple for å unngå nøkkelkollisjoner: `choiceValue`
 		// er fritekst som kan inneholde "|" og kan være både null og "". En naiv
 		// "${q}|${v ?? ""}"-nøkkel ville f.eks. mappet (q1, null) og (q1, "") til
@@ -574,7 +634,10 @@ export async function updateRoutine(params: {
 		const sqExistingHasDuplicates = existingSq.length !== prevSqKeys.size
 
 		if (sqExistingHasDuplicates || sqAdded.length > 0 || sqRemoved.length > 0) {
-			await tx.delete(routineScreeningQuestions).where(eq(routineScreeningQuestions.routineId, params.id))
+			await tx
+				.update(routineScreeningQuestions)
+				.set({ archivedAt: new Date(), archivedBy: params.updatedBy })
+				.where(and(eq(routineScreeningQuestions.routineId, params.id), isNull(routineScreeningQuestions.archivedAt)))
 			if (links.length > 0) {
 				await tx.insert(routineScreeningQuestions).values(
 					links.map((link) => ({
@@ -1387,6 +1450,7 @@ export async function getAppsRequiringRoutine(routineId: string) {
 				and(
 					inArray(applicationTechnologyElements.applicationId, appIds),
 					inArray(applicationTechnologyElements.elementId, elementIds),
+					isNull(applicationTechnologyElements.archivedAt),
 					isNotNull(applicationTechnologyElements.confirmedAt),
 					isNull(applicationTechnologyElements.rejectedAt),
 				),
@@ -1518,7 +1582,10 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			.select({ routineId: routineScreeningQuestions.routineId })
 			.from(routineScreeningQuestions)
 			.where(
-				sql`${routineScreeningQuestions.questionId} = ${ans.questionId} AND ${routineScreeningQuestions.choiceValue} = ${ans.answer}`,
+				and(
+					sql`${routineScreeningQuestions.questionId} = ${ans.questionId} AND ${routineScreeningQuestions.choiceValue} = ${ans.answer}`,
+					isNull(routineScreeningQuestions.archivedAt),
+				),
 			)
 		for (const l of links) matchingRoutineIds.add(l.routineId)
 	}
@@ -1559,9 +1626,21 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			})
 			.from(routineTechnologyElements)
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-			.where(inArray(routineTechnologyElements.routineId, routineIdList)),
-		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, routineIdList)),
-		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, routineIdList)),
+			.where(
+				and(inArray(routineTechnologyElements.routineId, routineIdList), isNull(routineTechnologyElements.archivedAt)),
+			),
+		db
+			.select()
+			.from(routineScreeningQuestions)
+			.where(
+				and(inArray(routineScreeningQuestions.routineId, routineIdList), isNull(routineScreeningQuestions.archivedAt)),
+			),
+		db
+			.select()
+			.from(routinePersistenceLinks)
+			.where(
+				and(inArray(routinePersistenceLinks.routineId, routineIdList), isNull(routinePersistenceLinks.archivedAt)),
+			),
 	])
 
 	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
@@ -1590,6 +1669,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		.where(
 			and(
 				eq(applicationTechnologyElements.applicationId, applicationId),
+				isNull(applicationTechnologyElements.archivedAt),
 				isNotNull(applicationTechnologyElements.confirmedAt),
 				isNull(applicationTechnologyElements.rejectedAt),
 			),
@@ -1678,7 +1758,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	const appClassifications = new Set(appPersistence.map((p) => p.dataClassification).filter(Boolean))
 
 	// Find routines that have any persistence links
-	const allPersLinks = await db.select().from(routinePersistenceLinks)
+	const allPersLinks = await db.select().from(routinePersistenceLinks).where(isNull(routinePersistenceLinks.archivedAt))
 	if (allPersLinks.length === 0) return []
 
 	// Group persistence links by routine
@@ -1732,8 +1812,15 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			})
 			.from(routineTechnologyElements)
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-			.where(inArray(routineTechnologyElements.routineId, routineIdList)),
-		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, routineIdList)),
+			.where(
+				and(inArray(routineTechnologyElements.routineId, routineIdList), isNull(routineTechnologyElements.archivedAt)),
+			),
+		db
+			.select()
+			.from(routineScreeningQuestions)
+			.where(
+				and(inArray(routineScreeningQuestions.routineId, routineIdList), isNull(routineScreeningQuestions.archivedAt)),
+			),
 	])
 
 	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
@@ -1851,7 +1938,10 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 	const appClassifications = new Set(classifications.map((c) => c.classification))
 
 	// Find routines with matching group classification links
-	const allGcLinks = await db.select().from(routineGroupClassificationLinks)
+	const allGcLinks = await db
+		.select()
+		.from(routineGroupClassificationLinks)
+		.where(isNull(routineGroupClassificationLinks.archivedAt))
 	if (allGcLinks.length === 0) return []
 
 	const gcLinksByRoutine = new Map<string, typeof allGcLinks>()
@@ -1898,9 +1988,21 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 			})
 			.from(routineTechnologyElements)
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-			.where(inArray(routineTechnologyElements.routineId, routineIdList)),
-		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, routineIdList)),
-		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, routineIdList)),
+			.where(
+				and(inArray(routineTechnologyElements.routineId, routineIdList), isNull(routineTechnologyElements.archivedAt)),
+			),
+		db
+			.select()
+			.from(routineScreeningQuestions)
+			.where(
+				and(inArray(routineScreeningQuestions.routineId, routineIdList), isNull(routineScreeningQuestions.archivedAt)),
+			),
+		db
+			.select()
+			.from(routinePersistenceLinks)
+			.where(
+				and(inArray(routinePersistenceLinks.routineId, routineIdList), isNull(routinePersistenceLinks.archivedAt)),
+			),
 	])
 
 	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
@@ -1998,6 +2100,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 		.where(
 			and(
 				inArray(routineOracleRoleCriticalityLinks.criticality, appCriticalities),
+				isNull(routineOracleRoleCriticalityLinks.archivedAt),
 				excludeIds.length > 0
 					? sql`${routineOracleRoleCriticalityLinks.routineId} NOT IN (${sql.join(
 							excludeIds.map((id) => sql`${id}`),
@@ -2035,9 +2138,21 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 			})
 			.from(routineTechnologyElements)
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-			.where(inArray(routineTechnologyElements.routineId, routineIdList)),
-		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, routineIdList)),
-		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, routineIdList)),
+			.where(
+				and(inArray(routineTechnologyElements.routineId, routineIdList), isNull(routineTechnologyElements.archivedAt)),
+			),
+		db
+			.select()
+			.from(routineScreeningQuestions)
+			.where(
+				and(inArray(routineScreeningQuestions.routineId, routineIdList), isNull(routineScreeningQuestions.archivedAt)),
+			),
+		db
+			.select()
+			.from(routinePersistenceLinks)
+			.where(
+				and(inArray(routinePersistenceLinks.routineId, routineIdList), isNull(routinePersistenceLinks.archivedAt)),
+			),
 	])
 
 	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
@@ -2151,9 +2266,19 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			})
 			.from(routineTechnologyElements)
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-			.where(inArray(routineTechnologyElements.routineId, uniqueIds)),
-		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, uniqueIds)),
-		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, uniqueIds)),
+			.where(
+				and(inArray(routineTechnologyElements.routineId, uniqueIds), isNull(routineTechnologyElements.archivedAt)),
+			),
+		db
+			.select()
+			.from(routineScreeningQuestions)
+			.where(
+				and(inArray(routineScreeningQuestions.routineId, uniqueIds), isNull(routineScreeningQuestions.archivedAt)),
+			),
+		db
+			.select()
+			.from(routinePersistenceLinks)
+			.where(and(inArray(routinePersistenceLinks.routineId, uniqueIds), isNull(routinePersistenceLinks.archivedAt))),
 	])
 
 	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
@@ -2268,9 +2393,21 @@ export async function getRoutineDeadlinesForAppBySection(
 			})
 			.from(routineTechnologyElements)
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-			.where(inArray(routineTechnologyElements.routineId, routineIdList)),
-		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, routineIdList)),
-		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, routineIdList)),
+			.where(
+				and(inArray(routineTechnologyElements.routineId, routineIdList), isNull(routineTechnologyElements.archivedAt)),
+			),
+		db
+			.select()
+			.from(routineScreeningQuestions)
+			.where(
+				and(inArray(routineScreeningQuestions.routineId, routineIdList), isNull(routineScreeningQuestions.archivedAt)),
+			),
+		db
+			.select()
+			.from(routinePersistenceLinks)
+			.where(
+				and(inArray(routinePersistenceLinks.routineId, routineIdList), isNull(routinePersistenceLinks.archivedAt)),
+			),
 	])
 
 	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
@@ -2373,7 +2510,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 	const rulesetRoutineRows = await db
 		.select({ routineId: rulesetRoutines.routineId })
 		.from(rulesetRoutines)
-		.where(inArray(rulesetRoutines.rulesetId, rulesetIds))
+		.where(and(inArray(rulesetRoutines.rulesetId, rulesetIds), isNull(rulesetRoutines.archivedAt)))
 
 	const routineIds = rulesetRoutineRows.map((r) => r.routineId).filter((id) => !excludeRoutineIds.has(id))
 	const uniqueIds = [...new Set(routineIds)]
@@ -2397,9 +2534,19 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			})
 			.from(routineTechnologyElements)
 			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
-			.where(inArray(routineTechnologyElements.routineId, uniqueIds)),
-		db.select().from(routineScreeningQuestions).where(inArray(routineScreeningQuestions.routineId, uniqueIds)),
-		db.select().from(routinePersistenceLinks).where(inArray(routinePersistenceLinks.routineId, uniqueIds)),
+			.where(
+				and(inArray(routineTechnologyElements.routineId, uniqueIds), isNull(routineTechnologyElements.archivedAt)),
+			),
+		db
+			.select()
+			.from(routineScreeningQuestions)
+			.where(
+				and(inArray(routineScreeningQuestions.routineId, uniqueIds), isNull(routineScreeningQuestions.archivedAt)),
+			),
+		db
+			.select()
+			.from(routinePersistenceLinks)
+			.where(and(inArray(routinePersistenceLinks.routineId, uniqueIds), isNull(routinePersistenceLinks.archivedAt))),
 	])
 
 	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()

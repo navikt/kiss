@@ -101,6 +101,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			and(
 				eq(routines.sectionId, section.id),
 				eq(routineControls.controlId, control.uuid),
+				isNull(routineControls.archivedAt),
 				inArray(routines.status, ["draft", "active", "approved"]),
 				isNull(routines.archivedAt),
 			),

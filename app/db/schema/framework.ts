@@ -1,4 +1,5 @@
-import { integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
+import { integer, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { monitoredApplications } from "./applications"
 
 export const frameworkVersionStatusEnum = ["pending", "applied", "superseded"] as const
@@ -65,6 +66,8 @@ export const frameworkRiskControlMappings = pgTable("framework_risk_control_mapp
 	controlId: uuid("control_id")
 		.notNull()
 		.references(() => frameworkControls.id),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 export const frameworkFieldHistory = pgTable("framework_field_history", {
@@ -109,15 +112,25 @@ export const technologyElements = pgTable("technology_elements", {
 	archivedBy: text("archived_by"),
 })
 
-export const controlTechnologyElements = pgTable("control_technology_elements", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	controlId: uuid("control_id")
-		.notNull()
-		.references(() => frameworkControls.id, { onDelete: "cascade" }),
-	elementId: uuid("element_id")
-		.notNull()
-		.references(() => technologyElements.id, { onDelete: "restrict" }),
-})
+export const controlTechnologyElements = pgTable(
+	"control_technology_elements",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		controlId: uuid("control_id")
+			.notNull()
+			.references(() => frameworkControls.id, { onDelete: "restrict" }),
+		elementId: uuid("element_id")
+			.notNull()
+			.references(() => technologyElements.id, { onDelete: "restrict" }),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(table) => [
+		uniqueIndex("uq_control_tech_element_active")
+			.on(table.controlId, table.elementId)
+			.where(sql`${table.archivedAt} IS NULL`),
+	],
+)
 
 export const applicationTechnologyElements = pgTable(
 	"application_technology_elements",
@@ -136,8 +149,12 @@ export const applicationTechnologyElements = pgTable(
 		rejectedBy: text("rejected_by"),
 		rejectionReason: text("rejection_reason"),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
 	},
-	(t) => [unique("uq_app_tech_element").on(t.applicationId, t.elementId)],
+	(t) => [
+		uniqueIndex("uq_app_tech_element_active").on(t.applicationId, t.elementId).where(sql`${t.archivedAt} IS NULL`),
+	],
 )
 
 export const controlDependencies = pgTable("control_dependencies", {

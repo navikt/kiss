@@ -57,6 +57,8 @@ export const routinePersistenceLinks = pgTable("routine_persistence_links", {
 		.references(() => routines.id, { onDelete: "restrict" }),
 	persistenceType: text("persistence_type", { enum: persistenceTypeEnum }),
 	dataClassification: text("data_classification", { enum: dataClassificationEnum }),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Routine ↔ Group Access Classification linking ───────────────────────
@@ -67,6 +69,8 @@ export const routineGroupClassificationLinks = pgTable("routine_group_classifica
 		.notNull()
 		.references(() => routines.id, { onDelete: "restrict" }),
 	classification: text("classification", { enum: groupAccessClassificationEnum }).notNull(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Routine ↔ Oracle Role Criticality linking ───────────────────────────
@@ -77,6 +81,8 @@ export const routineOracleRoleCriticalityLinks = pgTable("routine_oracle_role_cr
 		.notNull()
 		.references(() => routines.id, { onDelete: "restrict" }),
 	criticality: text("criticality", { enum: groupCriticalityEnum }).notNull(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Routine ↔ Screening Question linking ────────────────────────────────
@@ -90,6 +96,8 @@ export const routineScreeningQuestions = pgTable("routine_screening_questions", 
 		.notNull()
 		.references(() => screeningQuestions.id, { onDelete: "restrict" }),
 	choiceValue: text("choice_value"),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Routine ↔ Framework Control linking ─────────────────────────────────
@@ -101,7 +109,9 @@ export const routineControls = pgTable("routine_controls", {
 		.references(() => routines.id, { onDelete: "restrict" }),
 	controlId: uuid("control_id")
 		.notNull()
-		.references(() => frameworkControls.id, { onDelete: "cascade" }),
+		.references(() => frameworkControls.id, { onDelete: "restrict" }),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Routine ↔ Technology Element linking ────────────────────────────────
@@ -114,6 +124,8 @@ export const routineTechnologyElements = pgTable("routine_technology_elements", 
 	elementId: uuid("element_id")
 		.notNull()
 		.references(() => technologyElements.id, { onDelete: "restrict" }),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Routine Reviews ─────────────────────────────────────────────────────
