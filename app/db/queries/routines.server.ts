@@ -14,6 +14,7 @@ import {
 	naisTeams,
 	type PersistenceType,
 } from "../schema/applications"
+import type { AuditLogAction } from "../schema/audit"
 import { oracleRoleAssessments } from "../schema/audit-evidence"
 import {
 	applicationTechnologyElements,
@@ -334,35 +335,49 @@ export async function updateRoutine(params: {
 	status?: RoutineStatus
 	updatedBy: string
 }) {
-	const prev = await getRoutine(params.id)
-	if (prev?.status === "approved") {
-		throw new Response("Kan ikke redigere en godkjent rutine", { status: 403 })
-	}
+	return db.transaction(async (tx) => {
+		// Atomisk pre-check: lås rutineraden inne i transaksjonen og les både
+		// status og navn for audit. Hindrer TOCTOU mellom pre-sjekk og UPDATE
+		// (en samtidig approve kunne ellers slippe gjennom redigering, og
+		// `previousValue` i auditen kunne bli stale).
+		const [locked] = await tx
+			.select({ name: routines.name, status: routines.status })
+			.from(routines)
+			.where(eq(routines.id, params.id))
+			.for("update")
+			.limit(1)
+		if (!locked) {
+			throw new Response("Rutine ikke funnet", { status: 404 })
+		}
+		if (locked.status === "approved") {
+			throw new Response("Kan ikke redigere en godkjent rutine", { status: 403 })
+		}
 
-	const [routine] = await db
-		.update(routines)
-		.set({
-			name: params.name,
-			description: params.description,
-			frequency: params.frequency,
-			responsibleRole: params.responsibleRole,
-			appliesToAllInSection: params.appliesToAllInSection ? 1 : 0,
-			activityType: params.activityType ?? null,
-			screeningQuestionId: params.screeningQuestionId,
-			screeningChoiceValue: params.screeningChoiceValue,
-			...(params.status && { status: params.status }),
-			updatedBy: params.updatedBy,
-			updatedAt: new Date(),
-		})
-		.where(eq(routines.id, params.id))
-		.returning()
+		const [routine] = await tx
+			.update(routines)
+			.set({
+				name: params.name,
+				description: params.description,
+				frequency: params.frequency,
+				responsibleRole: params.responsibleRole,
+				appliesToAllInSection: params.appliesToAllInSection ? 1 : 0,
+				activityType: params.activityType ?? null,
+				screeningQuestionId: params.screeningQuestionId,
+				screeningChoiceValue: params.screeningChoiceValue,
+				...(params.status && { status: params.status }),
+				updatedBy: params.updatedBy,
+				updatedAt: new Date(),
+			})
+			.where(eq(routines.id, params.id))
+			.returning()
 
-	// Replace technology element links — bevar koblinger til arkiverte elementer
-	// (edit-skjemaet viser bare aktive elementer, så uten denne preserve-logikken
-	// ville arkiverte koblinger forsvinne stille ved lagring). Pakkes i tx med
-	// FOR SHARE på technology_elements for å hindre at arkivering skjer mellom
-	// lesing av arkivstatus og innsetting av nye koblinger.
-	await db.transaction(async (tx) => {
+		if (!routine) {
+			throw new Response("Rutine ikke funnet", { status: 404 })
+		}
+
+		// ── Technology element links — bevar koblinger til arkiverte elementer
+		// (edit-skjemaet viser bare aktive elementer). Diff beregnes mot endelig
+		// sett etter preserve-logikken for å unngå falske added/removed-audit.
 		const existingTechLinks = await tx
 			.select({
 				elementId: routineTechnologyElements.elementId,
@@ -374,100 +389,325 @@ export async function updateRoutine(params: {
 			.for("share", { of: technologyElements })
 		const archivedTechToPreserve = existingTechLinks.filter((e) => e.archivedAt).map((e) => e.elementId)
 		const finalTechIds = Array.from(new Set([...params.technologyElementIds, ...archivedTechToPreserve]))
+		const prevTechIds = new Set(existingTechLinks.map((e) => e.elementId))
+		const finalTechSet = new Set(finalTechIds)
+		const techAdded = finalTechIds.filter((id) => !prevTechIds.has(id))
+		const techRemoved = [...prevTechIds].filter((id) => !finalTechSet.has(id))
+		// Triggrer replacement også når eksisterende rader inneholder duplikater,
+		// så re-save normaliserer bort historiske duplikater (tabellen mangler unique-constraint).
+		const techExistingHasDuplicates = existingTechLinks.length !== prevTechIds.size
 
-		await tx.delete(routineTechnologyElements).where(eq(routineTechnologyElements.routineId, params.id))
-		if (finalTechIds.length > 0) {
-			await tx.insert(routineTechnologyElements).values(
-				finalTechIds.map((elementId) => ({
-					routineId: params.id,
-					elementId,
-				})),
+		// No-op short-circuit: hopper over DELETE+INSERT når settet er uendret,
+		// både for å spare write-load og for å bevare link-radenes `id`.
+		if (techExistingHasDuplicates || techAdded.length > 0 || techRemoved.length > 0) {
+			await tx.delete(routineTechnologyElements).where(eq(routineTechnologyElements.routineId, params.id))
+			if (finalTechIds.length > 0) {
+				await tx.insert(routineTechnologyElements).values(
+					finalTechIds.map((elementId) => ({
+						routineId: params.id,
+						elementId,
+					})),
+				)
+			}
+		}
+
+		// ── Control links
+		const existingControls = await tx
+			.select({ controlId: routineControls.controlId })
+			.from(routineControls)
+			.where(eq(routineControls.routineId, params.id))
+		const prevControlIds = new Set(existingControls.map((c) => c.controlId))
+		const nextControlIds = [...new Set(params.controlIds)]
+		const nextControlSet = new Set(nextControlIds)
+		const controlAdded = nextControlIds.filter((id) => !prevControlIds.has(id))
+		const controlRemoved = [...prevControlIds].filter((id) => !nextControlSet.has(id))
+		const controlExistingHasDuplicates = existingControls.length !== prevControlIds.size
+
+		if (controlExistingHasDuplicates || controlAdded.length > 0 || controlRemoved.length > 0) {
+			await tx.delete(routineControls).where(eq(routineControls.routineId, params.id))
+			if (nextControlIds.length > 0) {
+				await tx.insert(routineControls).values(
+					nextControlIds.map((controlId) => ({
+						routineId: params.id,
+						controlId,
+					})),
+				)
+			}
+		}
+
+		// ── Persistence links (composite key: persistenceType + dataClassification)
+		const existingPersistence = await tx
+			.select({
+				persistenceType: routinePersistenceLinks.persistenceType,
+				dataClassification: routinePersistenceLinks.dataClassification,
+			})
+			.from(routinePersistenceLinks)
+			.where(eq(routinePersistenceLinks.routineId, params.id))
+		const persistenceKey = (l: { persistenceType: string | null; dataClassification: string | null }) =>
+			JSON.stringify([l.persistenceType, l.dataClassification])
+		const prevPersistenceKeys = new Set(existingPersistence.map(persistenceKey))
+		const persistenceSeen = new Set<string>()
+		const nextPersistence = params.persistenceLinks.filter((l) => {
+			const k = persistenceKey(l)
+			if (persistenceSeen.has(k)) return false
+			persistenceSeen.add(k)
+			return true
+		})
+		const nextPersistenceKeys = new Set(nextPersistence.map(persistenceKey))
+		const parsePersistenceKey = (
+			key: string,
+		): { persistenceType: string | null; dataClassification: string | null } => {
+			const [persistenceType, dataClassification] = JSON.parse(key) as [string | null, string | null]
+			return { persistenceType, dataClassification }
+		}
+		const persistenceAdded = [...nextPersistenceKeys]
+			.filter((k) => !prevPersistenceKeys.has(k))
+			.map(parsePersistenceKey)
+		// Set-differanse: én audit per unik composite-key, selv om historiske
+		// duplikater finnes (tabellen mangler unique-constraint).
+		const persistenceRemoved = [...prevPersistenceKeys]
+			.filter((k) => !nextPersistenceKeys.has(k))
+			.map(parsePersistenceKey)
+		const persistenceExistingHasDuplicates = existingPersistence.length !== prevPersistenceKeys.size
+
+		if (persistenceExistingHasDuplicates || persistenceAdded.length > 0 || persistenceRemoved.length > 0) {
+			await tx.delete(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, params.id))
+			if (nextPersistence.length > 0) {
+				await tx.insert(routinePersistenceLinks).values(
+					nextPersistence.map((link) => ({
+						routineId: params.id,
+						persistenceType: link.persistenceType,
+						dataClassification: link.dataClassification,
+					})),
+				)
+			}
+		}
+
+		// ── Group classification links
+		const existingGc = await tx
+			.select({ classification: routineGroupClassificationLinks.classification })
+			.from(routineGroupClassificationLinks)
+			.where(eq(routineGroupClassificationLinks.routineId, params.id))
+		const prevGcSet = new Set(existingGc.map((g) => g.classification))
+		const gcLinks = [...new Set(params.groupClassifications ?? [])]
+		const nextGcSet = new Set(gcLinks)
+		const gcAdded = gcLinks.filter((c) => !prevGcSet.has(c))
+		const gcRemoved = [...prevGcSet].filter((c) => !nextGcSet.has(c))
+		const gcExistingHasDuplicates = existingGc.length !== prevGcSet.size
+
+		if (gcExistingHasDuplicates || gcAdded.length > 0 || gcRemoved.length > 0) {
+			await tx.delete(routineGroupClassificationLinks).where(eq(routineGroupClassificationLinks.routineId, params.id))
+			if (gcLinks.length > 0) {
+				await tx.insert(routineGroupClassificationLinks).values(
+					gcLinks.map((classification) => ({
+						routineId: params.id,
+						classification,
+					})),
+				)
+			}
+		}
+
+		// ── Oracle role criticality links
+		const existingOrc = await tx
+			.select({ criticality: routineOracleRoleCriticalityLinks.criticality })
+			.from(routineOracleRoleCriticalityLinks)
+			.where(eq(routineOracleRoleCriticalityLinks.routineId, params.id))
+		const prevOrcSet = new Set(existingOrc.map((o) => o.criticality))
+		const orcLinks = [...new Set(params.oracleRoleCriticalities ?? [])]
+		const nextOrcSet = new Set(orcLinks)
+		const orcAdded = orcLinks.filter((c) => !prevOrcSet.has(c))
+		const orcRemoved = [...prevOrcSet].filter((c) => !nextOrcSet.has(c))
+		const orcExistingHasDuplicates = existingOrc.length !== prevOrcSet.size
+
+		if (orcExistingHasDuplicates || orcAdded.length > 0 || orcRemoved.length > 0) {
+			await tx
+				.delete(routineOracleRoleCriticalityLinks)
+				.where(eq(routineOracleRoleCriticalityLinks.routineId, params.id))
+			if (orcLinks.length > 0) {
+				await tx.insert(routineOracleRoleCriticalityLinks).values(
+					orcLinks.map((criticality) => ({
+						routineId: params.id,
+						criticality,
+					})),
+				)
+			}
+		}
+
+		// ── Screening question links (composite: questionId + choiceValue)
+		const existingSq = await tx
+			.select({
+				questionId: routineScreeningQuestions.questionId,
+				choiceValue: routineScreeningQuestions.choiceValue,
+			})
+			.from(routineScreeningQuestions)
+			.where(eq(routineScreeningQuestions.routineId, params.id))
+		// Bruker JSON-stringify av tuple for å unngå nøkkelkollisjoner: `choiceValue`
+		// er fritekst som kan inneholde "|" og kan være både null og "". En naiv
+		// "${q}|${v ?? ""}"-nøkkel ville f.eks. mappet (q1, null) og (q1, "") til
+		// samme streng, og diff-en ville da bommet på add/remove-rader.
+		const sqKey = (l: { questionId: string; choiceValue: string | null }) =>
+			JSON.stringify([l.questionId, l.choiceValue])
+		const rawLinks = [...(params.screeningQuestionLinks ?? [])]
+		if (params.screeningQuestionId && !rawLinks.some((l) => l.questionId === params.screeningQuestionId)) {
+			rawLinks.push({ questionId: params.screeningQuestionId, choiceValue: params.screeningChoiceValue })
+		}
+		// Dedupliser inn-input på (questionId, choiceValue) før diff og INSERT.
+		// Tabellen mangler unique-constraint, så uten dedup ville duplikater i input
+		// gi duplikate rader og duplikate audit-entries.
+		const sqSeen = new Set<string>()
+		const links = rawLinks.filter((l) => {
+			const k = sqKey(l)
+			if (sqSeen.has(k)) return false
+			sqSeen.add(k)
+			return true
+		})
+		const prevSqKeys = new Set(existingSq.map(sqKey))
+		const nextSqKeys = new Set(links.map(sqKey))
+		const parseSqKey = (key: string): { questionId: string; choiceValue: string | null } => {
+			const [questionId, choiceValue] = JSON.parse(key) as [string, string | null]
+			return { questionId, choiceValue }
+		}
+		const sqAdded = [...nextSqKeys].filter((k) => !prevSqKeys.has(k)).map(parseSqKey)
+		// Set-differanse: én audit per unik (questionId, choiceValue), selv om
+		// historiske duplikater finnes (tabellen mangler unique-constraint).
+		const sqRemoved = [...prevSqKeys].filter((k) => !nextSqKeys.has(k)).map(parseSqKey)
+		const sqExistingHasDuplicates = existingSq.length !== prevSqKeys.size
+
+		if (sqExistingHasDuplicates || sqAdded.length > 0 || sqRemoved.length > 0) {
+			await tx.delete(routineScreeningQuestions).where(eq(routineScreeningQuestions.routineId, params.id))
+			if (links.length > 0) {
+				await tx.insert(routineScreeningQuestions).values(
+					links.map((link) => ({
+						routineId: params.id,
+						questionId: link.questionId,
+						choiceValue: link.choiceValue,
+					})),
+				)
+			}
+		}
+
+		// ── Audit: hovedoppdatering + én rad per added/removed-link
+		await writeAuditLog(
+			{
+				action: "routine_updated",
+				entityType: "routine",
+				entityId: params.id,
+				previousValue: locked.name ?? null,
+				newValue: params.name,
+				metadata: {
+					frequency: params.frequency,
+					responsibleRole: params.responsibleRole,
+					persistenceLinks: nextPersistence,
+					screeningQuestionId: params.screeningQuestionId,
+					screeningQuestionLinks: links,
+					technologyElementIds: finalTechIds,
+					controlIds: nextControlIds,
+				},
+				performedBy: params.updatedBy,
+			},
+			tx,
+		)
+
+		const writeLinkAudit = async (
+			action: AuditLogAction,
+			entityType: string,
+			metadata: Record<string, unknown>,
+			isAdd: boolean,
+		) => {
+			await writeAuditLog(
+				{
+					action,
+					entityType,
+					entityId: params.id,
+					...(isAdd
+						? { newValue: JSON.stringify({ routineId: params.id, ...metadata }) }
+						: { previousValue: JSON.stringify({ routineId: params.id, ...metadata }) }),
+					metadata,
+					performedBy: params.updatedBy,
+				},
+				tx,
 			)
 		}
+
+		for (const elementId of techAdded) {
+			await writeLinkAudit("routine_technology_element_added", "routine_technology_element", { elementId }, true)
+		}
+		for (const elementId of techRemoved) {
+			await writeLinkAudit("routine_technology_element_removed", "routine_technology_element", { elementId }, false)
+		}
+		for (const controlId of controlAdded) {
+			await writeLinkAudit("routine_control_added", "routine_control", { controlId }, true)
+		}
+		for (const controlId of controlRemoved) {
+			await writeLinkAudit("routine_control_removed", "routine_control", { controlId }, false)
+		}
+		for (const link of persistenceAdded) {
+			await writeLinkAudit(
+				"routine_persistence_link_added",
+				"routine_persistence_link",
+				{ persistenceType: link.persistenceType, dataClassification: link.dataClassification },
+				true,
+			)
+		}
+		for (const link of persistenceRemoved) {
+			await writeLinkAudit(
+				"routine_persistence_link_removed",
+				"routine_persistence_link",
+				{ persistenceType: link.persistenceType, dataClassification: link.dataClassification },
+				false,
+			)
+		}
+		for (const classification of gcAdded) {
+			await writeLinkAudit(
+				"routine_group_classification_link_added",
+				"routine_group_classification_link",
+				{ classification },
+				true,
+			)
+		}
+		for (const classification of gcRemoved) {
+			await writeLinkAudit(
+				"routine_group_classification_link_removed",
+				"routine_group_classification_link",
+				{ classification },
+				false,
+			)
+		}
+		for (const criticality of orcAdded) {
+			await writeLinkAudit(
+				"routine_oracle_role_criticality_link_added",
+				"routine_oracle_role_criticality_link",
+				{ criticality },
+				true,
+			)
+		}
+		for (const criticality of orcRemoved) {
+			await writeLinkAudit(
+				"routine_oracle_role_criticality_link_removed",
+				"routine_oracle_role_criticality_link",
+				{ criticality },
+				false,
+			)
+		}
+		for (const link of sqAdded) {
+			await writeLinkAudit(
+				"routine_screening_question_added",
+				"routine_screening_question",
+				{ questionId: link.questionId, choiceValue: link.choiceValue },
+				true,
+			)
+		}
+		for (const link of sqRemoved) {
+			await writeLinkAudit(
+				"routine_screening_question_removed",
+				"routine_screening_question",
+				{ questionId: link.questionId, choiceValue: link.choiceValue },
+				false,
+			)
+		}
+
+		return routine
 	})
-
-	// Replace control links
-	await db.delete(routineControls).where(eq(routineControls.routineId, params.id))
-	if (params.controlIds.length > 0) {
-		await db.insert(routineControls).values(
-			params.controlIds.map((controlId) => ({
-				routineId: params.id,
-				controlId,
-			})),
-		)
-	}
-
-	// Replace persistence links
-	await db.delete(routinePersistenceLinks).where(eq(routinePersistenceLinks.routineId, params.id))
-	if (params.persistenceLinks.length > 0) {
-		await db.insert(routinePersistenceLinks).values(
-			params.persistenceLinks.map((link) => ({
-				routineId: params.id,
-				persistenceType: link.persistenceType,
-				dataClassification: link.dataClassification,
-			})),
-		)
-	}
-
-	// Replace group classification links
-	await db.delete(routineGroupClassificationLinks).where(eq(routineGroupClassificationLinks.routineId, params.id))
-	const gcLinks = params.groupClassifications ?? []
-	if (gcLinks.length > 0) {
-		await db.insert(routineGroupClassificationLinks).values(
-			gcLinks.map((classification) => ({
-				routineId: params.id,
-				classification,
-			})),
-		)
-	}
-
-	// Replace oracle role criticality links
-	await db.delete(routineOracleRoleCriticalityLinks).where(eq(routineOracleRoleCriticalityLinks.routineId, params.id))
-	const orcLinks = params.oracleRoleCriticalities ?? []
-	if (orcLinks.length > 0) {
-		await db.insert(routineOracleRoleCriticalityLinks).values(
-			orcLinks.map((criticality) => ({
-				routineId: params.id,
-				criticality,
-			})),
-		)
-	}
-
-	// Replace screening question links
-	await db.delete(routineScreeningQuestions).where(eq(routineScreeningQuestions.routineId, params.id))
-	const links = params.screeningQuestionLinks ?? []
-	if (params.screeningQuestionId && !links.some((l) => l.questionId === params.screeningQuestionId)) {
-		links.push({ questionId: params.screeningQuestionId, choiceValue: params.screeningChoiceValue })
-	}
-	if (links.length > 0) {
-		await db.insert(routineScreeningQuestions).values(
-			links.map((link) => ({
-				routineId: params.id,
-				questionId: link.questionId,
-				choiceValue: link.choiceValue,
-			})),
-		)
-	}
-
-	await writeAuditLog({
-		action: "routine_updated",
-		entityType: "routine",
-		entityId: params.id,
-		previousValue: prev?.name ?? null,
-		newValue: params.name,
-		metadata: {
-			frequency: params.frequency,
-			responsibleRole: params.responsibleRole,
-			persistenceLinks: params.persistenceLinks,
-			screeningQuestionId: params.screeningQuestionId,
-			screeningQuestionLinks: links,
-			technologyElementIds: params.technologyElementIds,
-			controlIds: params.controlIds,
-		},
-		performedBy: params.updatedBy,
-	})
-
-	return routine
 }
 
 /**

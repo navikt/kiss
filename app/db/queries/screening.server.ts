@@ -219,7 +219,7 @@ export async function getQuestionTechnologyElements(questionId: string) {
 		.where(eq(screeningQuestionTechnologyElements.questionId, questionId))
 }
 
-export async function setQuestionTechnologyElements(questionId: string, elementIds: string[]) {
+export async function setQuestionTechnologyElements(questionId: string, elementIds: string[], performedBy: string) {
 	await db.transaction(async (tx) => {
 		// Bevar koblinger til arkiverte elementer: edit-skjemaet rendrer bare aktive
 		// elementer, så hvis vi gjør full replacement vil arkiverte koblinger forsvinne
@@ -238,6 +238,18 @@ export async function setQuestionTechnologyElements(questionId: string, elementI
 		const archivedToPreserve = existing.filter((e) => e.archivedAt).map((e) => e.elementId)
 		const finalIds = Array.from(new Set([...elementIds, ...archivedToPreserve]))
 
+		// Diff mot endelig sett (etter preserve-logikken) for å unngå falske
+		// added/removed-audit-rader for arkiverte koblinger som bevares.
+		const previousIds = new Set(existing.map((e) => e.elementId))
+		const finalSet = new Set(finalIds)
+		const added = finalIds.filter((id) => !previousIds.has(id))
+		const removed = [...previousIds].filter((id) => !finalSet.has(id))
+
+		// No-op short-circuit: hvis settet er uendret, hopp over DELETE+INSERT-
+		// replacement. Sparer write-load og bevarer link-radenes `id` (ellers
+		// ville hver lagring rotert id-ene, selv uten reell endring).
+		if (added.length === 0 && removed.length === 0) return
+
 		await tx
 			.delete(screeningQuestionTechnologyElements)
 			.where(eq(screeningQuestionTechnologyElements.questionId, questionId))
@@ -246,6 +258,33 @@ export async function setQuestionTechnologyElements(questionId: string, elementI
 			await tx
 				.insert(screeningQuestionTechnologyElements)
 				.values(finalIds.map((elementId) => ({ questionId, elementId })))
+		}
+
+		for (const elementId of added) {
+			await writeAuditLog(
+				{
+					action: "screening_question_technology_element_added",
+					entityType: "screening_question_technology_element",
+					entityId: questionId,
+					newValue: JSON.stringify({ questionId, elementId }),
+					metadata: { elementId },
+					performedBy,
+				},
+				tx,
+			)
+		}
+		for (const elementId of removed) {
+			await writeAuditLog(
+				{
+					action: "screening_question_technology_element_removed",
+					entityType: "screening_question_technology_element",
+					entityId: questionId,
+					previousValue: JSON.stringify({ questionId, elementId }),
+					metadata: { elementId },
+					performedBy,
+				},
+				tx,
+			)
 		}
 	})
 }

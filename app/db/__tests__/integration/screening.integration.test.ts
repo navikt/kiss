@@ -312,17 +312,38 @@ describe("screening.server integration tests", () => {
 			const e1 = await createTechElement("kubernetes")
 			const e2 = await createTechElement("postgres")
 
-			await setQuestionTechnologyElements(q.id, [e1, e2])
+			await setQuestionTechnologyElements(q.id, [e1, e2], "test-user")
 			let links = await getQuestionTechnologyElements(q.id)
 			expect(links.map((l) => l.elementId).sort()).toEqual([e1, e2].sort())
 
-			await setQuestionTechnologyElements(q.id, [e2])
+			await setQuestionTechnologyElements(q.id, [e2], "test-user")
 			links = await getQuestionTechnologyElements(q.id)
 			expect(links.map((l) => l.elementId)).toEqual([e2])
 
-			await setQuestionTechnologyElements(q.id, [])
+			await setQuestionTechnologyElements(q.id, [], "test-user")
 			links = await getQuestionTechnologyElements(q.id)
 			expect(links).toHaveLength(0)
+		})
+
+		it("writes diff-audit on add and remove and emits no audit on no-op", async () => {
+			const { getAuditLogForEntity } = await import("~/db/queries/audit.server")
+			const q = await createScreeningQuestion("AuditQ?", null, 0, "admin")
+			const e1 = await createTechElement("k8s-aud")
+			const e2 = await createTechElement("pg-aud")
+
+			await setQuestionTechnologyElements(q.id, [e1, e2], "alice")
+			let log = await getAuditLogForEntity("screening_question_technology_element", q.id)
+			expect(log.filter((r) => r.action === "screening_question_technology_element_added")).toHaveLength(2)
+
+			// No-op resave must not emit any audit.
+			await setQuestionTechnologyElements(q.id, [e1, e2], "alice")
+			log = await getAuditLogForEntity("screening_question_technology_element", q.id)
+			expect(log).toHaveLength(2)
+
+			// Removing one element emits exactly one removed-audit.
+			await setQuestionTechnologyElements(q.id, [e1], "bob")
+			log = await getAuditLogForEntity("screening_question_technology_element", q.id)
+			expect(log.filter((r) => r.action === "screening_question_technology_element_removed")).toHaveLength(1)
 		})
 	})
 

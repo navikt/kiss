@@ -156,7 +156,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				rulesetId,
 			)
 
-			await setQuestionTechnologyElements(q.id, technologyElementIds.filter(Boolean))
+			await setQuestionTechnologyElements(q.id, technologyElementIds.filter(Boolean), authedUser.navIdent)
 
 			// Handle pending choices with effects for new questions
 			const pendingChoicesJson = formData.get("pendingChoices") as string | null
@@ -200,7 +200,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			authedUser.navIdent,
 			rulesetId,
 		)
-		await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean))
+		await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean), authedUser.navIdent)
 		return redirect(returnPath)
 	}
 

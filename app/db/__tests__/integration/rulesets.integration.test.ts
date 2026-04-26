@@ -227,14 +227,14 @@ describe("rulesets.server integration tests", () => {
 			const rulesetId = await createRuleset({ sectionId, name: "Rs", frequency: "annually", createdBy: "admin" })
 			const controlId = await createControl("K-LR.01")
 
-			await linkControlToRuleset(rulesetId, controlId)
+			await linkControlToRuleset(rulesetId, controlId, "test-user")
 
 			const detail = await getRulesetDetail(rulesetId)
 			expect(detail?.controls).toHaveLength(1)
 			expect(detail?.controls[0].controlId).toBe("K-LR.01")
 
 			const linkId = detail?.controls[0].linkId as string
-			await unlinkControlFromRuleset(rulesetId, linkId)
+			await unlinkControlFromRuleset(rulesetId, linkId, "test-user")
 
 			const after = await getRulesetDetail(rulesetId)
 			expect(after?.controls).toHaveLength(0)
@@ -250,7 +250,7 @@ describe("rulesets.server integration tests", () => {
 				frequency: "annually",
 			})
 			const controlId = await createControl("K-X.01")
-			await linkControlToRuleset(rulesetId, controlId)
+			await linkControlToRuleset(rulesetId, controlId, "test-user")
 
 			const rows = await getRulesetsForControl(controlId)
 			expect(rows).toHaveLength(1)
@@ -258,21 +258,19 @@ describe("rulesets.server integration tests", () => {
 			expect(rows[0].approvalStatus).toBe("valid")
 		})
 
-		// NOTE: linkControlToRuleset uses onConflictDoNothing() but the schema has no
-		// unique constraint on (ruleset_id, control_id), so duplicate inserts succeed.
-		// Documenting actual behavior here rather than the (intended) idempotency.
-		it("allows duplicate links because the schema lacks a unique constraint", async () => {
+		// SD6: linkControlToRuleset performs an explicit existence check under FOR UPDATE
+		// lock and returns idempotently when a link already exists, so a second call must
+		// not create a duplicate row even though the schema still lacks a unique constraint.
+		it("is idempotent when the same control is linked twice", async () => {
 			const sectionId = await createSectionRow("sec7")
 			const rulesetId = await createRuleset({ sectionId, name: "RsI", frequency: "annually", createdBy: "admin" })
 			const controlId = await createControl("K-I.01")
 
-			await linkControlToRuleset(rulesetId, controlId)
-			await linkControlToRuleset(rulesetId, controlId)
+			await linkControlToRuleset(rulesetId, controlId, "test-user")
+			await linkControlToRuleset(rulesetId, controlId, "test-user")
 
 			const detail = await getRulesetDetail(rulesetId)
-			// Asserts exact duplicate count so this test fails when the schema is fixed
-			// with a unique constraint on (ruleset_id, control_id).
-			expect(detail?.controls).toHaveLength(2)
+			expect(detail?.controls).toHaveLength(1)
 		})
 	})
 
@@ -287,7 +285,7 @@ describe("rulesets.server integration tests", () => {
 			expect(detail?.linkedRoutines).toHaveLength(1)
 			expect(detail?.linkedRoutines[0].routineName).toBe("Routine A")
 
-			await unlinkRoutineFromRuleset(rulesetId, detail?.linkedRoutines[0].linkId as string)
+			await unlinkRoutineFromRuleset(rulesetId, detail?.linkedRoutines[0].linkId as string, "test-user")
 			const after = await getRulesetDetail(rulesetId)
 			expect(after?.linkedRoutines).toHaveLength(0)
 		})
@@ -322,12 +320,12 @@ describe("rulesets.server integration tests", () => {
 			const id = await createRuleset({ sectionId, name: "Z", frequency: "annually", createdBy: "admin" })
 			const controlA = await createControl("K-AA.01")
 			const controlB = await createControl("K-AA.02")
-			expect(await linkControlToRuleset(id, controlA)).toBe(true)
+			expect(await linkControlToRuleset(id, controlA, "test-user")).toBe(true)
 			await archiveRuleset(id, "admin")
-			expect(await linkControlToRuleset(id, controlB)).toBe(false)
+			expect(await linkControlToRuleset(id, controlB, "test-user")).toBe(false)
 			const detail = await getRulesetDetail(id)
 			const link = detail?.controls.find((c) => c.id === controlA)
-			expect(await unlinkControlFromRuleset(id, link?.linkId as string)).toBe(false)
+			expect(await unlinkControlFromRuleset(id, link?.linkId as string, "test-user")).toBe(false)
 		})
 
 		it("linkRoutineToRuleset and unlinkRoutineFromRuleset are blocked when archived", async () => {
@@ -340,7 +338,7 @@ describe("rulesets.server integration tests", () => {
 			expect(await linkRoutineToRuleset(id, routineB, "admin")).toBe(false)
 			const detail = await getRulesetDetail(id)
 			const link = detail?.linkedRoutines[0]
-			expect(await unlinkRoutineFromRuleset(id, link?.linkId as string)).toBe(false)
+			expect(await unlinkRoutineFromRuleset(id, link?.linkId as string, "test-user")).toBe(false)
 		})
 
 		it("linkRoutineToRuleset rejects routine from a different section", async () => {
@@ -383,20 +381,20 @@ describe("rulesets.server integration tests", () => {
 			const rsA = await createRuleset({ sectionId, name: "A", frequency: "annually", createdBy: "admin" })
 			const rsB = await createRuleset({ sectionId, name: "B", frequency: "annually", createdBy: "admin" })
 			const ctrl = await createControl("K-CR.01")
-			expect(await linkControlToRuleset(rsA, ctrl)).toBe(true)
+			expect(await linkControlToRuleset(rsA, ctrl, "test-user")).toBe(true)
 			const detailA = await getRulesetDetail(rsA)
 			const linkInA = detailA?.controls[0].linkId as string
 
 			// Cross-resource: prøver å unlinke A's link via rsB → ingen sletting,
 			// men returnerer true (idempotent — linken finnes ikke i rsB).
-			expect(await unlinkControlFromRuleset(rsB, linkInA)).toBe(true)
+			expect(await unlinkControlFromRuleset(rsB, linkInA, "test-user")).toBe(true)
 			const stillLinked = await getRulesetDetail(rsA)
 			expect(stillLinked?.controls).toHaveLength(1)
 
 			// Korrekt unlink
-			expect(await unlinkControlFromRuleset(rsA, linkInA)).toBe(true)
+			expect(await unlinkControlFromRuleset(rsA, linkInA, "test-user")).toBe(true)
 			// Idempotent — andre kall returnerer fortsatt true selv om link er borte.
-			expect(await unlinkControlFromRuleset(rsA, linkInA)).toBe(true)
+			expect(await unlinkControlFromRuleset(rsA, linkInA, "test-user")).toBe(true)
 		})
 	})
 
@@ -409,6 +407,53 @@ describe("rulesets.server integration tests", () => {
 			expect(list).toHaveLength(1)
 			expect(list[0].name).toBe("Draft one")
 			expect(list[0].approvalStatus).toBe("draft")
+		})
+	})
+
+	describe("SD6 audit logging on link tables", () => {
+		it("writes audit on linking and unlinking a control, and is silent on no-ops", async () => {
+			const { getAuditLogForEntity } = await import("~/db/queries/audit.server")
+			const sectionId = await createSectionRow("audCtrl1")
+			const rulesetId = await createRuleset({ sectionId, name: "Aud", frequency: "annually", createdBy: "admin" })
+			const controlId = await createControl("K-AUD.01")
+
+			expect(await linkControlToRuleset(rulesetId, controlId, "alice")).toBe(true)
+			// Re-link of an existing control must not write a second audit row.
+			expect(await linkControlToRuleset(rulesetId, controlId, "alice")).toBe(true)
+
+			let log = await getAuditLogForEntity("ruleset_control", rulesetId)
+			expect(log.filter((r) => r.action === "ruleset_control_added")).toHaveLength(1)
+			expect(log[0].performedBy).toBe("alice")
+
+			const detail = await getRulesetDetail(rulesetId)
+			const linkId = detail?.controls[0].linkId as string
+			expect(await unlinkControlFromRuleset(rulesetId, linkId, "bob")).toBe(true)
+			// Unlink of an already-removed link must not emit a removed-audit.
+			expect(await unlinkControlFromRuleset(rulesetId, linkId, "bob")).toBe(true)
+
+			log = await getAuditLogForEntity("ruleset_control", rulesetId)
+			expect(log.filter((r) => r.action === "ruleset_control_removed")).toHaveLength(1)
+		})
+
+		it("writes audit on linking and unlinking a routine, and is silent on no-ops", async () => {
+			const { getAuditLogForEntity } = await import("~/db/queries/audit.server")
+			const sectionId = await createSectionRow("audRtn1")
+			const rulesetId = await createRuleset({ sectionId, name: "AudR", frequency: "annually", createdBy: "admin" })
+			const routineId = await createRoutineRow(sectionId, "Audited routine")
+
+			expect(await linkRoutineToRuleset(rulesetId, routineId, "alice")).toBe(true)
+			expect(await linkRoutineToRuleset(rulesetId, routineId, "alice")).toBe(true)
+
+			let log = await getAuditLogForEntity("ruleset_routine", rulesetId)
+			expect(log.filter((r) => r.action === "ruleset_routine_added")).toHaveLength(1)
+
+			const detail = await getRulesetDetail(rulesetId)
+			const linkId = detail?.linkedRoutines[0].linkId as string
+			expect(await unlinkRoutineFromRuleset(rulesetId, linkId, "bob")).toBe(true)
+			expect(await unlinkRoutineFromRuleset(rulesetId, linkId, "bob")).toBe(true)
+
+			log = await getAuditLogForEntity("ruleset_routine", rulesetId)
+			expect(log.filter((r) => r.action === "ruleset_routine_removed")).toHaveLength(1)
 		})
 	})
 })

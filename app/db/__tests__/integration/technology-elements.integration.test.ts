@@ -60,6 +60,8 @@ describe("technology-elements.server integration tests", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
+			DELETE FROM screening_question_technology_elements;
+			DELETE FROM screening_questions;
 			DELETE FROM application_technology_elements;
 			DELETE FROM control_technology_elements;
 			DELETE FROM technology_elements;
@@ -156,7 +158,7 @@ describe("technology-elements.server integration tests", () => {
 			const el = await createTechnologyElement("Old2", "old2", null, 0, "admin")
 			await archiveTechnologyElement(el.id, "admin")
 			const appId = await createApp("App1")
-			await expect(addApplicationElement(appId, el.id)).rejects.toThrow(/arkivert/i)
+			await expect(addApplicationElement(appId, el.id, "test-user")).rejects.toThrow(/arkivert/i)
 		})
 	})
 
@@ -195,7 +197,7 @@ describe("technology-elements.server integration tests", () => {
 			const app = await createApp("LogApp")
 			await addControlElement(c1, el.id, "admin")
 			await addControlElement(c2, el.id, "admin")
-			await addApplicationElement(app, el.id)
+			await addApplicationElement(app, el.id, "test-user")
 
 			const result = await getTechnologyElementWithCounts(el.id)
 			expect(result?.controlCount).toBe(2)
@@ -205,7 +207,7 @@ describe("technology-elements.server integration tests", () => {
 		it("getApplicationElements lists linked elements", async () => {
 			const el = await createTechnologyElement("Cache", "cache", null, 0, "admin")
 			const app = await createApp("AppX")
-			await addApplicationElement(app, el.id)
+			await addApplicationElement(app, el.id, "test-user")
 
 			const linked = await getApplicationElements(app)
 			expect(linked.map((e) => e.slug)).toEqual(["cache"])
@@ -243,14 +245,52 @@ describe("technology-elements.server integration tests", () => {
 			)
 			const qId = (r.rows[0] as { id: string }).id
 
-			await setQuestionTechnologyElements(qId, [elActive.id, elArchived.id])
+			await setQuestionTechnologyElements(qId, [elActive.id, elArchived.id], "test-user")
 			await archiveTechnologyElement(elArchived.id, "admin")
 
 			// Edit-skjema rendrer kun aktive elementer; vi sender derfor bare elActive
-			await setQuestionTechnologyElements(qId, [elActive.id])
+			await setQuestionTechnologyElements(qId, [elActive.id], "test-user")
 
 			const linked = await getQuestionTechnologyElements(qId)
 			expect(linked.map((l) => l.elementId).sort()).toEqual([elActive.id, elArchived.id].sort())
+		})
+	})
+
+	describe("SD6 audit logging", () => {
+		it("addApplicationElement and removeApplicationElement write audit", async () => {
+			const { removeApplicationElement } = await import("~/db/queries/technology-elements.server")
+			const el = await createTechnologyElement("Audit", "audit-app-el", null, 0, "admin")
+			const app = await createApp("AuditApp")
+
+			await addApplicationElement(app, el.id, "alice")
+			let added = await getAuditEntries("application_technology_element_added", app)
+			expect(added).toHaveLength(1)
+			expect(added[0].performed_by).toBe("alice")
+
+			// Re-add must be silent (ON CONFLICT DO NOTHING returns no row).
+			await addApplicationElement(app, el.id, "alice")
+			added = await getAuditEntries("application_technology_element_added", app)
+			expect(added).toHaveLength(1)
+
+			await removeApplicationElement(app, el.id, "bob")
+			let removed = await getAuditEntries("application_technology_element_removed", app)
+			expect(removed).toHaveLength(1)
+			expect(removed[0].performed_by).toBe("bob")
+
+			// Re-remove must be silent.
+			await removeApplicationElement(app, el.id, "bob")
+			removed = await getAuditEntries("application_technology_element_removed", app)
+			expect(removed).toHaveLength(1)
+		})
+
+		it("removeControlElement does not audit when nothing was deleted", async () => {
+			const el = await createTechnologyElement("NoOp", "noop-el", null, 0, "admin")
+			const controlId = await createControl("K-NOOP.01")
+
+			// No prior link — remove should be a silent no-op (no audit row).
+			await removeControlElement(controlId, el.id, "alice")
+			const removed = await getAuditEntries("control_element_removed", controlId)
+			expect(removed).toHaveLength(0)
 		})
 	})
 })

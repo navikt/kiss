@@ -40,7 +40,9 @@ export async function action({ params, request }: ActionFunctionArgs) {
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
-	const performer = "system"
+	// Audit-handlinger fra denne ruten skal alltid spores på innlogget admin
+	// (ikke "system"), siden alle intents her er manuelle bruker-mutasjoner.
+	const performer = authedUser.navIdent
 
 	if (intent === "archive") {
 		await archiveApplication(appId, authedUser.navIdent)
@@ -71,11 +73,11 @@ export async function action({ params, request }: ActionFunctionArgs) {
 	} else if (intent === "addElement") {
 		const elementId = formData.get("elementId") as string
 		if (!elementId) throw new Response("Mangler elementId", { status: 400 })
-		await addApplicationElement(appId, elementId)
+		await addApplicationElement(appId, elementId, performer)
 	} else if (intent === "removeElement") {
 		const elementId = formData.get("elementId") as string
 		if (!elementId) throw new Response("Mangler elementId", { status: 400 })
-		await removeApplicationElement(appId, elementId)
+		await removeApplicationElement(appId, elementId, performer)
 	} else if (intent === "confirmElement") {
 		const linkId = formData.get("linkId") as string
 		if (!linkId) throw new Response("Mangler linkId", { status: 400 })
