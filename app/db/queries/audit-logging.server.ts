@@ -381,7 +381,13 @@ async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 		.from(applicationTeamMappings)
 		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
 		.innerJoin(monitoredApplications, eq(applicationTeamMappings.applicationId, monitoredApplications.id))
-		.where(and(eq(devTeams.sectionId, sectionId), isNull(monitoredApplications.primaryApplicationId)))
+		.where(
+			and(
+				eq(devTeams.sectionId, sectionId),
+				isNull(applicationTeamMappings.archivedAt),
+				isNull(monitoredApplications.primaryApplicationId),
+			),
+		)
 	for (const row of directRows) appIds.add(row.appId)
 
 	// Path 2: Apps from Nais teams linked to dev teams in this section
@@ -536,7 +542,12 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 		})
 		.from(applicationTeamMappings)
 		.innerJoin(devTeams, and(eq(applicationTeamMappings.devTeamId, devTeams.id), eq(devTeams.sectionId, section.id)))
-		.where(inArray(applicationTeamMappings.applicationId, [...sectionAppIds]))
+		.where(
+			and(
+				inArray(applicationTeamMappings.applicationId, [...sectionAppIds]),
+				isNull(applicationTeamMappings.archivedAt),
+			),
+		)
 	for (const row of teamRows) {
 		if (!appTeamMap.has(row.appId)) {
 			appTeamMap.set(row.appId, { teamName: row.teamName, teamSlug: row.teamSlug })

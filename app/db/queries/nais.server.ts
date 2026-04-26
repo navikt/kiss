@@ -338,7 +338,10 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 
 	// Get apps that already have a dev team mapping (direct or via nais team link)
 	const [directLinkedRows, naisTeamLinkedRows] = await Promise.all([
-		db.select({ appId: applicationTeamMappings.applicationId }).from(applicationTeamMappings),
+		db
+			.select({ appId: applicationTeamMappings.applicationId })
+			.from(applicationTeamMappings)
+			.where(isNull(applicationTeamMappings.archivedAt)),
 		db
 			.selectDistinct({ appId: applicationEnvironments.applicationId })
 			.from(devTeamNaisTeamMappings)
@@ -756,7 +759,7 @@ export async function getApplicationDetail(applicationId: string) {
 		.select({ teamId: devTeams.id, teamName: devTeams.name, teamSlug: devTeams.slug })
 		.from(applicationTeamMappings)
 		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-		.where(eq(applicationTeamMappings.applicationId, applicationId))
+		.where(and(eq(applicationTeamMappings.applicationId, applicationId), isNull(applicationTeamMappings.archivedAt)))
 
 	// Get primary application if this is a linked app
 	let primaryApp: { id: string; name: string } | null = null
@@ -1309,7 +1312,7 @@ export async function getSectionAppIds(sectionId: string): Promise<Set<string>> 
 		.select({ appId: applicationTeamMappings.applicationId })
 		.from(applicationTeamMappings)
 		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-		.where(eq(devTeams.sectionId, sectionId))
+		.where(and(eq(devTeams.sectionId, sectionId), isNull(applicationTeamMappings.archivedAt)))
 
 	const sectionNaisTeamRows = await db.select().from(naisTeams).where(eq(naisTeams.sectionId, sectionId))
 	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
@@ -1990,7 +1993,7 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 		const appMappings = await db
 			.select({ applicationId: applicationTeamMappings.applicationId })
 			.from(applicationTeamMappings)
-			.where(inArray(applicationTeamMappings.devTeamId, teamIds))
+			.where(and(inArray(applicationTeamMappings.devTeamId, teamIds), isNull(applicationTeamMappings.archivedAt)))
 		for (const m of appMappings) {
 			appIdSet.add(m.applicationId)
 		}

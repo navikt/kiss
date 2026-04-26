@@ -103,6 +103,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			DELETE FROM rulesets;
 			DELETE FROM screening_question_choices;
 			DELETE FROM screening_questions;
+			DELETE FROM control_technology_elements;
 			DELETE FROM framework_controls;
 			DELETE FROM framework_domains;
 			DELETE FROM technology_elements;

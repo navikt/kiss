@@ -109,7 +109,7 @@ export async function syncApplicationControls(appId: string, performedBy = "syst
 				controlId: routineControlsTable.controlId,
 			})
 			.from(routineControlsTable)
-			.where(inArray(routineControlsTable.routineId, allRoutineIds))
+			.where(and(inArray(routineControlsTable.routineId, allRoutineIds), isNull(routineControlsTable.archivedAt)))
 		for (const row of controlRows) {
 			const list = routineControlsMap.get(row.routineId) ?? []
 			list.push({ id: row.controlId })

@@ -96,6 +96,7 @@ async function getBatchExpectedTotals(appIds: string[]): Promise<Map<string, num
 	const ctrlElRows = await db
 		.select({ controlId: controlTechnologyElements.controlId, elementId: controlTechnologyElements.elementId })
 		.from(controlTechnologyElements)
+		.where(isNull(controlTechnologyElements.archivedAt))
 	const elementsByControl = new Map<string, Set<string>>()
 	for (const ce of ctrlElRows) {
 		let s = elementsByControl.get(ce.controlId)
@@ -116,6 +117,7 @@ async function getBatchExpectedTotals(appIds: string[]): Promise<Map<string, num
 		.where(
 			and(
 				inArray(applicationTechnologyElements.applicationId, appIds),
+				isNull(applicationTechnologyElements.archivedAt),
 				isNotNull(applicationTechnologyElements.confirmedAt),
 				isNull(applicationTechnologyElements.rejectedAt),
 			),
@@ -163,7 +165,7 @@ async function getTeamAppIds(teamId: string, sectionId: string, excludedEnvs?: S
 		.from(applicationTeamMappings)
 		.innerJoin(monitoredApplications, eq(applicationTeamMappings.applicationId, monitoredApplications.id))
 		.where(
-			sql`${applicationTeamMappings.devTeamId} = ${teamId} AND ${monitoredApplications.primaryApplicationId} IS NULL`,
+			sql`${applicationTeamMappings.devTeamId} = ${teamId} AND ${applicationTeamMappings.archivedAt} IS NULL AND ${monitoredApplications.primaryApplicationId} IS NULL`,
 		)
 	const directIds = new Set(directRows.map((r) => r.appId))
 

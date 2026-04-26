@@ -59,6 +59,7 @@ describe("screening-derived control IDs", () => {
 		await db.execute("DELETE FROM routines")
 		await db.execute("DELETE FROM compliance_assessments")
 		await db.execute("DELETE FROM framework_risk_control_mappings")
+		await db.execute("DELETE FROM control_technology_elements")
 		await db.execute("DELETE FROM framework_controls")
 		await db.execute("DELETE FROM framework_risks")
 		await db.execute("DELETE FROM framework_domains")

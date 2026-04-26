@@ -383,6 +383,18 @@ function extractDropColumns(sqlContent: string): string[] {
 	return results
 }
 
+/** Extract table.constraint pairs from ALTER TABLE ... ADD CONSTRAINT statements. */
+function extractAddConstraints(sqlContent: string): Array<{ table: string; constraint: string }> {
+	const results: Array<{ table: string; constraint: string }> = []
+	const regex = /ALTER TABLE\s+"(\w+)"\s+ADD CONSTRAINT\s+"(\w+)"/g
+	let match = regex.exec(sqlContent)
+	while (match) {
+		results.push({ table: match[1], constraint: match[2] })
+		match = regex.exec(sqlContent)
+	}
+	return results
+}
+
 /** Extract index names from CREATE [UNIQUE] INDEX statements. */
 function extractCreateIndexNames(sqlContent: string): string[] {
 	// Strip SQL line comments først så ord som "CREATE INDEX" i kommentarer
@@ -408,6 +420,7 @@ export const _testing = {
 	extractDropTableNames,
 	extractDropColumns,
 	extractCreateIndexNames,
+	extractAddConstraints,
 	CRITICAL_TABLES,
 	MIGRATION_LOCK_KEY,
 }

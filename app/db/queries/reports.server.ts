@@ -1,4 +1,4 @@
-import { desc, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import type PDFDocument from "pdfkit"
 import { getStatusLabel } from "../../lib/compliance-status"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
@@ -59,7 +59,9 @@ export async function generateComplianceReport(params: {
 			const mappings = await db
 				.select({ applicationId: applicationTeamMappings.applicationId })
 				.from(applicationTeamMappings)
-				.where(sql`${applicationTeamMappings.devTeamId} IN ${teamIds}`)
+				.where(
+					sql`${applicationTeamMappings.devTeamId} IN ${teamIds} AND ${applicationTeamMappings.archivedAt} IS NULL`,
+				)
 
 			const uniqueAppIds = [...new Set(mappings.map((m) => m.applicationId))]
 			if (uniqueAppIds.length === 0) {
@@ -106,7 +108,7 @@ export async function generateComplianceReport(params: {
 		})
 		.from(frameworkRiskControlMappings)
 		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
-		.where(isNull(frameworkRisks.archivedAt))
+		.where(and(isNull(frameworkRiskControlMappings.archivedAt), isNull(frameworkRisks.archivedAt)))
 
 	const controlDomainLookup = new Map<string, { code: string; name: string }>()
 	for (const rm of riskMappingsForDomain) {

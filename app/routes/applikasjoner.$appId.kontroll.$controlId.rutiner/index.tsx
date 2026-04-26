@@ -115,12 +115,18 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		const { routineControls, routineTechnologyElements } = await import("~/db/schema/routines")
 		const { technologyElements } = await import("~/db/schema/framework")
 		const { db } = await import("~/db/connection.server")
-		const { inArray, eq, and } = await import("drizzle-orm")
+		const { inArray, eq, and, isNull } = await import("drizzle-orm")
 		const [controlRows, techRows] = await Promise.all([
 			db
 				.select({ routineId: routineControls.routineId })
 				.from(routineControls)
-				.where(and(inArray(routineControls.routineId, allRoutineIds), eq(routineControls.controlId, controlId))),
+				.where(
+					and(
+						inArray(routineControls.routineId, allRoutineIds),
+						eq(routineControls.controlId, controlId),
+						isNull(routineControls.archivedAt),
+					),
+				),
 			db
 				.select({
 					routineId: routineTechnologyElements.routineId,
@@ -128,7 +134,12 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				})
 				.from(routineTechnologyElements)
 				.innerJoin(technologyElements, eq(technologyElements.id, routineTechnologyElements.elementId))
-				.where(inArray(routineTechnologyElements.routineId, allRoutineIds)),
+				.where(
+					and(
+						inArray(routineTechnologyElements.routineId, allRoutineIds),
+						isNull(routineTechnologyElements.archivedAt),
+					),
+				),
 		])
 		routineIdsForControl = new Set(controlRows.map((r) => r.routineId))
 		for (const row of techRows) {

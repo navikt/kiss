@@ -151,7 +151,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 					.from(applicationTeamMappings)
 					.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
 					.innerJoin(sections, eq(devTeams.sectionId, sections.id))
-					.where(inArray(applicationTeamMappings.applicationId, appIds))
+					.where(
+						and(inArray(applicationTeamMappings.applicationId, appIds), isNull(applicationTeamMappings.archivedAt)),
+					)
 			: []
 
 	const teamsByApp = new Map<string, Array<{ teamSlug: string; sectionSlug: string }>>()

@@ -67,6 +67,7 @@ describe("rulesets.server integration tests", () => {
 			DELETE FROM ruleset_approvals;
 			DELETE FROM rulesets;
 			DELETE FROM routines;
+			DELETE FROM control_technology_elements;
 			DELETE FROM framework_controls;
 			DELETE FROM sections;
 			DELETE FROM audit_log;

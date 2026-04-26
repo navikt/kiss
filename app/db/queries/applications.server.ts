@@ -72,7 +72,7 @@ export async function getApplications() {
 		})
 		.from(applicationTeamMappings)
 		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-		.where(inArray(applicationTeamMappings.applicationId, appIds))
+		.where(and(inArray(applicationTeamMappings.applicationId, appIds), isNull(applicationTeamMappings.archivedAt)))
 
 	const teamsByApp = new Map<string, string[]>()
 	for (const row of allTeamMappings) {
@@ -116,10 +116,14 @@ export async function getApplications() {
 }
 
 /**
- * Link an application to a dev team. Avviser kobling mot et arkivert dev-team.
- * Teamraden låses med `SELECT ... FOR SHARE` slik at en samtidig
- * `archiveTeam` ikke kan committe mellom guard og INSERT. INSERT og
- * audit-skriving kjører i samme transaksjon (AGENTS.md regel 6).
+ * Link an application to a dev team. TOCTOU-safe: dev-team-raden låses med
+ * `SELECT ... FOR SHARE` slik at en samtidig `archiveTeam` ikke kan committe
+ * mellom guard og INSERT. Bruker partial unique index
+ * `uq_app_team_mapping_active` slik at samtidige duplikat-link-kall
+ * resolves race-fritt via `onConflictDoNothing`. INSERT og audit-skriving
+ * kjører i samme transaksjon (AGENTS.md regel 6). Hvis den (application_id,
+ * dev_team_id)-paren tidligere er arkivert, opprettes en ny aktiv rad — den
+ * arkiverte raden beholdes som historikk.
  */
 export async function linkAppToTeam(applicationId: string, devTeamId: string, performedBy: string) {
 	return db.transaction(async (tx) => {
@@ -132,10 +136,36 @@ export async function linkAppToTeam(applicationId: string, devTeamId: string, pe
 		if (!team) throw new Error(`Dev-team med id ${devTeamId} finnes ikke`)
 		if (team.archivedAt) throw new Error(`Dev-team med id ${devTeamId} er arkivert`)
 
-		const [mapping] = await tx
+		const inserted = await tx
 			.insert(applicationTeamMappings)
 			.values({ applicationId, devTeamId, createdBy: performedBy })
+			.onConflictDoNothing({
+				target: [applicationTeamMappings.applicationId, applicationTeamMappings.devTeamId],
+				where: isNull(applicationTeamMappings.archivedAt),
+			})
 			.returning()
+		if (inserted.length === 0) {
+			// Eksisterende aktiv link — idempotent no-op, ingen audit. I et
+			// sjeldent race der en samtidig unlink arkiverer raden mellom
+			// INSERT og SELECT, kan fallback returnere null; behandle det
+			// som concurrency-feil i stedet for stille suksess.
+			const [existing] = await tx
+				.select()
+				.from(applicationTeamMappings)
+				.where(
+					and(
+						eq(applicationTeamMappings.applicationId, applicationId),
+						eq(applicationTeamMappings.devTeamId, devTeamId),
+						isNull(applicationTeamMappings.archivedAt),
+					),
+				)
+				.limit(1)
+			if (!existing) {
+				throw new Error("Kunne ikke koble applikasjonen til teamet pga. samtidig endring. Prøv igjen.")
+			}
+			return existing
+		}
+		const [mapping] = inserted
 
 		const [app] = await tx.select().from(monitoredApplications).where(eq(monitoredApplications.id, applicationId))
 
@@ -155,24 +185,40 @@ export async function linkAppToTeam(applicationId: string, devTeamId: string, pe
 	})
 }
 
-/** Unlink an application from a dev team. */
+/**
+ * Unlink an application from a dev team (soft-delete). Transaksjonell og
+ * idempotent: audit skrives kun når en aktiv rad faktisk ble arkivert.
+ */
 export async function unlinkAppFromTeam(applicationId: string, devTeamId: string, performedBy: string) {
-	const [app] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.id, applicationId))
-	const [team] = await db.select().from(devTeams).where(eq(devTeams.id, devTeamId))
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(applicationTeamMappings)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(
+				and(
+					eq(applicationTeamMappings.applicationId, applicationId),
+					eq(applicationTeamMappings.devTeamId, devTeamId),
+					isNull(applicationTeamMappings.archivedAt),
+				),
+			)
+			.returning({ id: applicationTeamMappings.id })
 
-	await db
-		.delete(applicationTeamMappings)
-		.where(
-			and(eq(applicationTeamMappings.applicationId, applicationId), eq(applicationTeamMappings.devTeamId, devTeamId)),
+		if (!archived) return
+
+		const [app] = await tx.select().from(monitoredApplications).where(eq(monitoredApplications.id, applicationId))
+		const [team] = await tx.select().from(devTeams).where(eq(devTeams.id, devTeamId))
+
+		await writeAuditLog(
+			{
+				action: "app_team_unlinked",
+				entityType: "application_team_mapping",
+				entityId: archived.id,
+				previousValue: `${app?.name ?? applicationId} ↔ ${team?.name ?? devTeamId}`,
+				metadata: { applicationId, devTeamId },
+				performedBy,
+			},
+			tx,
 		)
-
-	await writeAuditLog({
-		action: "app_team_unlinked",
-		entityType: "application_team_mapping",
-		entityId: `${applicationId}_${devTeamId}`,
-		previousValue: `${app?.name ?? applicationId} ↔ ${team?.name ?? devTeamId}`,
-		metadata: { applicationId, devTeamId },
-		performedBy,
 	})
 }
 
@@ -181,7 +227,7 @@ export async function getAvailableAppsForTeam(devTeamId: string) {
 	const linkedAppIds = db
 		.select({ applicationId: applicationTeamMappings.applicationId })
 		.from(applicationTeamMappings)
-		.where(eq(applicationTeamMappings.devTeamId, devTeamId))
+		.where(and(eq(applicationTeamMappings.devTeamId, devTeamId), isNull(applicationTeamMappings.archivedAt)))
 
 	return db
 		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
@@ -201,7 +247,7 @@ export async function getAvailableTeamsForApp(applicationId: string) {
 	const linkedTeamIds = db
 		.select({ devTeamId: applicationTeamMappings.devTeamId })
 		.from(applicationTeamMappings)
-		.where(eq(applicationTeamMappings.applicationId, applicationId))
+		.where(and(eq(applicationTeamMappings.applicationId, applicationId), isNull(applicationTeamMappings.archivedAt)))
 
 	return db
 		.select({ id: devTeams.id, name: devTeams.name })
@@ -251,6 +297,7 @@ export async function getAppAssessments(appId: string) {
 		.where(
 			and(
 				eq(applicationTechnologyElements.applicationId, assessmentAppId),
+				isNull(applicationTechnologyElements.archivedAt),
 				isNotNull(applicationTechnologyElements.confirmedAt),
 				isNull(applicationTechnologyElements.rejectedAt),
 			),
@@ -277,6 +324,7 @@ export async function getAppAssessments(appId: string) {
 			elementId: controlTechnologyElements.elementId,
 		})
 		.from(controlTechnologyElements)
+		.where(isNull(controlTechnologyElements.archivedAt))
 	const elementsByControl = new Map<string, string[]>()
 	for (const ce of controlElements) {
 		const list = elementsByControl.get(ce.controlId) ?? []
@@ -308,6 +356,7 @@ export async function getAppAssessments(appId: string) {
 		})
 		.from(frameworkRiskControlMappings)
 		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.where(and(isNull(frameworkRiskControlMappings.archivedAt), isNull(frameworkRisks.archivedAt)))
 
 	const risksByControlUuid = new Map<
 		string,
@@ -449,7 +498,11 @@ export async function getApplicationsForSection(sectionId: string) {
 			.from(applicationTeamMappings)
 			.innerJoin(monitoredApplications, eq(applicationTeamMappings.applicationId, monitoredApplications.id))
 			.where(
-				and(inArray(applicationTeamMappings.devTeamId, devTeamIds), isNull(monitoredApplications.primaryApplicationId)),
+				and(
+					inArray(applicationTeamMappings.devTeamId, devTeamIds),
+					isNull(applicationTeamMappings.archivedAt),
+					isNull(monitoredApplications.primaryApplicationId),
+				),
 			)
 
 		for (const row of directApps) {
@@ -520,7 +573,7 @@ export async function getApplicationsForSection(sectionId: string) {
 			.select({ applicationId: applicationTeamMappings.applicationId, teamSlug: devTeams.slug })
 			.from(applicationTeamMappings)
 			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-			.where(inArray(applicationTeamMappings.applicationId, appIds)),
+			.where(and(inArray(applicationTeamMappings.applicationId, appIds), isNull(applicationTeamMappings.archivedAt))),
 		db
 			.select({
 				applicationId: applicationControls.applicationId,

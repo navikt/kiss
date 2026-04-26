@@ -93,6 +93,7 @@ describe("screening.server integration tests", () => {
 			DELETE FROM screening_question_technology_elements;
 			DELETE FROM screening_questions;
 			DELETE FROM technology_elements;
+			DELETE FROM control_technology_elements;
 			DELETE FROM framework_controls;
 			DELETE FROM monitored_applications;
 			DELETE FROM sections;

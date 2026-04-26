@@ -51,10 +51,12 @@ export const rulesetControls = pgTable("ruleset_controls", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	rulesetId: uuid("ruleset_id")
 		.notNull()
-		.references(() => rulesets.id, { onDelete: "cascade" }),
+		.references(() => rulesets.id, { onDelete: "restrict" }),
 	controlId: uuid("control_id")
 		.notNull()
-		.references(() => frameworkControls.id, { onDelete: "cascade" }),
+		.references(() => frameworkControls.id, { onDelete: "restrict" }),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Ruleset ↔ Routine linking ────────────────────────────────────────────
@@ -63,12 +65,14 @@ export const rulesetRoutines = pgTable("ruleset_routines", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	rulesetId: uuid("ruleset_id")
 		.notNull()
-		.references(() => rulesets.id, { onDelete: "cascade" }),
+		.references(() => rulesets.id, { onDelete: "restrict" }),
 	routineId: uuid("routine_id")
 		.notNull()
 		.references(() => routinesRef.id, { onDelete: "restrict" }),
 	createdBy: text("created_by").notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Ruleset Attachments ─────────────────────────────────────────────────

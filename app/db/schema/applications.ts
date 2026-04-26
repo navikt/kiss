@@ -57,17 +57,27 @@ export const applicationEnvironments = pgTable("application_environments", {
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
-export const applicationTeamMappings = pgTable("application_team_mappings", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	applicationId: uuid("application_id")
-		.notNull()
-		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
-	devTeamId: uuid("dev_team_id")
-		.notNull()
-		.references(() => devTeams.id, { onDelete: "restrict" }),
-	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-	createdBy: text("created_by").notNull(),
-})
+export const applicationTeamMappings = pgTable(
+	"application_team_mappings",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
+		devTeamId: uuid("dev_team_id")
+			.notNull()
+			.references(() => devTeams.id, { onDelete: "restrict" }),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(table) => [
+		uniqueIndex("uq_app_team_mapping_active")
+			.on(table.applicationId, table.devTeamId)
+			.where(sql`${table.archivedAt} IS NULL`),
+	],
+)
 
 export const devTeamNaisTeamMappings = pgTable("dev_team_nais_team_mappings", {
 	id: uuid("id").primaryKey().defaultRandom(),
