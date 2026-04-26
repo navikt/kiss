@@ -502,6 +502,19 @@ export async function unignoreAppForSection(sectionId: string, applicationId: st
  * den automatisk fordi Nais-sync er kilden for sannhet på faktisk
  * tilstedeværelse i klyngen. Reaktivering audit-logges som
  * `persistence_unarchived` med `performedBy: "nais-sync"`.
+ *
+ * Audit (AGENTS.md regel 6):
+ * - INSERT (ny rad oppdaget i Nais): `persistence_added`
+ * - UPDATE-på-eksisterende-aktiv-rad: `persistence_updated` KUN hvis minst
+ *   ett av de oppdaterte feltene faktisk endret seg (no-op-resyncs spammer
+ *   ellers audit-loggen hvert 5. minutt og skjuler reelle endringer).
+ * - UPDATE-på-arkivert-rad: `persistence_unarchived` (eksisterende oppførsel).
+ *
+ * NB: Merge-semantikken for `opts?.x ?? existing.x` betyr at felter som
+ * Nais ikke rapporterer (undefined) beholder eksisterende verdi. Dette er
+ * bevisst behold for å ikke nullstille felter ved partielle resyncs, men
+ * betyr også at `null`-verdier fra Nais ikke kan nullstille felter — det
+ * krever en separat clearing-mekanisme (utenfor scope for K3-fiksen).
  */
 export async function upsertAppPersistence(
 	applicationId: string,
@@ -533,19 +546,42 @@ export async function upsertAppPersistence(
 		if (existing) {
 			const wasArchived = existing.archivedAt !== null
 			const previousArchivedAt = existing.archivedAt
-			await tx
-				.update(applicationPersistence)
-				.set({
-					version: opts?.version ?? existing.version,
-					tier: opts?.tier ?? existing.tier,
-					highAvailability: opts?.highAvailability ?? existing.highAvailability,
-					auditLogging: opts?.auditLogging ?? existing.auditLogging,
-					auditLogUrl: opts?.auditLogUrl ?? existing.auditLogUrl,
-					updatedAt: new Date(),
-					archivedAt: null,
-					archivedBy: null,
-				})
-				.where(eq(applicationPersistence.id, existing.id))
+			const nextState = {
+				version: opts?.version ?? existing.version,
+				tier: opts?.tier ?? existing.tier,
+				highAvailability: opts?.highAvailability ?? existing.highAvailability,
+				auditLogging: opts?.auditLogging ?? existing.auditLogging,
+				auditLogUrl: opts?.auditLogUrl ?? existing.auditLogUrl,
+			}
+			const previousFields = {
+				version: existing.version,
+				tier: existing.tier,
+				highAvailability: existing.highAvailability,
+				auditLogging: existing.auditLogging,
+				auditLogUrl: existing.auditLogUrl,
+			}
+			const fieldsChanged =
+				nextState.version !== previousFields.version ||
+				nextState.tier !== previousFields.tier ||
+				nextState.highAvailability !== previousFields.highAvailability ||
+				nextState.auditLogging !== previousFields.auditLogging ||
+				nextState.auditLogUrl !== previousFields.auditLogUrl
+
+			// Hopp over UPDATE helt når det ikke er noe å endre (verken
+			// reaktivering eller feltendring). Ellers ville `updatedAt` blitt
+			// mutert ved hver Nais-resync uten tilsvarende audit-logg, som
+			// strider mot AGENTS.md regel 6 om audit på alle DB-mutasjoner.
+			if (wasArchived || fieldsChanged) {
+				await tx
+					.update(applicationPersistence)
+					.set({
+						...nextState,
+						updatedAt: new Date(),
+						archivedAt: null,
+						archivedBy: null,
+					})
+					.where(eq(applicationPersistence.id, existing.id))
+			}
 
 			if (wasArchived) {
 				await writeAuditLog(
@@ -565,24 +601,135 @@ export async function upsertAppPersistence(
 					tx,
 				)
 			}
+			// NB: vi logger persistence_updated ALLTID ved feltendring, også når
+			// raden samtidig reaktiveres. Ellers ville feltendringer som skjer
+			// i samme operasjon som unarchive blitt usynlige i audit-loggen.
+			if (fieldsChanged) {
+				await writeAuditLog(
+					{
+						action: "persistence_updated",
+						entityType: "application_persistence",
+						entityId: existing.id,
+						previousValue: JSON.stringify(previousFields),
+						newValue: JSON.stringify(nextState),
+						metadata: { applicationId, type: existing.type, name: existing.name, source: "nais-sync" },
+						performedBy: "nais-sync",
+					},
+					tx,
+				)
+			}
 			return false
 		}
 
-		await tx.insert(applicationPersistence).values({
-			applicationId,
-			type,
-			name,
-			version: opts?.version ?? null,
-			tier: opts?.tier ?? null,
-			highAvailability: opts?.highAvailability ?? null,
-			auditLogging: opts?.auditLogging ?? null,
-			auditLogUrl: opts?.auditLogUrl ?? null,
-		})
+		const [inserted] = await tx
+			.insert(applicationPersistence)
+			.values({
+				applicationId,
+				type,
+				name,
+				version: opts?.version ?? null,
+				tier: opts?.tier ?? null,
+				highAvailability: opts?.highAvailability ?? null,
+				auditLogging: opts?.auditLogging ?? null,
+				auditLogUrl: opts?.auditLogUrl ?? null,
+			})
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "persistence_added",
+				entityType: "application_persistence",
+				entityId: inserted.id,
+				newValue: JSON.stringify({
+					type,
+					name,
+					version: inserted.version,
+					tier: inserted.tier,
+					highAvailability: inserted.highAvailability,
+					auditLogging: inserted.auditLogging,
+					auditLogUrl: inserted.auditLogUrl,
+				}),
+				metadata: { applicationId, source: "nais-sync" },
+				performedBy: "nais-sync",
+			},
+			tx,
+		)
 		return true
 	})
 }
 
-/** Upsert an auth integration for an application. */
+// Kanonisk JSON-serialisering for arrays/objekter slik at sammenligning
+// (og lagret representasjon) ikke flagger reordrede elementer som endring.
+function canonicalizeStringArray(arr: string[] | null | undefined): string | null {
+	if (!arr?.length) return null
+	return JSON.stringify([...arr].sort())
+}
+
+function canonicalizeInboundRules(
+	rules: Array<{ application: string; namespace?: string; cluster?: string }> | null | undefined,
+): string | null {
+	if (!rules?.length) return null
+	const sorted = [...rules]
+		.map((r) => ({ application: r.application, namespace: r.namespace ?? null, cluster: r.cluster ?? null }))
+		.sort((a, b) => {
+			const aKey = `${a.application}|${a.namespace ?? ""}|${a.cluster ?? ""}`
+			const bKey = `${b.application}|${b.namespace ?? ""}|${b.cluster ?? ""}`
+			return aKey < bKey ? -1 : aKey > bKey ? 1 : 0
+		})
+	return JSON.stringify(sorted)
+}
+
+// Re-kanoniserer en allerede lagret JSON-streng (string-array) slik at
+// sammenligning av incoming vs. existing er på samme normaliserte form.
+// Robust mot eldre rader skrevet før kanonisering ble innført.
+function recanonicalizeStoredStringArray(stored: string | null): string | null {
+	if (!stored) return null
+	try {
+		const parsed = JSON.parse(stored)
+		if (!Array.isArray(parsed)) return stored
+		return canonicalizeStringArray(parsed as string[])
+	} catch {
+		return stored
+	}
+}
+
+function recanonicalizeStoredInboundRules(stored: string | null): string | null {
+	if (!stored) return null
+	try {
+		const parsed = JSON.parse(stored)
+		if (!Array.isArray(parsed)) return stored
+		return canonicalizeInboundRules(parsed as Array<{ application: string; namespace?: string; cluster?: string }>)
+	} catch {
+		return stored
+	}
+}
+
+/**
+ * Upsert an auth integration for an application.
+ *
+ * Audit (AGENTS.md regel 6):
+ * - INSERT: `auth_integration_added` med all initial state.
+ * - UPDATE: `auth_integration_updated` KUN hvis minst ett felt faktisk endret
+ *   seg etter `?? existing`-merge. Inkluderer `enabled`-feltet siden en
+ *   transisjon `false → true` er semantisk en reaktivering. Arrays
+ *   (`groups`, `claimsExtra`, `inboundRules`) sorteres deterministisk før
+ *   sammenligning og lagring slik at Nais-resyncs i ulik rekkefølge ikke
+ *   gir falske endringer. Eksisterende lagrede arrays re-kanoniseres ved
+ *   sammenligning slik at rader skrevet før kanonisering ble innført ikke
+ *   gir falske `auth_integration_updated` ved første resync etter deploy.
+ *
+ * Hele operasjonen kjører i en transaksjon. For TOCTOU-trygghet (advisory
+ * locks i `nais-sync.server.ts` er per team-scope og beskytter ikke mot
+ * samtidige fulle syncs som rører samme app) tas en `SELECT ... FOR UPDATE`
+ * på parent `monitored_applications`-raden FØR vi sjekker eksisterende
+ * integrasjon. Det serialiserer alle upsert-kall for samme application,
+ * så to samtidige INSERT-er ikke kan begge se «ingen rad» og lage duplikater.
+ *
+ * NB: `application_auth_integrations` mangler fortsatt en DB-håndhevd
+ * unique-constraint på `(application_id, type)`. Egen oppfølgings-PR vil
+ * legge til constraint + dedup-migrasjon. Inntil da er parent-row-låsen
+ * forsvarslaget.
+ */
 export async function upsertAppAuthIntegration(
 	applicationId: string,
 	type: AuthIntegrationType,
@@ -594,44 +741,121 @@ export async function upsertAppAuthIntegration(
 		inboundRules?: Array<{ application: string; namespace?: string; cluster?: string }> | null
 	},
 ): Promise<boolean> {
-	const [existing] = await db
-		.select()
-		.from(applicationAuthIntegrations)
-		.where(
-			and(eq(applicationAuthIntegrations.applicationId, applicationId), eq(applicationAuthIntegrations.type, type)),
-		)
-		.limit(1)
+	const claimsExtraStr = canonicalizeStringArray(opts?.claimsExtra)
+	const groupsStr = canonicalizeStringArray(opts?.groups)
+	const inboundRulesStr = canonicalizeInboundRules(opts?.inboundRules)
 
-	const claimsExtraStr = opts?.claimsExtra?.length ? JSON.stringify(opts.claimsExtra) : null
-	const groupsStr = opts?.groups?.length ? JSON.stringify(opts.groups) : null
-	const inboundRulesStr = opts?.inboundRules?.length ? JSON.stringify(opts.inboundRules) : null
+	return db.transaction(async (tx) => {
+		// Lås parent-app-raden for å serialisere samtidige upserts mot samme app.
+		// Beskytter mot duplikat-INSERT-race siden auth_integrations ikke har
+		// (application_id, type) unique constraint ennå.
+		await tx
+			.select({ id: monitoredApplications.id })
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.id, applicationId))
+			.for("update")
+			.limit(1)
 
-	if (existing) {
-		await db
-			.update(applicationAuthIntegrations)
-			.set({
+		const [existing] = await tx
+			.select()
+			.from(applicationAuthIntegrations)
+			.where(
+				and(eq(applicationAuthIntegrations.applicationId, applicationId), eq(applicationAuthIntegrations.type, type)),
+			)
+			.for("update")
+			.limit(1)
+
+		if (existing) {
+			// Re-kanoniser lagrede arrays før sammenligning slik at eldre rader
+			// (skrevet før kanonisering ble innført) ikke gir false positives.
+			const existingClaimsExtra = recanonicalizeStoredStringArray(existing.claimsExtra)
+			const existingGroups = recanonicalizeStoredStringArray(existing.groups)
+			const existingInboundRules = recanonicalizeStoredInboundRules(existing.inboundRules)
+
+			const nextState = {
 				enabled: true,
 				allowAllUsers: opts?.allowAllUsers ?? existing.allowAllUsers,
-				claimsExtra: claimsExtraStr ?? existing.claimsExtra,
-				groups: groupsStr ?? existing.groups,
+				claimsExtra: claimsExtraStr ?? existingClaimsExtra,
+				groups: groupsStr ?? existingGroups,
 				sidecarEnabled: opts?.sidecarEnabled ?? existing.sidecarEnabled,
-				inboundRules: inboundRulesStr ?? existing.inboundRules,
-				updatedAt: new Date(),
-			})
-			.where(eq(applicationAuthIntegrations.id, existing.id))
-		return false
-	}
+				inboundRules: inboundRulesStr ?? existingInboundRules,
+			}
+			const previousFields = {
+				enabled: existing.enabled,
+				allowAllUsers: existing.allowAllUsers,
+				claimsExtra: existingClaimsExtra,
+				groups: existingGroups,
+				sidecarEnabled: existing.sidecarEnabled,
+				inboundRules: existingInboundRules,
+			}
+			const fieldsChanged =
+				nextState.enabled !== previousFields.enabled ||
+				nextState.allowAllUsers !== previousFields.allowAllUsers ||
+				nextState.claimsExtra !== previousFields.claimsExtra ||
+				nextState.groups !== previousFields.groups ||
+				nextState.sidecarEnabled !== previousFields.sidecarEnabled ||
+				nextState.inboundRules !== previousFields.inboundRules
 
-	await db.insert(applicationAuthIntegrations).values({
-		applicationId,
-		type,
-		allowAllUsers: opts?.allowAllUsers ?? null,
-		claimsExtra: claimsExtraStr,
-		groups: groupsStr,
-		sidecarEnabled: opts?.sidecarEnabled ?? null,
-		inboundRules: inboundRulesStr,
+			// Skip UPDATE entirely when nothing changed — ellers muteres
+			// `updatedAt` (og evt. re-kanonisert tekst) uten audit-logg.
+			if (fieldsChanged) {
+				await tx
+					.update(applicationAuthIntegrations)
+					.set({ ...nextState, updatedAt: new Date() })
+					.where(eq(applicationAuthIntegrations.id, existing.id))
+			}
+
+			if (fieldsChanged) {
+				await writeAuditLog(
+					{
+						action: "auth_integration_updated",
+						entityType: "application_auth_integration",
+						entityId: existing.id,
+						previousValue: JSON.stringify(previousFields),
+						newValue: JSON.stringify(nextState),
+						metadata: { applicationId, type, source: "nais-sync" },
+						performedBy: "nais-sync",
+					},
+					tx,
+				)
+			}
+			return false
+		}
+
+		const [inserted] = await tx
+			.insert(applicationAuthIntegrations)
+			.values({
+				applicationId,
+				type,
+				allowAllUsers: opts?.allowAllUsers ?? null,
+				claimsExtra: claimsExtraStr,
+				groups: groupsStr,
+				sidecarEnabled: opts?.sidecarEnabled ?? null,
+				inboundRules: inboundRulesStr,
+			})
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "auth_integration_added",
+				entityType: "application_auth_integration",
+				entityId: inserted.id,
+				newValue: JSON.stringify({
+					type,
+					enabled: inserted.enabled,
+					allowAllUsers: inserted.allowAllUsers,
+					claimsExtra: inserted.claimsExtra,
+					groups: inserted.groups,
+					sidecarEnabled: inserted.sidecarEnabled,
+					inboundRules: inserted.inboundRules,
+				}),
+				metadata: { applicationId, source: "nais-sync" },
+				performedBy: "nais-sync",
+			},
+			tx,
+		)
+		return true
 	})
-	return true
 }
 
 /** Get auth integrations for an application. */
