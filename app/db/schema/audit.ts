@@ -91,6 +91,10 @@ export const auditLogActionEnum = [
 	"persistence_archived",
 	"persistence_unarchived",
 
+	// Autentiserings-integrasjoner (Entra ID, TokenX, ID-porten, Maskinporten)
+	"auth_integration_added",
+	"auth_integration_updated",
+
 	// Manuelle grupperinger og kritikalitet/klassifisering
 	"manual_group_added",
 	"manual_group_removed",
