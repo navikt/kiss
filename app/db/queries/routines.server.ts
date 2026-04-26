@@ -1919,7 +1919,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 	const manualGroups = await db
 		.select({ groupId: applicationManualGroups.groupId })
 		.from(applicationManualGroups)
-		.where(eq(applicationManualGroups.applicationId, applicationId))
+		.where(and(eq(applicationManualGroups.applicationId, applicationId), isNull(applicationManualGroups.archivedAt)))
 	for (const mg of manualGroups) groupIds.add(mg.groupId)
 
 	if (groupIds.size === 0) return []

@@ -2065,54 +2065,109 @@ export async function getManualGroupsForApp(applicationId: string) {
 	return db
 		.select()
 		.from(applicationManualGroups)
-		.where(eq(applicationManualGroups.applicationId, applicationId))
+		.where(and(eq(applicationManualGroups.applicationId, applicationId), isNull(applicationManualGroups.archivedAt)))
 		.orderBy(applicationManualGroups.createdAt)
 }
 
-/** Add a manual group to an application. */
+/** Add a manual group to an application.
+ *
+ * Hvis gruppen finnes som arkivert tidligere kobling, lar vi den arkiverte raden
+ * ligge for historikkens skyld og setter inn en ny aktiv rad. Den partielle
+ * unike indeksen tillater dette så lenge det aldri er to aktive samtidig.
+ *
+ * Wrappet i transaksjon med audit som del av samme tx for atomisitet. Hvis
+ * INSERT-konflikten gjelder en aktiv rad og en samtidig `removeManualGroup`
+ * arkiverer den i et race, gjør vi en eksplisitt SELECT på aktiv rad og
+ * kaster concurrency-feil hvis ingen finnes — slik at en reell "add" aldri
+ * forsvinner stille.
+ */
 export async function addManualGroup(
 	applicationId: string,
 	groupId: string,
 	groupName: string | null,
 	performedBy: string,
 ) {
-	const [inserted] = await db
-		.insert(applicationManualGroups)
-		.values({ applicationId, groupId, groupName, createdBy: performedBy })
-		.onConflictDoNothing()
-		.returning()
+	return db.transaction(async (tx) => {
+		const [inserted] = await tx
+			.insert(applicationManualGroups)
+			.values({ applicationId, groupId, groupName, createdBy: performedBy })
+			.onConflictDoNothing({
+				target: [applicationManualGroups.applicationId, applicationManualGroups.groupId],
+				where: isNull(applicationManualGroups.archivedAt),
+			})
+			.returning()
 
-	if (inserted) {
-		await writeAuditLog({
-			action: "manual_group_added",
-			entityType: "application",
-			entityId: applicationId,
-			newValue: JSON.stringify({ groupId, groupName }),
-			performedBy,
-		})
-	}
+		if (inserted) {
+			await writeAuditLog(
+				{
+					action: "manual_group_added",
+					entityType: "application",
+					entityId: applicationId,
+					newValue: JSON.stringify({ groupId, groupName }),
+					performedBy,
+				},
+				tx,
+			)
+			return inserted
+		}
 
-	return inserted ?? null
+		// Konflikt: enten finnes det en eksisterende aktiv rad (idempotent
+		// no-op), eller raden ble arkivert i et race. Sjekk eksplisitt.
+		const [existing] = await tx
+			.select()
+			.from(applicationManualGroups)
+			.where(
+				and(
+					eq(applicationManualGroups.applicationId, applicationId),
+					eq(applicationManualGroups.groupId, groupId),
+					isNull(applicationManualGroups.archivedAt),
+				),
+			)
+			.limit(1)
+
+		if (!existing) {
+			throw new Error("Kunne ikke legge til manuell gruppe pga. samtidig endring. Prøv igjen.")
+		}
+		return existing
+	})
 }
 
-/** Remove a manual group from an application. */
+/** Archive (soft-delete) a manual group from an application.
+ *
+ * Tidligere ble raden hard-slettet. Nå arkiverer vi den slik at vi bevarer
+ * sporbarhet på hvilke grupper applikasjonen har vært klassifisert med.
+ * Wrappet i transaksjon med audit som del av samme tx for atomisitet —
+ * hvis audit-skriving feiler rulles arkiveringen tilbake.
+ */
 export async function removeManualGroup(id: string, applicationId: string, performedBy: string) {
-	const [deleted] = await db
-		.delete(applicationManualGroups)
-		.where(and(eq(applicationManualGroups.id, id), eq(applicationManualGroups.applicationId, applicationId)))
-		.returning()
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(applicationManualGroups)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(
+				and(
+					eq(applicationManualGroups.id, id),
+					eq(applicationManualGroups.applicationId, applicationId),
+					isNull(applicationManualGroups.archivedAt),
+				),
+			)
+			.returning()
 
-	if (deleted) {
-		await writeAuditLog({
-			action: "manual_group_removed",
-			entityType: "application",
-			entityId: applicationId,
-			previousValue: JSON.stringify({ groupId: deleted.groupId, groupName: deleted.groupName }),
-			performedBy,
-		})
-	}
+		if (!archived) return null
 
-	return deleted ?? null
+		await writeAuditLog(
+			{
+				action: "manual_group_removed",
+				entityType: "application",
+				entityId: applicationId,
+				previousValue: JSON.stringify({ groupId: archived.groupId, groupName: archived.groupName }),
+				performedBy,
+			},
+			tx,
+		)
+
+		return archived
+	})
 }
 
 // ─── Group Criticality Assessments ───────────────────────────────────────
@@ -2299,7 +2354,7 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 	const manualGroupRows = await db
 		.select()
 		.from(applicationManualGroups)
-		.where(inArray(applicationManualGroups.applicationId, appIds))
+		.where(and(inArray(applicationManualGroups.applicationId, appIds), isNull(applicationManualGroups.archivedAt)))
 
 	// Get all assessments
 	const assessments = await db

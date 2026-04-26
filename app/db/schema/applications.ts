@@ -266,8 +266,17 @@ export const applicationManualGroups = pgTable(
 		groupName: text("group_name"),
 		createdBy: text("created_by").notNull(),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
 	},
-	(t) => [unique().on(t.applicationId, t.groupId)],
+	(t) => [
+		// Partial unique: kun én aktiv (ikke-arkivert) rad per (applikasjon, gruppe).
+		// Arkiverte rader er bevisst utelatt slik at historikk kan ligge ved siden
+		// av en ny aktiv rad når en gruppe re-legges til etter å ha vært fjernet.
+		uniqueIndex("application_manual_groups_active_unique_idx")
+			.on(t.applicationId, t.groupId)
+			.where(sql`archived_at IS NULL`),
+	],
 )
 
 export const groupCriticalityEnum = ["low", "medium", "high", "very_high"] as const
