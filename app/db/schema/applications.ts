@@ -158,18 +158,31 @@ export const applicationPersistence = pgTable(
 	],
 )
 
-export const sectionIgnoredApplications = pgTable("section_ignored_applications", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	sectionId: uuid("section_id")
-		.notNull()
-		.references(() => sections.id, { onDelete: "restrict" }),
-	applicationId: uuid("application_id")
-		.notNull()
-		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
-	reason: text("reason"),
-	ignoredAt: timestamp("ignored_at", { withTimezone: true }).notNull().defaultNow(),
-	ignoredBy: text("ignored_by").notNull(),
-})
+export const sectionIgnoredApplications = pgTable(
+	"section_ignored_applications",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		sectionId: uuid("section_id")
+			.notNull()
+			.references(() => sections.id, { onDelete: "restrict" }),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
+		reason: text("reason"),
+		ignoredAt: timestamp("ignored_at", { withTimezone: true }).notNull().defaultNow(),
+		ignoredBy: text("ignored_by").notNull(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(t) => [
+		// Partial unique: kun én aktiv ignorering per (seksjon, applikasjon).
+		// Arkiverte rader (archived_at IS NOT NULL) er bevisst utelatt slik at
+		// historikk kan ligge ved siden av en ny aktiv rad.
+		uniqueIndex("section_ignored_applications_active_unique_idx")
+			.on(t.sectionId, t.applicationId)
+			.where(sql`archived_at IS NULL`),
+	],
+)
 
 export const linkSuggestionStatusEnum = ["pending", "accepted", "rejected"] as const
 export type LinkSuggestionStatus = (typeof linkSuggestionStatusEnum)[number]

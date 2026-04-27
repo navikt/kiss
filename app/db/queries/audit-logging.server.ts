@@ -429,7 +429,7 @@ async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 	const ignoredRows = await db
 		.select({ appId: sectionIgnoredApplications.applicationId })
 		.from(sectionIgnoredApplications)
-		.where(eq(sectionIgnoredApplications.sectionId, sectionId))
+		.where(and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt)))
 	for (const row of ignoredRows) appIds.delete(row.appId)
 
 	return appIds

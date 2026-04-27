@@ -357,7 +357,7 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 			await db
 				.select({ appId: sectionIgnoredApplications.applicationId })
 				.from(sectionIgnoredApplications)
-				.where(eq(sectionIgnoredApplications.sectionId, sectionId))
+				.where(and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt)))
 		).map((r) => r.appId),
 	)
 
@@ -400,7 +400,7 @@ export async function getIgnoredAppsForSection(sectionId: string) {
 		})
 		.from(sectionIgnoredApplications)
 		.innerJoin(monitoredApplications, eq(sectionIgnoredApplications.applicationId, monitoredApplications.id))
-		.where(eq(sectionIgnoredApplications.sectionId, sectionId))
+		.where(and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt)))
 		.orderBy(monitoredApplications.name)
 }
 
@@ -453,46 +453,111 @@ export async function includeEnvironment(sectionId: string, cluster: string, per
 	})
 }
 
-/** Ignore an app for a section. */
+/** Ignore an app for a section.
+ *
+ * Wrappet i transaksjon med audit som del av samme tx for atomisitet. Hvis
+ * det allerede finnes en aktiv ignorering er dette en idempotent no-op (ingen
+ * audit). Race-håndtering: hvis raden ble arkivert mellom INSERT og SELECT
+ * kastes concurrency-feil i stedet for stille `null`.
+ */
 export async function ignoreAppForSection(
 	sectionId: string,
 	applicationId: string,
 	ignoredBy: string,
 	reason?: string,
 ) {
-	await db.insert(sectionIgnoredApplications).values({
-		sectionId,
-		applicationId,
-		reason: reason || null,
-		ignoredBy,
-	})
-	await writeAuditLog({
-		action: "section_app_ignored",
-		entityType: "section_ignored_application",
-		entityId: applicationId,
-		newValue: JSON.stringify({ sectionId, applicationId, reason }),
-		metadata: { sectionId },
-		performedBy: ignoredBy,
+	return db.transaction(async (tx) => {
+		// Normaliser reason én gang: trim whitespace, tom streng → null. Brukes
+		// både i DB-raden og audit-loggen så de er konsistente.
+		const normalizedReason = reason?.trim() ? reason.trim() : null
+		const [inserted] = await tx
+			.insert(sectionIgnoredApplications)
+			.values({
+				sectionId,
+				applicationId,
+				reason: normalizedReason,
+				ignoredBy,
+			})
+			.onConflictDoNothing({
+				target: [sectionIgnoredApplications.sectionId, sectionIgnoredApplications.applicationId],
+				where: isNull(sectionIgnoredApplications.archivedAt),
+			})
+			.returning()
+
+		if (inserted) {
+			await writeAuditLog(
+				{
+					action: "section_app_ignored",
+					entityType: "section_ignored_application",
+					entityId: applicationId,
+					newValue: JSON.stringify({ sectionId, applicationId, reason: normalizedReason }),
+					metadata: { sectionId },
+					performedBy: ignoredBy,
+				},
+				tx,
+			)
+			return inserted
+		}
+
+		// Konflikt: enten finnes det en eksisterende aktiv rad (idempotent
+		// no-op), eller raden ble arkivert i et race. Sjekk eksplisitt.
+		const [existing] = await tx
+			.select()
+			.from(sectionIgnoredApplications)
+			.where(
+				and(
+					eq(sectionIgnoredApplications.sectionId, sectionId),
+					eq(sectionIgnoredApplications.applicationId, applicationId),
+					isNull(sectionIgnoredApplications.archivedAt),
+				),
+			)
+			.limit(1)
+
+		if (!existing) {
+			throw new Error("Kunne ikke ignorere applikasjon pga. samtidig endring. Prøv igjen.")
+		}
+
+		return existing
 	})
 }
 
-/** Unignore an app for a section. */
+/** Unignore (arkiver) an app for a section.
+ *
+ * Tidligere ble raden hard-slettet. Nå arkiverer vi den slik at vi bevarer
+ * sporbarhet på hvilke applikasjoner seksjonen har ignorert. Wrappet i
+ * transaksjon med audit som del av samme tx — hvis audit-skriving feiler
+ * rulles arkiveringen tilbake. Idempotent: returnerer `null` hvis det ikke
+ * finnes noen aktiv rad å arkivere.
+ */
 export async function unignoreAppForSection(sectionId: string, applicationId: string, performedBy: string) {
-	await db
-		.delete(sectionIgnoredApplications)
-		.where(
-			and(
-				eq(sectionIgnoredApplications.sectionId, sectionId),
-				eq(sectionIgnoredApplications.applicationId, applicationId),
-			),
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(sectionIgnoredApplications)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(
+				and(
+					eq(sectionIgnoredApplications.sectionId, sectionId),
+					eq(sectionIgnoredApplications.applicationId, applicationId),
+					isNull(sectionIgnoredApplications.archivedAt),
+				),
+			)
+			.returning()
+
+		if (!archived) return null
+
+		await writeAuditLog(
+			{
+				action: "section_app_unignored",
+				entityType: "section_ignored_application",
+				entityId: applicationId,
+				previousValue: JSON.stringify({ sectionId, applicationId }),
+				metadata: { sectionId },
+				performedBy,
+			},
+			tx,
 		)
-	await writeAuditLog({
-		action: "section_app_unignored",
-		entityType: "section_ignored_application",
-		entityId: applicationId,
-		previousValue: JSON.stringify({ sectionId, applicationId }),
-		metadata: { sectionId },
-		performedBy,
+
+		return archived
 	})
 }
 

@@ -184,7 +184,9 @@ async function getTeamAppIds(teamId: string, sectionId: string, excludedEnvs?: S
 				await db
 					.select({ appId: sectionIgnoredApplications.applicationId })
 					.from(sectionIgnoredApplications)
-					.where(eq(sectionIgnoredApplications.sectionId, sectionId))
+					.where(
+						and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt)),
+					)
 			).map((r) => r.appId),
 		)
 
@@ -305,7 +307,9 @@ export async function getSectionDetail(seksjonSlug: string) {
 				await db
 					.select({ appId: sectionIgnoredApplications.applicationId })
 					.from(sectionIgnoredApplications)
-					.where(eq(sectionIgnoredApplications.sectionId, section.id))
+					.where(
+						and(eq(sectionIgnoredApplications.sectionId, section.id), isNull(sectionIgnoredApplications.archivedAt)),
+					)
 			).map((r) => r.appId),
 		)
 
@@ -948,7 +952,9 @@ export async function getSectionApps(seksjonSlug: string) {
 				await db
 					.select({ appId: sectionIgnoredApplications.applicationId })
 					.from(sectionIgnoredApplications)
-					.where(eq(sectionIgnoredApplications.sectionId, section.id))
+					.where(
+						and(eq(sectionIgnoredApplications.sectionId, section.id), isNull(sectionIgnoredApplications.archivedAt)),
+					)
 			).map((r) => r.appId),
 		)
 
