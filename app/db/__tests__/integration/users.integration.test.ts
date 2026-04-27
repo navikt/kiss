@@ -111,7 +111,7 @@ describe("users.server integration tests", () => {
 			const sectionId = await createSection("sec3")
 			const roleId = await assignRole("X3", "Person 3", "auditor", "admin", sectionId)
 
-			await removeRole(roleId)
+			await removeRole(roleId, "admin")
 			const roles = await getUserRoles("X3")
 			expect(roles).toHaveLength(0)
 		})

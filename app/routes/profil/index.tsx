@@ -87,7 +87,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			const roles = await getUserRoles(user.navIdent)
 			const ownsRole = roles.some((r) => r.id === roleId)
 			if (ownsRole) {
-				await removeRole(roleId)
+				await removeRole(roleId, user.navIdent)
 			}
 		}
 	}

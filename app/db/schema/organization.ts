@@ -121,6 +121,8 @@ export const userRoles = pgTable("user_roles", {
 	devTeamId: uuid("dev_team_id").references(() => devTeams.id, { onDelete: "restrict" }),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 export const sectionEnvironments = pgTable(

@@ -1,4 +1,4 @@
-import { eq, isNull } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	devTeams,
@@ -9,6 +9,7 @@ import {
 	userRoles,
 	users,
 } from "../schema/organization"
+import { writeAuditLog } from "./audit.server"
 
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -68,7 +69,7 @@ export async function getUserRoles(navIdent: string): Promise<UserRoleEntry[]> {
 		.innerJoin(users, eq(userRoles.userId, users.id))
 		.leftJoin(sections, eq(userRoles.sectionId, sections.id))
 		.leftJoin(devTeams, eq(userRoles.devTeamId, devTeams.id))
-		.where(eq(users.navIdent, navIdent))
+		.where(and(eq(users.navIdent, navIdent), isNull(userRoles.archivedAt)))
 
 	return rows.map((r) => ({
 		...r,
@@ -132,13 +133,68 @@ export async function assignRole(
 				createdBy,
 			})
 			.returning({ id: userRoles.id })
+
+		await writeAuditLog(
+			{
+				action: "user_role_granted",
+				entityType: "user_role",
+				entityId: row.id,
+				newValue: JSON.stringify({
+					navIdent,
+					role,
+					sectionId: sectionId ?? null,
+					devTeamId: devTeamId ?? null,
+				}),
+				performedBy: createdBy,
+			},
+			tx,
+		)
+
 		return row.id
 	})
 }
 
-/** Remove a role assignment by id. */
-export async function removeRole(roleId: string): Promise<void> {
-	await db.delete(userRoles).where(eq(userRoles.id, roleId))
+/**
+ * Arkiverer (soft-delete) en rolletildeling. Tidligere ble raden hard-slettet.
+ * Nå arkiverer vi den slik at vi bevarer sporbarhet på hvilke roller en bruker
+ * har hatt. Wrappet i transaksjon med audit som del av samme tx — hvis
+ * audit-skriving feiler rulles arkiveringen tilbake. Idempotent: hvis raden
+ * allerede er arkivert (eller ikke finnes) returneres `null` uten audit.
+ */
+export async function removeRole(roleId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(userRoles)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(and(eq(userRoles.id, roleId), isNull(userRoles.archivedAt)))
+			.returning()
+
+		if (!archived) return null
+
+		const [user] = await tx
+			.select({ navIdent: users.navIdent })
+			.from(users)
+			.where(eq(users.id, archived.userId))
+			.limit(1)
+
+		await writeAuditLog(
+			{
+				action: "user_role_revoked",
+				entityType: "user_role",
+				entityId: roleId,
+				previousValue: JSON.stringify({
+					navIdent: user?.navIdent ?? archived.userId,
+					role: archived.role,
+					sectionId: archived.sectionId,
+					devTeamId: archived.devTeamId,
+				}),
+				performedBy,
+			},
+			tx,
+		)
+
+		return archived
+	})
 }
 
 /** List all users with their roles. */
@@ -171,6 +227,7 @@ export async function listUsersWithRoles(): Promise<UserWithRoles[]> {
 		.from(userRoles)
 		.leftJoin(sections, eq(userRoles.sectionId, sections.id))
 		.leftJoin(devTeams, eq(userRoles.devTeamId, devTeams.id))
+		.where(isNull(userRoles.archivedAt))
 
 	const rolesByUser = new Map<string, UserRoleEntry[]>()
 	for (const r of allRoles) {

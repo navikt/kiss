@@ -407,6 +407,13 @@
       "when": 1781915380000,
       "tag": "0057_dev_team_nais_team_mappings_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1781915440000,
+      "tag": "0058_user_roles_soft_delete",
+      "breakpoints": true
     }
   ]
 }

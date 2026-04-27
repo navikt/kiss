@@ -105,7 +105,7 @@ export async function resolveRoleHolder(
 		.select({ navIdent: users.navIdent, name: users.name })
 		.from(userRoles)
 		.innerJoin(users, eq(userRoles.userId, users.id))
-		.where(and(eq(userRoles.role, role as UserRole), eq(userRoles.sectionId, sectionId)))
+		.where(and(eq(userRoles.role, role as UserRole), eq(userRoles.sectionId, sectionId), isNull(userRoles.archivedAt)))
 		.limit(1)
 	return row ?? null
 }
