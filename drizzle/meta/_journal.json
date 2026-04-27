@@ -365,6 +365,13 @@
       "when": 1781915020000,
       "tag": "0051_link_tables_fk_restrict",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1781915080000,
+      "tag": "0052_application_manual_groups_soft_delete",
+      "breakpoints": true
     }
   ]
 }
