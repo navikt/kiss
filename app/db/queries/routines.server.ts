@@ -924,7 +924,10 @@ export async function getReview(id: string) {
 
 async function enrichReview(review: typeof routineReviews.$inferSelect) {
 	const [participants, attachments, links] = await Promise.all([
-		db.select().from(routineReviewParticipants).where(eq(routineReviewParticipants.reviewId, review.id)),
+		db
+			.select()
+			.from(routineReviewParticipants)
+			.where(and(eq(routineReviewParticipants.reviewId, review.id), isNull(routineReviewParticipants.archivedAt))),
 		db
 			.select()
 			.from(routineReviewAttachments)
@@ -988,14 +991,41 @@ export async function createReview(params: {
 			})
 			.returning()
 
+		let insertedCount = 0
 		if (params.participants.length > 0) {
-			await tx.insert(routineReviewParticipants).values(
-				params.participants.map((p) => ({
-					reviewId: review.id,
-					userIdent: p.userIdent,
-					userName: p.userName,
-				})),
-			)
+			const insertedParticipants = await tx
+				.insert(routineReviewParticipants)
+				.values(
+					params.participants.map((p) => ({
+						reviewId: review.id,
+						userIdent: p.userIdent,
+						userName: p.userName,
+					})),
+				)
+				.onConflictDoNothing({
+					target: [routineReviewParticipants.reviewId, routineReviewParticipants.userIdent],
+					where: isNull(routineReviewParticipants.archivedAt),
+				})
+				.returning({
+					userIdent: routineReviewParticipants.userIdent,
+					userName: routineReviewParticipants.userName,
+				})
+
+			for (const p of insertedParticipants) {
+				await writeAuditLog(
+					{
+						action: "routine_review_participant_added",
+						entityType: "routine_review_participant",
+						entityId: review.id,
+						newValue: p.userIdent,
+						metadata: { reviewId: review.id, userName: p.userName },
+						performedBy: params.createdBy,
+					},
+					tx,
+				)
+			}
+
+			insertedCount = insertedParticipants.length
 		}
 
 		await writeAuditLog(
@@ -1007,7 +1037,7 @@ export async function createReview(params: {
 				metadata: {
 					routineId: params.routineId,
 					applicationId: params.applicationId,
-					participantCount: params.participants.length,
+					participantCount: insertedCount,
 				},
 				performedBy: params.createdBy,
 			},
@@ -1069,15 +1099,86 @@ export async function updateReview(
 		}
 
 		if (params.participants !== undefined) {
-			await tx.delete(routineReviewParticipants).where(eq(routineReviewParticipants.reviewId, reviewId))
-			if (params.participants.length > 0) {
-				await tx.insert(routineReviewParticipants).values(
-					params.participants.map((p) => ({
-						reviewId,
-						userIdent: p.userIdent,
-						userName: p.userName,
-					})),
-				)
+			const existing = await tx
+				.select({
+					id: routineReviewParticipants.id,
+					userIdent: routineReviewParticipants.userIdent,
+					userName: routineReviewParticipants.userName,
+				})
+				.from(routineReviewParticipants)
+				.where(and(eq(routineReviewParticipants.reviewId, reviewId), isNull(routineReviewParticipants.archivedAt)))
+
+			const newSet = new Map(params.participants.map((p) => [p.userIdent, p]))
+			const existingSet = new Map(existing.map((e) => [e.userIdent, e]))
+
+			const toRemove = existing.filter((e) => !newSet.has(e.userIdent))
+			const toAdd = params.participants.filter((p) => !existingSet.has(p.userIdent))
+
+			if (toRemove.length > 0) {
+				const archivedRows = await tx
+					.update(routineReviewParticipants)
+					.set({ archivedAt: new Date(), archivedBy: performedBy })
+					.where(
+						and(
+							inArray(
+								routineReviewParticipants.id,
+								toRemove.map((r) => r.id),
+							),
+							isNull(routineReviewParticipants.archivedAt),
+						),
+					)
+					.returning({
+						id: routineReviewParticipants.id,
+						userIdent: routineReviewParticipants.userIdent,
+						userName: routineReviewParticipants.userName,
+					})
+				for (const r of archivedRows) {
+					await writeAuditLog(
+						{
+							action: "routine_review_participant_removed",
+							entityType: "routine_review_participant",
+							entityId: reviewId,
+							previousValue: r.userIdent,
+							metadata: { reviewId, userName: r.userName },
+							performedBy,
+						},
+						tx,
+					)
+				}
+			}
+
+			if (toAdd.length > 0) {
+				const insertedRows = await tx
+					.insert(routineReviewParticipants)
+					.values(
+						toAdd.map((p) => ({
+							reviewId,
+							userIdent: p.userIdent,
+							userName: p.userName,
+						})),
+					)
+					.onConflictDoNothing({
+						target: [routineReviewParticipants.reviewId, routineReviewParticipants.userIdent],
+						where: isNull(routineReviewParticipants.archivedAt),
+					})
+					.returning({
+						id: routineReviewParticipants.id,
+						userIdent: routineReviewParticipants.userIdent,
+						userName: routineReviewParticipants.userName,
+					})
+				for (const r of insertedRows) {
+					await writeAuditLog(
+						{
+							action: "routine_review_participant_added",
+							entityType: "routine_review_participant",
+							entityId: reviewId,
+							newValue: r.userIdent,
+							metadata: { reviewId, userName: r.userName },
+							performedBy,
+						},
+						tx,
+					)
+				}
 			}
 		}
 
@@ -1361,7 +1462,13 @@ export async function confirmParticipation(reviewId: string, userIdent: string) 
 	const [participant] = await db
 		.update(routineReviewParticipants)
 		.set({ confirmedAt: new Date() })
-		.where(and(eq(routineReviewParticipants.reviewId, reviewId), eq(routineReviewParticipants.userIdent, userIdent)))
+		.where(
+			and(
+				eq(routineReviewParticipants.reviewId, reviewId),
+				eq(routineReviewParticipants.userIdent, userIdent),
+				isNull(routineReviewParticipants.archivedAt),
+			),
+		)
 		.returning()
 
 	if (participant) {
