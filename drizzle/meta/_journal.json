@@ -421,6 +421,13 @@
       "when": 1781915500000,
       "tag": "0059_nais_discovered_apps_audit_consistency",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1781915560000,
+      "tag": "0060_routine_review_links_soft_delete",
+      "breakpoints": true
     }
   ]
 }
