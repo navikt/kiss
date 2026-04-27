@@ -1,4 +1,5 @@
-import { boolean, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
+import { boolean, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { groupCriticalityEnum, monitoredApplications } from "./applications"
 
 // ─── Oracle Instances ────────────────────────────────────────────────────
@@ -14,8 +15,17 @@ export const applicationOracleInstances = pgTable(
 		includeInReport: boolean("include_in_report").notNull().default(true),
 		configuredBy: text("configured_by").notNull(),
 		configuredAt: timestamp("configured_at", { withTimezone: true }).notNull().defaultNow(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
 	},
-	(t) => [unique("uq_application_oracle_instance").on(t.applicationId, t.instanceId)],
+	(t) => [
+		// Partial unique: kun én aktiv (ikke-arkivert) rad per (applikasjon, instans).
+		// Arkiverte rader er bevisst utelatt slik at historikk kan ligge ved siden
+		// av en ny aktiv rad når en instans re-konfigureres etter å ha vært fjernet.
+		uniqueIndex("application_oracle_instances_active_unique_idx")
+			.on(t.applicationId, t.instanceId)
+			.where(sql`archived_at IS NULL`),
+	],
 )
 
 // ─── Audit Evidence Snapshots ────────────────────────────────────────────

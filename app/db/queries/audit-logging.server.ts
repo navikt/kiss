@@ -248,7 +248,9 @@ export async function getOracleAuditSummariesForApp(
 			instanceId: applicationOracleInstances.instanceId,
 		})
 		.from(applicationOracleInstances)
-		.where(inArray(applicationOracleInstances.applicationId, appIds))
+		.where(
+			and(inArray(applicationOracleInstances.applicationId, appIds), isNull(applicationOracleInstances.archivedAt)),
+		)
 
 	// Group configured instances by app
 	const instancesByApp = new Map<string, string[]>()
@@ -496,7 +498,12 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 		})
 		.from(applicationOracleInstances)
 		.innerJoin(monitoredApplications, eq(applicationOracleInstances.applicationId, monitoredApplications.id))
-		.where(inArray(applicationOracleInstances.applicationId, [...sectionAppIds]))
+		.where(
+			and(
+				inArray(applicationOracleInstances.applicationId, [...sectionAppIds]),
+				isNull(applicationOracleInstances.archivedAt),
+			),
+		)
 
 	// Determine which Oracle instances already have a matching persistence entry
 	const coveredInstancesByApp = new Map<string, Set<string>>()

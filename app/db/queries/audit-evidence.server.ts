@@ -1,8 +1,9 @@
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull } from "drizzle-orm"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
 import type { AuditEvidenceOverallStatus } from "../schema/audit-evidence"
 import { applicationOracleInstances, auditEvidenceSnapshots } from "../schema/audit-evidence"
+import { writeAuditLog } from "./audit.server"
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -42,39 +43,118 @@ export interface ReportEvidence {
 
 // ─── Oracle Instance Configuration ───────────────────────────────────────
 
+/** Konfigurer en Oracle-instans for en applikasjon (revisjonsbevis-kilde).
+ *
+ * Wrappet i transaksjon med audit som del av samme tx for atomisitet.
+ * Hvis det allerede finnes en aktiv rad er dette en idempotent no-op
+ * som returnerer eksisterende rad uten å skrive audit. Hvis raden ble
+ * arkivert i et race kastes concurrency-feil i stedet for stille `null`.
+ */
 export async function configureOracleInstance(appId: string, instanceId: string, user: string) {
-	const [row] = await db
-		.insert(applicationOracleInstances)
-		.values({
-			applicationId: appId,
-			instanceId,
-			configuredBy: user,
-		})
-		.returning()
+	const result = await db.transaction(async (tx) => {
+		const [inserted] = await tx
+			.insert(applicationOracleInstances)
+			.values({
+				applicationId: appId,
+				instanceId,
+				configuredBy: user,
+			})
+			.onConflictDoNothing({
+				target: [applicationOracleInstances.applicationId, applicationOracleInstances.instanceId],
+				where: isNull(applicationOracleInstances.archivedAt),
+			})
+			.returning()
 
-	// Sørg for en matchende persistens-rad for `(appId, type='oracle', name=instanceId)`
-	// slik at caching og oversikts-queries fungerer. Delegerer til
-	// `ensureOraclePersistenceEntries` for å få konsistent håndtering av
-	// duplikat-prevensjon og auto-reaktivering av arkiverte rader.
+		if (inserted) {
+			await writeAuditLog(
+				{
+					action: "oracle_instance_configured",
+					entityType: "application",
+					entityId: appId,
+					newValue: JSON.stringify({ instanceId }),
+					performedBy: user,
+				},
+				tx,
+			)
+			return inserted
+		}
+
+		// Konflikt: enten finnes det en eksisterende aktiv rad (idempotent
+		// no-op), eller raden ble arkivert i et race. Sjekk eksplisitt.
+		const [existing] = await tx
+			.select()
+			.from(applicationOracleInstances)
+			.where(
+				and(
+					eq(applicationOracleInstances.applicationId, appId),
+					eq(applicationOracleInstances.instanceId, instanceId),
+					isNull(applicationOracleInstances.archivedAt),
+				),
+			)
+			.limit(1)
+
+		if (!existing) {
+			throw new Error("Kunne ikke konfigurere Oracle-instans pga. samtidig endring. Prøv igjen.")
+		}
+
+		return existing
+	})
+
+	// Sørg for matchende persistens-rad for `(appId, type='oracle', name=instanceId)`
+	// slik at caching og oversikts-queries fungerer. Kalles ETTER ytre transaksjon
+	// har commit-et — `ensureOraclePersistenceEntries` åpner sin egen transaksjon
+	// på en separat connection, og må ikke gjøres i en uncommitted ytre tx (ellers
+	// kan persistens-rader bli liggende selv om ytre tx ruller tilbake). Funksjonen
+	// er idempotent og selv-helbredende, så den kan trygt kjøres etter commit.
 	const { ensureOraclePersistenceEntries } = await import("./audit-logging.server")
 	await ensureOraclePersistenceEntries(appId, [instanceId], user)
 
-	return row
+	return result
 }
 
-export async function removeOracleInstance(appId: string, instanceId: string) {
-	await db
-		.delete(applicationOracleInstances)
-		.where(
-			and(eq(applicationOracleInstances.applicationId, appId), eq(applicationOracleInstances.instanceId, instanceId)),
+/** Arkiverer (soft-delete) en Oracle-instans for en applikasjon.
+ *
+ * Tidligere ble raden hard-slettet. Nå arkiverer vi den slik at vi bevarer
+ * sporbarhet på hvilke instanser applikasjonen har vært konfigurert med.
+ * Wrappet i transaksjon med audit som del av samme tx — hvis audit-skriving
+ * feiler rulles arkiveringen tilbake.
+ */
+export async function removeOracleInstance(appId: string, instanceId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(applicationOracleInstances)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(
+				and(
+					eq(applicationOracleInstances.applicationId, appId),
+					eq(applicationOracleInstances.instanceId, instanceId),
+					isNull(applicationOracleInstances.archivedAt),
+				),
+			)
+			.returning()
+
+		if (!archived) return null
+
+		await writeAuditLog(
+			{
+				action: "oracle_instance_removed",
+				entityType: "application",
+				entityId: appId,
+				previousValue: JSON.stringify({ instanceId }),
+				performedBy,
+			},
+			tx,
 		)
+
+		return archived
+	})
 }
 
 export async function getOracleInstancesForApp(appId: string): Promise<OracleInstanceWithStatus[]> {
 	const instances = await db
 		.select()
 		.from(applicationOracleInstances)
-		.where(eq(applicationOracleInstances.applicationId, appId))
+		.where(and(eq(applicationOracleInstances.applicationId, appId), isNull(applicationOracleInstances.archivedAt)))
 		.orderBy(applicationOracleInstances.instanceId)
 
 	if (instances.length === 0) return []
@@ -113,7 +193,11 @@ export async function setIncludeInReport(appId: string, instanceId: string, incl
 		.update(applicationOracleInstances)
 		.set({ includeInReport: include })
 		.where(
-			and(eq(applicationOracleInstances.applicationId, appId), eq(applicationOracleInstances.instanceId, instanceId)),
+			and(
+				eq(applicationOracleInstances.applicationId, appId),
+				eq(applicationOracleInstances.instanceId, instanceId),
+				isNull(applicationOracleInstances.archivedAt),
+			),
 		)
 }
 
@@ -222,7 +306,11 @@ export async function getAuditEvidenceForReport(appId: string): Promise<ReportEv
 		.select()
 		.from(applicationOracleInstances)
 		.where(
-			and(eq(applicationOracleInstances.applicationId, appId), eq(applicationOracleInstances.includeInReport, true)),
+			and(
+				eq(applicationOracleInstances.applicationId, appId),
+				eq(applicationOracleInstances.includeInReport, true),
+				isNull(applicationOracleInstances.archivedAt),
+			),
 		)
 		.orderBy(applicationOracleInstances.instanceId)
 

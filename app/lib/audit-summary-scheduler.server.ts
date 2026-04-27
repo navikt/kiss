@@ -84,7 +84,12 @@ async function syncAuditSummaries(): Promise<{
 								instanceId: applicationOracleInstances.instanceId,
 							})
 							.from(applicationOracleInstances)
-							.where(inArray(applicationOracleInstances.applicationId, appIds))
+							.where(
+								and(
+									inArray(applicationOracleInstances.applicationId, appIds),
+									isNull(applicationOracleInstances.archivedAt),
+								),
+							)
 					: []
 
 			const instancesByApp = new Map<string, string[]>()
