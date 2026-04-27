@@ -63,6 +63,8 @@ export const auditLogActionEnum = [
 	"nais_team_section_linked",
 	"nais_team_section_unlinked",
 	"nais_sync_completed",
+	"nais_discovered_app_added",
+	"nais_discovered_app_archived",
 	// nais_persistence_synced: deklarert for historisk/forventet bruk – ikke
 	// referert i nåværende kode (vurder fjerning ved fremtidig migrering).
 	"nais_persistence_synced",

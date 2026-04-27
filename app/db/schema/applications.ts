@@ -270,15 +270,25 @@ export const accessPolicyAcknowledgments = pgTable("access_policy_acknowledgment
 	revokedBy: text("revoked_by"),
 })
 
-export const naisDiscoveredApps = pgTable("nais_discovered_apps", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	name: text("name").notNull(),
-	naisTeamId: uuid("nais_team_id")
-		.notNull()
-		.references(() => naisTeams.id),
-	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
-	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const naisDiscoveredApps = pgTable(
+	"nais_discovered_apps",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		name: text("name").notNull(),
+		naisTeamId: uuid("nais_team_id")
+			.notNull()
+			.references(() => naisTeams.id),
+		discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(t) => [
+		// Partial unique: kun én aktiv (ikke-arkivert) rad per (navn, team).
+		// Arkiverte rader bevares for historikk og audit-sporing.
+		uniqueIndex("nais_discovered_apps_active_unique_idx").on(t.name, t.naisTeamId).where(sql`archived_at IS NULL`),
+	],
+)
 
 export const applicationManualGroups = pgTable(
 	"application_manual_groups",

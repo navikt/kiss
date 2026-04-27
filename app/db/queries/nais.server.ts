@@ -28,6 +28,8 @@ import { auditLog } from "../schema/audit"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
+const SYNC_PERFORMER = "nais-sync"
+
 /** Get all Nais teams. */
 export async function getNaisTeams() {
 	return db.select().from(naisTeams).orderBy(naisTeams.slug)
@@ -141,26 +143,97 @@ export async function upsertNaisTeam(slug: string, displayName?: string | null, 
 	return true
 }
 
-/** Sync discovered app names for a Nais team. Deletes removed apps, upserts current ones. */
+/**
+ * Sync discovered app names for a Nais team.
+ *
+ * Bruker logisk arkivering (soft-delete) i stedet for hard sletting:
+ *   - Apper som finnes i `appNames` men er arkivert: gjenoppliv (un-archive).
+ *   - Apper som finnes i `appNames` men ikke i DB: insert som ny aktiv rad.
+ *   - Apper som er aktive i DB men ikke i `appNames`: arkiver med audit.
+ *   - Identiske aktive rader: ingen endring (idempotent, ingen audit).
+ *
+ * Alt skjer i én transaksjon sammen med audit-skriving for atomisitet.
+ */
 export async function syncDiscoveredApps(teamSlug: string, appNames: string[]): Promise<void> {
 	const [team] = await db.select({ id: naisTeams.id }).from(naisTeams).where(eq(naisTeams.slug, teamSlug)).limit(1)
 	if (!team) return
 
+	const unique = [...new Set(appNames)]
+
 	await db.transaction(async (tx) => {
-		// Delete all existing discovered apps for this team
-		await tx.delete(naisDiscoveredApps).where(eq(naisDiscoveredApps.naisTeamId, team.id))
+		const existing = await tx
+			.select({
+				id: naisDiscoveredApps.id,
+				name: naisDiscoveredApps.name,
+				archivedAt: naisDiscoveredApps.archivedAt,
+			})
+			.from(naisDiscoveredApps)
+			.where(eq(naisDiscoveredApps.naisTeamId, team.id))
 
-		if (appNames.length === 0) return
+		const activeRows = existing.filter((r) => r.archivedAt === null)
+		const archivedRows = existing.filter((r) => r.archivedAt !== null)
+		const activeByName = new Map(activeRows.map((row) => [row.name, row]))
+		const archivedByName = new Map<string, (typeof archivedRows)[number]>()
+		for (const row of archivedRows) {
+			// Hvis flere arkiverte rader deler navn, behold den nyeste (siste id).
+			const prev = archivedByName.get(row.name)
+			if (!prev || row.id > prev.id) archivedByName.set(row.name, row)
+		}
+		const incoming = new Set(unique)
 
-		// Deduplicate names (shouldn't happen, but be safe)
-		const unique = [...new Set(appNames)]
+		// Arkiver aktive apper som ikke lenger rapporteres av Nais.
+		for (const row of activeRows) {
+			if (!incoming.has(row.name)) {
+				await tx
+					.update(naisDiscoveredApps)
+					.set({ archivedAt: sql`NOW()`, archivedBy: SYNC_PERFORMER, updatedAt: sql`NOW()` })
+					.where(eq(naisDiscoveredApps.id, row.id))
+				await writeAuditLog(
+					{
+						action: "nais_discovered_app_archived",
+						entityType: "nais_team",
+						entityId: teamSlug,
+						previousValue: JSON.stringify({ name: row.name }),
+						performedBy: SYNC_PERFORMER,
+					},
+					tx,
+				)
+			}
+		}
 
-		await tx.insert(naisDiscoveredApps).values(
-			unique.map((name) => ({
-				name,
-				naisTeamId: team.id,
-			})),
-		)
+		// Insert nye / gjenoppliv arkiverte apper som er rapportert nå.
+		for (const name of unique) {
+			if (activeByName.has(name)) continue
+			const archived = archivedByName.get(name)
+			if (archived) {
+				await tx
+					.update(naisDiscoveredApps)
+					.set({ archivedAt: null, archivedBy: null, updatedAt: sql`NOW()` })
+					.where(eq(naisDiscoveredApps.id, archived.id))
+				await writeAuditLog(
+					{
+						action: "nais_discovered_app_added",
+						entityType: "nais_team",
+						entityId: teamSlug,
+						newValue: JSON.stringify({ name, revived: true }),
+						performedBy: SYNC_PERFORMER,
+					},
+					tx,
+				)
+			} else {
+				await tx.insert(naisDiscoveredApps).values({ name, naisTeamId: team.id })
+				await writeAuditLog(
+					{
+						action: "nais_discovered_app_added",
+						entityType: "nais_team",
+						entityId: teamSlug,
+						newValue: JSON.stringify({ name }),
+						performedBy: SYNC_PERFORMER,
+					},
+					tx,
+				)
+			}
+		}
 	})
 }
 
@@ -1758,7 +1831,7 @@ export async function resolveAppNames(names: string[]): Promise<Record<string, A
 		const discovered = await db
 			.select({ name: naisDiscoveredApps.name })
 			.from(naisDiscoveredApps)
-			.where(inArray(naisDiscoveredApps.name, remaining))
+			.where(and(inArray(naisDiscoveredApps.name, remaining), isNull(naisDiscoveredApps.archivedAt)))
 		for (const row of discovered) {
 			if (!result[row.name]) {
 				result[row.name] = { status: "discovered" }

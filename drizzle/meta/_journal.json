@@ -414,6 +414,13 @@
       "when": 1781915440000,
       "tag": "0058_user_roles_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1781915500000,
+      "tag": "0059_nais_discovered_apps_audit_consistency",
+      "breakpoints": true
     }
   ]
 }
