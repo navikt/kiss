@@ -379,6 +379,13 @@
       "when": 1781915140000,
       "tag": "0053_application_oracle_instances_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1781915200000,
+      "tag": "0054_entra_group_classifications_soft_delete",
+      "breakpoints": true
     }
   ]
 }

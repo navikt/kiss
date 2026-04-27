@@ -1931,7 +1931,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 			classification: entraGroupClassifications.classification,
 		})
 		.from(entraGroupClassifications)
-		.where(inArray(entraGroupClassifications.groupId, [...groupIds]))
+		.where(and(inArray(entraGroupClassifications.groupId, [...groupIds]), isNull(entraGroupClassifications.archivedAt)))
 
 	if (classifications.length === 0) return []
 
