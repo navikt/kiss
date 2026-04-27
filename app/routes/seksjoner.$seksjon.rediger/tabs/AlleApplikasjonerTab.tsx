@@ -24,6 +24,8 @@ type SectionApp = {
 	teams: string[]
 	controlsImplemented: number
 	controlsPartial: number
+	controlsNotImplemented: number
+	controlsNotRelevant: number
 	controlsTotal: number
 	linkedApps: Array<{ id: string; name: string }>
 }
@@ -63,7 +65,12 @@ export function AlleApplikasjonerTab({
 						</Table.Header>
 						<Table.Body>
 							{sectionApps.map((app) => {
-								const pct = compliancePercent(app.controlsImplemented, app.controlsPartial, app.controlsTotal)
+								const pct = compliancePercent(
+									app.controlsImplemented,
+									app.controlsPartial,
+									app.controlsTotal,
+									app.controlsNotRelevant,
+								)
 								const linkedTeamSlugs = app.teams
 								const availableTeams = teams.filter((t) => !t.archivedAt && !linkedTeamSlugs.includes(t.slug))
 								const appPersistence = persistenceMap[app.id] ?? []
@@ -105,7 +112,7 @@ export function AlleApplikasjonerTab({
 												</HStack>
 											</Table.DataCell>
 											<Table.DataCell>
-												{app.controlsImplemented} / {app.controlsTotal}
+												{app.controlsImplemented} / {app.controlsTotal - app.controlsNotRelevant}
 											</Table.DataCell>
 											<Table.DataCell>{app.controlsPartial}</Table.DataCell>
 											<Table.DataCell>

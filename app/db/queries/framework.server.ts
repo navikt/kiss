@@ -256,11 +256,11 @@ export async function getDomainDetail(domainCode: string) {
 
 	if (!domain) return null
 
-	// Fetch all apps for compliance counting
+	// Fetch all apps for compliance counting (primary apps only, not linked)
 	const allApps = await db
 		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
 		.from(monitoredApplications)
-		.where(isNull(monitoredApplications.archivedAt))
+		.where(and(isNull(monitoredApplications.archivedAt), isNull(monitoredApplications.primaryApplicationId)))
 
 	const risks = await db
 		.select()
@@ -294,12 +294,15 @@ export async function getDomainDetail(domainCode: string) {
 				let implemented = 0
 				let partial = 0
 				let notImplemented = 0
+				let notRelevant = 0
 				const gaps: Array<{ appId: string; appName: string; status: string }> = []
 
 				for (const app of allApps) {
 					const status = assessmentMap.get(app.id)
-					if (status === "implemented" || status === "not_relevant") {
+					if (status === "implemented") {
 						implemented++
+					} else if (status === "not_relevant") {
+						notRelevant++
 					} else if (status === "partially_implemented") {
 						partial++
 						gaps.push({ appId: app.id, appName: app.name, status: getStatusLabel(status) })
@@ -318,7 +321,8 @@ export async function getDomainDetail(domainCode: string) {
 					implemented,
 					partial,
 					notImplemented,
-					notAssessed: allApps.length - implemented - partial - notImplemented,
+					notRelevant,
+					notAssessed: allApps.length - implemented - partial - notImplemented - notRelevant,
 					gaps,
 				})
 			}
