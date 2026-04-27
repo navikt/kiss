@@ -1646,7 +1646,7 @@ export async function getControlDependencies(controlUuid: string) {
 		})
 		.from(controlDependencies)
 		.innerJoin(frameworkControls, eq(controlDependencies.dependsOnControlId, frameworkControls.id))
-		.where(eq(controlDependencies.controlId, controlUuid))
+		.where(and(eq(controlDependencies.controlId, controlUuid), isNull(controlDependencies.archivedAt)))
 		.orderBy(frameworkControls.controlId)
 	return rows.map((r) => ({
 		id: r.id,
@@ -1666,7 +1666,7 @@ export async function getControlDependents(controlUuid: string) {
 		})
 		.from(controlDependencies)
 		.innerJoin(frameworkControls, eq(controlDependencies.controlId, frameworkControls.id))
-		.where(eq(controlDependencies.dependsOnControlId, controlUuid))
+		.where(and(eq(controlDependencies.dependsOnControlId, controlUuid), isNull(controlDependencies.archivedAt)))
 		.orderBy(frameworkControls.controlId)
 	return rows.map((r) => ({
 		id: r.id,
@@ -1700,34 +1700,97 @@ export async function getControlLinkedRisks(controlUuid: string) {
 	}))
 }
 
-/** Add a dependency between controls. */
+/** Add a dependency between controls.
+ *
+ * Wrappet i transaksjon med audit som del av samme tx for atomisitet.
+ * Idempotent: hvis det allerede finnes en aktiv kobling er det en no-op
+ * uten audit. Hvis raden ble arkivert i et race, kastes concurrency-feil
+ * i stedet for stille `null` — partial unique index dekker kun aktive rader,
+ * så vi sjekker eksplisitt etter konflikt.
+ */
 export async function addControlDependency(controlUuid: string, dependsOnUuid: string, performer: string) {
-	await db
-		.insert(controlDependencies)
-		.values({ controlId: controlUuid, dependsOnControlId: dependsOnUuid })
-		.onConflictDoNothing()
-	await writeAuditLog({
-		action: "control_dependency_added",
-		entityType: "control_dependency",
-		entityId: controlUuid,
-		newValue: JSON.stringify({ controlId: controlUuid, dependsOnControlId: dependsOnUuid }),
-		performedBy: performer,
+	if (controlUuid === dependsOnUuid) {
+		throw new Error("En kontroll kan ikke avhenge av seg selv")
+	}
+	return db.transaction(async (tx) => {
+		const [inserted] = await tx
+			.insert(controlDependencies)
+			.values({ controlId: controlUuid, dependsOnControlId: dependsOnUuid })
+			.onConflictDoNothing({
+				target: [controlDependencies.controlId, controlDependencies.dependsOnControlId],
+				where: isNull(controlDependencies.archivedAt),
+			})
+			.returning()
+
+		if (inserted) {
+			await writeAuditLog(
+				{
+					action: "control_dependency_added",
+					entityType: "control_dependency",
+					entityId: controlUuid,
+					newValue: JSON.stringify({ controlId: controlUuid, dependsOnControlId: dependsOnUuid }),
+					performedBy: performer,
+				},
+				tx,
+			)
+			return inserted
+		}
+
+		const [existing] = await tx
+			.select()
+			.from(controlDependencies)
+			.where(
+				and(
+					eq(controlDependencies.controlId, controlUuid),
+					eq(controlDependencies.dependsOnControlId, dependsOnUuid),
+					isNull(controlDependencies.archivedAt),
+				),
+			)
+			.limit(1)
+
+		if (!existing) {
+			throw new Error("Kunne ikke legge til kontroll-avhengighet pga. samtidig endring. Prøv igjen.")
+		}
+
+		return existing
 	})
 }
 
-/** Remove a dependency between controls. */
+/** Remove (soft-delete / arkiver) a dependency between controls.
+ *
+ * Tidligere ble raden hard-slettet. Nå arkiveres den slik at vi bevarer
+ * sporbarhet. Wrappet i transaksjon med audit i samme tx — hvis audit-
+ * skriving feiler rulles arkiveringen tilbake. Idempotent no-op (uten
+ * audit) hvis ingen aktiv kobling finnes.
+ */
 export async function removeControlDependency(controlUuid: string, dependsOnUuid: string, performer: string) {
-	await db
-		.delete(controlDependencies)
-		.where(
-			and(eq(controlDependencies.controlId, controlUuid), eq(controlDependencies.dependsOnControlId, dependsOnUuid)),
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(controlDependencies)
+			.set({ archivedAt: new Date(), archivedBy: performer })
+			.where(
+				and(
+					eq(controlDependencies.controlId, controlUuid),
+					eq(controlDependencies.dependsOnControlId, dependsOnUuid),
+					isNull(controlDependencies.archivedAt),
+				),
+			)
+			.returning()
+
+		if (!archived) return null
+
+		await writeAuditLog(
+			{
+				action: "control_dependency_removed",
+				entityType: "control_dependency",
+				entityId: controlUuid,
+				previousValue: JSON.stringify({ controlId: controlUuid, dependsOnControlId: dependsOnUuid }),
+				performedBy: performer,
+			},
+			tx,
 		)
-	await writeAuditLog({
-		action: "control_dependency_removed",
-		entityType: "control_dependency",
-		entityId: controlUuid,
-		previousValue: JSON.stringify({ controlId: controlUuid, dependsOnControlId: dependsOnUuid }),
-		performedBy: performer,
+
+		return archived
 	})
 }
 
