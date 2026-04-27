@@ -12,7 +12,10 @@ vi.mock("~/db/connection.server", () => ({
 }))
 
 const { stageFrameworkImport, applyFrameworkImport } = await import("~/db/queries/framework.server")
-const { getApplications, linkAppToTeam, unlinkAppFromTeam } = await import("~/db/queries/applications.server")
+const { getApplications, getApplicationsForSection, linkAppToTeam, unlinkAppFromTeam } = await import(
+	"~/db/queries/applications.server"
+)
+const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
 const { archiveTeam } = await import("~/db/queries/sections.server")
 
 function makeParsedFramework(): ParsedFramework {
@@ -91,10 +94,15 @@ describe("Applications integration tests", () => {
 		const db = getTestDb()
 		await db.execute(
 			/* sql */ `
+			DELETE FROM application_control_history;
+			DELETE FROM application_controls;
 			DELETE FROM compliance_assessment_history;
 			DELETE FROM compliance_assessments;
+			DELETE FROM dev_team_nais_team_mappings;
 			DELETE FROM application_team_mappings;
 			DELETE FROM application_environments;
+			DELETE FROM section_environments;
+			DELETE FROM section_ignored_applications;
 			DELETE FROM monitored_applications;
 			DELETE FROM nais_teams;
 			DELETE FROM framework_field_history;
@@ -191,6 +199,9 @@ describe("Applications integration tests", () => {
 		const versionId = await stageFrameworkImport(parsed, "fw.xlsx", "user", "/uploads/fw.xlsx")
 		await applyFrameworkImport(versionId, parsed, "admin")
 
+		// Sync materializes expected assessment rows into application_controls
+		await syncApplicationControls(appId)
+
 		const apps = await getApplications()
 		expect(apps.length).toBeGreaterThanOrEqual(1)
 
@@ -233,5 +244,32 @@ describe("Applications integration tests", () => {
 		const apps = await getApplications()
 		const app = apps.find((a) => a.id === appId)
 		expect(app?.teams.sort()).toEqual(["alpha", "beta"])
+	})
+
+	it("should return compliance fields from getApplicationsForSection", async () => {
+		const sectionId = await createTestSection("Compliance Section", "compliance-section")
+		const teamId = await createTestDevTeam("Comp Team", "comp-team", sectionId)
+		const appId = await createTestApp("Section Compliance App")
+		await linkAppToTeam(appId, teamId, "admin")
+
+		// Set up framework
+		const parsed = makeParsedFramework()
+		const versionId = await stageFrameworkImport(parsed, "fw.xlsx", "user", "/uploads/fw.xlsx")
+		await applyFrameworkImport(versionId, parsed, "admin")
+
+		// Sync materializes application_controls rows
+		await syncApplicationControls(appId)
+
+		const apps = await getApplicationsForSection(sectionId)
+		expect(apps.length).toBeGreaterThanOrEqual(1)
+
+		const app = apps.find((a) => a.id === appId)
+		expect(app).toBeDefined()
+		expect(app?.name).toBe("Section Compliance App")
+		expect(app?.controlsTotal).toBe(1)
+		expect(app?.controlsImplemented).toBe(0)
+		expect(app?.controlsNotImplemented).toBeTypeOf("number")
+		expect(app?.controlsNotRelevant).toBeTypeOf("number")
+		expect(app?.controlsPartial).toBeTypeOf("number")
 	})
 })

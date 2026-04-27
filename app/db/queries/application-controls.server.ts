@@ -436,9 +436,9 @@ export async function getControlHistory(applicationControlId: string) {
 		.orderBy(sql`${applicationControlHistory.performedAt} DESC`)
 }
 
-// ─── Aggregation queries (replace legacy getBatchComplianceStats) ────────
+// ─── Aggregation queries ─────────────────────────────────────────────────
 
-interface ComplianceStats {
+export interface ComplianceStats {
 	implemented: number
 	partial: number
 	notImplemented: number
@@ -446,10 +446,12 @@ interface ComplianceStats {
 }
 
 /**
- * Get compliance stats per app from the materialized application_controls table.
- * Replaces the deprecated getBatchComplianceStats that reads from complianceAssessments.
+ * Get compliance status counts per app from the materialized application_controls table.
+ *
+ * Callers are responsible for passing the correct app IDs — linked apps should
+ * resolve via `primaryApplicationId` before calling this function.
  */
-export async function getBatchComplianceStatsFromControls(appIds: string[]): Promise<Map<string, ComplianceStats>> {
+export async function getBatchComplianceStats(appIds: string[]): Promise<Map<string, ComplianceStats>> {
 	const result = new Map<string, ComplianceStats>()
 	if (appIds.length === 0) return result
 
@@ -484,6 +486,50 @@ export async function getBatchComplianceStatsFromControls(appIds: string[]): Pro
 				stats.notRelevant += row.cnt
 				break
 		}
+	}
+
+	return result
+}
+
+export interface ComplianceSummary extends ComplianceStats {
+	total: number
+}
+
+/**
+ * Get a complete compliance summary per app: status counts + total.
+ *
+ * Uses a single SQL query against the materialized `application_controls` table.
+ * The total is the count of all active rows (each row represents one expected
+ * assessment item, already expanded by technology element matching during sync).
+ */
+export async function getComplianceSummaries(appIds: string[]): Promise<Map<string, ComplianceSummary>> {
+	const result = new Map<string, ComplianceSummary>()
+	if (appIds.length === 0) return result
+	for (const id of appIds) {
+		result.set(id, { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 })
+	}
+
+	const rows = await db
+		.select({
+			applicationId: applicationControls.applicationId,
+			total: sql<number>`count(*)::int`,
+			implemented: sql<number>`count(*) filter (where ${applicationControls.status} = 'implemented')::int`,
+			partial: sql<number>`count(*) filter (where ${applicationControls.status} = 'partially_implemented')::int`,
+			notImplemented: sql<number>`count(*) filter (where ${applicationControls.status} = 'not_implemented')::int`,
+			notRelevant: sql<number>`count(*) filter (where ${applicationControls.status} = 'not_relevant')::int`,
+		})
+		.from(applicationControls)
+		.where(and(inArray(applicationControls.applicationId, appIds), eq(applicationControls.isActive, true)))
+		.groupBy(applicationControls.applicationId)
+
+	for (const row of rows) {
+		result.set(row.applicationId, {
+			implemented: row.implemented,
+			partial: row.partial,
+			notImplemented: row.notImplemented,
+			notRelevant: row.notRelevant,
+			total: row.total,
+		})
 	}
 
 	return result

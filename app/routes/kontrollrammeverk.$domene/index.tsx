@@ -119,6 +119,7 @@ function ControlComplianceTag({
 		implemented: number
 		partial: number
 		notImplemented: number
+		notRelevant: number
 		notAssessed: number
 		gaps: Array<{ appId: string; appName: string; status: string }>
 	}
@@ -129,7 +130,7 @@ function ControlComplianceTag({
 				Ingen applikasjoner
 			</Tag>
 		)
-	if (control.implemented === control.totalApps)
+	if (control.implemented + control.notRelevant === control.totalApps)
 		return (
 			<Tag variant="success" size="small">
 				Alle OK
@@ -200,7 +201,12 @@ export default function DomainDetail() {
 									<EditableTitle id={risk.id} type="risk" currentName={risk.name} />
 									<VStack gap="space-8">
 										{risk.controls.map((control) => {
-											const pct = compliancePercent(control.implemented, control.partial, control.totalApps)
+											const pct = compliancePercent(
+												control.implemented,
+												control.partial,
+												control.totalApps,
+												control.notRelevant,
+											)
 											return (
 												<VStack key={control.id} gap="space-4">
 													<HStack gap="space-4" align="center" wrap={false}>
@@ -209,29 +215,32 @@ export default function DomainDetail() {
 														</AkselLink>
 														<ControlComplianceTag control={control} />
 													</HStack>
-													{control.totalApps > 0 && (
-														<div
-															className="domain-status-bar"
-															role="progressbar"
-															aria-valuenow={pct}
-															aria-valuemin={0}
-															aria-valuemax={100}
-															aria-label={`${control.id} compliance ${pct}%`}
-														>
+													{(() => {
+														const relevant = control.totalApps - control.notRelevant
+														return relevant > 0 ? (
 															<div
-																className="domain-status-bar-implemented"
-																style={{
-																	width: `${(control.implemented / control.totalApps) * 100}%`,
-																}}
-															/>
-															<div
-																className="domain-status-bar-partial"
-																style={{
-																	width: `${(control.partial / control.totalApps) * 100}%`,
-																}}
-															/>
-														</div>
-													)}
+																className="domain-status-bar"
+																role="progressbar"
+																aria-valuenow={pct}
+																aria-valuemin={0}
+																aria-valuemax={100}
+																aria-label={`${control.id} compliance ${pct}%`}
+															>
+																<div
+																	className="domain-status-bar-implemented"
+																	style={{
+																		width: `${(control.implemented / relevant) * 100}%`,
+																	}}
+																/>
+																<div
+																	className="domain-status-bar-partial"
+																	style={{
+																		width: `${(control.partial / relevant) * 100}%`,
+																	}}
+																/>
+															</div>
+														) : null
+													})()}
 													{control.gaps.length > 0 && (
 														/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
 														<section className="table-scroll" tabIndex={0} aria-label={`Mangler for ${control.id}`}>

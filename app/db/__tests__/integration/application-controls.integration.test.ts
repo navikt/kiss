@@ -12,8 +12,13 @@ vi.mock("~/db/connection.server", () => ({
 }))
 
 const { stageFrameworkImport, applyFrameworkImport } = await import("~/db/queries/framework.server")
-const { updateControlComment, getControlHistory, getActiveApplicationControls, getBatchComplianceStatsFromControls } =
-	await import("~/db/queries/application-controls.server")
+const {
+	updateControlComment,
+	getControlHistory,
+	getActiveApplicationControls,
+	getBatchComplianceStats,
+	getComplianceSummaries,
+} = await import("~/db/queries/application-controls.server")
 
 function makeParsedFramework(): ParsedFramework {
 	return {
@@ -184,7 +189,7 @@ describe("Application controls integration tests", () => {
 		})
 	})
 
-	describe("getBatchComplianceStatsFromControls", () => {
+	describe("getBatchComplianceStats", () => {
 		it("should aggregate compliance stats by app", async () => {
 			const appId = await createTestApp("Test App")
 			const controlIds = await getControlUuids()
@@ -192,7 +197,7 @@ describe("Application controls integration tests", () => {
 			await insertApplicationControl(appId, controlIds[0], "implemented")
 			await insertApplicationControl(appId, controlIds[1], "not_implemented")
 
-			const stats = await getBatchComplianceStatsFromControls([appId])
+			const stats = await getBatchComplianceStats([appId])
 			const appStats = stats.get(appId)
 
 			expect(appStats).toBeDefined()
@@ -209,7 +214,7 @@ describe("Application controls integration tests", () => {
 			await insertApplicationControl(appId, controlIds[0], "implemented", true)
 			await insertApplicationControl(appId, controlIds[1], "not_implemented", false) // inactive
 
-			const stats = await getBatchComplianceStatsFromControls([appId])
+			const stats = await getBatchComplianceStats([appId])
 			const appStats = stats.get(appId)
 
 			expect(appStats?.implemented).toBe(1)
@@ -217,7 +222,7 @@ describe("Application controls integration tests", () => {
 		})
 
 		it("should return empty map for no app IDs", async () => {
-			const stats = await getBatchComplianceStatsFromControls([])
+			const stats = await getBatchComplianceStats([])
 			expect(stats.size).toBe(0)
 		})
 
@@ -230,11 +235,103 @@ describe("Application controls integration tests", () => {
 			await insertApplicationControl(appId2, controlIds[0], "partially_implemented")
 			await insertApplicationControl(appId2, controlIds[1], "not_relevant")
 
-			const stats = await getBatchComplianceStatsFromControls([appId1, appId2])
+			const stats = await getBatchComplianceStats([appId1, appId2])
 
 			expect(stats.get(appId1)?.implemented).toBe(1)
 			expect(stats.get(appId2)?.partial).toBe(1)
 			expect(stats.get(appId2)?.notRelevant).toBe(1)
+		})
+	})
+
+	describe("getComplianceSummaries", () => {
+		it("should return totals and per-status counts in a single query", async () => {
+			const appId = await createTestApp("Summary App")
+			const controlIds = await getControlUuids()
+
+			await insertApplicationControl(appId, controlIds[0], "implemented")
+			await insertApplicationControl(appId, controlIds[1], "not_implemented")
+
+			const summaries = await getComplianceSummaries([appId])
+			const s = summaries.get(appId)
+
+			expect(s).toBeDefined()
+			expect(s?.total).toBe(2)
+			expect(s?.implemented).toBe(1)
+			expect(s?.notImplemented).toBe(1)
+			expect(s?.partial).toBe(0)
+			expect(s?.notRelevant).toBe(0)
+		})
+
+		it("should exclude inactive rows from counts and total", async () => {
+			const appId = await createTestApp("Inactive App")
+			const controlIds = await getControlUuids()
+
+			await insertApplicationControl(appId, controlIds[0], "implemented", true)
+			await insertApplicationControl(appId, controlIds[1], "not_implemented", false) // inactive
+
+			const summaries = await getComplianceSummaries([appId])
+			const s = summaries.get(appId)
+
+			expect(s?.total).toBe(1)
+			expect(s?.implemented).toBe(1)
+			expect(s?.notImplemented).toBe(0)
+		})
+
+		it("should return zeros for apps with no application_controls rows", async () => {
+			const appId = await createTestApp("Empty App")
+
+			const summaries = await getComplianceSummaries([appId])
+			const s = summaries.get(appId)
+
+			expect(s).toBeDefined()
+			expect(s?.total).toBe(0)
+			expect(s?.implemented).toBe(0)
+			expect(s?.partial).toBe(0)
+			expect(s?.notImplemented).toBe(0)
+			expect(s?.notRelevant).toBe(0)
+		})
+
+		it("should return empty map for empty input", async () => {
+			const summaries = await getComplianceSummaries([])
+			expect(summaries.size).toBe(0)
+		})
+
+		it("should count not_relevant separately", async () => {
+			const appId = await createTestApp("NR App")
+			const controlIds = await getControlUuids()
+
+			await insertApplicationControl(appId, controlIds[0], "implemented")
+			await insertApplicationControl(appId, controlIds[1], "not_relevant")
+
+			const summaries = await getComplianceSummaries([appId])
+			const s = summaries.get(appId)
+
+			expect(s?.total).toBe(2)
+			expect(s?.implemented).toBe(1)
+			expect(s?.notRelevant).toBe(1)
+		})
+
+		it("should include null-status rows in total but not in any status count", async () => {
+			const appId = await createTestApp("Null Status App")
+			const controlIds = await getControlUuids()
+			const db = getTestDb()
+
+			await insertApplicationControl(appId, controlIds[0], "implemented")
+			// Insert a row with null status
+			await db.execute(
+				/* sql */ `INSERT INTO application_controls
+				(application_id, control_id, status, is_active, activated_at, created_by, updated_by)
+				VALUES ('${appId}', '${controlIds[1]}', NULL, true, NOW(), 'test', 'test')`,
+			)
+
+			const summaries = await getComplianceSummaries([appId])
+			const s = summaries.get(appId)
+
+			expect(s?.total).toBe(2)
+			expect(s?.implemented).toBe(1)
+			expect(s?.partial).toBe(0)
+			expect(s?.notImplemented).toBe(0)
+			expect(s?.notRelevant).toBe(0)
 		})
 	})
 })
