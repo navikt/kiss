@@ -174,7 +174,7 @@ async function getTeamAppIds(teamId: string, sectionId: string, excludedEnvs?: S
 		await db
 			.select({ naisTeamId: devTeamNaisTeamMappings.naisTeamId })
 			.from(devTeamNaisTeamMappings)
-			.where(eq(devTeamNaisTeamMappings.devTeamId, teamId))
+			.where(and(eq(devTeamNaisTeamMappings.devTeamId, teamId), isNull(devTeamNaisTeamMappings.archivedAt)))
 	).map((r) => r.naisTeamId)
 
 	const naisAppIds = new Set<string>()
@@ -667,7 +667,7 @@ export async function getTeamsForSection(sectionId: string, options: { includeAr
 				.select({ slug: naisTeams.slug })
 				.from(devTeamNaisTeamMappings)
 				.innerJoin(naisTeams, eq(devTeamNaisTeamMappings.naisTeamId, naisTeams.id))
-				.where(eq(devTeamNaisTeamMappings.devTeamId, team.id))
+				.where(and(eq(devTeamNaisTeamMappings.devTeamId, team.id), isNull(devTeamNaisTeamMappings.archivedAt)))
 			return { ...team, linkedNaisTeams: naisLinks.map((n) => n.slug) }
 		}),
 	)
@@ -828,17 +828,35 @@ export async function linkNaisTeamToDevTeam(naisTeamSlug: string, devTeamId: str
 		const [naisTeam] = await tx.select().from(naisTeams).where(eq(naisTeams.slug, naisTeamSlug)).limit(1)
 		if (!naisTeam) throw new Error(`Nais-team not found: ${naisTeamSlug}`)
 
-		const [existing] = await tx
-			.select()
-			.from(devTeamNaisTeamMappings)
-			.where(and(eq(devTeamNaisTeamMappings.naisTeamId, naisTeam.id), eq(devTeamNaisTeamMappings.devTeamId, devTeamId)))
-			.limit(1)
-		if (existing) return existing
-
-		const [mapping] = await tx
+		const inserted = await tx
 			.insert(devTeamNaisTeamMappings)
 			.values({ naisTeamId: naisTeam.id, devTeamId, createdBy: performedBy })
+			.onConflictDoNothing({
+				target: [devTeamNaisTeamMappings.devTeamId, devTeamNaisTeamMappings.naisTeamId],
+				where: isNull(devTeamNaisTeamMappings.archivedAt),
+			})
 			.returning()
+		if (inserted.length === 0) {
+			// Eksisterende aktiv link — idempotent no-op, ingen audit. Hvis en
+			// samtidig unlink arkiverer raden mellom INSERT og SELECT, fall
+			// tilbake til concurrency-feil i stedet for stille suksess.
+			const [existing] = await tx
+				.select()
+				.from(devTeamNaisTeamMappings)
+				.where(
+					and(
+						eq(devTeamNaisTeamMappings.naisTeamId, naisTeam.id),
+						eq(devTeamNaisTeamMappings.devTeamId, devTeamId),
+						isNull(devTeamNaisTeamMappings.archivedAt),
+					),
+				)
+				.limit(1)
+			if (!existing) {
+				throw new Error("Kunne ikke koble Nais-team til utviklingsteam pga. samtidig endring. Prøv igjen.")
+			}
+			return existing
+		}
+		const [mapping] = inserted
 
 		await writeAuditLog(
 			{
@@ -856,24 +874,42 @@ export async function linkNaisTeamToDevTeam(naisTeamSlug: string, devTeamId: str
 	})
 }
 
-/** Unlink a Nais team from a dev team (by Nais team slug). */
+/**
+ * Unlink a Nais team from a dev team (soft-delete). Transaksjonell og
+ * idempotent: audit skrives kun når en aktiv rad faktisk ble arkivert.
+ */
 export async function unlinkNaisTeamFromDevTeam(naisTeamSlug: string, devTeamId: string, performedBy: string) {
-	const [naisTeam] = await db.select().from(naisTeams).where(eq(naisTeams.slug, naisTeamSlug)).limit(1)
-	if (!naisTeam) throw new Error(`Nais-team not found: ${naisTeamSlug}`)
+	return db.transaction(async (tx) => {
+		const [naisTeam] = await tx.select().from(naisTeams).where(eq(naisTeams.slug, naisTeamSlug)).limit(1)
+		if (!naisTeam) throw new Error(`Nais-team not found: ${naisTeamSlug}`)
 
-	const [team] = await db.select({ name: devTeams.name }).from(devTeams).where(eq(devTeams.id, devTeamId)).limit(1)
+		const [archived] = await tx
+			.update(devTeamNaisTeamMappings)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(
+				and(
+					eq(devTeamNaisTeamMappings.naisTeamId, naisTeam.id),
+					eq(devTeamNaisTeamMappings.devTeamId, devTeamId),
+					isNull(devTeamNaisTeamMappings.archivedAt),
+				),
+			)
+			.returning({ id: devTeamNaisTeamMappings.id })
 
-	await db
-		.delete(devTeamNaisTeamMappings)
-		.where(and(eq(devTeamNaisTeamMappings.naisTeamId, naisTeam.id), eq(devTeamNaisTeamMappings.devTeamId, devTeamId)))
+		if (!archived) return
 
-	await writeAuditLog({
-		action: "dev_team_nais_team_unlinked",
-		entityType: "dev_team_nais_team_mapping",
-		entityId: `${devTeamId}-${naisTeamSlug}`,
-		previousValue: `${team?.name ?? devTeamId} ↔ ${naisTeamSlug}`,
-		metadata: { devTeamId, naisTeamSlug },
-		performedBy,
+		const [team] = await tx.select({ name: devTeams.name }).from(devTeams).where(eq(devTeams.id, devTeamId)).limit(1)
+
+		await writeAuditLog(
+			{
+				action: "dev_team_nais_team_unlinked",
+				entityType: "dev_team_nais_team_mapping",
+				entityId: archived.id,
+				previousValue: `${team?.name ?? devTeamId} ↔ ${naisTeamSlug}`,
+				metadata: { devTeamId, naisTeamSlug },
+				performedBy,
+			},
+			tx,
+		)
 	})
 }
 
@@ -888,7 +924,7 @@ export async function getNaisTeamsForDevTeam(devTeamId: string) {
 		})
 		.from(devTeamNaisTeamMappings)
 		.innerJoin(naisTeams, eq(devTeamNaisTeamMappings.naisTeamId, naisTeams.id))
-		.where(eq(devTeamNaisTeamMappings.devTeamId, devTeamId))
+		.where(and(eq(devTeamNaisTeamMappings.devTeamId, devTeamId), isNull(devTeamNaisTeamMappings.archivedAt)))
 		.orderBy(naisTeams.slug)
 }
 

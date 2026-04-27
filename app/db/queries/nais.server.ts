@@ -347,7 +347,7 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 			.from(devTeamNaisTeamMappings)
 			.innerJoin(applicationEnvironments, eq(applicationEnvironments.naisTeamId, devTeamNaisTeamMappings.naisTeamId))
 			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
-			.where(isNull(monitoredApplications.primaryApplicationId)),
+			.where(and(isNull(monitoredApplications.primaryApplicationId), isNull(devTeamNaisTeamMappings.archivedAt))),
 	])
 	const linkedAppIds = new Set([...directLinkedRows.map((r) => r.appId), ...naisTeamLinkedRows.map((r) => r.appId)])
 

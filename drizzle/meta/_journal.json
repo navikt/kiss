@@ -400,6 +400,13 @@
       "when": 1781915320000,
       "tag": "0056_application_access_policy_rules_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1781915380000,
+      "tag": "0057_dev_team_nais_team_mappings_soft_delete",
+      "breakpoints": true
     }
   ]
 }

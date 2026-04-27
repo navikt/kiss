@@ -79,17 +79,27 @@ export const applicationTeamMappings = pgTable(
 	],
 )
 
-export const devTeamNaisTeamMappings = pgTable("dev_team_nais_team_mappings", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	devTeamId: uuid("dev_team_id")
-		.notNull()
-		.references(() => devTeams.id, { onDelete: "restrict" }),
-	naisTeamId: uuid("nais_team_id")
-		.notNull()
-		.references(() => naisTeams.id, { onDelete: "cascade" }),
-	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-	createdBy: text("created_by").notNull(),
-})
+export const devTeamNaisTeamMappings = pgTable(
+	"dev_team_nais_team_mappings",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		devTeamId: uuid("dev_team_id")
+			.notNull()
+			.references(() => devTeams.id, { onDelete: "restrict" }),
+		naisTeamId: uuid("nais_team_id")
+			.notNull()
+			.references(() => naisTeams.id, { onDelete: "restrict" }),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(table) => [
+		uniqueIndex("uq_dev_team_nais_team_mapping_active")
+			.on(table.devTeamId, table.naisTeamId)
+			.where(sql`${table.archivedAt} IS NULL`),
+	],
+)
 
 export const persistenceTypeEnum = [
 	"cloud_sql_postgres",
