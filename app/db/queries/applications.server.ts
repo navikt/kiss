@@ -378,6 +378,7 @@ export async function getAppAssessments(appId: string) {
 			comment: controlPredefinedAnswers.comment,
 		})
 		.from(controlPredefinedAnswers)
+		.where(isNull(controlPredefinedAnswers.archivedAt))
 		.orderBy(controlPredefinedAnswers.displayOrder)
 	const predefinedByControl = new Map<
 		string,

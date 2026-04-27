@@ -124,6 +124,8 @@ export const auditLogActionEnum = [
 	"predefined_answer_created",
 	"predefined_answer_updated",
 	"predefined_answer_deleted",
+	"predefined_answer_archived",
+	"predefined_answer_unarchived",
 	"screening_question_created",
 	"screening_question_updated",
 	"screening_question_deleted",
