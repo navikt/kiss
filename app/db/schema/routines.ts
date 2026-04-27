@@ -1,4 +1,5 @@
-import { integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
+import { integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
 import {
 	dataClassificationEnum,
@@ -151,15 +152,25 @@ export const routineReviews = pgTable("routine_reviews", {
 
 // ─── Review Participants ─────────────────────────────────────────────────
 
-export const routineReviewParticipants = pgTable("routine_review_participants", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	reviewId: uuid("review_id")
-		.notNull()
-		.references(() => routineReviews.id, { onDelete: "cascade" }),
-	userIdent: text("user_ident").notNull(),
-	userName: text("user_name"),
-	confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
-})
+export const routineReviewParticipants = pgTable(
+	"routine_review_participants",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		reviewId: uuid("review_id")
+			.notNull()
+			.references(() => routineReviews.id, { onDelete: "cascade" }),
+		userIdent: text("user_ident").notNull(),
+		userName: text("user_name"),
+		confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(table) => [
+		uniqueIndex("routine_review_participants_active_unique_idx")
+			.on(table.reviewId, table.userIdent)
+			.where(sql`${table.archivedAt} IS NULL`),
+	],
+)
 
 // ─── Review Attachments ──────────────────────────────────────────────────
 
