@@ -2434,7 +2434,7 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 		const classifications = await db
 			.select()
 			.from(entraGroupClassifications)
-			.where(inArray(entraGroupClassifications.groupId, allGroupIds))
+			.where(and(inArray(entraGroupClassifications.groupId, allGroupIds), isNull(entraGroupClassifications.archivedAt)))
 		for (const c of classifications) {
 			const g = groupMap.get(c.groupId)
 			if (g) g.classification = c.classification as GroupAccessClassification
@@ -2455,77 +2455,171 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 
 // ─── Entra Group Access Classification ───────────────────────────────────
 
-/** Set or update the access classification for a group. */
+/** Set or update the access classification for a group.
+ *
+ * Wrappet i transaksjon med audit som del av samme tx for atomisitet.
+ * - Hvis det allerede finnes en aktiv rad med samme klassifisering: idempotent
+ *   no-op (ingen audit, returnerer eksisterende rad).
+ * - Hvis det finnes en aktiv rad med annen klassifisering: oppdaterer raden
+ *   og logger `group_classification_updated`.
+ * - Hvis ingen aktiv rad finnes: oppretter ny og logger
+ *   `entra_group_classification_created`.
+ */
 export async function upsertGroupClassification(
 	groupId: string,
 	classification: GroupAccessClassification,
 	performedBy: string,
 ) {
-	const existing = await db
-		.select()
-		.from(entraGroupClassifications)
-		.where(eq(entraGroupClassifications.groupId, groupId))
-		.then((rows) => rows[0] ?? null)
+	return db.transaction(async (tx) => {
+		const existing = await tx
+			.select()
+			.from(entraGroupClassifications)
+			.where(and(eq(entraGroupClassifications.groupId, groupId), isNull(entraGroupClassifications.archivedAt)))
+			.then((rows) => rows[0] ?? null)
 
-	if (existing) {
-		const [updated] = await db
-			.update(entraGroupClassifications)
-			.set({ classification, updatedBy: performedBy, updatedAt: new Date() })
-			.where(eq(entraGroupClassifications.id, existing.id))
+		if (existing) {
+			if (existing.classification === classification) {
+				return existing
+			}
+
+			const [updated] = await tx
+				.update(entraGroupClassifications)
+				.set({ classification, updatedBy: performedBy, updatedAt: new Date() })
+				.where(
+					and(
+						eq(entraGroupClassifications.id, existing.id),
+						eq(entraGroupClassifications.groupId, groupId),
+						isNull(entraGroupClassifications.archivedAt),
+					),
+				)
+				.returning()
+
+			if (!updated) {
+				throw new Error("Kunne ikke oppdatere gruppeklassifisering pga. samtidig endring. Prøv igjen.")
+			}
+
+			await writeAuditLog(
+				{
+					action: "group_classification_updated",
+					entityType: "entra_group",
+					entityId: groupId,
+					previousValue: JSON.stringify({ classification: existing.classification }),
+					newValue: JSON.stringify({ classification }),
+					performedBy,
+				},
+				tx,
+			)
+
+			return updated
+		}
+
+		const [inserted] = await tx
+			.insert(entraGroupClassifications)
+			.values({
+				groupId,
+				classification,
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
+			.onConflictDoNothing({
+				target: entraGroupClassifications.groupId,
+				where: isNull(entraGroupClassifications.archivedAt),
+			})
 			.returning()
 
-		await writeAuditLog({
-			action: "group_classification_updated",
-			entityType: "entra_group",
-			entityId: groupId,
-			previousValue: JSON.stringify({ classification: existing.classification }),
-			newValue: JSON.stringify({ classification }),
-			performedBy,
-		})
+		if (inserted) {
+			await writeAuditLog(
+				{
+					action: "entra_group_classification_created",
+					entityType: "entra_group",
+					entityId: groupId,
+					newValue: JSON.stringify({ classification }),
+					performedBy,
+				},
+				tx,
+			)
+			return inserted
+		}
 
-		return updated
-	}
+		// Race: en annen pod opprettet eller arkiverte en rad mellom SELECT og INSERT.
+		const [raceRow] = await tx
+			.select()
+			.from(entraGroupClassifications)
+			.where(and(eq(entraGroupClassifications.groupId, groupId), isNull(entraGroupClassifications.archivedAt)))
+			.limit(1)
 
-	const [inserted] = await db
-		.insert(entraGroupClassifications)
-		.values({
-			groupId,
-			classification,
-			createdBy: performedBy,
-			updatedBy: performedBy,
-		})
-		.returning()
+		if (!raceRow) {
+			throw new Error("Kunne ikke opprette gruppeklassifisering pga. samtidig endring. Prøv igjen.")
+		}
 
-	await writeAuditLog({
-		action: "group_classification_updated",
-		entityType: "entra_group",
-		entityId: groupId,
-		newValue: JSON.stringify({ classification }),
-		performedBy,
+		// Race-vinneren kan ha opprettet raden med en annen klassifisering enn vi
+		// ba om. Siden funksjonen er en upsert, skal vi konvergere mot ønsket
+		// verdi: oppdater raden til riktig classification og logg en update.
+		if (raceRow.classification !== classification) {
+			const [updated] = await tx
+				.update(entraGroupClassifications)
+				.set({ classification, updatedBy: performedBy, updatedAt: new Date() })
+				.where(
+					and(
+						eq(entraGroupClassifications.id, raceRow.id),
+						eq(entraGroupClassifications.groupId, groupId),
+						isNull(entraGroupClassifications.archivedAt),
+					),
+				)
+				.returning()
+
+			if (!updated) {
+				throw new Error("Kunne ikke oppdatere gruppeklassifisering pga. samtidig endring. Prøv igjen.")
+			}
+
+			await writeAuditLog(
+				{
+					action: "group_classification_updated",
+					entityType: "entra_group",
+					entityId: groupId,
+					previousValue: JSON.stringify({ classification: raceRow.classification }),
+					newValue: JSON.stringify({ classification }),
+					performedBy,
+				},
+				tx,
+			)
+
+			return updated
+		}
+
+		return raceRow
 	})
-
-	return inserted
 }
 
+/** Arkiverer (soft-delete) klassifiseringen for en Entra-gruppe.
+ *
+ * Tidligere ble raden hard-slettet. Nå arkiverer vi den slik at vi bevarer
+ * sporbarhet på hvilke klassifiseringer en gruppe har vært satt til.
+ * Wrappet i transaksjon med audit som del av samme tx — hvis audit-skriving
+ * feiler rulles arkiveringen tilbake. Idempotent: andre kall returnerer null
+ * og skriver ingen audit.
+ */
 export async function deleteGroupClassification(groupId: string, performedBy: string) {
-	const existing = await db
-		.select()
-		.from(entraGroupClassifications)
-		.where(eq(entraGroupClassifications.groupId, groupId))
-		.then((rows) => rows[0] ?? null)
+	return db.transaction(async (tx) => {
+		const [archived] = await tx
+			.update(entraGroupClassifications)
+			.set({ archivedAt: new Date(), archivedBy: performedBy, updatedAt: new Date(), updatedBy: performedBy })
+			.where(and(eq(entraGroupClassifications.groupId, groupId), isNull(entraGroupClassifications.archivedAt)))
+			.returning()
 
-	if (!existing) return null
+		if (!archived) return null
 
-	await db.delete(entraGroupClassifications).where(eq(entraGroupClassifications.id, existing.id))
+		await writeAuditLog(
+			{
+				action: "entra_group_classification_archived",
+				entityType: "entra_group",
+				entityId: groupId,
+				previousValue: JSON.stringify({ classification: archived.classification }),
+				performedBy,
+			},
+			tx,
+		)
 
-	await writeAuditLog({
-		action: "group_classification_updated",
-		entityType: "entra_group",
-		entityId: groupId,
-		previousValue: JSON.stringify({ classification: existing.classification }),
-		newValue: JSON.stringify({ classification: null }),
-		performedBy,
+		return archived
 	})
-
-	return existing
 }

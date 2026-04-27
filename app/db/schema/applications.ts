@@ -318,12 +318,23 @@ export const groupAccessClassificationLabels: Record<GroupAccessClassification, 
 	annet: "Annet",
 }
 
-export const entraGroupClassifications = pgTable("entra_group_classifications", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	groupId: text("group_id").notNull().unique(),
-	classification: text("classification", { enum: groupAccessClassificationEnum }).notNull(),
-	createdBy: text("created_by").notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-	updatedBy: text("updated_by").notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const entraGroupClassifications = pgTable(
+	"entra_group_classifications",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		groupId: text("group_id").notNull(),
+		classification: text("classification", { enum: groupAccessClassificationEnum }).notNull(),
+		createdBy: text("created_by").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(t) => [
+		// Partial unique: kun én aktiv (ikke-arkivert) klassifisering per group_id.
+		// Arkiverte rader er bevisst utelatt slik at historikk kan ligge ved siden
+		// av en ny aktiv rad når en gruppe re-klassifiseres etter å ha vært fjernet.
+		uniqueIndex("entra_group_classifications_active_unique_idx").on(t.groupId).where(sql`archived_at IS NULL`),
+	],
+)

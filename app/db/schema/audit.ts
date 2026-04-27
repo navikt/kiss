@@ -106,6 +106,10 @@ export const auditLogActionEnum = [
 	"oracle_instance_configured",
 	"oracle_instance_removed",
 
+	// Entra-gruppe-klassifisering (logisk arkivering)
+	"entra_group_classification_created",
+	"entra_group_classification_archived",
+
 	// Screening (spørsmål, svar og predefinerte svar)
 	"predefined_answer_created",
 	"predefined_answer_updated",
