@@ -102,6 +102,10 @@ export const auditLogActionEnum = [
 	"group_classification_updated",
 	"oracle_role_criticality_updated",
 
+	// Oracle-instans-konfigurasjon (revisjonsbevis-kilder)
+	"oracle_instance_configured",
+	"oracle_instance_removed",
+
 	// Screening (spørsmål, svar og predefinerte svar)
 	"predefined_answer_created",
 	"predefined_answer_updated",

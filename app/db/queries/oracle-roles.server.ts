@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type GroupCriticality, groupCriticalityEnum, monitoredApplications } from "../schema/applications"
 import { applicationOracleInstances, oracleRoleAssessments } from "../schema/audit-evidence"
@@ -90,6 +90,7 @@ export async function isInstanceLinkedToApp(applicationId: string, instanceId: s
 			and(
 				eq(applicationOracleInstances.applicationId, applicationId),
 				eq(applicationOracleInstances.instanceId, instanceId),
+				isNull(applicationOracleInstances.archivedAt),
 			),
 		)
 		.then((rows) => rows[0] ?? null)
@@ -125,7 +126,9 @@ export async function getSectionOracleRoles(sectionId: string): Promise<SectionO
 	const instanceLinks = await db
 		.select()
 		.from(applicationOracleInstances)
-		.where(inArray(applicationOracleInstances.applicationId, appIds))
+		.where(
+			and(inArray(applicationOracleInstances.applicationId, appIds), isNull(applicationOracleInstances.archivedAt)),
+		)
 
 	const assessments = await db
 		.select()

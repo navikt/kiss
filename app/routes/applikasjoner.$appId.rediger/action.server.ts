@@ -103,7 +103,7 @@ export async function action({ params, request }: ActionFunctionArgs) {
 	} else if (intent === "removeOracleInstance") {
 		const instanceId = formData.get("instanceId") as string
 		if (!instanceId) throw new Response("Mangler instanceId", { status: 400 })
-		await removeOracleInstance(appId, instanceId)
+		await removeOracleInstance(appId, instanceId, performer)
 	} else if (intent === "toggleOracleReport") {
 		const instanceId = formData.get("instanceId") as string
 		const include = formData.get("include") as string
