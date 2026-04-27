@@ -243,6 +243,8 @@ export const applicationAccessPolicyRules = pgTable("application_access_policy_r
 	ruleCluster: text("rule_cluster"),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 export const accessPolicyAcknowledgments = pgTable("access_policy_acknowledgments", {

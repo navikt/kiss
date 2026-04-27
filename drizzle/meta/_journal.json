@@ -393,6 +393,13 @@
       "when": 1781915260000,
       "tag": "0055_section_ignored_applications_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1781915320000,
+      "tag": "0056_application_access_policy_rules_soft_delete",
+      "breakpoints": true
     }
   ]
 }

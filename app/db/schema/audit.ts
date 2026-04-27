@@ -110,6 +110,10 @@ export const auditLogActionEnum = [
 	"entra_group_classification_created",
 	"entra_group_classification_archived",
 
+	// Access policy-regler (Nais inbound/outbound)
+	"access_policy_rule_added",
+	"access_policy_rule_removed",
+
 	// Screening (spørsmål, svar og predefinerte svar)
 	"predefined_answer_created",
 	"predefined_answer_updated",
