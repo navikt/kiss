@@ -86,13 +86,16 @@ export async function action({ request }: ActionFunctionArgs) {
 
 		case "remove-role": {
 			const roleId = formData.get("roleId")
-			if (typeof roleId !== "string") {
+			if (
+				typeof roleId !== "string" ||
+				!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(roleId)
+			) {
 				return data<ActionResult>({
 					success: false,
-					error: "Mangler rolle-ID.",
+					error: "Mangler eller ugyldig rolle-ID.",
 				})
 			}
-			await removeRole(roleId)
+			await removeRole(roleId, authedUser.navIdent)
 			return data<ActionResult>({
 				success: true,
 				message: "Rolle fjernet.",

@@ -114,6 +114,10 @@ export const auditLogActionEnum = [
 	"access_policy_rule_added",
 	"access_policy_rule_removed",
 
+	// Brukerroller (rolletildeling og -inndragelse)
+	"user_role_granted",
+	"user_role_revoked",
+
 	// Screening (spørsmål, svar og predefinerte svar)
 	"predefined_answer_created",
 	"predefined_answer_updated",
