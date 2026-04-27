@@ -157,12 +157,22 @@ export const applicationTechnologyElements = pgTable(
 	],
 )
 
-export const controlDependencies = pgTable("control_dependencies", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	controlId: uuid("control_id")
-		.notNull()
-		.references(() => frameworkControls.id, { onDelete: "cascade" }),
-	dependsOnControlId: uuid("depends_on_control_id")
-		.notNull()
-		.references(() => frameworkControls.id, { onDelete: "cascade" }),
-})
+export const controlDependencies = pgTable(
+	"control_dependencies",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		controlId: uuid("control_id")
+			.notNull()
+			.references(() => frameworkControls.id, { onDelete: "cascade" }),
+		dependsOnControlId: uuid("depends_on_control_id")
+			.notNull()
+			.references(() => frameworkControls.id, { onDelete: "cascade" }),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(t) => [
+		uniqueIndex("control_dependencies_active_unique_idx")
+			.on(t.controlId, t.dependsOnControlId)
+			.where(sql`${t.archivedAt} IS NULL`),
+	],
+)
