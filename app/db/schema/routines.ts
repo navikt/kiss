@@ -182,11 +182,13 @@ export const routineReviewLinks = pgTable("routine_review_links", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	reviewId: uuid("review_id")
 		.notNull()
-		.references(() => routineReviews.id, { onDelete: "cascade" }),
+		.references(() => routineReviews.id, { onDelete: "restrict" }),
 	url: text("url").notNull(),
 	title: text("title"),
 	addedBy: text("added_by").notNull(),
 	addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Review Activities ───────────────────────────────────────────────────

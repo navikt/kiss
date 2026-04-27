@@ -933,7 +933,7 @@ async function enrichReview(review: typeof routineReviews.$inferSelect) {
 		db
 			.select()
 			.from(routineReviewLinks)
-			.where(eq(routineReviewLinks.reviewId, review.id))
+			.where(and(eq(routineReviewLinks.reviewId, review.id), isNull(routineReviewLinks.archivedAt)))
 			.orderBy(routineReviewLinks.addedAt),
 	])
 
@@ -1298,15 +1298,15 @@ export async function addReviewLink(params: { reviewId: string; url: string; tit
 }
 
 /**
- * Sletter en review-lenke. Tar `expectedReviewId` for å forhindre IDOR
- * (kun lenker som tilhører den oppgitte gjennomgangen kan slettes via en
- * gitt rute-kontekst). Avviser også sletting hvis foreldre-rutinen er
- * arkivert.
+ * Arkiverer en review-lenke (soft-delete). Tar `expectedReviewId` for å
+ * forhindre IDOR (kun lenker som tilhører den oppgitte gjennomgangen kan
+ * arkiveres via en gitt rute-kontekst). Avviser også arkivering hvis
+ * foreldre-rutinen er arkivert.
  *
  * Hele operasjonen kjøres i en transaksjon med `FOR SHARE`-lås på
  * foreldre-rutinen, slik at en samtidig `archiveRoutine()` blokkeres til
- * vår transaksjon er ferdig — sjekk og DELETE blir atomisk og lukker
- * TOCTOU-vinduet mellom archived-sjekk og sletting.
+ * vår transaksjon er ferdig — sjekk og arkivering blir atomisk og lukker
+ * TOCTOU-vinduet mellom archived-sjekk og oppdatering.
  */
 export async function deleteReviewLink(linkId: string, expectedReviewId: string, performedBy: string) {
 	return db.transaction(async (tx) => {
@@ -1317,6 +1317,7 @@ export async function deleteReviewLink(linkId: string, expectedReviewId: string,
 			.select({
 				reviewId: routineReviewLinks.reviewId,
 				archivedAt: routines.archivedAt,
+				linkArchivedAt: routineReviewLinks.archivedAt,
 			})
 			.from(routineReviewLinks)
 			.innerJoin(routineReviews, eq(routineReviewLinks.reviewId, routineReviews.id))
@@ -1331,8 +1332,14 @@ export async function deleteReviewLink(linkId: string, expectedReviewId: string,
 		if (archiveStatus.archivedAt) {
 			throw new Response("Kan ikke slette lenker på en arkivert rutine. Reaktiver rutinen først.", { status: 403 })
 		}
+		// Idempotent: hvis lenken allerede er arkivert, ikke skriv audit-rad.
+		if (archiveStatus.linkArchivedAt) return null
 
-		const [link] = await tx.delete(routineReviewLinks).where(eq(routineReviewLinks.id, linkId)).returning()
+		const [link] = await tx
+			.update(routineReviewLinks)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(and(eq(routineReviewLinks.id, linkId), isNull(routineReviewLinks.archivedAt)))
+			.returning()
 		if (!link) return null
 
 		await writeAuditLog(
