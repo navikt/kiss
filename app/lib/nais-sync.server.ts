@@ -95,10 +95,9 @@ export async function syncNaisAppsForTeam(
 				})
 			}
 
-			// Store access policy inbound rules independently
-			if (app.accessPolicyInbound) {
-				await upsertAccessPolicyRules(appId, "inbound", app.accessPolicyInbound)
-			}
+			// Store access policy inbound rules independently (pass empty array
+			// when absent so existing rules get archived on removal from manifest)
+			await upsertAccessPolicyRules(appId, "inbound", app.accessPolicyInbound ?? [], SYNC_PERFORMER)
 		}
 
 		logger.info(

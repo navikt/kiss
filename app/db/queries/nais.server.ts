@@ -1776,52 +1776,134 @@ export async function resolveAppNames(names: string[]): Promise<Record<string, A
 	return result
 }
 
-/** Replace all access policy rules for a given application and direction. */
+/** Synkroniser access policy-regler for en applikasjon og retning.
+ *
+ * Tidligere ble alle eksisterende regler hard-slettet og deretter re-insertet.
+ * Det betydde at vi mistet sporbarhet på når regler dukket opp og forsvant.
+ * Nå utfører vi en eksplisitt diff: regler som ikke lenger finnes arkiveres
+ * (soft-delete med archived_at/archived_by), og helt nye regler legges til.
+ * Eksisterende aktive regler som fortsatt er rapportert beholdes som de er.
+ *
+ * Hele operasjonen og tilhørende audit-logging skjer i samme transaksjon.
+ * Concurrency håndteres av advisory-låsen `nais-sync-apps-{teamSlug}` på
+ * caller-siden, slik at to podder ikke kjører dette samtidig per team.
+ */
 export async function upsertAccessPolicyRules(
 	applicationId: string,
 	direction: "inbound" | "outbound",
 	rules: Array<{ application: string; namespace?: string; cluster?: string }>,
+	performedBy = "nais-sync",
 ) {
+	// Dedupliser inputregler — samme app kan dukke opp i flere miljø-snapshots.
+	const seen = new Set<string>()
+	const uniqueRules = rules.filter((rule) => {
+		const key = `${rule.application}|${rule.namespace ?? ""}|${rule.cluster ?? ""}`
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
+
 	await db.transaction(async (tx) => {
-		// Delete existing rules for this direction
-		await tx
-			.delete(applicationAccessPolicyRules)
+		const existing = await tx
+			.select()
+			.from(applicationAccessPolicyRules)
 			.where(
 				and(
 					eq(applicationAccessPolicyRules.applicationId, applicationId),
 					eq(applicationAccessPolicyRules.direction, direction),
+					isNull(applicationAccessPolicyRules.archivedAt),
 				),
 			)
 
-		if (rules.length === 0) return
+		const keyOf = (r: { ruleApplication: string; ruleNamespace: string | null; ruleCluster: string | null }) =>
+			`${r.ruleApplication}|${r.ruleNamespace ?? ""}|${r.ruleCluster ?? ""}`
 
-		// Deduplicate rules (same app can appear in multiple environments)
-		const seen = new Set<string>()
-		const uniqueRules = rules.filter((rule) => {
-			const key = `${rule.application}|${rule.namespace ?? ""}|${rule.cluster ?? ""}`
-			if (seen.has(key)) return false
-			seen.add(key)
-			return true
-		})
+		const existingByKey = new Map(existing.map((row) => [keyOf(row), row]))
+		const desiredKeys = new Set<string>()
 
-		await tx.insert(applicationAccessPolicyRules).values(
-			uniqueRules.map((rule) => ({
-				applicationId,
-				direction,
-				ruleApplication: rule.application,
-				ruleNamespace: rule.namespace ?? null,
-				ruleCluster: rule.cluster ?? null,
-			})),
-		)
+		const toInsert: Array<{
+			applicationId: string
+			direction: "inbound" | "outbound"
+			ruleApplication: string
+			ruleNamespace: string | null
+			ruleCluster: string | null
+		}> = []
+
+		for (const rule of uniqueRules) {
+			const ruleNamespace = rule.namespace ?? null
+			const ruleCluster = rule.cluster ?? null
+			const key = `${rule.application}|${ruleNamespace ?? ""}|${ruleCluster ?? ""}`
+			desiredKeys.add(key)
+			if (!existingByKey.has(key)) {
+				toInsert.push({
+					applicationId,
+					direction,
+					ruleApplication: rule.application,
+					ruleNamespace,
+					ruleCluster,
+				})
+			}
+		}
+
+		const toArchive = existing.filter((row) => !desiredKeys.has(keyOf(row)))
+
+		for (const row of toArchive) {
+			await tx
+				.update(applicationAccessPolicyRules)
+				.set({ archivedAt: new Date(), archivedBy: performedBy, updatedAt: new Date() })
+				.where(eq(applicationAccessPolicyRules.id, row.id))
+
+			await writeAuditLog(
+				{
+					action: "access_policy_rule_removed",
+					entityType: "application",
+					entityId: applicationId,
+					previousValue: JSON.stringify({
+						direction,
+						ruleApplication: row.ruleApplication,
+						ruleNamespace: row.ruleNamespace,
+						ruleCluster: row.ruleCluster,
+					}),
+					performedBy,
+				},
+				tx,
+			)
+		}
+
+		if (toInsert.length > 0) {
+			const inserted = await tx.insert(applicationAccessPolicyRules).values(toInsert).returning()
+			for (const row of inserted) {
+				await writeAuditLog(
+					{
+						action: "access_policy_rule_added",
+						entityType: "application",
+						entityId: applicationId,
+						newValue: JSON.stringify({
+							direction,
+							ruleApplication: row.ruleApplication,
+							ruleNamespace: row.ruleNamespace,
+							ruleCluster: row.ruleCluster,
+						}),
+						performedBy,
+					},
+					tx,
+				)
+			}
+		}
 	})
 }
 
-/** Get all access policy rules for an application. */
+/** Get all active (non-archived) access policy rules for an application. */
 export async function getAccessPolicyRules(applicationId: string) {
 	return db
 		.select()
 		.from(applicationAccessPolicyRules)
-		.where(eq(applicationAccessPolicyRules.applicationId, applicationId))
+		.where(
+			and(
+				eq(applicationAccessPolicyRules.applicationId, applicationId),
+				isNull(applicationAccessPolicyRules.archivedAt),
+			),
+		)
 		.orderBy(applicationAccessPolicyRules.direction, applicationAccessPolicyRules.ruleApplication)
 }
 
