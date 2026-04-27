@@ -397,7 +397,7 @@ async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 		.selectDistinct({ naisTeamId: devTeamNaisTeamMappings.naisTeamId })
 		.from(devTeamNaisTeamMappings)
 		.innerJoin(devTeams, eq(devTeamNaisTeamMappings.devTeamId, devTeams.id))
-		.where(eq(devTeams.sectionId, sectionId))
+		.where(and(eq(devTeams.sectionId, sectionId), isNull(devTeamNaisTeamMappings.archivedAt)))
 
 	const linkedNaisTeamIds = linkedNaisTeamRows.map((r) => r.naisTeamId)
 
