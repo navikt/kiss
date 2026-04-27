@@ -401,7 +401,7 @@ export async function getControlDetail(controlIdStr: string) {
 	const answers = await db
 		.select()
 		.from(controlPredefinedAnswers)
-		.where(eq(controlPredefinedAnswers.controlId, ctrl.id))
+		.where(and(eq(controlPredefinedAnswers.controlId, ctrl.id), isNull(controlPredefinedAnswers.archivedAt)))
 		.orderBy(controlPredefinedAnswers.displayOrder)
 
 	return {
@@ -1337,7 +1337,7 @@ export async function addPredefinedAnswer(
 	const [maxOrder] = await db
 		.select({ max: sql<number>`COALESCE(MAX(${controlPredefinedAnswers.displayOrder}), -1)` })
 		.from(controlPredefinedAnswers)
-		.where(eq(controlPredefinedAnswers.controlId, ctrl.id))
+		.where(and(eq(controlPredefinedAnswers.controlId, ctrl.id), isNull(controlPredefinedAnswers.archivedAt)))
 
 	const [inserted] = await db
 		.insert(controlPredefinedAnswers)
@@ -1371,7 +1371,7 @@ export async function updatePredefinedAnswer(
 	const [existing] = await db
 		.select()
 		.from(controlPredefinedAnswers)
-		.where(eq(controlPredefinedAnswers.id, answerId))
+		.where(and(eq(controlPredefinedAnswers.id, answerId), isNull(controlPredefinedAnswers.archivedAt)))
 		.limit(1)
 	if (!existing) throw new Error("Forhåndsdefinert svar ikke funnet")
 
@@ -1385,7 +1385,7 @@ export async function updatePredefinedAnswer(
 			updatedBy: performedBy,
 			updatedAt: new Date(),
 		})
-		.where(eq(controlPredefinedAnswers.id, answerId))
+		.where(and(eq(controlPredefinedAnswers.id, answerId), isNull(controlPredefinedAnswers.archivedAt)))
 		.returning()
 
 	await writeAuditLog({
@@ -1400,21 +1400,39 @@ export async function updatePredefinedAnswer(
 }
 
 export async function deletePredefinedAnswer(answerId: string, performedBy: string) {
-	const [existing] = await db
-		.select()
-		.from(controlPredefinedAnswers)
-		.where(eq(controlPredefinedAnswers.id, answerId))
-		.limit(1)
-	if (!existing) throw new Error("Forhåndsdefinert svar ikke funnet")
+	return db.transaction(async (tx) => {
+		const now = new Date()
 
-	await db.delete(controlPredefinedAnswers).where(eq(controlPredefinedAnswers.id, answerId))
+		const [archived] = await tx
+			.update(controlPredefinedAnswers)
+			.set({
+				archivedAt: now,
+				archivedBy: performedBy,
+				updatedAt: now,
+				updatedBy: performedBy,
+			})
+			.where(and(eq(controlPredefinedAnswers.id, answerId), isNull(controlPredefinedAnswers.archivedAt)))
+			.returning()
 
-	await writeAuditLog({
-		action: "predefined_answer_deleted",
-		entityType: "control",
-		entityId: existing.controlId,
-		newValue: JSON.stringify({ label: existing.label }),
-		performedBy,
+		if (!archived) return null
+
+		await writeAuditLog(
+			{
+				action: "predefined_answer_archived",
+				entityType: "control",
+				entityId: archived.controlId,
+				previousValue: JSON.stringify({
+					id: archived.id,
+					label: archived.label,
+					status: archived.status,
+					comment: archived.comment,
+				}),
+				performedBy,
+			},
+			tx,
+		)
+
+		return archived
 	})
 }
 

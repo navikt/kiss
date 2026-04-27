@@ -97,6 +97,8 @@ export const controlPredefinedAnswers = pgTable("control_predefined_answers", {
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedBy: text("updated_by").notNull(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
 })
 
 // ─── Technology Elements ─────────────────────────────────────────────────
