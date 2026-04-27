@@ -1060,6 +1060,10 @@ export async function applyFrameworkImport(
 		newValue: version.sourceFileName,
 		performedBy: appliedBy,
 	})
+
+	// Framework changes affect which controls apply to apps — refresh the compliance cache
+	const { syncAllApplicationControls } = await import("./application-controls.server")
+	await syncAllApplicationControls(appliedBy)
 }
 
 /** Get the current pending framework import, or null. */

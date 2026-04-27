@@ -333,6 +333,11 @@ export async function createRoutine(params: {
 		performedBy: params.createdBy,
 	})
 
+	// Routine changes affect compliance — sync apps in this section (fire-and-forget)
+	import("./application-controls.server").then(({ syncAppsForSection }) =>
+		syncAppsForSection(params.sectionId, params.createdBy).catch(() => {}),
+	)
+
 	return routine
 }
 
@@ -362,7 +367,7 @@ export async function updateRoutine(params: {
 	status?: RoutineStatus
 	updatedBy: string
 }) {
-	return db.transaction(async (tx) => {
+	const routine = await db.transaction(async (tx) => {
 		// Atomisk pre-check: lås rutineraden inne i transaksjonen og les både
 		// status og navn for audit. Hindrer TOCTOU mellom pre-sjekk og UPDATE
 		// (en samtidig approve kunne ellers slippe gjennom redigering, og
@@ -771,6 +776,15 @@ export async function updateRoutine(params: {
 
 		return routine
 	})
+
+	// Routine changes affect compliance — sync apps in this section (fire-and-forget)
+	if (routine) {
+		import("./application-controls.server").then(({ syncAppsForSection }) =>
+			syncAppsForSection(routine.sectionId, params.updatedBy).catch(() => {}),
+		)
+	}
+
+	return routine
 }
 
 /**
@@ -784,7 +798,7 @@ export async function updateRoutine(params: {
  * regel 6).
  */
 export async function archiveRoutine(id: string, performedBy: string) {
-	return db.transaction(async (tx) => {
+	const routine = await db.transaction(async (tx) => {
 		const [archived] = await tx
 			.update(routines)
 			.set({
@@ -813,6 +827,15 @@ export async function archiveRoutine(id: string, performedBy: string) {
 		)
 		return archived
 	})
+
+	// Archiving a routine affects compliance — sync apps in this section (fire-and-forget)
+	if (routine?.sectionId) {
+		import("./application-controls.server").then(({ syncAppsForSection }) =>
+			syncAppsForSection(routine.sectionId, performedBy).catch(() => {}),
+		)
+	}
+
+	return routine
 }
 
 /**

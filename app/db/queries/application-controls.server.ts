@@ -384,6 +384,33 @@ export async function syncAllApplicationControls(performedBy = "system"): Promis
 	return lockResult ?? { synced: 0, errors: 0 }
 }
 
+/**
+ * Sync compliance cache for all apps belonging to a section (via its teams).
+ * Fire-and-forget safe — errors are caught per app and don't propagate.
+ */
+export async function syncAppsForSection(sectionId: string, performedBy = "system"): Promise<void> {
+	const { devTeams } = await import("../schema/organization")
+	const { applicationTeamMappings } = await import("../schema/applications")
+
+	const teamRows = await db.select({ id: devTeams.id }).from(devTeams).where(eq(devTeams.sectionId, sectionId))
+	if (teamRows.length === 0) return
+
+	const teamIds = teamRows.map((t) => t.id)
+	const appRows = await db
+		.select({ applicationId: applicationTeamMappings.applicationId })
+		.from(applicationTeamMappings)
+		.where(and(inArray(applicationTeamMappings.devTeamId, teamIds), isNull(applicationTeamMappings.archivedAt)))
+	const appIds = [...new Set(appRows.map((r) => r.applicationId))]
+
+	for (const appId of appIds) {
+		try {
+			await syncApplicationControls(appId, performedBy)
+		} catch {
+			// Per-app errors are non-fatal for batch sync
+		}
+	}
+}
+
 // ─── Comment CRUD ────────────────────────────────────────────────────────
 
 /** Update the user comment on an application control. */

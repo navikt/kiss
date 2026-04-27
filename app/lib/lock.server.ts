@@ -22,8 +22,12 @@ function lockKey(name: string): number {
 /**
  * Try to acquire an advisory lock and run `fn` exclusively.
  * If another pod already holds the lock, returns `null` without running `fn`.
+ * If pool is unavailable (e.g. test environment), runs `fn` without locking.
  */
 export async function withAdvisoryLock<T>(lockName: string, fn: () => Promise<T>): Promise<T | null> {
+	if (!pool) {
+		return await fn()
+	}
 	const key = lockKey(lockName)
 	const client = await pool.connect()
 	try {

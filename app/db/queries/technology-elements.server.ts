@@ -4,6 +4,27 @@ import { applicationPersistence, monitoredApplications } from "../schema/applica
 import { applicationTechnologyElements, controlTechnologyElements, technologyElements } from "../schema/framework"
 import { writeAuditLog } from "./audit.server"
 
+/** Fire-and-forget: sync compliance cache for apps that have a given technology element confirmed. */
+function syncAppsWithElement(elementId: string, performer: string) {
+	db.select({ applicationId: applicationTechnologyElements.applicationId })
+		.from(applicationTechnologyElements)
+		.where(
+			and(
+				eq(applicationTechnologyElements.elementId, elementId),
+				isNotNull(applicationTechnologyElements.confirmedAt),
+				isNull(applicationTechnologyElements.rejectedAt),
+				isNull(applicationTechnologyElements.archivedAt),
+			),
+		)
+		.then(async (rows) => {
+			const { syncApplicationControls } = await import("./application-controls.server")
+			for (const row of rows) {
+				await syncApplicationControls(row.applicationId, performer).catch(() => {})
+			}
+		})
+		.catch(() => {})
+}
+
 /** Get all technology elements ordered by display order. Arkiverte elementer ekskluderes som standard. */
 export async function getAllTechnologyElements(options: { includeArchived?: boolean } = {}) {
 	const where = options.includeArchived ? undefined : isNull(technologyElements.archivedAt)
@@ -178,7 +199,7 @@ export async function getTechnologyElementWithCounts(id: string) {
 
 /** Add a technology element to a control. Avviser kobling til arkivert element. */
 export async function addControlElement(controlId: string, elementId: string, performer: string) {
-	return db.transaction(async (tx) => {
+	await db.transaction(async (tx) => {
 		const [el] = await tx
 			.select({ archivedAt: technologyElements.archivedAt })
 			.from(technologyElements)
@@ -210,6 +231,9 @@ export async function addControlElement(controlId: string, elementId: string, pe
 			tx,
 		)
 	})
+
+	// Control-element mapping change affects compliance — sync affected apps (fire-and-forget)
+	syncAppsWithElement(elementId, performer)
 }
 
 /** Soft-delete (arkiver) en teknologielement-kobling fra en kontroll. Auditerer kun ved faktisk arkivering (no-op hvis raden allerede er arkivert). */
@@ -243,6 +267,9 @@ export async function removeControlElement(controlId: string, elementId: string,
 			tx,
 		)
 	})
+
+	// Control-element mapping change affects compliance — sync affected apps (fire-and-forget)
+	syncAppsWithElement(elementId, performer)
 }
 
 /** Mapping from persistence/auth types to technology element slugs. */
