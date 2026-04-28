@@ -98,7 +98,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				deadline: deadline.toISOString(),
 				overdue: isOverdue(deadline),
 				neverReviewed: !latestReview,
-				technologyElements: (routine.technologyElementIds ?? []).map((id) => elementNameMap.get(id)).filter(Boolean) as string[],
+				technologyElements: (routine.technologyElementIds ?? [])
+					.map((id) => elementNameMap.get(id))
+					.filter(Boolean) as string[],
 			}
 		}),
 	)
