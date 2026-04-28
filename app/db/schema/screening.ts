@@ -15,6 +15,23 @@ export const screeningEffectLabels: Record<string, string> = {
 	select_routine: "Velg rutine",
 }
 
+export const screeningQuestionStatusEnum = ["draft", "ready", "approved", "archived"] as const
+export type ScreeningQuestionStatus = (typeof screeningQuestionStatusEnum)[number]
+
+/** Statuses that can be set via changeStatus action (excludes 'archived' which uses archive flow). */
+export const validScreeningQuestionStatuses = ["draft", "ready", "approved"] as const
+export type ValidScreeningQuestionStatus = (typeof validScreeningQuestionStatuses)[number]
+
+export const screeningQuestionStatusConfig: Record<
+	ScreeningQuestionStatus,
+	{ label: string; variant: "neutral" | "info" | "success" | "warning" }
+> = {
+	draft: { label: "Kladd", variant: "neutral" },
+	ready: { label: "Ferdig", variant: "info" },
+	approved: { label: "Godkjent", variant: "success" },
+	archived: { label: "Arkivert", variant: "warning" },
+}
+
 /** Screening questions shown before detailed compliance assessment. */
 export const screeningQuestions = pgTable("screening_questions", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -24,6 +41,7 @@ export const screeningQuestions = pgTable("screening_questions", {
 	description: text("description"),
 	answerType: text("answer_type").notNull().default("boolean"),
 	displayOrder: integer("display_order").notNull().default(0),
+	status: text("status", { enum: screeningQuestionStatusEnum }).notNull().default("draft"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	createdBy: text("created_by").notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

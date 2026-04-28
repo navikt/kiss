@@ -85,8 +85,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	const [globalQuestions, sectionQuestions, technologyElements, controls] = await Promise.all([
-		getScreeningQuestions(),
-		getSectionScreeningQuestions(section.id),
+		getScreeningQuestions({ status: "approved" }),
+		getSectionScreeningQuestions(section.id, { status: "approved" }),
 		getAllTechnologyElements(),
 		getAllControlsForSelection(),
 	])

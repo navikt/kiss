@@ -89,6 +89,7 @@ describe("compliance-auto.server integration tests", () => {
 
 	it("returns empty effects with allQuestionsAnswered=false when question is not answered", async () => {
 		const questionId = await rawInsert("screening_questions", {
+			status: "approved",
 			question_text: "MFA?",
 			created_by: "admin",
 			updated_by: "admin",
@@ -110,6 +111,7 @@ describe("compliance-auto.server integration tests", () => {
 
 	it("returns the matching effect when the user answered with the choice that triggers it", async () => {
 		const questionId = await rawInsert("screening_questions", {
+			status: "approved",
 			question_text: "MFA?",
 			created_by: "admin",
 			updated_by: "admin",
@@ -134,6 +136,7 @@ describe("compliance-auto.server integration tests", () => {
 
 	it("does not include 'select_routine' as an effect", async () => {
 		const questionId = await rawInsert("screening_questions", {
+			status: "approved",
 			question_text: "Need routine?",
 			created_by: "admin",
 			updated_by: "admin",
@@ -162,6 +165,7 @@ describe("compliance-auto.server integration tests", () => {
 
 		// Section-scoped question for the OTHER section: must be excluded
 		const qOther = await rawInsert("screening_questions", {
+			status: "approved",
 			question_text: "Other?",
 			section_id: otherSection,
 			created_by: "admin",
@@ -172,6 +176,7 @@ describe("compliance-auto.server integration tests", () => {
 
 		// Section-scoped question for OUR section: must be included
 		const qOurs = await rawInsert("screening_questions", {
+			status: "approved",
 			question_text: "Ours?",
 			section_id: sectionId,
 			created_by: "admin",
@@ -192,6 +197,7 @@ describe("compliance-auto.server integration tests", () => {
 		const elementId = await rawInsert("technology_elements", { name: "Kubernetes", slug: "kubernetes" })
 
 		const questionId = await rawInsert("screening_questions", {
+			status: "approved",
 			question_text: "K8s relevant?",
 			created_by: "admin",
 			updated_by: "admin",
@@ -220,6 +226,7 @@ describe("compliance-auto.server integration tests", () => {
 
 	it("marks allQuestionsAnswered=false when only some questions affecting a control are answered", async () => {
 		const q1 = await rawInsert("screening_questions", {
+			status: "approved",
 			question_text: "Q1",
 			created_by: "admin",
 			updated_by: "admin",
@@ -228,6 +235,7 @@ describe("compliance-auto.server integration tests", () => {
 		await rawInsert("screening_choice_effects", { choice_id: c1, control_id: controlA, effect: "implemented" })
 
 		const q2 = await rawInsert("screening_questions", {
+			status: "approved",
 			question_text: "Q2",
 			created_by: "admin",
 			updated_by: "admin",
@@ -244,5 +252,35 @@ describe("compliance-auto.server integration tests", () => {
 		const entry = result.get(screeningKey(controlA, TECH_ELEMENT_ALL))
 		expect(entry?.allQuestionsAnswered).toBe(false)
 		expect(entry?.effects).toEqual(["implemented"])
+	})
+
+	it("excludes draft and ready questions from compliance effects", async () => {
+		const qDraft = await rawInsert("screening_questions", {
+			status: "draft",
+			question_text: "Draft?",
+			created_by: "admin",
+			updated_by: "admin",
+		})
+		const cDraft = await rawInsert("screening_question_choices", { question_id: qDraft, label: "Ja" })
+		await rawInsert("screening_choice_effects", { choice_id: cDraft, control_id: controlA, effect: "implemented" })
+		await rawExec(
+			`INSERT INTO screening_answers (application_id, question_id, answer, answered_by) VALUES ('${appId}', '${qDraft}', 'Ja', 'X')`,
+		)
+
+		const qReady = await rawInsert("screening_questions", {
+			status: "ready",
+			question_text: "Ready?",
+			created_by: "admin",
+			updated_by: "admin",
+		})
+		const cReady = await rawInsert("screening_question_choices", { question_id: qReady, label: "Ja" })
+		await rawInsert("screening_choice_effects", { choice_id: cReady, control_id: controlB, effect: "implemented" })
+		await rawExec(
+			`INSERT INTO screening_answers (application_id, question_id, answer, answered_by) VALUES ('${appId}', '${qReady}', 'Ja', 'X')`,
+		)
+
+		const result = await getScreeningEffectsByControlForApp(appId)
+		expect(result.has(screeningKey(controlA, TECH_ELEMENT_ALL))).toBe(false)
+		expect(result.has(screeningKey(controlB, TECH_ELEMENT_ALL))).toBe(false)
 	})
 })

@@ -6,7 +6,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	requireUser(user)
 
-	const questions = await getScreeningQuestions()
+	const questions = await getScreeningQuestions({ status: "approved" })
 
 	const data = await Promise.all(
 		questions.map(async (q) => {

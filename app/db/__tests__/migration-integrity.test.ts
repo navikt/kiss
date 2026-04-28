@@ -159,7 +159,7 @@ describe("Drizzle migration integrity", () => {
 
 		for (const entry of entries) {
 			const expectedPrefix = String(entry.idx).padStart(4, "0")
-			if (!entry.tag.startsWith(expectedPrefix + "_")) {
+			if (!entry.tag.startsWith(`${expectedPrefix}_`)) {
 				mismatches.push(`idx=${entry.idx}: tag="${entry.tag}" doesn't start with "${expectedPrefix}_"`)
 			}
 		}
@@ -349,7 +349,7 @@ describe("Drizzle migration integrity", () => {
 
 		for (let i = 0; i < sqlFiles.length; i++) {
 			const expectedPrefix = String(i).padStart(4, "0")
-			if (!sqlFiles[i].startsWith(expectedPrefix + "_")) {
+			if (!sqlFiles[i].startsWith(`${expectedPrefix}_`)) {
 				gaps.push(`Position ${i}: expected prefix "${expectedPrefix}_" but got "${sqlFiles[i]}"`)
 			}
 		}

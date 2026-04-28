@@ -7,6 +7,7 @@ import {
 	addChoiceEffect,
 	archiveChoice,
 	archiveChoiceEffect,
+	changeScreeningQuestionStatus,
 	createChoice,
 	createScreeningQuestion,
 	getChoiceEffects,
@@ -19,6 +20,7 @@ import {
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
+import { validScreeningQuestionStatuses } from "~/db/schema/screening"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -56,6 +58,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				descriptionHtml: "",
 				displayOrder: 0,
 				answerType: "",
+				status: "draft" as const,
 				rulesetId: null as string | null,
 				technologyElementIds: [] as string[],
 			},
@@ -241,6 +244,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const effectId = formData.get("effectId") as string
 		if (!effectId) throw new Response("Mangler effect-ID", { status: 400 })
 		await archiveChoiceEffect(effectId, authedUser.navIdent)
+	}
+
+	if (intent === "changeStatus") {
+		if (questionId === "ny") {
+			throw new Response("Kan ikke endre status på et spørsmål som ikke er opprettet ennå", { status: 400 })
+		}
+		const newStatus = formData.get("newStatus")
+		if (typeof newStatus !== "string" || !(validScreeningQuestionStatuses as readonly string[]).includes(newStatus)) {
+			throw new Response("Ugyldig status", { status: 400 })
+		}
+		await changeScreeningQuestionStatus(
+			questionId,
+			newStatus as (typeof validScreeningQuestionStatuses)[number],
+			authedUser.navIdent,
+		)
 	}
 
 	return data({ success: true })

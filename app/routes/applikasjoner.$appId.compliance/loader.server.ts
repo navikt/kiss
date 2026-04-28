@@ -118,7 +118,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		const filteredInstances = filterInstancesByAccess(
 			appInstances
 				.filter((inst) => instanceGroupMap.has(inst.instanceId))
-				.map((inst) => ({ ...inst, group: instanceGroupMap.get(inst.instanceId)!.group ?? null })),
+				.map((inst) => ({ ...inst, group: instanceGroupMap.get(inst.instanceId)?.group ?? null })),
 			user?.groups ?? [],
 		)
 

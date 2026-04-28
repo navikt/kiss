@@ -3,6 +3,8 @@ import { CSS } from "@dnd-kit/utilities"
 import { ArrowsCirclepathIcon, DragVerticalIcon, PencilIcon, TrashIcon } from "@navikt/aksel-icons"
 import { BodyShort, Box, Button, Heading, HStack, ReadMore, Table, Tag, VStack } from "@navikt/ds-react"
 import { Form, Link } from "react-router"
+import type { ScreeningQuestionStatus } from "~/db/schema/screening"
+import { screeningQuestionStatusConfig } from "~/db/schema/screening"
 import { getStatusLabel } from "~/lib/compliance-status"
 
 export type ChoiceEffect = {
@@ -26,6 +28,7 @@ export type QuestionItem = {
 	questionText: string
 	displayOrder: number
 	answerType: string
+	status: ScreeningQuestionStatus
 	descriptionHtml: string | null
 	choices: QuestionChoice[]
 	archivedAt?: Date | string | null
@@ -44,6 +47,7 @@ export function SortableQuestionCard({
 }) {
 	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: q.id })
 	const isArchived = !!q.archivedAt
+	const effectiveStatus = isArchived ? "archived" : q.status
 
 	const style = {
 		transform: CSS.Transform.toString(transform),
@@ -87,11 +91,14 @@ export function SortableQuestionCard({
 						<Heading size="small" level="3">
 							{q.questionText}
 						</Heading>
-						{isArchived && (
-							<Tag variant="warning" size="small">
-								Arkivert
-							</Tag>
-						)}
+						{(() => {
+							const cfg = screeningQuestionStatusConfig[effectiveStatus]
+							return (
+								<Tag variant={cfg?.variant ?? "neutral"} size="small">
+									{cfg?.label ?? `Ukjent status: ${effectiveStatus}`}
+								</Tag>
+							)
+						})()}
 					</HStack>
 					<HStack gap="space-2">
 						{!isArchived && (
