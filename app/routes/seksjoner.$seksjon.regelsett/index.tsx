@@ -12,7 +12,7 @@ import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 const statusConfig: Record<ApprovalStatus, { label: string; variant: "success" | "warning" | "error" | "neutral" }> = {
 	draft: { label: "Utkast", variant: "neutral" },
-	valid: { label: "Gyldig", variant: "success" },
+	valid: { label: "Gjeldende", variant: "success" },
 	expiring_soon: { label: "Utløper snart", variant: "warning" },
 	expired: { label: "Utløpt", variant: "error" },
 }
