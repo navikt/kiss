@@ -3,18 +3,8 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getApplicationDetail } from "~/db/queries/nais.server"
-import {
-	calculateDeadline,
-	getLatestReviewForApp,
-	getRoutineDeadlinesForApp,
-	getRoutineDeadlinesForAppByGroupClassification,
-	getRoutineDeadlinesForAppByOracleRoleCriticality,
-	getRoutineDeadlinesForAppByPersistence,
-	getRoutineDeadlinesForAppByRuleset,
-	getRoutineDeadlinesForAppByScreeningSelection,
-	getRoutineDeadlinesForAppBySection,
-	isOverdue,
-} from "~/db/queries/routines.server"
+import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
+import { calculateDeadline, getLatestReviewForApp, isOverdue } from "~/db/queries/routines.server"
 import { useAppBasePath } from "~/hooks/useAppBasePath"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
@@ -67,90 +57,27 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const appInfo = { id: app.app.id, name: app.app.name }
 
-	// Load all routine deadlines for app (same pipeline as app details)
-	const screeningRoutines = await getRoutineDeadlinesForApp(appId)
-	const screeningRoutineIds = new Set(screeningRoutines.map((d) => d.routine?.id).filter(Boolean) as string[])
-	const persistenceRoutines = await getRoutineDeadlinesForAppByPersistence(appId, screeningRoutineIds)
-	const afterPersistenceIds = new Set([
-		...screeningRoutineIds,
-		...(persistenceRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const groupClassificationRoutines = await getRoutineDeadlinesForAppByGroupClassification(appId, afterPersistenceIds)
-	const afterGroupIds = new Set([
-		...afterPersistenceIds,
-		...(groupClassificationRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const oracleRoleCriticalityRoutines = await getRoutineDeadlinesForAppByOracleRoleCriticality(appId, afterGroupIds)
-	const alreadyMatchedIds = new Set([
-		...afterGroupIds,
-		...(oracleRoleCriticalityRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(appId, alreadyMatchedIds)
-	const allMatchedIds = new Set([
-		...alreadyMatchedIds,
-		...(screeningSelectionRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const sectionWideRoutines = await getRoutineDeadlinesForAppBySection(appId, allMatchedIds)
-	const allMatchedBeforeRuleset = new Set([
-		...allMatchedIds,
-		...(sectionWideRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const rulesetRoutines = await getRoutineDeadlinesForAppByRuleset(appId, allMatchedBeforeRuleset)
-
-	const allDeadlines = [
-		...screeningRoutines.map((d) => ({ ...d, matchSource: "screening" as const })),
-		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
-		...groupClassificationRoutines.map((d) => ({ ...d, matchSource: "group_classification" as const })),
-		...oracleRoleCriticalityRoutines.map((d) => ({ ...d, matchSource: "oracle_role_criticality" as const })),
-		...screeningSelectionRoutines.map((d) => ({ ...d, matchSource: "screening_selection" as const })),
-		...sectionWideRoutines.map((d) => ({ ...d, matchSource: "section" as const })),
-		...rulesetRoutines.map((d) => ({ ...d, matchSource: "ruleset" as const })),
-	]
-
-	// Load routine→control mappings and filter to this control
-	const allRoutineIds = [...new Set(allDeadlines.map((d) => d.routine?.id).filter(Boolean) as string[])]
-	let routineIdsForControl = new Set<string>()
-	const routineTechElementMap = new Map<string, string[]>()
-	if (allRoutineIds.length > 0) {
-		const { routineControls, routineTechnologyElements } = await import("~/db/schema/routines")
-		const { technologyElements } = await import("~/db/schema/framework")
-		const { db } = await import("~/db/connection.server")
-		const { inArray, eq, and, isNull } = await import("drizzle-orm")
-		const [controlRows, techRows] = await Promise.all([
-			db
-				.select({ routineId: routineControls.routineId })
-				.from(routineControls)
-				.where(
-					and(
-						inArray(routineControls.routineId, allRoutineIds),
-						eq(routineControls.controlId, controlId),
-						isNull(routineControls.archivedAt),
-					),
-				),
-			db
-				.select({
-					routineId: routineTechnologyElements.routineId,
-					elementName: technologyElements.name,
-				})
-				.from(routineTechnologyElements)
-				.innerJoin(technologyElements, eq(technologyElements.id, routineTechnologyElements.elementId))
-				.where(
-					and(
-						inArray(routineTechnologyElements.routineId, allRoutineIds),
-						isNull(routineTechnologyElements.archivedAt),
-					),
-				),
-		])
-		routineIdsForControl = new Set(controlRows.map((r) => r.routineId))
-		for (const row of techRows) {
-			const existing = routineTechElementMap.get(row.routineId) ?? []
-			existing.push(row.elementName)
-			routineTechElementMap.set(row.routineId, existing)
-		}
-	}
+	// Load all routine deadlines using shared pipeline
+	const allDeadlines = await getRoutineDeadlinesWithControls(appId)
 
 	// Filter deadlines to only routines linked to this control
-	const matchedDeadlines = allDeadlines.filter((d) => d.routine && routineIdsForControl.has(d.routine.id))
+	const matchedDeadlines = allDeadlines.filter((d) => d.routine && d.routine.controls.some((c) => c.id === controlId))
+
+	// Resolve technology element IDs→names (IDs already available from shared pipeline)
+	const allElementIds = [...new Set(matchedDeadlines.flatMap((d) => d.routine?.technologyElementIds ?? []))]
+	const elementNameMap = new Map<string, string>()
+	if (allElementIds.length > 0) {
+		const { technologyElements } = await import("~/db/schema/framework")
+		const { db } = await import("~/db/connection.server")
+		const { inArray } = await import("drizzle-orm")
+		const rows = await db
+			.select({ id: technologyElements.id, name: technologyElements.name })
+			.from(technologyElements)
+			.where(inArray(technologyElements.id, allElementIds))
+		for (const row of rows) {
+			elementNameMap.set(row.id, row.name)
+		}
+	}
 
 	// Enrich with latest review info for this app
 	const routinesWithReviews = await Promise.all(
@@ -171,7 +98,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				deadline: deadline.toISOString(),
 				overdue: isOverdue(deadline),
 				neverReviewed: !latestReview,
-				technologyElements: routineTechElementMap.get(routine.id) ?? [],
+				technologyElements: (routine.technologyElementIds ?? [])
+					.map((id) => elementNameMap.get(id))
+					.filter(Boolean) as string[],
 			}
 		}),
 	)

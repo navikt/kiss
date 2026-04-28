@@ -13,16 +13,8 @@ import {
 	resolveAppNames,
 } from "~/db/queries/nais.server"
 import { getReportsForApp } from "~/db/queries/reports.server"
-import {
-	getReviewsForApp,
-	getRoutineDeadlinesForApp,
-	getRoutineDeadlinesForAppByGroupClassification,
-	getRoutineDeadlinesForAppByOracleRoleCriticality,
-	getRoutineDeadlinesForAppByPersistence,
-	getRoutineDeadlinesForAppByRuleset,
-	getRoutineDeadlinesForAppByScreeningSelection,
-	getRoutineDeadlinesForAppBySection,
-} from "~/db/queries/routines.server"
+import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
+import { getReviewsForApp } from "~/db/queries/routines.server"
 import { getSections } from "~/db/queries/sections.server"
 import type { GroupCriticality } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
@@ -61,104 +53,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
 	const { getApplicationElements } = await import("~/db/queries/technology-elements.server")
-	const [appElements, screeningRoutines, completedReviews, allSections, appReports] = await Promise.all([
+	const [appElements, deadlinesWithControls, completedReviews, allSections, appReports] = await Promise.all([
 		getApplicationElements(appId),
-		getRoutineDeadlinesForApp(appId),
+		getRoutineDeadlinesWithControls(appId),
 		getReviewsForApp(appId),
 		getSections({ includeArchived: true }),
 		getReportsForApp(appId),
 	])
-
-	const screeningRoutineIds = new Set(screeningRoutines.map((d) => d.routine?.id).filter(Boolean) as string[])
-	const persistenceRoutines = await getRoutineDeadlinesForAppByPersistence(appId, screeningRoutineIds)
-
-	const afterPersistenceIds = new Set([
-		...screeningRoutineIds,
-		...(persistenceRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const groupClassificationRoutines = await getRoutineDeadlinesForAppByGroupClassification(appId, afterPersistenceIds)
-
-	const afterGroupIds = new Set([
-		...afterPersistenceIds,
-		...(groupClassificationRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const oracleRoleCriticalityRoutines = await getRoutineDeadlinesForAppByOracleRoleCriticality(appId, afterGroupIds)
-
-	const alreadyMatchedIds = new Set([
-		...afterGroupIds,
-		...(oracleRoleCriticalityRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(appId, alreadyMatchedIds)
-
-	const allMatchedIds = new Set([
-		...alreadyMatchedIds,
-		...(screeningSelectionRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const sectionWideRoutines = await getRoutineDeadlinesForAppBySection(appId, allMatchedIds)
-
-	const allMatchedBeforeRuleset = new Set([
-		...allMatchedIds,
-		...(sectionWideRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const rulesetRoutines = await getRoutineDeadlinesForAppByRuleset(appId, allMatchedBeforeRuleset)
-
-	const routineDeadlines = [
-		...screeningRoutines.map((d) => ({ ...d, matchSource: "screening" as const })),
-		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
-		...groupClassificationRoutines.map((d) => ({ ...d, matchSource: "group_classification" as const })),
-		...oracleRoleCriticalityRoutines.map((d) => ({ ...d, matchSource: "oracle_role_criticality" as const })),
-		...screeningSelectionRoutines.map((d) => ({ ...d, matchSource: "screening_selection" as const })),
-		...sectionWideRoutines.map((d) => ({ ...d, matchSource: "section" as const })),
-		...rulesetRoutines.map((d) => ({ ...d, matchSource: "ruleset" as const })),
-	]
-
-	const allRoutineIds = [...new Set(routineDeadlines.map((d) => d.routine?.id).filter(Boolean) as string[])]
-	const routineControlsMap = new Map<string, Array<{ id: string }>>()
-	const routineTechElementsMap = new Map<string, string[]>()
-	if (allRoutineIds.length > 0) {
-		const { routineControls: routineControlsTable, routineTechnologyElements } = await import("~/db/schema/routines")
-		const { db } = await import("~/db/connection.server")
-		const { inArray, and, isNull } = await import("drizzle-orm")
-		const [controlRows, techElementRows] = await Promise.all([
-			db
-				.select({ routineId: routineControlsTable.routineId, controlId: routineControlsTable.controlId })
-				.from(routineControlsTable)
-				.where(and(inArray(routineControlsTable.routineId, allRoutineIds), isNull(routineControlsTable.archivedAt))),
-			db
-				.select({
-					routineId: routineTechnologyElements.routineId,
-					elementId: routineTechnologyElements.elementId,
-				})
-				.from(routineTechnologyElements)
-				.where(
-					and(
-						inArray(routineTechnologyElements.routineId, allRoutineIds),
-						isNull(routineTechnologyElements.archivedAt),
-					),
-				),
-		])
-		for (const row of controlRows) {
-			const list = routineControlsMap.get(row.routineId) ?? []
-			list.push({ id: row.controlId })
-			routineControlsMap.set(row.routineId, list)
-		}
-		for (const row of techElementRows) {
-			const list = routineTechElementsMap.get(row.routineId) ?? []
-			list.push(row.elementId)
-			routineTechElementsMap.set(row.routineId, list)
-		}
-	}
-
-	const deadlinesWithControls = routineDeadlines.map((d) => ({
-		...d,
-		routine: d.routine
-			? {
-					...d.routine,
-					controls: routineControlsMap.get(d.routine.id) ?? [],
-					technologyElementIds: routineTechElementsMap.get(d.routine.id) ?? [],
-				}
-			: d.routine,
-	}))
 
 	const screeningEffectsByControl = await getScreeningEffectsByControlForApp(appId)
 	const autoComplianceMap = computeAutoCompliance(
@@ -368,7 +269,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		primaryApp: detail.primaryApp,
 		linkedApps: detail.linkedApps,
 		appElements,
-		routineDeadlines,
+		routineDeadlines: deadlinesWithControls,
 		completedReviews,
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
