@@ -123,7 +123,7 @@ export function ScreeningSection({
 
 			{screening.length === 0 && (
 				<Alert variant="info" size="small">
-					Ingen innledende spørsmål er konfigurert for denne applikasjonen.
+					Det er ingen godkjente innledende spørsmål for denne seksjonen ennå.
 				</Alert>
 			)}
 		</>
