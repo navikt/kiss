@@ -973,8 +973,8 @@ export async function createReview(params: {
 			throw new Response("Kan ikke opprette gjennomgang for en arkivert rutine. Reaktiver rutinen først.", {
 				status: 403,
 			})
-		if (routine.status !== "ready" && routine.status !== "approved")
-			throw new Response("Kan ikke opprette gjennomgang for en rutine som ikke er ferdig eller godkjent", {
+		if (routine.status !== "approved")
+			throw new Response("Kan ikke opprette gjennomgang for en rutine som ikke er godkjent", {
 				status: 400,
 			})
 
@@ -1642,12 +1642,7 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 	const sectionRoutines = await db
 		.select()
 		.from(routines)
-		.where(
-			and(
-				eq(routines.sectionId, sectionId),
-				and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
-			),
-		)
+		.where(and(eq(routines.sectionId, sectionId), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
 
 	const results: RoutineDeadlineInfo[] = []
 
@@ -1712,7 +1707,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			.where(
 				and(
 					sql`${routines.screeningQuestionId} = ${ans.questionId} AND ${routines.screeningChoiceValue} = ${ans.answer}`,
-					and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
+					and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
 				),
 			)
 		for (const r of legacyRoutines) matchingRoutineIds.add(r.id)
@@ -1727,10 +1722,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			.select()
 			.from(routines)
 			.where(
-				and(
-					inArray(routines.id, routineIdList),
-					and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
-				),
+				and(inArray(routines.id, routineIdList), and(eq(routines.status, "approved"), isNull(routines.archivedAt))),
 			),
 		db
 			.select({
@@ -1890,12 +1882,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(
-			and(
-				inArray(routines.id, routineIds),
-				and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
-			),
-		)
+		.where(and(inArray(routines.id, routineIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
 
 	// Filter to routines where at least one persistence link matches the app
 	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number]; matchedLinks: typeof allPersLinks }> = []
@@ -2071,12 +2058,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(
-			and(
-				inArray(routines.id, routineIds),
-				and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
-			),
-		)
+		.where(and(inArray(routines.id, routineIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
 
 	// Filter to routines where at least one classification link matches
 	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number] }> = []
@@ -2231,12 +2213,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(
-			and(
-				inArray(routines.id, routineIds),
-				and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
-			),
-		)
+		.where(and(inArray(routines.id, routineIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
 
 	if (candidateRoutines.length === 0) return []
 
@@ -2366,12 +2343,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		db
 			.select()
 			.from(routines)
-			.where(
-				and(
-					inArray(routines.id, uniqueIds),
-					and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
-				),
-			),
+			.where(and(inArray(routines.id, uniqueIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt)))),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -2489,7 +2461,7 @@ export async function getRoutineDeadlinesForAppBySection(
 			and(
 				inArray(routines.sectionId, sectionIds),
 				eq(routines.appliesToAllInSection, 1),
-				and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
+				and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
 			),
 		)
 
@@ -2634,12 +2606,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 		db
 			.select()
 			.from(routines)
-			.where(
-				and(
-					inArray(routines.id, uniqueIds),
-					and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
-				),
-			),
+			.where(and(inArray(routines.id, uniqueIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt)))),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,

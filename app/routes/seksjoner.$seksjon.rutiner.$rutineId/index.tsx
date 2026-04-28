@@ -228,7 +228,7 @@ export default function RutineDetaljer() {
 								</Button>
 							</fetcher.Form>
 						)}
-						{!routine.archivedAt && (routine.status === "ready" || routine.status === "approved") && (
+						{!routine.archivedAt && routine.status === "approved" && (
 							<Button as={Link} to="./gjennomgang/ny" variant="primary" size="small">
 								Ny gjennomgang
 							</Button>

@@ -87,9 +87,9 @@ async function confirmAppTechElement(appId: string, elementId: string) {
 	)
 }
 
-async function markRoutineReady(routineId: string) {
+async function markRoutineApproved(routineId: string) {
 	const db = getTestDb()
-	await db.execute(/* sql */ `UPDATE routines SET status = 'ready', updated_by = 'test' WHERE id = '${routineId}'`)
+	await db.execute(/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'test' WHERE id = '${routineId}'`)
 }
 
 // ─── Test Suite ──────────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ describe("Routines integration tests", () => {
 				createdBy: "test-user",
 			})
 
-			await markRoutineReady(routine.id)
+			await markRoutineApproved(routine.id)
 			await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -338,6 +338,42 @@ describe("Routines integration tests", () => {
 	// ─── Reviews ─────────────────────────────────────────────────────────
 
 	describe("Reviews", () => {
+		it("should reject creating a review for a routine with status 'ready' (not approved)", async () => {
+			const sectionId = await createTestSection("Security", "security")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Not Yet Approved",
+				description: null,
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			// Set to 'ready' — not 'approved'
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
+
+			await expect(
+				createReview({
+					routineId: routine.id,
+					applicationId: null,
+					title: "Should fail",
+					summary: null,
+					routineSnapshotPath: null,
+					reviewedAt: new Date(),
+					createdBy: "test-user",
+					participants: [],
+				}),
+			).rejects.toMatchObject({ status: 400 })
+		})
+
 		it("should create a review with participants", async () => {
 			const sectionId = await createTestSection("Security", "security")
 
@@ -356,7 +392,7 @@ describe("Routines integration tests", () => {
 				createdBy: "test-user",
 			})
 
-			await markRoutineReady(routine.id)
+			await markRoutineApproved(routine.id)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -399,7 +435,7 @@ describe("Routines integration tests", () => {
 				createdBy: "test-user",
 			})
 
-			await markRoutineReady(routine.id)
+			await markRoutineApproved(routine.id)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -441,7 +477,7 @@ describe("Routines integration tests", () => {
 				createdBy: "test-user",
 			})
 
-			await markRoutineReady(routine.id)
+			await markRoutineApproved(routine.id)
 			await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -649,7 +685,7 @@ describe("Routines integration tests", () => {
 				activityType: "entra_id_group_maintenance",
 			})
 
-			await markRoutineReady(routine.id)
+			await markRoutineApproved(routine.id)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -709,7 +745,7 @@ describe("Routines integration tests", () => {
 				activityType: "entra_id_group_maintenance",
 			})
 
-			await markRoutineReady(routine.id)
+			await markRoutineApproved(routine.id)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -789,7 +825,7 @@ describe("Routines integration tests", () => {
 				activityType: "entra_id_group_maintenance",
 			})
 
-			await markRoutineReady(routine.id)
+			await markRoutineApproved(routine.id)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
