@@ -24,10 +24,12 @@ export type MatchSource =
 	| "ruleset"
 
 export interface DeadlineWithControls {
-	routine: RoutineDeadlineInfo["routine"] & {
-		controls: Array<{ id: string }>
-		technologyElementIds: string[]
-	}
+	routine:
+		| (Omit<NonNullable<RoutineDeadlineInfo["routine"]>, "controls"> & {
+				controls: Array<{ id: string }>
+				technologyElementIds: string[]
+		  })
+		| null
 	applicationId: string
 	applicationName: string
 	lastReviewDate: Date | null
@@ -150,5 +152,5 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 					technologyElementIds: routineTechElementsMap.get(d.routine.id) ?? [],
 				}
 			: d.routine,
-	})) as DeadlineWithControls[]
+	})) satisfies DeadlineWithControls[]
 }
