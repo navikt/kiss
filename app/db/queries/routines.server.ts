@@ -334,8 +334,8 @@ export async function createRoutine(params: {
 	})
 
 	// Routine changes affect compliance — sync apps in this section (fire-and-forget)
-	import("./application-controls.server").then(({ syncAppsForSection }) =>
-		syncAppsForSection(params.sectionId, params.createdBy).catch(() => {}),
+	import("./application-controls.server").then(({ triggerSyncForSection }) =>
+		triggerSyncForSection(params.sectionId, params.createdBy),
 	)
 
 	return routine
@@ -779,8 +779,8 @@ export async function updateRoutine(params: {
 
 	// Routine changes affect compliance — sync apps in this section (fire-and-forget)
 	if (routine) {
-		import("./application-controls.server").then(({ syncAppsForSection }) =>
-			syncAppsForSection(routine.sectionId, params.updatedBy).catch(() => {}),
+		import("./application-controls.server").then(({ triggerSyncForSection }) =>
+			triggerSyncForSection(routine.sectionId, params.updatedBy),
 		)
 	}
 
@@ -830,8 +830,8 @@ export async function archiveRoutine(id: string, performedBy: string) {
 
 	// Archiving a routine affects compliance — sync apps in this section (fire-and-forget)
 	if (routine?.sectionId) {
-		import("./application-controls.server").then(({ syncAppsForSection }) =>
-			syncAppsForSection(routine.sectionId, performedBy).catch(() => {}),
+		import("./application-controls.server").then(({ triggerSyncForSection }) =>
+			triggerSyncForSection(routine.sectionId, performedBy),
 		)
 	}
 

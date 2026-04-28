@@ -1062,9 +1062,7 @@ export async function applyFrameworkImport(
 	})
 
 	// Framework changes affect which controls apply to apps — refresh the compliance cache (fire-and-forget)
-	import("./application-controls.server").then(({ syncAllApplicationControls }) =>
-		syncAllApplicationControls(appliedBy).catch(() => {}),
-	)
+	import("./application-controls.server").then(({ triggerSyncAll }) => triggerSyncAll(appliedBy))
 }
 
 /** Get the current pending framework import, or null. */
