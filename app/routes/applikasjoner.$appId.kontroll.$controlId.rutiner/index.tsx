@@ -63,31 +63,19 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	// Filter deadlines to only routines linked to this control
 	const matchedDeadlines = allDeadlines.filter((d) => d.routine && d.routine.controls.some((c) => c.id === controlId))
 
-	// Resolve technology element names for matched routines
-	const matchedRoutineIds = [...new Set(matchedDeadlines.map((d) => d.routine?.id).filter(Boolean) as string[])]
-	const routineTechElementMap = new Map<string, string[]>()
-	if (matchedRoutineIds.length > 0) {
-		const { routineTechnologyElements } = await import("~/db/schema/routines")
+	// Resolve technology element IDs→names (IDs already available from shared pipeline)
+	const allElementIds = [...new Set(matchedDeadlines.flatMap((d) => d.routine?.technologyElementIds ?? []))]
+	const elementNameMap = new Map<string, string>()
+	if (allElementIds.length > 0) {
 		const { technologyElements } = await import("~/db/schema/framework")
 		const { db } = await import("~/db/connection.server")
-		const { inArray, eq, and, isNull } = await import("drizzle-orm")
-		const techRows = await db
-			.select({
-				routineId: routineTechnologyElements.routineId,
-				elementName: technologyElements.name,
-			})
-			.from(routineTechnologyElements)
-			.innerJoin(technologyElements, eq(technologyElements.id, routineTechnologyElements.elementId))
-			.where(
-				and(
-					inArray(routineTechnologyElements.routineId, matchedRoutineIds),
-					isNull(routineTechnologyElements.archivedAt),
-				),
-			)
-		for (const row of techRows) {
-			const existing = routineTechElementMap.get(row.routineId) ?? []
-			existing.push(row.elementName)
-			routineTechElementMap.set(row.routineId, existing)
+		const { inArray } = await import("drizzle-orm")
+		const rows = await db
+			.select({ id: technologyElements.id, name: technologyElements.name })
+			.from(technologyElements)
+			.where(inArray(technologyElements.id, allElementIds))
+		for (const row of rows) {
+			elementNameMap.set(row.id, row.name)
 		}
 	}
 
@@ -110,7 +98,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				deadline: deadline.toISOString(),
 				overdue: isOverdue(deadline),
 				neverReviewed: !latestReview,
-				technologyElements: routineTechElementMap.get(routine.id) ?? [],
+				technologyElements: (routine.technologyElementIds ?? []).map((id) => elementNameMap.get(id)).filter(Boolean) as string[],
 			}
 		}),
 	)
