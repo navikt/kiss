@@ -996,8 +996,8 @@ export async function createReview(params: {
 			throw new Response("Kan ikke opprette gjennomgang for en arkivert rutine. Reaktiver rutinen først.", {
 				status: 403,
 			})
-		if (routine.status !== "active" && routine.status !== "approved")
-			throw new Response("Kan ikke opprette gjennomgang for en rutine som ikke er aktiv eller godkjent", {
+		if (routine.status !== "ready" && routine.status !== "approved")
+			throw new Response("Kan ikke opprette gjennomgang for en rutine som ikke er ferdig eller godkjent", {
 				status: 400,
 			})
 
@@ -1668,7 +1668,7 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 		.where(
 			and(
 				eq(routines.sectionId, sectionId),
-				and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+				and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
 			),
 		)
 
@@ -1735,7 +1735,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			.where(
 				and(
 					sql`${routines.screeningQuestionId} = ${ans.questionId} AND ${routines.screeningChoiceValue} = ${ans.answer}`,
-					and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+					and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
 				),
 			)
 		for (const r of legacyRoutines) matchingRoutineIds.add(r.id)
@@ -1752,7 +1752,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			.where(
 				and(
 					inArray(routines.id, routineIdList),
-					and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+					and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
 				),
 			),
 		db
@@ -1916,7 +1916,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 		.where(
 			and(
 				inArray(routines.id, routineIds),
-				and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+				and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
 			),
 		)
 
@@ -2097,7 +2097,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 		.where(
 			and(
 				inArray(routines.id, routineIds),
-				and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+				and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
 			),
 		)
 
@@ -2257,7 +2257,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 		.where(
 			and(
 				inArray(routines.id, routineIds),
-				and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+				and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
 			),
 		)
 
@@ -2392,7 +2392,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			.where(
 				and(
 					inArray(routines.id, uniqueIds),
-					and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+					and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
 				),
 			),
 		db
@@ -2512,7 +2512,7 @@ export async function getRoutineDeadlinesForAppBySection(
 			and(
 				inArray(routines.sectionId, sectionIds),
 				eq(routines.appliesToAllInSection, 1),
-				and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+				and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
 			),
 		)
 
@@ -2660,7 +2660,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			.where(
 				and(
 					inArray(routines.id, uniqueIds),
-					and(inArray(routines.status, ["active", "approved"]), isNull(routines.archivedAt)),
+					and(inArray(routines.status, ["ready", "approved"]), isNull(routines.archivedAt)),
 				),
 			),
 		db
@@ -3031,13 +3031,13 @@ export async function getActivitiesForReviews(reviewIds: string[]) {
 export async function approveRoutine(routineId: string, performedBy: string) {
 	const routine = await getRoutine(routineId)
 	if (!routine) return null
-	if (routine.status !== "active") {
-		throw new Response("Kun aktive rutiner kan godkjennes", { status: 400 })
+	if (routine.status !== "ready") {
+		throw new Response("Kun ferdige rutiner kan godkjennes", { status: 400 })
 	}
 
 	// Atomisk: archive-guard + UPDATE i tx med FOR SHARE-lås på rutinen så
 	// samtidig archiveRoutine() blokkeres til vår tx er ferdig. UPDATE re-
-	// validerer status='active' og archived_at IS NULL i WHERE-clauselen, så
+	// validerer status='ready' og archived_at IS NULL i WHERE-clauselen, så
 	// status-endring mellom pre-check og UPDATE (f.eks. samtidig replaceRoutine
 	// eller manuell statusendring) gir 0 oppdaterte rader → 409 Conflict.
 	return db.transaction(async (tx) => {
@@ -3056,7 +3056,7 @@ export async function approveRoutine(routineId: string, performedBy: string) {
 		const [updated] = await tx
 			.update(routines)
 			.set({ status: "approved", approvedBy: performedBy, approvedAt: now, updatedBy: performedBy, updatedAt: now })
-			.where(and(eq(routines.id, routineId), eq(routines.status, "active"), isNull(routines.archivedAt)))
+			.where(and(eq(routines.id, routineId), eq(routines.status, "ready"), isNull(routines.archivedAt)))
 			.returning()
 		if (!updated) {
 			throw new Response("Rutinen kan ikke godkjennes lenger (status eller archived_at endret seg).", {
