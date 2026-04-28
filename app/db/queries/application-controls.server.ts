@@ -11,7 +11,6 @@ import { db } from "../connection.server"
 import { applicationControlHistory, applicationControls } from "../schema/application-controls"
 import { monitoredApplications } from "../schema/applications"
 import { applicationTechnologyElements } from "../schema/framework"
-import { routineControls as routineControlsTable, routineTechnologyElements } from "../schema/routines"
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -45,111 +44,17 @@ export async function syncApplicationControls(appId: string, performedBy = "syst
 	// Lazy-import to avoid circular dependencies
 	const { getAppAssessments } = await import("./applications.server")
 	const { getScreeningEffectsByControlForApp } = await import("./compliance-auto.server")
-	const {
-		getRoutineDeadlinesForApp,
-		getRoutineDeadlinesForAppByGroupClassification,
-		getRoutineDeadlinesForAppByOracleRoleCriticality,
-		getRoutineDeadlinesForAppByPersistence,
-		getRoutineDeadlinesForAppByScreeningSelection,
-		getRoutineDeadlinesForAppBySection,
-		getRoutineDeadlinesForAppByRuleset,
-	} = await import("./routines.server")
+	const { getRoutineDeadlinesWithControls } = await import("./routine-deadlines.server")
 	const { computeAutoCompliance } = await import("~/lib/auto-compliance")
 
 	// 1. Get expected assessment rows
 	const assessmentsResult = await getAppAssessments(appId)
 	if (!assessmentsResult) return null
 
-	// 2. Compute routine deadlines (same logic as detail page loader)
-	const screeningRoutines = await getRoutineDeadlinesForApp(appId)
-	const screeningRoutineIds = new Set(screeningRoutines.map((d) => d.routine?.id).filter(Boolean) as string[])
-	const persistenceRoutines = await getRoutineDeadlinesForAppByPersistence(appId, screeningRoutineIds)
-	const afterPersistenceIds = new Set([
-		...screeningRoutineIds,
-		...(persistenceRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const groupClassificationRoutines = await getRoutineDeadlinesForAppByGroupClassification(appId, afterPersistenceIds)
-	const afterGroupIds = new Set([
-		...afterPersistenceIds,
-		...(groupClassificationRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const oracleRoleCriticalityRoutines = await getRoutineDeadlinesForAppByOracleRoleCriticality(appId, afterGroupIds)
-	const alreadyMatchedIds = new Set([
-		...afterGroupIds,
-		...(oracleRoleCriticalityRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(appId, alreadyMatchedIds)
-	const allMatchedIds = new Set([
-		...alreadyMatchedIds,
-		...(screeningSelectionRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const sectionWideRoutines = await getRoutineDeadlinesForAppBySection(appId, allMatchedIds)
-	const allMatchedBeforeRuleset = new Set([
-		...allMatchedIds,
-		...(sectionWideRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
-	])
-	const rulesetRoutines = await getRoutineDeadlinesForAppByRuleset(appId, allMatchedBeforeRuleset)
+	// 2. Compute routine deadlines using shared pipeline
+	const deadlinesWithControls = await getRoutineDeadlinesWithControls(appId)
 
-	const routineDeadlines = [
-		...screeningRoutines.map((d) => ({ ...d, matchSource: "screening" as const })),
-		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
-		...groupClassificationRoutines.map((d) => ({ ...d, matchSource: "group_classification" as const })),
-		...oracleRoleCriticalityRoutines.map((d) => ({ ...d, matchSource: "oracle_role_criticality" as const })),
-		...screeningSelectionRoutines.map((d) => ({ ...d, matchSource: "screening_selection" as const })),
-		...sectionWideRoutines.map((d) => ({ ...d, matchSource: "section" as const })),
-		...rulesetRoutines.map((d) => ({ ...d, matchSource: "ruleset" as const })),
-	]
-
-	// 3. Load routine → control mappings and technology element mappings
-	const allRoutineIds = [...new Set(routineDeadlines.map((d) => d.routine?.id).filter(Boolean) as string[])]
-	const routineControlsMap = new Map<string, Array<{ id: string }>>()
-	const routineTechElementsMap = new Map<string, string[]>()
-	if (allRoutineIds.length > 0) {
-		const [controlRows, techElementRows] = await Promise.all([
-			db
-				.select({
-					routineId: routineControlsTable.routineId,
-					controlId: routineControlsTable.controlId,
-				})
-				.from(routineControlsTable)
-				.where(and(inArray(routineControlsTable.routineId, allRoutineIds), isNull(routineControlsTable.archivedAt))),
-			db
-				.select({
-					routineId: routineTechnologyElements.routineId,
-					elementId: routineTechnologyElements.elementId,
-				})
-				.from(routineTechnologyElements)
-				.where(
-					and(
-						inArray(routineTechnologyElements.routineId, allRoutineIds),
-						isNull(routineTechnologyElements.archivedAt),
-					),
-				),
-		])
-		for (const row of controlRows) {
-			const list = routineControlsMap.get(row.routineId) ?? []
-			list.push({ id: row.controlId })
-			routineControlsMap.set(row.routineId, list)
-		}
-		for (const row of techElementRows) {
-			const list = routineTechElementsMap.get(row.routineId) ?? []
-			list.push(row.elementId)
-			routineTechElementsMap.set(row.routineId, list)
-		}
-	}
-
-	const deadlinesWithControls = routineDeadlines.map((d) => ({
-		...d,
-		routine: d.routine
-			? {
-					...d.routine,
-					controls: routineControlsMap.get(d.routine.id) ?? [],
-					technologyElementIds: routineTechElementsMap.get(d.routine.id) ?? [],
-				}
-			: d.routine,
-	}))
-
-	// 4. Compute auto-compliance
+	// 3. Compute auto-compliance
 	const screeningEffectsByControl = await getScreeningEffectsByControlForApp(appId)
 	const autoComplianceMap = computeAutoCompliance(
 		assessmentsResult.assessments.map((a) => ({
@@ -161,7 +66,7 @@ export async function syncApplicationControls(appId: string, performedBy = "syst
 		screeningEffectsByControl,
 	)
 
-	// 5. Build the expected set from computed results
+	// 4. Build the expected set from computed results
 	const expectedRows = new Map<
 		string,
 		{
@@ -199,7 +104,7 @@ export async function syncApplicationControls(appId: string, performedBy = "syst
 		})
 	}
 
-	// 6. Load existing persisted rows for this app
+	// 5. Load existing persisted rows for this app
 	const existingRows = await db.select().from(applicationControls).where(eq(applicationControls.applicationId, appId))
 
 	const existingByKey = new Map<string, (typeof existingRows)[0]>()
@@ -207,7 +112,7 @@ export async function syncApplicationControls(appId: string, performedBy = "syst
 		existingByKey.set(assessmentKey(row.controlId, row.technologyElementId), row)
 	}
 
-	// 7. Diff and apply changes
+	// 6. Diff and apply changes
 	const result: SyncResult = {
 		activated: 0,
 		deactivated: 0,
