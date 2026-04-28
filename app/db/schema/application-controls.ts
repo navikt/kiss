@@ -65,7 +65,7 @@ export const applicationControls = pgTable(
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedBy: text("updated_by").notNull(),
 	},
-	(t) => [unique("uq_app_control").on(t.applicationId, t.controlId, t.technologyElementId)],
+	(t) => [unique("uq_app_control").on(t.applicationId, t.controlId, t.technologyElementId).nullsNotDistinct()],
 )
 
 export const applicationControlHistory = pgTable("application_control_history", {
