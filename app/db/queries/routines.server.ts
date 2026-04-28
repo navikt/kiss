@@ -945,7 +945,7 @@ async function enrichReview(review: typeof routineReviews.$inferSelect) {
 
 /**
  * Oppretter en gjennomgang (review) av en rutine for en gitt applikasjon.
- * Kaster feil hvis rutinen ikke er aktiv eller godkjent, eller hvis den er
+ * Kaster feil hvis rutinen ikke er godkjent, eller hvis den er
  * arkivert (soft-deleted). Skriver audit-logg.
  */
 export async function createReview(params: {
@@ -1699,7 +1699,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		for (const l of links) matchingRoutineIds.add(l.routineId)
 	}
 
-	// Also check legacy single-link field (active routines only)
+	// Also check legacy single-link field (approved routines only)
 	for (const ans of appAnswers) {
 		const legacyRoutines = await db
 			.select({ id: routines.id })
@@ -2453,7 +2453,7 @@ export async function getRoutineDeadlinesForAppBySection(
 	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
 	if (sectionIds.length === 0) return []
 
-	// Find routines that apply to all apps in these sections (active only)
+	// Find routines that apply to all apps in these sections (approved only)
 	const sectionRoutines = await db
 		.select()
 		.from(routines)
@@ -2969,7 +2969,7 @@ export async function getActivitiesForReviews(reviewIds: string[]) {
 // ─── Routine Approval ────────────────────────────────────────────────────
 
 /**
- * Godkjenner en rutine (kun mulig fra status `active`). Godkjente rutiner
+ * Godkjenner en rutine (kun mulig fra status `ready`). Godkjente rutiner
  * kan ikke redigeres etterpå — kun erstattes via {@link replaceRoutine}.
  */
 export async function approveRoutine(routineId: string, performedBy: string) {
