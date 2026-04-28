@@ -87,6 +87,11 @@ async function confirmAppTechElement(appId: string, elementId: string) {
 	)
 }
 
+async function markRoutineReady(routineId: string) {
+	const db = getTestDb()
+	await db.execute(/* sql */ `UPDATE routines SET status = 'ready', updated_by = 'test' WHERE id = '${routineId}'`)
+}
+
 // ─── Test Suite ──────────────────────────────────────────────────────────
 
 describe("Routines integration tests", () => {
@@ -293,6 +298,7 @@ describe("Routines integration tests", () => {
 				createdBy: "test-user",
 			})
 
+			await markRoutineReady(routine.id)
 			await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -350,6 +356,7 @@ describe("Routines integration tests", () => {
 				createdBy: "test-user",
 			})
 
+			await markRoutineReady(routine.id)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -392,6 +399,7 @@ describe("Routines integration tests", () => {
 				createdBy: "test-user",
 			})
 
+			await markRoutineReady(routine.id)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -433,6 +441,7 @@ describe("Routines integration tests", () => {
 				createdBy: "test-user",
 			})
 
+			await markRoutineReady(routine.id)
 			await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -640,6 +649,7 @@ describe("Routines integration tests", () => {
 				activityType: "entra_id_group_maintenance",
 			})
 
+			await markRoutineReady(routine.id)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -699,6 +709,7 @@ describe("Routines integration tests", () => {
 				activityType: "entra_id_group_maintenance",
 			})
 
+			await markRoutineReady(routine.id)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -778,6 +789,7 @@ describe("Routines integration tests", () => {
 				activityType: "entra_id_group_maintenance",
 			})
 
+			await markRoutineReady(routine.id)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,

@@ -252,12 +252,15 @@ describe("Database migrations", () => {
 			const droppedTables = _testing.extractDropTableNames(migrationSql)
 			const createdIndexes = _testing.extractCreateIndexNames(migrationSql)
 			const addedConstraints = _testing.extractAddConstraints(migrationSql)
+			const isDataMigration =
+				/UPDATE\s+"?\w+"?\s+SET\b/i.test(migrationSql) || /ALTER TABLE.*ALTER COLUMN.*SET DEFAULT/i.test(migrationSql)
 			const hasVerifiableChanges =
 				createdTables.length > 0 ||
 				addedColumns.length > 0 ||
 				droppedTables.length > 0 ||
 				createdIndexes.length > 0 ||
-				addedConstraints.length > 0
+				addedConstraints.length > 0 ||
+				isDataMigration
 			expect(hasVerifiableChanges).toBe(true)
 
 			// Run all migrations first

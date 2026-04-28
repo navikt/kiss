@@ -60,7 +60,7 @@ const fakeSection = { id: "section-1", name: "Test", slug: "test-seksjon" }
 const fakeRoutine = {
 	id: "routine-1",
 	name: "Test rutine",
-	status: "active",
+	status: "ready",
 	responsibleRole: "Teknologileder",
 	controls: [],
 	technologyElements: [],

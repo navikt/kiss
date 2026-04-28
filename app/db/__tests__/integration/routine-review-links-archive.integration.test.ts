@@ -68,7 +68,7 @@ async function setupReview() {
 	const sectionId = await createTestSection("Sec", `sec-${Math.random().toString(36).slice(2, 8)}`)
 	const appId = await createTestApp(`App-${Math.random().toString(36).slice(2, 8)}`)
 	const routine = await createTestRoutine(sectionId, "R1")
-	await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+	await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 	const review = await createReview({
 		routineId: routine.id,
 		applicationId: appId,

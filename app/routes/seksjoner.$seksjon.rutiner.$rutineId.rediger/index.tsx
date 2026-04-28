@@ -61,7 +61,7 @@ import {
 	type RoutineFrequency,
 } from "~/lib/routine-frequencies"
 
-const EDITABLE_STATUSES: RoutineStatus[] = ["draft", "active"]
+const EDITABLE_STATUSES: RoutineStatus[] = ["draft", "ready"]
 
 const PREDEFINED_ROLES = [
 	"Seksjonsleder",
@@ -524,9 +524,9 @@ export default function RedigerRutine() {
 						))}
 					</Select>
 
-					<Select label="Status" name="status" defaultValue={routine.status ?? "active"} size="small">
-						<option value="draft">Utkast</option>
-						<option value="active">Aktiv</option>
+					<Select label="Status" name="status" defaultValue={routine.status ?? "draft"} size="small">
+						<option value="draft">Kladd</option>
+						<option value="ready">Ferdig</option>
 						<option value="archived">Arkivert</option>
 					</Select>
 
@@ -777,7 +777,7 @@ export default function RedigerRutine() {
 						<Button type="submit" variant="primary" size="small">
 							Lagre
 						</Button>
-						{routine.sourceRoutineId && userCanApprove && routine.status === "active" && (
+						{routine.sourceRoutineId && userCanApprove && routine.status === "ready" && (
 							<Button type="button" variant="primary" size="small" onClick={() => approveModalRef.current?.showModal()}>
 								Godkjenn
 							</Button>

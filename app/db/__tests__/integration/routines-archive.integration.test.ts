@@ -227,6 +227,8 @@ describe("Routine archive (soft-delete) integration tests", () => {
 		const appId = await createTestApp("App")
 		const routine = await createTestRoutine(sectionId, "R1")
 
+		const db = getTestDb()
+		await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 		await createReview({
 			routineId: routine.id,
 			applicationId: appId,
@@ -240,7 +242,6 @@ describe("Routine archive (soft-delete) integration tests", () => {
 
 		await archiveRoutine(routine.id, "admin")
 
-		const db = getTestDb()
 		const reviews = await db.execute(/* sql */ `SELECT id FROM routine_reviews WHERE routine_id = '${routine.id}'`)
 		expect(reviews.rows).toHaveLength(1)
 	})
@@ -250,6 +251,8 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const sectionId = await createTestSection("Sec", "sec")
 			const appId = await createTestApp("App")
 			const routine = await createTestRoutine(sectionId, "R1")
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			await createReview({
 				routineId: routine.id,
 				applicationId: appId,
@@ -261,7 +264,6 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				participants: [],
 			})
 
-			const db = getTestDb()
 			await expect(db.execute(/* sql */ `DELETE FROM routines WHERE id = '${routine.id}'`)).rejects.toThrow()
 
 			const stillThere = await db.execute(/* sql */ `SELECT id FROM routines WHERE id = '${routine.id}'`)
@@ -385,7 +387,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const appId = await createTestApp("App")
 			const routine = await createTestRoutine(sectionId, "R1")
 			// Sett status='active' for å passere status-guarden, og arkiver i etterkant
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			await archiveRoutine(routine.id, "admin")
 
 			await expect(
@@ -405,17 +407,17 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			expect(reviews.rows).toHaveLength(0)
 		})
 
-		it("approveRoutine() avviser arkivert rutine selv om status='active'", async () => {
+		it("approveRoutine() avviser arkivert rutine selv om status='ready'", async () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Sec", "sec")
 			const routine = await createTestRoutine(sectionId, "R1")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			await archiveRoutine(routine.id, "admin")
 
 			await expect(approveRoutine(routine.id, "approver")).rejects.toMatchObject({ status: 403 })
 
 			const after = await getRoutine(routine.id)
-			expect(after?.status).toBe("active")
+			expect(after?.status).toBe("ready")
 			expect(after?.approvedBy).toBeNull()
 		})
 
@@ -432,7 +434,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const sectionId = await createTestSection("Sec", "sec")
 			const appId = await createTestApp("App")
 			const routine = await createTestRoutine(sectionId, "R1")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: appId,
@@ -459,7 +461,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const sectionId = await createTestSection("Sec", "sec")
 			const appId = await createTestApp("App")
 			const routine = await createTestRoutine(sectionId, "R1")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: appId,
@@ -482,7 +484,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const sectionId = await createTestSection("Sec", "sec")
 			const appId = await createTestApp("App")
 			const routine = await createTestRoutine(sectionId, "R1")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			const review1 = await createReview({
 				routineId: routine.id,
 				applicationId: appId,
@@ -523,7 +525,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const sectionId = await createTestSection("Sec", "sec")
 			const appId = await createTestApp("App")
 			const routine = await createTestRoutine(sectionId, "R1")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: appId,
@@ -558,7 +560,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const pool = getTestPool()
 			const sectionId = await createTestSection("TOCTOUSec", "toctou-sec")
 			const routine = await createTestRoutine(sectionId, "TOCTOU-rutine")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -624,7 +626,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("DiscSec", "disc-sec")
 			const routine = await createTestRoutine(sectionId, "DiscR")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -647,7 +649,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("LinkSec", "link-sec")
 			const routine = await createTestRoutine(sectionId, "LinkR")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -679,7 +681,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("UpdSec", "upd-sec")
 			const routine = await createTestRoutine(sectionId, "UpdR")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -698,7 +700,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("CompSec", "comp-sec")
 			const routine = await createTestRoutine(sectionId, "CompR")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
@@ -717,7 +719,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("IdemSec", "idem-sec")
 			const routine = await createTestRoutine(sectionId, "IdemR")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'active' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			const review = await createReview({
 				routineId: routine.id,
 				applicationId: null,
