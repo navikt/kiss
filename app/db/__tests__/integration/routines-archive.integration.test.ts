@@ -381,7 +381,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 	})
 
 	describe("Status-baserte mutasjoner respekterer archivedAt", () => {
-		it("createReview() avviser arkivert rutine selv om status='active'", async () => {
+		it("createReview() avviser arkivert rutine selv om status='approved'", async () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Sec", "sec")
 			const appId = await createTestApp("App")
@@ -614,7 +614,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("ApprSec", "appr-sec")
 			const routine = await createTestRoutine(sectionId, "ApprR")
-			// Direktemanipulasjon for å verifisere at UPDATE WHERE status='active'
+			// Direktemanipulasjon for å verifisere at UPDATE WHERE status='ready'
 			// (atomisk inne i tx) avviser når status er noe annet. Tester
 			// kontrakten på WHERE-clauselen — den ekte race-bevissheten er
 			// dekket av deleteReviewLink-TOCTOU-testen som beviser FOR SHARE.

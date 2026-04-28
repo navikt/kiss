@@ -194,7 +194,7 @@ describe("routine edit guards", () => {
 		expect(mockUpdateRoutine).toHaveBeenCalled()
 	})
 
-	it("allows editing an active routine", async () => {
+	it("allows editing a ready routine", async () => {
 		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready" }))
 		mockUpdateRoutine.mockResolvedValue(undefined)
 

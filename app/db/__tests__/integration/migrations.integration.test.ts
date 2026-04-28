@@ -253,7 +253,8 @@ describe("Database migrations", () => {
 			const createdIndexes = _testing.extractCreateIndexNames(migrationSql)
 			const addedConstraints = _testing.extractAddConstraints(migrationSql)
 			const isDataMigration =
-				/UPDATE\s+"?\w+"?\s+SET\b/i.test(migrationSql) || /ALTER TABLE.*ALTER COLUMN.*SET DEFAULT/i.test(migrationSql)
+				/UPDATE\s+"?\w+"?\s+SET\b/i.test(migrationSql) ||
+				/ALTER TABLE[\s\S]*?ALTER COLUMN[\s\S]*?SET DEFAULT/i.test(migrationSql)
 			const hasVerifiableChanges =
 				createdTables.length > 0 ||
 				addedColumns.length > 0 ||

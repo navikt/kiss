@@ -189,6 +189,11 @@ export default function RutineDetaljer() {
 								Kladd
 							</Tag>
 						)}
+						{routine.status === "ready" && (
+							<Tag variant="info" size="small">
+								Ferdig
+							</Tag>
+						)}
 						{routine.status === "approved" && (
 							<Tag variant="success" size="small">
 								Godkjent
