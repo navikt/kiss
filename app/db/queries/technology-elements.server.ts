@@ -178,7 +178,7 @@ export async function getTechnologyElementWithCounts(id: string) {
 
 /** Add a technology element to a control. Avviser kobling til arkivert element. */
 export async function addControlElement(controlId: string, elementId: string, performer: string) {
-	return db.transaction(async (tx) => {
+	await db.transaction(async (tx) => {
 		const [el] = await tx
 			.select({ archivedAt: technologyElements.archivedAt })
 			.from(technologyElements)
@@ -210,6 +210,11 @@ export async function addControlElement(controlId: string, elementId: string, pe
 			tx,
 		)
 	})
+
+	// Control-element mapping change affects compliance — sync affected apps (fire-and-forget)
+	import("./application-controls.server").then(({ triggerSyncForElement }) =>
+		triggerSyncForElement(elementId, performer),
+	)
 }
 
 /** Soft-delete (arkiver) en teknologielement-kobling fra en kontroll. Auditerer kun ved faktisk arkivering (no-op hvis raden allerede er arkivert). */
@@ -243,6 +248,11 @@ export async function removeControlElement(controlId: string, elementId: string,
 			tx,
 		)
 	})
+
+	// Control-element mapping change affects compliance — sync affected apps (fire-and-forget)
+	import("./application-controls.server").then(({ triggerSyncForElement }) =>
+		triggerSyncForElement(elementId, performer),
+	)
 }
 
 /** Mapping from persistence/auth types to technology element slugs. */

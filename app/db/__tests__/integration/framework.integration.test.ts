@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ParsedFramework } from "~/lib/excel-parser.server"
-import { getTestDb, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 // Mock connection.server to use the test database
 vi.mock("~/db/connection.server", () => ({
@@ -8,7 +8,7 @@ vi.mock("~/db/connection.server", () => ({
 		return getTestDb()
 	},
 	get pool() {
-		return null
+		return getTestPool()
 	},
 }))
 
@@ -92,19 +92,22 @@ describe("Framework integration tests", () => {
 
 	beforeEach(async () => {
 		const db = getTestDb()
-		// Clean tables in dependency order
 		await db.execute(
 			/* sql */ `
-			DELETE FROM framework_field_history;
-			DELETE FROM framework_risk_control_mappings;
-			DELETE FROM compliance_assessments;
-			DELETE FROM compliance_assessment_history;
-			DELETE FROM control_technology_elements;
-			DELETE FROM framework_controls;
-			DELETE FROM framework_risks;
-			DELETE FROM framework_domains;
-			DELETE FROM framework_versions;
-			DELETE FROM audit_log;
+			TRUNCATE
+				framework_field_history,
+				framework_risk_control_mappings,
+				compliance_assessments,
+				compliance_assessment_history,
+				application_controls,
+				application_control_history,
+				control_technology_elements,
+				framework_controls,
+				framework_risks,
+				framework_domains,
+				framework_versions,
+				audit_log
+			CASCADE;
 		`,
 		)
 	})

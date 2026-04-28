@@ -5,11 +5,12 @@
  * auto-compliance computation and persists the results, handling soft-delete,
  * re-activation, and history tracking.
  */
-import { and, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import type { ComplianceStatus, RoutineCompliance, RoutineEstablishment } from "~/lib/compliance-status"
 import { db } from "../connection.server"
 import { applicationControlHistory, applicationControls } from "../schema/application-controls"
 import { monitoredApplications } from "../schema/applications"
+import { applicationTechnologyElements } from "../schema/framework"
 import { routineControls as routineControlsTable } from "../schema/routines"
 
 // ─── Types ───────────────────────────────────────────────────────────────
@@ -195,8 +196,8 @@ export async function syncApplicationControls(appId: string, performedBy = "syst
 		const existing = existingByKey.get(key)
 
 		if (!existing) {
-			// New control — insert
-			const [inserted] = await db
+			// New control — insert (onConflictDoNothing handles concurrent syncs safely)
+			const inserted = await db
 				.insert(applicationControls)
 				.values({
 					applicationId: appId,
@@ -217,18 +218,20 @@ export async function syncApplicationControls(appId: string, performedBy = "syst
 					createdBy: performedBy,
 					updatedBy: performedBy,
 				})
+				.onConflictDoNothing()
 				.returning({ id: applicationControls.id })
 
-			await db.insert(applicationControlHistory).values({
-				applicationControlId: inserted.id,
-				action: "activated",
-				newStatus: expected.status,
-				reason: "Control became applicable",
-				performedBy,
-				performedAt: now,
-			})
-
-			result.activated++
+			if (inserted.length > 0) {
+				await db.insert(applicationControlHistory).values({
+					applicationControlId: inserted[0].id,
+					action: "activated",
+					newStatus: expected.status,
+					reason: "Control became applicable",
+					performedBy,
+					performedAt: now,
+				})
+				result.activated++
+			}
 		} else if (!existing.isActive) {
 			// Previously deactivated — reactivate (preserve comment!)
 			await db
@@ -382,6 +385,65 @@ export async function syncAllApplicationControls(performedBy = "system"): Promis
 	})
 
 	return lockResult ?? { synced: 0, errors: 0 }
+}
+
+/**
+ * Sync compliance cache for all apps belonging to a section (via its teams).
+ * Fire-and-forget safe — errors are caught per app and don't propagate.
+ */
+export async function syncAppsForSection(sectionId: string, performedBy = "system"): Promise<void> {
+	const { devTeams } = await import("../schema/organization")
+	const { applicationTeamMappings } = await import("../schema/applications")
+
+	const teamRows = await db.select({ id: devTeams.id }).from(devTeams).where(eq(devTeams.sectionId, sectionId))
+	if (teamRows.length === 0) return
+
+	const teamIds = teamRows.map((t) => t.id)
+	const appRows = await db
+		.select({ applicationId: applicationTeamMappings.applicationId })
+		.from(applicationTeamMappings)
+		.where(and(inArray(applicationTeamMappings.devTeamId, teamIds), isNull(applicationTeamMappings.archivedAt)))
+	const appIds = [...new Set(appRows.map((r) => r.applicationId))]
+
+	for (const appId of appIds) {
+		try {
+			await syncApplicationControls(appId, performedBy)
+		} catch {
+			// Per-app errors are non-fatal for batch sync
+		}
+	}
+}
+
+// ─── Fire-and-forget triggers ────────────────────────────────────────────
+
+/** Fire-and-forget: sync all app controls. Errors silently caught. */
+export function triggerSyncAll(performer?: string): void {
+	syncAllApplicationControls(performer).catch(() => {})
+}
+
+/** Fire-and-forget: sync app controls for a section. Errors silently caught. */
+export function triggerSyncForSection(sectionId: string, performer?: string): void {
+	syncAppsForSection(sectionId, performer).catch(() => {})
+}
+
+/** Fire-and-forget: sync app controls for apps with a given technology element. Errors silently caught. */
+export function triggerSyncForElement(elementId: string, performer: string): void {
+	db.select({ applicationId: applicationTechnologyElements.applicationId })
+		.from(applicationTechnologyElements)
+		.where(
+			and(
+				eq(applicationTechnologyElements.elementId, elementId),
+				isNotNull(applicationTechnologyElements.confirmedAt),
+				isNull(applicationTechnologyElements.rejectedAt),
+				isNull(applicationTechnologyElements.archivedAt),
+			),
+		)
+		.then(async (rows) => {
+			for (const row of rows) {
+				await syncApplicationControls(row.applicationId, performer).catch(() => {})
+			}
+		})
+		.catch(() => {})
 }
 
 // ─── Comment CRUD ────────────────────────────────────────────────────────

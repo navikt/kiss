@@ -7,6 +7,7 @@ import type { AppLoadContext, EntryContext } from "react-router"
 import { ServerRouter } from "react-router"
 import { runMigrations } from "~/db/migrate.server"
 import { startAuditSummaryScheduler, stopAuditSummaryScheduler } from "~/lib/audit-summary-scheduler.server"
+import { startComplianceSyncScheduler, stopComplianceSyncScheduler } from "~/lib/compliance-sync-scheduler.server"
 import { startDeploymentAuditScheduler, stopDeploymentAuditScheduler } from "~/lib/deployment-audit-scheduler.server"
 import { logger } from "~/lib/logger.server"
 import { startNaisScheduler } from "~/lib/nais-scheduler.server"
@@ -20,6 +21,7 @@ const migrationPromise = runMigrations()
 		startNaisScheduler()
 		startAuditSummaryScheduler()
 		startDeploymentAuditScheduler()
+		startComplianceSyncScheduler()
 	})
 	.catch((error) => {
 		logger.error("Failed to run migrations, shutting down", error)
@@ -32,6 +34,7 @@ process.on("SIGTERM", () => {
 	logger.info("SIGTERM received — stopping schedulers")
 	stopAuditSummaryScheduler()
 	stopDeploymentAuditScheduler()
+	stopComplianceSyncScheduler()
 })
 
 export const streamTimeout = 5_000

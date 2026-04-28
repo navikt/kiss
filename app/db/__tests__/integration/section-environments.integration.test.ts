@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import { getTestDb, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
 	get db() {
 		return getTestDb()
 	},
 	get pool() {
-		return null
+		return getTestPool()
 	},
 }))
 
