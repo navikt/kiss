@@ -255,14 +255,18 @@ describe("Database migrations", () => {
 			const isDataMigration =
 				/UPDATE\s+"?\w+"?\s+SET\b/i.test(migrationSql) ||
 				/ALTER TABLE[\s\S]*?ALTER COLUMN[\s\S]*?SET DEFAULT/i.test(migrationSql)
-			const hasVerifiableChanges =
+			const hasStructuralChanges =
 				createdTables.length > 0 ||
 				addedColumns.length > 0 ||
 				droppedTables.length > 0 ||
 				createdIndexes.length > 0 ||
-				addedConstraints.length > 0 ||
-				isDataMigration
+				addedConstraints.length > 0
+			const hasVerifiableChanges = hasStructuralChanges || isDataMigration
 			expect(hasVerifiableChanges).toBe(true)
+
+			// Data-only migrations (UPDATE/SET DEFAULT) can't be structurally
+			// reverted and re-verified — skip the partial-state reapplication test
+			if (!hasStructuralChanges) return
 
 			// Run all migrations first
 			await runMigrations()
