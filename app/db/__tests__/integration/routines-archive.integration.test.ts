@@ -227,6 +227,8 @@ describe("Routine archive (soft-delete) integration tests", () => {
 		const appId = await createTestApp("App")
 		const routine = await createTestRoutine(sectionId, "R1")
 
+		const db = getTestDb()
+		await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 		await createReview({
 			routineId: routine.id,
 			applicationId: appId,
@@ -240,7 +242,6 @@ describe("Routine archive (soft-delete) integration tests", () => {
 
 		await archiveRoutine(routine.id, "admin")
 
-		const db = getTestDb()
 		const reviews = await db.execute(/* sql */ `SELECT id FROM routine_reviews WHERE routine_id = '${routine.id}'`)
 		expect(reviews.rows).toHaveLength(1)
 	})
@@ -250,6 +251,8 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const sectionId = await createTestSection("Sec", "sec")
 			const appId = await createTestApp("App")
 			const routine = await createTestRoutine(sectionId, "R1")
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 			await createReview({
 				routineId: routine.id,
 				applicationId: appId,
@@ -261,7 +264,6 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				participants: [],
 			})
 
-			const db = getTestDb()
 			await expect(db.execute(/* sql */ `DELETE FROM routines WHERE id = '${routine.id}'`)).rejects.toThrow()
 
 			const stillThere = await db.execute(/* sql */ `SELECT id FROM routines WHERE id = '${routine.id}'`)
