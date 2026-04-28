@@ -48,7 +48,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 async function buildScreeningExport(sectionId: string) {
-	const questions = await getSectionScreeningQuestions(sectionId)
+	const questions = await getSectionScreeningQuestions(sectionId, { status: "approved" })
 	return Promise.all(
 		questions.map(async (q) => {
 			const choices = await getChoicesForQuestion(q.id)

@@ -54,17 +54,29 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 		.where(and(eq(applicationEnvironments.applicationId, applicationId), isNotNull(naisTeams.sectionId)))
 	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
 
-	// 3. Load all applicable questions (global + section-scoped, kun aktive)
+	// 3. Load all applicable questions (global + section-scoped, kun godkjente)
 	const globalQuestions = await db
 		.select()
 		.from(screeningQuestions)
-		.where(and(isNull(screeningQuestions.sectionId), isNull(screeningQuestions.archivedAt)))
+		.where(
+			and(
+				isNull(screeningQuestions.sectionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
+		)
 	let sectionQuestions: typeof globalQuestions = []
 	if (sectionIds.length > 0) {
 		sectionQuestions = await db
 			.select()
 			.from(screeningQuestions)
-			.where(and(inArray(screeningQuestions.sectionId, sectionIds), isNull(screeningQuestions.archivedAt)))
+			.where(
+				and(
+					inArray(screeningQuestions.sectionId, sectionIds),
+					isNull(screeningQuestions.archivedAt),
+					eq(screeningQuestions.status, "approved"),
+				),
+			)
 	}
 	const allQuestions = [...globalQuestions, ...sectionQuestions]
 	if (allQuestions.length === 0) return new Map<string, ScreeningEffectsForControl>()

@@ -24,6 +24,7 @@ import {
 	addChoiceEffect,
 	archiveChoice,
 	archiveChoiceEffect,
+	changeScreeningQuestionStatus,
 	createChoice,
 	createScreeningQuestion,
 	getChoiceEffects,
@@ -36,7 +37,11 @@ import {
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
-import { screeningEffectLabels } from "~/db/schema/screening"
+import {
+	screeningEffectLabels,
+	screeningQuestionStatusConfig,
+	validScreeningQuestionStatuses,
+} from "~/db/schema/screening"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getStatusLabel } from "~/lib/compliance-status"
@@ -76,6 +81,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				descriptionHtml: "",
 				displayOrder: 0,
 				answerType: "",
+				status: "draft" as const,
 				rulesetId: null as string | null,
 				technologyElementIds: [] as string[],
 			},
@@ -246,6 +252,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		await archiveChoiceEffect(effectId, authedUser.navIdent)
 	}
 
+	if (intent === "changeStatus") {
+		if (questionId === "ny") {
+			throw new Response("Kan ikke endre status på et spørsmål som ikke er opprettet ennå", { status: 400 })
+		}
+		const newStatus = formData.get("newStatus")
+		if (typeof newStatus !== "string" || !(validScreeningQuestionStatuses as readonly string[]).includes(newStatus)) {
+			throw new Response("Ugyldig status", { status: 400 })
+		}
+		await changeScreeningQuestionStatus(
+			questionId,
+			newStatus as (typeof validScreeningQuestionStatuses)[number],
+			authedUser.navIdent,
+		)
+	}
+
 	return data({ success: true })
 }
 
@@ -389,6 +410,23 @@ export default function EditScreeningQuestion() {
 							applikasjonens databaser. Ingen valgmuligheter eller effekter trengs.
 						</BodyShort>
 					)}
+					{!isNew && (
+						<HStack gap="space-4" align="center">
+							<BodyShort size="small" weight="semibold">
+								Status:
+							</BodyShort>
+							<Tag
+								variant={
+									screeningQuestionStatusConfig[question.status as keyof typeof screeningQuestionStatusConfig]
+										?.variant ?? "neutral"
+								}
+								size="small"
+							>
+								{screeningQuestionStatusConfig[question.status as keyof typeof screeningQuestionStatusConfig]?.label ??
+									question.status}
+							</Tag>
+						</HStack>
+					)}
 					<div>
 						<Button type="submit" size="small" variant="primary">
 							{isNew ? "Opprett spørsmål" : "Lagre endringer"}
@@ -396,6 +434,39 @@ export default function EditScreeningQuestion() {
 					</div>
 				</VStack>
 			</Form>
+
+			{/* Status actions */}
+			{!isNew && (
+				<HStack gap="space-4">
+					{question.status === "draft" && (
+						<Form method="post">
+							<input type="hidden" name="intent" value="changeStatus" />
+							<input type="hidden" name="newStatus" value="ready" />
+							<Button type="submit" size="small" variant="secondary">
+								Merk som ferdig
+							</Button>
+						</Form>
+					)}
+					{question.status === "ready" && (
+						<Form method="post">
+							<input type="hidden" name="intent" value="changeStatus" />
+							<input type="hidden" name="newStatus" value="approved" />
+							<Button type="submit" size="small" variant="primary">
+								Godkjenn
+							</Button>
+						</Form>
+					)}
+					{(question.status === "ready" || question.status === "approved") && (
+						<Form method="post">
+							<input type="hidden" name="intent" value="changeStatus" />
+							<input type="hidden" name="newStatus" value="draft" />
+							<Button type="submit" size="small" variant="tertiary">
+								Tilbakestill til kladd
+							</Button>
+						</Form>
+					)}
+				</HStack>
+			)}
 
 			{/* Choices management — hidden for persistence/entra/oracle_roles/ruleset/blank */}
 			{answerType !== "" &&

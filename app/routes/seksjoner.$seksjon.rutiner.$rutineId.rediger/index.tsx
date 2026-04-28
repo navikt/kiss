@@ -33,6 +33,7 @@ import {
 import {
 	getChoicesForQuestion,
 	getScreeningQuestions,
+	getScreeningQuestionsByIds,
 	getSectionScreeningQuestions,
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
@@ -50,6 +51,7 @@ import {
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
 import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType, type RoutineStatus } from "~/db/schema/routines"
+import { screeningQuestionStatusConfig } from "~/db/schema/screening"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { canApproveRoutine, requireAdmin } from "~/lib/authorization.server"
 import {
@@ -100,15 +102,27 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (routine.sectionId !== section.id) throw new Response("Rutine ikke funnet", { status: 404 })
 
 	const [globalQuestions, sectionQuestions, technologyElements, controls] = await Promise.all([
-		getScreeningQuestions(),
-		getSectionScreeningQuestions(section.id),
+		getScreeningQuestions({ status: "approved" }),
+		getSectionScreeningQuestions(section.id, { status: "approved" }),
 		getAllTechnologyElements(),
 		getAllControlsForSelection(),
 	])
 
 	const allQuestions = [...globalQuestions, ...sectionQuestions]
+
+	// Include questions already linked to this routine even if not approved,
+	// so existing links remain visible and editable in the UI
+	const linkedQuestionIds = new Set([
+		...(routine.screeningQuestions?.map((sq: { questionId: string }) => sq.questionId) ?? []),
+		...(routine.screeningQuestionId ? [routine.screeningQuestionId] : []),
+	])
+	const approvedIds = new Set(allQuestions.map((q) => q.id))
+	const missingLinkedIds = [...linkedQuestionIds].filter((id) => !approvedIds.has(id))
+	const missingLinkedQuestions = await getScreeningQuestionsByIds(missingLinkedIds)
+	const combinedQuestions = [...allQuestions, ...missingLinkedQuestions]
+
 	const questionsWithChoices = await Promise.all(
-		allQuestions.map(async (q) => ({
+		combinedQuestions.map(async (q) => ({
 			...q,
 			isSection: q.sectionId !== null,
 			choices: await getChoicesForQuestion(q.id),
@@ -561,6 +575,9 @@ export default function RedigerRutine() {
 														.map((q) => (
 															<option key={q.id} value={q.id}>
 																{q.questionText}
+																{q.status !== "approved"
+																	? ` (${screeningQuestionStatusConfig[q.status]?.label ?? q.status})`
+																	: ""}
 															</option>
 														))}
 												</optgroup>
@@ -571,6 +588,9 @@ export default function RedigerRutine() {
 													.map((q) => (
 														<option key={q.id} value={q.id}>
 															{q.questionText}
+															{q.status !== "approved"
+																? ` (${screeningQuestionStatusConfig[q.status]?.label ?? q.status})`
+																: ""}
 														</option>
 													))}
 											</optgroup>

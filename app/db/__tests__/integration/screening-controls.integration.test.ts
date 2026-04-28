@@ -128,6 +128,7 @@ describe("screening-derived control IDs", () => {
 			display_order: 1,
 			created_by: "test",
 			updated_by: "test",
+			status: "approved",
 		})
 		const choiceId = await rawInsert("screening_question_choices", {
 			question_id: questionId,
@@ -172,6 +173,7 @@ describe("screening-derived control IDs", () => {
 			display_order: 1,
 			created_by: "test",
 			updated_by: "test",
+			status: "approved",
 		})
 		const choiceId = await rawInsert("screening_question_choices", {
 			question_id: questionId,
@@ -226,6 +228,7 @@ describe("screening-derived control IDs", () => {
 			display_order: 1,
 			created_by: "test",
 			updated_by: "test",
+			status: "approved",
 		})
 
 		// Answer the question
@@ -249,6 +252,7 @@ describe("screening-derived control IDs", () => {
 			display_order: 1,
 			created_by: "test",
 			updated_by: "test",
+			status: "approved",
 		})
 		const c1 = await rawInsert("screening_question_choices", {
 			question_id: q1,
@@ -283,6 +287,7 @@ describe("screening-derived control IDs", () => {
 			display_order: 2,
 			created_by: "test",
 			updated_by: "test",
+			status: "approved",
 		})
 		const c2 = await rawInsert("screening_question_choices", {
 			question_id: q2,
@@ -326,6 +331,7 @@ describe("screening-derived control IDs", () => {
 			display_order: 3,
 			created_by: "test",
 			updated_by: "test",
+			status: "approved",
 		})
 		await rawInsert("screening_answers", {
 			application_id: appId,
@@ -362,6 +368,7 @@ describe("screening-derived control IDs", () => {
 			display_order: 1,
 			created_by: "test",
 			updated_by: "test",
+			status: "approved",
 		})
 		const choiceId = await rawInsert("screening_question_choices", {
 			question_id: questionId,
@@ -412,6 +419,7 @@ describe("screening-derived control IDs", () => {
 			display_order: 1,
 			created_by: "test",
 			updated_by: "test",
+			status: "approved",
 		})
 		const choiceId = await rawInsert("screening_question_choices", {
 			question_id: questionId,

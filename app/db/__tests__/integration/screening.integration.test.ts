@@ -31,6 +31,7 @@ const {
 	getScreeningAnswersForApp,
 	setQuestionTechnologyElements,
 	getQuestionTechnologyElements,
+	changeScreeningQuestionStatus,
 } = await import("~/db/queries/screening.server")
 
 async function createApp(name: string) {
@@ -262,25 +263,26 @@ describe("screening.server integration tests", () => {
 			const choices = await getChoicesForQuestion(q.id)
 			const ja = choices.find((c) => c.label === "Ja")
 			expect(ja).toBeDefined()
+			if (!ja) throw new Error("Expected 'Ja' choice to exist")
 			await createControl("K-S.01")
 
 			const eff = await addChoiceEffect({
-				choiceId: ja!.id,
+				choiceId: ja.id,
 				controlTextId: "K-S.01",
 				effect: "implemented",
 				comment: "Godkjent gjennom MFA",
 			})
 			expect(eff.effect).toBe("implemented")
 
-			const list = await getChoiceEffects(ja!.id)
+			const list = await getChoiceEffects(ja.id)
 			expect(list).toHaveLength(1)
 			expect(list[0].controlTextId).toBe("K-S.01")
 
 			await archiveChoiceEffect(eff.id, "admin")
-			const empty = await getChoiceEffects(ja!.id)
+			const empty = await getChoiceEffects(ja.id)
 			expect(empty).toHaveLength(0)
 
-			const all = await getChoiceEffects(ja!.id, { includeArchived: true })
+			const all = await getChoiceEffects(ja.id, { includeArchived: true })
 			expect(all).toHaveLength(1)
 			expect(all[0].archivedAt).not.toBeNull()
 
@@ -289,7 +291,7 @@ describe("screening.server integration tests", () => {
 
 			// Unarchive
 			await unarchiveChoiceEffect(eff.id, "admin")
-			const after = await getChoiceEffects(ja!.id)
+			const after = await getChoiceEffects(ja.id)
 			expect(after).toHaveLength(1)
 		})
 
@@ -372,6 +374,69 @@ describe("screening.server integration tests", () => {
 			expect(audit.length).toBeGreaterThanOrEqual(2)
 			const entityIds = audit.map((a) => a.entity_id)
 			expect(entityIds).toContain(`${app}/${q.id}`)
+		})
+	})
+
+	describe("changeScreeningQuestionStatus", () => {
+		it("allows valid transitions: draft → ready → approved", async () => {
+			const section = await createSectionRow("status-transitions")
+			const q = await createScreeningQuestion("Transition test", null, 0, "test", section, "boolean")
+			expect(q.status).toBe("draft")
+
+			// draft → ready
+			const ready = await changeScreeningQuestionStatus(q.id, "ready", "test")
+			expect(ready?.status).toBe("ready")
+
+			// ready → approved
+			const approved = await changeScreeningQuestionStatus(q.id, "approved", "test")
+			expect(approved?.status).toBe("approved")
+
+			// approved → draft (reset)
+			const reset = await changeScreeningQuestionStatus(q.id, "draft", "test")
+			expect(reset?.status).toBe("draft")
+		})
+
+		it("rejects invalid transitions", async () => {
+			const section = await createSectionRow("invalid-transitions")
+			const q = await createScreeningQuestion("Invalid transition test", null, 0, "test", section, "boolean")
+
+			// draft → approved is not allowed
+			await expect(changeScreeningQuestionStatus(q.id, "approved", "test")).rejects.toMatchObject({ status: 400 })
+		})
+
+		it("rejects status change on archived questions", async () => {
+			const section = await createSectionRow("archived-status")
+			const q = await createScreeningQuestion("Archived test", null, 0, "test", section, "boolean")
+			await archiveScreeningQuestion(q.id, "test")
+
+			await expect(changeScreeningQuestionStatus(q.id, "ready", "test")).rejects.toMatchObject({ status: 403 })
+		})
+
+		it("writes audit log with correct action and values", async () => {
+			const section = await createSectionRow("audit-status")
+			const q = await createScreeningQuestion("Audit status test", null, 0, "test", section, "boolean")
+
+			await changeScreeningQuestionStatus(q.id, "ready", "tester")
+
+			const audit = await getAuditByAction("screening_question_status_changed")
+			const entry = audit.find((a) => a.entity_id === q.id)
+			expect(entry).toBeDefined()
+			expect(entry?.performed_by).toBe("tester")
+
+			const db = getTestDb()
+			const fullEntry = await db.execute(
+				/* sql */ `SELECT previous_value, new_value FROM audit_log WHERE action = 'screening_question_status_changed' AND entity_id = '${q.id}'`,
+			)
+			const row = fullEntry.rows[0] as { previous_value: string; new_value: string }
+			expect(JSON.parse(row.previous_value)).toEqual({ status: "draft" })
+			expect(JSON.parse(row.new_value)).toEqual({ status: "ready" })
+		})
+
+		it("returns existing question unchanged when status matches", async () => {
+			const section = await createSectionRow("noop-status")
+			const q = await createScreeningQuestion("Noop test", null, 0, "test", section, "boolean")
+			const result = await changeScreeningQuestionStatus(q.id, "draft", "test")
+			expect(result?.status).toBe("draft")
 		})
 	})
 })

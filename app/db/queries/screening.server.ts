@@ -6,20 +6,25 @@ import { applicationTechnologyElements, frameworkControls, technologyElements } 
 import { routineControls, routines } from "../schema/routines"
 import { rulesetControls } from "../schema/rulesets"
 import {
+	type ScreeningQuestionStatus,
 	screeningAnswers,
 	screeningChoiceEffects,
 	screeningQuestionChoices,
 	screeningQuestions,
 	screeningQuestionTechnologyElements,
 	screeningRoutineSelections,
+	type ValidScreeningQuestionStatus,
 } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 
 // ─── Questions CRUD ──────────────────────────────────────────────────────
 
-export async function getScreeningQuestions(opts: { includeArchived?: boolean } = {}) {
+export async function getScreeningQuestions(
+	opts: { includeArchived?: boolean; status?: ScreeningQuestionStatus } = {},
+) {
 	const conds = [isNull(screeningQuestions.sectionId)]
-	if (!opts.includeArchived) conds.push(isNull(screeningQuestions.archivedAt))
+	if (!opts.includeArchived && opts.status !== "archived") conds.push(isNull(screeningQuestions.archivedAt))
+	if (opts.status) conds.push(eq(screeningQuestions.status, opts.status))
 	return db
 		.select()
 		.from(screeningQuestions)
@@ -28,9 +33,13 @@ export async function getScreeningQuestions(opts: { includeArchived?: boolean } 
 }
 
 /** Get screening questions scoped to a section. */
-export async function getSectionScreeningQuestions(sectionId: string, opts: { includeArchived?: boolean } = {}) {
+export async function getSectionScreeningQuestions(
+	sectionId: string,
+	opts: { includeArchived?: boolean; status?: ScreeningQuestionStatus } = {},
+) {
 	const conds = [eq(screeningQuestions.sectionId, sectionId)]
-	if (!opts.includeArchived) conds.push(isNull(screeningQuestions.archivedAt))
+	if (!opts.includeArchived && opts.status !== "archived") conds.push(isNull(screeningQuestions.archivedAt))
+	if (opts.status) conds.push(eq(screeningQuestions.status, opts.status))
 	return db
 		.select()
 		.from(screeningQuestions)
@@ -41,6 +50,12 @@ export async function getSectionScreeningQuestions(sectionId: string, opts: { in
 export async function getScreeningQuestion(id: string) {
 	const [q] = await db.select().from(screeningQuestions).where(eq(screeningQuestions.id, id)).limit(1)
 	return q ?? null
+}
+
+/** Fetch multiple screening questions by IDs in a single query. */
+export async function getScreeningQuestionsByIds(ids: string[]) {
+	if (ids.length === 0) return []
+	return db.select().from(screeningQuestions).where(inArray(screeningQuestions.id, ids))
 }
 
 /**
@@ -144,6 +159,7 @@ export async function archiveScreeningQuestion(id: string, performedBy: string) 
 		const [archived] = await tx
 			.update(screeningQuestions)
 			.set({
+				status: "archived",
 				archivedAt: new Date(),
 				archivedBy: performedBy,
 				updatedAt: new Date(),
@@ -190,6 +206,7 @@ export async function unarchiveScreeningQuestion(id: string, performedBy: string
 			.set({
 				archivedAt: null,
 				archivedBy: null,
+				status: "draft",
 				updatedAt: new Date(),
 				updatedBy: performedBy,
 			})
@@ -207,6 +224,71 @@ export async function unarchiveScreeningQuestion(id: string, performedBy: string
 			tx,
 		)
 		return restored
+	})
+}
+
+/**
+ * Endre status på et screening-spørsmål. Tillatte overganger:
+ * draft → ready, ready → approved, any → draft (tilbakestill).
+ * Skriver audit-logg.
+ */
+const allowedTransitions: Record<Exclude<ScreeningQuestionStatus, "archived">, ScreeningQuestionStatus[]> = {
+	draft: ["ready"],
+	ready: ["approved", "draft"],
+	approved: ["draft"],
+}
+
+export async function changeScreeningQuestionStatus(
+	id: string,
+	newStatus: ValidScreeningQuestionStatus,
+	performedBy: string,
+) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(screeningQuestions)
+			.where(eq(screeningQuestions.id, id))
+			.for("update")
+			.limit(1)
+		if (!existing) {
+			throw new Response("Fant ikke screening-spørsmål.", { status: 404 })
+		}
+
+		if (existing.archivedAt) {
+			throw new Response("Kan ikke endre status på et arkivert spørsmål. Reaktiver det først.", { status: 403 })
+		}
+
+		const previousStatus = existing.status
+		if (previousStatus === newStatus) return existing
+
+		const allowed = previousStatus !== "archived" ? allowedTransitions[previousStatus] : undefined
+		if (!allowed?.includes(newStatus)) {
+			throw new Response(`Ugyldig overgang: ${previousStatus} → ${newStatus}`, { status: 400 })
+		}
+
+		const [updated] = await tx
+			.update(screeningQuestions)
+			.set({
+				status: newStatus,
+				updatedAt: new Date(),
+				updatedBy: performedBy,
+			})
+			.where(eq(screeningQuestions.id, id))
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "screening_question_status_changed",
+				entityType: "screening_question",
+				entityId: id,
+				previousValue: JSON.stringify({ status: previousStatus }),
+				newValue: JSON.stringify({ status: newStatus }),
+				metadata: { questionText: updated.questionText },
+				performedBy,
+			},
+			tx,
+		)
+		return updated
 	})
 }
 
@@ -717,7 +799,7 @@ async function _applyChoiceEffects(
  */
 export async function getScreeningDataForApp(applicationId: string) {
 	// Get global questions + section-scoped questions for the app's section(s)
-	const globalQuestions = await getScreeningQuestions()
+	const globalQuestions = await getScreeningQuestions({ status: "approved" })
 
 	// Find section IDs for this app via its nais team environments
 	const sectionRows = await db
@@ -733,7 +815,13 @@ export async function getScreeningDataForApp(applicationId: string) {
 		sectionQuestions = await db
 			.select()
 			.from(screeningQuestions)
-			.where(and(inArray(screeningQuestions.sectionId, sectionIds), isNull(screeningQuestions.archivedAt)))
+			.where(
+				and(
+					inArray(screeningQuestions.sectionId, sectionIds),
+					isNull(screeningQuestions.archivedAt),
+					eq(screeningQuestions.status, "approved"),
+				),
+			)
 			.orderBy(screeningQuestions.displayOrder)
 	}
 
@@ -1034,7 +1122,11 @@ export async function getScreeningDerivedControlIds(appId: string): Promise<Set<
 		)
 		.innerJoin(
 			screeningQuestions,
-			and(eq(screeningQuestions.id, screeningAnswers.questionId), isNull(screeningQuestions.archivedAt)),
+			and(
+				eq(screeningQuestions.id, screeningAnswers.questionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
 		)
 		.where(and(eq(screeningAnswers.applicationId, screeningAppId), isNotNull(screeningChoiceEffects.controlId)))
 
@@ -1059,7 +1151,11 @@ export async function getScreeningDerivedControlIds(appId: string): Promise<Set<
 		)
 		.innerJoin(
 			screeningQuestions,
-			and(eq(screeningQuestions.id, screeningQuestionChoices.questionId), isNull(screeningQuestions.archivedAt)),
+			and(
+				eq(screeningQuestions.id, screeningQuestionChoices.questionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
 		)
 		.where(
 			and(
@@ -1074,7 +1170,11 @@ export async function getScreeningDerivedControlIds(appId: string): Promise<Set<
 		.from(screeningAnswers)
 		.innerJoin(
 			screeningQuestions,
-			and(eq(screeningQuestions.id, screeningAnswers.questionId), isNull(screeningQuestions.archivedAt)),
+			and(
+				eq(screeningQuestions.id, screeningAnswers.questionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
 		)
 		.innerJoin(rulesetControls, eq(rulesetControls.rulesetId, screeningQuestions.rulesetId))
 		.where(and(eq(screeningAnswers.applicationId, screeningAppId), isNotNull(screeningQuestions.rulesetId)))
@@ -1142,7 +1242,11 @@ export async function getBatchScreeningDerivedControlIds(appIds: string[]): Prom
 		)
 		.innerJoin(
 			screeningQuestions,
-			and(eq(screeningQuestions.id, screeningAnswers.questionId), isNull(screeningQuestions.archivedAt)),
+			and(
+				eq(screeningQuestions.id, screeningAnswers.questionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
 		)
 		.where(
 			and(
@@ -1175,7 +1279,11 @@ export async function getBatchScreeningDerivedControlIds(appIds: string[]): Prom
 		)
 		.innerJoin(
 			screeningQuestions,
-			and(eq(screeningQuestions.id, screeningQuestionChoices.questionId), isNull(screeningQuestions.archivedAt)),
+			and(
+				eq(screeningQuestions.id, screeningQuestionChoices.questionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
 		)
 		.where(
 			and(
@@ -1193,7 +1301,11 @@ export async function getBatchScreeningDerivedControlIds(appIds: string[]): Prom
 		.from(screeningAnswers)
 		.innerJoin(
 			screeningQuestions,
-			and(eq(screeningQuestions.id, screeningAnswers.questionId), isNull(screeningQuestions.archivedAt)),
+			and(
+				eq(screeningQuestions.id, screeningAnswers.questionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
 		)
 		.innerJoin(rulesetControls, eq(rulesetControls.rulesetId, screeningQuestions.rulesetId))
 		.where(

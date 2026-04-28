@@ -17,6 +17,7 @@ import {
 	unarchiveScreeningQuestion,
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { screeningQuestionStatusConfig } from "~/db/schema/screening"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -87,6 +88,7 @@ export default function SectionScreening() {
 	const [deleteTarget, setDeleteTarget] = useState<{ id: string; text: string } | null>(null)
 	const [questions, setQuestions] = useState(loaderQuestions)
 	const [answerTypeFilter, setAnswerTypeFilter] = useState<string[]>([])
+	const [statusFilter, setStatusFilter] = useState<string[]>([])
 	const fetcher = useFetcher()
 
 	useEffect(() => {
@@ -102,8 +104,13 @@ export default function SectionScreening() {
 	}
 
 	const availableTypes = [...new Set(questions.map((q) => q.answerType))].sort()
-	const filteredQuestions =
-		answerTypeFilter.length > 0 ? questions.filter((q) => answerTypeFilter.includes(q.answerType)) : questions
+	const getEffectiveStatus = (q: (typeof questions)[number]) => (q.archivedAt ? "archived" : q.status)
+	const availableStatuses = [...new Set(questions.map(getEffectiveStatus))].sort()
+	const filteredQuestions = questions.filter((q) => {
+		if (answerTypeFilter.length > 0 && !answerTypeFilter.includes(q.answerType)) return false
+		if (statusFilter.length > 0 && !statusFilter.includes(getEffectiveStatus(q))) return false
+		return true
+	})
 
 	const sensors = useSensors(
 		useSensor(PointerSensor),
@@ -170,6 +177,20 @@ export default function SectionScreening() {
 							}
 						>
 							{answerTypeLabels[type] ?? type}
+						</Chips.Toggle>
+					))}
+				</Chips>
+			)}
+
+			{availableStatuses.length > 1 && (
+				<Chips size="small">
+					{availableStatuses.map((s) => (
+						<Chips.Toggle
+							key={s}
+							selected={statusFilter.includes(s)}
+							onClick={() => setStatusFilter((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))}
+						>
+							{screeningQuestionStatusConfig[s as keyof typeof screeningQuestionStatusConfig]?.label ?? s}
 						</Chips.Toggle>
 					))}
 				</Chips>

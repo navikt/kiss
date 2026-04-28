@@ -61,7 +61,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const allDeadlines = await getRoutineDeadlinesWithControls(appId)
 
 	// Filter deadlines to only routines linked to this control
-	const matchedDeadlines = allDeadlines.filter((d) => d.routine && d.routine.controls.some((c) => c.id === controlId))
+	const matchedDeadlines = allDeadlines.filter((d) => d.routine?.controls.some((c) => c.id === controlId))
 
 	// Resolve technology element IDs→names (IDs already available from shared pipeline)
 	const allElementIds = [...new Set(matchedDeadlines.flatMap((d) => d.routine?.technologyElementIds ?? []))]
