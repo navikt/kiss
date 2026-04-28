@@ -18,7 +18,6 @@ import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
 import {
-	type ApprovalStatus,
 	approveRuleset,
 	getRulesetDetail,
 	getRulesetMeta,
@@ -27,17 +26,11 @@ import {
 } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
+import { approvalStatusConfig } from "~/lib/approval-status"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { hasExactRoleForSection, isAdmin, requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
-
-const statusConfig: Record<ApprovalStatus, { label: string; variant: "success" | "warning" | "error" | "neutral" }> = {
-	draft: { label: "Utkast", variant: "neutral" },
-	valid: { label: "Gyldig", variant: "success" },
-	expiring_soon: { label: "Utløper snart", variant: "warning" },
-	expired: { label: "Utløpt", variant: "error" },
-}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { seksjon, regelSettId } = params
@@ -197,7 +190,7 @@ export default function RegelsettDetalj() {
 	const actionData = useActionData<typeof action>()
 	const [approveOpen, setApproveOpen] = useState(false)
 
-	const cfg = statusConfig[ruleset.approvalStatus]
+	const cfg = approvalStatusConfig[ruleset.approvalStatus]
 
 	return (
 		<VStack gap="space-6">

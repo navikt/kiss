@@ -3,19 +3,13 @@ import { BodyLong, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/d
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { type ApprovalStatus, getRulesetsForSection } from "~/db/queries/rulesets.server"
+import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
+import { approvalStatusConfig } from "~/lib/approval-status"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
-
-const statusConfig: Record<ApprovalStatus, { label: string; variant: "success" | "warning" | "error" | "neutral" }> = {
-	draft: { label: "Utkast", variant: "neutral" },
-	valid: { label: "Gyldig", variant: "success" },
-	expiring_soon: { label: "Utløper snart", variant: "warning" },
-	expired: { label: "Utløpt", variant: "error" },
-}
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { seksjon } = params
@@ -80,7 +74,7 @@ export default function SeksjonRegelsettIndex() {
 						</Table.Header>
 						<Table.Body>
 							{rulesets.map((rs) => {
-								const cfg = statusConfig[rs.approvalStatus]
+								const cfg = approvalStatusConfig[rs.approvalStatus]
 								return (
 									<Table.Row key={rs.id}>
 										<Table.DataCell>

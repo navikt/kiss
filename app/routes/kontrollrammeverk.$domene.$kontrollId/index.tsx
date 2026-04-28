@@ -10,6 +10,7 @@ import {
 	getControlLinkedRisks,
 } from "~/db/queries/framework.server"
 import { type ApprovalStatus, getRulesetsForControl } from "~/db/queries/rulesets.server"
+import { approvalStatusConfig } from "~/lib/approval-status"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { cronFrequencyLabels } from "~/lib/frequency-mapping"
@@ -78,16 +79,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		linkedRulesets,
 		linkedRisks,
 	})
-}
-
-const approvalStatusConfig: Record<
-	ApprovalStatus,
-	{ label: string; variant: "success" | "warning" | "error" | "neutral" }
-> = {
-	draft: { label: "Utkast", variant: "neutral" },
-	valid: { label: "Gyldig", variant: "success" },
-	expiring_soon: { label: "Utløper snart", variant: "warning" },
-	expired: { label: "Utløpt", variant: "error" },
 }
 
 function RulesetSection({
