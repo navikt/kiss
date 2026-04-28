@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ParsedFramework } from "~/lib/excel-parser.server"
-import { getTestDb, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 // Mock connection.server to use the test database
 vi.mock("~/db/connection.server", () => ({
@@ -8,7 +8,7 @@ vi.mock("~/db/connection.server", () => ({
 		return getTestDb()
 	},
 	get pool() {
-		return null
+		return getTestPool()
 	},
 }))
 

@@ -6,7 +6,7 @@ vi.mock("~/db/connection.server", () => ({
 		return getTestDb()
 	},
 	get pool() {
-		return null
+		return getTestPool()
 	},
 }))
 
