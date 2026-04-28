@@ -27,8 +27,8 @@ const fieldConfig = [
 ] as const
 
 const routineStatusConfig: Record<string, { label: string; variant: "success" | "warning" | "neutral" | "info" }> = {
-	draft: { label: "Utkast", variant: "neutral" },
-	active: { label: "Aktiv", variant: "info" },
+	draft: { label: "Kladd", variant: "neutral" },
+	ready: { label: "Ferdig", variant: "info" },
 	approved: { label: "Godkjent", variant: "success" },
 	archived: { label: "Arkivert", variant: "warning" },
 }
@@ -102,7 +102,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				eq(routines.sectionId, section.id),
 				eq(routineControls.controlId, control.uuid),
 				isNull(routineControls.archivedAt),
-				inArray(routines.status, ["draft", "active", "approved"]),
+				inArray(routines.status, ["draft", "ready", "approved"]),
 				isNull(routines.archivedAt),
 			),
 		)

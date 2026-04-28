@@ -183,11 +183,11 @@ describe("SD7 link-table soft-delete", () => {
 		const db = getTestDb()
 		const sectionId = await createSection("Sek3", "sek3")
 		const ruleRes = await db.execute(
-			/* sql */ `INSERT INTO rulesets (section_id, name, frequency, status, created_by, updated_by) VALUES ('${sectionId}', 'RS', 'monthly', 'active', 'a', 'a') RETURNING id`,
+			/* sql */ `INSERT INTO rulesets (section_id, name, frequency, status, created_by, updated_by) VALUES ('${sectionId}', 'RS', 'monthly', 'ready', 'a', 'a') RETURNING id`,
 		)
 		const rulesetId = (ruleRes.rows[0] as { id: string }).id
 		const routineRes = await db.execute(
-			/* sql */ `INSERT INTO routines (section_id, name, frequency, status, created_by, updated_by) VALUES ('${sectionId}', 'R', 'monthly', 'active', 'a', 'a') RETURNING id`,
+			/* sql */ `INSERT INTO routines (section_id, name, frequency, status, created_by, updated_by) VALUES ('${sectionId}', 'R', 'monthly', 'ready', 'a', 'a') RETURNING id`,
 		)
 		const routineId = (routineRes.rows[0] as { id: string }).id
 
@@ -229,7 +229,7 @@ describe("SD7 link-table soft-delete", () => {
 		const sectionId = await createSection("Sek6", "sek6")
 		const appId = await createApp("App6")
 		const ruleRes = await db.execute(
-			/* sql */ `INSERT INTO rulesets (section_id, name, frequency, status, created_by, updated_by) VALUES ('${sectionId}', 'RS6', 'monthly', 'active', 'a', 'a') RETURNING id`,
+			/* sql */ `INSERT INTO rulesets (section_id, name, frequency, status, created_by, updated_by) VALUES ('${sectionId}', 'RS6', 'monthly', 'ready', 'a', 'a') RETURNING id`,
 		)
 		const rulesetId = (ruleRes.rows[0] as { id: string }).id
 		const routineRes = await db.execute(

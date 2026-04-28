@@ -48,7 +48,7 @@ async function makeRoutineAndReview(participants: Array<{ userIdent: string; use
 		persistenceLinks: [],
 		controlIds: [],
 		technologyElementIds: [],
-		status: "active",
+		status: "approved",
 		createdBy: "test",
 	})
 	const review = await createReview({

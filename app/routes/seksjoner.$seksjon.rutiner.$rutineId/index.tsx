@@ -186,7 +186,12 @@ export default function RutineDetaljer() {
 						</Heading>
 						{routine.status === "draft" && (
 							<Tag variant="warning" size="small">
-								Utkast
+								Kladd
+							</Tag>
+						)}
+						{routine.status === "ready" && (
+							<Tag variant="info" size="small">
+								Ferdig
 							</Tag>
 						)}
 						{routine.status === "approved" && (
@@ -220,7 +225,7 @@ export default function RutineDetaljer() {
 								</Button>
 							</fetcher.Form>
 						)}
-						{!routine.archivedAt && routine.status === "active" && userCanApprove && (
+						{!routine.archivedAt && routine.status === "ready" && userCanApprove && (
 							<fetcher.Form method="post">
 								<input type="hidden" name="intent" value="approve" />
 								<Button type="submit" variant="primary" size="small" loading={fetcher.state !== "idle"}>
@@ -228,7 +233,7 @@ export default function RutineDetaljer() {
 								</Button>
 							</fetcher.Form>
 						)}
-						{!routine.archivedAt && (routine.status === "active" || routine.status === "approved") && (
+						{!routine.archivedAt && routine.status === "approved" && (
 							<Button as={Link} to="./gjennomgang/ny" variant="primary" size="small">
 								Ny gjennomgang
 							</Button>
@@ -249,7 +254,7 @@ export default function RutineDetaljer() {
 						</LocalAlert.Content>
 					</LocalAlert>
 				)}
-				{routine.status === "active" && !userCanApprove && (
+				{routine.status === "ready" && !userCanApprove && (
 					<BodyShort size="small" textColor="subtle">
 						Godkjenning krever rollen{" "}
 						{effectiveRole ? (

@@ -35,8 +35,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		)
 	}
 
-	if (routine.status !== "active") {
-		throw data({ message: "Kun aktive rutiner kan ha nye gjennomganger" }, { status: 400 })
+	if (routine.status !== "approved") {
+		throw data({ message: "Kun godkjente rutiner kan ha nye gjennomganger" }, { status: 400 })
 	}
 
 	const apps = await getAppsRequiringRoutine(rutineId)

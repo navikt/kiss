@@ -77,7 +77,7 @@ function makeRoutine(overrides: Record<string, unknown> = {}) {
 		id: "routine-1",
 		sectionId: fakeSection.id,
 		name: "Test rutine",
-		status: "active",
+		status: "ready",
 		responsibleRole: "Teknologileder",
 		controls: [{ responsible: "Teknologileder" }],
 		technologyElements: [],
@@ -194,8 +194,8 @@ describe("routine edit guards", () => {
 		expect(mockUpdateRoutine).toHaveBeenCalled()
 	})
 
-	it("allows editing an active routine", async () => {
-		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active" }))
+	it("allows editing a ready routine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready" }))
 		mockUpdateRoutine.mockResolvedValue(undefined)
 
 		const fd = new FormData()
@@ -211,7 +211,7 @@ describe("routine edit guards", () => {
 
 describe("approve-replace intent", () => {
 	it("replaces source routine when user has approval rights", async () => {
-		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active", sourceRoutineId: "original-1" }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready", sourceRoutineId: "original-1" }))
 		mockCanApproveRoutine.mockReturnValue(true)
 		mockReplaceRoutine.mockResolvedValue(undefined)
 
@@ -225,7 +225,7 @@ describe("approve-replace intent", () => {
 	})
 
 	it("rejects replacement without approval rights", async () => {
-		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active", sourceRoutineId: "original-1" }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready", sourceRoutineId: "original-1" }))
 		mockCanApproveRoutine.mockReturnValue(false)
 
 		const fd = new FormData()
@@ -237,7 +237,7 @@ describe("approve-replace intent", () => {
 	})
 
 	it("rejects replacement when routine has no source", async () => {
-		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active", sourceRoutineId: null }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready", sourceRoutineId: null }))
 		mockCanApproveRoutine.mockReturnValue(true)
 
 		const fd = new FormData()
@@ -250,7 +250,7 @@ describe("approve-replace intent", () => {
 
 describe("approve-as-new intent", () => {
 	it("approves routine as new without replacing source", async () => {
-		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active" }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready" }))
 		mockCanApproveRoutine.mockReturnValue(true)
 		mockApproveRoutine.mockResolvedValue(undefined)
 
@@ -263,7 +263,7 @@ describe("approve-as-new intent", () => {
 	})
 
 	it("rejects approval without correct role", async () => {
-		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active" }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready" }))
 		mockCanApproveRoutine.mockReturnValue(false)
 
 		const fd = new FormData()
@@ -299,7 +299,7 @@ describe("non-admin user access", () => {
 	})
 
 	it("allows non-admin user to update an active routine", async () => {
-		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active" }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready" }))
 		mockUpdateRoutine.mockResolvedValue(undefined)
 
 		const fd = new FormData()
@@ -355,7 +355,7 @@ describe("delete intent restrictions", () => {
 	})
 
 	it("rejects deletion of active routine", async () => {
-		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active" }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready" }))
 
 		const fd = new FormData()
 		fd.set("intent", "delete")
@@ -397,7 +397,7 @@ describe("archive/unarchive intent", () => {
 	})
 
 	it("rejects unarchive on a routine that is not archived with 409", async () => {
-		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "active", archivedAt: null }))
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready", archivedAt: null }))
 
 		const fd = new FormData()
 		fd.set("intent", "unarchive")

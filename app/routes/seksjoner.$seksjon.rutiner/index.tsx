@@ -62,7 +62,7 @@ export default function SeksjonRutinerIndex() {
 	const [filterFrequency, setFilterFrequency] = useState("")
 	const [filterTechElement, setFilterTechElement] = useState("")
 	const [filterPersistence, setFilterPersistence] = useState("")
-	const [filterStatus, setFilterStatus] = useState<string[]>(["draft", "active", "approved"])
+	const [filterStatus, setFilterStatus] = useState<string[]>(["draft", "ready", "approved"])
 	const [sort, setSort] = useState<SortState | undefined>({ orderBy: "name", direction: "ascending" })
 
 	// Collect unique values for dropdown filters
@@ -145,7 +145,7 @@ export default function SeksjonRutinerIndex() {
 		)
 	}
 
-	const defaultStatuses = ["draft", "active", "approved"]
+	const defaultStatuses = ["draft", "ready", "approved"]
 	const hasActiveFilters =
 		searchQuery ||
 		filterControl ||
@@ -262,8 +262,8 @@ export default function SeksjonRutinerIndex() {
 					<Chips size="small">
 						{(
 							[
-								["draft", "Utkast"],
-								["active", "Aktiv"],
+								["draft", "Kladd"],
+								["ready", "Ferdig"],
 								["approved", "Godkjent"],
 								["archived", "Arkivert"],
 							] as const
@@ -323,7 +323,12 @@ export default function SeksjonRutinerIndex() {
 											)}
 											{routine.status === "draft" && (
 												<Tag variant="warning" size="xsmall">
-													Utkast
+													Kladd
+												</Tag>
+											)}
+											{routine.status === "ready" && (
+												<Tag variant="info" size="xsmall">
+													Ferdig
 												</Tag>
 											)}
 											{routine.status === "approved" && (
