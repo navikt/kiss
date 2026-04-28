@@ -867,7 +867,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 				and(
 					inArray(routineControls.controlId, [...selectRoutineControlIds]),
 					isNull(routineControls.archivedAt),
-					eq(routines.status, "ready"),
+					eq(routines.status, "approved"),
 					isNull(routines.archivedAt),
 				),
 			)
