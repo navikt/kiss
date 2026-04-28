@@ -326,6 +326,11 @@ export default function SeksjonRutinerIndex() {
 													Kladd
 												</Tag>
 											)}
+											{routine.status === "ready" && (
+												<Tag variant="info" size="xsmall">
+													Ferdig
+												</Tag>
+											)}
 											{routine.status === "approved" && (
 												<Tag variant="success" size="xsmall">
 													Godkjent
