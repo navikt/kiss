@@ -240,11 +240,11 @@ function getMockRoles(instanceId: string): OracleRolesResponse {
 	return {
 		instanceId,
 		roles: [
-			{ name: "CONNECT", authType: "NONE", common: true, oracleMaintained: true },
-			{ name: "DBA", authType: "NONE", common: true, oracleMaintained: true },
-			{ name: "RESOURCE", authType: "NONE", common: true, oracleMaintained: true },
-			{ name: "APP_USER", authType: "NONE", common: false, oracleMaintained: false },
-			{ name: "BATCH_ROLE", authType: "NONE", common: false, oracleMaintained: false },
+			{ name: "CONNECT", authType: "NONE", common: true, oracleMaintained: true, hasNavAnsattGrantee: true },
+			{ name: "DBA", authType: "NONE", common: true, oracleMaintained: true, hasNavAnsattGrantee: false },
+			{ name: "RESOURCE", authType: "NONE", common: true, oracleMaintained: true, hasNavAnsattGrantee: false },
+			{ name: "APP_USER", authType: "NONE", common: false, oracleMaintained: false, hasNavAnsattGrantee: true },
+			{ name: "BATCH_ROLE", authType: "NONE", common: false, oracleMaintained: false, hasNavAnsattGrantee: false },
 		],
 	}
 }
@@ -259,6 +259,12 @@ export interface OracleRole {
 	authType: string | null
 	common: boolean | null
 	oracleMaintained: boolean | null
+	hasNavAnsattGrantee?: boolean | null
+}
+
+/** Rolle som skal kritikalitetsvurderes: egendefinert, eller brukt av Nav-ansatte */
+export function shouldAssessRole(role: OracleRole): boolean {
+	return role.oracleMaintained !== true || role.hasNavAnsattGrantee !== false
 }
 
 // --- In-memory cache (TTL 1 hour) ---

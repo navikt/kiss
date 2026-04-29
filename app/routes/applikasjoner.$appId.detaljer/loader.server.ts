@@ -22,7 +22,7 @@ import { isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
-import { getOracleInstances, getOracleRoles } from "~/lib/oracle-revisjon.server"
+import { getOracleInstances, getOracleRoles, shouldAssessRole } from "~/lib/oracle-revisjon.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -187,7 +187,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const oracleRoles = oracleRoleResults.flatMap((result) => {
 		if (result.status !== "fulfilled") return []
 		const { instanceId, instanceName, roles } = result.value
-		return roles.map((r) => {
+		return roles.filter(shouldAssessRole).map((r) => {
 			const key = `${instanceId}:${r.name.toUpperCase().trim()}`
 			const assessment = roleAssessments[key]
 			return {

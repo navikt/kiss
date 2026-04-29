@@ -15,6 +15,83 @@ vi.mock("../logger.server", () => ({
 }))
 
 describe("oracle-revisjon.server", () => {
+	describe("shouldAssessRole", () => {
+		it("returns true for custom roles (oracleMaintained = false)", async () => {
+			const { shouldAssessRole } = await import("../oracle-revisjon.server")
+			expect(
+				shouldAssessRole({
+					name: "APP_USER",
+					authType: null,
+					common: false,
+					oracleMaintained: false,
+					hasNavAnsattGrantee: false,
+				}),
+			).toBe(true)
+			expect(
+				shouldAssessRole({
+					name: "APP_USER",
+					authType: null,
+					common: false,
+					oracleMaintained: false,
+					hasNavAnsattGrantee: true,
+				}),
+			).toBe(true)
+		})
+
+		it("returns true for Oracle-maintained roles used by Nav-ansatte", async () => {
+			const { shouldAssessRole } = await import("../oracle-revisjon.server")
+			expect(
+				shouldAssessRole({
+					name: "CONNECT",
+					authType: null,
+					common: true,
+					oracleMaintained: true,
+					hasNavAnsattGrantee: true,
+				}),
+			).toBe(true)
+		})
+
+		it("returns false for Oracle-maintained roles not used by Nav-ansatte", async () => {
+			const { shouldAssessRole } = await import("../oracle-revisjon.server")
+			expect(
+				shouldAssessRole({
+					name: "DBA",
+					authType: null,
+					common: true,
+					oracleMaintained: true,
+					hasNavAnsattGrantee: false,
+				}),
+			).toBe(false)
+		})
+
+		it("returns true when oracleMaintained is null (treated as custom)", async () => {
+			const { shouldAssessRole } = await import("../oracle-revisjon.server")
+			expect(
+				shouldAssessRole({
+					name: "UNKNOWN",
+					authType: null,
+					common: null,
+					oracleMaintained: null,
+					hasNavAnsattGrantee: false,
+				}),
+			).toBe(true)
+		})
+
+		it("returns true when hasNavAnsattGrantee is missing or null (safe default)", async () => {
+			const { shouldAssessRole } = await import("../oracle-revisjon.server")
+			expect(shouldAssessRole({ name: "CONNECT", authType: null, common: true, oracleMaintained: true })).toBe(true)
+			expect(
+				shouldAssessRole({
+					name: "CONNECT",
+					authType: null,
+					common: true,
+					oracleMaintained: true,
+					hasNavAnsattGrantee: null,
+				}),
+			).toBe(true)
+		})
+	})
+
 	describe("getAuditEvidenceSummary (dev mode)", () => {
 		it("returns mock summary when ORACLE_REVISJON_BASE_URL is not set", async () => {
 			// In test env, ORACLE_REVISJON_BASE_URL is not set → dev mode
