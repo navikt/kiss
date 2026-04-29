@@ -108,7 +108,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	if (hasOracleRolesQuestion) {
 		const { getOracleInstancesForApp } = await import("~/db/queries/audit-evidence.server")
-		const { getOracleRoles, getOracleInstances } = await import("~/lib/oracle-revisjon.server")
+		const { getOracleRoles, getOracleInstances, shouldAssessRole } = await import("~/lib/oracle-revisjon.server")
 		const { filterInstancesByAccess } = await import("~/lib/oracle-access.server")
 
 		const allInstances = await getOracleInstances()
@@ -129,6 +129,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			const result = roleResults[i]
 			if (result.status === "fulfilled" && result.value) {
 				for (const role of result.value.roles) {
+					if (!shouldAssessRole(role)) continue
 					allRoles.push({
 						instanceId: filteredInstances[i].instanceId,
 						roleName: role.name,

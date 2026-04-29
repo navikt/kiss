@@ -148,7 +148,7 @@ export function OracleRolesSection({ roles, canAdmin }: { roles: OracleRoleDispl
 					{`Oracle Database-roller (${sorted.length}${sorted.length !== roles.length ? ` av ${roles.length}` : ""})`}
 				</Heading>
 				<BodyShort size="small" textColor="subtle">
-					Roller som er definert i Oracle-databasene som applikasjonen bruker. Vurder kritikaliteten til hver rolle.
+					Roller som er egendefinerte eller brukt av Nav-ansatte. Vurder kritikaliteten til hver rolle.
 				</BodyShort>
 			</VStack>
 
