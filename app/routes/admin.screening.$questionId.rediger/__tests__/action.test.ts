@@ -102,7 +102,6 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 			const formData = new FormData()
 			formData.set("intent", "updateQuestion")
 			formData.set("questionText", "Nytt spørsmål")
-			formData.set("displayOrder", "0")
 
 			try {
 				await callAction(formData, "ny")
@@ -119,7 +118,6 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 			const formData = new FormData()
 			formData.set("intent", "updateQuestion")
 			formData.set("questionText", "Oppdatert spørsmål")
-			formData.set("displayOrder", "1")
 
 			try {
 				await callAction(formData)
@@ -181,7 +179,6 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 			formData.set("intent", "updateQuestion")
 			formData.set("questionText", "Nytt spørsmål")
 			formData.set("description", "Beskrivelse")
-			formData.set("displayOrder", "0")
 
 			try {
 				await callAction(formData, "ny")
@@ -195,7 +192,6 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 			expect(mockCreateScreeningQuestion).toHaveBeenCalledWith(
 				"Nytt spørsmål",
 				"Beskrivelse",
-				0,
 				"Z999999",
 				null,
 				"boolean",
@@ -208,7 +204,6 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 			formData.set("intent", "updateQuestion")
 			formData.set("questionText", "Oppdatert spørsmål")
 			formData.set("description", "Oppdatert beskrivelse")
-			formData.set("displayOrder", "1")
 
 			try {
 				await callAction(formData)
@@ -222,7 +217,6 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 				"test-id",
 				"Oppdatert spørsmål",
 				"Oppdatert beskrivelse",
-				1,
 				"Z999999",
 				null,
 			)

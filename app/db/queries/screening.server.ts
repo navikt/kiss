@@ -65,12 +65,19 @@ export async function getScreeningQuestionsByIds(ids: string[]) {
 export async function createScreeningQuestion(
 	questionText: string,
 	description: string | null,
-	displayOrder: number,
 	createdBy: string,
 	sectionId?: string | null,
 	answerType = "boolean",
 	rulesetId?: string | null,
 ) {
+	// Auto-assign displayOrder as max + 1 within the same scope (global or section)
+	const scopeFilter = sectionId ? eq(screeningQuestions.sectionId, sectionId) : isNull(screeningQuestions.sectionId)
+	const [{ max: maxOrder }] = await db
+		.select({ max: sql<number>`coalesce(max(${screeningQuestions.displayOrder}), -1)` })
+		.from(screeningQuestions)
+		.where(scopeFilter)
+	const displayOrder = maxOrder + 1
+
 	const [q] = await db
 		.insert(screeningQuestions)
 		.values({
@@ -108,13 +115,12 @@ export async function updateScreeningQuestion(
 	id: string,
 	questionText: string,
 	description: string | null,
-	displayOrder: number,
 	updatedBy: string,
 	rulesetId?: string | null,
 ) {
 	const [q] = await db
 		.update(screeningQuestions)
-		.set({ questionText, description, displayOrder, updatedAt: new Date(), updatedBy, rulesetId: rulesetId ?? null })
+		.set({ questionText, description, updatedAt: new Date(), updatedBy, rulesetId: rulesetId ?? null })
 		.where(eq(screeningQuestions.id, id))
 		.returning()
 

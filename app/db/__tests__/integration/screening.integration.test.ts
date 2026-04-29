@@ -104,7 +104,7 @@ describe("screening.server integration tests", () => {
 
 	describe("Questions CRUD", () => {
 		it("auto-creates Ja/Nei choices for a boolean question and writes audit log", async () => {
-			const q = await createScreeningQuestion("Brukes MFA?", "Beskrivelse", 0, "admin")
+			const q = await createScreeningQuestion("Brukes MFA?", "Beskrivelse", "admin")
 			expect(q.questionText).toBe("Brukes MFA?")
 
 			const choices = await getChoicesForQuestion(q.id)
@@ -115,15 +115,15 @@ describe("screening.server integration tests", () => {
 		})
 
 		it("does not auto-create choices for non-boolean questions", async () => {
-			const q = await createScreeningQuestion("Hva er verdi?", null, 0, "admin", null, "text")
+			const q = await createScreeningQuestion("Hva er verdi?", null, "admin", null, "text")
 			const choices = await getChoicesForQuestion(q.id)
 			expect(choices).toHaveLength(0)
 		})
 
 		it("scopes questions to a section", async () => {
 			const sectionId = await createSectionRow("sec1")
-			await createScreeningQuestion("Global?", null, 0, "admin")
-			await createScreeningQuestion("Sec scoped?", null, 0, "admin", sectionId)
+			await createScreeningQuestion("Global?", null, "admin")
+			await createScreeningQuestion("Sec scoped?", null, "admin", sectionId)
 
 			const globals = await getScreeningQuestions()
 			const sectionQs = await getSectionScreeningQuestions(sectionId)
@@ -134,19 +134,18 @@ describe("screening.server integration tests", () => {
 		})
 
 		it("updates a question with audit log", async () => {
-			const q = await createScreeningQuestion("Old?", null, 0, "admin")
-			const updated = await updateScreeningQuestion(q.id, "New?", "desc", 1, "editor")
+			const q = await createScreeningQuestion("Old?", null, "admin")
+			const updated = await updateScreeningQuestion(q.id, "New?", "desc", "editor")
 			expect(updated.questionText).toBe("New?")
-			expect(updated.displayOrder).toBe(1)
 
 			const audit = await getAuditByAction("screening_question_updated")
 			expect(audit.find((a) => a.entity_id === q.id)?.new_value).toBe("New?")
 		})
 
 		it("reorders questions", async () => {
-			const a = await createScreeningQuestion("A", null, 0, "admin")
-			const b = await createScreeningQuestion("B", null, 1, "admin")
-			const c = await createScreeningQuestion("C", null, 2, "admin")
+			const a = await createScreeningQuestion("A", null, "admin")
+			const b = await createScreeningQuestion("B", null, "admin")
+			const c = await createScreeningQuestion("C", null, "admin")
 
 			await reorderScreeningQuestions([c.id, a.id, b.id], "admin")
 
@@ -155,7 +154,7 @@ describe("screening.server integration tests", () => {
 		})
 
 		it("archives a question (soft-delete) with audit log and supports unarchive", async () => {
-			const q = await createScreeningQuestion("ToArchive", null, 0, "admin")
+			const q = await createScreeningQuestion("ToArchive", null, "admin")
 			await archiveScreeningQuestion(q.id, "admin")
 
 			// Default lookup hides archived
@@ -194,7 +193,7 @@ describe("screening.server integration tests", () => {
 
 	describe("Choices CRUD", () => {
 		it("creates, updates and archives choices", async () => {
-			const q = await createScreeningQuestion("Q", null, 0, "admin", null, "single")
+			const q = await createScreeningQuestion("Q", null, "admin", null, "single")
 			const choice = await createChoice({ questionId: q.id, label: "Maybe", displayOrder: 0 })
 			expect(choice.label).toBe("Maybe")
 
@@ -225,7 +224,7 @@ describe("screening.server integration tests", () => {
 		})
 
 		it("cascade-archives child effects when choice is archived (with audit entries)", async () => {
-			const q = await createScreeningQuestion("Q?", null, 0, "admin")
+			const q = await createScreeningQuestion("Q?", null, "admin")
 			const choices = await getChoicesForQuestion(q.id)
 			const ja = choices.find((c) => c.label === "Ja")!
 			await createControl("K-CASCADE.01")
@@ -259,7 +258,7 @@ describe("screening.server integration tests", () => {
 
 	describe("Choice effects", () => {
 		it("adds and lists choice effects with control text id", async () => {
-			const q = await createScreeningQuestion("Q?", null, 0, "admin")
+			const q = await createScreeningQuestion("Q?", null, "admin")
 			const choices = await getChoicesForQuestion(q.id)
 			const ja = choices.find((c) => c.label === "Ja")
 			expect(ja).toBeDefined()
@@ -296,7 +295,7 @@ describe("screening.server integration tests", () => {
 		})
 
 		it("throws if control text id does not exist", async () => {
-			const q = await createScreeningQuestion("Q?", null, 0, "admin")
+			const q = await createScreeningQuestion("Q?", null, "admin")
 			const choices = await getChoicesForQuestion(q.id)
 			await expect(
 				addChoiceEffect({
@@ -311,7 +310,7 @@ describe("screening.server integration tests", () => {
 
 	describe("Tech element scoping", () => {
 		it("sets and replaces technology elements for a question", async () => {
-			const q = await createScreeningQuestion("Q?", null, 0, "admin")
+			const q = await createScreeningQuestion("Q?", null, "admin")
 			const e1 = await createTechElement("kubernetes")
 			const e2 = await createTechElement("postgres")
 
@@ -330,7 +329,7 @@ describe("screening.server integration tests", () => {
 
 		it("writes diff-audit on add and remove and emits no audit on no-op", async () => {
 			const { getAuditLogForEntity } = await import("~/db/queries/audit.server")
-			const q = await createScreeningQuestion("AuditQ?", null, 0, "admin")
+			const q = await createScreeningQuestion("AuditQ?", null, "admin")
 			const e1 = await createTechElement("k8s-aud")
 			const e2 = await createTechElement("pg-aud")
 
@@ -353,7 +352,7 @@ describe("screening.server integration tests", () => {
 	describe("Answers", () => {
 		it("upserts an answer and writes audit log", async () => {
 			const app = await createApp("App1")
-			const q = await createScreeningQuestion("Q?", null, 0, "admin")
+			const q = await createScreeningQuestion("Q?", null, "admin")
 
 			await saveScreeningAnswer(app, q.id, "Ja", "X1", "kommentar", "https://example.com")
 
@@ -380,7 +379,7 @@ describe("screening.server integration tests", () => {
 	describe("changeScreeningQuestionStatus", () => {
 		it("allows valid transitions: draft → ready → approved", async () => {
 			const section = await createSectionRow("status-transitions")
-			const q = await createScreeningQuestion("Transition test", null, 0, "test", section, "boolean")
+			const q = await createScreeningQuestion("Transition test", null, "test", section, "boolean")
 			expect(q.status).toBe("draft")
 
 			// draft → ready
@@ -398,7 +397,7 @@ describe("screening.server integration tests", () => {
 
 		it("rejects invalid transitions", async () => {
 			const section = await createSectionRow("invalid-transitions")
-			const q = await createScreeningQuestion("Invalid transition test", null, 0, "test", section, "boolean")
+			const q = await createScreeningQuestion("Invalid transition test", null, "test", section, "boolean")
 
 			// draft → approved is not allowed
 			await expect(changeScreeningQuestionStatus(q.id, "approved", "test")).rejects.toMatchObject({ status: 400 })
@@ -406,7 +405,7 @@ describe("screening.server integration tests", () => {
 
 		it("rejects status change on archived questions", async () => {
 			const section = await createSectionRow("archived-status")
-			const q = await createScreeningQuestion("Archived test", null, 0, "test", section, "boolean")
+			const q = await createScreeningQuestion("Archived test", null, "test", section, "boolean")
 			await archiveScreeningQuestion(q.id, "test")
 
 			await expect(changeScreeningQuestionStatus(q.id, "ready", "test")).rejects.toMatchObject({ status: 403 })
@@ -414,7 +413,7 @@ describe("screening.server integration tests", () => {
 
 		it("writes audit log with correct action and values", async () => {
 			const section = await createSectionRow("audit-status")
-			const q = await createScreeningQuestion("Audit status test", null, 0, "test", section, "boolean")
+			const q = await createScreeningQuestion("Audit status test", null, "test", section, "boolean")
 
 			await changeScreeningQuestionStatus(q.id, "ready", "tester")
 
@@ -434,7 +433,7 @@ describe("screening.server integration tests", () => {
 
 		it("returns existing question unchanged when status matches", async () => {
 			const section = await createSectionRow("noop-status")
-			const q = await createScreeningQuestion("Noop test", null, 0, "test", section, "boolean")
+			const q = await createScreeningQuestion("Noop test", null, "test", section, "boolean")
 			const result = await changeScreeningQuestionStatus(q.id, "draft", "test")
 			expect(result?.status).toBe("draft")
 		})

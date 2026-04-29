@@ -145,7 +145,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "updateQuestion") {
 		const questionText = formData.get("questionText") as string
 		const description = (formData.get("description") as string)?.trim() || null
-		const displayOrder = Number(formData.get("displayOrder") ?? 0)
 		const answerType = (formData.get("answerType") as string) || "boolean"
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
 		const rulesetId = (formData.get("rulesetId") as string) || null
@@ -155,7 +154,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			const q = await createScreeningQuestion(
 				questionText.trim(),
 				description,
-				displayOrder,
 				authedUser.navIdent,
 				sectionId,
 				answerType,
@@ -198,14 +196,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return redirect(returnPath)
 		}
 
-		await updateScreeningQuestion(
-			questionId,
-			questionText.trim(),
-			description,
-			displayOrder,
-			authedUser.navIdent,
-			rulesetId,
-		)
+		await updateScreeningQuestion(questionId, questionText.trim(), description, authedUser.navIdent, rulesetId)
 		await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean), authedUser.navIdent)
 		return redirect(returnPath)
 	}
