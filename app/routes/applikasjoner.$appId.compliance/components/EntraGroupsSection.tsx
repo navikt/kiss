@@ -7,6 +7,8 @@ import {
 	CopyButton,
 	Detail,
 	Dialog,
+	ErrorSummary,
+	Heading,
 	HStack,
 	Search,
 	Select,
@@ -14,10 +16,11 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import { type ChangeEvent, useCallback, useMemo, useRef, useState } from "react"
+import { type ChangeEvent, type FormEvent, useCallback, useMemo, useRef, useState } from "react"
 import { Form, useFetcher } from "react-router"
 import { groupCriticalityEnum, groupCriticalityLabels } from "~/db/schema/applications"
 import type { EntraGroupsData } from "../shared"
+import styles from "./wizard.module.css"
 
 type UnifiedGroup = {
 	groupId: string
@@ -131,10 +134,114 @@ export function EntraGroupsSection({
 
 	const allGroupsHaveCriticality =
 		unifiedGroups.length > 0 && unifiedGroups.every((ug) => assessmentsByGroupId[ug.groupId]?.criticality)
-	const canConfirm = allGroupsHaveCriticality && !confirmed
+	const [hasAttempted, setHasAttempted] = useState(false)
+	const errorSummaryRef = useRef<HTMLDivElement>(null)
+
+	const uncriticalGroups = unifiedGroups.filter((ug) => !assessmentsByGroupId[ug.groupId]?.criticality)
+	const confirmErrors: Array<{ message: string; href: string }> = []
+	if (hasAttempted && unifiedGroups.length === 0) {
+		confirmErrors.push({ message: "Legg til minst én gruppe", href: "#add-group-btn" })
+	}
+	if (hasAttempted && uncriticalGroups.length > 0) {
+		for (const ug of uncriticalGroups) {
+			const name =
+				groupNames[ug.groupId] ?? manualGroups.find((mg) => mg.groupId === ug.groupId)?.groupName ?? ug.groupId
+			confirmErrors.push({ message: `Sett kritikalitet for ${name}`, href: `#criticality-${ug.groupId}` })
+		}
+	}
+
+	function handleConfirmSubmit(e: FormEvent<HTMLFormElement>) {
+		if (unifiedGroups.length === 0 || !allGroupsHaveCriticality) {
+			e.preventDefault()
+			setHasAttempted(true)
+			setTimeout(() => errorSummaryRef.current?.focus(), 0)
+		}
+	}
 
 	return (
 		<VStack gap="space-6">
+			<div className={styles.tableHeader}>
+				<Heading size="xsmall" level="4">
+					Entra ID-grupper
+				</Heading>
+				<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+					<Dialog.Trigger>
+						<Button variant="tertiary" size="small" icon={<PlusIcon aria-hidden />} id="add-group-btn">
+							Legg til gruppe
+						</Button>
+					</Dialog.Trigger>
+					<Dialog.Popup
+						width="large"
+						position="center"
+						closeOnOutsideClick
+						initialFocusTo={() => searchInputRef.current}
+						aria-label="Legg til Entra ID-gruppe"
+					>
+						<Dialog.Header>Legg til Entra ID-gruppe</Dialog.Header>
+						<Dialog.Body>
+							<VStack gap="space-4">
+								<Search
+									ref={searchInputRef}
+									label="Søk på gruppenavn eller Object-ID"
+									size="small"
+									value={searchQuery}
+									onChange={handleSearch}
+									onClear={() => {
+										setSearchQuery("")
+										setShowResults(false)
+									}}
+									autoComplete="off"
+								/>
+								{showResults && (
+									<Box
+										borderRadius="8"
+										borderWidth="1"
+										borderColor="neutral-subtle"
+										style={{ maxHeight: "300px", overflowY: "auto" }}
+									>
+										{isSearching ? (
+											<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-8)" }}>
+												Søker…
+											</BodyShort>
+										) : searchResults.length > 0 ? (
+											<VStack>
+												{searchResults.map((result) => {
+													const alreadyAdded = allExistingGroupIds.has(result.id)
+													return (
+														<Button
+															key={result.id}
+															variant="tertiary-neutral"
+															size="small"
+															style={{ justifyContent: "flex-start", width: "100%", textAlign: "left" }}
+															onClick={() => {
+																if (!alreadyAdded) handleAddGroup(result.id, result.displayName)
+															}}
+															aria-disabled={alreadyAdded || undefined}
+														>
+															<VStack>
+																<BodyShort size="small" weight="semibold">
+																	{result.displayName}
+																	{alreadyAdded && " ✓"}
+																</BodyShort>
+																<Detail textColor="subtle">{alreadyAdded ? "Allerede lagt til" : result.id}</Detail>
+															</VStack>
+														</Button>
+													)
+												})}
+											</VStack>
+										) : (
+											<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-8)" }}>
+												Ingen grupper funnet
+											</BodyShort>
+										)}
+									</Box>
+								)}
+							</VStack>
+						</Dialog.Body>
+					</Dialog.Popup>
+				</Dialog>
+			</div>
+
 			{unifiedGroups.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
 				<section className="table-scroll" tabIndex={0} aria-label="Entra ID-grupper">
@@ -204,6 +311,7 @@ export function EntraGroupsSection({
 													hideLabel
 													size="small"
 													value={assessment?.criticality ?? ""}
+													id={`criticality-${ug.groupId}`}
 													onChange={(e: ChangeEvent<HTMLSelectElement>) => {
 														criticalityFetcher.submit(
 															{
@@ -213,6 +321,7 @@ export function EntraGroupsSection({
 															},
 															{ method: "POST" },
 														)
+														if (hasAttempted) setHasAttempted(false)
 													}}
 													style={{ minWidth: "120px" }}
 												>
@@ -252,109 +361,35 @@ export function EntraGroupsSection({
 				</section>
 			) : (
 				<BodyShort size="small" textColor="subtle">
-					Ingen Entra ID-grupper registrert ennå.
+					Ingen Entra ID-grupper registrert ennå. Legg til med knappen over.
 				</BodyShort>
 			)}
 
-			<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-				<Dialog.Trigger>
-					<Button variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
-						Legg til gruppe
-					</Button>
-				</Dialog.Trigger>
-				<Dialog.Popup
-					width="large"
-					position="center"
-					closeOnOutsideClick
-					initialFocusTo={() => searchInputRef.current}
-					aria-label="Legg til Entra ID-gruppe"
-				>
-					<Dialog.Header>Legg til Entra ID-gruppe</Dialog.Header>
-					<Dialog.Body>
-						<VStack gap="space-4">
-							<Search
-								ref={searchInputRef}
-								label="Søk på gruppenavn eller Object-ID"
-								size="small"
-								value={searchQuery}
-								onChange={handleSearch}
-								onClear={() => {
-									setSearchQuery("")
-									setShowResults(false)
-								}}
-								autoComplete="off"
-							/>
-							{showResults && (
-								<Box
-									borderRadius="8"
-									borderWidth="1"
-									borderColor="neutral-subtle"
-									style={{ maxHeight: "300px", overflowY: "auto" }}
-								>
-									{isSearching ? (
-										<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-8)" }}>
-											Søker…
-										</BodyShort>
-									) : searchResults.length > 0 ? (
-										<VStack>
-											{searchResults.map((result) => {
-												const alreadyAdded = allExistingGroupIds.has(result.id)
-												return (
-													<Button
-														key={result.id}
-														variant="tertiary-neutral"
-														size="small"
-														style={{ justifyContent: "flex-start", width: "100%", textAlign: "left" }}
-														onClick={() => handleAddGroup(result.id, result.displayName)}
-														disabled={alreadyAdded}
-													>
-														<VStack>
-															<BodyShort size="small" weight="semibold">
-																{result.displayName}
-																{alreadyAdded && " (allerede lagt til)"}
-															</BodyShort>
-															<Detail textColor="subtle">{result.id}</Detail>
-														</VStack>
-													</Button>
-												)
-											})}
-										</VStack>
-									) : (
-										<BodyShort size="small" textColor="subtle" style={{ padding: "var(--ax-space-8)" }}>
-											Ingen grupper funnet
-										</BodyShort>
-									)}
-								</Box>
-							)}
-						</VStack>
-					</Dialog.Body>
-				</Dialog.Popup>
-			</Dialog>
-
-			<Form method="post">
+			<Form method="post" onSubmit={handleConfirmSubmit}>
 				<input type="hidden" name="intent" value="screening" />
 				<input type="hidden" name="questionId" value={questionId} />
 				<input type="hidden" name="answer" value="confirmed" />
-				<HStack gap="space-4" align="center">
-					<Button
-						type="submit"
-						size="small"
-						variant={confirmed ? "secondary-neutral" : "primary"}
-						disabled={!canConfirm}
-					>
-						{confirmed ? "✓ Bekreftet" : "Bekreft at alle grupper er registrert"}
-					</Button>
-					{!allGroupsHaveCriticality && unifiedGroups.length > 0 && (
-						<BodyShort size="small" textColor="subtle">
-							Alle grupper må ha kritikalitet før du kan bekrefte.
-						</BodyShort>
+				<VStack gap="space-4">
+					{hasAttempted && confirmErrors.length > 0 && (
+						<ErrorSummary ref={errorSummaryRef} heading="Kan ikke bekrefte ennå">
+							{confirmErrors.map((err) => (
+								<ErrorSummary.Item key={err.href} href={err.href}>
+									{err.message}
+								</ErrorSummary.Item>
+							))}
+						</ErrorSummary>
 					)}
-					{unifiedGroups.length === 0 && (
-						<BodyShort size="small" textColor="subtle">
-							Legg til minst én gruppe før du kan bekrefte.
-						</BodyShort>
-					)}
-				</HStack>
+					<HStack gap="space-4" align="center" justify="end">
+						{confirmed && (
+							<Tag variant="success" size="xsmall">
+								✓ Bekreftet
+							</Tag>
+						)}
+						<Button type="submit" size="small" variant={confirmed ? "secondary-neutral" : "primary"}>
+							{confirmed ? "✓ Bekreftet" : "Bekreft og gå videre"}
+						</Button>
+					</HStack>
+				</VStack>
 			</Form>
 		</VStack>
 	)

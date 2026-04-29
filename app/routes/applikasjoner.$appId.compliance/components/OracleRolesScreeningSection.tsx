@@ -1,6 +1,6 @@
 import type { SortState } from "@navikt/ds-react"
-import { BodyShort, Button, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
-import { type ChangeEvent, useEffect, useMemo, useState } from "react"
+import { BodyShort, Button, ErrorSummary, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { Form, useFetcher } from "react-router"
 import { type GroupCriticality, groupCriticalityEnum, groupCriticalityLabels } from "~/db/schema/applications"
 import type { OracleRolesData } from "../shared"
@@ -11,10 +11,14 @@ function CriticalitySelect({
 	instanceId,
 	roleName,
 	currentValue,
+	id,
+	onChanged,
 }: {
 	instanceId: string
 	roleName: string
 	currentValue: string
+	id?: string
+	onChanged?: () => void
 }) {
 	const fetcher = useFetcher()
 	const [value, setValue] = useState(currentValue)
@@ -33,6 +37,7 @@ function CriticalitySelect({
 				hideLabel
 				size="small"
 				value={value}
+				id={id}
 				onChange={(e: ChangeEvent<HTMLSelectElement>) => {
 					setValue(e.target.value)
 					fetcher.submit(
@@ -44,11 +49,12 @@ function CriticalitySelect({
 						},
 						{ method: "POST" },
 					)
+					onChanged?.()
 				}}
 				style={{ minWidth: "120px" }}
 			>
 				<option value="" disabled>
-					Velg\u2026
+					Velg…
 				</option>
 				{groupCriticalityEnum.map((c) => (
 					<option key={c} value={c}>
@@ -112,7 +118,34 @@ export function OracleRolesScreeningSection({
 			const key = `${r.instanceId}:${r.roleName.toUpperCase().trim()}`
 			return assessments[key]?.criticality
 		})
-	const canConfirm = allRolesHaveCriticality && !confirmed
+	const [hasAttempted, setHasAttempted] = useState(false)
+	const errorSummaryRef = useRef<HTMLDivElement>(null)
+
+	const unratedRoles = roles.filter((r) => {
+		const key = `${r.instanceId}:${r.roleName.toUpperCase().trim()}`
+		return !assessments[key]?.criticality
+	})
+	const confirmErrors: Array<{ message: string; href: string }> = []
+	if (hasAttempted && roles.length === 0) {
+		confirmErrors.push({ message: "Ingen Oracle-roller funnet", href: "#" })
+	}
+	if (hasAttempted && unratedRoles.length > 0) {
+		for (const r of unratedRoles) {
+			const key = `${r.instanceId}:${r.roleName.toUpperCase().trim()}`
+			confirmErrors.push({
+				message: `Sett kritikalitet for ${r.roleName} (${r.instanceId})`,
+				href: `#criticality-${key}`,
+			})
+		}
+	}
+
+	function handleConfirmSubmit(e: FormEvent<HTMLFormElement>) {
+		if (roles.length === 0 || !allRolesHaveCriticality) {
+			e.preventDefault()
+			setHasAttempted(true)
+			setTimeout(() => errorSummaryRef.current?.focus(), 0)
+		}
+	}
 
 	return (
 		<VStack gap="space-6">
@@ -171,6 +204,10 @@ export function OracleRolesScreeningSection({
 													instanceId={role.instanceId}
 													roleName={role.roleName}
 													currentValue={assessment?.criticality ?? ""}
+													id={`criticality-${key}`}
+													onChanged={() => {
+														if (hasAttempted) setHasAttempted(false)
+													}}
 												/>
 											) : assessment?.criticality ? (
 												<Tag variant="neutral" size="xsmall">
@@ -194,30 +231,31 @@ export function OracleRolesScreeningSection({
 				</BodyShort>
 			)}
 
-			<Form method="post">
+			<Form method="post" onSubmit={handleConfirmSubmit}>
 				<input type="hidden" name="intent" value="screening" />
 				<input type="hidden" name="questionId" value={questionId} />
 				<input type="hidden" name="answer" value="confirmed" />
-				<HStack gap="space-4" align="center">
-					<Button
-						type="submit"
-						size="small"
-						variant={confirmed ? "secondary-neutral" : "primary"}
-						disabled={!canConfirm}
-					>
-						{confirmed ? "\u2713 Bekreftet" : "Bekreft at alle roller er vurdert"}
-					</Button>
-					{!allRolesHaveCriticality && roles.length > 0 && (
-						<BodyShort size="small" textColor="subtle">
-							Alle roller m\u00e5 ha kritikalitet f\u00f8r du kan bekrefte.
-						</BodyShort>
+				<VStack gap="space-4">
+					{hasAttempted && confirmErrors.length > 0 && (
+						<ErrorSummary ref={errorSummaryRef} heading="Kan ikke bekrefte ennå">
+							{confirmErrors.map((err) => (
+								<ErrorSummary.Item key={err.href} href={err.href}>
+									{err.message}
+								</ErrorSummary.Item>
+							))}
+						</ErrorSummary>
 					)}
-					{roles.length === 0 && (
-						<BodyShort size="small" textColor="subtle">
-							Ingen Oracle-roller funnet. Koble Oracle-instanser til applikasjonen f\u00f8rst.
-						</BodyShort>
-					)}
-				</HStack>
+					<HStack gap="space-4" align="center" justify="end">
+						{confirmed && (
+							<Tag variant="success" size="xsmall">
+								✓ Bekreftet
+							</Tag>
+						)}
+						<Button type="submit" size="small" variant={confirmed ? "secondary-neutral" : "primary"}>
+							{confirmed ? "✓ Bekreftet" : "Bekreft og gå videre"}
+						</Button>
+					</HStack>
+				</VStack>
 			</Form>
 		</VStack>
 	)

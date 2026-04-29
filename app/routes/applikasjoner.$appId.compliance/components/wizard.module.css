@@ -1,0 +1,176 @@
+.page {
+	max-width: 80rem;
+	margin: 0 auto;
+	padding: var(--ax-space-16);
+}
+
+.layout {
+	display: grid;
+	grid-template-columns: 18rem 1fr;
+	gap: var(--ax-space-24);
+	align-items: start;
+}
+
+.stepper {
+	position: sticky;
+	top: var(--ax-space-16);
+	max-height: calc(100vh - var(--ax-space-32));
+	overflow-y: auto;
+	background: var(--ax-bg-subtle);
+	border-radius: var(--ax-radius-8);
+	padding: var(--ax-space-16);
+}
+
+.stepperTitle {
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	font-weight: 600;
+	margin-bottom: var(--ax-space-4);
+}
+
+.stepperCount {
+	margin-bottom: var(--ax-space-12);
+}
+
+.stepperList {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.stepperItem {
+	position: relative;
+}
+
+.stepperItem:not(:last-child)::after {
+	content: "";
+	position: absolute;
+	left: 23px;
+	top: 2.75rem;
+	bottom: 0;
+	width: 2px;
+	background: var(--ax-border-subtle);
+}
+
+.stepperItemDone:not(:last-child)::after {
+	background: var(--ax-border-success);
+}
+
+.stepperButton {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--ax-space-8);
+	padding: var(--ax-space-8) var(--ax-space-4);
+	width: 100%;
+	background: none;
+	border: none;
+	cursor: pointer;
+	text-align: left;
+	border-radius: var(--ax-radius-4);
+	transition: background 0.1s;
+}
+
+.stepperButton:hover:not(:disabled) {
+	background: rgba(0, 0, 0, 0.04);
+}
+
+.stepperButton:disabled {
+	cursor: default;
+}
+
+.stepperDot {
+	width: 24px;
+	height: 24px;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 0.7rem;
+	font-weight: 700;
+	flex-shrink: 0;
+	position: relative;
+	z-index: 1;
+}
+
+.stepperItemDone .stepperDot {
+	background: var(--ax-bg-success-strong);
+	color: white;
+}
+
+.stepperItemActive .stepperDot {
+	background: var(--ax-bg-brand-blue-strong);
+	color: white;
+	box-shadow: 0 0 0 3px rgba(69, 124, 157, 0.25);
+}
+
+.stepperItemPending .stepperDot {
+	background: var(--ax-bg-default);
+	color: var(--ax-text-subtle);
+	border: 2px solid var(--ax-border-subtle);
+}
+
+.stepperLabel {
+	font-size: var(--ax-font-size-small);
+	line-height: 1.4;
+	padding-top: 3px;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.stepperItemDone .stepperLabel {
+	color: var(--ax-text-subtle);
+}
+
+.stepperItemActive .stepperLabel {
+	color: var(--ax-text-default);
+	font-weight: 600;
+}
+
+.stepperItemPending .stepperLabel {
+	color: var(--ax-text-subtle);
+}
+
+.content {
+	min-width: 0;
+}
+
+.questionCard {
+	background: var(--ax-bg-default);
+	border: 1px solid var(--ax-border-subtle);
+	border-radius: var(--ax-radius-8);
+	padding: var(--ax-space-24);
+}
+
+.navigation {
+	display: flex;
+	align-items: center;
+	padding-top: var(--ax-space-16);
+}
+
+.skip {
+	text-align: center;
+	opacity: 0.7;
+}
+
+.skip:hover {
+	opacity: 1;
+}
+
+.tableHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+@media (max-width: 768px) {
+	.layout {
+		grid-template-columns: 1fr;
+	}
+
+	.stepper {
+		position: static;
+		max-height: none;
+	}
+}
