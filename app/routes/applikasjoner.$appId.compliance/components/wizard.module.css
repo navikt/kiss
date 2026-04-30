@@ -146,16 +146,8 @@
 .navigation {
 	display: flex;
 	align-items: center;
+	justify-content: space-between;
 	padding-top: var(--ax-space-16);
-}
-
-.skip {
-	text-align: center;
-	opacity: 0.7;
-}
-
-.skip:hover {
-	opacity: 1;
 }
 
 .tableHeader {

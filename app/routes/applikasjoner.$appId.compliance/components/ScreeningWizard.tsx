@@ -1,5 +1,5 @@
 import { Alert, BodyShort, Button, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect } from "react"
 import { useSearchParams } from "react-router"
 import type { EntraGroupsData, OracleRolesData, PersistenceEntry, RulesetOption, ScreeningQuestion } from "../shared"
 import { slugify } from "../shared"
@@ -37,7 +37,6 @@ export function ScreeningWizard({
 	canAdmin,
 }: Props) {
 	const [searchParams, setSearchParams] = useSearchParams()
-	const prevRef = useRef<{ questionId: string | null; answer: string | null }>({ questionId: null, answer: null })
 
 	const stepParam = searchParams.get("step")
 	const isComplete = stepParam === "complete"
@@ -80,39 +79,16 @@ export function ScreeningWizard({
 	const goToNext = useCallback(() => {
 		if (currentIndex < screening.length - 1) {
 			navigateTo(screening[currentIndex + 1].id)
+		} else {
+			navigateToComplete()
 		}
-	}, [currentIndex, screening, navigateTo])
+	}, [currentIndex, screening, navigateTo, navigateToComplete])
 
 	const goToPrevious = useCallback(() => {
 		if (currentIndex > 0) {
 			navigateTo(screening[currentIndex - 1].id)
 		}
 	}, [currentIndex, screening, navigateTo])
-
-	// Auto-advance when the current question gets answered (after form revalidation)
-	useEffect(() => {
-		if (!currentQuestion) return
-		const prev = prevRef.current
-		const sameQuestion = prev.questionId === currentQuestion.id
-		const answerChanged = prev.answer === null && currentQuestion.answer !== null
-
-		// Only auto-advance if the *same* question transitioned from unanswered to answered
-		if (sameQuestion && answerChanged) {
-			if (currentIndex < screening.length - 1) {
-				goToNext()
-			} else {
-				navigateToComplete()
-			}
-		}
-		prevRef.current = { questionId: currentQuestion.id, answer: currentQuestion.answer }
-	}, [currentQuestion, currentIndex, screening.length, goToNext, navigateToComplete])
-
-	// Sync ref when navigating to a different question
-	const currentQuestionId = currentQuestion?.id ?? null
-	const currentQuestionAnswer = currentQuestion?.answer ?? null
-	useEffect(() => {
-		prevRef.current = { questionId: currentQuestionId, answer: currentQuestionAnswer }
-	}, [currentQuestionId, currentQuestionAnswer])
 
 	const allAnswered = screening.length > 0 && screening.every(isQuestionAnswered)
 	const answeredCount = screening.filter(isQuestionAnswered).length
@@ -163,8 +139,6 @@ export function ScreeningWizard({
 	}
 
 	if (!currentQuestion) return null
-
-	const isLast = currentIndex === screening.length - 1
 
 	return (
 		<div className={styles.layout}>
@@ -240,15 +214,10 @@ export function ScreeningWizard({
 						<Button type="button" variant="secondary" size="small" onClick={goToPrevious} disabled={currentIndex === 0}>
 							← Forrige
 						</Button>
+						<Button type="button" variant="primary" size="small" onClick={goToNext}>
+							Neste →
+						</Button>
 					</nav>
-
-					{!isQuestionAnswered(currentQuestion) && !isLast && (
-						<div className={styles.skip}>
-							<Button type="button" variant="tertiary" size="xsmall" onClick={goToNext}>
-								Hopp over dette spørsmålet →
-							</Button>
-						</div>
-					)}
 				</VStack>
 			</main>
 		</div>

@@ -207,7 +207,7 @@ export function PersistenceSection({
 							</Tag>
 						)}
 						<Button type="submit" size="small" variant={confirmed ? "secondary-neutral" : "primary"}>
-							{confirmed ? "✓ Bekreftet" : "Bekreft og gå videre"}
+							{confirmed ? "✓ Bekreftet" : "Bekreft"}
 						</Button>
 					</HStack>
 				</VStack>

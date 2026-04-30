@@ -70,7 +70,7 @@ export function ScreeningAnswerForm({ question: q }: { question: ScreeningQuesti
 								</Tag>
 							)}
 							<Button type="submit" size="small" variant={isAnswered ? "secondary" : "primary"}>
-								{isAnswered ? "Oppdater" : "Lagre og gå videre"}
+								{isAnswered ? "Oppdater" : "Lagre"}
 							</Button>
 						</HStack>
 					</VStack>
@@ -148,7 +148,7 @@ export function ScreeningAnswerForm({ question: q }: { question: ScreeningQuesti
 							</Tag>
 						)}
 						<Button type="submit" size="small" variant={isAnswered ? "secondary" : "primary"}>
-							{isAnswered ? "Oppdater" : "Lagre og gå videre"}
+							{isAnswered ? "Oppdater" : "Lagre"}
 						</Button>
 					</HStack>
 				</VStack>

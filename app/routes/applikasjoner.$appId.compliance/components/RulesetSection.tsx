@@ -57,7 +57,7 @@ export function RulesetSection({ question: q, rulesets }: { question: ScreeningQ
 							</Tag>
 						)}
 						<Button type="submit" size="small" variant={isAnswered ? "secondary" : "primary"}>
-							{isAnswered ? "Oppdater" : "Lagre og gå videre"}
+							{isAnswered ? "Oppdater" : "Lagre"}
 						</Button>
 					</HStack>
 				</VStack>
