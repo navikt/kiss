@@ -105,23 +105,21 @@ describe("Application controls integration tests", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
-			TRUNCATE
-				application_control_history,
-				application_controls,
-				compliance_assessment_history,
-				compliance_assessments,
-				application_team_mappings,
-				application_environments,
-				monitored_applications,
-				framework_field_history,
-				control_technology_elements,
-				framework_risk_control_mappings,
-				framework_controls,
-				framework_risks,
-				framework_domains,
-				framework_versions,
-				audit_log
-			CASCADE;
+			DELETE FROM compliance_assessment_history;
+			DELETE FROM compliance_assessments;
+			DELETE FROM application_control_history;
+			DELETE FROM application_controls;
+			DELETE FROM application_team_mappings;
+			DELETE FROM application_environments;
+			DELETE FROM monitored_applications;
+			DELETE FROM framework_field_history;
+			DELETE FROM control_technology_elements;
+			DELETE FROM framework_risk_control_mappings;
+			DELETE FROM framework_controls;
+			DELETE FROM framework_risks;
+			DELETE FROM framework_domains;
+			DELETE FROM framework_versions;
+			DELETE FROM audit_log;
 		`)
 
 		const parsed = makeParsedFramework()

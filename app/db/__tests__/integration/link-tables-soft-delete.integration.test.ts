@@ -22,23 +22,23 @@ afterAll(async () => {
 
 beforeEach(async () => {
 	const db = getTestDb()
-	await db.execute(/* sql */ `TRUNCATE TABLE
-		audit_log,
-		application_team_mappings,
-		application_technology_elements,
-		control_technology_elements,
-		framework_risk_control_mappings,
-		framework_controls,
-		framework_risks,
-		framework_domains,
-		technology_elements,
-		ruleset_routines,
-		rulesets,
-		routines,
-		monitored_applications,
-		dev_teams,
-		sections
-		RESTART IDENTITY CASCADE`)
+	await db.execute(/* sql */ `
+		DELETE FROM audit_log;
+		DELETE FROM application_team_mappings;
+		DELETE FROM application_technology_elements;
+		DELETE FROM control_technology_elements;
+		DELETE FROM framework_risk_control_mappings;
+		DELETE FROM framework_controls;
+		DELETE FROM framework_risks;
+		DELETE FROM framework_domains;
+		DELETE FROM technology_elements;
+		DELETE FROM ruleset_routines;
+		DELETE FROM rulesets;
+		DELETE FROM routines;
+		DELETE FROM monitored_applications;
+		DELETE FROM dev_teams;
+		DELETE FROM sections;
+	`)
 })
 
 async function createSection(name: string, slug: string) {
