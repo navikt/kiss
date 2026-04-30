@@ -869,8 +869,15 @@ export async function getScreeningDataForApp(applicationId: string) {
 		)
 	const appTechElementIds = new Set(appTechRows.map((r) => r.elementId))
 
-	// Filter: include questions with no tech links (apply to all) or matching at least one app tech element
+	// Inventory-style question types that show live system data should always be included
+	// regardless of tech element links, to avoid circular filtering where the question is
+	// hidden because the data it asks about hasn't been confirmed yet.
+	const inventoryAnswerTypes = new Set(["persistence", "entra_id_groups", "oracle_roles"])
+
+	// Filter: include questions with no tech links (apply to all), inventory-style questions,
+	// or questions matching at least one app tech element
 	const questions = allQuestions.filter((q) => {
+		if (inventoryAnswerTypes.has(q.answerType)) return true
 		const requiredElements = techElementsByQuestion.get(q.id)
 		if (!requiredElements || requiredElements.length === 0) return true
 		return requiredElements.some((elId) => appTechElementIds.has(elId))

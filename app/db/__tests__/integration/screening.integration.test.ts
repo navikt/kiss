@@ -32,6 +32,7 @@ const {
 	setQuestionTechnologyElements,
 	getQuestionTechnologyElements,
 	changeScreeningQuestionStatus,
+	getScreeningDataForApp,
 } = await import("~/db/queries/screening.server")
 
 async function createApp(name: string) {
@@ -66,6 +67,21 @@ async function createTechElement(slug: string) {
 	return (r.rows[0] as { id: string }).id
 }
 
+async function createNaisTeam(slug: string, sectionId: string) {
+	const db = getTestDb()
+	const r = await db.execute(
+		/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('${slug}', '${sectionId}') RETURNING id`,
+	)
+	return (r.rows[0] as { id: string }).id
+}
+
+async function createAppEnvironment(appId: string, naisTeamId: string) {
+	const db = getTestDb()
+	await db.execute(
+		/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', 'prod-gcp', 'team-ns', '${naisTeamId}')`,
+	)
+}
+
 async function getAuditByAction(action: string) {
 	const db = getTestDb()
 	const r = await db.execute(
@@ -93,9 +109,12 @@ describe("screening.server integration tests", () => {
 			DELETE FROM screening_question_effects;
 			DELETE FROM screening_question_technology_elements;
 			DELETE FROM screening_questions;
+			DELETE FROM application_technology_elements;
 			DELETE FROM technology_elements;
 			DELETE FROM control_technology_elements;
 			DELETE FROM framework_controls;
+			DELETE FROM application_environments;
+			DELETE FROM nais_teams;
 			DELETE FROM monitored_applications;
 			DELETE FROM sections;
 			DELETE FROM audit_log;
@@ -436,6 +455,94 @@ describe("screening.server integration tests", () => {
 			const q = await createScreeningQuestion("Noop test", null, "test", section, "boolean")
 			const result = await changeScreeningQuestionStatus(q.id, "draft", "test")
 			expect(result?.status).toBe("draft")
+		})
+	})
+
+	describe("getScreeningDataForApp", () => {
+		it("always includes inventory-style questions even without matching tech elements", async () => {
+			const section = await createSectionRow("test-section")
+			const naisTeamId = await createNaisTeam("test-team", section)
+			const appId = await createApp("test-app")
+			await createAppEnvironment(appId, naisTeamId)
+
+			const techElemId = await createTechElement("database")
+
+			// Create 3 section questions, all approved
+			const q1 = await createScreeningQuestion("Boolean question?", null, "test", section, "boolean")
+			await changeScreeningQuestionStatus(q1.id, "ready", "test")
+			await changeScreeningQuestionStatus(q1.id, "approved", "test")
+
+			const q2 = await createScreeningQuestion("Persistence question?", null, "test", section, "persistence")
+			await changeScreeningQuestionStatus(q2.id, "ready", "test")
+			await changeScreeningQuestionStatus(q2.id, "approved", "test")
+
+			const q3 = await createScreeningQuestion("Entra groups?", null, "test", section, "entra_id_groups")
+			await changeScreeningQuestionStatus(q3.id, "ready", "test")
+			await changeScreeningQuestionStatus(q3.id, "approved", "test")
+
+			// Link all 3 questions to the "database" tech element
+			await setQuestionTechnologyElements(q1.id, [techElemId], "test")
+			await setQuestionTechnologyElements(q2.id, [techElemId], "test")
+			await setQuestionTechnologyElements(q3.id, [techElemId], "test")
+
+			// App has NO tech elements — before the fix, only 0 questions would show.
+			// After the fix, inventory types (persistence, entra_id_groups) always show.
+			const result = await getScreeningDataForApp(appId)
+
+			expect(result.questions).toHaveLength(2)
+			const types = result.questions.map((q) => q.answerType)
+			expect(types).toContain("persistence")
+			expect(types).toContain("entra_id_groups")
+			expect(types).not.toContain("boolean")
+		})
+
+		it("includes boolean questions when app has matching tech elements", async () => {
+			const section = await createSectionRow("test-section-2")
+			const naisTeamId = await createNaisTeam("test-team-2", section)
+			const appId = await createApp("test-app-2")
+			await createAppEnvironment(appId, naisTeamId)
+
+			const techElemId = await createTechElement("database")
+
+			// Add the tech element to the app
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO application_technology_elements (application_id, element_id, source) VALUES ('${appId}', '${techElemId}', 'auto')`,
+			)
+
+			const q1 = await createScreeningQuestion("Boolean question?", null, "test", section, "boolean")
+			await changeScreeningQuestionStatus(q1.id, "ready", "test")
+			await changeScreeningQuestionStatus(q1.id, "approved", "test")
+			await setQuestionTechnologyElements(q1.id, [techElemId], "test")
+
+			const q2 = await createScreeningQuestion("Persistence question?", null, "test", section, "persistence")
+			await changeScreeningQuestionStatus(q2.id, "ready", "test")
+			await changeScreeningQuestionStatus(q2.id, "approved", "test")
+			await setQuestionTechnologyElements(q2.id, [techElemId], "test")
+
+			const result = await getScreeningDataForApp(appId)
+
+			// Both should show: boolean matches via tech element, persistence always shows
+			expect(result.questions).toHaveLength(2)
+			const types = result.questions.map((q) => q.answerType)
+			expect(types).toContain("boolean")
+			expect(types).toContain("persistence")
+		})
+
+		it("includes questions with no tech element links for all apps", async () => {
+			const section = await createSectionRow("test-section-3")
+			const naisTeamId = await createNaisTeam("test-team-3", section)
+			const appId = await createApp("test-app-3")
+			await createAppEnvironment(appId, naisTeamId)
+
+			const q1 = await createScreeningQuestion("No tech links?", null, "test", section, "boolean")
+			await changeScreeningQuestionStatus(q1.id, "ready", "test")
+			await changeScreeningQuestionStatus(q1.id, "approved", "test")
+			// No tech elements linked → applies to all apps
+
+			const result = await getScreeningDataForApp(appId)
+			expect(result.questions).toHaveLength(1)
+			expect(result.questions[0].questionText).toBe("No tech links?")
 		})
 	})
 })
