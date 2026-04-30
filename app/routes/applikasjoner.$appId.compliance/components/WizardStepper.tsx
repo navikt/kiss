@@ -48,14 +48,12 @@ export function WizardStepper({ questions, currentQuestionId, isComplete, onNavi
 			<ol className={styles.stepperList}>
 				{questions.map((q, index) => {
 					const status = getStepStatus(q)
-					const canNavigate = status === "done" || status === "active"
 					return (
 						<li key={q.id} className={`${styles.stepperItem} ${statusClass[status]}`}>
 							<button
 								type="button"
 								className={styles.stepperButton}
 								onClick={() => onNavigate(q.id)}
-								disabled={!canNavigate}
 								aria-current={status === "active" ? "step" : undefined}
 								aria-label={`Steg ${index + 1}: ${q.questionText}${status === "done" ? " (besvart)" : ""}`}
 							>
