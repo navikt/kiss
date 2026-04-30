@@ -214,7 +214,7 @@ export function ScreeningWizard({
 						<Button type="button" variant="secondary" size="small" onClick={goToPrevious} disabled={currentIndex === 0}>
 							← Forrige
 						</Button>
-						<Button type="button" variant="primary" size="small" onClick={goToNext}>
+						<Button type="button" variant="secondary" size="small" onClick={goToNext}>
 							Neste →
 						</Button>
 					</nav>
