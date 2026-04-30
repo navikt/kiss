@@ -1,4 +1,4 @@
-import { Alert, Box, CopyButton, Detail, Heading, HGrid, HStack, Tag, VStack } from "@navikt/ds-react"
+import { Alert, Detail, Heading, HGrid, HStack, Tag, VStack } from "@navikt/ds-react"
 import { CoverageCard } from "./CoverageCard"
 
 const STALENESS_THRESHOLD_MS = 2 * 60 * 60 * 1000
@@ -55,7 +55,6 @@ export function DeploymentVerificationPanel({
 		<VStack gap="space-16">
 			{syncedVerifications.map((v) => {
 				const isStale = v.fetchedAt && Date.now() - new Date(v.fetchedAt).getTime() > STALENESS_THRESHOLD_MS
-				const lastDeploy = v.rawSummary?.lastDeployment
 
 				return (
 					<VStack key={v.environment} gap="space-12">
@@ -77,7 +76,7 @@ export function DeploymentVerificationPanel({
 							</Detail>
 						</HStack>
 
-						<HGrid columns={{ xs: 1, md: 2, lg: 3 }} gap="space-12">
+						<HGrid columns={{ xs: 1, md: 2 }} gap="space-12">
 							<CoverageCard
 								title="Fire-øyne-dekning"
 								percent={v.fourEyesCoveragePercent}
@@ -100,67 +99,6 @@ export function DeploymentVerificationPanel({
 									},
 								]}
 							/>
-							<Box padding="space-16" borderRadius="8" borderColor="neutral-subtle" borderWidth="1">
-								<VStack gap="space-8">
-									<Heading size="xsmall">Siste deployment</Heading>
-									{lastDeploy ? (
-										<VStack gap="space-4">
-											<HStack gap="space-4" justify="space-between">
-												<Detail>Dato</Detail>
-												<Detail>
-													{new Date(lastDeploy.createdAt).toLocaleString("nb-NO", {
-														day: "numeric",
-														month: "short",
-														year: "numeric",
-														hour: "2-digit",
-														minute: "2-digit",
-													})}
-												</Detail>
-											</HStack>
-											{lastDeploy.deployer && (
-												<HStack gap="space-4" justify="space-between">
-													<Detail>Deployer</Detail>
-													<Detail>{lastDeploy.deployer}</Detail>
-												</HStack>
-											)}
-											{lastDeploy.commitSha && (
-												<HStack gap="space-4" justify="space-between">
-													<Detail>Commit</Detail>
-													<HStack gap="space-2" align="center">
-														<Detail>{lastDeploy.commitSha.slice(0, 8)}</Detail>
-														<CopyButton copyText={lastDeploy.commitSha} size="xsmall" variant="action" />
-													</HStack>
-												</HStack>
-											)}
-											<HStack gap="space-4" justify="space-between">
-												<Detail>Fire-øyne</Detail>
-												<Tag
-													variant={
-														lastDeploy.fourEyesStatus === "approved"
-															? "success"
-															: lastDeploy.fourEyesStatus === "pending"
-																? "neutral"
-																: "warning"
-													}
-													size="xsmall"
-												>
-													{lastDeploy.fourEyesStatus}
-												</Tag>
-											</HStack>
-											<HStack gap="space-4" justify="space-between">
-												<Detail>Endringsopphav</Detail>
-												<Tag variant={lastDeploy.hasChangeOrigin ? "success" : "neutral"} size="xsmall">
-													{lastDeploy.hasChangeOrigin ? "Koblet" : "Ikke koblet"}
-												</Tag>
-											</HStack>
-										</VStack>
-									) : (
-										<Tag variant="neutral" size="small">
-											Ingen deployments
-										</Tag>
-									)}
-								</VStack>
-							</Box>
 						</HGrid>
 					</VStack>
 				)
