@@ -119,6 +119,20 @@ export default function ApplikasjonDetalj() {
 							>
 								{compliance.percent} % compliance
 							</Tag>
+							{compliance.screeningProgress.total > 0 && (
+								<Tag
+									variant={
+										compliance.screeningProgress.answered === compliance.screeningProgress.total
+											? "success"
+											: compliance.screeningProgress.answered > 0
+												? "warning"
+												: "error"
+									}
+									size="medium"
+								>
+									{compliance.screeningProgress.answered} / {compliance.screeningProgress.total} spørsmål besvart
+								</Tag>
+							)}
 							<HStack gap="space-12" wrap>
 								<VStack align="center">
 									<BodyShort size="small" weight="semibold">

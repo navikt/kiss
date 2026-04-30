@@ -670,6 +670,43 @@ export async function getScreeningAnswersForApp(applicationId: string) {
 	return db.select().from(screeningAnswers).where(eq(screeningAnswers.applicationId, applicationId))
 }
 
+/** Lightweight batch query: get screening progress (answered/total) for multiple apps. */
+export async function getScreeningProgressForApps(
+	appIds: string[],
+): Promise<Map<string, { answered: number; total: number }>> {
+	if (appIds.length === 0) return new Map()
+
+	// Get total approved, non-archived questions (global + section-scoped)
+	const totalApprovedQuestions = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(screeningQuestions)
+		.where(and(isNull(screeningQuestions.archivedAt), eq(screeningQuestions.status, "approved")))
+
+	const totalQuestions = Number(totalApprovedQuestions[0]?.count ?? 0)
+
+	// Count answers per app
+	const answerCounts = await db
+		.select({
+			applicationId: screeningAnswers.applicationId,
+			count: sql<number>`count(*)`,
+		})
+		.from(screeningAnswers)
+		.where(inArray(screeningAnswers.applicationId, appIds))
+		.groupBy(screeningAnswers.applicationId)
+
+	const result = new Map<string, { answered: number; total: number }>()
+	for (const appId of appIds) {
+		result.set(appId, { answered: 0, total: totalQuestions })
+	}
+	for (const row of answerCounts) {
+		const existing = result.get(row.applicationId)
+		if (existing) {
+			existing.answered = Number(row.count)
+		}
+	}
+	return result
+}
+
 /** Save a screening answer and auto-apply effects to compliance assessments. */
 export async function saveScreeningAnswer(
 	applicationId: string,

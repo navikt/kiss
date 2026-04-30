@@ -53,13 +53,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
 	const { getApplicationElements } = await import("~/db/queries/technology-elements.server")
-	const [appElements, deadlinesWithControls, completedReviews, allSections, appReports] = await Promise.all([
-		getApplicationElements(appId),
-		getRoutineDeadlinesWithControls(appId),
-		getReviewsForApp(appId),
-		getSections({ includeArchived: true }),
-		getReportsForApp(appId),
-	])
+	const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
+	const [appElements, deadlinesWithControls, completedReviews, allSections, appReports, screeningProgressMap] =
+		await Promise.all([
+			getApplicationElements(appId),
+			getRoutineDeadlinesWithControls(appId),
+			getReviewsForApp(appId),
+			getSections({ includeArchived: true }),
+			getReportsForApp(appId),
+			getScreeningProgressForApps([appId]),
+		])
 
 	const screeningEffectsByControl = await getScreeningEffectsByControlForApp(appId)
 	const autoComplianceMap = computeAutoCompliance(
@@ -284,6 +287,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			notAssessed,
 			percent: compliancePercent(implemented, partial, totalControls, notRelevant),
 			hasScreeningAnswers: assessmentsResult?.hasScreeningAnswers ?? false,
+			screeningProgress: screeningProgressMap.get(appId) ?? { answered: 0, total: 0 },
 			withRoutine,
 			withoutRoutine,
 			routineNotRelevant,

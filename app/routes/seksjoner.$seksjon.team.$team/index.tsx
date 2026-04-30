@@ -42,7 +42,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
 
 	const appIds = result.apps.map((a) => a.appId)
-	const deploymentStats = await getDeploymentVerificationAggregate(appIds)
+	const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
+	const [deploymentStats, screeningProgressMap] = await Promise.all([
+		getDeploymentVerificationAggregate(appIds),
+		getScreeningProgressForApps(appIds),
+	])
 
 	const admin = user ? isAdmin(user) : false
 	let canAddApp = admin
@@ -72,7 +76,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		team: teamSlug,
 		teamId: teamRecord?.id ?? null,
 		teamName: result.team.name,
-		apps: result.apps,
+		apps: result.apps.map((a) => ({
+			...a,
+			screeningProgress: screeningProgressMap.get(a.appId) ?? { answered: 0, total: 0 },
+		})),
 		canAdmin: admin,
 		canAddApp,
 		availableApps,
@@ -228,6 +235,9 @@ export default function TeamDashboard() {
 							<Table.Row>
 								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
 								<Table.HeaderCell scope="col" align="right">
+									Spørsmål
+								</Table.HeaderCell>
+								<Table.HeaderCell scope="col" align="right">
 									Implementert
 								</Table.HeaderCell>
 								<Table.HeaderCell scope="col" align="right">
@@ -256,6 +266,9 @@ export default function TeamDashboard() {
 											<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer`}>
 												{app.appName}
 											</Link>
+										</Table.DataCell>
+										<Table.DataCell align="right">
+											{app.screeningProgress.answered}/{app.screeningProgress.total}
 										</Table.DataCell>
 										<Table.DataCell align="right">{app.implemented}</Table.DataCell>
 										<Table.DataCell align="right">{app.partial}</Table.DataCell>
