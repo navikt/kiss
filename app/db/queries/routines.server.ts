@@ -2611,7 +2611,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 	const sectionRulesets = await db
 		.select({ id: rulesets.id })
 		.from(rulesets)
-		.where(and(inArray(rulesets.sectionId, sectionIds), isNull(rulesets.archivedAt)))
+		.where(and(inArray(rulesets.sectionId, sectionIds), eq(rulesets.status, "active")))
 	const rulesetIds = sectionRulesets.map((r) => r.id)
 	if (rulesetIds.length === 0) return []
 
