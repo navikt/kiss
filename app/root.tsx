@@ -1,4 +1,4 @@
-import { BodyLong, Box, Detail, Heading, InternalHeader, Spacer, Theme, VStack } from "@navikt/ds-react"
+import { BodyLong, Box, Detail, Heading, HStack, InternalHeader, Spacer, Theme, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -154,7 +154,9 @@ function AppShell({
 				<InternalHeader.Title as="a" href="/">
 					KISS
 				</InternalHeader.Title>
-				<SearchDialog />
+				<HStack align="center" style={{ alignSelf: "center", paddingInline: "var(--ax-space-20)" }}>
+					<SearchDialog />
+				</HStack>
 				<Spacer />
 				<Detail textColor="subtle" style={{ alignSelf: "center", marginRight: "var(--ax-space-4)" }}>
 					{__BUILD_VERSION__}
