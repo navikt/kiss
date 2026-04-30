@@ -67,7 +67,7 @@ export default function ApplikasjonDetalj() {
 	} = useLoaderData<typeof loader>()
 
 	const [searchParams, setSearchParams] = useSearchParams()
-	const activeTab = searchParams.get("fane") ?? "kontroller"
+	const activeTab = searchParams.get("fane") ?? "rutiner"
 	const appBase = useAppBasePath()
 	const sectionSlug = useSectionSlug()
 
@@ -268,6 +268,7 @@ export default function ApplikasjonDetalj() {
 				}}
 			>
 				<Tabs.List>
+					<Tabs.Tab value="rutiner" label="Rutiner" />
 					<Tabs.Tab value="kontroller" label="Kontroller" />
 					<Tabs.Tab value="autentisering" label="Autentisering" />
 					<Tabs.Tab value="autoriserte-applikasjoner" label="Autoriserte applikasjoner" />
@@ -275,10 +276,17 @@ export default function ApplikasjonDetalj() {
 					{environments.length > 0 && <Tabs.Tab value="deployments" label="Deployments" />}
 					<Tabs.Tab value="persistering" label="Persistering" />
 					{oracleInstances.length > 0 && <Tabs.Tab value="revisjonsbevis" label="Revisjonsbevis" />}
-					<Tabs.Tab value="rutiner" label="Rutiner" />
 					{linkedApps.length > 0 && <Tabs.Tab value="lenkede-applikasjoner" label="Lenkede applikasjoner" />}
 					<Tabs.Tab value="rapporter" label="Rapporter" />
 				</Tabs.List>
+
+				<Tabs.Panel value="rutiner" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<RutinerTab
+						routineDeadlines={routineDeadlines}
+						completedReviews={completedReviews}
+						sectionSlugMap={sectionSlugMap}
+					/>
+				</Tabs.Panel>
 
 				<Tabs.Panel value="kontroller" style={{ paddingTop: "var(--ax-space-6)" }}>
 					<KontrollerTab
@@ -339,14 +347,6 @@ export default function ApplikasjonDetalj() {
 						/>
 					</Tabs.Panel>
 				)}
-
-				<Tabs.Panel value="rutiner" style={{ paddingTop: "var(--ax-space-6)" }}>
-					<RutinerTab
-						routineDeadlines={routineDeadlines}
-						completedReviews={completedReviews}
-						sectionSlugMap={sectionSlugMap}
-					/>
-				</Tabs.Panel>
 
 				{linkedApps.length > 0 && (
 					<Tabs.Panel value="lenkede-applikasjoner" style={{ paddingTop: "var(--ax-space-6)" }}>
