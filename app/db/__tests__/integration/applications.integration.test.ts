@@ -94,29 +94,20 @@ describe("Applications integration tests", () => {
 		const db = getTestDb()
 		await db.execute(
 			/* sql */ `
-			DELETE FROM compliance_assessment_history;
-			DELETE FROM compliance_assessments;
-			DELETE FROM application_control_history;
-			DELETE FROM application_controls;
-			DELETE FROM dev_team_nais_team_mappings;
-			DELETE FROM application_team_mappings;
-			DELETE FROM application_environments;
-			DELETE FROM section_environments;
-			DELETE FROM section_ignored_applications;
-			DELETE FROM monitored_applications;
-			DELETE FROM nais_teams;
-			DELETE FROM framework_field_history;
-			DELETE FROM control_technology_elements;
-			DELETE FROM framework_risk_control_mappings;
-			DELETE FROM framework_controls;
-			DELETE FROM framework_risks;
-			DELETE FROM framework_domains;
-			DELETE FROM framework_versions;
-			DELETE FROM user_roles;
-			DELETE FROM dev_teams;
-			DELETE FROM clusters;
-			DELETE FROM sections;
-			DELETE FROM audit_log;
+			TRUNCATE
+				compliance_assessment_history, compliance_assessments,
+				application_control_history, application_controls,
+				dev_team_nais_team_mappings, application_team_mappings,
+				application_environments, section_environments,
+				section_ignored_applications, monitored_applications,
+				nais_teams, framework_field_history,
+				control_technology_elements, framework_risk_control_mappings,
+				framework_controls, framework_risks,
+				framework_domains, framework_versions,
+				user_roles, dev_teams,
+				clusters, sections,
+				audit_log
+			CASCADE
 		`,
 		)
 	})
