@@ -2,7 +2,8 @@ import { Heading, VStack } from "@navikt/ds-react"
 import { useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import type { action } from "./action.server"
-import { ScreeningSection, ScreeningSidebar } from "./components/ScreeningSection"
+import { ScreeningWizard } from "./components/ScreeningWizard"
+import styles from "./components/wizard.module.css"
 import type { loader } from "./loader.server"
 
 export { action } from "./action.server"
@@ -15,31 +16,27 @@ export default function ComplianceAssessment() {
 	const actionData = useActionData<typeof action>()
 
 	return (
-		<section className="compliance-layout" aria-label="Compliance-vurdering">
-			<ScreeningSidebar screening={screening} />
+		<section className={styles.page} aria-label="Compliance-vurdering">
+			<VStack gap="space-8">
+				<Heading size="xlarge" level="2">
+					Compliance-vurdering: {appName}
+				</Heading>
 
-			<div className="compliance-content" id="top">
-				<VStack gap="space-8">
-					<Heading size="xlarge" level="2">
-						Compliance-vurdering: {appName}
-					</Heading>
+				{actionData?.success && (
+					<div className="compliance-success" role="status" aria-live="polite">
+						Svar på innledende spørsmål er lagret.
+					</div>
+				)}
 
-					{actionData?.success && (
-						<div className="compliance-success" role="status" aria-live="polite">
-							Svar på innledende spørsmål er lagret.
-						</div>
-					)}
-
-					<ScreeningSection
-						screening={screening}
-						persistence={persistence}
-						rulesetOptions={rulesetOptions}
-						entraGroupsData={entraGroupsData}
-						oracleRolesData={oracleRolesData}
-						canAdmin={canAdmin}
-					/>
-				</VStack>
-			</div>
+				<ScreeningWizard
+					screening={screening}
+					persistence={persistence}
+					rulesetOptions={rulesetOptions}
+					entraGroupsData={entraGroupsData}
+					oracleRolesData={oracleRolesData}
+					canAdmin={canAdmin}
+				/>
+			</VStack>
 		</section>
 	)
 }

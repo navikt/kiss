@@ -1,5 +1,18 @@
 import { PlusIcon, TrashIcon } from "@navikt/aksel-icons"
-import { BodyShort, Button, HStack, Select, Table, Tag, TextField, VStack } from "@navikt/ds-react"
+import {
+	BodyShort,
+	Button,
+	Dialog,
+	ErrorSummary,
+	Heading,
+	HStack,
+	Select,
+	Table,
+	Tag,
+	TextField,
+	VStack,
+} from "@navikt/ds-react"
+import { type FormEvent, useRef, useState } from "react"
 import { Form, useFetcher } from "react-router"
 import {
 	type DataClassification,
@@ -8,6 +21,7 @@ import {
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
 import { type PersistenceEntry, persistenceVariants } from "../shared"
+import styles from "./wizard.module.css"
 
 export function PersistenceSection({
 	entries,
@@ -19,13 +33,90 @@ export function PersistenceSection({
 	confirmed: boolean
 }) {
 	const fetcher = useFetcher()
+	const [dialogOpen, setDialogOpen] = useState(false)
+	const [hasAttempted, setHasAttempted] = useState(false)
+	const typeRef = useRef<HTMLSelectElement>(null)
+	const errorSummaryRef = useRef<HTMLDivElement>(null)
 
 	const allClassified = entries.length > 0 && entries.every((p) => p.dataClassification)
-	const canConfirm = allClassified && !confirmed
+	const unclassifiedEntries = entries.filter((p) => !p.dataClassification)
+
+	function handleConfirmSubmit(e: FormEvent<HTMLFormElement>) {
+		if (entries.length === 0 || !allClassified) {
+			e.preventDefault()
+			setHasAttempted(true)
+			setTimeout(() => errorSummaryRef.current?.focus(), 0)
+		}
+	}
+
+	const errors: Array<{ message: string; href: string }> = []
+	if (hasAttempted && entries.length === 0) {
+		errors.push({ message: "Legg til minst én database", href: "#add-persistence-btn" })
+	}
+	if (hasAttempted && unclassifiedEntries.length > 0) {
+		for (const p of unclassifiedEntries) {
+			errors.push({ message: `Sett klassifisering for ${p.name}`, href: `#classification-${p.id}` })
+		}
+	}
 
 	return (
 		<VStack gap="space-6">
-			{entries.length > 0 && (
+			<div className={styles.tableHeader}>
+				<Heading size="xsmall" level="4">
+					Registrerte databaser
+				</Heading>
+				<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+					<Dialog.Trigger>
+						<Button variant="tertiary" size="small" icon={<PlusIcon aria-hidden />} id="add-persistence-btn">
+							Legg til database
+						</Button>
+					</Dialog.Trigger>
+					<Dialog.Popup
+						width="large"
+						position="center"
+						closeOnOutsideClick
+						initialFocusTo={() => typeRef.current}
+						aria-label="Legg til database"
+					>
+						<Dialog.Header>Legg til database</Dialog.Header>
+						<Dialog.Body>
+							<fetcher.Form
+								method="post"
+								onSubmit={() => {
+									setTimeout(() => setDialogOpen(false), 100)
+								}}
+							>
+								<input type="hidden" name="intent" value="add-persistence" />
+								<VStack gap="space-4">
+									<Select ref={typeRef} label="Type" name="persistenceType" size="small">
+										{persistenceTypeEnum.map((t) => (
+											<option key={t} value={t}>
+												{persistenceTypeLabels[t] ?? t}
+											</option>
+										))}
+									</Select>
+									<TextField label="Navn" name="persistenceName" size="small" />
+									<Select label="Dataklassifisering" name="dataClassification" size="small">
+										<option value="">Ikke satt</option>
+										{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(
+											([value, label]) => (
+												<option key={value} value={value}>
+													{label}
+												</option>
+											),
+										)}
+									</Select>
+									<Button type="submit" variant="primary" size="small" loading={fetcher.state !== "idle"}>
+										Legg til
+									</Button>
+								</VStack>
+							</fetcher.Form>
+						</Dialog.Body>
+					</Dialog.Popup>
+				</Dialog>
+			</div>
+
+			{entries.length > 0 ? (
 				<section className="table-scroll" aria-label="Registrerte databaser">
 					<Table size="small">
 						<Table.Header>
@@ -55,9 +146,11 @@ export function PersistenceSection({
 												name="dataClassification"
 												size="small"
 												defaultValue={p.dataClassification ?? ""}
+												id={`classification-${p.id}`}
 												onChange={(e) => {
 													const form = e.target.closest("form")
 													if (form) fetcher.submit(form)
+													if (hasAttempted) setHasAttempted(false)
 												}}
 											>
 												<option value="">Ikke satt</option>
@@ -87,69 +180,37 @@ export function PersistenceSection({
 						</Table.Body>
 					</Table>
 				</section>
-			)}
-
-			{entries.length === 0 && (
+			) : (
 				<BodyShort size="small" textColor="subtle">
-					Ingen databaser registrert ennå.
+					Ingen databaser registrert ennå. Legg til med knappen over.
 				</BodyShort>
 			)}
 
-			<fetcher.Form method="post">
-				<input type="hidden" name="intent" value="add-persistence" />
-				<HStack gap="space-4" align="end" wrap>
-					<Select label="Type" name="persistenceType" size="small" style={{ minWidth: "12rem" }}>
-						{persistenceTypeEnum.map((t) => (
-							<option key={t} value={t}>
-								{persistenceTypeLabels[t] ?? t}
-							</option>
-						))}
-					</Select>
-					<TextField label="Navn" name="persistenceName" size="small" style={{ minWidth: "14rem" }} />
-					<Select label="Dataklassifisering" name="dataClassification" size="small">
-						<option value="">Ikke satt</option>
-						{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(([value, label]) => (
-							<option key={value} value={value}>
-								{label}
-							</option>
-						))}
-					</Select>
-					<Button
-						type="submit"
-						variant="secondary-neutral"
-						size="small"
-						icon={<PlusIcon aria-hidden />}
-						loading={fetcher.state !== "idle"}
-					>
-						Legg til
-					</Button>
-				</HStack>
-			</fetcher.Form>
-
-			<Form method="post">
+			<Form method="post" onSubmit={handleConfirmSubmit}>
 				<input type="hidden" name="intent" value="screening" />
 				<input type="hidden" name="questionId" value={questionId} />
 				<input type="hidden" name="answer" value="confirmed" />
-				<HStack gap="space-4" align="center">
-					<Button
-						type="submit"
-						size="small"
-						variant={confirmed ? "secondary-neutral" : "primary"}
-						disabled={!canConfirm}
-					>
-						{confirmed ? "✓ Bekreftet" : "Bekreft at all persistens er registrert"}
-					</Button>
-					{!allClassified && entries.length > 0 && (
-						<BodyShort size="small" textColor="subtle">
-							Alle databaser må ha klassifisering før du kan bekrefte.
-						</BodyShort>
+				<VStack gap="space-4">
+					{hasAttempted && errors.length > 0 && (
+						<ErrorSummary ref={errorSummaryRef} heading="Kan ikke bekrefte ennå">
+							{errors.map((err) => (
+								<ErrorSummary.Item key={err.href} href={err.href}>
+									{err.message}
+								</ErrorSummary.Item>
+							))}
+						</ErrorSummary>
 					)}
-					{entries.length === 0 && (
-						<BodyShort size="small" textColor="subtle">
-							Legg til minst én database før du kan bekrefte.
-						</BodyShort>
-					)}
-				</HStack>
+					<HStack gap="space-4" align="center" justify="end">
+						{confirmed && (
+							<Tag variant="success" size="xsmall">
+								✓ Bekreftet
+							</Tag>
+						)}
+						<Button type="submit" size="small" variant={confirmed ? "secondary-neutral" : "primary"}>
+							{confirmed ? "✓ Bekreftet" : "Bekreft og gå videre"}
+						</Button>
+					</HStack>
+				</VStack>
 			</Form>
 		</VStack>
 	)
