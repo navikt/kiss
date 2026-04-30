@@ -684,14 +684,21 @@ export async function getScreeningProgressForApps(
 
 	const totalQuestions = Number(totalApprovedQuestions[0]?.count ?? 0)
 
-	// Count answers per app
+	// Count answers per app, only for approved non-archived questions
 	const answerCounts = await db
 		.select({
 			applicationId: screeningAnswers.applicationId,
 			count: sql<number>`count(*)`,
 		})
 		.from(screeningAnswers)
-		.where(inArray(screeningAnswers.applicationId, appIds))
+		.innerJoin(screeningQuestions, eq(screeningAnswers.questionId, screeningQuestions.id))
+		.where(
+			and(
+				inArray(screeningAnswers.applicationId, appIds),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
+		)
 		.groupBy(screeningAnswers.applicationId)
 
 	const result = new Map<string, { answered: number; total: number }>()
