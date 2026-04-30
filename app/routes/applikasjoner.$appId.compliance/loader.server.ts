@@ -91,7 +91,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		const seen = new Set<string>()
 		for (const sectionRulesets of allRulesets) {
 			for (const rs of sectionRulesets) {
-				if (!seen.has(rs.id)) {
+				if (!seen.has(rs.id) && rs.status === "active") {
 					seen.add(rs.id)
 					rulesetOptions.push({ id: rs.id, name: rs.name })
 				}
