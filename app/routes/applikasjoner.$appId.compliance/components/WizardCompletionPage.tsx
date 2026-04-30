@@ -1,17 +1,17 @@
 import { CheckmarkCircleFillIcon } from "@navikt/aksel-icons"
 import { BodyLong, BodyShort, Button, ExpansionCard, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
-import type { ScreeningQuestion } from "../shared"
+import type { RulesetOption, ScreeningQuestion } from "../shared"
 
 type Props = {
 	questions: ScreeningQuestion[]
+	rulesetOptions: RulesetOption[]
 	onNavigateToQuestion: (questionId: string) => void
 }
 
-function getAnswerLabel(q: ScreeningQuestion): string {
+function getAnswerLabel(q: ScreeningQuestion, rulesetOptions: RulesetOption[]): string {
 	if (q.answerType === "boolean") {
 		if (q.answer === "yes") return "Ja"
 		if (q.answer === "no") return "Nei"
-		// The answer might be the label itself (e.g. "Ja" / "Nei")
 		return q.answer ?? "Ikke besvart"
 	}
 	if (q.answerType === "single_choice") {
@@ -21,12 +21,14 @@ function getAnswerLabel(q: ScreeningQuestion): string {
 		return q.answer === "confirmed" ? "Bekreftet" : "Ikke bekreftet"
 	}
 	if (q.answerType === "ruleset") {
-		return q.answer ?? "Ikke valgt"
+		if (!q.answer) return "Ikke valgt"
+		const ruleset = rulesetOptions.find((rs) => rs.id === q.answer)
+		return ruleset?.name ?? q.answer
 	}
 	return q.answer ?? "Ikke besvart"
 }
 
-export function WizardCompletionPage({ questions, onNavigateToQuestion }: Props) {
+export function WizardCompletionPage({ questions, rulesetOptions, onNavigateToQuestion }: Props) {
 	return (
 		<VStack gap="space-8">
 			<HStack gap="space-4" align="center">
@@ -66,7 +68,7 @@ export function WizardCompletionPage({ questions, onNavigateToQuestion }: Props)
 										{q.questionText}
 									</BodyShort>
 									<Tag variant="neutral" size="xsmall">
-										{getAnswerLabel(q)}
+										{getAnswerLabel(q, rulesetOptions)}
 									</Tag>
 									<Button type="button" variant="tertiary" size="xsmall" onClick={() => onNavigateToQuestion(q.id)}>
 										Endre

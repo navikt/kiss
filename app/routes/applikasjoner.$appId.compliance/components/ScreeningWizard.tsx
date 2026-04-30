@@ -127,7 +127,11 @@ export function ScreeningWizard({
 						<BodyShort size="small" textColor="subtle">
 							{answeredCount} av {screening.length} spørsmål besvart
 						</BodyShort>
-						<WizardCompletionPage questions={screening} onNavigateToQuestion={navigateTo} />
+						<WizardCompletionPage
+							questions={screening}
+							rulesetOptions={rulesetOptions}
+							onNavigateToQuestion={navigateTo}
+						/>
 					</VStack>
 				</main>
 			</div>
