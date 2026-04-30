@@ -512,22 +512,39 @@ export async function generateAppComplianceReport(params: {
 		uploadedBy: createdBy,
 	})
 
-	// Download attachment files for embedding in PDF
-	const pdfAttachmentBuffers: Array<{ fileName: string; contentType: string; data: Buffer }> = []
+	// Download attachment files
+	const attachmentBuffers: Array<{
+		fileName: string
+		contentType: string
+		data: Buffer
+		reviewTitle: string
+		reviewDate: string
+	}> = []
+	const failedAttachments: Array<{ fileName: string; reviewTitle: string }> = []
 	if (includeAttachments) {
 		for (const review of completedReviews) {
+			const reviewDate = new Date(review.reviewedAt).toISOString().slice(0, 10)
 			for (const att of review.attachments) {
 				try {
 					const buf = await storage.download(att.bucketPath)
-					pdfAttachmentBuffers.push({ fileName: att.fileName, contentType: att.contentType, data: buf })
+					attachmentBuffers.push({
+						fileName: att.fileName,
+						contentType: att.contentType,
+						data: buf,
+						reviewTitle: review.title,
+						reviewDate,
+					})
 				} catch {
-					// Skip unreadable attachments
+					failedAttachments.push({ fileName: att.fileName, reviewTitle: review.title })
 				}
 			}
 		}
 	}
 
-	// Generate main PDF with pdfkit
+	const pdfAttachments = attachmentBuffers.filter((a) => a.contentType === "application/pdf")
+	const nonPdfAttachments = attachmentBuffers.filter((a) => a.contentType !== "application/pdf")
+
+	// Generate main PDF — non-PDF attachments are referenced, not embedded
 	const mainPdfBuffer = await buildAppPdf(
 		PDFDocument,
 		{
@@ -537,36 +554,28 @@ export async function generateAppComplianceReport(params: {
 		},
 		assessments,
 		completedReviews,
-		pdfAttachmentBuffers,
+		pdfAttachments,
 		auditEvidence,
 		activitiesByReviewId,
+		nonPdfAttachments,
+		failedAttachments,
 	)
 
-	// Merge PDF attachments right after their cover pages
-	const pdfFiles = pdfAttachmentBuffers.filter((a) => a.contentType === "application/pdf")
+	// Merge PDF attachments as pages
 	let finalPdf: Buffer
-	if (pdfFiles.length > 0) {
+	if (pdfAttachments.length > 0) {
 		const merged = await PDFLibDocument.load(mainPdfBuffer)
 		const totalMainPages = merged.getPageCount()
+		const firstCoverPageIndex = totalMainPages - pdfAttachments.length
 
-		// Attachment cover pages are the last N pages (one per attachment)
-		// They appear in the same order as pdfAttachmentBuffers
-		// We need to find which cover pages correspond to PDF attachments
-		// and insert their pages right after
-		const attachmentCount = pdfAttachmentBuffers.length
-		const firstCoverPageIndex = totalMainPages - attachmentCount
-
-		// Process in reverse so page indices remain stable
 		let insertOffset = 0
-		for (let i = pdfAttachmentBuffers.length - 1; i >= 0; i--) {
-			const att = pdfAttachmentBuffers[i]
-			if (att.contentType !== "application/pdf") continue
+		for (let i = pdfAttachments.length - 1; i >= 0; i--) {
+			const att = pdfAttachments[i]
 			const coverIndex = firstCoverPageIndex + i + insertOffset
 			try {
 				const attachedPdf = await PDFLibDocument.load(att.data)
 				const pageIndices = attachedPdf.getPageIndices()
 				const copiedPages = await merged.copyPages(attachedPdf, pageIndices)
-				// Insert after the cover page (at coverIndex + 1)
 				for (let j = copiedPages.length - 1; j >= 0; j--) {
 					merged.insertPage(coverIndex + 1, copiedPages[j])
 				}
@@ -592,6 +601,49 @@ export async function generateAppComplianceReport(params: {
 		uploadedBy: createdBy,
 	})
 
+	// Build zip if there are non-PDF attachments
+	let reportBucketPath = pdfPath
+	if (nonPdfAttachments.length > 0) {
+		const JSZip = (await import("jszip")).default
+		const zip = new JSZip()
+		zip.file("rapport.pdf", finalPdf)
+
+		const vedleggFolder = zip.folder("vedlegg")
+		if (!vedleggFolder) throw new Error("Could not create vedlegg folder in zip")
+		const usedNames = new Set<string>()
+		for (const att of nonPdfAttachments) {
+			// Use unique subfolder per review to avoid filename collisions
+			const safeReviewTitle = att.reviewTitle.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
+			const folderName = `${att.reviewDate}-${safeReviewTitle}`
+			let entryName = `${folderName}/${att.fileName}`
+			// Handle duplicates within same review
+			if (usedNames.has(entryName)) {
+				const ext = att.fileName.includes(".") ? `.${att.fileName.split(".").pop()}` : ""
+				const base = att.fileName.includes(".") ? att.fileName.slice(0, att.fileName.lastIndexOf(".")) : att.fileName
+				let counter = 2
+				do {
+					entryName = `${folderName}/${base} (${counter})${ext}`
+					counter++
+				} while (usedNames.has(entryName))
+			}
+			usedNames.add(entryName)
+			vedleggFolder.file(entryName, att.data)
+		}
+
+		const zipBuffer = Buffer.from(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }))
+		const zipPath = `reports/app/${datePrefix}/${fileId}/rapport.zip`
+		const zipResult = await storage.upload(zipPath, zipBuffer, { contentType: "application/zip" })
+		await saveBucketObject({
+			bucketName,
+			objectPath: zipPath,
+			contentType: "application/zip",
+			sizeBytes: zipResult.sizeBytes,
+			objectType: "app_report_zip",
+			uploadedBy: createdBy,
+		})
+		reportBucketPath = zipPath
+	}
+
 	// Insert report record
 	const [report] = await db
 		.insert(reports)
@@ -601,7 +653,7 @@ export async function generateAppComplianceReport(params: {
 			scope: "application",
 			scopeId: applicationId,
 			snapshotBucketPath: snapshotPath,
-			reportBucketPath: pdfPath,
+			reportBucketPath,
 			appVersion: "0.1.0",
 			createdBy,
 		})
@@ -645,7 +697,7 @@ function buildAppPdf(
 		attachments: Array<{ fileName: string }>
 		links: Array<{ url: string; title: string | null }>
 	}>,
-	attachments: Array<{ fileName: string; contentType: string; data: Buffer }>,
+	pdfAttachments: Array<{ fileName: string; contentType: string; data: Buffer }>,
 	auditEvidence: Array<{
 		instanceId: string
 		overallStatus: string
@@ -670,6 +722,8 @@ function buildAppPdf(
 			}>
 		}>
 	>,
+	nonPdfAttachments: Array<{ fileName: string; contentType: string; data: Buffer; reviewTitle: string }>,
+	failedAttachments: Array<{ fileName: string; reviewTitle: string }>,
 ): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const doc = new PDFDocCtor({ size: "A4", margin: 50, bufferPages: true })
@@ -891,14 +945,11 @@ function buildAppPdf(
 			}
 		}
 
-		// Attachment cover pages + list
-		if (attachments.length > 0) {
-			for (const att of attachments) {
-				const isPdf = att.contentType === "application/pdf"
-
-				// Cover page for each attachment
+		// PDF attachment cover pages (these get merged as pages afterward)
+		if (pdfAttachments.length > 0) {
+			for (const att of pdfAttachments) {
 				doc.addPage()
-				doc.fontSize(14).fillColor(blue).text("Vedlegg")
+				doc.fontSize(14).fillColor(blue).text("Vedlegg (PDF)")
 				doc.moveDown(0.5)
 				doc.fontSize(16).fillColor(dark).text(att.fileName)
 				doc.moveDown(0.5)
@@ -907,7 +958,6 @@ function buildAppPdf(
 				doc.text(`Størrelse: ${fmtSize(att.data.length)}`)
 				doc.moveDown(1)
 
-				// Find which review this attachment belongs to
 				const parentReview = reviews.find((r) => r.attachments.some((a) => a.fileName === att.fileName))
 				if (parentReview) {
 					doc.fontSize(10).fillColor(dark)
@@ -917,21 +967,36 @@ function buildAppPdf(
 				}
 
 				doc.moveDown(1)
-				if (isPdf) {
-					doc.fontSize(10).fillColor(gray).text("Dokumentet følger på neste side(r).")
-				} else {
-					doc.fontSize(10).fillColor(gray).text("Dokumentet er vedlagt som innebygd fil i denne PDF-en.")
-				}
+				doc.fontSize(10).fillColor(gray).text("Dokumentet følger på neste side(r).")
+			}
+		}
 
-				// Embed non-PDF files directly
-				if (!isPdf) {
-					const embedNow = new Date()
-					doc.file(att.data, {
-						name: att.fileName,
-						type: att.contentType,
-						creationDate: embedNow,
-						modifiedDate: embedNow,
-					})
+		// Non-PDF attachments — referenced, included in zip
+		if (nonPdfAttachments.length > 0 || failedAttachments.length > 0) {
+			doc.addPage()
+			doc.fontSize(14).fillColor(blue).text("Vedlegg (i vedleggspakken)")
+			doc.moveDown(0.5)
+			doc.fontSize(9).fillColor(gray).text("Filene nedenfor er inkludert i vedlegg/-mappen i den nedlastede zip-filen.")
+			doc.moveDown(0.5)
+
+			for (const att of nonPdfAttachments) {
+				if (doc.y > 700) doc.addPage()
+				doc.fontSize(10).fillColor(dark).text(`• ${att.fileName}`)
+				doc
+					.fontSize(8)
+					.fillColor(gray)
+					.text(
+						`  Filtype: ${att.contentType} — Størrelse: ${fmtSize(att.data.length)} — Gjennomgang: ${att.reviewTitle}`,
+					)
+				doc.moveDown(0.3)
+			}
+
+			if (failedAttachments.length > 0) {
+				doc.moveDown(0.5)
+				doc.fontSize(10).fillColor("#ba3a26").text("Filer som ikke kunne lastes ned:")
+				doc.moveDown(0.3)
+				for (const att of failedAttachments) {
+					doc.fontSize(9).fillColor("#ba3a26").text(`• ${att.fileName} (${att.reviewTitle})`)
 				}
 			}
 		}

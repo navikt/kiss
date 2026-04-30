@@ -44,20 +44,25 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const forceDownload = url.searchParams.get("download") === "true"
 	const storage = getStorageProvider()
 	const safeName = report.name.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_")
-	const disposition = forceDownload ? `attachment; filename="${safeName}.pdf"` : `inline; filename="${safeName}.pdf"`
 
-	// App compliance reports store the PDF directly in the bucket
-	if (report.reportType === "app_compliance" && report.reportBucketPath?.endsWith(".pdf")) {
+	// App compliance reports — serve PDF or zip from bucket
+	if (report.reportType === "app_compliance" && report.reportBucketPath) {
 		try {
-			const pdfBuffer = await storage.download(report.reportBucketPath)
-			return new Response(new Uint8Array(pdfBuffer), {
+			const buffer = await storage.download(report.reportBucketPath)
+			const isZip = report.reportBucketPath.endsWith(".zip")
+			const ext = isZip ? "zip" : "pdf"
+			const contentType = isZip ? "application/zip" : "application/pdf"
+			// Zip files always download as attachment; PDFs can be inline
+			const disposition =
+				forceDownload || isZip ? `attachment; filename="${safeName}.${ext}"` : `inline; filename="${safeName}.${ext}"`
+			return new Response(new Uint8Array(buffer), {
 				headers: {
-					"Content-Type": "application/pdf",
+					"Content-Type": contentType,
 					"Content-Disposition": disposition,
 				},
 			})
 		} catch {
-			throw new Response("Kunne ikke laste rapport-PDF", { status: 500 })
+			throw new Response("Kunne ikke laste rapport", { status: 500 })
 		}
 	}
 
@@ -71,6 +76,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	}
 
 	const pdfBuffer = await buildPdf(report.name, snapshot)
+	const disposition = forceDownload ? `attachment; filename="${safeName}.pdf"` : `inline; filename="${safeName}.pdf"`
 
 	return new Response(new Uint8Array(pdfBuffer), {
 		headers: {

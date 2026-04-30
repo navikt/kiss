@@ -191,49 +191,52 @@ export function ReportsPanel({
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
-							{appReports.map((r) => (
-								<Table.Row key={r.id}>
-									<Table.DataCell>{r.name}</Table.DataCell>
-									<Table.DataCell>
-										{new Date(r.createdAt).toLocaleString("nb-NO", {
-											day: "numeric",
-											month: "short",
-											year: "numeric",
-											hour: "2-digit",
-											minute: "2-digit",
-										})}
-									</Table.DataCell>
-									<Table.DataCell>{r.createdBy}</Table.DataCell>
-									<Table.DataCell>
-										{r.reportBucketPath && (
-											<Button
-												as="a"
-												href={`/api/rapporter/${r.id}/pdf`}
-												target="_blank"
-												rel="noopener noreferrer"
-												variant="tertiary"
-												size="xsmall"
-												icon={<EyeIcon aria-hidden />}
-											>
-												Vis
-											</Button>
-										)}
-									</Table.DataCell>
-									<Table.DataCell>
-										{r.reportBucketPath && (
-											<Button
-												as="a"
-												href={`/api/rapporter/${r.id}/pdf?download=true`}
-												variant="tertiary"
-												size="xsmall"
-												icon={<DownloadIcon aria-hidden />}
-											>
-												Last ned
-											</Button>
-										)}
-									</Table.DataCell>
-								</Table.Row>
-							))}
+							{appReports.map((r) => {
+								const isZip = r.reportBucketPath?.endsWith(".zip")
+								return (
+									<Table.Row key={r.id}>
+										<Table.DataCell>{r.name}</Table.DataCell>
+										<Table.DataCell>
+											{new Date(r.createdAt).toLocaleString("nb-NO", {
+												day: "numeric",
+												month: "short",
+												year: "numeric",
+												hour: "2-digit",
+												minute: "2-digit",
+											})}
+										</Table.DataCell>
+										<Table.DataCell>{r.createdBy}</Table.DataCell>
+										<Table.DataCell>
+											{r.reportBucketPath && !isZip && (
+												<Button
+													as="a"
+													href={`/api/rapporter/${r.id}/pdf`}
+													target="_blank"
+													rel="noopener noreferrer"
+													variant="tertiary"
+													size="xsmall"
+													icon={<EyeIcon aria-hidden />}
+												>
+													Vis
+												</Button>
+											)}
+										</Table.DataCell>
+										<Table.DataCell>
+											{r.reportBucketPath && (
+												<Button
+													as="a"
+													href={`/api/rapporter/${r.id}/pdf?download=true`}
+													variant="tertiary"
+													size="xsmall"
+													icon={<DownloadIcon aria-hidden />}
+												>
+													Last ned {isZip ? "(zip)" : ""}
+												</Button>
+											)}
+										</Table.DataCell>
+									</Table.Row>
+								)
+							})}
 						</Table.Body>
 					</Table>
 				)}
