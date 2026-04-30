@@ -53,12 +53,12 @@ export function CoverageCard({
 								aria-valuenow={percent}
 								aria-valuemin={0}
 								aria-valuemax={100}
-								aria-label={`${title}: ${Math.round(percent)}%`}
+								aria-label={`${title}: ${percent === 100 ? 100 : Math.floor(percent)}%`}
 							/>
 						</div>
 						<HStack gap="space-4" align="center">
 							<Tag variant={variant} size="small">
-								{Math.round(percent)}%
+								{percent === 100 ? 100 : Math.floor(percent)}%
 							</Tag>
 							{numerator !== null && denominator !== null && (
 								<Detail>

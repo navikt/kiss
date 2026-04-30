@@ -84,7 +84,7 @@ export function DeploymentVerificationPanel({
 								numerator={v.fourEyesApproved}
 								denominator={v.fourEyesTotal}
 								details={[
-									{ label: "Ugodkjent", value: v.rawSummary?.fourEyesCoverage.unapproved ?? null },
+									{ label: "Ikke-godkjent", value: v.rawSummary?.fourEyesCoverage.unapproved ?? null },
 									{ label: "Ventende", value: v.rawSummary?.fourEyesCoverage.pending ?? null },
 								]}
 							/>
