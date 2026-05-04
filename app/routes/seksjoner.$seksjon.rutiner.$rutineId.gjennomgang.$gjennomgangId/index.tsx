@@ -540,9 +540,9 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 			)}
 
 			<FileUpload.Dropzone
-				label="Velg PDF-fil eller dra og slipp"
-				description={`Maks ${MAX_SIZE_MB} MB. Kun PDF-filer.`}
-				accept=".pdf,application/pdf"
+				label="Velg fil eller dra og slipp"
+				description={`Maks ${MAX_SIZE_MB} MB. Støttede formater: PDF, DOCX, XLSX, PPTX, PNG, JPG, TXT, MD`}
+				accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.txt,.md"
 				maxSizeInBytes={MAX_SIZE_BYTES}
 				onSelect={setFiles}
 				multiple={false}

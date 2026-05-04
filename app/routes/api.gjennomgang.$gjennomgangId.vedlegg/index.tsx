@@ -54,21 +54,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return Response.json({ success: false, error: "Filen er for stor. Maks 50 MB." }, { status: 400 })
 	}
 
-	// Validate PDF by checking magic bytes (%PDF-)
 	const arrayBuffer = await file.arrayBuffer()
 	const buffer = Buffer.from(arrayBuffer)
-	const header = buffer.subarray(0, 5).toString("ascii")
-	if (header !== "%PDF-") {
-		return Response.json(
-			{ success: false, error: "Kun PDF-filer er tillatt. Filen ser ikke ut til å være en gyldig PDF." },
-			{ status: 400 },
-		)
-	}
 
 	try {
 		const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_")
 		const bucketPath = `routines/${review.routineId}/reviews/${gjennomgangId}/${Date.now()}-${sanitizedName}`
-		const contentType = "application/pdf"
+		const contentType = file.type || "application/octet-stream"
 
 		const storage = getStorageProvider()
 		const uploadResult = await storage.upload(bucketPath, buffer, { contentType })
