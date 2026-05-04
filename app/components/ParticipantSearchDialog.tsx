@@ -113,10 +113,8 @@ export function ParticipantSearchDialog({ currentValue, onAdd }: ParticipantSear
 													variant="tertiary-neutral"
 													size="small"
 													style={{ justifyContent: "flex-start", width: "100%", textAlign: "left" }}
-													onClick={() => {
-														if (!alreadyAdded) handleAdd(result.navIdent)
-													}}
-													aria-disabled={alreadyAdded || undefined}
+													onClick={alreadyAdded ? undefined : () => handleAdd(result.navIdent)}
+													disabled={alreadyAdded}
 												>
 													<VStack>
 														<BodyShort size="small" weight="semibold">
