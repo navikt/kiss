@@ -977,6 +977,7 @@ describe("Routines integration tests", () => {
 			const routine = await createRoutine({
 				sectionId,
 				name: "Review Routine",
+				description: null,
 				frequency: "quarterly",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
@@ -989,7 +990,6 @@ describe("Routines integration tests", () => {
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
 				createdBy: "test",
-				updatedBy: "test",
 				activityType: null,
 			})
 			await markRoutineApproved(routine.id)
@@ -1013,6 +1013,7 @@ describe("Routines integration tests", () => {
 			const routine = await createRoutine({
 				sectionId,
 				name: "Review Routine",
+				description: null,
 				frequency: "quarterly",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
@@ -1025,7 +1026,6 @@ describe("Routines integration tests", () => {
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
 				createdBy: "test",
-				updatedBy: "test",
 				activityType: null,
 			})
 			await markRoutineApproved(routine.id)
@@ -1055,6 +1055,7 @@ describe("Routines integration tests", () => {
 			const routineA = await createRoutine({
 				sectionId,
 				name: "Routine for A",
+				description: null,
 				frequency: "quarterly",
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
@@ -1067,7 +1068,6 @@ describe("Routines integration tests", () => {
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
 				createdBy: "test",
-				updatedBy: "test",
 				activityType: null,
 			})
 			await markRoutineApproved(routineA.id)
