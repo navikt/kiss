@@ -42,7 +42,7 @@ import {
 	routines,
 	routineTechnologyElements,
 } from "../schema/routines"
-import { screeningAnswers, screeningRoutineSelections } from "../schema/screening"
+import { screeningAnswers, screeningQuestions, screeningRoutineSelections } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 
 // ─── Routine CRUD ────────────────────────────────────────────────────────
@@ -2615,11 +2615,35 @@ export async function getRoutineDeadlinesForAppByRuleset(
 	const rulesetIds = sectionRulesets.map((r) => r.id)
 	if (rulesetIds.length === 0) return []
 
-	// Find routines linked to these rulesets
+	// Filter: only include rulesets where the app has answered a screening question linked to that ruleset
+	const answeredRulesetRows = await db
+		.selectDistinct({ rulesetId: screeningQuestions.rulesetId })
+		.from(screeningAnswers)
+		.innerJoin(
+			screeningQuestions,
+			and(
+				eq(screeningQuestions.id, screeningAnswers.questionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
+		)
+		.where(
+			and(
+				eq(screeningAnswers.applicationId, applicationId),
+				isNotNull(screeningQuestions.rulesetId),
+				inArray(screeningQuestions.rulesetId, rulesetIds),
+				isNotNull(screeningAnswers.answer),
+			),
+		)
+
+	const answeredRulesetIds = answeredRulesetRows.map((r) => r.rulesetId).filter((id): id is string => id !== null)
+	if (answeredRulesetIds.length === 0) return []
+
+	// Find routines linked to the answered rulesets
 	const rulesetRoutineRows = await db
 		.select({ routineId: rulesetRoutines.routineId })
 		.from(rulesetRoutines)
-		.where(and(inArray(rulesetRoutines.rulesetId, rulesetIds), isNull(rulesetRoutines.archivedAt)))
+		.where(and(inArray(rulesetRoutines.rulesetId, answeredRulesetIds), isNull(rulesetRoutines.archivedAt)))
 
 	const routineIds = rulesetRoutineRows.map((r) => r.routineId).filter((id) => !excludeRoutineIds.has(id))
 	const uniqueIds = [...new Set(routineIds)]

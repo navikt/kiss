@@ -115,15 +115,19 @@ describe("Routines integration tests", () => {
 			DELETE FROM routine_screening_questions;
 			DELETE FROM routine_controls;
 			DELETE FROM routine_technology_elements;
+			DELETE FROM ruleset_routines;
+			DELETE FROM rulesets;
 			DELETE FROM routines;
 			DELETE FROM screening_answers;
 			DELETE FROM screening_choice_effects;
 			DELETE FROM screening_question_choices;
 			DELETE FROM screening_question_effects;
 			DELETE FROM screening_questions;
+			DELETE FROM application_environments;
 			DELETE FROM application_technology_elements;
 			DELETE FROM technology_elements;
 			DELETE FROM monitored_applications;
+			DELETE FROM nais_teams;
 			DELETE FROM dev_teams;
 			DELETE FROM sections;
 			DELETE FROM audit_log;
@@ -916,6 +920,166 @@ describe("Routines integration tests", () => {
 
 			const updated = await getRoutine(routine.id)
 			expect(updated?.activityType).toBeNull()
+		})
+	})
+
+	// ─── Ruleset Routine Filtering ──────────────────────────────────────
+
+	describe("getRoutineDeadlinesForAppByRuleset", () => {
+		async function createTestNaisTeam(slug: string, sectionId: string) {
+			const db = getTestDb()
+			const result = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('${slug}', '${sectionId}') RETURNING id`,
+			)
+			return (result.rows[0] as { id: string }).id
+		}
+
+		async function createTestAppEnvironment(appId: string, naisTeamId: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', 'prod-gcp', 'test-ns', '${naisTeamId}')`,
+			)
+		}
+
+		async function createTestRuleset(sectionId: string, name: string, status = "active") {
+			const db = getTestDb()
+			const result = await db.execute(
+				/* sql */ `INSERT INTO rulesets (section_id, name, frequency, status, created_by, updated_by) VALUES ('${sectionId}', '${name}', 'quarterly', '${status}', 'test', 'test') RETURNING id`,
+			)
+			return (result.rows[0] as { id: string }).id
+		}
+
+		async function linkRulesetRoutine(rulesetId: string, routineId: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO ruleset_routines (ruleset_id, routine_id, created_by) VALUES ('${rulesetId}', '${routineId}', 'test')`,
+			)
+		}
+
+		async function createApprovedScreeningQuestion(sectionId: string, text: string, rulesetId: string | null) {
+			const db = getTestDb()
+			const rulesetVal = rulesetId ? `'${rulesetId}'` : "NULL"
+			const result = await db.execute(
+				/* sql */ `INSERT INTO screening_questions (section_id, question_text, answer_type, status, ruleset_id, created_by, updated_by) VALUES ('${sectionId}', '${text}', 'boolean', 'approved', ${rulesetVal}, 'test', 'test') RETURNING id`,
+			)
+			return (result.rows[0] as { id: string }).id
+		}
+
+		it("should NOT return ruleset routines when app has no screening answers", async () => {
+			const { getRoutineDeadlinesForAppByRuleset } = await import("~/db/queries/routines.server")
+
+			const sectionId = await createTestSection("Sec1", "sec1")
+			const appId = await createTestApp("my-app")
+			const teamId = await createTestNaisTeam("team1", sectionId)
+			await createTestAppEnvironment(appId, teamId)
+
+			const rulesetId = await createTestRuleset(sectionId, "Endringshåndtering")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Review Routine",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				screeningQuestionLinks: [],
+				groupClassifications: [],
+				oracleRoleCriticalities: [],
+				createdBy: "test",
+				updatedBy: "test",
+				activityType: null,
+			})
+			await markRoutineApproved(routine.id)
+			await linkRulesetRoutine(rulesetId, routine.id)
+
+			const results = await getRoutineDeadlinesForAppByRuleset(appId)
+			expect(results).toHaveLength(0)
+		})
+
+		it("should return ruleset routines when app has answered a linked screening question", async () => {
+			const { getRoutineDeadlinesForAppByRuleset } = await import("~/db/queries/routines.server")
+
+			const sectionId = await createTestSection("Sec2", "sec2")
+			const appId = await createTestApp("my-app-2")
+			const teamId = await createTestNaisTeam("team2", sectionId)
+			await createTestAppEnvironment(appId, teamId)
+
+			const rulesetId = await createTestRuleset(sectionId, "Endringshåndtering")
+			const questionId = await createApprovedScreeningQuestion(sectionId, "Har du endringshåndtering?", rulesetId)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Review Routine",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				screeningQuestionLinks: [],
+				groupClassifications: [],
+				oracleRoleCriticalities: [],
+				createdBy: "test",
+				updatedBy: "test",
+				activityType: null,
+			})
+			await markRoutineApproved(routine.id)
+			await linkRulesetRoutine(rulesetId, routine.id)
+
+			// Answer the screening question
+			await createTestScreeningAnswer(appId, questionId, "Ja")
+
+			const results = await getRoutineDeadlinesForAppByRuleset(appId)
+			expect(results).toHaveLength(1)
+			expect(results[0].routine?.name).toBe("Review Routine")
+		})
+
+		it("should NOT return routines for a ruleset when the answered question is linked to a different ruleset", async () => {
+			const { getRoutineDeadlinesForAppByRuleset } = await import("~/db/queries/routines.server")
+
+			const sectionId = await createTestSection("Sec3", "sec3")
+			const appId = await createTestApp("my-app-3")
+			const teamId = await createTestNaisTeam("team3", sectionId)
+			await createTestAppEnvironment(appId, teamId)
+
+			const rulesetA = await createTestRuleset(sectionId, "Ruleset A")
+			const rulesetB = await createTestRuleset(sectionId, "Ruleset B")
+			await createApprovedScreeningQuestion(sectionId, "Question for A", rulesetA)
+			const questionB = await createApprovedScreeningQuestion(sectionId, "Question for B", rulesetB)
+
+			const routineA = await createRoutine({
+				sectionId,
+				name: "Routine for A",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				screeningQuestionLinks: [],
+				groupClassifications: [],
+				oracleRoleCriticalities: [],
+				createdBy: "test",
+				updatedBy: "test",
+				activityType: null,
+			})
+			await markRoutineApproved(routineA.id)
+			await linkRulesetRoutine(rulesetA, routineA.id)
+
+			// App only answers question B — should NOT get routine A
+			await createTestScreeningAnswer(appId, questionB, "Ja")
+
+			const results = await getRoutineDeadlinesForAppByRuleset(appId)
+			// Should not include routineA since the app only answered the question for rulesetB
+			const routineAResult = results.find((r) => r.routine?.name === "Routine for A")
+			expect(routineAResult).toBeUndefined()
 		})
 	})
 })
