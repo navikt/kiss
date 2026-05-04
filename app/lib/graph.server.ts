@@ -216,6 +216,10 @@ export async function searchUsers(query: string): Promise<UserSearchResult[]> {
 	if (trimmed.length < 2) return []
 
 	if (!process.env.AZURE_OPENID_CONFIG_TOKEN_ENDPOINT) {
+		if (process.env.NODE_ENV === "production") {
+			logger.warn("searchUsers: AZURE_OPENID_CONFIG_TOKEN_ENDPOINT is not set in production – returning empty result")
+			return []
+		}
 		const ident =
 			trimmed
 				.replace(/[^a-z0-9]/gi, "")

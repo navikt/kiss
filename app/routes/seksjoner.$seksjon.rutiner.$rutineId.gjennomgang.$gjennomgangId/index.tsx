@@ -37,6 +37,7 @@ import {
 } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { ParticipantSearchDialog } from "~/components/ParticipantSearchDialog"
+import { addParticipant } from "~/lib/participants"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addReviewLink,
@@ -1155,15 +1156,7 @@ export default function GjennomgangDetalj() {
 	const [participants, setParticipants] = useState(review.participants.map((p) => p.userIdent).join(", "))
 
 	const handleAddParticipant = (navIdent: string) => {
-		setParticipants((current) => {
-			const idents = current
-				.split(",")
-				.map((s) => s.trim())
-				.filter(Boolean)
-			if (idents.some((i) => i.toUpperCase() === navIdent.toUpperCase())) return current
-			idents.push(navIdent)
-			return idents.join(", ")
-		})
+		setParticipants((current) => addParticipant(current, navIdent))
 	}
 
 	return (
