@@ -2615,7 +2615,10 @@ export async function getRoutineDeadlinesForAppByRuleset(
 	const rulesetIds = sectionRulesets.map((r) => r.id)
 	if (rulesetIds.length === 0) return []
 
-	// Filter: only include rulesets where the app has answered a screening question linked to that ruleset
+	// Filter: only include rulesets where the app has answered a screening question linked to that ruleset.
+	// Two paths:
+	// 1. Question has rulesetId pointing to the ruleset (non-ruleset answer types)
+	// 2. Question has answerType='ruleset' and the answer IS the ruleset ID (ruleset selection questions)
 	const answeredRulesetRows = await db
 		.selectDistinct({ rulesetId: screeningQuestions.rulesetId })
 		.from(screeningAnswers)
@@ -2636,7 +2639,32 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			),
 		)
 
-	const answeredRulesetIds = answeredRulesetRows.map((r) => r.rulesetId).filter((id): id is string => id !== null)
+	const selectedRulesetRows = await db
+		.selectDistinct({ rulesetId: screeningAnswers.answer })
+		.from(screeningAnswers)
+		.innerJoin(
+			screeningQuestions,
+			and(
+				eq(screeningQuestions.id, screeningAnswers.questionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+				eq(screeningQuestions.answerType, "ruleset"),
+			),
+		)
+		.where(
+			and(
+				eq(screeningAnswers.applicationId, applicationId),
+				isNotNull(screeningAnswers.answer),
+				inArray(screeningAnswers.answer, rulesetIds),
+			),
+		)
+
+	const answeredRulesetIds = [
+		...new Set([
+			...answeredRulesetRows.map((r) => r.rulesetId).filter((id): id is string => id !== null),
+			...selectedRulesetRows.map((r) => r.rulesetId).filter((id): id is string => id !== null),
+		]),
+	]
 	if (answeredRulesetIds.length === 0) return []
 
 	// Find routines linked to the answered rulesets

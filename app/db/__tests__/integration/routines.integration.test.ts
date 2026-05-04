@@ -1081,5 +1081,50 @@ describe("Routines integration tests", () => {
 			const routineAResult = results.find((r) => r.routine?.name === "Routine for A")
 			expect(routineAResult).toBeUndefined()
 		})
+		it("should return ruleset routines when app selects a ruleset via a 'ruleset' type screening question", async () => {
+			const { getRoutineDeadlinesForAppByRuleset } = await import("~/db/queries/routines.server")
+
+			const sectionId = await createTestSection("Sec4", "sec4")
+			const appId = await createTestApp("my-app-4")
+			const teamId = await createTestNaisTeam("team4", sectionId)
+			await createTestAppEnvironment(appId, teamId)
+
+			const rulesetId = await createTestRuleset(sectionId, "Standard regelsett")
+
+			// Create a 'ruleset' type question (rulesetId on the question is NULL — the answer IS the ruleset ID)
+			const db = getTestDb()
+			const result = await db.execute(
+				/* sql */ `INSERT INTO screening_questions (section_id, question_text, answer_type, status, ruleset_id, created_by, updated_by) VALUES ('${sectionId}', 'Hvilket regelsett bruker appen?', 'ruleset', 'approved', NULL, 'test', 'test') RETURNING id`,
+			)
+			const questionId = (result.rows[0] as { id: string }).id
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Ruleset Routine",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				screeningQuestionLinks: [],
+				groupClassifications: [],
+				oracleRoleCriticalities: [],
+				createdBy: "test",
+				activityType: null,
+			})
+			await markRoutineApproved(routine.id)
+			await linkRulesetRoutine(rulesetId, routine.id)
+
+			// Answer the screening question with the ruleset ID as the answer
+			await createTestScreeningAnswer(appId, questionId, rulesetId)
+
+			const results = await getRoutineDeadlinesForAppByRuleset(appId)
+			expect(results).toHaveLength(1)
+			expect(results[0].routine?.name).toBe("Ruleset Routine")
+		})
 	})
 })
