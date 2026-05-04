@@ -1,7 +1,9 @@
 import { Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
+import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
+import { ParticipantSearchDialog } from "~/components/ParticipantSearchDialog"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	autoCreateActivityForReview,
@@ -93,6 +95,19 @@ export default function NyGjennomgang() {
 	const preselectedAppId = searchParams.get("appId") ?? ""
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
+	const [participants, setParticipants] = useState("")
+
+	const handleAddParticipant = (navIdent: string) => {
+		setParticipants((current) => {
+			const idents = current
+				.split(",")
+				.map((s) => s.trim())
+				.filter(Boolean)
+			if (idents.some((i) => i.toUpperCase() === navIdent.toUpperCase())) return current
+			idents.push(navIdent)
+			return idents.join(", ")
+		})
+	}
 
 	return (
 		<VStack gap="space-8">
@@ -162,7 +177,12 @@ export default function NyGjennomgang() {
 						size="small"
 						description="Kommaseparert liste med NAV-identer"
 						autoComplete="off"
+						value={participants}
+						onChange={(e) => setParticipants(e.target.value)}
 					/>
+					<HStack>
+						<ParticipantSearchDialog currentValue={participants} onAdd={handleAddParticipant} />
+					</HStack>
 
 					<HStack gap="space-4">
 						<Button type="submit" variant="primary" size="small">

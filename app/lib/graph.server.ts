@@ -184,3 +184,90 @@ export async function searchGroups(query: string): Promise<GroupSearchResult[]> 
 		return []
 	}
 }
+
+export interface UserSearchResult {
+	navIdent: string
+	displayName: string
+	mail: string | null
+}
+
+interface GraphUserInfo {
+	id: string
+	displayName: string
+	mail: string | null
+	onPremisesSamAccountName: string | null
+	mailNickname: string | null
+}
+
+function pickNavIdent(u: GraphUserInfo): string | null {
+	const candidate = u.onPremisesSamAccountName ?? u.mailNickname
+	if (!candidate) return null
+	const trimmed = candidate.trim()
+	return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * Search for Azure AD users by display name. Returns up to 10 users with their
+ * NAVident (read from onPremisesSamAccountName, falling back to mailNickname),
+ * display name and mail. Users without a resolvable NAVident are omitted.
+ */
+export async function searchUsers(query: string): Promise<UserSearchResult[]> {
+	const trimmed = query.trim()
+	if (trimmed.length < 2) return []
+
+	if (!process.env.AZURE_OPENID_CONFIG_TOKEN_ENDPOINT) {
+		const ident =
+			trimmed
+				.replace(/[^a-z0-9]/gi, "")
+				.toUpperCase()
+				.slice(0, 7) || "X000000"
+		return [
+			{ navIdent: ident, displayName: `${trimmed} Testbruker 1`, mail: `${ident.toLowerCase()}@nav.no` },
+			{ navIdent: `${ident.slice(0, 6)}2`, displayName: `${trimmed} Testbruker 2`, mail: null },
+		]
+	}
+
+	try {
+		const token = await getClientCredentialToken(GRAPH_SCOPE)
+		const escaped = trimmed.replace(/'/g, "''")
+		const filterParts = [
+			`startswith(displayName,'${escaped}')`,
+			`startswith(givenName,'${escaped}')`,
+			`startswith(surname,'${escaped}')`,
+			`startswith(mail,'${escaped}')`,
+			`startswith(userPrincipalName,'${escaped}')`,
+		]
+		const filter = filterParts.join(" or ")
+		const url = new URL("https://graph.microsoft.com/v1.0/users")
+		url.searchParams.set("$filter", filter)
+		url.searchParams.set("$select", "id,displayName,mail,onPremisesSamAccountName,mailNickname")
+		url.searchParams.set("$top", "10")
+		url.searchParams.set("$orderby", "displayName")
+		url.searchParams.set("$count", "true")
+
+		const response = await fetch(url.toString(), {
+			headers: {
+				Authorization: `Bearer ${token}`,
+				ConsistencyLevel: "eventual",
+			},
+		})
+
+		if (!response.ok) {
+			const body = await response.text().catch(() => "")
+			logger.warn(`Graph user search failed: ${response.status}`, { body })
+			return []
+		}
+
+		const data = (await response.json()) as { value: GraphUserInfo[] }
+		const results: UserSearchResult[] = []
+		for (const u of data.value) {
+			const navIdent = pickNavIdent(u)
+			if (!navIdent) continue
+			results.push({ navIdent, displayName: u.displayName, mail: u.mail })
+		}
+		return results
+	} catch (error) {
+		logger.warn("Failed to search users from Microsoft Graph", { error: String(error) })
+		return []
+	}
+}

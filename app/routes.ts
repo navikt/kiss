@@ -136,5 +136,6 @@ export default [
 	route("api/seksjoner/:seksjon/eksport", "routes/api.seksjoner.$seksjon.eksport/index.tsx"),
 	route("api/eksport/screening", "routes/api.eksport.screening/index.tsx"),
 	route("api/graph/groups", "routes/api.graph.groups/index.tsx"),
+	route("api/graph/users", "routes/api.graph.users/index.tsx"),
 	route("api/sync-application-controls", "routes/api.sync-application-controls/index.tsx"),
 ] satisfies RouteConfig

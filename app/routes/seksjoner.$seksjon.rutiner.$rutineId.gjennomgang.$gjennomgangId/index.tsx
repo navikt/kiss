@@ -36,6 +36,7 @@ import {
 	useSubmit,
 } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
+import { ParticipantSearchDialog } from "~/components/ParticipantSearchDialog"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addReviewLink,
@@ -1151,6 +1152,20 @@ export default function GjennomgangDetalj() {
 	const defaultDate = reviewDate.toISOString().split("T")[0]
 	const defaultTime = reviewDate.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })
 
+	const [participants, setParticipants] = useState(review.participants.map((p) => p.userIdent).join(", "))
+
+	const handleAddParticipant = (navIdent: string) => {
+		setParticipants((current) => {
+			const idents = current
+				.split(",")
+				.map((s) => s.trim())
+				.filter(Boolean)
+			if (idents.some((i) => i.toUpperCase() === navIdent.toUpperCase())) return current
+			idents.push(navIdent)
+			return idents.join(", ")
+		})
+	}
+
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
 			<div>
@@ -1245,8 +1260,12 @@ export default function GjennomgangDetalj() {
 							size="small"
 							description="Kommaseparert liste med NAV-identer"
 							autoComplete="off"
-							defaultValue={review.participants.map((p) => p.userIdent).join(", ")}
+							value={participants}
+							onChange={(e) => setParticipants(e.target.value)}
 						/>
+						<HStack>
+							<ParticipantSearchDialog currentValue={participants} onAdd={handleAddParticipant} />
+						</HStack>
 
 						{actionData?.intent === "update-review" && actionData.success && (
 							<Alert variant="success" size="small">
