@@ -42,7 +42,7 @@ export function PersistenceSection({
 	const unclassifiedEntries = entries.filter((p) => !p.dataClassification)
 
 	function handleConfirmSubmit(e: FormEvent<HTMLFormElement>) {
-		if (entries.length === 0 || !allClassified) {
+		if (entries.length > 0 && !allClassified) {
 			e.preventDefault()
 			setHasAttempted(true)
 			setTimeout(() => errorSummaryRef.current?.focus(), 0)
@@ -50,9 +50,6 @@ export function PersistenceSection({
 	}
 
 	const errors: Array<{ message: string; href: string }> = []
-	if (hasAttempted && entries.length === 0) {
-		errors.push({ message: "Legg til minst én database", href: "#add-persistence-btn" })
-	}
 	if (hasAttempted && unclassifiedEntries.length > 0) {
 		for (const p of unclassifiedEntries) {
 			errors.push({ message: `Sett klassifisering for ${p.name}`, href: `#classification-${p.id}` })
