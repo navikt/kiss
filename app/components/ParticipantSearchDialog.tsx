@@ -1,6 +1,6 @@
 import { PlusIcon } from "@navikt/aksel-icons"
 import { BodyShort, Box, Button, Detail, Dialog, Search, VStack } from "@navikt/ds-react"
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useFetcher } from "react-router"
 
 interface UserSearchResult {
@@ -31,6 +31,12 @@ export function ParticipantSearchDialog({ currentValue, onAdd }: ParticipantSear
 	const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const searchInputRef = useRef<HTMLInputElement>(null)
 
+	useEffect(() => {
+		return () => {
+			if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+		}
+	}, [])
+
 	const existingIdents = useMemo(() => parseIdents(currentValue), [currentValue])
 	const results = searchFetcher.data?.results ?? []
 	const isSearching = searchFetcher.state === "loading"
@@ -59,7 +65,13 @@ export function ParticipantSearchDialog({ currentValue, onAdd }: ParticipantSear
 	)
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(nextOpen) => {
+				if (!nextOpen && searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+				setOpen(nextOpen)
+			}}
+		>
 			<Dialog.Trigger>
 				<Button type="button" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
 					Søk etter person
@@ -82,6 +94,7 @@ export function ParticipantSearchDialog({ currentValue, onAdd }: ParticipantSear
 							value={query}
 							onChange={handleSearch}
 							onClear={() => {
+								if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
 								setQuery("")
 								setShowResults(false)
 							}}
