@@ -176,7 +176,29 @@ export default function Dashboard() {
 					</HGrid>
 				</>
 			) : (
-				<ComplianceStatsPlaceholder />
+				<>
+					<ComplianceStatsPlaceholder />
+
+					<Heading size="large" level="3">
+						Domener
+					</Heading>
+
+					<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
+						{domainStatuses.map((domain) => (
+							<Link key={domain.code} to={`/kontrollrammeverk/${domain.code}`} className="domain-status-card-link">
+								<div className="domain-status-header">
+									<Heading size="small" level="4">
+										{domain.name}
+									</Heading>
+								</div>
+								<div className="domain-status-details">
+									<BodyShort size="small">{domain.controlCount} kontroller</BodyShort>
+								</div>
+								<div className="domain-status-card-link-footer">Se detaljer →</div>
+							</Link>
+						))}
+					</HGrid>
+				</>
 			)}
 
 			<DeploymentSummaryCards stats={deploymentStats} />

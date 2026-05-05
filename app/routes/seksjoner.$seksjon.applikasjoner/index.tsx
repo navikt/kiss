@@ -197,9 +197,6 @@ export default function SeksjonApplikasjoner() {
 						</Table.Header>
 						<Table.Body>
 							{sorted.map((app) => {
-								const answered = app.implemented + app.partial + app.notImplemented + app.notRelevant
-								const unanswered = Math.max(0, app.total - answered)
-								const pct = compliancePercent(app.implemented, app.partial, app.total, app.notRelevant)
 								return (
 									<Table.Row key={app.appId}>
 										<Table.DataCell>
@@ -213,8 +210,15 @@ export default function SeksjonApplikasjoner() {
 												<Table.DataCell align="right">{app.implemented}</Table.DataCell>
 												<Table.DataCell align="right">{app.partial}</Table.DataCell>
 												<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
-												<Table.DataCell align="right">{unanswered}</Table.DataCell>
-												<Table.DataCell align="right">{pct}%</Table.DataCell>
+												<Table.DataCell align="right">
+													{Math.max(
+														0,
+														app.total - (app.implemented + app.partial + app.notImplemented + app.notRelevant),
+													)}
+												</Table.DataCell>
+												<Table.DataCell align="right">
+													{compliancePercent(app.implemented, app.partial, app.total, app.notRelevant)}%
+												</Table.DataCell>
 											</>
 										)}
 										<Table.DataCell>

@@ -107,54 +107,52 @@ export default function MineTeamPage() {
 			</Box>
 
 			{/* Summary cards */}
-			{showComplianceStats ? (
-				totals && (
-					<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 5 }}>
-						<Box padding="space-6" borderRadius="8" background="sunken">
-							<VStack align="center">
-								<Heading size="xlarge" level="3">
-									{totals.percent}%
-								</Heading>
-								<Detail>Total compliance</Detail>
-							</VStack>
-						</Box>
-						<Box padding="space-6" borderRadius="8" background="sunken">
-							<VStack align="center">
-								<Heading size="xlarge" level="3">
-									{totals.apps}
-								</Heading>
-								<Detail>Applikasjoner</Detail>
-							</VStack>
-						</Box>
-						<Box padding="space-6" borderRadius="8" background="sunken">
-							<VStack align="center">
-								<Heading size="xlarge" level="3">
-									{totals.implemented}
-								</Heading>
-								<Detail>Implementert</Detail>
-							</VStack>
-						</Box>
-						<Box padding="space-6" borderRadius="8" background="sunken">
-							<VStack align="center">
-								<Heading size="xlarge" level="3">
-									{totals.partial}
-								</Heading>
-								<Detail>Delvis</Detail>
-							</VStack>
-						</Box>
-						<Box padding="space-6" borderRadius="8" background="sunken">
-							<VStack align="center">
-								<Heading size="xlarge" level="3">
-									{totals.mangler}
-								</Heading>
-								<Detail>Mangler</Detail>
-							</VStack>
-						</Box>
-					</HGrid>
-				)
-			) : (
-				<ComplianceStatsPlaceholder />
-			)}
+			{showComplianceStats
+				? totals && (
+						<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 5 }}>
+							<Box padding="space-6" borderRadius="8" background="sunken">
+								<VStack align="center">
+									<Heading size="xlarge" level="3">
+										{totals.percent}%
+									</Heading>
+									<Detail>Total compliance</Detail>
+								</VStack>
+							</Box>
+							<Box padding="space-6" borderRadius="8" background="sunken">
+								<VStack align="center">
+									<Heading size="xlarge" level="3">
+										{totals.apps}
+									</Heading>
+									<Detail>Applikasjoner</Detail>
+								</VStack>
+							</Box>
+							<Box padding="space-6" borderRadius="8" background="sunken">
+								<VStack align="center">
+									<Heading size="xlarge" level="3">
+										{totals.implemented}
+									</Heading>
+									<Detail>Implementert</Detail>
+								</VStack>
+							</Box>
+							<Box padding="space-6" borderRadius="8" background="sunken">
+								<VStack align="center">
+									<Heading size="xlarge" level="3">
+										{totals.partial}
+									</Heading>
+									<Detail>Delvis</Detail>
+								</VStack>
+							</Box>
+							<Box padding="space-6" borderRadius="8" background="sunken">
+								<VStack align="center">
+									<Heading size="xlarge" level="3">
+										{totals.mangler}
+									</Heading>
+									<Detail>Mangler</Detail>
+								</VStack>
+							</Box>
+						</HGrid>
+					)
+				: totals && <ComplianceStatsPlaceholder />}
 
 			{deploymentStats && <DeploymentSummaryCards stats={deploymentStats} />}
 
@@ -196,9 +194,6 @@ export default function MineTeamPage() {
 						</Table.Header>
 						<Table.Body>
 							{apps.map((app) => {
-								const answered = app.implemented + app.partial + app.notImplemented + app.notRelevant
-								const unanswered = Math.max(0, app.total - answered)
-								const pct = compliancePercent(app.implemented, app.partial, app.total, app.notRelevant)
 								const appTeams = app.teamIds
 									.map((tid) => teamById.get(tid))
 									.filter((t): t is NonNullable<typeof t> => t != null)
@@ -226,8 +221,15 @@ export default function MineTeamPage() {
 												<Table.DataCell align="right">{app.implemented}</Table.DataCell>
 												<Table.DataCell align="right">{app.partial}</Table.DataCell>
 												<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
-												<Table.DataCell align="right">{unanswered}</Table.DataCell>
-												<Table.DataCell align="right">{pct}%</Table.DataCell>
+												<Table.DataCell align="right">
+													{Math.max(
+														0,
+														app.total - (app.implemented + app.partial + app.notImplemented + app.notRelevant),
+													)}
+												</Table.DataCell>
+												<Table.DataCell align="right">
+													{compliancePercent(app.implemented, app.partial, app.total, app.notRelevant)}%
+												</Table.DataCell>
 											</>
 										)}
 										<Table.DataCell>

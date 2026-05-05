@@ -1,12 +1,7 @@
 import { useRouteLoaderData } from "react-router"
-
-interface RootLoaderData {
-	featureFlags: {
-		showComplianceStats: boolean
-	}
-}
+import type { loader as rootLoader } from "~/root"
 
 export function useFeatureFlags() {
-	const data = useRouteLoaderData("root") as RootLoaderData | undefined
+	const data = useRouteLoaderData<typeof rootLoader>("root")
 	return data?.featureFlags ?? { showComplianceStats: true }
 }

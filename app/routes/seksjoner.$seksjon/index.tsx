@@ -1,6 +1,7 @@
 import { BodyLong, BodyShort, Box, Button, Detail, Heading, HGrid, HStack, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { ComplianceStatsPlaceholder } from "~/components/ComplianceStatsPlaceholder"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
@@ -163,26 +164,29 @@ export default function SeksjonDashboard() {
 					</Box>
 				</HGrid>
 			) : (
-				<HGrid gap="space-6" columns={{ xs: 2, sm: 3 }}>
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<VStack align="center">
-							<Heading size="xlarge" level="3">
-								{teams.length}
-							</Heading>
-							<Detail>Team</Detail>
-						</VStack>
-					</Box>
-					<Link to={`/seksjoner/${seksjon}/applikasjoner`} style={{ textDecoration: "none", color: "inherit" }}>
+				<>
+					<ComplianceStatsPlaceholder />
+					<HGrid gap="space-6" columns={{ xs: 2, sm: 3 }}>
 						<Box padding="space-6" borderRadius="8" background="sunken">
 							<VStack align="center">
 								<Heading size="xlarge" level="3">
-									{totalApps}
+									{teams.length}
 								</Heading>
-								<Detail>Applikasjoner</Detail>
+								<Detail>Team</Detail>
 							</VStack>
 						</Box>
-					</Link>
-				</HGrid>
+						<Link to={`/seksjoner/${seksjon}/applikasjoner`} style={{ textDecoration: "none", color: "inherit" }}>
+							<Box padding="space-6" borderRadius="8" background="sunken">
+								<VStack align="center">
+									<Heading size="xlarge" level="3">
+										{totalApps}
+									</Heading>
+									<Detail>Applikasjoner</Detail>
+								</VStack>
+							</Box>
+						</Link>
+					</HGrid>
+				</>
 			)}
 
 			<DeploymentSummaryCards stats={deploymentStats} />
