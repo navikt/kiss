@@ -16,12 +16,14 @@ import {
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
+import { ComplianceStatsPlaceholder } from "~/components/ComplianceStatsPlaceholder"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam } from "~/db/queries/applications.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getSectionBySlug, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
 import { getUserRoles } from "~/db/queries/users.server"
+import { useFeatureFlags } from "~/hooks/useFeatureFlags"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
@@ -144,6 +146,7 @@ export default function TeamDashboard() {
 	const addAppModalRef = useRef<HTMLDialogElement>(null)
 	const [appSearch, setAppSearch] = useState("")
 	const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
+	const { showComplianceStats } = useFeatureFlags()
 
 	const filteredApps = availableApps.filter((a) => a.name.toLowerCase().includes(appSearch.toLowerCase()))
 
@@ -160,48 +163,52 @@ export default function TeamDashboard() {
 				)}
 			</HStack>
 
-			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 5 }}>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{overallPercent}%
-						</Heading>
-						<Detail>Total compliance</Detail>
-					</VStack>
-				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{apps.length}
-						</Heading>
-						<Detail>Applikasjoner</Detail>
-					</VStack>
-				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{totalImplemented}
-						</Heading>
-						<Detail>Implementert</Detail>
-					</VStack>
-				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{totalPartial}
-						</Heading>
-						<Detail>Delvis</Detail>
-					</VStack>
-				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{totalMangler}
-						</Heading>
-						<Detail>Mangler</Detail>
-					</VStack>
-				</Box>
-			</HGrid>
+			{showComplianceStats ? (
+				<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 5 }}>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{overallPercent}%
+							</Heading>
+							<Detail>Total compliance</Detail>
+						</VStack>
+					</Box>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{apps.length}
+							</Heading>
+							<Detail>Applikasjoner</Detail>
+						</VStack>
+					</Box>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalImplemented}
+							</Heading>
+							<Detail>Implementert</Detail>
+						</VStack>
+					</Box>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalPartial}
+							</Heading>
+							<Detail>Delvis</Detail>
+						</VStack>
+					</Box>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalMangler}
+							</Heading>
+							<Detail>Mangler</Detail>
+						</VStack>
+					</Box>
+				</HGrid>
+			) : (
+				<ComplianceStatsPlaceholder />
+			)}
 
 			<DeploymentSummaryCards stats={deploymentStats} />
 
@@ -237,21 +244,25 @@ export default function TeamDashboard() {
 								<Table.HeaderCell scope="col" align="right">
 									Spørsmål
 								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
-									Implementert
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
-									Delvis
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
-									Ikke impl.
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
-									Ikke besvart
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
-									Status %
-								</Table.HeaderCell>
+								{showComplianceStats && (
+									<>
+										<Table.HeaderCell scope="col" align="right">
+											Implementert
+										</Table.HeaderCell>
+										<Table.HeaderCell scope="col" align="right">
+											Delvis
+										</Table.HeaderCell>
+										<Table.HeaderCell scope="col" align="right">
+											Ikke impl.
+										</Table.HeaderCell>
+										<Table.HeaderCell scope="col" align="right">
+											Ikke besvart
+										</Table.HeaderCell>
+										<Table.HeaderCell scope="col" align="right">
+											Status %
+										</Table.HeaderCell>
+									</>
+								)}
 								<Table.HeaderCell scope="col" />
 							</Table.Row>
 						</Table.Header>
@@ -270,11 +281,15 @@ export default function TeamDashboard() {
 										<Table.DataCell align="right">
 											{app.screeningProgress.answered}/{app.screeningProgress.total}
 										</Table.DataCell>
-										<Table.DataCell align="right">{app.implemented}</Table.DataCell>
-										<Table.DataCell align="right">{app.partial}</Table.DataCell>
-										<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
-										<Table.DataCell align="right">{unanswered}</Table.DataCell>
-										<Table.DataCell align="right">{pct}%</Table.DataCell>
+										{showComplianceStats && (
+											<>
+												<Table.DataCell align="right">{app.implemented}</Table.DataCell>
+												<Table.DataCell align="right">{app.partial}</Table.DataCell>
+												<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
+												<Table.DataCell align="right">{unanswered}</Table.DataCell>
+												<Table.DataCell align="right">{pct}%</Table.DataCell>
+											</>
+										)}
 										<Table.DataCell>
 											<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/compliance`}>
 												Vurder

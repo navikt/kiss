@@ -5,6 +5,7 @@ import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getSectionDetail } from "~/db/queries/sections.server"
+import { useFeatureFlags } from "~/hooks/useFeatureFlags"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
@@ -64,6 +65,7 @@ export default function SeksjonDashboard() {
 		canAdmin,
 		deploymentStats,
 	} = useLoaderData<typeof loader>()
+	const { showComplianceStats } = useFeatureFlags()
 
 	return (
 		<VStack gap="space-8">
@@ -107,127 +109,98 @@ export default function SeksjonDashboard() {
 			</HStack>
 			<BodyLong>Compliance-status for alle team i seksjonen.</BodyLong>
 
-			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 6 }}>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{overallPercent}%
-						</Heading>
-						<Detail>Total compliance</Detail>
-					</VStack>
-				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{teams.length}
-						</Heading>
-						<Detail>Team</Detail>
-					</VStack>
-				</Box>
-				<Link to={`/seksjoner/${seksjon}/applikasjoner`} style={{ textDecoration: "none", color: "inherit" }}>
+			{showComplianceStats ? (
+				<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 6 }}>
 					<Box padding="space-6" borderRadius="8" background="sunken">
 						<VStack align="center">
 							<Heading size="xlarge" level="3">
-								{totalApps}
+								{overallPercent}%
 							</Heading>
-							<Detail>Applikasjoner</Detail>
+							<Detail>Total compliance</Detail>
 						</VStack>
 					</Box>
-				</Link>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{totalImplemented}
-						</Heading>
-						<Detail>Implementert</Detail>
-					</VStack>
-				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{totalPartial}
-						</Heading>
-						<Detail>Delvis</Detail>
-					</VStack>
-				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{totalMangler}
-						</Heading>
-						<Detail>Mangler</Detail>
-					</VStack>
-				</Box>
-			</HGrid>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{teams.length}
+							</Heading>
+							<Detail>Team</Detail>
+						</VStack>
+					</Box>
+					<Link to={`/seksjoner/${seksjon}/applikasjoner`} style={{ textDecoration: "none", color: "inherit" }}>
+						<Box padding="space-6" borderRadius="8" background="sunken">
+							<VStack align="center">
+								<Heading size="xlarge" level="3">
+									{totalApps}
+								</Heading>
+								<Detail>Applikasjoner</Detail>
+							</VStack>
+						</Box>
+					</Link>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalImplemented}
+							</Heading>
+							<Detail>Implementert</Detail>
+						</VStack>
+					</Box>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalPartial}
+							</Heading>
+							<Detail>Delvis</Detail>
+						</VStack>
+					</Box>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalMangler}
+							</Heading>
+							<Detail>Mangler</Detail>
+						</VStack>
+					</Box>
+				</HGrid>
+			) : (
+				<HGrid gap="space-6" columns={{ xs: 2, sm: 3 }}>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{teams.length}
+							</Heading>
+							<Detail>Team</Detail>
+						</VStack>
+					</Box>
+					<Link to={`/seksjoner/${seksjon}/applikasjoner`} style={{ textDecoration: "none", color: "inherit" }}>
+						<Box padding="space-6" borderRadius="8" background="sunken">
+							<VStack align="center">
+								<Heading size="xlarge" level="3">
+									{totalApps}
+								</Heading>
+								<Detail>Applikasjoner</Detail>
+							</VStack>
+						</Box>
+					</Link>
+				</HGrid>
+			)}
 
 			<DeploymentSummaryCards stats={deploymentStats} />
 
 			<Heading size="large" level="3">
-				Status per team
+				Team
 			</Heading>
 
-			<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
-				{teams.map((team) => {
-					const pct = compliancePercent(team.implemented, team.partial, team.total, team.notRelevant)
-					const mangler = team.total - team.implemented - team.partial - team.notImplemented - team.notRelevant
-					return (
-						<Link key={team.slug} to={`/seksjoner/${seksjon}/team/${team.slug}`} className="domain-status-card-link">
-							<div className="domain-status-header">
-								<Heading size="small" level="4">
-									{team.name}
-								</Heading>
-								<BodyShort weight="semibold">{pct}%</BodyShort>
-							</div>
-							<div
-								className="domain-status-bar"
-								role="progressbar"
-								aria-valuenow={pct}
-								aria-valuemin={0}
-								aria-valuemax={100}
-								aria-label={`${team.name} compliance ${pct}%`}
-							>
-								<div
-									className="domain-status-bar-implemented"
-									style={{
-										width: `${team.total - team.notRelevant > 0 ? (team.implemented / (team.total - team.notRelevant)) * 100 : 0}%`,
-									}}
-								/>
-								<div
-									className="domain-status-bar-partial"
-									style={{
-										width: `${team.total - team.notRelevant > 0 ? (team.partial / (team.total - team.notRelevant)) * 100 : 0}%`,
-									}}
-								/>
-							</div>
-							<div className="domain-status-details">
-								<BodyShort size="small">{team.implemented} implementert</BodyShort>
-								<BodyShort size="small">{team.partial} delvis</BodyShort>
-								<BodyShort size="small">{mangler} mangler</BodyShort>
-								<BodyShort size="small">{team.apps} applikasjoner</BodyShort>
-							</div>
-							<div className="domain-status-card-link-footer">Se detaljer →</div>
-						</Link>
-					)
-				})}
-				{unassigned.apps > 0 &&
-					(() => {
-						const pct = compliancePercent(
-							unassigned.implemented,
-							unassigned.partial,
-							unassigned.total,
-							unassigned.notRelevant,
-						)
-						const mangler =
-							unassigned.total -
-							unassigned.implemented -
-							unassigned.partial -
-							unassigned.notImplemented -
-							unassigned.notRelevant
+			{showComplianceStats ? (
+				<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
+					{teams.map((team) => {
+						const pct = compliancePercent(team.implemented, team.partial, team.total, team.notRelevant)
+						const mangler = team.total - team.implemented - team.partial - team.notImplemented - team.notRelevant
 						return (
-							<Link to={`/seksjoner/${seksjon}/rediger?fane=applikasjoner`} className="domain-status-card-link">
+							<Link key={team.slug} to={`/seksjoner/${seksjon}/team/${team.slug}`} className="domain-status-card-link">
 								<div className="domain-status-header">
 									<Heading size="small" level="4">
-										Uten team
+										{team.name}
 									</Heading>
 									<BodyShort weight="semibold">{pct}%</BodyShort>
 								</div>
@@ -237,32 +210,115 @@ export default function SeksjonDashboard() {
 									aria-valuenow={pct}
 									aria-valuemin={0}
 									aria-valuemax={100}
-									aria-label={`Uten team compliance ${pct}%`}
+									aria-label={`${team.name} compliance ${pct}%`}
 								>
 									<div
 										className="domain-status-bar-implemented"
 										style={{
-											width: `${unassigned.total - unassigned.notRelevant > 0 ? (unassigned.implemented / (unassigned.total - unassigned.notRelevant)) * 100 : 0}%`,
+											width: `${team.total - team.notRelevant > 0 ? (team.implemented / (team.total - team.notRelevant)) * 100 : 0}%`,
 										}}
 									/>
 									<div
 										className="domain-status-bar-partial"
 										style={{
-											width: `${unassigned.total - unassigned.notRelevant > 0 ? (unassigned.partial / (unassigned.total - unassigned.notRelevant)) * 100 : 0}%`,
+											width: `${team.total - team.notRelevant > 0 ? (team.partial / (team.total - team.notRelevant)) * 100 : 0}%`,
 										}}
 									/>
 								</div>
 								<div className="domain-status-details">
-									<BodyShort size="small">{unassigned.implemented} implementert</BodyShort>
-									<BodyShort size="small">{unassigned.partial} delvis</BodyShort>
+									<BodyShort size="small">{team.implemented} implementert</BodyShort>
+									<BodyShort size="small">{team.partial} delvis</BodyShort>
 									<BodyShort size="small">{mangler} mangler</BodyShort>
-									<BodyShort size="small">{unassigned.apps} applikasjoner</BodyShort>
+									<BodyShort size="small">{team.apps} applikasjoner</BodyShort>
 								</div>
-								<div className="domain-status-card-link-footer">Administrer →</div>
+								<div className="domain-status-card-link-footer">Se detaljer →</div>
 							</Link>
 						)
-					})()}
-			</HGrid>
+					})}
+					{unassigned.apps > 0 &&
+						(() => {
+							const pct = compliancePercent(
+								unassigned.implemented,
+								unassigned.partial,
+								unassigned.total,
+								unassigned.notRelevant,
+							)
+							const mangler =
+								unassigned.total -
+								unassigned.implemented -
+								unassigned.partial -
+								unassigned.notImplemented -
+								unassigned.notRelevant
+							return (
+								<Link to={`/seksjoner/${seksjon}/rediger?fane=applikasjoner`} className="domain-status-card-link">
+									<div className="domain-status-header">
+										<Heading size="small" level="4">
+											Uten team
+										</Heading>
+										<BodyShort weight="semibold">{pct}%</BodyShort>
+									</div>
+									<div
+										className="domain-status-bar"
+										role="progressbar"
+										aria-valuenow={pct}
+										aria-valuemin={0}
+										aria-valuemax={100}
+										aria-label={`Uten team compliance ${pct}%`}
+									>
+										<div
+											className="domain-status-bar-implemented"
+											style={{
+												width: `${unassigned.total - unassigned.notRelevant > 0 ? (unassigned.implemented / (unassigned.total - unassigned.notRelevant)) * 100 : 0}%`,
+											}}
+										/>
+										<div
+											className="domain-status-bar-partial"
+											style={{
+												width: `${unassigned.total - unassigned.notRelevant > 0 ? (unassigned.partial / (unassigned.total - unassigned.notRelevant)) * 100 : 0}%`,
+											}}
+										/>
+									</div>
+									<div className="domain-status-details">
+										<BodyShort size="small">{unassigned.implemented} implementert</BodyShort>
+										<BodyShort size="small">{unassigned.partial} delvis</BodyShort>
+										<BodyShort size="small">{mangler} mangler</BodyShort>
+										<BodyShort size="small">{unassigned.apps} applikasjoner</BodyShort>
+									</div>
+									<div className="domain-status-card-link-footer">Administrer →</div>
+								</Link>
+							)
+						})()}
+				</HGrid>
+			) : (
+				<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
+					{teams.map((team) => (
+						<Link key={team.slug} to={`/seksjoner/${seksjon}/team/${team.slug}`} className="domain-status-card-link">
+							<div className="domain-status-header">
+								<Heading size="small" level="4">
+									{team.name}
+								</Heading>
+							</div>
+							<div className="domain-status-details">
+								<BodyShort size="small">{team.apps} applikasjoner</BodyShort>
+							</div>
+							<div className="domain-status-card-link-footer">Se detaljer →</div>
+						</Link>
+					))}
+					{unassigned.apps > 0 && (
+						<Link to={`/seksjoner/${seksjon}/rediger?fane=applikasjoner`} className="domain-status-card-link">
+							<div className="domain-status-header">
+								<Heading size="small" level="4">
+									Uten team
+								</Heading>
+							</div>
+							<div className="domain-status-details">
+								<BodyShort size="small">{unassigned.apps} applikasjoner</BodyShort>
+							</div>
+							<div className="domain-status-card-link-footer">Administrer →</div>
+						</Link>
+					)}
+				</HGrid>
+			)}
 		</VStack>
 	)
 }
