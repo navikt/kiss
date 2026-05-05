@@ -1160,9 +1160,14 @@ export default function GjennomgangDetalj() {
 		[review.participants],
 	)
 
+	const prevReviewIdRef = useRef(review.id)
 	useEffect(() => {
-		setParticipants(serverParticipants)
-	}, [serverParticipants])
+		const prevId = prevReviewIdRef.current
+		prevReviewIdRef.current = review.id
+		if (prevId !== review.id) {
+			setParticipants(serverParticipants)
+		}
+	}, [review.id, serverParticipants])
 
 	const handleAddParticipant = (navIdent: string) => {
 		setParticipants((current) => addParticipant(current, navIdent))
