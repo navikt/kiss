@@ -9,6 +9,7 @@ export type RulesetOption = LoaderData["rulesetOptions"][number]
 export type PersistenceEntry = LoaderData["persistence"][number]
 export type EntraGroupsData = LoaderData["entraGroupsData"]
 export type OracleRolesData = LoaderData["oracleRolesData"]
+export type EconomyClassificationData = LoaderData["economyClassification"]
 
 export const persistenceVariants: Record<string, "info" | "warning" | "alt1" | "alt2" | "alt3" | "neutral"> = {
 	cloud_sql_postgres: "info",
@@ -19,4 +20,25 @@ export const persistenceVariants: Record<string, "info" | "warning" | "alt1" | "
 	valkey: "alt3",
 	oracle: "warning",
 	other: "neutral",
+}
+
+/**
+ * Checks if a screening question is considered answered.
+ * For economy_system questions, an expired classification means "not answered"
+ * even if the answer is "confirmed".
+ */
+export function isQuestionAnswered(q: ScreeningQuestion, economyClassification?: EconomyClassificationData): boolean {
+	if (
+		q.answerType === "persistence" ||
+		q.answerType === "entra_id_groups" ||
+		q.answerType === "oracle_roles" ||
+		q.answerType === "economy_system"
+	) {
+		if (q.answer !== "confirmed") return false
+		if (q.answerType === "economy_system") {
+			if (!economyClassification || economyClassification.isExpired) return false
+		}
+		return true
+	}
+	return q.answer !== null
 }

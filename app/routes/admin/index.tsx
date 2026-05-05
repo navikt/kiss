@@ -74,6 +74,12 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Synkronisering og vedlikeholdsoperasjoner for systemet.</BodyLong>
 				</Link>
+				<Link to="/admin/okonomisystemer" className="admin-card">
+					<Heading size="small" level="3">
+						Økonomisystemer
+					</Heading>
+					<BodyLong size="small">Oversikt over applikasjoner klassifisert som økonomisystem.</BodyLong>
+				</Link>
 			</div>
 		</VStack>
 	)

@@ -1,7 +1,14 @@
 import { Link as AkselLink, Alert, BodyLong, BodyShort, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
-import { useCallback } from "react"
-import type { EntraGroupsData, OracleRolesData, PersistenceEntry, RulesetOption, ScreeningQuestion } from "../shared"
-import { slugify } from "../shared"
+import type {
+	EconomyClassificationData,
+	EntraGroupsData,
+	OracleRolesData,
+	PersistenceEntry,
+	RulesetOption,
+	ScreeningQuestion,
+} from "../shared"
+import { isQuestionAnswered, slugify } from "../shared"
+import { EconomySystemSection } from "./EconomySystemSection"
 import { EntraGroupsSection } from "./EntraGroupsSection"
 import { OracleRolesScreeningSection } from "./OracleRolesScreeningSection"
 import { PersistenceSection } from "./PersistenceSection"
@@ -14,19 +21,17 @@ type Props = {
 	rulesetOptions: RulesetOption[]
 	entraGroupsData: EntraGroupsData
 	oracleRolesData: OracleRolesData
+	economyClassification: EconomyClassificationData
 	canAdmin: boolean
 }
 
-function isQuestionAnswered(q: ScreeningQuestion) {
-	if (q.answerType === "persistence" || q.answerType === "entra_id_groups" || q.answerType === "oracle_roles") {
-		return q.answer === "confirmed"
-	}
-	return q.answer !== null
-}
-
-export function ScreeningSidebar({ screening }: { screening: ScreeningQuestion[] }) {
-	const isAnswered = useCallback(isQuestionAnswered, [])
-
+export function ScreeningSidebar({
+	screening,
+	economyClassification,
+}: {
+	screening: ScreeningQuestion[]
+	economyClassification?: EconomyClassificationData
+}) {
 	return (
 		<nav className="compliance-sidebar" aria-label="Innholdsnavigasjon">
 			<AkselLink href="#top" className="compliance-sidebar-home">
@@ -36,7 +41,9 @@ export function ScreeningSidebar({ screening }: { screening: ScreeningQuestion[]
 			{screening.map((q) => (
 				<div key={q.id} className="compliance-sidebar-group">
 					<AkselLink href={`#q-${slugify(q.questionText)}`} className="compliance-sidebar-question">
-						<span className="compliance-sidebar-question-icon">{isAnswered(q) ? "✓" : "○"}</span>
+						<span className="compliance-sidebar-question-icon">
+							{isQuestionAnswered(q, economyClassification) ? "✓" : "○"}
+						</span>
 						<span className="compliance-sidebar-question-text">{q.questionText}</span>
 					</AkselLink>
 				</div>
@@ -51,9 +58,10 @@ export function ScreeningSection({
 	rulesetOptions,
 	entraGroupsData,
 	oracleRolesData,
+	economyClassification,
 	canAdmin,
 }: Props) {
-	const answeredCount = screening.filter(isQuestionAnswered).length
+	const answeredCount = screening.filter((q) => isQuestionAnswered(q, economyClassification)).length
 
 	return (
 		<>
@@ -111,6 +119,12 @@ export function ScreeningSection({
 										/>
 									) : q.answerType === "ruleset" ? (
 										<RulesetSection question={q} rulesets={rulesetOptions} />
+									) : q.answerType === "economy_system" ? (
+										<EconomySystemSection
+											classification={economyClassification}
+											questionId={q.id}
+											confirmed={q.answer === "confirmed"}
+										/>
 									) : (
 										<ScreeningAnswerForm question={q} />
 									)}

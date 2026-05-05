@@ -93,6 +93,9 @@ export default function SeksjonDashboard() {
 				<Button as={Link} to={`/seksjoner/${seksjon}/oracle-roller`} variant="secondary" size="small">
 					Oracle-roller
 				</Button>
+				<Button as={Link} to={`/seksjoner/${seksjon}/okonomisystemer`} variant="secondary" size="small">
+					Økonomisystemer
+				</Button>
 				<Button as={Link} to={`/seksjoner/${seksjon}/audit-logging`} variant="secondary" size="small">
 					Audit logging
 				</Button>

@@ -152,6 +152,34 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		oracleRolesData = { roles: allRoles, assessments }
 	}
 
+	// Economy system classification
+	const hasEconomySystemQuestion = screeningData.questions.some((q) => q.answerType === "economy_system")
+	let economyClassification: {
+		id: string
+		isEconomySystem: boolean
+		economySystemType: string | null
+		justification: string
+		validFrom: string
+		validUntil: string
+		isExpired: boolean
+	} | null = null
+
+	if (hasEconomySystemQuestion) {
+		const { getEconomyClassification } = await import("~/db/queries/economy-classification.server")
+		const existing = await getEconomyClassification(appId)
+		if (existing) {
+			economyClassification = {
+				id: existing.id,
+				isEconomySystem: existing.isEconomySystem,
+				economySystemType: existing.economySystemType,
+				justification: existing.justification,
+				validFrom: existing.validFrom.toISOString(),
+				validUntil: existing.validUntil.toISOString(),
+				isExpired: existing.validUntil < new Date(),
+			}
+		}
+	}
+
 	return data({
 		...breadcrumbCtx,
 		appId,
@@ -170,6 +198,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		rulesetOptions,
 		entraGroupsData,
 		oracleRolesData,
+		economyClassification,
 		canAdmin,
 	})
 }

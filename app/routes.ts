@@ -84,6 +84,7 @@ export default [
 	),
 	route("seksjoner/:seksjon/entra-grupper", "routes/seksjoner.$seksjon.entra-grupper/index.tsx"),
 	route("seksjoner/:seksjon/oracle-roller", "routes/seksjoner.$seksjon.oracle-roller/index.tsx"),
+	route("seksjoner/:seksjon/okonomisystemer", "routes/seksjoner.$seksjon.okonomisystemer/index.tsx"),
 	route("seksjoner/:seksjon/koblingsforslag", "routes/seksjoner.$seksjon.koblingsforslag/index.tsx"),
 	route("seksjoner/:seksjon/screening", "routes/seksjoner.$seksjon.screening/index.tsx"),
 	route(
@@ -119,6 +120,7 @@ export default [
 	route("admin/domener", "routes/admin.domener/index.tsx"),
 	route("admin/teknologielementer", "routes/admin.teknologielementer/index.tsx"),
 	route("admin/vedlikehold", "routes/admin.vedlikehold/index.tsx"),
+	route("admin/okonomisystemer", "routes/admin.okonomisystemer/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),
 	route("api/isready", "routes/api.isready/index.tsx"),
 	route("api/nais-sync", "routes/api.nais-sync/index.tsx"),

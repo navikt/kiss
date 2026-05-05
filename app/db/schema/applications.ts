@@ -373,3 +373,41 @@ export const entraGroupClassifications = pgTable(
 		uniqueIndex("entra_group_classifications_active_unique_idx").on(t.groupId).where(sql`archived_at IS NULL`),
 	],
 )
+
+// --- Økonomisystem-klassifisering ---
+
+export const economySystemTypeEnum = ["regnskapssystem", "lonnssystem", "fakturabehandling", "hjelpesystem"] as const
+export type EconomySystemType = (typeof economySystemTypeEnum)[number]
+
+export const economySystemTypeLabels: Record<EconomySystemType, string> = {
+	regnskapssystem: "Regnskapssystem (hovedbok/reskontro)",
+	lonnssystem: "Lønnssystem",
+	fakturabehandling: "Fakturabehandlingssystem",
+	hjelpesystem: "Hjelpesystem (vedtakssystem, registre, mellomliggende)",
+}
+
+export const applicationEconomyClassifications = pgTable(
+	"application_economy_classifications",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
+		isEconomySystem: boolean("is_economy_system").notNull(),
+		economySystemType: text("economy_system_type", { enum: economySystemTypeEnum }),
+		justification: text("justification").notNull(),
+		validFrom: timestamp("valid_from", { withTimezone: true }).notNull().defaultNow(),
+		validUntil: timestamp("valid_until", { withTimezone: true }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(t) => [
+		uniqueIndex("application_economy_classifications_active_unique_idx")
+			.on(t.applicationId)
+			.where(sql`archived_at IS NULL`),
+	],
+)

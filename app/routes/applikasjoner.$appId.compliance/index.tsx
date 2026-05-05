@@ -11,8 +11,16 @@ export { loader } from "./loader.server"
 export { RouteErrorBoundary as ErrorBoundary }
 
 export default function ComplianceAssessment() {
-	const { appName, screening, persistence, rulesetOptions, entraGroupsData, oracleRolesData, canAdmin } =
-		useLoaderData<typeof loader>()
+	const {
+		appName,
+		screening,
+		persistence,
+		rulesetOptions,
+		entraGroupsData,
+		oracleRolesData,
+		economyClassification,
+		canAdmin,
+	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
 	return (
@@ -34,6 +42,7 @@ export default function ComplianceAssessment() {
 					rulesetOptions={rulesetOptions}
 					entraGroupsData={entraGroupsData}
 					oracleRolesData={oracleRolesData}
+					economyClassification={economyClassification}
 					canAdmin={canAdmin}
 				/>
 			</VStack>
