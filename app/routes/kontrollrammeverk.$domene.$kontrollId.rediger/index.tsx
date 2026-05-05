@@ -299,7 +299,7 @@ function PredefinedAnswerForm({
 }
 
 export default function ControlEditPage() {
-	const { domene, control, allElements, controlElements, dependencies, allControls } = useLoaderData<typeof loader>()
+	const { control, allElements, controlElements, dependencies, allControls } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const isSubmitting = navigation.state === "submitting"

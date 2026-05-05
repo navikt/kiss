@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fetchNaisApps, fetchNaisTeams } from "../nais.server"
 
-const NAIS_API_URL = "https://console.nav.cloud.nais.io/graphql"
+const NAIS_API_URL = process.env.NAIS_API_URL ?? "https://console.nav.cloud.nais.io/graphql"
 
 const noMorePages = { hasNextPage: false, endCursor: null }
 

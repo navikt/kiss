@@ -183,7 +183,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function SeksjonAuditLogging() {
-	const { section, seksjon, overview, stats, auditLog, canManage } = useLoaderData<typeof loader>()
+	const { section, overview, stats, auditLog, canManage } = useLoaderData<typeof loader>()
 	const [filter, setFilter] = useState<string>("alle")
 	const [confirmingId, setConfirmingId] = useState<string | null>(null)
 	const [revokingId, setRevokingId] = useState<string | null>(null)
