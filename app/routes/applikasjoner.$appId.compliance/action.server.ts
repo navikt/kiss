@@ -34,6 +34,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const answerLink = formData.get("answerLink") as string | null
 		if (!questionId) throw new Response("Mangler spørsmål-ID", { status: 400 })
 
+		// Prevent direct screening submissions for economy_system questions — must go through save-economy-classification
+		const { getScreeningQuestion } = await import("~/db/queries/screening.server")
+		const question = await getScreeningQuestion(questionId)
+		if (question?.answerType === "economy_system") {
+			throw new Response("Bruk save-economy-classification for økonomisystem-spørsmål", { status: 400 })
+		}
+
 		const answer = answerValue || null
 		await saveScreeningAnswer(appId, questionId, answer, authedUser.navIdent, answerComment, answerLink)
 
@@ -187,6 +194,68 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		await upsertOracleRoleCriticality(appId, instanceId, roleName, criticality as GroupCriticality, authedUser.navIdent)
 		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
 		await syncApplicationControls(appId, authedUser.navIdent)
+		return data({ success: true, controlId: "screening", screening: true })
+	}
+
+	if (intent === "save-economy-classification") {
+		const isEconomySystemValue = formData.get("isEconomySystem") as string
+		if (isEconomySystemValue !== "ja" && isEconomySystemValue !== "nei") {
+			throw new Response("Ugyldig verdi for isEconomySystem – forventet 'ja' eller 'nei'", { status: 400 })
+		}
+		const isEconomySystem = isEconomySystemValue === "ja"
+		const economySystemType = (formData.get("economySystemType") as string) || null
+		const justification = (formData.get("justification") as string)?.trim()
+		const questionId = formData.get("questionId") as string
+
+		if (!justification) throw new Response("Begrunnelse er påkrevd", { status: 400 })
+		if (!questionId) throw new Response("Mangler spørsmål-ID", { status: 400 })
+		if (isEconomySystem && !economySystemType) throw new Response("Type er påkrevd for økonomisystem", { status: 400 })
+
+		// Validate that the question exists, is an economy_system question, and is active
+		const { getScreeningQuestion } = await import("~/db/queries/screening.server")
+		const question = await getScreeningQuestion(questionId)
+		if (
+			!question ||
+			question.answerType !== "economy_system" ||
+			question.archivedAt ||
+			question.status !== "approved"
+		) {
+			throw new Response("Ugyldig spørsmål – må være et aktivt, godkjent spørsmål av typen 'economy_system'", {
+				status: 400,
+			})
+		}
+
+		// Section-scoped questions: verify the app belongs to that section
+		if (question.sectionId) {
+			const { getScreeningDataForApp } = await import("~/db/queries/screening.server")
+			const screeningData = await getScreeningDataForApp(appId)
+			const questionBelongsToApp = screeningData.questions.some((q) => q.id === questionId)
+			if (!questionBelongsToApp) {
+				throw new Response("Spørsmålet tilhører en seksjon applikasjonen ikke er del av", { status: 403 })
+			}
+		}
+
+		const { economySystemTypeEnum } = await import("~/db/schema/applications")
+		if (
+			isEconomySystem &&
+			!economySystemTypeEnum.includes(economySystemType as (typeof economySystemTypeEnum)[number])
+		) {
+			throw new Response("Ugyldig økonomisystem-type", { status: 400 })
+		}
+
+		const { saveEconomyClassification } = await import("~/db/queries/economy-classification.server")
+		await saveEconomyClassification({
+			applicationId: appId,
+			isEconomySystem,
+			economySystemType: isEconomySystem ? (economySystemType as (typeof economySystemTypeEnum)[number]) : null,
+			justification,
+			performedBy: authedUser.navIdent,
+			questionId,
+		})
+
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+
 		return data({ success: true, controlId: "screening", screening: true })
 	}
 

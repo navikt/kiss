@@ -1,8 +1,16 @@
 import { Alert, BodyShort, Button, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
 import { useCallback, useEffect } from "react"
 import { useSearchParams } from "react-router"
-import type { EntraGroupsData, OracleRolesData, PersistenceEntry, RulesetOption, ScreeningQuestion } from "../shared"
-import { slugify } from "../shared"
+import type {
+	EconomyClassificationData,
+	EntraGroupsData,
+	OracleRolesData,
+	PersistenceEntry,
+	RulesetOption,
+	ScreeningQuestion,
+} from "../shared"
+import { isQuestionAnswered, slugify } from "../shared"
+import { EconomySystemSection } from "./EconomySystemSection"
 import { EntraGroupsSection } from "./EntraGroupsSection"
 import { OracleRolesScreeningSection } from "./OracleRolesScreeningSection"
 import { PersistenceSection } from "./PersistenceSection"
@@ -18,14 +26,8 @@ type Props = {
 	rulesetOptions: RulesetOption[]
 	entraGroupsData: EntraGroupsData
 	oracleRolesData: OracleRolesData
+	economyClassification: EconomyClassificationData
 	canAdmin: boolean
-}
-
-function isQuestionAnswered(q: ScreeningQuestion) {
-	if (q.answerType === "persistence" || q.answerType === "entra_id_groups" || q.answerType === "oracle_roles") {
-		return q.answer === "confirmed"
-	}
-	return q.answer !== null
 }
 
 export function ScreeningWizard({
@@ -34,6 +36,7 @@ export function ScreeningWizard({
 	rulesetOptions,
 	entraGroupsData,
 	oracleRolesData,
+	economyClassification,
 	canAdmin,
 }: Props) {
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -45,7 +48,7 @@ export function ScreeningWizard({
 	const currentQuestion = isComplete
 		? null
 		: (screening.find((q) => q.id === stepParam) ??
-			screening.find((q) => !isQuestionAnswered(q)) ??
+			screening.find((q) => !isQuestionAnswered(q, economyClassification)) ??
 			screening[0] ??
 			null)
 
@@ -90,18 +93,18 @@ export function ScreeningWizard({
 		}
 	}, [currentIndex, screening, navigateTo])
 
-	const allAnswered = screening.length > 0 && screening.every(isQuestionAnswered)
-	const answeredCount = screening.filter(isQuestionAnswered).length
+	const allAnswered = screening.length > 0 && screening.every((q) => isQuestionAnswered(q, economyClassification))
+	const answeredCount = screening.filter((q) => isQuestionAnswered(q, economyClassification)).length
 
 	// If step=complete but not all answered, redirect to first unanswered
 	useEffect(() => {
 		if (isComplete && !allAnswered && screening.length > 0) {
-			const firstUnanswered = screening.find((q) => !isQuestionAnswered(q))
+			const firstUnanswered = screening.find((q) => !isQuestionAnswered(q, economyClassification))
 			if (firstUnanswered) {
 				navigateTo(firstUnanswered.id)
 			}
 		}
-	}, [isComplete, allAnswered, screening, navigateTo])
+	}, [isComplete, allAnswered, screening, navigateTo, economyClassification])
 
 	if (screening.length === 0) {
 		return (
@@ -119,6 +122,7 @@ export function ScreeningWizard({
 					questions={screening}
 					currentQuestionId={null}
 					isComplete
+					economyClassification={economyClassification}
 					onNavigate={navigateTo}
 					onNavigateComplete={navigateToComplete}
 				/>
@@ -130,6 +134,7 @@ export function ScreeningWizard({
 						<WizardCompletionPage
 							questions={screening}
 							rulesetOptions={rulesetOptions}
+							economyClassification={economyClassification}
 							onNavigateToQuestion={navigateTo}
 						/>
 					</VStack>
@@ -149,6 +154,7 @@ export function ScreeningWizard({
 			<WizardStepper
 				questions={screening}
 				currentQuestionId={currentQuestion.id}
+				economyClassification={economyClassification}
 				onNavigate={navigateTo}
 				onNavigateComplete={navigateToComplete}
 			/>
@@ -208,6 +214,13 @@ export function ScreeningWizard({
 								/>
 							) : currentQuestion.answerType === "ruleset" ? (
 								<RulesetSection key={currentQuestion.id} question={currentQuestion} rulesets={rulesetOptions} />
+							) : currentQuestion.answerType === "economy_system" ? (
+								<EconomySystemSection
+									key={currentQuestion.id}
+									classification={economyClassification}
+									questionId={currentQuestion.id}
+									confirmed={currentQuestion.answer === "confirmed"}
+								/>
 							) : (
 								<ScreeningAnswerForm key={currentQuestion.id} question={currentQuestion} />
 							)}

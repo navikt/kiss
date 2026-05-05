@@ -1,34 +1,41 @@
 import { BodyShort } from "@navikt/ds-react"
 import { useCallback } from "react"
-import type { ScreeningQuestion } from "../shared"
+import type { EconomyClassificationData, ScreeningQuestion } from "../shared"
+import { isQuestionAnswered } from "../shared"
 import styles from "./wizard.module.css"
 
 type Props = {
 	questions: ScreeningQuestion[]
 	currentQuestionId: string | null
 	isComplete?: boolean
+	economyClassification?: EconomyClassificationData
 	onNavigate: (questionId: string) => void
 	onNavigateComplete?: () => void
 }
 
-function isQuestionAnswered(q: ScreeningQuestion) {
-	if (q.answerType === "persistence" || q.answerType === "entra_id_groups" || q.answerType === "oracle_roles") {
-		return q.answer === "confirmed"
-	}
-	return q.answer !== null
-}
+export function WizardStepper({
+	questions,
+	currentQuestionId,
+	isComplete,
+	economyClassification,
+	onNavigate,
+	onNavigateComplete,
+}: Props) {
+	const isAnswered = useCallback(
+		(q: ScreeningQuestion) => isQuestionAnswered(q, economyClassification),
+		[economyClassification],
+	)
 
-export function WizardStepper({ questions, currentQuestionId, isComplete, onNavigate, onNavigateComplete }: Props) {
 	const getStepStatus = useCallback(
 		(q: ScreeningQuestion) => {
 			if (!isComplete && q.id === currentQuestionId) return "active"
-			if (isQuestionAnswered(q)) return "done"
+			if (isAnswered(q)) return "done"
 			return "pending"
 		},
-		[currentQuestionId, isComplete],
+		[currentQuestionId, isComplete, isAnswered],
 	)
 
-	const answeredCount = questions.filter(isQuestionAnswered).length
+	const answeredCount = questions.filter(isAnswered).length
 	const allAnswered = answeredCount === questions.length
 
 	const statusClass = {

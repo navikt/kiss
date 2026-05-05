@@ -1674,7 +1674,9 @@ export async function getSectionAppIds(sectionId: string): Promise<Set<string>> 
 		.select({ appId: applicationTeamMappings.applicationId })
 		.from(applicationTeamMappings)
 		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-		.where(and(eq(devTeams.sectionId, sectionId), isNull(applicationTeamMappings.archivedAt)))
+		.where(
+			and(eq(devTeams.sectionId, sectionId), isNull(devTeams.archivedAt), isNull(applicationTeamMappings.archivedAt)),
+		)
 
 	const sectionNaisTeamRows = await db.select().from(naisTeams).where(eq(naisTeams.sectionId, sectionId))
 	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)

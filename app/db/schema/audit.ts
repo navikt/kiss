@@ -199,6 +199,10 @@ export const auditLogActionEnum = [
 
 	// Rapporter
 	"report_generated",
+
+	// Økonomisystem-klassifisering
+	"economy_classification_created",
+	"economy_classification_archived",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

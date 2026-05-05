@@ -193,6 +193,7 @@ const defaultArgs = {
 	rulesetOptions: mockRulesetOptions,
 	entraGroupsData: mockEntraGroupsData,
 	oracleRolesData: mockOracleRolesData,
+	economyClassification: null,
 	canAdmin: true,
 }
 
@@ -313,6 +314,7 @@ export const KunEnkleSpørsmål: Story = {
 			assessmentsByGroupId: {},
 		},
 		oracleRolesData: { roles: [], assessments: {} },
+		economyClassification: null,
 	},
 	decorators: [
 		(Story) => (
@@ -339,6 +341,7 @@ export const IngenSpørsmål: Story = {
 			assessmentsByGroupId: {},
 		},
 		oracleRolesData: { roles: [], assessments: {} },
+		economyClassification: null,
 		canAdmin: true,
 	},
 	decorators: [

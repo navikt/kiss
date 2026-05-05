@@ -139,6 +139,21 @@ const mockScreening = [
 		choices: [],
 		affectedControls: ["K-ST.01", "K-ST.02"],
 	},
+	{
+		id: "q-7",
+		questionText: "Er applikasjonen et økonomisystem?",
+		description: "Vurder om applikasjonen faller inn under økonomiregelverkets definisjon av økonomisystem.",
+		descriptionHtml: "<p>Vurder om applikasjonen faller inn under økonomiregelverkets definisjon av økonomisystem.</p>",
+		displayOrder: 6,
+		answerType: "economy_system" as const,
+		answer: null,
+		answerComment: null,
+		answerLink: null,
+		answeredBy: null,
+		answeredAt: null,
+		choices: [],
+		affectedControls: [],
+	},
 ]
 
 const mockPersistence = [
@@ -199,6 +214,7 @@ export const AlleTyper: Story = {
 		rulesetOptions: mockRulesetOptions,
 		entraGroupsData: mockEntraGroupsData,
 		oracleRolesData: mockOracleRolesData,
+		economyClassification: null,
 		canAdmin: true,
 	},
 }
@@ -211,6 +227,7 @@ export const DelvisBesvart: Story = {
 		rulesetOptions: mockRulesetOptions,
 		entraGroupsData: mockEntraGroupsData,
 		oracleRolesData: mockOracleRolesData,
+		economyClassification: null,
 		canAdmin: true,
 	},
 }
@@ -220,7 +237,10 @@ export const AlleBesvart: Story = {
 	args: {
 		screening: mockScreening.map((q) => {
 			const fallback =
-				q.answerType === "persistence" || q.answerType === "entra_id_groups" || q.answerType === "oracle_roles"
+				q.answerType === "persistence" ||
+				q.answerType === "entra_id_groups" ||
+				q.answerType === "oracle_roles" ||
+				q.answerType === "economy_system"
 					? "confirmed"
 					: "Ja"
 			return {
@@ -247,6 +267,15 @@ export const AlleBesvart: Story = {
 				"pensjon-db-01:APP_USER": { criticality: "high", updatedBy: "A123456", updatedAt: "2026-04-15T10:32:00Z" },
 			},
 		},
+		economyClassification: {
+			id: "ec-1",
+			isEconomySystem: true,
+			economySystemType: "hjelpesystem",
+			justification: "Fatter vedtak som forplikter Nav økonomisk.",
+			validFrom: "2026-03-01T00:00:00Z",
+			validUntil: "2027-03-01T00:00:00Z",
+			isExpired: false,
+		},
 		canAdmin: true,
 	},
 }
@@ -265,6 +294,7 @@ export const IngenSporsmal: Story = {
 			assessmentsByGroupId: {},
 		},
 		oracleRolesData: { roles: [], assessments: {} },
+		economyClassification: null,
 		canAdmin: true,
 	},
 }
@@ -283,6 +313,7 @@ export const KunEnkleSporsmal: Story = {
 			assessmentsByGroupId: {},
 		},
 		oracleRolesData: { roles: [], assessments: {} },
+		economyClassification: null,
 		canAdmin: true,
 	},
 }

@@ -711,6 +711,65 @@ export async function getScreeningProgressForApps(
 			existing.answered = Number(row.count)
 		}
 	}
+
+	// Check for economy_system questions — expired classifications count as unanswered
+	const economyQuestionIds = await db
+		.select({ id: screeningQuestions.id })
+		.from(screeningQuestions)
+		.where(
+			and(
+				eq(screeningQuestions.answerType, "economy_system"),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
+		)
+
+	if (economyQuestionIds.length > 0) {
+		const { applicationEconomyClassifications } = await import("~/db/schema/applications")
+		const now = new Date()
+		const classifications = await db
+			.select({
+				applicationId: applicationEconomyClassifications.applicationId,
+				validUntil: applicationEconomyClassifications.validUntil,
+			})
+			.from(applicationEconomyClassifications)
+			.where(
+				and(
+					inArray(applicationEconomyClassifications.applicationId, appIds),
+					isNull(applicationEconomyClassifications.archivedAt),
+				),
+			)
+
+		// Apps with a valid (non-expired) active classification
+		const validAppIds = new Set(classifications.filter((c) => c.validUntil >= now).map((c) => c.applicationId))
+
+		// Subtract confirmed economy answers for apps without a valid classification
+		// (either expired or no classification at all)
+		const eqIds = economyQuestionIds.map((q) => q.id)
+		const confirmedEconomyAnswers = await db
+			.select({
+				applicationId: screeningAnswers.applicationId,
+				count: sql<number>`count(*)`,
+			})
+			.from(screeningAnswers)
+			.where(
+				and(
+					inArray(screeningAnswers.applicationId, appIds),
+					inArray(screeningAnswers.questionId, eqIds),
+					sql`${screeningAnswers.answer} = 'confirmed'`,
+				),
+			)
+			.groupBy(screeningAnswers.applicationId)
+
+		for (const row of confirmedEconomyAnswers) {
+			if (validAppIds.has(row.applicationId)) continue
+			const existing = result.get(row.applicationId)
+			if (existing && existing.answered > 0) {
+				existing.answered -= Number(row.count)
+			}
+		}
+	}
+
 	return result
 }
 
@@ -916,7 +975,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 	// Inventory-style question types that show live system data should always be included
 	// regardless of tech element links, to avoid circular filtering where the question is
 	// hidden because the data it asks about hasn't been confirmed yet.
-	const inventoryAnswerTypes = new Set(["persistence", "entra_id_groups", "oracle_roles"])
+	const inventoryAnswerTypes = new Set(["persistence", "entra_id_groups", "oracle_roles", "economy_system"])
 
 	// Filter: include questions with no tech links (apply to all), inventory-style questions,
 	// or questions matching at least one app tech element

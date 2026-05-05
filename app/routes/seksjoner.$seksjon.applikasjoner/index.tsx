@@ -1,10 +1,11 @@
 import type { SortState } from "@navikt/ds-react"
-import { BodyLong, Box, Detail, Heading, HGrid, Search, Table, VStack } from "@navikt/ds-react"
+import { BodyLong, Box, Detail, Heading, HGrid, Search, Table, Tag, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionApps } from "~/db/queries/sections.server"
+import { economySystemTypeLabels } from "~/db/schema/applications"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -13,6 +14,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const result = await getSectionApps(seksjon)
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
+
+	const appIds = result.apps.map((a) => a.appId)
+	const { getEconomyClassifications } = await import("~/db/queries/economy-classification.server")
+	const economyMap = await getEconomyClassifications(appIds)
 
 	const totalImplemented = result.apps.reduce((sum, a) => sum + a.implemented, 0)
 	const totalPartial = result.apps.reduce((sum, a) => sum + a.partial, 0)
@@ -23,7 +28,20 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	return data({
 		seksjon,
 		seksjonName: result.section.name,
-		apps: result.apps,
+		apps: result.apps.map((a) => {
+			const ec = economyMap.get(a.appId)
+			const now = new Date()
+			return {
+				...a,
+				economySystem: ec
+					? {
+							isEconomySystem: ec.isEconomySystem,
+							type: ec.economySystemType,
+							isExpired: ec.validUntil < now,
+						}
+					: null,
+			}
+		}),
 		totalApps: result.apps.length,
 		totalImplemented,
 		totalPartial,
@@ -161,6 +179,9 @@ export default function SeksjonApplikasjoner() {
 								<Table.ColumnHeader scope="col" align="right" sortKey="pct" sortable>
 									Status %
 								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" sortKey="economySystem">
+									Øk.system
+								</Table.ColumnHeader>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
@@ -181,6 +202,22 @@ export default function SeksjonApplikasjoner() {
 										<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
 										<Table.DataCell align="right">{unanswered}</Table.DataCell>
 										<Table.DataCell align="right">{pct}%</Table.DataCell>
+										<Table.DataCell>
+											{app.economySystem ? (
+												app.economySystem.isEconomySystem ? (
+													<Tag variant={app.economySystem.isExpired ? "error" : "warning"} size="xsmall">
+														{app.economySystem.type
+															? economySystemTypeLabels[app.economySystem.type as keyof typeof economySystemTypeLabels]
+															: "Ja"}
+														{app.economySystem.isExpired ? " ⚠" : ""}
+													</Tag>
+												) : (
+													<Tag variant={app.economySystem.isExpired ? "error" : "neutral"} size="xsmall">
+														Nei{app.economySystem.isExpired ? " ⚠" : ""}
+													</Tag>
+												)
+											) : null}
+										</Table.DataCell>
 									</Table.Row>
 								)
 							})}

@@ -1,14 +1,19 @@
 import { CheckmarkCircleFillIcon } from "@navikt/aksel-icons"
 import { BodyLong, BodyShort, Button, ExpansionCard, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
-import type { RulesetOption, ScreeningQuestion } from "../shared"
+import type { EconomyClassificationData, RulesetOption, ScreeningQuestion } from "../shared"
 
 type Props = {
 	questions: ScreeningQuestion[]
 	rulesetOptions: RulesetOption[]
+	economyClassification?: EconomyClassificationData
 	onNavigateToQuestion: (questionId: string) => void
 }
 
-function getAnswerLabel(q: ScreeningQuestion, rulesetOptions: RulesetOption[]): string {
+function getAnswerLabel(
+	q: ScreeningQuestion,
+	rulesetOptions: RulesetOption[],
+	economyClassification?: EconomyClassificationData,
+): string {
 	if (q.answerType === "boolean") {
 		if (q.answer === "yes") return "Ja"
 		if (q.answer === "no") return "Nei"
@@ -17,8 +22,17 @@ function getAnswerLabel(q: ScreeningQuestion, rulesetOptions: RulesetOption[]): 
 	if (q.answerType === "single_choice") {
 		return q.answer ?? "Ikke besvart"
 	}
-	if (q.answerType === "persistence" || q.answerType === "entra_id_groups" || q.answerType === "oracle_roles") {
-		return q.answer === "confirmed" ? "Bekreftet" : "Ikke bekreftet"
+	if (
+		q.answerType === "persistence" ||
+		q.answerType === "entra_id_groups" ||
+		q.answerType === "oracle_roles" ||
+		q.answerType === "economy_system"
+	) {
+		if (q.answer !== "confirmed") return "Ikke bekreftet"
+		if (q.answerType === "economy_system") {
+			if (!economyClassification || economyClassification.isExpired) return "Utløpt – trenger revisjon"
+		}
+		return "Bekreftet"
 	}
 	if (q.answerType === "ruleset") {
 		if (!q.answer) return "Ikke valgt"
@@ -28,7 +42,12 @@ function getAnswerLabel(q: ScreeningQuestion, rulesetOptions: RulesetOption[]): 
 	return q.answer ?? "Ikke besvart"
 }
 
-export function WizardCompletionPage({ questions, rulesetOptions, onNavigateToQuestion }: Props) {
+export function WizardCompletionPage({
+	questions,
+	rulesetOptions,
+	economyClassification,
+	onNavigateToQuestion,
+}: Props) {
 	return (
 		<VStack gap="space-8">
 			<HStack gap="space-4" align="center">
@@ -68,7 +87,7 @@ export function WizardCompletionPage({ questions, rulesetOptions, onNavigateToQu
 										{q.questionText}
 									</BodyShort>
 									<Tag variant="neutral" size="xsmall">
-										{getAnswerLabel(q, rulesetOptions)}
+										{getAnswerLabel(q, rulesetOptions, economyClassification)}
 									</Tag>
 									<Button type="button" variant="tertiary" size="xsmall" onClick={() => onNavigateToQuestion(q.id)}>
 										Endre

@@ -72,8 +72,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	if (isNew) {
 		const [controls, technologyElementsList] = await Promise.all([getAllControls(), getAllTechnologyElements()])
+
+		// Check if an economy_system question already exists in this scope
+		const { getScreeningQuestions, getSectionScreeningQuestions } = await import("~/db/queries/screening.server")
+		const scopeQuestions = sectionId
+			? await getSectionScreeningQuestions(sectionId, { includeArchived: false })
+			: await getScreeningQuestions({ includeArchived: false })
+		const hasExistingEconomyQuestion = scopeQuestions.some((q) => q.answerType === "economy_system")
+
 		return data({
 			isNew: true,
+			hasExistingEconomyQuestion,
 			question: {
 				id: "ny",
 				questionText: "",
@@ -115,6 +124,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	return data({
 		isNew: false,
+		hasExistingEconomyQuestion: false,
 		question: {
 			...question,
 			descriptionHtml: renderMarkdown(question.description),
@@ -279,7 +289,7 @@ interface PendingChoice {
 }
 
 export default function EditScreeningQuestion() {
-	const { isNew, question, choices, controls, technologyElements, sectionId, returnPath } =
+	const { isNew, hasExistingEconomyQuestion, question, choices, controls, technologyElements, sectionId, returnPath } =
 		useLoaderData<typeof loader>()
 	const [pendingChoices, setPendingChoices] = useState<PendingChoice[]>([])
 	const [answerType, setAnswerType] = useState(question.answerType ?? "")
@@ -375,6 +385,9 @@ export default function EditScreeningQuestion() {
 						<option value="persistence">Persistens (databaser)</option>
 						<option value="entra_id_groups">Entra ID-grupper</option>
 						<option value="oracle_roles">Oracle-roller</option>
+						{((isNew && !hasExistingEconomyQuestion) || question.answerType === "economy_system") && (
+							<option value="economy_system">Økonomisystem</option>
+						)}
 						<option value="ruleset">Regelsett</option>
 					</Select>
 					{answerType === "persistence" && (
@@ -399,6 +412,13 @@ export default function EditScreeningQuestion() {
 						<BodyShort size="small" textColor="subtle">
 							Spørsmål av typen «Oracle-roller» lar brukeren vurdere kritikalitet for Oracle-roller knyttet til
 							applikasjonens databaser. Ingen valgmuligheter eller effekter trengs.
+						</BodyShort>
+					)}
+					{answerType === "economy_system" && (
+						<BodyShort size="small" textColor="subtle">
+							Spørsmål av typen «Økonomisystem» lar brukeren klassifisere om applikasjonen er et økonomisystem iht.
+							Bestemmelser om økonomistyring i staten. Klassifiseringen revideres årlig. Ingen valgmuligheter eller
+							effekter trengs.
 						</BodyShort>
 					)}
 					{!isNew && (
@@ -459,12 +479,13 @@ export default function EditScreeningQuestion() {
 				</HStack>
 			)}
 
-			{/* Choices management — hidden for persistence/entra/oracle_roles/ruleset/blank */}
+			{/* Choices management — hidden for persistence/entra/oracle_roles/ruleset/economy_system/blank */}
 			{answerType !== "" &&
 				answerType !== "persistence" &&
 				answerType !== "entra_id_groups" &&
 				answerType !== "oracle_roles" &&
-				answerType !== "ruleset" && (
+				answerType !== "ruleset" &&
+				answerType !== "economy_system" && (
 					<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
 						<VStack gap="space-6">
 							<Heading size="small" level="3">

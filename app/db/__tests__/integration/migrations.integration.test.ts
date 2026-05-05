@@ -295,6 +295,7 @@ describe("Database migrations", () => {
 				await testDb.execute(sql.raw(`ALTER TABLE "${table}" DROP COLUMN IF EXISTS "${column}"`))
 			}
 			for (const { table, constraint } of addedConstraints) {
+				if (createdTables.includes(table)) continue
 				await testDb.execute(sql.raw(`ALTER TABLE "${table}" DROP CONSTRAINT IF EXISTS "${constraint}"`))
 			}
 			for (const table of droppedTables) {
@@ -351,18 +352,20 @@ describe("Database migrations", () => {
 				expect(indexes.rows.map((r) => r.indexname)).toContain(idx)
 			}
 
-			// Verify added constraints were re-applied (constraint-only migrations)
+			// Verify added constraints were re-applied
 			for (const { table, constraint } of addedConstraints) {
+				// PostgreSQL truncates identifiers to 63 chars
+				const pgConstraint = constraint.slice(0, 63)
 				const constraints = await testDb.execute<{ conname: string }>(
 					sql.raw(`
 					SELECT conname FROM pg_constraint
-					WHERE conrelid = '"${table}"'::regclass AND conname = '${constraint}'
+					WHERE conrelid = '"${table}"'::regclass AND conname = '${pgConstraint}'
 				`),
 				)
 				expect(
 					constraints.rows.map((r) => r.conname),
 					`Constraint "${constraint}" on "${table}" should have been re-created`,
-				).toContain(constraint)
+				).toContain(pgConstraint)
 			}
 
 			const finalCount = await getTrackingCount()
