@@ -154,7 +154,15 @@ export function ParticipantSearchDialog({ currentValue, onAdd }: ParticipantSear
 					</VStack>
 				</Dialog.Body>
 				<Dialog.Footer>
-					<Button type="button" variant="secondary" size="small" onClick={() => setOpen(false)}>
+					<Button
+						type="button"
+						variant="secondary"
+						size="small"
+						onClick={() => {
+							if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+							setOpen(false)
+						}}
+					>
 						Lukk
 					</Button>
 				</Dialog.Footer>
