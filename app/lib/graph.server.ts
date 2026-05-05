@@ -232,10 +232,24 @@ export async function searchUsers(query: string): Promise<UserSearchResult[]> {
 				.replace(/[^a-z0-9]/gi, "")
 				.toUpperCase()
 				.slice(0, 7) || "X000000"
-		return [
-			{ navIdent: ident, displayName: `${trimmed} Testbruker 1`, mail: `${ident.toLowerCase()}@nav.no` },
-			{ navIdent: `${ident.slice(0, 6)}2`, displayName: `${trimmed} Testbruker 2`, mail: null },
+		const ident2 = `${ident.slice(0, 6)}2`
+		const mockUsers: GraphUserInfo[] = [
+			{
+				id: "00000000-0000-0000-0000-000000000001",
+				displayName: `${trimmed} Testbruker 1`,
+				mail: `${ident.toLowerCase()}@nav.no`,
+				onPremisesSamAccountName: ident,
+				mailNickname: ident.toLowerCase(),
+			},
+			{
+				id: "00000000-0000-0000-0000-000000000002",
+				displayName: `${trimmed} Testbruker 2`,
+				mail: null,
+				onPremisesSamAccountName: null,
+				mailNickname: ident2.toLowerCase(),
+			},
 		]
+		return mapGraphUsersToResults(mockUsers)
 	}
 
 	try {
@@ -270,15 +284,19 @@ export async function searchUsers(query: string): Promise<UserSearchResult[]> {
 		}
 
 		const data = (await response.json()) as { value: GraphUserInfo[] }
-		const results: UserSearchResult[] = []
-		for (const u of data.value) {
-			const navIdent = pickNavIdent(u)
-			if (!navIdent) continue
-			results.push({ navIdent, displayName: u.displayName, mail: u.mail })
-		}
-		return results
+		return mapGraphUsersToResults(data.value)
 	} catch (error) {
 		logger.warn("Failed to search users from Microsoft Graph", { error: String(error) })
 		return []
 	}
+}
+
+function mapGraphUsersToResults(users: GraphUserInfo[]): UserSearchResult[] {
+	const results: UserSearchResult[] = []
+	for (const u of users) {
+		const navIdent = pickNavIdent(u)
+		if (!navIdent) continue
+		results.push({ navIdent, displayName: u.displayName, mail: u.mail })
+	}
+	return results
 }

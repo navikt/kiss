@@ -21,7 +21,7 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -36,7 +36,7 @@ import {
 	useSubmit,
 } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
-import { ParticipantSearchDialog } from "~/components/ParticipantSearchDialog"
+import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addReviewLink,
@@ -55,7 +55,7 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
-import { addParticipant } from "~/lib/participants"
+import { parseParticipantsFormValue } from "~/lib/participants"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 const MAX_SIZE_MB = 50
@@ -218,17 +218,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const summary = (formData.get("summary") as string)?.trim() || null
 		const reviewedAt = formData.get("reviewedAt") as string
 		const reviewedTime = (formData.get("reviewedTime") as string) || "00:00"
-		const participantsRaw = (formData.get("participants") as string)?.trim() || ""
+		const participantsRaw = formData.get("participants")
 
 		if (!title) {
 			return data<ActionResult>({ success: false, error: "Tittel er påkrevd", intent: "update-review" })
 		}
 
-		const participants = participantsRaw
-			.split(",")
-			.map((ident) => ident.trim())
-			.filter(Boolean)
-			.map((ident) => ({ userIdent: ident, userName: ident }))
+		const participants = parseParticipantsFormValue(participantsRaw)
 
 		await updateReview(
 			gjennomgangId,
@@ -1153,26 +1149,6 @@ export default function GjennomgangDetalj() {
 	const defaultDate = reviewDate.toISOString().split("T")[0]
 	const defaultTime = reviewDate.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })
 
-	const [participants, setParticipants] = useState(review.participants.map((p) => p.userIdent).join(", "))
-
-	const serverParticipants = useMemo(
-		() => review.participants.map((p) => p.userIdent).join(", "),
-		[review.participants],
-	)
-
-	const prevReviewIdRef = useRef(review.id)
-	useEffect(() => {
-		const prevId = prevReviewIdRef.current
-		prevReviewIdRef.current = review.id
-		if (prevId !== review.id) {
-			setParticipants(serverParticipants)
-		}
-	}, [review.id, serverParticipants])
-
-	const handleAddParticipant = (navIdent: string) => {
-		setParticipants((current) => addParticipant(current, navIdent))
-	}
-
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
 			<div>
@@ -1261,18 +1237,16 @@ export default function GjennomgangDetalj() {
 
 						<MarkdownEditor label="Oppsummering/referat" name="summary" defaultValue={review.summary ?? ""} />
 
-						<TextField
-							label="Deltakere"
+						<ParticipantsCombobox
+							key={review.id}
 							name="participants"
-							size="small"
-							description="Kommaseparert liste med NAV-identer"
-							autoComplete="off"
-							value={participants}
-							onChange={(e) => setParticipants(e.target.value)}
+							label="Deltakere"
+							description="Søk på navn eller e-post for å legge til personer. Du kan også skrive inn en NAV-ident direkte."
+							defaultParticipants={review.participants.map((p) => ({
+								navIdent: p.userIdent,
+								displayName: p.userName,
+							}))}
 						/>
-						<HStack>
-							<ParticipantSearchDialog currentValue={participants} onAdd={handleAddParticipant} />
-						</HStack>
 
 						{actionData?.intent === "update-review" && actionData.success && (
 							<Alert variant="success" size="small">

@@ -1,9 +1,8 @@
 import { Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
-import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
-import { ParticipantSearchDialog } from "~/components/ParticipantSearchDialog"
+import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	autoCreateActivityForReview,
@@ -13,7 +12,7 @@ import {
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { addParticipant } from "~/lib/participants"
+import { parseParticipantsFormValue } from "~/lib/participants"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const { seksjon, rutineId } = params
@@ -62,17 +61,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const reviewedAt = formData.get("reviewedAt") as string
 	const reviewedTime = (formData.get("reviewedTime") as string) || "00:00"
 	const summary = (formData.get("summary") as string)?.trim() || null
-	const participantsRaw = (formData.get("participants") as string)?.trim() || ""
+	const participantsRaw = formData.get("participants")
 
 	if (!title) {
 		throw data({ message: "Tittel er påkrevd" }, { status: 400 })
 	}
 
-	const participants = participantsRaw
-		.split(",")
-		.map((ident) => ident.trim())
-		.filter(Boolean)
-		.map((ident) => ({ userIdent: ident, userName: ident }))
+	const participants = parseParticipantsFormValue(participantsRaw)
 
 	const review = await createReview({
 		routineId: rutineId,
@@ -96,11 +91,6 @@ export default function NyGjennomgang() {
 	const preselectedAppId = searchParams.get("appId") ?? ""
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
-	const [participants, setParticipants] = useState("")
-
-	const handleAddParticipant = (navIdent: string) => {
-		setParticipants((current) => addParticipant(current, navIdent))
-	}
 
 	return (
 		<VStack gap="space-8">
@@ -164,18 +154,11 @@ export default function NyGjennomgang() {
 
 					<MarkdownEditor label="Oppsummering/referat" name="summary" />
 
-					<TextField
-						label="Deltakere"
+					<ParticipantsCombobox
 						name="participants"
-						size="small"
-						description="Kommaseparert liste med NAV-identer"
-						autoComplete="off"
-						value={participants}
-						onChange={(e) => setParticipants(e.target.value)}
+						label="Deltakere"
+						description="Søk på navn eller e-post for å legge til personer. Du kan også skrive inn en NAV-ident direkte."
 					/>
-					<HStack>
-						<ParticipantSearchDialog currentValue={participants} onAdd={handleAddParticipant} />
-					</HStack>
 
 					<HStack gap="space-4">
 						<Button type="submit" variant="primary" size="small">
