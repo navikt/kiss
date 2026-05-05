@@ -21,7 +21,7 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -37,7 +37,6 @@ import {
 } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { ParticipantSearchDialog } from "~/components/ParticipantSearchDialog"
-import { addParticipant } from "~/lib/participants"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addReviewLink,
@@ -56,6 +55,7 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
+import { addParticipant } from "~/lib/participants"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 const MAX_SIZE_MB = 50
@@ -1154,6 +1154,15 @@ export default function GjennomgangDetalj() {
 	const defaultTime = reviewDate.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })
 
 	const [participants, setParticipants] = useState(review.participants.map((p) => p.userIdent).join(", "))
+
+	const serverParticipants = useMemo(
+		() => review.participants.map((p) => p.userIdent).join(", "),
+		[review.participants],
+	)
+
+	useEffect(() => {
+		setParticipants(serverParticipants)
+	}, [serverParticipants])
 
 	const handleAddParticipant = (navIdent: string) => {
 		setParticipants((current) => addParticipant(current, navIdent))
