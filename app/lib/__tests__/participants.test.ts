@@ -1,37 +1,114 @@
 import { describe, expect, it } from "vitest"
-import { addParticipant } from "~/lib/participants"
+import { parseParticipantsFormValue } from "../participants"
 
-describe("addParticipant", () => {
-	it("adds a new ident to an empty string", () => {
-		expect(addParticipant("", "A123456")).toBe("A123456")
+describe("parseParticipantsFormValue", () => {
+	describe("input type handling", () => {
+		it("returns empty array for null", () => {
+			expect(parseParticipantsFormValue(null)).toEqual([])
+		})
+
+		it("returns empty array for undefined", () => {
+			expect(parseParticipantsFormValue(undefined)).toEqual([])
+		})
+
+		it("returns empty array for non-string (e.g. File)", () => {
+			const fakeFile = new Blob(["x"], { type: "text/plain" })
+			expect(parseParticipantsFormValue(fakeFile)).toEqual([])
+		})
+
+		it("returns empty array for empty string", () => {
+			expect(parseParticipantsFormValue("")).toEqual([])
+			expect(parseParticipantsFormValue("   ")).toEqual([])
+		})
 	})
 
-	it("appends a new ident to an existing list", () => {
-		expect(addParticipant("A123456", "B654321")).toBe("A123456, B654321")
+	describe("JSON input (new format)", () => {
+		it("parses valid JSON array with navIdent and displayName", () => {
+			const json = JSON.stringify([
+				{ navIdent: "A123456", displayName: "Ada Lovelace" },
+				{ navIdent: "B654321", displayName: "Bjørn Berg" },
+			])
+			expect(parseParticipantsFormValue(json)).toEqual([
+				{ userIdent: "A123456", userName: "Ada Lovelace" },
+				{ userIdent: "B654321", userName: "Bjørn Berg" },
+			])
+		})
+
+		it("normalizes idents to uppercase", () => {
+			const json = JSON.stringify([{ navIdent: "a123456", displayName: "Ada" }])
+			const result = parseParticipantsFormValue(json)
+			expect(result[0].userIdent).toBe("A123456")
+		})
+
+		it("handles missing displayName as null", () => {
+			const json = JSON.stringify([{ navIdent: "A123456" }])
+			expect(parseParticipantsFormValue(json)).toEqual([{ userIdent: "A123456", userName: null }])
+		})
+
+		it("treats empty displayName as null", () => {
+			const json = JSON.stringify([{ navIdent: "A123456", displayName: "  " }])
+			expect(parseParticipantsFormValue(json)).toEqual([{ userIdent: "A123456", userName: null }])
+		})
+
+		it("filters out entries without a navIdent", () => {
+			const json = JSON.stringify([
+				{ navIdent: "A123456", displayName: "Ada" },
+				{ displayName: "No ident" },
+				{ navIdent: "  ", displayName: "Whitespace" },
+			])
+			expect(parseParticipantsFormValue(json)).toEqual([{ userIdent: "A123456", userName: "Ada" }])
+		})
+
+		it("dedupes case-insensitively and keeps first occurrence", () => {
+			const json = JSON.stringify([
+				{ navIdent: "a123456", displayName: "Ada" },
+				{ navIdent: "A123456", displayName: "Duplicate" },
+			])
+			const result = parseParticipantsFormValue(json)
+			expect(result).toHaveLength(1)
+			expect(result[0]).toEqual({ userIdent: "A123456", userName: "Ada" })
+		})
 	})
 
-	it("does not add a duplicate (exact match)", () => {
-		expect(addParticipant("A123456", "A123456")).toBe("A123456")
+	describe("legacy comma-separated input", () => {
+		it("parses comma-separated idents", () => {
+			expect(parseParticipantsFormValue("A123456, B654321")).toEqual([
+				{ userIdent: "A123456", userName: null },
+				{ userIdent: "B654321", userName: null },
+			])
+		})
+
+		it("uppercases idents from legacy format", () => {
+			expect(parseParticipantsFormValue("a123456")).toEqual([{ userIdent: "A123456", userName: null }])
+		})
+
+		it("dedupes case-insensitively", () => {
+			expect(parseParticipantsFormValue("a123456, A123456, B654321")).toEqual([
+				{ userIdent: "A123456", userName: null },
+				{ userIdent: "B654321", userName: null },
+			])
+		})
+
+		it("ignores empty entries", () => {
+			expect(parseParticipantsFormValue("A123456, , ,B654321,")).toEqual([
+				{ userIdent: "A123456", userName: null },
+				{ userIdent: "B654321", userName: null },
+			])
+		})
 	})
 
-	it("does not add a duplicate (case-insensitive)", () => {
-		expect(addParticipant("a123456", "A123456")).toBe("a123456")
-	})
+	describe("invalid JSON fallback", () => {
+		it("falls back to legacy parser on malformed JSON starting with [", () => {
+			expect(parseParticipantsFormValue("[not json")).toEqual([{ userIdent: "[NOT JSON", userName: null }])
+		})
 
-	it("handles whitespace around existing idents", () => {
-		expect(addParticipant("  A123456  ,  B654321  ", "C111111")).toBe("A123456, B654321, C111111")
-	})
+		it("does not silently wipe participants on invalid JSON", () => {
+			const result = parseParticipantsFormValue("[broken")
+			expect(result.length).toBeGreaterThan(0)
+		})
 
-	it("filters out empty entries from current value", () => {
-		expect(addParticipant(",,,", "A123456")).toBe("A123456")
-	})
-
-	it("preserves multiple existing idents when adding a new one", () => {
-		const result = addParticipant("A111111, B222222, C333333", "D444444")
-		expect(result).toBe("A111111, B222222, C333333, D444444")
-	})
-
-	it("does not add when ident already exists among many", () => {
-		expect(addParticipant("A111111, B222222, C333333", "B222222")).toBe("A111111, B222222, C333333")
+		it("falls back to legacy parser when JSON is not an array", () => {
+			expect(parseParticipantsFormValue('["A123456"')).toEqual([{ userIdent: '["A123456"', userName: null }])
+		})
 	})
 })
