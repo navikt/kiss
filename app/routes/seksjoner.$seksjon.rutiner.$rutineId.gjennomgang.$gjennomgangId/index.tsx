@@ -21,7 +21,7 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -36,6 +36,7 @@ import {
 	useSubmit,
 } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
+import { ParticipantSearchDialog } from "~/components/ParticipantSearchDialog"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addReviewLink,
@@ -54,6 +55,7 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
+import { addParticipant } from "~/lib/participants"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 const MAX_SIZE_MB = 50
@@ -1151,6 +1153,26 @@ export default function GjennomgangDetalj() {
 	const defaultDate = reviewDate.toISOString().split("T")[0]
 	const defaultTime = reviewDate.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })
 
+	const [participants, setParticipants] = useState(review.participants.map((p) => p.userIdent).join(", "))
+
+	const serverParticipants = useMemo(
+		() => review.participants.map((p) => p.userIdent).join(", "),
+		[review.participants],
+	)
+
+	const prevReviewIdRef = useRef(review.id)
+	useEffect(() => {
+		const prevId = prevReviewIdRef.current
+		prevReviewIdRef.current = review.id
+		if (prevId !== review.id) {
+			setParticipants(serverParticipants)
+		}
+	}, [review.id, serverParticipants])
+
+	const handleAddParticipant = (navIdent: string) => {
+		setParticipants((current) => addParticipant(current, navIdent))
+	}
+
 	return (
 		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
 			<div>
@@ -1245,8 +1267,12 @@ export default function GjennomgangDetalj() {
 							size="small"
 							description="Kommaseparert liste med NAV-identer"
 							autoComplete="off"
-							defaultValue={review.participants.map((p) => p.userIdent).join(", ")}
+							value={participants}
+							onChange={(e) => setParticipants(e.target.value)}
 						/>
+						<HStack>
+							<ParticipantSearchDialog currentValue={participants} onAdd={handleAddParticipant} />
+						</HStack>
 
 						{actionData?.intent === "update-review" && actionData.success && (
 							<Alert variant="success" size="small">
