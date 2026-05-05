@@ -101,5 +101,7 @@ spec:
       value: "api://prod-gcp.pensjon-revisjon.pensjon-deployment-audit/.default"
     - name: ENABLE_DEPLOYMENT_AUDIT_SYNC
       value: "true"
+    - name: SHOW_COMPLIANCE_STATS
+      value: "false"
   envFrom:
     - secret: nais-deployment-audit
