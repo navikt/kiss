@@ -219,9 +219,12 @@ export async function searchUsers(query: string): Promise<UserSearchResult[]> {
 		const nodeEnv = process.env.NODE_ENV
 		const allowMockResults = nodeEnv === "development" || nodeEnv === "test"
 		if (!allowMockResults) {
-			logger.warn("searchUsers: AZURE_OPENID_CONFIG_TOKEN_ENDPOINT is not set outside development/test – returning empty result", {
-				nodeEnv: nodeEnv ?? "undefined",
-			})
+			logger.warn(
+				"searchUsers: AZURE_OPENID_CONFIG_TOKEN_ENDPOINT is not set outside development/test – returning empty result",
+				{
+					nodeEnv: nodeEnv ?? "undefined",
+				},
+			)
 			return []
 		}
 		const ident =

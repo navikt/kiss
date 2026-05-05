@@ -4,7 +4,6 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { ParticipantSearchDialog } from "~/components/ParticipantSearchDialog"
-import { addParticipant } from "~/lib/participants"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	autoCreateActivityForReview,
@@ -14,6 +13,7 @@ import {
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { addParticipant } from "~/lib/participants"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const { seksjon, rutineId } = params

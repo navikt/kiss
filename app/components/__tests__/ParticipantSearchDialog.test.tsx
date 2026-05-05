@@ -45,7 +45,7 @@ afterEach(() => {
 describe("ParticipantSearchDialog", () => {
 	describe("trigger button", () => {
 		it("renders the trigger button", () => {
-			mockUseFetcher.mockReturnValue(buildFetcher() as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(buildFetcher() as unknown as ReturnType<typeof useFetcher>)
 			render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
 			expect(screen.getByRole("button", { name: /søk etter person/i })).toBeDefined()
 		})
@@ -53,7 +53,7 @@ describe("ParticipantSearchDialog", () => {
 
 	describe("dialog open/close", () => {
 		beforeEach(() => {
-			mockUseFetcher.mockReturnValue(buildFetcher() as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(buildFetcher() as unknown as ReturnType<typeof useFetcher>)
 		})
 
 		it("opens the dialog and shows the search field when trigger is clicked", () => {
@@ -75,7 +75,7 @@ describe("ParticipantSearchDialog", () => {
 		it("does not call fetcher.load for queries shorter than 2 characters", () => {
 			vi.useFakeTimers()
 			const fetcher = buildFetcher()
-			mockUseFetcher.mockReturnValue(fetcher as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(fetcher as unknown as ReturnType<typeof useFetcher>)
 
 			render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
 			openDialog()
@@ -90,7 +90,7 @@ describe("ParticipantSearchDialog", () => {
 		it("calls fetcher.load after 300 ms for a query of 2+ characters", () => {
 			vi.useFakeTimers()
 			const fetcher = buildFetcher()
-			mockUseFetcher.mockReturnValue(fetcher as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(fetcher as unknown as ReturnType<typeof useFetcher>)
 
 			render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
 			openDialog()
@@ -107,7 +107,7 @@ describe("ParticipantSearchDialog", () => {
 		it("debounces: only fires once when typing fast", () => {
 			vi.useFakeTimers()
 			const fetcher = buildFetcher()
-			mockUseFetcher.mockReturnValue(fetcher as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(fetcher as unknown as ReturnType<typeof useFetcher>)
 
 			render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
 			openDialog()
@@ -135,7 +135,7 @@ describe("ParticipantSearchDialog", () => {
 		it("cancels a pending search when the input is cleared", () => {
 			vi.useFakeTimers()
 			const fetcher = buildFetcher()
-			mockUseFetcher.mockReturnValue(fetcher as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(fetcher as unknown as ReturnType<typeof useFetcher>)
 
 			render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
 			openDialog()
@@ -153,7 +153,7 @@ describe("ParticipantSearchDialog", () => {
 		it("cancels a pending search when the footer close button is clicked", () => {
 			vi.useFakeTimers()
 			const fetcher = buildFetcher()
-			mockUseFetcher.mockReturnValue(fetcher as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(fetcher as unknown as ReturnType<typeof useFetcher>)
 
 			render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
 			openDialog()
@@ -170,7 +170,7 @@ describe("ParticipantSearchDialog", () => {
 		it("cancels a pending search when the header close (X) button is clicked", () => {
 			vi.useFakeTimers()
 			const fetcher = buildFetcher()
-			mockUseFetcher.mockReturnValue(fetcher as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(fetcher as unknown as ReturnType<typeof useFetcher>)
 
 			render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
 			openDialog()
@@ -189,7 +189,7 @@ describe("ParticipantSearchDialog", () => {
 		it("cancels a pending search on unmount", () => {
 			vi.useFakeTimers()
 			const fetcher = buildFetcher()
-			mockUseFetcher.mockReturnValue(fetcher as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(fetcher as unknown as ReturnType<typeof useFetcher>)
 
 			const { unmount } = render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
 			openDialog()
@@ -209,7 +209,7 @@ describe("ParticipantSearchDialog", () => {
 	describe("result rendering", () => {
 		it("shows a loading message while searching", () => {
 			vi.useFakeTimers()
-			mockUseFetcher.mockReturnValue(buildFetcher({ state: "loading" }) as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(buildFetcher({ state: "loading" }) as unknown as ReturnType<typeof useFetcher>)
 
 			render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
 			openDialog()
@@ -228,7 +228,7 @@ describe("ParticipantSearchDialog", () => {
 							{ navIdent: "B654321", displayName: "Kari Nordmann", mail: null },
 						],
 					},
-				}) as ReturnType<typeof useFetcher>,
+				}) as unknown as ReturnType<typeof useFetcher>,
 			)
 
 			render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
@@ -241,7 +241,9 @@ describe("ParticipantSearchDialog", () => {
 
 		it("shows 'Ingen brukere funnet' when results are empty", () => {
 			vi.useFakeTimers()
-			mockUseFetcher.mockReturnValue(buildFetcher({ data: { results: [] } }) as ReturnType<typeof useFetcher>)
+			mockUseFetcher.mockReturnValue(
+				buildFetcher({ data: { results: [] } }) as unknown as ReturnType<typeof useFetcher>,
+			)
 
 			render(<ParticipantSearchDialog currentValue="" onAdd={vi.fn()} />)
 			openDialog()
@@ -259,7 +261,7 @@ describe("ParticipantSearchDialog", () => {
 					data: {
 						results: [{ navIdent: "A123456", displayName: "Ola Nordmann", mail: null }],
 					},
-				}) as ReturnType<typeof useFetcher>,
+				}) as unknown as ReturnType<typeof useFetcher>,
 			)
 
 			render(<ParticipantSearchDialog currentValue="A123456" onAdd={vi.fn()} />)
@@ -277,7 +279,7 @@ describe("ParticipantSearchDialog", () => {
 					data: {
 						results: [{ navIdent: "a123456", displayName: "Ola Nordmann", mail: null }],
 					},
-				}) as ReturnType<typeof useFetcher>,
+				}) as unknown as ReturnType<typeof useFetcher>,
 			)
 
 			render(<ParticipantSearchDialog currentValue="A123456" onAdd={vi.fn()} />)
@@ -295,7 +297,7 @@ describe("ParticipantSearchDialog", () => {
 					data: {
 						results: [{ navIdent: "A123456", displayName: "Ola Nordmann", mail: null }],
 					},
-				}) as ReturnType<typeof useFetcher>,
+				}) as unknown as ReturnType<typeof useFetcher>,
 			)
 
 			render(<ParticipantSearchDialog currentValue="B654321" onAdd={vi.fn()} />)
@@ -314,7 +316,7 @@ describe("ParticipantSearchDialog", () => {
 					data: {
 						results: [{ navIdent: "A123456", displayName: "Ola Nordmann", mail: null }],
 					},
-				}) as ReturnType<typeof useFetcher>,
+				}) as unknown as ReturnType<typeof useFetcher>,
 			)
 
 			render(<ParticipantSearchDialog currentValue="" onAdd={onAdd} />)
@@ -334,7 +336,7 @@ describe("ParticipantSearchDialog", () => {
 					data: {
 						results: [{ navIdent: "A123456", displayName: "Ola Nordmann", mail: null }],
 					},
-				}) as ReturnType<typeof useFetcher>,
+				}) as unknown as ReturnType<typeof useFetcher>,
 			)
 
 			render(<ParticipantSearchDialog currentValue="A123456" onAdd={onAdd} />)
