@@ -216,8 +216,12 @@ export async function searchUsers(query: string): Promise<UserSearchResult[]> {
 	if (trimmed.length < 2) return []
 
 	if (!process.env.AZURE_OPENID_CONFIG_TOKEN_ENDPOINT) {
-		if (process.env.NODE_ENV === "production") {
-			logger.warn("searchUsers: AZURE_OPENID_CONFIG_TOKEN_ENDPOINT is not set in production – returning empty result")
+		const nodeEnv = process.env.NODE_ENV
+		const allowMockResults = nodeEnv === "development" || nodeEnv === "test"
+		if (!allowMockResults) {
+			logger.warn("searchUsers: AZURE_OPENID_CONFIG_TOKEN_ENDPOINT is not set outside development/test – returning empty result", {
+				nodeEnv: nodeEnv ?? "undefined",
+			})
 			return []
 		}
 		const ident =
