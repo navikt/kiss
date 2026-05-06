@@ -73,6 +73,10 @@ const config: StorybookConfig = {
 			...config.resolve.alias,
 			"@storybook-mocks": path.resolve(currentDir, "mocks"),
 		}
+		config.define = {
+			...config.define,
+			__BUILD_VERSION__: JSON.stringify("storybook-dev"),
+		}
 		return config
 	},
 }

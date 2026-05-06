@@ -15,6 +15,7 @@ export function mockRootLoaderData(
 ) {
 	return {
 		theme: "light" as const,
+		featureFlags: { showComplianceStats: true },
 		user: {
 			navIdent: overrides?.navIdent ?? "A123456",
 			name: overrides?.name ?? "Ola Nordmann",
@@ -256,6 +257,7 @@ function mockAppSummary(overrides: {
 		total: overrides.implemented + overrides.partial + overrides.notImplemented + overrides.notRelevant,
 		source: "direct" as const,
 		teamIds: ["t-01"],
+		screeningProgress: { answered: 4, total: 6 },
 	}
 }
 
@@ -363,6 +365,7 @@ export function mockAppDetaljerData() {
 			routineCompleted: 1,
 			routineOverdue: 1,
 			routineNeverReviewed: 0,
+			screeningProgress: { answered: 4, total: 6 },
 		},
 		appReports: [
 			{ id: "r-1", name: "Compliance-rapport Q1 2025", createdAt: "2025-03-31T12:00:00Z", createdBy: "A123456", reportBucketPath: "reports/r-1.pdf" },
@@ -427,12 +430,13 @@ export function mockAdminData() {
 
 export function mockDeploymentStats() {
 	return {
-		totalApps: 14,
-		appsWithDeployments: 12,
-		deployedLast30Days: 8,
-		deployedLast90Days: 11,
-		neverDeployed: 2,
-		avgDaysSinceLastDeploy: 15,
+		appsWithData: 12,
+		fourEyesPercent: 85,
+		fourEyesTotal: 142,
+		fourEyesApproved: 121,
+		changeOriginPercent: 72,
+		changeOriginTotal: 142,
+		changeOriginLinked: 102,
 	}
 }
 
