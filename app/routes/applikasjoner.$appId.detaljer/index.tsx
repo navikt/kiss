@@ -216,7 +216,7 @@ export default function ApplikasjonDetalj() {
 						)}
 					</HStack>
 
-					{!compliance.hasScreeningAnswers && (
+					{compliance.screeningProgress.answered === 0 && (
 						<BodyShort textColor="subtle" size="small">
 							⚠️ Ingen screening-svar registrert. Utfør screening for å få mer presis rutinematching.
 						</BodyShort>
