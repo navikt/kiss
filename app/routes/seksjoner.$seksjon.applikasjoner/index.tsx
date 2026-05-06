@@ -3,9 +3,11 @@ import { BodyLong, Box, Detail, Heading, HGrid, Search, Table, Tag, VStack } fro
 import { useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { ComplianceStatsPlaceholder } from "~/components/ComplianceStatsPlaceholder"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionApps } from "~/db/queries/sections.server"
 import { economySystemTypeLabels } from "~/db/schema/applications"
+import { useFeatureFlags } from "~/hooks/useFeatureFlags"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -57,6 +59,7 @@ export default function SeksjonApplikasjoner() {
 		useLoaderData<typeof loader>()
 	const [search, setSearch] = useState("")
 	const [sort, setSort] = useState<SortState>({ orderBy: "appName", direction: "ascending" })
+	const { showComplianceStats } = useFeatureFlags()
 
 	const filtered = useMemo(() => {
 		const q = search.toLowerCase()
@@ -109,40 +112,44 @@ export default function SeksjonApplikasjoner() {
 				Applikasjoner i {seksjonName}
 			</Heading>
 
-			<HGrid gap="space-6" columns={{ xs: 2, sm: 4 }}>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{totalApps}
-						</Heading>
-						<Detail>Applikasjoner</Detail>
-					</VStack>
-				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{totalImplemented}
-						</Heading>
-						<Detail>Implementert</Detail>
-					</VStack>
-				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{totalPartial}
-						</Heading>
-						<Detail>Delvis</Detail>
-					</VStack>
-				</Box>
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<VStack align="center">
-						<Heading size="xlarge" level="3">
-							{overallPercent}%
-						</Heading>
-						<Detail>Total compliance</Detail>
-					</VStack>
-				</Box>
-			</HGrid>
+			{showComplianceStats ? (
+				<HGrid gap="space-6" columns={{ xs: 2, sm: 4 }}>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalApps}
+							</Heading>
+							<Detail>Applikasjoner</Detail>
+						</VStack>
+					</Box>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalImplemented}
+							</Heading>
+							<Detail>Implementert</Detail>
+						</VStack>
+					</Box>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalPartial}
+							</Heading>
+							<Detail>Delvis</Detail>
+						</VStack>
+					</Box>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{overallPercent}%
+							</Heading>
+							<Detail>Total compliance</Detail>
+						</VStack>
+					</Box>
+				</HGrid>
+			) : (
+				<ComplianceStatsPlaceholder />
+			)}
 
 			<Search
 				label="Søk etter applikasjon eller team"
@@ -164,21 +171,25 @@ export default function SeksjonApplikasjoner() {
 								<Table.ColumnHeader scope="col" sortKey="team" sortable>
 									Team
 								</Table.ColumnHeader>
-								<Table.ColumnHeader scope="col" align="right" sortKey="implemented" sortable>
-									Implementert
-								</Table.ColumnHeader>
-								<Table.ColumnHeader scope="col" align="right" sortKey="partial" sortable>
-									Delvis
-								</Table.ColumnHeader>
-								<Table.ColumnHeader scope="col" align="right" sortKey="notImplemented" sortable>
-									Ikke impl.
-								</Table.ColumnHeader>
-								<Table.ColumnHeader scope="col" align="right" sortKey="unanswered" sortable>
-									Ikke besvart
-								</Table.ColumnHeader>
-								<Table.ColumnHeader scope="col" align="right" sortKey="pct" sortable>
-									Status %
-								</Table.ColumnHeader>
+								{showComplianceStats && (
+									<>
+										<Table.ColumnHeader scope="col" align="right" sortKey="implemented" sortable>
+											Implementert
+										</Table.ColumnHeader>
+										<Table.ColumnHeader scope="col" align="right" sortKey="partial" sortable>
+											Delvis
+										</Table.ColumnHeader>
+										<Table.ColumnHeader scope="col" align="right" sortKey="notImplemented" sortable>
+											Ikke impl.
+										</Table.ColumnHeader>
+										<Table.ColumnHeader scope="col" align="right" sortKey="unanswered" sortable>
+											Ikke besvart
+										</Table.ColumnHeader>
+										<Table.ColumnHeader scope="col" align="right" sortKey="pct" sortable>
+											Status %
+										</Table.ColumnHeader>
+									</>
+								)}
 								<Table.ColumnHeader scope="col" sortKey="economySystem">
 									Øk.system
 								</Table.ColumnHeader>
@@ -186,9 +197,6 @@ export default function SeksjonApplikasjoner() {
 						</Table.Header>
 						<Table.Body>
 							{sorted.map((app) => {
-								const answered = app.implemented + app.partial + app.notImplemented + app.notRelevant
-								const unanswered = Math.max(0, app.total - answered)
-								const pct = compliancePercent(app.implemented, app.partial, app.total, app.notRelevant)
 								return (
 									<Table.Row key={app.appId}>
 										<Table.DataCell>
@@ -197,11 +205,22 @@ export default function SeksjonApplikasjoner() {
 										<Table.DataCell>
 											{app.teamNames.length > 0 ? app.teamNames.join(", ") : "Ikke tildelt"}
 										</Table.DataCell>
-										<Table.DataCell align="right">{app.implemented}</Table.DataCell>
-										<Table.DataCell align="right">{app.partial}</Table.DataCell>
-										<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
-										<Table.DataCell align="right">{unanswered}</Table.DataCell>
-										<Table.DataCell align="right">{pct}%</Table.DataCell>
+										{showComplianceStats && (
+											<>
+												<Table.DataCell align="right">{app.implemented}</Table.DataCell>
+												<Table.DataCell align="right">{app.partial}</Table.DataCell>
+												<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
+												<Table.DataCell align="right">
+													{Math.max(
+														0,
+														app.total - (app.implemented + app.partial + app.notImplemented + app.notRelevant),
+													)}
+												</Table.DataCell>
+												<Table.DataCell align="right">
+													{compliancePercent(app.implemented, app.partial, app.total, app.notRelevant)}%
+												</Table.DataCell>
+											</>
+										)}
 										<Table.DataCell>
 											{app.economySystem ? (
 												app.economySystem.isEconomySystem ? (

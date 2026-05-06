@@ -57,7 +57,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return data({ questions: questionsWithEffects, seksjon, sectionName: section.name, screeningBasePath })
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)

@@ -205,7 +205,7 @@ describe("Economy classification integration tests", () => {
 			// Only one active classification should exist
 			const active = await getEconomyClassification(appId)
 			expect(active).toBeDefined()
-			expect(active!.archivedAt).toBeNull()
+			expect(active?.archivedAt).toBeNull()
 		})
 	})
 

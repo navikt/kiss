@@ -21,10 +21,14 @@ describe("fetchNaisTeams", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks()
+		vi.unstubAllEnvs()
 	})
 
 	it("calls the Nais GraphQL endpoint with correct headers", async () => {
-		await fetchNaisTeams("test-token")
+		vi.stubEnv("NAIS_API_URL", NAIS_API_URL)
+		vi.resetModules()
+		const { fetchNaisTeams: freshFetchNaisTeams } = await import("../nais.server")
+		await freshFetchNaisTeams("test-token")
 
 		expect(fetch).toHaveBeenCalledWith(NAIS_API_URL, {
 			method: "POST",
@@ -37,7 +41,10 @@ describe("fetchNaisTeams", () => {
 	})
 
 	it("omits Authorization header when no token is provided", async () => {
-		await fetchNaisTeams()
+		vi.stubEnv("NAIS_API_URL", NAIS_API_URL)
+		vi.resetModules()
+		const { fetchNaisTeams: freshFetchNaisTeams } = await import("../nais.server")
+		await freshFetchNaisTeams()
 
 		expect(fetch).toHaveBeenCalledWith(NAIS_API_URL, {
 			method: "POST",
