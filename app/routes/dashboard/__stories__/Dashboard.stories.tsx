@@ -78,6 +78,14 @@ export const IngenData: Story = {
 			totalPartial: 0,
 			totalMangler: 0,
 			overallPercent: 0,
-			deploymentStats: null,
+			deploymentStats: {
+				appsWithData: 0,
+				fourEyesPercent: null,
+				fourEyesTotal: 0,
+				fourEyesApproved: 0,
+				changeOriginPercent: null,
+				changeOriginTotal: 0,
+				changeOriginLinked: 0,
+			},
 		}),
 }
