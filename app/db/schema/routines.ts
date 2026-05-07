@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm"
-import { integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
+import { boolean, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
 import {
 	dataClassificationEnum,
@@ -145,6 +145,7 @@ export const routineReviews = pgTable("routine_reviews", {
 	status: text("status", { enum: ["draft", "completed", "discarded"] })
 		.notNull()
 		.default("draft"),
+	hasDeviation: boolean("has_deviation"),
 	reviewedAt: timestamp("reviewed_at", { withTimezone: true }).notNull(),
 	createdBy: text("created_by").notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

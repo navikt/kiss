@@ -95,6 +95,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				sectionId: routine.sectionId,
 				matchSource: d.matchSource,
 				lastReviewDate: lastReviewDate?.toISOString() ?? null,
+				lastReviewHasDeviation: latestReview?.hasDeviation ?? null,
 				deadline: deadline.toISOString(),
 				overdue: isOverdue(deadline),
 				neverReviewed: !latestReview,

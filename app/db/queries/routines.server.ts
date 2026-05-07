@@ -1225,7 +1225,7 @@ export async function updateReview(
  * (med snapshot-after for Entra-grupper) og synker materialiserte
  * compliance-kontroller for tilknyttet applikasjon.
  */
-export async function completeReview(reviewId: string, performedBy: string) {
+export async function completeReview(reviewId: string, performedBy: string, hasDeviation: boolean) {
 	const existing = await getReview(reviewId)
 	if (!existing) return null
 	if (existing.status === "completed") return existing
@@ -1265,7 +1265,7 @@ export async function completeReview(reviewId: string, performedBy: string) {
 
 		const updated = await tx
 			.update(routineReviews)
-			.set({ status: "completed" })
+			.set({ status: "completed", hasDeviation })
 			.where(and(eq(routineReviews.id, reviewId), ne(routineReviews.status, "completed")))
 			.returning({ id: routineReviews.id })
 
@@ -1278,7 +1278,8 @@ export async function completeReview(reviewId: string, performedBy: string) {
 				action: "routine_review_completed",
 				entityType: "routine_review",
 				entityId: reviewId,
-				newValue: "completed",
+				newValue: hasDeviation ? "completed_with_deviation" : "completed",
+				metadata: { hasDeviation },
 				performedBy,
 			},
 			tx,
@@ -1656,6 +1657,7 @@ export interface RoutineDeadlineInfo {
 	applicationId: string
 	applicationName: string
 	lastReviewDate: Date | null
+	lastReviewHasDeviation: boolean | null
 	deadline: Date
 	overdue: boolean
 	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
@@ -1686,6 +1688,7 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 				applicationId: app.id,
 				applicationName: app.name,
 				lastReviewDate: lastReview?.reviewedAt ?? null,
+				lastReviewHasDeviation: lastReview?.hasDeviation ?? null,
 				deadline,
 				overdue: isOverdue(deadline),
 			})
@@ -1817,6 +1820,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
 			reviewedAt: routineReviews.reviewedAt,
+			hasDeviation: routineReviews.hasDeviation,
 		})
 		.from(routineReviews)
 		.where(
@@ -1827,7 +1831,9 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			),
 		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	const reviewByRoutine = new Map(
+		latestReviews.map((r) => [r.routineId, { reviewedAt: r.reviewedAt, hasDeviation: r.hasDeviation }]),
+	)
 
 	// Step 6: Build results
 	const results: RoutineDeadlineInfo[] = []
@@ -1850,7 +1856,9 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const latestReview = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = latestReview?.reviewedAt ?? null
+		const lastReviewHasDeviation = latestReview?.hasDeviation ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 
 		results.push({
@@ -1858,6 +1866,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 			applicationId,
 			applicationName: appName,
 			lastReviewDate,
+			lastReviewHasDeviation,
 			deadline,
 			overdue: isOverdue(deadline),
 		})
@@ -1972,6 +1981,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
 			reviewedAt: routineReviews.reviewedAt,
+			hasDeviation: routineReviews.hasDeviation,
 		})
 		.from(routineReviews)
 		.where(
@@ -1982,7 +1992,9 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			),
 		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	const reviewByRoutine = new Map(
+		latestReviews.map((r) => [r.routineId, { reviewedAt: r.reviewedAt, hasDeviation: r.hasDeviation }]),
+	)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const { routine, matchedLinks } of matchingRoutines) {
@@ -1996,7 +2008,9 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const latestReview = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = latestReview?.reviewedAt ?? null
+		const lastReviewHasDeviation = latestReview?.hasDeviation ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 
 		results.push({
@@ -2004,6 +2018,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			applicationId,
 			applicationName: appName,
 			lastReviewDate,
+			lastReviewHasDeviation,
 			deadline,
 			overdue: isOverdue(deadline),
 			matchedPersistenceLinks: matchedLinks.map((l) => ({
@@ -2155,6 +2170,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
 			reviewedAt: routineReviews.reviewedAt,
+			hasDeviation: routineReviews.hasDeviation,
 		})
 		.from(routineReviews)
 		.where(
@@ -2165,7 +2181,9 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 			),
 		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	const reviewByRoutine = new Map(
+		latestReviews.map((r) => [r.routineId, { reviewedAt: r.reviewedAt, hasDeviation: r.hasDeviation }]),
+	)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const { routine } of matchingRoutines) {
@@ -2179,7 +2197,9 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const latestReview = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = latestReview?.reviewedAt ?? null
+		const lastReviewHasDeviation = latestReview?.hasDeviation ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 
 		results.push({
@@ -2187,6 +2207,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 			applicationId,
 			applicationName: appName,
 			lastReviewDate,
+			lastReviewHasDeviation,
 			deadline,
 			overdue: isOverdue(deadline),
 		})
@@ -2300,6 +2321,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
 			reviewedAt: routineReviews.reviewedAt,
+			hasDeviation: routineReviews.hasDeviation,
 		})
 		.from(routineReviews)
 		.where(
@@ -2310,7 +2332,9 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 			),
 		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	const reviewByRoutine = new Map(
+		latestReviews.map((r) => [r.routineId, { reviewedAt: r.reviewedAt, hasDeviation: r.hasDeviation }]),
+	)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const routine of candidateRoutines) {
@@ -2324,7 +2348,9 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const latestReview = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = latestReview?.reviewedAt ?? null
+		const lastReviewHasDeviation = latestReview?.hasDeviation ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 
 		results.push({
@@ -2332,6 +2358,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 			applicationId,
 			applicationName: appName,
 			lastReviewDate,
+			lastReviewHasDeviation,
 			deadline,
 			overdue: isOverdue(deadline),
 		})
@@ -2420,6 +2447,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
 			reviewedAt: routineReviews.reviewedAt,
+			hasDeviation: routineReviews.hasDeviation,
 		})
 		.from(routineReviews)
 		.where(
@@ -2430,7 +2458,9 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			),
 		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	const reviewByRoutine = new Map(
+		latestReviews.map((r) => [r.routineId, { reviewedAt: r.reviewedAt, hasDeviation: r.hasDeviation }]),
+	)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const routine of routineRows) {
@@ -2444,7 +2474,9 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const latestReview = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = latestReview?.reviewedAt ?? null
+		const lastReviewHasDeviation = latestReview?.hasDeviation ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 
 		results.push({
@@ -2452,6 +2484,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			applicationId,
 			applicationName: appName,
 			lastReviewDate,
+			lastReviewHasDeviation,
 			deadline,
 			overdue: isOverdue(deadline),
 		})
@@ -2549,6 +2582,7 @@ export async function getRoutineDeadlinesForAppBySection(
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
 			reviewedAt: routineReviews.reviewedAt,
+			hasDeviation: routineReviews.hasDeviation,
 		})
 		.from(routineReviews)
 		.where(
@@ -2559,7 +2593,9 @@ export async function getRoutineDeadlinesForAppBySection(
 			),
 		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	const reviewByRoutine = new Map(
+		latestReviews.map((r) => [r.routineId, { reviewedAt: r.reviewedAt, hasDeviation: r.hasDeviation }]),
+	)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const routine of matchingRoutines) {
@@ -2573,7 +2609,9 @@ export async function getRoutineDeadlinesForAppBySection(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const latestReview = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = latestReview?.reviewedAt ?? null
+		const lastReviewHasDeviation = latestReview?.hasDeviation ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 
 		results.push({
@@ -2581,6 +2619,7 @@ export async function getRoutineDeadlinesForAppBySection(
 			applicationId,
 			applicationName: appName,
 			lastReviewDate,
+			lastReviewHasDeviation,
 			deadline,
 			overdue: isOverdue(deadline),
 		})
@@ -2735,6 +2774,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
 			reviewedAt: routineReviews.reviewedAt,
+			hasDeviation: routineReviews.hasDeviation,
 		})
 		.from(routineReviews)
 		.where(
@@ -2745,7 +2785,9 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			),
 		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	const reviewByRoutine = new Map(
+		latestReviews.map((r) => [r.routineId, { reviewedAt: r.reviewedAt, hasDeviation: r.hasDeviation }]),
+	)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const routine of routineRows) {
@@ -2759,7 +2801,9 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const latestReview = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = latestReview?.reviewedAt ?? null
+		const lastReviewHasDeviation = latestReview?.hasDeviation ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 
 		results.push({
@@ -2767,6 +2811,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			applicationId,
 			applicationName: appName,
 			lastReviewDate,
+			lastReviewHasDeviation,
 			deadline,
 			overdue: isOverdue(deadline),
 		})

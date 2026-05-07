@@ -14,6 +14,8 @@ import {
 	Heading,
 	HStack,
 	Label,
+	Radio,
+	RadioGroup,
 	Search,
 	Select,
 	Table,
@@ -249,11 +251,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return data<ActionResult>({ success: false, error: "Gjennomgangen er allerede fullført.", intent: "complete" })
 		}
 
-		await completeReview(gjennomgangId, authedUser.navIdent)
+		const deviationRaw = formData.get("hasDeviation")
+		if (deviationRaw !== "yes" && deviationRaw !== "no") {
+			return data<ActionResult>({
+				success: false,
+				error: "Du må velge om gjennomgangen avdekket avvik fra reglene.",
+				intent: "complete",
+			})
+		}
+		const hasDeviation = deviationRaw === "yes"
+
+		await completeReview(gjennomgangId, authedUser.navIdent, hasDeviation)
 
 		return data<ActionResult>({
 			success: true,
-			message: "Gjennomgangen er fullført.",
+			message: hasDeviation
+				? "Gjennomgangen er fullført og markert med avvik."
+				: "Gjennomgangen er fullført uten avvik.",
 			intent: "complete",
 		})
 	}
@@ -1089,12 +1103,14 @@ function CompleteSection() {
 	const navigation = useNavigation()
 	const actionData = useActionData<ActionResult>()
 	const [confirmed, setConfirmed] = useState(false)
+	const [hasDeviation, setHasDeviation] = useState<"yes" | "no" | null>(null)
 	const isSubmitting = navigation.state === "submitting"
 
 	function handleComplete() {
-		if (!confirmed) return
+		if (!confirmed || hasDeviation === null) return
 		const formData = new FormData()
 		formData.set("intent", "complete")
+		formData.set("hasDeviation", hasDeviation)
 		submit(formData, { method: "post" })
 	}
 
@@ -1115,6 +1131,17 @@ function CompleteSection() {
 					</Alert>
 				)}
 
+				<RadioGroup
+					legend="Avdekket gjennomgangen avvik fra reglene som skal følges?"
+					size="small"
+					value={hasDeviation}
+					onChange={(value: "yes" | "no") => setHasDeviation(value)}
+					name="hasDeviationChoice"
+				>
+					<Radio value="no">Nei, ingen avvik</Radio>
+					<Radio value="yes">Ja, det ble avdekket avvik</Radio>
+				</RadioGroup>
+
 				<ConfirmationPanel
 					checked={confirmed}
 					onChange={() => setConfirmed(!confirmed)}
@@ -1128,7 +1155,7 @@ function CompleteSection() {
 						variant="primary"
 						size="small"
 						onClick={handleComplete}
-						disabled={!confirmed || isSubmitting}
+						disabled={!confirmed || hasDeviation === null || isSubmitting}
 						loading={isSubmitting}
 					>
 						Fullfør gjennomgang
@@ -1161,9 +1188,16 @@ export default function GjennomgangDetalj() {
 							Utkast
 						</Tag>
 					) : (
-						<Tag variant="success" size="small">
-							Fullført
-						</Tag>
+						<>
+							<Tag variant="success" size="small">
+								Fullført
+							</Tag>
+							{review.hasDeviation === true && (
+								<Tag variant="error" size="small">
+									Avvik
+								</Tag>
+							)}
+						</>
 					)}
 				</HStack>
 			</div>

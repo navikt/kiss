@@ -93,6 +93,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				id: app.id,
 				name: app.name,
 				lastReviewDate,
+				lastReviewHasDeviation: latestReview?.hasDeviation ?? null,
 				deadline,
 				overdue,
 				neverReviewed: !latestReview,
@@ -445,19 +446,26 @@ export default function RutineDetaljer() {
 									<Table.DataCell>{formatDate(app.lastReviewDate)}</Table.DataCell>
 									<Table.DataCell>{formatDate(app.deadline)}</Table.DataCell>
 									<Table.DataCell>
-										{app.neverReviewed ? (
-											<Tag variant="warning" size="small">
-												Ikke gjennomført
-											</Tag>
-										) : app.overdue ? (
-											<Tag variant="error" size="small">
-												Over frist
-											</Tag>
-										) : (
-											<Tag variant="success" size="small">
-												OK
-											</Tag>
-										)}
+										<HStack gap="space-2" wrap>
+											{app.neverReviewed ? (
+												<Tag variant="warning" size="small">
+													Ikke gjennomført
+												</Tag>
+											) : app.overdue ? (
+												<Tag variant="error" size="small">
+													Over frist
+												</Tag>
+											) : (
+												<Tag variant="success" size="small">
+													OK
+												</Tag>
+											)}
+											{app.lastReviewHasDeviation === true && (
+												<Tag variant="error" size="small">
+													Avvik
+												</Tag>
+											)}
+										</HStack>
 									</Table.DataCell>
 								</Table.Row>
 							))}
@@ -507,15 +515,22 @@ export default function RutineDetaljer() {
 											<Link to={`./gjennomgang/${review.id}`}>{review.title}</Link>
 										</Table.DataCell>
 										<Table.DataCell>
-											{review.status === "completed" ? (
-												<Tag variant="success" size="xsmall">
-													Fullført
-												</Tag>
-											) : (
-												<Tag variant="warning" size="xsmall">
-													Utkast
-												</Tag>
-											)}
+											<HStack gap="space-2" wrap>
+												{review.status === "completed" ? (
+													<Tag variant="success" size="xsmall">
+														Fullført
+													</Tag>
+												) : (
+													<Tag variant="warning" size="xsmall">
+														Utkast
+													</Tag>
+												)}
+												{review.status === "completed" && review.hasDeviation === true && (
+													<Tag variant="error" size="xsmall">
+														Avvik
+													</Tag>
+												)}
+											</HStack>
 										</Table.DataCell>
 										<Table.DataCell>{review.createdBy}</Table.DataCell>
 										<Table.DataCell>

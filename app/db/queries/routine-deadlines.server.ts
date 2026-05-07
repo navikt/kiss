@@ -33,6 +33,7 @@ export interface DeadlineWithControls {
 	applicationId: string
 	applicationName: string
 	lastReviewDate: Date | null
+	lastReviewHasDeviation: boolean | null
 	deadline: Date
 	overdue: boolean
 	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>

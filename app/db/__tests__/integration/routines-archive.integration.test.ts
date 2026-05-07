@@ -712,7 +712,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				participants: [],
 			})
 			await archiveRoutine(routine.id, "admin")
-			await expect(completeReview(review.id, "completer")).rejects.toMatchObject({ status: 403 })
+			await expect(completeReview(review.id, "completer", false)).rejects.toMatchObject({ status: 403 })
 		})
 
 		it("completeReview() er idempotent: dobbel-fullføring skriver kun én audit-oppføring", async () => {
@@ -730,11 +730,11 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				createdBy: "tester",
 				participants: [],
 			})
-			await completeReview(review.id, "completer1")
+			await completeReview(review.id, "completer1", false)
 			// Andre kall: pre-check fanger og returnerer eksisterende. Hvis
 			// pre-check ble omgått (race), ville WHERE status != 'completed'
 			// matche 0 rader og audit hoppes over via .returning()-sjekken.
-			await completeReview(review.id, "completer2")
+			await completeReview(review.id, "completer2", true)
 			const audits = await getAuditByEntity("routine_review", review.id)
 			const completedAudits = audits.filter((a) => a.action === "routine_review_completed")
 			expect(completedAudits).toHaveLength(1)

@@ -28,6 +28,7 @@ type RoutineDeadline = {
 	matchSource: string
 	deadline: Date | string
 	lastReviewDate: Date | string | null
+	lastReviewHasDeviation: boolean | null
 	overdue: boolean
 	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
 }
@@ -39,6 +40,7 @@ type CompletedReview = {
 	title: string
 	reviewedAt: Date | string
 	status: string
+	hasDeviation: boolean | null
 	createdBy: string
 	sectionId: string | null
 	participants: Array<{ confirmedAt: Date | string | null }>
@@ -284,19 +286,26 @@ export function RutinerTab({
 											</Table.DataCell>
 											<Table.DataCell>{new Date(dl.deadline).toLocaleDateString("nb-NO")}</Table.DataCell>
 											<Table.DataCell>
-												{dl.overdue ? (
-													<Tag variant="error" size="small">
-														Over frist
-													</Tag>
-												) : dl.lastReviewDate ? (
-													<Tag variant="success" size="small">
-														OK
-													</Tag>
-												) : (
-													<Tag variant="warning" size="small">
-														Ikke gjennomført
-													</Tag>
-												)}
+												<HStack gap="space-2" wrap>
+													{dl.overdue ? (
+														<Tag variant="error" size="small">
+															Over frist
+														</Tag>
+													) : dl.lastReviewDate ? (
+														<Tag variant="success" size="small">
+															OK
+														</Tag>
+													) : (
+														<Tag variant="warning" size="small">
+															Ikke gjennomført
+														</Tag>
+													)}
+													{dl.lastReviewHasDeviation === true && (
+														<Tag variant="error" size="small">
+															Avvik
+														</Tag>
+													)}
+												</HStack>
 											</Table.DataCell>
 											<Table.DataCell>
 												{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] && (
@@ -354,15 +363,22 @@ export function RutinerTab({
 											)}
 										</Table.DataCell>
 										<Table.DataCell>
-											{review.status === "completed" ? (
-												<Tag variant="success" size="xsmall">
-													Fullført
-												</Tag>
-											) : (
-												<Tag variant="warning" size="xsmall">
-													Utkast
-												</Tag>
-											)}
+											<HStack gap="space-2" wrap>
+												{review.status === "completed" ? (
+													<Tag variant="success" size="xsmall">
+														Fullført
+													</Tag>
+												) : (
+													<Tag variant="warning" size="xsmall">
+														Utkast
+													</Tag>
+												)}
+												{review.status === "completed" && review.hasDeviation === true && (
+													<Tag variant="error" size="xsmall">
+														Avvik
+													</Tag>
+												)}
+											</HStack>
 										</Table.DataCell>
 										<Table.DataCell>{review.createdBy}</Table.DataCell>
 										<Table.DataCell>
