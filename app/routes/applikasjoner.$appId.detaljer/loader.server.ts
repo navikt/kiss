@@ -15,6 +15,7 @@ import {
 import { getReportsForApp } from "~/db/queries/reports.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
 import { getReviewsForApp } from "~/db/queries/routines.server"
+import { getScreeningSessionsForApp } from "~/db/queries/screening-sessions.server"
 import { getSections } from "~/db/queries/sections.server"
 import type { GroupCriticality } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
@@ -54,15 +55,23 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const { getApplicationElements } = await import("~/db/queries/technology-elements.server")
 	const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
-	const [appElements, deadlinesWithControls, completedReviews, allSections, appReports, screeningProgressMap] =
-		await Promise.all([
-			getApplicationElements(appId),
-			getRoutineDeadlinesWithControls(appId),
-			getReviewsForApp(appId),
-			getSections({ includeArchived: true }),
-			getReportsForApp(appId),
-			getScreeningProgressForApps([appId]),
-		])
+	const [
+		appElements,
+		deadlinesWithControls,
+		completedReviews,
+		allSections,
+		appReports,
+		screeningProgressMap,
+		screeningSessions,
+	] = await Promise.all([
+		getApplicationElements(appId),
+		getRoutineDeadlinesWithControls(appId),
+		getReviewsForApp(appId),
+		getSections({ includeArchived: true }),
+		getReportsForApp(appId),
+		getScreeningProgressForApps([appId]),
+		getScreeningSessionsForApp(appId),
+	])
 
 	const screeningEffectsByControl = await getScreeningEffectsByControlForApp(appId)
 	const autoComplianceMap = computeAutoCompliance(
@@ -302,6 +311,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			createdAt: r.createdAt.toISOString(),
 			createdBy: r.createdBy,
 			reportBucketPath: r.reportBucketPath,
+		})),
+		screeningSessions: screeningSessions.map((s) => ({
+			id: s.id,
+			title: s.title,
+			status: s.status,
+			completedAt: s.completedAt?.toISOString() ?? null,
+			completedBy: s.completedBy,
+			createdAt: s.createdAt.toISOString(),
+			createdBy: s.createdBy,
+			participants: s.participants.map((p) => ({
+				userIdent: p.userIdent,
+				userName: p.userName,
+			})),
 		})),
 		oracleInstances: filteredOracleInstances.map((inst) => ({
 			...inst,

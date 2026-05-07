@@ -253,5 +253,36 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return data({ success: true, message: "Kommentar lagret.", error: null })
 	}
 
+	if (intent === "create-screening-session") {
+		const { createScreeningSession, captureStateSnapshot } = await import("~/db/queries/screening-sessions.server")
+		const title = `Screening ${new Date().toLocaleDateString("nb-NO")}`
+
+		const stateSnapshot = await captureStateSnapshot(appId, authedUser.groups ?? [])
+
+		const session = await createScreeningSession({
+			applicationId: appId,
+			title,
+			participants: [],
+			stateSnapshot,
+			performedBy: authedUser.navIdent,
+		})
+
+		const pathname = new URL(request.url).pathname
+		const basePath = pathname.replace(/\/detaljer.*$/, "")
+		return redirect(`${basePath}/screening/${session.id}`)
+	}
+
+	if (intent === "archive-screening-session") {
+		const { archiveScreeningSession, getScreeningSession } = await import("~/db/queries/screening-sessions.server")
+		const sessionId = formData.get("sessionId") as string
+		if (!sessionId) return data({ success: false, message: null, error: "Mangler sesjon-ID" })
+		const session = await getScreeningSession(sessionId)
+		if (!session || session.applicationId !== appId) {
+			return data({ success: false, message: null, error: "Screening-sesjon ikke funnet" })
+		}
+		await archiveScreeningSession(sessionId, authedUser.navIdent)
+		return data({ success: true, message: "Screening fjernet.", error: null })
+	}
+
 	return data({ success: false, message: null, error: "Ukjent handling" })
 }

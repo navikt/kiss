@@ -233,7 +233,7 @@ export default function MineTeamPage() {
 											</>
 										)}
 										<Table.DataCell>
-											<Link to={`/mine-team/applikasjoner/${app.appId}/compliance`}>Vurder</Link>
+											<Link to={`/mine-team/applikasjoner/${app.appId}/detaljer?fane=screeninger`}>Vurder</Link>
 										</Table.DataCell>
 									</Table.Row>
 								)

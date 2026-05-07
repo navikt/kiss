@@ -1,10 +1,13 @@
 import { Alert, BodyLong, Box, Detail, Heading, VStack } from "@navikt/ds-react"
-import { isRouteErrorResponse, Link, useRouteLoaderData } from "react-router"
+import { isRouteErrorResponse, Link, useRouteError, useRouteLoaderData } from "react-router"
 import type { loader as rootLoader } from "~/root"
 
-export function RouteErrorBoundary({ error }: { error: unknown }) {
+export function RouteErrorBoundary() {
+	const error = useRouteError()
 	const rootData = useRouteLoaderData<typeof rootLoader>("root")
 	const admin = rootData?.user?.isAdmin === true
+	const isDev = import.meta.env.DEV
+	const showDetails = admin || isDev
 
 	// React Router serialiserer errors over nettverket — de mister prototype
 	const message =
@@ -34,7 +37,7 @@ export function RouteErrorBoundary({ error }: { error: unknown }) {
 						{error.status === 404 ? "Ikke funnet" : `Feil ${error.status}`}
 					</Heading>
 					<Alert variant="error">{errorMessage}</Alert>
-					{admin && stack && (
+					{showDetails && stack && (
 						<Detail as="pre" style={{ whiteSpace: "pre-wrap", overflowX: "auto" }}>
 							{stack}
 						</Detail>
@@ -54,12 +57,12 @@ export function RouteErrorBoundary({ error }: { error: unknown }) {
 					Noe gikk galt
 				</Heading>
 				<Alert variant="error">{message}</Alert>
-				{admin && stack && (
+				{showDetails && stack && (
 					<Detail as="pre" style={{ whiteSpace: "pre-wrap", overflowX: "auto" }}>
 						{stack}
 					</Detail>
 				)}
-				{admin && !stack && error != null ? (
+				{showDetails && !stack && error != null ? (
 					<Detail as="pre" style={{ whiteSpace: "pre-wrap", overflowX: "auto" }}>
 						{typeof error === "object" ? JSON.stringify(error, null, 2) : String(error)}
 					</Detail>

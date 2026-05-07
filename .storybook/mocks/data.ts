@@ -383,6 +383,7 @@ export function mockAppDetaljerData() {
 		canAdmin: true,
 		knownApps: [],
 		acknowledgments: {},
+		screeningSessions: [],
 	}
 }
 

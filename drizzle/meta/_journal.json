@@ -470,6 +470,27 @@
       "when": 1781915920000,
       "tag": "0066_application_economy_classifications",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1781915980000,
+      "tag": "0067_screening_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1781916040000,
+      "tag": "0068_screening_session_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1781916100000,
+      "tag": "0069_screening_session_state_snapshot",
+      "breakpoints": true
     }
   ]
 }

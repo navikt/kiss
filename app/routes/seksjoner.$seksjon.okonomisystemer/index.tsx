@@ -117,13 +117,14 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const teamsByApp = new Map<string, string[]>()
 	for (const row of teamRows) {
 		if (!teamsByApp.has(row.appId)) teamsByApp.set(row.appId, [])
-		teamsByApp.get(row.appId)!.push(row.teamName)
+		teamsByApp.get(row.appId)?.push(row.teamName)
 	}
 
 	const now = new Date()
 	const items = filteredApps
-		.filter((app) => economyMap.has(app.id) && economyMap.get(app.id)!.isEconomySystem)
+		.filter((app) => economyMap.has(app.id) && economyMap.get(app.id)?.isEconomySystem)
 		.map((app) => {
+			// biome-ignore lint/style/noNonNullAssertion: guaranteed by .filter() above
 			const ec = economyMap.get(app.id)!
 			return {
 				appId: app.id,
@@ -174,7 +175,7 @@ export default function SeksjonOkonomisystemer() {
 							{items.map((item) => (
 								<Table.Row key={item.appId}>
 									<Table.DataCell>
-										<Link to={`/applikasjoner/${item.appId}/compliance`}>{item.appName}</Link>
+										<Link to={`/applikasjoner/${item.appId}/detaljer`}>{item.appName}</Link>
 									</Table.DataCell>
 									<Table.DataCell>{item.team ?? "–"}</Table.DataCell>
 									<Table.DataCell>
