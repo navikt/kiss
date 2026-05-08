@@ -323,18 +323,8 @@ export async function syncAllApplicationControls(performedBy = "system"): Promis
  * Fire-and-forget safe — errors are caught per app and don't propagate.
  */
 export async function syncAppsForSection(sectionId: string, performedBy = "system"): Promise<void> {
-	const { devTeams } = await import("../schema/organization")
-	const { applicationTeamMappings } = await import("../schema/applications")
-
-	const teamRows = await db.select({ id: devTeams.id }).from(devTeams).where(eq(devTeams.sectionId, sectionId))
-	if (teamRows.length === 0) return
-
-	const teamIds = teamRows.map((t) => t.id)
-	const appRows = await db
-		.select({ applicationId: applicationTeamMappings.applicationId })
-		.from(applicationTeamMappings)
-		.where(and(inArray(applicationTeamMappings.devTeamId, teamIds), isNull(applicationTeamMappings.archivedAt)))
-	const appIds = [...new Set(appRows.map((r) => r.applicationId))]
+	const { getEffectiveAppIdsInSection } = await import("./sections.server")
+	const appIds = await getEffectiveAppIdsInSection(sectionId)
 
 	for (const appId of appIds) {
 		try {

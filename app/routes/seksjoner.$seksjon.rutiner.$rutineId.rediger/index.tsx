@@ -187,10 +187,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const description = (formData.get("description") as string)?.trim() || null
 		const frequency = formData.get("frequency") as string
 		const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
-		const appliesToAllInSection = formData.get("appliesToAllInSection") === "on"
+		const isSectionRoutine = formData.get("isSectionRoutine") === "on"
+		// Section routines must apply to all apps in section
+		const appliesToAllInSection = isSectionRoutine || formData.get("appliesToAllInSection") === "on"
+		const sectionRoutineOwnerRole = isSectionRoutine
+			? (formData.get("sectionRoutineOwnerRole") as string)?.trim() || null
+			: null
+		if (isSectionRoutine && !sectionRoutineOwnerRole) {
+			throw data({ message: "Eier/utførende rolle er påkrevd for seksjonsrutiner" }, { status: 400 })
+		}
 		const activityTypeRaw = (formData.get("activityType") as string)?.trim() || null
+		// Section routines can't use app-specific activity types (reviews have applicationId=null)
 		const activityType =
-			activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
+			!isSectionRoutine && activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
 				? (activityTypeRaw as RoutineActivityType)
 				: null
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
@@ -243,6 +252,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			frequency,
 			responsibleRole,
 			appliesToAllInSection,
+			isSectionRoutine,
+			sectionRoutineOwnerRole,
 			activityType,
 			persistenceLinks,
 			screeningQuestionId: firstLink?.questionId ?? null,
@@ -372,6 +383,8 @@ export default function RedigerRutine() {
 	const [selectedControlIds, setSelectedControlIds] = useState<string[]>(routine.controls.map((c) => c.id))
 	const [responsibleRole, setResponsibleRole] = useState(routine.responsibleRole ?? "")
 	const [roleManuallySet, setRoleManuallySet] = useState(!!routine.responsibleRole)
+	const [isSectionRoutine, setIsSectionRoutine] = useState(routine.isSectionRoutine === 1)
+	const [appliesToAll, setAppliesToAll] = useState(routine.appliesToAllInSection === 1)
 	const [selectedFrequency, setSelectedFrequency] = useState(routine.frequency)
 
 	const selectedControls = controls.filter((c) => selectedControlIds.includes(c.id))
@@ -544,9 +557,41 @@ export default function RedigerRutine() {
 						<option value="archived">Arkivert</option>
 					</Select>
 
-					<Checkbox name="appliesToAllInSection" defaultChecked={routine.appliesToAllInSection === 1} size="small">
+					{isSectionRoutine && <input type="hidden" name="appliesToAllInSection" value="on" />}
+					<Checkbox
+						name={isSectionRoutine ? undefined : "appliesToAllInSection"}
+						checked={isSectionRoutine ? true : appliesToAll}
+						onChange={(e) => !isSectionRoutine && setAppliesToAll(e.target.checked)}
+						disabled={isSectionRoutine}
+						size="small"
+					>
 						Gjelder alle applikasjoner i seksjonen
 					</Checkbox>
+
+					<Checkbox
+						name="isSectionRoutine"
+						size="small"
+						checked={isSectionRoutine}
+						onChange={(e) => setIsSectionRoutine(e.target.checked)}
+					>
+						Seksjonsrutine (gjennomgås på seksjonsnivå, ikke per applikasjon)
+					</Checkbox>
+
+					{isSectionRoutine && (
+						<Select
+							label="Eier / utførende rolle"
+							name="sectionRoutineOwnerRole"
+							size="small"
+							defaultValue={routine.sectionRoutineOwnerRole ?? ""}
+						>
+							<option value="">Velg rolle</option>
+							{PREDEFINED_ROLES.map((role) => (
+								<option key={role} value={role}>
+									{role}
+								</option>
+							))}
+						</Select>
+					)}
 
 					<VStack gap="space-2">
 						<Label size="small">Innledende spørsmål</Label>

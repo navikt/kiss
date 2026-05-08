@@ -9,10 +9,10 @@
  *
  * Single source of truth — avoids divergence between these consumers.
  */
-import { and, inArray, isNull } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
-import { routineControls, routineTechnologyElements } from "../schema/routines"
-import type { RoutineDeadlineInfo } from "./routines.server"
+import { routineControls, routineReviews, routineTechnologyElements } from "../schema/routines"
+import { calculateDeadline, isOverdue, type RoutineDeadlineInfo } from "./routines.server"
 
 export type MatchSource =
 	| "screening"
@@ -37,6 +37,8 @@ export interface DeadlineWithControls {
 	overdue: boolean
 	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
 	matchSource: MatchSource
+	isSectionRoutine?: boolean
+	sectionRoutineOwnerRole?: string | null
 }
 
 /**
@@ -143,8 +145,10 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 	}
 
 	// Step 4: Enrich deadlines with control and technology element mappings
-	return routineDeadlines.map((d) => ({
+	const enriched = routineDeadlines.map((d) => ({
 		...d,
+		isSectionRoutine: d.routine?.isSectionRoutine === 1,
+		sectionRoutineOwnerRole: d.routine?.sectionRoutineOwnerRole ?? null,
 		routine: d.routine
 			? {
 					...d.routine,
@@ -153,4 +157,39 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 				}
 			: d.routine,
 	})) satisfies DeadlineWithControls[]
+
+	// Step 5: For section routines, override lastReviewDate with section-level review
+	const sectionRoutineIds = enriched
+		.filter((d): d is typeof d & { routine: NonNullable<typeof d.routine> } => d.isSectionRoutine && d.routine != null)
+		.map((d) => d.routine.id)
+
+	if (sectionRoutineIds.length > 0) {
+		const sectionReviews = await db
+			.selectDistinctOn([routineReviews.routineId], {
+				routineId: routineReviews.routineId,
+				reviewedAt: routineReviews.reviewedAt,
+			})
+			.from(routineReviews)
+			.where(
+				and(
+					inArray(routineReviews.routineId, sectionRoutineIds),
+					isNull(routineReviews.applicationId),
+					eq(routineReviews.status, "completed"),
+				),
+			)
+			.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+
+		const sectionReviewMap = new Map(sectionReviews.map((r) => [r.routineId, r.reviewedAt]))
+
+		for (const d of enriched) {
+			if (d.isSectionRoutine && d.routine) {
+				const sectionReviewDate = sectionReviewMap.get(d.routine.id) ?? null
+				d.lastReviewDate = sectionReviewDate
+				d.deadline = calculateDeadline(sectionReviewDate, d.routine.createdAt, d.routine.frequency)
+				d.overdue = isOverdue(d.deadline)
+			}
+		}
+	}
+
+	return enriched
 }

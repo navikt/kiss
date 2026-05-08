@@ -4,9 +4,7 @@ import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getApplicationDetail } from "~/db/queries/nais.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
-import { calculateDeadline, getLatestReviewForApp, isOverdue } from "~/db/queries/routines.server"
 import { useAppBasePath } from "~/hooks/useAppBasePath"
-import type { RoutineFrequency } from "~/lib/routine-frequencies"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 function formatDate(date: string | Date | null): string {
@@ -79,14 +77,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	}
 
-	// Enrich with latest review info for this app
-	const routinesWithReviews = await Promise.all(
-		matchedDeadlines.map(async (d) => {
+	// Enrich with review info — use the pipeline's computed values which already handle section routines
+	const routinesWithReviews = matchedDeadlines
+		.map((d) => {
 			const routine = d.routine
 			if (!routine) return null
-			const latestReview = await getLatestReviewForApp(routine.id, appId)
-			const lastReviewDate = latestReview?.reviewedAt ?? null
-			const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 			return {
 				id: routine.id,
 				name: routine.name,
@@ -94,20 +89,19 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				frequency: routine.frequency,
 				sectionId: routine.sectionId,
 				matchSource: d.matchSource,
-				lastReviewDate: lastReviewDate?.toISOString() ?? null,
-				deadline: deadline.toISOString(),
-				overdue: isOverdue(deadline),
-				neverReviewed: !latestReview,
+				lastReviewDate: d.lastReviewDate?.toISOString() ?? null,
+				deadline: d.deadline.toISOString(),
+				overdue: d.overdue,
+				neverReviewed: !d.lastReviewDate,
 				technologyElements: (routine.technologyElementIds ?? [])
 					.map((id) => elementNameMap.get(id))
 					.filter(Boolean) as string[],
 			}
-		}),
-	)
-	const validRoutines = routinesWithReviews.filter((r) => r !== null)
+		})
+		.filter((r): r is NonNullable<typeof r> => r !== null)
 
 	// Load section slugs so we can build correct /seksjoner/:slug/ URLs
-	const uniqueSectionIds = [...new Set(validRoutines.map((r) => r.sectionId))]
+	const uniqueSectionIds = [...new Set(routinesWithReviews.map((r) => r.sectionId))]
 	const sectionSlugMap: Record<string, string> = {}
 	if (uniqueSectionIds.length > 0) {
 		const { db } = await import("~/db/connection.server")
@@ -125,7 +119,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	return data({
 		app: appInfo,
 		control: { id: control.id, controlId: control.controlId, name: control.name },
-		routines: validRoutines,
+		routines: routinesWithReviews,
 		sectionSlugMap,
 	})
 }

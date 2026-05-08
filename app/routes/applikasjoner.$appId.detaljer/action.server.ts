@@ -48,11 +48,25 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!routine) {
 			return data({ success: false, message: null, error: "Fant ikke rutine" })
 		}
+		// Validate that the routine's section matches the submitted slug
+		const { getSectionBySlug } = await import("~/db/queries/sections.server")
+		const section = await getSectionBySlug(sectionSlug)
+		if (!section || routine.sectionId !== section.id) {
+			return data({ success: false, message: null, error: "Rutinen tilhører ikke denne seksjonen" })
+		}
+		// For section routines, verify the app is effectively in this section
+		if (routine.isSectionRoutine === 1) {
+			const { isAppEffectiveInSection } = await import("~/db/queries/sections.server")
+			const isMember = await isAppEffectiveInSection(appId, section.id)
+			if (!isMember) {
+				return data({ success: false, message: null, error: "Applikasjonen tilhører ikke denne seksjonen" })
+			}
+		}
 		const now = new Date()
 		const title = `${routine.name} — ${now.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
 		const review = await createReview({
 			routineId,
-			applicationId: appId,
+			applicationId: routine.isSectionRoutine === 1 ? null : appId,
 			title,
 			summary: null,
 			routineSnapshotPath: null,

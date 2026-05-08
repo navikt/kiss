@@ -1,4 +1,4 @@
-import { Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
+import { BodyShort, Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
@@ -28,6 +28,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const routine = await getRoutine(rutineId)
 	if (!routine) {
 		throw data({ message: `Fant ikke rutine: ${rutineId}` }, { status: 404 })
+	}
+
+	if (routine.sectionId !== section.id) {
+		throw data({ message: "Rutinen tilhører ikke denne seksjonen" }, { status: 403 })
 	}
 
 	if (routine.archivedAt) {
@@ -69,9 +73,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const participants = parseParticipantsFormValue(participantsRaw)
 
+	// Validate section ownership and section routine handling
+	const section = await getSectionBySlug(seksjon)
+	if (!section) {
+		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
+	}
+	const routine = await getRoutine(rutineId)
+	if (!routine) {
+		throw data({ message: `Fant ikke rutine: ${rutineId}` }, { status: 404 })
+	}
+	if (routine.sectionId !== section.id) {
+		throw data({ message: "Rutinen tilhører ikke denne seksjonen" }, { status: 403 })
+	}
+	const effectiveAppId = routine.isSectionRoutine === 1 ? null : applicationId
+
 	const review = await createReview({
 		routineId: rutineId,
-		applicationId,
+		applicationId: effectiveAppId,
 		title,
 		summary,
 		routineSnapshotPath: null,
@@ -80,7 +98,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		participants,
 	})
 
-	await autoCreateActivityForReview(review.id, rutineId, applicationId, authedUser.navIdent)
+	await autoCreateActivityForReview(review.id, rutineId, effectiveAppId, authedUser.navIdent)
 
 	return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}/gjennomgang/${review.id}`)
 }
@@ -109,21 +127,29 @@ export default function NyGjennomgang() {
 				<VStack gap="space-6">
 					<TextField label="Tittel" name="title" size="small" autoComplete="off" defaultValue={defaultTitle} />
 
-					<Select
-						label="Applikasjon"
-						name="applicationId"
-						size="small"
-						defaultValue={preselectedAppId}
-						disabled={!!preselectedAppId}
-					>
-						<option value="">Generell (ikke applikasjonsspesifikk)</option>
-						{apps.map((app) => (
-							<option key={app.id} value={app.id}>
-								{app.name}
-							</option>
-						))}
-					</Select>
-					{preselectedAppId && <input type="hidden" name="applicationId" value={preselectedAppId} />}
+					{routine.isSectionRoutine === 1 ? (
+						<BodyShort size="small" textColor="subtle">
+							Seksjonsrutine — gjennomgangen gjelder alle applikasjoner i seksjonen.
+						</BodyShort>
+					) : (
+						<>
+							<Select
+								label="Applikasjon"
+								name="applicationId"
+								size="small"
+								defaultValue={preselectedAppId}
+								disabled={!!preselectedAppId}
+							>
+								<option value="">Generell (ikke applikasjonsspesifikk)</option>
+								{apps.map((app) => (
+									<option key={app.id} value={app.id}>
+										{app.name}
+									</option>
+								))}
+							</Select>
+							{preselectedAppId && <input type="hidden" name="applicationId" value={preselectedAppId} />}
+						</>
+					)}
 
 					<HStack gap="space-6" align="end">
 						<div>

@@ -30,6 +30,8 @@ type RoutineDeadline = {
 	lastReviewDate: Date | string | null
 	overdue: boolean
 	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
+	isSectionRoutine?: boolean
+	sectionRoutineOwnerRole?: string | null
 }
 
 type CompletedReview = {
@@ -221,6 +223,11 @@ export function RutinerTab({
 												) : (
 													(dl.routine?.name ?? "—")
 												)}
+												{dl.isSectionRoutine && (
+													<Tag variant="alt1" size="xsmall" style={{ marginLeft: "var(--ax-space-2)" }}>
+														Seksjonsrutine
+													</Tag>
+												)}
 											</Table.DataCell>
 											<Table.DataCell>
 												{dl.matchSource === "persistence" ? (
@@ -299,7 +306,11 @@ export function RutinerTab({
 												)}
 											</Table.DataCell>
 											<Table.DataCell>
-												{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] && (
+												{dl.isSectionRoutine ? (
+													<BodyShort size="small" textColor="subtle">
+														Gjennomgås av {dl.sectionRoutineOwnerRole ?? "seksjonsleder"}
+													</BodyShort>
+												) : dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
 													<form method="post" style={{ display: "inline" }}>
 														<input type="hidden" name="intent" value="create-draft" />
 														<input type="hidden" name="routineId" value={dl.routine.id} />
@@ -308,7 +319,7 @@ export function RutinerTab({
 															Ny gjennomgang
 														</Button>
 													</form>
-												)}
+												) : null}
 											</Table.DataCell>
 										</Table.Row>
 									))}

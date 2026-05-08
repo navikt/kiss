@@ -23,6 +23,10 @@ KISS (Kontrollrammeverk for Integrert Sikker Systemutvikling) er Navs internkont
 - **Trailing commas** skal brukes
 - Kommentarer kun når koden trenger klargjøring
 - Linjbredde: 120 tegn
+- **TypeScript null-filtrering**: `.filter(x => x !== null)` narrower IKKE typen i strict mode. Bruk alltid type guard:
+  ```ts
+  .filter((x): x is NonNullable<typeof x> => x !== null)
+  ```
 
 ## Terminologi
 
@@ -90,6 +94,20 @@ Query-filer:
 - `reports.server.ts` – Rapporter
 
 Testdata seedes med `pnpm db:seed` (se `app/db/seed.ts`). Uten seed vil applikasjonen vise tomme tilstander.
+
+### Seksjon-app-tilhørighet
+
+Applikasjoner er **IKKE** direkte knyttet til seksjoner via en `section_id`-kolonne på `monitored_applications`. Tilhørighet resolves indirekte via tre stier:
+
+1. **Dev teams**: `application_team_mappings` → `dev_teams.section_id`
+2. **NAIS teams**: `application_environments` → `nais_teams.section_id`
+3. **Dev-NAIS mappinger**: `application_environments` → `dev_team_nais_team_mappings` → `dev_teams.section_id`
+
+Canonical funksjoner i `app/db/queries/sections.server.ts`:
+- `getEffectiveAppIdsInSection(sectionId)` — Returnerer alle effektive app-IDer med filtrering (barn-apper, ignorerte, ekskluderte miljøer, arkiverte)
+- `isAppEffectiveInSection(appId, sectionId)` — Målrettet membership-sjekk for én app (mer effektiv enn å laste hele listen)
+
+**Viktig:** Opprett aldri en `section_id`-kolonne på `monitored_applications`. Bruk alltid de canonical funksjonene over. I integrasjonstester, koble apper til seksjoner via `dev_teams` + `application_team_mappings`.
 
 ### Lagringsabstraksjon (StorageProvider)
 Fillagring bruker `StorageProvider`-interfacet i `app/lib/storage/`:
@@ -163,6 +181,11 @@ Når nye ruter introduseres:
 10. **AI-agenter skal ALDRI kjøre e2e-tester mot utviklingsdatabasen uten eksplisitt godkjenning.** E2e-tester kjører mot den lokale databasen og kan forurense den med testdata. Bruk unit-tester og integrasjonstester (Testcontainers) for validering.
 11. **AI-agenter skal ALDRI utføre destruktive databaseoperasjoner uten å spørre brukeren først.** Dette inkluderer DROP TABLE, DELETE uten WHERE, TRUNCATE, og alle migreringsverktøy som kan endre eller fjerne tabeller. Selv i autopilot-modus skal agenten stoppe og spørre.
 12. **`complianceAssessments` og `complianceAssessmentHistory` er DEPRECATED.** Disse tabellene og tilhørende funksjoner (`saveAssessment`, `saveAssessmentComment`, ruten `compliance-krav`) er legacy. Compliance-status skal utledes fra screening-spørsmål (`screeningQuestions`/`screeningAnswers`), regelsett (`rulesets`/`rulesetControls`) og rutiner (`routines`/`routineControls`). **Ikke bruk `complianceAssessments` i nye funksjoner.** Eksisterende bruk skal fases ut over tid.
+13. **Statiske imports i `.server.ts`-filer.** Bruk alltid statiske imports for moduler som allerede er hard dependencies (f.eks. `drizzle-orm`, schema-filer). Dynamiske imports (`await import(...)`) skal kun brukes for å bryte sirkulære avhengigheter mellom query-filer (f.eks. `routines.server.ts` ↔ `sections.server.ts`).
+14. **Forretningsinvarianter skal håndheves i query-laget.** `createX`/`updateX`-funksjoner i `app/db/queries/` skal validere og normalisere domene-invarianter, ikke bare stole på UI/action-validering. Eksempel: seksjonsrutiner tvinger `appliesToAllInSection=1` og `activityType=null` direkte i `createRoutine`/`updateRoutine`.
+15. **Valgfrie params i update-funksjoner skal ikke resette verdier.** Når en `updateX`-funksjon har valgfrie parametere (f.eks. `isSectionRoutine?: boolean`), skal de kun inkluderes i SQL SET-klausulen når de er eksplisitt oppgitt (`params.x !== undefined`). `params.x ? 1 : 0` evaluerer til `0` når `x` er `undefined`, som silently resetter verdien.
+16. **Migrasjoner skal være idempotente.** Bruk `ADD COLUMN IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`, `DROP COLUMN IF EXISTS` osv. Dette er nødvendig fordi `migrations.integration.test.ts` simulerer en `db:push` → `db:migrate`-overgang der kolonner kan eksistere allerede.
+17. **Arkiverte apper skal filtreres fra app-lister.** Funksjoner som returnerer lister over applikasjoner (f.eks. `getEffectiveAppIdsInSection`, team-app-resolver) skal filtrere bort arkiverte apper (`archivedAt IS NOT NULL`) med mindre arkiverte apper eksplisitt er ønsket.
 
 ### Kontroll-ID-formater
 - Nav MKR: `K-XX.NN` (f.eks. `K-ST.01`, `K-TS.03`)

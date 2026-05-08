@@ -27,7 +27,12 @@ export async function getSectionBySlug(slug: string) {
 	return section ?? null
 }
 
-async function getTeamAppIds(teamId: string, sectionId: string, excludedEnvs?: Set<string>) {
+async function getTeamAppIds(
+	teamId: string,
+	sectionId: string,
+	excludedEnvs?: Set<string>,
+	preloadedIgnoredAppIds?: Set<string>,
+) {
 	// Direct mappings
 	const directRows = await db
 		.select({ appId: applicationTeamMappings.applicationId })
@@ -48,16 +53,19 @@ async function getTeamAppIds(teamId: string, sectionId: string, excludedEnvs?: S
 
 	const naisAppIds = new Set<string>()
 	if (linkedNaisTeamIds.length > 0) {
-		const ignoredAppIds = new Set(
-			(
-				await db
-					.select({ appId: sectionIgnoredApplications.applicationId })
-					.from(sectionIgnoredApplications)
-					.where(
-						and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt)),
-					)
-			).map((r) => r.appId),
-		)
+		// Reuse preloaded ignored apps if available, otherwise query
+		const ignoredAppIds =
+			preloadedIgnoredAppIds ??
+			new Set(
+				(
+					await db
+						.select({ appId: sectionIgnoredApplications.applicationId })
+						.from(sectionIgnoredApplications)
+						.where(
+							and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt)),
+						)
+				).map((r) => r.appId),
+			)
 
 		const envConditions = [
 			sql`${applicationEnvironments.naisTeamId} IN (${sql.join(linkedNaisTeamIds, sql`, `)})`,
@@ -903,4 +911,175 @@ export async function getSectionApps(seksjonSlug: string) {
 	apps.sort((a, b) => a.appName.localeCompare(b.appName, "nb"))
 
 	return { section, apps }
+}
+
+/**
+ * Returns all effective app IDs in a section, applying the same filters as section UI:
+ * - Excludes child apps (primaryApplicationId IS NOT NULL)
+ * - Excludes section-ignored apps
+ * - Excludes apps whose only environments are in excluded clusters
+ * Uses getTeamAppIds for team-assigned apps + direct NAIS teams for unassigned apps.
+ */
+export async function getEffectiveAppIdsInSection(sectionId: string): Promise<string[]> {
+	const excludedEnvRows = await db
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false)))
+	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
+
+	const teams = await db
+		.select({ id: devTeams.id })
+		.from(devTeams)
+		.where(and(eq(devTeams.sectionId, sectionId), isNull(devTeams.archivedAt)))
+
+	const allAppIds = new Set<string>()
+
+	// Load ignored apps upfront so we can filter all resolution paths
+	const ignoredAppIds = new Set(
+		(
+			await db
+				.select({ appId: sectionIgnoredApplications.applicationId })
+				.from(sectionIgnoredApplications)
+				.where(and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt)))
+		).map((r) => r.appId),
+	)
+
+	// Team-assigned apps (direct + via NAIS teams, with proper filtering)
+	for (const team of teams) {
+		const { allIds } = await getTeamAppIds(team.id, sectionId, excludedEnvs, ignoredAppIds)
+		for (const id of allIds) {
+			if (!ignoredAppIds.has(id)) allAppIds.add(id)
+		}
+	}
+
+	// Direct NAIS teams assigned to section (unassigned apps)
+	const sectionNaisTeamRows = await db
+		.select({ id: naisTeams.id })
+		.from(naisTeams)
+		.where(eq(naisTeams.sectionId, sectionId))
+	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
+
+	if (naisTeamIds.length > 0) {
+		const envConditions = [
+			sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`,
+			isNull(monitoredApplications.primaryApplicationId),
+		]
+		if (excludedEnvs.size > 0) {
+			const excludedArray = [...excludedEnvs]
+			envConditions.push(
+				sql`${applicationEnvironments.cluster} NOT IN (${sql.join(
+					excludedArray.map((e) => sql`${e}`),
+					sql`, `,
+				)})`,
+			)
+		}
+
+		const naisAppRows = await db
+			.selectDistinct({ appId: applicationEnvironments.applicationId })
+			.from(applicationEnvironments)
+			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+			.where(and(...envConditions))
+
+		for (const row of naisAppRows) {
+			if (!ignoredAppIds.has(row.appId)) {
+				allAppIds.add(row.appId)
+			}
+		}
+	}
+
+	// Filter out archived applications
+	if (allAppIds.size > 0) {
+		const archivedRows = await db
+			.select({ id: monitoredApplications.id })
+			.from(monitoredApplications)
+			.where(and(inArray(monitoredApplications.id, [...allAppIds]), isNotNull(monitoredApplications.archivedAt)))
+		for (const row of archivedRows) {
+			allAppIds.delete(row.id)
+		}
+	}
+
+	return [...allAppIds]
+}
+
+/**
+ * Targeted membership check: returns true if `appId` is an effective member
+ * of the given section (same filters as getEffectiveAppIdsInSection).
+ * More efficient than loading the full app list when you only need to verify
+ * a single app's membership.
+ */
+export async function isAppEffectiveInSection(appId: string, sectionId: string): Promise<boolean> {
+	// Quick checks: archived or child app?
+	const [app] = await db
+		.select({
+			id: monitoredApplications.id,
+			archivedAt: monitoredApplications.archivedAt,
+			primaryApplicationId: monitoredApplications.primaryApplicationId,
+		})
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, appId))
+		.limit(1)
+	if (!app || app.archivedAt || app.primaryApplicationId) return false
+
+	// Is app ignored in this section?
+	const [ignored] = await db
+		.select({ appId: sectionIgnoredApplications.applicationId })
+		.from(sectionIgnoredApplications)
+		.where(
+			and(
+				eq(sectionIgnoredApplications.sectionId, sectionId),
+				eq(sectionIgnoredApplications.applicationId, appId),
+				isNull(sectionIgnoredApplications.archivedAt),
+			),
+		)
+		.limit(1)
+	if (ignored) return false
+
+	// Load excluded environments for this section
+	const excludedEnvRows = await db
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false)))
+	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
+
+	// Check via team-assigned apps (dev_teams → application_team_mappings)
+	const teamRows = await db
+		.select({ teamId: devTeams.id })
+		.from(devTeams)
+		.where(and(eq(devTeams.sectionId, sectionId), isNull(devTeams.archivedAt)))
+
+	for (const team of teamRows) {
+		const { allIds } = await getTeamAppIds(team.teamId, sectionId, excludedEnvs)
+		if (allIds.has(appId)) return true
+	}
+
+	// Check via direct NAIS teams assigned to section
+	const sectionNaisTeamRows = await db
+		.select({ id: naisTeams.id })
+		.from(naisTeams)
+		.where(eq(naisTeams.sectionId, sectionId))
+	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
+
+	if (naisTeamIds.length > 0) {
+		const envConditions = [
+			sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`,
+			eq(applicationEnvironments.applicationId, appId),
+		]
+		if (excludedEnvs.size > 0) {
+			const excludedArray = [...excludedEnvs]
+			envConditions.push(
+				sql`${applicationEnvironments.cluster} NOT IN (${sql.join(
+					excludedArray.map((e) => sql`${e}`),
+					sql`, `,
+				)})`,
+			)
+		}
+		const [found] = await db
+			.select({ appId: applicationEnvironments.applicationId })
+			.from(applicationEnvironments)
+			.where(and(...envConditions))
+			.limit(1)
+		if (found) return true
+	}
+
+	return false
 }

@@ -26,6 +26,7 @@ vi.mock("~/db/queries/routines.server", () => ({
 	calculateDeadline: vi.fn(),
 	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
 	getLatestReviewForApp: vi.fn(),
+	getLatestSectionReview: vi.fn().mockResolvedValue(null),
 	getReviewsForRoutine: vi.fn().mockResolvedValue([]),
 	isOverdue: vi.fn(),
 }))
@@ -61,6 +62,7 @@ const fakeRoutine = {
 	id: "routine-1",
 	name: "Test rutine",
 	status: "ready",
+	sectionId: "section-1",
 	responsibleRole: "Teknologileder",
 	controls: [],
 	technologyElements: [],
