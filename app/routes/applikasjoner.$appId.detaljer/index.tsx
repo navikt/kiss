@@ -28,6 +28,7 @@ import { PersisteringTab } from "./tabs/PersisteringTab"
 import { RapporterTab } from "./tabs/RapporterTab"
 import { RevisjonsbevisTab } from "./tabs/RevisjonsbevisTab"
 import { RutinerTab } from "./tabs/RutinerTab"
+import { ScreeningerTab } from "./tabs/ScreeningerTab"
 
 export { action } from "./action.server"
 export { loader } from "./loader.server"
@@ -60,6 +61,7 @@ export default function ApplikasjonDetalj() {
 		compliance,
 		assessments,
 		appReports,
+		screeningSessions,
 		oracleInstances,
 		totalOracleInstanceCount,
 		oracleRoles,
@@ -111,66 +113,59 @@ export default function ApplikasjonDetalj() {
 
 			<Box background="sunken" padding="space-16" borderRadius="8">
 				<VStack gap="space-12">
-					<HStack gap="space-16" wrap justify="space-between" align="center">
-						<HStack gap="space-16" wrap align="center">
+					<HStack gap="space-16" wrap align="center">
+						<Tag
+							variant={compliance.percent >= 80 ? "success" : compliance.percent >= 50 ? "warning" : "error"}
+							size="medium"
+						>
+							{compliance.percent} % compliance
+						</Tag>
+						{compliance.screeningProgress.total > 0 && (
 							<Tag
-								variant={compliance.percent >= 80 ? "success" : compliance.percent >= 50 ? "warning" : "error"}
+								variant={
+									compliance.screeningProgress.answered === compliance.screeningProgress.total
+										? "success"
+										: compliance.screeningProgress.answered > 0
+											? "warning"
+											: "error"
+								}
 								size="medium"
 							>
-								{compliance.percent} % compliance
+								{compliance.screeningProgress.answered} / {compliance.screeningProgress.total} spørsmål besvart
 							</Tag>
-							{compliance.screeningProgress.total > 0 && (
-								<Tag
-									variant={
-										compliance.screeningProgress.answered === compliance.screeningProgress.total
-											? "success"
-											: compliance.screeningProgress.answered > 0
-												? "warning"
-												: "error"
-									}
-									size="medium"
-								>
-									{compliance.screeningProgress.answered} / {compliance.screeningProgress.total} spørsmål besvart
-								</Tag>
-							)}
-							<HStack gap="space-12" wrap>
-								<VStack align="center">
-									<BodyShort size="small" weight="semibold">
-										{compliance.implemented}
-									</BodyShort>
-									<Detail textColor="subtle">Implementert</Detail>
-								</VStack>
-								<VStack align="center">
-									<BodyShort size="small" weight="semibold">
-										{compliance.partial}
-									</BodyShort>
-									<Detail textColor="subtle">Delvis</Detail>
-								</VStack>
-								<VStack align="center">
-									<BodyShort size="small" weight="semibold">
-										{compliance.notImplemented}
-									</BodyShort>
-									<Detail textColor="subtle">Ikke impl.</Detail>
-								</VStack>
-								<VStack align="center">
-									<BodyShort size="small" weight="semibold">
-										{compliance.notRelevant}
-									</BodyShort>
-									<Detail textColor="subtle">Ikke relevant</Detail>
-								</VStack>
-								<VStack align="center">
-									<BodyShort size="small" weight="semibold">
-										{compliance.notAssessed}
-									</BodyShort>
-									<Detail textColor="subtle">Ikke vurdert</Detail>
-								</VStack>
-							</HStack>
+						)}
+						<HStack gap="space-12" wrap>
+							<VStack align="center">
+								<BodyShort size="small" weight="semibold">
+									{compliance.implemented}
+								</BodyShort>
+								<Detail textColor="subtle">Implementert</Detail>
+							</VStack>
+							<VStack align="center">
+								<BodyShort size="small" weight="semibold">
+									{compliance.partial}
+								</BodyShort>
+								<Detail textColor="subtle">Delvis</Detail>
+							</VStack>
+							<VStack align="center">
+								<BodyShort size="small" weight="semibold">
+									{compliance.notImplemented}
+								</BodyShort>
+								<Detail textColor="subtle">Ikke impl.</Detail>
+							</VStack>
+							<VStack align="center">
+								<BodyShort size="small" weight="semibold">
+									{compliance.notRelevant}
+								</BodyShort>
+								<Detail textColor="subtle">Ikke relevant</Detail>
+							</VStack>
+							<VStack align="center">
+								<BodyShort size="small" weight="semibold">
+									{compliance.notAssessed}
+								</BodyShort>
+								<Detail textColor="subtle">Ikke vurdert</Detail>
+							</VStack>
 						</HStack>
-						<Link to={`${appBase}/compliance`}>
-							<Button as="span" size="small" variant="secondary">
-								Gå til compliance-screening
-							</Button>
-						</Link>
 					</HStack>
 
 					<HStack gap="space-24" wrap>
@@ -283,6 +278,7 @@ export default function ApplikasjonDetalj() {
 			>
 				<Tabs.List>
 					<Tabs.Tab value="rutiner" label="Rutiner" />
+					<Tabs.Tab value="screeninger" label="Screeninger" />
 					<Tabs.Tab value="kontroller" label="Kontroller" />
 					<Tabs.Tab value="autentisering" label="Autentisering" />
 					<Tabs.Tab value="autoriserte-applikasjoner" label="Autoriserte applikasjoner" />
@@ -300,6 +296,10 @@ export default function ApplikasjonDetalj() {
 						completedReviews={completedReviews}
 						sectionSlugMap={sectionSlugMap}
 					/>
+				</Tabs.Panel>
+
+				<Tabs.Panel value="screeninger" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<ScreeningerTab screeningSessions={screeningSessions} appBasePath={appBase} canAdmin={canAdmin} />
 				</Tabs.Panel>
 
 				<Tabs.Panel value="kontroller" style={{ paddingTop: "var(--ax-space-6)" }}>

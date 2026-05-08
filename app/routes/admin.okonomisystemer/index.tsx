@@ -81,7 +81,7 @@ export default function AdminOkonomisystemer() {
 							{items.map((item) => (
 								<Table.Row key={item.id}>
 									<Table.DataCell>
-										<Link to={`/applikasjoner/${item.applicationId}/compliance`}>{item.applicationName}</Link>
+										<Link to={`/applikasjoner/${item.applicationId}/detaljer`}>{item.applicationName}</Link>
 									</Table.DataCell>
 									<Table.DataCell>
 										{item.economySystemType && (

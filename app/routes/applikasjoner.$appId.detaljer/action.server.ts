@@ -22,6 +22,7 @@ import {
 } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
+import { logger } from "~/lib/logger.server"
 
 export async function action({ request, params }: ActionFunctionArgs) {
 	const appId = params.appId
@@ -141,7 +142,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				authedUser.navIdent,
 			)
 		} catch (err) {
-			console.error("addManualPersistence failed", err)
+			logger.error("addManualPersistence failed", { error: err })
 			return data({
 				success: false,
 				message: null,
@@ -251,6 +252,67 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const { updateControlComment } = await import("~/db/queries/application-controls.server")
 		await updateControlComment(applicationControlId, comment, authedUser.navIdent)
 		return data({ success: true, message: "Kommentar lagret.", error: null })
+	}
+
+	if (intent === "create-screening-session") {
+		const { createScreeningSession, captureStateSnapshot } = await import("~/db/queries/screening-sessions.server")
+		const title = `Screening ${new Date().toLocaleDateString("nb-NO")}`
+
+		const stateSnapshot = await captureStateSnapshot(appId, authedUser.groups ?? [])
+
+		const session = await createScreeningSession({
+			applicationId: appId,
+			title,
+			participants: [{ userIdent: authedUser.navIdent, userName: authedUser.name }],
+			stateSnapshot,
+			performedBy: authedUser.navIdent,
+		})
+
+		const pathname = new URL(request.url).pathname
+		const basePath = pathname.replace(/\/detaljer.*$/, "")
+		return redirect(`${basePath}/screening/${session.id}`)
+	}
+
+	if (intent === "archive-screening-session") {
+		if (!isAdmin(authedUser)) {
+			return data({ success: false, message: null, error: "Kun administratorer kan fjerne screeninger" })
+		}
+		const { archiveScreeningSession, getScreeningSessionForAdmin } = await import(
+			"~/db/queries/screening-sessions.server"
+		)
+		const sessionId = formData.get("sessionId") as string
+		const reason = (formData.get("reason") as string)?.trim()
+		if (!sessionId) return data({ success: false, message: null, error: "Mangler sesjon-ID" })
+		if (!reason) return data({ success: false, message: null, error: "Begrunnelse er påkrevd" })
+		const session = await getScreeningSessionForAdmin(sessionId)
+		if (!session || session.applicationId !== appId) {
+			return data({ success: false, message: null, error: "Screening-sesjon ikke funnet" })
+		}
+		if (session.archivedAt) {
+			return data({ success: false, message: null, error: "Screeningen er allerede fjernet" })
+		}
+		await archiveScreeningSession(sessionId, authedUser.navIdent, reason)
+		return data({ success: true, message: "Screening fjernet.", error: null })
+	}
+
+	if (intent === "restore-screening-session") {
+		if (!isAdmin(authedUser)) {
+			return data({ success: false, message: null, error: "Kun administratorer kan gjenopprette screeninger" })
+		}
+		const { restoreScreeningSession, getScreeningSessionForAdmin } = await import(
+			"~/db/queries/screening-sessions.server"
+		)
+		const sessionId = formData.get("sessionId") as string
+		if (!sessionId) return data({ success: false, message: null, error: "Mangler sesjon-ID" })
+		const session = await getScreeningSessionForAdmin(sessionId)
+		if (!session || session.applicationId !== appId) {
+			return data({ success: false, message: null, error: "Screening-sesjon ikke funnet" })
+		}
+		if (!session.archivedAt) {
+			return data({ success: false, message: null, error: "Screeningen er ikke fjernet" })
+		}
+		await restoreScreeningSession(sessionId, authedUser.navIdent)
+		return data({ success: true, message: "Screening gjenopprettet.", error: null })
 	}
 
 	return data({ success: false, message: null, error: "Ukjent handling" })

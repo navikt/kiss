@@ -268,12 +268,7 @@ export function KontrollerTab({
 							</Table.Header>
 							<Table.Body>
 								{group.items.map((a) => (
-									<ControlRow
-										key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`}
-										item={a}
-										colSpan={9}
-										compliancePath={`${appBasePath}/compliance`}
-									>
+									<ControlRow key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`} item={a} colSpan={9}>
 										<Table.DataCell>{a.domainName}</Table.DataCell>
 										<Table.DataCell>
 											<Link to={createControlLink(sectionSlug, a.domainCode, a.controlId)}>{a.controlId}</Link>
@@ -361,12 +356,7 @@ export function KontrollerTab({
 							</Table.Header>
 							<Table.Body>
 								{notRelevantAssessments.map((a) => (
-									<ControlRow
-										key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`}
-										item={a}
-										colSpan={7}
-										compliancePath={`${appBasePath}/compliance`}
-									>
+									<ControlRow key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`} item={a} colSpan={7}>
 										<Table.DataCell>{a.domainName}</Table.DataCell>
 										<Table.DataCell>
 											<Link to={createControlLink(sectionSlug, a.domainCode, a.controlId)}>{a.controlId}</Link>
