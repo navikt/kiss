@@ -8,7 +8,10 @@ export default [
 	// Mine-team-context app routes (breadcrumbs reflect mine-team origin)
 	route("mine-team/applikasjoner/:appId/detaljer", "routes/ctx-mine-team.applikasjoner.$appId.detaljer/index.tsx"),
 	route("mine-team/applikasjoner/:appId/rediger", "routes/ctx-mine-team.applikasjoner.$appId.rediger/index.tsx"),
-	route("mine-team/applikasjoner/:appId/compliance", "routes/ctx-mine-team.applikasjoner.$appId.compliance/index.tsx"),
+	route(
+		"mine-team/applikasjoner/:appId/screening/:sessionId",
+		"routes/ctx-mine-team.applikasjoner.$appId.screening.$sessionId/index.tsx",
+	),
 	route(
 		"mine-team/applikasjoner/:appId/kontroll/:controlId/rutiner",
 		"routes/ctx-mine-team.applikasjoner.$appId.kontroll.$controlId.rutiner/index.tsx",
@@ -32,8 +35,8 @@ export default [
 	),
 	route("seksjoner/:seksjon/applikasjoner/:appId/rediger", "routes/ctx-seksjon.applikasjoner.$appId.rediger/index.tsx"),
 	route(
-		"seksjoner/:seksjon/applikasjoner/:appId/compliance",
-		"routes/ctx-seksjon.applikasjoner.$appId.compliance/index.tsx",
+		"seksjoner/:seksjon/applikasjoner/:appId/screening/:sessionId",
+		"routes/ctx-seksjon.applikasjoner.$appId.screening.$sessionId/index.tsx",
 	),
 	route(
 		"seksjoner/:seksjon/applikasjoner/:appId/kontroll/:controlId/rutiner",
@@ -53,8 +56,8 @@ export default [
 		"routes/ctx-team.applikasjoner.$appId.rediger/index.tsx",
 	),
 	route(
-		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/compliance",
-		"routes/ctx-team.applikasjoner.$appId.compliance/index.tsx",
+		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/screening/:sessionId",
+		"routes/ctx-team.applikasjoner.$appId.screening.$sessionId/index.tsx",
 	),
 	route(
 		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/kontroll/:controlId/rutiner",
@@ -102,7 +105,7 @@ export default [
 	route("api/gjennomgang/:gjennomgangId/vedlegg", "routes/api.gjennomgang.$gjennomgangId.vedlegg/index.tsx"),
 	route("applikasjoner/:appId/detaljer", "routes/applikasjoner.$appId.detaljer/index.tsx"),
 	route("applikasjoner/:appId/rediger", "routes/applikasjoner.$appId.rediger/index.tsx"),
-	route("applikasjoner/:appId/compliance", "routes/applikasjoner.$appId.compliance/index.tsx"),
+	route("applikasjoner/:appId/screening/:sessionId", "routes/applikasjoner.$appId.screening.$sessionId/index.tsx"),
 	route(
 		"applikasjoner/:appId/kontroll/:controlId/rutiner",
 		"routes/applikasjoner.$appId.kontroll.$controlId.rutiner/index.tsx",

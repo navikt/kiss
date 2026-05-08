@@ -203,6 +203,14 @@ export const auditLogActionEnum = [
 	// Økonomisystem-klassifisering
 	"economy_classification_created",
 	"economy_classification_archived",
+
+	// Screening-sesjoner
+	"screening_session_created",
+	"screening_session_completed",
+	"screening_session_archived",
+	"screening_session_restored",
+	"screening_session_participant_added",
+	"screening_session_participant_removed",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

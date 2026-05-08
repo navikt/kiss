@@ -1,17 +1,14 @@
 import { PencilWritingIcon, PlusIcon } from "@navikt/aksel-icons"
-import { Link as AkselLink, BodyShort, Box, Button, Detail, HStack, List, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyShort, Box, Button, Detail, HStack, List, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
-import { Link } from "react-router"
 import type { ComplianceStatus } from "~/lib/compliance-status"
 import { statusLabels, statusVariants } from "~/lib/compliance-status"
-import { slugify } from "~/lib/utils"
 import { ControlCommentPanel } from "./ControlCommentPanel"
 
 export function ControlRow({
 	item,
 	children,
 	colSpan,
-	compliancePath,
 }: {
 	item: {
 		controlUuid: string
@@ -25,7 +22,6 @@ export function ControlRow({
 	}
 	children: React.ReactNode
 	colSpan: number
-	compliancePath: string
 }) {
 	const [isOpen, setIsOpen] = useState(!!item.comment)
 	const [editRequested, setEditRequested] = useState(false)
@@ -57,10 +53,7 @@ export function ControlRow({
 									<List size="small" as="ul" aria-label="Screening-svar som påvirker denne kontrollen">
 										{item.screeningDetails.map((d) => (
 											<List.Item key={`${d.questionId}-${d.effect}`}>
-												<AkselLink as={Link} to={`${compliancePath}#q-${slugify(d.questionTitle)}`}>
-													{d.questionTitle}
-												</AkselLink>
-												: <strong>{d.answer}</strong>{" "}
+												{d.questionTitle}: <strong>{d.answer}</strong>{" "}
 												<Tag variant={statusVariants[d.effect as ComplianceStatus] ?? "neutral"} size="xsmall">
 													{effectLabel(d.effect)}
 												</Tag>

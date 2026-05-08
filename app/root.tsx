@@ -9,6 +9,7 @@ import {
 	Scripts,
 	ScrollRestoration,
 	useLoaderData,
+	useRouteError,
 	useRouteLoaderData,
 } from "react-router"
 import { AppNavigation } from "./components/AppNavigation"
@@ -182,9 +183,11 @@ function AppShell({
 	)
 }
 
-export function ErrorBoundary({ error }: { error: unknown }) {
+export function ErrorBoundary() {
+	const error = useRouteError()
 	const rootData = useRouteLoaderData<typeof loader>("root")
 	const admin = rootData?.user?.isAdmin === true
+	const showDetails = admin || import.meta.env.DEV
 
 	const message =
 		error instanceof Error
@@ -206,8 +209,21 @@ export function ErrorBoundary({ error }: { error: unknown }) {
 					<Heading size="xlarge" level="1">
 						{error.status} {error.statusText}
 					</Heading>
-					{error.data && <BodyLong>{error.data}</BodyLong>}
-					{admin && stack && (
+					{error.data && (
+						<BodyLong>
+							{typeof error.data === "string"
+								? error.data
+								: typeof error.data === "object" && error.data !== null && "message" in error.data
+									? String((error.data as { message: unknown }).message)
+									: "En uventet feil oppsto"}
+						</BodyLong>
+					)}
+					{showDetails && error.data && typeof error.data === "object" && (
+						<Detail as="pre" style={{ whiteSpace: "pre-wrap", overflowX: "auto" }}>
+							{JSON.stringify(error.data, null, 2)}
+						</Detail>
+					)}
+					{showDetails && stack && (
 						<Detail as="pre" style={{ whiteSpace: "pre-wrap", overflowX: "auto" }}>
 							{stack}
 						</Detail>
@@ -224,11 +240,16 @@ export function ErrorBoundary({ error }: { error: unknown }) {
 					Noe gikk galt
 				</Heading>
 				<BodyLong>{message}</BodyLong>
-				{admin && stack && (
+				{showDetails && stack && (
 					<Detail as="pre" style={{ whiteSpace: "pre-wrap", overflowX: "auto" }}>
 						{stack}
 					</Detail>
 				)}
+				{showDetails && !stack && error != null ? (
+					<Detail as="pre" style={{ whiteSpace: "pre-wrap", overflowX: "auto" }}>
+						{typeof error === "object" ? JSON.stringify(error, null, 2) : String(error)}
+					</Detail>
+				) : null}
 			</VStack>
 		</Box>
 	)

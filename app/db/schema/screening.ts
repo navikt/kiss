@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm"
-import { boolean, integer, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core"
+import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { monitoredApplications } from "./applications"
 import { complianceStatusEnum } from "./compliance"
 import { frameworkControls, technologyElements } from "./framework"
@@ -155,3 +155,84 @@ export const screeningRoutineSelections = pgTable(
 	},
 	(t) => [unique().on(t.applicationId, t.choiceEffectId)],
 )
+
+// ─── Screening Sessions (Instanser) ─────────────────────────────────────
+
+export const screeningSessionStatusEnum = ["draft", "completed", "discarded"] as const
+export type ScreeningSessionStatus = (typeof screeningSessionStatusEnum)[number]
+
+/** A screening session instance that serves as audit evidence. */
+export const screeningSessions = pgTable("screening_sessions", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	applicationId: uuid("application_id")
+		.notNull()
+		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
+	title: text("title").notNull(),
+	status: text("status", { enum: screeningSessionStatusEnum }).notNull().default("draft"),
+	/** Snapshot of the application state (persistence, groups, oracle roles, economy) at session creation time. */
+	stateSnapshot: jsonb("state_snapshot"),
+	completedAt: timestamp("completed_at", { withTimezone: true }),
+	completedBy: text("completed_by"),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	createdBy: text("created_by").notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedBy: text("updated_by").notNull(),
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	archivedBy: text("archived_by"),
+	archiveReason: text("archive_reason"),
+})
+
+/** Participants in a screening session. */
+export const screeningSessionParticipants = pgTable(
+	"screening_session_participants",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		sessionId: uuid("session_id")
+			.notNull()
+			.references(() => screeningSessions.id, { onDelete: "cascade" }),
+		userIdent: text("user_ident").notNull(),
+		userName: text("user_name"),
+		confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(table) => [
+		uniqueIndex("screening_session_participants_active_unique_idx")
+			.on(table.sessionId, table.userIdent)
+			.where(sql`${table.archivedAt} IS NULL`),
+	],
+)
+
+/** Snapshot of answers given during a screening session (immutable audit evidence). */
+export const screeningSessionAnswers = pgTable(
+	"screening_session_answers",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		sessionId: uuid("session_id")
+			.notNull()
+			.references(() => screeningSessions.id, { onDelete: "cascade" }),
+		questionId: uuid("question_id")
+			.notNull()
+			.references(() => screeningQuestions.id, { onDelete: "restrict" }),
+		answer: text("answer"),
+		comment: text("comment"),
+		link: text("link"),
+		answeredBy: text("answered_by").notNull(),
+		answeredAt: timestamp("answered_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [unique().on(t.sessionId, t.questionId)],
+)
+
+// ─── Staged operations (not yet applied to application) ──────────────
+
+export const screeningSessionOperations = pgTable("screening_session_operations", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	sessionId: uuid("session_id")
+		.notNull()
+		.references(() => screeningSessions.id, { onDelete: "cascade" }),
+	intent: text("intent").notNull(),
+	payload: jsonb("payload").notNull(),
+	performedBy: text("performed_by").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	replayedAt: timestamp("replayed_at", { withTimezone: true }),
+})

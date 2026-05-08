@@ -122,7 +122,7 @@ export function AlleApplikasjonerTab({
 											</Table.DataCell>
 											<Table.DataCell>
 												<HStack gap="space-2" align="center">
-													<AkselLink as={Link} to={`/applikasjoner/${app.id}/compliance`}>
+													<AkselLink as={Link} to={`/applikasjoner/${app.id}/detaljer?fane=screeninger`}>
 														Vurder
 													</AkselLink>
 													{availableTeams.length > 0 && (

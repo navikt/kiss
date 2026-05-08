@@ -295,7 +295,9 @@ export default function TeamDashboard() {
 											</>
 										)}
 										<Table.DataCell>
-											<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/compliance`}>
+											<Link
+												to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer?fane=screeninger`}
+											>
 												Vurder
 											</Link>
 										</Table.DataCell>

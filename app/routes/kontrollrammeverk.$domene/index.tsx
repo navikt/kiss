@@ -255,7 +255,7 @@ export default function DomainDetail() {
 																	{control.gaps.map((gap) => (
 																		<Table.Row key={gap.appId}>
 																			<Table.DataCell>
-																				<AkselLink as={Link} to={`/applikasjoner/${gap.appId}/compliance`}>
+																				<AkselLink as={Link} to={`/applikasjoner/${gap.appId}/detaljer`}>
 																					{gap.appName}
 																				</AkselLink>
 																			</Table.DataCell>

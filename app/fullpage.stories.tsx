@@ -7,7 +7,6 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import {
 	mockAppDetaljerData,
-	mockComplianceData,
 	mockDeploymentStats,
 	mockKontrollrammeverkData,
 	mockMineTeamData,
@@ -18,7 +17,6 @@ import {
 	mockTeamDetailData,
 } from "@storybook-mocks/data"
 import { renderWithLayout } from "@storybook-mocks/router"
-import ComplianceAssessment from "./routes/applikasjoner.$appId.compliance/index"
 import ApplikasjonDetalj from "./routes/applikasjoner.$appId.detaljer/index"
 import Dashboard from "./routes/dashboard/index"
 import Kontrollrammeverk from "./routes/kontrollrammeverk/index"
@@ -147,13 +145,5 @@ export const OracleRollerStory: Story = {
 	render: () =>
 		renderWithLayout(SeksjonOracleRoller, mockOracleRollerData(), {
 			path: "/seksjoner/pensjon-og-ufore/oracle-roller",
-		}),
-}
-
-export const ComplianceStory: Story = {
-	name: "Compliance-vurdering",
-	render: () =>
-		renderWithLayout(ComplianceAssessment, mockComplianceData(), {
-			path: "/applikasjoner/app-1/compliance",
 		}),
 }
