@@ -21,7 +21,7 @@ import { logger } from "./logger.server"
 const CYCLE_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — base cycle
 const INITIAL_DELAY_MS = 30 * 1000 // 30 seconds after startup
 
-let intervalId: ReturnType<typeof setInterval> | null = null
+let running = false
 let timeoutId: ReturnType<typeof setTimeout> | null = null
 let cycleCount = 0
 
@@ -116,7 +116,7 @@ async function runCycle() {
 
 /** Start the unified sequential scheduler. All sync jobs run sequentially within each cycle. */
 export function startUnifiedScheduler() {
-	if (intervalId) return
+	if (running) return
 
 	logger.info(
 		`[unified-scheduler] Starting — cycle interval ${CYCLE_INTERVAL_MS / 1000}s, initial delay ${INITIAL_DELAY_MS / 1000}s`,
@@ -125,22 +125,30 @@ export function startUnifiedScheduler() {
 		"[unified-scheduler] Jobs run sequentially to minimize connection pool usage (was: 4 independent schedulers)",
 	)
 
-	timeoutId = setTimeout(() => {
-		timeoutId = null
-		runCycle()
-		intervalId = setInterval(runCycle, CYCLE_INTERVAL_MS)
-	}, INITIAL_DELAY_MS)
+	running = true
+	timeoutId = setTimeout(scheduleLoop, INITIAL_DELAY_MS)
+}
+
+async function scheduleLoop() {
+	while (running) {
+		await runCycle()
+		if (!running) break
+		await new Promise<void>((resolve) => {
+			timeoutId = setTimeout(() => {
+				timeoutId = null
+				resolve()
+			}, CYCLE_INTERVAL_MS)
+		})
+	}
 }
 
 /** Stop the unified scheduler (for graceful shutdown). */
 export function stopUnifiedScheduler() {
+	if (!running) return
+	running = false
 	if (timeoutId) {
 		clearTimeout(timeoutId)
 		timeoutId = null
 	}
-	if (intervalId) {
-		clearInterval(intervalId)
-		intervalId = null
-		logger.info("[unified-scheduler] Stopped")
-	}
+	logger.info("[unified-scheduler] Stopped")
 }
