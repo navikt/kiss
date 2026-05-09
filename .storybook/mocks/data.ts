@@ -339,8 +339,77 @@ export function mockAppDetaljerData() {
 			{ id: "elem-1", name: "PostgreSQL", source: "nais", confirmedAt: "2025-01-15T08:00:00.000Z", rejectedAt: null },
 			{ id: "elem-2", name: "Kafka", source: "nais", confirmedAt: null, rejectedAt: null },
 		],
-		routineDeadlines: [],
-		completedReviews: [],
+		routineDeadlines: [
+			{
+				routine: {
+					id: "routine-1",
+					name: "Sikkerhetstesting av applikasjoner",
+					sectionId: "s-01",
+					frequency: "quarterly",
+					technologyElements: [{ id: "te-1", name: "Applikasjon" }],
+					isSectionRoutine: 0,
+					sectionRoutineOwnerRole: null,
+				},
+				matchSource: "screening",
+				deadline: "2026-06-01T10:00:00Z",
+				lastReviewDate: "2026-03-01T10:00:00Z",
+				overdue: false,
+			},
+			{
+				routine: {
+					id: "routine-2",
+					name: "Tilgangskontroll – gjennomgang",
+					sectionId: "s-01",
+					frequency: "semi_annually",
+					technologyElements: [],
+					isSectionRoutine: 1,
+					sectionRoutineOwnerRole: "Seksjonsleder",
+				},
+				matchSource: "section",
+				deadline: "2026-09-15T09:00:00Z",
+				lastReviewDate: "2026-03-15T09:00:00Z",
+				overdue: false,
+			},
+			{
+				routine: {
+					id: "routine-3",
+					name: "Database-backup verifisering",
+					sectionId: "s-01",
+					frequency: "monthly",
+					technologyElements: [{ id: "te-2", name: "Database" }],
+					isSectionRoutine: 0,
+					sectionRoutineOwnerRole: null,
+				},
+				matchSource: "persistence",
+				deadline: "2026-04-01T08:00:00Z",
+				lastReviewDate: null,
+				overdue: true,
+			},
+		],
+		completedReviews: [
+			{
+				id: "rev-1",
+				routineId: "routine-1",
+				routineName: "Sikkerhetstesting av applikasjoner",
+				title: "Sikkerhetstesting Q1 2026",
+				reviewedAt: "2026-03-01T10:00:00Z",
+				status: "completed" as const,
+				createdBy: "A123456",
+				sectionId: null,
+				participants: [{ confirmedAt: "2026-03-01T11:00:00Z" }],
+			},
+			{
+				id: "rev-sec-1",
+				routineId: "routine-2",
+				routineName: "Tilgangskontroll – gjennomgang",
+				title: "Tilgangskontroll H1 2026",
+				reviewedAt: "2026-03-15T09:00:00Z",
+				status: "completed" as const,
+				createdBy: "A123456",
+				sectionId: "s-01",
+				participants: [{ confirmedAt: "2026-03-15T09:30:00Z" }, { confirmedAt: null }],
+			},
+		],
 		assessments: [
 			mockAssessment("K-ST.01", "Sikkerhetstesting", "implemented", "Rutiner dekker denne kontrollen"),
 			mockAssessment("K-ST.02", "Penetrasjonstesting", "partially_implemented", "Rutine forfalt"),
@@ -572,5 +641,375 @@ export function mockOracleRollerData() {
 				assessedAt: "2026-04-15T10:32:00Z",
 			},
 		],
+	}
+}
+
+// ─── Rutiner ────────────────────────────────────────────────────────
+
+function mockRoutineBase(overrides: Partial<{
+	id: string
+	name: string
+	description: string | null
+	frequency: string
+	status: string
+	isSectionRoutine: number
+	sectionRoutineOwnerRole: string | null
+	appliesToAllInSection: number
+	responsibleRole: string | null
+	activityType: string | null
+	screeningQuestionId: string | null
+	screeningChoiceValue: string | null
+	approvedBy: string | null
+	approvedAt: string | null
+	archivedAt: string | null
+	archivedBy: string | null
+	sourceRoutineId: string | null
+	replacedByRoutineId: string | null
+	replacedAt: string | null
+}> = {}) {
+	return {
+		id: overrides.id ?? "routine-1",
+		sectionId: "s-01",
+		name: overrides.name ?? "Sikkerhetstesting av applikasjoner",
+		description: overrides.description ?? "Gjennomfør sikkerhetstesting av alle produksjonsapplikasjoner",
+		frequency: overrides.frequency ?? "quarterly",
+		responsibleRole: overrides.responsibleRole ?? "Sikkerhetsansvarlig",
+		appliesToAllInSection: overrides.appliesToAllInSection ?? 0,
+		isSectionRoutine: overrides.isSectionRoutine ?? 0,
+		sectionRoutineOwnerRole: overrides.sectionRoutineOwnerRole ?? null,
+		screeningQuestionId: overrides.screeningQuestionId ?? null,
+		screeningChoiceValue: overrides.screeningChoiceValue ?? null,
+		activityType: overrides.activityType ?? null,
+		status: overrides.status ?? "approved",
+		approvedBy: overrides.approvedBy ?? "A123456",
+		approvedAt: overrides.approvedAt ?? "2026-01-15T10:00:00Z",
+		sourceRoutineId: overrides.sourceRoutineId ?? null,
+		replacedByRoutineId: overrides.replacedByRoutineId ?? null,
+		replacedAt: overrides.replacedAt ?? null,
+		createdAt: "2025-12-01T08:00:00Z",
+		createdBy: "A123456",
+		updatedAt: "2026-01-15T10:00:00Z",
+		updatedBy: "A123456",
+		archivedAt: overrides.archivedAt ?? null,
+		archivedBy: overrides.archivedBy ?? null,
+	}
+}
+
+const mockSection = { id: "s-01", name: "Pensjon og uføre", slug: "pensjon-og-ufore" }
+
+export function mockRutinerListData() {
+	return {
+		section: mockSection,
+		routines: [
+			{
+				...mockRoutineBase({ id: "routine-1", name: "Sikkerhetstesting", status: "approved", frequency: "quarterly" }),
+				technologyElements: [{ id: "te-1", name: "Applikasjon" }],
+				persistenceLinks: [],
+				reviewCount: 3,
+				controls: [{ id: "c-1", controlId: "K-ST.01", name: "Sikkerhetstesting av applikasjoner" }],
+			},
+			{
+				...mockRoutineBase({
+					id: "routine-2",
+					name: "Tilgangskontroll – gjennomgang",
+					status: "approved",
+					frequency: "semi_annually",
+					isSectionRoutine: 1,
+					sectionRoutineOwnerRole: "Seksjonsleder",
+					appliesToAllInSection: 1,
+				}),
+				technologyElements: [],
+				persistenceLinks: [],
+				reviewCount: 1,
+				controls: [{ id: "c-2", controlId: "K-TS.01", name: "Tilgangskontroll og autorisering" }],
+			},
+			{
+				...mockRoutineBase({
+					id: "routine-3",
+					name: "Database-backup verifisering",
+					status: "draft",
+					frequency: "monthly",
+					responsibleRole: "Utvikler",
+				}),
+				technologyElements: [
+					{ id: "te-2", name: "Database" },
+					{ id: "te-3", name: "PostgreSQL" },
+				],
+				persistenceLinks: [
+					{ id: "pl-1", routineId: "routine-3", persistenceType: "cloud_sql_postgres", dataClassification: "internal", archivedAt: null, archivedBy: null, createdAt: "2025-12-01", createdBy: "A123456", updatedAt: "2025-12-01", updatedBy: "A123456" },
+				],
+				reviewCount: 0,
+				controls: [{ id: "c-3", controlId: "K-TS.02", name: "Logging av tilgangsendringer" }],
+			},
+			{
+				...mockRoutineBase({
+					id: "routine-4",
+					name: "DPIA-gjennomgang",
+					status: "ready",
+					frequency: "annually",
+					isSectionRoutine: 1,
+					sectionRoutineOwnerRole: "Teknologileder",
+					appliesToAllInSection: 1,
+				}),
+				technologyElements: [],
+				persistenceLinks: [],
+				reviewCount: 0,
+				controls: [{ id: "c-4", controlId: "K-PD.01", name: "Personvernkonsekvensvurdering (DPIA)" }],
+			},
+		],
+		allControls: [
+			{ controlId: "K-ST.01", name: "Sikkerhetstesting av applikasjoner", technologyElements: ["Applikasjon"] },
+			{ controlId: "K-ST.02", name: "Penetrasjonstesting", technologyElements: ["Applikasjon"] },
+			{ controlId: "K-TS.01", name: "Tilgangskontroll og autorisering", technologyElements: ["Applikasjon", "API"] },
+			{ controlId: "K-TS.02", name: "Logging av tilgangsendringer", technologyElements: ["Database"] },
+			{ controlId: "K-PD.01", name: "Personvernkonsekvensvurdering (DPIA)", technologyElements: [] },
+		],
+		canAdmin: true,
+	}
+}
+
+export function mockNyRutineData() {
+	return {
+		section: mockSection,
+		screeningQuestions: [
+			{
+				id: "q-1",
+				questionText: "Behandler applikasjonen personopplysninger?",
+				sectionId: null,
+				isSection: false,
+				choices: [
+					{ id: "ch-1", label: "Ja" },
+					{ id: "ch-2", label: "Nei" },
+				],
+			},
+			{
+				id: "q-2",
+				questionText: "Er applikasjonen et økonomisystem?",
+				sectionId: "s-01",
+				isSection: true,
+				choices: [
+					{ id: "ch-3", label: "Ja, klassifisert økonomisystem" },
+					{ id: "ch-4", label: "Nei" },
+				],
+			},
+		],
+		technologyElements: [
+			{ id: "te-1", name: "Applikasjon" },
+			{ id: "te-2", name: "Database" },
+			{ id: "te-3", name: "API" },
+			{ id: "te-4", name: "Kafka" },
+		],
+		controls: [
+			{ id: "c-1", controlId: "K-ST.01", name: "Sikkerhetstesting av applikasjoner", responsible: "Utviklerteam", frequency: "quarterly" as const },
+			{ id: "c-2", controlId: "K-TS.01", name: "Tilgangskontroll og autorisering", responsible: "Sikkerhetsansvarlig", frequency: "semi_annually" as const },
+			{ id: "c-3", controlId: "K-PD.01", name: "Personvernkonsekvensvurdering (DPIA)", responsible: "Produkteier", frequency: "annually" as const },
+		],
+	}
+}
+
+export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean }) {
+	const isSec = overrides?.isSectionRoutine ?? false
+	const routine = {
+		...mockRoutineBase({
+			id: "routine-1",
+			name: isSec ? "Tilgangskontroll – gjennomgang" : "Sikkerhetstesting av applikasjoner",
+			status: "approved",
+			frequency: isSec ? "semi_annually" : "quarterly",
+			isSectionRoutine: isSec ? 1 : 0,
+			sectionRoutineOwnerRole: isSec ? "Seksjonsleder" : null,
+			appliesToAllInSection: isSec ? 1 : 0,
+			description: isSec
+				? "Halvårlig gjennomgang av tilgangsrettigheter for alle applikasjoner i seksjonen."
+				: "Gjennomfør sikkerhetstesting inkludert OWASP Top 10 og SAST/DAST-skanning.",
+		}),
+		controls: [
+			{
+				id: "c-1",
+				controlId: isSec ? "K-TS.01" : "K-ST.01",
+				name: isSec ? "Tilgangskontroll og autorisering" : "Sikkerhetstesting av applikasjoner",
+				responsible: isSec ? "Sikkerhetsansvarlig" : "Utviklerteam",
+				domainSlug: isSec ? "TS" : "ST",
+			},
+		],
+		technologyElements: isSec ? [] : [{ id: "te-1", name: "Applikasjon" }],
+		persistenceLinks: [],
+		groupClassifications: [],
+	}
+
+	const reviews = isSec
+		? [
+				{
+					id: "rev-1",
+					routineId: "routine-1",
+					applicationId: null,
+					applicationName: null,
+					title: "Tilgangskontroll H1 2026",
+					reviewedAt: "2026-03-15T09:00:00Z",
+					status: "completed" as const,
+					createdBy: "A123456",
+					participants: [{ confirmedAt: "2026-03-15T09:30:00Z" }, { confirmedAt: null }],
+					attachments: [],
+				},
+			]
+		: [
+				{
+					id: "rev-1",
+					routineId: "routine-1",
+					applicationId: "app-1",
+					applicationName: "pensjon-sak",
+					title: "Sikkerhetstesting Q1 2026",
+					reviewedAt: "2026-03-01T10:00:00Z",
+					status: "completed" as const,
+					createdBy: "A123456",
+					participants: [{ confirmedAt: "2026-03-01T11:00:00Z" }],
+					attachments: [],
+				},
+				{
+					id: "rev-2",
+					routineId: "routine-1",
+					applicationId: "app-2",
+					applicationName: "psak-frontend",
+					title: "Sikkerhetstesting Q1 2026",
+					reviewedAt: "2026-02-20T14:00:00Z",
+					status: "completed" as const,
+					createdBy: "B654321",
+					participants: [],
+					attachments: [],
+				},
+			]
+
+	const appsWithDeadlines = [
+		{
+			id: "app-1",
+			name: "pensjon-sak",
+			lastReviewDate: isSec ? "2026-03-15T09:00:00Z" : "2026-03-01T10:00:00Z",
+			deadline: "2026-06-01T10:00:00Z",
+			overdue: false,
+			neverReviewed: false,
+		},
+		{
+			id: "app-2",
+			name: "psak-frontend",
+			lastReviewDate: isSec ? "2026-03-15T09:00:00Z" : "2026-02-20T14:00:00Z",
+			deadline: isSec ? "2026-09-15T09:00:00Z" : "2026-05-20T14:00:00Z",
+			overdue: !isSec,
+			neverReviewed: false,
+		},
+		{
+			id: "app-3",
+			name: "pensjon-selvbetjening",
+			lastReviewDate: null,
+			deadline: "2026-03-01T08:00:00Z",
+			overdue: true,
+			neverReviewed: true,
+		},
+	]
+
+	return {
+		section: mockSection,
+		routine,
+		reviews,
+		appsWithDeadlines,
+		screeningQuestion: null,
+		descriptionHtml: isSec
+			? "<p>Halvårlig gjennomgang av tilgangsrettigheter for alle applikasjoner i seksjonen.</p>"
+			: "<p>Gjennomfør sikkerhetstesting inkludert OWASP Top 10 og SAST/DAST-skanning.</p>",
+		userCanApprove: true,
+		userCanAdmin: true,
+		effectiveRole: isSec ? "Seksjonsleder" : "Sikkerhetsansvarlig",
+	}
+}
+
+export function mockSeksjonsrutinerData() {
+	const now = new Date()
+	const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate()).toISOString()
+	const sixMonthsFromNow = new Date(now.getFullYear(), now.getMonth() + 6, now.getDate()).toISOString()
+	const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate()).toISOString()
+
+	return {
+		section: mockSection,
+		seksjon: "pensjon-og-ufore",
+		sectionRoutines: [
+			{
+				routine: mockRoutineBase({
+					id: "routine-2",
+					name: "Tilgangskontroll – gjennomgang",
+					status: "approved",
+					frequency: "semi_annually",
+					isSectionRoutine: 1,
+					sectionRoutineOwnerRole: "Seksjonsleder",
+					appliesToAllInSection: 1,
+				}),
+				lastReview: {
+					routineId: "routine-2",
+					reviewedAt: threeMonthsAgo,
+					reviewId: "rev-sec-1",
+					title: "Tilgangskontroll H1 2026",
+					status: "completed",
+					createdBy: "A123456",
+				},
+				lastReviewDate: threeMonthsAgo,
+				deadline: sixMonthsFromNow,
+				overdue: false,
+			},
+			{
+				routine: mockRoutineBase({
+					id: "routine-4",
+					name: "DPIA-gjennomgang",
+					status: "approved",
+					frequency: "annually",
+					isSectionRoutine: 1,
+					sectionRoutineOwnerRole: "Teknologileder",
+					appliesToAllInSection: 1,
+				}),
+				lastReview: null,
+				lastReviewDate: null,
+				deadline: twoMonthsAgo,
+				overdue: true,
+			},
+			{
+				routine: mockRoutineBase({
+					id: "routine-5",
+					name: "Beredskapsøvelse",
+					status: "approved",
+					frequency: "annually",
+					isSectionRoutine: 1,
+					sectionRoutineOwnerRole: "Seksjonsleder",
+					appliesToAllInSection: 1,
+				}),
+				lastReview: {
+					routineId: "routine-5",
+					reviewedAt: twoMonthsAgo,
+					reviewId: "rev-sec-2",
+					title: "Beredskapsøvelse 2026",
+					status: "completed",
+					createdBy: "B654321",
+				},
+				lastReviewDate: twoMonthsAgo,
+				deadline: new Date(now.getFullYear() + 1, now.getMonth() - 2, now.getDate()).toISOString(),
+				overdue: false,
+			},
+		],
+	}
+}
+
+export function mockNyGjennomgangData(overrides?: { isSectionRoutine?: boolean }) {
+	const isSec = overrides?.isSectionRoutine ?? false
+	return {
+		section: mockSection,
+		routine: mockRoutineBase({
+			id: "routine-1",
+			name: isSec ? "Tilgangskontroll – gjennomgang" : "Sikkerhetstesting av applikasjoner",
+			status: "approved",
+			isSectionRoutine: isSec ? 1 : 0,
+			sectionRoutineOwnerRole: isSec ? "Seksjonsleder" : null,
+		}),
+		apps: isSec
+			? []
+			: [
+					{ id: "app-1", name: "pensjon-sak" },
+					{ id: "app-2", name: "psak-frontend" },
+					{ id: "app-3", name: "pensjon-selvbetjening" },
+				],
 	}
 }
