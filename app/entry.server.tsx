@@ -6,11 +6,8 @@ import { renderToPipeableStream } from "react-dom/server"
 import type { AppLoadContext, EntryContext } from "react-router"
 import { ServerRouter } from "react-router"
 import { runMigrations } from "~/db/migrate.server"
-import { startAuditSummaryScheduler, stopAuditSummaryScheduler } from "~/lib/audit-summary-scheduler.server"
-import { startComplianceSyncScheduler, stopComplianceSyncScheduler } from "~/lib/compliance-sync-scheduler.server"
-import { startDeploymentAuditScheduler, stopDeploymentAuditScheduler } from "~/lib/deployment-audit-scheduler.server"
 import { logger } from "~/lib/logger.server"
-import { startNaisScheduler } from "~/lib/nais-scheduler.server"
+import { startUnifiedScheduler, stopUnifiedScheduler } from "~/lib/unified-scheduler.server"
 
 // Run database migrations, then start background schedulers.
 // The promise is awaited in handleRequest to block traffic until ready.
@@ -18,10 +15,7 @@ let migrationDone = false
 const migrationPromise = runMigrations()
 	.then(() => {
 		migrationDone = true
-		startNaisScheduler()
-		startAuditSummaryScheduler()
-		startDeploymentAuditScheduler()
-		startComplianceSyncScheduler()
+		startUnifiedScheduler()
 	})
 	.catch((error) => {
 		logger.error("Failed to run migrations, shutting down", error)
@@ -31,10 +25,8 @@ const migrationPromise = runMigrations()
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
-	logger.info("SIGTERM received — stopping schedulers")
-	stopAuditSummaryScheduler()
-	stopDeploymentAuditScheduler()
-	stopComplianceSyncScheduler()
+	logger.info("SIGTERM received — stopping scheduler")
+	stopUnifiedScheduler()
 })
 
 export const streamTimeout = 5_000

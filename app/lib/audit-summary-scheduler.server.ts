@@ -214,7 +214,8 @@ async function syncAuditSummaries(): Promise<{
 	})
 }
 
-async function runSync() {
+/** Run audit summary sync once (used by unified scheduler). */
+export async function runAuditSummarySync() {
 	try {
 		const result = await syncAuditSummaries()
 		if (result) {
@@ -229,7 +230,7 @@ async function runSync() {
 	}
 }
 
-/** Start periodic audit summary sync. Advisory locks prevent duplicate runs across pods. */
+/** @deprecated Use unified-scheduler instead. Start periodic audit summary sync. */
 export function startAuditSummaryScheduler() {
 	if (intervalId) return
 
@@ -245,8 +246,8 @@ export function startAuditSummaryScheduler() {
 
 	timeoutId = setTimeout(() => {
 		timeoutId = null
-		runSync()
-		intervalId = setInterval(runSync, SYNC_INTERVAL_MS)
+		runAuditSummarySync()
+		intervalId = setInterval(runAuditSummarySync, SYNC_INTERVAL_MS)
 	}, INITIAL_DELAY_MS)
 }
 

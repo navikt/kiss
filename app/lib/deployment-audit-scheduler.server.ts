@@ -166,7 +166,8 @@ async function syncDeploymentVerifications(): Promise<{
 	})
 }
 
-async function runSync() {
+/** Run deployment audit sync once (used by unified scheduler). */
+export async function runDeploymentAuditSync() {
 	try {
 		const result = await syncDeploymentVerifications()
 		if (result) {
@@ -181,7 +182,7 @@ async function runSync() {
 	}
 }
 
-/** Start periodic deployment verification sync. */
+/** @deprecated Use unified-scheduler instead. Start periodic deployment verification sync. */
 export function startDeploymentAuditScheduler() {
 	if (intervalId) return
 
@@ -197,8 +198,8 @@ export function startDeploymentAuditScheduler() {
 
 	timeoutId = setTimeout(() => {
 		timeoutId = null
-		runSync()
-		intervalId = setInterval(runSync, SYNC_INTERVAL_MS)
+		runDeploymentAuditSync()
+		intervalId = setInterval(runDeploymentAuditSync, SYNC_INTERVAL_MS)
 	}, INITIAL_DELAY_MS)
 }
 

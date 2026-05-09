@@ -107,5 +107,11 @@ pool.on("error", (err) => {
 	logger.error("Unexpected error on idle database client", err)
 })
 
+/** Log pool stats for debugging connection exhaustion. */
+export function logPoolStats(context?: string) {
+	const prefix = context ? `[pool:${context}]` : "[pool]"
+	logger.info(`${prefix} total=${pool.totalCount} idle=${pool.idleCount} waiting=${pool.waitingCount}`)
+}
+
 export const db = drizzle(pool, { schema })
 export { pool }
