@@ -268,5 +268,38 @@ describe("sections.server integration tests", () => {
 			expect(teams.map((t) => t.name)).toEqual(["Alpha", "Zulu"])
 			expect(teams[0].linkedNaisTeams).toEqual([])
 		})
+
+		it("returns linkedNaisTeams for teams with active mappings and filters archived", async () => {
+			const db = getTestDb()
+			const section = await createSection("Sec", null, "admin")
+			const teamA = await createTeam(section.id, "TeamA", null, "admin")
+			const teamB = await createTeam(section.id, "TeamB", null, "admin")
+
+			// Create nais teams
+			await db.execute(/* sql */ `INSERT INTO nais_teams (slug) VALUES ('nais-alpha'), ('nais-beta'), ('nais-gamma')`)
+			const naisRows = await db.execute(/* sql */ `SELECT id, slug FROM nais_teams ORDER BY slug`)
+			const naisAlpha = (naisRows.rows as Array<{ id: string; slug: string }>).find((r) => r.slug === "nais-alpha")!
+			const naisBeta = (naisRows.rows as Array<{ id: string; slug: string }>).find((r) => r.slug === "nais-beta")!
+			const naisGamma = (naisRows.rows as Array<{ id: string; slug: string }>).find((r) => r.slug === "nais-gamma")!
+
+			// TeamA linked to nais-alpha (active) and nais-beta (archived)
+			await db.execute(
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by) VALUES ('${teamA.id}', '${naisAlpha.id}', 'test')`,
+			)
+			await db.execute(
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by, archived_at, archived_by) VALUES ('${teamA.id}', '${naisBeta.id}', 'test', NOW(), 'test')`,
+			)
+			// TeamB linked to nais-gamma (active)
+			await db.execute(
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by) VALUES ('${teamB.id}', '${naisGamma.id}', 'test')`,
+			)
+
+			const teams = await getTeamsForSection(section.id)
+			const a = teams.find((t) => t.name === "TeamA")!
+			const b = teams.find((t) => t.name === "TeamB")!
+
+			expect(a.linkedNaisTeams).toEqual(["nais-alpha"])
+			expect(b.linkedNaisTeams).toEqual(["nais-gamma"])
+		})
 	})
 })
