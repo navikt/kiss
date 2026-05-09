@@ -118,12 +118,23 @@ describe("Routines integration tests", () => {
 			DELETE FROM ruleset_routines;
 			DELETE FROM rulesets;
 			DELETE FROM routines;
+			DELETE FROM screening_routine_selections;
 			DELETE FROM screening_answers;
 			DELETE FROM screening_choice_effects;
 			DELETE FROM screening_question_choices;
 			DELETE FROM screening_question_effects;
 			DELETE FROM screening_questions;
+			DELETE FROM framework_controls;
+			DELETE FROM oracle_role_assessments;
+			DELETE FROM application_oracle_instances;
+			DELETE FROM application_persistence;
+			DELETE FROM application_manual_groups;
+			DELETE FROM application_group_assessments;
+			DELETE FROM entra_group_classifications;
+			DELETE FROM application_auth_integrations;
 			DELETE FROM application_environments;
+			DELETE FROM application_team_mappings;
+			DELETE FROM dev_team_nais_team_mappings;
 			DELETE FROM application_technology_elements;
 			DELETE FROM technology_elements;
 			DELETE FROM monitored_applications;
@@ -603,6 +614,406 @@ describe("Routines integration tests", () => {
 
 			const apps = await getAppsRequiringRoutine(routine.id)
 
+			expect(apps).toHaveLength(0)
+		})
+
+		it("should find apps via persistence links (Path 2)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+			const appId = await createTestApp("Oracle App")
+
+			// App has Oracle persistence with data classification
+			await db.execute(
+				/* sql */ `INSERT INTO application_persistence (application_id, type, name, data_classification)
+				VALUES ('${appId}', 'oracle', 'PROD_DB', 'financial_regulation')`,
+			)
+
+			// Routine linked to Oracle + that classification
+			const routine = await createRoutine({
+				sectionId,
+				name: "Oracle Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [{ persistenceType: "oracle", dataClassification: "financial_regulation" }],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(1)
+			expect(apps[0].name).toBe("Oracle App")
+		})
+
+		it("should NOT match apps with different persistence type (Path 2)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+			const appId = await createTestApp("Postgres App")
+
+			await db.execute(
+				/* sql */ `INSERT INTO application_persistence (application_id, type, name, data_classification)
+				VALUES ('${appId}', 'nais_postgres', 'PG_DB', 'financial_regulation')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Oracle-only Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [{ persistenceType: "oracle", dataClassification: "financial_regulation" }],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(0)
+		})
+
+		it("should find apps via group classification links (Path 3)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+			const appId = await createTestApp("Entra App")
+
+			// Create an Entra group with classification
+			const groupId = "test-group-001"
+			await db.execute(
+				/* sql */ `INSERT INTO entra_group_classifications (group_id, classification, created_by, updated_by)
+				VALUES ('${groupId}', 'mine_tilganger', 'test', 'test')`,
+			)
+
+			// App uses this group via auth integration
+			await db.execute(
+				/* sql */ `INSERT INTO application_auth_integrations (application_id, type, groups)
+				VALUES ('${appId}', 'entra_id', '["${groupId}"]')`,
+			)
+
+			// Routine linked to 'mine_tilganger' classification
+			const routine = await createRoutine({
+				sectionId,
+				name: "Mine Tilganger Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				groupClassifications: ["mine_tilganger"],
+				createdBy: "test-user",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(1)
+			expect(apps[0].name).toBe("Entra App")
+		})
+
+		it("should find apps via manual groups with classification (Path 3)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+			const appId = await createTestApp("Manual Group App")
+
+			const groupId = "manual-group-001"
+			await db.execute(
+				/* sql */ `INSERT INTO entra_group_classifications (group_id, classification, created_by, updated_by)
+				VALUES ('${groupId}', 'identrutina', 'test', 'test')`,
+			)
+
+			// App uses this group via manual groups
+			await db.execute(
+				/* sql */ `INSERT INTO application_manual_groups (application_id, group_id, group_name, created_by)
+				VALUES ('${appId}', '${groupId}', 'Test Group', 'test')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Identrutina Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				groupClassifications: ["identrutina"],
+				createdBy: "test-user",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(1)
+			expect(apps[0].name).toBe("Manual Group App")
+		})
+
+		it("should find apps via oracle role criticality (Path 4)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+			const appId = await createTestApp("Critical Oracle App")
+
+			// Create Oracle instance first
+			await db.execute(
+				/* sql */ `INSERT INTO application_oracle_instances (application_id, instance_id, configured_by)
+				VALUES ('${appId}', 'INST1', 'test')`,
+			)
+
+			// App has an Oracle role assessment with high criticality
+			await db.execute(
+				/* sql */ `INSERT INTO oracle_role_assessments (application_id, instance_id, role_name, criticality, assessed_by, updated_by)
+				VALUES ('${appId}', 'INST1', 'DBA_ROLE', 'high', 'test', 'test')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "High Criticality Oracle Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				oracleRoleCriticalities: ["high"],
+				createdBy: "test-user",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(1)
+			expect(apps[0].name).toBe("Critical Oracle App")
+		})
+
+		it("should find apps via screening selections (Path 5)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+			const appId = await createTestApp("Selected App")
+			const questionId = await createTestScreeningQuestion(sectionId, "Some question?")
+			const choiceId = await createTestChoice(questionId, "Yes")
+
+			// Create a control and choice effect (control_id is required)
+			const controlResult = await db.execute(
+				/* sql */ `INSERT INTO framework_controls (control_id) VALUES ('K-TEST.01') RETURNING id`,
+			)
+			const controlId = (controlResult.rows[0] as { id: string }).id
+			const effectResult = await db.execute(
+				/* sql */ `INSERT INTO screening_choice_effects (choice_id, control_id) VALUES ('${choiceId}', '${controlId}') RETURNING id`,
+			)
+			const effectId = (effectResult.rows[0] as { id: string }).id
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Selected Routine",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			// Explicit routine selection for this app
+			await db.execute(
+				/* sql */ `INSERT INTO screening_routine_selections (application_id, choice_effect_id, routine_id, selected_by)
+				VALUES ('${appId}', '${effectId}', '${routine.id}', 'test')`,
+			)
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(1)
+			expect(apps[0].name).toBe("Selected App")
+		})
+
+		it("should find apps via appliesToAllInSection (Path 6)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+
+			// Create dev team in the section
+			const teamResult = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by)
+				VALUES ('Team A', 'team-a', '${sectionId}', 'test', 'test') RETURNING id`,
+			)
+			const teamId = (teamResult.rows[0] as { id: string }).id
+
+			// Create nais team
+			const naisTeamResult = await db.execute(/* sql */ `INSERT INTO nais_teams (slug) VALUES ('team-a') RETURNING id`)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+
+			// Link dev team to nais team
+			await db.execute(
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by)
+				VALUES ('${teamId}', '${naisTeamId}', 'test')`,
+			)
+
+			// Create app with environment linked to nais team
+			const appId = await createTestApp("Section App")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', 'prod-gcp', 'team-a', '${naisTeamId}')`,
+			)
+
+			// Routine with appliesToAllInSection=true (but NOT isSectionRoutine)
+			const routine = await createRoutine({
+				sectionId,
+				name: "Section-wide Routine",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: true,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(1)
+			expect(apps[0].name).toBe("Section App")
+		})
+
+		it("should find apps via ruleset (Path 7)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+
+			// Create dev team in section
+			const teamResult = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by)
+				VALUES ('Team A', 'team-a', '${sectionId}', 'test', 'test') RETURNING id`,
+			)
+			const teamId = (teamResult.rows[0] as { id: string }).id
+
+			// Create nais team and link to dev team
+			const naisTeamResult = await db.execute(/* sql */ `INSERT INTO nais_teams (slug) VALUES ('team-a') RETURNING id`)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by)
+				VALUES ('${teamId}', '${naisTeamId}', 'test')`,
+			)
+
+			// Create app with environment linked to nais team (section membership)
+			const appId = await createTestApp("Ruleset App")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', 'prod-gcp', 'team-a', '${naisTeamId}')`,
+			)
+
+			// Create a ruleset
+			const rulesetResult = await db.execute(
+				/* sql */ `INSERT INTO rulesets (section_id, name, frequency, status, created_by, updated_by)
+				VALUES ('${sectionId}', 'Test Ruleset', 'quarterly', 'active', 'test', 'test') RETURNING id`,
+			)
+			const rulesetId = (rulesetResult.rows[0] as { id: string }).id
+
+			// Create routine
+			const routine = await createRoutine({
+				sectionId,
+				name: "Ruleset Routine",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			// Link routine to ruleset
+			await db.execute(
+				/* sql */ `INSERT INTO ruleset_routines (ruleset_id, routine_id, created_by)
+				VALUES ('${rulesetId}', '${routine.id}', 'test')`,
+			)
+
+			// Create screening question linked to ruleset
+			const questionResult = await db.execute(
+				/* sql */ `INSERT INTO screening_questions (section_id, ruleset_id, question_text, answer_type, status, created_by, updated_by)
+				VALUES ('${sectionId}', '${rulesetId}', 'Select ruleset', 'boolean', 'approved', 'test', 'test') RETURNING id`,
+			)
+			const questionId = (questionResult.rows[0] as { id: string }).id
+
+			// App answered the screening question
+			await createTestScreeningAnswer(appId, questionId, "Yes")
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(1)
+			expect(apps[0].name).toBe("Ruleset App")
+		})
+
+		it("should deduplicate apps matched by multiple paths", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+			const questionId = await createTestScreeningQuestion(sectionId, "Uses Oracle?")
+			await createTestChoice(questionId, "Yes")
+
+			const appId = await createTestApp("Multi-match App")
+
+			// Match via screening question (Path 1)
+			await createTestScreeningAnswer(appId, questionId, "Yes")
+
+			// Also match via persistence (Path 2)
+			await db.execute(
+				/* sql */ `INSERT INTO application_persistence (application_id, type, name)
+				VALUES ('${appId}', 'oracle', 'ORA_DB')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Oracle Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: questionId,
+				screeningChoiceValue: "Yes",
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [{ persistenceType: "oracle", dataClassification: null }],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			// Should return exactly 1 (not 2)
+			expect(apps).toHaveLength(1)
+			expect(apps[0].name).toBe("Multi-match App")
+		})
+
+		it("should return empty for routine with no matching paths at all", async () => {
+			const sectionId = await createTestSection("Security", "security")
+
+			// Routine with NO links of any kind
+			const routine = await createRoutine({
+				sectionId,
+				name: "Orphan Routine",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
 			expect(apps).toHaveLength(0)
 		})
 	})
