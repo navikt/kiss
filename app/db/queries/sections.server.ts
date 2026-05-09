@@ -537,17 +537,30 @@ export async function getTeamsForSection(sectionId: string, options: { includeAr
 		? eq(devTeams.sectionId, sectionId)
 		: and(eq(devTeams.sectionId, sectionId), isNull(devTeams.archivedAt))
 	const teams = await db.select().from(devTeams).where(baseCondition).orderBy(devTeams.name)
-	const teamsWithNais = await Promise.all(
-		teams.map(async (team) => {
-			const naisLinks = await db
-				.select({ slug: naisTeams.slug })
-				.from(devTeamNaisTeamMappings)
-				.innerJoin(naisTeams, eq(devTeamNaisTeamMappings.naisTeamId, naisTeams.id))
-				.where(and(eq(devTeamNaisTeamMappings.devTeamId, team.id), isNull(devTeamNaisTeamMappings.archivedAt)))
-			return { ...team, linkedNaisTeams: naisLinks.map((n) => n.slug) }
-		}),
-	)
-	return teamsWithNais
+
+	if (teams.length === 0) return []
+
+	const teamIds = teams.map((t) => t.id)
+	const allNaisLinks = await db
+		.select({
+			devTeamId: devTeamNaisTeamMappings.devTeamId,
+			slug: naisTeams.slug,
+		})
+		.from(devTeamNaisTeamMappings)
+		.innerJoin(naisTeams, eq(devTeamNaisTeamMappings.naisTeamId, naisTeams.id))
+		.where(and(inArray(devTeamNaisTeamMappings.devTeamId, teamIds), isNull(devTeamNaisTeamMappings.archivedAt)))
+
+	const naisLinksByTeam = new Map<string, (typeof allNaisLinks)[number][]>()
+	for (const l of allNaisLinks) {
+		const arr = naisLinksByTeam.get(l.devTeamId) ?? []
+		arr.push(l)
+		naisLinksByTeam.set(l.devTeamId, arr)
+	}
+
+	return teams.map((team) => ({
+		...team,
+		linkedNaisTeams: (naisLinksByTeam.get(team.id) ?? []).map((n) => n.slug),
+	}))
 }
 
 /** Get a dev team by slug (lightweight lookup). */
