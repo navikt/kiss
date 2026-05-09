@@ -1,11 +1,12 @@
 /**
  * Unified sequential scheduler — runs all background sync jobs sequentially
- * inside a single advisory lock to minimize database connection usage.
+ * to minimize database connection usage.
  *
  * Previously, 4 independent schedulers could overlap and hold 5-6 pool
  * connections simultaneously for advisory locks. This unified scheduler
- * ensures only 1 lock connection is held at a time (plus 1 for the actual
- * work), dramatically reducing connection pressure on the shared pool.
+ * runs jobs one at a time within each cycle, so at most 1 advisory lock
+ * connection is held at any moment (plus 1 for the actual work).
+ * Each job still acquires its own advisory lock for cross-pod safety.
  *
  * Job frequencies:
  *   - NAIS sync:            every cycle  (5 min)
