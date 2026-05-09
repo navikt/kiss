@@ -100,12 +100,18 @@ const pool = new Pool({
 	...buildConnectionConfig(),
 	max: 10,
 	idleTimeoutMillis: 30000,
-	connectionTimeoutMillis: 10000,
+	connectionTimeoutMillis: 30000, // Increased from 10s — sync jobs can hold connections for minutes
 })
 
 pool.on("error", (err) => {
 	logger.error("Unexpected error on idle database client", err)
 })
+
+/** Log pool stats for debugging connection exhaustion. */
+export function logPoolStats(context?: string) {
+	const prefix = context ? `[pool:${context}]` : "[pool]"
+	logger.info(`${prefix} total=${pool.totalCount} idle=${pool.idleCount} waiting=${pool.waitingCount}`)
+}
 
 export const db = drizzle(pool, { schema })
 export { pool }
