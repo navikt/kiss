@@ -1790,26 +1790,61 @@ export async function getAppsRequiringRoutine(
 		.orderBy(monitoredApplications.name)
 }
 
-/** Reverse lookup: find apps that have persistence matching the routine's persistence links */
+/** Reverse lookup: find apps that have persistence matching the routine's persistence links.
+ * Mirrors forward logic: type and classification are matched independently across
+ * all of an app's persistence entries (cross-product), not within a single row. */
 async function findAppsByPersistenceMatch(
 	persistenceLinks: Array<{ persistenceType: string | null; dataClassification: string | null }>,
 ): Promise<string[]> {
-	const allApps = new Set<string>()
+	// Collect all required types and classifications from the routine's links
+	const requiredTypes = new Set<PersistenceType>()
+	const requiredClassifications = new Set<DataClassification>()
+	let hasLinkWithoutType = false
+	let hasLinkWithoutClassification = false
+
 	for (const link of persistenceLinks) {
-		const conditions = [isNull(applicationPersistence.archivedAt)]
-		if (link.persistenceType) {
-			conditions.push(eq(applicationPersistence.type, link.persistenceType as PersistenceType))
-		}
-		if (link.dataClassification) {
-			conditions.push(eq(applicationPersistence.dataClassification, link.dataClassification as DataClassification))
-		}
-		const rows = await db
-			.select({ applicationId: applicationPersistence.applicationId })
-			.from(applicationPersistence)
-			.where(and(...conditions))
-		for (const r of rows) allApps.add(r.applicationId)
+		if (link.persistenceType) requiredTypes.add(link.persistenceType as PersistenceType)
+		else hasLinkWithoutType = true
+		if (link.dataClassification) requiredClassifications.add(link.dataClassification as DataClassification)
+		else hasLinkWithoutClassification = true
 	}
-	return [...allApps]
+
+	// Get all non-archived persistence entries
+	const allPersEntries = await db
+		.select({
+			applicationId: applicationPersistence.applicationId,
+			type: applicationPersistence.type,
+			dataClassification: applicationPersistence.dataClassification,
+		})
+		.from(applicationPersistence)
+		.where(isNull(applicationPersistence.archivedAt))
+
+	// Group by app and build type/classification sets per app (same as forward logic)
+	const appSets = new Map<string, { types: Set<string>; classifications: Set<string> }>()
+	for (const entry of allPersEntries) {
+		let sets = appSets.get(entry.applicationId)
+		if (!sets) {
+			sets = { types: new Set(), classifications: new Set() }
+			appSets.set(entry.applicationId, sets)
+		}
+		sets.types.add(entry.type)
+		if (entry.dataClassification) sets.classifications.add(entry.dataClassification)
+	}
+
+	// For each app, check if any routine link matches using cross-product logic
+	const matchedApps = new Set<string>()
+	for (const [appId, sets] of appSets) {
+		for (const link of persistenceLinks) {
+			const typeMatch = !link.persistenceType || sets.types.has(link.persistenceType)
+			const classMatch = !link.dataClassification || sets.classifications.has(link.dataClassification)
+			if (typeMatch && classMatch) {
+				matchedApps.add(appId)
+				break
+			}
+		}
+	}
+
+	return [...matchedApps]
 }
 
 /** Reverse lookup: find apps with Entra groups matching the routine's group classification links */
@@ -1836,13 +1871,14 @@ async function findAppsByGroupClassificationMatch(
 	const allApps = new Set<string>()
 	const matchingGroupIdSet = new Set(matchingGroupIds)
 
-	// Auth integrations (groups is a JSON text column)
+	// Auth integrations (groups is a JSON text column — filter out null/empty)
 	const authRows = await db
 		.select({
 			applicationId: applicationAuthIntegrations.applicationId,
 			groups: applicationAuthIntegrations.groups,
 		})
 		.from(applicationAuthIntegrations)
+		.where(isNotNull(applicationAuthIntegrations.groups))
 	for (const row of authRows) {
 		if (!row.groups) continue
 		try {
@@ -1886,7 +1922,8 @@ async function findAppsByOracleRoleCriticalityMatch(
 	return [...new Set(matchingAssessments.map((r) => r.applicationId))]
 }
 
-/** Reverse lookup: find apps linked via rulesets containing this routine */
+/** Reverse lookup: find apps linked via rulesets containing this routine.
+ * Mirrors forward logic: only includes apps that are effective members of the ruleset's section. */
 async function findAppsByRulesetMatch(routineId: string): Promise<string[]> {
 	const { rulesetRoutines } = await import("../schema/rulesets")
 	const { rulesets } = await import("../schema/rulesets")
@@ -1899,13 +1936,22 @@ async function findAppsByRulesetMatch(routineId: string): Promise<string[]> {
 	const rulesetIds = [...new Set(rulesetRows.map((r) => r.rulesetId))]
 	if (rulesetIds.length === 0) return []
 
-	// Only active rulesets
+	// Only active rulesets — also fetch sectionId for membership filtering
 	const activeRulesets = await db
-		.select({ id: rulesets.id })
+		.select({ id: rulesets.id, sectionId: rulesets.sectionId })
 		.from(rulesets)
 		.where(and(inArray(rulesets.id, rulesetIds), eq(rulesets.status, "active")))
 	const activeRulesetIds = activeRulesets.map((r) => r.id)
 	if (activeRulesetIds.length === 0) return []
+
+	// Get effective app IDs for each ruleset's section (for membership filtering)
+	const sectionIds = [...new Set(activeRulesets.map((r) => r.sectionId))]
+	const sectionAppIds = new Set<string>()
+	for (const sectionId of sectionIds) {
+		const appIds = await getAppIdsInSection(sectionId)
+		for (const id of appIds) sectionAppIds.add(id)
+	}
+	if (sectionAppIds.size === 0) return []
 
 	// Find apps that answered screening questions linked to these rulesets
 	// Path A: questions with rulesetId pointing to one of our rulesets
@@ -1943,7 +1989,13 @@ async function findAppsByRulesetMatch(routineId: string): Promise<string[]> {
 		)
 		.where(and(isNotNull(screeningAnswers.answer), inArray(screeningAnswers.answer, activeRulesetIds)))
 
-	return [...new Set([...answeredAppsA.map((r) => r.applicationId), ...answeredAppsB.map((r) => r.applicationId)])]
+	const allCandidates = new Set([
+		...answeredAppsA.map((r) => r.applicationId),
+		...answeredAppsB.map((r) => r.applicationId),
+	])
+
+	// Filter to only apps that are effective members of the ruleset's section
+	return [...allCandidates].filter((appId) => sectionAppIds.has(appId))
 }
 
 // ─── Deadlines — overdue and upcoming ────────────────────────────────────
