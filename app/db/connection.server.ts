@@ -100,7 +100,7 @@ const pool = new Pool({
 	...buildConnectionConfig(),
 	max: 10,
 	idleTimeoutMillis: 30000,
-	connectionTimeoutMillis: 30000, // Increased from 10s — sync jobs can hold connections for minutes
+	connectionTimeoutMillis: 10000,
 })
 
 pool.on("error", (err) => {
