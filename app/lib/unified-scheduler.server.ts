@@ -121,8 +121,14 @@ async function runCycle() {
 export function startUnifiedScheduler() {
 	if (running) return
 
+	const enabledJobs = jobs.filter((j) => process.env[j.envVar] === "true")
+	if (enabledJobs.length === 0) {
+		logger.info("[unified-scheduler] No sync jobs enabled — not starting scheduler")
+		return
+	}
+
 	logger.info(
-		`[unified-scheduler] Starting — cycle interval ${CYCLE_INTERVAL_MS / 1000}s, initial delay ${INITIAL_DELAY_MS / 1000}s`,
+		`[unified-scheduler] Starting — ${enabledJobs.length} jobs enabled, cycle interval ${CYCLE_INTERVAL_MS / 1000}s, initial delay ${INITIAL_DELAY_MS / 1000}s`,
 	)
 	logger.info(
 		"[unified-scheduler] Jobs run sequentially to minimize connection pool usage (was: 4 independent schedulers)",
