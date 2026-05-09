@@ -24,6 +24,8 @@ const INITIAL_DELAY_MS = 30 * 1000 // 30 seconds after startup
 let running = false
 let timeoutId: ReturnType<typeof setTimeout> | null = null
 let cycleCount = 0
+let generation = 0 // Incremented on each start to invalidate stale loops
+let pendingResolve: (() => void) | null = null
 
 interface JobConfig {
 	name: string
@@ -126,16 +128,20 @@ export function startUnifiedScheduler() {
 	)
 
 	running = true
-	timeoutId = setTimeout(scheduleLoop, INITIAL_DELAY_MS)
+	generation++
+	const myGeneration = generation
+	timeoutId = setTimeout(() => scheduleLoop(myGeneration), INITIAL_DELAY_MS)
 }
 
-async function scheduleLoop() {
-	while (running) {
+async function scheduleLoop(myGeneration: number) {
+	while (running && generation === myGeneration) {
 		await runCycle()
-		if (!running) break
+		if (!running || generation !== myGeneration) break
 		await new Promise<void>((resolve) => {
+			pendingResolve = resolve
 			timeoutId = setTimeout(() => {
 				timeoutId = null
+				pendingResolve = null
 				resolve()
 			}, CYCLE_INTERVAL_MS)
 		})
@@ -149,6 +155,10 @@ export function stopUnifiedScheduler() {
 	if (timeoutId) {
 		clearTimeout(timeoutId)
 		timeoutId = null
+	}
+	if (pendingResolve) {
+		pendingResolve()
+		pendingResolve = null
 	}
 	logger.info("[unified-scheduler] Stopped")
 }
