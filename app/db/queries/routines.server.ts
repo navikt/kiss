@@ -1799,14 +1799,9 @@ async function findAppsByPersistenceMatch(
 	// Collect all required types and classifications from the routine's links
 	const requiredTypes = new Set<PersistenceType>()
 	const requiredClassifications = new Set<DataClassification>()
-	let hasLinkWithoutType = false
-	let hasLinkWithoutClassification = false
-
 	for (const link of persistenceLinks) {
 		if (link.persistenceType) requiredTypes.add(link.persistenceType as PersistenceType)
-		else hasLinkWithoutType = true
 		if (link.dataClassification) requiredClassifications.add(link.dataClassification as DataClassification)
-		else hasLinkWithoutClassification = true
 	}
 
 	// Get all non-archived persistence entries

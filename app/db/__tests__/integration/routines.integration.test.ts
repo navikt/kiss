@@ -886,7 +886,30 @@ describe("Routines integration tests", () => {
 		it("should find apps via ruleset (Path 7)", async () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Security", "security")
+
+			// Create dev team in section
+			const teamResult = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (name, section_id, created_by, updated_by)
+				VALUES ('Team A', '${sectionId}', 'test', 'test') RETURNING id`,
+			)
+			const teamId = (teamResult.rows[0] as { id: string }).id
+
+			// Create nais team and link to dev team
+			const naisTeamResult = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, purpose) VALUES ('team-a', 'Test team') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by)
+				VALUES ('${teamId}', '${naisTeamId}', 'test')`,
+			)
+
+			// Create app with environment linked to nais team (section membership)
 			const appId = await createTestApp("Ruleset App")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES ('${appId}', 'prod-gcp', 'team-a', '${naisTeamId}')`,
+			)
 
 			// Create a ruleset
 			const rulesetResult = await db.execute(
