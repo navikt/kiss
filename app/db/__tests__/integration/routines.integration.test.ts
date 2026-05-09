@@ -124,6 +124,7 @@ describe("Routines integration tests", () => {
 			DELETE FROM screening_question_choices;
 			DELETE FROM screening_question_effects;
 			DELETE FROM screening_questions;
+			DELETE FROM framework_controls;
 			DELETE FROM oracle_role_assessments;
 			DELETE FROM application_oracle_instances;
 			DELETE FROM application_persistence;
@@ -655,7 +656,7 @@ describe("Routines integration tests", () => {
 
 			await db.execute(
 				/* sql */ `INSERT INTO application_persistence (application_id, type, name, data_classification)
-				VALUES ('${appId}', 'postgresql', 'PG_DB', 'financial_regulation')`,
+				VALUES ('${appId}', 'nais_postgres', 'PG_DB', 'financial_regulation')`,
 			)
 
 			const routine = await createRoutine({
@@ -762,8 +763,8 @@ describe("Routines integration tests", () => {
 
 			// Create Oracle instance first
 			await db.execute(
-				/* sql */ `INSERT INTO application_oracle_instances (application_id, instance_id, instance_name, created_by, updated_by)
-				VALUES ('${appId}', 'INST1', 'Production', 'test', 'test')`,
+				/* sql */ `INSERT INTO application_oracle_instances (application_id, instance_id, configured_by)
+				VALUES ('${appId}', 'INST1', 'test')`,
 			)
 
 			// App has an Oracle role assessment with high criticality
@@ -800,9 +801,13 @@ describe("Routines integration tests", () => {
 			const questionId = await createTestScreeningQuestion(sectionId, "Some question?")
 			const choiceId = await createTestChoice(questionId, "Yes")
 
-			// Create a choice effect
+			// Create a control and choice effect (control_id is required)
+			const controlResult = await db.execute(
+				/* sql */ `INSERT INTO framework_controls (control_id) VALUES ('K-TEST.01') RETURNING id`,
+			)
+			const controlId = (controlResult.rows[0] as { id: string }).id
 			const effectResult = await db.execute(
-				/* sql */ `INSERT INTO screening_choice_effects (choice_id) VALUES ('${choiceId}') RETURNING id`,
+				/* sql */ `INSERT INTO screening_choice_effects (choice_id, control_id) VALUES ('${choiceId}', '${controlId}') RETURNING id`,
 			)
 			const effectId = (effectResult.rows[0] as { id: string }).id
 
@@ -838,15 +843,13 @@ describe("Routines integration tests", () => {
 
 			// Create dev team in the section
 			const teamResult = await db.execute(
-				/* sql */ `INSERT INTO dev_teams (name, section_id, created_by, updated_by)
-				VALUES ('Team A', '${sectionId}', 'test', 'test') RETURNING id`,
+				/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by)
+				VALUES ('Team A', 'team-a', '${sectionId}', 'test', 'test') RETURNING id`,
 			)
 			const teamId = (teamResult.rows[0] as { id: string }).id
 
 			// Create nais team
-			const naisTeamResult = await db.execute(
-				/* sql */ `INSERT INTO nais_teams (slug, purpose) VALUES ('team-a', 'Test team') RETURNING id`,
-			)
+			const naisTeamResult = await db.execute(/* sql */ `INSERT INTO nais_teams (slug) VALUES ('team-a') RETURNING id`)
 			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
 
 			// Link dev team to nais team
@@ -889,15 +892,13 @@ describe("Routines integration tests", () => {
 
 			// Create dev team in section
 			const teamResult = await db.execute(
-				/* sql */ `INSERT INTO dev_teams (name, section_id, created_by, updated_by)
-				VALUES ('Team A', '${sectionId}', 'test', 'test') RETURNING id`,
+				/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by)
+				VALUES ('Team A', 'team-a', '${sectionId}', 'test', 'test') RETURNING id`,
 			)
 			const teamId = (teamResult.rows[0] as { id: string }).id
 
 			// Create nais team and link to dev team
-			const naisTeamResult = await db.execute(
-				/* sql */ `INSERT INTO nais_teams (slug, purpose) VALUES ('team-a', 'Test team') RETURNING id`,
-			)
+			const naisTeamResult = await db.execute(/* sql */ `INSERT INTO nais_teams (slug) VALUES ('team-a') RETURNING id`)
 			const naisTeamId = (naisTeamResult.rows[0] as { id: string }).id
 			await db.execute(
 				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by)

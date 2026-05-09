@@ -1750,7 +1750,14 @@ export async function getAppsRequiringRoutine(
 
 	// Path 6: Section-wide (appliesToAllInSection but NOT isSectionRoutine)
 	if (routine.appliesToAllInSection === 1 && routine.sectionId) {
-		const sectionAppIds = await getAppIdsInSection(routine.sectionId)
+		const cache = opts?.sectionAppIdsCache
+		let sectionAppIds: string[]
+		if (cache?.has(routine.sectionId)) {
+			sectionAppIds = cache.get(routine.sectionId)!
+		} else {
+			sectionAppIds = await getAppIdsInSection(routine.sectionId)
+			cache?.set(routine.sectionId, sectionAppIds)
+		}
 		for (const id of sectionAppIds) allMatchedAppIds.add(id)
 	}
 
@@ -1794,17 +1801,31 @@ export async function getAppsRequiringRoutine(
  * Mirrors forward logic: type and classification are matched independently across
  * all of an app's persistence entries (cross-product), not within a single row. */
 async function findAppsByPersistenceMatch(
-	persistenceLinks: Array<{ persistenceType: string | null; dataClassification: string | null }>,
+	persistenceLinks: Array<{ persistenceType: PersistenceType | null; dataClassification: DataClassification | null }>,
 ): Promise<string[]> {
 	// Collect all required types and classifications from the routine's links
-	const requiredTypes = new Set<PersistenceType>()
-	const requiredClassifications = new Set<DataClassification>()
-	for (const link of persistenceLinks) {
-		if (link.persistenceType) requiredTypes.add(link.persistenceType as PersistenceType)
-		if (link.dataClassification) requiredClassifications.add(link.dataClassification as DataClassification)
+	const requiredTypes = [
+		...new Set(persistenceLinks.map((l) => l.persistenceType).filter(Boolean)),
+	] as PersistenceType[]
+	const requiredClassifications = [
+		...new Set(persistenceLinks.map((l) => l.dataClassification).filter(Boolean)),
+	] as DataClassification[]
+
+	// Pre-filter persistence entries by relevant types/classifications
+	const filters = [isNull(applicationPersistence.archivedAt)]
+	if (requiredTypes.length > 0 && requiredClassifications.length > 0) {
+		filters.push(
+			or(
+				inArray(applicationPersistence.type, requiredTypes),
+				inArray(applicationPersistence.dataClassification, requiredClassifications),
+			)!,
+		)
+	} else if (requiredTypes.length > 0) {
+		filters.push(inArray(applicationPersistence.type, requiredTypes))
+	} else if (requiredClassifications.length > 0) {
+		filters.push(inArray(applicationPersistence.dataClassification, requiredClassifications))
 	}
 
-	// Get all non-archived persistence entries
 	const allPersEntries = await db
 		.select({
 			applicationId: applicationPersistence.applicationId,
@@ -1812,7 +1833,7 @@ async function findAppsByPersistenceMatch(
 			dataClassification: applicationPersistence.dataClassification,
 		})
 		.from(applicationPersistence)
-		.where(isNull(applicationPersistence.archivedAt))
+		.where(and(...filters))
 
 	// Group by app and build type/classification sets per app (same as forward logic)
 	const appSets = new Map<string, { types: Set<string>; classifications: Set<string> }>()
@@ -1866,14 +1887,14 @@ async function findAppsByGroupClassificationMatch(
 	const allApps = new Set<string>()
 	const matchingGroupIdSet = new Set(matchingGroupIds)
 
-	// Auth integrations (groups is a JSON text column — filter out null/empty)
+	// Auth integrations (groups is a JSON text column — only Entra ID integrations have groups)
 	const authRows = await db
 		.select({
 			applicationId: applicationAuthIntegrations.applicationId,
 			groups: applicationAuthIntegrations.groups,
 		})
 		.from(applicationAuthIntegrations)
-		.where(isNotNull(applicationAuthIntegrations.groups))
+		.where(and(isNotNull(applicationAuthIntegrations.groups), eq(applicationAuthIntegrations.type, "entra_id")))
 	for (const row of authRows) {
 		if (!row.groups) continue
 		try {
@@ -1921,8 +1942,7 @@ async function findAppsByOracleRoleCriticalityMatch(
  * Mirrors forward logic: for each ruleset, only includes apps that are effective
  * members of THAT ruleset's section and answered questions for THAT ruleset. */
 async function findAppsByRulesetMatch(routineId: string): Promise<string[]> {
-	const { rulesetRoutines } = await import("../schema/rulesets")
-	const { rulesets } = await import("../schema/rulesets")
+	const { rulesetRoutines, rulesets } = await import("../schema/rulesets")
 
 	// Find rulesets that include this routine
 	const rulesetRows = await db
@@ -1932,11 +1952,11 @@ async function findAppsByRulesetMatch(routineId: string): Promise<string[]> {
 	const rulesetIds = [...new Set(rulesetRows.map((r) => r.rulesetId))]
 	if (rulesetIds.length === 0) return []
 
-	// Only active rulesets — also fetch sectionId for per-ruleset membership filtering
+	// Only active, non-archived rulesets — also fetch sectionId for per-ruleset membership filtering
 	const activeRulesets = await db
 		.select({ id: rulesets.id, sectionId: rulesets.sectionId })
 		.from(rulesets)
-		.where(and(inArray(rulesets.id, rulesetIds), eq(rulesets.status, "active")))
+		.where(and(inArray(rulesets.id, rulesetIds), eq(rulesets.status, "active"), isNull(rulesets.archivedAt)))
 	if (activeRulesets.length === 0) return []
 
 	// Process each ruleset independently: find apps in that ruleset's section that answered its questions
