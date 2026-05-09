@@ -30,6 +30,8 @@ export const routines = pgTable("routines", {
 	frequency: text("frequency", { enum: ROUTINE_FREQUENCIES }).notNull(),
 	responsibleRole: text("responsible_role"),
 	appliesToAllInSection: integer("applies_to_all_in_section").notNull().default(0),
+	isSectionRoutine: integer("is_section_routine").notNull().default(0),
+	sectionRoutineOwnerRole: text("section_routine_owner_role"),
 	screeningQuestionId: uuid("screening_question_id").references(() => screeningQuestions.id, {
 		onDelete: "set null",
 	}),

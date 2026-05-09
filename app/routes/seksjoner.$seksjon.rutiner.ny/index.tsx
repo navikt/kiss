@@ -127,10 +127,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const description = formData.get("description")
 	const frequency = formData.get("frequency")
 	const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
-	const appliesToAllInSection = formData.get("appliesToAllInSection") === "on"
+	const isSectionRoutine = formData.get("isSectionRoutine") === "on"
+	// Section routines must apply to all apps in section
+	const appliesToAllInSection = isSectionRoutine || formData.get("appliesToAllInSection") === "on"
+	const sectionRoutineOwnerRole = isSectionRoutine
+		? (formData.get("sectionRoutineOwnerRole") as string)?.trim() || null
+		: null
+	if (isSectionRoutine && !sectionRoutineOwnerRole) {
+		throw data({ message: "Eier/utførende rolle er påkrevd for seksjonsrutiner" }, { status: 400 })
+	}
 	const activityTypeRaw = (formData.get("activityType") as string)?.trim() || null
+	// Section routines can't use app-specific activity types (reviews have applicationId=null)
 	const activityType =
-		activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
+		!isSectionRoutine && activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
 			? (activityTypeRaw as RoutineActivityType)
 			: null
 	const technologyElementIds = formData.getAll("technologyElementIds")
@@ -185,6 +194,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		frequency,
 		responsibleRole,
 		appliesToAllInSection,
+		isSectionRoutine,
+		sectionRoutineOwnerRole,
 		activityType,
 		persistenceLinks,
 		screeningQuestionId: firstLink?.questionId ?? null,
@@ -208,6 +219,8 @@ export default function NyRutine() {
 	const [selectedControlIds, setSelectedControlIds] = useState<string[]>([])
 	const [responsibleRole, setResponsibleRole] = useState("")
 	const [roleManuallySet, setRoleManuallySet] = useState(false)
+	const [isSectionRoutine, setIsSectionRoutine] = useState(false)
+	const [appliesToAll, setAppliesToAll] = useState(false)
 	const [persistenceLinks, setPersistenceLinks] = useState<PersistenceLinkItem[]>([])
 	const [selectedFrequency, setSelectedFrequency] = useState<RoutineFrequency | "">("")
 
@@ -299,9 +312,36 @@ export default function NyRutine() {
 						))}
 					</Select>
 
-					<Checkbox name="appliesToAllInSection" size="small">
+					{isSectionRoutine && <input type="hidden" name="appliesToAllInSection" value="on" />}
+					<Checkbox
+						name={isSectionRoutine ? undefined : "appliesToAllInSection"}
+						size="small"
+						checked={isSectionRoutine ? true : appliesToAll}
+						onChange={(e) => !isSectionRoutine && setAppliesToAll(e.target.checked)}
+						disabled={isSectionRoutine}
+					>
 						Gjelder alle applikasjoner i seksjonen
 					</Checkbox>
+
+					<Checkbox
+						name="isSectionRoutine"
+						size="small"
+						checked={isSectionRoutine}
+						onChange={(e) => setIsSectionRoutine(e.target.checked)}
+					>
+						Seksjonsrutine (gjennomgås på seksjonsnivå, ikke per applikasjon)
+					</Checkbox>
+
+					{isSectionRoutine && (
+						<Select label="Eier / utførende rolle" name="sectionRoutineOwnerRole" size="small">
+							<option value="">Velg rolle</option>
+							{PREDEFINED_ROLES.map((role) => (
+								<option key={role} value={role}>
+									{role}
+								</option>
+							))}
+						</Select>
+					)}
 
 					<VStack gap="space-2">
 						<Label size="small">Innledende spørsmål</Label>

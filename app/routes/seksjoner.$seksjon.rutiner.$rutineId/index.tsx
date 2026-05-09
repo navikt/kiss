@@ -20,6 +20,7 @@ import {
 	copyRoutine,
 	getAppsRequiringRoutine,
 	getLatestReviewForApp,
+	getLatestSectionReview,
 	getReviewsForRoutine,
 	getRoutine,
 	isOverdue,
@@ -73,6 +74,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		throw data({ message: `Fant ikke rutine: ${rutineId}` }, { status: 404 })
 	}
 
+	if (routine.sectionId !== section.id) {
+		throw data({ message: "Rutinen tilhører ikke denne seksjonen" }, { status: 403 })
+	}
+
 	const [reviews, apps] = await Promise.all([getReviewsForRoutine(rutineId), getAppsRequiringRoutine(rutineId)])
 
 	// Fetch screening question text if linked
@@ -82,9 +87,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	// Calculate deadline info for each app
+	// For section routines, use section-level review (applicationId IS NULL) for all apps
+	let sectionLevelReview: Awaited<ReturnType<typeof getLatestReviewForApp>> | null = null
+	if (routine.isSectionRoutine === 1) {
+		sectionLevelReview = await getLatestSectionReview(rutineId)
+	}
+
 	const appsWithDeadlines = await Promise.all(
 		apps.map(async (app) => {
-			const latestReview = await getLatestReviewForApp(rutineId, app.id)
+			const latestReview =
+				routine.isSectionRoutine === 1 ? sectionLevelReview : await getLatestReviewForApp(rutineId, app.id)
 			const lastReviewDate = latestReview?.reviewedAt ?? null
 			const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 			const overdue = isOverdue(deadline)
@@ -129,6 +141,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const routine = await getRoutine(rutineId)
 	if (!routine) throw data({ message: `Fant ikke rutine: ${rutineId}` }, { status: 404 })
+
+	if (routine.sectionId !== section.id) {
+		throw data({ message: "Rutinen tilhører ikke denne seksjonen" }, { status: 403 })
+	}
 
 	const formData = await request.formData()
 	const intent = formData.get("intent")
@@ -210,6 +226,11 @@ export default function RutineDetaljer() {
 								</Tag>
 							)
 						)}
+						{routine.isSectionRoutine === 1 && (
+							<Tag variant="alt1" size="small">
+								Seksjonsrutine
+							</Tag>
+						)}
 					</HStack>
 					<HStack gap="space-2">
 						{(routine.status !== "approved" || routine.archivedAt) && (
@@ -268,6 +289,15 @@ export default function RutineDetaljer() {
 
 			{/* Info section */}
 			<VStack gap="space-6">
+				{routine.isSectionRoutine === 1 && (
+					<VStack gap="space-2">
+						<Label size="small">Eier / Utførende rolle</Label>
+						<BodyShort>{routine.sectionRoutineOwnerRole ?? "Ikke satt"}</BodyShort>
+						<BodyShort size="small" textColor="subtle">
+							Denne rutinen gjennomgås på seksjonsnivå og gjelder alle applikasjoner i seksjonen.
+						</BodyShort>
+					</VStack>
+				)}
 				{descriptionHtml && (
 					<VStack gap="space-2">
 						<Label size="small">Beskrivelse</Label>

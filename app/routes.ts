@@ -64,6 +64,7 @@ export default [
 		"routes/ctx-team.applikasjoner.$appId.kontroll.$controlId.rutiner/index.tsx",
 	),
 	route("seksjoner/:seksjon/rutiner", "routes/seksjoner.$seksjon.rutiner/index.tsx"),
+	route("seksjoner/:seksjon/seksjonsrutiner", "routes/seksjoner.$seksjon.seksjonsrutiner/index.tsx"),
 	route("seksjoner/:seksjon/rutiner/ny", "routes/seksjoner.$seksjon.rutiner.ny/index.tsx"),
 	route("seksjoner/:seksjon/rutiner/mangler", "routes/seksjoner.$seksjon.rutiner.mangler/index.tsx"),
 	route("seksjoner/:seksjon/rutiner/gjennomfort", "routes/seksjoner.$seksjon.rutiner.gjennomfort/index.tsx"),

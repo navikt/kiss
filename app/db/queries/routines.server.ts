@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
 import {
@@ -6,7 +6,9 @@ import {
 	applicationEnvironments,
 	applicationManualGroups,
 	applicationPersistence,
+	applicationTeamMappings,
 	type DataClassification,
+	devTeamNaisTeamMappings,
 	entraGroupClassifications,
 	type GroupAccessClassification,
 	type GroupCriticality,
@@ -24,6 +26,7 @@ import {
 	frameworkRisks,
 	technologyElements,
 } from "../schema/framework"
+import { devTeams } from "../schema/organization"
 import {
 	type EntraChangeType,
 	type RoutineActivityType,
@@ -44,6 +47,7 @@ import {
 } from "../schema/routines"
 import { screeningAnswers, screeningQuestions, screeningRoutineSelections } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
+import { getEffectiveAppIdsInSection, isAppEffectiveInSection } from "./sections.server"
 
 // ─── Routine CRUD ────────────────────────────────────────────────────────
 
@@ -215,6 +219,8 @@ export async function createRoutine(params: {
 	frequency: RoutineFrequency
 	responsibleRole: string | null
 	appliesToAllInSection: boolean
+	isSectionRoutine?: boolean
+	sectionRoutineOwnerRole?: string | null
 	activityType?: RoutineActivityType | null
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
@@ -230,6 +236,11 @@ export async function createRoutine(params: {
 	status?: RoutineStatus
 	createdBy: string
 }) {
+	// Enforce section routine invariants at query level
+	if (params.isSectionRoutine && !params.sectionRoutineOwnerRole) {
+		throw new Response("Seksjonsrutiner krever en eierrolle (sectionRoutineOwnerRole)", { status: 400 })
+	}
+
 	const [routine] = await db
 		.insert(routines)
 		.values({
@@ -238,8 +249,10 @@ export async function createRoutine(params: {
 			description: params.description,
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
-			appliesToAllInSection: params.appliesToAllInSection ? 1 : 0,
-			activityType: params.activityType ?? null,
+			appliesToAllInSection: params.isSectionRoutine ? 1 : params.appliesToAllInSection ? 1 : 0,
+			isSectionRoutine: params.isSectionRoutine ? 1 : 0,
+			sectionRoutineOwnerRole: params.isSectionRoutine ? (params.sectionRoutineOwnerRole ?? null) : null,
+			activityType: params.isSectionRoutine ? null : (params.activityType ?? null),
 			screeningQuestionId: params.screeningQuestionId,
 			screeningChoiceValue: params.screeningChoiceValue,
 			...(params.status && { status: params.status }),
@@ -324,6 +337,8 @@ export async function createRoutine(params: {
 			sectionId: params.sectionId,
 			frequency: params.frequency,
 			responsibleRole: params.responsibleRole,
+			isSectionRoutine: params.isSectionRoutine,
+			sectionRoutineOwnerRole: params.sectionRoutineOwnerRole,
 			persistenceLinks: params.persistenceLinks,
 			screeningQuestionId: params.screeningQuestionId,
 			screeningQuestionLinks: links,
@@ -352,6 +367,8 @@ export async function updateRoutine(params: {
 	frequency: RoutineFrequency
 	responsibleRole: string | null
 	appliesToAllInSection: boolean
+	isSectionRoutine?: boolean
+	sectionRoutineOwnerRole?: string | null
 	activityType?: RoutineActivityType | null
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
@@ -373,7 +390,7 @@ export async function updateRoutine(params: {
 		// (en samtidig approve kunne ellers slippe gjennom redigering, og
 		// `previousValue` i auditen kunne bli stale).
 		const [locked] = await tx
-			.select({ name: routines.name, status: routines.status })
+			.select({ name: routines.name, status: routines.status, isSectionRoutine: routines.isSectionRoutine })
 			.from(routines)
 			.where(eq(routines.id, params.id))
 			.for("update")
@@ -385,6 +402,14 @@ export async function updateRoutine(params: {
 			throw new Response("Kan ikke redigere en godkjent rutine", { status: 403 })
 		}
 
+		// Use explicit param if provided, otherwise fall back to current DB value
+		const effectiveIsSectionRoutine = params.isSectionRoutine ?? locked.isSectionRoutine === 1
+
+		// Validate owner role for section routines
+		if (effectiveIsSectionRoutine && params.isSectionRoutine !== undefined && !params.sectionRoutineOwnerRole) {
+			throw new Response("Seksjonsrutiner krever en eierrolle (sectionRoutineOwnerRole)", { status: 400 })
+		}
+
 		const [routine] = await tx
 			.update(routines)
 			.set({
@@ -392,8 +417,14 @@ export async function updateRoutine(params: {
 				description: params.description,
 				frequency: params.frequency,
 				responsibleRole: params.responsibleRole,
-				appliesToAllInSection: params.appliesToAllInSection ? 1 : 0,
-				activityType: params.activityType ?? null,
+				appliesToAllInSection: effectiveIsSectionRoutine ? 1 : params.appliesToAllInSection ? 1 : 0,
+				...(params.isSectionRoutine !== undefined && {
+					isSectionRoutine: params.isSectionRoutine ? 1 : 0,
+				}),
+				...(params.isSectionRoutine !== undefined && {
+					sectionRoutineOwnerRole: effectiveIsSectionRoutine ? (params.sectionRoutineOwnerRole ?? null) : null,
+				}),
+				activityType: effectiveIsSectionRoutine ? null : (params.activityType ?? null),
 				screeningQuestionId: params.screeningQuestionId,
 				screeningChoiceValue: params.screeningChoiceValue,
 				...(params.status && { status: params.status }),
@@ -911,7 +942,79 @@ export async function getReviewsForRoutine(routineId: string) {
 	)
 }
 
+/**
+ * Resolves all section IDs an application effectively belongs to.
+ * Uses raw resolution (3 paths) then verifies effective membership
+ * via isAppEffectiveInSection to respect child-app, ignored, and excluded-env filters.
+ */
+export async function getSectionIdsForApp(applicationId: string): Promise<string[]> {
+	// Path 1: Direct NAIS teams with sectionId
+	// Path 2: Direct team mappings
+	// Path 3: Via devTeamNaisTeamMappings (app's NAIS teams → devTeams → sections)
+	const [naisRows, teamRows, indirectRows] = await Promise.all([
+		db
+			.selectDistinct({ sectionId: naisTeams.sectionId })
+			.from(applicationEnvironments)
+			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+			.where(and(eq(applicationEnvironments.applicationId, applicationId), isNotNull(naisTeams.sectionId))),
+		db
+			.selectDistinct({ sectionId: devTeams.sectionId })
+			.from(applicationTeamMappings)
+			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+			.where(
+				and(
+					eq(applicationTeamMappings.applicationId, applicationId),
+					isNull(applicationTeamMappings.archivedAt),
+					isNull(devTeams.archivedAt),
+					isNotNull(devTeams.sectionId),
+				),
+			),
+		// App's NAIS teams → devTeamNaisTeamMappings → devTeams.sectionId
+		db
+			.selectDistinct({ sectionId: devTeams.sectionId })
+			.from(applicationEnvironments)
+			.innerJoin(devTeamNaisTeamMappings, eq(applicationEnvironments.naisTeamId, devTeamNaisTeamMappings.naisTeamId))
+			.innerJoin(devTeams, eq(devTeamNaisTeamMappings.devTeamId, devTeams.id))
+			.where(
+				and(
+					eq(applicationEnvironments.applicationId, applicationId),
+					isNull(devTeamNaisTeamMappings.archivedAt),
+					isNull(devTeams.archivedAt),
+					isNotNull(devTeams.sectionId),
+				),
+			),
+	])
+	const candidateIds = new Set<string>()
+	for (const r of naisRows) if (r.sectionId) candidateIds.add(r.sectionId)
+	for (const r of teamRows) if (r.sectionId) candidateIds.add(r.sectionId)
+	for (const r of indirectRows) if (r.sectionId) candidateIds.add(r.sectionId)
+
+	// Verify effective membership: app must pass the section's filters
+	// (child-app, ignored-app, excluded-env, archived filters)
+	const verified = (
+		await Promise.all(
+			[...candidateIds].map(async (sectionId) => {
+				const isMember = await isAppEffectiveInSection(applicationId, sectionId)
+				return isMember ? sectionId : null
+			}),
+		)
+	).filter((id): id is string => id !== null)
+	return verified
+}
+
+/**
+ * Resolves all effective application IDs in a section, with proper filtering
+ * (excludes child apps, ignored apps, excluded environments).
+ * Delegates to the canonical implementation in sections.server.ts.
+ */
+async function getAppIdsInSection(sectionId: string): Promise<string[]> {
+	return getEffectiveAppIdsInSection(sectionId)
+}
+
 export async function getReviewsForApp(applicationId: string) {
+	// Find section IDs for this app to scope section-level reviews
+	const appSectionIds = await getSectionIdsForApp(applicationId)
+
 	const reviews = await db
 		.select({
 			review: routineReviews,
@@ -922,7 +1025,24 @@ export async function getReviewsForApp(applicationId: string) {
 		})
 		.from(routineReviews)
 		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
-		.where(and(eq(routineReviews.applicationId, applicationId), sql`${routineReviews.status} != 'discarded'`))
+		.where(
+			and(
+				or(
+					eq(routineReviews.applicationId, applicationId),
+					// Include section-level reviews only for section routines in the app's sections
+					...(appSectionIds.length > 0
+						? [
+								and(
+									eq(routines.isSectionRoutine, 1),
+									isNull(routineReviews.applicationId),
+									inArray(routines.sectionId, appSectionIds),
+								),
+							]
+						: []),
+				),
+				sql`${routineReviews.status} != 'discarded'`,
+			),
+		)
 		.orderBy(desc(routineReviews.reviewedAt))
 
 	return Promise.all(
@@ -1288,9 +1408,18 @@ export async function completeReview(reviewId: string, performedBy: string) {
 
 	// Sync materialiserte compliance-kontroller — utenfor tx fordi det er
 	// en stor batch-operasjon. Kjør kun hvis vi faktisk fullførte review-en.
-	if (statusChanged && existing.applicationId) {
-		const { syncApplicationControls } = await import("./application-controls.server")
-		await syncApplicationControls(existing.applicationId, performedBy)
+	if (statusChanged) {
+		if (existing.applicationId) {
+			const { syncApplicationControls } = await import("./application-controls.server")
+			await syncApplicationControls(existing.applicationId, performedBy)
+		} else {
+			// Only sync section for actual section routines (not general null-app reviews)
+			const routine = await getRoutine(existing.routineId)
+			if (routine?.isSectionRoutine === 1 && routine.sectionId) {
+				const { triggerSyncForSection } = await import("./application-controls.server")
+				triggerSyncForSection(routine.sectionId, performedBy)
+			}
+		}
 	}
 
 	return getReview(reviewId)
@@ -1544,9 +1673,30 @@ export async function addReviewAttachment(params: {
 
 // ─── Eligibility — which apps need a routine? ────────────────────────────
 
-export async function getAppsRequiringRoutine(routineId: string) {
+export async function getAppsRequiringRoutine(
+	routineId: string,
+	opts?: { sectionAppIdsCache?: Map<string, string[]> },
+) {
 	const routine = await getRoutine(routineId)
 	if (!routine) return []
+
+	// Section routines apply to all apps in the section — resolve via section membership
+	if (routine.isSectionRoutine === 1 && routine.sectionId) {
+		const cache = opts?.sectionAppIdsCache
+		let appIds: string[]
+		if (cache?.has(routine.sectionId)) {
+			appIds = cache.get(routine.sectionId)!
+		} else {
+			appIds = await getAppIdsInSection(routine.sectionId)
+			cache?.set(routine.sectionId, appIds)
+		}
+		if (appIds.length === 0) return []
+		return db
+			.select()
+			.from(monitoredApplications)
+			.where(and(inArray(monitoredApplications.id, appIds), isNull(monitoredApplications.archivedAt)))
+			.orderBy(monitoredApplications.name)
+	}
 
 	// Use join table for question links; fall back to legacy single link
 	const questionLinks =
@@ -1630,6 +1780,24 @@ export async function getLatestReviewForApp(routineId: string, applicationId: st
 	return review ?? null
 }
 
+/** Get latest section-level review (applicationId IS NULL) for a section routine */
+export async function getLatestSectionReview(routineId: string) {
+	const [review] = await db
+		.select()
+		.from(routineReviews)
+		.where(
+			and(
+				eq(routineReviews.routineId, routineId),
+				isNull(routineReviews.applicationId),
+				eq(routineReviews.status, "completed"),
+			),
+		)
+		.orderBy(desc(routineReviews.reviewedAt))
+		.limit(1)
+
+	return review ?? null
+}
+
 /**
  * Beregner neste frist for en rutine basert på frekvens. Bruker `lastReviewDate`
  * hvis tilgjengelig, ellers `routineCreatedAt` som baseline.
@@ -1669,23 +1837,47 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 
 	const results: RoutineDeadlineInfo[] = []
 
+	// Pre-fetch section-level reviews for section routines
+	const sectionRoutineIds = sectionRoutines.filter((r) => r.isSectionRoutine === 1).map((r) => r.id)
+	const sectionReviewMap = new Map<string, Date | null>()
+	if (sectionRoutineIds.length > 0) {
+		const sectionReviews = await db
+			.selectDistinctOn([routineReviews.routineId], {
+				routineId: routineReviews.routineId,
+				reviewedAt: routineReviews.reviewedAt,
+			})
+			.from(routineReviews)
+			.where(
+				and(
+					inArray(routineReviews.routineId, sectionRoutineIds),
+					isNull(routineReviews.applicationId),
+					eq(routineReviews.status, "completed"),
+				),
+			)
+			.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+		for (const sr of sectionReviews) {
+			sectionReviewMap.set(sr.routineId, sr.reviewedAt)
+		}
+	}
+
+	const sectionAppIdsCache = new Map<string, string[]>()
 	for (const routine of sectionRoutines) {
 		const fullRoutine = await getRoutine(routine.id)
-		const apps = await getAppsRequiringRoutine(routine.id)
+		const apps = await getAppsRequiringRoutine(routine.id, { sectionAppIdsCache })
 
 		for (const app of apps) {
-			const lastReview = await getLatestReviewForApp(routine.id, app.id)
-			const deadline = calculateDeadline(
-				lastReview?.reviewedAt ?? null,
-				routine.createdAt,
-				routine.frequency as RoutineFrequency,
-			)
+			// Section routines use section-level review; regular routines use per-app review
+			const lastReviewDate =
+				routine.isSectionRoutine === 1
+					? (sectionReviewMap.get(routine.id) ?? null)
+					: ((await getLatestReviewForApp(routine.id, app.id))?.reviewedAt ?? null)
+			const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
 
 			results.push({
 				routine: fullRoutine,
 				applicationId: app.id,
 				applicationName: app.name,
-				lastReviewDate: lastReview?.reviewedAt ?? null,
+				lastReviewDate,
 				deadline,
 				overdue: isOverdue(deadline),
 			})
@@ -2466,14 +2658,8 @@ export async function getRoutineDeadlinesForAppBySection(
 	applicationId: string,
 	excludeRoutineIds: Set<string> = new Set(),
 ): Promise<RoutineDeadlineInfo[]> {
-	// Find section IDs for this app via nais team environments
-	const sectionRows = await db
-		.selectDistinct({ sectionId: naisTeams.sectionId })
-		.from(applicationEnvironments)
-		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(and(eq(applicationEnvironments.applicationId, applicationId), isNotNull(naisTeams.sectionId)))
-
-	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+	// Find section IDs for this app via both nais environments and direct team mappings
+	const sectionIds = await getSectionIdsForApp(applicationId)
 	if (sectionIds.length === 0) return []
 
 	// Find routines that apply to all apps in these sections (approved only)
@@ -2596,13 +2782,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 	excludeRoutineIds: Set<string> = new Set(),
 ): Promise<RoutineDeadlineInfo[]> {
 	// Find section IDs for this app
-	const sectionRows = await db
-		.selectDistinct({ sectionId: naisTeams.sectionId })
-		.from(applicationEnvironments)
-		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(and(eq(applicationEnvironments.applicationId, applicationId), isNotNull(naisTeams.sectionId)))
-
-	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+	const sectionIds = await getSectionIdsForApp(applicationId)
 	if (sectionIds.length === 0) return []
 
 	// Find rulesets in these sections
@@ -2809,6 +2989,55 @@ export async function getCompletedReviewsForSection(sectionId: string) {
 			}
 		}),
 	)
+}
+
+// ─── Section Routines ────────────────────────────────────────────────────
+
+export async function getSectionRoutinesForSection(sectionId: string) {
+	const sectionRoutineRows = await db
+		.select()
+		.from(routines)
+		.where(and(eq(routines.sectionId, sectionId), eq(routines.isSectionRoutine, 1), isNull(routines.archivedAt)))
+		.orderBy(routines.name)
+
+	if (sectionRoutineRows.length === 0) return []
+
+	const routineIds = sectionRoutineRows.map((r) => r.id)
+
+	// Get latest completed section-level review (applicationId IS NULL) per routine
+	const latestReviews = await db
+		.selectDistinctOn([routineReviews.routineId], {
+			routineId: routineReviews.routineId,
+			reviewedAt: routineReviews.reviewedAt,
+			reviewId: routineReviews.id,
+			title: routineReviews.title,
+			status: routineReviews.status,
+			createdBy: routineReviews.createdBy,
+		})
+		.from(routineReviews)
+		.where(
+			and(
+				inArray(routineReviews.routineId, routineIds),
+				isNull(routineReviews.applicationId),
+				eq(routineReviews.status, "completed"),
+			),
+		)
+		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+
+	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r]))
+
+	return sectionRoutineRows.map((routine) => {
+		const lastReview = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = lastReview?.reviewedAt ?? null
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+		return {
+			routine,
+			lastReview,
+			lastReviewDate,
+			deadline,
+			overdue: isOverdue(deadline),
+		}
+	})
 }
 
 // ─── Review Activities ───────────────────────────────────────────────────
@@ -3130,6 +3359,8 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 				frequency: source.frequency,
 				responsibleRole: source.responsibleRole,
 				appliesToAllInSection: source.appliesToAllInSection,
+				isSectionRoutine: source.isSectionRoutine,
+				sectionRoutineOwnerRole: source.sectionRoutineOwnerRole,
 				activityType: source.activityType,
 				screeningQuestionId: source.screeningQuestionId,
 				screeningChoiceValue: source.screeningChoiceValue,

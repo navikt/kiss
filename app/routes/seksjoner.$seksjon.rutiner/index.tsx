@@ -175,6 +175,9 @@ export default function SeksjonRutinerIndex() {
 					<Button as={Link} to="./gjennomfort" variant="secondary" size="small">
 						Gjennomførte
 					</Button>
+					<Button as={Link} to={`/seksjoner/${section.slug}/seksjonsrutiner`} variant="secondary" size="small">
+						Seksjonsrutiner
+					</Button>
 					{canAdmin && (
 						<Button as={Link} to="./ny" variant="primary" size="small">
 							Opprett ny rutine

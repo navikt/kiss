@@ -1,21 +1,28 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import type PDFDocument from "pdfkit"
 import { getStatusLabel } from "../../lib/compliance-status"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
-import { applicationTeamMappings, monitoredApplications } from "../schema/applications"
+import { monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
 import { frameworkControls, frameworkDomains, frameworkRiskControlMappings, frameworkRisks } from "../schema/framework"
-import { devTeams, sections } from "../schema/organization"
+import { sections } from "../schema/organization"
 import { reports } from "../schema/reports"
 import { routines } from "../schema/routines"
 import { writeAuditLog } from "./audit.server"
 import { getAuditEvidenceForReport } from "./audit-evidence.server"
 import { saveBucketObject } from "./buckets.server"
 import { getActiveFrameworkVersion } from "./framework.server"
-import { calculateDeadline, getAppsRequiringRoutine, getLatestReviewForApp, isOverdue } from "./routines.server"
+import {
+	calculateDeadline,
+	getAppsRequiringRoutine,
+	getLatestReviewForApp,
+	getLatestSectionReview,
+	isOverdue,
+} from "./routines.server"
+import { getEffectiveAppIdsInSection } from "./sections.server"
 
 /** Get all reports ordered by newest first. */
 export async function getReports() {
@@ -50,29 +57,16 @@ export async function generateComplianceReport(params: {
 	let apps: Array<{ id: string; name: string }>
 
 	if (scope === "section" && scopeId) {
-		const teamsInSection = await db.select({ id: devTeams.id }).from(devTeams).where(eq(devTeams.sectionId, scopeId))
+		const effectiveAppIds = await getEffectiveAppIdsInSection(scopeId)
 
-		const teamIds = teamsInSection.map((t) => t.id)
-		if (teamIds.length === 0) {
+		if (effectiveAppIds.length === 0) {
 			apps = []
 		} else {
-			const mappings = await db
-				.select({ applicationId: applicationTeamMappings.applicationId })
-				.from(applicationTeamMappings)
-				.where(
-					sql`${applicationTeamMappings.devTeamId} IN ${teamIds} AND ${applicationTeamMappings.archivedAt} IS NULL`,
-				)
-
-			const uniqueAppIds = [...new Set(mappings.map((m) => m.applicationId))]
-			if (uniqueAppIds.length === 0) {
-				apps = []
-			} else {
-				apps = await db
-					.select({ id: monitoredApplications.id, name: monitoredApplications.name })
-					.from(monitoredApplications)
-					.where(sql`${monitoredApplications.id} IN ${uniqueAppIds} AND ${monitoredApplications.archivedAt} IS NULL`)
-					.orderBy(monitoredApplications.name)
-			}
+			apps = await db
+				.select({ id: monitoredApplications.id, name: monitoredApplications.name })
+				.from(monitoredApplications)
+				.where(and(inArray(monitoredApplications.id, effectiveAppIds), isNull(monitoredApplications.archivedAt)))
+				.orderBy(monitoredApplications.name)
 		}
 	} else {
 		apps = await db
@@ -215,24 +209,41 @@ export async function generateComplianceReport(params: {
 	}> = []
 
 	// Get routines for the scoped section, or all routines for "all" scope
-	let scopedRoutines: Array<{ id: string; name: string; frequency: string; createdAt: Date }>
+	let scopedRoutines: Array<{ id: string; name: string; frequency: string; createdAt: Date; isSectionRoutine: number }>
 	if (scope === "section" && scopeId) {
 		scopedRoutines = await db
-			.select({ id: routines.id, name: routines.name, frequency: routines.frequency, createdAt: routines.createdAt })
+			.select({
+				id: routines.id,
+				name: routines.name,
+				frequency: routines.frequency,
+				createdAt: routines.createdAt,
+				isSectionRoutine: routines.isSectionRoutine,
+			})
 			.from(routines)
 			.where(eq(routines.sectionId, scopeId))
 	} else {
 		scopedRoutines = await db
-			.select({ id: routines.id, name: routines.name, frequency: routines.frequency, createdAt: routines.createdAt })
+			.select({
+				id: routines.id,
+				name: routines.name,
+				frequency: routines.frequency,
+				createdAt: routines.createdAt,
+				isSectionRoutine: routines.isSectionRoutine,
+			})
 			.from(routines)
 	}
 
+	const sectionAppIdsCache = new Map<string, string[]>()
 	for (const routine of scopedRoutines) {
-		const requiredApps = await getAppsRequiringRoutine(routine.id)
+		const requiredApps = await getAppsRequiringRoutine(routine.id, { sectionAppIdsCache })
 		const appsInScope = requiredApps.filter((a) => apps.some((sa) => sa.id === a.id))
 
+		// For section routines, fetch section-level review once (shared across all apps)
+		const sectionReview = routine.isSectionRoutine === 1 ? await getLatestSectionReview(routine.id) : null
+
 		for (const app of appsInScope) {
-			const lastReview = await getLatestReviewForApp(routine.id, app.id)
+			const lastReview =
+				routine.isSectionRoutine === 1 ? sectionReview : await getLatestReviewForApp(routine.id, app.id)
 			const deadline = calculateDeadline(
 				lastReview?.reviewedAt ?? null,
 				routine.createdAt,
