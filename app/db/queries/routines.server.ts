@@ -1698,7 +1698,10 @@ export async function getAppsRequiringRoutine(
 			.orderBy(monitoredApplications.name)
 	}
 
-	// Use join table for question links; fall back to legacy single link
+	// Collect app IDs from all matching paths (not just screening questions)
+	const allMatchedAppIds = new Set<string>()
+
+	// Path 1: Screening question links
 	const questionLinks =
 		routine.screeningQuestions.length > 0
 			? routine.screeningQuestions
@@ -1706,28 +1709,61 @@ export async function getAppsRequiringRoutine(
 				? [{ questionId: routine.screeningQuestionId, choiceValue: routine.screeningChoiceValue }]
 				: []
 
-	if (questionLinks.length === 0) return []
+	if (questionLinks.length > 0) {
+		const matchingAppSets = await Promise.all(
+			questionLinks.map(async (link) => {
+				if (!link.choiceValue) return []
+				const rows = await db
+					.select({ applicationId: screeningAnswers.applicationId })
+					.from(screeningAnswers)
+					.where(and(eq(screeningAnswers.questionId, link.questionId), eq(screeningAnswers.answer, link.choiceValue)))
+				return rows.map((r) => r.applicationId)
+			}),
+		)
+		for (const id of matchingAppSets.flat()) allMatchedAppIds.add(id)
+	}
 
-	// Find apps that answered ANY linked question with the required choice
-	const matchingAppSets = await Promise.all(
-		questionLinks.map(async (link) => {
-			if (!link.choiceValue) return []
-			const rows = await db
-				.select({ applicationId: screeningAnswers.applicationId })
-				.from(screeningAnswers)
-				.where(and(eq(screeningAnswers.questionId, link.questionId), eq(screeningAnswers.answer, link.choiceValue)))
-			return rows.map((r) => r.applicationId)
-		}),
-	)
+	// Path 2: Persistence links (Oracle, PostgreSQL, etc.)
+	if (routine.persistenceLinks.length > 0) {
+		const persAppIds = await findAppsByPersistenceMatch(routine.persistenceLinks)
+		for (const id of persAppIds) allMatchedAppIds.add(id)
+	}
 
-	// Union all matching app IDs
-	const appIds = [...new Set(matchingAppSets.flat())]
-	if (appIds.length === 0) return []
+	// Path 3: Group classification links (Entra ID groups)
+	if (routine.groupClassifications.length > 0) {
+		const gcAppIds = await findAppsByGroupClassificationMatch(routine.groupClassifications)
+		for (const id of gcAppIds) allMatchedAppIds.add(id)
+	}
 
-	// Step 2: If routine has technology elements, further filter by those
+	// Path 4: Oracle role criticality links
+	if (routine.oracleRoleCriticalities.length > 0) {
+		const orcAppIds = await findAppsByOracleRoleCriticalityMatch(routine.oracleRoleCriticalities)
+		for (const id of orcAppIds) allMatchedAppIds.add(id)
+	}
+
+	// Path 5: Screening selections (explicit per-app routine selections)
+	const selectionRows = await db
+		.select({ applicationId: screeningRoutineSelections.applicationId })
+		.from(screeningRoutineSelections)
+		.where(eq(screeningRoutineSelections.routineId, routineId))
+	for (const row of selectionRows) allMatchedAppIds.add(row.applicationId)
+
+	// Path 6: Section-wide (appliesToAllInSection but NOT isSectionRoutine)
+	if (routine.appliesToAllInSection === 1 && routine.sectionId) {
+		const sectionAppIds = await getAppIdsInSection(routine.sectionId)
+		for (const id of sectionAppIds) allMatchedAppIds.add(id)
+	}
+
+	// Path 7: Ruleset — apps that answered screening questions linked to rulesets containing this routine
+	const rulesetAppIds = await findAppsByRulesetMatch(routineId)
+	for (const id of rulesetAppIds) allMatchedAppIds.add(id)
+
+	if (allMatchedAppIds.size === 0) return []
+
+	// Filter by technology elements if routine requires them
+	let filteredAppIds = [...allMatchedAppIds]
 	if (routine.technologyElements.length > 0) {
 		const elementIds = routine.technologyElements.map((e) => e.id)
-
 		const appsWithElements = await db
 			.select({
 				applicationId: applicationTechnologyElements.applicationId,
@@ -1735,30 +1771,179 @@ export async function getAppsRequiringRoutine(
 			.from(applicationTechnologyElements)
 			.where(
 				and(
-					inArray(applicationTechnologyElements.applicationId, appIds),
+					inArray(applicationTechnologyElements.applicationId, filteredAppIds),
 					inArray(applicationTechnologyElements.elementId, elementIds),
 					isNull(applicationTechnologyElements.archivedAt),
 					isNotNull(applicationTechnologyElements.confirmedAt),
 					isNull(applicationTechnologyElements.rejectedAt),
 				),
 			)
-
-		const filteredIds = [...new Set(appsWithElements.map((a) => a.applicationId))]
-		if (filteredIds.length === 0) return []
-
-		return db
-			.select()
-			.from(monitoredApplications)
-			.where(and(inArray(monitoredApplications.id, filteredIds), isNull(monitoredApplications.archivedAt)))
-			.orderBy(monitoredApplications.name)
+		filteredAppIds = [...new Set(appsWithElements.map((a) => a.applicationId))]
 	}
 
-	// No technology element filter — all matching apps
+	if (filteredAppIds.length === 0) return []
+
 	return db
 		.select()
 		.from(monitoredApplications)
-		.where(and(inArray(monitoredApplications.id, appIds), isNull(monitoredApplications.archivedAt)))
+		.where(and(inArray(monitoredApplications.id, filteredAppIds), isNull(monitoredApplications.archivedAt)))
 		.orderBy(monitoredApplications.name)
+}
+
+/** Reverse lookup: find apps that have persistence matching the routine's persistence links */
+async function findAppsByPersistenceMatch(
+	persistenceLinks: Array<{ persistenceType: string | null; dataClassification: string | null }>,
+): Promise<string[]> {
+	const allApps = new Set<string>()
+	for (const link of persistenceLinks) {
+		const conditions = [isNull(applicationPersistence.archivedAt)]
+		if (link.persistenceType) {
+			conditions.push(eq(applicationPersistence.type, link.persistenceType as PersistenceType))
+		}
+		if (link.dataClassification) {
+			conditions.push(eq(applicationPersistence.dataClassification, link.dataClassification as DataClassification))
+		}
+		const rows = await db
+			.select({ applicationId: applicationPersistence.applicationId })
+			.from(applicationPersistence)
+			.where(and(...conditions))
+		for (const r of rows) allApps.add(r.applicationId)
+	}
+	return [...allApps]
+}
+
+/** Reverse lookup: find apps with Entra groups matching the routine's group classification links */
+async function findAppsByGroupClassificationMatch(
+	groupClassifications: Array<{ classification: GroupAccessClassification | null }>,
+): Promise<string[]> {
+	const classifications = groupClassifications
+		.map((gc) => gc.classification)
+		.filter((c): c is GroupAccessClassification => c !== null)
+	if (classifications.length === 0) return []
+
+	const matchingGroupRows = await db
+		.select({ groupId: entraGroupClassifications.groupId })
+		.from(entraGroupClassifications)
+		.where(
+			and(
+				inArray(entraGroupClassifications.classification, classifications),
+				isNull(entraGroupClassifications.archivedAt),
+			),
+		)
+	const matchingGroupIds = matchingGroupRows.map((r) => r.groupId)
+	if (matchingGroupIds.length === 0) return []
+
+	const allApps = new Set<string>()
+	const matchingGroupIdSet = new Set(matchingGroupIds)
+
+	// Auth integrations (groups is a JSON text column)
+	const authRows = await db
+		.select({
+			applicationId: applicationAuthIntegrations.applicationId,
+			groups: applicationAuthIntegrations.groups,
+		})
+		.from(applicationAuthIntegrations)
+	for (const row of authRows) {
+		if (!row.groups) continue
+		try {
+			const parsed = JSON.parse(row.groups) as string[]
+			if (parsed.some((gid) => matchingGroupIdSet.has(gid))) {
+				allApps.add(row.applicationId)
+			}
+		} catch {
+			// Invalid JSON — skip
+		}
+	}
+
+	// Manual groups
+	if (matchingGroupIds.length > 0) {
+		const manualRows = await db
+			.select({ applicationId: applicationManualGroups.applicationId })
+			.from(applicationManualGroups)
+			.where(
+				and(inArray(applicationManualGroups.groupId, matchingGroupIds), isNull(applicationManualGroups.archivedAt)),
+			)
+		for (const r of manualRows) allApps.add(r.applicationId)
+	}
+
+	return [...allApps]
+}
+
+/** Reverse lookup: find apps with Oracle roles matching the routine's criticality links */
+async function findAppsByOracleRoleCriticalityMatch(
+	oracleRoleCriticalities: Array<{ criticality: GroupCriticality | null }>,
+): Promise<string[]> {
+	const criticalities = oracleRoleCriticalities
+		.map((orc) => orc.criticality)
+		.filter((c): c is GroupCriticality => c !== null)
+	if (criticalities.length === 0) return []
+
+	const matchingAssessments = await db
+		.select({ applicationId: oracleRoleAssessments.applicationId })
+		.from(oracleRoleAssessments)
+		.where(inArray(oracleRoleAssessments.criticality, criticalities))
+
+	return [...new Set(matchingAssessments.map((r) => r.applicationId))]
+}
+
+/** Reverse lookup: find apps linked via rulesets containing this routine */
+async function findAppsByRulesetMatch(routineId: string): Promise<string[]> {
+	const { rulesetRoutines } = await import("../schema/rulesets")
+	const { rulesets } = await import("../schema/rulesets")
+
+	// Find rulesets that include this routine
+	const rulesetRows = await db
+		.select({ rulesetId: rulesetRoutines.rulesetId })
+		.from(rulesetRoutines)
+		.where(and(eq(rulesetRoutines.routineId, routineId), isNull(rulesetRoutines.archivedAt)))
+	const rulesetIds = [...new Set(rulesetRows.map((r) => r.rulesetId))]
+	if (rulesetIds.length === 0) return []
+
+	// Only active rulesets
+	const activeRulesets = await db
+		.select({ id: rulesets.id })
+		.from(rulesets)
+		.where(and(inArray(rulesets.id, rulesetIds), eq(rulesets.status, "active")))
+	const activeRulesetIds = activeRulesets.map((r) => r.id)
+	if (activeRulesetIds.length === 0) return []
+
+	// Find apps that answered screening questions linked to these rulesets
+	// Path A: questions with rulesetId pointing to one of our rulesets
+	const answeredAppsA = await db
+		.selectDistinct({ applicationId: screeningAnswers.applicationId })
+		.from(screeningAnswers)
+		.innerJoin(
+			screeningQuestions,
+			and(
+				eq(screeningQuestions.id, screeningAnswers.questionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
+		)
+		.where(
+			and(
+				isNotNull(screeningQuestions.rulesetId),
+				inArray(screeningQuestions.rulesetId, activeRulesetIds),
+				isNotNull(screeningAnswers.answer),
+			),
+		)
+
+	// Path B: questions with answerType='ruleset' where the answer IS one of our ruleset IDs
+	const answeredAppsB = await db
+		.selectDistinct({ applicationId: screeningAnswers.applicationId })
+		.from(screeningAnswers)
+		.innerJoin(
+			screeningQuestions,
+			and(
+				eq(screeningQuestions.id, screeningAnswers.questionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+				eq(screeningQuestions.answerType, "ruleset"),
+			),
+		)
+		.where(and(isNotNull(screeningAnswers.answer), inArray(screeningAnswers.answer, activeRulesetIds)))
+
+	return [...new Set([...answeredAppsA.map((r) => r.applicationId), ...answeredAppsB.map((r) => r.applicationId)])]
 }
 
 // ─── Deadlines — overdue and upcoming ────────────────────────────────────
