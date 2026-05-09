@@ -1923,7 +1923,8 @@ async function findAppsByOracleRoleCriticalityMatch(
 }
 
 /** Reverse lookup: find apps linked via rulesets containing this routine.
- * Mirrors forward logic: only includes apps that are effective members of the ruleset's section. */
+ * Mirrors forward logic: for each ruleset, only includes apps that are effective
+ * members of THAT ruleset's section and answered questions for THAT ruleset. */
 async function findAppsByRulesetMatch(routineId: string): Promise<string[]> {
 	const { rulesetRoutines } = await import("../schema/rulesets")
 	const { rulesets } = await import("../schema/rulesets")
@@ -1936,66 +1937,66 @@ async function findAppsByRulesetMatch(routineId: string): Promise<string[]> {
 	const rulesetIds = [...new Set(rulesetRows.map((r) => r.rulesetId))]
 	if (rulesetIds.length === 0) return []
 
-	// Only active rulesets — also fetch sectionId for membership filtering
+	// Only active rulesets — also fetch sectionId for per-ruleset membership filtering
 	const activeRulesets = await db
 		.select({ id: rulesets.id, sectionId: rulesets.sectionId })
 		.from(rulesets)
 		.where(and(inArray(rulesets.id, rulesetIds), eq(rulesets.status, "active")))
-	const activeRulesetIds = activeRulesets.map((r) => r.id)
-	if (activeRulesetIds.length === 0) return []
+	if (activeRulesets.length === 0) return []
 
-	// Get effective app IDs for each ruleset's section (for membership filtering)
-	const sectionIds = [...new Set(activeRulesets.map((r) => r.sectionId))]
-	const sectionAppIds = new Set<string>()
-	for (const sectionId of sectionIds) {
-		const appIds = await getAppIdsInSection(sectionId)
-		for (const id of appIds) sectionAppIds.add(id)
+	// Process each ruleset independently: find apps in that ruleset's section that answered its questions
+	const matchedApps = new Set<string>()
+	const sectionAppCache = new Map<string, Set<string>>()
+
+	for (const ruleset of activeRulesets) {
+		// Get (and cache) section membership for this ruleset's section
+		let sectionApps = sectionAppCache.get(ruleset.sectionId)
+		if (!sectionApps) {
+			const appIds = await getAppIdsInSection(ruleset.sectionId)
+			sectionApps = new Set(appIds)
+			sectionAppCache.set(ruleset.sectionId, sectionApps)
+		}
+		if (sectionApps.size === 0) continue
+
+		// Path A: questions with rulesetId pointing to THIS specific ruleset
+		const answeredAppsA = await db
+			.selectDistinct({ applicationId: screeningAnswers.applicationId })
+			.from(screeningAnswers)
+			.innerJoin(
+				screeningQuestions,
+				and(
+					eq(screeningQuestions.id, screeningAnswers.questionId),
+					isNull(screeningQuestions.archivedAt),
+					eq(screeningQuestions.status, "approved"),
+				),
+			)
+			.where(and(eq(screeningQuestions.rulesetId, ruleset.id), isNotNull(screeningAnswers.answer)))
+
+		// Path B: questions with answerType='ruleset' where the answer IS this ruleset's ID
+		const answeredAppsB = await db
+			.selectDistinct({ applicationId: screeningAnswers.applicationId })
+			.from(screeningAnswers)
+			.innerJoin(
+				screeningQuestions,
+				and(
+					eq(screeningQuestions.id, screeningAnswers.questionId),
+					isNull(screeningQuestions.archivedAt),
+					eq(screeningQuestions.status, "approved"),
+					eq(screeningQuestions.answerType, "ruleset"),
+				),
+			)
+			.where(and(eq(screeningAnswers.answer, ruleset.id)))
+
+		// Only add apps that are in THIS ruleset's section
+		for (const row of answeredAppsA) {
+			if (sectionApps.has(row.applicationId)) matchedApps.add(row.applicationId)
+		}
+		for (const row of answeredAppsB) {
+			if (sectionApps.has(row.applicationId)) matchedApps.add(row.applicationId)
+		}
 	}
-	if (sectionAppIds.size === 0) return []
 
-	// Find apps that answered screening questions linked to these rulesets
-	// Path A: questions with rulesetId pointing to one of our rulesets
-	const answeredAppsA = await db
-		.selectDistinct({ applicationId: screeningAnswers.applicationId })
-		.from(screeningAnswers)
-		.innerJoin(
-			screeningQuestions,
-			and(
-				eq(screeningQuestions.id, screeningAnswers.questionId),
-				isNull(screeningQuestions.archivedAt),
-				eq(screeningQuestions.status, "approved"),
-			),
-		)
-		.where(
-			and(
-				isNotNull(screeningQuestions.rulesetId),
-				inArray(screeningQuestions.rulesetId, activeRulesetIds),
-				isNotNull(screeningAnswers.answer),
-			),
-		)
-
-	// Path B: questions with answerType='ruleset' where the answer IS one of our ruleset IDs
-	const answeredAppsB = await db
-		.selectDistinct({ applicationId: screeningAnswers.applicationId })
-		.from(screeningAnswers)
-		.innerJoin(
-			screeningQuestions,
-			and(
-				eq(screeningQuestions.id, screeningAnswers.questionId),
-				isNull(screeningQuestions.archivedAt),
-				eq(screeningQuestions.status, "approved"),
-				eq(screeningQuestions.answerType, "ruleset"),
-			),
-		)
-		.where(and(isNotNull(screeningAnswers.answer), inArray(screeningAnswers.answer, activeRulesetIds)))
-
-	const allCandidates = new Set([
-		...answeredAppsA.map((r) => r.applicationId),
-		...answeredAppsB.map((r) => r.applicationId),
-	])
-
-	// Filter to only apps that are effective members of the ruleset's section
-	return [...allCandidates].filter((appId) => sectionAppIds.has(appId))
+	return [...matchedApps]
 }
 
 // ─── Deadlines — overdue and upcoming ────────────────────────────────────
