@@ -1,0 +1,27 @@
+import type { Meta, StoryObj } from "@storybook/react"
+import { mockRutineDetaljData } from "@storybook-mocks/data"
+import { renderWithLoader } from "@storybook-mocks/router"
+import RutineDetaljer from "../index"
+
+const meta = {
+	title: "Sider/Seksjoner/Rutiner/Detalj",
+	component: RutineDetaljer,
+} satisfies Meta<typeof RutineDetaljer>
+export default meta
+type Story = StoryObj<typeof meta>
+
+export const VanligRutine: Story = {
+	name: "Vanlig rutine",
+	render: () =>
+		renderWithLoader(RutineDetaljer, mockRutineDetaljData(), "/seksjoner/pensjon-og-ufore/rutiner/routine-1"),
+}
+
+export const Seksjonsrutine: Story = {
+	name: "Seksjonsrutine",
+	render: () =>
+		renderWithLoader(
+			RutineDetaljer,
+			mockRutineDetaljData({ isSectionRoutine: true }),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-2",
+		),
+}
