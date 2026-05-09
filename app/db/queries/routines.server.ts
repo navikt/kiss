@@ -934,12 +934,11 @@ export async function getReviewsForRoutine(routineId: string) {
 		.where(and(eq(routineReviews.routineId, routineId), sql`${routineReviews.status} != 'discarded'`))
 		.orderBy(desc(routineReviews.reviewedAt))
 
-	return Promise.all(
-		reviews.map(async (row) => {
-			const enriched = await enrichReview(row.review)
-			return { ...enriched, applicationName: row.applicationName }
-		}),
-	)
+	const enrichedReviews = await enrichReviewsBatch(reviews.map((r) => r.review))
+	return enrichedReviews.map((enriched, i) => ({
+		...enriched,
+		applicationName: reviews[i].applicationName,
+	}))
 }
 
 /**
@@ -1045,18 +1044,14 @@ export async function getReviewsForApp(applicationId: string) {
 		)
 		.orderBy(desc(routineReviews.reviewedAt))
 
-	return Promise.all(
-		reviews.map(async (row) => {
-			const enriched = await enrichReview(row.review)
-			return {
-				...enriched,
-				routineName: row.routineName,
-				routineDescription: row.routineDescription,
-				routineFrequency: row.routineFrequency,
-				sectionId: row.sectionId,
-			}
-		}),
-	)
+	const enrichedReviews = await enrichReviewsBatch(reviews.map((r) => r.review))
+	return enrichedReviews.map((enriched, i) => ({
+		...enriched,
+		routineName: reviews[i].routineName,
+		routineDescription: reviews[i].routineDescription,
+		routineFrequency: reviews[i].routineFrequency,
+		sectionId: reviews[i].sectionId,
+	}))
 }
 
 export async function getReview(id: string) {
@@ -1066,24 +1061,63 @@ export async function getReview(id: string) {
 }
 
 async function enrichReview(review: typeof routineReviews.$inferSelect) {
-	const [participants, attachments, links] = await Promise.all([
+	const enriched = await enrichReviewsBatch([review])
+	return enriched[0]
+}
+
+/**
+ * Batch-enrich multiple reviews with participants, attachments, and links.
+ * Uses 3 batch queries instead of N×3 individual queries to avoid pool exhaustion.
+ */
+async function enrichReviewsBatch(reviews: (typeof routineReviews.$inferSelect)[]) {
+	if (reviews.length === 0) return []
+
+	const reviewIds = reviews.map((r) => r.id)
+
+	const [allParticipants, allAttachments, allLinks] = await Promise.all([
 		db
 			.select()
 			.from(routineReviewParticipants)
-			.where(and(eq(routineReviewParticipants.reviewId, review.id), isNull(routineReviewParticipants.archivedAt))),
+			.where(and(inArray(routineReviewParticipants.reviewId, reviewIds), isNull(routineReviewParticipants.archivedAt))),
 		db
 			.select()
 			.from(routineReviewAttachments)
-			.where(eq(routineReviewAttachments.reviewId, review.id))
+			.where(inArray(routineReviewAttachments.reviewId, reviewIds))
 			.orderBy(routineReviewAttachments.uploadedAt),
 		db
 			.select()
 			.from(routineReviewLinks)
-			.where(and(eq(routineReviewLinks.reviewId, review.id), isNull(routineReviewLinks.archivedAt)))
+			.where(and(inArray(routineReviewLinks.reviewId, reviewIds), isNull(routineReviewLinks.archivedAt)))
 			.orderBy(routineReviewLinks.addedAt),
 	])
 
-	return { ...review, participants, attachments, links }
+	const participantsByReview = new Map<string, (typeof allParticipants)[number][]>()
+	for (const p of allParticipants) {
+		const arr = participantsByReview.get(p.reviewId) ?? []
+		arr.push(p)
+		participantsByReview.set(p.reviewId, arr)
+	}
+
+	const attachmentsByReview = new Map<string, (typeof allAttachments)[number][]>()
+	for (const a of allAttachments) {
+		const arr = attachmentsByReview.get(a.reviewId) ?? []
+		arr.push(a)
+		attachmentsByReview.set(a.reviewId, arr)
+	}
+
+	const linksByReview = new Map<string, (typeof allLinks)[number][]>()
+	for (const l of allLinks) {
+		const arr = linksByReview.get(l.reviewId) ?? []
+		arr.push(l)
+		linksByReview.set(l.reviewId, arr)
+	}
+
+	return reviews.map((review) => ({
+		...review,
+		participants: participantsByReview.get(review.id) ?? [],
+		attachments: attachmentsByReview.get(review.id) ?? [],
+		links: linksByReview.get(review.id) ?? [],
+	}))
 }
 
 /**
@@ -3232,16 +3266,12 @@ export async function getCompletedReviewsForSection(sectionId: string) {
 		.where(and(inArray(routineReviews.routineId, routineIds), sql`${routineReviews.status} != 'discarded'`))
 		.orderBy(desc(routineReviews.reviewedAt))
 
-	return Promise.all(
-		reviews.map(async (row) => {
-			const enriched = await enrichReview(row.review)
-			return {
-				...enriched,
-				routineName: row.routineName,
-				applicationName: row.appName,
-			}
-		}),
-	)
+	const enrichedReviews = await enrichReviewsBatch(reviews.map((r) => r.review))
+	return enrichedReviews.map((enriched, i) => ({
+		...enriched,
+		routineName: reviews[i].routineName,
+		applicationName: reviews[i].appName,
+	}))
 }
 
 // ─── Section Routines ────────────────────────────────────────────────────
