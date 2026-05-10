@@ -1,11 +1,11 @@
 import { BodyShort, Box, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import type { RoutineDeadlineInfo } from "~/db/queries/routines.server"
 import { getRoutineDeadlinesForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
-import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 function formatDate(date: string | Date | null): string {
 	if (!date) return "—"
@@ -25,9 +25,12 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const deadlines = await getRoutineDeadlinesForSection(section.id)
 
+	// Event-only routines have no deadlines, exclude from "mangler" view
+	const scheduledDeadlines = deadlines.filter((d) => d.routine?.frequency)
+
 	return data({
 		section,
-		deadlines,
+		deadlines: scheduledDeadlines,
 	})
 }
 
@@ -61,7 +64,9 @@ function DeadlineTable({ items }: { items: RoutineDeadlineInfo[] }) {
 						<Table.DataCell>
 							<Link to={`/applikasjoner/${item.applicationId}/detaljer`}>{item.applicationName}</Link>
 						</Table.DataCell>
-						<Table.DataCell>{item.routine?.frequency ? getFrequencyLabel(item.routine.frequency) : "—"}</Table.DataCell>
+						<Table.DataCell>
+							<FrequencyDisplay frequency={item.routine?.frequency} eventFrequency={item.routine?.eventFrequency} />
+						</Table.DataCell>
 						<Table.DataCell>{formatDate(item.lastReviewDate)}</Table.DataCell>
 						<Table.DataCell>{formatDate(item.deadline)}</Table.DataCell>
 						<Table.DataCell>

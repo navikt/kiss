@@ -15,6 +15,22 @@ export const Default: Story = {
 	render: () => renderWithLoader(SeksjonRutinerIndex, mockRutinerListData(), "/seksjoner/pensjon-og-ufore/rutiner"),
 }
 
+export const MedHendelsesbaserte: Story = {
+	name: "Med hendelsesbaserte og kombinerte rutiner",
+	render: () => {
+		const data = mockRutinerListData()
+		return renderWithLoader(SeksjonRutinerIndex, data, "/seksjoner/pensjon-og-ufore/rutiner")
+	},
+	parameters: {
+		docs: {
+			description: {
+				story:
+					"Viser rutinelisten med hendelsesbaserte (event-only) og kombinerte (periodisk + hendelsesbasert) rutiner.",
+			},
+		},
+	},
+}
+
 export const IngenRutiner: Story = {
 	name: "Ingen rutiner",
 	render: () =>

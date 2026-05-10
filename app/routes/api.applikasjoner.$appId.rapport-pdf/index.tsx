@@ -6,7 +6,7 @@ import { getAppAssessments } from "~/db/queries/applications.server"
 import { getApplicationDetail } from "~/db/queries/nais.server"
 import { getReviewsForApp } from "~/db/queries/routines.server"
 import { getStatusLabel } from "~/lib/compliance-status"
-import { getFrequencyLabel } from "~/lib/routine-frequencies"
+import { getCompositeFrequencyLabel } from "~/lib/routine-frequencies"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -144,7 +144,8 @@ interface Review {
 	createdBy: string
 	status: string
 	routineName: string
-	routineFrequency: string
+	routineFrequency: string | null
+	routineEventFrequency?: string | null
 	participants: Array<{ userIdent: string; userName: string | null; confirmedAt: Date | null }>
 	attachments: Array<{ fileName: string; contentType: string; sizeBytes: number | null }>
 }
@@ -382,7 +383,8 @@ function buildReviewsSection(doc: PDFKit.PDFDocument, reviews: Review[]) {
 		doc.moveDown(0.2)
 
 		doc.fontSize(8).fillColor(subtle)
-		doc.text(`Rutine: ${r.routineName} (${getFrequencyLabel(r.routineFrequency)})`)
+		const freqLabel = getCompositeFrequencyLabel(r.routineFrequency, r.routineEventFrequency)
+		doc.text(`Rutine: ${r.routineName} (${freqLabel})`)
 		doc.text(`Dato: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
 		doc.text(`Opprettet av: ${r.createdBy}`)
 

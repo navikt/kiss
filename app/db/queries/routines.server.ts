@@ -216,7 +216,8 @@ export async function createRoutine(params: {
 	sectionId: string
 	name: string
 	description: string | null
-	frequency: RoutineFrequency
+	frequency: RoutineFrequency | null
+	eventFrequency?: string | null
 	responsibleRole: string | null
 	appliesToAllInSection: boolean
 	isSectionRoutine?: boolean
@@ -248,6 +249,7 @@ export async function createRoutine(params: {
 			name: params.name,
 			description: params.description,
 			frequency: params.frequency,
+			eventFrequency: params.eventFrequency ?? null,
 			responsibleRole: params.responsibleRole,
 			appliesToAllInSection: params.isSectionRoutine ? 1 : params.appliesToAllInSection ? 1 : 0,
 			isSectionRoutine: params.isSectionRoutine ? 1 : 0,
@@ -336,6 +338,7 @@ export async function createRoutine(params: {
 		metadata: {
 			sectionId: params.sectionId,
 			frequency: params.frequency,
+			eventFrequency: params.eventFrequency,
 			responsibleRole: params.responsibleRole,
 			isSectionRoutine: params.isSectionRoutine,
 			sectionRoutineOwnerRole: params.sectionRoutineOwnerRole,
@@ -364,7 +367,8 @@ export async function updateRoutine(params: {
 	id: string
 	name: string
 	description: string | null
-	frequency: RoutineFrequency
+	frequency: RoutineFrequency | null
+	eventFrequency?: string | null
 	responsibleRole: string | null
 	appliesToAllInSection: boolean
 	isSectionRoutine?: boolean
@@ -416,6 +420,7 @@ export async function updateRoutine(params: {
 				name: params.name,
 				description: params.description,
 				frequency: params.frequency,
+				...(params.eventFrequency !== undefined && { eventFrequency: params.eventFrequency }),
 				responsibleRole: params.responsibleRole,
 				appliesToAllInSection: effectiveIsSectionRoutine ? 1 : params.appliesToAllInSection ? 1 : 0,
 				...(params.isSectionRoutine !== undefined && {
@@ -1020,6 +1025,7 @@ export async function getReviewsForApp(applicationId: string) {
 			routineName: routines.name,
 			routineDescription: routines.description,
 			routineFrequency: routines.frequency,
+			routineEventFrequency: routines.eventFrequency,
 			sectionId: routines.sectionId,
 		})
 		.from(routineReviews)
@@ -1050,6 +1056,7 @@ export async function getReviewsForApp(applicationId: string) {
 		routineName: reviews[i].routineName,
 		routineDescription: reviews[i].routineDescription,
 		routineFrequency: reviews[i].routineFrequency,
+		routineEventFrequency: reviews[i].routineEventFrequency,
 		sectionId: reviews[i].sectionId,
 	}))
 }
@@ -2088,12 +2095,14 @@ export async function getLatestSectionReview(routineId: string) {
 /**
  * Beregner neste frist for en rutine basert på frekvens. Bruker `lastReviewDate`
  * hvis tilgjengelig, ellers `routineCreatedAt` som baseline.
+ * Returnerer `null` for rutiner uten periodisk frekvens (hendelsesbaserte).
  */
 export function calculateDeadline(
 	lastReviewDate: Date | null,
 	routineCreatedAt: Date,
-	frequency: RoutineFrequency,
-): Date {
+	frequency: RoutineFrequency | null,
+): Date | null {
+	if (!frequency) return null
 	const base = lastReviewDate ?? routineCreatedAt
 	const days = frequencyDays[frequency]
 	const deadline = new Date(base)
@@ -2101,8 +2110,9 @@ export function calculateDeadline(
 	return deadline
 }
 
-/** Returnerer true hvis fristen ligger i fortid. */
-export function isOverdue(deadline: Date): boolean {
+/** Returnerer true hvis fristen ligger i fortid. Null deadline er aldri over frist. */
+export function isOverdue(deadline: Date | null): boolean {
+	if (!deadline) return false
 	return new Date() > deadline
 }
 
@@ -2111,7 +2121,7 @@ export interface RoutineDeadlineInfo {
 	applicationId: string
 	applicationName: string
 	lastReviewDate: Date | null
-	deadline: Date
+	deadline: Date | null
 	overdue: boolean
 	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
 }
@@ -2158,7 +2168,11 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 				routine.isSectionRoutine === 1
 					? (sectionReviewMap.get(routine.id) ?? null)
 					: ((await getLatestReviewForApp(routine.id, app.id))?.reviewedAt ?? null)
-			const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+			const deadline = calculateDeadline(
+				lastReviewDate,
+				routine.createdAt,
+				routine.frequency as RoutineFrequency | null,
+			)
 
 			results.push({
 				routine: fullRoutine,
@@ -2330,7 +2344,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
 			routine: fullRoutine,
@@ -2476,7 +2490,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
 			routine: fullRoutine,
@@ -2659,7 +2673,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
 			routine: fullRoutine,
@@ -2804,7 +2818,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
 			routine: fullRoutine,
@@ -2924,7 +2938,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
 			routine: fullRoutine,
@@ -3047,7 +3061,7 @@ export async function getRoutineDeadlinesForAppBySection(
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
 			routine: fullRoutine,
@@ -3227,7 +3241,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
 			routine: fullRoutine,
@@ -3312,7 +3326,7 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 	return sectionRoutineRows.map((routine) => {
 		const lastReview = reviewByRoutine.get(routine.id) ?? null
 		const lastReviewDate = lastReview?.reviewedAt ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 		return {
 			routine,
 			lastReview,
@@ -3632,6 +3646,9 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 		if (locked.archivedAt) {
 			throw new Response("Arkiverte rutiner kan ikke kopieres. Reaktiver rutinen først.", { status: 403 })
 		}
+		if (!source.frequency && !source.eventFrequency) {
+			throw new Response("Kan ikke kopiere rutine uten frekvens", { status: 400 })
+		}
 
 		const [copy] = await tx
 			.insert(routines)
@@ -3640,6 +3657,7 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 				name: `${source.name} (kopi)`,
 				description: source.description,
 				frequency: source.frequency,
+				eventFrequency: source.eventFrequency,
 				responsibleRole: source.responsibleRole,
 				appliesToAllInSection: source.appliesToAllInSection,
 				isSectionRoutine: source.isSectionRoutine,

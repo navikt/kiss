@@ -62,6 +62,8 @@ interface RoutineMatch {
 		| "ruleset"
 	overdue: boolean
 	lastReviewDate: Date | null
+	/** null means event-only routine (no periodic frequency) */
+	frequency: string | null
 }
 
 import { TECH_ELEMENT_ALL } from "~/db/queries/compliance-auto.server"
@@ -114,6 +116,7 @@ export function computeAutoCompliance(
 	routineDeadlines: Array<{
 		routine: {
 			id: string
+			frequency: string | null
 			controls?: Array<{ id: string }>
 			technologyElementIds?: string[]
 		} | null
@@ -142,6 +145,7 @@ export function computeAutoCompliance(
 			matchSource: dl.matchSource,
 			overdue: dl.overdue,
 			lastReviewDate: dl.lastReviewDate,
+			frequency: dl.routine.frequency ?? null,
 		})
 	}
 
@@ -211,12 +215,13 @@ function computeStatusForAssessment(
 	const hasScreening = screening?.hasQuestions ?? false
 	const screeningDetails = screening?.details ?? []
 
-	// Two-dimensional counts
+	// Event-only routines (frequency=null) count as "established" but are excluded from compliance counting
+	const scheduledRoutines = controlRoutines.filter((r) => r.frequency !== null)
 	const routinesEstablished = new Set(controlRoutines.map((r) => r.routineId)).size
 	const routinesCompleted = new Set(
-		controlRoutines.filter((r) => r.lastReviewDate !== null && !r.overdue).map((r) => r.routineId),
+		scheduledRoutines.filter((r) => r.lastReviewDate !== null && !r.overdue).map((r) => r.routineId),
 	).size
-	const routinesOverdue = new Set(controlRoutines.filter((r) => r.overdue).map((r) => r.routineId)).size
+	const routinesOverdue = new Set(scheduledRoutines.filter((r) => r.overdue).map((r) => r.routineId)).size
 
 	// Case 1: No data at all — cannot determine
 	if (!hasRoutines && !hasScreening) {
@@ -343,9 +348,12 @@ function computeStatusForAssessment(
 	// Case 3: Routines match (with or without screening)
 	const sources = [...new Set(controlRoutines.map((r) => r.matchSource))]
 	const matchingRoutineIds = [...new Set(controlRoutines.map((r) => r.routineId))]
-	const hasOverdueRoutine = controlRoutines.some((r) => r.overdue)
-	const allOverdue = controlRoutines.every((r) => r.overdue)
-	const anyNeverReviewed = controlRoutines.some((r) => r.lastReviewDate === null)
+	// Compliance status is based only on scheduled routines (event-only are always "ok")
+	const hasOverdueRoutine = scheduledRoutines.some((r) => r.overdue)
+	const allOverdue = scheduledRoutines.length > 0 && scheduledRoutines.every((r) => r.overdue)
+	const anyNeverReviewed = scheduledRoutines.some((r) => r.lastReviewDate === null)
+	const hasOnlyEventRoutines = scheduledRoutines.length === 0 && controlRoutines.length > 0
+	const hasEventRoutines = controlRoutines.length > scheduledRoutines.length
 
 	// Base two-dimensional fields for established routines
 	const baseDimensions = {
@@ -391,12 +399,30 @@ function computeStatusForAssessment(
 		}
 	}
 
-	// All routines have never been reviewed
-	if (anyNeverReviewed && controlRoutines.every((r) => r.lastReviewDate === null)) {
+	// Event-only routines: established but no periodic compliance to track
+	if (hasOnlyEventRoutines) {
+		return {
+			autoStatus: "implemented",
+			reason: "Kun hendelsesbaserte rutiner dekker denne kontrollen (ingen periodisk frist)",
+			sources,
+			matchingRoutineIds,
+			hasOverdueRoutine: false,
+			...baseDimensions,
+			compliance: "not_applicable",
+			screeningDetails,
+		}
+	}
+
+	// All scheduled routines have never been reviewed
+	if (anyNeverReviewed && scheduledRoutines.every((r) => r.lastReviewDate === null)) {
 		if (allOverdue) {
+			// If event-only routines also cover this control, they provide partial coverage
+			const status = hasEventRoutines ? "partially_implemented" : "not_implemented"
 			return {
-				autoStatus: "not_implemented",
-				reason: "Rutiner treffer men er aldri gjennomgått og forfalt",
+				autoStatus: status,
+				reason: hasEventRoutines
+					? "Periodiske rutiner er forfalt, men hendelsesbaserte rutiner dekker delvis"
+					: "Rutiner treffer men er aldri gjennomgått og forfalt",
 				sources,
 				matchingRoutineIds,
 				hasOverdueRoutine: true,

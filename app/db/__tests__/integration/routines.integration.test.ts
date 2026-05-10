@@ -1027,7 +1027,8 @@ describe("Routines integration tests", () => {
 
 			const expected = new Date("2024-01-01")
 			expected.setDate(expected.getDate() + 91)
-			expect(deadline.getTime()).toBe(expected.getTime())
+			expect(deadline).not.toBeNull()
+			expect(deadline?.getTime()).toBe(expected.getTime())
 		})
 
 		it("should calculate deadline from last review", () => {
@@ -1037,7 +1038,8 @@ describe("Routines integration tests", () => {
 
 			const expected = new Date("2024-06-15")
 			expected.setDate(expected.getDate() + 30)
-			expect(deadline.getTime()).toBe(expected.getTime())
+			expect(deadline).not.toBeNull()
+			expect(deadline?.getTime()).toBe(expected.getTime())
 		})
 
 		it("should identify overdue routine", async () => {
@@ -1078,6 +1080,117 @@ describe("Routines integration tests", () => {
 			const updatedRoutine = await getRoutine(routine.id)
 			const deadline = calculateDeadline(null, updatedRoutine?.createdAt ?? new Date(), "weekly")
 			expect(isOverdue(deadline)).toBe(true)
+		})
+	})
+
+	describe("Event-only routines (hendelsesbasert)", () => {
+		it("should return null deadline when frequency is null", () => {
+			const deadline = calculateDeadline(null, new Date(), null)
+			expect(deadline).toBeNull()
+		})
+
+		it("should not be overdue when deadline is null", () => {
+			expect(isOverdue(null)).toBe(false)
+		})
+
+		it("should create routine with eventFrequency and null frequency", async () => {
+			const sectionId = await createTestSection("event-section", "event-section")
+			const questionId = await createTestScreeningQuestion(sectionId, "Uses events?")
+			await createTestChoice(questionId, "Yes")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Event Only Routine",
+				description: "Triggered on demand",
+				frequency: null,
+				eventFrequency: "Ved behov",
+				screeningQuestionId: questionId,
+				screeningChoiceValue: "Yes",
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			expect(routine.frequency).toBeNull()
+			expect(routine.eventFrequency).toBe("Ved behov")
+
+			const fetched = await getRoutine(routine.id)
+			expect(fetched?.frequency).toBeNull()
+			expect(fetched?.eventFrequency).toBe("Ved behov")
+		})
+
+		it("should create routine with both frequency and eventFrequency", async () => {
+			const sectionId = await createTestSection("dual-section", "dual-section")
+			const questionId = await createTestScreeningQuestion(sectionId, "Dual freq?")
+			await createTestChoice(questionId, "Yes")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Dual Frequency Routine",
+				description: "Periodic and on demand",
+				frequency: "quarterly",
+				eventFrequency: "Ved endring",
+				screeningQuestionId: questionId,
+				screeningChoiceValue: "Yes",
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			expect(routine.frequency).toBe("quarterly")
+			expect(routine.eventFrequency).toBe("Ved endring")
+
+			const deadline = calculateDeadline(null, routine.createdAt, routine.frequency)
+			expect(deadline).not.toBeNull()
+		})
+
+		it("should still allow reviews on event-only routines", async () => {
+			const sectionId = await createTestSection("event-review-section", "event-review-section")
+			const questionId = await createTestScreeningQuestion(sectionId, "Has events?")
+			await createTestChoice(questionId, "Yes")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Reviewable Event Routine",
+				description: null,
+				frequency: null,
+				eventFrequency: "Ved behov",
+				screeningQuestionId: questionId,
+				screeningChoiceValue: "Yes",
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			const appId = await createTestApp("Event Review App")
+			await createTestScreeningAnswer(appId, questionId, "Yes")
+
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "On-demand review",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [{ userIdent: "test-user", userName: "Test User" }],
+			})
+
+			expect(review.routineId).toBe(routine.id)
+
+			const reviews = await getReviewsForRoutine(routine.id)
+			expect(reviews.length).toBeGreaterThanOrEqual(1)
 		})
 	})
 

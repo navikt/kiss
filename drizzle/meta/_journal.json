@@ -512,6 +512,13 @@
       "when": 1781916280000,
       "tag": "0072_section_routines",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1781916340000,
+      "tag": "0073_event_frequency",
+      "breakpoints": true
     }
   ]
 }

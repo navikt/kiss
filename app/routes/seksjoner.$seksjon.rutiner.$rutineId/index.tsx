@@ -13,6 +13,7 @@ import {
 } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useFetcher, useLoaderData } from "react-router"
+import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	approveRoutine,
@@ -39,7 +40,6 @@ import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { canApproveRoutine, isAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
-import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 function formatDate(date: string | Date | null): string {
 	if (!date) return "—"
@@ -98,7 +98,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			const latestReview =
 				routine.isSectionRoutine === 1 ? sectionLevelReview : await getLatestReviewForApp(rutineId, app.id)
 			const lastReviewDate = latestReview?.reviewedAt ?? null
-			const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency)
+			const deadline = calculateDeadline(
+				lastReviewDate,
+				routine.createdAt,
+				routine.frequency as RoutineFrequency | null,
+			)
 			const overdue = isOverdue(deadline)
 
 			return {
@@ -107,7 +111,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				lastReviewDate,
 				deadline,
 				overdue,
-				neverReviewed: !latestReview,
+				neverReviewed: !latestReview && routine.frequency !== null,
 			}
 		}),
 	)
@@ -308,10 +312,8 @@ export default function RutineDetaljer() {
 
 				<VStack gap="space-2">
 					<Label size="small">Frekvens</Label>
-					<HStack>
-						<Tag variant="info" size="small">
-							{getFrequencyLabel(routine.frequency)}
-						</Tag>
+					<HStack gap="space-2" align="center">
+						<FrequencyDisplay frequency={routine.frequency} eventFrequency={routine.eventFrequency} />
 					</HStack>
 				</VStack>
 
@@ -473,9 +475,13 @@ export default function RutineDetaljer() {
 										<Link to={`/applikasjoner/${app.id}/detaljer`}>{app.name}</Link>
 									</Table.DataCell>
 									<Table.DataCell>{formatDate(app.lastReviewDate)}</Table.DataCell>
-									<Table.DataCell>{formatDate(app.deadline)}</Table.DataCell>
+									<Table.DataCell>{app.deadline ? formatDate(app.deadline) : "Ingen frist"}</Table.DataCell>
 									<Table.DataCell>
-										{app.neverReviewed ? (
+										{!routine.frequency ? (
+											<Tag variant="info" size="small">
+												{routine.eventFrequency ?? "Ved behov"}
+											</Tag>
+										) : app.neverReviewed ? (
 											<Tag variant="warning" size="small">
 												Ikke gjennomført
 											</Tag>

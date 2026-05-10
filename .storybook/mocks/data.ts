@@ -346,6 +346,7 @@ export function mockAppDetaljerData() {
 					name: "Sikkerhetstesting av applikasjoner",
 					sectionId: "s-01",
 					frequency: "quarterly",
+					eventFrequency: null,
 					technologyElements: [{ id: "te-1", name: "Applikasjon" }],
 					isSectionRoutine: 0,
 					sectionRoutineOwnerRole: null,
@@ -361,6 +362,7 @@ export function mockAppDetaljerData() {
 					name: "Tilgangskontroll – gjennomgang",
 					sectionId: "s-01",
 					frequency: "semi_annually",
+					eventFrequency: null,
 					technologyElements: [],
 					isSectionRoutine: 1,
 					sectionRoutineOwnerRole: "Seksjonsleder",
@@ -376,6 +378,7 @@ export function mockAppDetaljerData() {
 					name: "Database-backup verifisering",
 					sectionId: "s-01",
 					frequency: "monthly",
+					eventFrequency: null,
 					technologyElements: [{ id: "te-2", name: "Database" }],
 					isSectionRoutine: 0,
 					sectionRoutineOwnerRole: null,
@@ -384,6 +387,54 @@ export function mockAppDetaljerData() {
 				deadline: "2026-04-01T08:00:00Z",
 				lastReviewDate: null,
 				overdue: true,
+			},
+			{
+				routine: {
+					id: "routine-4",
+					name: "Sikkerhetsgjennomgang ved endring",
+					sectionId: "s-01",
+					frequency: null,
+					eventFrequency: "Ved endring",
+					technologyElements: [{ id: "te-1", name: "Applikasjon" }],
+					isSectionRoutine: 0,
+					sectionRoutineOwnerRole: null,
+				},
+				matchSource: "screening",
+				deadline: null,
+				lastReviewDate: "2026-02-10T14:00:00Z",
+				overdue: false,
+			},
+			{
+				routine: {
+					id: "routine-5",
+					name: "Beredskapsrutine",
+					sectionId: "s-01",
+					frequency: null,
+					eventFrequency: "Ved behov",
+					technologyElements: [],
+					isSectionRoutine: 1,
+					sectionRoutineOwnerRole: "Seksjonsleder",
+				},
+				matchSource: "section",
+				deadline: null,
+				lastReviewDate: null,
+				overdue: false,
+			},
+			{
+				routine: {
+					id: "routine-6",
+					name: "Tilgangsgjennomgang",
+					sectionId: "s-01",
+					frequency: "semi_annually",
+					eventFrequency: "Ved behov",
+					technologyElements: [],
+					isSectionRoutine: 0,
+					sectionRoutineOwnerRole: null,
+				},
+				matchSource: "screening",
+				deadline: "2026-08-01T10:00:00Z",
+				lastReviewDate: "2026-02-01T10:00:00Z",
+				overdue: false,
 			},
 		],
 		completedReviews: [
@@ -650,7 +701,8 @@ function mockRoutineBase(overrides: Partial<{
 	id: string
 	name: string
 	description: string | null
-	frequency: string
+	frequency: string | null
+	eventFrequency: string | null
 	status: string
 	isSectionRoutine: number
 	sectionRoutineOwnerRole: string | null
@@ -673,6 +725,7 @@ function mockRoutineBase(overrides: Partial<{
 		name: overrides.name ?? "Sikkerhetstesting av applikasjoner",
 		description: overrides.description ?? "Gjennomfør sikkerhetstesting av alle produksjonsapplikasjoner",
 		frequency: overrides.frequency ?? "quarterly",
+		eventFrequency: overrides.eventFrequency ?? null,
 		responsibleRole: overrides.responsibleRole ?? "Sikkerhetsansvarlig",
 		appliesToAllInSection: overrides.appliesToAllInSection ?? 0,
 		isSectionRoutine: overrides.isSectionRoutine ?? 0,
@@ -756,6 +809,32 @@ export function mockRutinerListData() {
 				reviewCount: 0,
 				controls: [{ id: "c-4", controlId: "K-PD.01", name: "Personvernkonsekvensvurdering (DPIA)" }],
 			},
+			{
+				...mockRoutineBase({
+					id: "routine-5",
+					name: "Sikkerhetsgjennomgang ved endring",
+					status: "approved",
+					frequency: null,
+					eventFrequency: "Ved endring",
+				}),
+				technologyElements: [{ id: "te-1", name: "Applikasjon" }],
+				persistenceLinks: [],
+				reviewCount: 2,
+				controls: [{ id: "c-5", controlId: "K-ST.02", name: "Penetrasjonstesting" }],
+			},
+			{
+				...mockRoutineBase({
+					id: "routine-6",
+					name: "Tilgangsgjennomgang",
+					status: "approved",
+					frequency: "semi_annually",
+					eventFrequency: "Ved behov",
+				}),
+				technologyElements: [],
+				persistenceLinks: [],
+				reviewCount: 1,
+				controls: [{ id: "c-6", controlId: "K-TS.01", name: "Tilgangskontroll og autorisering" }],
+			},
 		],
 		allControls: [
 			{ controlId: "K-ST.01", name: "Sikkerhetstesting av applikasjoner", technologyElements: ["Applikasjon"] },
@@ -807,14 +886,25 @@ export function mockNyRutineData() {
 	}
 }
 
-export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean }) {
+export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; eventOnly?: boolean; dualFrequency?: boolean }) {
 	const isSec = overrides?.isSectionRoutine ?? false
+	const eventOnly = overrides?.eventOnly ?? false
+	const dualFrequency = overrides?.dualFrequency ?? false
+
+	const frequency = eventOnly ? null : isSec ? "semi_annually" : "quarterly"
+	const eventFrequency = eventOnly ? "Ved endring" : dualFrequency ? "Ved behov" : null
+
 	const routine = {
 		...mockRoutineBase({
 			id: "routine-1",
-			name: isSec ? "Tilgangskontroll – gjennomgang" : "Sikkerhetstesting av applikasjoner",
+			name: eventOnly
+				? "Sikkerhetsgjennomgang ved endring"
+				: isSec
+					? "Tilgangskontroll – gjennomgang"
+					: "Sikkerhetstesting av applikasjoner",
 			status: "approved",
-			frequency: isSec ? "semi_annually" : "quarterly",
+			frequency,
+			eventFrequency,
 			isSectionRoutine: isSec ? 1 : 0,
 			sectionRoutineOwnerRole: isSec ? "Seksjonsleder" : null,
 			appliesToAllInSection: isSec ? 1 : 0,
@@ -878,7 +968,26 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean })
 				},
 			]
 
-	const appsWithDeadlines = [
+	const appsWithDeadlines = eventOnly
+		? [
+				{
+					id: "app-1",
+					name: "pensjon-sak",
+					lastReviewDate: "2026-04-10T09:00:00Z",
+					deadline: null,
+					overdue: false,
+					neverReviewed: false,
+				},
+				{
+					id: "app-2",
+					name: "psak-frontend",
+					lastReviewDate: null,
+					deadline: null,
+					overdue: false,
+					neverReviewed: true,
+				},
+			]
+		: [
 		{
 			id: "app-1",
 			name: "pensjon-sak",
@@ -911,9 +1020,11 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean })
 		reviews,
 		appsWithDeadlines,
 		screeningQuestion: null,
-		descriptionHtml: isSec
-			? "<p>Halvårlig gjennomgang av tilgangsrettigheter for alle applikasjoner i seksjonen.</p>"
-			: "<p>Gjennomfør sikkerhetstesting inkludert OWASP Top 10 og SAST/DAST-skanning.</p>",
+		descriptionHtml: eventOnly
+			? "<p>Gjennomfør sikkerhetsgjennomgang ved alle endringer i applikasjonens kildekode eller konfigurasjon.</p>"
+			: isSec
+				? "<p>Halvårlig gjennomgang av tilgangsrettigheter for alle applikasjoner i seksjonen.</p>"
+				: "<p>Gjennomfør sikkerhetstesting inkludert OWASP Top 10 og SAST/DAST-skanning.</p>",
 		userCanApprove: true,
 		userCanAdmin: true,
 		effectiveRole: isSec ? "Seksjonsleder" : "Sikkerhetsansvarlig",
@@ -987,6 +1098,45 @@ export function mockSeksjonsrutinerData() {
 				},
 				lastReviewDate: twoMonthsAgo,
 				deadline: new Date(now.getFullYear() + 1, now.getMonth() - 2, now.getDate()).toISOString(),
+				overdue: false,
+			},
+			{
+				routine: mockRoutineBase({
+					id: "routine-6",
+					name: "Hendelseshåndtering",
+					status: "approved",
+					frequency: null,
+					eventFrequency: "Ved sikkerhetshendelse",
+					isSectionRoutine: 1,
+					sectionRoutineOwnerRole: "Seksjonsleder",
+					appliesToAllInSection: 1,
+				}),
+				lastReview: null,
+				lastReviewDate: null,
+				deadline: null,
+				overdue: false,
+			},
+			{
+				routine: mockRoutineBase({
+					id: "routine-7",
+					name: "Revisjon av tilgangsrettigheter",
+					status: "approved",
+					frequency: "quarterly",
+					eventFrequency: "Ved behov",
+					isSectionRoutine: 1,
+					sectionRoutineOwnerRole: "Teknologileder",
+					appliesToAllInSection: 1,
+				}),
+				lastReview: {
+					routineId: "routine-7",
+					reviewedAt: twoMonthsAgo,
+					reviewId: "rev-sec-3",
+					title: "Tilgangsrevisjon Q1 2026",
+					status: "completed",
+					createdBy: "A123456",
+				},
+				lastReviewDate: twoMonthsAgo,
+				deadline: new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString(),
 				overdue: false,
 			},
 		],

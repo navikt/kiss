@@ -1,11 +1,11 @@
 import { BodyShort, Box, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getApplicationDetail } from "~/db/queries/nais.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
 import { useAppBasePath } from "~/hooks/useAppBasePath"
-import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 function formatDate(date: string | Date | null): string {
 	if (!date) return "—"
@@ -87,12 +87,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				name: routine.name,
 				status: routine.status,
 				frequency: routine.frequency,
+				eventFrequency: routine.eventFrequency,
 				sectionId: routine.sectionId,
 				matchSource: d.matchSource,
 				lastReviewDate: d.lastReviewDate?.toISOString() ?? null,
-				deadline: d.deadline.toISOString(),
+				deadline: d.deadline?.toISOString() ?? null,
 				overdue: d.overdue,
-				neverReviewed: !d.lastReviewDate,
+				neverReviewed: !d.lastReviewDate && routine.frequency !== null,
 				technologyElements: (routine.technologyElementIds ?? [])
 					.map((id) => elementNameMap.get(id))
 					.filter(Boolean) as string[],
@@ -202,16 +203,22 @@ export default function AppKontrollRutiner() {
 											"—"
 										)}
 									</Table.DataCell>
-									<Table.DataCell>{getFrequencyLabel(r.frequency)}</Table.DataCell>
+									<Table.DataCell>
+										<FrequencyDisplay frequency={r.frequency} eventFrequency={r.eventFrequency} />
+									</Table.DataCell>
 									<Table.DataCell>
 										<Tag variant="neutral" size="xsmall">
 											{matchSourceLabels[r.matchSource] ?? r.matchSource}
 										</Tag>
 									</Table.DataCell>
 									<Table.DataCell>{formatDate(r.lastReviewDate)}</Table.DataCell>
-									<Table.DataCell>{formatDate(r.deadline)}</Table.DataCell>
+									<Table.DataCell>{r.deadline ? formatDate(r.deadline) : "Ingen frist"}</Table.DataCell>
 									<Table.DataCell>
-										{r.neverReviewed ? (
+										{!r.frequency ? (
+											<Tag variant="info" size="xsmall">
+												{r.eventFrequency ?? "Ved behov"}
+											</Tag>
+										) : r.neverReviewed ? (
 											<Tag variant="warning" size="xsmall">
 												Ikke gjennomført
 											</Tag>

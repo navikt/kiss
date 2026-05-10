@@ -19,6 +19,7 @@ import {
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useLoaderData } from "react-router"
+import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
@@ -186,6 +187,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const name = (formData.get("name") as string)?.trim()
 		const description = (formData.get("description") as string)?.trim() || null
 		const frequency = formData.get("frequency") as string
+		const eventFrequencyValue = formData.get("eventFrequency")
+		const eventFrequencyRaw = typeof eventFrequencyValue === "string" ? eventFrequencyValue.trim() || null : null
 		const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
 		const isSectionRoutine = formData.get("isSectionRoutine") === "on"
 		// Section routines must apply to all apps in section
@@ -221,14 +224,25 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			.filter((l) => l.persistenceType || l.dataClassification)
 
 		if (!name) throw new Response("Navn er påkrevd", { status: 400 })
-		if (!isRoutineFrequency(frequency)) throw new Response("Ugyldig frekvens", { status: 400 })
+		const parsedFrequency = frequency && isRoutineFrequency(frequency) ? frequency : null
+		if (frequency && !parsedFrequency) {
+			throw new Response("Ugyldig kronologisk frekvens", { status: 400 })
+		}
+		if (!parsedFrequency && !eventFrequencyRaw) {
+			throw new Response("Enten kronologisk frekvens eller hendelsesbasert frekvens er påkrevd", { status: 400 })
+		}
 
 		// Validate frequency is at least as often as the strictest control requirement
 		if (controlIds.length > 0) {
 			const allControls = await getAllControlsForSelection()
 			const selectedControls = allControls.filter((c) => controlIds.includes(c.id))
 			const minFreq = getStrictestFrequency(selectedControls.map((c) => c.frequency))
-			if (minFreq && !isFrequencyAtLeastAsOften(frequency, minFreq)) {
+			if (minFreq && !parsedFrequency) {
+				throw new Response(`Kontrollene krever periodisk frekvens (minimum ${frequencyLabels[minFreq]})`, {
+					status: 400,
+				})
+			}
+			if (minFreq && parsedFrequency && !isFrequencyAtLeastAsOften(parsedFrequency, minFreq)) {
 				throw new Response(`Frekvensen kan ikke være sjeldnere enn kravet (${frequencyLabels[minFreq]})`, {
 					status: 400,
 				})
@@ -249,7 +263,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			id: rutineId,
 			name,
 			description,
-			frequency,
+			frequency: parsedFrequency,
+			eventFrequency: eventFrequencyRaw,
 			responsibleRole,
 			appliesToAllInSection,
 			isSectionRoutine,
@@ -385,7 +400,8 @@ export default function RedigerRutine() {
 	const [roleManuallySet, setRoleManuallySet] = useState(!!routine.responsibleRole)
 	const [isSectionRoutine, setIsSectionRoutine] = useState(routine.isSectionRoutine === 1)
 	const [appliesToAll, setAppliesToAll] = useState(routine.appliesToAllInSection === 1)
-	const [selectedFrequency, setSelectedFrequency] = useState(routine.frequency)
+	const [selectedFrequency, setSelectedFrequency] = useState<RoutineFrequency | "">(routine.frequency ?? "")
+	const [eventFrequency, setEventFrequency] = useState<string>(routine.eventFrequency ?? "")
 
 	const selectedControls = controls.filter((c) => selectedControlIds.includes(c.id))
 	const minimumFrequency = getStrictestFrequency(selectedControls.map((c) => c.frequency))
@@ -531,25 +547,32 @@ export default function RedigerRutine() {
 				<VStack gap="space-4">
 					<TextField label="Navn" name="name" defaultValue={routine.name} size="small" autoComplete="off" />
 					<MarkdownEditor label="Beskrivelse" name="description" defaultValue={routine.description ?? ""} />
-					<Select
-						label="Frekvens"
-						name="frequency"
-						value={selectedFrequency}
-						onChange={(e) => setSelectedFrequency(e.target.value as RoutineFrequency)}
-						size="small"
-						description={minimumFrequency ? `Krav krever minimum: ${frequencyLabels[minimumFrequency]}` : undefined}
-					>
-						{ROUTINE_FREQUENCIES.map((freq) => (
-							<option
-								key={freq}
-								value={freq}
-								disabled={minimumFrequency ? !isFrequencyAtLeastAsOften(freq, minimumFrequency) : false}
-							>
-								{frequencyLabels[freq]}
-								{minimumFrequency === freq ? " (fra krav)" : ""}
-							</option>
-						))}
-					</Select>
+					<Heading size="small" level="3">
+						Frekvens
+					</Heading>
+					<HStack gap="space-6" wrap>
+						<Select
+							label="Kronologisk frekvens"
+							name="frequency"
+							value={selectedFrequency}
+							onChange={(e) => setSelectedFrequency(e.target.value as RoutineFrequency | "")}
+							size="small"
+							description={minimumFrequency ? `Krav krever minimum: ${frequencyLabels[minimumFrequency]}` : undefined}
+						>
+							<option value="">Ingen</option>
+							{ROUTINE_FREQUENCIES.map((freq) => (
+								<option
+									key={freq}
+									value={freq}
+									disabled={minimumFrequency ? !isFrequencyAtLeastAsOften(freq, minimumFrequency) : false}
+								>
+									{frequencyLabels[freq]}
+									{minimumFrequency === freq ? " (fra krav)" : ""}
+								</option>
+							))}
+						</Select>
+						<EventFrequencyCombobox value={eventFrequency} onChange={setEventFrequency} />
+					</HStack>
 
 					<Select label="Status" name="status" defaultValue={routine.status ?? "draft"} size="small">
 						<option value="draft">Kladd</option>

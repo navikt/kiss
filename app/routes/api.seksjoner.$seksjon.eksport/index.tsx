@@ -4,7 +4,7 @@ import { getRulesetDetail, getRulesetsForSection } from "~/db/queries/rulesets.s
 import { getChoiceEffects, getChoicesForQuestion, getSectionScreeningQuestions } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { getFrequencyLabel } from "~/lib/routine-frequencies"
+import { getCompositeFrequencyLabel, getFrequencyLabel } from "~/lib/routine-frequencies"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -86,7 +86,9 @@ async function buildRoutinesExport(sectionId: string) {
 			return {
 				navn: r.name,
 				beskrivelse: r.description,
-				frekvens: getFrequencyLabel(r.frequency),
+				frekvens: getCompositeFrequencyLabel(r.frequency, r.eventFrequency),
+				kronologiskFrekvens: r.frequency ? getFrequencyLabel(r.frequency) : null,
+				hendelsesfrekvens: r.eventFrequency ?? null,
 				ansvarligRolle: r.responsibleRole,
 				databasekoblinger:
 					detail?.persistenceLinks.map((pl) => ({

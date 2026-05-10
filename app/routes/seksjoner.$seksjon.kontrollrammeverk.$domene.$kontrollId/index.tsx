@@ -2,6 +2,7 @@ import { PencilIcon } from "@navikt/aksel-icons"
 import { Button, Detail, Heading, HStack, Label, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	getControlDependencies,
@@ -15,7 +16,6 @@ import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { cronFrequencyLabels } from "~/lib/frequency-mapping"
 import { renderMarkdown } from "~/lib/markdown.server"
-import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 const fieldConfig = [
 	{ key: "requirement", label: "Krav" },
@@ -94,6 +94,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			name: routines.name,
 			status: routines.status,
 			frequency: routines.frequency,
+			eventFrequency: routines.eventFrequency,
 			responsibleRole: routines.responsibleRole,
 		})
 		.from(routines)
@@ -334,7 +335,9 @@ export default function SectionControlDetailPage() {
 											<Table.DataCell>
 												<Link to={`/seksjoner/${seksjon}/rutiner/${r.id}`}>{r.name}</Link>
 											</Table.DataCell>
-											<Table.DataCell>{getFrequencyLabel(r.frequency)}</Table.DataCell>
+											<Table.DataCell>
+												<FrequencyDisplay frequency={r.frequency} eventFrequency={r.eventFrequency} />
+											</Table.DataCell>
 											<Table.DataCell>{r.responsibleRole ?? "—"}</Table.DataCell>
 											<Table.DataCell>
 												<Tag variant={statusCfg.variant} size="xsmall">
