@@ -6,8 +6,11 @@
  */
 import type { Meta, StoryObj } from "@storybook/react"
 import {
+	mockAdminImportData,
 	mockAppDetaljerData,
 	mockDeploymentStats,
+	mockDokumenterData,
+	mockGjennomgangDetaljData,
 	mockKontrollrammeverkData,
 	mockMineTeamData,
 	mockNaisOvervakingData,
@@ -17,14 +20,17 @@ import {
 	mockTeamDetailData,
 } from "@storybook-mocks/data"
 import { renderWithLayout } from "@storybook-mocks/router"
+import AdminImport from "./routes/admin.import/index"
 import ApplikasjonDetalj from "./routes/applikasjoner.$appId.detaljer/index"
 import Dashboard from "./routes/dashboard/index"
+import Dokumenter from "./routes/dokumenter/index"
 import Kontrollrammeverk from "./routes/kontrollrammeverk/index"
 import MineTeamPage from "./routes/mine-team/index"
 import NaisOvervaking from "./routes/nais-overvaking/index"
 import Seksjoner from "./routes/seksjoner/index"
 import SeksjonDashboard from "./routes/seksjoner.$seksjon/index"
 import SeksjonOracleRoller from "./routes/seksjoner.$seksjon.oracle-roller/index"
+import GjennomgangDetalj from "./routes/seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/index"
 import TeamDashboard from "./routes/seksjoner.$seksjon.team.$team/index"
 
 const meta: Meta = {
@@ -145,5 +151,42 @@ export const OracleRollerStory: Story = {
 	render: () =>
 		renderWithLayout(SeksjonOracleRoller, mockOracleRollerData(), {
 			path: "/seksjoner/pensjon-og-ufore/oracle-roller",
+		}),
+}
+
+export const ApplikasjonAutorisertStory: Story = {
+	name: "Autoriserte applikasjoner (dra og slipp CSV)",
+	render: () =>
+		renderWithLayout(ApplikasjonDetalj, mockAppDetaljerData(), {
+			path: "/applikasjoner/app-1/detaljer",
+			initialEntry: "/applikasjoner/app-1/detaljer?fane=autoriserte-applikasjoner",
+		}),
+}
+
+export const DokumenterStory: Story = {
+	name: "Dokumenter (dra og slipp filopplasting)",
+	render: () =>
+		renderWithLayout(Dokumenter, mockDokumenterData(), {
+			path: "/dokumenter",
+		}),
+}
+
+export const AdminImportStory: Story = {
+	name: "Admin import (dra og slipp Excel)",
+	render: () =>
+		renderWithLayout(AdminImport, mockAdminImportData(), {
+			path: "/admin/import",
+			isAdmin: true,
+		}),
+}
+
+export const GjennomgangDetaljStory: Story = {
+	name: "Gjennomgang detalj (dra og slipp vedlegg)",
+	render: () =>
+		renderWithLayout(GjennomgangDetalj, mockGjennomgangDetaljData(), {
+			path: "/seksjoner/pensjon-og-ufore/rutiner/routine-1/gjennomgang/rev-1",
+			extraRoutes: [
+				{ path: "/api/gjennomgang/:id/vedlegg", action: () => ({ success: true, message: "Vedlegg lastet opp." }) },
+			],
 		}),
 }

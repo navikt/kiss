@@ -1,10 +1,9 @@
-import type { FileObject, FileRejected, FileRejectionReason } from "@navikt/ds-react"
+import type { FileObject } from "@navikt/ds-react"
 import {
 	Alert,
 	BodyLong,
 	Button,
 	CopyButton,
-	FileUpload,
 	Heading,
 	HStack,
 	Table,
@@ -13,9 +12,10 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
+import { AutoUploadDropzone } from "~/components/AutoUploadDropzone"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { saveBucketObject } from "~/db/queries/buckets.server"
 import { archiveDocument, createDocument, getAllDocuments, unarchiveDocument } from "~/db/queries/documents.server"
@@ -176,11 +176,6 @@ function getFileTypeVariant(contentType: string): "info" | "alt1" | "alt2" | "ne
 	return "neutral"
 }
 
-const rejectionErrors: Record<FileRejectionReason, string> = {
-	fileType: "Filtypen støttes ikke.",
-	fileSize: `Filen er over ${MAX_SIZE_MB} MB.`,
-}
-
 export default function Dokumenter() {
 	const { documents } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
@@ -191,24 +186,48 @@ export default function Dokumenter() {
 	const [files, setFiles] = useState<FileObject[]>([])
 	const [title, setTitle] = useState("")
 	const [description, setDescription] = useState("")
+	const [titleMissing, setTitleMissing] = useState(false)
 
 	const acceptedFiles = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
-	const rejectedFiles = files.filter((f): f is FileRejected => f.error)
 
-	function handleUpload() {
-		const selectedFile = acceptedFiles.length > 0 ? acceptedFiles[0].file : null
-		if (!selectedFile || !title.trim()) return
+	// Clear form state after successful upload
+	const prevActionData = useRef(actionData)
+	useEffect(() => {
+		if (actionData !== prevActionData.current && actionData && "success" in actionData && actionData.success) {
+			setFiles([])
+			setTitle("")
+			setDescription("")
+			setTitleMissing(false)
+		}
+		prevActionData.current = actionData
+	}, [actionData])
 
+	function doUpload(file: File) {
 		const formData = new FormData()
-		formData.set("file", selectedFile)
+		formData.set("file", file)
 		formData.set("title", title)
 		if (description.trim()) formData.set("description", description)
 
 		submit(formData, { method: "post", encType: "multipart/form-data" })
+	}
 
-		setFiles([])
-		setTitle("")
-		setDescription("")
+	function handleFileSelect(newFiles: FileObject[]) {
+		if (isSubmitting && newFiles.length > 0) return
+		setFiles(newFiles)
+		const accepted = newFiles.find((f) => !f.error)
+		if (accepted) {
+			if (title.trim()) {
+				doUpload(accepted.file)
+			} else {
+				setTitleMissing(true)
+			}
+		}
+	}
+
+	function handleTitleUpload() {
+		const selectedFile = acceptedFiles.length > 0 ? acceptedFiles[0].file : null
+		if (!selectedFile || !title.trim()) return
+		doUpload(selectedFile)
 	}
 
 	function handleArchive(documentId: string) {
@@ -253,8 +272,12 @@ export default function Dokumenter() {
 					label="Tittel"
 					description="Gi dokumentet et beskrivende navn"
 					value={title}
-					onChange={(e) => setTitle(e.target.value)}
+					onChange={(e) => {
+						setTitle(e.target.value)
+						if (e.target.value.trim()) setTitleMissing(false)
+					}}
 					size="medium"
+					error={titleMissing ? "Fyll inn tittel før opplasting" : undefined}
 				/>
 
 				<Textarea
@@ -265,63 +288,34 @@ export default function Dokumenter() {
 					minRows={2}
 				/>
 
-				<FileUpload.Dropzone
-					label="Velg fil eller dra og slipp"
+				<AutoUploadDropzone
+					label="Dra og slipp fil, eller klikk for å velge"
 					description={`Maks ${MAX_SIZE_MB} MB. Støttede formater: PDF, DOCX, XLSX, PPTX, PNG, JPG, TXT, MD`}
 					accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.txt,.md"
 					maxSizeInBytes={MAX_SIZE_BYTES}
-					onSelect={setFiles}
-					multiple={false}
-					fileLimit={{ max: 1, current: acceptedFiles.length }}
+					files={files}
+					onFilesChange={handleFileSelect}
+					isUploading={isSubmitting}
+					onFilesClear={() => setTitleMissing(false)}
+					rejectionErrors={{
+						fileType: "Filtypen støttes ikke.",
+						fileSize: `Filen er over ${MAX_SIZE_MB} MB.`,
+					}}
 				/>
 
-				{acceptedFiles.length > 0 && (
-					<VStack gap="space-2">
-						{acceptedFiles.map((file) => (
-							<FileUpload.Item
-								key={file.file.name}
-								file={file.file}
-								button={{
-									action: "delete",
-									onClick: () => setFiles([]),
-								}}
-								status={isSubmitting ? "uploading" : "idle"}
-							/>
-						))}
-					</VStack>
+				{acceptedFiles.length > 0 && title.trim() && (
+					<HStack gap="space-4">
+						<Button
+							type="button"
+							variant="primary"
+							onClick={handleTitleUpload}
+							disabled={isSubmitting}
+							loading={isSubmitting}
+						>
+							Last opp
+						</Button>
+					</HStack>
 				)}
-
-				{rejectedFiles.length > 0 && (
-					<VStack gap="space-2">
-						{rejectedFiles.map((rejected) => (
-							<FileUpload.Item
-								key={rejected.file.name}
-								file={rejected.file}
-								error={
-									rejected.reasons[0] in rejectionErrors
-										? rejectionErrors[rejected.reasons[0] as FileRejectionReason]
-										: rejected.reasons.join(", ")
-								}
-								button={{
-									action: "delete",
-									onClick: () => setFiles(files.filter((f) => f !== rejected)),
-								}}
-							/>
-						))}
-					</VStack>
-				)}
-
-				<HStack gap="space-4">
-					<Button
-						type="button"
-						variant="primary"
-						onClick={handleUpload}
-						disabled={acceptedFiles.length === 0 || !title.trim() || isSubmitting}
-						loading={isSubmitting}
-					>
-						Last opp
-					</Button>
-				</HStack>
 			</VStack>
 
 			<VStack gap="space-4">

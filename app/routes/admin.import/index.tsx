@@ -49,9 +49,10 @@ export default function Import() {
 		setExcludedChanges(new Set(dbOnlyKeys))
 	}, [actionData])
 
-	function handleUpload() {
-		const acceptedFiles = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
-		const selectedFile = acceptedFiles.length > 0 ? acceptedFiles[0].file : null
+	function handleFilesChange(newFiles: FileObject[]) {
+		setFiles(newFiles)
+		const accepted = newFiles.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
+		const selectedFile = accepted.length > 0 ? accepted[0].file : null
 		if (!selectedFile) return
 		const formData = new FormData()
 		formData.append("file", selectedFile)
@@ -72,7 +73,7 @@ export default function Import() {
 
 			{pendingImport && !actionData && <PendingImportAlert pendingImport={pendingImport} isSubmitting={isSubmitting} />}
 
-			<UploadStep files={files} onFilesChange={setFiles} onUpload={handleUpload} isSubmitting={isSubmitting} />
+			<UploadStep files={files} onFilesChange={handleFilesChange} isSubmitting={isSubmitting} />
 
 			{actionData && "success" in actionData && !actionData.success && (
 				<Alert variant="error">{actionData.error}</Alert>
