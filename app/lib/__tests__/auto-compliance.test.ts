@@ -18,11 +18,13 @@ const makeDeadline = (
 	overdue = false,
 	lastReviewDate: Date | null = new Date(),
 	technologyElementIds: string[] = [],
+	frequency: string | null = "quarterly",
 ) => ({
 	routine: {
 		id: routineId,
 		controls: controlIds.map((id) => ({ id })),
 		technologyElementIds,
+		frequency,
 	},
 	matchSource,
 	overdue,
@@ -330,6 +332,47 @@ describe("computeAutoCompliance", () => {
 		expect(result.get("ctrl-1:elem-db")?.autoStatus).toBe("implemented")
 		// elem-app gets no screening at all
 		expect(result.get("ctrl-1:elem-app")?.autoStatus).toBeNull()
+	})
+
+	it("event-only routines (frequency=null) count as established but not toward completion", () => {
+		const assessments = [makeAssessment("ctrl-1", null)]
+		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "persistence", false, null, [], null)]
+		const screeningEffects = new Map()
+
+		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
+		const auto = result.get("ctrl-1:null")
+		expect(auto).toBeDefined()
+		// Event-only routine is established but has no deadline — should be "implemented"
+		// because it exists and isn't overdue (event-only can't be overdue)
+		expect(auto?.autoStatus).toBe("implemented")
+		// Compliance should be not_applicable since there are no periodic deadlines to track
+		expect(auto?.compliance).toBe("not_applicable")
+	})
+
+	it("event-only routine does not cause overdue status", () => {
+		const assessments = [makeAssessment("ctrl-1", null)]
+		// Event-only routine with no review should not be overdue
+		const deadlines = [makeDeadline("routine-1", ["ctrl-1"], "persistence", false, null, [], null)]
+		const screeningEffects = new Map()
+
+		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
+		const auto = result.get("ctrl-1:null")
+		expect(auto?.autoStatus).not.toBe("not_implemented")
+		expect(auto?.autoStatus).not.toBe("partially_implemented")
+	})
+
+	it("mixed: scheduled overdue + event-only should be partially_implemented", () => {
+		const assessments = [makeAssessment("ctrl-1", null)]
+		const deadlines = [
+			makeDeadline("routine-1", ["ctrl-1"], "persistence", true, null, [], "quarterly"),
+			makeDeadline("routine-2", ["ctrl-1"], "screening", false, null, [], null),
+		]
+		const screeningEffects = new Map()
+
+		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
+		const auto = result.get("ctrl-1:null")
+		// Scheduled routine is overdue → partially_implemented
+		expect(auto?.autoStatus).toBe("partially_implemented")
 	})
 })
 

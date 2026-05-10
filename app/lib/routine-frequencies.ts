@@ -106,3 +106,40 @@ export function getStrictestFrequency(frequencies: (string | null | undefined)[]
 export function isFrequencyAtLeastAsOften(freq: RoutineFrequency, minFreq: RoutineFrequency): boolean {
 	return frequencyRank(freq) <= frequencyRank(minFreq)
 }
+
+// ─── Event-based frequency ───────────────────────────────────────────────
+
+/** Predefined event-based frequency suggestions (mirrors control framework). */
+export const EVENT_FREQUENCY_SUGGESTIONS = [
+	"Ved behov",
+	"Ved endring",
+	"Ved vesentlige endringer",
+	"Kontinuerlig",
+	"For hver produksjonssetting",
+	"For hver ny bruker og/eller rettighet",
+	"For hver bruker som slutter eller bytter roller/ansvar/oppgaver",
+	"For hver endring",
+	"Risikobasert",
+] as const
+
+export type EventFrequencySuggestion = (typeof EVENT_FREQUENCY_SUGGESTIONS)[number]
+
+/**
+ * Check if a routine is event-based only (no periodic frequency).
+ * Event-only routines have no deadlines and are excluded from compliance counting.
+ */
+export function isEventOnlyRoutine(frequency: RoutineFrequency | null | undefined): frequency is null | undefined {
+	return frequency === null || frequency === undefined
+}
+
+/** Composite frequency display label matching UI rendering logic. */
+export function getCompositeFrequencyLabel(
+	frequency: string | null | undefined,
+	eventFrequency: string | null | undefined,
+): string {
+	if (frequency) {
+		const label = getFrequencyLabel(frequency)
+		return eventFrequency ? `${label} (også ${eventFrequency.toLowerCase()})` : label
+	}
+	return eventFrequency ?? "—"
+}

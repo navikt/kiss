@@ -3,11 +3,12 @@ import { BodyShort, Button, Heading, HStack, Search, Table, Tag, VStack } from "
 import { useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionRoutinesForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { getFrequencyLabel } from "~/lib/routine-frequencies"
+import { getCompositeFrequencyLabel } from "~/lib/routine-frequencies"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { seksjon } = params
@@ -55,7 +56,9 @@ export default function Seksjonsrutiner() {
 			)
 		}
 		if (sort.orderBy === "frequency") {
-			return getFrequencyLabel(a.routine.frequency).localeCompare(getFrequencyLabel(b.routine.frequency), "nb") * dir
+			const aLabel = getCompositeFrequencyLabel(a.routine.frequency, a.routine.eventFrequency)
+			const bLabel = getCompositeFrequencyLabel(b.routine.frequency, b.routine.eventFrequency)
+			return aLabel.localeCompare(bLabel, "nb") * dir
 		}
 		if (sort.orderBy === "lastReview" || sort.orderBy === "deadline") {
 			const aDate = sort.orderBy === "lastReview" ? a.lastReviewDate : a.deadline
@@ -160,25 +163,38 @@ export default function Seksjonsrutiner() {
 													<Link to={`/seksjoner/${seksjon}/rutiner/${sr.routine.id}`}>{sr.routine.name}</Link>
 												</Table.DataCell>
 												<Table.DataCell>{sr.routine.sectionRoutineOwnerRole ?? "–"}</Table.DataCell>
-												<Table.DataCell>{getFrequencyLabel(sr.routine.frequency)}</Table.DataCell>
-												<Table.DataCell>{formatDate(sr.lastReviewDate)}</Table.DataCell>
-												<Table.DataCell>{formatDate(sr.deadline)}</Table.DataCell>
 												<Table.DataCell>
-													{statusKey === "overdue" && (
+													<FrequencyDisplay
+														frequency={sr.routine.frequency}
+														eventFrequency={sr.routine.eventFrequency}
+													/>
+												</Table.DataCell>
+												<Table.DataCell>{formatDate(sr.lastReviewDate)}</Table.DataCell>
+												<Table.DataCell>{sr.deadline ? formatDate(sr.deadline) : "Ingen frist"}</Table.DataCell>
+												<Table.DataCell>
+													{!sr.routine.frequency ? (
+														sr.lastReviewDate ? (
+															<Tag variant="success" size="xsmall">
+																OK
+															</Tag>
+														) : (
+															<Tag variant="warning" size="xsmall">
+																Ikke gjennomført
+															</Tag>
+														)
+													) : statusKey === "overdue" ? (
 														<Tag variant="error" size="xsmall">
 															Over frist
 														</Tag>
-													)}
-													{statusKey === "ok" && (
+													) : statusKey === "ok" ? (
 														<Tag variant="success" size="xsmall">
 															OK
 														</Tag>
-													)}
-													{statusKey === "never" && (
+													) : statusKey === "never" ? (
 														<Tag variant="warning" size="xsmall">
 															Ikke gjennomført
 														</Tag>
-													)}
+													) : null}
 												</Table.DataCell>
 												<Table.DataCell>
 													{sr.routine.status === "approved" && (

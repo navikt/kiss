@@ -11,7 +11,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-	name: "Med seksjonsrutiner",
+	name: "Med seksjonsrutiner (inkl. hendelsesbaserte)",
 	render: () =>
 		renderWithLoader(Seksjonsrutiner, mockSeksjonsrutinerData(), "/seksjoner/pensjon-og-ufore/seksjonsrutiner"),
 }

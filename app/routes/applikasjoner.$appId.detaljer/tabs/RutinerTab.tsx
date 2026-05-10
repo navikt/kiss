@@ -12,9 +12,9 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import { Link } from "react-router"
+import { FrequencyDisplay, frequencyDisplayText } from "~/components/FrequencyDisplay"
 import type { DataClassification } from "~/db/schema/applications"
 import { dataClassificationLabels } from "~/db/schema/applications"
-import { getFrequencyLabel } from "~/lib/routine-frequencies"
 import { persistenceLabels } from "../shared"
 
 type RoutineDeadline = {
@@ -23,10 +23,11 @@ type RoutineDeadline = {
 		name: string
 		sectionId: string | null
 		frequency: string | null
+		eventFrequency?: string | null
 		technologyElements?: Array<{ id: string; name: string }>
 	} | null
 	matchSource: string
-	deadline: Date | string
+	deadline: Date | string | null
 	lastReviewDate: Date | string | null
 	overdue: boolean
 	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
@@ -62,6 +63,10 @@ export function RutinerTab({
 	const [routineSearch, setRoutineSearch] = useState("")
 	const [routineStatusFilter, setRoutineStatusFilter] = useState<string[]>([])
 
+	// Split routines into scheduled (with periodic frequency) and event-only
+	const scheduledRoutines = routineDeadlines.filter((dl) => dl.routine && dl.routine.frequency !== null)
+	const eventOnlyRoutines = routineDeadlines.filter((dl) => dl.routine && dl.routine.frequency === null)
+
 	const routineStatusKey = (dl: RoutineDeadline): string => {
 		if (dl.overdue) return "overdue"
 		if (dl.lastReviewDate) return "ok"
@@ -81,20 +86,23 @@ export function RutinerTab({
 		return labels[s] ?? s
 	}
 
-	const filteredRoutines = routineDeadlines.filter((dl) => {
+	const filterRoutine = (dl: RoutineDeadline): boolean => {
 		if (routineStatusFilter.length > 0 && !routineStatusFilter.includes(routineStatusKey(dl))) return false
 		if (routineSearch) {
 			const q = routineSearch.toLowerCase()
 			if (
 				!(dl.routine?.name ?? "").toLowerCase().includes(q) &&
 				!matchSourceLabel(dl.matchSource).toLowerCase().includes(q) &&
-				!getFrequencyLabel(dl.routine?.frequency).toLowerCase().includes(q) &&
+				!frequencyDisplayText(dl.routine?.frequency, dl.routine?.eventFrequency).toLowerCase().includes(q) &&
 				!(dl.routine?.technologyElements ?? []).some((te) => te.name.toLowerCase().includes(q))
 			)
 				return false
 		}
 		return true
-	})
+	}
+
+	const filteredRoutines = scheduledRoutines.filter(filterRoutine)
+	const filteredEventRoutines = eventOnlyRoutines.filter(filterRoutine)
 
 	const sortedRoutines = [...filteredRoutines].sort((a, b) => {
 		const dir = routineSort.direction === "ascending" ? 1 : -1
@@ -118,8 +126,8 @@ export function RutinerTab({
 			aVal = (a.routine?.technologyElements ?? []).map((te) => te.name).join(", ")
 			bVal = (b.routine?.technologyElements ?? []).map((te) => te.name).join(", ")
 		} else if (orderBy === "frequency") {
-			aVal = getFrequencyLabel(a.routine?.frequency)
-			bVal = getFrequencyLabel(b.routine?.frequency)
+			aVal = frequencyDisplayText(a.routine?.frequency, a.routine?.eventFrequency)
+			bVal = frequencyDisplayText(b.routine?.frequency, b.routine?.eventFrequency)
 		} else if (orderBy === "status") {
 			const order = { overdue: "0", never: "1", ok: "2" }
 			aVal = order[routineStatusKey(a) as keyof typeof order] ?? "9"
@@ -166,166 +174,245 @@ export function RutinerTab({
 						</HStack>
 					</CheckboxGroup>
 
-					{sortedRoutines.length === 0 ? (
+					{sortedRoutines.length === 0 && filteredEventRoutines.length === 0 ? (
 						<BodyShort>Ingen rutiner matcher søket/filteret.</BodyShort>
 					) : (
-						// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1
-						<section className="table-scroll" aria-label="Rutinestatus" tabIndex={0}>
-							<Table
-								size="small"
-								sort={routineSort}
-								onSortChange={(sortKey) =>
-									setRoutineSort((prev) =>
-										sortKey
-											? {
-													orderBy: sortKey,
-													direction:
-														prev.orderBy === sortKey && prev.direction === "ascending" ? "descending" : "ascending",
-												}
-											: prev,
-									)
-								}
-							>
-								<Table.Header>
-									<Table.Row>
-										<Table.ColumnHeader sortKey="name" sortable>
-											Rutine
-										</Table.ColumnHeader>
-										<Table.ColumnHeader sortKey="matchSource" sortable>
-											Kobling
-										</Table.ColumnHeader>
-										<Table.ColumnHeader sortKey="technologyElement" sortable>
-											Teknologielement
-										</Table.ColumnHeader>
-										<Table.ColumnHeader sortKey="frequency" sortable>
-											Frekvens
-										</Table.ColumnHeader>
-										<Table.ColumnHeader sortKey="lastReview" sortable>
-											Siste gjennomgang
-										</Table.ColumnHeader>
-										<Table.ColumnHeader sortKey="deadline" sortable>
-											Frist
-										</Table.ColumnHeader>
-										<Table.ColumnHeader sortKey="status" sortable>
-											Status
-										</Table.ColumnHeader>
-										<Table.HeaderCell />
-									</Table.Row>
-								</Table.Header>
-								<Table.Body>
-									{sortedRoutines.map((dl, index) => (
-										<Table.Row key={dl.routine?.id ?? `${dl.matchSource}-${String(dl.deadline)}-${index}`}>
-											<Table.DataCell>
-												{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
-													<Link to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}>
-														{dl.routine?.name ?? "—"}
-													</Link>
-												) : (
-													(dl.routine?.name ?? "—")
-												)}
-												{dl.isSectionRoutine && (
-													<Tag variant="alt1" size="xsmall" style={{ marginLeft: "var(--ax-space-2)" }}>
-														Seksjonsrutine
-													</Tag>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>
-												{dl.matchSource === "persistence" ? (
-													<HStack gap="space-4" wrap>
-														{(dl.matchedPersistenceLinks ?? []).map((pl) => (
-															<HStack key={`${pl.persistenceType}-${pl.dataClassification}`} gap="space-2" wrap>
-																{pl.persistenceType && (
-																	<Tag variant="info" size="xsmall">
-																		{persistenceLabels[pl.persistenceType] ?? pl.persistenceType}
-																	</Tag>
-																)}
-																{pl.dataClassification && (
-																	<Tag variant="warning" size="xsmall">
-																		{dataClassificationLabels[pl.dataClassification as DataClassification] ??
-																			pl.dataClassification}
-																	</Tag>
-																)}
-															</HStack>
-														))}
-													</HStack>
-												) : dl.matchSource === "screening_selection" ? (
-													<Tag variant="alt1" size="xsmall">
-														Valgt via spørsmål
-													</Tag>
-												) : dl.matchSource === "section" ? (
-													<Tag variant="alt3" size="xsmall">
-														Gjelder alle i seksjonen
-													</Tag>
-												) : dl.matchSource === "ruleset" ? (
-													<Tag variant="alt2" size="xsmall">
-														Regelsett
-													</Tag>
-												) : dl.matchSource === "group_classification" ? (
-													<Tag variant="info" size="xsmall">
-														Tilgangsklassifisering
-													</Tag>
-												) : dl.matchSource === "oracle_role_criticality" ? (
-													<Tag variant="warning" size="xsmall">
-														Oracle-roller
-													</Tag>
-												) : (
-													<Tag variant="neutral" size="xsmall">
-														Screening
-													</Tag>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>
-												{dl.routine?.technologyElements && dl.routine.technologyElements.length > 0 && (
-													<HStack gap="space-2" wrap>
-														{dl.routine.technologyElements.map((te) => (
-															<Tag key={te.id} variant="info" size="xsmall">
-																{te.name}
+						<>
+							{sortedRoutines.length > 0 && (
+								// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1
+								<section className="table-scroll" aria-label="Rutinestatus" tabIndex={0}>
+									<Table
+										size="small"
+										sort={routineSort}
+										onSortChange={(sortKey) =>
+											setRoutineSort((prev) =>
+												sortKey
+													? {
+															orderBy: sortKey,
+															direction:
+																prev.orderBy === sortKey && prev.direction === "ascending" ? "descending" : "ascending",
+														}
+													: prev,
+											)
+										}
+									>
+										<Table.Header>
+											<Table.Row>
+												<Table.ColumnHeader sortKey="name" sortable>
+													Rutine
+												</Table.ColumnHeader>
+												<Table.ColumnHeader sortKey="matchSource" sortable>
+													Kobling
+												</Table.ColumnHeader>
+												<Table.ColumnHeader sortKey="technologyElement" sortable>
+													Teknologielement
+												</Table.ColumnHeader>
+												<Table.ColumnHeader sortKey="frequency" sortable>
+													Frekvens
+												</Table.ColumnHeader>
+												<Table.ColumnHeader sortKey="lastReview" sortable>
+													Siste gjennomgang
+												</Table.ColumnHeader>
+												<Table.ColumnHeader sortKey="deadline" sortable>
+													Frist
+												</Table.ColumnHeader>
+												<Table.ColumnHeader sortKey="status" sortable>
+													Status
+												</Table.ColumnHeader>
+												<Table.HeaderCell />
+											</Table.Row>
+										</Table.Header>
+										<Table.Body>
+											{sortedRoutines.map((dl, index) => (
+												<Table.Row key={dl.routine?.id ?? `${dl.matchSource}-${String(dl.deadline)}-${index}`}>
+													<Table.DataCell>
+														{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+															<Link to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}>
+																{dl.routine?.name ?? "—"}
+															</Link>
+														) : (
+															(dl.routine?.name ?? "—")
+														)}
+														{dl.isSectionRoutine && (
+															<Tag variant="alt1" size="xsmall" style={{ marginLeft: "var(--ax-space-2)" }}>
+																Seksjonsrutine
 															</Tag>
-														))}
-													</HStack>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>{getFrequencyLabel(dl.routine?.frequency)}</Table.DataCell>
-											<Table.DataCell>
-												{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
-											</Table.DataCell>
-											<Table.DataCell>{new Date(dl.deadline).toLocaleDateString("nb-NO")}</Table.DataCell>
-											<Table.DataCell>
-												{dl.overdue ? (
-													<Tag variant="error" size="small">
-														Over frist
-													</Tag>
-												) : dl.lastReviewDate ? (
-													<Tag variant="success" size="small">
-														OK
-													</Tag>
-												) : (
-													<Tag variant="warning" size="small">
-														Ikke gjennomført
-													</Tag>
-												)}
-											</Table.DataCell>
-											<Table.DataCell>
-												{dl.isSectionRoutine ? (
-													<BodyShort size="small" textColor="subtle">
-														Gjennomgås av {dl.sectionRoutineOwnerRole ?? "seksjonsleder"}
-													</BodyShort>
-												) : dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
-													<form method="post" style={{ display: "inline" }}>
-														<input type="hidden" name="intent" value="create-draft" />
-														<input type="hidden" name="routineId" value={dl.routine.id} />
-														<input type="hidden" name="sectionSlug" value={sectionSlugMap[dl.routine.sectionId]} />
-														<Button type="submit" variant="tertiary" size="xsmall">
-															Ny gjennomgang
-														</Button>
-													</form>
-												) : null}
-											</Table.DataCell>
-										</Table.Row>
-									))}
-								</Table.Body>
-							</Table>
-						</section>
+														)}
+													</Table.DataCell>
+													<Table.DataCell>
+														{dl.matchSource === "persistence" ? (
+															<HStack gap="space-4" wrap>
+																{(dl.matchedPersistenceLinks ?? []).map((pl) => (
+																	<HStack key={`${pl.persistenceType}-${pl.dataClassification}`} gap="space-2" wrap>
+																		{pl.persistenceType && (
+																			<Tag variant="info" size="xsmall">
+																				{persistenceLabels[pl.persistenceType] ?? pl.persistenceType}
+																			</Tag>
+																		)}
+																		{pl.dataClassification && (
+																			<Tag variant="warning" size="xsmall">
+																				{dataClassificationLabels[pl.dataClassification as DataClassification] ??
+																					pl.dataClassification}
+																			</Tag>
+																		)}
+																	</HStack>
+																))}
+															</HStack>
+														) : dl.matchSource === "screening_selection" ? (
+															<Tag variant="alt1" size="xsmall">
+																Valgt via spørsmål
+															</Tag>
+														) : dl.matchSource === "section" ? (
+															<Tag variant="alt3" size="xsmall">
+																Gjelder alle i seksjonen
+															</Tag>
+														) : dl.matchSource === "ruleset" ? (
+															<Tag variant="alt2" size="xsmall">
+																Regelsett
+															</Tag>
+														) : dl.matchSource === "group_classification" ? (
+															<Tag variant="info" size="xsmall">
+																Tilgangsklassifisering
+															</Tag>
+														) : dl.matchSource === "oracle_role_criticality" ? (
+															<Tag variant="warning" size="xsmall">
+																Oracle-roller
+															</Tag>
+														) : (
+															<Tag variant="neutral" size="xsmall">
+																Screening
+															</Tag>
+														)}
+													</Table.DataCell>
+													<Table.DataCell>
+														{dl.routine?.technologyElements && dl.routine.technologyElements.length > 0 && (
+															<HStack gap="space-2" wrap>
+																{dl.routine.technologyElements.map((te) => (
+																	<Tag key={te.id} variant="info" size="xsmall">
+																		{te.name}
+																	</Tag>
+																))}
+															</HStack>
+														)}
+													</Table.DataCell>
+													<Table.DataCell>
+														<FrequencyDisplay
+															frequency={dl.routine?.frequency}
+															eventFrequency={dl.routine?.eventFrequency}
+														/>
+													</Table.DataCell>
+													<Table.DataCell>
+														{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
+													</Table.DataCell>
+													<Table.DataCell>
+														{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
+													</Table.DataCell>
+													<Table.DataCell>
+														{dl.overdue ? (
+															<Tag variant="error" size="small">
+																Over frist
+															</Tag>
+														) : dl.lastReviewDate ? (
+															<Tag variant="success" size="small">
+																OK
+															</Tag>
+														) : (
+															<Tag variant="warning" size="small">
+																Ikke gjennomført
+															</Tag>
+														)}
+													</Table.DataCell>
+													<Table.DataCell>
+														{dl.isSectionRoutine ? (
+															<BodyShort size="small" textColor="subtle">
+																Gjennomgås av {dl.sectionRoutineOwnerRole ?? "seksjonsleder"}
+															</BodyShort>
+														) : dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+															<form method="post" style={{ display: "inline" }}>
+																<input type="hidden" name="intent" value="create-draft" />
+																<input type="hidden" name="routineId" value={dl.routine.id} />
+																<input type="hidden" name="sectionSlug" value={sectionSlugMap[dl.routine.sectionId]} />
+																<Button type="submit" variant="tertiary" size="xsmall">
+																	Ny gjennomgang
+																</Button>
+															</form>
+														) : null}
+													</Table.DataCell>
+												</Table.Row>
+											))}
+										</Table.Body>
+									</Table>
+								</section>
+							)}
+							{filteredEventRoutines.length > 0 && (
+								<>
+									<Heading size="medium" level="4">
+										Hendelsesbaserte rutiner
+									</Heading>
+									{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+									<section className="table-scroll" aria-label="Hendelsesbaserte rutiner" tabIndex={0}>
+										<Table size="small">
+											<Table.Header>
+												<Table.Row>
+													<Table.HeaderCell>Rutine</Table.HeaderCell>
+													<Table.HeaderCell>Kobling</Table.HeaderCell>
+													<Table.HeaderCell>Hendelsesfrekvens</Table.HeaderCell>
+													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
+													<Table.HeaderCell />
+												</Table.Row>
+											</Table.Header>
+											<Table.Body>
+												{filteredEventRoutines.map((dl, index) => (
+													<Table.Row key={dl.routine?.id ?? `event-${index}`}>
+														<Table.DataCell>
+															{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+																<Link
+																	to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}
+																>
+																	{dl.routine?.name ?? "—"}
+																</Link>
+															) : (
+																(dl.routine?.name ?? "—")
+															)}
+															{dl.isSectionRoutine && (
+																<Tag variant="alt1" size="xsmall" style={{ marginLeft: "var(--ax-space-2)" }}>
+																	Seksjonsrutine
+																</Tag>
+															)}
+														</Table.DataCell>
+														<Table.DataCell>{matchSourceLabel(dl.matchSource)}</Table.DataCell>
+														<Table.DataCell>{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>
+														<Table.DataCell>
+															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
+														</Table.DataCell>
+														<Table.DataCell>
+															{dl.isSectionRoutine ? (
+																<BodyShort size="small" textColor="subtle">
+																	Gjennomgås av {dl.sectionRoutineOwnerRole ?? "seksjonsleder"}
+																</BodyShort>
+															) : dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+																<form method="post" style={{ display: "inline" }}>
+																	<input type="hidden" name="intent" value="create-draft" />
+																	<input type="hidden" name="routineId" value={dl.routine.id} />
+																	<input
+																		type="hidden"
+																		name="sectionSlug"
+																		value={sectionSlugMap[dl.routine.sectionId]}
+																	/>
+																	<Button type="submit" variant="tertiary" size="xsmall">
+																		Ny gjennomgang
+																	</Button>
+																</form>
+															) : null}
+														</Table.DataCell>
+													</Table.Row>
+												))}
+											</Table.Body>
+										</Table>
+									</section>
+								</>
+							)}
+						</>
 					)}
 				</VStack>
 			)}

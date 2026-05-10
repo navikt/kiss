@@ -35,6 +35,7 @@ import {
 	useRevalidator,
 	useSubmit,
 } from "react-router"
+import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -56,7 +57,6 @@ import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applica
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
-import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 const MAX_SIZE_MB = 50
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
@@ -1189,7 +1189,7 @@ export default function GjennomgangDetalj() {
 									</VStack>
 									<VStack gap="space-2">
 										<Label size="small">Frekvens</Label>
-										<BodyShort>{getFrequencyLabel(routine.frequency)}</BodyShort>
+										<FrequencyDisplay frequency={routine.frequency} eventFrequency={routine.eventFrequency} />
 									</VStack>
 									{review.applicationId && (
 										<VStack gap="space-2">
@@ -1281,7 +1281,7 @@ export default function GjennomgangDetalj() {
 							</VStack>
 							<VStack gap="space-2">
 								<Label size="small">Frekvens</Label>
-								<BodyShort>{getFrequencyLabel(routine.frequency)}</BodyShort>
+								<FrequencyDisplay frequency={routine.frequency} eventFrequency={routine.eventFrequency} />
 							</VStack>
 							<VStack gap="space-2">
 								<Label size="small">Gjennomgangsdato</Label>

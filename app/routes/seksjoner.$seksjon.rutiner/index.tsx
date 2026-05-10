@@ -17,6 +17,7 @@ import {
 import { useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
@@ -29,7 +30,7 @@ import {
 } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
-import { frequencyLabels, getFrequencyLabel, type RoutineFrequency } from "~/lib/routine-frequencies"
+import { frequencyLabels, getCompositeFrequencyLabel, type RoutineFrequency } from "~/lib/routine-frequencies"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { seksjon } = params
@@ -74,7 +75,10 @@ export default function SeksjonRutinerIndex() {
 
 	const uniqueFrequencies = useMemo(() => {
 		const set = new Set<string>()
-		for (const r of routines) if (r.frequency) set.add(r.frequency)
+		for (const r of routines) {
+			if (r.frequency) set.add(r.frequency)
+			if (r.eventFrequency) set.add(`event:${r.eventFrequency}`)
+		}
 		return [...set].sort()
 	}, [routines])
 
@@ -102,7 +106,16 @@ export default function SeksjonRutinerIndex() {
 				if (!nameMatch && !controlMatch) return false
 			}
 			if (filterControl && !r.controls.some((c) => c.controlId === filterControl)) return false
-			if (filterFrequency && r.frequency !== filterFrequency) return false
+			if (filterFrequency) {
+				if (filterFrequency.startsWith("event:")) {
+					const eventVal = filterFrequency.slice(6)
+					if (r.eventFrequency !== eventVal) return false
+				} else if (filterFrequency === "__event_only__") {
+					if (r.frequency) return false
+				} else {
+					if (r.frequency !== filterFrequency) return false
+				}
+			}
 			if (filterTechElement && !r.technologyElements.some((te) => te.name === filterTechElement)) return false
 			if (filterPersistence && !r.persistenceLinks.some((pl) => pl.persistenceType === filterPersistence)) return false
 			if (filterStatus.length > 0 && !filterStatus.includes(r.status)) return false
@@ -119,7 +132,12 @@ export default function SeksjonRutinerIndex() {
 				case "name":
 					return dir * a.name.localeCompare(b.name)
 				case "frequency":
-					return dir * (getFrequencyLabel(a.frequency) ?? "").localeCompare(getFrequencyLabel(b.frequency) ?? "")
+					return (
+						dir *
+						getCompositeFrequencyLabel(a.frequency, a.eventFrequency).localeCompare(
+							getCompositeFrequencyLabel(b.frequency, b.eventFrequency),
+						)
+					)
 				case "controls":
 					return dir * (a.controls[0]?.controlId ?? "").localeCompare(b.controls[0]?.controlId ?? "")
 				case "techElements":
@@ -224,9 +242,10 @@ export default function SeksjonRutinerIndex() {
 							onChange={(e) => setFilterFrequency(e.target.value)}
 						>
 							<option value="">Alle frekvenser</option>
+							<option value="__event_only__">Kun hendelsesbaserte</option>
 							{uniqueFrequencies.map((f) => (
 								<option key={f} value={f}>
-									{frequencyLabels[f as RoutineFrequency] ?? f}
+									{f.startsWith("event:") ? f.slice(6) : (frequencyLabels[f as RoutineFrequency] ?? f)}
 								</option>
 							))}
 						</Select>
@@ -346,7 +365,9 @@ export default function SeksjonRutinerIndex() {
 											)}
 										</HStack>
 									</Table.DataCell>
-									<Table.DataCell>{getFrequencyLabel(routine.frequency)}</Table.DataCell>
+									<Table.DataCell>
+										<FrequencyDisplay frequency={routine.frequency} eventFrequency={routine.eventFrequency} />
+									</Table.DataCell>
 									<Table.DataCell>
 										<VStack gap="space-1">
 											{routine.controls.map((c) => (

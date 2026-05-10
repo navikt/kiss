@@ -25,3 +25,23 @@ export const Seksjonsrutine: Story = {
 			"/seksjoner/pensjon-og-ufore/rutiner/routine-2",
 		),
 }
+
+export const HendelsesbasertRutine: Story = {
+	name: "Hendelsesbasert rutine (uten frist)",
+	render: () =>
+		renderWithLoader(
+			RutineDetaljer,
+			mockRutineDetaljData({ eventOnly: true }),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-3",
+		),
+}
+
+export const KombinertFrekvens: Story = {
+	name: "Kombinert frekvens (periodisk + hendelsesbasert)",
+	render: () =>
+		renderWithLoader(
+			RutineDetaljer,
+			mockRutineDetaljData({ dualFrequency: true }),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-4",
+		),
+}

@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import type PDFDocument from "pdfkit"
 import { getStatusLabel } from "../../lib/compliance-status"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
-import { getFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
+import { getCompositeFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
@@ -204,18 +204,26 @@ export async function generateComplianceReport(params: {
 		routineName: string
 		frequency: string
 		lastReview: string | null
-		deadline: string
+		deadline: string | null
 		status: string
 	}> = []
 
 	// Get routines for the scoped section, or all routines for "all" scope
-	let scopedRoutines: Array<{ id: string; name: string; frequency: string; createdAt: Date; isSectionRoutine: number }>
+	let scopedRoutines: Array<{
+		id: string
+		name: string
+		frequency: string | null
+		eventFrequency: string | null
+		createdAt: Date
+		isSectionRoutine: number
+	}>
 	if (scope === "section" && scopeId) {
 		scopedRoutines = await db
 			.select({
 				id: routines.id,
 				name: routines.name,
 				frequency: routines.frequency,
+				eventFrequency: routines.eventFrequency,
 				createdAt: routines.createdAt,
 				isSectionRoutine: routines.isSectionRoutine,
 			})
@@ -227,6 +235,7 @@ export async function generateComplianceReport(params: {
 				id: routines.id,
 				name: routines.name,
 				frequency: routines.frequency,
+				eventFrequency: routines.eventFrequency,
 				createdAt: routines.createdAt,
 				isSectionRoutine: routines.isSectionRoutine,
 			})
@@ -247,17 +256,23 @@ export async function generateComplianceReport(params: {
 			const deadline = calculateDeadline(
 				lastReview?.reviewedAt ?? null,
 				routine.createdAt,
-				routine.frequency as RoutineFrequency,
+				routine.frequency as RoutineFrequency | null,
 			)
 			const overdue = isOverdue(deadline)
 
 			routineRows.push({
 				appName: app.name,
 				routineName: routine.name,
-				frequency: getFrequencyLabel(routine.frequency),
+				frequency: getCompositeFrequencyLabel(routine.frequency, routine.eventFrequency),
 				lastReview: lastReview?.reviewedAt?.toISOString() ?? null,
-				deadline: deadline.toISOString(),
-				status: overdue ? "Over frist" : lastReview ? "OK" : "Ikke gjennomført",
+				deadline: deadline?.toISOString() ?? null,
+				status: !routine.frequency
+					? (routine.eventFrequency ?? "Ved behov")
+					: overdue
+						? "Over frist"
+						: lastReview
+							? "OK"
+							: "Ikke gjennomført",
 			})
 		}
 	}
@@ -471,6 +486,7 @@ export async function generateAppComplianceReport(params: {
 				routineName: r.routineName,
 				routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
 				routineFrequency: r.routineFrequency,
+				routineEventFrequency: r.routineEventFrequency,
 				reviewedAt: r.reviewedAt.toISOString(),
 				createdBy: r.createdBy,
 				summary: r.summary,
@@ -703,7 +719,8 @@ function buildAppPdf(
 		routineId: string
 		routineName: string
 		routineDescription: string | null
-		routineFrequency: string
+		routineFrequency: string | null
+		routineEventFrequency?: string | null
 		participants: Array<{ userIdent: string; userName: string | null }>
 		attachments: Array<{ fileName: string }>
 		links: Array<{ url: string; title: string | null }>
@@ -813,7 +830,8 @@ function buildAppPdf(
 				{
 					routineName: string
 					routineDescription: string | null
-					routineFrequency: string
+					routineFrequency: string | null
+					routineEventFrequency?: string | null
 					reviews: typeof reviews
 				}
 			>()
@@ -824,6 +842,7 @@ function buildAppPdf(
 						routineName: r.routineName,
 						routineDescription: r.routineDescription,
 						routineFrequency: r.routineFrequency,
+						routineEventFrequency: r.routineEventFrequency,
 						reviews: [],
 					})
 				}
@@ -837,10 +856,8 @@ function buildAppPdf(
 				doc.moveDown(0.3)
 				doc.fontSize(16).fillColor(dark).text(group.routineName)
 				doc.moveDown(0.3)
-				doc
-					.fontSize(9)
-					.fillColor(gray)
-					.text(`Frekvens: ${getFrequencyLabel(group.routineFrequency)}`)
+				const groupFreqLabel = getCompositeFrequencyLabel(group.routineFrequency, group.routineEventFrequency)
+				doc.fontSize(9).fillColor(gray).text(`Frekvens: ${groupFreqLabel}`)
 				doc.moveDown(0.5)
 
 				if (group.routineDescription) {
@@ -1085,7 +1102,7 @@ function buildReportHtml(data: {
 		routineName: string
 		frequency: string
 		lastReview: string | null
-		deadline: string
+		deadline: string | null
 		status: string
 	}>
 }): string {
@@ -1126,7 +1143,7 @@ function buildReportHtml(data: {
 				<td>${escapeHtml(row.routineName)}</td>
 				<td>${escapeHtml(row.frequency)}</td>
 				<td>${row.lastReview ? new Date(row.lastReview).toLocaleDateString("nb-NO") : "Aldri"}</td>
-				<td>${new Date(row.deadline).toLocaleDateString("nb-NO")}</td>
+				<td>${row.deadline ? new Date(row.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}</td>
 				<td>${escapeHtml(row.status)}</td>
 			</tr>`,
 		)
