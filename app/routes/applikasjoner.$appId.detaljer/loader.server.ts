@@ -48,8 +48,36 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
-	const { getApplicationElements } = await import("~/db/queries/technology-elements.server")
-	const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
+	// Extract referenced app names from detail (pure computation, no I/O)
+	const referencedAppNames = new Set<string>()
+	for (const auth of detail.authIntegrations) {
+		if (auth.inboundRules) {
+			try {
+				const rules = JSON.parse(auth.inboundRules) as Array<{ application: string }>
+				for (const r of rules) referencedAppNames.add(r.application)
+			} catch {
+				// Legacy/corrupt inboundRules data — skip gracefully
+			}
+		}
+	}
+	for (const rule of detail.accessPolicyRules) {
+		referencedAppNames.add(rule.ruleApplication)
+	}
+
+	// Dynamic imports in parallel (avoids sequential awaits on cold starts)
+	const [
+		{ getApplicationElements },
+		{ getScreeningProgressForApps },
+		{ getDeploymentVerificationForAppWithFetch },
+		{ getOracleRoleAssessments },
+	] = await Promise.all([
+		import("~/db/queries/technology-elements.server"),
+		import("~/db/queries/screening.server"),
+		import("~/db/queries/deployment-audit.server"),
+		import("~/db/queries/oracle-roles.server"),
+	])
+
+	// Batch 1: Core queries for compliance computation (pool max=10, keep batches ≤10)
 	const [
 		appElements,
 		deadlinesWithControls,
@@ -58,6 +86,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		appReports,
 		screeningProgressMap,
 		screeningSessions,
+		screeningEffectsByControl,
+		persistedControls,
 	] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesWithControls(appId),
@@ -66,9 +96,32 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getReportsForApp(appId),
 		getScreeningProgressForApps([appId]),
 		getScreeningSessionsForApp(appId, user ? isAdmin(user) : false),
+		getScreeningEffectsByControlForApp(appId),
+		getActiveApplicationControls(appId),
 	])
 
-	const screeningEffectsByControl = await getScreeningEffectsByControlForApp(appId)
+	// Batch 2: Supporting queries (independent of batch 1 results)
+	const [
+		knownApps,
+		acknowledgmentsRaw,
+		allOracleInstances,
+		oracleInstances,
+		roleAssessments,
+		deploymentVerifications,
+		manualGroups,
+		groupAssessments,
+	] = await Promise.all([
+		resolveAppNames([...referencedAppNames]),
+		getActiveAcknowledgments(appId),
+		getOracleInstances(),
+		getOracleInstancesForApp(appId),
+		getOracleRoleAssessments(appId),
+		getDeploymentVerificationForAppWithFetch(appId),
+		getManualGroupsForApp(appId),
+		getGroupAssessmentsForApp(appId),
+	])
+
+	// Compute auto-compliance from parallel results
 	const autoComplianceMap = computeAutoCompliance(
 		(assessmentsResult?.assessments ?? []).map((a) => ({
 			controlUuid: a.controlUuid,
@@ -98,7 +151,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		}
 	})
 
-	const persistedControls = await getActiveApplicationControls(appId)
 	const persistedMap = new Map(persistedControls.map((c) => [`${c.controlId}:${c.technologyElementId ?? "null"}`, c]))
 
 	const assessments = assessmentsBase.map((a) => {
@@ -125,19 +177,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const routineOverdue = assessments.filter((a) => a.routineCompliance === "overdue").length
 	const routineNeverReviewed = assessments.filter((a) => a.routineCompliance === "never_reviewed").length
 
-	const referencedAppNames = new Set<string>()
-	for (const auth of detail.authIntegrations) {
-		if (auth.inboundRules) {
-			const rules = JSON.parse(auth.inboundRules) as Array<{ application: string }>
-			for (const r of rules) referencedAppNames.add(r.application)
-		}
-	}
-	for (const rule of detail.accessPolicyRules) {
-		referencedAppNames.add(rule.ruleApplication)
-	}
-	const knownApps = await resolveAppNames([...referencedAppNames])
-
-	const acknowledgmentsRaw = await getActiveAcknowledgments(appId)
 	const acknowledgments: Record<string, { comment: string; acknowledgedBy: string; acknowledgedAt: string }> = {}
 	for (const ack of acknowledgmentsRaw) {
 		acknowledgments[ack.ruleApplication] = {
@@ -146,9 +185,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			acknowledgedAt: ack.acknowledgedAt.toISOString(),
 		}
 	}
-
-	const allOracleInstances = await getOracleInstances()
-	const oracleInstances = await getOracleInstancesForApp(appId)
 
 	const accessibleInstanceIds = new Set(
 		filterInstancesByAccess(allOracleInstances, user?.groups ?? []).map((i) => i.id),
@@ -171,26 +207,27 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		detail.persistence.push(...newEntries)
 	}
 
-	const snapshotHistoryPromises = filteredOracleInstances.map(async (inst) => {
-		const history = await getSnapshotHistory(appId, inst.instanceId)
-		return { instanceId: inst.instanceId, history }
-	})
-	const instanceSnapshotHistories = await Promise.all(snapshotHistoryPromises)
-
-	const oracleAuditSummaries = await getOracleAuditSummariesForApp(detail.persistence)
-
-	// Fetch Oracle roles for each linked instance and merge with DB assessments
-	const { getOracleRoleAssessments } = await import("~/db/queries/oracle-roles.server")
 	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
-	const roleAssessments = await getOracleRoleAssessments(appId)
-	const oracleRoleResults = await Promise.allSettled(
-		filteredOracleInstances.map(async (inst) => {
-			const roles = await getOracleRoles(inst.instanceId)
-			const meta = oracleInstanceMetaById.get(inst.instanceId)
-			const instanceName = meta?.name ?? inst.instanceId.toUpperCase()
-			return { instanceId: inst.instanceId, instanceName, roles: roles?.roles ?? [] }
-		}),
-	)
+	const knownOracleInstanceIds = new Set(allOracleInstances.map((i) => i.id))
+
+	// Parallelize oracle sub-queries: snapshot histories, audit summaries, and role lookups
+	const [instanceSnapshotHistories, oracleAuditSummaries, oracleRoleResults] = await Promise.all([
+		Promise.all(
+			filteredOracleInstances.map(async (inst) => {
+				const history = await getSnapshotHistory(appId, inst.instanceId)
+				return { instanceId: inst.instanceId, history }
+			}),
+		),
+		getOracleAuditSummariesForApp(detail.persistence, knownOracleInstanceIds),
+		Promise.allSettled(
+			filteredOracleInstances.map(async (inst) => {
+				const roles = await getOracleRoles(inst.instanceId)
+				const meta = oracleInstanceMetaById.get(inst.instanceId)
+				const instanceName = meta?.name ?? inst.instanceId.toUpperCase()
+				return { instanceId: inst.instanceId, instanceName, roles: roles?.roles ?? [] }
+			}),
+		),
+	])
 	const oracleRoles = oracleRoleResults.flatMap((result) => {
 		if (result.status !== "fulfilled") return []
 		const { instanceId, instanceName, roles } = result.value
@@ -210,11 +247,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		})
 	})
 
-	const { getDeploymentVerificationForAppWithFetch } = await import("~/db/queries/deployment-audit.server")
-	const deploymentVerifications = await getDeploymentVerificationForAppWithFetch(appId)
-
-	const manualGroups = await getManualGroupsForApp(appId)
-	const groupAssessments = await getGroupAssessmentsForApp(appId)
 	const naisGroupIds: string[] = []
 	for (const auth of detail.authIntegrations) {
 		if (auth.groups) {

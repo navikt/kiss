@@ -236,6 +236,7 @@ export async function getOracleAuditSummariesForApp(
 		applicationId: string
 		oracleInstanceId: string | null
 	}>,
+	preloadedKnownInstanceIds?: Set<string>,
 ): Promise<Record<string, AuditEvidenceSummary>> {
 	const oracleEntries = persistenceEntries.filter((p) => p.type === "oracle")
 	if (oracleEntries.length === 0) return {}
@@ -290,16 +291,21 @@ export async function getOracleAuditSummariesForApp(
 	if (misses.length === 0) return result
 
 	// Lazy-import to avoid circular dependencies
-	const { getOracleInstances, getAuditEvidenceSummary } = await import("~/lib/oracle-revisjon.server")
+	const oracleModule = await import("~/lib/oracle-revisjon.server")
 
-	const allOracleInstances = await getOracleInstances()
-	const knownInstanceIds = new Set(allOracleInstances.map((i) => i.id))
+	let knownInstanceIds: Set<string>
+	if (preloadedKnownInstanceIds) {
+		knownInstanceIds = preloadedKnownInstanceIds
+	} else {
+		const allOracleInstances = await oracleModule.getOracleInstances()
+		knownInstanceIds = new Set(allOracleInstances.map((i) => i.id))
+	}
 
 	const fetchResults = await Promise.allSettled(
 		misses
 			.filter((p) => knownInstanceIds.has(p.instanceId))
 			.map(async (p) => {
-				const summary = await getAuditEvidenceSummary(p.instanceId)
+				const summary = await oracleModule.getAuditEvidenceSummary(p.instanceId)
 				return { persistenceId: p.id, summary }
 			}),
 	)
