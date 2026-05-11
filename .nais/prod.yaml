@@ -5,6 +5,8 @@ metadata:
   namespace: pensjon-revisjon
   labels:
     team: pensjon-revisjon
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
 spec:
   image: "{{image}}"
   port: 3000

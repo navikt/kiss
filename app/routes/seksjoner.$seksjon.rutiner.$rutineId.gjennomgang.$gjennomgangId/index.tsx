@@ -495,6 +495,12 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 				body: formData,
 			})
 
+			if (response.status === 413) {
+				setUploadResult({ success: false, error: "Filen er for stor. Maksimal filstørrelse er 50 MB." })
+				setFiles([])
+				return
+			}
+
 			const result = await response.json()
 			setUploadResult(result)
 
@@ -504,6 +510,7 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 			}
 		} catch {
 			setUploadResult({ success: false, error: "Nettverksfeil ved opplasting." })
+			setFiles([])
 		} finally {
 			setUploading(false)
 		}
