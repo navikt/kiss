@@ -18,6 +18,7 @@ const {
 	updateRoutine,
 	archiveRoutine,
 	createReview,
+	getSectionIdsForApp,
 	getReviewsForRoutine,
 	confirmParticipation,
 	getAppsRequiringRoutine,
@@ -133,6 +134,8 @@ describe("Routines integration tests", () => {
 			DELETE FROM application_group_assessments;
 			DELETE FROM entra_group_classifications;
 			DELETE FROM application_auth_integrations;
+			DELETE FROM section_ignored_applications;
+			DELETE FROM section_environments;
 			DELETE FROM application_environments;
 			DELETE FROM application_team_mappings;
 			DELETE FROM dev_team_nais_team_mappings;
@@ -144,6 +147,150 @@ describe("Routines integration tests", () => {
 			DELETE FROM sections;
 			DELETE FROM audit_log;
 		`)
+	})
+
+	describe("getSectionIdsForApp", () => {
+		it("resolves the same effective sections across all membership paths", async () => {
+			const db = getTestDb()
+			const directTeamSectionId = await createTestSection("Direct team", "direct-team")
+			const directNaisSectionId = await createTestSection("Direct nais", "direct-nais")
+			const indirectSectionId = await createTestSection("Indirect", "indirect")
+			const excludedSectionId = await createTestSection("Excluded", "excluded")
+			const ignoredSectionId = await createTestSection("Ignored", "ignored")
+			const appId = await createTestApp("Section app")
+
+			const directTeam = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (section_id, name, slug, created_by, updated_by)
+					VALUES ('${directTeamSectionId}', 'Direct team', 'direct-team', 'test', 'test') RETURNING id`,
+			)
+			const indirectTeam = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (section_id, name, slug, created_by, updated_by)
+					VALUES ('${indirectSectionId}', 'Indirect team', 'indirect-team', 'test', 'test') RETURNING id`,
+			)
+			const excludedTeam = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (section_id, name, slug, created_by, updated_by)
+					VALUES ('${excludedSectionId}', 'Excluded team', 'excluded-team', 'test', 'test') RETURNING id`,
+			)
+			const ignoredTeam = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (section_id, name, slug, created_by, updated_by)
+					VALUES ('${ignoredSectionId}', 'Ignored team', 'ignored-team', 'test', 'test') RETURNING id`,
+			)
+
+			const directTeamId = (directTeam.rows[0] as { id: string }).id
+			const indirectTeamId = (indirectTeam.rows[0] as { id: string }).id
+			const excludedTeamId = (excludedTeam.rows[0] as { id: string }).id
+			const ignoredTeamId = (ignoredTeam.rows[0] as { id: string }).id
+
+			await db.execute(/* sql */ `
+				INSERT INTO application_team_mappings (application_id, dev_team_id, created_by)
+				VALUES ('${appId}', '${directTeamId}', 'test')
+			`)
+
+			const naisRows = await db.execute(/* sql */ `
+				INSERT INTO nais_teams (slug, section_id)
+				VALUES
+					('direct-nais-team', '${directNaisSectionId}'),
+					('indirect-nais-team', NULL),
+					('excluded-nais-team', NULL),
+					('ignored-nais-team', NULL)
+				RETURNING id, slug
+			`)
+			const naisTeams = naisRows.rows as Array<{ id: string; slug: string }>
+			const directNaisTeamId = naisTeams.find((row) => row.slug === "direct-nais-team")?.id
+			const indirectNaisTeamId = naisTeams.find((row) => row.slug === "indirect-nais-team")?.id
+			const excludedNaisTeamId = naisTeams.find((row) => row.slug === "excluded-nais-team")?.id
+			const ignoredNaisTeamId = naisTeams.find((row) => row.slug === "ignored-nais-team")?.id
+
+			expect(directNaisTeamId).toBeDefined()
+			expect(indirectNaisTeamId).toBeDefined()
+			expect(excludedNaisTeamId).toBeDefined()
+			expect(ignoredNaisTeamId).toBeDefined()
+
+			await db.execute(/* sql */ `
+				INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by)
+				VALUES
+					('${indirectTeamId}', '${indirectNaisTeamId}', 'test'),
+					('${excludedTeamId}', '${excludedNaisTeamId}', 'test'),
+					('${ignoredTeamId}', '${ignoredNaisTeamId}', 'test')
+			`)
+
+			await db.execute(/* sql */ `
+				INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id)
+				VALUES
+					('${appId}', 'prod-gcp', 'kiss', '${directNaisTeamId}'),
+					('${appId}', 'dev-gcp', 'kiss', '${indirectNaisTeamId}'),
+					('${appId}', 'excluded-cluster', 'kiss', '${excludedNaisTeamId}'),
+					('${appId}', 'ignored-cluster', 'kiss', '${ignoredNaisTeamId}')
+			`)
+
+			await db.execute(/* sql */ `
+				INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
+				VALUES ('${excludedSectionId}', 'excluded-cluster', false, 'test', 'test')
+			`)
+			await db.execute(/* sql */ `
+				INSERT INTO section_ignored_applications (section_id, application_id, ignored_by)
+				VALUES ('${ignoredSectionId}', '${appId}', 'test')
+			`)
+
+			const sectionIds = await getSectionIdsForApp(appId)
+
+			expect([...sectionIds].sort()).toEqual([directNaisSectionId, directTeamSectionId, indirectSectionId].sort())
+		})
+
+		it("keeps directly mapped apps when they have no environments", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("No env section", "no-env-section")
+			const appId = await createTestApp("No env app")
+			const team = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (section_id, name, slug, created_by, updated_by)
+					VALUES ('${sectionId}', 'No env team', 'no-env-team', 'test', 'test') RETURNING id`,
+			)
+			const teamId = (team.rows[0] as { id: string }).id
+
+			await db.execute(/* sql */ `
+				INSERT INTO application_team_mappings (application_id, dev_team_id, created_by)
+				VALUES ('${appId}', '${teamId}', 'test')
+			`)
+			await db.execute(/* sql */ `
+				INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
+				VALUES ('${sectionId}', 'prod-gcp', false, 'test', 'test')
+			`)
+
+			await expect(getSectionIdsForApp(appId)).resolves.toEqual([sectionId])
+		})
+
+		it("excludes archived and child applications", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Filtered", "filtered")
+			const archivedAppId = await createTestApp("Archived app")
+			const parentAppId = await createTestApp("Parent app")
+			const childAppId = await createTestApp("Child app")
+			const team = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (section_id, name, slug, created_by, updated_by)
+					VALUES ('${sectionId}', 'Filtered team', 'filtered-team', 'test', 'test') RETURNING id`,
+			)
+			const teamId = (team.rows[0] as { id: string }).id
+
+			await db.execute(/* sql */ `
+				INSERT INTO application_team_mappings (application_id, dev_team_id, created_by)
+				VALUES
+					('${archivedAppId}', '${teamId}', 'test'),
+					('${childAppId}', '${teamId}', 'test')
+			`)
+			await db.execute(/* sql */ `
+				UPDATE monitored_applications
+				SET archived_at = NOW(), archived_by = 'test', updated_by = 'test'
+				WHERE id = '${archivedAppId}'
+			`)
+			await db.execute(/* sql */ `
+				UPDATE monitored_applications
+				SET primary_application_id = '${parentAppId}', updated_by = 'test'
+				WHERE id = '${childAppId}'
+			`)
+
+			await expect(getSectionIdsForApp(archivedAppId)).resolves.toEqual([])
+			await expect(getSectionIdsForApp(childAppId)).resolves.toEqual([])
+		})
 	})
 
 	// ─── CRUD ────────────────────────────────────────────────────────────
