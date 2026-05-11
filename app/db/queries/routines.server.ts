@@ -2206,49 +2206,54 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 }
 
 export async function getRoutineDeadlinesForApp(applicationId: string, opts?: ResolverOpts) {
-	// Step 1: Find which routines this app matches via screening answers
-	// Get all screening answers for this app
-	const appAnswers = await db
-		.select({ questionId: screeningAnswers.questionId, answer: screeningAnswers.answer })
-		.from(screeningAnswers)
-		.where(eq(screeningAnswers.applicationId, applicationId))
-
-	if (appAnswers.length === 0) return []
-
-	// Step 2: Find routines linked to these question+answer combinations
-	const matchingRoutineIds = new Set<string>()
-
-	// Check via routine_screening_questions join table
-	for (const ans of appAnswers) {
-		const links = await db
-			.select({ routineId: routineScreeningQuestions.routineId })
+	// Step 1: Find routines linked to this application's question+answer combinations in batch
+	// The INNER JOINs naturally return empty when the app has no screening answers
+	const [screeningLinkedRoutines, legacyLinkedRoutines] = await Promise.all([
+		db
+			.selectDistinct({ routineId: routineScreeningQuestions.routineId })
 			.from(routineScreeningQuestions)
-			.where(
+			.innerJoin(
+				screeningAnswers,
 				and(
-					sql`${routineScreeningQuestions.questionId} = ${ans.questionId} AND ${routineScreeningQuestions.choiceValue} = ${ans.answer}`,
-					isNull(routineScreeningQuestions.archivedAt),
+					eq(routineScreeningQuestions.questionId, screeningAnswers.questionId),
+					eq(routineScreeningQuestions.choiceValue, screeningAnswers.answer),
 				),
 			)
-		for (const l of links) matchingRoutineIds.add(l.routineId)
-	}
-
-	// Also check legacy single-link field (approved routines only)
-	for (const ans of appAnswers) {
-		const legacyRoutines = await db
-			.select({ id: routines.id })
+			.innerJoin(
+				routines,
+				and(
+					eq(routines.id, routineScreeningQuestions.routineId),
+					eq(routines.status, "approved"),
+					isNull(routines.archivedAt),
+				),
+			)
+			.where(and(eq(screeningAnswers.applicationId, applicationId), isNull(routineScreeningQuestions.archivedAt))),
+		db
+			.selectDistinct({ id: routines.id })
 			.from(routines)
-			.where(
+			.innerJoin(
+				screeningAnswers,
 				and(
-					sql`${routines.screeningQuestionId} = ${ans.questionId} AND ${routines.screeningChoiceValue} = ${ans.answer}`,
-					and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+					eq(routines.screeningQuestionId, screeningAnswers.questionId),
+					eq(routines.screeningChoiceValue, screeningAnswers.answer),
 				),
 			)
-		for (const r of legacyRoutines) matchingRoutineIds.add(r.id)
-	}
+			.where(
+				and(
+					eq(screeningAnswers.applicationId, applicationId),
+					eq(routines.status, "approved"),
+					isNull(routines.archivedAt),
+				),
+			),
+	])
+
+	const matchingRoutineIds = new Set<string>()
+	for (const link of screeningLinkedRoutines) matchingRoutineIds.add(link.routineId)
+	for (const routine of legacyLinkedRoutines) matchingRoutineIds.add(routine.id)
 
 	if (matchingRoutineIds.size === 0) return []
 
-	// Step 3: Load matched routines with tech elements, screening questions, and persistence links in batch
+	// Step 2: Load matched routines with tech elements, screening questions, and persistence links in batch
 	const routineIdList = [...matchingRoutineIds]
 	const [routineRows, allElements, allScreeningLinks, allPersLinks] = await Promise.all([
 		db
@@ -2301,7 +2306,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 		persByRoutine.set(p.routineId, list)
 	}
 
-	// Step 4: Filter by technology elements if required (skip query when no routines have tech elements)
+	// Step 3: Filter by technology elements if required (skip query when no routines have tech elements)
 	let appElementIds: Set<string>
 	if (allElements.length === 0) {
 		appElementIds = new Set()
@@ -2324,7 +2329,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 
 	const appName = await resolveAppName(applicationId, opts)
 
-	// Step 5: Get latest completed reviews for all matching routines in batch
+	// Step 4: Get latest completed reviews for all matching routines in batch
 	const latestReviews = await db
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
@@ -2341,7 +2346,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
 	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
 
-	// Step 6: Build results
+	// Step 5: Build results
 	const results: RoutineDeadlineInfo[] = []
 
 	for (const routine of routineRows) {
