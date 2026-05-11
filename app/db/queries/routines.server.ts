@@ -49,6 +49,23 @@ import { screeningAnswers, screeningQuestions, screeningRoutineSelections } from
 import { writeAuditLog } from "./audit.server"
 import { getEffectiveAppIdsInSection, isAppEffectiveInSection } from "./sections.server"
 
+// ─── Resolver opts for deadline pipeline ─────────────────────────────────
+
+export interface ResolverOpts {
+	appName?: string
+	appElementIds?: Set<string>
+}
+
+async function resolveAppName(applicationId: string, opts?: ResolverOpts): Promise<string> {
+	if (opts?.appName !== undefined) return opts.appName
+	const [appRow] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+	return appRow?.name ?? ""
+}
+
 // ─── Routine CRUD ────────────────────────────────────────────────────────
 
 export async function getRoutinesForSection(sectionId: string) {
@@ -2188,7 +2205,7 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 	return results
 }
 
-export async function getRoutineDeadlinesForApp(applicationId: string) {
+export async function getRoutineDeadlinesForApp(applicationId: string, opts?: ResolverOpts) {
 	// Step 1: Find which routines this app matches via screening answers
 	// Get all screening answers for this app
 	const appAnswers = await db
@@ -2284,26 +2301,28 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 		persByRoutine.set(p.routineId, list)
 	}
 
-	// Step 4: Filter by technology elements if required
-	const appTechElements = await db
-		.select({ elementId: applicationTechnologyElements.elementId })
-		.from(applicationTechnologyElements)
-		.where(
-			and(
-				eq(applicationTechnologyElements.applicationId, applicationId),
-				isNull(applicationTechnologyElements.archivedAt),
-				isNotNull(applicationTechnologyElements.confirmedAt),
-				isNull(applicationTechnologyElements.rejectedAt),
-			),
-		)
-	const appElementIds = new Set(appTechElements.map((e) => e.elementId))
+	// Step 4: Filter by technology elements if required (skip query when no routines have tech elements)
+	let appElementIds: Set<string>
+	if (allElements.length === 0) {
+		appElementIds = new Set()
+	} else if (opts?.appElementIds !== undefined) {
+		appElementIds = opts.appElementIds
+	} else {
+		const appTechElements = await db
+			.select({ elementId: applicationTechnologyElements.elementId })
+			.from(applicationTechnologyElements)
+			.where(
+				and(
+					eq(applicationTechnologyElements.applicationId, applicationId),
+					isNull(applicationTechnologyElements.archivedAt),
+					isNotNull(applicationTechnologyElements.confirmedAt),
+					isNull(applicationTechnologyElements.rejectedAt),
+				),
+			)
+		appElementIds = new Set(appTechElements.map((e) => e.elementId))
+	}
 
-	const [appRow] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
-	const appName = appRow?.name ?? ""
+	const appName = await resolveAppName(applicationId, opts)
 
 	// Step 5: Get latest completed reviews for all matching routines in batch
 	const latestReviews = await db
@@ -2364,6 +2383,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string) {
 export async function getRoutineDeadlinesForAppByPersistence(
 	applicationId: string,
 	excludeRoutineIds: Set<string> = new Set(),
+	opts?: ResolverOpts,
 ) {
 	// Get the app's persistence entries (filter out archived/soft-deleted)
 	const appPersistence = await db
@@ -2453,12 +2473,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 		screenByRoutine.set(s.routineId, list)
 	}
 
-	const [appRow] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
-	const appName = appRow?.name ?? ""
+	const appName = await resolveAppName(applicationId, opts)
 
 	// Get latest completed reviews
 	const latestReviews = await db
@@ -2514,6 +2529,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 export async function getRoutineDeadlinesForAppByGroupClassification(
 	applicationId: string,
 	excludeRoutineIds: Set<string> = new Set(),
+	opts?: ResolverOpts,
 ) {
 	// Get group IDs from auth integrations (JSON array in groups column)
 	const authIntegrations = await db
@@ -2636,12 +2652,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 		persLinksByRoutine.set(p.routineId, list)
 	}
 
-	const [appRow] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
-	const appName = appRow?.name ?? ""
+	const appName = await resolveAppName(applicationId, opts)
 
 	// Get latest completed reviews
 	const latestReviews = await db
@@ -2693,6 +2704,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 	applicationId: string,
 	excludeRoutineIds: Set<string> = new Set(),
+	opts?: ResolverOpts,
 ) {
 	// Get the app's oracle role assessments
 	const assessments = await db
@@ -2781,12 +2793,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 		persLinksByRoutine.set(p.routineId, list)
 	}
 
-	const [appRow] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
-	const appName = appRow?.name ?? ""
+	const appName = await resolveAppName(applicationId, opts)
 
 	// Get latest completed reviews
 	const latestReviews = await db
@@ -2838,6 +2845,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 export async function getRoutineDeadlinesForAppByScreeningSelection(
 	applicationId: string,
 	excludeRoutineIds: Set<string> = new Set(),
+	opts?: ResolverOpts,
 ) {
 	const selections = await db
 		.select({ routineId: screeningRoutineSelections.routineId })
@@ -2902,12 +2910,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		persByRoutine2.set(p.routineId, list)
 	}
 
-	const [appRow] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
-	const appName = appRow?.name ?? ""
+	const appName = await resolveAppName(applicationId, opts)
 
 	const latestReviews = await db
 		.selectDistinctOn([routineReviews.routineId], {
@@ -2958,6 +2961,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 export async function getRoutineDeadlinesForAppBySection(
 	applicationId: string,
 	excludeRoutineIds: Set<string> = new Set(),
+	opts?: ResolverOpts,
 ): Promise<RoutineDeadlineInfo[]> {
 	// Find section IDs for this app via both nais environments and direct team mappings
 	const sectionIds = await getSectionIdsForApp(applicationId)
@@ -3025,12 +3029,7 @@ export async function getRoutineDeadlinesForAppBySection(
 		persByRoutine.set(p.routineId, list)
 	}
 
-	const [appRow] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
-	const appName = appRow?.name ?? ""
+	const appName = await resolveAppName(applicationId, opts)
 
 	const latestReviews = await db
 		.selectDistinctOn([routineReviews.routineId], {
@@ -3081,6 +3080,7 @@ export async function getRoutineDeadlinesForAppBySection(
 export async function getRoutineDeadlinesForAppByRuleset(
 	applicationId: string,
 	excludeRoutineIds: Set<string> = new Set(),
+	opts?: ResolverOpts,
 ): Promise<RoutineDeadlineInfo[]> {
 	// Find section IDs for this app
 	const sectionIds = await getSectionIdsForApp(applicationId)
@@ -3205,12 +3205,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 		persByRoutine.set(p.routineId, list)
 	}
 
-	const [appRow] = await db
-		.select({ name: monitoredApplications.name })
-		.from(monitoredApplications)
-		.where(eq(monitoredApplications.id, applicationId))
-		.limit(1)
-	const appName = appRow?.name ?? ""
+	const appName = await resolveAppName(applicationId, opts)
 
 	const latestReviews = await db
 		.selectDistinctOn([routineReviews.routineId], {
