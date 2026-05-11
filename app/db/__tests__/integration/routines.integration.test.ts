@@ -1664,8 +1664,7 @@ describe("Routines integration tests", () => {
 			const sectionId = await createTestSection("Screening Q Section", "screening-q-section")
 			const appId = await createTestApp("Screening Q App")
 			const questionId = await createTestScreeningQuestion(sectionId, "Has CI/CD?")
-			const choiceLabel = "yes"
-			await createTestChoice(questionId, choiceLabel)
+			const choiceId = await createTestChoice(questionId, "yes")
 
 			const routine = await createRoutine({
 				name: "CI/CD Routine",
@@ -1685,15 +1684,15 @@ describe("Routines integration tests", () => {
 			const routineId = routine.id
 			await markRoutineApproved(routineId)
 
-			// Link routine to screening question + choice label (matches UI behavior)
+			// Link routine to screening question + choice
 			const db = getTestDb()
 			await db.execute(
 				/* sql */ `INSERT INTO routine_screening_questions (routine_id, question_id, choice_value)
-					VALUES ('${routineId}', '${questionId}', '${choiceLabel}')`,
+					VALUES ('${routineId}', '${questionId}', '${choiceId}')`,
 			)
 
-			// App answers the screening question with matching choice label
-			await createTestScreeningAnswer(appId, questionId, choiceLabel)
+			// App answers the screening question with matching choice
+			await createTestScreeningAnswer(appId, questionId, choiceId)
 
 			const results = await getRoutineDeadlinesForApp(appId)
 			expect(results).toHaveLength(1)
@@ -1705,20 +1704,19 @@ describe("Routines integration tests", () => {
 			const sectionId = await createTestSection("Legacy Section", "legacy-section")
 			const appId = await createTestApp("Legacy App")
 			const questionId = await createTestScreeningQuestion(sectionId, "Uses database?")
-			const choiceLabel = "yes"
-			await createTestChoice(questionId, choiceLabel)
+			const choiceId = await createTestChoice(questionId, "yes")
 
-			// Create routine with legacy screening fields (uses choice label, not ID)
+			// Create routine with legacy screening fields
 			const db = getTestDb()
 			const result = await db.execute(
 				/* sql */ `INSERT INTO routines (name, description, section_id, frequency, activity_type, status, screening_question_id, screening_choice_value, created_by, updated_by)
-					VALUES ('Legacy Routine', 'Matched via legacy fields', '${sectionId}', 'annually', NULL, 'approved', '${questionId}', '${choiceLabel}', 'test', 'test')
+					VALUES ('Legacy Routine', 'Matched via legacy fields', '${sectionId}', 'annually', NULL, 'approved', '${questionId}', '${choiceId}', 'test', 'test')
 					RETURNING id`,
 			)
 			const routineId = (result.rows[0] as { id: string }).id
 
-			// App answers the screening question with matching choice label
-			await createTestScreeningAnswer(appId, questionId, choiceLabel)
+			// App answers the screening question
+			await createTestScreeningAnswer(appId, questionId, choiceId)
 
 			const results = await getRoutineDeadlinesForApp(appId)
 			expect(results).toHaveLength(1)
@@ -1730,8 +1728,7 @@ describe("Routines integration tests", () => {
 			const sectionId = await createTestSection("Filter Section", "filter-section")
 			const appId = await createTestApp("Filter App")
 			const questionId = await createTestScreeningQuestion(sectionId, "Has monitoring?")
-			const choiceLabel = "yes"
-			await createTestChoice(questionId, choiceLabel)
+			const choiceId = await createTestChoice(questionId, "yes")
 
 			// Draft routine (not approved)
 			const draftRoutine = await createRoutine({
@@ -1753,7 +1750,7 @@ describe("Routines integration tests", () => {
 			const db = getTestDb()
 			await db.execute(
 				/* sql */ `INSERT INTO routine_screening_questions (routine_id, question_id, choice_value)
-					VALUES ('${draftId}', '${questionId}', '${choiceLabel}')`,
+					VALUES ('${draftId}', '${questionId}', '${choiceId}')`,
 			)
 
 			// Archived routine (approved but archived)
@@ -1779,10 +1776,10 @@ describe("Routines integration tests", () => {
 			)
 			await db.execute(
 				/* sql */ `INSERT INTO routine_screening_questions (routine_id, question_id, choice_value)
-					VALUES ('${archivedId}', '${questionId}', '${choiceLabel}')`,
+					VALUES ('${archivedId}', '${questionId}', '${choiceId}')`,
 			)
 
-			await createTestScreeningAnswer(appId, questionId, choiceLabel)
+			await createTestScreeningAnswer(appId, questionId, choiceId)
 
 			const results = await getRoutineDeadlinesForApp(appId)
 			// Neither draft nor archived routine should appear

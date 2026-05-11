@@ -2205,7 +2205,7 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 	return results
 }
 
-export async function getRoutineDeadlinesForApp(applicationId: string, opts?: ResolverOpts) {
+export async function getRoutineDeadlinesForApp(applicationId: string) {
 	// Step 1: Find routines linked to this application's question+answer combinations in batch
 	// The INNER JOINs naturally return empty when the app has no screening answers
 	const [screeningLinkedRoutines, legacyLinkedRoutines] = await Promise.all([
