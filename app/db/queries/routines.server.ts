@@ -3,17 +3,13 @@ import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequenc
 import { db } from "../connection.server"
 import {
 	applicationAuthIntegrations,
-	applicationEnvironments,
 	applicationManualGroups,
 	applicationPersistence,
-	applicationTeamMappings,
 	type DataClassification,
-	devTeamNaisTeamMappings,
 	entraGroupClassifications,
 	type GroupAccessClassification,
 	type GroupCriticality,
 	monitoredApplications,
-	naisTeams,
 	type PersistenceType,
 } from "../schema/applications"
 import type { AuditLogAction } from "../schema/audit"
@@ -26,7 +22,6 @@ import {
 	frameworkRisks,
 	technologyElements,
 } from "../schema/framework"
-import { devTeams } from "../schema/organization"
 import {
 	type EntraChangeType,
 	type RoutineActivityType,
@@ -47,7 +42,7 @@ import {
 } from "../schema/routines"
 import { screeningAnswers, screeningQuestions, screeningRoutineSelections } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
-import { getEffectiveAppIdsInSection, isAppEffectiveInSection } from "./sections.server"
+import { getEffectiveAppIdsInSection } from "./sections.server"
 
 // ─── Resolver opts for deadline pipeline ─────────────────────────────────
 
@@ -965,62 +960,121 @@ export async function getReviewsForRoutine(routineId: string) {
 
 /**
  * Resolves all section IDs an application effectively belongs to.
- * Uses raw resolution (3 paths) then verifies effective membership
- * via isAppEffectiveInSection to respect child-app, ignored, and excluded-env filters.
+ * Uses one SQL query to union the three membership paths and apply the
+ * same archived, child-app, ignored-app, and excluded-environment filters.
  */
 export async function getSectionIdsForApp(applicationId: string): Promise<string[]> {
-	// Path 1: Direct NAIS teams with sectionId
-	// Path 2: Direct team mappings
-	// Path 3: Via devTeamNaisTeamMappings (app's NAIS teams → devTeams → sections)
-	const [naisRows, teamRows, indirectRows] = await Promise.all([
-		db
-			.selectDistinct({ sectionId: naisTeams.sectionId })
-			.from(applicationEnvironments)
-			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-			.where(and(eq(applicationEnvironments.applicationId, applicationId), isNotNull(naisTeams.sectionId))),
-		db
-			.selectDistinct({ sectionId: devTeams.sectionId })
-			.from(applicationTeamMappings)
-			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-			.where(
-				and(
-					eq(applicationTeamMappings.applicationId, applicationId),
-					isNull(applicationTeamMappings.archivedAt),
-					isNull(devTeams.archivedAt),
-					isNotNull(devTeams.sectionId),
-				),
-			),
-		// App's NAIS teams → devTeamNaisTeamMappings → devTeams.sectionId
-		db
-			.selectDistinct({ sectionId: devTeams.sectionId })
-			.from(applicationEnvironments)
-			.innerJoin(devTeamNaisTeamMappings, eq(applicationEnvironments.naisTeamId, devTeamNaisTeamMappings.naisTeamId))
-			.innerJoin(devTeams, eq(devTeamNaisTeamMappings.devTeamId, devTeams.id))
-			.where(
-				and(
-					eq(applicationEnvironments.applicationId, applicationId),
-					isNull(devTeamNaisTeamMappings.archivedAt),
-					isNull(devTeams.archivedAt),
-					isNotNull(devTeams.sectionId),
-				),
-			),
-	])
-	const candidateIds = new Set<string>()
-	for (const r of naisRows) if (r.sectionId) candidateIds.add(r.sectionId)
-	for (const r of teamRows) if (r.sectionId) candidateIds.add(r.sectionId)
-	for (const r of indirectRows) if (r.sectionId) candidateIds.add(r.sectionId)
+	const result = await db.execute(sql`
+		WITH valid_app AS (
+			SELECT id
+			FROM monitored_applications
+			WHERE id = ${applicationId}
+				AND archived_at IS NULL
+				AND primary_application_id IS NULL
+		),
+		candidate_sections AS (
+			SELECT nt.section_id AS section_id
+			FROM valid_app app
+			INNER JOIN application_environments ae ON ae.application_id = app.id
+			INNER JOIN nais_teams nt ON nt.id = ae.nais_team_id
+			WHERE nt.section_id IS NOT NULL
 
-	// Verify effective membership: app must pass the section's filters
-	// (child-app, ignored-app, excluded-env, archived filters)
-	const verified = (
-		await Promise.all(
-			[...candidateIds].map(async (sectionId) => {
-				const isMember = await isAppEffectiveInSection(applicationId, sectionId)
-				return isMember ? sectionId : null
-			}),
+			UNION ALL
+
+			SELECT dt.section_id AS section_id
+			FROM valid_app app
+			INNER JOIN application_team_mappings atm ON atm.application_id = app.id
+			INNER JOIN dev_teams dt ON dt.id = atm.dev_team_id
+			WHERE atm.archived_at IS NULL
+				AND dt.archived_at IS NULL
+				AND dt.section_id IS NOT NULL
+
+			UNION ALL
+
+			SELECT dt.section_id AS section_id
+			FROM valid_app app
+			INNER JOIN application_environments ae ON ae.application_id = app.id
+			INNER JOIN dev_team_nais_team_mappings dtnm ON dtnm.nais_team_id = ae.nais_team_id
+			INNER JOIN dev_teams dt ON dt.id = dtnm.dev_team_id
+			WHERE dtnm.archived_at IS NULL
+				AND dt.archived_at IS NULL
+				AND dt.section_id IS NOT NULL
 		)
-	).filter((id): id is string => id !== null)
-	return verified
+		SELECT DISTINCT cs.section_id AS "sectionId"
+		FROM candidate_sections cs
+		INNER JOIN valid_app app ON TRUE
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM section_ignored_applications sia
+			WHERE sia.section_id = cs.section_id
+				AND sia.application_id = app.id
+				AND sia.archived_at IS NULL
+		)
+		AND (
+			EXISTS (
+				SELECT 1
+				FROM application_environments ae
+				INNER JOIN nais_teams nt ON nt.id = ae.nais_team_id
+				WHERE ae.application_id = app.id
+					AND nt.section_id = cs.section_id
+					AND NOT EXISTS (
+						SELECT 1
+						FROM section_environments se
+						WHERE se.section_id = cs.section_id
+							AND se.included = false
+							AND se.cluster = ae.cluster
+					)
+			)
+			OR EXISTS (
+				SELECT 1
+				FROM application_team_mappings atm
+				INNER JOIN dev_teams dt ON dt.id = atm.dev_team_id
+				WHERE atm.application_id = app.id
+					AND atm.archived_at IS NULL
+					AND dt.archived_at IS NULL
+					AND dt.section_id = cs.section_id
+					AND (
+						NOT EXISTS (
+							SELECT 1
+							FROM application_environments ae_any
+							WHERE ae_any.application_id = app.id
+						)
+						OR EXISTS (
+							SELECT 1
+							FROM application_environments ae_any
+							WHERE ae_any.application_id = app.id
+								AND NOT EXISTS (
+									SELECT 1
+									FROM section_environments se
+									WHERE se.section_id = cs.section_id
+										AND se.included = false
+										AND se.cluster = ae_any.cluster
+								)
+						)
+					)
+			)
+			OR EXISTS (
+				SELECT 1
+				FROM application_environments ae
+				INNER JOIN dev_team_nais_team_mappings dtnm ON dtnm.nais_team_id = ae.nais_team_id
+				INNER JOIN dev_teams dt ON dt.id = dtnm.dev_team_id
+				WHERE ae.application_id = app.id
+					AND dtnm.archived_at IS NULL
+					AND dt.archived_at IS NULL
+					AND dt.section_id = cs.section_id
+					AND NOT EXISTS (
+						SELECT 1
+						FROM section_environments se
+						WHERE se.section_id = cs.section_id
+							AND se.included = false
+							AND se.cluster = ae.cluster
+					)
+			)
+		)
+		ORDER BY "sectionId"
+	`)
+
+	return (result.rows as Array<{ sectionId: string }>).map((row) => row.sectionId)
 }
 
 /**
