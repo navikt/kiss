@@ -18,6 +18,7 @@ const {
 	getActiveApplicationControls,
 	getBatchComplianceStats,
 	getComplianceSummaries,
+	syncApplicationControls,
 } = await import("~/db/queries/application-controls.server")
 
 function makeParsedFramework(): ParsedFramework {
@@ -334,6 +335,44 @@ describe("Application controls integration tests", () => {
 			expect(s?.partial).toBe(0)
 			expect(s?.notImplemented).toBe(0)
 			expect(s?.notRelevant).toBe(0)
+		})
+	})
+
+	describe("syncApplicationControls no-op behavior", () => {
+		it("does not update rows when nothing has changed", async () => {
+			const db = getTestDb()
+			const appId = await createTestApp("NoOpApp")
+
+			// Framework already staged/applied in beforeEach
+
+			// First sync creates application_controls rows
+			await syncApplicationControls(appId)
+
+			// Record updated_at timestamps
+			const before = await db.execute(
+				/* sql */ `SELECT id, updated_at FROM application_controls WHERE application_id = '${appId}' ORDER BY id`,
+			)
+			const beforeRows = before.rows as Array<{ id: string; updated_at: string }>
+			expect(beforeRows.length).toBeGreaterThan(0)
+
+			// Wait 10ms to ensure timestamp difference is detectable
+			await new Promise((r) => setTimeout(r, 10))
+
+			// Second sync — nothing changed, should be a no-op
+			const result = await syncApplicationControls(appId)
+			expect(result).not.toBeNull()
+			expect(result!.unchanged).toBe(beforeRows.length)
+			expect(result!.statusChanged).toBe(0)
+			expect(result!.activated).toBe(0)
+
+			// Verify updated_at is unchanged
+			const after = await db.execute(
+				/* sql */ `SELECT id, updated_at FROM application_controls WHERE application_id = '${appId}' ORDER BY id`,
+			)
+			const afterRows = after.rows as Array<{ id: string; updated_at: string }>
+			for (let i = 0; i < beforeRows.length; i++) {
+				expect(afterRows[i].updated_at).toEqual(beforeRows[i].updated_at)
+			}
 		})
 	})
 })

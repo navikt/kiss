@@ -274,8 +274,10 @@ const AUTH_TO_ELEMENT: Record<string, string> = {
  * Auto-detect and sync technology elements for an application based on
  * its persistence types and auth integrations from Nais.
  * Always assigns "Applikasjon" and "Plattformer" for Nais-synced apps.
+ * @returns `true` if any element links were inserted or archived, `false` if no changes were made.
  */
-export async function syncApplicationTechnologyElements(appId: string) {
+export async function syncApplicationTechnologyElements(appId: string): Promise<boolean> {
+	let changed = false
 	await db.transaction(async (tx) => {
 		// Lås alle technology_elements-rader med FOR SHARE for å hindre at arkivering
 		// skjer mellom snapshot og delete-/insert-fasen. Dette gjør hele sync-en
@@ -335,6 +337,7 @@ export async function syncApplicationTechnologyElements(appId: string) {
 				})
 				.returning({ id: applicationTechnologyElements.id })
 			if (inserted.length > 0) {
+				changed = true
 				await writeAuditLog(
 					{
 						action: "application_technology_element_added",
@@ -375,6 +378,7 @@ export async function syncApplicationTechnologyElements(appId: string) {
 					.where(and(eq(applicationTechnologyElements.id, row.id), isNull(applicationTechnologyElements.archivedAt)))
 					.returning({ id: applicationTechnologyElements.id })
 				if (archived.length > 0) {
+					changed = true
 					await writeAuditLog(
 						{
 							action: "application_technology_element_removed",
@@ -390,6 +394,7 @@ export async function syncApplicationTechnologyElements(appId: string) {
 			}
 		}
 	})
+	return changed
 }
 
 /** Manually add a technology element to an application. Avviser kobling til arkivert element. */
@@ -455,13 +460,15 @@ export async function removeApplicationElement(appId: string, elementId: string,
 	})
 }
 
-/** Sync technology elements for all monitored applications. */
+/** Sync technology elements for all monitored applications. Returns the number of apps that had actual changes. */
 export async function syncAllApplicationElements() {
 	const apps = await db.select({ id: monitoredApplications.id }).from(monitoredApplications)
+	let changedCount = 0
 	for (const app of apps) {
-		await syncApplicationTechnologyElements(app.id)
+		const changed = await syncApplicationTechnologyElements(app.id)
+		if (changed) changedCount++
 	}
-	return apps.length
+	return changedCount
 }
 
 /** Confirm an auto-detected technology element for an application. */
