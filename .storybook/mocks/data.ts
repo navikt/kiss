@@ -331,7 +331,13 @@ export function mockAppDetaljerData() {
 		assessmentsByGroupId: {},
 		naisGroupIds: [],
 		ghostGroupIds: [],
-		accessPolicyRules: [],
+		accessPolicyRules: [
+			{ id: "rule-1", direction: "inbound", ruleApplication: "pensjon-frontend", ruleNamespace: null, ruleCluster: null },
+			{ id: "rule-2", direction: "inbound", ruleApplication: "psak-frontend", ruleNamespace: null, ruleCluster: null },
+			{ id: "rule-3", direction: "inbound", ruleApplication: "pensjonskalkulator", ruleNamespace: "pensjon", ruleCluster: "prod-gcp" },
+			{ id: "rule-4", direction: "inbound", ruleApplication: "uforetrygd-api", ruleNamespace: "ufore", ruleCluster: "prod-gcp" },
+			{ id: "rule-5", direction: "inbound", ruleApplication: "ekstern-gateway", ruleNamespace: "gateway", ruleCluster: "prod-gcp" },
+		],
 		teams: [{ teamId: "t-01", teamName: "Starte pensjon", teamSlug: "starte-pensjon" }],
 		primaryApp: null,
 		linkedApps: [],
@@ -501,8 +507,20 @@ export function mockAppDetaljerData() {
 		instanceSnapshotHistories: [],
 		sectionSlugMap: { "s-01": "pensjon-og-ufore" },
 		canAdmin: true,
-		knownApps: [],
-		acknowledgments: {},
+		knownApps: {
+			"pensjon-frontend": { status: "monitored", appId: "app-2" },
+			"psak-frontend": { status: "monitored", appId: "app-3" },
+			"pensjonskalkulator": { status: "discovered" },
+			"uforetrygd-api": { status: "unknown" },
+			"ekstern-gateway": { status: "unknown" },
+		} as Record<string, { status: string; appId?: string }>,
+		acknowledgments: {
+			"ekstern-gateway": {
+				comment: "Ekstern gateway brukes for innlogging via ID-porten",
+				acknowledgedBy: "A123456",
+				acknowledgedAt: "2026-01-20T10:00:00Z",
+			},
+		} as Record<string, { comment: string; acknowledgedBy: string; acknowledgedAt: string }>,
 		screeningSessions: [],
 	}
 }
@@ -1161,5 +1179,171 @@ export function mockNyGjennomgangData(overrides?: { isSectionRoutine?: boolean }
 					{ id: "app-2", name: "psak-frontend" },
 					{ id: "app-3", name: "pensjon-selvbetjening" },
 				],
+	}
+}
+
+// ─── Dokumenter ─────────────────────────────────────────────────────
+
+export function mockDokumenterData() {
+	return {
+		documents: [
+			{
+				id: "doc-1",
+				title: "Compliance-rapport Q1 2026",
+				originalFileName: "compliance-rapport-q1-2026.pdf",
+				contentType: "application/pdf",
+				sizeBytes: 2_450_000,
+				uploadedAt: "2026-03-31T12:00:00Z",
+				description: "Kvartalsvis compliance-rapport for pensjon og uføre",
+				archivedAt: null,
+				archivedBy: null,
+			},
+			{
+				id: "doc-2",
+				title: "Sikkerhetstesting – resultater",
+				originalFileName: "pentest-resultater-2026.pdf",
+				contentType: "application/pdf",
+				sizeBytes: 8_120_000,
+				uploadedAt: "2026-02-15T09:30:00Z",
+				description: "Resultater fra ekstern penetrasjonstesting",
+				archivedAt: null,
+				archivedBy: null,
+			},
+			{
+				id: "doc-3",
+				title: "ROS-analyse 2025",
+				originalFileName: "ros-analyse-2025.xlsx",
+				contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+				sizeBytes: 540_000,
+				uploadedAt: "2025-12-01T14:00:00Z",
+				description: null,
+				archivedAt: "2026-01-15T08:00:00Z",
+				archivedBy: "A123456",
+			},
+		],
+	}
+}
+
+// ─── Admin import ───────────────────────────────────────────────────
+
+export function mockAdminImportData() {
+	return {
+		versions: [
+			{
+				id: "v-2",
+				name: "MKR v2.1",
+				description: "Oppdatert kontrollrammeverk med nye DPIA-kontroller",
+				sourceFileName: "mkr-v2.1.xlsx",
+				sourceBucketPath: "imports/mkr-v2.1.xlsx",
+				status: "applied" as const,
+				activatedAt: "2026-02-01T10:00:00Z",
+				activatedBy: "A123456",
+				createdAt: "2026-02-01T09:00:00Z",
+				createdBy: "A123456",
+			},
+			{
+				id: "v-1",
+				name: "MKR v2.0",
+				description: "Første import av kontrollrammeverket",
+				sourceFileName: "mkr-v2.0.xlsx",
+				sourceBucketPath: "imports/mkr-v2.0.xlsx",
+				status: "superseded" as const,
+				activatedAt: "2025-09-15T08:00:00Z",
+				activatedBy: "A123456",
+				createdAt: "2025-09-15T07:30:00Z",
+				createdBy: "A123456",
+			},
+		],
+		auditEntries: [
+			{
+				id: "a-1",
+				action: "framework_import_activated",
+				entityType: "framework_version",
+				entityId: "v-2",
+				previousValue: null,
+				newValue: "MKR v2.1",
+				metadata: null,
+				performedBy: "A123456",
+				performedAt: "2026-02-01T10:00:00Z",
+			},
+			{
+				id: "a-2",
+				action: "framework_import_staged",
+				entityType: "framework_version",
+				entityId: "v-2",
+				previousValue: null,
+				newValue: "mkr-v2.1.xlsx",
+				metadata: null,
+				performedBy: "A123456",
+				performedAt: "2026-02-01T09:00:00Z",
+			},
+		],
+		pendingImport: null,
+	}
+}
+
+// ─── Gjennomgang detalj ─────────────────────────────────────────────
+
+export function mockGjennomgangDetaljData() {
+	return {
+		section: mockSection,
+		routine: mockRoutineBase({
+			id: "routine-1",
+			name: "Sikkerhetstesting av applikasjoner",
+			status: "approved",
+			frequency: "quarterly",
+		}),
+		activity: null,
+		entraGroupsData: null,
+		review: {
+			id: "rev-1",
+			routineId: "routine-1",
+			title: "Sikkerhetstesting Q1 2026",
+			status: "draft" as const,
+			summary: "## Funn\n- Ingen kritiske sårbarheter\n- 2 middels alvorlige funn\n\n## Tiltak\n- Oppgradere avhengigheter",
+			summaryHtml:
+				"<h2>Funn</h2><ul><li>Ingen kritiske sårbarheter</li><li>2 middels alvorlige funn</li></ul><h2>Tiltak</h2><ul><li>Oppgradere avhengigheter</li></ul>",
+			applicationId: "app-1",
+			applicationName: "pensjon-sak",
+			reviewedAt: "2026-03-01T10:00:00Z",
+			createdAt: "2026-02-28T14:00:00Z",
+			createdBy: "A123456",
+			sectionId: null,
+			participants: [
+				{
+					id: "p-1",
+					userIdent: "A123456",
+					userName: "Ola Nordmann",
+					role: "Sikkerhetsansvarlig",
+					confirmedAt: "2026-03-01T11:00:00Z",
+				},
+				{
+					id: "p-2",
+					userIdent: "B654321",
+					userName: "Kari Hansen",
+					role: "Utvikler",
+					confirmedAt: null,
+				},
+			],
+			attachments: [
+				{
+					id: "att-1",
+					fileName: "pentest-rapport.pdf",
+					contentType: "application/pdf",
+					sizeBytes: 3_400_000,
+					uploadedAt: "2026-03-01T09:30:00Z",
+					uploadedBy: "A123456",
+				},
+			],
+			links: [
+				{
+					id: "link-1",
+					url: "https://jira.nav.no/browse/PEN-1234",
+					title: "Jira: Oppgradere avhengigheter",
+					addedAt: "2026-03-01T10:15:00Z",
+					addedBy: "A123456",
+				},
+			],
+		},
 	}
 }

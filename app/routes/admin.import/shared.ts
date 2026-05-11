@@ -1,4 +1,3 @@
-import type { FileRejectionReason } from "@navikt/ds-react"
 import type { computeImportDiff } from "~/db/queries/framework.server"
 import { cronFrequencyLabels } from "~/lib/frequency-mapping"
 
@@ -39,11 +38,6 @@ export type ActionResult =
 
 export const MAX_SIZE_MB = 10
 export const MAX_SIZE = MAX_SIZE_MB * 1024 * 1024
-
-export const rejectionErrors: Record<FileRejectionReason, string> = {
-	fileType: "Filformatet støttes ikke. Last opp en .xlsx-fil.",
-	fileSize: `Filen er større enn ${MAX_SIZE_MB} MB.`,
-}
 
 const actionLabels: Record<string, string> = {
 	framework_imported: "Kontrollrammeverk importert",

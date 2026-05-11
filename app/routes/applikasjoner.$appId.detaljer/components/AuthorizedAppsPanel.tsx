@@ -1,4 +1,5 @@
-import { UploadIcon, XMarkOctagonIcon } from "@navikt/aksel-icons"
+import { XMarkOctagonIcon } from "@navikt/aksel-icons"
+import type { FileObject } from "@navikt/ds-react"
 import {
 	Alert,
 	BodyLong,
@@ -6,6 +7,7 @@ import {
 	Box,
 	Button,
 	Detail,
+	FileUpload,
 	Heading,
 	HStack,
 	Search,
@@ -13,7 +15,7 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useState } from "react"
 import { Link, type SubmitFunction } from "react-router"
 import { type AccessPolicyRule, getStatusKey, parseTrafficCsv, statusSortOrder, type TrafficRow } from "../shared"
 
@@ -38,9 +40,11 @@ export function AuthorizedAppsPanel({
 	const [sort, setSort] = useState<{ orderBy: string; direction: "ascending" | "descending" } | undefined>()
 	const [trafficData, setTrafficData] = useState<TrafficRow[] | null>(null)
 	const [fileName, setFileName] = useState<string | null>(null)
-	const fileInputRef = useRef<HTMLInputElement>(null)
 
-	const handleFile = useCallback((file: File) => {
+	const handleFileSelect = useCallback((newFiles: FileObject[]) => {
+		const accepted = newFiles.find((f) => !f.error)
+		if (!accepted) return
+		const file = accepted.file
 		const reader = new FileReader()
 		reader.onload = (e) => {
 			const text = e.target?.result as string
@@ -140,28 +144,7 @@ export function AuthorizedAppsPanel({
 								placeholder="Filtrer på applikasjon, namespace eller klynge"
 							/>
 						</div>
-						{!trafficData ? (
-							<div>
-								<input
-									ref={fileInputRef}
-									type="file"
-									accept=".csv"
-									style={{ display: "none" }}
-									onChange={(e) => {
-										const file = e.target.files?.[0]
-										if (file) handleFile(file)
-									}}
-								/>
-								<Button
-									variant="secondary"
-									size="small"
-									icon={<UploadIcon aria-hidden />}
-									onClick={() => fileInputRef.current?.click()}
-								>
-									Last opp trafikkdata
-								</Button>
-							</div>
-						) : (
+						{trafficData && (
 							<HStack gap="space-2" align="center">
 								<Detail textColor="subtle">{fileName}</Detail>
 								<Button
@@ -170,7 +153,6 @@ export function AuthorizedAppsPanel({
 									onClick={() => {
 										setTrafficData(null)
 										setFileName(null)
-										if (fileInputRef.current) fileInputRef.current.value = ""
 									}}
 								>
 									Fjern
@@ -178,6 +160,16 @@ export function AuthorizedAppsPanel({
 							</HStack>
 						)}
 					</HStack>
+
+					{!trafficData && (
+						<FileUpload.Dropzone
+							label="Dra og slipp CSV-fil med trafikkdata, eller klikk for å velge"
+							description="Trafikkdata i CSV-format"
+							accept=".csv"
+							multiple={false}
+							onSelect={handleFileSelect}
+						/>
+					)}
 
 					{trafficData && noTrafficCount > 0 && (
 						<Alert variant="warning" size="small">

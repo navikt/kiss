@@ -1,5 +1,5 @@
-import { DownloadIcon, ExternalLinkIcon, LinkIcon, PlusIcon, TrashIcon, UploadIcon } from "@navikt/aksel-icons"
-import type { FileObject, FileRejected, FileRejectionReason, SortState } from "@navikt/ds-react"
+import { DownloadIcon, ExternalLinkIcon, LinkIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import type { FileObject, SortState } from "@navikt/ds-react"
 import {
 	Link as AkselLink,
 	Alert,
@@ -10,7 +10,6 @@ import {
 	CopyButton,
 	Detail,
 	Dialog,
-	FileUpload,
 	Heading,
 	HStack,
 	Label,
@@ -35,6 +34,7 @@ import {
 	useRevalidator,
 	useSubmit,
 } from "react-router"
+import { AutoUploadDropzone } from "~/components/AutoUploadDropzone"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
@@ -411,11 +411,6 @@ function formatFileSize(bytes: number | null) {
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-const rejectionErrors: Record<FileRejectionReason, string> = {
-	fileType: "Filtypen er ikke støttet",
-	fileSize: `Filen er for stor (maks ${MAX_SIZE_MB} MB)`,
-}
-
 function AddLinkSection() {
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
@@ -487,19 +482,13 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 	const [uploading, setUploading] = useState(false)
 	const [uploadResult, setUploadResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null)
 
-	const acceptedFiles = files.filter((f): f is Extract<FileObject, { error: false }> => !f.error)
-	const rejectedFiles = files.filter((f): f is FileRejected => f.error)
-
-	async function handleUpload() {
-		const selectedFile = acceptedFiles.length > 0 ? acceptedFiles[0].file : null
-		if (!selectedFile) return
-
+	async function uploadFile(file: File) {
 		setUploading(true)
 		setUploadResult(null)
 
 		try {
 			const formData = new FormData()
-			formData.append("file", selectedFile)
+			formData.append("file", file)
 
 			const response = await fetch(`/api/gjennomgang/${reviewId}/vedlegg`, {
 				method: "POST",
@@ -520,6 +509,15 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 		}
 	}
 
+	function handleFileSelect(newFiles: FileObject[]) {
+		if (uploading && newFiles.length > 0) return
+		setFiles(newFiles)
+		const accepted = newFiles.find((f) => !f.error)
+		if (accepted) {
+			uploadFile(accepted.file)
+		}
+	}
+
 	return (
 		<VStack gap="space-4">
 			<Heading size="small" level="4">
@@ -537,64 +535,19 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 				</Alert>
 			)}
 
-			<FileUpload.Dropzone
-				label="Velg fil eller dra og slipp"
+			<AutoUploadDropzone
+				label="Dra og slipp fil, eller klikk for å velge"
 				description={`Maks ${MAX_SIZE_MB} MB. Støttede formater: PDF, DOCX, XLSX, PPTX, PNG, JPG, TXT, MD`}
 				accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.txt,.md"
 				maxSizeInBytes={MAX_SIZE_BYTES}
-				onSelect={setFiles}
-				multiple={false}
-				fileLimit={{ max: 1, current: acceptedFiles.length }}
+				files={files}
+				onFilesChange={handleFileSelect}
+				isUploading={uploading}
+				rejectionErrors={{
+					fileType: "Filtypen er ikke støttet",
+					fileSize: `Filen er for stor (maks ${MAX_SIZE_MB} MB)`,
+				}}
 			/>
-
-			{acceptedFiles.length > 0 && (
-				<VStack gap="space-2">
-					{acceptedFiles.map((file) => (
-						<FileUpload.Item
-							key={file.file.name}
-							file={file.file}
-							button={{ action: "delete", onClick: () => setFiles([]) }}
-							status={uploading ? "uploading" : "idle"}
-						/>
-					))}
-				</VStack>
-			)}
-
-			{rejectedFiles.length > 0 && (
-				<VStack gap="space-2">
-					{rejectedFiles.map((rejected) => (
-						<FileUpload.Item
-							key={rejected.file.name}
-							file={rejected.file}
-							error={
-								rejected.reasons[0] in rejectionErrors
-									? rejectionErrors[rejected.reasons[0] as FileRejectionReason]
-									: rejected.reasons.join(", ")
-							}
-							button={{
-								action: "delete",
-								onClick: () => setFiles(files.filter((f) => f !== rejected)),
-							}}
-						/>
-					))}
-				</VStack>
-			)}
-
-			{acceptedFiles.length > 0 && (
-				<HStack>
-					<Button
-						type="button"
-						variant="primary"
-						size="small"
-						onClick={handleUpload}
-						disabled={uploading}
-						loading={uploading}
-						icon={<UploadIcon aria-hidden />}
-					>
-						Last opp
-					</Button>
-				</HStack>
-			)}
 		</VStack>
 	)
 }
