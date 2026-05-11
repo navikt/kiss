@@ -19,10 +19,12 @@ vi.mock("~/lib/authorization.server", () => ({
 const mockGetRoutine = vi.fn()
 const mockApproveRoutine = vi.fn()
 const mockCopyRoutine = vi.fn()
+const mockArchiveRoutine = vi.fn()
 vi.mock("~/db/queries/routines.server", () => ({
 	getRoutine: mockGetRoutine,
 	approveRoutine: mockApproveRoutine,
 	copyRoutine: mockCopyRoutine,
+	archiveRoutine: mockArchiveRoutine,
 	calculateDeadline: vi.fn(),
 	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
 	getLatestReviewForApp: vi.fn(),
@@ -156,5 +158,86 @@ describe("unknown intent", () => {
 		fd.set("intent", "bogus")
 
 		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 400 } })
+	})
+})
+
+describe("archive intent", () => {
+	it("archives approved routine when user is admin", async () => {
+		mockIsAdmin.mockReturnValue(true)
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "approved" })
+		mockArchiveRoutine.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "archive")
+
+		const response = await callAction(fd)
+		expect(response.status).toBe(302)
+		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+	})
+
+	it("archives approved routine when user has approver role", async () => {
+		mockIsAdmin.mockReturnValue(false)
+		mockCanApproveRoutine.mockReturnValue(true)
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "approved" })
+		mockArchiveRoutine.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "archive")
+
+		const response = await callAction(fd)
+		expect(response.status).toBe(302)
+		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+	})
+
+	it("rejects archive when user lacks admin and approver role", async () => {
+		mockIsAdmin.mockReturnValue(false)
+		mockCanApproveRoutine.mockReturnValue(false)
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "approved" })
+
+		const fd = new FormData()
+		fd.set("intent", "archive")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 403 } })
+		expect(mockArchiveRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects archive on non-approved routine", async () => {
+		mockIsAdmin.mockReturnValue(true)
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "ready" })
+
+		const fd = new FormData()
+		fd.set("intent", "archive")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 400 } })
+		expect(mockArchiveRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects archive on already archived routine", async () => {
+		mockIsAdmin.mockReturnValue(true)
+		mockGetRoutine.mockResolvedValue({
+			...fakeRoutine,
+			status: "approved",
+			archivedAt: new Date(),
+		})
+
+		const fd = new FormData()
+		fd.set("intent", "archive")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 409 } })
+		expect(mockArchiveRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects archive on archived routine via the archivedAt guard (approve/copy block)", async () => {
+		mockIsAdmin.mockReturnValue(true)
+		mockGetRoutine.mockResolvedValue({
+			...fakeRoutine,
+			status: "approved",
+			archivedAt: new Date(),
+		})
+
+		const fd = new FormData()
+		fd.set("intent", "approve")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 403 } })
 	})
 })

@@ -843,7 +843,7 @@ export async function archiveRoutine(id: string, performedBy: string) {
 				updatedAt: new Date(),
 				updatedBy: performedBy,
 			})
-			.where(and(eq(routines.id, id), isNull(routines.archivedAt)))
+			.where(and(eq(routines.id, id), isNull(routines.archivedAt), eq(routines.status, "approved")))
 			.returning()
 		if (!archived) {
 			const [existing] = await tx.select().from(routines).where(eq(routines.id, id)).limit(1)
