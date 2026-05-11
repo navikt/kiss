@@ -29,6 +29,7 @@ const {
 	recordEntraChange,
 	completeReviewActivity,
 	getActivitiesForReviews,
+	getRoutineDeadlinesForApp,
 } = await import("~/db/queries/routines.server")
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -1649,6 +1650,141 @@ describe("Routines integration tests", () => {
 			const results = await getRoutineDeadlinesForAppByRuleset(appId)
 			expect(results).toHaveLength(1)
 			expect(results[0].routine?.name).toBe("Ruleset Routine")
+		})
+	})
+
+	describe("getRoutineDeadlinesForApp", () => {
+		it("returns empty when app has no screening answers", async () => {
+			const appId = await createTestApp("No-Answers App")
+			const results = await getRoutineDeadlinesForApp(appId)
+			expect(results).toHaveLength(0)
+		})
+
+		it("matches routines via routine_screening_questions", async () => {
+			const sectionId = await createTestSection("Screening Q Section", "screening-q-section")
+			const appId = await createTestApp("Screening Q App")
+			const questionId = await createTestScreeningQuestion(sectionId, "Has CI/CD?")
+			const choiceId = await createTestChoice(questionId, "yes")
+
+			const routine = await createRoutine({
+				name: "CI/CD Routine",
+				description: "Routine matched via screening questions",
+				sectionId,
+				frequency: "annually",
+				activityType: null,
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+			})
+			const routineId = routine.id
+			await markRoutineApproved(routineId)
+
+			// Link routine to screening question + choice
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO routine_screening_questions (routine_id, question_id, choice_value)
+					VALUES ('${routineId}', '${questionId}', '${choiceId}')`,
+			)
+
+			// App answers the screening question with matching choice
+			await createTestScreeningAnswer(appId, questionId, choiceId)
+
+			const results = await getRoutineDeadlinesForApp(appId)
+			expect(results).toHaveLength(1)
+			expect(results[0].routine?.id).toBe(routineId)
+			expect(results[0].routine?.name).toBe("CI/CD Routine")
+		})
+
+		it("matches routines via legacy screeningQuestionId/screeningChoiceValue fields", async () => {
+			const sectionId = await createTestSection("Legacy Section", "legacy-section")
+			const appId = await createTestApp("Legacy App")
+			const questionId = await createTestScreeningQuestion(sectionId, "Uses database?")
+			const choiceId = await createTestChoice(questionId, "yes")
+
+			// Create routine with legacy screening fields
+			const db = getTestDb()
+			const result = await db.execute(
+				/* sql */ `INSERT INTO routines (name, description, section_id, frequency, activity_type, status, screening_question_id, screening_choice_value, created_by, updated_by)
+					VALUES ('Legacy Routine', 'Matched via legacy fields', '${sectionId}', 'annually', NULL, 'approved', '${questionId}', '${choiceId}', 'test', 'test')
+					RETURNING id`,
+			)
+			const routineId = (result.rows[0] as { id: string }).id
+
+			// App answers the screening question
+			await createTestScreeningAnswer(appId, questionId, choiceId)
+
+			const results = await getRoutineDeadlinesForApp(appId)
+			expect(results).toHaveLength(1)
+			expect(results[0].routine?.id).toBe(routineId)
+			expect(results[0].routine?.name).toBe("Legacy Routine")
+		})
+
+		it("does not match non-approved or archived routines", async () => {
+			const sectionId = await createTestSection("Filter Section", "filter-section")
+			const appId = await createTestApp("Filter App")
+			const questionId = await createTestScreeningQuestion(sectionId, "Has monitoring?")
+			const choiceId = await createTestChoice(questionId, "yes")
+
+			// Draft routine (not approved)
+			const draftRoutine = await createRoutine({
+				name: "Draft Routine",
+				description: "Should not match",
+				sectionId,
+				frequency: "annually",
+				activityType: null,
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+			})
+			const draftId = draftRoutine.id
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO routine_screening_questions (routine_id, question_id, choice_value)
+					VALUES ('${draftId}', '${questionId}', '${choiceId}')`,
+			)
+
+			// Archived routine (approved but archived)
+			const archivedRoutine = await createRoutine({
+				name: "Archived Routine",
+				description: "Should not match because archived",
+				sectionId,
+				frequency: "annually",
+				activityType: null,
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+			})
+			const archivedId = archivedRoutine.id
+			await markRoutineApproved(archivedId)
+			await db.execute(
+				/* sql */ `UPDATE routines SET archived_at = NOW(), archived_by = 'test' WHERE id = '${archivedId}'`,
+			)
+			await db.execute(
+				/* sql */ `INSERT INTO routine_screening_questions (routine_id, question_id, choice_value)
+					VALUES ('${archivedId}', '${questionId}', '${choiceId}')`,
+			)
+
+			await createTestScreeningAnswer(appId, questionId, choiceId)
+
+			const results = await getRoutineDeadlinesForApp(appId)
+			// Neither draft nor archived routine should appear
+			expect(results.every((r) => r.routine?.id !== draftId)).toBe(true)
+			expect(results.every((r) => r.routine?.id !== archivedId)).toBe(true)
 		})
 	})
 })
