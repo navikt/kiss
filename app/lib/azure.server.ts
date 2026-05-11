@@ -11,6 +11,7 @@ interface CachedToken {
 
 const CACHE_BUFFER_MS = 5 * 60 * 1000
 const clientCredentialCache = new Map<string, CachedToken>()
+const inflightRequests = new Map<string, Promise<string>>()
 
 export async function getOnBehalfOfToken(user: NavUser, targetScope: string): Promise<string> {
 	if (!AZURE_OPENID_CONFIG_TOKEN_ENDPOINT || !AZURE_APP_CLIENT_ID || !AZURE_APP_CLIENT_SECRET) {
@@ -49,13 +50,30 @@ export async function getClientCredentialToken(targetScope: string): Promise<str
 		return cached.accessToken
 	}
 
-	const response = await fetch(AZURE_OPENID_CONFIG_TOKEN_ENDPOINT, {
+	// Deduplicate concurrent requests for the same scope
+	const inflight = inflightRequests.get(targetScope)
+	if (inflight) {
+		return inflight
+	}
+
+	const promise = fetchClientCredentialToken(targetScope)
+	inflightRequests.set(targetScope, promise)
+
+	try {
+		return await promise
+	} finally {
+		inflightRequests.delete(targetScope)
+	}
+}
+
+async function fetchClientCredentialToken(targetScope: string): Promise<string> {
+	const response = await fetch(AZURE_OPENID_CONFIG_TOKEN_ENDPOINT!, {
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
 			grant_type: "client_credentials",
-			client_id: AZURE_APP_CLIENT_ID,
-			client_secret: AZURE_APP_CLIENT_SECRET,
+			client_id: AZURE_APP_CLIENT_ID!,
+			client_secret: AZURE_APP_CLIENT_SECRET!,
 			scope: targetScope,
 		}),
 	})
@@ -67,10 +85,13 @@ export async function getClientCredentialToken(targetScope: string): Promise<str
 
 	const data = (await response.json()) as { access_token: string; expires_in: number }
 
-	clientCredentialCache.set(targetScope, {
-		accessToken: data.access_token,
-		expiresAt: Date.now() + data.expires_in * 1000 - CACHE_BUFFER_MS,
-	})
+	const effectiveTtl = data.expires_in * 1000 - CACHE_BUFFER_MS
+	if (effectiveTtl > 0) {
+		clientCredentialCache.set(targetScope, {
+			accessToken: data.access_token,
+			expiresAt: Date.now() + effectiveTtl,
+		})
+	}
 
 	return data.access_token
 }

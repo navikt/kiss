@@ -23,6 +23,8 @@ describe("getClientCredentialToken cache", () => {
 	})
 
 	afterEach(() => {
+		vi.useRealTimers()
+		vi.unstubAllEnvs()
 		vi.restoreAllMocks()
 	})
 
@@ -71,8 +73,6 @@ describe("getClientCredentialToken cache", () => {
 
 		expect(mockFetch).toHaveBeenCalledTimes(2)
 		expect(token2).toBe("second-token")
-
-		vi.useRealTimers()
 	})
 
 	it("should use cached token before expiry buffer", async () => {
@@ -89,7 +89,37 @@ describe("getClientCredentialToken cache", () => {
 		expect(mockFetch).toHaveBeenCalledTimes(1)
 		expect(token1).toBe("cached-token")
 		expect(token2).toBe("cached-token")
+	})
 
-		vi.useRealTimers()
+	it("should not cache when expires_in is shorter than buffer", async () => {
+		mockFetch.mockImplementation(() => Promise.resolve(mockTokenResponse(60, "short-lived")))
+
+		const token1 = await getClientCredentialToken("api://short/.default")
+		const token2 = await getClientCredentialToken("api://short/.default")
+
+		// Should fetch twice since TTL (60s) < buffer (300s) means no caching
+		expect(mockFetch).toHaveBeenCalledTimes(2)
+		expect(token1).toBe("short-lived")
+		expect(token2).toBe("short-lived")
+	})
+
+	it("should deduplicate concurrent requests for the same scope", async () => {
+		let resolveToken: (value: Response) => void
+		mockFetch.mockReturnValueOnce(
+			new Promise<Response>((resolve) => {
+				resolveToken = resolve
+			}),
+		)
+
+		const promise1 = getClientCredentialToken("api://concurrent/.default")
+		const promise2 = getClientCredentialToken("api://concurrent/.default")
+
+		resolveToken!(mockTokenResponse(3600, "deduped-token"))
+
+		const [token1, token2] = await Promise.all([promise1, promise2])
+
+		expect(mockFetch).toHaveBeenCalledTimes(1)
+		expect(token1).toBe("deduped-token")
+		expect(token2).toBe("deduped-token")
 	})
 })
