@@ -496,8 +496,10 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 			})
 
 			if (response.status === 413) {
-				setUploadResult({ success: false, error: "Filen er for stor. Maksimal filstørrelse er 50 MB." })
-				setFiles([])
+				setUploadResult({
+					success: false,
+					error: `Filen er for stor. Maksimal filstørrelse er ${MAX_SIZE_MB} MB.`,
+				})
 				return
 			}
 
@@ -505,13 +507,12 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 			setUploadResult(result)
 
 			if (result.success) {
-				setFiles([])
 				revalidator.revalidate()
 			}
 		} catch {
 			setUploadResult({ success: false, error: "Nettverksfeil ved opplasting." })
-			setFiles([])
 		} finally {
+			setFiles([])
 			setUploading(false)
 		}
 	}
