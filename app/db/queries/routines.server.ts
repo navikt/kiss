@@ -47,8 +47,24 @@ import {
 } from "../schema/routines"
 import { screeningAnswers, screeningQuestions, screeningRoutineSelections } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
-import type { ResolverOpts } from "./routine-deadlines.server"
 import { getEffectiveAppIdsInSection, isAppEffectiveInSection } from "./sections.server"
+
+// ─── Resolver opts for deadline pipeline ─────────────────────────────────
+
+export interface ResolverOpts {
+	appName?: string
+	appElementIds?: Set<string>
+}
+
+async function resolveAppName(applicationId: string, opts?: ResolverOpts): Promise<string> {
+	if (opts?.appName !== undefined) return opts.appName
+	const [appRow] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+	return appRow?.name ?? ""
+}
 
 // ─── Routine CRUD ────────────────────────────────────────────────────────
 
@@ -2285,9 +2301,11 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 		persByRoutine.set(p.routineId, list)
 	}
 
-	// Step 4: Filter by technology elements if required
+	// Step 4: Filter by technology elements if required (skip query when no routines have tech elements)
 	let appElementIds: Set<string>
-	if (opts?.appElementIds !== undefined) {
+	if (allElements.length === 0) {
+		appElementIds = new Set()
+	} else if (opts?.appElementIds !== undefined) {
 		appElementIds = opts.appElementIds
 	} else {
 		const appTechElements = await db
@@ -2304,17 +2322,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 		appElementIds = new Set(appTechElements.map((e) => e.elementId))
 	}
 
-	let appName: string
-	if (opts?.appName !== undefined) {
-		appName = opts.appName
-	} else {
-		const [appRow] = await db
-			.select({ name: monitoredApplications.name })
-			.from(monitoredApplications)
-			.where(eq(monitoredApplications.id, applicationId))
-			.limit(1)
-		appName = appRow?.name ?? ""
-	}
+	const appName = await resolveAppName(applicationId, opts)
 
 	// Step 5: Get latest completed reviews for all matching routines in batch
 	const latestReviews = await db
@@ -2465,17 +2473,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 		screenByRoutine.set(s.routineId, list)
 	}
 
-	let appName: string
-	if (opts?.appName !== undefined) {
-		appName = opts.appName
-	} else {
-		const [appRow] = await db
-			.select({ name: monitoredApplications.name })
-			.from(monitoredApplications)
-			.where(eq(monitoredApplications.id, applicationId))
-			.limit(1)
-		appName = appRow?.name ?? ""
-	}
+	const appName = await resolveAppName(applicationId, opts)
 
 	// Get latest completed reviews
 	const latestReviews = await db
@@ -2654,17 +2652,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 		persLinksByRoutine.set(p.routineId, list)
 	}
 
-	let appName: string
-	if (opts?.appName !== undefined) {
-		appName = opts.appName
-	} else {
-		const [appRow] = await db
-			.select({ name: monitoredApplications.name })
-			.from(monitoredApplications)
-			.where(eq(monitoredApplications.id, applicationId))
-			.limit(1)
-		appName = appRow?.name ?? ""
-	}
+	const appName = await resolveAppName(applicationId, opts)
 
 	// Get latest completed reviews
 	const latestReviews = await db
@@ -2805,17 +2793,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 		persLinksByRoutine.set(p.routineId, list)
 	}
 
-	let appName: string
-	if (opts?.appName !== undefined) {
-		appName = opts.appName
-	} else {
-		const [appRow] = await db
-			.select({ name: monitoredApplications.name })
-			.from(monitoredApplications)
-			.where(eq(monitoredApplications.id, applicationId))
-			.limit(1)
-		appName = appRow?.name ?? ""
-	}
+	const appName = await resolveAppName(applicationId, opts)
 
 	// Get latest completed reviews
 	const latestReviews = await db
@@ -2932,17 +2910,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		persByRoutine2.set(p.routineId, list)
 	}
 
-	let appName: string
-	if (opts?.appName !== undefined) {
-		appName = opts.appName
-	} else {
-		const [appRow] = await db
-			.select({ name: monitoredApplications.name })
-			.from(monitoredApplications)
-			.where(eq(monitoredApplications.id, applicationId))
-			.limit(1)
-		appName = appRow?.name ?? ""
-	}
+	const appName = await resolveAppName(applicationId, opts)
 
 	const latestReviews = await db
 		.selectDistinctOn([routineReviews.routineId], {
@@ -3061,17 +3029,7 @@ export async function getRoutineDeadlinesForAppBySection(
 		persByRoutine.set(p.routineId, list)
 	}
 
-	let appName: string
-	if (opts?.appName !== undefined) {
-		appName = opts.appName
-	} else {
-		const [appRow] = await db
-			.select({ name: monitoredApplications.name })
-			.from(monitoredApplications)
-			.where(eq(monitoredApplications.id, applicationId))
-			.limit(1)
-		appName = appRow?.name ?? ""
-	}
+	const appName = await resolveAppName(applicationId, opts)
 
 	const latestReviews = await db
 		.selectDistinctOn([routineReviews.routineId], {
@@ -3247,17 +3205,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 		persByRoutine.set(p.routineId, list)
 	}
 
-	let appName: string
-	if (opts?.appName !== undefined) {
-		appName = opts.appName
-	} else {
-		const [appRow] = await db
-			.select({ name: monitoredApplications.name })
-			.from(monitoredApplications)
-			.where(eq(monitoredApplications.id, applicationId))
-			.limit(1)
-		appName = appRow?.name ?? ""
-	}
+	const appName = await resolveAppName(applicationId, opts)
 
 	const latestReviews = await db
 		.selectDistinctOn([routineReviews.routineId], {

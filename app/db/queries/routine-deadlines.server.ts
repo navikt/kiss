@@ -13,7 +13,7 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
 import { routineControls, routineReviews, routineTechnologyElements } from "../schema/routines"
-import { calculateDeadline, isOverdue, type RoutineDeadlineInfo } from "./routines.server"
+import { calculateDeadline, isOverdue, type ResolverOpts, type RoutineDeadlineInfo } from "./routines.server"
 
 export type MatchSource =
 	| "screening"
@@ -40,11 +40,6 @@ export interface DeadlineWithControls {
 	matchSource: MatchSource
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
-}
-
-export interface ResolverOpts {
-	appName?: string
-	appElementIds?: Set<string>
 }
 
 /**
