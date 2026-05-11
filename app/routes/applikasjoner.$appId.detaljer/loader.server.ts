@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
-import { getActiveApplicationControls, syncApplicationControls } from "~/db/queries/application-controls.server"
+import { getActiveApplicationControls } from "~/db/queries/application-controls.server"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getOracleInstancesForApp, getSnapshotHistory } from "~/db/queries/audit-evidence.server"
 import { getOracleAuditSummariesForApp } from "~/db/queries/audit-logging.server"
@@ -44,12 +44,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		return {}
 	})()
 
-	// Sync application_controls cache in parallel — keeps team/section pages consistent with detail page
-	const [detail, assessmentsResult] = await Promise.all([
-		getApplicationDetail(appId),
-		getAppAssessments(appId),
-		syncApplicationControls(appId).catch(() => null),
-	])
+	const [detail, assessmentsResult] = await Promise.all([getApplicationDetail(appId), getAppAssessments(appId)])
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
