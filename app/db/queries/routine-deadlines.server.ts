@@ -11,6 +11,7 @@
  */
 import { and, desc, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
+import { monitoredApplications } from "../schema/applications"
 import { routineControls, routineReviews, routineTechnologyElements } from "../schema/routines"
 import { calculateDeadline, isOverdue, type RoutineDeadlineInfo } from "./routines.server"
 
@@ -41,6 +42,11 @@ export interface DeadlineWithControls {
 	sectionRoutineOwnerRole?: string | null
 }
 
+export interface ResolverOpts {
+	appName?: string
+	appElementIds?: Set<string>
+}
+
 /**
  * Resolve all routine deadlines for an application, enriched with control and
  * technology-element mappings. This is the canonical pipeline that all compliance
@@ -57,41 +63,61 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 		getRoutineDeadlinesForAppByRuleset,
 	} = await import("./routines.server")
 
+	const [appRow] = await db
+		.select({ name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, appId))
+		.limit(1)
+	const appName = appRow?.name ?? ""
+	const resolverOpts: ResolverOpts = { appName }
+
 	// Step 1: Resolve all deadline sources with deduplication
-	const screeningRoutines = await getRoutineDeadlinesForApp(appId)
+	const screeningRoutines = await getRoutineDeadlinesForApp(appId, resolverOpts)
 	const screeningRoutineIds = new Set(screeningRoutines.map((d) => d.routine?.id).filter(Boolean) as string[])
 
-	const persistenceRoutines = await getRoutineDeadlinesForAppByPersistence(appId, screeningRoutineIds)
+	const persistenceRoutines = await getRoutineDeadlinesForAppByPersistence(appId, screeningRoutineIds, resolverOpts)
 	const afterPersistenceIds = new Set([
 		...screeningRoutineIds,
 		...(persistenceRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 
-	const groupClassificationRoutines = await getRoutineDeadlinesForAppByGroupClassification(appId, afterPersistenceIds)
+	const groupClassificationRoutines = await getRoutineDeadlinesForAppByGroupClassification(
+		appId,
+		afterPersistenceIds,
+		resolverOpts,
+	)
 	const afterGroupIds = new Set([
 		...afterPersistenceIds,
 		...(groupClassificationRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 
-	const oracleRoleCriticalityRoutines = await getRoutineDeadlinesForAppByOracleRoleCriticality(appId, afterGroupIds)
+	const oracleRoleCriticalityRoutines = await getRoutineDeadlinesForAppByOracleRoleCriticality(
+		appId,
+		afterGroupIds,
+		resolverOpts,
+	)
 	const alreadyMatchedIds = new Set([
 		...afterGroupIds,
 		...(oracleRoleCriticalityRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 
-	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(appId, alreadyMatchedIds)
+	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(
+		appId,
+		alreadyMatchedIds,
+		resolverOpts,
+	)
 	const allMatchedIds = new Set([
 		...alreadyMatchedIds,
 		...(screeningSelectionRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 
-	const sectionWideRoutines = await getRoutineDeadlinesForAppBySection(appId, allMatchedIds)
+	const sectionWideRoutines = await getRoutineDeadlinesForAppBySection(appId, allMatchedIds, resolverOpts)
 	const allMatchedBeforeRuleset = new Set([
 		...allMatchedIds,
 		...(sectionWideRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 
-	const rulesetRoutines = await getRoutineDeadlinesForAppByRuleset(appId, allMatchedBeforeRuleset)
+	const rulesetRoutines = await getRoutineDeadlinesForAppByRuleset(appId, allMatchedBeforeRuleset, resolverOpts)
 
 	// Step 2: Tag each deadline with its match source
 	const routineDeadlines = [
