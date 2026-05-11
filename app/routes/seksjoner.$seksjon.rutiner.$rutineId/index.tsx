@@ -7,16 +7,19 @@ import {
 	HStack,
 	Label,
 	LocalAlert,
+	Modal,
 	Table,
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
+import { useRef } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useFetcher, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	approveRoutine,
+	archiveRoutine,
 	calculateDeadline,
 	copyRoutine,
 	getAppsRequiringRoutine,
@@ -176,6 +179,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirect(`/seksjoner/${seksjon}/rutiner/${copy.id}/rediger`)
 	}
 
+	if (intent === "archive") {
+		if (routine.archivedAt) {
+			throw data({ message: "Rutinen er allerede arkivert." }, { status: 409 })
+		}
+		if (routine.status !== "approved") {
+			throw data({ message: "Kun godkjente rutiner kan arkiveres." }, { status: 400 })
+		}
+		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		if (!isAdmin(authedUser) && !canApproveRoutine(authedUser, effectiveRole, section.id)) {
+			throw data({ message: "Du har ikke rettigheter til å arkivere denne rutinen." }, { status: 403 })
+		}
+		await archiveRoutine(rutineId, authedUser.navIdent)
+		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
+	}
+
 	throw data({ message: `Ukjent handling: ${intent}` }, { status: 400 })
 }
 
@@ -192,6 +210,9 @@ export default function RutineDetaljer() {
 		effectiveRole,
 	} = useLoaderData<typeof loader>()
 	const fetcher = useFetcher()
+	const archiveFetcher = useFetcher()
+	const archiveModalRef = useRef<HTMLDialogElement>(null)
+	const userCanArchive = !routine.archivedAt && routine.status === "approved" && (userCanAdmin || userCanApprove)
 
 	return (
 		<VStack gap="space-12">
@@ -257,6 +278,11 @@ export default function RutineDetaljer() {
 									Godkjenn
 								</Button>
 							</fetcher.Form>
+						)}
+						{userCanArchive && (
+							<Button variant="tertiary" size="small" onClick={() => archiveModalRef.current?.showModal()}>
+								Arkiver
+							</Button>
 						)}
 					</HStack>
 				</HStack>
@@ -567,6 +593,26 @@ export default function RutineDetaljer() {
 					</Table>
 				)}
 			</VStack>
+
+			<Modal ref={archiveModalRef} header={{ heading: "Arkiver rutine" }}>
+				<Modal.Body>
+					<BodyShort>
+						Er du sikker på at du vil arkivere rutinen «{routine.name}»? Rutinen vil bli skjult fra oversikter, men all
+						konfigurasjon, gjennomganger og audit-logg bevares. Du kan reaktivere rutinen senere.
+					</BodyShort>
+				</Modal.Body>
+				<Modal.Footer>
+					<archiveFetcher.Form method="post" onSubmit={() => archiveModalRef.current?.close()}>
+						<input type="hidden" name="intent" value="archive" />
+						<Button type="submit" variant="danger" loading={archiveFetcher.state !== "idle"}>
+							Arkiver
+						</Button>
+					</archiveFetcher.Form>
+					<Button variant="secondary" onClick={() => archiveModalRef.current?.close()}>
+						Avbryt
+					</Button>
+				</Modal.Footer>
+			</Modal>
 		</VStack>
 	)
 }

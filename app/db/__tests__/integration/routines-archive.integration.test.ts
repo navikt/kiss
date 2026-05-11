@@ -75,6 +75,11 @@ async function createTestRoutine(sectionId: string, name: string) {
 	})
 }
 
+async function approveForArchiving(routineId: string) {
+	const db = getTestDb()
+	await db.execute(/* sql */ `UPDATE routines SET status = 'approved' WHERE id = '${routineId}'`)
+}
+
 describe("Routine archive (soft-delete) integration tests", () => {
 	beforeAll(async () => {
 		await setupTestDatabase()
@@ -117,6 +122,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 	it("archives a routine instead of deleting it (soft-delete)", async () => {
 		const sectionId = await createTestSection("Sec", "sec")
 		const routine = await createTestRoutine(sectionId, "R1")
+		await approveForArchiving(routine.id)
 
 		const archived = await archiveRoutine(routine.id, "archiver")
 		expect(archived?.archivedAt).not.toBeNull()
@@ -134,6 +140,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 		const sectionId = await createTestSection("Sec", "sec")
 		const active = await createTestRoutine(sectionId, "Active")
 		const toArchive = await createTestRoutine(sectionId, "Archived")
+		await approveForArchiving(toArchive.id)
 		await archiveRoutine(toArchive.id, "admin")
 
 		const list = await getRoutinesForSection(sectionId)
@@ -145,6 +152,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 	it("reactivates an archived routine", async () => {
 		const sectionId = await createTestSection("Sec", "sec")
 		const routine = await createTestRoutine(sectionId, "R1")
+		await approveForArchiving(routine.id)
 		await archiveRoutine(routine.id, "admin")
 		const reactivated = await unarchiveRoutine(routine.id, "reactivator")
 
@@ -190,6 +198,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 	it("archive is idempotent: second call writes no extra audit entry", async () => {
 		const sectionId = await createTestSection("Sec", "sec")
 		const routine = await createTestRoutine(sectionId, "R1")
+		await approveForArchiving(routine.id)
 		await archiveRoutine(routine.id, "first")
 		await archiveRoutine(routine.id, "second")
 
@@ -202,6 +211,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 	it("unarchive is idempotent: second call writes no extra audit entry", async () => {
 		const sectionId = await createTestSection("Sec", "sec")
 		const routine = await createTestRoutine(sectionId, "R1")
+		await approveForArchiving(routine.id)
 		await archiveRoutine(routine.id, "admin")
 		await unarchiveRoutine(routine.id, "first")
 		await unarchiveRoutine(routine.id, "second")
@@ -368,6 +378,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 		it("records the actual archivedAt timestamp in previousValue", async () => {
 			const sectionId = await createTestSection("Sec", "sec")
 			const routine = await createTestRoutine(sectionId, "R1")
+			await approveForArchiving(routine.id)
 			await archiveRoutine(routine.id, "user-a")
 			await unarchiveRoutine(routine.id, "user-b")
 
@@ -411,8 +422,10 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Sec", "sec")
 			const routine = await createTestRoutine(sectionId, "R1")
-			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
+			await db.execute(/* sql */ `UPDATE routines SET status = 'approved' WHERE id = '${routine.id}'`)
 			await archiveRoutine(routine.id, "admin")
+			// Sett tilbake til 'ready' for å teste at archived_at-guarden fanger uavhengig av status
+			await db.execute(/* sql */ `UPDATE routines SET status = 'ready' WHERE id = '${routine.id}'`)
 
 			await expect(approveRoutine(routine.id, "approver")).rejects.toMatchObject({ status: 403 })
 
@@ -424,6 +437,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 		it("copyRoutine() avviser arkivert rutine", async () => {
 			const sectionId = await createTestSection("Sec", "sec")
 			const routine = await createTestRoutine(sectionId, "R1")
+			await approveForArchiving(routine.id)
 			await archiveRoutine(routine.id, "admin")
 
 			await expect(copyRoutine(routine.id, "copier")).rejects.toMatchObject({ status: 403 })

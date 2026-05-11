@@ -54,7 +54,7 @@ import {
 import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType, type RoutineStatus } from "~/db/schema/routines"
 import { screeningQuestionStatusConfig } from "~/db/schema/screening"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { canApproveRoutine, requireAdmin } from "~/lib/authorization.server"
+import { canApproveRoutine, isAdmin, requireAdmin } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
 	getStrictestFrequency,
@@ -165,7 +165,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	// Unarchive må håndteres før status-guarden, ellers blir backfillede rader
 	// (status='deleted' + archivedAt) blokkert fra reaktivering.
 	if (intent === "unarchive") {
-		requireAdmin(authedUser)
+		const effectiveRole =
+			existingRoutine.responsibleRole || existingRoutine.controls.find((c) => c.responsible)?.responsible || null
+		if (!isAdmin(authedUser) && !canApproveRoutine(authedUser, effectiveRole, section.id)) {
+			throw new Response("Du har ikke rettigheter til å reaktivere denne rutinen.", { status: 403 })
+		}
 		if (!existingRoutine.archivedAt) {
 			throw new Response("Rutinen er ikke arkivert.", { status: 409 })
 		}

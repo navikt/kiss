@@ -10,9 +10,11 @@ vi.mock("~/lib/auth.server", () => ({
 }))
 
 const mockCanApproveRoutine = vi.fn()
+const mockIsAdmin = vi.fn()
 const mockRequireAdmin = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
 	canApproveRoutine: mockCanApproveRoutine,
+	isAdmin: mockIsAdmin,
 	requireAdmin: mockRequireAdmin,
 }))
 
@@ -115,6 +117,7 @@ beforeEach(() => {
 	mockGetAuthenticatedUser.mockResolvedValue(fakeUser)
 	mockRequireUser.mockReturnValue(fakeUser)
 	mockRequireAdmin.mockImplementation(() => undefined)
+	mockIsAdmin.mockReturnValue(true)
 	mockGetSectionBySlug.mockResolvedValue(fakeSection)
 })
 
@@ -396,6 +399,22 @@ describe("archive/unarchive intent", () => {
 		expect(mockUnarchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
 	})
 
+	it("non-admin approver can unarchive a routine", async () => {
+		mockGetAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
+		mockRequireUser.mockReturnValue(fakeNonAdminUser)
+		mockIsAdmin.mockReturnValue(false)
+		mockCanApproveRoutine.mockReturnValue(true)
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft", archivedAt: new Date() }))
+		mockUnarchiveRoutine.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "unarchive")
+
+		const response = await callAction(fd)
+		expect(response.status).toBe(302)
+		expect(mockUnarchiveRoutine).toHaveBeenCalledWith("routine-1", fakeNonAdminUser.navIdent)
+	})
+
 	it("rejects unarchive on a routine that is not archived with 409", async () => {
 		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "ready", archivedAt: null }))
 
@@ -406,12 +425,11 @@ describe("archive/unarchive intent", () => {
 		expect(mockUnarchiveRoutine).not.toHaveBeenCalled()
 	})
 
-	it("rejects non-admin from unarchiving", async () => {
+	it("rejects non-admin non-approver from unarchiving", async () => {
 		mockGetAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
 		mockRequireUser.mockReturnValue(fakeNonAdminUser)
-		mockRequireAdmin.mockImplementation(() => {
-			throw new Response("forbidden", { status: 403 })
-		})
+		mockIsAdmin.mockReturnValue(false)
+		mockCanApproveRoutine.mockReturnValue(false)
 		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft", archivedAt: new Date() }))
 
 		const fd = new FormData()
