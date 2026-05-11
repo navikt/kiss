@@ -60,6 +60,7 @@ describe("technology-elements.server integration tests", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
+			DELETE FROM application_persistence;
 			DELETE FROM screening_question_technology_elements;
 			DELETE FROM screening_questions;
 			DELETE FROM application_technology_elements;
@@ -253,6 +254,55 @@ describe("technology-elements.server integration tests", () => {
 
 			const linked = await getQuestionTechnologyElements(qId)
 			expect(linked.map((l) => l.elementId).sort()).toEqual([elActive.id, elArchived.id].sort())
+		})
+	})
+
+	describe("syncApplicationTechnologyElements return value", () => {
+		it("returns true on first sync when elements are added, false on no-op resync", async () => {
+			const { syncApplicationTechnologyElements } = await import("~/db/queries/technology-elements.server")
+			// Create required base elements (sync always assigns "applikasjon" and "plattformer")
+			await createTechnologyElement("Applikasjon", "applikasjon", null, 0, "admin")
+			await createTechnologyElement("Plattformer", "plattformer", null, 1, "admin")
+			const appId = await createApp("SyncReturnApp")
+
+			// First sync should detect "applikasjon" + "plattformer" → changed = true
+			const firstResult = await syncApplicationTechnologyElements(appId)
+			expect(firstResult).toBe(true)
+
+			// Second sync with no changes → changed = false
+			const secondResult = await syncApplicationTechnologyElements(appId)
+			expect(secondResult).toBe(false)
+		})
+
+		it("returns true when elements are removed", async () => {
+			const { syncApplicationTechnologyElements } = await import("~/db/queries/technology-elements.server")
+			const db = getTestDb()
+			await createTechnologyElement("Applikasjon", "applikasjon", null, 0, "admin")
+			await createTechnologyElement("Plattformer", "plattformer", null, 1, "admin")
+			await createTechnologyElement("Database", "database", null, 2, "admin")
+			const appId = await createApp("SyncRemoveApp")
+
+			// Simulate a nais_postgres persistence row so sync adds database element
+			await db.execute(
+				/* sql */ `INSERT INTO application_persistence (application_id, type, name) VALUES ('${appId}', 'nais_postgres', 'mydb')`,
+			)
+
+			const first = await syncApplicationTechnologyElements(appId)
+			expect(first).toBe(true)
+
+			// Verify 3 elements linked
+			const linked = await getApplicationElements(appId)
+			expect(linked).toHaveLength(3)
+
+			// Remove persistence → next sync should archive the database element
+			await db.execute(/* sql */ `DELETE FROM application_persistence WHERE application_id = '${appId}'`)
+
+			const afterRemove = await syncApplicationTechnologyElements(appId)
+			expect(afterRemove).toBe(true)
+
+			// Subsequent no-op sync
+			const noOp = await syncApplicationTechnologyElements(appId)
+			expect(noOp).toBe(false)
 		})
 	})
 

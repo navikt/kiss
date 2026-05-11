@@ -146,11 +146,11 @@ export async function runFullNaisSync(token?: string): Promise<{
 
 		// Auto-assign technology elements to apps based on persistence/auth
 		const { syncAllApplicationElements } = await import("~/db/queries/technology-elements.server")
-		const elemSyncCount = await syncAllApplicationElements()
-		logger.info(`[nais-sync] Synced technology elements for ${elemSyncCount} applications`)
+		const elemChangedCount = await syncAllApplicationElements()
+		logger.info(`[nais-sync] Technology elements: ${elemChangedCount} applications with changes`)
 
 		// Refresh compliance cache for new/changed apps
-		if (totalNewApps > 0 || elemSyncCount > 0) {
+		if (totalNewApps > 0 || elemChangedCount > 0) {
 			const { syncAllApplicationControls } = await import("~/db/queries/application-controls.server")
 			const { synced, errors } = await syncAllApplicationControls(SYNC_PERFORMER)
 			logger.info(`[nais-sync] Compliance cache refreshed: ${synced} synced, ${errors} errors`)

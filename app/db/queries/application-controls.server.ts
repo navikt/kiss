@@ -122,6 +122,8 @@ export async function syncApplicationControls(appId: string, performedBy = "syst
 	}
 	const now = new Date()
 
+	const sortedJson = (arr: unknown) => JSON.stringify(Array.isArray(arr) ? [...arr].sort() : arr)
+
 	// Process expected rows: insert new, reactivate deactivated, update changed
 	for (const [key, expected] of expectedRows) {
 		const existing = existingByKey.get(key)
@@ -230,23 +232,36 @@ export async function syncApplicationControls(appId: string, performedBy = "syst
 
 			result.statusChanged++
 		} else {
-			// Update metadata fields even when status hasn't changed
-			await db
-				.update(applicationControls)
-				.set({
-					autoReason: expected.autoReason,
-					establishment: expected.establishment,
-					routineCompliance: expected.routineCompliance,
-					routinesEstablished: expected.routinesEstablished,
-					routinesCompleted: expected.routinesCompleted,
-					routinesOverdue: expected.routinesOverdue,
-					matchSources: expected.matchSources,
-					matchingRoutineIds: expected.matchingRoutineIds,
-					isScreeningDerived: expected.isScreeningDerived,
-					updatedAt: now,
-					updatedBy: performedBy,
-				})
-				.where(eq(applicationControls.id, existing.id))
+			// Only update metadata fields if they actually differ
+			const metadataChanged =
+				existing.autoReason !== expected.autoReason ||
+				existing.establishment !== expected.establishment ||
+				existing.routineCompliance !== expected.routineCompliance ||
+				existing.routinesEstablished !== expected.routinesEstablished ||
+				existing.routinesCompleted !== expected.routinesCompleted ||
+				existing.routinesOverdue !== expected.routinesOverdue ||
+				sortedJson(existing.matchSources) !== sortedJson(expected.matchSources) ||
+				sortedJson(existing.matchingRoutineIds) !== sortedJson(expected.matchingRoutineIds) ||
+				existing.isScreeningDerived !== expected.isScreeningDerived
+
+			if (metadataChanged) {
+				await db
+					.update(applicationControls)
+					.set({
+						autoReason: expected.autoReason,
+						establishment: expected.establishment,
+						routineCompliance: expected.routineCompliance,
+						routinesEstablished: expected.routinesEstablished,
+						routinesCompleted: expected.routinesCompleted,
+						routinesOverdue: expected.routinesOverdue,
+						matchSources: expected.matchSources,
+						matchingRoutineIds: expected.matchingRoutineIds,
+						isScreeningDerived: expected.isScreeningDerived,
+						updatedAt: now,
+						updatedBy: performedBy,
+					})
+					.where(eq(applicationControls.id, existing.id))
+			}
 
 			result.unchanged++
 		}
