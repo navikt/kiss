@@ -50,16 +50,19 @@ export function getTestPool() {
  * read queries from the same test's async operations.
  */
 export async function truncateWithRetry(tables: string[], maxRetries = 3): Promise<void> {
-	const sql = `TRUNCATE ${tables.join(", ")} CASCADE`
-	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+	const db = getTestDb()
+	const quoted = tables.map((t) => `"${t.replace(/"/g, '""')}"`)
+	const sql = `TRUNCATE ${quoted.join(", ")} CASCADE`
+	const retries = Math.max(1, maxRetries)
+	for (let attempt = 1; attempt <= retries; attempt++) {
 		try {
-			await testDb.execute(/* sql */ sql)
+			await db.execute(/* sql */ sql)
 			return
 		} catch (err: unknown) {
 			const pgErr = err as { code?: string; cause?: { code?: string } }
 			const code = pgErr.code ?? pgErr.cause?.code
-			if (code === "40P01" && attempt < maxRetries) {
-				await new Promise((r) => setTimeout(r, 50 * attempt))
+			if (code === "40P01" && attempt < retries) {
+				await new Promise((r) => setTimeout(r, 50 * 2 ** (attempt - 1)))
 				continue
 			}
 			throw err
