@@ -196,12 +196,30 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
 
 	// Consider both applicationOracleInstances and persistence entries of type "oracle"
+	const oraclePersistenceIds = detail.persistence
+		.filter((p) => p.type === "oracle")
+		.map((p) => ({ name: p.name, oracleInstanceId: p.oracleInstanceId }))
 	const allReferencedOracleInstanceIds = new Set([
 		...oracleInstances.map((i) => i.instanceId),
 		...detail.persistence
 			.filter((p) => p.type === "oracle" && p.oracleInstanceId)
 			.map((p) => p.oracleInstanceId as string),
+		// Also match by persistence name (same logic as resolveOracleInstanceId fallback)
+		...detail.persistence
+			.filter((p) => p.type === "oracle" && !p.oracleInstanceId && oracleInstanceMetaById.has(p.name))
+			.map((p) => p.name),
 	])
+	console.log("[oracle-access-debug]", {
+		appId,
+		allOracleInstanceCount: allOracleInstances.length,
+		allOracleInstanceIds: allOracleInstances.map((i) => i.id),
+		oracleInstancesCount: oracleInstances.length,
+		oracleInstanceIds: oracleInstances.map((i) => i.instanceId),
+		oraclePersistenceIds,
+		allReferencedOracleInstanceIds: [...allReferencedOracleInstanceIds],
+		accessibleInstanceIds: [...accessibleInstanceIds],
+		userGroupCount: user?.groups?.length ?? 0,
+	})
 	const inaccessibleOracleGroupIds = [
 		...new Set(
 			[...allReferencedOracleInstanceIds]
@@ -210,6 +228,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				.filter((g): g is NonNullable<typeof g> => g !== null && g !== undefined),
 		),
 	]
+	console.log("[oracle-access-debug] inaccessibleOracleGroupIds:", inaccessibleOracleGroupIds)
 
 	const oraclePersistenceInstanceIds = new Set(
 		detail.persistence.filter((p) => p.type === "oracle").map((p) => p.oracleInstanceId ?? p.name),
