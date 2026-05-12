@@ -377,8 +377,11 @@ export default function AdminBrukere() {
 					return dir * a.name.localeCompare(b.name)
 				case "email":
 					return dir * (a.email ?? "").localeCompare(b.email ?? "")
-				case "lastLogin":
-					return dir * (a.lastLoginAt ?? "").toString().localeCompare((b.lastLoginAt ?? "").toString())
+				case "lastLogin": {
+					const aTime = a.lastLoginAt ? new Date(a.lastLoginAt).getTime() : 0
+					const bTime = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0
+					return dir * (aTime - bTime)
+				}
 				case "roles":
 					return dir * (a.roles.length - b.roles.length)
 				default:
@@ -387,7 +390,11 @@ export default function AdminBrukere() {
 		})
 	}, [filtered, sort])
 
-	const handleSort = (sortKey: string) => {
+	const handleSort = (sortKey: string | undefined) => {
+		if (!sortKey) {
+			setSort(undefined)
+			return
+		}
 		setSort((prev) =>
 			prev && prev.orderBy === sortKey
 				? { orderBy: sortKey, direction: prev.direction === "ascending" ? "descending" : "ascending" }
