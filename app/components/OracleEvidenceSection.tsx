@@ -55,6 +55,17 @@ interface Props {
 	isDraft: boolean
 }
 
+interface DownloadFetcherResponse {
+	success: true
+	download: {
+		id: string
+		fileName: string
+		sizeBytes: number | null
+		source: string
+		performedAt: string
+	}
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 function formatFileSize(bytes: number | null): string {
@@ -98,6 +109,33 @@ function statusLabel(status: string): string {
 		default:
 			return status
 	}
+}
+
+function formatElapsedTime(seconds: number): string {
+	if (seconds === 1) return "1 sekund"
+	return `${seconds} sekunder`
+}
+
+function useElapsedSeconds(isRunning: boolean): number {
+	const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+	useEffect(() => {
+		if (!isRunning) {
+			setElapsedSeconds(0)
+			return
+		}
+
+		const startedAt = Date.now()
+		setElapsedSeconds(0)
+
+		const interval = window.setInterval(() => {
+			setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000))
+		}, 1000)
+
+		return () => window.clearInterval(interval)
+	}, [isRunning])
+
+	return elapsedSeconds
 }
 
 const evidenceTypeLabels: Record<string, string> = {
@@ -166,15 +204,8 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 	const [selectedInstance, setSelectedInstance] = useState<string>(configuredInstances[0]?.instanceId ?? "")
 	const [fromDate, setFromDate] = useState<string>("")
 	const [toDate, setToDate] = useState<string>("")
-	const [forceFetchState, setForceFetchState] = useState<{
-		open: boolean
-		evidenceType: string
-		format: string
-		status: string
-	}>({ open: false, evidenceType: "", format: "", status: "" })
 
 	const statusFetcher = useFetcher<EvidenceStatus>()
-	const downloadFetcher = useFetcher()
 	const revalidator = useRevalidator()
 
 	const isCompleted = activity.status === "completed"
@@ -203,64 +234,16 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 	const statusError =
 		statusFetcherData && "error" in statusFetcherData ? (statusFetcherData as { error: string }).error : undefined
 	const isLoadingStatus = statusFetcher.state === "loading"
-
-	const downloadError =
-		downloadFetcher.data && "error" in downloadFetcher.data
-			? (downloadFetcher.data as { error: string }).error
-			: undefined
+	const statusElapsedSeconds = useElapsedSeconds(isLoadingStatus)
 
 	const filteredEvidenceTypes = evidenceStatus?.evidenceTypes.filter((et) => evidenceTypes.includes(et.type)) ?? []
 
-	const handleDownload = useCallback(
-		(evidenceType: string, format: string, forceJustification?: string) => {
-			if (!evidenceStatus || !selectedInstance) return
-			const formData = new FormData()
-			formData.set("intent", "download-from-api")
-			formData.set("instanceId", selectedInstance)
-			formData.set("evidenceType", evidenceType)
-			formData.set("format", format)
-			formData.set("activityId", activity.id)
-			if (fromDate) formData.set("fromUtc", fromDate)
-			if (toDate) formData.set("toUtc", toDate)
-			if (forceJustification) {
-				formData.set("forceFetchJustification", forceJustification)
-			}
-
-			downloadFetcher.submit(formData, { method: "POST", action: "/api/oracle-evidence-download" })
-		},
-		[evidenceStatus, selectedInstance, activity.id, fromDate, toDate, downloadFetcher],
-	)
-
-	const handleDownloadAttempt = useCallback(
-		(evidenceType: string, format: string) => {
-			const etStatus = filteredEvidenceTypes.find((et) => et.type === evidenceType)
-			if (!etStatus?.available) return
-			if (etStatus.status !== "OK") {
-				setForceFetchState({ open: true, evidenceType, format, status: etStatus.status })
-			} else {
-				handleDownload(evidenceType, format)
-			}
-		},
-		[filteredEvidenceTypes, handleDownload],
-	)
-
-	const handleForceFetchConfirm = useCallback(
-		(justification: string) => {
-			handleDownload(forceFetchState.evidenceType, forceFetchState.format, justification)
-			setForceFetchState({ open: false, evidenceType: "", format: "", status: "" })
-		},
-		[forceFetchState, handleDownload],
-	)
-
 	const revalidateRef = useRef(revalidator.revalidate)
 	revalidateRef.current = revalidator.revalidate
-	useEffect(() => {
-		if (downloadFetcher.state === "idle" && downloadFetcher.data && "success" in downloadFetcher.data) {
-			revalidateRef.current()
-		}
-	}, [downloadFetcher.state, downloadFetcher.data])
 
-	const isDownloading = downloadFetcher.state !== "idle"
+	const handleDownloadSaved = useCallback(() => {
+		revalidateRef.current()
+	}, [])
 
 	const fromDatepicker = useDatepicker({
 		onDateChange: (date) => {
@@ -366,27 +349,22 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 					{/* Status panel — loading */}
 					{isLoadingStatus && !evidenceStatus && (
 						<VStack gap="space-2">
-							<Detail>Henter status fra pensjon-oracle-revisjon… (dette kan ta opptil 30 sekunder)</Detail>
+							<Detail>
+								Henter status fra pensjon-oracle-revisjon… ({formatElapsedTime(statusElapsedSeconds)}, kan ta opptil 30
+								sekunder)
+							</Detail>
 							<Skeleton variant="rectangle" width="100%" height={120} />
 						</VStack>
 					)}
 
-					{/* Download in progress */}
-					{isDownloading && (
-						<Alert variant="info" size="small">
-							Henter bevis fra pensjon-oracle-revisjon… dette kan ta opptil ett minutt.
-						</Alert>
+					{isLoadingStatus && evidenceStatus && (
+						<Detail>Oppdaterer status… ({formatElapsedTime(statusElapsedSeconds)})</Detail>
 					)}
 
 					{/* Error messages */}
 					{statusError && (
 						<Alert variant="error" size="small">
 							Kunne ikke hente status: {statusError}
-						</Alert>
-					)}
-					{downloadError && !isDownloading && (
-						<Alert variant="error" size="small">
-							{downloadError}
 						</Alert>
 					)}
 
@@ -398,10 +376,13 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 								direkte inn i denne rutinegjennomgangen.
 							</BodyShort>
 							<EvidenceStatusTable
+								activityId={activity.id}
 								evidenceTypes={filteredEvidenceTypes}
+								fromDate={fromDate}
 								isDraft={isDraft && isPending}
-								isDownloading={isDownloading}
-								onDownload={handleDownloadAttempt}
+								onDownloadSaved={handleDownloadSaved}
+								selectedInstance={selectedInstance}
+								toDate={toDate}
 							/>
 						</VStack>
 					)}
@@ -492,15 +473,6 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 					<BodyShort size="small">Ingen bevis lastet ned ennå.</BodyShort>
 				)}
 			</VStack>
-
-			{/* Force-fetch modal */}
-			<ForceFetchModal
-				open={forceFetchState.open}
-				onClose={() => setForceFetchState({ open: false, evidenceType: "", format: "", status: "" })}
-				onConfirm={handleForceFetchConfirm}
-				evidenceType={forceFetchState.evidenceType}
-				status={forceFetchState.status}
-			/>
 		</VStack>
 	)
 }
@@ -508,15 +480,21 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 // ─── Sub-components ───────────────────────────────────────────────────────
 
 function EvidenceStatusTable({
+	activityId,
 	evidenceTypes,
+	fromDate,
 	isDraft,
-	isDownloading,
-	onDownload,
+	onDownloadSaved,
+	selectedInstance,
+	toDate,
 }: {
+	activityId: string
 	evidenceTypes: EvidenceTypeStatus[]
+	fromDate: string
 	isDraft: boolean
-	isDownloading: boolean
-	onDownload: (type: string, format: string) => void
+	onDownloadSaved: () => void
+	selectedInstance: string
+	toDate: string
 }) {
 	return (
 		// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access
@@ -559,20 +537,18 @@ function EvidenceStatusTable({
 							</Table.DataCell>
 							{isDraft && (
 								<Table.DataCell>
-									<HStack gap="space-2">
-										{et.formats.map((fmt) => (
-											<Button
-												key={fmt}
-												variant="tertiary"
-												size="xsmall"
-												onClick={() => onDownload(et.type, fmt.toLowerCase())}
-												loading={isDownloading}
-												disabled={!et.available || isDownloading}
-											>
-												Hent {fmt}
-											</Button>
-										))}
-									</HStack>
+									<EvidenceDownloadActions
+										activityId={activityId}
+										evidenceType={et.type}
+										formats={et.formats}
+										fromDate={fromDate}
+										onDownloadSaved={onDownloadSaved}
+										selectedInstance={selectedInstance}
+										status={et.status}
+										title={et.title}
+										toDate={toDate}
+										available={et.available}
+									/>
 								</Table.DataCell>
 							)}
 						</Table.Row>
@@ -580,6 +556,152 @@ function EvidenceStatusTable({
 				</Table.Body>
 			</Table>
 		</section>
+	)
+}
+
+function EvidenceDownloadActions({
+	activityId,
+	available,
+	evidenceType,
+	formats,
+	fromDate,
+	onDownloadSaved,
+	selectedInstance,
+	status,
+	title,
+	toDate,
+}: {
+	activityId: string
+	available: boolean
+	evidenceType: string
+	formats: string[]
+	fromDate: string
+	onDownloadSaved: () => void
+	selectedInstance: string
+	status: string
+	title: string
+	toDate: string
+}) {
+	const downloadFetcher = useFetcher<DownloadFetcherResponse | { error: string }>()
+	const [successMessage, setSuccessMessage] = useState<string | null>(null)
+	const [forceFetchState, setForceFetchState] = useState<{ open: boolean; format: string }>({
+		open: false,
+		format: "",
+	})
+	const [activeFormat, setActiveFormat] = useState<string>("")
+	const handledDownloadIdRef = useRef<string | null>(null)
+	const isDownloading = downloadFetcher.state !== "idle"
+	const elapsedSeconds = useElapsedSeconds(isDownloading)
+	const downloadError = downloadFetcher.data && "error" in downloadFetcher.data ? downloadFetcher.data.error : undefined
+
+	const submitDownload = useCallback(
+		(format: string, forceJustification?: string) => {
+			if (!selectedInstance || !available) return
+			const normalizedFormat = format.toLowerCase()
+			setSuccessMessage(null)
+			setActiveFormat(normalizedFormat)
+
+			const formData = new FormData()
+			formData.set("intent", "download-from-api")
+			formData.set("instanceId", selectedInstance)
+			formData.set("evidenceType", evidenceType)
+			formData.set("format", normalizedFormat)
+			formData.set("activityId", activityId)
+			if (fromDate) formData.set("fromUtc", fromDate)
+			if (toDate) formData.set("toUtc", toDate)
+			if (forceJustification) {
+				formData.set("forceFetchJustification", forceJustification)
+			}
+
+			downloadFetcher.submit(formData, { method: "POST", action: "/api/oracle-evidence-download" })
+		},
+		[activityId, available, downloadFetcher, evidenceType, fromDate, selectedInstance, toDate],
+	)
+
+	const handleDownloadClick = useCallback(
+		(format: string) => {
+			if (!available) return
+			if (status !== "OK") {
+				setForceFetchState({ open: true, format })
+				return
+			}
+
+			submitDownload(format)
+		},
+		[available, status, submitDownload],
+	)
+
+	const handleForceFetchConfirm = useCallback(
+		(justification: string) => {
+			submitDownload(forceFetchState.format, justification)
+			setForceFetchState({ open: false, format: "" })
+		},
+		[forceFetchState.format, submitDownload],
+	)
+
+	useEffect(() => {
+		if (downloadFetcher.state !== "idle" || !downloadFetcher.data || !("success" in downloadFetcher.data)) return
+		if (handledDownloadIdRef.current === downloadFetcher.data.download.id) return
+
+		handledDownloadIdRef.current = downloadFetcher.data.download.id
+		onDownloadSaved()
+		setSuccessMessage(`Beviset «${title}» ble hentet som ${activeFormat.toUpperCase()}.`)
+	}, [activeFormat, downloadFetcher.data, downloadFetcher.state, onDownloadSaved, title])
+
+	useEffect(() => {
+		if (!successMessage) return
+		const timeout = window.setTimeout(() => setSuccessMessage(null), 4000)
+		return () => window.clearTimeout(timeout)
+	}, [successMessage])
+
+	return (
+		<>
+			<VStack gap="space-2" align="start">
+				<HStack gap="space-2">
+					{formats.map((fmt) => {
+						const normalizedFormat = fmt.toLowerCase()
+						const isActiveType = isDownloading
+						const isActiveFormat = isActiveType && activeFormat === normalizedFormat
+
+						return (
+							<Button
+								key={fmt}
+								variant="tertiary"
+								size="xsmall"
+								onClick={() => handleDownloadClick(normalizedFormat)}
+								loading={isActiveFormat}
+								disabled={!available || isActiveType}
+							>
+								Hent {fmt}
+							</Button>
+						)
+					})}
+				</HStack>
+				{isDownloading && (
+					<Alert variant="info" size="small">
+						Henter {title.toLowerCase()} fra pensjon-oracle-revisjon som {activeFormat.toUpperCase()}… (
+						{formatElapsedTime(elapsedSeconds)}, kan ta opptil ett minutt)
+					</Alert>
+				)}
+				{downloadError && !isDownloading && (
+					<Alert variant="error" size="small">
+						{downloadError}
+					</Alert>
+				)}
+				{successMessage && (
+					<Alert variant="success" size="small">
+						{successMessage}
+					</Alert>
+				)}
+			</VStack>
+			<ForceFetchModal
+				open={forceFetchState.open}
+				onClose={() => setForceFetchState({ open: false, format: "" })}
+				onConfirm={handleForceFetchConfirm}
+				evidenceType={evidenceType}
+				status={status}
+			/>
+		</>
 	)
 }
 

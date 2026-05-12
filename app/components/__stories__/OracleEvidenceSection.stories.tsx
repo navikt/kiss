@@ -60,7 +60,13 @@ const mockEvidenceStatusResponse = {
 }
 
 // Mock API routes needed by fetchers in OracleEvidenceSection
-const oracleApiRoutes = [
+type StubRoute = {
+	path: string
+	loader?: () => unknown | Promise<unknown>
+	action?: () => unknown | Promise<unknown>
+}
+
+const oracleApiRoutes: StubRoute[] = [
 	{
 		path: "/api/oracle-evidence-status",
 		loader: () => mockEvidenceStatusResponse,
@@ -79,10 +85,32 @@ const oracleApiRoutes = [
 	},
 ]
 
-// biome-ignore lint/suspicious/noExplicitAny: Storybook render prop typing
-function renderWithApiRoutes(Component: React.ComponentType<any>, props: Record<string, unknown>) {
+const delayedOracleApiRoutes = [
+	oracleApiRoutes[0],
+	{
+		path: "/api/oracle-evidence-download",
+		action: async () => {
+			await new Promise((resolve) => window.setTimeout(resolve, 30_000))
+			return {
+				success: true,
+				download: {
+					id: "dl-delayed",
+					fileName: "oracle-audit-2026-03-01.xlsx",
+					sizeBytes: 1_200_000,
+					source: "m2m_api",
+				},
+			}
+		},
+	},
+]
+
+function renderWithApiRoutes<TProps extends object>(
+	Component: React.ComponentType<TProps>,
+	props: TProps,
+	routes = oracleApiRoutes,
+) {
 	const Wrapper = () => <Component {...props} />
-	const Stub = createRoutesStub([{ path: "/", Component: Wrapper }, ...oracleApiRoutes])
+	const Stub = createRoutesStub([{ path: "/", Component: Wrapper }, ...routes])
 	return <Stub initialEntries={["/"]} />
 }
 
@@ -164,6 +192,26 @@ export const AktivitetFullfort: Story = {
 			oracleEvidenceData: mockOracleEvidenceData({ withDownloads: true }),
 			isDraft: false,
 		}),
+}
+
+export const NedlastingPaagaar: Story = {
+	parameters: {
+		docs: {
+			description: {
+				story: "Klikk på en nedlastingsknapp for å se per-type loading state med sekundteller.",
+			},
+		},
+	},
+	render: () =>
+		renderWithApiRoutes(
+			OracleEvidenceSection,
+			{
+				activity: mockOracleEvidenceActivity(),
+				oracleEvidenceData: mockOracleEvidenceData(),
+				isDraft: true,
+			},
+			delayedOracleApiRoutes,
+		),
 }
 
 export const IngenInstanser: Story = {
