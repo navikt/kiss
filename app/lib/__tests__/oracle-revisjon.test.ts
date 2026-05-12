@@ -300,3 +300,141 @@ describe("oracle-revisjon.server", () => {
 		})
 	})
 })
+
+describe("oracle-revisjon.server evidence API", () => {
+	const MOCK_BASE_URL = "https://oracle-revisjon.test"
+	const MOCK_SCOPE = "api://test/.default"
+
+	beforeEach(() => {
+		vi.resetModules()
+		vi.stubEnv("ORACLE_REVISJON_BASE_URL", MOCK_BASE_URL)
+		vi.stubEnv("ORACLE_REVISJON_SCOPE", MOCK_SCOPE)
+	})
+
+	afterEach(() => {
+		vi.unstubAllEnvs()
+		vi.restoreAllMocks()
+	})
+
+	describe("getEvidenceInstances", () => {
+		it("fetches instances from API when BASE_URL is set", async () => {
+			const mockInstances = [{ id: "PROD_1", name: "Pensjon Prod", type: "PESYS" }]
+			const fetchMock = vi.fn().mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve(mockInstances),
+			})
+			vi.stubGlobal("fetch", fetchMock)
+
+			const { getEvidenceInstances } = await import("../oracle-revisjon.server")
+			const result = await getEvidenceInstances()
+			expect(result).toEqual(mockInstances)
+			expect(fetchMock).toHaveBeenCalledWith(
+				expect.stringContaining("/api/m2m/evidence/instances"),
+				expect.objectContaining({ headers: expect.any(Object) }),
+			)
+		})
+	})
+
+	describe("getEvidenceStatus", () => {
+		it("fetches and caches status", async () => {
+			const mockStatus = {
+				instanceId: "PROD_1",
+				instanceName: "Pensjon Prod",
+				collectedAt: "2026-03-01T10:00:00Z",
+				reviewUrl: "https://example.com/review",
+				evidenceTypes: [
+					{
+						type: "audit",
+						title: "Audit",
+						status: "OK",
+						formats: ["EXCEL"],
+						available: true,
+						error: null,
+						review: null,
+					},
+				],
+			}
+			const fetchMock = vi.fn().mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve(mockStatus),
+			})
+			vi.stubGlobal("fetch", fetchMock)
+
+			const { getEvidenceStatus } = await import("../oracle-revisjon.server")
+			const result1 = await getEvidenceStatus("PROD_1")
+			const result2 = await getEvidenceStatus("PROD_1")
+
+			expect(result1).toEqual(mockStatus)
+			expect(result2).toEqual(mockStatus)
+			// Second call should use cache
+			expect(fetchMock).toHaveBeenCalledTimes(1)
+		})
+
+		it("returns null on error", async () => {
+			const fetchMock = vi.fn().mockRejectedValue(new Error("Network error"))
+			vi.stubGlobal("fetch", fetchMock)
+
+			const { getEvidenceStatus } = await import("../oracle-revisjon.server")
+			const result = await getEvidenceStatus("PROD_1")
+			expect(result).toBeNull()
+		})
+	})
+
+	describe("downloadEvidenceFile", () => {
+		it("downloads file with correct URL params", async () => {
+			const mockBuffer = Buffer.from("excel-content")
+			const fetchMock = vi.fn().mockResolvedValue({
+				ok: true,
+				headers: new Map([
+					["content-type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+					["content-disposition", 'attachment; filename="audit-PROD_1.xlsx"'],
+				]),
+				arrayBuffer: () => Promise.resolve(mockBuffer.buffer),
+			})
+			vi.stubGlobal("fetch", fetchMock)
+
+			const { downloadEvidenceFile } = await import("../oracle-revisjon.server")
+			const result = await downloadEvidenceFile("PROD_1", "audit", "excel")
+
+			expect(fetchMock).toHaveBeenCalledWith(
+				expect.stringContaining("/api/m2m/PROD_1/evidence/audit/excel"),
+				expect.objectContaining({ headers: expect.any(Object) }),
+			)
+			expect(result.fileName).toContain("audit")
+		})
+
+		it("includes period params in URL when provided", async () => {
+			const fetchMock = vi.fn().mockResolvedValue({
+				ok: true,
+				headers: new Map([
+					["content-type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+					["content-disposition", 'attachment; filename="period.xlsx"'],
+				]),
+				arrayBuffer: () => Promise.resolve(Buffer.from("data").buffer),
+			})
+			vi.stubGlobal("fetch", fetchMock)
+
+			const { downloadEvidenceFile } = await import("../oracle-revisjon.server")
+			await downloadEvidenceFile("PROD_1", "period", "excel", "2026-01-01", "2026-03-31")
+
+			const url = fetchMock.mock.calls[0][0] as string
+			expect(url).toContain("fromUtc=2026-01-01")
+			expect(url).toContain("toUtc=2026-03-31")
+		})
+	})
+
+	describe("getEvidenceCatalog", () => {
+		it("fetches catalog from API", async () => {
+			const mockCatalog = { evidenceTypes: [{ type: "audit", title: "Audit" }] }
+			const fetchMock = vi.fn().mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve(mockCatalog),
+			})
+			vi.stubGlobal("fetch", fetchMock)
+
+			const { getEvidenceCatalog } = await import("../oracle-revisjon.server")
+			const result = await getEvidenceCatalog()
+			expect(result).toEqual(mockCatalog)
+		})
+	})
+})

@@ -16,6 +16,15 @@ export function slugify(text: string) {
 		.replace(/(^-|-$)/g, "")
 }
 
+/** Safely parse JSON, returning undefined on invalid input. */
+export function safeJsonParse(raw: string): unknown {
+	try {
+		return JSON.parse(raw)
+	} catch {
+		return undefined
+	}
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Validate that a value is a valid UUID string. Accepts `unknown` for type-safe usage with formData/JSON. */

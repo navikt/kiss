@@ -11,6 +11,7 @@ import {
 	mockDeploymentStats,
 	mockDokumenterData,
 	mockGjennomgangDetaljData,
+	mockGjennomgangDetaljOracleEvidenceData,
 	mockKontrollrammeverkData,
 	mockMineTeamData,
 	mockNaisOvervakingData,
@@ -189,4 +190,58 @@ export const GjennomgangDetaljStory: Story = {
 				{ path: "/api/gjennomgang/:id/vedlegg", action: () => ({ success: true, message: "Vedlegg lastet opp." }) },
 			],
 		}),
+}
+
+export const GjennomgangOraclePeriodStory: Story = {
+	name: "Gjennomgang detalj (Oracle periodebasert gjennomgang)",
+	render: () =>
+		renderWithLayout(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljOracleEvidenceData({
+				evidenceTypes: ["period"],
+				withDownloads: true,
+			}),
+			{
+				path: "/seksjoner/pensjon-og-ufore/rutiner/routine-1/gjennomgang/rev-1",
+				extraRoutes: [
+					{
+						path: "/api/oracle-evidence-status",
+						loader: () => ({
+							instanceId: "PENSJON_PROD",
+							instanceName: "Pensjon Prod",
+							collectedAt: "2026-03-01T10:00:00Z",
+							reviewUrl:
+								"https://pensjon-oracle-revisjon.ansatt.nav.no/PENSJON_PROD/audit/review?fromUtc=2026-01-01&toUtc=2026-03-31",
+							evidenceTypes: [
+								{
+									type: "period",
+									title: "Periodebasert gjennomgang",
+									status: "PARTIAL",
+									formats: ["EXCEL"],
+									available: true,
+									error: null,
+									review: {
+										totalStatements: 1250,
+										reviewedStatements: 800,
+										unreviewedStatements: 450,
+										reviewProgress: 64,
+									},
+								},
+							],
+						}),
+					},
+					{
+						path: "/api/oracle-evidence-download",
+						action: () => ({
+							success: true,
+							download: { id: "dl-new", fileName: "period-evidence.xlsx", sizeBytes: 2_400_000, source: "m2m_api" },
+						}),
+					},
+					{
+						path: "/api/gjennomgang/:id/vedlegg",
+						action: () => ({ success: true, message: "Vedlegg lastet opp." }),
+					},
+				],
+			},
+		),
 }

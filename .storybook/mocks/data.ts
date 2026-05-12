@@ -1298,6 +1298,7 @@ export function mockGjennomgangDetaljData() {
 		}),
 		activity: null,
 		entraGroupsData: null,
+		oracleEvidenceData: null,
 		review: {
 			id: "rev-1",
 			routineId: "routine-1",
@@ -1348,5 +1349,85 @@ export function mockGjennomgangDetaljData() {
 				},
 			],
 		},
+	}
+}
+
+// ─── Oracle Evidence ───────────────────────────────────────────────
+
+export function mockOracleEvidenceActivity(overrides?: Partial<{ status: string; completedAt: string | null }>) {
+	return {
+		id: "activity-oracle-1",
+		type: "oracle_evidence_audit" as const,
+		status: overrides?.status ?? "pending",
+		completedAt: overrides?.completedAt ?? null,
+		createdAt: "2026-03-01T08:00:00Z",
+	}
+}
+
+export function mockOracleEvidenceData(overrides?: Partial<{ evidenceTypes: string[]; withDownloads: boolean }>) {
+	const downloads = overrides?.withDownloads
+		? [
+				{
+					id: "dl-1",
+					instanceId: "PENSJON_PROD",
+					evidenceType: "audit",
+					format: "EXCEL",
+					fileName: "oracle-audit-2026-03-01.xlsx",
+					sizeBytes: 1_200_000,
+					source: "m2m_api",
+					apiInstanceName: "PENSJON_PROD",
+					forceFetchJustification: null,
+					performedBy: "A123456",
+					performedAt: "2026-03-01T10:30:00Z",
+				},
+				{
+					id: "dl-2",
+					instanceId: "PENSJON_PROD",
+					evidenceType: "audit",
+					format: "PDF",
+					fileName: "oracle-audit-manuell.pdf",
+					sizeBytes: 800_000,
+					source: "manual_upload",
+					apiInstanceName: null,
+					forceFetchJustification: null,
+					performedBy: "B654321",
+					performedAt: "2026-03-02T14:00:00Z",
+				},
+				{
+					id: "dl-3",
+					instanceId: "PENSJON_PROD",
+					evidenceType: "audit",
+					format: "EXCEL",
+					fileName: "oracle-audit-tvang-2026-03-03.xlsx",
+					sizeBytes: 1_500_000,
+					source: "m2m_api",
+					apiInstanceName: "PENSJON_PROD",
+					forceFetchJustification:
+						"Bevis hentet før gjennomgang er fullført for å sikre fremdrift i revisjonsarbeidet",
+					performedBy: "A123456",
+					performedAt: "2026-03-03T09:00:00Z",
+				},
+			]
+		: []
+
+	return {
+		configuredInstances: [{ instanceId: "PENSJON_PROD" }, { instanceId: "PENSJON_TEST" }],
+		downloads,
+		evidenceTypes: overrides?.evidenceTypes ?? ["audit"],
+	}
+}
+
+export function mockGjennomgangDetaljOracleEvidenceData(overrides?: {
+	evidenceTypes?: string[]
+	withDownloads?: boolean
+	activityStatus?: string
+}) {
+	return {
+		...mockGjennomgangDetaljData(),
+		activity: mockOracleEvidenceActivity({ status: overrides?.activityStatus }),
+		oracleEvidenceData: mockOracleEvidenceData({
+			evidenceTypes: overrides?.evidenceTypes,
+			withDownloads: overrides?.withDownloads,
+		}),
 	}
 }

@@ -14,8 +14,50 @@ import { screeningQuestions } from "./screening"
 
 // ─── Routines ────────────────────────────────────────────────────────────
 
-export const ROUTINE_ACTIVITY_TYPES = ["entra_id_group_maintenance"] as const
+export const ROUTINE_ACTIVITY_TYPES = [
+	"entra_id_group_maintenance",
+	"oracle_evidence_audit",
+	"oracle_evidence_profiles",
+	"oracle_evidence_roles",
+	"oracle_evidence_users",
+	"oracle_evidence_period",
+	"oracle_evidence_all",
+] as const
 export type RoutineActivityType = (typeof ROUTINE_ACTIVITY_TYPES)[number]
+
+export const ORACLE_EVIDENCE_ACTIVITY_TYPES = [
+	"oracle_evidence_audit",
+	"oracle_evidence_profiles",
+	"oracle_evidence_roles",
+	"oracle_evidence_users",
+	"oracle_evidence_period",
+	"oracle_evidence_all",
+] as const
+export type OracleEvidenceActivityType = (typeof ORACLE_EVIDENCE_ACTIVITY_TYPES)[number]
+
+export function isOracleEvidenceActivityType(type: string): type is OracleEvidenceActivityType {
+	return (ORACLE_EVIDENCE_ACTIVITY_TYPES as readonly string[]).includes(type)
+}
+
+export const activityTypeLabels: Record<RoutineActivityType, string> = {
+	entra_id_group_maintenance: "Entra ID-gruppevedlikehold",
+	oracle_evidence_audit: "Oracle Unified Audit-konfigurasjon",
+	oracle_evidence_profiles: "Oracle-profiler",
+	oracle_evidence_roles: "Oracle-roller",
+	oracle_evidence_users: "Oracle-brukere",
+	oracle_evidence_period: "Periodebasert gjennomgang",
+	oracle_evidence_all: "Samlet Oracle-revisjonsbevis",
+}
+
+/** Maps Oracle evidence activity types to the evidence types they cover */
+export const oracleEvidenceTypesForActivity: Record<OracleEvidenceActivityType, string[]> = {
+	oracle_evidence_audit: ["audit"],
+	oracle_evidence_profiles: ["profiles"],
+	oracle_evidence_roles: ["roles"],
+	oracle_evidence_users: ["users"],
+	oracle_evidence_period: ["period"],
+	oracle_evidence_all: ["audit", "profiles", "roles", "users", "period"],
+}
 
 export const routineStatusEnum = ["draft", "ready", "approved", "archived", "deleted"] as const
 export type RoutineStatus = (typeof routineStatusEnum)[number]
@@ -177,6 +219,9 @@ export const routineReviewParticipants = pgTable(
 
 // ─── Review Attachments ──────────────────────────────────────────────────
 
+export const ATTACHMENT_SOURCE_TYPES = ["manual", "automated"] as const
+export type AttachmentSourceType = (typeof ATTACHMENT_SOURCE_TYPES)[number]
+
 export const routineReviewAttachments = pgTable("routine_review_attachments", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	reviewId: uuid("review_id")
@@ -186,6 +231,7 @@ export const routineReviewAttachments = pgTable("routine_review_attachments", {
 	bucketPath: text("bucket_path").notNull(),
 	contentType: text("content_type").notNull(),
 	sizeBytes: integer("size_bytes"),
+	sourceType: text("source_type", { enum: ATTACHMENT_SOURCE_TYPES }).notNull().default("manual"),
 	uploadedBy: text("uploaded_by").notNull(),
 	uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 })
@@ -234,6 +280,34 @@ export const routineReviewActivityEntraChanges = pgTable("routine_review_activit
 	groupName: text("group_name"),
 	previousValue: text("previous_value"),
 	newValue: text("new_value"),
+	performedBy: text("performed_by").notNull(),
+	performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ─── Oracle Evidence Downloads ───────────────────────────────────────────
+
+export const EVIDENCE_DOWNLOAD_SOURCES = ["m2m_api", "manual_upload"] as const
+export type EvidenceDownloadSource = (typeof EVIDENCE_DOWNLOAD_SOURCES)[number]
+
+export const routineReviewEvidenceDownloads = pgTable("routine_review_evidence_downloads", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	activityId: uuid("activity_id")
+		.notNull()
+		.references(() => routineReviewActivities.id, { onDelete: "restrict" }),
+	instanceId: text("instance_id").notNull(),
+	evidenceType: text("evidence_type").notNull(),
+	format: text("format").notNull(),
+	bucketPath: text("bucket_path").notNull(),
+	fileName: text("file_name").notNull(),
+	sizeBytes: integer("size_bytes"),
+	contentType: text("content_type").notNull(),
+	source: text("source", { enum: EVIDENCE_DOWNLOAD_SOURCES }).notNull().default("m2m_api"),
+	collectedAt: timestamp("collected_at", { withTimezone: true }),
+	apiInstanceName: text("api_instance_name"),
+	// For forced fetches when evidence is incomplete
+	forceFetchJustification: text("force_fetch_justification"),
+	// Review progress snapshot at the time of fetching
+	reviewProgressSnapshot: jsonb("review_progress_snapshot"),
 	performedBy: text("performed_by").notNull(),
 	performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
 })
