@@ -1301,6 +1301,20 @@ export async function promoteToPrimary(newPrimaryId: string, currentPrimaryId: s
  */
 export async function archiveApplication(appId: string, performedBy: string) {
 	return db.transaction(async (tx) => {
+		// An environment is "active" unless its cluster is excluded (included=false)
+		// in the nais team's section. Apps with only excluded environments are archivable.
+		const hasActiveEnvs = sql`EXISTS (
+			SELECT 1 FROM ${applicationEnvironments} ae
+			LEFT JOIN ${naisTeams} nt ON nt.id = ae.nais_team_id
+			WHERE ae.application_id = ${appId}
+			AND NOT EXISTS (
+				SELECT 1 FROM ${sectionEnvironments} se
+				WHERE se.section_id = nt.section_id
+				AND se.cluster = ae.cluster
+				AND se.included = false
+			)
+		)`
+
 		const [archived] = await tx
 			.update(monitoredApplications)
 			.set({
@@ -1313,7 +1327,7 @@ export async function archiveApplication(appId: string, performedBy: string) {
 				and(
 					eq(monitoredApplications.id, appId),
 					isNull(monitoredApplications.archivedAt),
-					sql`NOT EXISTS (SELECT 1 FROM ${applicationEnvironments} WHERE ${applicationEnvironments.applicationId} = ${appId})`,
+					sql`NOT (${hasActiveEnvs})`,
 					sql`NOT EXISTS (SELECT 1 FROM ${monitoredApplications} child WHERE child.primary_application_id = ${appId})`,
 				),
 			)
