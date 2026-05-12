@@ -315,7 +315,7 @@ export function mockNaisOvervakingData() {
 
 // ─── Applikasjon detaljer ───────────────────────────────────────────
 
-export function mockAppDetaljerData() {
+export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 	return {
 		app: { id: "app-1", name: "pensjon-sak", description: "Hovedapplikasjon for saksbehandling av pensjon" },
 		environments: [
@@ -504,6 +504,7 @@ export function mockAppDetaljerData() {
 			{ instanceId: "pensjon-db-01", instanceName: "PENSJON_DB_01", roleName: "APP_USER", oracleMaintained: false, common: false, criticality: "high", updatedBy: "A123456", updatedAt: "2026-04-15T10:32:00Z" },
 			{ instanceId: "pensjon-db-01", instanceName: "PENSJON_DB_01", roleName: "BATCH_ROLE", oracleMaintained: false, common: false, criticality: null, updatedBy: null, updatedAt: null },
 		],
+		inaccessibleOracleGroups: [],
 		instanceSnapshotHistories: [],
 		sectionSlugMap: { "s-01": "pensjon-og-ufore" },
 		canAdmin: true,
@@ -522,6 +523,7 @@ export function mockAppDetaljerData() {
 			},
 		} as Record<string, { comment: string; acknowledgedBy: string; acknowledgedAt: string }>,
 		screeningSessions: [],
+		...overrides,
 	}
 }
 
