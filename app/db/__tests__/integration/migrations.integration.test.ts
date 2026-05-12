@@ -424,6 +424,9 @@ describe("Database migrations", () => {
 					CONSTRAINT "uq_section_cluster" UNIQUE("section_id","cluster")
 				)
 			`)
+			// Undo 0075: drop the evidence_downloads table so 0074 can recreate it
+			// with the old schema, and 0075 can then transform it
+			await testDb.execute(sql`DROP TABLE IF EXISTS "routine_review_evidence_downloads" CASCADE`)
 
 			// Run migrations — seed should stop at 0032 (tables don't exist),
 			// then migrate() applies 0032 through 0037

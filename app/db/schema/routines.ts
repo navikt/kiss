@@ -8,6 +8,7 @@ import {
 	monitoredApplications,
 	persistenceTypeEnum,
 } from "./applications"
+import { bucketObjects } from "./buckets"
 import { frameworkControls, technologyElements } from "./framework"
 import { sections } from "./organization"
 import { screeningQuestions } from "./screening"
@@ -284,30 +285,29 @@ export const routineReviewActivityEntraChanges = pgTable("routine_review_activit
 	performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
-// ─── Oracle Evidence Downloads ───────────────────────────────────────────
+// ─── Evidence Downloads ──────────────────────────────────────────────────
 
 export const EVIDENCE_DOWNLOAD_SOURCES = ["m2m_api", "manual_upload"] as const
 export type EvidenceDownloadSource = (typeof EVIDENCE_DOWNLOAD_SOURCES)[number]
+
+export const EVIDENCE_PROVIDER_TYPES = ["oracle", "deployments"] as const
+export type EvidenceProviderType = (typeof EVIDENCE_PROVIDER_TYPES)[number]
 
 export const routineReviewEvidenceDownloads = pgTable("routine_review_evidence_downloads", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	activityId: uuid("activity_id")
 		.notNull()
 		.references(() => routineReviewActivities.id, { onDelete: "restrict" }),
-	instanceId: text("instance_id").notNull(),
-	evidenceType: text("evidence_type").notNull(),
+	bucketObjectId: uuid("bucket_object_id")
+		.notNull()
+		.references(() => bucketObjects.id, { onDelete: "restrict" }),
+	providerType: text("provider_type", { enum: EVIDENCE_PROVIDER_TYPES }).notNull(),
+	providerMetadata: jsonb("provider_metadata").notNull(),
 	format: text("format").notNull(),
-	bucketPath: text("bucket_path").notNull(),
 	fileName: text("file_name").notNull(),
-	sizeBytes: integer("size_bytes"),
-	contentType: text("content_type").notNull(),
 	source: text("source", { enum: EVIDENCE_DOWNLOAD_SOURCES }).notNull().default("m2m_api"),
 	collectedAt: timestamp("collected_at", { withTimezone: true }),
-	apiInstanceName: text("api_instance_name"),
-	// For forced fetches when evidence is incomplete
 	forceFetchJustification: text("force_fetch_justification"),
-	// Review progress snapshot at the time of fetching
-	reviewProgressSnapshot: jsonb("review_progress_snapshot"),
 	performedBy: text("performed_by").notNull(),
 	performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
 })
