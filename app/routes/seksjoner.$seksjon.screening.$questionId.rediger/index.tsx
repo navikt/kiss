@@ -14,6 +14,7 @@ import {
 	getChoicesForQuestion,
 	getQuestionTechnologyElements,
 	getScreeningQuestion,
+	getSectionScreeningQuestions,
 	isEffectOwnedByQuestion,
 	setQuestionTechnologyElements,
 	updateChoice,
@@ -49,13 +50,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!isNew) requireUuid(questionId, "questionId")
 
 	if (isNew) {
-		const [controls, technologyElementsList, sectionRulesets] = await Promise.all([
+		const [controls, technologyElementsList, sectionRulesets, sectionQuestions] = await Promise.all([
 			getAllControls(),
 			getAllTechnologyElements(),
 			getRulesetsForSection(sectionId),
+			getSectionScreeningQuestions(sectionId, { includeArchived: false }),
 		])
+		const hasExistingEconomyQuestion = sectionQuestions.some((q) => q.answerType === "economy_system")
 		return data({
 			isNew: true,
+			hasExistingEconomyQuestion,
 			question: {
 				id: "ny",
 				questionText: "",
@@ -99,6 +103,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	return data({
 		isNew: false,
+		hasExistingEconomyQuestion: false,
 		question: {
 			...question,
 			descriptionHtml: renderMarkdown(question.description),
@@ -287,21 +292,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			break
 		}
 		case "addEffect": {
-			const choiceId = formData.get("choiceId") as string
-			const controlTextId = formData.get("controlTextId") as string
-			const effect = formData.get("effect") as string
-			const comment = formData.get("comment") as string
-			if (!choiceId || !controlTextId) throw new Response("Mangler data", { status: 400 })
-			const effectValue = effect || null
+			const choiceIdRaw = formData.get("choiceId")
+			const controlTextIdRaw = formData.get("controlTextId")
+			const effectRaw = formData.get("effect")
+			const commentRaw = formData.get("comment")
+			if (typeof choiceIdRaw !== "string" || !choiceIdRaw) throw new Response("Mangler choiceId", { status: 400 })
+			if (typeof controlTextIdRaw !== "string" || !controlTextIdRaw)
+				throw new Response("Mangler controlTextId", { status: 400 })
+			if (effectRaw != null && typeof effectRaw !== "string")
+				throw new Response("effect må være en streng", { status: 400 })
+			if (commentRaw != null && typeof commentRaw !== "string")
+				throw new Response("comment må være en streng", { status: 400 })
+			const effectValue = effectRaw || null
 			if (effectValue != null && !validEffects.includes(effectValue))
 				throw new Response(`Ugyldig effect-verdi: ${effectValue}`, { status: 400 })
-			await validateChoiceOwnership(choiceId)
+			await validateChoiceOwnership(choiceIdRaw)
 			try {
 				await addChoiceEffect({
-					choiceId,
-					controlTextId,
+					choiceId: choiceIdRaw,
+					controlTextId: controlTextIdRaw,
 					effect: effectValue,
-					comment: comment || null,
+					comment: commentRaw || null,
 				})
 			} catch (err) {
 				if (err instanceof Error && err.message.includes("ikke funnet"))
