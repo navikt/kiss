@@ -33,8 +33,9 @@ export function PersisteringTab({
 	>
 	oracleRoles: OracleRoleDisplay[]
 	canAdmin: boolean
-	inaccessibleOracleGroups: Array<{ id: string; name: string }>
+	inaccessibleOracleGroups?: Array<{ id: string; name: string }>
 }) {
+	const groups = inaccessibleOracleGroups ?? []
 	return (
 		<VStack gap="space-8">
 			<AddPersistenceForm />
@@ -68,12 +69,12 @@ export function PersisteringTab({
 
 			<OracleRolesSection roles={oracleRoles} canAdmin={canAdmin} />
 
-			{inaccessibleOracleGroups.length > 0 && (
-				<Alert variant="info">
+			{groups.length > 0 && (
+				<Alert variant="info" size="small">
 					Du mangler tilgang til å se Oracle-roller for noen databaseinstanser. For å få tilgang, be om medlemskap i
-					følgende Entra ID-gruppe{inaccessibleOracleGroups.length > 1 ? "r" : ""}:
+					følgende Entra ID-gruppe{groups.length > 1 ? "r" : ""}:
 					<List>
-						{inaccessibleOracleGroups.map((g) => (
+						{groups.map((g) => (
 							<List.Item key={g.id}>{g.name}</List.Item>
 						))}
 					</List>

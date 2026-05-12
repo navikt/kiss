@@ -193,11 +193,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const totalOracleInstanceCount = oracleInstances.length
 
 	// Collect Entra ID group IDs required for inaccessible Oracle instances
+	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
 	const inaccessibleOracleGroupIds = [
 		...new Set(
 			oracleInstances
 				.filter((i) => !accessibleInstanceIds.has(i.instanceId))
-				.map((i) => allOracleInstances.find((ai) => ai.id === i.instanceId)?.group)
+				.map((i) => oracleInstanceMetaById.get(i.instanceId)?.group)
 				.filter((g): g is NonNullable<typeof g> => g !== null && g !== undefined),
 		),
 	]
@@ -217,7 +218,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		detail.persistence.push(...newEntries)
 	}
 
-	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
 	const knownOracleInstanceIds = new Set(allOracleInstances.map((i) => i.id))
 
 	// Parallelize oracle sub-queries: snapshot histories, audit summaries, and role lookups
