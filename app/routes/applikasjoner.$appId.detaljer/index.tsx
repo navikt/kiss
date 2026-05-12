@@ -64,6 +64,7 @@ export default function ApplikasjonDetalj() {
 		screeningSessions,
 		oracleInstances,
 		totalOracleInstanceCount,
+		inaccessibleOracleGroups,
 		oracleRoles,
 		instanceSnapshotHistories,
 	} = useLoaderData<typeof loader>()
@@ -348,6 +349,7 @@ export default function ApplikasjonDetalj() {
 						oracleAuditSummaries={oracleAuditSummaries}
 						oracleRoles={oracleRoles}
 						canAdmin={canAdmin}
+						inaccessibleOracleGroups={inaccessibleOracleGroups}
 					/>
 				</Tabs.Panel>
 

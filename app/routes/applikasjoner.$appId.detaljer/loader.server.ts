@@ -192,6 +192,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const filteredOracleInstances = oracleInstances.filter((i) => accessibleInstanceIds.has(i.instanceId))
 	const totalOracleInstanceCount = oracleInstances.length
 
+	// Collect Entra ID group IDs required for inaccessible Oracle instances
+	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
+	const inaccessibleOracleGroupIds = [
+		...new Set(
+			oracleInstances
+				.filter((i) => !accessibleInstanceIds.has(i.instanceId))
+				.map((i) => oracleInstanceMetaById.get(i.instanceId)?.group)
+				.filter((g): g is NonNullable<typeof g> => g !== null && g !== undefined),
+		),
+	]
+
 	const oraclePersistenceInstanceIds = new Set(
 		detail.persistence.filter((p) => p.type === "oracle").map((p) => p.oracleInstanceId ?? p.name),
 	)
@@ -207,7 +218,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		detail.persistence.push(...newEntries)
 	}
 
-	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
 	const knownOracleInstanceIds = new Set(allOracleInstances.map((i) => i.id))
 
 	// Parallelize oracle sub-queries: snapshot histories, audit summaries, and role lookups
@@ -267,9 +277,20 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		.map((i) => i.group as string)
 
 	const allGroupIds = [
-		...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds, ...oracleGroupIds]),
+		...new Set([
+			...naisGroupIds,
+			...manualGroups.map((g) => g.groupId),
+			...ghostGroupIds,
+			...oracleGroupIds,
+			...inaccessibleOracleGroupIds,
+		]),
 	]
 	const groupNames = await resolveGroupNames(allGroupIds)
+
+	const inaccessibleOracleGroups = inaccessibleOracleGroupIds.map((id) => ({
+		id,
+		name: groupNames[id] ?? id,
+	}))
 
 	const assessmentsByGroupId: Record<string, { criticality: GroupCriticality; updatedBy: string; updatedAt: string }> =
 		{}
@@ -366,6 +387,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				: null,
 		})),
 		totalOracleInstanceCount,
+		inaccessibleOracleGroups,
 		oracleRoles,
 		instanceSnapshotHistories: (() => {
 			const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
