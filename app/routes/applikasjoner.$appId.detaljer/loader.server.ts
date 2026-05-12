@@ -194,11 +194,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Collect Entra ID group IDs required for inaccessible Oracle instances
 	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
+
+	// Consider both applicationOracleInstances and persistence entries of type "oracle"
+	const allReferencedOracleInstanceIds = new Set([
+		...oracleInstances.map((i) => i.instanceId),
+		...detail.persistence
+			.filter((p) => p.type === "oracle" && p.oracleInstanceId)
+			.map((p) => p.oracleInstanceId as string),
+	])
 	const inaccessibleOracleGroupIds = [
 		...new Set(
-			oracleInstances
-				.filter((i) => !accessibleInstanceIds.has(i.instanceId))
-				.map((i) => oracleInstanceMetaById.get(i.instanceId)?.group)
+			[...allReferencedOracleInstanceIds]
+				.filter((id) => !accessibleInstanceIds.has(id))
+				.map((id) => oracleInstanceMetaById.get(id)?.group)
 				.filter((g): g is NonNullable<typeof g> => g !== null && g !== undefined),
 		),
 	]
