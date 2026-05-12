@@ -1,4 +1,4 @@
-import { PersonIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import { PersonIcon } from "@navikt/aksel-icons"
 import {
 	BodyShort,
 	Box,
@@ -8,25 +8,14 @@ import {
 	HStack,
 	Radio,
 	RadioGroup,
-	Select,
 	Table,
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getSections } from "~/db/queries/sections.server"
-import {
-	assignRole,
-	getAllDevTeams,
-	getUserLandingPage,
-	getUserRoles,
-	removeRole,
-	setUserLandingPage,
-	upsertUser,
-} from "~/db/queries/users.server"
+import { getUserLandingPage, getUserRoles, setUserLandingPage } from "~/db/queries/users.server"
 import type { LandingPage } from "~/db/schema/organization"
 import { landingPageEnum, landingPageLabels, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser } from "~/lib/auth.server"
@@ -35,12 +24,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	if (!user) throw redirect("/dashboard")
 
-	const [roles, landingPage, allSections, allTeams] = await Promise.all([
-		getUserRoles(user.navIdent),
-		getUserLandingPage(user.navIdent),
-		getSections(),
-		getAllDevTeams(),
-	])
+	const [roles, landingPage] = await Promise.all([getUserRoles(user.navIdent), getUserLandingPage(user.navIdent)])
 
 	return data({
 		navIdent: user.navIdent,
@@ -50,14 +34,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			id: r.id,
 			role: r.role,
 			roleLabel: userRoleLabels[r.role] ?? r.role,
-			sectionId: r.sectionId,
 			sectionName: r.sectionName,
-			devTeamId: r.devTeamId,
 			devTeamName: r.devTeamName,
 		})),
 		landingPage,
-		sections: allSections.map((s) => ({ id: s.id, name: s.name })),
-		teams: allTeams,
 	})
 }
 
@@ -73,33 +53,13 @@ export async function action({ request }: ActionFunctionArgs) {
 		if (landingPageEnum.includes(landingPage as LandingPage)) {
 			await setUserLandingPage(user.navIdent, landingPage as LandingPage)
 		}
-	} else if (intent === "add-membership") {
-		const sectionId = formData.get("sectionId") as string
-		const devTeamId = (formData.get("devTeamId") as string) || undefined
-		if (sectionId) {
-			await upsertUser(user.navIdent, user.name, user.email)
-			await assignRole(user.navIdent, user.name, "developer", user.navIdent, sectionId, devTeamId)
-		}
-	} else if (intent === "remove-membership") {
-		const roleId = formData.get("roleId") as string
-		if (roleId) {
-			// Verify the role belongs to the current user before removing
-			const roles = await getUserRoles(user.navIdent)
-			const ownsRole = roles.some((r) => r.id === roleId)
-			if (ownsRole) {
-				await removeRole(roleId, user.navIdent)
-			}
-		}
 	}
 
 	return data({ ok: true })
 }
 
 export default function ProfilePage() {
-	const { navIdent, name, email, roles, landingPage, sections, teams } = useLoaderData<typeof loader>()
-	const [selectedSectionId, setSelectedSectionId] = useState("")
-
-	const teamsForSection = teams.filter((t) => t.sectionId === selectedSectionId)
+	const { navIdent, name, email, roles, landingPage } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -135,15 +95,14 @@ export default function ProfilePage() {
 				</VStack>
 			</Box>
 
-			{/* Memberships */}
+			{/* Memberships (read-only) */}
 			<Box padding="space-6" borderRadius="8" background="sunken">
 				<VStack gap="space-4">
 					<Heading size="medium" level="3">
 						Mine tilknytninger
 					</Heading>
-					<BodyShort>Koble deg til en seksjon og eventuelt et team for å få tilgang til relevant innhold.</BodyShort>
 
-					{roles.length > 0 && (
+					{roles.length > 0 ? (
 						/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access */
 						<section className="table-scroll" tabIndex={0} aria-label="Tilknytninger">
 							<Table size="small">
@@ -152,7 +111,6 @@ export default function ProfilePage() {
 										<Table.HeaderCell>Rolle</Table.HeaderCell>
 										<Table.HeaderCell>Seksjon</Table.HeaderCell>
 										<Table.HeaderCell>Team</Table.HeaderCell>
-										<Table.HeaderCell style={{ width: "1%" }} />
 									</Table.Row>
 								</Table.Header>
 								<Table.Body>
@@ -165,72 +123,14 @@ export default function ProfilePage() {
 											</Table.DataCell>
 											<Table.DataCell>{r.sectionName ?? "—"}</Table.DataCell>
 											<Table.DataCell>{r.devTeamName ?? "—"}</Table.DataCell>
-											<Table.DataCell>
-												<Form method="post">
-													<input type="hidden" name="intent" value="remove-membership" />
-													<input type="hidden" name="roleId" value={r.id} />
-													<Button
-														type="submit"
-														variant="tertiary-neutral"
-														size="small"
-														icon={<TrashIcon aria-hidden />}
-														title="Fjern tilknytning"
-													/>
-												</Form>
-											</Table.DataCell>
 										</Table.Row>
 									))}
 								</Table.Body>
 							</Table>
 						</section>
+					) : (
+						<BodyShort textColor="subtle">Du er ikke tilknyttet noen seksjon eller team.</BodyShort>
 					)}
-
-					{roles.length === 0 && (
-						<BodyShort textColor="subtle">Du er ikke tilknyttet noen seksjon eller team ennå.</BodyShort>
-					)}
-
-					{/* Add membership form */}
-					<Form method="post">
-						<input type="hidden" name="intent" value="add-membership" />
-						<VStack gap="space-4">
-							<Heading size="small" level="4">
-								Legg til tilknytning
-							</Heading>
-							<HStack gap="space-4" align="end" wrap>
-								<Select
-									label="Seksjon"
-									name="sectionId"
-									size="small"
-									value={selectedSectionId}
-									onChange={(e) => setSelectedSectionId(e.target.value)}
-								>
-									<option value="">Velg seksjon</option>
-									{sections.map((s) => (
-										<option key={s.id} value={s.id}>
-											{s.name}
-										</option>
-									))}
-								</Select>
-								<Select label="Team (valgfritt)" name="devTeamId" size="small" disabled={!selectedSectionId}>
-									<option value="">Ingen team</option>
-									{teamsForSection.map((t) => (
-										<option key={t.id} value={t.id}>
-											{t.name}
-										</option>
-									))}
-								</Select>
-								<Button
-									type="submit"
-									size="small"
-									variant="secondary"
-									disabled={!selectedSectionId}
-									icon={<PlusIcon aria-hidden />}
-								>
-									Legg til
-								</Button>
-							</HStack>
-						</VStack>
-					</Form>
 				</VStack>
 			</Box>
 
