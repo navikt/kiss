@@ -129,3 +129,9 @@ export function requireSectionAccess(user: NavUser, sectionId: string): void {
 		throw new Response("Ikke autorisert", { status: 403 })
 	}
 }
+
+export function requireAnySectionRole(user: NavUser, sectionId: string): void {
+	if (!hasAnySectionRole(user, sectionId)) {
+		throw new Response("Ikke autorisert", { status: 403 })
+	}
+}
