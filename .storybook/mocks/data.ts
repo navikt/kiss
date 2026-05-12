@@ -1045,6 +1045,7 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 				: "<p>Gjennomfør sikkerhetstesting inkludert OWASP Top 10 og SAST/DAST-skanning.</p>",
 		userCanApprove: true,
 		userCanAdmin: true,
+		userCanEdit: true,
 		effectiveRole: isSec ? "Seksjonsleder" : "Sikkerhetsansvarlig",
 	}
 }

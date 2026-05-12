@@ -40,7 +40,7 @@ import {
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { canApproveRoutine, hasAnySectionRole, isAdmin, requireAnySectionRole } from "~/lib/authorization.server"
+import { canApproveRoutine, hasAnySectionRole, isAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
 
@@ -173,7 +173,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "copy") {
-		requireAnySectionRole(authedUser, section.id)
+		if (!hasAnySectionRole(authedUser, section.id)) {
+			throw data({ message: "Du har ikke rettigheter til å kopiere rutiner i denne seksjonen" }, { status: 403 })
+		}
+		if (routine.status !== "approved") {
+			throw data({ message: "Kun godkjente rutiner kan kopieres for endring" }, { status: 400 })
+		}
 		const copy = await copyRoutine(rutineId, authedUser.navIdent)
 		if (!copy) throw data({ message: "Kunne ikke kopiere rutine" }, { status: 500 })
 		return redirect(`/seksjoner/${seksjon}/rutiner/${copy.id}/rediger`)

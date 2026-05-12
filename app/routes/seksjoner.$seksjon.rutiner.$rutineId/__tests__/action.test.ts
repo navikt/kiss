@@ -12,12 +12,10 @@ vi.mock("~/lib/auth.server", () => ({
 const mockCanApproveRoutine = vi.fn()
 const mockIsAdmin = vi.fn()
 const mockHasAnySectionRole = vi.fn()
-const mockRequireAnySectionRole = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
 	canApproveRoutine: mockCanApproveRoutine,
 	isAdmin: mockIsAdmin,
 	hasAnySectionRole: mockHasAnySectionRole,
-	requireAnySectionRole: mockRequireAnySectionRole,
 }))
 
 const mockGetRoutine = vi.fn()
@@ -133,7 +131,8 @@ describe("approve intent", () => {
 
 describe("copy intent", () => {
 	it("copies routine when user has section role", async () => {
-		mockRequireAnySectionRole.mockReturnValue(undefined)
+		mockHasAnySectionRole.mockReturnValue(true)
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "approved" })
 		mockCopyRoutine.mockResolvedValue({ id: "routine-copy-1" })
 
 		const fd = new FormData()
@@ -143,18 +142,27 @@ describe("copy intent", () => {
 		expect(response.status).toBe(302)
 		expect(response.headers.get("location")).toContain("routine-copy-1")
 		expect(mockCopyRoutine).toHaveBeenCalledWith("routine-1", "T123456")
-		expect(mockRequireAnySectionRole).toHaveBeenCalledWith(fakeUser, "section-1")
+		expect(mockHasAnySectionRole).toHaveBeenCalledWith(fakeUser, "section-1")
 	})
 
 	it("rejects copy when user lacks section role", async () => {
-		mockRequireAnySectionRole.mockImplementation(() => {
-			throw new Response("Forbidden", { status: 403 })
-		})
+		mockHasAnySectionRole.mockReturnValue(false)
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "approved" })
 
 		const fd = new FormData()
 		fd.set("intent", "copy")
 
-		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 403 } })
+		expect(mockCopyRoutine).not.toHaveBeenCalled()
+	})
+
+	it("rejects copy when routine is not approved", async () => {
+		mockHasAnySectionRole.mockReturnValue(true)
+
+		const fd = new FormData()
+		fd.set("intent", "copy")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 400 } })
 		expect(mockCopyRoutine).not.toHaveBeenCalled()
 	})
 })
