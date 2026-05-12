@@ -27,6 +27,7 @@ import {
 	getLatestSectionReview,
 	getReviewsForRoutine,
 	getRoutine,
+	getRoutineFollowUpApplicationIds,
 	isOverdue,
 } from "~/db/queries/routines.server"
 import { getScreeningQuestion } from "~/db/queries/screening.server"
@@ -81,7 +82,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		throw data({ message: "Rutinen tilhører ikke denne seksjonen" }, { status: 403 })
 	}
 
-	const [reviews, apps] = await Promise.all([getReviewsForRoutine(rutineId), getAppsRequiringRoutine(rutineId)])
+	const [reviews, apps, followUpAppIds] = await Promise.all([
+		getReviewsForRoutine(rutineId),
+		getAppsRequiringRoutine(rutineId),
+		getRoutineFollowUpApplicationIds(rutineId),
+	])
 
 	// Fetch screening question text if linked
 	let screeningQuestion: { id: string; questionText: string } | null = null
@@ -107,6 +112,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				routine.frequency as RoutineFrequency | null,
 			)
 			const overdue = isOverdue(deadline)
+			const needsFollowUp = routine.isSectionRoutine === 1 ? followUpAppIds.has(null) : followUpAppIds.has(app.id)
 
 			return {
 				id: app.id,
@@ -114,6 +120,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				lastReviewDate,
 				deadline,
 				overdue,
+				needsFollowUp,
 				neverReviewed: !latestReview && routine.frequency !== null,
 			}
 		}),
@@ -509,23 +516,30 @@ export default function RutineDetaljer() {
 									<Table.DataCell>{formatDate(app.lastReviewDate)}</Table.DataCell>
 									<Table.DataCell>{app.deadline ? formatDate(app.deadline) : "Ingen frist"}</Table.DataCell>
 									<Table.DataCell>
-										{!routine.frequency ? (
-											<Tag variant="info" size="small">
-												{routine.eventFrequency ?? "Ved behov"}
-											</Tag>
-										) : app.neverReviewed ? (
-											<Tag variant="warning" size="small">
-												Ikke gjennomført
-											</Tag>
-										) : app.overdue ? (
-											<Tag variant="error" size="small">
-												Over frist
-											</Tag>
-										) : (
-											<Tag variant="success" size="small">
-												OK
-											</Tag>
-										)}
+										<HStack gap="space-2" align="center" wrap>
+											{!routine.frequency ? (
+												<Tag variant="info" size="small">
+													{routine.eventFrequency ?? "Ved behov"}
+												</Tag>
+											) : app.neverReviewed ? (
+												<Tag variant="warning" size="small">
+													Ikke gjennomført
+												</Tag>
+											) : app.overdue ? (
+												<Tag variant="error" size="small">
+													Over frist
+												</Tag>
+											) : (
+												<Tag variant="success" size="small">
+													OK
+												</Tag>
+											)}
+											{app.needsFollowUp && (
+												<Tag variant="warning" size="small">
+													Må følges opp
+												</Tag>
+											)}
+										</HStack>
 									</Table.DataCell>
 								</Table.Row>
 							))}
@@ -575,13 +589,24 @@ export default function RutineDetaljer() {
 											<Link to={`./gjennomgang/${review.id}`}>{review.title}</Link>
 										</Table.DataCell>
 										<Table.DataCell>
-											{review.status === "completed" ? (
+											{review.status === "completed" && (
 												<Tag variant="success" size="xsmall">
 													Fullført
 												</Tag>
-											) : (
+											)}
+											{review.status === "needs_follow_up" && (
+												<Tag variant="warning" size="xsmall">
+													Må følges opp
+												</Tag>
+											)}
+											{review.status === "draft" && (
 												<Tag variant="warning" size="xsmall">
 													Utkast
+												</Tag>
+											)}
+											{review.status === "discarded" && (
+												<Tag variant="neutral" size="xsmall">
+													Forkastet
 												</Tag>
 											)}
 										</Table.DataCell>

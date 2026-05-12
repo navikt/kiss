@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import { mockGjennomgangDetaljData, mockGjennomgangDetaljOracleEvidenceData } from "@storybook-mocks/data"
+import { renderWithLoader } from "@storybook-mocks/router"
 import type { ComponentType } from "react"
 import { createRoutesStub } from "react-router"
 import GjennomgangDetalj from "../index"
@@ -35,7 +36,8 @@ const oracleApiRoutes = [
 	},
 ]
 
-const basePath = "/seksjoner/pensjon-og-ufore/rutiner/routine-1/gjennomgang/rev-1"
+const PATH = "/seksjoner/pensjon-og-ufore/rutiner/routine-1/gjennomgang/rev-1"
+const basePath = PATH
 
 // biome-ignore lint/suspicious/noExplicitAny: Route components have varying prop shapes from React Router
 function renderWithLoaderAndApiRoutes(Component: ComponentType<any>, loaderData: unknown) {
@@ -52,6 +54,62 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
 	render: () => renderWithLoaderAndApiRoutes(GjennomgangDetalj, mockGjennomgangDetaljData()),
+}
+
+export const Utkast: Story = {
+	name: "Utkast (uten oppfølgingspunkter)",
+	render: () => renderWithLoader(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft" }), PATH),
+}
+
+export const UtkastMedOppfølgingspunkter: Story = {
+	name: "Utkast med oppfølgingspunkter",
+	render: () =>
+		renderWithLoader(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft", followUpPoints: "mixed" }), PATH),
+}
+
+export const MåFølgesOpp: Story = {
+	name: "Må følges opp (åpne punkter)",
+	render: () =>
+		renderWithLoader(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljData({ status: "needs_follow_up", followUpPoints: "all_open" }),
+			PATH,
+		),
+}
+
+export const MåFølgesOppDelvisAdressert: Story = {
+	name: "Må følges opp (delvis adressert)",
+	render: () =>
+		renderWithLoader(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljData({ status: "needs_follow_up", followUpPoints: "mixed" }),
+			PATH,
+		),
+}
+
+export const Fullført: Story = {
+	name: "Fullført (alle punkter adressert)",
+	render: () =>
+		renderWithLoader(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljData({ status: "completed", followUpPoints: "all_resolved" }),
+			PATH,
+		),
+}
+
+export const FullførtUtenPunkter: Story = {
+	name: "Fullført uten oppfølgingspunkter",
+	render: () =>
+		renderWithLoader(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljData({ status: "completed", followUpPoints: "none" }),
+			PATH,
+		),
+}
+
+export const Forkastet: Story = {
+	name: "Forkastet",
+	render: () => renderWithLoader(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "discarded" }), PATH),
 }
 
 export const OracleEvidenceUtenNedlastinger: Story = {

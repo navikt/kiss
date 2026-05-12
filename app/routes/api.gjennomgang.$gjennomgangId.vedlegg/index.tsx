@@ -23,9 +23,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (!review) {
 		return Response.json({ success: false, error: "Fant ikke gjennomgang" }, { status: 404 })
 	}
-	if (review.status === "completed") {
+	if (review.status !== "draft") {
 		return Response.json(
-			{ success: false, error: "Kan ikke laste opp vedlegg til en fullført gjennomgang." },
+			{ success: false, error: "Kan ikke laste opp vedlegg til en gjennomgang som ikke er utkast." },
 			{ status: 400 },
 		)
 	}

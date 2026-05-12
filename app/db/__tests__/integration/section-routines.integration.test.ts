@@ -10,9 +10,8 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { createRoutine, updateRoutine, createReview, getSectionRoutinesForSection } = await import(
-	"~/db/queries/routines.server"
-)
+const { createRoutine, updateRoutine, createReview, completeReview, addFollowUpPoint, getSectionRoutinesForSection } =
+	await import("~/db/queries/routines.server")
 const { getRoutineDeadlinesWithControls } = await import("~/db/queries/routine-deadlines.server")
 
 async function createTestSection(name: string, slug: string) {
@@ -331,5 +330,137 @@ describe("Section routines integration tests", () => {
 		expect(sectionDeadline?.lastReviewDate).toBeDefined()
 		// The deadline should not be overdue since we just did a review
 		expect(sectionDeadline?.overdue).toBe(false)
+	})
+
+	it("sets needsFollowUp on app-level deadline when latest review for app has needs_follow_up status", async () => {
+		const sectionId = await createTestSection("Test Seksjon", `test-${Date.now()}-${Math.random()}`)
+		const appId = await createTestApp("AppNF", sectionId)
+
+		const routine = await createRoutine({
+			sectionId,
+			name: "App rutine med oppfølging",
+			description: null,
+			frequency: "monthly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: true,
+			responsibleRole: null,
+			activityType: null,
+			isSectionRoutine: false,
+			persistenceLinks: [],
+			technologyElementIds: [],
+			controlIds: [],
+			groupClassifications: [],
+			oracleRoleCriticalities: [],
+			createdBy: "test",
+		})
+		const db = getTestDb()
+		await db.execute(/* sql */ `UPDATE routines SET status = 'approved' WHERE id = '${routine.id}'`)
+
+		const review = await createReview({
+			routineId: routine.id,
+			applicationId: appId,
+			title: "GG",
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: new Date(),
+			createdBy: "test",
+			participants: [],
+		})
+		await addFollowUpPoint({ reviewId: review.id, text: "Pkt", description: "Beskrivelse", performedBy: "test" })
+		await completeReview(review.id, "test")
+
+		const deadlines = await getRoutineDeadlinesWithControls(appId)
+		const dl = deadlines.find((d) => d.routine?.id === routine.id)
+		expect(dl).toBeDefined()
+		expect(dl?.needsFollowUp).toBe(true)
+	})
+
+	it("sets needsFollowUp on section-routine deadline when latest section review has needs_follow_up status", async () => {
+		const sectionId = await createTestSection("Test Seksjon", `test-${Date.now()}-${Math.random()}`)
+		const appId = await createTestApp("AppSec", sectionId)
+
+		const routine = await createRoutine({
+			sectionId,
+			name: "Seksjonsrutine med oppfølging",
+			description: null,
+			frequency: "annually",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: true,
+			responsibleRole: null,
+			activityType: null,
+			isSectionRoutine: true,
+			sectionRoutineOwnerRole: "Seksjonsleder",
+			persistenceLinks: [],
+			technologyElementIds: [],
+			controlIds: [],
+			groupClassifications: [],
+			oracleRoleCriticalities: [],
+			createdBy: "test",
+		})
+		const db = getTestDb()
+		await db.execute(/* sql */ `UPDATE routines SET status = 'approved' WHERE id = '${routine.id}'`)
+
+		const review = await createReview({
+			routineId: routine.id,
+			applicationId: null,
+			title: "Seksjon GG",
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: new Date(),
+			createdBy: "test",
+			participants: [],
+		})
+		await addFollowUpPoint({ reviewId: review.id, text: "Sek-pkt", description: "Beskrivelse", performedBy: "test" })
+		await completeReview(review.id, "test")
+
+		const deadlines = await getRoutineDeadlinesWithControls(appId)
+		const dl = deadlines.find((d) => d.routine?.id === routine.id)
+		expect(dl).toBeDefined()
+		expect(dl?.needsFollowUp).toBe(true)
+	})
+
+	it("does not set needsFollowUp when latest review is fully completed", async () => {
+		const sectionId = await createTestSection("Test Seksjon", `test-${Date.now()}-${Math.random()}`)
+		const appId = await createTestApp("AppOk", sectionId)
+
+		const routine = await createRoutine({
+			sectionId,
+			name: "OK rutine",
+			description: null,
+			frequency: "monthly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: true,
+			responsibleRole: null,
+			activityType: null,
+			isSectionRoutine: false,
+			persistenceLinks: [],
+			technologyElementIds: [],
+			controlIds: [],
+			groupClassifications: [],
+			oracleRoleCriticalities: [],
+			createdBy: "test",
+		})
+		const db = getTestDb()
+		await db.execute(/* sql */ `UPDATE routines SET status = 'approved' WHERE id = '${routine.id}'`)
+
+		const review = await createReview({
+			routineId: routine.id,
+			applicationId: appId,
+			title: "GG OK",
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: new Date(),
+			createdBy: "test",
+			participants: [],
+		})
+		await completeReview(review.id, "test")
+
+		const deadlines = await getRoutineDeadlinesWithControls(appId)
+		const dl = deadlines.find((d) => d.routine?.id === routine.id)
+		expect(dl).toBeDefined()
+		expect(dl?.needsFollowUp).toBe(false)
 	})
 })
