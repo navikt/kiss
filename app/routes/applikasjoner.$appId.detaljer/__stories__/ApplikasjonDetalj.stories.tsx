@@ -21,6 +21,7 @@ export const ManglerOracleTilgang: Story = {
 		renderWithLoader(
 			ApplikasjonDetalj,
 			mockAppDetaljerData({
+				oracleRoles: [],
 				inaccessibleOracleGroups: [
 					{ id: "group-1", name: "Oracle-Pensjon-Prod-Readers" },
 					{ id: "group-2", name: "Oracle-Pensjon-Test-Readers" },
