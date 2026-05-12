@@ -1,4 +1,4 @@
-import type { UserRole } from "~/db/schema/organization"
+import { roleScopeMap, type UserRole } from "~/db/schema/organization"
 import type { NavUser } from "./auth.server"
 
 // Azure AD group IDs – configure via environment
@@ -73,7 +73,12 @@ export function canManageSection(user: NavUser, sectionId: string): boolean {
 /** Har bruker en vilkårlig rolle i en seksjon (direkte eller via team). */
 export function hasAnySectionRole(user: NavUser, sectionId: string): boolean {
 	if (isAdmin(user)) return true
-	return (user.dbRoles ?? []).some((r) => r.sectionId === sectionId || r.devTeamSectionId === sectionId)
+	return (user.dbRoles ?? []).some(
+		(r) =>
+			r.sectionId === sectionId ||
+			r.devTeamSectionId === sectionId ||
+			(r.sectionId === null && roleScopeMap[r.role] === "section"),
+	)
 }
 
 /** Kan administrere et team (admin, produktleder, tech lead for teamet) */

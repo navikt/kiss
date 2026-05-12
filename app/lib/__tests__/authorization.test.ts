@@ -249,6 +249,13 @@ describe("hasAnySectionRole", () => {
 		})
 		expect(hasAnySectionRole(user, sectionId)).toBe(false)
 	})
+
+	it("returns true when user has a global section-scoped role (sectionId=null)", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(hasAnySectionRole(user, sectionId)).toBe(true)
+	})
 })
 
 describe("isAdminSuppressed", () => {
