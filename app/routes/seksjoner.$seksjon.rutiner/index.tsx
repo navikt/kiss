@@ -29,7 +29,7 @@ import {
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
+import { hasAnySectionRole } from "~/lib/authorization.server"
 import { frequencyLabels, getCompositeFrequencyLabel, type RoutineFrequency } from "~/lib/routine-frequencies"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -51,7 +51,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		section,
 		routines,
 		allControls,
-		canAdmin: user ? isAdmin(user) : false,
+		canAdmin: user ? hasAnySectionRole(user, section.id) : false,
 	})
 }
 

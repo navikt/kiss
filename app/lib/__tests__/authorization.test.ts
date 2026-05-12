@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest"
 import type { NavUser } from "../auth.server"
 import { isAdminSuppressed } from "../auth.server"
-import { canApproveRoutine, hasRole, hasRoleForSection, isActualAdmin, isAdmin } from "../authorization.server"
+import {
+	canApproveRoutine,
+	hasAnySectionRole,
+	hasRole,
+	hasRoleForSection,
+	isActualAdmin,
+	isAdmin,
+} from "../authorization.server"
 
 function makeUser(overrides: Partial<NavUser> = {}): NavUser {
 	return {
@@ -21,7 +28,7 @@ describe("canApproveRoutine", () => {
 	it("admin can always approve regardless of responsibleRole", () => {
 		const adminUser = makeUser({
 			groups: [process.env.KISS_ADMIN_GROUP_IDS?.split(",")[0] ?? ""],
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null }],
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(canApproveRoutine(adminUser, null, sectionId)).toBe(true)
 		expect(canApproveRoutine(adminUser, "Teknologileder", sectionId)).toBe(true)
@@ -35,42 +42,42 @@ describe("canApproveRoutine", () => {
 
 	it("Teknologileder role maps to tech_manager for section", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null }],
+			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(canApproveRoutine(user, "Teknologileder", sectionId)).toBe(true)
 	})
 
 	it("Teknologileder role fails for wrong section", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "tech_manager", sectionId: "other-section", devTeamId: null }],
+			dbRoles: [{ role: "tech_manager", sectionId: "other-section", devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(canApproveRoutine(user, "Teknologileder", sectionId)).toBe(false)
 	})
 
 	it("Produktleder role maps to product_owner for section", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "product_owner", sectionId, devTeamId: null }],
+			dbRoles: [{ role: "product_owner", sectionId, devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(canApproveRoutine(user, "Produktleder", sectionId)).toBe(true)
 	})
 
 	it("Seksjonsleder role maps to section_manager", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null }],
+			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(canApproveRoutine(user, "Seksjonsleder", sectionId)).toBe(true)
 	})
 
 	it("returns false for unknown responsibleRole", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null }],
+			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(canApproveRoutine(user, "UkjentRolle", sectionId)).toBe(false)
 	})
 
 	it("returns false for user with wrong role", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "product_owner", sectionId, devTeamId: null }],
+			dbRoles: [{ role: "product_owner", sectionId, devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(canApproveRoutine(user, "Teknologileder", sectionId)).toBe(false)
 	})
@@ -79,7 +86,7 @@ describe("canApproveRoutine", () => {
 describe("isAdmin", () => {
 	it("returns true for user with admin dbRole", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null }],
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(isAdmin(user)).toBe(true)
 	})
@@ -93,7 +100,7 @@ describe("isAdmin", () => {
 describe("hasRole", () => {
 	it("returns true when user has the role in dbRoles", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "tech_manager", sectionId: "s1", devTeamId: null }],
+			dbRoles: [{ role: "tech_manager", sectionId: "s1", devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(hasRole(user, "tech_manager")).toBe(true)
 	})
@@ -109,21 +116,21 @@ describe("hasRoleForSection", () => {
 
 	it("returns true when user has role scoped to the section", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null }],
+			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(hasRoleForSection(user, "tech_manager", sectionId)).toBe(true)
 	})
 
 	it("returns false when user has role for different section", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "tech_manager", sectionId: "other", devTeamId: null }],
+			dbRoles: [{ role: "tech_manager", sectionId: "other", devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(hasRoleForSection(user, "tech_manager", sectionId)).toBe(false)
 	})
 
 	it("returns true for admin regardless of section", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null }],
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(hasRoleForSection(user, "tech_manager", sectionId)).toBe(true)
 	})
@@ -132,7 +139,7 @@ describe("hasRoleForSection", () => {
 describe("adminSuppressed", () => {
 	it("isAdmin returns false when admin is suppressed via dbRole", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null }],
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
 			adminSuppressed: true,
 		})
 		expect(isAdmin(user)).toBe(false)
@@ -140,7 +147,7 @@ describe("adminSuppressed", () => {
 
 	it("isActualAdmin returns true even when suppressed", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null }],
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
 			adminSuppressed: true,
 		})
 		expect(isActualAdmin(user)).toBe(true)
@@ -148,7 +155,7 @@ describe("adminSuppressed", () => {
 
 	it("hasRole returns false for admin when suppressed", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null }],
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
 			adminSuppressed: true,
 		})
 		expect(hasRole(user, "admin")).toBe(false)
@@ -157,8 +164,8 @@ describe("adminSuppressed", () => {
 	it("non-admin roles are unaffected by suppression", () => {
 		const user = makeUser({
 			dbRoles: [
-				{ role: "admin", sectionId: null, devTeamId: null },
-				{ role: "tech_manager", sectionId: "s1", devTeamId: null },
+				{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null },
+				{ role: "tech_manager", sectionId: "s1", devTeamId: null, devTeamSectionId: null },
 			],
 			adminSuppressed: true,
 		})
@@ -168,7 +175,7 @@ describe("adminSuppressed", () => {
 
 	it("hasRoleForSection does not bypass via admin when suppressed", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null }],
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
 			adminSuppressed: true,
 		})
 		expect(hasRoleForSection(user, "tech_manager", "section-1")).toBe(false)
@@ -176,7 +183,7 @@ describe("adminSuppressed", () => {
 
 	it("canApproveRoutine does not bypass via admin when suppressed", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null }],
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
 			adminSuppressed: true,
 		})
 		expect(canApproveRoutine(user, "Teknologileder", "section-1")).toBe(false)
@@ -184,11 +191,63 @@ describe("adminSuppressed", () => {
 
 	it("suppression has no effect on non-admin users", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "tech_manager", sectionId: "s1", devTeamId: null }],
+			dbRoles: [{ role: "tech_manager", sectionId: "s1", devTeamId: null, devTeamSectionId: null }],
 			adminSuppressed: true,
 		})
 		expect(hasRole(user, "tech_manager")).toBe(true)
 		expect(isAdmin(user)).toBe(false)
+	})
+})
+
+describe("hasAnySectionRole", () => {
+	const sectionId = "section-1"
+
+	it("returns true for admin", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(hasAnySectionRole(user, sectionId)).toBe(true)
+	})
+
+	it("returns true when user has a section-scoped role for the section", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(hasAnySectionRole(user, sectionId)).toBe(true)
+	})
+
+	it("returns true when user has a team-scoped role where team belongs to the section", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "team-1", devTeamSectionId: sectionId }],
+		})
+		expect(hasAnySectionRole(user, sectionId)).toBe(true)
+	})
+
+	it("returns false when user has a team-scoped role for a different section", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "team-1", devTeamSectionId: "other-section" }],
+		})
+		expect(hasAnySectionRole(user, sectionId)).toBe(false)
+	})
+
+	it("returns false when user has no roles", () => {
+		const user = makeUser()
+		expect(hasAnySectionRole(user, sectionId)).toBe(false)
+	})
+
+	it("returns false when user has a section-scoped role for a different section", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId: "other-section", devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(hasAnySectionRole(user, sectionId)).toBe(false)
+	})
+
+	it("returns false for suppressed admin", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+			adminSuppressed: true,
+		})
+		expect(hasAnySectionRole(user, sectionId)).toBe(false)
 	})
 })
 

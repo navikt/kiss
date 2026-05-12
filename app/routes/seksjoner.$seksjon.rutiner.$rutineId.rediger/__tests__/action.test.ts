@@ -61,7 +61,7 @@ const fakeUser = {
 	name: "Test",
 	groups: [],
 	token: "t",
-	dbRoles: [{ role: "admin" as const, sectionId: null, devTeamId: null }],
+	dbRoles: [{ role: "admin" as const, sectionId: null, devTeamId: null, devTeamSectionId: null }],
 }
 
 const fakeNonAdminUser = {
