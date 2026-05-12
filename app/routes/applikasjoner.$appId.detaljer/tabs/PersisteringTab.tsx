@@ -1,4 +1,4 @@
-import { BodyLong, Table, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, List, Table, VStack } from "@navikt/ds-react"
 import { AddPersistenceForm } from "../components/AddPersistenceForm"
 import { type OracleRoleDisplay, OracleRolesSection } from "../components/OracleRolesSection"
 import { PersistenceRow } from "../components/PersistenceRow"
@@ -8,6 +8,7 @@ export function PersisteringTab({
 	oracleAuditSummaries,
 	oracleRoles,
 	canAdmin,
+	inaccessibleOracleGroups,
 }: {
 	persistence: Array<{
 		id: string
@@ -32,6 +33,7 @@ export function PersisteringTab({
 	>
 	oracleRoles: OracleRoleDisplay[]
 	canAdmin: boolean
+	inaccessibleOracleGroups: Array<{ id: string; name: string }>
 }) {
 	return (
 		<VStack gap="space-8">
@@ -65,6 +67,18 @@ export function PersisteringTab({
 			)}
 
 			<OracleRolesSection roles={oracleRoles} canAdmin={canAdmin} />
+
+			{inaccessibleOracleGroups.length > 0 && (
+				<Alert variant="info">
+					Du mangler tilgang til å se Oracle-roller for noen databaseinstanser. For å få tilgang, be om medlemskap
+					i følgende Entra ID-gruppe{inaccessibleOracleGroups.length > 1 ? "r" : ""}:
+					<List>
+						{inaccessibleOracleGroups.map((g) => (
+							<List.Item key={g.id}>{g.name}</List.Item>
+						))}
+					</List>
+				</Alert>
+			)}
 		</VStack>
 	)
 }
