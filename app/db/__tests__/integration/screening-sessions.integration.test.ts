@@ -20,6 +20,7 @@ const testUser: NavUser = {
 	groups: [],
 	token: "test-token",
 	dbRoles: [],
+	adminSuppressed: false,
 }
 
 const {

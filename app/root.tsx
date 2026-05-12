@@ -19,8 +19,8 @@ import { UserMenu } from "./components/UserMenu"
 import { getUserRoles } from "./db/queries/users.server"
 import { userRoleLabels } from "./db/schema/organization"
 import { ThemeProvider, useTheme } from "./hooks/useTheme"
-import { getAuthenticatedUser } from "./lib/auth.server"
-import { isAdmin, isAuditor } from "./lib/authorization.server"
+import { ADMIN_ELEVATED_COOKIE, getAuthenticatedUser } from "./lib/auth.server"
+import { isActualAdmin, isAdmin, isAuditor } from "./lib/authorization.server"
 import { getFeatureFlags } from "./lib/feature-flags.server"
 
 import "@navikt/ds-css/dist/index.css"
@@ -84,6 +84,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 					email: user.email,
 					isAdmin: isAdmin(user),
 					isAuditor: isAuditor(user),
+					isActualAdmin: isActualAdmin(user),
+					adminSuppressed: user.adminSuppressed,
 					sections: userSections,
 					teams: userTeams,
 				}
@@ -93,8 +95,22 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export async function action({ request }: ActionFunctionArgs) {
 	const formData = await request.formData()
-	const theme = formData.get("theme") === "dark" ? "dark" : "light"
+	const intent = formData.get("intent")
 
+	if (intent === "toggleAdminMode") {
+		const user = await getAuthenticatedUser(request)
+		if (!user || !isActualAdmin(user)) {
+			return data({ ok: false }, { status: 403 })
+		}
+		const elevate = formData.get("elevate") === "true"
+		const secure = process.env.NODE_ENV === "production" ? "; Secure" : ""
+		const cookieValue = elevate
+			? `${ADMIN_ELEVATED_COOKIE}=true; SameSite=Lax; Path=/; Max-Age=28800; HttpOnly${secure}`
+			: `${ADMIN_ELEVATED_COOKIE}=; SameSite=Lax; Path=/; Max-Age=0; HttpOnly${secure}`
+		return data({ ok: true }, { headers: { "Set-Cookie": cookieValue } })
+	}
+
+	const theme = formData.get("theme") === "dark" ? "dark" : "light"
 	return data(
 		{ theme },
 		{
@@ -142,6 +158,8 @@ function AppShell({
 		name: string
 		isAdmin: boolean
 		isAuditor: boolean
+		isActualAdmin: boolean
+		adminSuppressed: boolean
 		sections: { sectionName: string; sectionSlug: string; roleLabel: string }[]
 		teams: { teamName: string; teamSlug: string; sectionSlug: string }[]
 	} | null
@@ -170,6 +188,8 @@ function AppShell({
 						navIdent={user.navIdent}
 						isAdmin={user.isAdmin}
 						isAuditor={user.isAuditor}
+						isActualAdmin={user.isActualAdmin}
+						adminSuppressed={user.adminSuppressed}
 						sections={user.sections}
 					/>
 				)}

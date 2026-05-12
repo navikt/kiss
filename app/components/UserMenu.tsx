@@ -1,6 +1,6 @@
-import { ChevronDownIcon, MoonIcon, PersonIcon, SunIcon } from "@navikt/aksel-icons"
-import { ActionMenu, BodyShort, Detail, InternalHeader } from "@navikt/ds-react"
-import { useNavigate } from "react-router"
+import { ChevronDownIcon, MoonIcon, PersonIcon, ShieldLockIcon, SunIcon } from "@navikt/aksel-icons"
+import { ActionMenu, BodyShort, Detail, InternalHeader, Tag } from "@navikt/ds-react"
+import { useFetcher, useNavigate } from "react-router"
 import { useTheme } from "~/hooks/useTheme"
 
 interface UserSection {
@@ -14,12 +14,30 @@ interface UserMenuProps {
 	navIdent: string
 	isAdmin: boolean
 	isAuditor: boolean
+	isActualAdmin: boolean
+	adminSuppressed: boolean
 	sections: UserSection[]
 }
 
-export function UserMenu({ name, navIdent, isAdmin, isAuditor, sections }: UserMenuProps) {
+export function UserMenu({
+	name,
+	navIdent,
+	isAdmin,
+	isAuditor,
+	isActualAdmin,
+	adminSuppressed,
+	sections,
+}: UserMenuProps) {
 	const navigate = useNavigate()
 	const { theme, setTheme } = useTheme()
+	const fetcher = useFetcher()
+
+	function toggleAdminMode() {
+		fetcher.submit(
+			{ intent: "toggleAdminMode", elevate: adminSuppressed ? "true" : "false" },
+			{ method: "POST", action: "/" },
+		)
+	}
 
 	return (
 		<ActionMenu>
@@ -32,6 +50,11 @@ export function UserMenu({ name, navIdent, isAdmin, isAuditor, sections }: UserM
 					}}
 				>
 					<BodyShort size="small">{name}</BodyShort>
+					{isActualAdmin && adminSuppressed && (
+						<Tag variant="alt3" size="xsmall">
+							Vanlig bruker
+						</Tag>
+					)}
 					<ChevronDownIcon title="Brukermeny" />
 				</InternalHeader.Button>
 			</ActionMenu.Trigger>
@@ -58,6 +81,21 @@ export function UserMenu({ name, navIdent, isAdmin, isAuditor, sections }: UserM
 				</ActionMenu.Item>
 
 				<ActionMenu.Divider />
+
+				{/* Admin mode toggle */}
+				{isActualAdmin && (
+					<>
+						<ActionMenu.Group label="Admin-modus">
+							<ActionMenu.Item
+								onSelect={toggleAdminMode}
+								icon={<ShieldLockIcon aria-hidden style={{ fontSize: "1.5rem" }} />}
+							>
+								{adminSuppressed ? "Aktiver admin-modus" : "Deaktiver admin-modus"}
+							</ActionMenu.Item>
+						</ActionMenu.Group>
+						<ActionMenu.Divider />
+					</>
+				)}
 
 				{/* Sections with role badges */}
 				{sections.length > 0 && (
