@@ -16,6 +16,8 @@ export interface NavUser {
 	groups: string[]
 	token: string
 	dbRoles: UserRoleEntry[]
+	/** True when admin privileges are not active (no elevation cookie present) */
+	adminSuppressed: boolean
 }
 
 interface AzureAdClaims extends JWTPayload {
@@ -76,6 +78,7 @@ function getLocalDevUser(): NavUser | null {
 		groups,
 		token: "local-dev-token",
 		dbRoles: [],
+		adminSuppressed: false,
 	}
 }
 
@@ -93,11 +96,23 @@ async function loadDbRoles(navIdent: string): Promise<UserRoleEntry[]> {
 	}
 }
 
+export const ADMIN_ELEVATED_COOKIE = "kiss-admin-elevated"
+
+/** Admin mode is suppressed unless the user has actively elevated via cookie */
+export function isAdminSuppressed(request: Request): boolean {
+	const cookieHeader = request.headers.get("Cookie") ?? ""
+	const cookies = cookieHeader.split(";").map((c) => c.trim())
+	return !cookies.some((cookie) => cookie === `${ADMIN_ELEVATED_COOKIE}=true`)
+}
+
 export async function getAuthenticatedUser(request: Request): Promise<NavUser | null> {
+	const adminSuppressed = isAdminSuppressed(request)
+
 	// In local development, use the configured dev user
 	const localUser = getLocalDevUser()
 	if (localUser) {
 		localUser.dbRoles = await loadDbRoles(localUser.navIdent)
+		localUser.adminSuppressed = adminSuppressed
 		trackLogin(localUser.navIdent, localUser.name, localUser.email)
 		return localUser
 	}
@@ -115,7 +130,7 @@ export async function getAuthenticatedUser(request: Request): Promise<NavUser | 
 		const email = claims.preferred_username
 		const dbRoles = await loadDbRoles(navIdent)
 		trackLogin(navIdent, name, email)
-		return { navIdent, name, email, groups, token, dbRoles }
+		return { navIdent, name, email, groups, token, dbRoles, adminSuppressed }
 	} catch {
 		return null
 	}

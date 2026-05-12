@@ -11,7 +11,7 @@ const AUDITOR_GROUP_IDS = (process.env.KISS_AUDITOR_GROUP_IDS ?? "").split(",").
 
 function adGroupRoles(user: NavUser): UserRole[] {
 	const roles: UserRole[] = []
-	if (user.groups.some((g) => ADMIN_GROUP_IDS.includes(g))) roles.push("admin")
+	if (!user.adminSuppressed && user.groups.some((g) => ADMIN_GROUP_IDS.includes(g))) roles.push("admin")
 	if (user.groups.some((g) => AUDITOR_GROUP_IDS.includes(g))) roles.push("auditor")
 	return roles
 }
@@ -22,8 +22,9 @@ function adGroupRoles(user: NavUser): UserRole[] {
 
 /** Sjekk om bruker har en gitt rolle (globalt, uavhengig av scope). */
 export function hasRole(user: NavUser, role: UserRole): boolean {
+	if (role === "admin" && user.adminSuppressed) return false
 	if (adGroupRoles(user).includes(role)) return true
-	return (user.dbRoles ?? []).some((r) => r.role === role)
+	return (user.dbRoles ?? []).some((r) => r.role === role && !(r.role === "admin" && user.adminSuppressed))
 }
 
 /** Sjekk om bruker har en rolle scopet til en seksjon. Admin har alltid tilgang. */
@@ -50,6 +51,12 @@ export function hasRoleForTeam(user: NavUser, role: UserRole, devTeamId: string)
 /** Admin: via AD-gruppe eller DB-rolle */
 export function isAdmin(user: NavUser): boolean {
 	return hasRole(user, "admin")
+}
+
+/** Actual admin check ignoring suppression (for toggle UI) */
+export function isActualAdmin(user: NavUser): boolean {
+	if (user.groups.some((g) => ADMIN_GROUP_IDS.includes(g))) return true
+	return (user.dbRoles ?? []).some((r) => r.role === "admin")
 }
 
 /** Revisor: egen rolle eller admin */
