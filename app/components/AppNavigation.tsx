@@ -10,15 +10,15 @@ const baseNavItems: NavItem[] = [
 	{ label: "Dashboard", href: "/dashboard" },
 	{ label: "Kontrollrammeverk", href: "/kontrollrammeverk" },
 	{ label: "Seksjoner", href: "/seksjoner" },
-	{ label: "Admin", href: "/admin" },
 ]
 
 interface AppNavigationProps {
+	isAdmin: boolean
 	sections: { sectionName: string; sectionSlug: string }[]
 	teams: { teamName: string; teamSlug: string; sectionSlug: string }[]
 }
 
-export function AppNavigation({ sections, teams }: AppNavigationProps) {
+export function AppNavigation({ isAdmin, sections, teams }: AppNavigationProps) {
 	const location = useLocation()
 
 	const navItems = useMemo(() => {
@@ -43,8 +43,12 @@ export function AppNavigation({ sections, teams }: AppNavigationProps) {
 			items.splice(insertAt, 0, { label: "Mine team", href: "/mine-team" })
 		}
 
+		if (isAdmin) {
+			items.push({ label: "Admin", href: "/admin" })
+		}
+
 		return items
-	}, [sections, teams])
+	}, [sections, teams, isAdmin])
 
 	// Find the single most specific (longest href) match
 	const activeHref = useMemo(() => {

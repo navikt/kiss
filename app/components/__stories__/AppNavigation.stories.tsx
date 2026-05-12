@@ -6,6 +6,7 @@ const meta = {
 	title: "Components/AppNavigation",
 	component: AppNavigation,
 	args: {
+		isAdmin: false,
 		sections: [],
 		teams: [],
 	},

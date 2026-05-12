@@ -194,7 +194,7 @@ function AppShell({
 					/>
 				)}
 			</InternalHeader>
-			<AppNavigation sections={user?.sections ?? []} teams={user?.teams ?? []} />
+			<AppNavigation isAdmin={user?.isAdmin ?? false} sections={user?.sections ?? []} teams={user?.teams ?? []} />
 			<main id="main-content" className="app-main">
 				<Breadcrumbs />
 				<Outlet />
