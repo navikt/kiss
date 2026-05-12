@@ -372,7 +372,7 @@ export async function getOracleRoles(instanceId: string): Promise<OracleRolesRes
 			return null
 		}
 
-		const response = await fetchWithAuth(`/api/m2m/${encodeURIComponent(instanceId)}/evidence/roles`)
+		const response = await fetchWithAuth(`/api/m2m/${encodeURIComponent(instanceId)}/roles`)
 		const data = (await response.json()) as OracleRolesResponse
 		rolesCache.set(instanceId, { data, fetchedAt: Date.now() })
 		return data

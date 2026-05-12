@@ -207,19 +207,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			.filter((p) => p.type === "oracle" && !p.oracleInstanceId && oracleInstanceMetaById.has(p.name))
 			.map((p) => p.name),
 	])
-	logger.info("Oracle access debug: instance resolution", {
-		appId,
-		allOracleInstanceCount: allOracleInstances.length,
-		allOracleInstanceIds: allOracleInstances.map((i) => i.id),
-		oracleInstancesCount: oracleInstances.length,
-		oracleInstanceIds: oracleInstances.map((i) => i.instanceId),
-		oraclePersistence: detail.persistence
-			.filter((p) => p.type === "oracle")
-			.map((p) => ({ name: p.name, oracleInstanceId: p.oracleInstanceId })),
-		allReferencedOracleInstanceIds: [...allReferencedOracleInstanceIds],
-		accessibleInstanceIds: [...accessibleInstanceIds],
-		userGroupCount: user?.groups?.length ?? 0,
-	})
 	const inaccessibleOracleGroupIds = [
 		...new Set(
 			[...allReferencedOracleInstanceIds]
@@ -228,10 +215,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				.filter((g): g is NonNullable<typeof g> => g !== null && g !== undefined),
 		),
 	]
-	logger.info("Oracle access debug: inaccessible groups", {
-		appId,
-		inaccessibleOracleGroupIds,
-	})
 
 	const oraclePersistenceInstanceIds = new Set(
 		detail.persistence.filter((p) => p.type === "oracle").map((p) => p.oracleInstanceId ?? p.name),
@@ -274,13 +257,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			return []
 		}
 		const { instanceId, instanceName, roles } = result.value
-		logger.info("Oracle access debug: roles fetched", {
-			appId,
-			instanceId,
-			totalRoles: roles.length,
-			afterFilter: roles.filter(shouldAssessRole).length,
-			roleNames: roles.map((r) => r.name),
-		})
 		return roles.filter(shouldAssessRole).map((r) => {
 			const key = `${instanceId}:${r.name.toUpperCase().trim()}`
 			const assessment = roleAssessments[key]
