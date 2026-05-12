@@ -11,9 +11,13 @@ vi.mock("~/lib/auth.server", () => ({
 
 const mockCanApproveRoutine = vi.fn()
 const mockIsAdmin = vi.fn()
+const mockHasAnySectionRole = vi.fn()
+const mockRequireAnySectionRole = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
 	canApproveRoutine: mockCanApproveRoutine,
 	isAdmin: mockIsAdmin,
+	hasAnySectionRole: mockHasAnySectionRole,
+	requireAnySectionRole: mockRequireAnySectionRole,
 }))
 
 const mockGetRoutine = vi.fn()
@@ -128,8 +132,8 @@ describe("approve intent", () => {
 })
 
 describe("copy intent", () => {
-	it("copies routine when user is admin", async () => {
-		mockIsAdmin.mockReturnValue(true)
+	it("copies routine when user has section role", async () => {
+		mockRequireAnySectionRole.mockReturnValue(undefined)
 		mockCopyRoutine.mockResolvedValue({ id: "routine-copy-1" })
 
 		const fd = new FormData()
@@ -139,15 +143,18 @@ describe("copy intent", () => {
 		expect(response.status).toBe(302)
 		expect(response.headers.get("location")).toContain("routine-copy-1")
 		expect(mockCopyRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockRequireAnySectionRole).toHaveBeenCalledWith(fakeUser, "section-1")
 	})
 
-	it("rejects copy when user is not admin", async () => {
-		mockIsAdmin.mockReturnValue(false)
+	it("rejects copy when user lacks section role", async () => {
+		mockRequireAnySectionRole.mockImplementation(() => {
+			throw new Response("Forbidden", { status: 403 })
+		})
 
 		const fd = new FormData()
 		fd.set("intent", "copy")
 
-		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 403 } })
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
 		expect(mockCopyRoutine).not.toHaveBeenCalled()
 	})
 })
