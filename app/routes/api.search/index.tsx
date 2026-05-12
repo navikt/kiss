@@ -48,7 +48,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	}
 
 	const pattern = `%${query}%`
-	const limit = 8
+	const limit = 200
 
 	const [appResults, teamResults, sectionResults, riskResults, controlResults] = await Promise.all([
 		// Applications
