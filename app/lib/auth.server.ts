@@ -7,6 +7,7 @@ export interface UserRoleEntry {
 	role: UserRole
 	sectionId: string | null
 	devTeamId: string | null
+	devTeamSectionId: string | null
 }
 
 export interface NavUser {
@@ -89,6 +90,7 @@ async function loadDbRoles(navIdent: string): Promise<UserRoleEntry[]> {
 			role: r.role,
 			sectionId: r.sectionId,
 			devTeamId: r.devTeamId,
+			devTeamSectionId: r.devTeamSectionId,
 		}))
 	} catch {
 		// DB not available during startup/tests — fall back to empty roles

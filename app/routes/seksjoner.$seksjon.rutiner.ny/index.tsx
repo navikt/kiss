@@ -40,6 +40,7 @@ import {
 } from "~/db/schema/applications"
 import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType } from "~/db/schema/routines"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAnySectionRole } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
 	getStrictestFrequency,
@@ -73,7 +74,7 @@ interface PersistenceLinkItem {
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
-	requireUser(user)
+	const authedUser = requireUser(user)
 
 	const { seksjon } = params
 	if (!seksjon) {
@@ -84,6 +85,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!section) {
 		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 	}
+
+	requireAnySectionRole(authedUser, section.id)
 
 	const [globalQuestions, sectionQuestions, technologyElements, controls] = await Promise.all([
 		getScreeningQuestions({ status: "approved" }),
@@ -122,6 +125,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (!section) {
 		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 	}
+
+	requireAnySectionRole(authedUser, section.id)
 
 	const formData = await request.formData()
 	const name = formData.get("name")

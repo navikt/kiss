@@ -54,7 +54,7 @@ import {
 import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType, type RoutineStatus } from "~/db/schema/routines"
 import { screeningQuestionStatusConfig } from "~/db/schema/screening"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { canApproveRoutine, isAdmin, requireAdmin } from "~/lib/authorization.server"
+import { canApproveRoutine, isAdmin, requireAdmin, requireAnySectionRole } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
 	getStrictestFrequency,
@@ -97,6 +97,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+
+	requireAnySectionRole(authedUser, section.id)
 
 	const routine = await getRoutine(rutineId)
 	if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
@@ -151,9 +153,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) throw new Response("Mangler parametere", { status: 400 })
 
-	// Verify routine exists and belongs to the correct section
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+
+	requireAnySectionRole(authedUser, section.id)
 
 	const existingRoutine = await getRoutine(rutineId)
 	if (!existingRoutine) throw new Response("Rutine ikke funnet", { status: 404 })

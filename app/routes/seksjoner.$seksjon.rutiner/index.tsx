@@ -29,7 +29,7 @@ import {
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
+import { hasAnySectionRole } from "~/lib/authorization.server"
 import { frequencyLabels, getCompositeFrequencyLabel, type RoutineFrequency } from "~/lib/routine-frequencies"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -51,12 +51,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		section,
 		routines,
 		allControls,
-		canAdmin: user ? isAdmin(user) : false,
+		canEditRoutines: user ? hasAnySectionRole(user, section.id) : false,
 	})
 }
 
 export default function SeksjonRutinerIndex() {
-	const { section, routines, allControls, canAdmin } = useLoaderData<typeof loader>()
+	const { section, routines, allControls, canEditRoutines } = useLoaderData<typeof loader>()
 
 	const [searchQuery, setSearchQuery] = useState("")
 	const [filterControl, setFilterControl] = useState("")
@@ -196,7 +196,7 @@ export default function SeksjonRutinerIndex() {
 					<Button as={Link} to={`/seksjoner/${section.slug}/seksjonsrutiner`} variant="secondary" size="small">
 						Seksjonsrutiner
 					</Button>
-					{canAdmin && (
+					{canEditRoutines && (
 						<Button as={Link} to="./ny" variant="primary" size="small">
 							Opprett ny rutine
 						</Button>
@@ -410,7 +410,7 @@ export default function SeksjonRutinerIndex() {
 									</Table.DataCell>
 									<Table.DataCell>{routine.reviewCount}</Table.DataCell>
 									<Table.DataCell>
-										{canAdmin && (
+										{canEditRoutines && (
 											<Button as={Link} to={`./${routine.id}/rediger`} variant="tertiary" size="small">
 												Rediger
 											</Button>
