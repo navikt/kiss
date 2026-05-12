@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ParsedFramework } from "~/lib/excel-parser.server"
-import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase, truncateWithRetry } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
 	get db() {
@@ -91,25 +91,31 @@ describe("Applications integration tests", () => {
 	})
 
 	beforeEach(async () => {
-		const db = getTestDb()
-		await db.execute(
-			/* sql */ `
-			TRUNCATE
-				compliance_assessment_history, compliance_assessments,
-				application_control_history, application_controls,
-				dev_team_nais_team_mappings, application_team_mappings,
-				application_environments, section_environments,
-				section_ignored_applications, monitored_applications,
-				nais_teams, framework_field_history,
-				control_technology_elements, framework_risk_control_mappings,
-				framework_controls, framework_risks,
-				framework_domains, framework_versions,
-				user_roles, dev_teams,
-				clusters, sections,
-				audit_log
-			CASCADE
-		`,
-		)
+		await truncateWithRetry([
+			"compliance_assessment_history",
+			"compliance_assessments",
+			"application_control_history",
+			"application_controls",
+			"dev_team_nais_team_mappings",
+			"application_team_mappings",
+			"application_environments",
+			"section_environments",
+			"section_ignored_applications",
+			"monitored_applications",
+			"nais_teams",
+			"framework_field_history",
+			"control_technology_elements",
+			"framework_risk_control_mappings",
+			"framework_controls",
+			"framework_risks",
+			"framework_domains",
+			"framework_versions",
+			"user_roles",
+			"dev_teams",
+			"clusters",
+			"sections",
+			"audit_log",
+		])
 	})
 
 	it("should create a monitored application", async () => {

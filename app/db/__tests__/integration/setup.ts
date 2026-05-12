@@ -43,3 +43,30 @@ export function getTestDb() {
 export function getTestPool() {
 	return pool
 }
+
+/**
+ * Executes a TRUNCATE with retry on deadlock (error code 40P01).
+ * TRUNCATE acquires AccessExclusiveLock which can deadlock with concurrent
+ * read queries from the same test's async operations.
+ */
+export async function truncateWithRetry(tables: string[], maxRetries = 3): Promise<void> {
+	if (tables.length === 0) throw new Error("truncateWithRetry: tables array must not be empty")
+	const db = getTestDb()
+	const quoted = tables.map((t) => `"${t.replace(/"/g, '""')}"`)
+	const sql = `TRUNCATE ${quoted.join(", ")} CASCADE`
+	const retries = Number.isFinite(maxRetries) ? Math.max(1, Math.floor(maxRetries)) : 3
+	for (let attempt = 1; attempt <= retries; attempt++) {
+		try {
+			await db.execute(/* sql */ sql)
+			return
+		} catch (err: unknown) {
+			const pgErr = err as { code?: string; cause?: { code?: string } }
+			const code = pgErr.code ?? pgErr.cause?.code
+			if (code === "40P01" && attempt < retries) {
+				await new Promise((r) => setTimeout(r, 50 * 2 ** (attempt - 1)))
+				continue
+			}
+			throw err
+		}
+	}
+}
