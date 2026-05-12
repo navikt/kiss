@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm"
 import { integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
+import { ROUTINE_ACTIVITY_TYPES } from "../../lib/activity-types"
 import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
 import {
 	dataClassificationEnum,
@@ -13,52 +14,18 @@ import { frameworkControls, technologyElements } from "./framework"
 import { sections } from "./organization"
 import { screeningQuestions } from "./screening"
 
+export type { OracleEvidenceActivityType, RoutineActivityType } from "../../lib/activity-types"
+// Re-export activity type definitions from the DB-free module
+export {
+	ACTIVITY_TYPE_GROUPS,
+	activityTypeLabels,
+	isOracleEvidenceActivityType,
+	ORACLE_EVIDENCE_ACTIVITY_TYPES,
+	oracleEvidenceTypesForActivity,
+	ROUTINE_ACTIVITY_TYPES,
+} from "../../lib/activity-types"
+
 // ─── Routines ────────────────────────────────────────────────────────────
-
-export const ROUTINE_ACTIVITY_TYPES = [
-	"entra_id_group_maintenance",
-	"oracle_evidence_audit",
-	"oracle_evidence_profiles",
-	"oracle_evidence_roles",
-	"oracle_evidence_users",
-	"oracle_evidence_period",
-	"oracle_evidence_all",
-] as const
-export type RoutineActivityType = (typeof ROUTINE_ACTIVITY_TYPES)[number]
-
-export const ORACLE_EVIDENCE_ACTIVITY_TYPES = [
-	"oracle_evidence_audit",
-	"oracle_evidence_profiles",
-	"oracle_evidence_roles",
-	"oracle_evidence_users",
-	"oracle_evidence_period",
-	"oracle_evidence_all",
-] as const
-export type OracleEvidenceActivityType = (typeof ORACLE_EVIDENCE_ACTIVITY_TYPES)[number]
-
-export function isOracleEvidenceActivityType(type: string): type is OracleEvidenceActivityType {
-	return (ORACLE_EVIDENCE_ACTIVITY_TYPES as readonly string[]).includes(type)
-}
-
-export const activityTypeLabels: Record<RoutineActivityType, string> = {
-	entra_id_group_maintenance: "Entra ID-gruppevedlikehold",
-	oracle_evidence_audit: "Oracle Unified Audit-konfigurasjon",
-	oracle_evidence_profiles: "Oracle-profiler",
-	oracle_evidence_roles: "Oracle-roller",
-	oracle_evidence_users: "Oracle-brukere",
-	oracle_evidence_period: "Periodebasert gjennomgang",
-	oracle_evidence_all: "Samlet Oracle-revisjonsbevis",
-}
-
-/** Maps Oracle evidence activity types to the evidence types they cover */
-export const oracleEvidenceTypesForActivity: Record<OracleEvidenceActivityType, string[]> = {
-	oracle_evidence_audit: ["audit"],
-	oracle_evidence_profiles: ["profiles"],
-	oracle_evidence_roles: ["roles"],
-	oracle_evidence_users: ["users"],
-	oracle_evidence_period: ["period"],
-	oracle_evidence_all: ["audit", "profiles", "roles", "users", "period"],
-}
 
 export const routineStatusEnum = ["draft", "ready", "approved", "archived", "deleted"] as const
 export type RoutineStatus = (typeof routineStatusEnum)[number]
