@@ -4,69 +4,73 @@ import type React from "react"
 import { createRoutesStub } from "react-router"
 import { OracleEvidenceSection } from "../OracleEvidenceSection"
 
-// Mock evidence status returned by the status API route
+// Mock evidence status returned by the status API route (normalized EvidenceStatusResponse format)
 const mockEvidenceStatusResponse = {
-	instanceId: "PENSJON_PROD",
-	instanceName: "Pensjon Prod",
+	providerType: "oracle",
+	sourceLabel: "Pensjon Prod",
 	collectedAt: "2026-03-01T10:00:00Z",
-	reviewUrl: "https://pensjon-oracle-revisjon.ansatt.nav.no/PENSJON_PROD/audit/review",
-	evidenceTypes: [
+	externalUrl: "https://pensjon-oracle-revisjon.ansatt.nav.no/PENSJON_PROD/audit/review",
+	items: [
 		{
-			type: "audit",
-			title: "Oracle Unified Audit-konfigurasjon",
-			status: "OK",
-			formats: ["EXCEL", "PDF"],
-			available: true,
+			id: "audit",
+			label: "Oracle Unified Audit-konfigurasjon",
+			status: "ok",
+			formats: ["excel", "pdf"],
+			canDownload: true,
 			error: null,
-			review: null,
 		},
 		{
-			type: "profiles",
-			title: "Oracle-profiler",
-			status: "OK",
-			formats: ["EXCEL", "PDF"],
-			available: true,
+			id: "profiles",
+			label: "Oracle-profiler",
+			status: "ok",
+			formats: ["excel", "pdf"],
+			canDownload: true,
 			error: null,
-			review: null,
 		},
 		{
-			type: "roles",
-			title: "Oracle-roller",
-			status: "OK",
-			formats: ["EXCEL"],
-			available: true,
+			id: "roles",
+			label: "Oracle-roller",
+			status: "ok",
+			formats: ["excel"],
+			canDownload: true,
 			error: null,
-			review: null,
 		},
 		{
-			type: "users",
-			title: "Oracle-brukere",
-			status: "OK",
-			formats: ["EXCEL"],
-			available: true,
+			id: "users",
+			label: "Oracle-brukere",
+			status: "ok",
+			formats: ["excel"],
+			canDownload: true,
 			error: null,
-			review: null,
 		},
 		{
-			type: "period",
-			title: "Periodebasert gjennomgang",
-			status: "PARTIAL",
-			formats: ["EXCEL"],
-			available: true,
+			id: "period",
+			label: "Periodebasert gjennomgang",
+			status: "partial",
+			formats: ["excel"],
+			canDownload: true,
 			error: null,
-			review: { totalStatements: 1250, reviewedStatements: 800, unreviewedStatements: 450, reviewProgress: 64 },
+			details: {
+				review: {
+					totalStatements: 1250,
+					reviewedStatements: 800,
+					unreviewedStatements: 450,
+					reviewProgress: 64,
+				},
+			},
 		},
 	],
+	metadata: { instanceId: "PENSJON_PROD", instanceName: "Pensjon Prod" },
 }
 
 // Mock API routes needed by fetchers in OracleEvidenceSection
 const oracleApiRoutes = [
 	{
-		path: "/api/oracle-evidence-status",
+		path: "/api/evidence-status",
 		loader: () => mockEvidenceStatusResponse,
 	},
 	{
-		path: "/api/oracle-evidence-download",
+		path: "/api/evidence-download",
 		action: () => ({
 			success: true,
 			download: {

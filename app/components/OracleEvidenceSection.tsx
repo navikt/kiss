@@ -19,9 +19,18 @@ import {
 } from "@navikt/ds-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useFetcher, useRevalidator } from "react-router"
-import type { EvidenceStatus, EvidenceTypeStatus } from "~/lib/oracle-revisjon.server"
+import type { EvidenceStatusItem, EvidenceStatusResponse } from "~/lib/evidence-providers/types"
 
 // ─── Types ────────────────────────────────────────────────────────────────
+
+interface PeriodReview {
+	totalStatements: number
+	reviewedStatements: number
+	unreviewedStatements: number
+	reviewProgress: number
+	syncWatermarkUtc?: string | null
+	periodFullySynced?: boolean
+}
 
 interface ActivityProp {
 	id: string
@@ -76,11 +85,11 @@ function formatDate(dateStr: string): string {
 
 function statusVariant(status: string): "success" | "warning" | "error" {
 	switch (status) {
-		case "OK":
+		case "ok":
 			return "success"
-		case "PARTIAL":
+		case "partial":
 			return "warning"
-		case "FAILED":
+		case "failed":
 			return "error"
 		default:
 			return "warning"
@@ -89,12 +98,18 @@ function statusVariant(status: string): "success" | "warning" | "error" {
 
 function statusLabel(status: string): string {
 	switch (status) {
-		case "OK":
+		case "ok":
 			return "OK"
-		case "PARTIAL":
+		case "partial":
 			return "Delvis"
-		case "FAILED":
+		case "failed":
 			return "Feilet"
+		case "pending":
+			return "Venter"
+		case "processing":
+			return "Behandles"
+		case "not_available":
+			return "Ikke tilgjengelig"
 		default:
 			return status
 	}
@@ -173,7 +188,7 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 		status: string
 	}>({ open: false, evidenceType: "", format: "", status: "" })
 
-	const statusFetcher = useFetcher<EvidenceStatus>()
+	const statusFetcher = useFetcher<EvidenceStatusResponse | { error: string }>()
 	const downloadFetcher = useFetcher()
 	const revalidator = useRevalidator()
 
@@ -189,7 +204,7 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 		const params = new URLSearchParams({ instanceId: selectedInstance, activityId: activity.id })
 		if (fromDate) params.set("fromUtc", fromDate)
 		if (toDate) params.set("toUtc", toDate)
-		statusFetcherRef.current.load(`/api/oracle-evidence-status?${params.toString()}`)
+		statusFetcherRef.current.load(`/api/evidence-status?providerType=oracle&${params.toString()}`)
 	}, [selectedInstance, fromDate, toDate, activity.id])
 
 	useEffect(() => {
@@ -199,7 +214,8 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 	}, [selectedInstance, fetchStatus])
 
 	const statusFetcherData = statusFetcher.data
-	const evidenceStatus = statusFetcherData && "evidenceTypes" in statusFetcherData ? statusFetcherData : undefined
+	const evidenceStatus =
+		statusFetcherData && "items" in statusFetcherData ? (statusFetcherData as EvidenceStatusResponse) : undefined
 	const statusError =
 		statusFetcherData && "error" in statusFetcherData ? (statusFetcherData as { error: string }).error : undefined
 	const isLoadingStatus = statusFetcher.state === "loading"
@@ -209,7 +225,7 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 			? (downloadFetcher.data as { error: string }).error
 			: undefined
 
-	const filteredEvidenceTypes = evidenceStatus?.evidenceTypes.filter((et) => evidenceTypes.includes(et.type)) ?? []
+	const filteredEvidenceTypes = evidenceStatus?.items.filter((et) => evidenceTypes.includes(et.id)) ?? []
 
 	const handleDownload = useCallback(
 		(evidenceType: string, format: string, forceJustification?: string) => {
@@ -226,16 +242,17 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 				formData.set("forceFetchJustification", forceJustification)
 			}
 
-			downloadFetcher.submit(formData, { method: "POST", action: "/api/oracle-evidence-download" })
+			formData.set("providerType", "oracle")
+			downloadFetcher.submit(formData, { method: "POST", action: "/api/evidence-download" })
 		},
 		[evidenceStatus, selectedInstance, activity.id, fromDate, toDate, downloadFetcher],
 	)
 
 	const handleDownloadAttempt = useCallback(
 		(evidenceType: string, format: string) => {
-			const etStatus = filteredEvidenceTypes.find((et) => et.type === evidenceType)
-			if (!etStatus?.available) return
-			if (etStatus.status !== "OK") {
+			const etStatus = filteredEvidenceTypes.find((et) => et.id === evidenceType)
+			if (!etStatus?.canDownload) return
+			if (etStatus.status !== "ok") {
 				setForceFetchState({ open: true, evidenceType, format, status: etStatus.status })
 			} else {
 				handleDownload(evidenceType, format)
@@ -352,9 +369,9 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 					</HStack>
 
 					{/* Review URL */}
-					{evidenceStatus?.reviewUrl && (
+					{evidenceStatus?.externalUrl && (
 						<HStack gap="space-2">
-							<AkselLink href={evidenceStatus.reviewUrl} target="_blank" rel="noopener noreferrer">
+							<AkselLink href={evidenceStatus.externalUrl} target="_blank" rel="noopener noreferrer">
 								<HStack gap="space-2" align="center">
 									<ExternalLinkIcon aria-hidden />
 									Åpne gjennomgang i pensjon-oracle-revisjon
@@ -413,13 +430,10 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 					)}
 
 					{/* Period review progress */}
-					{evidenceStatus?.evidenceTypes
-						.filter(
-							(et): et is EvidenceTypeStatus & { review: NonNullable<EvidenceTypeStatus["review"]> } =>
-								et.type === "period" && et.review != null && evidenceTypes.includes("period"),
-						)
+					{evidenceStatus?.items
+						.filter((et) => et.id === "period" && et.details?.review != null && evidenceTypes.includes("period"))
 						.map((et) => (
-							<PeriodProgress key={et.type} review={et.review} />
+							<PeriodProgress key={et.id} review={et.details!.review as PeriodReview} />
 						))}
 				</VStack>
 			)}
@@ -475,7 +489,7 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 										<Table.DataCell>
 											<Button
 												as="a"
-												href={`/api/oracle-evidence-file/${d.id}`}
+												href={`/api/evidence-file/${d.id}`}
 												variant="tertiary"
 												size="xsmall"
 												icon={<DownloadIcon aria-hidden />}
@@ -513,7 +527,7 @@ function EvidenceStatusTable({
 	isDownloading,
 	onDownload,
 }: {
-	evidenceTypes: EvidenceTypeStatus[]
+	evidenceTypes: EvidenceStatusItem[]
 	isDraft: boolean
 	isDownloading: boolean
 	onDownload: (type: string, format: string) => void
@@ -532,11 +546,11 @@ function EvidenceStatusTable({
 				</Table.Header>
 				<Table.Body>
 					{evidenceTypes.map((et) => (
-						<Table.Row key={et.type}>
+						<Table.Row key={et.id}>
 							<Table.DataCell>
 								<VStack gap="space-1">
 									<BodyShort size="small" weight="semibold">
-										{et.title}
+										{et.label}
 									</BodyShort>
 								</VStack>
 							</Table.DataCell>
@@ -547,7 +561,7 @@ function EvidenceStatusTable({
 								{et.error && <Detail style={{ color: "var(--ax-text-danger)" }}>{et.error}</Detail>}
 							</Table.DataCell>
 							<Table.DataCell>
-								{et.available ? (
+								{et.canDownload ? (
 									<Tag variant="success" size="xsmall">
 										Ja
 									</Tag>
@@ -565,9 +579,9 @@ function EvidenceStatusTable({
 												key={fmt}
 												variant="tertiary"
 												size="xsmall"
-												onClick={() => onDownload(et.type, fmt.toLowerCase())}
+												onClick={() => onDownload(et.id, fmt)}
 												loading={isDownloading}
-												disabled={!et.available || isDownloading}
+												disabled={!et.canDownload || isDownloading}
 											>
 												Hent {fmt}
 											</Button>
@@ -583,7 +597,7 @@ function EvidenceStatusTable({
 	)
 }
 
-function PeriodProgress({ review }: { review: NonNullable<EvidenceTypeStatus["review"]> }) {
+function PeriodProgress({ review }: { review: PeriodReview }) {
 	const progressPct = review.reviewProgress.toFixed(1)
 	return (
 		<Alert variant={review.reviewProgress >= 100 ? "success" : "info"} size="small">

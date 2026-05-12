@@ -1,32 +1,14 @@
 import type { LoaderFunctionArgs } from "react-router"
-import { data } from "react-router"
-import { downloadEvidenceFileFromStorage, getSectionIdForDownload } from "~/db/queries/evidence-downloads.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { requireAnySectionRole } from "~/lib/authorization.server"
-import { requireUuid } from "~/lib/utils"
+import { data, redirect } from "react-router"
+import { isValidUuid } from "~/lib/utils"
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
-
-	const downloadId = requireUuid(params.downloadId, "downloadId")
-
-	const sectionId = await getSectionIdForDownload(downloadId)
-	if (!sectionId) {
-		throw data({ error: "Fant ikke nedlastet fil" }, { status: 404 })
+/**
+ * @deprecated Use /api/evidence-file/:downloadId instead.
+ * Redirects to the generic evidence file route.
+ */
+export async function loader({ params }: LoaderFunctionArgs) {
+	if (!params.downloadId || !isValidUuid(params.downloadId)) {
+		throw data({ error: "Ugyldig downloadId" }, { status: 400 })
 	}
-	requireAnySectionRole(authedUser, sectionId)
-
-	const result = await downloadEvidenceFileFromStorage(downloadId)
-	if (!result) {
-		throw data({ error: "Fant ikke nedlastet fil" }, { status: 404 })
-	}
-
-	return new Response(new Uint8Array(result.buffer), {
-		headers: {
-			"Content-Type": result.contentType,
-			"Content-Disposition": `attachment; filename="${result.fileName.replace(/[^\x20-\x7E]|["\\]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
-			"Content-Length": result.buffer.length.toString(),
-		},
-	})
+	return redirect(`/api/evidence-file/${params.downloadId}`)
 }
