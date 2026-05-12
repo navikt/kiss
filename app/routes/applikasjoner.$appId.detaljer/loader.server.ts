@@ -266,8 +266,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		),
 	])
 	const oracleRoles = oracleRoleResults.flatMap((result) => {
-		if (result.status !== "fulfilled") return []
+		if (result.status !== "fulfilled") {
+			console.log("[oracle-access-debug] role fetch failed:", result.reason)
+			return []
+		}
 		const { instanceId, instanceName, roles } = result.value
+		console.log("[oracle-access-debug] roles for", instanceId, ":", {
+			totalRoles: roles.length,
+			afterFilter: roles.filter(shouldAssessRole).length,
+			roleNames: roles.map((r) => r.name),
+		})
 		return roles.filter(shouldAssessRole).map((r) => {
 			const key = `${instanceId}:${r.name.toUpperCase().trim()}`
 			const assessment = roleAssessments[key]
