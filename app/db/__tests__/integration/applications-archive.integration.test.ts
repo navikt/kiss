@@ -152,7 +152,7 @@ describe("Application archive (soft-delete) integration tests", () => {
 		)
 		const sectionId = (sectionRow.rows[0] as { id: string }).id
 		await db.execute(
-			/* sql */ `INSERT INTO section_environments (section_id, cluster, included) VALUES ('${sectionId}', 'dev-gcp', false)`,
+			/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${sectionId}', 'dev-gcp', false, 'test', 'test')`,
 		)
 		// Create nais team in that section
 		const teamRow = await db.execute(
