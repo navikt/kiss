@@ -74,6 +74,25 @@ type ActionResult = {
 	intent?: string
 }
 
+function getNullableString(value: unknown): string | null {
+	return typeof value === "string" ? value : null
+}
+
+function parseOracleProviderMetadata(providerMetadata: Record<string, unknown>) {
+	const instanceId = getNullableString(providerMetadata.instanceId)
+	const evidenceType = getNullableString(providerMetadata.evidenceType)
+
+	if (!instanceId || !evidenceType) {
+		return null
+	}
+
+	return {
+		instanceId,
+		evidenceType,
+		apiInstanceName: getNullableString(providerMetadata.apiInstanceName),
+	}
+}
+
 export async function loader({ params }: LoaderFunctionArgs) {
 	const { seksjon, rutineId, gjennomgangId } = params
 	if (!seksjon || !rutineId || !gjennomgangId) {
@@ -178,26 +197,39 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	if (activity && isOracleEvidenceActivityType(activity.type) && review.applicationId) {
 		const { getOracleInstancesForApp } = await import("~/db/queries/audit-evidence.server")
-		const { getEvidenceDownloadsForActivity } = await import("~/db/queries/evidence-downloads.server")
+		const { getEvidenceDownloadsForActivityWithBucketDetails } = await import("~/db/queries/evidence-downloads.server")
 		const [configuredInstances, downloads] = await Promise.all([
 			getOracleInstancesForApp(review.applicationId),
-			getEvidenceDownloadsForActivity(activity.id),
+			getEvidenceDownloadsForActivityWithBucketDetails(activity.id),
 		])
 		oracleEvidenceData = {
 			configuredInstances: configuredInstances.map((i) => ({ instanceId: i.instanceId })),
-			downloads: downloads.map((d) => ({
-				id: d.id,
-				instanceId: d.instanceId,
-				evidenceType: d.evidenceType,
-				format: d.format,
-				fileName: d.fileName,
-				sizeBytes: d.sizeBytes,
-				source: d.source,
-				apiInstanceName: d.apiInstanceName,
-				forceFetchJustification: d.forceFetchJustification,
-				performedBy: d.performedBy,
-				performedAt: d.performedAt.toISOString(),
-			})),
+			downloads: downloads
+				.map((d) => {
+					if (d.providerType !== "oracle") {
+						return null
+					}
+
+					const oracleMetadata = parseOracleProviderMetadata(d.providerMetadata)
+					if (!oracleMetadata) {
+						return null
+					}
+
+					return {
+						id: d.id,
+						instanceId: oracleMetadata.instanceId,
+						evidenceType: oracleMetadata.evidenceType,
+						format: d.format,
+						fileName: d.fileName,
+						sizeBytes: d.sizeBytes,
+						source: d.source,
+						apiInstanceName: oracleMetadata.apiInstanceName,
+						forceFetchJustification: d.forceFetchJustification,
+						performedBy: d.performedBy,
+						performedAt: d.performedAt.toISOString(),
+					}
+				})
+				.filter((download): download is NonNullable<typeof download> => download !== null),
 			evidenceTypes: oracleEvidenceTypesForActivity[activity.type as OracleEvidenceActivityType],
 		}
 	}
