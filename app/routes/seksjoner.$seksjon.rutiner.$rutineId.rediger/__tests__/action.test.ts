@@ -124,6 +124,34 @@ beforeEach(() => {
 })
 
 describe("routine edit guards", () => {
+	it("calls requireAnySectionRole with the resolved section ID", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine())
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "Test")
+		fd.set("frequency", "annually")
+
+		await callAction(fd).catch(() => {})
+		expect(mockRequireAnySectionRole).toHaveBeenCalledWith(fakeUser, fakeSection.id)
+	})
+
+	it("rejects users without a section role with 403", async () => {
+		mockGetAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
+		mockRequireUser.mockReturnValue(fakeNonAdminUser)
+		mockRequireAnySectionRole.mockImplementation(() => {
+			throw new Response("Ikke autorisert", { status: 403 })
+		})
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "Test")
+		fd.set("frequency", "annually")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockGetRoutine).not.toHaveBeenCalled()
+	})
+
 	it("rejects editing an approved routine with 403", async () => {
 		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "approved" }))
 
