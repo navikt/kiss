@@ -40,7 +40,7 @@ import {
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { canApproveRoutine, isAdmin } from "~/lib/authorization.server"
+import { canApproveRoutine, hasAnySectionRole, isAdmin, requireAnySectionRole } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
 
@@ -122,6 +122,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
 	const userCanApprove = user ? canApproveRoutine(user, effectiveRole, section.id) : false
 	const userCanAdmin = user ? isAdmin(user) : false
+	const userCanEdit = user ? hasAnySectionRole(user, section.id) : false
 
 	return data({
 		section,
@@ -132,6 +133,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		descriptionHtml: renderMarkdown(routine.description),
 		userCanApprove,
 		userCanAdmin,
+		userCanEdit,
 		effectiveRole,
 	})
 }
@@ -171,9 +173,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "copy") {
-		if (!isAdmin(authedUser)) {
-			throw data({ message: "Kun admin kan kopiere rutiner" }, { status: 403 })
-		}
+		requireAnySectionRole(authedUser, section.id)
 		const copy = await copyRoutine(rutineId, authedUser.navIdent)
 		if (!copy) throw data({ message: "Kunne ikke kopiere rutine" }, { status: 500 })
 		return redirect(`/seksjoner/${seksjon}/rutiner/${copy.id}/rediger`)
@@ -207,6 +207,7 @@ export default function RutineDetaljer() {
 		descriptionHtml,
 		userCanApprove,
 		userCanAdmin,
+		userCanEdit,
 		effectiveRole,
 	} = useLoaderData<typeof loader>()
 	const fetcher = useFetcher()
@@ -263,7 +264,7 @@ export default function RutineDetaljer() {
 								Rediger
 							</Button>
 						)}
-						{!routine.archivedAt && routine.status === "approved" && userCanAdmin && (
+						{!routine.archivedAt && routine.status === "approved" && userCanEdit && (
 							<fetcher.Form method="post">
 								<input type="hidden" name="intent" value="copy" />
 								<Button type="submit" variant="secondary" size="small" loading={fetcher.state !== "idle"}>
