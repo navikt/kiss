@@ -9,7 +9,6 @@ const ORACLE_REVISJON_BASE_URL = process.env.ORACLE_REVISJON_BASE_URL
 export interface OracleInstance {
 	id: string
 	name: string
-	schema: string
 	type: string
 	group: string | null
 }
@@ -104,17 +103,16 @@ const MOCK_ORACLE_GROUP = "1e97cbc6-0687-4d23-aebd-c611035279c1"
 
 function getMockInstances(): OracleInstance[] {
 	const schemas = [
-		{ prefix: "pen", schema: "PEN", type: "pensjon" },
-		{ prefix: "sam", schema: "SAM", type: "samordning" },
-		{ prefix: "tp", schema: "TP", type: "tjenestepensjon" },
+		{ prefix: "pen", type: "pensjon" },
+		{ prefix: "sam", type: "samordning" },
+		{ prefix: "tp", type: "tjenestepensjon" },
 	]
 	const environments = ["", "_q0", "_q1", "_q5"]
 
-	return schemas.flatMap(({ prefix, schema, type }) =>
+	return schemas.flatMap(({ prefix, type }) =>
 		environments.map((env) => ({
 			id: `${prefix}${env}`,
 			name: `${prefix}${env}`.toUpperCase(),
-			schema: `${schema}${env.toUpperCase()}`,
 			type,
 			group: env === "" ? MOCK_ORACLE_GROUP : null,
 		})),
@@ -306,7 +304,7 @@ export async function getOracleInstances(): Promise<OracleInstance[]> {
 		return getMockInstances()
 	}
 
-	const response = await fetchWithAuth("/api/m2m/audit/evidence/instances")
+	const response = await fetchWithAuth("/api/m2m/evidence/instances")
 	return (await response.json()) as OracleInstance[]
 }
 
@@ -316,9 +314,7 @@ export async function getAuditEvidence(instanceId: string): Promise<AuditEvidenc
 		return getMockEvidence(instanceId)
 	}
 
-	const response = await fetchWithAuth("/api/m2m/audit/evidence", {
-		"X-Instance-Id": instanceId,
-	})
+	const response = await fetchWithAuth(`/api/m2m/${encodeURIComponent(instanceId)}/evidence/audit`)
 	return (await response.json()) as AuditEvidence
 }
 
@@ -328,9 +324,7 @@ export async function getAuditEvidenceExcel(instanceId: string): Promise<Buffer>
 		return Buffer.alloc(0)
 	}
 
-	const response = await fetchWithAuth("/api/m2m/audit/evidence/excel", {
-		"X-Instance-Id": instanceId,
-	})
+	const response = await fetchWithAuth(`/api/m2m/${encodeURIComponent(instanceId)}/evidence/audit/excel`)
 	const arrayBuffer = await response.arrayBuffer()
 	return Buffer.from(arrayBuffer)
 }
@@ -345,35 +339,11 @@ export async function getAuditEvidenceSummary(instanceId: string): Promise<Audit
 	if (cached !== undefined) return cached
 
 	try {
-		if (!ORACLE_REVISJON_SCOPE || !ORACLE_REVISJON_BASE_URL) {
-			return null
-		}
-
-		const token = await getClientCredentialToken(ORACLE_REVISJON_SCOPE)
-		const url = `${ORACLE_REVISJON_BASE_URL}/api/m2m/audit/evidence/summary`
-
-		logger.debug("Fetching audit evidence summary", { instanceId, url })
-
-		const response = await fetch(url, {
-			headers: {
-				Authorization: `Bearer ${token}`,
-				"X-Instance-Id": instanceId,
-			},
-		})
+		const response = await fetchWithAuth(`/api/m2m/${encodeURIComponent(instanceId)}/evidence/audit/summary`)
 
 		if (response.status === 204) {
 			logger.info("Audit evidence summary not available (204)", { instanceId })
 			setCachedSummary(instanceId, null)
-			return null
-		}
-
-		if (!response.ok) {
-			const text = await response.text()
-			logger.error("Audit evidence summary request failed", {
-				instanceId,
-				status: response.status,
-				body: text,
-			})
 			return null
 		}
 
@@ -402,7 +372,7 @@ export async function getOracleRoles(instanceId: string): Promise<OracleRolesRes
 			return null
 		}
 
-		const response = await fetchWithAuth(`/api/m2m/${encodeURIComponent(instanceId)}/roles`)
+		const response = await fetchWithAuth(`/api/m2m/${encodeURIComponent(instanceId)}/evidence/roles`)
 		const data = (await response.json()) as OracleRolesResponse
 		rolesCache.set(instanceId, { data, fetchedAt: Date.now() })
 		return data
