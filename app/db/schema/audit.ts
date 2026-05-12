@@ -197,6 +197,11 @@ export const auditLogActionEnum = [
 	"audit_summary_synced",
 	"deployment_verification_synced",
 
+	// Oracle evidence downloads
+	"evidence_downloaded",
+	"evidence_uploaded",
+	"evidence_force_downloaded",
+
 	// Rapporter
 	"report_generated",
 

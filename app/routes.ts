@@ -144,4 +144,7 @@ export default [
 	route("api/graph/groups", "routes/api.graph.groups/index.tsx"),
 	route("api/graph/users", "routes/api.graph.users/index.tsx"),
 	route("api/sync-application-controls", "routes/api.sync-application-controls/index.tsx"),
+	route("api/oracle-evidence-status", "routes/api.oracle-evidence-status/index.tsx"),
+	route("api/oracle-evidence-download", "routes/api.oracle-evidence-download/index.tsx"),
+	route("api/oracle-evidence-file/:downloadId", "routes/api.oracle-evidence-file.$downloadId/index.tsx"),
 ] satisfies RouteConfig

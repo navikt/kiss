@@ -72,6 +72,11 @@ export function renderWithLayout<T>(
 		isAuditor: options?.isAuditor ?? false,
 	})
 
+	const extraChildren = (options?.extraRoutes ?? []).map((r) => ({
+		...r,
+		path: r.path.replace(/^\//, ""),
+	}))
+
 	const Stub = createRoutesStub([
 		{
 			path: "/",
@@ -85,9 +90,9 @@ export function renderWithLayout<T>(
 					Component,
 					loader: () => loaderData,
 				},
+				...extraChildren,
 			],
 		},
-		...(options?.extraRoutes ?? []),
 	])
 	return <Stub initialEntries={[options?.initialEntry ?? path]} />
 }

@@ -37,6 +37,7 @@ import {
 import { AutoUploadDropzone } from "~/components/AutoUploadDropzone"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
+import { OracleEvidenceSection } from "~/components/OracleEvidenceSection"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
@@ -54,6 +55,11 @@ import {
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applications"
+import {
+	isOracleEvidenceActivityType,
+	type OracleEvidenceActivityType,
+	oracleEvidenceTypesForActivity,
+} from "~/db/schema/routines"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
@@ -151,6 +157,51 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	}
 
+	// Load Oracle evidence data for oracle_evidence_* activity types
+	let oracleEvidenceData: {
+		configuredInstances: Array<{ instanceId: string }>
+		downloads: Array<{
+			id: string
+			instanceId: string
+			evidenceType: string
+			format: string
+			fileName: string
+			sizeBytes: number | null
+			source: string
+			apiInstanceName: string | null
+			forceFetchJustification: string | null
+			performedBy: string
+			performedAt: string
+		}>
+		evidenceTypes: string[]
+	} | null = null
+
+	if (activity && isOracleEvidenceActivityType(activity.type) && review.applicationId) {
+		const { getOracleInstancesForApp } = await import("~/db/queries/audit-evidence.server")
+		const { getEvidenceDownloadsForActivity } = await import("~/db/queries/evidence-downloads.server")
+		const [configuredInstances, downloads] = await Promise.all([
+			getOracleInstancesForApp(review.applicationId),
+			getEvidenceDownloadsForActivity(activity.id),
+		])
+		oracleEvidenceData = {
+			configuredInstances: configuredInstances.map((i) => ({ instanceId: i.instanceId })),
+			downloads: downloads.map((d) => ({
+				id: d.id,
+				instanceId: d.instanceId,
+				evidenceType: d.evidenceType,
+				format: d.format,
+				fileName: d.fileName,
+				sizeBytes: d.sizeBytes,
+				source: d.source,
+				apiInstanceName: d.apiInstanceName,
+				forceFetchJustification: d.forceFetchJustification,
+				performedBy: d.performedBy,
+				performedAt: d.performedAt.toISOString(),
+			})),
+			evidenceTypes: oracleEvidenceTypesForActivity[activity.type as OracleEvidenceActivityType],
+		}
+	}
+
 	return data({
 		section,
 		routine,
@@ -166,6 +217,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				}
 			: null,
 		entraGroupsData,
+		oracleEvidenceData,
 		review: {
 			...review,
 			applicationName,
@@ -1101,7 +1153,7 @@ function CompleteSection() {
 }
 
 export default function GjennomgangDetalj() {
-	const { section, routine, review, activity, entraGroupsData } = useLoaderData<typeof loader>()
+	const { section, routine, review, activity, entraGroupsData, oracleEvidenceData } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const confirmedCount = review.participants.filter((p) => p.confirmedAt).length
 	const isDraft = review.status === "draft"
@@ -1329,6 +1381,11 @@ export default function GjennomgangDetalj() {
 			{/* Entra ID-gruppevedlikehold */}
 			{activity?.type === "entra_id_group_maintenance" && entraGroupsData && (
 				<EntraMaintenanceSection activity={activity} entraGroupsData={entraGroupsData} isDraft={isDraft} />
+			)}
+
+			{/* Oracle revisjonsbevis */}
+			{activity && isOracleEvidenceActivityType(activity.type) && oracleEvidenceData && (
+				<OracleEvidenceSection activity={activity} oracleEvidenceData={oracleEvidenceData} isDraft={isDraft} />
 			)}
 
 			{/* Vedlegg */}

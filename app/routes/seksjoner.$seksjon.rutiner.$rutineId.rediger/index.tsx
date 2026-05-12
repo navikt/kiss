@@ -865,7 +865,17 @@ export default function RedigerRutine() {
 						size="small"
 					>
 						<option value="">Ingen</option>
-						<option value="entra_id_group_maintenance">Entra ID-gruppevedlikehold</option>
+						<optgroup label="Entra ID">
+							<option value="entra_id_group_maintenance">Entra ID-gruppevedlikehold</option>
+						</optgroup>
+						<optgroup label="Oracle revisjonsbevis">
+							<option value="oracle_evidence_audit">Oracle Unified Audit-konfigurasjon</option>
+							<option value="oracle_evidence_profiles">Oracle-profiler</option>
+							<option value="oracle_evidence_roles">Oracle-roller</option>
+							<option value="oracle_evidence_users">Oracle-brukere</option>
+							<option value="oracle_evidence_period">Periodebasert gjennomgang</option>
+							<option value="oracle_evidence_all">Samlet Oracle-revisjonsbevis</option>
+						</optgroup>
 					</Select>
 
 					<HStack gap="space-4">
