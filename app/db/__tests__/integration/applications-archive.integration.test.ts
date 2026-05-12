@@ -64,6 +64,9 @@ describe("Application archive (soft-delete) integration tests", () => {
 			DELETE FROM application_environments;
 			DELETE FROM application_persistence;
 			DELETE FROM monitored_applications;
+			DELETE FROM dev_team_nais_team_mappings;
+			DELETE FROM nais_teams;
+			DELETE FROM section_environments;
 			DELETE FROM dev_teams;
 			DELETE FROM sections;
 			DELETE FROM audit_log;
@@ -139,6 +142,31 @@ describe("Application archive (soft-delete) integration tests", () => {
 		const db = getTestDb()
 		const row = await db.execute(/* sql */ `SELECT archived_at FROM monitored_applications WHERE id = '${appId}'`)
 		expect(row.rows[0].archived_at).toBeNull()
+	})
+
+	it("allows archive when all environments are in excluded clusters", async () => {
+		const db = getTestDb()
+		// Create section with excluded cluster
+		const sectionRow = await db.execute(
+			/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('ExclSec', 'excl-sec', 'test', 'test') RETURNING id`,
+		)
+		const sectionId = (sectionRow.rows[0] as { id: string }).id
+		await db.execute(
+			/* sql */ `INSERT INTO section_environments (section_id, cluster, included) VALUES ('${sectionId}', 'dev-gcp', false)`,
+		)
+		// Create nais team in that section
+		const teamRow = await db.execute(
+			/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('excluded-team', '${sectionId}') RETURNING id`,
+		)
+		const naisTeamId = (teamRow.rows[0] as { id: string }).id
+		// Create app with environment in the excluded cluster
+		const appId = await createTestApp("Excluded Env App")
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', 'dev-gcp', 'excluded-team', '${naisTeamId}')`,
+		)
+
+		const archived = await archiveApplication(appId, "admin")
+		expect(archived.archivedAt).not.toBeNull()
 	})
 
 	it("rejects archive when application has linked (child) apps", async () => {
