@@ -590,6 +590,17 @@ export async function addChoiceEffect(params: {
 	return eff
 }
 
+/** Verify that an effect belongs to a specific question (via choice → question join). */
+export async function isEffectOwnedByQuestion(effectId: string, questionId: string): Promise<boolean> {
+	const [result] = await db
+		.select({ id: screeningChoiceEffects.id })
+		.from(screeningChoiceEffects)
+		.innerJoin(screeningQuestionChoices, eq(screeningChoiceEffects.choiceId, screeningQuestionChoices.id))
+		.where(and(eq(screeningChoiceEffects.id, effectId), eq(screeningQuestionChoices.questionId, questionId)))
+		.limit(1)
+	return !!result
+}
+
 /**
  * Logisk arkivering av en choice-effect (kontroll-konsekvens av et valg).
  * Audit-logg skrives i samme transaksjon. Idempotent.

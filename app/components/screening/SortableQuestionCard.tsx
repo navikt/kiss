@@ -38,14 +38,19 @@ export function SortableQuestionCard({
 	question: q,
 	index,
 	editPath,
+	canEdit = true,
 	onDelete,
 }: {
 	question: QuestionItem
 	index: number
 	editPath: string
+	canEdit?: boolean
 	onDelete: () => void
 }) {
-	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: q.id })
+	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+		id: q.id,
+		disabled: !canEdit,
+	})
 	const isArchived = !!q.archivedAt
 	const effectiveStatus = isArchived ? "archived" : q.status
 
@@ -68,23 +73,25 @@ export function SortableQuestionCard({
 				{/* Header row */}
 				<HStack justify="space-between" align="start" wrap gap="space-4">
 					<HStack gap="space-4" align="center">
-						<button
-							type="button"
-							{...attributes}
-							{...listeners}
-							style={{
-								cursor: isDragging ? "grabbing" : "grab",
-								background: "none",
-								border: "none",
-								padding: "4px",
-								display: "flex",
-								alignItems: "center",
-								color: "var(--ax-text-subtle)",
-							}}
-							aria-label={`Dra for å endre rekkefølge: ${q.questionText}`}
-						>
-							<DragVerticalIcon aria-hidden fontSize="1.25rem" />
-						</button>
+						{canEdit && (
+							<button
+								type="button"
+								{...attributes}
+								{...listeners}
+								style={{
+									cursor: isDragging ? "grabbing" : "grab",
+									background: "none",
+									border: "none",
+									padding: "4px",
+									display: "flex",
+									alignItems: "center",
+									color: "var(--ax-text-subtle)",
+								}}
+								aria-label={`Dra for å endre rekkefølge: ${q.questionText}`}
+							>
+								<DragVerticalIcon aria-hidden fontSize="1.25rem" />
+							</button>
+						)}
 						<Tag variant="neutral" size="small">
 							#{index + 1}
 						</Tag>
@@ -100,37 +107,39 @@ export function SortableQuestionCard({
 							)
 						})()}
 					</HStack>
-					<HStack gap="space-2">
-						{!isArchived && (
-							<Button
-								as={Link}
-								to={`${editPath}/${q.id}/rediger`}
-								size="xsmall"
-								variant="tertiary-neutral"
-								icon={<PencilIcon aria-hidden />}
-							>
-								Rediger
-							</Button>
-						)}
-						{isArchived ? (
-							<Form method="post">
-								<input type="hidden" name="intent" value="unarchiveQuestion" />
-								<input type="hidden" name="questionId" value={q.id} />
+					{canEdit && (
+						<HStack gap="space-2">
+							{!isArchived && (
 								<Button
-									type="submit"
+									as={Link}
+									to={`${editPath}/${q.id}/rediger`}
 									size="xsmall"
 									variant="tertiary-neutral"
-									icon={<ArrowsCirclepathIcon aria-hidden />}
+									icon={<PencilIcon aria-hidden />}
 								>
-									Reaktiver
+									Rediger
 								</Button>
-							</Form>
-						) : (
-							<Button size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />} onClick={onDelete}>
-								Arkiver
-							</Button>
-						)}
-					</HStack>
+							)}
+							{isArchived ? (
+								<Form method="post">
+									<input type="hidden" name="intent" value="unarchiveQuestion" />
+									<input type="hidden" name="questionId" value={q.id} />
+									<Button
+										type="submit"
+										size="xsmall"
+										variant="tertiary-neutral"
+										icon={<ArrowsCirclepathIcon aria-hidden />}
+									>
+										Reaktiver
+									</Button>
+								</Form>
+							) : (
+								<Button size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />} onClick={onDelete}>
+									Arkiver
+								</Button>
+							)}
+						</HStack>
+					)}
 				</HStack>
 
 				{/* Description */}

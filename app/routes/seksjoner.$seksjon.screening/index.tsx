@@ -12,6 +12,8 @@ import {
 	archiveScreeningQuestion,
 	getChoiceEffects,
 	getChoicesForQuestion,
+	getScreeningQuestion,
+	getScreeningQuestionsByIds,
 	getSectionScreeningQuestions,
 	reorderScreeningQuestions,
 	unarchiveScreeningQuestion,
@@ -19,13 +21,12 @@ import {
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { screeningQuestionStatusConfig } from "~/db/schema/screening"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
+import { hasAnySectionRole, requireAnySectionRole } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
+import { requireUuid } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
 
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
@@ -33,7 +34,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
 
-	const questions = await getSectionScreeningQuestions(section.id, { includeArchived: true })
+	const canEdit = user ? hasAnySectionRole(user, section.id) : false
+
+	const questions = await getSectionScreeningQuestions(section.id, { includeArchived: canEdit })
 
 	const questionsWithEffects = await Promise.all(
 		questions.map(async (q) => {
@@ -54,36 +57,76 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const screeningBasePath = `/seksjoner/${seksjon}/screening`
 
-	return data({ questions: questionsWithEffects, seksjon, sectionName: section.name, screeningBasePath })
+	return data({ questions: questionsWithEffects, seksjon, sectionName: section.name, screeningBasePath, canEdit })
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request, params }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
+
+	const seksjon = params.seksjon
+	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
+	const section = await getSectionBySlug(seksjon)
+	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+	requireAnySectionRole(authedUser, section.id)
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
 
-	if (intent === "archiveQuestion") {
-		const questionId = formData.get("questionId") as string
-		if (!questionId) throw new Response("Mangler ID", { status: 400 })
-		await archiveScreeningQuestion(questionId, authedUser.navIdent)
-	} else if (intent === "unarchiveQuestion") {
-		const questionId = formData.get("questionId") as string
-		if (!questionId) throw new Response("Mangler ID", { status: 400 })
-		await unarchiveScreeningQuestion(questionId, authedUser.navIdent)
-	} else if (intent === "reorder") {
-		const orderedIds = JSON.parse(formData.get("orderedIds") as string) as string[]
-		if (!Array.isArray(orderedIds)) throw new Response("Ugyldig data", { status: 400 })
-		await reorderScreeningQuestions(orderedIds, authedUser.navIdent)
+	switch (intent) {
+		case "archiveQuestion": {
+			const questionId = requireUuid(formData.get("questionId"), "questionId")
+			const question = await getScreeningQuestion(questionId)
+			if (!question || question.sectionId !== section.id)
+				throw new Response("Spørsmålet tilhører ikke denne seksjonen", { status: 403 })
+			await archiveScreeningQuestion(questionId, authedUser.navIdent)
+			break
+		}
+		case "unarchiveQuestion": {
+			const questionId = requireUuid(formData.get("questionId"), "questionId")
+			const question = await getScreeningQuestion(questionId)
+			if (!question || question.sectionId !== section.id)
+				throw new Response("Spørsmålet tilhører ikke denne seksjonen", { status: 403 })
+			await unarchiveScreeningQuestion(questionId, authedUser.navIdent)
+			break
+		}
+		case "reorder": {
+			let orderedIds: string[]
+			try {
+				orderedIds = JSON.parse(formData.get("orderedIds") as string) as string[]
+			} catch {
+				throw new Response("Ugyldig JSON i orderedIds", { status: 400 })
+			}
+			if (!Array.isArray(orderedIds)) throw new Response("Ugyldig data", { status: 400 })
+			if (new Set(orderedIds).size !== orderedIds.length)
+				throw new Response("orderedIds inneholder duplikate IDer", { status: 400 })
+			for (const id of orderedIds) requireUuid(id, "orderedIds-element")
+			const questions = await getScreeningQuestionsByIds(orderedIds)
+			if (questions.length !== orderedIds.length)
+				throw new Response("Noen spørsmåls-IDer ble ikke funnet", { status: 400 })
+			if (questions.some((q) => q.sectionId !== section.id))
+				throw new Response("Noen spørsmål tilhører ikke denne seksjonen", { status: 403 })
+			const allSectionQuestions = await getSectionScreeningQuestions(section.id, { includeArchived: true })
+			if (orderedIds.length !== allSectionQuestions.length)
+				throw new Response("orderedIds må inneholde alle spørsmål i seksjonen", { status: 400 })
+			await reorderScreeningQuestions(orderedIds, authedUser.navIdent)
+			break
+		}
+		default:
+			throw new Response(`Ukjent intent: ${intent}`, { status: 400 })
 	}
 
 	return data({ success: true })
 }
 
 export default function SectionScreening() {
-	const { questions: loaderQuestions, seksjon, sectionName, screeningBasePath } = useLoaderData<typeof loader>()
+	const {
+		questions: loaderQuestions,
+		seksjon,
+		sectionName,
+		screeningBasePath,
+		canEdit,
+	} = useLoaderData<typeof loader>()
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
 	const [deleteTarget, setDeleteTarget] = useState<{ id: string; text: string } | null>(null)
 	const [questions, setQuestions] = useState(loaderQuestions)
@@ -150,15 +193,17 @@ export default function SectionScreening() {
 						>
 							Eksporter
 						</Button>
-						<Button
-							as={Link}
-							to={`${screeningBasePath}/ny/rediger`}
-							size="small"
-							variant="secondary"
-							icon={<PlusIcon aria-hidden />}
-						>
-							Nytt spørsmål
-						</Button>
+						{canEdit && (
+							<Button
+								as={Link}
+								to={`${screeningBasePath}/ny/rediger`}
+								size="small"
+								variant="secondary"
+								icon={<PlusIcon aria-hidden />}
+							>
+								Nytt spørsmål
+							</Button>
+						)}
 					</HStack>
 				</HStack>
 				<BodyLong>
@@ -208,6 +253,7 @@ export default function SectionScreening() {
 									question={q}
 									index={index}
 									editPath={screeningBasePath}
+									canEdit={canEdit}
 									onDelete={() => {
 										setDeleteTarget({ id: q.id, text: q.questionText })
 										deleteModalRef.current?.showModal()

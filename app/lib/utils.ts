@@ -15,3 +15,16 @@ export function slugify(text: string) {
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/(^-|-$)/g, "")
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Validate that a value is a valid UUID string. Accepts `unknown` for type-safe usage with formData/JSON. */
+export function isValidUuid(value: unknown): value is string {
+	return typeof value === "string" && UUID_RE.test(value)
+}
+
+/** Validate UUID format, throwing a 400 Response if invalid. Accepts `unknown` for type-safe usage with formData/JSON. */
+export function requireUuid(value: unknown, label = "ID"): string {
+	if (!isValidUuid(value)) throw new Response(`Ugyldig ${label}-format`, { status: 400 })
+	return value
+}

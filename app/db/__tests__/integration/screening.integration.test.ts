@@ -33,6 +33,7 @@ const {
 	getQuestionTechnologyElements,
 	changeScreeningQuestionStatus,
 	getScreeningDataForApp,
+	isEffectOwnedByQuestion,
 } = await import("~/db/queries/screening.server")
 
 async function createApp(name: string) {
@@ -543,6 +544,49 @@ describe("screening.server integration tests", () => {
 			const result = await getScreeningDataForApp(appId)
 			expect(result.questions).toHaveLength(1)
 			expect(result.questions[0].questionText).toBe("No tech links?")
+		})
+	})
+
+	describe("isEffectOwnedByQuestion", () => {
+		it("returnerer true når effect tilhører spørsmålet via choice", async () => {
+			const sectionId = await createSectionRow("effect-own")
+			await createControl("K-EO.01")
+			const q = await createScreeningQuestion("Eier-test?", null, "test", sectionId)
+			const choice = await createChoice({ questionId: q.id, label: "Ja" })
+			const effect = await addChoiceEffect({
+				choiceId: choice.id,
+				controlTextId: "K-EO.01",
+				effect: "positive",
+				comment: null,
+			})
+
+			const result = await isEffectOwnedByQuestion(effect.id, q.id)
+			expect(result).toBe(true)
+		})
+
+		it("returnerer false når effect tilhører et annet spørsmål", async () => {
+			const sectionId = await createSectionRow("effect-own2")
+			await createControl("K-EO.02")
+			const q1 = await createScreeningQuestion("Spørsmål 1?", null, "test", sectionId)
+			const q2 = await createScreeningQuestion("Spørsmål 2?", null, "test", sectionId)
+			const choice1 = await createChoice({ questionId: q1.id, label: "Ja" })
+			const effect = await addChoiceEffect({
+				choiceId: choice1.id,
+				controlTextId: "K-EO.02",
+				effect: "positive",
+				comment: null,
+			})
+
+			const result = await isEffectOwnedByQuestion(effect.id, q2.id)
+			expect(result).toBe(false)
+		})
+
+		it("returnerer false for ikke-eksisterende effect-ID", async () => {
+			const sectionId = await createSectionRow("effect-own3")
+			const q = await createScreeningQuestion("Finnes ikke?", null, "test", sectionId)
+
+			const result = await isEffectOwnedByQuestion("00000000-0000-0000-0000-000000000000", q.id)
+			expect(result).toBe(false)
 		})
 	})
 })
