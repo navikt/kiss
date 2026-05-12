@@ -518,11 +518,19 @@ function getMockEvidenceCatalog(): EvidenceCatalog {
 function getMockEvidenceStatus(instanceId: string, fromUtc?: string, toUtc?: string): EvidenceStatus {
 	const instances = getMockEvidenceInstances()
 	const instance = instances.find((i) => i.id === instanceId) ?? instances[0]
+	const queryString = fromUtc
+		? (() => {
+				const params = new URLSearchParams()
+				params.set("fromUtc", fromUtc)
+				params.set("toUtc", toUtc ?? fromUtc)
+				return `?${params.toString()}`
+			})()
+		: ""
 	return {
 		instanceId,
 		instanceName: instance.name,
 		collectedAt: new Date().toISOString(),
-		reviewUrl: `https://pensjon-oracle-revisjon.ansatt.nav.no/${instanceId}/audit/review${fromUtc ? `?fromUtc=${fromUtc}&toUtc=${toUtc}` : ""}`,
+		reviewUrl: `https://pensjon-oracle-revisjon.ansatt.nav.no/${instanceId}/audit/review${queryString}`,
 		evidenceTypes: [
 			{
 				type: "audit",
