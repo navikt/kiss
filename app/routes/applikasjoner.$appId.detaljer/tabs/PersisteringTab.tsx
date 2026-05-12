@@ -70,8 +70,8 @@ export function PersisteringTab({
 
 			{inaccessibleOracleGroups.length > 0 && (
 				<Alert variant="info">
-					Du mangler tilgang til å se Oracle-roller for noen databaseinstanser. For å få tilgang, be om medlemskap
-					i følgende Entra ID-gruppe{inaccessibleOracleGroups.length > 1 ? "r" : ""}:
+					Du mangler tilgang til å se Oracle-roller for noen databaseinstanser. For å få tilgang, be om medlemskap i
+					følgende Entra ID-gruppe{inaccessibleOracleGroups.length > 1 ? "r" : ""}:
 					<List>
 						{inaccessibleOracleGroups.map((g) => (
 							<List.Item key={g.id}>{g.name}</List.Item>
