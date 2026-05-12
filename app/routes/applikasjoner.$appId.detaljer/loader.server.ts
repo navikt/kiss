@@ -375,7 +375,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 					instanceId,
 					instanceName: meta?.name ?? instanceId.toUpperCase(),
 					instanceType: meta?.type ?? null,
-					instanceSchema: meta?.schema ?? null,
 					instanceGroup: meta?.group ?? null,
 					snapshots: history.map((s) => ({
 						id: s.id,

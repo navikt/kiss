@@ -186,10 +186,9 @@ describe("oracle-revisjon.server", () => {
 			const result = await getAuditEvidenceSummary("pen")
 
 			expect(result).toEqual(mockSummary)
-			expect(fetch).toHaveBeenCalledWith("https://oracle-revisjon.test/api/m2m/audit/evidence/summary", {
+			expect(fetch).toHaveBeenCalledWith("https://oracle-revisjon.test/api/m2m/pen/evidence/audit/summary", {
 				headers: {
 					Authorization: "Bearer mock-token",
-					"X-Instance-Id": "pen",
 				},
 			})
 		})
@@ -201,7 +200,7 @@ describe("oracle-revisjon.server", () => {
 			vi.stubGlobal(
 				"fetch",
 				vi.fn().mockResolvedValue({
-					ok: false,
+					ok: true,
 					status: 204,
 					text: () => Promise.resolve(""),
 				}),
@@ -284,7 +283,7 @@ describe("oracle-revisjon.server", () => {
 			process.env.ORACLE_REVISJON_SCOPE = "api://test-scope/.default"
 
 			const fetchMock = vi.fn().mockResolvedValue({
-				ok: false,
+				ok: true,
 				status: 204,
 				text: () => Promise.resolve(""),
 			})
