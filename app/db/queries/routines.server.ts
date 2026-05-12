@@ -24,6 +24,10 @@ import {
 } from "../schema/framework"
 import {
 	type EntraChangeType,
+	FOLLOW_UP_POINT_STATUSES,
+	type FollowUpPointAttachmentKind,
+	type FollowUpPointStatus,
+	type ReviewStatus,
 	type RoutineActivityType,
 	type RoutineStatus,
 	routineControls,
@@ -33,6 +37,8 @@ import {
 	routineReviewActivities,
 	routineReviewActivityEntraChanges,
 	routineReviewAttachments,
+	routineReviewFollowUpPointAttachments,
+	routineReviewFollowUpPoints,
 	routineReviewLinks,
 	routineReviewParticipants,
 	routineReviews,
@@ -1152,7 +1158,7 @@ async function enrichReviewsBatch(reviews: (typeof routineReviews.$inferSelect)[
 
 	const reviewIds = reviews.map((r) => r.id)
 
-	const [allParticipants, allAttachments, allLinks] = await Promise.all([
+	const [allParticipants, allAttachments, allLinks, allFollowUps] = await Promise.all([
 		db
 			.select()
 			.from(routineReviewParticipants)
@@ -1167,7 +1173,29 @@ async function enrichReviewsBatch(reviews: (typeof routineReviews.$inferSelect)[
 			.from(routineReviewLinks)
 			.where(and(inArray(routineReviewLinks.reviewId, reviewIds), isNull(routineReviewLinks.archivedAt)))
 			.orderBy(routineReviewLinks.addedAt),
+		db
+			.select()
+			.from(routineReviewFollowUpPoints)
+			.where(inArray(routineReviewFollowUpPoints.reviewId, reviewIds))
+			.orderBy(routineReviewFollowUpPoints.createdAt),
 	])
+
+	const followUpIds = allFollowUps.map((f) => f.id)
+	const allFollowUpAttachments =
+		followUpIds.length > 0
+			? await db
+					.select()
+					.from(routineReviewFollowUpPointAttachments)
+					.where(inArray(routineReviewFollowUpPointAttachments.pointId, followUpIds))
+					.orderBy(routineReviewFollowUpPointAttachments.uploadedAt)
+			: []
+
+	const attachmentsByPoint = new Map<string, (typeof allFollowUpAttachments)[number][]>()
+	for (const a of allFollowUpAttachments) {
+		const arr = attachmentsByPoint.get(a.pointId) ?? []
+		arr.push(a)
+		attachmentsByPoint.set(a.pointId, arr)
+	}
 
 	const participantsByReview = new Map<string, (typeof allParticipants)[number][]>()
 	for (const p of allParticipants) {
@@ -1190,11 +1218,22 @@ async function enrichReviewsBatch(reviews: (typeof routineReviews.$inferSelect)[
 		linksByReview.set(l.reviewId, arr)
 	}
 
+	const followUpsByReview = new Map<string, (typeof allFollowUps)[number][]>()
+	for (const f of allFollowUps) {
+		const arr = followUpsByReview.get(f.reviewId) ?? []
+		arr.push(f)
+		followUpsByReview.set(f.reviewId, arr)
+	}
+
 	return reviews.map((review) => ({
 		...review,
 		participants: participantsByReview.get(review.id) ?? [],
 		attachments: attachmentsByReview.get(review.id) ?? [],
 		links: linksByReview.get(review.id) ?? [],
+		followUpPoints: (followUpsByReview.get(review.id) ?? []).map((f) => ({
+			...f,
+			attachments: attachmentsByPoint.get(f.id) ?? [],
+		})),
 	}))
 }
 
@@ -1316,7 +1355,7 @@ export async function updateReview(
 ) {
 	const existing = await getReview(reviewId)
 	if (!existing) return null
-	if (existing.status === "completed") return null
+	if (existing.status !== "draft") return null
 
 	const updates: Record<string, unknown> = {}
 	if (params.title !== undefined) updates.title = params.title
@@ -1343,9 +1382,10 @@ export async function updateReview(
 				status: 403,
 			})
 		}
-		if (snapshot.reviewStatus === "completed") {
-			// Status endret seg fra ikke-completed (pre-check) til completed
-			// inne i tx-vinduet (samtidig completeReview-race) → 409 Conflict.
+		if (snapshot.reviewStatus !== "draft") {
+			// Status endret seg fra draft til noe annet (fullført / needs_follow_up
+			// / discarded) inne i tx-vinduet (samtidig completeReview / discard
+			// race) → 409 Conflict.
 			throw new Response("Gjennomgangen kan ikke endres lenger (status endret seg).", { status: 409 })
 		}
 
@@ -1460,7 +1500,21 @@ export async function updateReview(
 export async function completeReview(reviewId: string, performedBy: string) {
 	const existing = await getReview(reviewId)
 	if (!existing) return null
-	if (existing.status === "completed") return existing
+	if (existing.status !== "draft") return existing
+
+	// Forretningsinvariant: alle oppfølgingspunkter må ha en lagret beskrivelse
+	// før gjennomgangen kan fullføres. Dette sikrer at hvert punkt er
+	// tilstrekkelig dokumentert for senere oppfølging.
+	const pointsMissingDescription = existing.followUpPoints.filter(
+		(p) => !p.description || p.description.trim().length === 0,
+	)
+	if (pointsMissingDescription.length > 0) {
+		throw new Response(
+			"Alle oppfølgingspunkter må ha en beskrivelse før gjennomgangen kan fullføres. Mangler beskrivelse på: " +
+				pointsMissingDescription.map((p) => p.text).join(", "),
+			{ status: 400 },
+		)
+	}
 
 	// Bygg Entra-snapshot UTENFOR tx (eksternt HTTP-kall mot Microsoft Graph).
 	// Selve activity-completion + status-UPDATE går inn i samme tx for å
@@ -1475,7 +1529,7 @@ export async function completeReview(reviewId: string, performedBy: string) {
 	// med FOR SHARE-lås på foreldre-rutinen så samtidig archiveRoutine()
 	// blokkeres til vår tx er ferdig. Audit + compliance-sync hopper over
 	// hvis status-UPDATE matchet 0 rader (samtidig completion-race).
-	const statusChanged = await db.transaction(async (tx) => {
+	const result = await db.transaction(async (tx) => {
 		const [archiveStatus] = await tx
 			.select({ archivedAt: routines.archivedAt })
 			.from(routineReviews)
@@ -1495,32 +1549,51 @@ export async function completeReview(reviewId: string, performedBy: string) {
 			await completeReviewActivity(activity.id, snapshotAfter, performedBy, tx)
 		}
 
+		// Hvis det finnes uadresserte oppfølgingspunkter blir status
+		// `needs_follow_up` heller enn `completed`. Når alle punktene
+		// senere markeres som fullført/ikke relevant flyttes status til
+		// `completed` av `updateFollowUpPointStatus`, som re-evaluerer
+		// gjennomgangsstatusen basert på gjenværende uadresserte punkter.
+		const unresolvedFollowUps = await tx
+			.select({ id: routineReviewFollowUpPoints.id })
+			.from(routineReviewFollowUpPoints)
+			.where(
+				and(
+					eq(routineReviewFollowUpPoints.reviewId, reviewId),
+					eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
+				),
+			)
+			.limit(1)
+		const newStatus: "completed" | "needs_follow_up" = unresolvedFollowUps.length > 0 ? "needs_follow_up" : "completed"
+
 		const updated = await tx
 			.update(routineReviews)
-			.set({ status: "completed" })
-			.where(and(eq(routineReviews.id, reviewId), ne(routineReviews.status, "completed")))
+			.set({ status: newStatus })
+			.where(and(eq(routineReviews.id, reviewId), eq(routineReviews.status, "draft")))
 			.returning({ id: routineReviews.id })
 
 		// Status endret seg mellom pre-check og UPDATE (samtidig completeReview)
 		// → hopp over audit; en annen request har allerede skrevet completion.
-		if (updated.length === 0) return false
+		if (updated.length === 0) return { statusChanged: false, newStatus }
 
 		await writeAuditLog(
 			{
 				action: "routine_review_completed",
 				entityType: "routine_review",
 				entityId: reviewId,
-				newValue: "completed",
+				newValue: newStatus,
 				performedBy,
 			},
 			tx,
 		)
-		return true
+		return { statusChanged: true, newStatus }
 	})
 
 	// Sync materialiserte compliance-kontroller — utenfor tx fordi det er
-	// en stor batch-operasjon. Kjør kun hvis vi faktisk fullførte review-en.
-	if (statusChanged) {
+	// en stor batch-operasjon. Kjør kun hvis review faktisk ble `completed`
+	// (ikke `needs_follow_up`); compliance-syncen skal trigges senere
+	// av recomputeReviewStatus() når alle oppfølgingspunkter er adressert.
+	if (result.statusChanged && result.newStatus === "completed") {
 		if (existing.applicationId) {
 			const { syncApplicationControls } = await import("./application-controls.server")
 			await syncApplicationControls(existing.applicationId, performedBy)
@@ -1614,6 +1687,439 @@ export async function getRoutineArchivedStatusByReviewId(
 		.where(eq(routineReviews.id, reviewId))
 		.limit(1)
 	return row ?? null
+}
+
+// ─── Review Follow-up Points ─────────────────────────────────────────────
+
+/**
+ * Legger til et oppfølgingspunkt på en gjennomgang. Tillatt for
+ * gjennomganger med status `draft` eller `needs_follow_up` — i sistnevnte
+ * tilfelle kan brukerne legge til nye punkter som oppdages under arbeidet
+ * med oppfølgingen. Punkter legges som `needs_follow_up` som default. Hvis
+ * man legger til på en allerede `completed` review settes statusen tilbake
+ * til `needs_follow_up` (og motsatt: når alle punkter er adressert
+ * triggers `recomputeReviewStatus` til `completed`).
+ */
+export async function addFollowUpPoint(params: {
+	reviewId: string
+	text: string
+	description?: string | null
+	performedBy: string
+}) {
+	const { reviewId, text, description, performedBy } = params
+	const trimmed = text.trim()
+	if (!trimmed) {
+		throw new Response("Oppfølgingspunkt kan ikke være tomt", { status: 400 })
+	}
+	const trimmedDescription = description?.trim() || null
+
+	const inserted = await db.transaction(async (tx) => {
+		const [snapshot] = await tx
+			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, reviewId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (!snapshot) {
+			throw new Response("Gjennomgang ikke funnet", { status: 404 })
+		}
+		if (snapshot.archivedAt) {
+			throw new Response("Kan ikke legge til oppfølgingspunkt på en arkivert rutine. Reaktiver rutinen først.", {
+				status: 403,
+			})
+		}
+		if (snapshot.reviewStatus === "discarded") {
+			throw new Response("Kan ikke legge til oppfølgingspunkt på en kassert gjennomgang.", { status: 409 })
+		}
+
+		const [row] = await tx
+			.insert(routineReviewFollowUpPoints)
+			.values({
+				reviewId,
+				text: trimmed,
+				description: trimmedDescription,
+				status: "needs_follow_up",
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
+			.returning()
+
+		// Hvis review allerede var completed (alle tidligere punkter løst),
+		// flytt den tilbake til needs_follow_up siden vi nå har et åpent punkt.
+		if (snapshot.reviewStatus === "completed") {
+			await tx.update(routineReviews).set({ status: "needs_follow_up" }).where(eq(routineReviews.id, reviewId))
+		}
+
+		await writeAuditLog(
+			{
+				action: "review_follow_up_added",
+				entityType: "review_follow_up_point",
+				entityId: row.id,
+				newValue: trimmed,
+				metadata: { reviewId },
+				performedBy,
+			},
+			tx,
+		)
+
+		return { row, prevReviewStatus: snapshot.reviewStatus }
+	})
+
+	// Hvis review gikk fra completed → needs_follow_up må compliance-status
+	// re-synkroniseres (review teller ikke lenger som fullført).
+	if (inserted.prevReviewStatus === "completed") {
+		await syncComplianceForReview(reviewId, performedBy)
+	}
+
+	return inserted.row
+}
+
+/**
+ * Oppdaterer teksten på et oppfølgingspunkt. Kun tillatt så lenge
+ * gjennomgangen er i `draft` (etter completion er teksten låst for
+ * å bevare historikk).
+ */
+export async function updateFollowUpPointText(params: {
+	pointId: string
+	expectedReviewId: string
+	text: string
+	performedBy: string
+}) {
+	const { pointId, expectedReviewId, text, performedBy } = params
+	const trimmed = text.trim()
+	if (!trimmed) {
+		throw new Response("Oppfølgingspunkt kan ikke være tomt", { status: 400 })
+	}
+
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(routineReviewFollowUpPoints)
+			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.limit(1)
+		if (!existing || existing.reviewId !== expectedReviewId) {
+			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
+		}
+
+		const [snapshot] = await tx
+			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, expectedReviewId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (!snapshot) {
+			throw new Response("Gjennomgang ikke funnet", { status: 404 })
+		}
+		if (snapshot.archivedAt) {
+			throw new Response("Kan ikke endre oppfølgingspunkt på en arkivert rutine.", { status: 403 })
+		}
+		if (snapshot.reviewStatus !== "draft") {
+			throw new Response("Teksten på et oppfølgingspunkt kan kun endres mens gjennomgangen er utkast.", {
+				status: 409,
+			})
+		}
+
+		if (existing.text === trimmed) {
+			return existing
+		}
+
+		const [updated] = await tx
+			.update(routineReviewFollowUpPoints)
+			.set({ text: trimmed, updatedBy: performedBy, updatedAt: new Date() })
+			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "review_follow_up_updated",
+				entityType: "review_follow_up_point",
+				entityId: pointId,
+				previousValue: existing.text,
+				newValue: trimmed,
+				metadata: { reviewId: expectedReviewId },
+				performedBy,
+			},
+			tx,
+		)
+
+		return updated
+	})
+}
+
+/**
+ * Oppdaterer beskrivelsen (utdypende tekst) på et oppfølgingspunkt.
+ * Tillatt kun mens gjennomgangen er `draft` — så snart gjennomgangen er
+ * fullført (også når den har status `needs_follow_up` med åpne punkter)
+ * låses beskrivelsen for å bevare historikk. En tom verdi tolkes som
+ * «ingen beskrivelse» (NULL).
+ */
+export async function updateFollowUpPointDescription(params: {
+	pointId: string
+	expectedReviewId: string
+	description: string | null
+	performedBy: string
+}) {
+	const { pointId, expectedReviewId, description, performedBy } = params
+	const trimmed = description?.trim() || null
+
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(routineReviewFollowUpPoints)
+			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.limit(1)
+		if (!existing || existing.reviewId !== expectedReviewId) {
+			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
+		}
+
+		const [snapshot] = await tx
+			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, expectedReviewId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (!snapshot) {
+			throw new Response("Gjennomgang ikke funnet", { status: 404 })
+		}
+		if (snapshot.archivedAt) {
+			throw new Response("Kan ikke endre oppfølgingspunkt på en arkivert rutine.", { status: 403 })
+		}
+		if (snapshot.reviewStatus !== "draft") {
+			throw new Response("Beskrivelse kan kun endres mens gjennomgangen er utkast.", {
+				status: 409,
+			})
+		}
+
+		const [updated] = await tx
+			.update(routineReviewFollowUpPoints)
+			.set({ description: trimmed, updatedBy: performedBy, updatedAt: new Date() })
+			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "review_follow_up_description_updated",
+				entityType: "review_follow_up_point",
+				entityId: pointId,
+				previousValue: existing.description,
+				newValue: trimmed,
+				metadata: { reviewId: expectedReviewId },
+				performedBy,
+			},
+			tx,
+		)
+
+		return updated
+	})
+}
+
+/**
+ * Oppdaterer status på et oppfølgingspunkt og re-evaluerer review-status:
+ * Hvis review er `needs_follow_up` og alle punkter nå er adressert
+ * (`completed`/`not_relevant`) flyttes review til `completed` og
+ * compliance-status synkroniseres.
+ */
+export async function updateFollowUpPointStatus(params: {
+	pointId: string
+	expectedReviewId: string
+	status: FollowUpPointStatus
+	resolution?: string | null
+	performedBy: string
+}) {
+	const { pointId, expectedReviewId, status, resolution, performedBy } = params
+	if (!FOLLOW_UP_POINT_STATUSES.includes(status)) {
+		throw new Response("Ugyldig status", { status: 400 })
+	}
+	const resolutionProvided = resolution !== undefined
+	const trimmedResolution = resolutionProvided ? resolution?.trim() || null : undefined
+
+	const result = await db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(routineReviewFollowUpPoints)
+			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.limit(1)
+		if (!existing || existing.reviewId !== expectedReviewId) {
+			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
+		}
+
+		const [snapshot] = await tx
+			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, expectedReviewId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (!snapshot) {
+			throw new Response("Gjennomgang ikke funnet", { status: 404 })
+		}
+		if (snapshot.archivedAt) {
+			throw new Response("Kan ikke endre oppfølgingspunkt på en arkivert rutine.", { status: 403 })
+		}
+		if (snapshot.reviewStatus === "discarded") {
+			throw new Response("Kan ikke endre oppfølgingspunkt på en kassert gjennomgang.", { status: 409 })
+		}
+
+		const statusChanged = existing.status !== status
+		const resolutionChanged = resolutionProvided && (existing.resolution ?? null) !== (trimmedResolution ?? null)
+
+		if (!statusChanged && !resolutionChanged) {
+			return { previousReviewStatus: snapshot.reviewStatus, newReviewStatus: snapshot.reviewStatus }
+		}
+
+		const isResolving = status !== "needs_follow_up"
+		const setValues: {
+			status: FollowUpPointStatus
+			updatedBy: string
+			updatedAt: Date
+			resolvedAt?: Date | null
+			resolvedBy?: string | null
+			resolution?: string | null
+		} = {
+			status,
+			updatedBy: performedBy,
+			updatedAt: new Date(),
+		}
+		if (statusChanged) {
+			setValues.resolvedAt = isResolving ? new Date() : null
+			setValues.resolvedBy = isResolving ? performedBy : null
+		}
+		if (resolutionProvided) {
+			setValues.resolution = trimmedResolution ?? null
+		}
+
+		await tx.update(routineReviewFollowUpPoints).set(setValues).where(eq(routineReviewFollowUpPoints.id, pointId))
+
+		if (statusChanged) {
+			await writeAuditLog(
+				{
+					action: "review_follow_up_status_changed",
+					entityType: "review_follow_up_point",
+					entityId: pointId,
+					previousValue: existing.status,
+					newValue: status,
+					metadata: {
+						reviewId: expectedReviewId,
+						...(resolutionProvided ? { resolution: trimmedResolution } : {}),
+					},
+					performedBy,
+				},
+				tx,
+			)
+		}
+		if (resolutionChanged) {
+			await writeAuditLog(
+				{
+					action: "review_follow_up_resolution_updated",
+					entityType: "review_follow_up_point",
+					entityId: pointId,
+					previousValue: existing.resolution,
+					newValue: trimmedResolution ?? null,
+					metadata: { reviewId: expectedReviewId },
+					performedBy,
+				},
+				tx,
+			)
+		}
+
+		// Recompute review-status hvis review er i et oppfølgingsfølsomt
+		// stadium (needs_follow_up eller completed). Draft skal forbli draft.
+		let newReviewStatus = snapshot.reviewStatus
+		if (snapshot.reviewStatus === "needs_follow_up" || snapshot.reviewStatus === "completed") {
+			const unresolved = await tx
+				.select({ id: routineReviewFollowUpPoints.id })
+				.from(routineReviewFollowUpPoints)
+				.where(
+					and(
+						eq(routineReviewFollowUpPoints.reviewId, expectedReviewId),
+						eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
+					),
+				)
+				.limit(1)
+			const target: "completed" | "needs_follow_up" = unresolved.length > 0 ? "needs_follow_up" : "completed"
+			if (target !== snapshot.reviewStatus) {
+				await tx.update(routineReviews).set({ status: target }).where(eq(routineReviews.id, expectedReviewId))
+				newReviewStatus = target
+			}
+		}
+
+		return { previousReviewStatus: snapshot.reviewStatus, newReviewStatus }
+	})
+
+	if (result.previousReviewStatus !== result.newReviewStatus) {
+		await syncComplianceForReview(expectedReviewId, performedBy)
+	}
+}
+
+/**
+ * Sletter et oppfølgingspunkt. Kun tillatt mens gjennomgangen er i `draft`.
+ * Etter completion bevares punkter for historikkens skyld.
+ */
+export async function deleteFollowUpPoint(params: { pointId: string; expectedReviewId: string; performedBy: string }) {
+	const { pointId, expectedReviewId, performedBy } = params
+
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(routineReviewFollowUpPoints)
+			.where(eq(routineReviewFollowUpPoints.id, pointId))
+			.limit(1)
+		if (!existing || existing.reviewId !== expectedReviewId) {
+			throw new Response("Oppfølgingspunkt ikke funnet", { status: 404 })
+		}
+
+		const [snapshot] = await tx
+			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, expectedReviewId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (!snapshot) {
+			throw new Response("Gjennomgang ikke funnet", { status: 404 })
+		}
+		if (snapshot.archivedAt) {
+			throw new Response("Kan ikke slette oppfølgingspunkt på en arkivert rutine.", { status: 403 })
+		}
+		if (snapshot.reviewStatus !== "draft") {
+			throw new Response("Oppfølgingspunkt kan kun slettes mens gjennomgangen er utkast.", { status: 409 })
+		}
+
+		await tx.delete(routineReviewFollowUpPoints).where(eq(routineReviewFollowUpPoints.id, pointId))
+
+		await writeAuditLog(
+			{
+				action: "review_follow_up_deleted",
+				entityType: "review_follow_up_point",
+				entityId: pointId,
+				previousValue: existing.text,
+				metadata: { reviewId: expectedReviewId, status: existing.status },
+				performedBy,
+			},
+			tx,
+		)
+
+		return existing
+	})
+}
+
+/** Synkroniser compliance-kontroller etter at en gjennomgang har fått ny status. */
+async function syncComplianceForReview(reviewId: string, performedBy: string) {
+	const review = await getReview(reviewId)
+	if (!review) return
+	if (review.applicationId) {
+		const { syncApplicationControls } = await import("./application-controls.server")
+		await syncApplicationControls(review.applicationId, performedBy)
+	} else {
+		const routine = await getRoutine(review.routineId)
+		if (routine?.isSectionRoutine === 1 && routine.sectionId) {
+			const { triggerSyncForSection } = await import("./application-controls.server")
+			triggerSyncForSection(routine.sectionId, performedBy)
+		}
+	}
 }
 
 // ─── Review Links ────────────────────────────────────────────────────────
@@ -1777,6 +2283,68 @@ export async function addReviewAttachment(params: {
 		entityId: attachment.id,
 		newValue: params.fileName,
 		metadata: { reviewId: params.reviewId, contentType: params.contentType },
+		performedBy: params.uploadedBy,
+	})
+
+	return attachment
+}
+
+/**
+ * Henter et oppfølgingspunkt-vedlegg med arkivert-status for foreldre-rutinen
+ * og status for gjennomgangen. Brukes som soft-delete-/access-guard ved
+ * opplasting av nye vedlegg.
+ */
+export async function getFollowUpPointAttachmentContext(pointId: string): Promise<{
+	pointId: string
+	reviewId: string
+	routineId: string
+	reviewStatus: ReviewStatus
+	routineArchivedAt: Date | null
+} | null> {
+	const [row] = await db
+		.select({
+			pointId: routineReviewFollowUpPoints.id,
+			reviewId: routineReviewFollowUpPoints.reviewId,
+			routineId: routines.id,
+			reviewStatus: routineReviews.status,
+			routineArchivedAt: routines.archivedAt,
+		})
+		.from(routineReviewFollowUpPoints)
+		.innerJoin(routineReviews, eq(routineReviewFollowUpPoints.reviewId, routineReviews.id))
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+		.where(eq(routineReviewFollowUpPoints.id, pointId))
+		.limit(1)
+	return row ?? null
+}
+
+export async function addFollowUpPointAttachment(params: {
+	pointId: string
+	kind: FollowUpPointAttachmentKind
+	fileName: string
+	bucketPath: string
+	contentType: string
+	sizeBytes: number | null
+	uploadedBy: string
+}) {
+	const [attachment] = await db
+		.insert(routineReviewFollowUpPointAttachments)
+		.values({
+			pointId: params.pointId,
+			kind: params.kind,
+			fileName: params.fileName,
+			bucketPath: params.bucketPath,
+			contentType: params.contentType,
+			sizeBytes: params.sizeBytes,
+			uploadedBy: params.uploadedBy,
+		})
+		.returning()
+
+	await writeAuditLog({
+		action: "review_follow_up_attachment_uploaded",
+		entityType: "routine_review_follow_up_point_attachment",
+		entityId: attachment.id,
+		newValue: params.fileName,
+		metadata: { pointId: params.pointId, kind: params.kind, contentType: params.contentType },
 		performedBy: params.uploadedBy,
 	})
 
@@ -2161,6 +2729,62 @@ export async function getLatestSectionReview(routineId: string) {
 		.limit(1)
 
 	return review ?? null
+}
+
+/**
+ * Returns the latest review (any non-discarded status) for a given
+ * routine + application. Used for UI labels like «Må følges opp» that
+ * reflect the actual most recent gjennomgang regardless of completion
+ * state. Deadline / compliance calculations should keep using
+ * `getLatestReviewForApp` which is filtered to `completed`.
+ */
+export async function getLatestNonDiscardedReviewForApp(routineId: string, applicationId: string) {
+	const [review] = await db
+		.select()
+		.from(routineReviews)
+		.where(
+			and(
+				eq(routineReviews.routineId, routineId),
+				eq(routineReviews.applicationId, applicationId),
+				ne(routineReviews.status, "discarded"),
+			),
+		)
+		.orderBy(desc(routineReviews.reviewedAt))
+		.limit(1)
+
+	return review ?? null
+}
+
+/** Section-level (applicationId IS NULL) variant of `getLatestNonDiscardedReviewForApp`. */
+export async function getLatestNonDiscardedSectionReview(routineId: string) {
+	const [review] = await db
+		.select()
+		.from(routineReviews)
+		.where(
+			and(
+				eq(routineReviews.routineId, routineId),
+				isNull(routineReviews.applicationId),
+				ne(routineReviews.status, "discarded"),
+			),
+		)
+		.orderBy(desc(routineReviews.reviewedAt))
+		.limit(1)
+
+	return review ?? null
+}
+
+/**
+ * Returnerer settet av applicationId-er (eller `null` for seksjonsnivå) som har minst
+ * én gjennomgang med status `needs_follow_up` for gitt rutine. Brukes til å vise
+ * «Må følges opp»-badge på rutinestatus så lenge det finnes uadresserte punkter,
+ * uavhengig av om siste gjennomgang er fullført.
+ */
+export async function getRoutineFollowUpApplicationIds(routineId: string): Promise<Set<string | null>> {
+	const rows = await db
+		.selectDistinct({ applicationId: routineReviews.applicationId })
+		.from(routineReviews)
+		.where(and(eq(routineReviews.routineId, routineId), eq(routineReviews.status, "needs_follow_up")))
+	return new Set(rows.map((r) => r.applicationId))
 }
 
 /**

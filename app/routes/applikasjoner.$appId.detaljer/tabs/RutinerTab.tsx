@@ -30,6 +30,7 @@ type RoutineDeadline = {
 	deadline: Date | string | null
 	lastReviewDate: Date | string | null
 	overdue: boolean
+	needsFollowUp?: boolean
 	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
@@ -308,19 +309,26 @@ export function RutinerTab({
 														{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
 													</Table.DataCell>
 													<Table.DataCell>
-														{dl.overdue ? (
-															<Tag variant="error" size="small">
-																Over frist
-															</Tag>
-														) : dl.lastReviewDate ? (
-															<Tag variant="success" size="small">
-																OK
-															</Tag>
-														) : (
-															<Tag variant="warning" size="small">
-																Ikke gjennomført
-															</Tag>
-														)}
+														<HStack gap="space-2" align="center" wrap>
+															{dl.overdue ? (
+																<Tag variant="error" size="small">
+																	Over frist
+																</Tag>
+															) : dl.lastReviewDate ? (
+																<Tag variant="success" size="small">
+																	OK
+																</Tag>
+															) : (
+																<Tag variant="warning" size="small">
+																	Ikke gjennomført
+																</Tag>
+															)}
+															{dl.needsFollowUp && (
+																<Tag variant="warning" size="small">
+																	Må følges opp
+																</Tag>
+															)}
+														</HStack>
 													</Table.DataCell>
 													<Table.DataCell>
 														{dl.isSectionRoutine ? (
@@ -452,13 +460,24 @@ export function RutinerTab({
 											)}
 										</Table.DataCell>
 										<Table.DataCell>
-											{review.status === "completed" ? (
+											{review.status === "completed" && (
 												<Tag variant="success" size="xsmall">
 													Fullført
 												</Tag>
-											) : (
+											)}
+											{review.status === "needs_follow_up" && (
+												<Tag variant="warning" size="xsmall">
+													Må følges opp
+												</Tag>
+											)}
+											{review.status === "draft" && (
 												<Tag variant="warning" size="xsmall">
 													Utkast
+												</Tag>
+											)}
+											{review.status === "discarded" && (
+												<Tag variant="neutral" size="xsmall">
+													Forkastet
 												</Tag>
 											)}
 										</Table.DataCell>
