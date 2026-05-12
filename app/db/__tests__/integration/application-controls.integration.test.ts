@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ParsedFramework } from "~/lib/excel-parser.server"
-import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase, truncateWithRetry } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
 	get db() {
@@ -104,26 +104,23 @@ describe("Application controls integration tests", () => {
 	})
 
 	beforeEach(async () => {
-		const db = getTestDb()
-		await db.execute(/* sql */ `
-			TRUNCATE
-				compliance_assessment_history,
-				compliance_assessments,
-				application_control_history,
-				application_controls,
-				application_team_mappings,
-				application_environments,
-				monitored_applications,
-				framework_field_history,
-				control_technology_elements,
-				framework_risk_control_mappings,
-				framework_controls,
-				framework_risks,
-				framework_domains,
-				framework_versions,
-				audit_log
-			CASCADE;
-		`)
+		await truncateWithRetry([
+			"compliance_assessment_history",
+			"compliance_assessments",
+			"application_control_history",
+			"application_controls",
+			"application_team_mappings",
+			"application_environments",
+			"monitored_applications",
+			"framework_field_history",
+			"control_technology_elements",
+			"framework_risk_control_mappings",
+			"framework_controls",
+			"framework_risks",
+			"framework_domains",
+			"framework_versions",
+			"audit_log",
+		])
 
 		const parsed = makeParsedFramework()
 		const versionId = await stageFrameworkImport(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
