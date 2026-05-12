@@ -22,6 +22,7 @@ import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
+import { logger } from "~/lib/logger.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
 import { getOracleInstances, getOracleRoles, shouldAssessRole } from "~/lib/oracle-revisjon.server"
 import { compliancePercent } from "~/lib/utils"
@@ -196,9 +197,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
 
 	// Consider both applicationOracleInstances and persistence entries of type "oracle"
-	const oraclePersistenceIds = detail.persistence
-		.filter((p) => p.type === "oracle")
-		.map((p) => ({ name: p.name, oracleInstanceId: p.oracleInstanceId }))
 	const allReferencedOracleInstanceIds = new Set([
 		...oracleInstances.map((i) => i.instanceId),
 		...detail.persistence
@@ -209,13 +207,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			.filter((p) => p.type === "oracle" && !p.oracleInstanceId && oracleInstanceMetaById.has(p.name))
 			.map((p) => p.name),
 	])
-	console.log("[oracle-access-debug]", {
+	logger.info("Oracle access debug: instance resolution", {
 		appId,
 		allOracleInstanceCount: allOracleInstances.length,
 		allOracleInstanceIds: allOracleInstances.map((i) => i.id),
 		oracleInstancesCount: oracleInstances.length,
 		oracleInstanceIds: oracleInstances.map((i) => i.instanceId),
-		oraclePersistenceIds,
+		oraclePersistence: detail.persistence
+			.filter((p) => p.type === "oracle")
+			.map((p) => ({ name: p.name, oracleInstanceId: p.oracleInstanceId })),
 		allReferencedOracleInstanceIds: [...allReferencedOracleInstanceIds],
 		accessibleInstanceIds: [...accessibleInstanceIds],
 		userGroupCount: user?.groups?.length ?? 0,
@@ -228,7 +228,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				.filter((g): g is NonNullable<typeof g> => g !== null && g !== undefined),
 		),
 	]
-	console.log("[oracle-access-debug] inaccessibleOracleGroupIds:", inaccessibleOracleGroupIds)
+	logger.info("Oracle access debug: inaccessible groups", {
+		appId,
+		inaccessibleOracleGroupIds,
+	})
 
 	const oraclePersistenceInstanceIds = new Set(
 		detail.persistence.filter((p) => p.type === "oracle").map((p) => p.oracleInstanceId ?? p.name),
@@ -267,11 +270,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	])
 	const oracleRoles = oracleRoleResults.flatMap((result) => {
 		if (result.status !== "fulfilled") {
-			console.log("[oracle-access-debug] role fetch failed:", result.reason)
+			logger.warn("Oracle role fetch failed", { reason: String(result.reason) })
 			return []
 		}
 		const { instanceId, instanceName, roles } = result.value
-		console.log("[oracle-access-debug] roles for", instanceId, ":", {
+		logger.info("Oracle access debug: roles fetched", {
+			appId,
+			instanceId,
 			totalRoles: roles.length,
 			afterFilter: roles.filter(shouldAssessRole).length,
 			roleNames: roles.map((r) => r.name),
