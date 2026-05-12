@@ -12,7 +12,11 @@ vi.mock("~/db/connection.server", () => ({
 
 // Mock storage provider
 const mockStorage = {
-	upload: vi.fn().mockResolvedValue(undefined),
+	upload: vi.fn(async (path: string, data: Buffer, options?: { contentType?: string }) => ({
+		path,
+		sizeBytes: data.length,
+		contentType: options?.contentType ?? "application/octet-stream",
+	})),
 	download: vi.fn().mockResolvedValue(Buffer.from("test-content")),
 	delete: vi.fn().mockResolvedValue(undefined),
 	exists: vi.fn().mockResolvedValue(true),
@@ -84,6 +88,7 @@ describe("Evidence downloads integration tests", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
+			DELETE FROM bucket_objects;
 			DELETE FROM routine_review_evidence_downloads;
 			DELETE FROM routine_review_activities;
 			DELETE FROM routine_review_attachments;
@@ -128,6 +133,22 @@ describe("Evidence downloads integration tests", () => {
 		const uploadPath = mockStorage.upload.mock.calls[0][0] as string
 		expect(uploadPath).toContain("oracle-evidence/")
 		expect(uploadPath).toContain(activityId)
+
+		const bucketObjectsResult = await getTestDb().execute(/* sql */ `
+			SELECT object_path, object_type, source_type, uploaded_by
+			FROM bucket_objects
+		`)
+		const bucketObject = bucketObjectsResult.rows[0] as {
+			object_path: string
+			object_type: string
+			source_type: string
+			uploaded_by: string
+		}
+		expect(bucketObjectsResult.rows).toHaveLength(1)
+		expect(bucketObject.object_path).toBe(record.bucketPath)
+		expect(bucketObject.object_type).toBe("oracle_evidence")
+		expect(bucketObject.source_type).toBe("automated")
+		expect(bucketObject.uploaded_by).toBe("A123456")
 	})
 
 	it("should record a force-fetched download with justification", async () => {
@@ -175,6 +196,22 @@ describe("Evidence downloads integration tests", () => {
 		expect(record.fileName).toBe("manuell-rapport.pdf")
 		expect(record.apiInstanceName).toBeNull()
 		expect(record.collectedAt).toBeNull()
+
+		const bucketObjectsResult = await getTestDb().execute(/* sql */ `
+			SELECT object_path, object_type, source_type, uploaded_by
+			FROM bucket_objects
+		`)
+		const bucketObject = bucketObjectsResult.rows[0] as {
+			object_path: string
+			object_type: string
+			source_type: string
+			uploaded_by: string
+		}
+		expect(bucketObjectsResult.rows).toHaveLength(1)
+		expect(bucketObject.object_path).toBe(record.bucketPath)
+		expect(bucketObject.object_type).toBe("oracle_evidence")
+		expect(bucketObject.source_type).toBe("manual")
+		expect(bucketObject.uploaded_by).toBe("B654321")
 	})
 
 	it("should list evidence downloads for an activity ordered by date desc", async () => {

@@ -1,11 +1,20 @@
 import { desc, eq, sql } from "drizzle-orm"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
+import { bucketObjects } from "../schema/buckets"
 import { type EvidenceDownloadSource, routineReviewEvidenceDownloads } from "../schema/routines"
 import { writeAuditLog } from "./audit.server"
 
 function sanitizePathSegment(value: string): string {
 	return value.replace(/[^a-zA-Z0-9_-]/g, "_")
+}
+
+function getBucketName(): string {
+	return process.env.GCS_BUCKET_NAME ?? "kiss-data-local"
+}
+
+function mapEvidenceSourceToBucketSourceType(source: EvidenceDownloadSource): "manual" | "automated" {
+	return source === "manual_upload" ? "manual" : "automated"
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -51,7 +60,7 @@ export async function recordEvidenceDownload(params: {
 	const ext = normalizedFormat === "pdf" ? "pdf" : "xlsx"
 	const bucketPath = `oracle-evidence/${params.activityId}/${sanitizePathSegment(params.instanceId)}/${sanitizePathSegment(params.evidenceType)}/${timestamp}.${ext}`
 
-	await storage.upload(bucketPath, params.buffer, { contentType: params.contentType })
+	const uploadResult = await storage.upload(bucketPath, params.buffer, { contentType: params.contentType })
 
 	let record: EvidenceDownloadRecord
 	try {
@@ -64,10 +73,10 @@ export async function recordEvidenceDownload(params: {
 					instanceId: params.instanceId,
 					evidenceType: params.evidenceType,
 					format: normalizedFormat,
-					bucketPath,
+					bucketPath: uploadResult.path,
 					fileName: params.fileName,
-					sizeBytes: params.buffer.length,
-					contentType: params.contentType,
+					sizeBytes: uploadResult.sizeBytes,
+					contentType: uploadResult.contentType,
 					source: "m2m_api",
 					collectedAt: params.collectedAt,
 					apiInstanceName: params.apiInstanceName,
@@ -76,6 +85,24 @@ export async function recordEvidenceDownload(params: {
 					performedBy: params.performedBy,
 				})
 				.returning()
+
+			await tx.insert(bucketObjects).values({
+				bucketName: getBucketName(),
+				objectPath: uploadResult.path,
+				contentType: uploadResult.contentType,
+				sizeBytes: uploadResult.sizeBytes,
+				objectType: "oracle_evidence",
+				sourceType: mapEvidenceSourceToBucketSourceType(row.source),
+				uploadedBy: params.performedBy,
+				uploadedAt: row.performedAt,
+				metadata: JSON.stringify({
+					activityId: params.activityId,
+					evidenceDownloadId: row.id,
+					instanceId: params.instanceId,
+					evidenceType: params.evidenceType,
+					fileName: params.fileName,
+				}),
+			})
 
 			await writeAuditLog(
 				{
@@ -119,7 +146,7 @@ export async function recordManualEvidenceUpload(params: {
 	const safeFileName = params.fileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200)
 	const bucketPath = `oracle-evidence/${params.activityId}/${sanitizePathSegment(params.instanceId)}/${sanitizePathSegment(params.evidenceType)}/${timestamp}-${safeFileName}`
 
-	await storage.upload(bucketPath, params.buffer, { contentType: params.contentType })
+	const uploadResult = await storage.upload(bucketPath, params.buffer, { contentType: params.contentType })
 
 	let record: EvidenceDownloadRecord
 	try {
@@ -131,16 +158,34 @@ export async function recordManualEvidenceUpload(params: {
 					instanceId: params.instanceId,
 					evidenceType: params.evidenceType,
 					format: params.format.toLowerCase(),
-					bucketPath,
+					bucketPath: uploadResult.path,
 					fileName: params.fileName,
-					sizeBytes: params.buffer.length,
-					contentType: params.contentType,
+					sizeBytes: uploadResult.sizeBytes,
+					contentType: uploadResult.contentType,
 					source: "manual_upload",
 					collectedAt: null,
 					apiInstanceName: null,
 					performedBy: params.performedBy,
 				})
 				.returning()
+
+			await tx.insert(bucketObjects).values({
+				bucketName: getBucketName(),
+				objectPath: uploadResult.path,
+				contentType: uploadResult.contentType,
+				sizeBytes: uploadResult.sizeBytes,
+				objectType: "oracle_evidence",
+				sourceType: mapEvidenceSourceToBucketSourceType(row.source),
+				uploadedBy: params.performedBy,
+				uploadedAt: row.performedAt,
+				metadata: JSON.stringify({
+					activityId: params.activityId,
+					evidenceDownloadId: row.id,
+					instanceId: params.instanceId,
+					evidenceType: params.evidenceType,
+					fileName: params.fileName,
+				}),
+			})
 
 			await writeAuditLog(
 				{
