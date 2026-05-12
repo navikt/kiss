@@ -70,12 +70,21 @@ async function createTestApp(name: string): Promise<string> {
 	return (result.rows[0] as { id: string }).id
 }
 
-async function getControlUuids(): Promise<string[]> {
+/** Seeds framework and returns control IDs. Each test calls this to be self-contained. */
+async function seedFrameworkAndGetControlIds(): Promise<string[]> {
+	const parsed = makeParsedFramework()
+	const expectedCount = new Set(parsed.rows.map((r) => r.controlId)).size
+	const versionId = await stageFrameworkImport(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
+	await applyFrameworkImport(versionId, parsed, "admin")
+
 	const db = getTestDb()
 	const result = await db.execute(
 		/* sql */ `SELECT id FROM framework_controls WHERE archived_at IS NULL ORDER BY control_id`,
 	)
-	return (result.rows as Array<{ id: string }>).map((r) => r.id)
+	const ids = (result.rows as Array<{ id: string }>).map((r) => r.id)
+	if (ids.length !== expectedCount)
+		throw new Error(`Expected ${expectedCount} controls from seed, got ${ids.length}`)
+	return ids
 }
 
 async function insertApplicationControl(
@@ -94,6 +103,24 @@ async function insertApplicationControl(
 	return (result.rows[0] as { id: string }).id
 }
 
+const TABLES_TO_TRUNCATE = [
+	"compliance_assessment_history",
+	"compliance_assessments",
+	"application_control_history",
+	"application_controls",
+	"application_team_mappings",
+	"application_environments",
+	"monitored_applications",
+	"framework_field_history",
+	"control_technology_elements",
+	"framework_risk_control_mappings",
+	"framework_controls",
+	"framework_risks",
+	"framework_domains",
+	"framework_versions",
+	"audit_log",
+]
+
 describe("Application controls integration tests", () => {
 	beforeAll(async () => {
 		await setupTestDatabase()
@@ -104,33 +131,13 @@ describe("Application controls integration tests", () => {
 	})
 
 	beforeEach(async () => {
-		await truncateWithRetry([
-			"compliance_assessment_history",
-			"compliance_assessments",
-			"application_control_history",
-			"application_controls",
-			"application_team_mappings",
-			"application_environments",
-			"monitored_applications",
-			"framework_field_history",
-			"control_technology_elements",
-			"framework_risk_control_mappings",
-			"framework_controls",
-			"framework_risks",
-			"framework_domains",
-			"framework_versions",
-			"audit_log",
-		])
-
-		const parsed = makeParsedFramework()
-		const versionId = await stageFrameworkImport(parsed, "test.xlsx", "user", "/uploads/test.xlsx")
-		await applyFrameworkImport(versionId, parsed, "admin")
+		await truncateWithRetry(TABLES_TO_TRUNCATE)
 	})
 
 	describe("updateControlComment", () => {
 		it("should save a comment on an application control", async () => {
 			const appId = await createTestApp("Test App")
-			const [controlId] = await getControlUuids()
+			const [controlId] = await seedFrameworkAndGetControlIds()
 			const acId = await insertApplicationControl(appId, controlId, "not_implemented")
 
 			await updateControlComment(acId, "Trenger oppfølging", "user1")
@@ -144,7 +151,7 @@ describe("Application controls integration tests", () => {
 
 		it("should clear a comment when set to null", async () => {
 			const appId = await createTestApp("Test App")
-			const [controlId] = await getControlUuids()
+			const [controlId] = await seedFrameworkAndGetControlIds()
 			const acId = await insertApplicationControl(appId, controlId, "implemented")
 
 			await updateControlComment(acId, "First comment", "user1")
@@ -157,7 +164,7 @@ describe("Application controls integration tests", () => {
 
 		it("should create history entries for comment changes", async () => {
 			const appId = await createTestApp("Test App")
-			const [controlId] = await getControlUuids()
+			const [controlId] = await seedFrameworkAndGetControlIds()
 			const acId = await insertApplicationControl(appId, controlId, "not_implemented")
 
 			await updateControlComment(acId, "First comment", "user1")
@@ -181,7 +188,7 @@ describe("Application controls integration tests", () => {
 	describe("getControlHistory", () => {
 		it("should return empty array for control with no history", async () => {
 			const appId = await createTestApp("Test App")
-			const [controlId] = await getControlUuids()
+			const [controlId] = await seedFrameworkAndGetControlIds()
 			const acId = await insertApplicationControl(appId, controlId, "implemented")
 
 			const history = await getControlHistory(acId)
@@ -192,7 +199,7 @@ describe("Application controls integration tests", () => {
 	describe("getBatchComplianceStats", () => {
 		it("should aggregate compliance stats by app", async () => {
 			const appId = await createTestApp("Test App")
-			const controlIds = await getControlUuids()
+			const controlIds = await seedFrameworkAndGetControlIds()
 
 			await insertApplicationControl(appId, controlIds[0], "implemented")
 			await insertApplicationControl(appId, controlIds[1], "not_implemented")
@@ -209,7 +216,7 @@ describe("Application controls integration tests", () => {
 
 		it("should only count active controls", async () => {
 			const appId = await createTestApp("Test App")
-			const controlIds = await getControlUuids()
+			const controlIds = await seedFrameworkAndGetControlIds()
 
 			await insertApplicationControl(appId, controlIds[0], "implemented", true)
 			await insertApplicationControl(appId, controlIds[1], "not_implemented", false) // inactive
@@ -229,7 +236,7 @@ describe("Application controls integration tests", () => {
 		it("should handle multiple apps", async () => {
 			const appId1 = await createTestApp("App 1")
 			const appId2 = await createTestApp("App 2")
-			const controlIds = await getControlUuids()
+			const controlIds = await seedFrameworkAndGetControlIds()
 
 			await insertApplicationControl(appId1, controlIds[0], "implemented")
 			await insertApplicationControl(appId2, controlIds[0], "partially_implemented")
@@ -246,7 +253,7 @@ describe("Application controls integration tests", () => {
 	describe("getComplianceSummaries", () => {
 		it("should return totals and per-status counts in a single query", async () => {
 			const appId = await createTestApp("Summary App")
-			const controlIds = await getControlUuids()
+			const controlIds = await seedFrameworkAndGetControlIds()
 
 			await insertApplicationControl(appId, controlIds[0], "implemented")
 			await insertApplicationControl(appId, controlIds[1], "not_implemented")
@@ -264,7 +271,7 @@ describe("Application controls integration tests", () => {
 
 		it("should exclude inactive rows from counts and total", async () => {
 			const appId = await createTestApp("Inactive App")
-			const controlIds = await getControlUuids()
+			const controlIds = await seedFrameworkAndGetControlIds()
 
 			await insertApplicationControl(appId, controlIds[0], "implemented", true)
 			await insertApplicationControl(appId, controlIds[1], "not_implemented", false) // inactive
@@ -298,7 +305,7 @@ describe("Application controls integration tests", () => {
 
 		it("should count not_relevant separately", async () => {
 			const appId = await createTestApp("NR App")
-			const controlIds = await getControlUuids()
+			const controlIds = await seedFrameworkAndGetControlIds()
 
 			await insertApplicationControl(appId, controlIds[0], "implemented")
 			await insertApplicationControl(appId, controlIds[1], "not_relevant")
@@ -313,7 +320,7 @@ describe("Application controls integration tests", () => {
 
 		it("should include null-status rows in total but not in any status count", async () => {
 			const appId = await createTestApp("Null Status App")
-			const controlIds = await getControlUuids()
+			const controlIds = await seedFrameworkAndGetControlIds()
 			const db = getTestDb()
 
 			await insertApplicationControl(appId, controlIds[0], "implemented")
@@ -339,8 +346,7 @@ describe("Application controls integration tests", () => {
 		it("does not update rows when nothing has changed", async () => {
 			const db = getTestDb()
 			const appId = await createTestApp("NoOpApp")
-
-			// Framework already staged/applied in beforeEach
+			await seedFrameworkAndGetControlIds()
 
 			// First sync creates application_controls rows
 			await syncApplicationControls(appId)
