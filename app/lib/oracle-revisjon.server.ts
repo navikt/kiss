@@ -102,14 +102,14 @@ async function fetchWithAuth(path: string, headers: Record<string, string> = {})
 const MOCK_ORACLE_GROUP = "1e97cbc6-0687-4d23-aebd-c611035279c1"
 
 function getMockInstances(): OracleInstance[] {
-	const schemas = [
+	const instanceTypes = [
 		{ prefix: "pen", type: "pensjon" },
 		{ prefix: "sam", type: "samordning" },
 		{ prefix: "tp", type: "tjenestepensjon" },
 	]
 	const environments = ["", "_q0", "_q1", "_q5"]
 
-	return schemas.flatMap(({ prefix, type }) =>
+	return instanceTypes.flatMap(({ prefix, type }) =>
 		environments.map((env) => ({
 			id: `${prefix}${env}`,
 			name: `${prefix}${env}`.toUpperCase(),
@@ -350,8 +350,8 @@ export async function getAuditEvidenceSummary(instanceId: string): Promise<Audit
 		const summary = (await response.json()) as AuditEvidenceSummary
 		setCachedSummary(instanceId, summary)
 		return summary
-	} catch (error) {
-		logger.error("Failed to fetch audit evidence summary", { instanceId, error })
+	} catch {
+		// fetchWithAuth already logs the error details
 		return null
 	}
 }
@@ -376,8 +376,8 @@ export async function getOracleRoles(instanceId: string): Promise<OracleRolesRes
 		const data = (await response.json()) as OracleRolesResponse
 		rolesCache.set(instanceId, { data, fetchedAt: Date.now() })
 		return data
-	} catch (error) {
-		logger.error("Failed to fetch Oracle roles", { instanceId, error })
+	} catch {
+		// fetchWithAuth already logs the error details
 		return null
 	}
 }
