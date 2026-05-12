@@ -19,6 +19,7 @@ import {
 import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useLoaderData } from "react-router"
+import { ActivityTypeOptions } from "~/components/ActivityTypeOptions"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -864,18 +865,7 @@ export default function RedigerRutine() {
 						defaultValue={routine.activityType ?? ""}
 						size="small"
 					>
-						<option value="">Ingen</option>
-						<optgroup label="Entra ID">
-							<option value="entra_id_group_maintenance">Entra ID-gruppevedlikehold</option>
-						</optgroup>
-						<optgroup label="Oracle revisjonsbevis">
-							<option value="oracle_evidence_audit">Oracle Unified Audit-konfigurasjon</option>
-							<option value="oracle_evidence_profiles">Oracle-profiler</option>
-							<option value="oracle_evidence_roles">Oracle-roller</option>
-							<option value="oracle_evidence_users">Oracle-brukere</option>
-							<option value="oracle_evidence_period">Periodebasert gjennomgang</option>
-							<option value="oracle_evidence_all">Samlet Oracle-revisjonsbevis</option>
-						</optgroup>
+						<ActivityTypeOptions />
 					</Select>
 
 					<HStack gap="space-4">
