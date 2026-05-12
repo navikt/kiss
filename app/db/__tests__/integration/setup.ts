@@ -50,10 +50,11 @@ export function getTestPool() {
  * read queries from the same test's async operations.
  */
 export async function truncateWithRetry(tables: string[], maxRetries = 3): Promise<void> {
+	if (tables.length === 0) throw new Error("truncateWithRetry: tables array must not be empty")
 	const db = getTestDb()
 	const quoted = tables.map((t) => `"${t.replace(/"/g, '""')}"`)
 	const sql = `TRUNCATE ${quoted.join(", ")} CASCADE`
-	const retries = Math.max(1, maxRetries)
+	const retries = Number.isFinite(maxRetries) ? Math.max(1, Math.floor(maxRetries)) : 3
 	for (let attempt = 1; attempt <= retries; attempt++) {
 		try {
 			await db.execute(/* sql */ sql)
