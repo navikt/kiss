@@ -8,12 +8,13 @@ import {
 	HStack,
 	Modal,
 	Select,
+	type SortState,
 	Table,
 	Tag,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -355,6 +356,7 @@ export default function AdminBrukere() {
 	const { users, sections, teams } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const [filter, setFilter] = useState("")
+	const [sort, setSort] = useState<SortState | undefined>({ orderBy: "name", direction: "ascending" })
 
 	const filtered = filter
 		? users.filter(
@@ -363,6 +365,42 @@ export default function AdminBrukere() {
 					u.name.toLowerCase().includes(filter.toLowerCase()),
 			)
 		: users
+
+	const sorted = useMemo(() => {
+		if (!sort) return filtered
+		const dir = sort.direction === "ascending" ? 1 : -1
+		return [...filtered].sort((a, b) => {
+			switch (sort.orderBy) {
+				case "navIdent":
+					return dir * a.navIdent.localeCompare(b.navIdent)
+				case "name":
+					return dir * a.name.localeCompare(b.name)
+				case "email":
+					return dir * (a.email ?? "").localeCompare(b.email ?? "")
+				case "lastLogin": {
+					const aTime = a.lastLoginAt ? new Date(a.lastLoginAt).getTime() : 0
+					const bTime = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0
+					return dir * (aTime - bTime)
+				}
+				case "roles":
+					return dir * (a.roles.length - b.roles.length)
+				default:
+					return 0
+			}
+		})
+	}, [filtered, sort])
+
+	const handleSort = (sortKey: string | undefined) => {
+		if (!sortKey) {
+			setSort(undefined)
+			return
+		}
+		setSort((prev) =>
+			prev && prev.orderBy === sortKey
+				? { orderBy: sortKey, direction: prev.direction === "ascending" ? "descending" : "ascending" }
+				: { orderBy: sortKey, direction: "ascending" },
+		)
+	}
 
 	return (
 		<VStack gap="space-6">
@@ -391,18 +429,28 @@ export default function AdminBrukere() {
 				/>
 				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 				<section className="table-scroll" tabIndex={0} aria-label="Brukere og roller">
-					<Table size="small">
+					<Table size="small" sort={sort} onSortChange={handleSort}>
 						<Table.Header>
 							<Table.Row>
-								<Table.HeaderCell scope="col">NAV-ident</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-								<Table.HeaderCell scope="col">E-post</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Sist logget inn</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Roller</Table.HeaderCell>
+								<Table.ColumnHeader sortKey="navIdent" sortable scope="col">
+									NAV-ident
+								</Table.ColumnHeader>
+								<Table.ColumnHeader sortKey="name" sortable scope="col">
+									Navn
+								</Table.ColumnHeader>
+								<Table.ColumnHeader sortKey="email" sortable scope="col">
+									E-post
+								</Table.ColumnHeader>
+								<Table.ColumnHeader sortKey="lastLogin" sortable scope="col">
+									Sist logget inn
+								</Table.ColumnHeader>
+								<Table.ColumnHeader sortKey="roles" sortable scope="col">
+									Roller
+								</Table.ColumnHeader>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
-							{filtered.map((u) => (
+							{sorted.map((u) => (
 								<UserRow key={u.id} user={u} sections={sections} teams={teams} />
 							))}
 							{filtered.length === 0 && (
