@@ -16,7 +16,7 @@ export interface NavUser {
 	groups: string[]
 	token: string
 	dbRoles: UserRoleEntry[]
-	/** True when user is an actual admin but has chosen to suppress admin privileges */
+	/** True when admin privileges are not active (no elevation cookie present) */
 	adminSuppressed: boolean
 }
 
@@ -101,7 +101,7 @@ export const ADMIN_ELEVATED_COOKIE = "kiss-admin-elevated"
 /** Admin mode is suppressed unless the user has actively elevated via cookie */
 export function isAdminSuppressed(request: Request): boolean {
 	const cookieHeader = request.headers.get("Cookie") ?? ""
-	const cookies = cookieHeader.split("; ")
+	const cookies = cookieHeader.split(";").map((c) => c.trim())
 	return !cookies.some((cookie) => cookie === `${ADMIN_ELEVATED_COOKIE}=true`)
 }
 

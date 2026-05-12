@@ -225,4 +225,11 @@ describe("isAdminSuppressed", () => {
 		})
 		expect(isAdminSuppressed(request)).toBe(true)
 	})
+
+	it("handles cookies without space after semicolon", () => {
+		const request = new Request("http://localhost", {
+			headers: { Cookie: "kiss-theme=dark;kiss-admin-elevated=true" },
+		})
+		expect(isAdminSuppressed(request)).toBe(false)
+	})
 })
