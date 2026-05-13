@@ -147,7 +147,7 @@ async function handleDownloadFromApi(
 	let file: { buffer: Buffer; fileName: string; contentType: string }
 	try {
 		// Deployments use reportId as itemId; other providers use evidenceType
-		const itemId = providerType === "deployments" ? reportId! : evidenceType
+		const itemId = providerType === "deployments" ? (reportId ?? evidenceType) : evidenceType
 		file = await provider.downloadFile(providerParams, itemId, format)
 	} catch (err) {
 		const message = err instanceof Error ? err.message : ""

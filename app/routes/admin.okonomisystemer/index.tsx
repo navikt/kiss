@@ -35,7 +35,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const items = classifications
 		.filter((c) => c.isEconomySystem && appMap.has(c.applicationId))
 		.map((c) => {
-			const app = appMap.get(c.applicationId)!
+			const app = appMap.get(c.applicationId)
+			if (!app) return null
 			return {
 				id: c.id,
 				applicationId: c.applicationId,
@@ -46,6 +47,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 				isExpired: c.validUntil < now,
 			}
 		})
+		.filter((item): item is NonNullable<typeof item> => item !== null)
 
 	return { items }
 }

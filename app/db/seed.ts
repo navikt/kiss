@@ -126,7 +126,8 @@ async function seed() {
 		])
 		.returning()
 
-	const perTechLeadRole = insertedUserRoles.find((r) => r.userId === per.id && r.role === "tech_lead")!
+	const perTechLeadRole = insertedUserRoles.find((r) => r.userId === per.id && r.role === "tech_lead")
+	if (!perTechLeadRole) throw new Error("Seed: perTechLeadRole not found")
 
 	await db.insert(schema.userPreferences).values([
 		{ navIdent: "A123456", landingPage: "dashboard" },

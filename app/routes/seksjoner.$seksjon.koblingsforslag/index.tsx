@@ -52,8 +52,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const parent = new Map<string, string>()
 	function find(x: string): string {
 		if (!parent.has(x)) parent.set(x, x)
-		if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!))
-		return parent.get(x)!
+		const px = parent.get(x) ?? x
+		if (px !== x) parent.set(x, find(px))
+		return parent.get(x) ?? x
 	}
 	function union(a: string, b: string) {
 		const ra = find(a)

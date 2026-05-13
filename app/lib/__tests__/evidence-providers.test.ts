@@ -185,11 +185,11 @@ describe("NDA provider", () => {
 		})
 
 		expect(result).not.toBeNull()
-		expect(result!.providerType).toBe("deployments")
-		expect(result!.items).toEqual([])
-		expect(result!.metadata.error).toBe("Leveranserapport-tjenesten er ikke tilgjengelig. Prøv igjen senere.")
-		expect(result!.metadata).not.toHaveProperty("errorDetail")
-		expect(result!.sourceLabel).toBe("pensjon/my-app (prod-gcp)")
+		expect(result?.providerType).toBe("deployments")
+		expect(result?.items).toEqual([])
+		expect(result?.metadata.error).toBe("Leveranserapport-tjenesten er ikke tilgjengelig. Prøv igjen senere.")
+		expect(result?.metadata).not.toHaveProperty("errorDetail")
+		expect(result?.sourceLabel).toBe("pensjon/my-app (prod-gcp)")
 
 		vi.restoreAllMocks()
 	})

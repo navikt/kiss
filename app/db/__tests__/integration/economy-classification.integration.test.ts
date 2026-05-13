@@ -368,12 +368,12 @@ describe("Economy classification integration tests", () => {
 
 			const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
 			const progress = await getScreeningProgressForApps([appId])
-			const appProgress = progress.get(appId)!
+			const appProgress = progress.get(appId)
 
 			// Total should be 2 (both questions), but answered should be 1
 			// because the economy classification is expired so that answer doesn't count
-			expect(appProgress.total).toBe(2)
-			expect(appProgress.answered).toBe(1)
+			expect(appProgress?.total).toBe(2)
+			expect(appProgress?.answered).toBe(1)
 		})
 
 		it("does not reduce count for non-expired economy classifications", async () => {
@@ -405,10 +405,10 @@ describe("Economy classification integration tests", () => {
 
 			const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
 			const progress = await getScreeningProgressForApps([appId])
-			const appProgress = progress.get(appId)!
+			const appProgress = progress.get(appId)
 
-			expect(appProgress.total).toBe(1)
-			expect(appProgress.answered).toBe(1)
+			expect(appProgress?.total).toBe(1)
+			expect(appProgress?.answered).toBe(1)
 		})
 
 		it("reduces answered count when confirmed answer exists but no active classification", async () => {
@@ -432,11 +432,11 @@ describe("Economy classification integration tests", () => {
 
 			const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
 			const progress = await getScreeningProgressForApps([appId])
-			const appProgress = progress.get(appId)!
+			const appProgress = progress.get(appId)
 
 			// Answer shouldn't count because there's no active classification
-			expect(appProgress.total).toBe(1)
-			expect(appProgress.answered).toBe(0)
+			expect(appProgress?.total).toBe(1)
+			expect(appProgress?.answered).toBe(0)
 		})
 	})
 })

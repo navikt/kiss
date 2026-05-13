@@ -78,12 +78,9 @@ const HIDDEN_ACTIVITY_TYPES = [] as const
 type HiddenTypes = (typeof HIDDEN_ACTIVITY_TYPES)[number]
 type GroupedTypes = (typeof ACTIVITY_TYPE_GROUPS)[number]["types"][number]
 type VisibleActivityTypes = Exclude<RoutineActivityType, HiddenTypes>
-// biome-ignore lint/correctness/noUnusedVariables: compile-time exhaustiveness check
-const _assertAllVisibleTypesGrouped: [VisibleActivityTypes] extends [GroupedTypes] ? true : false = true
-// biome-ignore lint/correctness/noUnusedVariables: compile-time exhaustiveness check
-const _assertNoExtraTypes: [GroupedTypes] extends [RoutineActivityType] ? true : false = true
-// biome-ignore lint/correctness/noUnusedVariables: compile-time exhaustiveness check — hidden types must NOT appear in groups
-const _assertHiddenNotGrouped: Extract<GroupedTypes, HiddenTypes> extends never ? true : false = true
+void (true as [VisibleActivityTypes] extends [GroupedTypes] ? true : false)
+void (true as [GroupedTypes] extends [RoutineActivityType] ? true : false)
+void (true as Extract<GroupedTypes, HiddenTypes> extends never ? true : false)
 
 /** Maps Oracle evidence activity types to the evidence types they cover */
 export const oracleEvidenceTypesForActivity: Record<OracleEvidenceActivityType, string[]> = {
