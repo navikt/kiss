@@ -130,8 +130,6 @@ describe("Evidence downloads integration tests", () => {
 
 		const record = await recordEvidenceDownload({
 			activityId,
-			instanceId: "PENSJON_PROD",
-			evidenceType: "audit",
 			providerType: "oracle",
 			providerMetadata: {
 				instanceId: "PENSJON_PROD",
@@ -139,12 +137,13 @@ describe("Evidence downloads integration tests", () => {
 				apiInstanceName: "PENSJON_PROD",
 				reviewProgressSnapshot: null,
 			},
+			sourceId: "PENSJON_PROD",
+			evidenceType: "audit",
 			format: "EXCEL",
 			buffer: Buffer.from("test-excel-content"),
 			fileName: "audit-report.xlsx",
 			contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 			collectedAt: new Date("2026-03-01T10:00:00Z"),
-			apiInstanceName: "PENSJON_PROD",
 			performedBy: "A123456",
 		})
 
@@ -182,8 +181,6 @@ describe("Evidence downloads integration tests", () => {
 
 		const record = await recordEvidenceDownload({
 			activityId,
-			instanceId: "PENSJON_PROD",
-			evidenceType: "audit",
 			providerType: "oracle",
 			providerMetadata: {
 				instanceId: "PENSJON_PROD",
@@ -191,14 +188,14 @@ describe("Evidence downloads integration tests", () => {
 				apiInstanceName: "PENSJON_PROD",
 				reviewProgressSnapshot: { totalStatements: 100, reviewedStatements: 50 },
 			},
+			sourceId: "PENSJON_PROD",
+			evidenceType: "audit",
 			format: "PDF",
 			buffer: Buffer.from("pdf-content"),
 			fileName: "audit-report.pdf",
 			contentType: "application/pdf",
 			collectedAt: null,
-			apiInstanceName: "PENSJON_PROD",
 			forceFetchJustification: "Gjennomgang ikke ferdig, henter bevis for fremdrift",
-			reviewProgressSnapshot: { totalStatements: 100, reviewedStatements: 50 },
 			performedBy: "A123456",
 		})
 
@@ -219,8 +216,6 @@ describe("Evidence downloads integration tests", () => {
 
 		const record = await recordManualEvidenceUpload({
 			activityId,
-			instanceId: "PENSJON_PROD",
-			evidenceType: "audit",
 			providerType: "oracle",
 			providerMetadata: {
 				instanceId: "PENSJON_PROD",
@@ -228,6 +223,8 @@ describe("Evidence downloads integration tests", () => {
 				apiInstanceName: null,
 				reviewProgressSnapshot: null,
 			},
+			sourceId: "PENSJON_PROD",
+			evidenceType: "audit",
 			format: "PDF",
 			buffer: Buffer.from("manual-pdf"),
 			fileName: "manuell-rapport.pdf",
@@ -259,7 +256,14 @@ describe("Evidence downloads integration tests", () => {
 
 		await recordManualEvidenceUpload({
 			activityId,
-			instanceId: "PENSJON_PROD",
+			providerType: "oracle",
+			providerMetadata: {
+				instanceId: "PENSJON_PROD",
+				evidenceType: "audit",
+				apiInstanceName: null,
+				reviewProgressSnapshot: null,
+			},
+			sourceId: "PENSJON_PROD",
 			evidenceType: "audit",
 			format: "PDF",
 			buffer: Buffer.from("first"),
@@ -270,14 +274,20 @@ describe("Evidence downloads integration tests", () => {
 
 		await recordEvidenceDownload({
 			activityId,
-			instanceId: "PENSJON_PROD",
+			providerType: "oracle",
+			providerMetadata: {
+				instanceId: "PENSJON_PROD",
+				evidenceType: "audit",
+				apiInstanceName: "PENSJON_PROD",
+				reviewProgressSnapshot: null,
+			},
+			sourceId: "PENSJON_PROD",
 			evidenceType: "audit",
 			format: "EXCEL",
 			buffer: Buffer.from("second"),
 			fileName: "second.xlsx",
 			contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 			collectedAt: new Date("2026-03-02T10:00:00Z"),
-			apiInstanceName: "PENSJON_PROD",
 			performedBy: "test",
 		})
 
@@ -296,7 +306,14 @@ describe("Evidence downloads integration tests", () => {
 
 		const created = await recordManualEvidenceUpload({
 			activityId,
-			instanceId: "PENSJON_PROD",
+			providerType: "oracle",
+			providerMetadata: {
+				instanceId: "PENSJON_PROD",
+				evidenceType: "audit",
+				apiInstanceName: null,
+				reviewProgressSnapshot: null,
+			},
+			sourceId: "PENSJON_PROD",
 			evidenceType: "audit",
 			format: "PDF",
 			buffer: Buffer.from("content"),
@@ -324,7 +341,14 @@ describe("Evidence downloads integration tests", () => {
 
 		const created = await recordManualEvidenceUpload({
 			activityId,
-			instanceId: "PENSJON_PROD",
+			providerType: "oracle",
+			providerMetadata: {
+				instanceId: "PENSJON_PROD",
+				evidenceType: "audit",
+				apiInstanceName: null,
+				reviewProgressSnapshot: null,
+			},
+			sourceId: "PENSJON_PROD",
 			evidenceType: "audit",
 			format: "PDF",
 			buffer: Buffer.from("stored-content"),
