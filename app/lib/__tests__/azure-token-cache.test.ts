@@ -104,7 +104,7 @@ describe("getClientCredentialToken cache", () => {
 	})
 
 	it("should deduplicate concurrent requests for the same scope", async () => {
-		let resolveToken: (value: Response) => void
+		let resolveToken: ((value: Response) => void) | undefined
 		mockFetch.mockReturnValueOnce(
 			new Promise<Response>((resolve) => {
 				resolveToken = resolve
@@ -114,7 +114,7 @@ describe("getClientCredentialToken cache", () => {
 		const promise1 = getClientCredentialToken("api://concurrent/.default")
 		const promise2 = getClientCredentialToken("api://concurrent/.default")
 
-		resolveToken!(mockTokenResponse(3600, "deduped-token"))
+		resolveToken?.(mockTokenResponse(3600, "deduped-token"))
 
 		const [token1, token2] = await Promise.all([promise1, promise2])
 

@@ -169,7 +169,8 @@ export function computeAutoCompliance(
 	for (const [compositeKey, value] of screeningEffectsByControl) {
 		const controlId = compositeKey.substring(0, compositeKey.indexOf(":"))
 		const existing = allScreeningByControl.get(controlId)
-		allScreeningByControl.set(controlId, mergeScreeningEffects(existing, value)!)
+		const merged = mergeScreeningEffects(existing, value)
+		if (merged) allScreeningByControl.set(controlId, merged)
 	}
 
 	for (const assessment of assessments) {

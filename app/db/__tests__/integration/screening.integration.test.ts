@@ -246,7 +246,8 @@ describe("screening.server integration tests", () => {
 		it("cascade-archives child effects when choice is archived (with audit entries)", async () => {
 			const q = await createScreeningQuestion("Q?", null, "admin")
 			const choices = await getChoicesForQuestion(q.id)
-			const ja = choices.find((c) => c.label === "Ja")!
+			const ja = choices.find((c) => c.label === "Ja")
+			if (!ja) throw new Error("Expected 'Ja' choice")
 			await createControl("K-CASCADE.01")
 			const eff = await addChoiceEffect({
 				choiceId: ja.id,

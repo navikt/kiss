@@ -67,13 +67,17 @@ export async function getClientCredentialToken(targetScope: string): Promise<str
 }
 
 async function fetchClientCredentialToken(targetScope: string): Promise<string> {
-	const response = await fetch(AZURE_OPENID_CONFIG_TOKEN_ENDPOINT!, {
+	if (!AZURE_OPENID_CONFIG_TOKEN_ENDPOINT || !AZURE_APP_CLIENT_ID || !AZURE_APP_CLIENT_SECRET) {
+		throw new Error("Azure AD environment variables not configured")
+	}
+
+	const response = await fetch(AZURE_OPENID_CONFIG_TOKEN_ENDPOINT, {
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
 			grant_type: "client_credentials",
-			client_id: AZURE_APP_CLIENT_ID!,
-			client_secret: AZURE_APP_CLIENT_SECRET!,
+			client_id: AZURE_APP_CLIENT_ID,
+			client_secret: AZURE_APP_CLIENT_SECRET,
 			scope: targetScope,
 		}),
 	})

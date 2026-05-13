@@ -104,7 +104,7 @@ export async function syncNaisAppsForTeam(
 				if (!appAuthIntegrations.has(appId)) {
 					appAuthIntegrations.set(appId, new Map())
 				}
-				const byType = appAuthIntegrations.get(appId)!
+				const byType = appAuthIntegrations.get(appId) ?? new Map()
 				const existing = byType.get(auth.type)
 				if (!existing) {
 					byType.set(auth.type, auth)

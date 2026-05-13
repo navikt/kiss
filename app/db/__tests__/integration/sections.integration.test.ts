@@ -278,28 +278,34 @@ describe("sections.server integration tests", () => {
 			// Create nais teams
 			await db.execute(/* sql */ `INSERT INTO nais_teams (slug) VALUES ('nais-alpha'), ('nais-beta'), ('nais-gamma')`)
 			const naisRows = await db.execute(/* sql */ `SELECT id, slug FROM nais_teams ORDER BY slug`)
-			const naisAlpha = (naisRows.rows as Array<{ id: string; slug: string }>).find((r) => r.slug === "nais-alpha")!
-			const naisBeta = (naisRows.rows as Array<{ id: string; slug: string }>).find((r) => r.slug === "nais-beta")!
-			const naisGamma = (naisRows.rows as Array<{ id: string; slug: string }>).find((r) => r.slug === "nais-gamma")!
+			const naisTeams = naisRows.rows as Array<{ id: string; slug: string }>
+			const naisAlpha = naisTeams.find((r) => r.slug === "nais-alpha")
+			const naisBeta = naisTeams.find((r) => r.slug === "nais-beta")
+			const naisGamma = naisTeams.find((r) => r.slug === "nais-gamma")
+			expect(naisAlpha).toBeDefined()
+			expect(naisBeta).toBeDefined()
+			expect(naisGamma).toBeDefined()
 
 			// TeamA linked to nais-alpha (active) and nais-beta (archived)
 			await db.execute(
-				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by) VALUES ('${teamA.id}', '${naisAlpha.id}', 'test')`,
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by) VALUES ('${teamA.id}', '${naisAlpha?.id}', 'test')`,
 			)
 			await db.execute(
-				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by, archived_at, archived_by) VALUES ('${teamA.id}', '${naisBeta.id}', 'test', NOW(), 'test')`,
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by, archived_at, archived_by) VALUES ('${teamA.id}', '${naisBeta?.id}', 'test', NOW(), 'test')`,
 			)
 			// TeamB linked to nais-gamma (active)
 			await db.execute(
-				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by) VALUES ('${teamB.id}', '${naisGamma.id}', 'test')`,
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by) VALUES ('${teamB.id}', '${naisGamma?.id}', 'test')`,
 			)
 
 			const teams = await getTeamsForSection(section.id)
-			const a = teams.find((t) => t.name === "TeamA")!
-			const b = teams.find((t) => t.name === "TeamB")!
+			const a = teams.find((t) => t.name === "TeamA")
+			const b = teams.find((t) => t.name === "TeamB")
+			expect(a).toBeDefined()
+			expect(b).toBeDefined()
 
-			expect(a.linkedNaisTeams).toEqual(["nais-alpha"])
-			expect(b.linkedNaisTeams).toEqual(["nais-gamma"])
+			expect(a?.linkedNaisTeams).toEqual(["nais-alpha"])
+			expect(b?.linkedNaisTeams).toEqual(["nais-gamma"])
 		})
 	})
 })

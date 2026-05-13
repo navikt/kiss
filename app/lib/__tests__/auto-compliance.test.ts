@@ -173,7 +173,8 @@ describe("computeAutoCompliance", () => {
 		const screeningEffects = new Map()
 
 		const result = computeAutoCompliance(assessments, deadlines, screeningEffects)
-		const auto = result.get("ctrl-1:null")!
+		const auto = result.get("ctrl-1:null")
+		if (!auto) throw new Error("Expected auto-compliance result")
 		expect(auto.autoStatus).toBe("implemented")
 		expect(auto.matchingRoutineIds).toContain("routine-1")
 		expect(auto.matchingRoutineIds).toContain("routine-2")

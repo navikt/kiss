@@ -1,3 +1,4 @@
+import { PlusIcon } from "@navikt/aksel-icons"
 import {
 	Alert,
 	BodyLong,
@@ -106,6 +107,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function AdminRpaGrupper() {
 	const { groups, auditLog } = useLoaderData<typeof loader>()
+	const addModalRef = useRef<HTMLDialogElement>(null)
 
 	return (
 		<VStack gap="space-6">
@@ -119,37 +121,53 @@ export default function AdminRpaGrupper() {
 						daglig.
 					</BodyLong>
 				</div>
-				<Link to="/admin">← Tilbake til admin</Link>
+				<HStack gap="space-4" align="center">
+					<Button
+						variant="tertiary"
+						size="small"
+						icon={<PlusIcon aria-hidden />}
+						onClick={() => addModalRef.current?.showModal()}
+					>
+						Legg til gruppe
+					</Button>
+					<Link to="/admin">← Tilbake til admin</Link>
+				</HStack>
 			</HStack>
-
-			<AddGroupSection existingGroupIds={groups.map((g) => g.groupId)} />
 
 			<GroupTable groups={groups} />
 
 			<AuditLogSection auditLog={auditLog} />
+
+			<AddGroupModal modalRef={addModalRef} existingGroupIds={groups.map((g) => g.groupId)} />
 		</VStack>
 	)
 }
 
-// ─── Add Group Section ────────────────────────────────────────────────────────
+// ─── Add Group Modal ──────────────────────────────────────────────────────────
 
 interface GroupSearchResult {
 	id: string
 	displayName: string
 }
 
-function AddGroupSection({ existingGroupIds }: { existingGroupIds: string[] }) {
+function AddGroupModal({
+	modalRef,
+	existingGroupIds,
+}: {
+	modalRef: React.RefObject<HTMLDialogElement | null>
+	existingGroupIds: string[]
+}) {
 	const searchFetcher = useFetcher<{ results: GroupSearchResult[] }>()
 	const addFetcher = useFetcher<{ success?: boolean; error?: string }>()
 	const [searchValue, setSearchValue] = useState("")
-	const [showResults, setShowResults] = useState(false)
+	const [addingGroupId, setAddingGroupId] = useState<string | null>(null)
+	const [dismissedError, setDismissedError] = useState(false)
 	const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>(null)
-	const resultsRef = useRef<HTMLDivElement>(null)
 
 	const isSearching = searchFetcher.state === "loading"
 	const isAdding = addFetcher.state === "submitting"
 	const searchResults = searchFetcher.data?.results ?? []
-	const addError = addFetcher.data?.error
+	const addError = !dismissedError ? addFetcher.data?.error : undefined
 
 	const handleSearch = useCallback(
 		(value: string) => {
@@ -158,12 +176,10 @@ function AddGroupSection({ existingGroupIds }: { existingGroupIds: string[] }) {
 				clearTimeout(searchTimeoutRef.current)
 			}
 			if (value.trim().length < 2) {
-				setShowResults(false)
 				return
 			}
 			searchTimeoutRef.current = setTimeout(() => {
 				searchFetcher.load(`/api/graph/groups?q=${encodeURIComponent(value.trim())}`)
-				setShowResults(true)
 			}, 300)
 		},
 		[searchFetcher],
@@ -171,29 +187,21 @@ function AddGroupSection({ existingGroupIds }: { existingGroupIds: string[] }) {
 
 	const handleAddGroup = useCallback(
 		(group: GroupSearchResult) => {
+			setAddingGroupId(group.id)
+			setDismissedError(false)
 			addFetcher.submit({ intent: "add-group", groupId: group.id, groupName: group.displayName }, { method: "post" })
-			setShowResults(false)
 		},
 		[addFetcher],
 	)
 
-	// Clear search on successful add
+	// Close modal and reset on successful add
 	useEffect(() => {
 		if (addFetcher.data?.success && addFetcher.state === "idle") {
 			setSearchValue("")
+			setAddingGroupId(null)
+			modalRef.current?.close()
 		}
-	}, [addFetcher.data, addFetcher.state])
-
-	// Close results on click outside
-	useEffect(() => {
-		function handleClickOutside(e: MouseEvent) {
-			if (resultsRef.current && !resultsRef.current.contains(e.target as Node)) {
-				setShowResults(false)
-			}
-		}
-		document.addEventListener("mousedown", handleClickOutside)
-		return () => document.removeEventListener("mousedown", handleClickOutside)
-	}, [])
+	}, [addFetcher.data, addFetcher.state, modalRef])
 
 	// Cleanup debounce on unmount
 	useEffect(() => {
@@ -204,69 +212,97 @@ function AddGroupSection({ existingGroupIds }: { existingGroupIds: string[] }) {
 		}
 	}, [])
 
+	const handleClose = () => {
+		setSearchValue("")
+		setAddingGroupId(null)
+		setDismissedError(true)
+		modalRef.current?.close()
+	}
+
 	return (
-		<VStack gap="space-2">
-			{addError && (
-				<Alert variant="error" size="small">
-					{addError}
-				</Alert>
-			)}
-			<div style={{ position: "relative", maxWidth: "40rem" }} ref={resultsRef}>
-				<Search
-					label="Legg til RPA-gruppe (søk på gruppenavn eller Object-ID)"
-					value={searchValue}
-					onChange={handleSearch}
-					onClear={() => {
-						if (searchTimeoutRef.current) {
-							clearTimeout(searchTimeoutRef.current)
-						}
-						setSearchValue("")
-						setShowResults(false)
-					}}
-					disabled={isAdding}
-				/>
-				{showResults && (
-					<div className="search-results-dropdown">
-						{isSearching ? (
-							<div className="search-result-item">
+		<Modal ref={modalRef} header={{ heading: "Legg til RPA-gruppe" }} onClose={handleClose}>
+			<Modal.Body>
+				<VStack gap="space-4">
+					{addError && (
+						<Alert variant="error" size="small">
+							{addError}
+						</Alert>
+					)}
+					<Search
+						label="Søk etter Entra ID-gruppe"
+						value={searchValue}
+						onChange={handleSearch}
+						onClear={() => {
+							if (searchTimeoutRef.current) {
+								clearTimeout(searchTimeoutRef.current)
+							}
+							setSearchValue("")
+						}}
+						disabled={isAdding}
+						size="small"
+					/>
+					{searchValue.trim().length >= 2 && (
+						<section
+							className="table-scroll"
+							// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1
+							tabIndex={0}
+							aria-label="Søkeresultater for grupper"
+							style={{ maxHeight: "20rem", overflow: "auto" }}
+						>
+							{isSearching ? (
 								<BodyShort size="small">Søker…</BodyShort>
-							</div>
-						) : searchResults.length === 0 ? (
-							<div className="search-result-item">
+							) : searchResults.length === 0 ? (
 								<BodyShort size="small">Ingen grupper funnet.</BodyShort>
-							</div>
-						) : (
-							searchResults.map((group) => {
-								const alreadyAdded = existingGroupIds.includes(group.id)
-								return (
-									<button
-										type="button"
-										key={group.id}
-										className="search-result-item"
-										onClick={() => !alreadyAdded && handleAddGroup(group)}
-										disabled={alreadyAdded}
-									>
-										<VStack gap="space-1">
-											<BodyShort size="small" weight="semibold">
-												{group.displayName}
-											</BodyShort>
-											<Detail textColor="subtle" style={{ fontFamily: "monospace" }}>
-												{group.id}
-											</Detail>
-										</VStack>
-										{alreadyAdded && (
-											<Tag variant="neutral" size="small">
-												Allerede lagt til
-											</Tag>
-										)}
-									</button>
-								)
-							})
-						)}
-					</div>
-				)}
-			</div>
-		</VStack>
+							) : (
+								<Table size="small">
+									<Table.Body>
+										{searchResults.map((group) => {
+											const alreadyAdded = existingGroupIds.includes(group.id)
+											return (
+												<Table.Row key={group.id}>
+													<Table.DataCell>
+														<VStack gap="space-1">
+															<BodyShort size="small" weight="semibold">
+																{group.displayName}
+															</BodyShort>
+															<Detail textColor="subtle" style={{ fontFamily: "monospace" }}>
+																{group.id}
+															</Detail>
+														</VStack>
+													</Table.DataCell>
+													<Table.DataCell align="right">
+														{alreadyAdded ? (
+															<Tag variant="neutral" size="small">
+																Allerede lagt til
+															</Tag>
+														) : (
+															<Button
+																variant="tertiary"
+																size="xsmall"
+																onClick={() => handleAddGroup(group)}
+																loading={isAdding && addingGroupId === group.id}
+																disabled={isAdding}
+															>
+																Legg til
+															</Button>
+														)}
+													</Table.DataCell>
+												</Table.Row>
+											)
+										})}
+									</Table.Body>
+								</Table>
+							)}
+						</section>
+					)}
+				</VStack>
+			</Modal.Body>
+			<Modal.Footer>
+				<Button variant="secondary" size="small" onClick={handleClose}>
+					Lukk
+				</Button>
+			</Modal.Footer>
+		</Modal>
 	)
 }
 
@@ -288,7 +324,7 @@ function GroupTable({ groups }: { groups: GroupWithStats[] }) {
 	if (groups.length === 0) {
 		return (
 			<Alert variant="info" size="small">
-				Ingen RPA-grupper er konfigurert ennå. Søk etter en Entra ID-gruppe over for å legge til.
+				Ingen RPA-grupper er konfigurert ennå. Bruk «Legg til gruppe»-knappen for å legge til en Entra ID-gruppe.
 			</Alert>
 		)
 	}

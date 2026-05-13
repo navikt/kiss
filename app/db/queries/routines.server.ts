@@ -2366,7 +2366,7 @@ export async function getAppsRequiringRoutine(
 		const cache = opts?.sectionAppIdsCache
 		let appIds: string[]
 		if (cache?.has(routine.sectionId)) {
-			appIds = cache.get(routine.sectionId)!
+			appIds = cache.get(routine.sectionId) ?? []
 		} else {
 			appIds = await getAppIdsInSection(routine.sectionId)
 			cache?.set(routine.sectionId, appIds)
@@ -2434,7 +2434,7 @@ export async function getAppsRequiringRoutine(
 		const cache = opts?.sectionAppIdsCache
 		let sectionAppIds: string[]
 		if (cache?.has(routine.sectionId)) {
-			sectionAppIds = cache.get(routine.sectionId)!
+			sectionAppIds = cache.get(routine.sectionId) ?? []
 		} else {
 			sectionAppIds = await getAppIdsInSection(routine.sectionId)
 			cache?.set(routine.sectionId, sectionAppIds)
@@ -2495,12 +2495,11 @@ async function findAppsByPersistenceMatch(
 	// Pre-filter persistence entries by relevant types/classifications
 	const filters = [isNull(applicationPersistence.archivedAt)]
 	if (requiredTypes.length > 0 && requiredClassifications.length > 0) {
-		filters.push(
-			or(
-				inArray(applicationPersistence.type, requiredTypes),
-				inArray(applicationPersistence.dataClassification, requiredClassifications),
-			)!,
+		const combined = or(
+			inArray(applicationPersistence.type, requiredTypes),
+			inArray(applicationPersistence.dataClassification, requiredClassifications),
 		)
+		if (combined) filters.push(combined)
 	} else if (requiredTypes.length > 0) {
 		filters.push(inArray(applicationPersistence.type, requiredTypes))
 	} else if (requiredClassifications.length > 0) {

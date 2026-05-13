@@ -358,9 +358,9 @@ describe("Application controls integration tests", () => {
 			// Second sync — nothing changed, should be a no-op
 			const result = await syncApplicationControls(appId)
 			expect(result).not.toBeNull()
-			expect(result!.unchanged).toBe(beforeRows.length)
-			expect(result!.statusChanged).toBe(0)
-			expect(result!.activated).toBe(0)
+			expect(result?.unchanged).toBe(beforeRows.length)
+			expect(result?.statusChanged).toBe(0)
+			expect(result?.activated).toBe(0)
 
 			// Verify updated_at is unchanged
 			const after = await db.execute(
