@@ -86,6 +86,14 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Konfigurer Entra ID-grupper som identifiserer RPA-brukere (roboter).</BodyLong>
 				</Link>
+				<Link to="/admin/audit-logg-volum" className="admin-card">
+					<Heading size="small" level="3">
+						Audit-logg volum
+					</Heading>
+					<BodyLong size="small">
+						Analyser volumet av audit-logg-oppføringer for å identifisere unormal aktivitet.
+					</BodyLong>
+				</Link>
 			</div>
 		</VStack>
 	)

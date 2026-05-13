@@ -129,6 +129,7 @@ export default [
 	route("admin/vedlikehold", "routes/admin.vedlikehold/index.tsx"),
 	route("admin/okonomisystemer", "routes/admin.okonomisystemer/index.tsx"),
 	route("admin/rpa-grupper", "routes/admin.rpa-grupper/index.tsx"),
+	route("admin/audit-logg-volum", "routes/admin.audit-logg-volum/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),
 	route("api/isready", "routes/api.isready/index.tsx"),
 	route("api/nais-sync", "routes/api.nais-sync/index.tsx"),
