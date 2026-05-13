@@ -229,3 +229,210 @@ export const ManuellOpplasting: Story = {
 		return <Stub initialEntries={["/"]} />
 	},
 }
+
+export const GenerererRapport: Story = {
+	name: "Genererer rapport (polling)",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					appParams,
+					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+					downloads: [],
+				}}
+				isDraft={true}
+			/>
+		)
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-status",
+				loader: async () => ({
+					status: "ok",
+					items: [
+						{
+							id: "deployment-stats",
+							label: "Leveranser Q1 2026",
+							status: "ok",
+							formats: ["pdf"],
+							canDownload: false,
+							details: {
+								total: 38,
+								approved: 35,
+								pending: 2,
+								notApproved: 1,
+								approvedPercent: 92,
+								withChangeOrigin: 33,
+								changeOriginPercent: 87,
+							},
+						},
+					],
+					metadata: {
+						periodType: "quarterly",
+						periodStart: "2026-01-01",
+						periodEnd: "2026-04-01",
+						periodLabel: "Q1 2026",
+					},
+				}),
+			},
+			{
+				path: "/api/evidence-download",
+				action: async () => ({ jobId: "job-123", status: "pending" }),
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
+export const PollFeil: Story = {
+	name: "Polling feilet",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					appParams,
+					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+					downloads: [],
+				}}
+				isDraft={true}
+			/>
+		)
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-status",
+				loader: async () => ({
+					status: "ok",
+					items: [
+						{
+							id: "deployment-stats",
+							label: "Leveranser Q1 2026",
+							status: "ok",
+							formats: ["pdf"],
+							canDownload: false,
+							details: {
+								total: 20,
+								approved: 18,
+								pending: 1,
+								notApproved: 1,
+								approvedPercent: 90,
+								withChangeOrigin: 17,
+								changeOriginPercent: 85,
+							},
+						},
+					],
+					metadata: {
+						periodType: "quarterly",
+						periodStart: "2026-01-01",
+						periodEnd: "2026-04-01",
+						periodLabel: "Q1 2026",
+					},
+				}),
+			},
+			{
+				path: "/api/evidence-download",
+				action: async () => {
+					// First call generates, subsequent poll calls fail (403)
+					return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 })
+				},
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
+export const KonfliktVedGenerering: Story = {
+	name: "Konflikt ved generering",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					appParams,
+					periodConfig: { periodType: "yearly", periodStart: "2025-01-01" },
+					downloads: [],
+				}}
+				isDraft={true}
+			/>
+		)
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-status",
+				loader: async () => ({
+					status: "ok",
+					items: [
+						{
+							id: "report-1",
+							label: "Leveranserapport 2025",
+							status: "ok",
+							formats: ["pdf", "excel"],
+							canDownload: true,
+							details: null,
+						},
+					],
+					metadata: {
+						periodType: "yearly",
+						periodStart: "2025-01-01",
+						periodEnd: "2026-01-01",
+						periodLabel: "2025",
+						existingReports: [
+							{
+								reportId: "report-1",
+								generatedAt: "2026-01-15T10:00:00Z",
+								availableFormats: ["pdf", "excel"],
+							},
+						],
+					},
+				}),
+			},
+			{
+				path: "/api/evidence-download",
+				action: async () => ({ conflict: true, error: "Rapport finnes allerede for denne perioden" }),
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
+export const IngenAppParamsMedNedlastinger: Story = {
+	name: "Ingen prod-miljø – med nedlastinger",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					appParams: null,
+					periodConfig: null,
+					downloads: [
+						{
+							id: "dl-old-1",
+							format: "pdf",
+							fileName: "leveranserapport-Q4-2025.pdf",
+							sizeBytes: 290_000,
+							source: "m2m_api",
+							forceFetchJustification: null,
+							performedBy: "T123456",
+							performedAt: "2026-01-10T08:30:00Z",
+						},
+						{
+							id: "dl-old-2",
+							format: "pdf",
+							fileName: "leveranserapport-Q3-2025.pdf",
+							sizeBytes: 210_000,
+							source: "manual_upload",
+							forceFetchJustification: null,
+							performedBy: "T654321",
+							performedAt: "2025-10-05T14:00:00Z",
+						},
+					],
+				}}
+				isDraft={false}
+			/>
+		)
+		const Stub = createRoutesStub([{ path: "/", Component: Wrapper }])
+		return <Stub initialEntries={["/"]} />
+	},
+}
