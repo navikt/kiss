@@ -112,6 +112,25 @@ function callAction(formData: FormData) {
 	} as unknown as Parameters<typeof action>[0])
 }
 
+/** Extract HTTP status from action result (Response or DataWithResponseInit) */
+function getStatus(result: unknown): number {
+	if (result instanceof Response) return result.status
+	if (result && typeof result === "object" && "init" in result) {
+		const init = (result as { init?: { status?: number } }).init
+		return init?.status ?? 200
+	}
+	return 200
+}
+
+/** Extract fieldErrors from DataWithResponseInit result */
+function getFieldErrors(result: unknown): Record<string, string> | undefined {
+	if (result && typeof result === "object" && "data" in result) {
+		const d = (result as { data?: { fieldErrors?: Record<string, string> } }).data
+		return d?.fieldErrors
+	}
+	return undefined
+}
+
 // --- Tests -----------------------------------------------------------
 
 beforeEach(() => {
@@ -223,7 +242,7 @@ describe("routine edit guards", () => {
 		fd.set("frequency", "annually")
 
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		expect(mockUpdateRoutine).toHaveBeenCalled()
 	})
 
@@ -237,8 +256,53 @@ describe("routine edit guards", () => {
 		fd.set("frequency", "annually")
 
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		expect(mockUpdateRoutine).toHaveBeenCalled()
+	})
+
+	it("returns inline field error when name is missing", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft" }))
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("frequency", "annually")
+
+		const response = await callAction(fd)
+		expect(getStatus(response)).toBe(400)
+		expect(getFieldErrors(response)).toEqual({ name: "Navn er påkrevd" })
+		expect(mockUpdateRoutine).not.toHaveBeenCalled()
+	})
+
+	it("returns inline field error when frequency is missing", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft" }))
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "Test")
+
+		const response = await callAction(fd)
+		expect(getStatus(response)).toBe(400)
+		expect(getFieldErrors(response)?.frequency).toBe(
+			"Enten kronologisk frekvens eller hendelsesbasert frekvens er påkrevd",
+		)
+		expect(mockUpdateRoutine).not.toHaveBeenCalled()
+	})
+
+	it("returns inline field error when section routine owner role is missing", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft" }))
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "Test")
+		fd.set("frequency", "annually")
+		fd.set("isSectionRoutine", "on")
+
+		const response = await callAction(fd)
+		expect(getStatus(response)).toBe(400)
+		expect(getFieldErrors(response)).toEqual({
+			sectionRoutineOwnerRole: "Eier/utførende rolle er påkrevd for seksjonsrutiner",
+		})
+		expect(mockUpdateRoutine).not.toHaveBeenCalled()
 	})
 })
 
@@ -253,7 +317,7 @@ describe("approve-replace intent", () => {
 		fd.set("deadlinePolicy", "continue")
 
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		expect(mockReplaceRoutine).toHaveBeenCalledWith("routine-1", "original-1", "continue", "T123456")
 	})
 
@@ -291,7 +355,7 @@ describe("approve-as-new intent", () => {
 		fd.set("intent", "approve-as-new")
 
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		expect(mockApproveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
 	})
 
@@ -326,7 +390,7 @@ describe("non-admin user access", () => {
 		fd.set("frequency", "annually")
 
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		expect(mockUpdateRoutine).toHaveBeenCalled()
 		expect(mockRequireAdmin).not.toHaveBeenCalled()
 	})
@@ -341,7 +405,7 @@ describe("non-admin user access", () => {
 		fd.set("frequency", "annually")
 
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		expect(mockUpdateRoutine).toHaveBeenCalled()
 		expect(mockRequireAdmin).not.toHaveBeenCalled()
 	})
@@ -357,7 +421,7 @@ describe("non-admin user access", () => {
 		fd.set("status", "approved")
 
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		// "approved" should be silently ignored, not passed to updateRoutine
 		const updateCall = mockUpdateRoutine.mock.calls[0][0]
 		expect(updateCall.status).toBeUndefined()
@@ -383,7 +447,7 @@ describe("delete intent restrictions", () => {
 		fd.set("intent", "delete")
 
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
 	})
 
@@ -409,7 +473,7 @@ describe("archive/unarchive intent", () => {
 		fd.set("intent", "unarchive")
 
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		expect(mockUnarchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
 	})
 
@@ -425,7 +489,7 @@ describe("archive/unarchive intent", () => {
 		// Må fungere selv om status='deleted' (utenfor EDITABLE_STATUSES) — unarchive
 		// håndteres før status-guarden.
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		expect(mockUnarchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
 	})
 
@@ -441,7 +505,7 @@ describe("archive/unarchive intent", () => {
 		fd.set("intent", "unarchive")
 
 		const response = await callAction(fd)
-		expect(response.status).toBe(302)
+		expect(getStatus(response)).toBe(302)
 		expect(mockUnarchiveRoutine).toHaveBeenCalledWith("routine-1", fakeNonAdminUser.navIdent)
 	})
 
