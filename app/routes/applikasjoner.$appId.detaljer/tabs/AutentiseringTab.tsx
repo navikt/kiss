@@ -1,6 +1,18 @@
-import { BodyLong, BodyShort, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyLong, BodyShort, CopyButton, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import { GroupsSection } from "../components/GroupsSection"
 import { authLabels } from "../shared"
+
+interface RpaUser {
+	rpaGroupId: string
+	rpaGroupName: string | null
+	entraGroupId: string
+	matchSource: "nais" | "manual"
+	userObjectId: string
+	displayName: string | null
+	userPrincipalName: string | null
+	accountEnabled: boolean | null
+	syncedAt: string
+}
 
 export function AutentiseringTab({
 	authIntegrations,
@@ -11,6 +23,7 @@ export function AutentiseringTab({
 	assessmentsByGroupId,
 	canAdmin,
 	isOnPrem,
+	rpaUsers,
 }: {
 	authIntegrations: Array<{
 		id: string
@@ -28,6 +41,7 @@ export function AutentiseringTab({
 	assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
 	canAdmin: boolean
 	isOnPrem: boolean
+	rpaUsers: RpaUser[]
 }) {
 	if (authIntegrations.length === 0) {
 		return (
@@ -42,6 +56,7 @@ export function AutentiseringTab({
 					authIntegrations={authIntegrations}
 					canAdmin={canAdmin}
 				/>
+				<RpaUsersSection rpaUsers={rpaUsers} />
 			</VStack>
 		)
 	}
@@ -173,6 +188,116 @@ export function AutentiseringTab({
 				authIntegrations={authIntegrations}
 				canAdmin={canAdmin}
 			/>
+			<RpaUsersSection rpaUsers={rpaUsers} />
+		</VStack>
+	)
+}
+
+// ─── RPA Users Section ────────────────────────────────────────────────────────
+
+function RpaUsersSection({ rpaUsers }: { rpaUsers: RpaUser[] }) {
+	if (rpaUsers.length === 0) return null
+
+	// Deduplicate users (same user can appear via multiple groups)
+	// Prefer the most recently synced data for display fields
+	const uniqueUsers = new Map<string, RpaUser & { groups: Array<{ name: string | null; source: "nais" | "manual" }> }>()
+	for (const user of rpaUsers) {
+		const existing = uniqueUsers.get(user.userObjectId)
+		if (existing) {
+			existing.groups.push({ name: user.rpaGroupName, source: user.matchSource })
+			// Update display fields if this row has more recent sync data
+			if (user.syncedAt > existing.syncedAt) {
+				existing.displayName = user.displayName
+				existing.userPrincipalName = user.userPrincipalName
+				existing.accountEnabled = user.accountEnabled
+				existing.syncedAt = user.syncedAt
+			}
+		} else {
+			uniqueUsers.set(user.userObjectId, {
+				...user,
+				groups: [{ name: user.rpaGroupName, source: user.matchSource }],
+			})
+		}
+	}
+
+	const users = [...uniqueUsers.values()]
+	const latestSync = rpaUsers.reduce((latest, u) => (u.syncedAt > latest ? u.syncedAt : latest), rpaUsers[0].syncedAt)
+
+	return (
+		<VStack gap="space-4">
+			<HStack justify="space-between" align="center">
+				<Heading size="small" level="3">
+					RPA-brukere ({users.length})
+				</Heading>
+				<Detail textColor="subtle">Sist synkronisert: {new Date(latestSync).toLocaleString("nb-NO")}</Detail>
+			</HStack>
+
+			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable container needs keyboard access */}
+			<section className="table-scroll" tabIndex={0} aria-label="RPA-brukere">
+				<Table size="small">
+					<Table.Header>
+						<Table.Row>
+							<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+							<Table.HeaderCell scope="col">UPN / E-post</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+							<Table.HeaderCell scope="col">RPA-gruppe</Table.HeaderCell>
+							<Table.HeaderCell scope="col">Kilde</Table.HeaderCell>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{users.map((user) => (
+							<Table.Row key={user.userObjectId}>
+								<Table.DataCell>
+									<HStack gap="space-1" align="center">
+										<BodyShort size="small">{user.displayName ?? "Ukjent"}</BodyShort>
+										<CopyButton copyText={user.userObjectId} size="xsmall" />
+									</HStack>
+								</Table.DataCell>
+								<Table.DataCell>
+									<Detail style={{ fontFamily: "monospace" }}>{user.userPrincipalName ?? "—"}</Detail>
+								</Table.DataCell>
+								<Table.DataCell>
+									{user.accountEnabled === true ? (
+										<Tag variant="success" size="xsmall">
+											Aktiv
+										</Tag>
+									) : user.accountEnabled === false ? (
+										<Tag variant="error" size="xsmall">
+											Deaktivert
+										</Tag>
+									) : (
+										<Tag variant="neutral" size="xsmall">
+											Ukjent
+										</Tag>
+									)}
+								</Table.DataCell>
+								<Table.DataCell>
+									<VStack gap="space-1">
+										{user.groups.map((g) => (
+											<BodyShort key={`${user.userObjectId}-${g.name}-${g.source}`} size="small">
+												{g.name ?? "Ukjent"}
+											</BodyShort>
+										))}
+									</VStack>
+								</Table.DataCell>
+								<Table.DataCell>
+									<VStack gap="space-1">
+										{user.groups.map((g) => (
+											<Tag
+												key={`${user.userObjectId}-src-${g.name}-${g.source}`}
+												variant={g.source === "nais" ? "info" : "neutral"}
+												size="xsmall"
+											>
+												{g.source === "nais" ? "Nais" : "Manuell"}
+											</Tag>
+										))}
+									</VStack>
+								</Table.DataCell>
+							</Table.Row>
+						))}
+					</Table.Body>
+				</Table>
+			</section>
 		</VStack>
 	)
 }

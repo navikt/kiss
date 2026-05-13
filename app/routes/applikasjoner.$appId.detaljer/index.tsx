@@ -47,6 +47,7 @@ export default function ApplikasjonDetalj() {
 		assessmentsByGroupId,
 		naisGroupIds,
 		ghostGroupIds,
+		rpaUsers,
 		accessPolicyRules,
 		teams,
 		primaryApp,
@@ -322,6 +323,7 @@ export default function ApplikasjonDetalj() {
 						assessmentsByGroupId={assessmentsByGroupId}
 						canAdmin={canAdmin}
 						isOnPrem={isOnPrem}
+						rpaUsers={rpaUsers}
 					/>
 				</Tabs.Panel>
 
