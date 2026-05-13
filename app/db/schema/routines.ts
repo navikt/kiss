@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm"
 import { integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_ACTIVITY_TYPES } from "../../lib/activity-types"
+import { EVIDENCE_PROVIDER_TYPES } from "../../lib/evidence-providers/types"
 import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
 import {
 	dataClassificationEnum,
@@ -14,11 +15,20 @@ import { frameworkControls, technologyElements } from "./framework"
 import { sections } from "./organization"
 import { screeningQuestions } from "./screening"
 
-export type { OracleEvidenceActivityType, RoutineActivityType } from "../../lib/activity-types"
+export type {
+	DeploymentEvidenceActivityType,
+	OracleEvidenceActivityType,
+	RoutineActivityType,
+} from "../../lib/activity-types"
 // Re-export activity type definitions from the DB-free module
 export {
 	ACTIVITY_TYPE_GROUPS,
 	activityTypeLabels,
+	DEPLOYMENT_EVIDENCE_ACTIVITY_TYPES,
+	deploymentEvidenceTypesForActivity,
+	getEvidenceTypesForActivity,
+	getProviderTypeForActivity,
+	isDeploymentEvidenceActivityType,
 	isOracleEvidenceActivityType,
 	ORACLE_EVIDENCE_ACTIVITY_TYPES,
 	oracleEvidenceTypesForActivity,
@@ -257,8 +267,7 @@ export const routineReviewActivityEntraChanges = pgTable("routine_review_activit
 export const EVIDENCE_DOWNLOAD_SOURCES = ["m2m_api", "manual_upload"] as const
 export type EvidenceDownloadSource = (typeof EVIDENCE_DOWNLOAD_SOURCES)[number]
 
-export const EVIDENCE_PROVIDER_TYPES = ["oracle", "deployments"] as const
-export type EvidenceProviderType = (typeof EVIDENCE_PROVIDER_TYPES)[number]
+export { EVIDENCE_PROVIDER_TYPES, type EvidenceProviderType } from "../../lib/evidence-providers/types"
 
 export const routineReviewEvidenceDownloads = pgTable("routine_review_evidence_downloads", {
 	id: uuid("id").primaryKey().defaultRandom(),

@@ -3,6 +3,7 @@ import {
 	buildProviderMetadata,
 	extractProviderParams,
 	getProviderSourceId,
+	validateProviderEvidenceType,
 } from "../evidence-providers/validation.server"
 
 describe("extractProviderParams", () => {
@@ -142,5 +143,82 @@ describe("getProviderSourceId", () => {
 
 	it("filters empty parts for deployments", () => {
 		expect(getProviderSourceId("deployments", { team: "myteam" })).toBe("myteam")
+	})
+})
+
+describe("validateProviderEvidenceType", () => {
+	const baseCtx = {
+		activityId: "a1",
+		activityStatus: "pending",
+		reviewId: "r1",
+		reviewStatus: "draft",
+		routineId: "rt1",
+		routineArchivedAt: null,
+		sectionId: "s1",
+		applicationId: "app1",
+	}
+	const oracleCtx = { ...baseCtx, activityType: "oracle_evidence_audit" }
+	const deploymentCtx = { ...baseCtx, activityType: "deployment_evidence_report" }
+	const nonEvidenceCtx = { ...baseCtx, activityType: "entra_id_group_maintenance" }
+
+	it("passes for valid Oracle provider + evidence type", () => {
+		expect(() => validateProviderEvidenceType("oracle", "audit", oracleCtx)).not.toThrow()
+	})
+
+	it("passes for valid deployment provider + evidence type", () => {
+		expect(() => validateProviderEvidenceType("deployments", "deployment_evidence_report", deploymentCtx)).not.toThrow()
+	})
+
+	it("throws 400 when provider type mismatches activity type", () => {
+		try {
+			validateProviderEvidenceType("oracle", "audit", deploymentCtx)
+			expect.fail("should have thrown")
+		} catch (e) {
+			if (e instanceof Response) {
+				expect(e.status).toBe(400)
+			} else {
+				expect(e).toHaveProperty("init.status", 400)
+			}
+		}
+	})
+
+	it("throws 400 when deployment provider used with Oracle activity", () => {
+		try {
+			validateProviderEvidenceType("deployments", "audit", oracleCtx)
+			expect.fail("should have thrown")
+		} catch (e) {
+			if (e instanceof Response) {
+				expect(e.status).toBe(400)
+			} else {
+				expect(e).toHaveProperty("init.status", 400)
+			}
+		}
+	})
+
+	it("throws 400 for non-evidence activity types", () => {
+		try {
+			validateProviderEvidenceType("oracle", "audit", nonEvidenceCtx)
+			expect.fail("should have thrown")
+		} catch (e) {
+			if (e instanceof Response) {
+				expect(e.status).toBe(400)
+			} else {
+				// DataWithResponseInit from data()
+				expect(e).toHaveProperty("init.status", 400)
+			}
+		}
+	})
+
+	it("throws 400 for invalid evidence type even with correct provider", () => {
+		try {
+			validateProviderEvidenceType("oracle", "nonexistent", oracleCtx)
+			expect.fail("should have thrown")
+		} catch (e) {
+			if (e instanceof Response) {
+				expect(e.status).toBe(400)
+			} else {
+				expect(e).toHaveProperty("init.status", 400)
+			}
+		}
 	})
 })

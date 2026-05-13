@@ -6,6 +6,8 @@
  * for Drizzle column definitions.
  */
 
+import type { EvidenceProviderType } from "~/lib/evidence-providers/types"
+
 export const ORACLE_EVIDENCE_ACTIVITY_TYPES = [
 	"oracle_evidence_audit",
 	"oracle_evidence_profiles",
@@ -21,7 +23,19 @@ export function isOracleEvidenceActivityType(value: unknown): value is OracleEvi
 	return typeof value === "string" && (ORACLE_EVIDENCE_ACTIVITY_TYPES as readonly string[]).includes(value)
 }
 
-export const ROUTINE_ACTIVITY_TYPES = ["entra_id_group_maintenance", ...ORACLE_EVIDENCE_ACTIVITY_TYPES] as const
+export const DEPLOYMENT_EVIDENCE_ACTIVITY_TYPES = ["deployment_evidence_report"] as const
+
+export type DeploymentEvidenceActivityType = (typeof DEPLOYMENT_EVIDENCE_ACTIVITY_TYPES)[number]
+
+export function isDeploymentEvidenceActivityType(value: unknown): value is DeploymentEvidenceActivityType {
+	return typeof value === "string" && (DEPLOYMENT_EVIDENCE_ACTIVITY_TYPES as readonly string[]).includes(value)
+}
+
+export const ROUTINE_ACTIVITY_TYPES = [
+	"entra_id_group_maintenance",
+	...ORACLE_EVIDENCE_ACTIVITY_TYPES,
+	...DEPLOYMENT_EVIDENCE_ACTIVITY_TYPES,
+] as const
 
 export type RoutineActivityType = (typeof ROUTINE_ACTIVITY_TYPES)[number]
 
@@ -34,6 +48,7 @@ export const activityTypeLabels: Record<RoutineActivityType, string> = {
 	oracle_evidence_users: "Oracle-brukere",
 	oracle_evidence_period: "Periodebasert gjennomgang",
 	oracle_evidence_all: "Samlet Oracle-revisjonsbevis",
+	deployment_evidence_report: "Leveranserapport",
 }
 
 /** Grouped activity types for building <optgroup> UI */
@@ -50,15 +65,23 @@ export const ACTIVITY_TYPE_GROUPS = [
 			"oracle_evidence_all",
 		] as const,
 	},
+	// Leveranserapporter (deployment_evidence_report) er definert men skjult
+	// fra UI inntil NDA-provideren er implementert.
 ] as const
 
-// Compile-time exhaustiveness: every RoutineActivityType must appear in ACTIVITY_TYPE_GROUPS
-// and vice versa. Adding/removing a type without updating the groups causes a build error.
+// Compile-time exhaustiveness: every RoutineActivityType that is shown in the UI
+// must appear in ACTIVITY_TYPE_GROUPS. Types not yet exposed (e.g. deployment)
+// are listed in HIDDEN_ACTIVITY_TYPES.
+const HIDDEN_ACTIVITY_TYPES = [...DEPLOYMENT_EVIDENCE_ACTIVITY_TYPES] as const
+type HiddenTypes = (typeof HIDDEN_ACTIVITY_TYPES)[number]
 type GroupedTypes = (typeof ACTIVITY_TYPE_GROUPS)[number]["types"][number]
+type VisibleActivityTypes = Exclude<RoutineActivityType, HiddenTypes>
 // biome-ignore lint/correctness/noUnusedVariables: compile-time exhaustiveness check
-const _assertAllTypesGrouped: [RoutineActivityType] extends [GroupedTypes] ? true : false = true
+const _assertAllVisibleTypesGrouped: [VisibleActivityTypes] extends [GroupedTypes] ? true : false = true
 // biome-ignore lint/correctness/noUnusedVariables: compile-time exhaustiveness check
 const _assertNoExtraTypes: [GroupedTypes] extends [RoutineActivityType] ? true : false = true
+// biome-ignore lint/correctness/noUnusedVariables: compile-time exhaustiveness check — hidden types must NOT appear in groups
+const _assertHiddenNotGrouped: Extract<GroupedTypes, HiddenTypes> extends never ? true : false = true
 
 /** Maps Oracle evidence activity types to the evidence types they cover */
 export const oracleEvidenceTypesForActivity: Record<OracleEvidenceActivityType, string[]> = {
@@ -68,4 +91,29 @@ export const oracleEvidenceTypesForActivity: Record<OracleEvidenceActivityType, 
 	oracle_evidence_users: ["users"],
 	oracle_evidence_period: ["period"],
 	oracle_evidence_all: ["audit", "profiles", "roles", "users", "period"],
+}
+
+/** Maps deployment evidence activity types to the evidence types they cover */
+export const deploymentEvidenceTypesForActivity: Record<DeploymentEvidenceActivityType, string[]> = {
+	deployment_evidence_report: ["deployment_evidence_report"],
+}
+
+/**
+ * Returns the evidence provider type for a given activity type,
+ * or null if the activity type is not an evidence provider activity.
+ */
+export function getProviderTypeForActivity(activityType: string): EvidenceProviderType | null {
+	if (isOracleEvidenceActivityType(activityType)) return "oracle"
+	if (isDeploymentEvidenceActivityType(activityType)) return "deployments"
+	return null
+}
+
+/**
+ * Returns the evidence types for a given activity type,
+ * or null if the activity type is not an evidence provider activity.
+ */
+export function getEvidenceTypesForActivity(activityType: string): string[] | null {
+	if (isOracleEvidenceActivityType(activityType)) return oracleEvidenceTypesForActivity[activityType]
+	if (isDeploymentEvidenceActivityType(activityType)) return deploymentEvidenceTypesForActivity[activityType]
+	return null
 }
