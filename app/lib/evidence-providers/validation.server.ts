@@ -10,7 +10,7 @@ import { getNdaAppParams } from "~/db/queries/deployment-audit.server"
 import { type ActivityContext, isInstanceConfiguredForApp } from "~/db/queries/evidence-downloads.server"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "~/lib/activity-types"
 import type { EvidenceProviderType } from "~/lib/evidence-providers/types"
-import { PERIOD_TYPES } from "~/lib/nda-audit-reports.server"
+import { isPeriodEnded, isValidPeriodStart, isValidPeriodType, type PeriodType } from "~/lib/period-validation"
 
 /**
  * Extract provider-specific params from a URLSearchParams or FormData source.
@@ -85,7 +85,7 @@ export function validateProviderEvidenceType(
 		)
 	}
 	const allowed = getEvidenceTypesForActivity(ctx.activityType)
-	if (!allowed || !allowed.includes(evidenceType)) {
+	if (!allowed?.includes(evidenceType)) {
 		throw data({ error: `Bevistypen '${evidenceType}' er ikke tillatt for denne aktiviteten` }, { status: 400 })
 	}
 }
@@ -167,16 +167,40 @@ async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: A
 		)
 	}
 
-	// Validate period params if provided
-	const periodType = typeof params.periodType === "string" ? params.periodType : undefined
-	if (periodType && !(PERIOD_TYPES as readonly string[]).includes(periodType)) {
-		throw data({ error: `Ugyldig periodType: ${periodType}` }, { status: 400 })
+	// Require non-empty deployments params — fail fast with 400 instead of letting
+	// empty strings pass through to the NDA provider where they'd cause 500s
+	const team = typeof params.team === "string" ? params.team : ""
+	const environment = typeof params.environment === "string" ? params.environment : ""
+	const appName = typeof params.appName === "string" ? params.appName : ""
+	if (!team || !environment || !appName) {
+		throw data({ error: "team, environment og appName er påkrevd for leveranserapporter" }, { status: 400 })
 	}
 
-	const periodStart = typeof params.periodStart === "string" ? params.periodStart : undefined
-	const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-	if (periodStart && !DATE_PATTERN.test(periodStart)) {
-		throw data({ error: "Ugyldig datoformat for periodStart (forventet YYYY-MM-DD)" }, { status: 400 })
+	// Verify client-supplied params match the application's actual params
+	if (team !== appParams.team) {
+		throw data({ error: "team matcher ikke applikasjonen" }, { status: 403 })
+	}
+	if (environment !== appParams.environment) {
+		throw data({ error: "environment matcher ikke applikasjonen" }, { status: 403 })
+	}
+	if (appName !== appParams.appName) {
+		throw data({ error: "appName matcher ikke applikasjonen" }, { status: 403 })
+	}
+
+	// Require period params — all deployments flows need them
+	const periodType = typeof params.periodType === "string" ? params.periodType : ""
+	const periodStart = typeof params.periodStart === "string" ? params.periodStart : ""
+	if (!periodType || !periodStart) {
+		throw data({ error: "periodType og periodStart er påkrevd for leveranserapporter" }, { status: 400 })
+	}
+	if (!isValidPeriodType(periodType)) {
+		throw data({ error: `Ugyldig periodType: ${periodType}` }, { status: 400 })
+	}
+	if (!isValidPeriodStart(periodType as PeriodType, periodStart)) {
+		throw data({ error: `Ugyldig periodStart: ${periodStart} for periodType ${periodType}` }, { status: 400 })
+	}
+	if (!isPeriodEnded(periodType as PeriodType, periodStart)) {
+		throw data({ error: "Perioden er ikke avsluttet ennå" }, { status: 400 })
 	}
 }
 

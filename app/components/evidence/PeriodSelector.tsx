@@ -6,7 +6,7 @@
  */
 
 import { BodyShort, Button, HStack, Select, VStack } from "@navikt/ds-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useFetcher } from "react-router"
 
 const PERIOD_TYPE_LABELS: Record<string, string> = {
@@ -113,9 +113,20 @@ export function PeriodSelector({ activityId, onSaved }: PeriodSelectorProps) {
 	const fetcher = useFetcher()
 	const [periodType, setPeriodType] = useState("yearly")
 	const [periodStart, setPeriodStart] = useState("")
+	const prevFetcherState = useRef(fetcher.state)
 
 	const periods = getCompletedPeriods(periodType)
 	const isSubmitting = fetcher.state !== "idle"
+
+	useEffect(() => {
+		if (prevFetcherState.current !== "idle" && fetcher.state === "idle" && fetcher.data) {
+			const result = fetcher.data as Record<string, unknown>
+			if (result.success && onSaved) {
+				onSaved()
+			}
+		}
+		prevFetcherState.current = fetcher.state
+	}, [fetcher.state, fetcher.data, onSaved])
 
 	return (
 		<VStack gap="space-4">
@@ -154,11 +165,6 @@ export function PeriodSelector({ activityId, onSaved }: PeriodSelectorProps) {
 						variant="primary"
 						disabled={!periodStart || isSubmitting}
 						loading={isSubmitting}
-						onClick={() => {
-							if (onSaved) {
-								setTimeout(onSaved, 500)
-							}
-						}}
 					>
 						Velg periode
 					</Button>

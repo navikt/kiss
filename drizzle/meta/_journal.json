@@ -538,7 +538,14 @@
       "idx": 76,
       "version": "7",
       "when": 1781916520000,
-      "tag": "0076_activity_period_config",
+      "tag": "0076_routine_review_follow_up_points",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1781916580000,
+      "tag": "0077_activity_period_config",
       "breakpoints": true
     }
   ]

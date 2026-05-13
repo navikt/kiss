@@ -7,6 +7,7 @@ import {
 	recordManualEvidenceUpload,
 } from "~/db/queries/evidence-downloads.server"
 import type { EvidenceProviderType } from "~/db/schema/routines"
+import { getProviderTypeForActivity } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
 import { getEvidenceProvider, isEvidenceProviderType } from "~/lib/evidence-providers/index.server"
@@ -88,6 +89,9 @@ async function handleDownloadFromApi(
 	if (!evidenceType || !format || !activityId) {
 		return data({ error: "Mangler påkrevde felt" }, { status: 400 })
 	}
+	if (providerType === "deployments" && !reportId) {
+		return data({ error: "reportId er påkrevd for nedlasting av leveranserapporter" }, { status: 400 })
+	}
 	if (!isValidUuid(activityId)) {
 		return data({ error: "Ugyldig activityId-format" }, { status: 400 })
 	}
@@ -132,10 +136,18 @@ async function handleDownloadFromApi(
 		}
 	}
 
+	// Validate reportId belongs to the current period for deployments
+	if (providerType === "deployments" && evidenceStatus) {
+		const existingReports = (evidenceStatus.metadata?.existingReports ?? []) as Array<{ reportId: string }>
+		if (!existingReports.some((r) => r.reportId === reportId)) {
+			return data({ error: "reportId finnes ikke for valgt periode" }, { status: 400 })
+		}
+	}
+
 	let file: { buffer: Buffer; fileName: string; contentType: string }
 	try {
-		// Use reportId when available (NDA downloads use specific report IDs)
-		const itemId = reportId || evidenceType
+		// Deployments use reportId as itemId; other providers use evidenceType
+		const itemId = providerType === "deployments" ? reportId! : evidenceType
 		file = await provider.downloadFile(providerParams, itemId, format)
 	} catch (err) {
 		const message = err instanceof Error ? err.message : ""
@@ -154,6 +166,7 @@ async function handleDownloadFromApi(
 		evidenceType,
 		apiInstanceName: evidenceStatus?.sourceLabel ?? null,
 		reviewProgressSnapshot: itemStatus?.details?.review ?? null,
+		...(reportId ? { reportId } : {}),
 	})
 
 	const sourceId = getProviderSourceId(providerType, providerParams)
@@ -272,8 +285,23 @@ async function handleGenerateReport(
 		return data({ error: "Ugyldig activityId-format" }, { status: 400 })
 	}
 
-	await requireWritableActivity(activityId, user)
+	const ctx = await requireWritableActivity(activityId, user)
+
+	if (getProviderTypeForActivity(ctx.activityType) !== providerType) {
+		return data(
+			{ error: `Aktivitetstypen '${ctx.activityType}' støtter ikke provider '${providerType}'` },
+			{ status: 400 },
+		)
+	}
+
 	const providerParams = extractProviderParams(providerType, formData)
+
+	try {
+		await validateProviderAccess(providerType, providerParams, ctx)
+	} catch (err) {
+		if (err instanceof Response) return err
+		throw err
+	}
 
 	const provider = await getEvidenceProvider(providerType)
 	if (!provider.requestGeneration) {
@@ -317,7 +345,21 @@ async function handlePollJob(
 	if (!ctx) return data({ error: "Aktivitet ikke funnet" }, { status: 404 })
 	requireAnySectionRole(user, ctx.sectionId)
 
+	if (getProviderTypeForActivity(ctx.activityType) !== providerType) {
+		return data(
+			{ error: `Aktivitetstypen '${ctx.activityType}' støtter ikke provider '${providerType}'` },
+			{ status: 400 },
+		)
+	}
+
 	const providerParams = extractProviderParams(providerType, formData)
+
+	try {
+		await validateProviderAccess(providerType, providerParams, ctx)
+	} catch (err) {
+		if (err instanceof Response) return err
+		throw err
+	}
 
 	const provider = await getEvidenceProvider(providerType)
 	if (!provider.getJobStatus) {

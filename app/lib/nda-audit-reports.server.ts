@@ -15,13 +15,20 @@ const NDA_AUDIT_REPORTS_SCOPE = process.env.NDA_AUDIT_REPORTS_SCOPE
 const NDA_AUDIT_REPORTS_BASE_URL = process.env.NDA_AUDIT_REPORTS_BASE_URL
 
 function isDevMode(): boolean {
-	return !NDA_AUDIT_REPORTS_BASE_URL
+	if (!NDA_AUDIT_REPORTS_BASE_URL) {
+		if (process.env.NODE_ENV === "production") {
+			throw new Error("NDA_AUDIT_REPORTS_BASE_URL er ikke satt i produksjon")
+		}
+		return true
+	}
+	return false
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export const PERIOD_TYPES = ["yearly", "tertiary", "quarterly", "monthly"] as const
-export type PeriodType = (typeof PERIOD_TYPES)[number]
+export { PERIOD_TYPES, type PeriodType } from "~/lib/period-validation"
+
+import type { PeriodType } from "~/lib/period-validation"
 
 export interface NdaAppMetadata {
 	team: string
@@ -111,14 +118,14 @@ async function fetchWithAuth(path: string, options?: RequestInit): Promise<Respo
 	const token = await getClientCredentialToken(NDA_AUDIT_REPORTS_SCOPE)
 	const url = `${NDA_AUDIT_REPORTS_BASE_URL}${path}`
 
+	const headers = new Headers(options?.headers as HeadersInit | undefined)
+	headers.set("Authorization", `Bearer ${token}`)
+
 	logger.debug("Fetching nda-audit-reports", { url, method: options?.method ?? "GET" })
 
 	return fetch(url, {
 		...options,
-		headers: {
-			Authorization: `Bearer ${token}`,
-			...(options?.headers ?? {}),
-		},
+		headers,
 	})
 }
 

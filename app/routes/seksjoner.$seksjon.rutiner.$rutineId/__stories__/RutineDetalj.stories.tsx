@@ -45,3 +45,13 @@ export const KombinertFrekvens: Story = {
 			"/seksjoner/pensjon-og-ufore/rutiner/routine-4",
 		),
 }
+
+export const MedOppfølgingspunkter: Story = {
+	name: "Med oppfølgingspunkter (Må følges opp)",
+	render: () =>
+		renderWithLoader(
+			RutineDetaljer,
+			mockRutineDetaljData({ withFollowUp: true }),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-1",
+		),
+}

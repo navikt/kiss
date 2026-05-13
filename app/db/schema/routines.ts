@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm"
 import { integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_ACTIVITY_TYPES } from "../../lib/activity-types"
 import { EVIDENCE_PROVIDER_TYPES } from "../../lib/evidence-providers/types"
+import type { PeriodType } from "../../lib/period-validation"
 import { ROUTINE_FREQUENCIES } from "../../lib/routine-frequencies"
 import {
 	dataClassificationEnum,
@@ -154,6 +155,9 @@ export const routineTechnologyElements = pgTable("routine_technology_elements", 
 
 // ─── Routine Reviews ─────────────────────────────────────────────────────
 
+export const reviewStatusEnum = ["draft", "needs_follow_up", "completed", "discarded"] as const
+export type ReviewStatus = (typeof reviewStatusEnum)[number]
+
 export const routineReviews = pgTable("routine_reviews", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	routineId: uuid("routine_id")
@@ -165,9 +169,7 @@ export const routineReviews = pgTable("routine_reviews", {
 	title: text("title").notNull(),
 	summary: text("summary"),
 	routineSnapshotPath: text("routine_snapshot_path"),
-	status: text("status", { enum: ["draft", "completed", "discarded"] })
-		.notNull()
-		.default("draft"),
+	status: text("status", { enum: reviewStatusEnum }).notNull().default("draft"),
 	reviewedAt: timestamp("reviewed_at", { withTimezone: true }).notNull(),
 	createdBy: text("created_by").notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -236,7 +238,7 @@ export const ENTRA_CHANGE_TYPES = ["added", "removed", "criticality_changed"] as
 export type EntraChangeType = (typeof ENTRA_CHANGE_TYPES)[number]
 
 export interface PeriodConfig {
-	periodType: "yearly" | "tertiary" | "quarterly" | "monthly"
+	periodType: PeriodType
 	periodStart: string
 }
 
@@ -292,4 +294,45 @@ export const routineReviewEvidenceDownloads = pgTable("routine_review_evidence_d
 	forceFetchJustification: text("force_fetch_justification"),
 	performedBy: text("performed_by").notNull(),
 	performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ─── Review Follow-up Points ─────────────────────────────────────────────
+
+export const FOLLOW_UP_POINT_STATUSES = ["needs_follow_up", "completed", "not_relevant"] as const
+export type FollowUpPointStatus = (typeof FOLLOW_UP_POINT_STATUSES)[number]
+
+export const routineReviewFollowUpPoints = pgTable("routine_review_follow_up_points", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	reviewId: uuid("review_id")
+		.notNull()
+		.references(() => routineReviews.id, { onDelete: "cascade" }),
+	text: text("text").notNull(),
+	description: text("description"),
+	resolution: text("resolution"),
+	status: text("status", { enum: FOLLOW_UP_POINT_STATUSES }).notNull().default("needs_follow_up"),
+	createdBy: text("created_by").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedBy: text("updated_by").notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+	resolvedBy: text("resolved_by"),
+})
+
+// ─── Review Follow-up Point Attachments ──────────────────────────────────
+
+export const followUpPointAttachmentKindEnum = ["description", "resolution"] as const
+export type FollowUpPointAttachmentKind = (typeof followUpPointAttachmentKindEnum)[number]
+
+export const routineReviewFollowUpPointAttachments = pgTable("routine_review_follow_up_point_attachments", {
+	id: uuid("id").primaryKey().defaultRandom(),
+	pointId: uuid("point_id")
+		.notNull()
+		.references(() => routineReviewFollowUpPoints.id, { onDelete: "cascade" }),
+	kind: text("kind").notNull().default("resolution").$type<FollowUpPointAttachmentKind>(),
+	fileName: text("file_name").notNull(),
+	bucketPath: text("bucket_path").notNull(),
+	contentType: text("content_type").notNull(),
+	sizeBytes: integer("size_bytes"),
+	uploadedBy: text("uploaded_by").notNull(),
+	uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 })

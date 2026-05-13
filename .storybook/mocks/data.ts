@@ -361,6 +361,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				deadline: "2026-06-01T10:00:00Z",
 				lastReviewDate: "2026-03-01T10:00:00Z",
 				overdue: false,
+				needsFollowUp: true,
 			},
 			{
 				routine: {
@@ -450,7 +451,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				routineName: "Sikkerhetstesting av applikasjoner",
 				title: "Sikkerhetstesting Q1 2026",
 				reviewedAt: "2026-03-01T10:00:00Z",
-				status: "completed" as const,
+				status: "needs_follow_up" as const,
 				createdBy: "A123456",
 				sectionId: null,
 				participants: [{ confirmedAt: "2026-03-01T11:00:00Z" }],
@@ -465,6 +466,17 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				createdBy: "A123456",
 				sectionId: "s-01",
 				participants: [{ confirmedAt: "2026-03-15T09:30:00Z" }, { confirmedAt: null }],
+			},
+			{
+				id: "rev-old",
+				routineId: "routine-1",
+				routineName: "Sikkerhetstesting av applikasjoner",
+				title: "Sikkerhetstesting Q4 2025 (forkastet)",
+				reviewedAt: "2025-12-15T10:00:00Z",
+				status: "discarded" as const,
+				createdBy: "A123456",
+				sectionId: null,
+				participants: [],
 			},
 		],
 		assessments: [
@@ -906,10 +918,11 @@ export function mockNyRutineData() {
 	}
 }
 
-export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; eventOnly?: boolean; dualFrequency?: boolean }) {
+export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; eventOnly?: boolean; dualFrequency?: boolean; withFollowUp?: boolean }) {
 	const isSec = overrides?.isSectionRoutine ?? false
 	const eventOnly = overrides?.eventOnly ?? false
 	const dualFrequency = overrides?.dualFrequency ?? false
+	const withFollowUp = overrides?.withFollowUp ?? false
 
 	const frequency = eventOnly ? null : isSec ? "semi_annually" : "quarterly"
 	const eventFrequency = eventOnly ? "Ved endring" : dualFrequency ? "Ved behov" : null
@@ -955,7 +968,11 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 					applicationName: null,
 					title: "Tilgangskontroll H1 2026",
 					reviewedAt: "2026-03-15T09:00:00Z",
-					status: "completed" as const,
+					status: (withFollowUp ? "needs_follow_up" : "completed") as
+						| "completed"
+						| "needs_follow_up"
+						| "draft"
+						| "discarded",
 					createdBy: "A123456",
 					participants: [{ confirmedAt: "2026-03-15T09:30:00Z" }, { confirmedAt: null }],
 					attachments: [],
@@ -969,7 +986,11 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 					applicationName: "pensjon-sak",
 					title: "Sikkerhetstesting Q1 2026",
 					reviewedAt: "2026-03-01T10:00:00Z",
-					status: "completed" as const,
+					status: (withFollowUp ? "needs_follow_up" : "completed") as
+						| "completed"
+						| "needs_follow_up"
+						| "draft"
+						| "discarded",
 					createdBy: "A123456",
 					participants: [{ confirmedAt: "2026-03-01T11:00:00Z" }],
 					attachments: [],
@@ -986,6 +1007,18 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 					participants: [],
 					attachments: [],
 				},
+				{
+					id: "rev-3",
+					routineId: "routine-1",
+					applicationId: "app-1",
+					applicationName: "pensjon-sak",
+					title: "Sikkerhetstesting Q4 2025 (forkastet)",
+					reviewedAt: "2025-12-15T10:00:00Z",
+					status: "discarded" as const,
+					createdBy: "A123456",
+					participants: [],
+					attachments: [],
+				},
 			]
 
 	const appsWithDeadlines = eventOnly
@@ -996,6 +1029,8 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 					lastReviewDate: "2026-04-10T09:00:00Z",
 					deadline: null,
 					overdue: false,
+					needsFollowUp: false,
+					latestReviewId: "rev-1",
 					neverReviewed: false,
 				},
 				{
@@ -1004,6 +1039,8 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 					lastReviewDate: null,
 					deadline: null,
 					overdue: false,
+					needsFollowUp: false,
+					latestReviewId: null,
 					neverReviewed: true,
 				},
 			]
@@ -1014,6 +1051,8 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 			lastReviewDate: isSec ? "2026-03-15T09:00:00Z" : "2026-03-01T10:00:00Z",
 			deadline: "2026-06-01T10:00:00Z",
 			overdue: false,
+			needsFollowUp: withFollowUp,
+			latestReviewId: "rev-1",
 			neverReviewed: false,
 		},
 		{
@@ -1022,6 +1061,8 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 			lastReviewDate: isSec ? "2026-03-15T09:00:00Z" : "2026-02-20T14:00:00Z",
 			deadline: isSec ? "2026-09-15T09:00:00Z" : "2026-05-20T14:00:00Z",
 			overdue: !isSec,
+			needsFollowUp: false,
+			latestReviewId: "rev-2",
 			neverReviewed: false,
 		},
 		{
@@ -1030,6 +1071,8 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 			lastReviewDate: null,
 			deadline: "2026-03-01T08:00:00Z",
 			overdue: true,
+			needsFollowUp: false,
+			latestReviewId: null,
 			neverReviewed: true,
 		},
 	]
@@ -1287,7 +1330,94 @@ export function mockAdminImportData() {
 
 // ─── Gjennomgang detalj ─────────────────────────────────────────────
 
-export function mockGjennomgangDetaljData() {
+type GjennomgangDetaljStatus = "draft" | "needs_follow_up" | "completed" | "discarded"
+
+export function mockGjennomgangDetaljData(overrides?: {
+	status?: GjennomgangDetaljStatus
+	followUpPoints?: "none" | "mixed" | "all_open" | "all_resolved"
+}) {
+	const status = overrides?.status ?? "draft"
+	const followUpVariant = overrides?.followUpPoints ?? (status === "draft" ? "none" : "mixed")
+
+	const allPoints = [
+		{
+			id: "fup-1",
+			text: "Oppgradere kritiske avhengigheter til siste versjon",
+			description:
+				"Spring Boot og en del transitive avhengigheter har kjente CVE-er. Må oppgraderes og verifiseres med ny pentest-runde.",
+			resolution: null as string | null,
+			status: "needs_follow_up" as const,
+			createdBy: "A123456",
+			createdAt: "2026-03-01T10:30:00Z",
+			updatedBy: "A123456",
+			updatedAt: "2026-03-01T10:30:00Z",
+			resolvedAt: null as string | null,
+			resolvedBy: null as string | null,
+			attachments: [] as Array<{
+				id: string
+				kind: "description" | "resolution"
+				fileName: string
+				contentType: string
+				sizeBytes: number | null
+				uploadedBy: string
+				uploadedAt: string
+			}>,
+		},
+		{
+			id: "fup-2",
+			text: "Verifisere at logging av sensitive felt er fjernet",
+			description: "Funn 2 fra pentest-rapporten — sjekkes etter neste deploy.",
+			resolution: "Bekreftet i kode-review at logging er fjernet og verifisert i preprod 2026-03-10.",
+			status: "completed" as const,
+			createdBy: "A123456",
+			createdAt: "2026-03-01T10:35:00Z",
+			updatedBy: "B654321",
+			updatedAt: "2026-03-10T14:20:00Z",
+			resolvedAt: "2026-03-10T14:20:00Z",
+			resolvedBy: "B654321",
+			attachments: [],
+		},
+		{
+			id: "fup-3",
+			text: "Vurdere SAST-skanning i CI",
+			description: "Vurdert som del av sikkerhetsforbedringer Q1 — sjekk om vi trenger ytterligere SAST-verktøy.",
+			resolution: "Ikke relevant — vi bruker allerede CodeQL via GitHub Advanced Security.",
+			status: "not_relevant" as const,
+			createdBy: "A123456",
+			createdAt: "2026-03-01T10:40:00Z",
+			updatedBy: "A123456",
+			updatedAt: "2026-03-02T09:00:00Z",
+			resolvedAt: "2026-03-02T09:00:00Z",
+			resolvedBy: "A123456",
+			attachments: [],
+		},
+	]
+
+	const followUpPoints =
+		followUpVariant === "none"
+			? []
+			: followUpVariant === "all_open"
+				? allPoints.map((p) => ({
+						...p,
+						status: "needs_follow_up" as const,
+						resolution: null,
+						resolvedAt: null,
+						resolvedBy: null,
+					}))
+				: followUpVariant === "all_resolved"
+					? allPoints.map((p) =>
+							p.status === "needs_follow_up"
+								? {
+										...p,
+										status: "completed" as const,
+										resolution: "Adressert og verifisert.",
+										resolvedAt: "2026-03-15T12:00:00Z",
+										resolvedBy: "A123456",
+									}
+								: p,
+						)
+					: allPoints
+
 	return {
 		section: mockSection,
 		routine: mockRoutineBase({
@@ -1303,7 +1433,7 @@ export function mockGjennomgangDetaljData() {
 			id: "rev-1",
 			routineId: "routine-1",
 			title: "Sikkerhetstesting Q1 2026",
-			status: "draft" as const,
+			status,
 			summary: "## Funn\n- Ingen kritiske sårbarheter\n- 2 middels alvorlige funn\n\n## Tiltak\n- Oppgradere avhengigheter",
 			summaryHtml:
 				"<h2>Funn</h2><ul><li>Ingen kritiske sårbarheter</li><li>2 middels alvorlige funn</li></ul><h2>Tiltak</h2><ul><li>Oppgradere avhengigheter</li></ul>",
@@ -1348,6 +1478,7 @@ export function mockGjennomgangDetaljData() {
 					addedBy: "A123456",
 				},
 			],
+			followUpPoints,
 		},
 	}
 }

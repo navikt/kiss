@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm"
 import { getVerificationSummary } from "../../lib/deployment-audit.server"
 import { logger } from "../../lib/logger.server"
 import { db } from "../connection.server"
@@ -291,8 +291,9 @@ export interface NdaAppParams {
 /**
  * Resolve NDA API parameters for a monitored application.
  *
- * Finds the application's primary production environment (first prod-gcp/prod-fss found)
- * and returns the team/environment/appName needed by the NDA audit-reports API.
+ * Finds the application's primary production environment using alphabetical
+ * ordering on cluster name (prod-fss before prod-gcp) and returns the
+ * team/environment/appName needed by the NDA audit-reports API.
  *
  * @returns NdaAppParams or null if no production environment is found
  */
@@ -313,6 +314,7 @@ export async function getNdaAppParams(applicationId: string): Promise<NdaAppPara
 				inArray(applicationEnvironments.cluster, PROD_CLUSTERS),
 			),
 		)
+		.orderBy(asc(applicationEnvironments.cluster))
 		.limit(1)
 
 	if (rows.length === 0) return null

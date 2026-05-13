@@ -9,7 +9,7 @@
  *
  * Single source of truth — avoids divergence between these consumers.
  */
-import { and, desc, eq, inArray, isNull } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, or, type SQL } from "drizzle-orm"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
 import { routineControls, routineReviews, routineTechnologyElements } from "../schema/routines"
@@ -36,6 +36,7 @@ export interface DeadlineWithControls {
 	lastReviewDate: Date | null
 	deadline: Date | null
 	overdue: boolean
+	needsFollowUp?: boolean
 	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
 	matchSource: MatchSource
 	isSectionRoutine?: boolean
@@ -166,10 +167,11 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 	}
 
 	// Step 4: Enrich deadlines with control and technology element mappings
-	const enriched = routineDeadlines.map((d) => ({
+	const enriched: DeadlineWithControls[] = routineDeadlines.map((d) => ({
 		...d,
 		isSectionRoutine: d.routine?.isSectionRoutine === 1,
 		sectionRoutineOwnerRole: d.routine?.sectionRoutineOwnerRole ?? null,
+		needsFollowUp: false,
 		routine: d.routine
 			? {
 					...d.routine,
@@ -177,11 +179,14 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 					technologyElementIds: routineTechElementsMap.get(d.routine.id) ?? [],
 				}
 			: d.routine,
-	})) satisfies DeadlineWithControls[]
+	}))
 
 	// Step 5: For section routines, override lastReviewDate with section-level review
 	const sectionRoutineIds = enriched
-		.filter((d): d is typeof d & { routine: NonNullable<typeof d.routine> } => d.isSectionRoutine && d.routine != null)
+		.filter(
+			(d): d is typeof d & { routine: NonNullable<typeof d.routine> } =>
+				Boolean(d.isSectionRoutine) && d.routine != null,
+		)
 		.map((d) => d.routine.id)
 
 	if (sectionRoutineIds.length > 0) {
@@ -208,6 +213,50 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 				d.lastReviewDate = sectionReviewDate
 				d.deadline = calculateDeadline(sectionReviewDate, d.routine.createdAt, d.routine.frequency)
 				d.overdue = isOverdue(d.deadline)
+			}
+		}
+	}
+
+	// Step 6: Compute `needsFollowUp` from any non-discarded review with status
+	// `needs_follow_up`. Vi viser «Må følges opp»-badgen så lenge det finnes
+	// minst én gjennomgang med uadresserte oppfølgingspunkter — ikke bare
+	// dersom siste gjennomgang har den statusen.
+	// For app-level routines: matcher på (routineId, applicationId).
+	// For section-level routines: matcher på (routineId, applicationId IS NULL).
+	const appLevelRoutineIds = enriched
+		.filter((d): d is typeof d & { routine: NonNullable<typeof d.routine> } => !d.isSectionRoutine && d.routine != null)
+		.map((d) => d.routine.id)
+	const sectionRoutineIdsForFollowUp = enriched
+		.filter(
+			(d): d is typeof d & { routine: NonNullable<typeof d.routine> } =>
+				Boolean(d.isSectionRoutine) && d.routine != null,
+		)
+		.map((d) => d.routine.id)
+
+	if (appLevelRoutineIds.length > 0 || sectionRoutineIdsForFollowUp.length > 0) {
+		const conditions: SQL[] = []
+		if (appLevelRoutineIds.length > 0) {
+			conditions.push(
+				and(inArray(routineReviews.routineId, appLevelRoutineIds), eq(routineReviews.applicationId, appId)) as SQL,
+			)
+		}
+		if (sectionRoutineIdsForFollowUp.length > 0) {
+			conditions.push(
+				and(
+					inArray(routineReviews.routineId, sectionRoutineIdsForFollowUp),
+					isNull(routineReviews.applicationId),
+				) as SQL,
+			)
+		}
+		const followUpReviews = await db
+			.select({ routineId: routineReviews.routineId })
+			.from(routineReviews)
+			.where(and(or(...conditions), eq(routineReviews.status, "needs_follow_up")))
+
+		const followUpRoutineIds = new Set(followUpReviews.map((r) => r.routineId))
+		for (const d of enriched) {
+			if (d.routine && followUpRoutineIds.has(d.routine.id)) {
+				d.needsFollowUp = true
 			}
 		}
 	}

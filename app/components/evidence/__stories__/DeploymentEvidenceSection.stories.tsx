@@ -87,6 +87,7 @@ export const MedPeriodeUtenNedlastinger: Story = {
 							id: "deployment-stats",
 							label: "Leveranser Q1 2026",
 							status: "ok",
+							formats: ["pdf"],
 							canDownload: false,
 							details: {
 								total: 45,
@@ -158,6 +159,7 @@ export const MedNedlastinger: Story = {
 							id: "deployment-stats",
 							label: "Leveranser Q1 2026",
 							status: "ok",
+							formats: ["pdf"],
 							canDownload: false,
 							details: {
 								total: 45,

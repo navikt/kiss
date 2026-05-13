@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-	isPeriodEnded,
-	isValidPeriodStart,
-	isValidPeriodType,
-	PERIOD_BOUNDARIES,
-} from "../../routes/api.evidence-period-config/index"
+import { isPeriodEnded, isValidPeriodStart, isValidPeriodType, PERIOD_BOUNDARIES } from "../../lib/period-validation"
 
 describe("period validation", () => {
 	describe("isValidPeriodType", () => {

@@ -426,7 +426,7 @@ export async function generateAppComplianceReport(params: {
 	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
 
 	const assessments = assessmentsResult?.assessments ?? []
-	let completedReviews = reviews.filter((r) => r.status === "completed")
+	let completedReviews = reviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up")
 	if (reviewIds) {
 		completedReviews = completedReviews.filter((r) => reviewIds.includes(r.id))
 	}
@@ -482,6 +482,7 @@ export async function generateAppComplianceReport(params: {
 			return {
 				id: r.id,
 				title: r.title,
+				status: r.status,
 				routineId: r.routineId,
 				routineName: r.routineName,
 				routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
@@ -499,6 +500,19 @@ export async function generateAppComplianceReport(params: {
 				links: r.links.map((l) => ({
 					url: l.url,
 					title: l.title,
+				})),
+				followUpPoints: r.followUpPoints.map((p) => ({
+					id: p.id,
+					text: p.text,
+					description: p.description,
+					resolution: p.resolution,
+					status: p.status,
+					attachments: p.attachments.map((a) => ({
+						fileName: a.fileName,
+						contentType: a.contentType,
+						bucketPath: a.bucketPath,
+						kind: a.kind,
+					})),
 				})),
 				activities: acts.map((act) => ({
 					id: act.id,
@@ -546,8 +560,10 @@ export async function generateAppComplianceReport(params: {
 		data: Buffer
 		reviewTitle: string
 		reviewDate: string
+		followUpPointText?: string
+		followUpKind?: "description" | "resolution"
 	}> = []
-	const failedAttachments: Array<{ fileName: string; reviewTitle: string }> = []
+	const failedAttachments: Array<{ fileName: string; reviewTitle: string; followUpPointText?: string }> = []
 	if (includeAttachments) {
 		for (const review of completedReviews) {
 			const reviewDate = new Date(review.reviewedAt).toISOString().slice(0, 10)
@@ -563,6 +579,28 @@ export async function generateAppComplianceReport(params: {
 					})
 				} catch {
 					failedAttachments.push({ fileName: att.fileName, reviewTitle: review.title })
+				}
+			}
+			for (const point of review.followUpPoints) {
+				for (const att of point.attachments) {
+					try {
+						const buf = await storage.download(att.bucketPath)
+						attachmentBuffers.push({
+							fileName: att.fileName,
+							contentType: att.contentType,
+							data: buf,
+							reviewTitle: review.title,
+							reviewDate,
+							followUpPointText: point.text,
+							followUpKind: att.kind,
+						})
+					} catch {
+						failedAttachments.push({
+							fileName: att.fileName,
+							reviewTitle: review.title,
+							followUpPointText: point.text,
+						})
+					}
 				}
 			}
 		}
@@ -642,14 +680,17 @@ export async function generateAppComplianceReport(params: {
 			// Use unique subfolder per review to avoid filename collisions
 			const safeReviewTitle = att.reviewTitle.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
 			const folderName = `${att.reviewDate}-${safeReviewTitle}`
-			let entryName = `${folderName}/${att.fileName}`
+			const subFolder = att.followUpPointText
+				? `/oppfolgingspunkter/${att.followUpPointText.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
+				: ""
+			let entryName = `${folderName}${subFolder}/${att.fileName}`
 			// Handle duplicates within same review
 			if (usedNames.has(entryName)) {
 				const ext = att.fileName.includes(".") ? `.${att.fileName.split(".").pop()}` : ""
 				const base = att.fileName.includes(".") ? att.fileName.slice(0, att.fileName.lastIndexOf(".")) : att.fileName
 				let counter = 2
 				do {
-					entryName = `${folderName}/${base} (${counter})${ext}`
+					entryName = `${folderName}${subFolder}/${base} (${counter})${ext}`
 					counter++
 				} while (usedNames.has(entryName))
 			}
@@ -714,6 +755,7 @@ function buildAppPdf(
 		id: string
 		title: string
 		summary: string | null
+		status: string
 		reviewedAt: Date
 		createdBy: string
 		routineId: string
@@ -724,6 +766,13 @@ function buildAppPdf(
 		participants: Array<{ userIdent: string; userName: string | null }>
 		attachments: Array<{ fileName: string }>
 		links: Array<{ url: string; title: string | null }>
+		followUpPoints: Array<{
+			text: string
+			description: string | null
+			resolution: string | null
+			status: "needs_follow_up" | "completed" | "not_relevant"
+			attachments: Array<{ fileName: string; kind: "description" | "resolution" }>
+		}>
 	}>,
 	pdfAttachments: Array<{ fileName: string; contentType: string; data: Buffer }>,
 	auditEvidence: Array<{
@@ -750,8 +799,15 @@ function buildAppPdf(
 			}>
 		}>
 	>,
-	nonPdfAttachments: Array<{ fileName: string; contentType: string; data: Buffer; reviewTitle: string }>,
-	failedAttachments: Array<{ fileName: string; reviewTitle: string }>,
+	nonPdfAttachments: Array<{
+		fileName: string
+		contentType: string
+		data: Buffer
+		reviewTitle: string
+		followUpPointText?: string
+		followUpKind?: "description" | "resolution"
+	}>,
+	failedAttachments: Array<{ fileName: string; reviewTitle: string; followUpPointText?: string }>,
 ): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const doc = new PDFDocCtor({ size: "A4", margin: 50, bufferPages: true })
@@ -893,6 +949,52 @@ function buildAppPdf(
 						renderMarkdownToPdf(doc, r.summary, { width: 495 })
 					}
 
+					if (r.followUpPoints.length > 0) {
+						doc.moveDown(0.6)
+						doc.fontSize(11).fillColor(blue).text(`Oppfølgingspunkter (${r.followUpPoints.length})`)
+						doc.moveDown(0.3)
+
+						for (const [idx, p] of r.followUpPoints.entries()) {
+							if (doc.y > 700) doc.addPage()
+
+							doc
+								.fontSize(10)
+								.fillColor(dark)
+								.text(`${idx + 1}. ${p.text}`, { width: 495 })
+							doc.moveDown(0.15)
+
+							doc
+								.fontSize(8)
+								.fillColor(gray)
+								.text(`Status: ${followUpPointStatusLabel(p.status)}`, { width: 495 })
+
+							if (p.description) {
+								doc.moveDown(0.15)
+								doc.fontSize(8).fillColor(gray).text("Beskrivelse:", { width: 495 })
+								doc.fontSize(8).fillColor(dark)
+								renderMarkdownToPdf(doc, p.description, { width: 495 })
+							}
+
+							if (p.resolution) {
+								doc.moveDown(0.15)
+								doc.fontSize(8).fillColor(gray).text("Oppfølging:", { width: 495 })
+								doc.fontSize(8).fillColor(dark)
+								renderMarkdownToPdf(doc, p.resolution, { width: 495 })
+							}
+
+							if (p.attachments.length > 0) {
+								const descAtts = p.attachments.filter((a) => a.kind === "description").map((a) => a.fileName)
+								const resAtts = p.attachments.filter((a) => a.kind === "resolution").map((a) => a.fileName)
+								doc.moveDown(0.15)
+								doc.fontSize(8).fillColor(gray)
+								if (descAtts.length > 0) doc.text(`Vedlegg til beskrivelse: ${descAtts.join(", ")}`, { width: 495 })
+								if (resAtts.length > 0) doc.text(`Vedlegg til oppfølging: ${resAtts.join(", ")}`, { width: 495 })
+							}
+
+							doc.moveDown(0.5)
+						}
+					}
+
 					if (r.links.length > 0) {
 						doc.moveDown(0.5)
 						doc.fontSize(10).fillColor(blue).text("Lenker")
@@ -1010,11 +1112,14 @@ function buildAppPdf(
 			for (const att of nonPdfAttachments) {
 				if (doc.y > 700) doc.addPage()
 				doc.fontSize(10).fillColor(dark).text(`• ${att.fileName}`)
+				const fpSuffix = att.followUpPointText
+					? ` — Oppfølgingspunkt (${att.followUpKind === "description" ? "beskrivelse" : "oppfølging"}): ${att.followUpPointText}`
+					: ""
 				doc
 					.fontSize(8)
 					.fillColor(gray)
 					.text(
-						`  Filtype: ${att.contentType} — Størrelse: ${fmtSize(att.data.length)} — Gjennomgang: ${att.reviewTitle}`,
+						`  Filtype: ${att.contentType} — Størrelse: ${fmtSize(att.data.length)} — Gjennomgang: ${att.reviewTitle}${fpSuffix}`,
 					)
 				doc.moveDown(0.3)
 			}
@@ -1024,13 +1129,25 @@ function buildAppPdf(
 				doc.fontSize(10).fillColor("#ba3a26").text("Filer som ikke kunne lastes ned:")
 				doc.moveDown(0.3)
 				for (const att of failedAttachments) {
-					doc.fontSize(9).fillColor("#ba3a26").text(`• ${att.fileName} (${att.reviewTitle})`)
+					const fpSuffix = att.followUpPointText ? ` — Oppfølgingspunkt: ${att.followUpPointText}` : ""
+					doc.fontSize(9).fillColor("#ba3a26").text(`• ${att.fileName} (${att.reviewTitle})${fpSuffix}`)
 				}
 			}
 		}
 
 		doc.end()
 	})
+}
+
+function followUpPointStatusLabel(status: "needs_follow_up" | "completed" | "not_relevant"): string {
+	switch (status) {
+		case "needs_follow_up":
+			return "Må følges opp"
+		case "completed":
+			return "Fullført"
+		case "not_relevant":
+			return "Ikke relevant"
+	}
 }
 
 function drawRow(

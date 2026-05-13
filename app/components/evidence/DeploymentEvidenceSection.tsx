@@ -59,6 +59,7 @@ interface Props {
 
 export function DeploymentEvidenceSection({ activity, evidenceData, isDraft }: Props) {
 	const config = getProviderUiConfig("deployments")
+	const revalidator = useRevalidator()
 	const { appParams, periodConfig, downloads } = evidenceData
 
 	if (!appParams) {
@@ -68,6 +69,7 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft }: P
 					{config.heading}
 				</Heading>
 				<Alert variant="warning">{config.noInstancesWarning}</Alert>
+				{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} />}
 			</VStack>
 		)
 	}
@@ -79,7 +81,10 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft }: P
 			</Heading>
 
 			{!periodConfig ? (
-				<PeriodSelector activityId={activity.id} />
+				<>
+					<PeriodSelector activityId={activity.id} onSaved={() => revalidator.revalidate()} />
+					{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} />}
+				</>
 			) : (
 				<DeploymentStatusPanel
 					activity={activity}
@@ -113,7 +118,11 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 
 	const [jobId, setJobId] = useState<string | null>(null)
 	const [jobStatus, setJobStatus] = useState<string | null>(null)
-	const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+	const [generateError, setGenerateError] = useState<string | null>(null)
+	const [pollError, setPollError] = useState<string | null>(null)
+	const pollIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const pollFailCountRef = useRef(0)
+	const MAX_POLL_FAILURES = 3
 
 	// Fetch status on mount
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally mount-only
@@ -148,23 +157,41 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 	// Handle generate response
 	useEffect(() => {
 		if (generateFetcher.data && typeof generateFetcher.data === "object") {
-			const data = generateFetcher.data as { jobId?: string }
+			const data = generateFetcher.data as { jobId?: string; error?: string; conflict?: boolean }
 			if (data.jobId) {
 				setJobId(data.jobId)
 				setJobStatus("pending")
+				setGenerateError(null)
+				setPollError(null)
+			} else if (data.error || data.conflict) {
+				setGenerateError(
+					data.conflict
+						? "Det finnes allerede en rapport for denne perioden."
+						: (data.error ?? "Ukjent feil ved rapportgenerering"),
+				)
 			}
 		}
 	}, [generateFetcher.data])
 
-	// Poll job status
+	// Revalidate after successful download
+	// biome-ignore lint/correctness/useExhaustiveDependencies: trigger on downloadFetcher state change
+	useEffect(() => {
+		if (downloadFetcher.state === "idle" && downloadFetcher.data) {
+			const result = downloadFetcher.data as { success?: boolean }
+			if (result.success) {
+				revalidator.revalidate()
+			}
+		}
+	}, [downloadFetcher.state, downloadFetcher.data])
+
+	// Poll job status with setTimeout loop (prevents overlapping requests)
 	useEffect(() => {
 		if (!jobId || jobStatus === "completed" || jobStatus === "failed") {
-			if (pollIntervalRef.current) {
-				clearInterval(pollIntervalRef.current)
-				pollIntervalRef.current = null
-			}
 			return
 		}
+
+		let cancelled = false
+		pollFailCountRef.current = 0
 
 		const pollJob = async () => {
 			try {
@@ -183,24 +210,41 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 					body: formData,
 				})
 				if (response.ok) {
+					pollFailCountRef.current = 0
 					const result = (await response.json()) as { status: string; reportId?: string }
 					setJobStatus(result.status)
 					if (result.status === "completed") {
 						refreshStatus()
 						revalidator.revalidate()
+						return
+					}
+				} else {
+					pollFailCountRef.current++
+					if (pollFailCountRef.current >= MAX_POLL_FAILURES) {
+						setPollError("Kunne ikke sjekke jobbstatus. Prøv å oppdatere status manuelt.")
+						setJobStatus("failed")
+						return
 					}
 				}
 			} catch {
-				// Ignore poll errors — will retry
+				pollFailCountRef.current++
+				if (pollFailCountRef.current >= MAX_POLL_FAILURES) {
+					setPollError("Mistet kontakt med serveren under polling. Prøv å oppdatere status manuelt.")
+					setJobStatus("failed")
+					return
+				}
+			}
+			if (!cancelled) {
+				pollIntervalRef.current = setTimeout(pollJob, 10_000)
 			}
 		}
 
-		pollIntervalRef.current = setInterval(pollJob, 10_000)
 		pollJob()
 
 		return () => {
+			cancelled = true
 			if (pollIntervalRef.current) {
-				clearInterval(pollIntervalRef.current)
+				clearTimeout(pollIntervalRef.current)
 			}
 		}
 	}, [jobId, jobStatus, activity.id, appParams, periodConfig, refreshStatus, revalidator])
@@ -256,7 +300,7 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 										<Table.DataCell>
 											<EvidenceStatusBadge status={item.status} />
 										</Table.DataCell>
-										<Table.DataCell>{item.formats.join(", ").toUpperCase()}</Table.DataCell>
+										<Table.DataCell>{(item.formats ?? []).join(", ").toUpperCase()}</Table.DataCell>
 										<Table.DataCell>
 											{item.canDownload && isDraft && (
 												<ExistingReportActions
@@ -314,7 +358,13 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 
 					{jobStatus === "failed" && (
 						<Alert variant="error" size="small">
-							Rapportgenerering feilet. Prøv igjen.
+							{pollError ?? "Rapportgenerering feilet. Prøv igjen."}
+						</Alert>
+					)}
+
+					{generateError && (
+						<Alert variant="warning" size="small">
+							{generateError}
 						</Alert>
 					)}
 				</>
@@ -429,7 +479,7 @@ function ExistingReportActions({
 							})
 						}}
 					>
-						Last ned {format.toUpperCase()}
+						Hent {format.toUpperCase()}
 					</Button>
 				)),
 			)}
@@ -473,6 +523,7 @@ function NdaDownloadsTable({ downloads }: { downloads: NdaEvidenceDataProp["down
 							<Table.HeaderCell>Kilde</Table.HeaderCell>
 							<Table.HeaderCell>Hentet av</Table.HeaderCell>
 							<Table.HeaderCell>Tidspunkt</Table.HeaderCell>
+							<Table.HeaderCell />
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
@@ -495,6 +546,11 @@ function NdaDownloadsTable({ downloads }: { downloads: NdaEvidenceDataProp["down
 								</Table.DataCell>
 								<Table.DataCell>
 									<Detail>{formatDate(d.performedAt)}</Detail>
+								</Table.DataCell>
+								<Table.DataCell>
+									<a href={`/api/evidence-file/${d.id}`} download>
+										Last ned
+									</a>
 								</Table.DataCell>
 							</Table.Row>
 						))}

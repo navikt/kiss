@@ -47,7 +47,7 @@ export function ReportsPanel({
 	])
 	const includeReviews = reportOptions.includes("includeReviews")
 
-	const completed = completedReviews.filter((r) => r.status === "completed")
+	const completed = completedReviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up")
 	const [selectedReviewIds, setSelectedReviewIds] = useState<string[]>(() => completed.map((r) => r.id))
 
 	const toggleReview = (reviewId: string) => {
@@ -103,6 +103,7 @@ export function ReportsPanel({
 											<Table.HeaderCell>Tittel</Table.HeaderCell>
 											<Table.HeaderCell>Rutine</Table.HeaderCell>
 											<Table.HeaderCell>Dato</Table.HeaderCell>
+											<Table.HeaderCell>Status</Table.HeaderCell>
 											<Table.HeaderCell>Av</Table.HeaderCell>
 										</Table.Row>
 									</Table.Header>
@@ -123,6 +124,7 @@ export function ReportsPanel({
 												<Table.DataCell>{review.title}</Table.DataCell>
 												<Table.DataCell>{review.routineName}</Table.DataCell>
 												<Table.DataCell>{new Date(review.reviewedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+												<Table.DataCell>{review.status === "completed" ? "Fullført" : "Må følges opp"}</Table.DataCell>
 												<Table.DataCell>{review.createdBy}</Table.DataCell>
 											</Table.Row>
 										))}
@@ -134,7 +136,7 @@ export function ReportsPanel({
 
 					{includeReviews && completed.length === 0 && (
 						<BodyShort size="small" textColor="subtle">
-							Ingen fullførte gjennomganger tilgjengelig.
+							Ingen fullførte gjennomganger eller gjennomganger med åpne oppfølgingspunkter tilgjengelig.
 						</BodyShort>
 					)}
 

@@ -22,7 +22,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
 	const assessments = assessmentsResult?.assessments ?? []
-	const completedReviews = reviews.filter((r) => r.status === "completed")
+	const reportReviews = reviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up")
 
 	const namespace = detail.environments[0]?.namespace ?? null
 	const cluster = detail.environments[0]?.cluster ?? null
@@ -35,9 +35,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		data: Buffer
 		reviewTitle: string
 		reviewDate: string
+		followUpPointText?: string
+		followUpKind?: "description" | "resolution"
 	}> = []
-	const failedAttachments: Array<{ fileName: string; reviewTitle: string }> = []
-	for (const review of completedReviews) {
+	const failedAttachments: Array<{ fileName: string; reviewTitle: string; followUpPointText?: string }> = []
+	for (const review of reportReviews) {
 		const reviewDate = new Date(review.reviewedAt).toISOString().slice(0, 10)
 		for (const att of review.attachments) {
 			try {
@@ -53,6 +55,28 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				failedAttachments.push({ fileName: att.fileName, reviewTitle: review.title })
 			}
 		}
+		for (const point of review.followUpPoints) {
+			for (const att of point.attachments) {
+				try {
+					const buf = await storage.download(att.bucketPath)
+					attachmentBuffers.push({
+						fileName: att.fileName,
+						contentType: att.contentType,
+						data: buf,
+						reviewTitle: review.title,
+						reviewDate,
+						followUpPointText: point.text,
+						followUpKind: att.kind,
+					})
+				} catch {
+					failedAttachments.push({
+						fileName: att.fileName,
+						reviewTitle: review.title,
+						followUpPointText: point.text,
+					})
+				}
+			}
+		}
 	}
 
 	const pdfAttachments = attachmentBuffers.filter((a) => a.contentType === "application/pdf")
@@ -61,7 +85,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const mainPdfBuffer = await buildPdf(
 		{ name: detail.app.name, namespace, cluster },
 		assessments,
-		completedReviews,
+		reportReviews,
 		pdfAttachments,
 		nonPdfAttachments,
 		failedAttachments,
@@ -88,13 +112,16 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		for (const att of nonPdfAttachments) {
 			const safeReviewTitle = att.reviewTitle.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
 			const folderName = `${att.reviewDate}-${safeReviewTitle}`
-			let entryName = `${folderName}/${att.fileName}`
+			const subFolder = att.followUpPointText
+				? `/oppfolgingspunkter/${att.followUpPointText.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
+				: ""
+			let entryName = `${folderName}${subFolder}/${att.fileName}`
 			if (usedNames.has(entryName)) {
 				const ext = att.fileName.includes(".") ? `.${att.fileName.split(".").pop()}` : ""
 				const base = att.fileName.includes(".") ? att.fileName.slice(0, att.fileName.lastIndexOf(".")) : att.fileName
 				let counter = 2
 				do {
-					entryName = `${folderName}/${base} (${counter})${ext}`
+					entryName = `${folderName}${subFolder}/${base} (${counter})${ext}`
 					counter++
 				} while (usedNames.has(entryName))
 			}
@@ -136,6 +163,18 @@ interface Assessment {
 	assessedAt: string | null
 }
 
+interface FollowUpPoint {
+	text: string
+	description: string | null
+	resolution: string | null
+	status: "needs_follow_up" | "completed" | "not_relevant"
+	attachments: Array<{
+		fileName: string
+		contentType: string
+		kind: "description" | "resolution"
+	}>
+}
+
 interface Review {
 	id: string
 	title: string
@@ -148,6 +187,7 @@ interface Review {
 	routineEventFrequency?: string | null
 	participants: Array<{ userIdent: string; userName: string | null; confirmedAt: Date | null }>
 	attachments: Array<{ fileName: string; contentType: string; sizeBytes: number | null }>
+	followUpPoints: FollowUpPoint[]
 }
 
 interface AttachmentData {
@@ -155,11 +195,14 @@ interface AttachmentData {
 	contentType: string
 	data: Buffer
 	reviewTitle: string
+	followUpPointText?: string
+	followUpKind?: "description" | "resolution"
 }
 
 interface FailedAttachment {
 	fileName: string
 	reviewTitle: string
+	followUpPointText?: string
 }
 
 const blue = "#0067c5"
@@ -216,6 +259,10 @@ function buildPdf(
 				doc.fontSize(8).fillColor(subtle)
 				doc.text(`Filtype: ${att.contentType} — Størrelse: ${formatFileSize(att.data.length)}`)
 				doc.text(`Gjennomgang: ${att.reviewTitle}`)
+				if (att.followUpPointText) {
+					const kindLabel = att.followUpKind === "description" ? "beskrivelse" : "oppfølging"
+					doc.text(`Oppfølgingspunkt (${kindLabel}): ${att.followUpPointText}`)
+				}
 				doc.moveDown(0.5)
 				doc.fontSize(9).fillColor(subtle).text("Dokumentet følger på neste side(r).")
 			}
@@ -236,11 +283,14 @@ function buildPdf(
 			for (const att of nonPdfAttachments) {
 				ensureSpace(doc, 30)
 				doc.fontSize(10).fillColor(darkText).text(`• ${att.fileName}`)
+				const fpSuffix = att.followUpPointText
+					? ` — Oppfølgingspunkt (${att.followUpKind === "description" ? "beskrivelse" : "oppfølging"}): ${att.followUpPointText}`
+					: ""
 				doc
 					.fontSize(8)
 					.fillColor(subtle)
 					.text(
-						`  Filtype: ${att.contentType} — Størrelse: ${formatFileSize(att.data.length)} — Gjennomgang: ${att.reviewTitle}`,
+						`  Filtype: ${att.contentType} — Størrelse: ${formatFileSize(att.data.length)} — Gjennomgang: ${att.reviewTitle}${fpSuffix}`,
 					)
 				doc.moveDown(0.3)
 			}
@@ -250,7 +300,8 @@ function buildPdf(
 				doc.fontSize(10).fillColor("#ba3a26").text("Filer som ikke kunne lastes ned:")
 				doc.moveDown(0.3)
 				for (const att of failedAttachments) {
-					doc.fontSize(9).fillColor("#ba3a26").text(`• ${att.fileName} (${att.reviewTitle})`)
+					const fpSuffix = att.followUpPointText ? ` — Oppfølgingspunkt: ${att.followUpPointText}` : ""
+					doc.fontSize(9).fillColor("#ba3a26").text(`• ${att.fileName} (${att.reviewTitle})${fpSuffix}`)
 				}
 			}
 		}
@@ -369,7 +420,7 @@ function buildReviewsSection(doc: PDFKit.PDFDocument, reviews: Review[]) {
 			r.title.slice(0, 40),
 			r.routineName.slice(0, 28),
 			new Date(r.reviewedAt).toLocaleDateString("nb-NO"),
-			r.status === "completed" ? "Fullført" : "Utkast",
+			r.status === "completed" ? "Fullført" : r.status === "needs_follow_up" ? "Må følges opp" : "Utkast",
 			r.createdBy,
 		])
 	}
@@ -405,6 +456,64 @@ function buildReviewsSection(doc: PDFKit.PDFDocument, reviews: Review[]) {
 			const summaryText = r.summary.length > 2000 ? `${r.summary.slice(0, 2000)}…` : r.summary
 			doc.text(summaryText, { width: 495 })
 		}
+
+		if (r.followUpPoints.length > 0) {
+			doc.moveDown(0.6)
+			ensureSpace(doc, 60)
+			doc.fontSize(11).fillColor(blue).text(`Oppfølgingspunkter (${r.followUpPoints.length})`)
+			doc.moveDown(0.3)
+
+			for (const [idx, p] of r.followUpPoints.entries()) {
+				ensureSpace(doc, 80)
+
+				doc
+					.fontSize(10)
+					.fillColor(darkText)
+					.text(`${idx + 1}. ${p.text}`, { width: 495 })
+				doc.moveDown(0.15)
+
+				doc
+					.fontSize(8)
+					.fillColor(subtle)
+					.text(`Status: ${followUpStatusLabel(p.status)}`, { width: 495 })
+
+				if (p.description) {
+					doc.moveDown(0.15)
+					doc.fontSize(8).fillColor(subtle).text("Beskrivelse:", { width: 495 })
+					const descText = p.description.length > 1500 ? `${p.description.slice(0, 1500)}…` : p.description
+					doc.fontSize(8).fillColor(darkText).text(descText, { width: 495 })
+				}
+
+				if (p.resolution) {
+					doc.moveDown(0.15)
+					doc.fontSize(8).fillColor(subtle).text("Oppfølging:", { width: 495 })
+					const resText = p.resolution.length > 1500 ? `${p.resolution.slice(0, 1500)}…` : p.resolution
+					doc.fontSize(8).fillColor(darkText).text(resText, { width: 495 })
+				}
+
+				if (p.attachments.length > 0) {
+					const descAtts = p.attachments.filter((a) => a.kind === "description").map((a) => a.fileName)
+					const resAtts = p.attachments.filter((a) => a.kind === "resolution").map((a) => a.fileName)
+					doc.moveDown(0.15)
+					doc.fontSize(8).fillColor(subtle)
+					if (descAtts.length > 0) doc.text(`Vedlegg til beskrivelse: ${descAtts.join(", ")}`, { width: 495 })
+					if (resAtts.length > 0) doc.text(`Vedlegg til oppfølging: ${resAtts.join(", ")}`, { width: 495 })
+				}
+
+				doc.moveDown(0.5)
+			}
+		}
+	}
+}
+
+function followUpStatusLabel(status: "needs_follow_up" | "completed" | "not_relevant"): string {
+	switch (status) {
+		case "needs_follow_up":
+			return "Må følges opp"
+		case "completed":
+			return "Fullført"
+		case "not_relevant":
+			return "Ikke relevant"
 	}
 }
 
