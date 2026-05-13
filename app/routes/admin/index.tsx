@@ -80,6 +80,12 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Oversikt over applikasjoner klassifisert som økonomisystem.</BodyLong>
 				</Link>
+				<Link to="/admin/rpa-grupper" className="admin-card">
+					<Heading size="small" level="3">
+						RPA-grupper
+					</Heading>
+					<BodyLong size="small">Konfigurer Entra ID-grupper som identifiserer RPA-brukere (roboter).</BodyLong>
+				</Link>
 			</div>
 		</VStack>
 	)
