@@ -1065,6 +1065,16 @@ export async function linkPersistenceToOracleInstance(persistenceId: string, ora
 		.where(and(eq(applicationPersistence.id, persistenceId), isNull(applicationPersistence.archivedAt)))
 }
 
+/** Get a name map for a batch of application IDs. */
+export async function getApplicationNames(appIds: string[]): Promise<Map<string, string>> {
+	if (appIds.length === 0) return new Map()
+	const apps = await db
+		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
+		.from(monitoredApplications)
+		.where(inArray(monitoredApplications.id, appIds))
+	return new Map(apps.map((a) => [a.id, a.name]))
+}
+
 /** Get application detail with environments, persistence, and linked apps. */
 export async function getApplicationDetail(applicationId: string) {
 	const [app] = await db
