@@ -232,6 +232,15 @@ export async function markRpaGroupSynced(rpaGroupId: string) {
 		.where(eq(rpaGroups.id, rpaGroupId))
 }
 
+export async function getRpaGroupUpdatedAt(rpaGroupId: string): Promise<Date | null> {
+	const result = await db
+		.select({ updatedAt: rpaGroups.updatedAt })
+		.from(rpaGroups)
+		.where(eq(rpaGroups.id, rpaGroupId))
+		.limit(1)
+	return result[0]?.updatedAt ?? null
+}
+
 // ─── RPA Users for Application ────────────────────────────────────────────────
 
 /**
@@ -290,7 +299,25 @@ export async function getRpaUsersForApp(
 	const matchedRpaGroups = activeRpaGroups.filter((g) => matchingGroupIds.has(g.groupId))
 	if (matchedRpaGroups.length === 0) return []
 
-	// Fetch members for matched groups
+	// Batch load members for all matched groups in a single query
+	const matchedRpaGroupIds = matchedRpaGroups.map((g) => g.id)
+	const allMembers = await db
+		.select({
+			rpaGroupId: rpaGroupMembers.rpaGroupId,
+			userObjectId: rpaGroupMembers.userObjectId,
+			displayName: rpaGroupMembers.displayName,
+			userPrincipalName: rpaGroupMembers.userPrincipalName,
+			accountEnabled: rpaGroupMembers.accountEnabled,
+			syncedAt: rpaGroupMembers.syncedAt,
+		})
+		.from(rpaGroupMembers)
+		.where(and(inArray(rpaGroupMembers.rpaGroupId, matchedRpaGroupIds), isNull(rpaGroupMembers.archivedAt)))
+		.orderBy(rpaGroupMembers.displayName)
+
+	// Build RPA group lookup
+	const rpaGroupById = new Map(matchedRpaGroups.map((g) => [g.id, g]))
+
+	// Assemble results
 	const results: Array<{
 		rpaGroupId: string
 		rpaGroupName: string | null
@@ -303,28 +330,21 @@ export async function getRpaUsersForApp(
 		syncedAt: Date
 	}> = []
 
-	for (const rpaGroup of matchedRpaGroups) {
-		const members = await db
-			.select({
-				userObjectId: rpaGroupMembers.userObjectId,
-				displayName: rpaGroupMembers.displayName,
-				userPrincipalName: rpaGroupMembers.userPrincipalName,
-				accountEnabled: rpaGroupMembers.accountEnabled,
-				syncedAt: rpaGroupMembers.syncedAt,
-			})
-			.from(rpaGroupMembers)
-			.where(and(eq(rpaGroupMembers.rpaGroupId, rpaGroup.id), isNull(rpaGroupMembers.archivedAt)))
-			.orderBy(rpaGroupMembers.displayName)
+	for (const member of allMembers) {
+		const rpaGroup = rpaGroupById.get(member.rpaGroupId)
+		if (!rpaGroup) continue
 
-		for (const member of members) {
-			results.push({
-				rpaGroupId: rpaGroup.id,
-				rpaGroupName: rpaGroup.groupName,
-				entraGroupId: rpaGroup.groupId,
-				matchSource: sourceMap.get(rpaGroup.groupId) ?? "nais",
-				...member,
-			})
-		}
+		results.push({
+			rpaGroupId: rpaGroup.id,
+			rpaGroupName: rpaGroup.groupName,
+			entraGroupId: rpaGroup.groupId,
+			matchSource: sourceMap.get(rpaGroup.groupId) ?? "nais",
+			userObjectId: member.userObjectId,
+			displayName: member.displayName,
+			userPrincipalName: member.userPrincipalName,
+			accountEnabled: member.accountEnabled,
+			syncedAt: member.syncedAt,
+		})
 	}
 
 	return results
