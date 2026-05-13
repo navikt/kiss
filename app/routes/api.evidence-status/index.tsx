@@ -5,6 +5,7 @@ import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
 import { getEvidenceProvider, isEvidenceProviderType } from "~/lib/evidence-providers/index.server"
 import { extractProviderParams, validateProviderAccess } from "~/lib/evidence-providers/validation.server"
+import { logger } from "~/lib/logger.server"
 import { isValidUuid } from "~/lib/utils"
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -41,10 +42,17 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	}
 
 	const provider = await getEvidenceProvider(providerType)
-	const status = await provider.getStatus(providerParams)
-	if (!status) {
+	try {
+		const status = await provider.getStatus(providerParams)
+		if (!status) {
+			return data({ error: "Kunne ikke hente status fra leverandøren" }, { status: 502 })
+		}
+		return data(status)
+	} catch (err) {
+		logger.error(
+			`Evidence status loader failed [providerType=${providerType}, activityId=${activityId}]`,
+			err instanceof Error ? err : new Error(String(err)),
+		)
 		return data({ error: "Kunne ikke hente status fra leverandøren" }, { status: 502 })
 	}
-
-	return data(status)
 }
