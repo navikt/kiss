@@ -535,6 +535,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 			},
 		} as Record<string, { comment: string; acknowledgedBy: string; acknowledgedAt: string }>,
 		screeningSessions: [],
+		rpaUsers: [],
 		...overrides,
 	}
 }
@@ -1560,5 +1561,189 @@ export function mockGjennomgangDetaljOracleEvidenceData(overrides?: {
 			evidenceTypes: overrides?.evidenceTypes,
 			withDownloads: overrides?.withDownloads,
 		}),
+	}
+}
+
+// ─── RPA-brukere ────────────────────────────────────────────────────
+
+export function mockRpaUsers() {
+	return [
+		{
+			rpaGroupId: "rpa-g-1",
+			rpaGroupName: "Pensjon-RPA-Gruppe",
+			entraGroupId: "entra-rpa-1",
+			matchSource: "nais" as const,
+			userObjectId: "user-rpa-1",
+			displayName: "SVC-Pensjon-Robot-01",
+			userPrincipalName: "svc-pensjon-robot-01@nav.no",
+			accountEnabled: true,
+			syncedAt: "2026-05-10T08:30:00.000Z",
+		},
+		{
+			rpaGroupId: "rpa-g-1",
+			rpaGroupName: "Pensjon-RPA-Gruppe",
+			entraGroupId: "entra-rpa-1",
+			matchSource: "nais" as const,
+			userObjectId: "user-rpa-2",
+			displayName: "SVC-Pensjon-Robot-02",
+			userPrincipalName: "svc-pensjon-robot-02@nav.no",
+			accountEnabled: false,
+			syncedAt: "2026-05-10T08:30:00.000Z",
+		},
+		{
+			rpaGroupId: "rpa-g-2",
+			rpaGroupName: "Uføre-RPA-Gruppe",
+			entraGroupId: "entra-rpa-2",
+			matchSource: "manual" as const,
+			userObjectId: "user-rpa-3",
+			displayName: "SVC-Ufore-Robot-01",
+			userPrincipalName: "svc-ufore-robot-01@nav.no",
+			accountEnabled: true,
+			syncedAt: "2026-05-09T14:20:00.000Z",
+		},
+		{
+			rpaGroupId: "rpa-g-2",
+			rpaGroupName: "Uføre-RPA-Gruppe",
+			entraGroupId: "entra-rpa-2",
+			matchSource: "manual" as const,
+			userObjectId: "user-rpa-1",
+			displayName: "SVC-Pensjon-Robot-01",
+			userPrincipalName: "svc-pensjon-robot-01@nav.no",
+			accountEnabled: true,
+			syncedAt: "2026-05-09T14:20:00.000Z",
+		},
+	]
+}
+
+export function mockRpaSectionData(overrides?: Record<string, unknown>) {
+	return {
+		seksjon: "pensjon-og-ufore",
+		seksjonName: "Pensjon og uføre",
+		rpaUsers: [
+			{
+				userObjectId: "user-rpa-1",
+				displayName: "SVC-Pensjon-Robot-01",
+				userPrincipalName: "svc-pensjon-robot-01@nav.no",
+				accountEnabled: true,
+				syncedAt: "2026-05-10T08:30:00.000Z",
+				rpaGroupId: "rpa-g-1",
+				rpaGroupName: "Pensjon-RPA-Gruppe",
+				entraGroupId: "entra-rpa-1",
+				applications: [
+					{ applicationId: "app-1", applicationName: "pensjon-sak", matchSource: "nais" as const },
+					{ applicationId: "app-2", applicationName: "pensjon-frontend", matchSource: "nais" as const },
+				],
+			},
+			{
+				userObjectId: "user-rpa-2",
+				displayName: "SVC-Pensjon-Robot-02",
+				userPrincipalName: "svc-pensjon-robot-02@nav.no",
+				accountEnabled: false,
+				syncedAt: "2026-05-10T08:30:00.000Z",
+				rpaGroupId: "rpa-g-1",
+				rpaGroupName: "Pensjon-RPA-Gruppe",
+				entraGroupId: "entra-rpa-1",
+				applications: [
+					{ applicationId: "app-1", applicationName: "pensjon-sak", matchSource: "nais" as const },
+				],
+			},
+			{
+				userObjectId: "user-rpa-3",
+				displayName: "SVC-Ufore-Robot-01",
+				userPrincipalName: "svc-ufore-robot-01@nav.no",
+				accountEnabled: true,
+				syncedAt: "2026-05-09T14:20:00.000Z",
+				rpaGroupId: "rpa-g-2",
+				rpaGroupName: "Uføre-RPA-Gruppe",
+				entraGroupId: "entra-rpa-2",
+				applications: [
+					{ applicationId: "app-3", applicationName: "uforetrygd-api", matchSource: "manual" as const },
+				],
+			},
+			{
+				userObjectId: "user-rpa-4",
+				displayName: null,
+				userPrincipalName: null,
+				accountEnabled: null,
+				syncedAt: "2026-05-08T10:00:00.000Z",
+				rpaGroupId: "rpa-g-3",
+				rpaGroupName: "Felles-RPA-Gruppe",
+				entraGroupId: "entra-rpa-3",
+				applications: [
+					{ applicationId: "app-1", applicationName: "pensjon-sak", matchSource: "nais" as const },
+					{ applicationId: "app-2", applicationName: "pensjon-frontend", matchSource: "nais" as const },
+					{ applicationId: "app-3", applicationName: "uforetrygd-api", matchSource: "manual" as const },
+					{ applicationId: "app-4", applicationName: "ufore-backend", matchSource: "nais" as const },
+				],
+			},
+			{
+				userObjectId: "user-rpa-1",
+				displayName: "SVC-Pensjon-Robot-01",
+				userPrincipalName: "svc-pensjon-robot-01@nav.no",
+				accountEnabled: true,
+				syncedAt: "2026-05-09T14:20:00.000Z",
+				rpaGroupId: "rpa-g-2",
+				rpaGroupName: "Uføre-RPA-Gruppe",
+				entraGroupId: "entra-rpa-2",
+				applications: [
+					{ applicationId: "app-3", applicationName: "uforetrygd-api", matchSource: "manual" as const },
+				],
+			},
+		],
+		...overrides,
+	}
+}
+
+export function mockAdminRpaGrupperData(overrides?: Record<string, unknown>) {
+	return {
+		groups: [
+			{
+				id: "rpa-g-1",
+				groupId: "entra-rpa-1",
+				groupName: "Pensjon-RPA-Gruppe",
+				createdBy: "A123456",
+				createdAt: "2026-04-01T10:00:00.000Z",
+				updatedAt: "2026-05-10T08:30:00.000Z",
+				memberCount: 3,
+				lastSyncedAt: "2026-05-10T08:30:00.000Z",
+			},
+			{
+				id: "rpa-g-2",
+				groupId: "entra-rpa-2",
+				groupName: "Uføre-RPA-Gruppe",
+				createdBy: "A654321",
+				createdAt: "2026-04-05T14:00:00.000Z",
+				updatedAt: "2026-05-09T14:20:00.000Z",
+				memberCount: 1,
+				lastSyncedAt: "2026-05-09T14:20:00.000Z",
+			},
+			{
+				id: "rpa-g-3",
+				groupId: "entra-rpa-3",
+				groupName: "Felles-RPA-Gruppe",
+				createdBy: "A123456",
+				createdAt: "2026-03-15T09:00:00.000Z",
+				updatedAt: "2026-05-08T10:00:00.000Z",
+				memberCount: 5,
+				lastSyncedAt: "2026-05-08T10:00:00.000Z",
+			},
+		],
+		auditLog: [
+			{
+				id: "audit-1",
+				action: "rpa_group_members_synced",
+				performedBy: "system:rpa-sync",
+				performedAt: "2026-05-10T08:30:00.000Z",
+				newValue: JSON.stringify({ groupsSynced: 3, totalAdded: 5, totalArchived: 1 }),
+			},
+			{
+				id: "audit-2",
+				action: "rpa_group_members_synced",
+				performedBy: "system:rpa-sync",
+				performedAt: "2026-05-09T08:30:00.000Z",
+				newValue: JSON.stringify({ groupsSynced: 2, totalAdded: 0, totalArchived: 0 }),
+			},
+		],
+		...overrides,
 	}
 }

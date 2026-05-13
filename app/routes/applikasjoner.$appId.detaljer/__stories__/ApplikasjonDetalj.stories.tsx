@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react"
-import { mockAppDetaljerData } from "@storybook-mocks/data"
+import { mockAppDetaljerData, mockRpaUsers } from "@storybook-mocks/data"
 import { renderWithLoader } from "@storybook-mocks/router"
 import ApplikasjonDetalj from "../index"
 
@@ -28,5 +28,28 @@ export const ManglerOracleTilgang: Story = {
 				],
 			}),
 			"/applikasjoner/app-1/detaljer",
+		),
+}
+
+export const MedRpaBrukere: Story = {
+	name: "Med RPA-brukere (Autentisering-fanen)",
+	render: () =>
+		renderWithLoader(
+			ApplikasjonDetalj,
+			mockAppDetaljerData({
+				rpaUsers: mockRpaUsers(),
+				authIntegrations: [
+					{
+						id: "auth-1",
+						type: "entra_id",
+						sidecarEnabled: true,
+						allowAllUsers: false,
+						groups: JSON.stringify(["entra-rpa-1"]),
+						inboundRules: null,
+						claimsExtra: null,
+					},
+				],
+			}),
+			"/applikasjoner/app-1/detaljer?fane=autentisering",
 		),
 }
