@@ -157,6 +157,8 @@ describe("nda-audit-reports API client", () => {
 		beforeEach(() => {
 			delete process.env.NDA_AUDIT_REPORTS_BASE_URL
 			delete process.env.NDA_AUDIT_REPORTS_SCOPE
+			delete process.env.DEPLOYMENT_AUDIT_BASE_URL
+			delete process.env.DEPLOYMENT_AUDIT_SCOPE
 			vi.resetModules()
 		})
 
