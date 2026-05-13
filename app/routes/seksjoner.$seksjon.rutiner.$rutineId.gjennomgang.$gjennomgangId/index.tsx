@@ -35,9 +35,9 @@ import {
 	useSubmit,
 } from "react-router"
 import { AutoUploadDropzone } from "~/components/AutoUploadDropzone"
+import { OracleEvidenceSection } from "~/components/evidence"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
-import { OracleEvidenceSection } from "~/components/OracleEvidenceSection"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react"
 import { mockOracleEvidenceActivity, mockOracleEvidenceData } from "@storybook-mocks/data"
 import type React from "react"
 import { createRoutesStub } from "react-router"
-import { OracleEvidenceSection } from "../OracleEvidenceSection"
+import { OracleEvidenceSection } from "../evidence"
 
 // Mock evidence status returned by the status API route (normalized EvidenceStatusResponse format)
 const mockEvidenceStatusResponse = {
