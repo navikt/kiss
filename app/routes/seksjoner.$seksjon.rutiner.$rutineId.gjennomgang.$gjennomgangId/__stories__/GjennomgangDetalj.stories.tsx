@@ -7,27 +7,27 @@ import GjennomgangDetalj from "../index"
 // Mock API routes for Oracle evidence fetchers
 const oracleApiRoutes = [
 	{
-		path: "api/oracle-evidence-status",
+		path: "/api/evidence-status",
 		loader: () => ({
-			instanceId: "PENSJON_PROD",
-			instanceName: "Pensjon Prod",
+			providerType: "oracle",
+			sourceLabel: "Pensjon Prod",
 			collectedAt: "2026-03-01T10:00:00Z",
-			reviewUrl: "https://pensjon-oracle-revisjon.ansatt.nav.no/PENSJON_PROD/audit/review",
-			evidenceTypes: [
+			externalUrl: "https://pensjon-oracle-revisjon.ansatt.nav.no/PENSJON_PROD/audit/review",
+			items: [
 				{
-					type: "audit",
-					title: "Oracle Unified Audit",
-					status: "OK",
-					formats: ["EXCEL", "PDF"],
-					available: true,
+					id: "audit",
+					label: "Oracle Unified Audit",
+					status: "ok",
+					formats: ["excel", "pdf"],
+					canDownload: true,
 					error: null,
-					review: null,
 				},
 			],
+			metadata: { instanceId: "PENSJON_PROD", instanceName: "Pensjon Prod" },
 		}),
 	},
 	{
-		path: "api/oracle-evidence-download",
+		path: "/api/evidence-download",
 		action: () => ({
 			success: true,
 			download: { id: "dl-new", fileName: "evidence.xlsx", sizeBytes: 1000, source: "m2m_api" },

@@ -205,33 +205,36 @@ export const GjennomgangOraclePeriodStory: Story = {
 				path: "/seksjoner/pensjon-og-ufore/rutiner/routine-1/gjennomgang/rev-1",
 				extraRoutes: [
 					{
-						path: "/api/oracle-evidence-status",
+						path: "/api/evidence-status",
 						loader: () => ({
-							instanceId: "PENSJON_PROD",
-							instanceName: "Pensjon Prod",
+							providerType: "oracle",
+							sourceLabel: "Pensjon Prod",
 							collectedAt: "2026-03-01T10:00:00Z",
-							reviewUrl:
+							externalUrl:
 								"https://pensjon-oracle-revisjon.ansatt.nav.no/PENSJON_PROD/audit/review?fromUtc=2026-01-01&toUtc=2026-03-31",
-							evidenceTypes: [
+							items: [
 								{
-									type: "period",
-									title: "Periodebasert gjennomgang",
-									status: "PARTIAL",
-									formats: ["EXCEL"],
-									available: true,
+									id: "period",
+									label: "Periodebasert gjennomgang",
+									status: "partial",
+									formats: ["excel"],
+									canDownload: true,
 									error: null,
-									review: {
-										totalStatements: 1250,
-										reviewedStatements: 800,
-										unreviewedStatements: 450,
-										reviewProgress: 64,
+									details: {
+										review: {
+											totalStatements: 1250,
+											reviewedStatements: 800,
+											unreviewedStatements: 450,
+											reviewProgress: 64,
+										},
 									},
 								},
 							],
+							metadata: { instanceId: "PENSJON_PROD", instanceName: "Pensjon Prod" },
 						}),
 					},
 					{
-						path: "/api/oracle-evidence-download",
+						path: "/api/evidence-download",
 						action: () => ({
 							success: true,
 							download: { id: "dl-new", fileName: "period-evidence.xlsx", sizeBytes: 2_400_000, source: "m2m_api" },
