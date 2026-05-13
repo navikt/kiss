@@ -92,6 +92,22 @@ const jobs: JobConfig[] = [
 			await runDeploymentAuditSync()
 		},
 	},
+	{
+		name: "rpa-group-member-sync",
+		everyCycles: 6, // every 30min — job itself checks 24h interval via DB timestamp
+		envVar: "ENABLE_RPA_SYNC",
+		async run() {
+			const { runRpaGroupMemberSync } = await import("./rpa-sync.server")
+			const result = await runRpaGroupMemberSync()
+			if (result) {
+				logger.info(
+					`[unified-scheduler] rpa-sync complete: ${result.groupsSynced} groups, +${result.totalAdded} added, -${result.totalArchived} archived`,
+				)
+			} else {
+				logger.info("[unified-scheduler] rpa-sync skipped — another pod holds the lock")
+			}
+		},
+	},
 ]
 
 async function runCycle() {
