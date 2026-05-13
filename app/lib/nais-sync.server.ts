@@ -8,8 +8,10 @@ import {
 	upsertMonitoredApp,
 	upsertNaisTeam,
 } from "~/db/queries/nais.server"
+import type { AuthIntegrationType } from "~/db/schema/applications"
 import { withAdvisoryLock } from "./lock.server"
 import { logger } from "./logger.server"
+import type { NaisAuthIntegration } from "./nais.server"
 import { fetchNaisApps, fetchNaisTeams } from "./nais.server"
 
 const SYNC_PERFORMER = "nais-sync"
@@ -65,6 +67,12 @@ export async function syncNaisAppsForTeam(
 		// constant archive/re-insert churn for apps deployed in multiple clusters.
 		const appInboundRules = new Map<string, Array<{ application: string; namespace?: string; cluster?: string }>>()
 
+		// Accumulate auth integrations across all environments per (appId, type)
+		// so we call upsertAppAuthIntegration once per unique integration.
+		// Different environments can have different inboundRules/groups/claimsExtra,
+		// causing constant flip-flop updates if called per environment.
+		const appAuthIntegrations = new Map<string, Map<AuthIntegrationType, NaisAuthIntegration>>()
+
 		for (const app of apps) {
 			const { id: appId, isNew } = await upsertMonitoredApp(app.name, SYNC_PERFORMER)
 			if (isNew) newApps++
@@ -91,14 +99,18 @@ export async function syncNaisAppsForTeam(
 				if (isNewRes) newPersistence++
 			}
 
+			// Collect auth integrations per (appId, type) across environments
 			for (const auth of app.authIntegrations) {
-				await upsertAppAuthIntegration(appId, auth.type, {
-					allowAllUsers: auth.allowAllUsers,
-					claimsExtra: auth.claimsExtra,
-					groups: auth.groups,
-					sidecarEnabled: auth.sidecarEnabled,
-					inboundRules: auth.inboundRules,
-				})
+				if (!appAuthIntegrations.has(appId)) {
+					appAuthIntegrations.set(appId, new Map())
+				}
+				const byType = appAuthIntegrations.get(appId)!
+				const existing = byType.get(auth.type)
+				if (!existing) {
+					byType.set(auth.type, auth)
+				} else {
+					byType.set(auth.type, mergeAuthIntegrations(existing, auth))
+				}
 			}
 
 			// Collect inbound rules from all environments for this app
@@ -108,6 +120,19 @@ export async function syncNaisAppsForTeam(
 				appInboundRules.set(appId, existing)
 			} else if (!appInboundRules.has(appId)) {
 				appInboundRules.set(appId, [])
+			}
+		}
+
+		// Upsert auth integrations once per (app, type) with merged data.
+		for (const [appId, byType] of appAuthIntegrations) {
+			for (const [, auth] of byType) {
+				await upsertAppAuthIntegration(appId, auth.type, {
+					allowAllUsers: auth.allowAllUsers,
+					claimsExtra: auth.claimsExtra,
+					groups: auth.groups,
+					sidecarEnabled: auth.sidecarEnabled,
+					inboundRules: auth.inboundRules,
+				})
 			}
 		}
 
@@ -122,6 +147,54 @@ export async function syncNaisAppsForTeam(
 		)
 		return { discovered: apps.length, new: newApps, skipped: apps.length - newApps }
 	})
+}
+
+/**
+ * Merge two auth integrations of the same type from different environments.
+ * Arrays (inboundRules, groups, claimsExtra) are unioned.
+ * Arrays (inboundRules, groups, claimsExtra) are unioned.
+ * Booleans: true if any environment has true, false if any has explicit false, undefined only if both undefined.
+ */
+function mergeAuthIntegrations(a: NaisAuthIntegration, b: NaisAuthIntegration): NaisAuthIntegration {
+	return {
+		type: a.type,
+		enabled: a.enabled || b.enabled,
+		allowAllUsers: mergeOptionalBoolean(a.allowAllUsers, b.allowAllUsers),
+		sidecarEnabled: mergeOptionalBoolean(a.sidecarEnabled, b.sidecarEnabled),
+		claimsExtra: mergeStringArrays(a.claimsExtra, b.claimsExtra),
+		groups: mergeStringArrays(a.groups, b.groups),
+		inboundRules: mergeInboundRules(a.inboundRules, b.inboundRules),
+	}
+}
+
+/** true if any is true, false if any is explicit false, undefined only when both are undefined. */
+function mergeOptionalBoolean(a?: boolean, b?: boolean): boolean | undefined {
+	if (a === true || b === true) return true
+	if (a === false || b === false) return false
+	return undefined
+}
+
+function mergeStringArrays(a?: string[], b?: string[]): string[] | undefined {
+	if (!a && !b) return undefined
+	const set = new Set([...(a ?? []), ...(b ?? [])])
+	return set.size > 0 ? [...set] : undefined
+}
+
+function mergeInboundRules(
+	a?: Array<{ application: string; namespace?: string; cluster?: string }>,
+	b?: Array<{ application: string; namespace?: string; cluster?: string }>,
+): Array<{ application: string; namespace?: string; cluster?: string }> | undefined {
+	if (!a && !b) return undefined
+	const seen = new Set<string>()
+	const merged: Array<{ application: string; namespace?: string; cluster?: string }> = []
+	for (const rule of [...(a ?? []), ...(b ?? [])]) {
+		const key = `${rule.application}|${rule.namespace ?? ""}|${rule.cluster ?? ""}`
+		if (!seen.has(key)) {
+			seen.add(key)
+			merged.push(rule)
+		}
+	}
+	return merged.length > 0 ? merged : undefined
 }
 
 /**
