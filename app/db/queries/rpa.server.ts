@@ -1,5 +1,6 @@
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
+import { applicationAuthIntegrations, applicationManualGroups } from "../schema/applications"
 import { rpaGroupMembers, rpaGroups } from "../schema/rpa"
 import { writeAuditLog } from "./audit.server"
 
@@ -327,4 +328,192 @@ export async function getRpaUsersForApp(
 	}
 
 	return results
+}
+
+// ─── RPA Users for Section ────────────────────────────────────────────────────
+
+export interface RpaUserForSection {
+	userObjectId: string
+	displayName: string | null
+	userPrincipalName: string | null
+	accountEnabled: boolean | null
+	syncedAt: Date
+	rpaGroupId: string
+	rpaGroupName: string | null
+	entraGroupId: string
+	applications: Array<{
+		applicationId: string
+		applicationName: string
+		matchSource: "nais" | "manual"
+	}>
+}
+
+/**
+ * Get all RPA users that can access any application in a section.
+ * Batch-loads auth integrations and manual groups for efficiency.
+ */
+export async function getRpaUsersForSection(sectionId: string): Promise<RpaUserForSection[]> {
+	const { getEffectiveAppIdsInSection } = await import("./sections.server")
+	const { getApplicationNames } = await import("./nais.server")
+
+	const appIds = await getEffectiveAppIdsInSection(sectionId)
+	if (appIds.length === 0) return []
+
+	// Batch load auth integrations for all apps
+	const authRows = await db
+		.select({
+			applicationId: applicationAuthIntegrations.applicationId,
+			type: applicationAuthIntegrations.type,
+			groups: applicationAuthIntegrations.groups,
+			allowAllUsers: applicationAuthIntegrations.allowAllUsers,
+		})
+		.from(applicationAuthIntegrations)
+		.where(inArray(applicationAuthIntegrations.applicationId, appIds))
+
+	// Batch load manual groups for all apps
+	const manualRows = await db
+		.select({
+			applicationId: applicationManualGroups.applicationId,
+			groupId: applicationManualGroups.groupId,
+		})
+		.from(applicationManualGroups)
+		.where(and(inArray(applicationManualGroups.applicationId, appIds), isNull(applicationManualGroups.archivedAt)))
+
+	// Build per-app matching data
+	const appGroupData = new Map<
+		string,
+		{ naisGroupIds: Set<string>; manualGroupIds: Set<string>; hasAllowAllUsers: boolean }
+	>()
+
+	for (const row of authRows) {
+		if (!appGroupData.has(row.applicationId)) {
+			appGroupData.set(row.applicationId, {
+				naisGroupIds: new Set(),
+				manualGroupIds: new Set(),
+				hasAllowAllUsers: false,
+			})
+		}
+		// biome-ignore lint/style/noNonNullAssertion: guaranteed by set above
+		const data = appGroupData.get(row.applicationId)!
+		if (row.type === "entra_id" && row.allowAllUsers === true) {
+			data.hasAllowAllUsers = true
+		}
+		if (row.groups) {
+			try {
+				const parsed = JSON.parse(row.groups)
+				if (Array.isArray(parsed)) {
+					for (const gid of parsed) {
+						if (typeof gid === "string") data.naisGroupIds.add(gid)
+					}
+				}
+			} catch {
+				// Invalid JSON — skip
+			}
+		}
+	}
+
+	for (const row of manualRows) {
+		if (!appGroupData.has(row.applicationId)) {
+			appGroupData.set(row.applicationId, {
+				naisGroupIds: new Set(),
+				manualGroupIds: new Set(),
+				hasAllowAllUsers: false,
+			})
+		}
+		// biome-ignore lint/style/noNonNullAssertion: guaranteed by set above
+		appGroupData.get(row.applicationId)!.manualGroupIds.add(row.groupId)
+	}
+
+	// Collect all matching Entra group IDs with per-app source tracking
+	// Key: entraGroupId → Map<applicationId, matchSource>
+	const groupAppMap = new Map<string, Map<string, "nais" | "manual">>()
+
+	for (const [appId, data] of appGroupData) {
+		for (const gid of data.naisGroupIds) {
+			if (!groupAppMap.has(gid)) groupAppMap.set(gid, new Map())
+			// biome-ignore lint/style/noNonNullAssertion: guaranteed by set above
+			groupAppMap.get(gid)!.set(appId, "nais")
+		}
+		if (data.hasAllowAllUsers) {
+			for (const gid of data.manualGroupIds) {
+				if (!groupAppMap.has(gid)) groupAppMap.set(gid, new Map())
+				// biome-ignore lint/style/noNonNullAssertion: guaranteed by set above
+				const appMap = groupAppMap.get(gid)!
+				if (!appMap.has(appId)) appMap.set(appId, "manual")
+			}
+		}
+	}
+
+	if (groupAppMap.size === 0) return []
+
+	// Load active RPA groups matching the collected Entra IDs
+	const entraGroupIds = [...groupAppMap.keys()]
+	const matchedRpaGroups = await db
+		.select({
+			id: rpaGroups.id,
+			groupId: rpaGroups.groupId,
+			groupName: rpaGroups.groupName,
+		})
+		.from(rpaGroups)
+		.where(and(isNull(rpaGroups.archivedAt), inArray(rpaGroups.groupId, entraGroupIds)))
+
+	if (matchedRpaGroups.length === 0) return []
+
+	// Batch load members for all matched RPA groups
+	const matchedRpaGroupIds = matchedRpaGroups.map((g) => g.id)
+	const allMembers = await db
+		.select({
+			rpaGroupId: rpaGroupMembers.rpaGroupId,
+			userObjectId: rpaGroupMembers.userObjectId,
+			displayName: rpaGroupMembers.displayName,
+			userPrincipalName: rpaGroupMembers.userPrincipalName,
+			accountEnabled: rpaGroupMembers.accountEnabled,
+			syncedAt: rpaGroupMembers.syncedAt,
+		})
+		.from(rpaGroupMembers)
+		.where(and(inArray(rpaGroupMembers.rpaGroupId, matchedRpaGroupIds), isNull(rpaGroupMembers.archivedAt)))
+		.orderBy(rpaGroupMembers.displayName)
+
+	// Build RPA group lookup
+	const rpaGroupById = new Map(matchedRpaGroups.map((g) => [g.id, g]))
+
+	// Resolve app names
+	const allAppIds = new Set<string>()
+	for (const appMap of groupAppMap.values()) {
+		for (const appId of appMap.keys()) allAppIds.add(appId)
+	}
+	const appNames = await getApplicationNames([...allAppIds])
+
+	// Aggregate: deduplicate by (userObjectId, rpaGroupId), collect apps
+	const userGroupKey = (userOid: string, rpaGroupId: string) => `${userOid}::${rpaGroupId}`
+	const resultMap = new Map<string, RpaUserForSection>()
+
+	for (const member of allMembers) {
+		const rpaGroup = rpaGroupById.get(member.rpaGroupId)
+		if (!rpaGroup) continue
+
+		const appMap = groupAppMap.get(rpaGroup.groupId)
+		if (!appMap) continue
+
+		const key = userGroupKey(member.userObjectId, member.rpaGroupId)
+		if (!resultMap.has(key)) {
+			resultMap.set(key, {
+				userObjectId: member.userObjectId,
+				displayName: member.displayName,
+				userPrincipalName: member.userPrincipalName,
+				accountEnabled: member.accountEnabled,
+				syncedAt: member.syncedAt,
+				rpaGroupId: rpaGroup.id,
+				rpaGroupName: rpaGroup.groupName,
+				entraGroupId: rpaGroup.groupId,
+				applications: [...appMap.entries()].map(([appId, source]) => ({
+					applicationId: appId,
+					applicationName: appNames.get(appId) ?? "Ukjent",
+					matchSource: source,
+				})),
+			})
+		}
+	}
+
+	return [...resultMap.values()]
 }
