@@ -230,3 +230,101 @@ export async function markRpaGroupSynced(rpaGroupId: string) {
 		.set({ updatedAt: new Date(), updatedBy: "system:rpa-sync" })
 		.where(eq(rpaGroups.id, rpaGroupId))
 }
+
+// ─── RPA Users for Application ────────────────────────────────────────────────
+
+/**
+ * Get RPA users that can access an application.
+ * A robot user can access an app if its RPA group matches:
+ * 1. A group defined in the app's Nais manifest (naisGroupIds), OR
+ * 2. A manually added group, when the app has allowAllUsers=true
+ */
+export async function getRpaUsersForApp(
+	naisGroupIds: string[],
+	manualGroupIds: string[],
+	hasAllowAllUsers: boolean,
+): Promise<
+	Array<{
+		rpaGroupId: string
+		rpaGroupName: string | null
+		entraGroupId: string
+		matchSource: "nais" | "manual"
+		userObjectId: string
+		displayName: string | null
+		userPrincipalName: string | null
+		accountEnabled: boolean | null
+		syncedAt: Date
+	}>
+> {
+	// Collect all group IDs that grant RPA access
+	const matchingGroupIds = new Set<string>()
+	const sourceMap = new Map<string, "nais" | "manual">()
+
+	for (const gid of naisGroupIds) {
+		matchingGroupIds.add(gid)
+		sourceMap.set(gid, "nais")
+	}
+
+	if (hasAllowAllUsers) {
+		for (const gid of manualGroupIds) {
+			if (!matchingGroupIds.has(gid)) {
+				matchingGroupIds.add(gid)
+				sourceMap.set(gid, "manual")
+			}
+		}
+	}
+
+	if (matchingGroupIds.size === 0) return []
+
+	// Find active RPA groups matching these Entra IDs
+	const activeRpaGroups = await db
+		.select({
+			id: rpaGroups.id,
+			groupId: rpaGroups.groupId,
+			groupName: rpaGroups.groupName,
+		})
+		.from(rpaGroups)
+		.where(isNull(rpaGroups.archivedAt))
+
+	const matchedRpaGroups = activeRpaGroups.filter((g) => matchingGroupIds.has(g.groupId))
+	if (matchedRpaGroups.length === 0) return []
+
+	// Fetch members for matched groups
+	const results: Array<{
+		rpaGroupId: string
+		rpaGroupName: string | null
+		entraGroupId: string
+		matchSource: "nais" | "manual"
+		userObjectId: string
+		displayName: string | null
+		userPrincipalName: string | null
+		accountEnabled: boolean | null
+		syncedAt: Date
+	}> = []
+
+	for (const rpaGroup of matchedRpaGroups) {
+		const members = await db
+			.select({
+				userObjectId: rpaGroupMembers.userObjectId,
+				displayName: rpaGroupMembers.displayName,
+				userPrincipalName: rpaGroupMembers.userPrincipalName,
+				accountEnabled: rpaGroupMembers.accountEnabled,
+				syncedAt: rpaGroupMembers.syncedAt,
+			})
+			.from(rpaGroupMembers)
+			.where(and(eq(rpaGroupMembers.rpaGroupId, rpaGroup.id), isNull(rpaGroupMembers.archivedAt)))
+			.orderBy(rpaGroupMembers.displayName)
+
+		for (const member of members) {
+			results.push({
+				rpaGroupId: rpaGroup.id,
+				rpaGroupName: rpaGroup.groupName,
+				entraGroupId: rpaGroup.groupId,
+				matchSource: sourceMap.get(rpaGroup.groupId) ?? "nais",
+				...member,
+			})
+		}
+	}
+
+	return results
+}

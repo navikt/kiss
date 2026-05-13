@@ -15,6 +15,7 @@ import {
 import { getReportsForApp } from "~/db/queries/reports.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
 import { getReviewsForApp } from "~/db/queries/routines.server"
+import { getRpaUsersForApp } from "~/db/queries/rpa.server"
 import { getScreeningSessionsForApp } from "~/db/queries/screening-sessions.server"
 import { getSections } from "~/db/queries/sections.server"
 import type { GroupCriticality } from "~/db/schema/applications"
@@ -303,6 +304,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	]
 	const groupNames = await resolveGroupNames(allGroupIds)
 
+	// Check if app has allowAllUsers enabled (for RPA matching via manual groups)
+	const hasAllowAllUsers = detail.authIntegrations.some(
+		(auth) => auth.type === "entra_id" && auth.allowAllUsers === true,
+	)
+
+	const rpaUsers = await getRpaUsersForApp(
+		[...naisGroupIdSet],
+		manualGroups.map((g) => g.groupId),
+		hasAllowAllUsers,
+	)
+
 	const inaccessibleOracleGroups = inaccessibleOracleGroupIds.map((id) => ({
 		id,
 		name: groupNames[id] ?? id,
@@ -340,6 +352,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		assessmentsByGroupId,
 		naisGroupIds: [...naisGroupIdSet],
 		ghostGroupIds,
+		rpaUsers: rpaUsers.map((u) => ({ ...u, syncedAt: u.syncedAt.toISOString() })),
 		accessPolicyRules: detail.accessPolicyRules,
 		teams: detail.teams,
 		primaryApp: detail.primaryApp,
