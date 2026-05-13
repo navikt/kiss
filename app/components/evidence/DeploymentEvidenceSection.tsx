@@ -192,8 +192,10 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 
 		let cancelled = false
 		pollFailCountRef.current = 0
+		const DEFAULT_POLL_INTERVAL_MS = 10_000
 
 		const pollJob = async () => {
+			let nextPollMs = DEFAULT_POLL_INTERVAL_MS
 			try {
 				const formData = new FormData()
 				formData.set("providerType", "deployments")
@@ -211,7 +213,15 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 				})
 				if (response.ok) {
 					pollFailCountRef.current = 0
-					const result = (await response.json()) as { status: string; reportId?: string }
+					const result = (await response.json()) as {
+						success: boolean
+						status: string
+						retryAfterSeconds?: number
+						result?: Record<string, unknown>
+					}
+					if (typeof result.retryAfterSeconds === "number" && result.retryAfterSeconds > 0) {
+						nextPollMs = result.retryAfterSeconds * 1000
+					}
 					setJobStatus(result.status)
 					if (result.status === "completed") {
 						refreshStatus()
@@ -235,7 +245,7 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 				}
 			}
 			if (!cancelled) {
-				pollIntervalRef.current = setTimeout(pollJob, 10_000)
+				pollIntervalRef.current = setTimeout(pollJob, nextPollMs)
 			}
 		}
 
