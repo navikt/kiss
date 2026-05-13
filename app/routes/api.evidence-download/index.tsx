@@ -148,18 +148,16 @@ async function handleDownloadFromApi(
 
 	const record = await recordEvidenceDownload({
 		activityId,
-		instanceId: sourceId,
-		evidenceType,
 		providerType,
 		providerMetadata,
+		sourceId,
+		evidenceType,
 		format,
 		buffer: file.buffer,
 		fileName: file.fileName,
 		contentType: file.contentType,
 		collectedAt: evidenceStatus?.collectedAt ? new Date(evidenceStatus.collectedAt) : null,
-		apiInstanceName: evidenceStatus?.sourceLabel ?? null,
 		forceFetchJustification,
-		reviewProgressSnapshot: itemStatus?.details?.review ?? null,
 		performedBy: user.navIdent,
 	})
 
@@ -224,10 +222,10 @@ async function handleManualUpload(
 
 	const record = await recordManualEvidenceUpload({
 		activityId,
-		instanceId: sourceId,
-		evidenceType,
 		providerType,
 		providerMetadata,
+		sourceId,
+		evidenceType,
 		format: ext,
 		buffer,
 		fileName: file.name,

@@ -29,56 +29,20 @@ function normalizeProviderMetadata(value: unknown): Record<string, unknown> {
 	return isRecord(value) ? value : {}
 }
 
-function buildOracleProviderMetadata(params: {
-	instanceId: string
-	evidenceType: string
-	apiInstanceName: string | null
-	reviewProgressSnapshot?: unknown
-}): Record<string, unknown> {
-	return {
-		instanceId: params.instanceId,
-		evidenceType: params.evidenceType,
-		apiInstanceName: params.apiInstanceName,
-		reviewProgressSnapshot: params.reviewProgressSnapshot ?? null,
-	}
-}
-
-function resolveProvider(params: {
-	providerType?: EvidenceProviderType
-	providerMetadata?: Record<string, unknown>
-	instanceId: string
-	evidenceType: string
-	apiInstanceName: string | null
-	reviewProgressSnapshot?: unknown
-}): { providerType: EvidenceProviderType; providerMetadata: Record<string, unknown> } {
-	return {
-		providerType: params.providerType ?? "oracle",
-		providerMetadata:
-			params.providerMetadata ??
-			buildOracleProviderMetadata({
-				instanceId: params.instanceId,
-				evidenceType: params.evidenceType,
-				apiInstanceName: params.apiInstanceName,
-				reviewProgressSnapshot: params.reviewProgressSnapshot,
-			}),
-	}
-}
-
 function buildEvidenceBucketPath(params: {
 	activityId: string
 	providerType: EvidenceProviderType
 	format: string
-	instanceId?: string
+	sourceId?: string
 	evidenceType?: string
 	fileName?: string
 }): string {
 	const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-	const prefix =
-		params.providerType === "oracle" ? "oracle-evidence" : `${sanitizePathSegment(params.providerType)}-evidence`
+	const prefix = `${sanitizePathSegment(params.providerType)}-evidence`
 	const segments = [prefix, params.activityId]
 
-	if (params.instanceId) {
-		segments.push(sanitizePathSegment(params.instanceId))
+	if (params.sourceId) {
+		segments.push(sanitizePathSegment(params.sourceId))
 	}
 
 	if (params.evidenceType) {
@@ -152,35 +116,25 @@ export interface EvidenceDownloadWithBucketDetails extends EvidenceDownloadRecor
 
 export async function recordEvidenceDownload(params: {
 	activityId: string
-	instanceId: string
+	providerType: EvidenceProviderType
+	providerMetadata: Record<string, unknown>
+	sourceId: string
 	evidenceType: string
-	providerType?: EvidenceProviderType
-	providerMetadata?: Record<string, unknown>
 	format: string
 	buffer: Buffer
 	fileName: string
 	contentType: string
 	collectedAt: Date | null
-	apiInstanceName: string | null
 	forceFetchJustification?: string
-	reviewProgressSnapshot?: unknown
 	performedBy: string
 }): Promise<EvidenceDownloadRecord> {
 	const storage = getStorageProvider()
 	const normalizedFormat = params.format.toLowerCase()
-	const { providerType, providerMetadata } = resolveProvider({
-		providerType: params.providerType,
-		providerMetadata: params.providerMetadata,
-		instanceId: params.instanceId,
-		evidenceType: params.evidenceType,
-		apiInstanceName: params.apiInstanceName,
-		reviewProgressSnapshot: params.reviewProgressSnapshot,
-	})
 	const bucketPath = buildEvidenceBucketPath({
 		activityId: params.activityId,
-		providerType,
+		providerType: params.providerType,
 		format: normalizedFormat,
-		instanceId: params.instanceId,
+		sourceId: params.sourceId,
 		evidenceType: params.evidenceType,
 	})
 
@@ -201,16 +155,16 @@ export async function recordEvidenceDownload(params: {
 				objectPath: uploadResult.path,
 				contentType: uploadResult.contentType,
 				sizeBytes: uploadResult.sizeBytes,
-				objectType: `${providerType}_evidence`,
+				objectType: `${params.providerType}_evidence`,
 				sourceType: mapEvidenceSourceToBucketSourceType("m2m_api"),
 				uploadedBy: params.performedBy,
 				uploadedAt: performedAt,
 				metadata: JSON.stringify({
 					activityId: params.activityId,
 					evidenceDownloadId,
-					providerType,
+					providerType: params.providerType,
 					fileName: params.fileName,
-					providerMetadata,
+					providerMetadata: params.providerMetadata,
 				}),
 			})
 
@@ -220,8 +174,8 @@ export async function recordEvidenceDownload(params: {
 					id: evidenceDownloadId,
 					activityId: params.activityId,
 					bucketObjectId,
-					providerType,
-					providerMetadata,
+					providerType: params.providerType,
+					providerMetadata: params.providerMetadata,
 					format: normalizedFormat,
 					fileName: params.fileName,
 					source: "m2m_api",
@@ -238,8 +192,8 @@ export async function recordEvidenceDownload(params: {
 					entityType: "routine_review_evidence_download",
 					entityId: row.id,
 					newValue: JSON.stringify({
-						providerType,
-						instanceId: params.instanceId,
+						providerType: params.providerType,
+						sourceId: params.sourceId,
 						evidenceType: params.evidenceType,
 						format: normalizedFormat,
 						source: "m2m_api",
@@ -263,10 +217,10 @@ export async function recordEvidenceDownload(params: {
 
 export async function recordManualEvidenceUpload(params: {
 	activityId: string
-	instanceId: string
+	providerType: EvidenceProviderType
+	providerMetadata: Record<string, unknown>
+	sourceId: string
 	evidenceType: string
-	providerType?: EvidenceProviderType
-	providerMetadata?: Record<string, unknown>
 	format: string
 	buffer: Buffer
 	fileName: string
@@ -275,19 +229,11 @@ export async function recordManualEvidenceUpload(params: {
 }): Promise<EvidenceDownloadRecord> {
 	const storage = getStorageProvider()
 	const normalizedFormat = params.format.toLowerCase()
-	const { providerType, providerMetadata } = resolveProvider({
-		providerType: params.providerType,
-		providerMetadata: params.providerMetadata,
-		instanceId: params.instanceId,
-		evidenceType: params.evidenceType,
-		apiInstanceName: null,
-		reviewProgressSnapshot: null,
-	})
 	const bucketPath = buildEvidenceBucketPath({
 		activityId: params.activityId,
-		providerType,
+		providerType: params.providerType,
 		format: normalizedFormat,
-		instanceId: params.instanceId,
+		sourceId: params.sourceId,
 		evidenceType: params.evidenceType,
 		fileName: params.fileName,
 	})
@@ -308,16 +254,16 @@ export async function recordManualEvidenceUpload(params: {
 				objectPath: uploadResult.path,
 				contentType: uploadResult.contentType,
 				sizeBytes: uploadResult.sizeBytes,
-				objectType: `${providerType}_evidence`,
+				objectType: `${params.providerType}_evidence`,
 				sourceType: mapEvidenceSourceToBucketSourceType("manual_upload"),
 				uploadedBy: params.performedBy,
 				uploadedAt: performedAt,
 				metadata: JSON.stringify({
 					activityId: params.activityId,
 					evidenceDownloadId,
-					providerType,
+					providerType: params.providerType,
 					fileName: params.fileName,
-					providerMetadata,
+					providerMetadata: params.providerMetadata,
 				}),
 			})
 
@@ -327,8 +273,8 @@ export async function recordManualEvidenceUpload(params: {
 					id: evidenceDownloadId,
 					activityId: params.activityId,
 					bucketObjectId,
-					providerType,
-					providerMetadata,
+					providerType: params.providerType,
+					providerMetadata: params.providerMetadata,
 					format: normalizedFormat,
 					fileName: params.fileName,
 					source: "manual_upload",
@@ -344,8 +290,8 @@ export async function recordManualEvidenceUpload(params: {
 					entityType: "routine_review_evidence_download",
 					entityId: row.id,
 					newValue: JSON.stringify({
-						providerType,
-						instanceId: params.instanceId,
+						providerType: params.providerType,
+						sourceId: params.sourceId,
 						evidenceType: params.evidenceType,
 						format: normalizedFormat,
 						source: "manual_upload",
