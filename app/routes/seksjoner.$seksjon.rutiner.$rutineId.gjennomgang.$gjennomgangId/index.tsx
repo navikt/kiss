@@ -35,7 +35,7 @@ import {
 	useSubmit,
 } from "react-router"
 import { AutoUploadDropzone } from "~/components/AutoUploadDropzone"
-import { OracleEvidenceSection } from "~/components/evidence"
+import { EvidenceSection } from "~/components/evidence"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
@@ -55,11 +55,7 @@ import {
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applications"
-import {
-	isOracleEvidenceActivityType,
-	type OracleEvidenceActivityType,
-	oracleEvidenceTypesForActivity,
-} from "~/db/schema/routines"
+import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
@@ -176,7 +172,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	}
 
-	// Load Oracle evidence data for oracle_evidence_* activity types
+	// Load evidence data for provider activities. Currently only Oracle is implemented;
+	// deployment evidence loading will be added when the NDA provider is ready.
+	const evidenceProviderType = activity ? getProviderTypeForActivity(activity.type) : null
 	let oracleEvidenceData: {
 		configuredInstances: Array<{ instanceId: string }>
 		downloads: Array<{
@@ -195,7 +193,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		evidenceTypes: string[]
 	} | null = null
 
-	if (activity && isOracleEvidenceActivityType(activity.type) && review.applicationId) {
+	if (activity && evidenceProviderType === "oracle" && review.applicationId) {
 		const { getOracleInstancesForApp } = await import("~/db/queries/audit-evidence.server")
 		const { getEvidenceDownloadsForActivityWithBucketDetails } = await import("~/db/queries/evidence-downloads.server")
 		const [configuredInstances, downloads] = await Promise.all([
@@ -230,7 +228,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 					}
 				})
 				.filter((download): download is NonNullable<typeof download> => download !== null),
-			evidenceTypes: oracleEvidenceTypesForActivity[activity.type as OracleEvidenceActivityType],
+			evidenceTypes: getEvidenceTypesForActivity(activity.type) ?? [],
 		}
 	}
 
@@ -1189,6 +1187,7 @@ export default function GjennomgangDetalj() {
 	const actionData = useActionData<typeof action>()
 	const confirmedCount = review.participants.filter((p) => p.confirmedAt).length
 	const isDraft = review.status === "draft"
+	const evidenceProviderType = activity ? getProviderTypeForActivity(activity.type) : null
 
 	const reviewDate = new Date(review.reviewedAt)
 	const defaultDate = reviewDate.toISOString().split("T")[0]
@@ -1415,9 +1414,17 @@ export default function GjennomgangDetalj() {
 				<EntraMaintenanceSection activity={activity} entraGroupsData={entraGroupsData} isDraft={isDraft} />
 			)}
 
-			{/* Oracle revisjonsbevis */}
-			{activity && isOracleEvidenceActivityType(activity.type) && oracleEvidenceData && (
-				<OracleEvidenceSection activity={activity} oracleEvidenceData={oracleEvidenceData} isDraft={isDraft} />
+			{/* Revisjonsbevis (Oracle, NDA, etc.) */}
+			{activity && evidenceProviderType === "oracle" && oracleEvidenceData && (
+				<EvidenceSection
+					providerType="oracle"
+					activity={activity}
+					evidenceData={oracleEvidenceData}
+					isDraft={isDraft}
+				/>
+			)}
+			{activity && evidenceProviderType === "deployments" && (
+				<EvidenceSection providerType="deployments" activity={activity} isDraft={isDraft} />
 			)}
 
 			{/* Vedlegg */}

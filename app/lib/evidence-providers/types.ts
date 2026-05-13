@@ -9,7 +9,10 @@
  * interfaces — consumers never need to know which provider they're talking to.
  */
 
-import type { EvidenceProviderType } from "~/db/schema/routines"
+// ─── Provider types ──────────────────────────────────────────────────────
+
+export const EVIDENCE_PROVIDER_TYPES = ["oracle", "deployments"] as const
+export type EvidenceProviderType = (typeof EVIDENCE_PROVIDER_TYPES)[number]
 
 // ─── Status types ────────────────────────────────────────────────────────
 

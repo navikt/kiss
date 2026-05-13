@@ -7,12 +7,8 @@
 
 import { data } from "react-router"
 import { type ActivityContext, isInstanceConfiguredForApp } from "~/db/queries/evidence-downloads.server"
-import {
-	type EvidenceProviderType,
-	isOracleEvidenceActivityType,
-	type OracleEvidenceActivityType,
-	oracleEvidenceTypesForActivity,
-} from "~/db/schema/routines"
+import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "~/lib/activity-types"
+import type { EvidenceProviderType } from "~/lib/evidence-providers/types"
 
 /**
  * Extract provider-specific params from a URLSearchParams or FormData source.
@@ -75,17 +71,19 @@ export function validateProviderEvidenceType(
 	evidenceType: string,
 	ctx: ActivityContext,
 ): void {
-	switch (providerType) {
-		case "oracle":
-			validateOracleEvidenceType(evidenceType, ctx)
-			break
-		case "deployments":
-			// NDA: single evidence type, no validation needed
-			break
-		default: {
-			const _exhaustive: never = providerType
-			throw new Error(`Unknown provider type: ${_exhaustive}`)
-		}
+	const activityProvider = getProviderTypeForActivity(ctx.activityType)
+	if (activityProvider === null) {
+		throw data({ error: "Aktiviteten er ikke en bevistype" }, { status: 400 })
+	}
+	if (activityProvider !== providerType) {
+		throw data(
+			{ error: `Provider-type '${providerType}' matcher ikke aktivitetstypen '${ctx.activityType}'` },
+			{ status: 400 },
+		)
+	}
+	const allowed = getEvidenceTypesForActivity(ctx.activityType)
+	if (!allowed || !allowed.includes(evidenceType)) {
+		throw data({ error: `Bevistypen '${evidenceType}' er ikke tillatt for denne aktiviteten` }, { status: 400 })
 	}
 }
 
@@ -148,16 +146,6 @@ async function validateOracleAccess(params: Record<string, unknown>, ctx: Activi
 	}
 	if (fromUtc && toUtc && fromUtc > toUtc) {
 		throw data({ error: "Fra-dato kan ikke være etter til-dato" }, { status: 400 })
-	}
-}
-
-function validateOracleEvidenceType(evidenceType: string, ctx: ActivityContext): void {
-	if (!isOracleEvidenceActivityType(ctx.activityType)) {
-		throw data({ error: "Aktiviteten er ikke en Oracle-bevistype" }, { status: 400 })
-	}
-	const allowed = oracleEvidenceTypesForActivity[ctx.activityType as OracleEvidenceActivityType]
-	if (!allowed.includes(evidenceType)) {
-		throw data({ error: `Bevistypen '${evidenceType}' er ikke tillatt for denne aktiviteten` }, { status: 400 })
 	}
 }
 

@@ -5,6 +5,8 @@
  * Uses a discriminated union so each provider carries its own data shape.
  */
 
+import { Alert, Heading, VStack } from "@navikt/ds-react"
+
 import type { OracleEvidenceDataProp } from "./OracleEvidenceSection"
 import { OracleEvidenceSection } from "./OracleEvidenceSection"
 
@@ -44,8 +46,14 @@ export function EvidenceSection(props: Props) {
 				/>
 			)
 		case "deployments":
-			// Stub — will be implemented when NDA provider is ready
-			return null
+			return (
+				<VStack gap="space-4">
+					<Heading size="medium" level="3">
+						Leveranserapporter
+					</Heading>
+					<Alert variant="info">Støtte for leveranserapporter er under utvikling.</Alert>
+				</VStack>
+			)
 		default: {
 			const _exhaustive: never = props
 			throw new Error(`Unknown provider type: ${String(_exhaustive)}`)
