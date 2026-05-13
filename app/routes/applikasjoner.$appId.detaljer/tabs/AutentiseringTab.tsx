@@ -7,6 +7,8 @@ interface RpaUser {
 	rpaGroupName: string | null
 	entraGroupId: string
 	matchSource: "nais" | "manual"
+	matchedGroupId: string
+	matchedGroupName: string | null
 	userObjectId: string
 	displayName: string | null
 	userPrincipalName: string | null
