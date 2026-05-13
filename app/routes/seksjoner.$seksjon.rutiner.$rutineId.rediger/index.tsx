@@ -5,6 +5,7 @@ import {
 	Button,
 	Checkbox,
 	CheckboxGroup,
+	ErrorSummary,
 	Heading,
 	HStack,
 	Label,
@@ -16,9 +17,9 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, redirect, useLoaderData } from "react-router"
+import { data, Form, redirect, useActionData, useLoaderData } from "react-router"
 import { ActivityTypeOptions } from "~/components/ActivityTypeOptions"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
@@ -64,6 +65,7 @@ import {
 	ROUTINE_FREQUENCIES,
 	type RoutineFrequency,
 } from "~/lib/routine-frequencies"
+import type { RoutineFieldErrors } from "~/lib/routine-validation"
 
 const EDITABLE_STATUSES: RoutineStatus[] = ["draft", "ready"]
 
@@ -88,6 +90,8 @@ interface PersistenceLinkItem {
 	persistenceType: string
 	dataClassification: string
 }
+
+type FieldErrors = RoutineFieldErrors
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -205,7 +209,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			? (formData.get("sectionRoutineOwnerRole") as string)?.trim() || null
 			: null
 		if (isSectionRoutine && !sectionRoutineOwnerRole) {
-			throw data({ message: "Eier/utførende rolle er påkrevd for seksjonsrutiner" }, { status: 400 })
+			return data(
+				{
+					fieldErrors: {
+						sectionRoutineOwnerRole: "Eier/utførende rolle er påkrevd for seksjonsrutiner",
+					} as FieldErrors,
+				},
+				{ status: 400 },
+			)
 		}
 		const activityTypeRaw = (formData.get("activityType") as string)?.trim() || null
 		// Section routines can't use app-specific activity types (reviews have applicationId=null)
@@ -231,13 +242,20 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			}))
 			.filter((l) => l.persistenceType || l.dataClassification)
 
-		if (!name) throw new Response("Navn er påkrevd", { status: 400 })
+		if (!name) return data({ fieldErrors: { name: "Navn er påkrevd" } as FieldErrors }, { status: 400 })
 		const parsedFrequency = frequency && isRoutineFrequency(frequency) ? frequency : null
 		if (frequency && !parsedFrequency) {
-			throw new Response("Ugyldig kronologisk frekvens", { status: 400 })
+			return data({ fieldErrors: { frequency: "Ugyldig kronologisk frekvens" } as FieldErrors }, { status: 400 })
 		}
 		if (!parsedFrequency && !eventFrequencyRaw) {
-			throw new Response("Enten kronologisk frekvens eller hendelsesbasert frekvens er påkrevd", { status: 400 })
+			return data(
+				{
+					fieldErrors: {
+						frequency: "Enten kronologisk frekvens eller hendelsesbasert frekvens er påkrevd",
+					} as FieldErrors,
+				},
+				{ status: 400 },
+			)
 		}
 
 		// Validate frequency is at least as often as the strictest control requirement
@@ -246,14 +264,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			const selectedControls = allControls.filter((c) => controlIds.includes(c.id))
 			const minFreq = getStrictestFrequency(selectedControls.map((c) => c.frequency))
 			if (minFreq && !parsedFrequency) {
-				throw new Response(`Kontrollene krever periodisk frekvens (minimum ${frequencyLabels[minFreq]})`, {
-					status: 400,
-				})
+				return data(
+					{
+						fieldErrors: {
+							frequency: `Kontrollene krever periodisk frekvens (minimum ${frequencyLabels[minFreq]})`,
+						} as FieldErrors,
+					},
+					{ status: 400 },
+				)
 			}
 			if (minFreq && parsedFrequency && !isFrequencyAtLeastAsOften(parsedFrequency, minFreq)) {
-				throw new Response(`Frekvensen kan ikke være sjeldnere enn kravet (${frequencyLabels[minFreq]})`, {
-					status: 400,
-				})
+				return data(
+					{
+						fieldErrors: {
+							frequency: `Frekvensen kan ikke være sjeldnere enn kravet (${frequencyLabels[minFreq]})`,
+						} as FieldErrors,
+					},
+					{ status: 400 },
+				)
 			}
 		}
 
@@ -399,6 +427,19 @@ function ApproveReplaceModal({
 
 export default function RedigerRutine() {
 	const { routine, questionsWithChoices, technologyElements, controls, userCanApprove } = useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
+	const fieldErrors =
+		actionData && typeof actionData === "object" && "fieldErrors" in actionData
+			? (actionData.fieldErrors as FieldErrors)
+			: undefined
+	const errorSummaryRef = useRef<HTMLDivElement>(null)
+
+	useEffect(() => {
+		if (fieldErrors) {
+			errorSummaryRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+			errorSummaryRef.current?.focus()
+		}
+	}, [fieldErrors])
 
 	const deleteModalRef = useRef<HTMLDialogElement>(null)
 	const approveModalRef = useRef<HTMLDialogElement>(null)
@@ -553,7 +594,29 @@ export default function RedigerRutine() {
 			<Form method="post">
 				<input type="hidden" name="intent" value="update" />
 				<VStack gap="space-4">
-					<TextField label="Navn" name="name" defaultValue={routine.name} size="small" autoComplete="off" />
+					{fieldErrors && (
+						<ErrorSummary ref={errorSummaryRef} heading="Du må rette disse feilene før du kan lagre">
+							{fieldErrors.name && <ErrorSummary.Item href="#name">{fieldErrors.name}</ErrorSummary.Item>}
+							{fieldErrors.frequency && (
+								<ErrorSummary.Item href="#frequency">{fieldErrors.frequency}</ErrorSummary.Item>
+							)}
+							{fieldErrors.sectionRoutineOwnerRole && (
+								<ErrorSummary.Item href="#sectionRoutineOwnerRole">
+									{fieldErrors.sectionRoutineOwnerRole}
+								</ErrorSummary.Item>
+							)}
+						</ErrorSummary>
+					)}
+
+					<TextField
+						label="Navn"
+						name="name"
+						id="name"
+						defaultValue={routine.name}
+						size="small"
+						autoComplete="off"
+						error={fieldErrors?.name}
+					/>
 					<MarkdownEditor label="Beskrivelse" name="description" defaultValue={routine.description ?? ""} />
 					<Heading size="small" level="3">
 						Frekvens
@@ -562,10 +625,12 @@ export default function RedigerRutine() {
 						<Select
 							label="Kronologisk frekvens"
 							name="frequency"
+							id="frequency"
 							value={selectedFrequency}
 							onChange={(e) => setSelectedFrequency(e.target.value as RoutineFrequency | "")}
 							size="small"
 							description={minimumFrequency ? `Krav krever minimum: ${frequencyLabels[minimumFrequency]}` : undefined}
+							error={fieldErrors?.frequency}
 						>
 							<option value="">Ingen</option>
 							{ROUTINE_FREQUENCIES.map((freq) => (
@@ -612,8 +677,10 @@ export default function RedigerRutine() {
 						<Select
 							label="Eier / utførende rolle"
 							name="sectionRoutineOwnerRole"
+							id="sectionRoutineOwnerRole"
 							size="small"
 							defaultValue={routine.sectionRoutineOwnerRole ?? ""}
+							error={fieldErrors?.sectionRoutineOwnerRole}
 						>
 							<option value="">Velg rolle</option>
 							{PREDEFINED_ROLES.map((role) => (
