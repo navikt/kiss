@@ -356,6 +356,7 @@ export async function fetchGroupMembers(groupId: string): Promise<GroupMember[]>
 	while (url) {
 		const response = await fetch(url, {
 			headers: { Authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(30_000),
 		})
 
 		if (!response.ok) {
