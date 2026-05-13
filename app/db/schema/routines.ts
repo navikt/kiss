@@ -235,6 +235,11 @@ export const REVIEW_ACTIVITY_STATUSES = ["pending", "completed"] as const
 export const ENTRA_CHANGE_TYPES = ["added", "removed", "criticality_changed"] as const
 export type EntraChangeType = (typeof ENTRA_CHANGE_TYPES)[number]
 
+export interface PeriodConfig {
+	periodType: "yearly" | "tertiary" | "quarterly" | "monthly"
+	periodStart: string
+}
+
 export const routineReviewActivities = pgTable("routine_review_activities", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	reviewId: uuid("review_id")
@@ -244,6 +249,7 @@ export const routineReviewActivities = pgTable("routine_review_activities", {
 	status: text("status", { enum: REVIEW_ACTIVITY_STATUSES }).notNull().default("pending"),
 	snapshotBefore: jsonb("snapshot_before"),
 	snapshotAfter: jsonb("snapshot_after"),
+	periodConfig: jsonb("period_config").$type<PeriodConfig>(),
 	completedAt: timestamp("completed_at", { withTimezone: true }),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })

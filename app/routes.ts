@@ -148,4 +148,5 @@ export default [
 	route("api/evidence-status", "routes/api.evidence-status/index.tsx"),
 	route("api/evidence-download", "routes/api.evidence-download/index.tsx"),
 	route("api/evidence-file/:downloadId", "routes/api.evidence-file.$downloadId/index.tsx"),
+	route("api/evidence-period-config", "routes/api.evidence-period-config/index.tsx"),
 ] satisfies RouteConfig

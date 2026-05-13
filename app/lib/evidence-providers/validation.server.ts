@@ -6,9 +6,11 @@
  */
 
 import { data } from "react-router"
+import { getNdaAppParams } from "~/db/queries/deployment-audit.server"
 import { type ActivityContext, isInstanceConfiguredForApp } from "~/db/queries/evidence-downloads.server"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "~/lib/activity-types"
 import type { EvidenceProviderType } from "~/lib/evidence-providers/types"
+import { PERIOD_TYPES } from "~/lib/nda-audit-reports.server"
 
 /**
  * Extract provider-specific params from a URLSearchParams or FormData source.
@@ -54,7 +56,8 @@ export async function validateProviderAccess(
 			await validateOracleAccess(params, ctx)
 			break
 		case "deployments":
-			throw data({ error: "Deployments-provider er ikke implementert ennå" }, { status: 501 })
+			await validateDeploymentsAccess(params, ctx)
+			break
 		default: {
 			const _exhaustive: never = providerType
 			throw new Error(`Unknown provider type: ${_exhaustive}`)
@@ -146,6 +149,34 @@ async function validateOracleAccess(params: Record<string, unknown>, ctx: Activi
 	}
 	if (fromUtc && toUtc && fromUtc > toUtc) {
 		throw data({ error: "Fra-dato kan ikke være etter til-dato" }, { status: 400 })
+	}
+}
+
+// ─── Deployments-specific validation ─────────────────────────────────────
+
+async function validateDeploymentsAccess(params: Record<string, unknown>, ctx: ActivityContext): Promise<void> {
+	if (!ctx.applicationId) {
+		throw data({ error: "Gjennomgangen mangler applikasjonstilknytning" }, { status: 400 })
+	}
+
+	const appParams = await getNdaAppParams(ctx.applicationId)
+	if (!appParams) {
+		throw data(
+			{ error: "Applikasjonen har ingen produksjonsmiljøer konfigurert for leveranserapporter" },
+			{ status: 400 },
+		)
+	}
+
+	// Validate period params if provided
+	const periodType = typeof params.periodType === "string" ? params.periodType : undefined
+	if (periodType && !(PERIOD_TYPES as readonly string[]).includes(periodType)) {
+		throw data({ error: `Ugyldig periodType: ${periodType}` }, { status: 400 })
+	}
+
+	const periodStart = typeof params.periodStart === "string" ? params.periodStart : undefined
+	const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+	if (periodStart && !DATE_PATTERN.test(periodStart)) {
+		throw data({ error: "Ugyldig datoformat for periodStart (forventet YYYY-MM-DD)" }, { status: 400 })
 	}
 }
 

@@ -24,6 +24,7 @@ import {
 } from "../schema/framework"
 import {
 	type EntraChangeType,
+	type PeriodConfig,
 	type RoutineActivityType,
 	type RoutineStatus,
 	routineControls,
@@ -3520,6 +3521,19 @@ export async function getReviewActivity(reviewId: string) {
 		.orderBy(routineReviewActivityEntraChanges.performedAt)
 
 	return { ...activity, changes }
+}
+
+export async function savePeriodConfig(activityId: string, periodConfig: PeriodConfig) {
+	const [updated] = await db
+		.update(routineReviewActivities)
+		.set({ periodConfig })
+		.where(eq(routineReviewActivities.id, activityId))
+		.returning({ id: routineReviewActivities.id })
+
+	if (!updated) {
+		throw new Error(`Activity ${activityId} not found`)
+	}
+	return updated
 }
 
 export async function recordEntraChange(params: {
