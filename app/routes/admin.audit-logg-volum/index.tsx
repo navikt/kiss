@@ -78,12 +78,12 @@ async function getVolumeByAction(interval: string): Promise<VolumeByAction[]> {
 
 async function getVolumeByHour(interval: string): Promise<VolumeByHour[]> {
 	const rows = await db.execute<{ hour: string; count: string }>(
-		sql`SELECT to_char(date_trunc('hour', performed_at), 'YYYY-MM-DD HH24:00') AS hour,
+		sql`SELECT to_char(date_trunc('hour', performed_at AT TIME ZONE 'Europe/Oslo'), 'YYYY-MM-DD HH24:00') AS hour,
 				   COUNT(*)::text AS count
 			FROM audit_log
 			WHERE performed_at > NOW() - ${interval}::interval
-			GROUP BY date_trunc('hour', performed_at)
-			ORDER BY date_trunc('hour', performed_at)`,
+			GROUP BY date_trunc('hour', performed_at AT TIME ZONE 'Europe/Oslo')
+			ORDER BY date_trunc('hour', performed_at AT TIME ZONE 'Europe/Oslo')`,
 	)
 	return rows.rows.map((r) => ({ hour: r.hour, count: Number(r.count) }))
 }
