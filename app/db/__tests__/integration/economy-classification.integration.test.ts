@@ -24,7 +24,7 @@ async function createTestApp(name: string) {
 async function getAuditLogs(entityType: string) {
 	const db = getTestDb()
 	const r = await db.execute(
-		/* sql */ `SELECT action, entity_id, previous_value, new_value, performed_by, metadata FROM audit_log WHERE entity_type = '${entityType}' ORDER BY performed_at`,
+		/* sql */ `SELECT action, entity_id, previous_value, new_value, performed_by, metadata FROM audit_log WHERE entity_type = '${entityType}' ORDER BY performed_at, id`,
 	)
 	return r.rows as Array<{
 		action: string
