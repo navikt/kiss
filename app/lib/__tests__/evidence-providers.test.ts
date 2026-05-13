@@ -159,4 +159,38 @@ describe("NDA provider", () => {
 			"specific reportId",
 		)
 	})
+
+	it("returns degraded response when NDA API is unavailable", async () => {
+		const { vi } = await import("vitest")
+
+		vi.doMock("~/lib/nda-audit-reports.server", () => ({
+			getNdaAuditStatus: vi.fn().mockRejectedValue(new Error("ECONNREFUSED")),
+			listNdaAuditReports: vi.fn().mockRejectedValue(new Error("ECONNREFUSED")),
+		}))
+
+		vi.doMock("~/lib/logger.server", () => ({
+			logger: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+		}))
+
+		vi.resetModules()
+		const { NdaEvidenceProvider: FreshProvider } = await import("../evidence-providers/nda.server")
+		const provider = new FreshProvider()
+
+		const result = await provider.getStatus({
+			team: "pensjon",
+			environment: "prod-gcp",
+			appName: "my-app",
+			periodType: "yearly",
+			periodStart: "2025-01-01",
+		})
+
+		expect(result).not.toBeNull()
+		expect(result!.providerType).toBe("deployments")
+		expect(result!.items).toEqual([])
+		expect(result!.metadata.error).toBe("Leveranserapport-tjenesten er ikke tilgjengelig. Prøv igjen senere.")
+		expect(result!.metadata).not.toHaveProperty("errorDetail")
+		expect(result!.sourceLabel).toBe("pensjon/my-app (prod-gcp)")
+
+		vi.restoreAllMocks()
+	})
 })

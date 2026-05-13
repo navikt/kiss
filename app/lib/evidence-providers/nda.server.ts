@@ -5,6 +5,7 @@
  * Supports async report generation via requestGeneration() + getJobStatus().
  */
 
+import { logger } from "~/lib/logger.server"
 import {
 	downloadNdaAuditReport,
 	generateNdaAuditReport,
@@ -105,29 +106,52 @@ export class NdaEvidenceProvider implements EvidenceProvider {
 	async getStatus(params: Record<string, unknown>): Promise<EvidenceStatusResponse | null> {
 		const { team, environment, appName, periodType, periodStart } = assertNdaParams(params)
 
-		const [status, reportList] = await Promise.all([
-			getNdaAuditStatus(team, environment, appName, periodType, periodStart),
-			listNdaAuditReports(team, environment, appName),
-		])
+		try {
+			const [status, reportList] = await Promise.all([
+				getNdaAuditStatus(team, environment, appName, periodType, periodStart),
+				listNdaAuditReports(team, environment, appName),
+			])
 
-		const periodReports = reportList.reports.filter((r) => r.periodType === periodType && r.periodStart === periodStart)
+			const periodReports = reportList.reports.filter(
+				(r) => r.periodType === periodType && r.periodStart === periodStart,
+			)
 
-		return {
-			providerType: "deployments",
-			sourceLabel: `${team}/${appName} (${environment})`,
-			collectedAt: new Date().toISOString(),
-			externalUrl: null,
-			items: [mapDeploymentStatusItem(status, periodReports)],
-			metadata: {
-				team,
-				environment,
-				appName,
-				period: status.period,
-				deployments: status.deployments,
-				existingReports: periodReports,
-				auditStartDate: status.app.auditStartDate,
-				applicationGroup: status.app.applicationGroup,
-			},
+			return {
+				providerType: "deployments",
+				sourceLabel: `${team}/${appName} (${environment})`,
+				collectedAt: new Date().toISOString(),
+				externalUrl: null,
+				items: [mapDeploymentStatusItem(status, periodReports)],
+				metadata: {
+					team,
+					environment,
+					appName,
+					period: status.period,
+					deployments: status.deployments,
+					existingReports: periodReports,
+					auditStartDate: status.app.auditStartDate,
+					applicationGroup: status.app.applicationGroup,
+				},
+			}
+		} catch (err) {
+			logger.error(
+				`NDA getStatus failed [team=${team}, env=${environment}, app=${appName}], returning unavailable response`,
+				err instanceof Error ? err : new Error(String(err)),
+			)
+
+			return {
+				providerType: "deployments",
+				sourceLabel: `${team}/${appName} (${environment})`,
+				collectedAt: new Date().toISOString(),
+				externalUrl: null,
+				items: [],
+				metadata: {
+					team,
+					environment,
+					appName,
+					error: "Leveranserapport-tjenesten er ikke tilgjengelig. Prøv igjen senere.",
+				},
+			}
 		}
 	}
 

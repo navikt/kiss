@@ -111,7 +111,7 @@ interface StatusPanelProps {
 }
 
 function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, isDraft, config }: StatusPanelProps) {
-	const statusFetcher = useFetcher<EvidenceStatusResponse>()
+	const statusFetcher = useFetcher<EvidenceStatusResponse | { error: string }>()
 	const generateFetcher = useFetcher()
 	const downloadFetcher = useFetcher()
 	const revalidator = useRevalidator()
@@ -260,6 +260,8 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 	}, [jobId, jobStatus, activity.id, appParams, periodConfig, refreshStatus, revalidator])
 
 	const status = statusFetcher.data
+	const statusError = status != null && "error" in status && !("providerType" in status) ? status.error : null
+	const validStatus = status != null && "providerType" in status ? status : null
 	const isLoadingStatus = statusFetcher.state === "loading"
 	const isGenerating = generateFetcher.state !== "idle" || jobStatus === "pending" || jobStatus === "processing"
 
@@ -282,18 +284,30 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 				</Button>
 			</HStack>
 
-			{isLoadingStatus && !status && (
+			{isLoadingStatus && !validStatus && !statusError && (
 				<HStack gap="space-2" align="center">
 					<Loader size="small" />
 					<BodyShort size="small">{config.loadingMessage}</BodyShort>
 				</HStack>
 			)}
 
-			{status && (
-				<>
-					<DeploymentStats metadata={status.metadata} />
+			{statusError && (
+				<Alert variant="warning" size="small">
+					{statusError}
+				</Alert>
+			)}
 
-					{status.items.length > 0 && (
+			{validStatus && (
+				<>
+					{validStatus.metadata?.error && (
+						<Alert variant="warning" size="small">
+							{validStatus.metadata.error as string}
+						</Alert>
+					)}
+
+					{!validStatus.metadata?.error && <DeploymentStats metadata={validStatus.metadata} />}
+
+					{validStatus.items.length > 0 && (
 						<Table size="small">
 							<Table.Header>
 								<Table.Row>
@@ -304,7 +318,7 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
-								{status.items.map((item) => (
+								{validStatus.items.map((item) => (
 									<Table.Row key={item.id}>
 										<Table.DataCell>{item.label}</Table.DataCell>
 										<Table.DataCell>
@@ -314,7 +328,7 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 										<Table.DataCell>
 											{item.canDownload && isDraft && (
 												<ExistingReportActions
-													metadata={status.metadata}
+													metadata={validStatus.metadata}
 													downloadFetcher={downloadFetcher}
 													activity={activity}
 													appParams={appParams}
@@ -328,7 +342,7 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 						</Table>
 					)}
 
-					{isDraft && (
+					{isDraft && !validStatus.metadata?.error && (
 						<HStack gap="space-2">
 							<Button
 								size="small"
