@@ -224,6 +224,24 @@ export async function getMemberCountPerRpaGroup() {
 		.groupBy(rpaGroupMembers.rpaGroupId)
 }
 
+export async function getAllActiveRpaMembers() {
+	return db
+		.select({
+			id: rpaGroupMembers.id,
+			userObjectId: rpaGroupMembers.userObjectId,
+			displayName: rpaGroupMembers.displayName,
+			userPrincipalName: rpaGroupMembers.userPrincipalName,
+			accountEnabled: rpaGroupMembers.accountEnabled,
+			syncedAt: rpaGroupMembers.syncedAt,
+			rpaGroupId: rpaGroupMembers.rpaGroupId,
+			rpaGroupName: rpaGroups.groupName,
+		})
+		.from(rpaGroupMembers)
+		.innerJoin(rpaGroups, eq(rpaGroupMembers.rpaGroupId, rpaGroups.id))
+		.where(and(isNull(rpaGroupMembers.archivedAt), isNull(rpaGroups.archivedAt)))
+		.orderBy(rpaGroupMembers.displayName, rpaGroupMembers.userPrincipalName, rpaGroups.groupName)
+}
+
 /** Mark an RPA group as recently synced by updating its updatedAt timestamp. */
 export async function markRpaGroupSynced(rpaGroupId: string) {
 	await db
