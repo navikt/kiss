@@ -554,6 +554,13 @@
       "when": 1781916640000,
       "tag": "0078_rpa_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1781916700000,
+      "tag": "0079_audit_log_indexes",
+      "breakpoints": true
     }
   ]
 }
