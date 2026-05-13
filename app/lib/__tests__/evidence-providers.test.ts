@@ -131,13 +131,32 @@ describe("NDA provider", () => {
 		expect(typeof provider.getJobStatus).toBe("function")
 	})
 
-	it("returns null from getStatus and throws for other methods", async () => {
+	it("requires all NDA params for getStatus", async () => {
 		const { NdaEvidenceProvider } = await import("../evidence-providers/nda.server")
 		const provider = new NdaEvidenceProvider()
 
-		expect(await provider.getStatus({})).toBeNull()
-		await expect(provider.downloadFile({}, "item", "pdf")).rejects.toThrow("not yet implemented")
-		await expect(provider.requestGeneration!({})).rejects.toThrow("not yet implemented")
-		await expect(provider.getJobStatus!({}, "job-123")).rejects.toThrow("not yet implemented")
+		await expect(provider.getStatus({})).rejects.toThrow("'team'")
+		await expect(provider.getStatus({ team: "t" })).rejects.toThrow("'environment'")
+		await expect(provider.getStatus({ team: "t", environment: "e" })).rejects.toThrow("'appName'")
+		await expect(provider.getStatus({ team: "t", environment: "e", appName: "a" })).rejects.toThrow("'periodType'")
+		await expect(
+			provider.getStatus({ team: "t", environment: "e", appName: "a", periodType: "yearly" }),
+		).rejects.toThrow("'periodStart'")
+	})
+
+	it("requires a specific reportId for downloadFile", async () => {
+		const { NdaEvidenceProvider } = await import("../evidence-providers/nda.server")
+		const provider = new NdaEvidenceProvider()
+
+		const validParams = {
+			team: "t",
+			environment: "prod-gcp",
+			appName: "a",
+			periodType: "yearly",
+			periodStart: "2025-01-01",
+		}
+		await expect(provider.downloadFile(validParams, "deployment_evidence_report", "pdf")).rejects.toThrow(
+			"specific reportId",
+		)
 	})
 })

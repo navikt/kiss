@@ -278,3 +278,49 @@ export async function getDeploymentVerificationAggregate(applicationIds?: string
 		changeOriginLinked: changeLinked,
 	}
 }
+
+// ─── NDA App Params ─────────────────────────────────────────────────────────
+
+/** Parameters needed to call the NDA audit-reports API for an application */
+export interface NdaAppParams {
+	team: string
+	environment: string
+	appName: string
+}
+
+/**
+ * Resolve NDA API parameters for a monitored application.
+ *
+ * Finds the application's primary production environment (first prod-gcp/prod-fss found)
+ * and returns the team/environment/appName needed by the NDA audit-reports API.
+ *
+ * @returns NdaAppParams or null if no production environment is found
+ */
+export async function getNdaAppParams(applicationId: string): Promise<NdaAppParams | null> {
+	const rows = await db
+		.select({
+			appName: monitoredApplications.name,
+			cluster: applicationEnvironments.cluster,
+			teamSlug: naisTeams.slug,
+		})
+		.from(applicationEnvironments)
+		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+		.where(
+			and(
+				eq(applicationEnvironments.applicationId, applicationId),
+				isNotNull(applicationEnvironments.naisTeamId),
+				inArray(applicationEnvironments.cluster, PROD_CLUSTERS),
+			),
+		)
+		.limit(1)
+
+	if (rows.length === 0) return null
+
+	const row = rows[0]
+	return {
+		team: row.teamSlug ?? "",
+		environment: row.cluster,
+		appName: row.appName,
+	}
+}
