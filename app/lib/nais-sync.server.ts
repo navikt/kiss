@@ -151,11 +151,10 @@ export async function syncNaisAppsForTeam(
 
 /**
  * Merge two auth integrations of the same type from different environments.
- * Arrays (inboundRules, groups, claimsExtra) are unioned.
- * Arrays (inboundRules, groups, claimsExtra) are unioned.
- * Booleans: true if any environment has true, false if any has explicit false, undefined only if both undefined.
+ * Arrays (inboundRules, groups, claimsExtra) are unioned with deduplication.
+ * Booleans: true wins over false (any env with true → true), false wins over undefined, undefined only when both are undefined.
  */
-function mergeAuthIntegrations(a: NaisAuthIntegration, b: NaisAuthIntegration): NaisAuthIntegration {
+export function mergeAuthIntegrations(a: NaisAuthIntegration, b: NaisAuthIntegration): NaisAuthIntegration {
 	return {
 		type: a.type,
 		enabled: a.enabled || b.enabled,
@@ -168,19 +167,19 @@ function mergeAuthIntegrations(a: NaisAuthIntegration, b: NaisAuthIntegration): 
 }
 
 /** true if any is true, false if any is explicit false, undefined only when both are undefined. */
-function mergeOptionalBoolean(a?: boolean, b?: boolean): boolean | undefined {
+export function mergeOptionalBoolean(a?: boolean, b?: boolean): boolean | undefined {
 	if (a === true || b === true) return true
 	if (a === false || b === false) return false
 	return undefined
 }
 
-function mergeStringArrays(a?: string[], b?: string[]): string[] | undefined {
+export function mergeStringArrays(a?: string[], b?: string[]): string[] | undefined {
 	if (!a && !b) return undefined
 	const set = new Set([...(a ?? []), ...(b ?? [])])
 	return set.size > 0 ? [...set] : undefined
 }
 
-function mergeInboundRules(
+export function mergeInboundRules(
 	a?: Array<{ application: string; namespace?: string; cluster?: string }>,
 	b?: Array<{ application: string; namespace?: string; cluster?: string }>,
 ): Array<{ application: string; namespace?: string; cluster?: string }> | undefined {
