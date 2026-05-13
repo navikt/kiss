@@ -59,6 +59,12 @@ export async function syncNaisAppsForTeam(
 		let newEnvs = 0
 		let newPersistence = 0
 
+		// Accumulate inbound rules across all environments per app so we call
+		// upsertAccessPolicyRules once per app instead of once per environment.
+		// Previously each environment call did a full replacement, causing
+		// constant archive/re-insert churn for apps deployed in multiple clusters.
+		const appInboundRules = new Map<string, Array<{ application: string; namespace?: string; cluster?: string }>>()
+
 		for (const app of apps) {
 			const { id: appId, isNew } = await upsertMonitoredApp(app.name, SYNC_PERFORMER)
 			if (isNew) newApps++
@@ -95,9 +101,20 @@ export async function syncNaisAppsForTeam(
 				})
 			}
 
-			// Store access policy inbound rules independently (pass empty array
-			// when absent so existing rules get archived on removal from manifest)
-			await upsertAccessPolicyRules(appId, "inbound", app.accessPolicyInbound ?? [], SYNC_PERFORMER)
+			// Collect inbound rules from all environments for this app
+			if (app.accessPolicyInbound) {
+				const existing = appInboundRules.get(appId) ?? []
+				existing.push(...app.accessPolicyInbound)
+				appInboundRules.set(appId, existing)
+			} else if (!appInboundRules.has(appId)) {
+				appInboundRules.set(appId, [])
+			}
+		}
+
+		// Upsert access policy rules once per app with the union of all environments.
+		// upsertAccessPolicyRules handles deduplication internally.
+		for (const [appId, rules] of appInboundRules) {
+			await upsertAccessPolicyRules(appId, "inbound", rules, SYNC_PERFORMER)
 		}
 
 		logger.info(
