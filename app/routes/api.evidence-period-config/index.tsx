@@ -8,8 +8,12 @@
  */
 
 import { type ActionFunctionArgs, data } from "react-router"
+import { getActivityContext } from "~/db/queries/evidence-downloads.server"
 import { savePeriodConfig } from "~/db/queries/routines.server"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAnySectionRole } from "~/lib/authorization.server"
 import { PERIOD_TYPES, type PeriodType } from "~/lib/nda-audit-reports.server"
+import { isValidUuid } from "~/lib/utils"
 
 // ─── Period validation helpers ──────────────────────────────────────────────
 
@@ -68,6 +72,9 @@ export async function action({ request }: ActionFunctionArgs) {
 		throw data({ error: "Method not allowed" }, { status: 405 })
 	}
 
+	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
+
 	const formData = await request.formData()
 	const activityId = formData.get("activityId")
 	const periodType = formData.get("periodType")
@@ -76,6 +83,23 @@ export async function action({ request }: ActionFunctionArgs) {
 	if (typeof activityId !== "string" || !activityId) {
 		throw data({ error: "activityId er påkrevd" }, { status: 400 })
 	}
+	if (!isValidUuid(activityId)) {
+		throw data({ error: "Ugyldig activityId-format" }, { status: 400 })
+	}
+
+	const ctx = await getActivityContext(activityId)
+	if (!ctx) throw data({ error: "Aktivitet ikke funnet" }, { status: 404 })
+	requireAnySectionRole(authedUser, ctx.sectionId)
+	if (ctx.reviewStatus !== "draft") {
+		throw data({ error: `Gjennomgangen kan ikke endres (status: ${ctx.reviewStatus})` }, { status: 403 })
+	}
+	if (ctx.activityStatus !== "pending") {
+		throw data({ error: "Aktiviteten er allerede fullført" }, { status: 403 })
+	}
+	if (ctx.routineArchivedAt) {
+		throw data({ error: "Rutinen er arkivert" }, { status: 403 })
+	}
+
 	if (typeof periodType !== "string" || !isValidPeriodType(periodType)) {
 		throw data(
 			{ error: `Ugyldig periodType: ${periodType}. Gyldige verdier: ${PERIOD_TYPES.join(", ")}` },

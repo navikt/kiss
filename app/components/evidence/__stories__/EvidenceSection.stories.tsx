@@ -78,7 +78,7 @@ export const OracleProviderFullfort: Story = {
 }
 
 export const DeploymentsPlaceholder: Story = {
-	name: "Deployments-placeholder",
+	name: "Deployments – ingen periode valgt",
 	render: () => {
 		const Wrapper = () => (
 			<EvidenceSection
@@ -90,7 +90,49 @@ export const DeploymentsPlaceholder: Story = {
 					completedAt: null,
 					createdAt: "2026-03-01T08:00:00Z",
 				}}
+				evidenceData={{
+					appParams: { team: "pensjon-saksbehandling", environment: "prod-gcp", appName: "pensjon-pen" },
+					periodConfig: null,
+					downloads: [],
+				}}
 				isDraft={true}
+			/>
+		)
+		const Stub = createRoutesStub([{ path: "/", Component: Wrapper }])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
+export const DeploymentsMedPeriode: Story = {
+	name: "Deployments – periode valgt",
+	render: () => {
+		const Wrapper = () => (
+			<EvidenceSection
+				providerType="deployments"
+				activity={{
+					id: "activity-nda-2",
+					type: "deployment_evidence_report",
+					status: "pending",
+					completedAt: null,
+					createdAt: "2026-03-01T08:00:00Z",
+				}}
+				evidenceData={{
+					appParams: { team: "pensjon-saksbehandling", environment: "prod-gcp", appName: "pensjon-pen" },
+					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+					downloads: [
+						{
+							id: "dl-1",
+							format: "pdf",
+							fileName: "leveranserapport-Q1-2026.pdf",
+							sizeBytes: 245_000,
+							source: "m2m_api",
+							forceFetchJustification: null,
+							performedBy: "T123456",
+							performedAt: "2026-04-01T10:30:00Z",
+						},
+					],
+				}}
+				isDraft={false}
 			/>
 		)
 		const Stub = createRoutesStub([{ path: "/", Component: Wrapper }])

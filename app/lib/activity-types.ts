@@ -65,14 +65,16 @@ export const ACTIVITY_TYPE_GROUPS = [
 			"oracle_evidence_all",
 		] as const,
 	},
-	// Leveranserapporter (deployment_evidence_report) er definert men skjult
-	// fra UI inntil NDA-provideren er implementert.
+	{
+		label: "Leveranserapporter",
+		types: ["deployment_evidence_report"] as const,
+	},
 ] as const
 
 // Compile-time exhaustiveness: every RoutineActivityType that is shown in the UI
-// must appear in ACTIVITY_TYPE_GROUPS. Types not yet exposed (e.g. deployment)
+// must appear in ACTIVITY_TYPE_GROUPS. Types not yet exposed
 // are listed in HIDDEN_ACTIVITY_TYPES.
-const HIDDEN_ACTIVITY_TYPES = [...DEPLOYMENT_EVIDENCE_ACTIVITY_TYPES] as const
+const HIDDEN_ACTIVITY_TYPES = [] as const
 type HiddenTypes = (typeof HIDDEN_ACTIVITY_TYPES)[number]
 type GroupedTypes = (typeof ACTIVITY_TYPE_GROUPS)[number]["types"][number]
 type VisibleActivityTypes = Exclude<RoutineActivityType, HiddenTypes>

@@ -5,8 +5,8 @@
  * Uses a discriminated union so each provider carries its own data shape.
  */
 
-import { Alert, Heading, VStack } from "@navikt/ds-react"
-
+import type { NdaEvidenceDataProp } from "./DeploymentEvidenceSection"
+import { DeploymentEvidenceSection } from "./DeploymentEvidenceSection"
 import type { OracleEvidenceDataProp } from "./OracleEvidenceSection"
 import { OracleEvidenceSection } from "./OracleEvidenceSection"
 
@@ -30,7 +30,7 @@ interface OracleProps extends BaseProps {
 
 interface DeploymentsProps extends BaseProps {
 	providerType: "deployments"
-	evidenceData?: undefined
+	evidenceData: NdaEvidenceDataProp
 }
 
 type Props = OracleProps | DeploymentsProps
@@ -47,12 +47,11 @@ export function EvidenceSection(props: Props) {
 			)
 		case "deployments":
 			return (
-				<VStack gap="space-4">
-					<Heading size="medium" level="3">
-						Leveranserapporter
-					</Heading>
-					<Alert variant="info">Støtte for leveranserapporter er under utvikling.</Alert>
-				</VStack>
+				<DeploymentEvidenceSection
+					activity={props.activity}
+					evidenceData={props.evidenceData}
+					isDraft={props.isDraft}
+				/>
 			)
 		default: {
 			const _exhaustive: never = props
