@@ -63,6 +63,14 @@ app/
 │   ├── azure.server.ts   # Azure AD token-håndtering
 │   ├── nais.server.ts    # Nais GraphQL-integrasjon
 │   ├── utils.ts          # Delte utility-funksjoner (client-safe)
+│   ├── activity-types.ts # Aktivitetstyper, provider-mappinger, type guards
+│   ├── evidence-providers/  # Bevisinnhenting fra eksterne systemer
+│   │   ├── types.ts         # EvidenceProvider-interface, provider-typer
+│   │   ├── index.server.ts  # Factory: getEvidenceProvider(type)
+│   │   ├── oracle.server.ts # Oracle-provider (wrapper rundt oracle-revisjon.server.ts)
+│   │   ├── nda.server.ts    # NDA-provider (stub, implementeres senere)
+│   │   ├── ui-config.ts     # Provider-spesifikke UI-labels og formattering
+│   │   └── validation.server.ts # Tilgangs- og bevistype-validering
 │   └── storage/          # Lagringsabstraksjon
 │       ├── types.ts      # StorageProvider-interface
 │       ├── local.server.ts  # Lokalt filsystem (.local-storage/)
@@ -124,6 +132,24 @@ const data = await storage.download("reports/rapport-1.pdf")
 - **Produksjon**: Filer lagres i GCS bucket (satt via `GCS_BUCKET_NAME`)
 - Provider velges automatisk basert på `STORAGE_PROVIDER` env var (`local`/`gcs`)
 - **Aldri** bruk `@google-cloud/storage` direkte – bruk alltid `getStorageProvider()`
+
+### Bevisinnhenting (Evidence Providers)
+Revisjonsbevis hentes fra eksterne systemer via provider-abstraksjon i `app/lib/evidence-providers/`:
+
+```ts
+import { getEvidenceProvider } from "~/lib/evidence-providers/index.server"
+
+const provider = await getEvidenceProvider("oracle")
+const status = await provider.getStatus({ instanceId: "PENSJON_PROD" })
+const file = await provider.downloadFile({ instanceId: "PENSJON_PROD" }, "audit", "excel")
+```
+
+- **Registrerte providere**: `oracle` (pensjon-oracle-revisjon), `deployments` (NDA – stub)
+- **Aktivitetstype → provider**: `getProviderTypeForActivity()` i `activity-types.ts`
+- **UI-config**: `getProviderUiConfig()` i `ui-config.ts` gir provider-spesifikke labels
+- **API-ruter**: `/api/evidence-status`, `/api/evidence-download`, `/api/evidence-file/:downloadId`
+- **Aldri** legg til Oracle-spesifikk logikk i generiske ruter eller komponenter – bruk provider-interfacet
+- **Nye providere** implementeres som en klasse som implementerer `EvidenceProvider`-interfacet
 
 ### Lokal utviklingsoppsett
 ```bash

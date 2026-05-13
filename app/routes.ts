@@ -148,8 +148,4 @@ export default [
 	route("api/evidence-status", "routes/api.evidence-status/index.tsx"),
 	route("api/evidence-download", "routes/api.evidence-download/index.tsx"),
 	route("api/evidence-file/:downloadId", "routes/api.evidence-file.$downloadId/index.tsx"),
-	// Deprecated Oracle-specific routes (redirect to generic)
-	route("api/oracle-evidence-status", "routes/api.oracle-evidence-status/index.tsx"),
-	route("api/oracle-evidence-download", "routes/api.oracle-evidence-download/index.tsx"),
-	route("api/oracle-evidence-file/:downloadId", "routes/api.oracle-evidence-file.$downloadId/index.tsx"),
 ] satisfies RouteConfig
