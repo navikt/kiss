@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react"
+import { useEffect } from "react"
 import { createRoutesStub } from "react-router"
+import type { EvidenceStatusResponse } from "~/lib/evidence-providers/types"
 import { DeploymentEvidenceSection } from "../DeploymentEvidenceSection"
 
 const meta = {
@@ -24,6 +26,22 @@ const appParams = {
 	team: "pensjon-saksbehandling",
 	environment: "prod-gcp",
 	appName: "pensjon-pen",
+}
+
+/** Build a realistic EvidenceStatusResponse matching the actual API shape */
+function makeStatusResponse(
+	overrides: Partial<EvidenceStatusResponse> & {
+		items: EvidenceStatusResponse["items"]
+		metadata: EvidenceStatusResponse["metadata"]
+	},
+): EvidenceStatusResponse {
+	return {
+		providerType: "deployments",
+		sourceLabel: `${appParams.team}/${appParams.appName} (${appParams.environment})`,
+		collectedAt: new Date().toISOString(),
+		externalUrl: null,
+		...overrides,
+	}
 }
 
 export const IngenProdMiljo: Story = {
@@ -80,16 +98,28 @@ export const MedPeriodeUtenNedlastinger: Story = {
 			{ path: "/", Component: Wrapper },
 			{
 				path: "/api/evidence-status",
-				loader: async () => ({
-					status: "ok",
-					items: [
-						{
-							id: "deployment-stats",
-							label: "Leveranser Q1 2026",
-							status: "ok",
-							formats: ["pdf"],
-							canDownload: false,
-							details: {
+				loader: async () =>
+					makeStatusResponse({
+						items: [
+							{
+								id: "deployment-stats",
+								label: "Leveranser Q1 2026",
+								status: "ok",
+								formats: ["pdf"],
+								canDownload: false,
+							},
+						],
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							period: {
+								type: "quarterly",
+								label: "Q1 2026",
+								start: "2026-01-01",
+								end: "2026-04-01",
+							},
+							deployments: {
 								total: 45,
 								approved: 42,
 								pending: 2,
@@ -99,14 +129,7 @@ export const MedPeriodeUtenNedlastinger: Story = {
 								changeOriginPercent: 89,
 							},
 						},
-					],
-					metadata: {
-						periodType: "quarterly",
-						periodStart: "2026-01-01",
-						periodEnd: "2026-04-01",
-						periodLabel: "Q1 2026",
-					},
-				}),
+					}),
 			},
 		])
 		return <Stub initialEntries={["/"]} />
@@ -152,16 +175,28 @@ export const MedNedlastinger: Story = {
 			{ path: "/", Component: Wrapper },
 			{
 				path: "/api/evidence-status",
-				loader: async () => ({
-					status: "ok",
-					items: [
-						{
-							id: "deployment-stats",
-							label: "Leveranser Q1 2026",
-							status: "ok",
-							formats: ["pdf"],
-							canDownload: false,
-							details: {
+				loader: async () =>
+					makeStatusResponse({
+						items: [
+							{
+								id: "deployment-stats",
+								label: "Leveranser Q1 2026",
+								status: "ok",
+								formats: ["pdf"],
+								canDownload: false,
+							},
+						],
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							period: {
+								type: "quarterly",
+								label: "Q1 2026",
+								start: "2026-01-01",
+								end: "2026-04-01",
+							},
+							deployments: {
 								total: 45,
 								approved: 45,
 								pending: 0,
@@ -171,14 +206,7 @@ export const MedNedlastinger: Story = {
 								changeOriginPercent: 98,
 							},
 						},
-					],
-					metadata: {
-						periodType: "quarterly",
-						periodStart: "2026-01-01",
-						periodEnd: "2026-04-01",
-						periodLabel: "Q1 2026",
-					},
-				}),
+					}),
 			},
 		])
 		return <Stub initialEntries={["/"]} />
@@ -214,24 +242,29 @@ export const ManuellOpplasting: Story = {
 			{ path: "/", Component: Wrapper },
 			{
 				path: "/api/evidence-status",
-				loader: async () => ({
-					status: "ok",
-					items: [],
-					metadata: {
-						periodType: "yearly",
-						periodStart: "2025-01-01",
-						periodEnd: "2026-01-01",
-						periodLabel: "2025",
-					},
-				}),
+				loader: async () =>
+					makeStatusResponse({
+						items: [],
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							period: {
+								type: "yearly",
+								label: "2025",
+								start: "2025-01-01",
+								end: "2026-01-01",
+							},
+						},
+					}),
 			},
 		])
 		return <Stub initialEntries={["/"]} />
 	},
 }
 
-export const GenerererRapport: Story = {
-	name: "Genererer rapport (polling)",
+export const KlarTilGenerering: Story = {
+	name: "Klar til generering (draft)",
 	render: () => {
 		const Wrapper = () => (
 			<DeploymentEvidenceSection
@@ -248,16 +281,28 @@ export const GenerererRapport: Story = {
 			{ path: "/", Component: Wrapper },
 			{
 				path: "/api/evidence-status",
-				loader: async () => ({
-					status: "ok",
-					items: [
-						{
-							id: "deployment-stats",
-							label: "Leveranser Q1 2026",
-							status: "ok",
-							formats: ["pdf"],
-							canDownload: false,
-							details: {
+				loader: async () =>
+					makeStatusResponse({
+						items: [
+							{
+								id: "deployment-stats",
+								label: "Leveranser Q1 2026",
+								status: "ok",
+								formats: ["pdf"],
+								canDownload: false,
+							},
+						],
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							period: {
+								type: "quarterly",
+								label: "Q1 2026",
+								start: "2026-01-01",
+								end: "2026-04-01",
+							},
+							deployments: {
 								total: 38,
 								approved: 35,
 								pending: 2,
@@ -267,18 +312,7 @@ export const GenerererRapport: Story = {
 								changeOriginPercent: 87,
 							},
 						},
-					],
-					metadata: {
-						periodType: "quarterly",
-						periodStart: "2026-01-01",
-						periodEnd: "2026-04-01",
-						periodLabel: "Q1 2026",
-					},
-				}),
-			},
-			{
-				path: "/api/evidence-download",
-				action: async () => ({ jobId: "job-123", status: "pending" }),
+					}),
 			},
 		])
 		return <Stub initialEntries={["/"]} />
@@ -288,31 +322,64 @@ export const GenerererRapport: Story = {
 export const PollFeil: Story = {
 	name: "Polling feilet",
 	render: () => {
-		const Wrapper = () => (
-			<DeploymentEvidenceSection
-				activity={baseActivity}
-				evidenceData={{
-					appParams,
-					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
-					downloads: [],
-				}}
-				isDraft={true}
-			/>
-		)
+		const Wrapper = () => {
+			// Mock fetch so poll-job calls fail immediately instead of hitting network
+			useEffect(() => {
+				const originalFetch = globalThis.fetch
+				globalThis.fetch = async (input, init) => {
+					const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+					const body = init?.body
+					if (url.includes("/api/evidence-download") && body instanceof FormData && body.get("intent") === "poll-job") {
+						return new Response(JSON.stringify({ error: "Service unavailable" }), {
+							status: 503,
+							headers: { "Content-Type": "application/json" },
+						})
+					}
+					return originalFetch(input, init)
+				}
+				return () => {
+					globalThis.fetch = originalFetch
+				}
+			}, [])
+
+			return (
+				<DeploymentEvidenceSection
+					activity={baseActivity}
+					evidenceData={{
+						appParams,
+						periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+						downloads: [],
+					}}
+					isDraft={true}
+				/>
+			)
+		}
 		const Stub = createRoutesStub([
 			{ path: "/", Component: Wrapper },
 			{
 				path: "/api/evidence-status",
-				loader: async () => ({
-					status: "ok",
-					items: [
-						{
-							id: "deployment-stats",
-							label: "Leveranser Q1 2026",
-							status: "ok",
-							formats: ["pdf"],
-							canDownload: false,
-							details: {
+				loader: async () =>
+					makeStatusResponse({
+						items: [
+							{
+								id: "deployment-stats",
+								label: "Leveranser Q1 2026",
+								status: "ok",
+								formats: ["pdf"],
+								canDownload: false,
+							},
+						],
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							period: {
+								type: "quarterly",
+								label: "Q1 2026",
+								start: "2026-01-01",
+								end: "2026-04-01",
+							},
+							deployments: {
 								total: 20,
 								approved: 18,
 								pending: 1,
@@ -322,21 +389,11 @@ export const PollFeil: Story = {
 								changeOriginPercent: 85,
 							},
 						},
-					],
-					metadata: {
-						periodType: "quarterly",
-						periodStart: "2026-01-01",
-						periodEnd: "2026-04-01",
-						periodLabel: "Q1 2026",
-					},
-				}),
+					}),
 			},
 			{
 				path: "/api/evidence-download",
-				action: async () => {
-					// First call generates, subsequent poll calls fail (403)
-					return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 })
-				},
+				action: async () => ({ jobId: "job-will-fail", status: "pending" }),
 			},
 		])
 		return <Stub initialEntries={["/"]} />
@@ -361,32 +418,46 @@ export const KonfliktVedGenerering: Story = {
 			{ path: "/", Component: Wrapper },
 			{
 				path: "/api/evidence-status",
-				loader: async () => ({
-					status: "ok",
-					items: [
-						{
-							id: "report-1",
-							label: "Leveranserapport 2025",
-							status: "ok",
-							formats: ["pdf", "excel"],
-							canDownload: true,
-							details: null,
-						},
-					],
-					metadata: {
-						periodType: "yearly",
-						periodStart: "2025-01-01",
-						periodEnd: "2026-01-01",
-						periodLabel: "2025",
-						existingReports: [
+				loader: async () =>
+					makeStatusResponse({
+						items: [
 							{
-								reportId: "report-1",
-								generatedAt: "2026-01-15T10:00:00Z",
-								availableFormats: ["pdf", "excel"],
+								id: "report-1",
+								label: "Leveranserapport 2025",
+								status: "ok",
+								formats: ["pdf", "excel"],
+								canDownload: true,
+								details: undefined,
 							},
 						],
-					},
-				}),
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							period: {
+								type: "yearly",
+								label: "2025",
+								start: "2025-01-01",
+								end: "2026-01-01",
+							},
+							deployments: {
+								total: 120,
+								approved: 118,
+								pending: 0,
+								notApproved: 2,
+								approvedPercent: 98,
+								withChangeOrigin: 115,
+								changeOriginPercent: 96,
+							},
+							existingReports: [
+								{
+									reportId: "report-1",
+									generatedAt: "2026-01-15T10:00:00Z",
+									availableFormats: ["pdf", "excel"],
+								},
+							],
+						},
+					}),
 			},
 			{
 				path: "/api/evidence-download",
