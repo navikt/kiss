@@ -223,6 +223,11 @@ export const auditLogActionEnum = [
 	"screening_session_restored",
 	"screening_session_participant_added",
 	"screening_session_participant_removed",
+
+	// RPA-grupper
+	"rpa_group_added",
+	"rpa_group_removed",
+	"rpa_group_members_synced",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

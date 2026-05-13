@@ -300,3 +300,86 @@ function mapGraphUsersToResults(users: GraphUserInfo[]): UserSearchResult[] {
 	}
 	return results
 }
+
+// ─── Group Member Listing ─────────────────────────────────────────────────────
+
+export interface GroupMember {
+	userObjectId: string
+	displayName: string | null
+	userPrincipalName: string | null
+	accountEnabled: boolean | null
+}
+
+interface GraphMemberResponse {
+	value: Array<{
+		"@odata.type": string
+		id: string
+		displayName?: string
+		userPrincipalName?: string
+		accountEnabled?: boolean
+	}>
+	"@odata.nextLink"?: string
+}
+
+/**
+ * Fetch all direct members of an Entra ID group via Microsoft Graph API.
+ * Only returns user objects (filters out nested groups, service principals, etc.).
+ * Handles pagination automatically.
+ */
+export async function fetchGroupMembers(groupId: string): Promise<GroupMember[]> {
+	if (!process.env.AZURE_OPENID_CONFIG_TOKEN_ENDPOINT) {
+		const nodeEnv = process.env.NODE_ENV
+		if (nodeEnv !== "development" && nodeEnv !== "test") {
+			throw new Error("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT is not configured")
+		}
+		return [
+			{
+				userObjectId: "00000000-0000-0000-0000-000000000001",
+				displayName: "RPA Robot Testbruker 1",
+				userPrincipalName: "rpa-robot-1@nav.no",
+				accountEnabled: true,
+			},
+			{
+				userObjectId: "00000000-0000-0000-0000-000000000002",
+				displayName: "RPA Robot Testbruker 2",
+				userPrincipalName: "rpa-robot-2@nav.no",
+				accountEnabled: false,
+			},
+		]
+	}
+
+	const token = await getClientCredentialToken(GRAPH_SCOPE)
+	const members: GroupMember[] = []
+	let url: string | null =
+		`https://graph.microsoft.com/v1.0/groups/${groupId}/members?$select=id,displayName,userPrincipalName,accountEnabled&$top=100`
+
+	while (url) {
+		const response = await fetch(url, {
+			headers: { Authorization: `Bearer ${token}` },
+		})
+
+		if (!response.ok) {
+			throw new Error(`Graph group members request failed for ${groupId}: ${response.status}`)
+		}
+
+		const data = (await response.json()) as GraphMemberResponse
+		const memberList = data?.value
+		if (!Array.isArray(memberList)) {
+			throw new Error(`Unexpected Graph API response for group ${groupId}: missing value array`)
+		}
+
+		for (const member of memberList) {
+			if (member["@odata.type"] !== "#microsoft.graph.user") continue
+			members.push({
+				userObjectId: member.id,
+				displayName: member.displayName ?? null,
+				userPrincipalName: member.userPrincipalName ?? null,
+				accountEnabled: member.accountEnabled ?? null,
+			})
+		}
+
+		url = data["@odata.nextLink"] ?? null
+	}
+
+	return members
+}
