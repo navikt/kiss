@@ -7,6 +7,7 @@ import {
 	recordManualEvidenceUpload,
 } from "~/db/queries/evidence-downloads.server"
 import type { EvidenceProviderType } from "~/db/schema/routines"
+import { getProviderTypeForActivity } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
 import { getEvidenceProvider, isEvidenceProviderType } from "~/lib/evidence-providers/index.server"
@@ -62,6 +63,14 @@ export async function action({ request }: ActionFunctionArgs) {
 		return handleManualUpload(formData, providerType, authedUser)
 	}
 
+	if (intent === "generate-report") {
+		return handleGenerateReport(formData, providerType, authedUser)
+	}
+
+	if (intent === "poll-job") {
+		return handlePollJob(formData, providerType, authedUser)
+	}
+
 	return data({ error: "Ukjent intent" }, { status: 400 })
 }
 
@@ -74,9 +83,14 @@ async function handleDownloadFromApi(
 	const format = (formData.get("format") as string)?.trim()?.toLowerCase()
 	const activityId = (formData.get("activityId") as string)?.trim()
 	const forceFetchJustification = (formData.get("forceFetchJustification") as string)?.trim() || undefined
+	// For NDA, reportId identifies a specific report to download
+	const reportId = (formData.get("reportId") as string)?.trim() || undefined
 
 	if (!evidenceType || !format || !activityId) {
 		return data({ error: "Mangler påkrevde felt" }, { status: 400 })
+	}
+	if (providerType === "deployments" && !reportId) {
+		return data({ error: "reportId er påkrevd for nedlasting av leveranserapporter" }, { status: 400 })
 	}
 	if (!isValidUuid(activityId)) {
 		return data({ error: "Ugyldig activityId-format" }, { status: 400 })
@@ -122,9 +136,19 @@ async function handleDownloadFromApi(
 		}
 	}
 
+	// Validate reportId belongs to the current period for deployments
+	if (providerType === "deployments" && evidenceStatus) {
+		const existingReports = (evidenceStatus.metadata?.existingReports ?? []) as Array<{ reportId: string }>
+		if (!existingReports.some((r) => r.reportId === reportId)) {
+			return data({ error: "reportId finnes ikke for valgt periode" }, { status: 400 })
+		}
+	}
+
 	let file: { buffer: Buffer; fileName: string; contentType: string }
 	try {
-		file = await provider.downloadFile(providerParams, evidenceType, format)
+		// Deployments use reportId as itemId; other providers use evidenceType
+		const itemId = providerType === "deployments" ? reportId! : evidenceType
+		file = await provider.downloadFile(providerParams, itemId, format)
 	} catch (err) {
 		const message = err instanceof Error ? err.message : ""
 		// Provider validation errors (invalid format, unsupported type) → 400
@@ -142,6 +166,7 @@ async function handleDownloadFromApi(
 		evidenceType,
 		apiInstanceName: evidenceStatus?.sourceLabel ?? null,
 		reviewProgressSnapshot: itemStatus?.details?.review ?? null,
+		...(reportId ? { reportId } : {}),
 	})
 
 	const sourceId = getProviderSourceId(providerType, providerParams)
@@ -243,4 +268,109 @@ async function handleManualUpload(
 			performedAt: record.performedAt.toISOString(),
 		},
 	})
+}
+
+async function handleGenerateReport(
+	formData: FormData,
+	providerType: EvidenceProviderType,
+	user: Parameters<typeof requireAnySectionRole>[0] & { navIdent: string },
+) {
+	const activityId = (formData.get("activityId") as string)?.trim()
+	const reason = (formData.get("reason") as string)?.trim() || undefined
+
+	if (!activityId) {
+		return data({ error: "Mangler påkrevde felt" }, { status: 400 })
+	}
+	if (!isValidUuid(activityId)) {
+		return data({ error: "Ugyldig activityId-format" }, { status: 400 })
+	}
+
+	const ctx = await requireWritableActivity(activityId, user)
+
+	if (getProviderTypeForActivity(ctx.activityType) !== providerType) {
+		return data(
+			{ error: `Aktivitetstypen '${ctx.activityType}' støtter ikke provider '${providerType}'` },
+			{ status: 400 },
+		)
+	}
+
+	const providerParams = extractProviderParams(providerType, formData)
+
+	try {
+		await validateProviderAccess(providerType, providerParams, ctx)
+	} catch (err) {
+		if (err instanceof Response) return err
+		throw err
+	}
+
+	const provider = await getEvidenceProvider(providerType)
+	if (!provider.requestGeneration) {
+		return data({ error: "Denne leverandøren støtter ikke rapportgenerering" }, { status: 400 })
+	}
+
+	try {
+		const result = await provider.requestGeneration(providerParams, reason)
+		return data({ success: true, jobId: result.jobId })
+	} catch (err) {
+		if (err instanceof Error && err.name === "NdaConflictError") {
+			return data(
+				{
+					error: "En rapport eksisterer allerede for denne perioden. Oppgi begrunnelse for å erstatte.",
+					conflict: true,
+				},
+				{ status: 409 },
+			)
+		}
+		const message = err instanceof Error ? err.message : "Ukjent feil"
+		return data({ error: `Kunne ikke starte rapportgenerering: ${message}` }, { status: 502 })
+	}
+}
+
+async function handlePollJob(
+	formData: FormData,
+	providerType: EvidenceProviderType,
+	user: Parameters<typeof requireAnySectionRole>[0],
+) {
+	const activityId = (formData.get("activityId") as string)?.trim()
+	const jobId = (formData.get("jobId") as string)?.trim()
+
+	if (!activityId || !jobId) {
+		return data({ error: "Mangler påkrevde felt" }, { status: 400 })
+	}
+	if (!isValidUuid(activityId)) {
+		return data({ error: "Ugyldig activityId-format" }, { status: 400 })
+	}
+
+	const ctx = await getActivityContext(activityId)
+	if (!ctx) return data({ error: "Aktivitet ikke funnet" }, { status: 404 })
+	requireAnySectionRole(user, ctx.sectionId)
+
+	if (getProviderTypeForActivity(ctx.activityType) !== providerType) {
+		return data(
+			{ error: `Aktivitetstypen '${ctx.activityType}' støtter ikke provider '${providerType}'` },
+			{ status: 400 },
+		)
+	}
+
+	const providerParams = extractProviderParams(providerType, formData)
+
+	try {
+		await validateProviderAccess(providerType, providerParams, ctx)
+	} catch (err) {
+		if (err instanceof Response) return err
+		throw err
+	}
+
+	const provider = await getEvidenceProvider(providerType)
+	if (!provider.getJobStatus) {
+		return data({ error: "Denne leverandøren støtter ikke jobbstatus" }, { status: 400 })
+	}
+
+	try {
+		const result = await provider.getJobStatus(providerParams, jobId)
+		return data({ success: true, ...result })
+	} catch (err) {
+		const message = err instanceof Error ? err.message : "Ukjent feil"
+		return data({ error: `Kunne ikke sjekke jobbstatus: ${message}` }, { status: 502 })
+	}
 }

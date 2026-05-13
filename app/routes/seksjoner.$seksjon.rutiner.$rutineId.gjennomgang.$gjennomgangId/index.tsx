@@ -241,6 +241,47 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	}
 
+	// Load NDA evidence data
+	let ndaEvidenceData: {
+		appParams: { team: string; environment: string; appName: string } | null
+		periodConfig: { periodType: string; periodStart: string } | null
+		downloads: Array<{
+			id: string
+			format: string
+			fileName: string
+			sizeBytes: number | null
+			source: string
+			forceFetchJustification: string | null
+			performedBy: string
+			performedAt: string
+		}>
+	} | null = null
+
+	if (activity && evidenceProviderType === "deployments") {
+		const { getNdaAppParams } = await import("~/db/queries/deployment-audit.server")
+		const { getEvidenceDownloadsForActivityWithBucketDetails } = await import("~/db/queries/evidence-downloads.server")
+		const [appParams, downloads] = await Promise.all([
+			review.applicationId ? getNdaAppParams(review.applicationId) : Promise.resolve(null),
+			getEvidenceDownloadsForActivityWithBucketDetails(activity.id),
+		])
+		ndaEvidenceData = {
+			appParams,
+			periodConfig: activity.periodConfig ?? null,
+			downloads: downloads
+				.filter((d) => d.providerType === "deployments")
+				.map((d) => ({
+					id: d.id,
+					format: d.format,
+					fileName: d.fileName,
+					sizeBytes: d.sizeBytes,
+					source: d.source,
+					forceFetchJustification: d.forceFetchJustification,
+					performedBy: d.performedBy,
+					performedAt: d.performedAt.toISOString(),
+				})),
+		}
+	}
+
 	return data({
 		section,
 		routine,
@@ -257,6 +298,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			: null,
 		entraGroupsData,
 		oracleEvidenceData,
+		ndaEvidenceData,
 		review: {
 			...review,
 			applicationName,
@@ -1986,7 +2028,8 @@ function CompleteSection({
 }
 
 export default function GjennomgangDetalj() {
-	const { section, routine, review, activity, entraGroupsData, oracleEvidenceData } = useLoaderData<typeof loader>()
+	const { section, routine, review, activity, entraGroupsData, oracleEvidenceData, ndaEvidenceData } =
+		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const confirmedCount = review.participants.filter((p) => p.confirmedAt).length
 	const isDraft = review.status === "draft"
@@ -2245,8 +2288,13 @@ export default function GjennomgangDetalj() {
 					isDraft={isDraft}
 				/>
 			)}
-			{activity && evidenceProviderType === "deployments" && (
-				<EvidenceSection providerType="deployments" activity={activity} isDraft={isDraft} />
+			{activity && evidenceProviderType === "deployments" && ndaEvidenceData && (
+				<EvidenceSection
+					providerType="deployments"
+					activity={activity}
+					evidenceData={ndaEvidenceData}
+					isDraft={isDraft}
+				/>
 			)}
 
 			{/* Vedlegg */}
