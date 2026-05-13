@@ -321,9 +321,26 @@ export async function syncApplicationTechnologyElements(appId: string): Promise<
 			if (slug) addIfActive(slug)
 		}
 
-		for (const elementId of elementIds) {
-			// applicationTechnologyElements har partial unique index på (applicationId, elementId)
-			// WHERE archived_at IS NULL — onConflictDoNothing håndterer kollisjon med aktiv rad.
+		// Hent eksisterende aktive koblinger for denne appen for å unngå unødvendige INSERTs
+		const currentAuto = await tx
+			.select({
+				id: applicationTechnologyElements.id,
+				elementId: applicationTechnologyElements.elementId,
+				rejectedAt: applicationTechnologyElements.rejectedAt,
+			})
+			.from(applicationTechnologyElements)
+			.where(
+				and(
+					eq(applicationTechnologyElements.applicationId, appId),
+					eq(applicationTechnologyElements.source, "auto"),
+					isNull(applicationTechnologyElements.archivedAt),
+				),
+			)
+		const existingElementIds = new Set(currentAuto.map((r) => r.elementId))
+
+		// Kun insert elementer som ikke allerede finnes
+		const toInsert = [...elementIds].filter((id) => !existingElementIds.has(id))
+		for (const elementId of toInsert) {
 			const inserted = await tx
 				.insert(applicationTechnologyElements)
 				.values({
@@ -355,21 +372,6 @@ export async function syncApplicationTechnologyElements(appId: string): Promise<
 		// Remove auto-detected elements that no longer apply (but keep manual, rejected,
 		// og koblinger til arkiverte elementer — arkivering skal ikke fjerne historiske
 		// koblinger; admin må eksplisitt fjerne dem hvis ønsket).
-		const currentAuto = await tx
-			.select({
-				id: applicationTechnologyElements.id,
-				elementId: applicationTechnologyElements.elementId,
-				rejectedAt: applicationTechnologyElements.rejectedAt,
-			})
-			.from(applicationTechnologyElements)
-			.where(
-				and(
-					eq(applicationTechnologyElements.applicationId, appId),
-					eq(applicationTechnologyElements.source, "auto"),
-					isNull(applicationTechnologyElements.archivedAt),
-				),
-			)
-
 		for (const row of currentAuto) {
 			if (!elementIds.has(row.elementId) && !row.rejectedAt && !archivedIds.has(row.elementId)) {
 				const archived = await tx
