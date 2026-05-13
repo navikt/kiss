@@ -88,8 +88,24 @@ export const logger = {
 	info(message: string, details?: Record<string, unknown>) {
 		winstonLogger.info(message, details)
 	},
-	warn(message: string, details?: Record<string, unknown>) {
-		winstonLogger.warn(message, details)
+	warn(message: string, errorOrDetails?: unknown) {
+		if (errorOrDetails instanceof Error) {
+			const meta: Record<string, unknown> = {
+				error: truncate(errorOrDetails.message),
+				stack_trace: errorOrDetails.stack,
+			}
+			const causes = collectCauses(errorOrDetails)
+			if (causes.length > 0) {
+				meta.cause = causes.length === 1 ? causes[0] : causes
+			}
+			winstonLogger.warn(message, meta)
+		} else if (errorOrDetails && typeof errorOrDetails === "object") {
+			winstonLogger.warn(message, errorOrDetails as Record<string, unknown>)
+		} else if (errorOrDetails !== undefined) {
+			winstonLogger.warn(message, { details: String(errorOrDetails) })
+		} else {
+			winstonLogger.warn(message)
+		}
 	},
 	error(message: string, errorOrDetails?: unknown) {
 		if (errorOrDetails instanceof Error) {

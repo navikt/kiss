@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm"
-import { boolean, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
+import { boolean, index, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 
 // ─── RPA Group Configuration ──────────────────────────────────────────────────
 // Globally configured Entra ID groups whose members are RPA (robot) users.
@@ -42,5 +42,25 @@ export const rpaGroupMembers = pgTable(
 	},
 	(t) => [
 		uniqueIndex("rpa_group_members_active_unique_idx").on(t.rpaGroupId, t.userObjectId).where(sql`archived_at IS NULL`),
+	],
+)
+
+// ─── RPA User Group Memberships ───────────────────────────────────────────────
+// All Entra ID group memberships for known RPA users.
+// Synced from Microsoft Graph API (GET /users/{id}/memberOf).
+// Used to cross-reference RPA users against app access groups.
+
+export const rpaUserGroupMemberships = pgTable(
+	"rpa_user_group_memberships",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		userObjectId: text("user_object_id").notNull(),
+		groupId: text("group_id").notNull(),
+		groupDisplayName: text("group_display_name"),
+		syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [
+		uniqueIndex("rpa_user_group_memberships_unique_idx").on(t.userObjectId, t.groupId),
+		index("rpa_user_group_memberships_group_idx").on(t.groupId),
 	],
 )

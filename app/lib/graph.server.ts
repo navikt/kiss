@@ -384,3 +384,72 @@ export async function fetchGroupMembers(groupId: string): Promise<GroupMember[]>
 
 	return members
 }
+
+// ─── User Group Memberships ──────────────────────────────────────────────────
+
+export interface UserGroupMembership {
+	groupId: string
+	displayName: string | null
+}
+
+interface GraphMemberOfResponse {
+	value: Array<{
+		"@odata.type": string
+		id: string
+		displayName?: string
+	}>
+	"@odata.nextLink"?: string
+}
+
+/**
+ * Fetch all Entra ID group memberships for a user via Microsoft Graph API.
+ * Returns only security groups and Microsoft 365 groups (filters out other directory objects).
+ * Handles pagination automatically.
+ */
+export async function fetchUserGroupMemberships(userObjectId: string): Promise<UserGroupMembership[]> {
+	if (!process.env.AZURE_OPENID_CONFIG_TOKEN_ENDPOINT) {
+		const nodeEnv = process.env.NODE_ENV
+		if (nodeEnv !== "development" && nodeEnv !== "test") {
+			throw new Error("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT is not configured")
+		}
+		// Dev mode: return mock group memberships
+		return [
+			{ groupId: "mock-group-1", displayName: "Mock Nais-gruppe 1" },
+			{ groupId: "mock-group-2", displayName: "Mock Nais-gruppe 2" },
+		]
+	}
+
+	const token = await getClientCredentialToken(GRAPH_SCOPE)
+	const groups: UserGroupMembership[] = []
+	let url: string | null =
+		`https://graph.microsoft.com/v1.0/users/${userObjectId}/memberOf?$select=id,displayName&$top=100`
+
+	while (url) {
+		const response = await fetch(url, {
+			headers: { Authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(30_000),
+		})
+
+		if (!response.ok) {
+			throw new Error(`Graph memberOf request failed for user ${userObjectId}: ${response.status}`)
+		}
+
+		const data = (await response.json()) as GraphMemberOfResponse
+		const memberList = data?.value
+		if (!Array.isArray(memberList)) {
+			throw new Error(`Unexpected Graph API response for user ${userObjectId} memberOf: missing value array`)
+		}
+
+		for (const item of memberList) {
+			if (item["@odata.type"] !== "#microsoft.graph.group") continue
+			groups.push({
+				groupId: item.id,
+				displayName: item.displayName ?? null,
+			})
+		}
+
+		url = data["@odata.nextLink"] ?? null
+	}
+
+	return groups
+}
