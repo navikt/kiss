@@ -11,8 +11,8 @@
 import { getClientCredentialToken } from "./azure.server"
 import { logger } from "./logger.server"
 
-const NDA_AUDIT_REPORTS_SCOPE = process.env.NDA_AUDIT_REPORTS_SCOPE
-const NDA_AUDIT_REPORTS_BASE_URL = process.env.NDA_AUDIT_REPORTS_BASE_URL
+const NDA_AUDIT_REPORTS_SCOPE = process.env.NDA_AUDIT_REPORTS_SCOPE ?? process.env.DEPLOYMENT_AUDIT_SCOPE
+const NDA_AUDIT_REPORTS_BASE_URL = process.env.NDA_AUDIT_REPORTS_BASE_URL ?? process.env.DEPLOYMENT_AUDIT_BASE_URL
 
 function isDevMode(): boolean {
 	if (!NDA_AUDIT_REPORTS_BASE_URL) {
