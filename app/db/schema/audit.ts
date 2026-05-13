@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
 
 /**
  * Enumerasjon av alle handlinger som kan skrives til `audit_log`.
@@ -232,14 +232,21 @@ export const auditLogActionEnum = [
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]
 
-export const auditLog = pgTable("audit_log", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	action: text("action", { enum: auditLogActionEnum }).notNull(),
-	entityType: text("entity_type").notNull(),
-	entityId: text("entity_id").notNull(),
-	previousValue: text("previous_value"),
-	newValue: text("new_value"),
-	metadata: text("metadata"),
-	performedBy: text("performed_by").notNull(),
-	performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const auditLog = pgTable(
+	"audit_log",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		action: text("action", { enum: auditLogActionEnum }).notNull(),
+		entityType: text("entity_type").notNull(),
+		entityId: text("entity_id").notNull(),
+		previousValue: text("previous_value"),
+		newValue: text("new_value"),
+		metadata: text("metadata"),
+		performedBy: text("performed_by").notNull(),
+		performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		index("idx_audit_log_action_performed_at").on(table.action, table.performedAt.desc()),
+		index("idx_audit_log_entity_performed_at").on(table.entityType, table.entityId, table.performedAt.desc()),
+	],
+)
