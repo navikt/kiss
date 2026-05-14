@@ -1893,6 +1893,13 @@ export async function upsertAccessPolicyRules(
 	direction: "inbound" | "outbound",
 	rules: Array<{ application: string; namespace?: string; cluster?: string }>,
 	performedBy = "nais-sync",
+	context?: {
+		appName?: string
+		teamSlug?: string
+		sourceCluster?: string
+		sourceClusters?: string[]
+		syncRunId?: string
+	},
 ) {
 	// Dedupliser inputregler — samme app kan dukke opp i flere miljø-snapshots.
 	const seen = new Set<string>()
@@ -1951,6 +1958,11 @@ export async function upsertAccessPolicyRules(
 			logger.info("[access-policy-sync] Rule diff detected", {
 				sync_component: "access_policy_rules",
 				applicationId,
+				applicationName: context?.appName,
+				teamSlug: context?.teamSlug,
+				sourceCluster: context?.sourceCluster,
+				sourceClusters: context?.sourceClusters,
+				syncRunId: context?.syncRunId,
 				direction,
 				existingCount: existing.length,
 				desiredCount: uniqueRules.length,
