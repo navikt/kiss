@@ -5,6 +5,7 @@ import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRpaUsersForSection, type RpaUserForSection } from "~/db/queries/rpa.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { formatDateTimeOslo } from "~/lib/utils"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const { seksjon } = params
@@ -163,9 +164,7 @@ export default function RpaBrukere() {
 							<Detail textColor="subtle">
 								{filtered.length} av {aggregatedUsers.length} brukere
 							</Detail>
-							{latestSync && (
-								<Detail textColor="subtle">Sist synkronisert: {new Date(latestSync).toLocaleString("nb-NO")}</Detail>
-							)}
+							{latestSync && <Detail textColor="subtle">Sist synkronisert: {formatDateTimeOslo(latestSync)}</Detail>}
 						</HStack>
 					</HStack>
 
@@ -257,3 +256,4 @@ export default function RpaBrukere() {
 }
 
 export const ErrorBoundary = RouteErrorBoundary
+export const _testing = { formatDateTimeOslo }

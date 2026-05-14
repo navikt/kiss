@@ -37,3 +37,10 @@ export function requireUuid(value: unknown, label = "ID"): string {
 	if (!isValidUuid(value)) throw new Response(`Ugyldig ${label}-format`, { status: 400 })
 	return value
 }
+
+/** Format date-time in Norwegian locale and Europe/Oslo timezone. */
+export function formatDateTimeOslo(value: string | Date): string {
+	return new Date(value).toLocaleString("nb-NO", {
+		timeZone: "Europe/Oslo",
+	})
+}

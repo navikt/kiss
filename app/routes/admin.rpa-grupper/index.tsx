@@ -16,7 +16,15 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { type ActionFunctionArgs, data, Link, type LoaderFunctionArgs, useFetcher, useLoaderData } from "react-router"
+import {
+	type ActionFunctionArgs,
+	data,
+	Link,
+	type LoaderFunctionArgs,
+	useFetcher,
+	useLoaderData,
+	useRevalidator,
+} from "react-router"
 import { getAuditLogByAction } from "~/db/queries/audit.server"
 import {
 	addRpaGroup,
@@ -27,7 +35,16 @@ import {
 } from "~/db/queries/rpa.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import { logger } from "~/lib/logger.server"
 import { runRpaGroupMemberSync, syncSingleRpaGroup } from "~/lib/rpa-sync.server"
+import {
+	createRpaSyncJob,
+	markRpaSyncJobCompleted,
+	markRpaSyncJobFailed,
+	markRpaSyncJobRunning,
+	markRpaSyncJobSkipped,
+} from "~/lib/rpa-sync-jobs.server"
+import { formatDateTimeOslo } from "~/lib/utils"
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -113,20 +130,37 @@ export async function action({ request }: ActionFunctionArgs) {
 		}
 
 		case "sync-all": {
+			const job = await createRpaSyncJob(authedUser.navIdent)
+			await markRpaSyncJobRunning(job.id, authedUser.navIdent)
+			const handleSyncFailure = async (err: unknown) => {
+				logger.error("[rpa-sync] Manual sync failed", err instanceof Error ? err : new Error(String(err)))
+				const message = err instanceof Error ? err.message : "Ukjent feil"
+				await markRpaSyncJobFailed(job.id, message, authedUser.navIdent)
+			}
 			// Fire-and-forget — return immediately, sync runs in background
-			runRpaGroupMemberSync({ force: true }).then(
-				(result) => {
+			void runRpaGroupMemberSync({ force: true })
+				.then(async (result) => {
 					if (result === null) {
-						console.info("[rpa-sync] Manual sync skipped — advisory lock held by another process")
+						logger.info("[rpa-sync] Manual sync skipped — advisory lock held by another process")
+						await markRpaSyncJobSkipped(
+							job.id,
+							"Synkronisering kjører allerede i en annen prosess.",
+							authedUser.navIdent,
+						)
+						return
 					}
-				},
-				(err) => {
-					console.error("[rpa-sync] Manual sync failed:", err)
-				},
-			)
+					await markRpaSyncJobCompleted(job.id, result, authedUser.navIdent)
+				}, handleSyncFailure)
+				.catch((statusErr) => {
+					logger.error(
+						"[rpa-sync] Failed to persist manual sync job status",
+						statusErr instanceof Error ? statusErr : new Error(String(statusErr)),
+					)
+				})
 			return {
 				started: true,
-				message: "Synkronisering startet. Oppdater siden om litt for å se resultatet.",
+				jobId: job.id,
+				message: "Synkronisering startet. Status oppdateres automatisk.",
 			}
 		}
 
@@ -137,9 +171,109 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function AdminRpaGrupper() {
 	const { groups, auditLog, members } = useLoaderData<typeof loader>()
+	const revalidator = useRevalidator()
 	const addModalRef = useRef<HTMLDialogElement>(null)
-	const syncFetcher = useFetcher<{ started?: boolean; message?: string; error?: string }>()
-	const isSyncing = syncFetcher.state !== "idle"
+	const syncFetcher = useFetcher<{ started?: boolean; jobId?: string; message?: string; error?: string }>()
+	const [syncJob, setSyncJob] = useState<{
+		id: string
+		state: "pending" | "running" | "completed" | "failed" | "skipped"
+		message: string | null
+		error: string | null
+	} | null>(null)
+	const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const pollFailCountRef = useRef(0)
+	const MAX_POLL_FAILURES = 3
+	const syncJobId = syncJob?.id ?? null
+	const syncJobState = syncJob?.state ?? null
+	const isSyncing = syncFetcher.state !== "idle" || syncJob?.state === "pending" || syncJob?.state === "running"
+
+	useEffect(() => {
+		if (!syncFetcher.data?.jobId || !syncFetcher.data.started) return
+		setSyncJob({
+			id: syncFetcher.data.jobId,
+			state: "pending",
+			message: syncFetcher.data.message ?? "Synkronisering startet.",
+			error: null,
+		})
+		pollFailCountRef.current = 0
+	}, [syncFetcher.data])
+
+	useEffect(() => {
+		if (!syncJobId || (syncJobState !== "pending" && syncJobState !== "running")) return
+		let cancelled = false
+
+		const poll = async () => {
+			try {
+				const response = await fetch(`/api/rpa-sync-status/${syncJobId}`)
+				if (!response.ok) {
+					pollFailCountRef.current++
+					if (pollFailCountRef.current >= MAX_POLL_FAILURES) {
+						setSyncJob((previous) =>
+							previous
+								? {
+										...previous,
+										state: "failed",
+										error: "Kunne ikke hente synkroniseringsstatus. Prøv igjen senere.",
+										message: "Statusoppdatering feilet",
+									}
+								: previous,
+						)
+						return
+					}
+				} else {
+					pollFailCountRef.current = 0
+					const result = (await response.json()) as {
+						id: string
+						state: "pending" | "running" | "completed" | "failed" | "skipped"
+						message: string | null
+						error: string | null
+					}
+					setSyncJob((previous) => {
+						if (
+							previous &&
+							previous.id === result.id &&
+							previous.state === result.state &&
+							previous.message === result.message &&
+							previous.error === result.error
+						) {
+							return previous
+						}
+						return result
+					})
+					if (result.state === "completed" || result.state === "failed" || result.state === "skipped") {
+						revalidator.revalidate()
+						return
+					}
+				}
+			} catch {
+				pollFailCountRef.current++
+				if (pollFailCountRef.current >= MAX_POLL_FAILURES) {
+					setSyncJob((previous) =>
+						previous
+							? {
+									...previous,
+									state: "failed",
+									error: "Mistet kontakt med serveren under statusoppdatering.",
+									message: "Statusoppdatering feilet",
+								}
+							: previous,
+					)
+					return
+				}
+			}
+
+			if (!cancelled) {
+				pollTimeoutRef.current = setTimeout(poll, 3000)
+			}
+		}
+
+		poll()
+
+		return () => {
+			cancelled = true
+			if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current)
+		}
+	}, [syncJobId, syncJobState, revalidator])
 
 	return (
 		<VStack gap="space-6">
@@ -178,9 +312,24 @@ export default function AdminRpaGrupper() {
 				</HStack>
 			</HStack>
 
-			{syncFetcher.data && "started" in syncFetcher.data && syncFetcher.data.started && (
+			{syncJob && (syncJob.state === "pending" || syncJob.state === "running") && (
 				<Alert variant="info" size="small">
-					{syncFetcher.data.message}
+					{syncJob.message ?? "Synkronisering pågår… Dette kan ta over 30 sekunder."}
+				</Alert>
+			)}
+			{syncJob && syncJob.state === "completed" && (
+				<Alert variant="success" size="small">
+					{syncJob.message ?? "Synkronisering fullført."}
+				</Alert>
+			)}
+			{syncJob && syncJob.state === "skipped" && (
+				<Alert variant="warning" size="small">
+					{syncJob.message ?? "Synkronisering ble hoppet over."}
+				</Alert>
+			)}
+			{syncJob && syncJob.state === "failed" && (
+				<Alert variant="error" size="small">
+					{syncJob.error ?? "Synkronisering feilet."}
 				</Alert>
 			)}
 			{syncFetcher.data && "error" in syncFetcher.data && (
@@ -439,7 +588,7 @@ function GroupRow({ group, onRemove }: { group: GroupWithStats; onRemove: () => 
 			</Table.DataCell>
 			<Table.DataCell>
 				{group.lastSyncedAt ? (
-					<Detail>{new Date(group.lastSyncedAt).toLocaleString("nb-NO", { timeZone: "Europe/Oslo" })}</Detail>
+					<Detail>{formatDateTimeOslo(group.lastSyncedAt)}</Detail>
 				) : (
 					<Detail textColor="subtle">Ikke synkronisert</Detail>
 				)}
@@ -682,7 +831,7 @@ function AuditLogSection({ auditLog }: { auditLog: AuditEntry[] }) {
 						return (
 							<Table.Row key={entry.id}>
 								<Table.DataCell>
-									<Detail>{new Date(entry.performedAt).toLocaleString("nb-NO", { timeZone: "Europe/Oslo" })}</Detail>
+									<Detail>{formatDateTimeOslo(entry.performedAt)}</Detail>
 								</Table.DataCell>
 								<Table.DataCell>
 									{details ? (
