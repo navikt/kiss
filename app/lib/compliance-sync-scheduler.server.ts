@@ -1,5 +1,4 @@
-import { syncAllApplicationControls } from "../db/queries/application-controls.server"
-import { withAdvisoryLock } from "./lock.server"
+import { runTrackedComplianceSync } from "./compliance-sync-jobs.server"
 import { logger } from "./logger.server"
 
 const SYNC_INTERVAL_MS = 15 * 60 * 1000 // 15 minutes
@@ -10,16 +9,15 @@ let timeoutId: ReturnType<typeof setTimeout> | null = null
 
 async function runSync() {
 	try {
-		const result = await withAdvisoryLock("compliance-sync-scheduler", async () => {
-			const start = Date.now()
-			const { synced, errors } = await syncAllApplicationControls("compliance-sync")
-			const durationMs = Date.now() - start
-			return { synced, errors, durationMs }
+		const tracked = await runTrackedComplianceSync({
+			performedBy: "compliance-sync",
+			scopeType: "scheduler",
+			scopeId: "compliance-sync-scheduler",
 		})
 
-		if (result) {
+		if (tracked.result) {
 			logger.info(
-				`[compliance-sync] Complete: ${result.synced} synced, ${result.errors} errors (${result.durationMs}ms)`,
+				`[compliance-sync] Complete: ${tracked.result.synced} synced, ${tracked.result.errors} errors (${tracked.result.durationMs}ms)`,
 			)
 		} else {
 			logger.info("[compliance-sync] Skipped — another pod holds the lock")

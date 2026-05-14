@@ -303,10 +303,15 @@ export async function syncApplicationControls(appId: string, performedBy = "syst
  * Sync all monitored applications. Uses advisory lock to prevent
  * concurrent runs across pods.
  */
-export async function syncAllApplicationControls(performedBy = "system"): Promise<{
-	synced: number
-	errors: number
-}> {
+export async function syncAllApplicationControls(performedBy?: string): Promise<{ synced: number; errors: number }>
+export async function syncAllApplicationControls(
+	performedBy: string | undefined,
+	options: { returnNullWhenLocked: true },
+): Promise<{ synced: number; errors: number } | null>
+export async function syncAllApplicationControls(
+	performedBy = "system",
+	options?: { returnNullWhenLocked?: boolean },
+): Promise<{ synced: number; errors: number } | null> {
 	const { withAdvisoryLock } = await import("~/lib/lock.server")
 
 	const lockResult = await withAdvisoryLock("sync-all-application-controls", async () => {
@@ -330,7 +335,9 @@ export async function syncAllApplicationControls(performedBy = "system"): Promis
 		return { synced, errors }
 	})
 
-	return lockResult ?? { synced: 0, errors: 0 }
+	if (lockResult) return lockResult
+	if (options?.returnNullWhenLocked) return null
+	return { synced: 0, errors: 0 }
 }
 
 /**

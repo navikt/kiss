@@ -16,7 +16,6 @@
  */
 
 import { logPoolStats } from "~/db/connection.server"
-import { withAdvisoryLock } from "./lock.server"
 import { logger } from "./logger.server"
 
 const CYCLE_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — base cycle
@@ -64,15 +63,15 @@ const jobs: JobConfig[] = [
 		everyCycles: 3,
 		envVar: "ENABLE_COMPLIANCE_SYNC",
 		async run() {
-			const { syncAllApplicationControls } = await import("../db/queries/application-controls.server")
-			const result = await withAdvisoryLock("compliance-sync-scheduler", async () => {
-				const start = Date.now()
-				const { synced, errors } = await syncAllApplicationControls("compliance-sync")
-				return { synced, errors, durationMs: Date.now() - start }
+			const { runTrackedComplianceSync } = await import("./compliance-sync-jobs.server")
+			const tracked = await runTrackedComplianceSync({
+				performedBy: "unified-scheduler",
+				scopeType: "scheduler",
+				scopeId: "unified-scheduler",
 			})
-			if (result) {
+			if (tracked.result) {
 				logger.info(
-					`[unified-scheduler] compliance-sync complete: ${result.synced} synced, ${result.errors} errors (${result.durationMs}ms)`,
+					`[unified-scheduler] compliance-sync complete: ${tracked.result.synced} synced, ${tracked.result.errors} errors (${tracked.result.durationMs}ms)`,
 				)
 			} else {
 				logger.info("[unified-scheduler] compliance-sync skipped — another pod holds the lock")
