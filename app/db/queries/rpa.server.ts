@@ -249,6 +249,7 @@ export async function getRpaMemberByUserObjectId(userObjectId: string) {
 			displayName: rpaGroupMembers.displayName,
 			userPrincipalName: rpaGroupMembers.userPrincipalName,
 			accountEnabled: rpaGroupMembers.accountEnabled,
+			syncedAt: rpaGroupMembers.syncedAt,
 			rpaGroupId: rpaGroups.id,
 			rpaGroupEntraId: rpaGroups.groupId,
 			rpaGroupName: rpaGroups.groupName,
@@ -268,7 +269,7 @@ export async function getRpaMemberByUserObjectId(userObjectId: string) {
 		return null
 	}
 
-	const [member] = rows
+	const member = rows.reduce((latest, row) => (row.syncedAt > latest.syncedAt ? row : latest))
 
 	return {
 		userObjectId: member.userObjectId,
