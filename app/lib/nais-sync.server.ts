@@ -78,7 +78,7 @@ export async function syncNaisAppsForTeam(
 		const appAuthIntegrations = new Map<string, Map<AuthIntegrationType, NaisAuthIntegration>>()
 
 		for (const app of apps) {
-			const { id: appId, isNew } = await upsertMonitoredApp(app.name, SYNC_PERFORMER)
+			const { id: appId, isNew } = await upsertMonitoredApp(app.name, SYNC_PERFORMER, naisTeamId)
 			if (isNew) newApps++
 			appNames.set(appId, app.name)
 			const existingClusters = appSourceClusters.get(appId) ?? new Set<string>()
