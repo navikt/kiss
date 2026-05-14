@@ -1,4 +1,4 @@
-import { PlusIcon } from "@navikt/aksel-icons"
+import { ArrowsCirclepathIcon, PlusIcon } from "@navikt/aksel-icons"
 import {
 	Alert,
 	BodyLong,
@@ -27,7 +27,7 @@ import {
 } from "~/db/queries/rpa.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
-import { syncSingleRpaGroup } from "~/lib/rpa-sync.server"
+import { runRpaGroupMemberSync, syncSingleRpaGroup } from "~/lib/rpa-sync.server"
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -112,6 +112,24 @@ export async function action({ request }: ActionFunctionArgs) {
 			return { success: true, message: "Gruppe fjernet." }
 		}
 
+		case "sync-all": {
+			// Fire-and-forget — return immediately, sync runs in background
+			runRpaGroupMemberSync({ force: true }).then(
+				(result) => {
+					if (result === null) {
+						console.info("[rpa-sync] Manual sync skipped — advisory lock held by another process")
+					}
+				},
+				(err) => {
+					console.error("[rpa-sync] Manual sync failed:", err)
+				},
+			)
+			return {
+				started: true,
+				message: "Synkronisering startet. Oppdater siden om litt for å se resultatet.",
+			}
+		}
+
 		default:
 			return data({ error: "Ukjent handling." }, { status: 400 })
 	}
@@ -120,6 +138,8 @@ export async function action({ request }: ActionFunctionArgs) {
 export default function AdminRpaGrupper() {
 	const { groups, auditLog, members } = useLoaderData<typeof loader>()
 	const addModalRef = useRef<HTMLDialogElement>(null)
+	const syncFetcher = useFetcher<{ started?: boolean; message?: string; error?: string }>()
+	const isSyncing = syncFetcher.state !== "idle"
 
 	return (
 		<VStack gap="space-6">
@@ -134,6 +154,18 @@ export default function AdminRpaGrupper() {
 					</BodyLong>
 				</div>
 				<HStack gap="space-4" align="center">
+					<syncFetcher.Form method="post">
+						<input type="hidden" name="intent" value="sync-all" />
+						<Button
+							variant="tertiary"
+							size="small"
+							icon={<ArrowsCirclepathIcon aria-hidden />}
+							loading={isSyncing}
+							type="submit"
+						>
+							Synkroniser nå
+						</Button>
+					</syncFetcher.Form>
 					<Button
 						variant="tertiary"
 						size="small"
@@ -145,6 +177,17 @@ export default function AdminRpaGrupper() {
 					<Link to="/admin">← Tilbake til admin</Link>
 				</HStack>
 			</HStack>
+
+			{syncFetcher.data && "started" in syncFetcher.data && syncFetcher.data.started && (
+				<Alert variant="info" size="small">
+					{syncFetcher.data.message}
+				</Alert>
+			)}
+			{syncFetcher.data && "error" in syncFetcher.data && (
+				<Alert variant="error" size="small">
+					{String(syncFetcher.data.error)}
+				</Alert>
+			)}
 
 			<GroupTable groups={groups} />
 
@@ -396,7 +439,7 @@ function GroupRow({ group, onRemove }: { group: GroupWithStats; onRemove: () => 
 			</Table.DataCell>
 			<Table.DataCell>
 				{group.lastSyncedAt ? (
-					<Detail>{new Date(group.lastSyncedAt).toLocaleString("nb-NO")}</Detail>
+					<Detail>{new Date(group.lastSyncedAt).toLocaleString("nb-NO", { timeZone: "Europe/Oslo" })}</Detail>
 				) : (
 					<Detail textColor="subtle">Ikke synkronisert</Detail>
 				)}
@@ -641,7 +684,7 @@ function AuditLogSection({ auditLog }: { auditLog: AuditEntry[] }) {
 						return (
 							<Table.Row key={entry.id}>
 								<Table.DataCell>
-									<Detail>{new Date(entry.performedAt).toLocaleString("nb-NO")}</Detail>
+									<Detail>{new Date(entry.performedAt).toLocaleString("nb-NO", { timeZone: "Europe/Oslo" })}</Detail>
 								</Table.DataCell>
 								<Table.DataCell>
 									{details ? (

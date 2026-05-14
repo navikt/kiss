@@ -51,6 +51,9 @@ server.js
 /node_modules
 /.react-router
 
+# Worktree directories
+worktrees/
+
 # Generated screenshots
 screenshots/
 mockups/

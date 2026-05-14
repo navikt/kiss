@@ -73,7 +73,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			return data({
 				intent: "nais-sync",
 				success: false,
-				message: "Synkronisering kjører allerede på en annen pod",
+				message: "Synkronisering pågår allerede.",
 				elapsed,
 			})
 		}

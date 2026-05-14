@@ -17,12 +17,13 @@ const SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 /**
  * Sync RPA group members from Microsoft Graph API.
  * Uses per-group updatedAt to determine which groups need syncing (survives pod restarts).
+ * When `force: true`, bypasses the 24-hour interval and syncs all groups immediately.
  *
  * Architecture: Graph API calls happen OUTSIDE the advisory lock to avoid holding
  * a database connection during slow HTTP requests. The lock is only held for the
  * brief DB-write phase.
  */
-export async function runRpaGroupMemberSync(): Promise<{
+export async function runRpaGroupMemberSync(options: { force?: boolean } = {}): Promise<{
 	groupsSynced: number
 	totalAdded: number
 	totalArchived: number
@@ -35,7 +36,9 @@ export async function runRpaGroupMemberSync(): Promise<{
 	}
 
 	const now = Date.now()
-	const groupsToSync = groups.filter((g) => now - new Date(g.updatedAt).getTime() >= SYNC_INTERVAL_MS)
+	const groupsToSync = options.force
+		? groups
+		: groups.filter((g) => now - new Date(g.updatedAt).getTime() >= SYNC_INTERVAL_MS)
 
 	if (groupsToSync.length === 0) {
 		logger.debug("[rpa-sync] All groups synced recently — skipping")

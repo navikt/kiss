@@ -13,7 +13,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	const token = process.env.NAIS_API_TOKEN || undefined
 	const result = await runFullNaisSync(token)
 	if (!result) {
-		return data({ message: "Synkronisering kjører allerede på en annen pod" }, { status: 409 })
+		return data({ message: "Synkronisering pågår allerede." }, { status: 409 })
 	}
 
 	return data({
