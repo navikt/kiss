@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { writeAuditLog } from "~/db/queries/audit.server"
 import {
 	archiveMissingEnvironmentAccessPolicyRules,
+	createAccessPolicySyncSummaryCollector,
 	getMonitoredAppsForNaisTeam,
 	syncDiscoveredApps,
 	upsertAccessPolicyRulesForEnvironment,
@@ -65,6 +66,7 @@ export async function syncNaisAppsForTeam(
 		let newApps = 0
 		let newEnvs = 0
 		let newPersistence = 0
+		const accessPolicySummary = createAccessPolicySyncSummaryCollector()
 
 		// Accumulate auth integrations across all environments per (appId, type)
 		// so we call upsertAppAuthIntegration once per unique integration.
@@ -132,6 +134,7 @@ export async function syncNaisAppsForTeam(
 					sourceClusters: [app.cluster],
 					syncRunId,
 					syncJobId: jobId,
+					accessPolicySyncSummary: accessPolicySummary,
 				},
 			)
 		}
@@ -158,6 +161,7 @@ export async function syncNaisAppsForTeam(
 					teamSlug,
 					syncRunId,
 					syncJobId: jobId,
+					accessPolicySyncSummary: accessPolicySummary,
 				},
 			)
 		}
@@ -173,6 +177,36 @@ export async function syncNaisAppsForTeam(
 					inboundRules: auth.inboundRules,
 				})
 			}
+		}
+
+		if (
+			accessPolicySummary.addedRules > 0 ||
+			accessPolicySummary.removedRules > 0 ||
+			accessPolicySummary.cutovers > 0
+		) {
+			await writeAuditLog({
+				action: "access_policy_rules_synced",
+				entityType: "nais_sync",
+				entityId: teamSlug,
+				newValue: JSON.stringify({
+					teamSlug,
+					syncRunId,
+					applicationsChanged: accessPolicySummary.applicationIds.size,
+					environmentsChanged: accessPolicySummary.applicationEnvironmentIds.size,
+					directions: [...accessPolicySummary.directions].sort(),
+					addedRules: accessPolicySummary.addedRules,
+					removedRules: accessPolicySummary.removedRules,
+					cutovers: accessPolicySummary.cutovers,
+				}),
+				metadata: {
+					teamSlug,
+					syncRunId,
+					applicationsChanged: accessPolicySummary.applicationIds.size,
+					environmentsChanged: accessPolicySummary.applicationEnvironmentIds.size,
+				},
+				performedBy: SYNC_PERFORMER,
+				syncJobId: jobId,
+			})
 		}
 
 		logger.info(
