@@ -1,8 +1,9 @@
-import { BodyLong, Heading, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyLong, Link as DsLink, Heading, Select, Table, Tag, VStack } from "@navikt/ds-react"
 import { sql } from "drizzle-orm"
 import type { LoaderFunctionArgs } from "react-router"
-import { data, useLoaderData, useSearchParams } from "react-router"
+import { data, Link, useLoaderData, useSearchParams } from "react-router"
 import { db } from "~/db/connection.server"
+import { normalizePeriod, periodToInterval } from "~/lib/audit-log-periods"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 
@@ -38,26 +39,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const totalCount = byHour.reduce((sum, h) => sum + h.count, 0)
 
 	return data({ byAction, byHour, totalCount, period })
-}
-
-const VALID_PERIODS = ["1h", "6h", "24h", "7d"] as const
-type Period = (typeof VALID_PERIODS)[number]
-
-function normalizePeriod(input: string): Period {
-	return VALID_PERIODS.includes(input as Period) ? (input as Period) : "6h"
-}
-
-function periodToInterval(period: Period): string {
-	switch (period) {
-		case "1h":
-			return "1 hour"
-		case "6h":
-			return "6 hours"
-		case "24h":
-			return "24 hours"
-		case "7d":
-			return "7 days"
-	}
 }
 
 async function getVolumeByAction(interval: string): Promise<VolumeByAction[]> {
@@ -197,7 +178,12 @@ export default function AuditLoggVolum() {
 									{byAction.map((row) => (
 										<Table.Row key={`${row.action}-${row.performedBy}`}>
 											<Table.DataCell>
-												<code style={{ fontSize: "var(--ax-font-size-small)" }}>{row.action}</code>
+												<DsLink
+													as={Link}
+													to={`/admin/audit-logg-volum/detaljer?action=${encodeURIComponent(row.action)}&period=${period}`}
+												>
+													<code style={{ fontSize: "var(--ax-font-size-small)" }}>{row.action}</code>
+												</DsLink>
 											</Table.DataCell>
 											<Table.DataCell>{row.performedBy}</Table.DataCell>
 											<Table.DataCell align="right">{row.count.toLocaleString("nb-NO")}</Table.DataCell>
