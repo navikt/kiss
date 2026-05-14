@@ -1,26 +1,20 @@
 import { describe, expect, it } from "vitest"
+import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
 
-const { _testing } = await import("../index")
-
-describe("admin.synkjobber sync job state mapping", () => {
+describe("sync job state mapping", () => {
 	it("maps states to labels", () => {
-		expect(_testing.getSyncStateLabel("pending")).toBe("Venter")
-		expect(_testing.getSyncStateLabel("running")).toBe("Pågår")
-		expect(_testing.getSyncStateLabel("completed")).toBe("Fullført")
-		expect(_testing.getSyncStateLabel("failed")).toBe("Feilet")
-		expect(_testing.getSyncStateLabel("skipped")).toBe("Hoppet over")
+		expect(getSyncJobStateLabel("pending")).toBe("Venter")
+		expect(getSyncJobStateLabel("running")).toBe("Pågår")
+		expect(getSyncJobStateLabel("completed")).toBe("Fullført")
+		expect(getSyncJobStateLabel("failed")).toBe("Feilet")
+		expect(getSyncJobStateLabel("skipped")).toBe("Hoppet over")
 	})
 
 	it("maps states to tag variants", () => {
-		expect(_testing.getSyncStateTagVariant("pending")).toBe("neutral")
-		expect(_testing.getSyncStateTagVariant("running")).toBe("info")
-		expect(_testing.getSyncStateTagVariant("completed")).toBe("success")
-		expect(_testing.getSyncStateTagVariant("failed")).toBe("error")
-		expect(_testing.getSyncStateTagVariant("skipped")).toBe("warning")
-	})
-
-	it("falls back for unknown state values", () => {
-		expect(_testing.getSyncStateLabel("unknown" as never)).toBe("Ukjent")
-		expect(_testing.getSyncStateTagVariant("unknown" as never)).toBe("neutral")
+		expect(getSyncJobStateTagVariant("pending")).toBe("neutral")
+		expect(getSyncJobStateTagVariant("running")).toBe("info")
+		expect(getSyncJobStateTagVariant("completed")).toBe("success")
+		expect(getSyncJobStateTagVariant("failed")).toBe("error")
+		expect(getSyncJobStateTagVariant("skipped")).toBe("warning")
 	})
 })

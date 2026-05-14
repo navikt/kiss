@@ -3,18 +3,10 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { getAuditLogsForSyncJob } from "~/db/queries/audit.server"
 import { getSyncJob } from "~/db/queries/sync-jobs.server"
-import type { SyncJobState } from "~/db/schema/sync-jobs"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
 import { formatDateTimeOslo } from "~/lib/utils"
-
-const STATE_TAGS: Record<SyncJobState, { label: string; variant: "neutral" | "success" | "warning" | "error" }> = {
-	pending: { label: "Venter", variant: "neutral" },
-	running: { label: "Pågår", variant: "warning" },
-	completed: { label: "Fullført", variant: "success" },
-	failed: { label: "Feilet", variant: "error" },
-	skipped: { label: "Hoppet over", variant: "neutral" },
-}
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -24,6 +16,12 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const jobId = params.jobId
 	if (!jobId) {
 		throw new Response("Missing jobId", { status: 400 })
+	}
+
+	// Validate that jobId is a valid UUID to prevent postgres errors
+	const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+	if (!uuidPattern.test(jobId)) {
+		throw new Response("Job not found", { status: 404 })
 	}
 
 	const job = await getSyncJob(jobId)
@@ -38,7 +36,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
 export default function JobDetailPage() {
 	const { job, auditLogs } = useLoaderData<typeof loader>()
-	const stateInfo = STATE_TAGS[job.state]
 
 	return (
 		<div style={{ padding: "var(--ax-space-16)" }}>
@@ -77,7 +74,7 @@ export default function JobDetailPage() {
 							{/* State */}
 							<div>
 								<strong style={{ display: "block", marginBottom: "var(--ax-space-2)" }}>Status</strong>
-								<Tag variant={stateInfo.variant}>{stateInfo.label}</Tag>
+								<Tag variant={getSyncJobStateTagVariant(job.state)}>{getSyncJobStateLabel(job.state)}</Tag>
 							</div>
 
 							{/* Created */}

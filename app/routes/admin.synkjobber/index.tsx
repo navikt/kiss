@@ -6,6 +6,7 @@ import type { SyncJobState } from "~/db/schema/sync-jobs"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { ALL_SYNC_JOB_TYPES } from "~/lib/sync-job-types"
+import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
 import { formatDateTimeOslo } from "~/lib/utils"
 
 const SYNC_JOB_STATES: Array<{ value: SyncJobState; label: string }> = [
@@ -118,8 +119,8 @@ export default function AdminSyncJobsPage() {
 										<Detail>{job.jobType}</Detail>
 									</Table.DataCell>
 									<Table.DataCell>
-										<Tag variant={getSyncStateTagVariant(job.state)} size="xsmall">
-											{getSyncStateLabel(job.state)}
+										<Tag variant={getSyncJobStateTagVariant(job.state)} size="xsmall">
+											{getSyncJobStateLabel(job.state)}
 										</Tag>
 									</Table.DataCell>
 									<Table.DataCell>
@@ -160,20 +161,4 @@ function getSyncStateLabel(state: SyncJobState): string {
 	return "Ukjent"
 }
 
-function getSyncStateTagVariant(state: SyncJobState): "neutral" | "info" | "success" | "error" | "warning" {
-	switch (state) {
-		case "pending":
-			return "neutral"
-		case "running":
-			return "info"
-		case "completed":
-			return "success"
-		case "failed":
-			return "error"
-		case "skipped":
-			return "warning"
-	}
-	return "neutral"
-}
-
-export const _testing = { getSyncStateLabel, getSyncStateTagVariant }
+export const _testing = { getSyncStateLabel }
