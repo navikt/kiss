@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto"
 import { writeAuditLog } from "~/db/queries/audit.server"
 import {
+	archiveMissingEnvironmentAccessPolicyRules,
+	getMonitoredAppsForNaisTeam,
 	syncDiscoveredApps,
-	upsertAccessPolicyRules,
+	upsertAccessPolicyRulesForEnvironment,
 	upsertAppAuthIntegration,
 	upsertAppEnvironment,
 	upsertAppPersistence,
@@ -63,30 +65,22 @@ export async function syncNaisAppsForTeam(
 		let newEnvs = 0
 		let newPersistence = 0
 
-		// Accumulate inbound rules across all environments per app so we call
-		// upsertAccessPolicyRules once per app instead of once per environment.
-		// Previously each environment call did a full replacement, causing
-		// constant archive/re-insert churn for apps deployed in multiple clusters.
-		const appInboundRules = new Map<string, Array<{ application: string; namespace?: string; cluster?: string }>>()
-		const appNames = new Map<string, string>()
-		const appSourceClusters = new Map<string, Set<string>>()
-
 		// Accumulate auth integrations across all environments per (appId, type)
 		// so we call upsertAppAuthIntegration once per unique integration.
 		// Different environments can have different inboundRules/groups/claimsExtra,
 		// causing constant flip-flop updates if called per environment.
 		const appAuthIntegrations = new Map<string, Map<AuthIntegrationType, NaisAuthIntegration>>()
+		const appSeenEnvironmentIds = new Map<string, string[]>()
+		const appNames = new Map<string, string>()
+		const teamKnownAppsBeforeSync = await getMonitoredAppsForNaisTeam(naisTeamId)
 
 		for (const app of apps) {
 			const { id: appId, isNew } = await upsertMonitoredApp(app.name, SYNC_PERFORMER, naisTeamId)
 			if (isNew) newApps++
 			appNames.set(appId, app.name)
-			const existingClusters = appSourceClusters.get(appId) ?? new Set<string>()
-			existingClusters.add(app.cluster)
-			appSourceClusters.set(appId, existingClusters)
 
 			const gitRepository = app.deployInfo?.repository ? `https://github.com/${app.deployInfo.repository}` : null
-			const envIsNew = await upsertAppEnvironment(
+			const envResult = await upsertAppEnvironment(
 				appId,
 				app.cluster,
 				app.namespace,
@@ -94,7 +88,10 @@ export async function syncNaisAppsForTeam(
 				app.image,
 				gitRepository,
 			)
-			if (envIsNew) newEnvs++
+			if (envResult.isNew) newEnvs++
+			const seenEnvIds = appSeenEnvironmentIds.get(appId) ?? []
+			seenEnvIds.push(envResult.id)
+			appSeenEnvironmentIds.set(appId, seenEnvIds)
 
 			for (const res of app.persistence) {
 				const isNewRes = await upsertAppPersistence(appId, res.type, res.name, {
@@ -121,14 +118,45 @@ export async function syncNaisAppsForTeam(
 				}
 			}
 
-			// Collect inbound rules from all environments for this app
-			if (app.accessPolicyInbound) {
-				const existing = appInboundRules.get(appId) ?? []
-				existing.push(...app.accessPolicyInbound)
-				appInboundRules.set(appId, existing)
-			} else if (!appInboundRules.has(appId)) {
-				appInboundRules.set(appId, [])
-			}
+			await upsertAccessPolicyRulesForEnvironment(
+				appId,
+				envResult.id,
+				"inbound",
+				app.accessPolicyInbound ?? [],
+				SYNC_PERFORMER,
+				{
+					appName: app.name,
+					teamSlug,
+					sourceCluster: app.cluster,
+					sourceClusters: [app.cluster],
+					syncRunId,
+				},
+			)
+		}
+
+		const appsToCleanup = new Map<string, string>()
+		for (const { appId, appName } of teamKnownAppsBeforeSync) {
+			appsToCleanup.set(appId, appName)
+		}
+		const teamKnownAppsAfterSync = await getMonitoredAppsForNaisTeam(naisTeamId)
+		for (const { appId, appName } of teamKnownAppsAfterSync) {
+			appsToCleanup.set(appId, appName)
+		}
+
+		for (const [appId, appName] of appsToCleanup) {
+			const seenEnvironmentIds = appSeenEnvironmentIds.get(appId) ?? []
+			await archiveMissingEnvironmentAccessPolicyRules(
+				appId,
+				naisTeamId,
+				seenEnvironmentIds,
+				["inbound"],
+				SYNC_PERFORMER,
+				{
+					appName: appNames.get(appId) ?? appName,
+					teamSlug,
+					syncRunId,
+				},
+			)
 		}
 
 		// Upsert auth integrations once per (app, type) with merged data.
@@ -142,19 +170,6 @@ export async function syncNaisAppsForTeam(
 					inboundRules: auth.inboundRules,
 				})
 			}
-		}
-
-		// Upsert access policy rules once per app with the union of all environments.
-		// upsertAccessPolicyRules handles deduplication internally.
-		for (const [appId, rules] of appInboundRules) {
-			const sourceClusters = [...(appSourceClusters.get(appId) ?? new Set<string>())].sort()
-			await upsertAccessPolicyRules(appId, "inbound", rules, SYNC_PERFORMER, {
-				appName: appNames.get(appId),
-				teamSlug,
-				sourceCluster: sourceClusters.length === 1 ? sourceClusters[0] : "multiple",
-				sourceClusters,
-				syncRunId,
-			})
 		}
 
 		logger.info(
