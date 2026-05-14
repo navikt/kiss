@@ -6,6 +6,7 @@ import {
 	accessPolicyAcknowledgments,
 	applicationAccessPolicyRules,
 	applicationAuthIntegrations,
+	applicationEnvironmentAccessPolicyRules,
 	applicationEnvironments,
 	applicationGroupAssessments,
 	applicationManualGroups,
@@ -114,6 +115,23 @@ export async function getNaisTeamAppCounts(): Promise<Map<string, number>> {
 		if (row.naisTeamId) map.set(row.naisTeamId, Number(row.count))
 	}
 	return map
+}
+
+/** Get monitored application ids currently linked to a Nais team through environments. */
+export async function getMonitoredAppsForNaisTeam(
+	naisTeamId: string,
+): Promise<Array<{ appId: string; appName: string }>> {
+	const rows = await db
+		.select({
+			appId: applicationEnvironments.applicationId,
+			appName: monitoredApplications.name,
+		})
+		.from(applicationEnvironments)
+		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+		.where(eq(applicationEnvironments.naisTeamId, naisTeamId))
+		.groupBy(applicationEnvironments.applicationId, monitoredApplications.name)
+
+	return rows
 }
 
 /** Update a Nais team status. */
@@ -285,6 +303,22 @@ export async function upsertMonitoredApp(
 	if (legacyShared) {
 		return db.transaction(async (tx) => {
 			const [app] = await tx.insert(monitoredApplications).values({ name, createdBy, updatedBy: createdBy }).returning()
+			const activeLegacyRules = await tx
+				.select({
+					id: applicationAccessPolicyRules.id,
+					direction: applicationAccessPolicyRules.direction,
+					ruleApplication: applicationAccessPolicyRules.ruleApplication,
+					ruleNamespace: applicationAccessPolicyRules.ruleNamespace,
+					ruleCluster: applicationAccessPolicyRules.ruleCluster,
+				})
+				.from(applicationAccessPolicyRules)
+				.where(
+					and(
+						eq(applicationAccessPolicyRules.applicationId, legacyShared.id),
+						eq(applicationAccessPolicyRules.direction, "inbound"),
+						isNull(applicationAccessPolicyRules.archivedAt),
+					),
+				)
 			await tx
 				.update(applicationEnvironments)
 				.set({ applicationId: app.id })
@@ -294,6 +328,41 @@ export async function upsertMonitoredApp(
 						eq(applicationEnvironments.naisTeamId, naisTeamId),
 					),
 				)
+			if (activeLegacyRules.length > 0) {
+				await tx
+					.update(applicationAccessPolicyRules)
+					.set({ archivedAt: new Date(), archivedBy: createdBy, updatedAt: new Date() })
+					.where(
+						and(
+							eq(applicationAccessPolicyRules.applicationId, legacyShared.id),
+							eq(applicationAccessPolicyRules.direction, "inbound"),
+							isNull(applicationAccessPolicyRules.archivedAt),
+						),
+					)
+				for (const row of activeLegacyRules) {
+					await writeAuditLog(
+						{
+							action: "access_policy_rule_removed",
+							entityType: "application",
+							entityId: legacyShared.id,
+							previousValue: JSON.stringify({
+								direction: row.direction,
+								ruleApplication: row.ruleApplication,
+								ruleNamespace: row.ruleNamespace,
+								ruleCluster: row.ruleCluster,
+							}),
+							metadata: {
+								suppressedByAppSplit: true,
+								splitFromAppId: legacyShared.id,
+								splitToAppId: app.id,
+								naisTeamId,
+							},
+							performedBy: createdBy,
+						},
+						tx,
+					)
+				}
+			}
 
 			logger.warn("[nais-sync] Split shared monitored application by team identity", {
 				sync_component: "nais_app_identity_split",
@@ -311,7 +380,7 @@ export async function upsertMonitoredApp(
 	return { id: app.id, isNew: true }
 }
 
-/** Upsert an application environment mapping. Returns true if new. */
+/** Upsert an application environment mapping. Returns { id, isNew }. */
 export async function upsertAppEnvironment(
 	applicationId: string,
 	cluster: string,
@@ -319,7 +388,16 @@ export async function upsertAppEnvironment(
 	naisTeamId: string | null,
 	imageName?: string | null,
 	gitRepository?: string | null,
-): Promise<boolean> {
+): Promise<{ id: string; isNew: boolean }> {
+	const registerSectionEnvironmentCluster = async (teamId: string) => {
+		await db.execute(
+			sql`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
+				SELECT section_id, ${cluster}, true, 'nais-sync', 'nais-sync'
+				FROM nais_teams WHERE id = ${teamId} AND section_id IS NOT NULL
+				ON CONFLICT DO NOTHING`,
+		)
+	}
+
 	const [existing] = await db
 		.select()
 		.from(applicationEnvironments)
@@ -330,29 +408,29 @@ export async function upsertAppEnvironment(
 		)
 		.limit(1)
 	if (existing) {
-		const updates: Record<string, string> = {}
+		const updates: Record<string, string | null> = {}
 		if (imageName && imageName !== existing.imageName) updates.imageName = imageName
 		if (gitRepository && gitRepository !== existing.gitRepository) updates.gitRepository = gitRepository
+		if (naisTeamId && naisTeamId !== existing.naisTeamId) updates.naisTeamId = naisTeamId
 		if (Object.keys(updates).length > 0) {
 			await db.update(applicationEnvironments).set(updates).where(eq(applicationEnvironments.id, existing.id))
 		}
-		return false
+		if (naisTeamId) {
+			await registerSectionEnvironmentCluster(naisTeamId)
+		}
+		return { id: existing.id, isNew: false }
 	}
 
-	await db
+	const [inserted] = await db
 		.insert(applicationEnvironments)
 		.values({ applicationId, cluster, namespace, naisTeamId, imageName, gitRepository })
+		.returning({ id: applicationEnvironments.id })
 
 	// Auto-register new cluster in section_environments via subquery (ON CONFLICT DO NOTHING preserves manual toggles)
 	if (naisTeamId) {
-		await db.execute(
-			sql`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
-				SELECT section_id, ${cluster}, true, 'nais-sync', 'nais-sync'
-				FROM nais_teams WHERE id = ${naisTeamId} AND section_id IS NOT NULL
-				ON CONFLICT DO NOTHING`,
-		)
+		await registerSectionEnvironmentCluster(naisTeamId)
 	}
-	return true
+	return { id: inserted.id, isNew: true }
 }
 
 /** Get the last sync timestamp from audit log. */
@@ -2083,10 +2161,500 @@ export async function upsertAccessPolicyRules(
 	})
 }
 
+/**
+ * Sync access policy rules for a single application environment.
+ *
+ * Stores raw, environment-specific rules and writes app-scoped audit events.
+ */
+export async function upsertAccessPolicyRulesForEnvironment(
+	applicationId: string,
+	applicationEnvironmentId: string,
+	direction: "inbound" | "outbound",
+	rules: Array<{ application: string; namespace?: string; cluster?: string }>,
+	performedBy = "nais-sync",
+	context?: {
+		appName?: string
+		teamSlug?: string
+		sourceCluster?: string
+		sourceClusters?: string[]
+		syncRunId?: string
+	},
+) {
+	const seen = new Set<string>()
+	const uniqueRules = rules.filter((rule) => {
+		const key = `${rule.application}|${rule.namespace ?? ""}|${rule.cluster ?? ""}`
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
+
+	await db.transaction(async (tx) => {
+		const [environmentRow] = await tx
+			.select({
+				applicationId: applicationEnvironments.applicationId,
+			})
+			.from(applicationEnvironments)
+			.where(eq(applicationEnvironments.id, applicationEnvironmentId))
+			.limit(1)
+		if (!environmentRow) {
+			throw new Error(`Environment not found: ${applicationEnvironmentId}`)
+		}
+		if (environmentRow.applicationId !== applicationId) {
+			throw new Error(
+				`Mismatched application/environment: app=${applicationId}, env=${applicationEnvironmentId}, envApp=${environmentRow.applicationId}`,
+			)
+		}
+		const effectiveApplicationId = environmentRow.applicationId
+		const parseKey = (key: string) => {
+			const [ruleApplication, ruleNamespaceRaw = "", ruleClusterRaw = ""] = key.split("|")
+			return {
+				ruleApplication,
+				ruleNamespace: ruleNamespaceRaw === "" ? null : ruleNamespaceRaw,
+				ruleCluster: ruleClusterRaw === "" ? null : ruleClusterRaw,
+			}
+		}
+		type LegacyFallbackReason =
+			| "active_environment_rules"
+			| "incomplete_environment_history"
+			| "complete_environment_history"
+			| "no_environment_history"
+		type DirectionUnionState = {
+			activeKeys: Set<string>
+			legacyKeys: Set<string>
+			unionKeys: Set<string>
+			legacyFallbackVisible: boolean
+			legacyFallbackReason: LegacyFallbackReason
+		}
+		const getDirectionUnionState = async (): Promise<DirectionUnionState> => {
+			const activeEnvironmentRows = await tx
+				.select({
+					ruleApplication: applicationEnvironmentAccessPolicyRules.ruleApplication,
+					ruleNamespace: applicationEnvironmentAccessPolicyRules.ruleNamespace,
+					ruleCluster: applicationEnvironmentAccessPolicyRules.ruleCluster,
+				})
+				.from(applicationEnvironmentAccessPolicyRules)
+				.innerJoin(
+					applicationEnvironments,
+					eq(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironments.id),
+				)
+				.where(
+					and(
+						eq(applicationEnvironments.applicationId, effectiveApplicationId),
+						eq(applicationEnvironmentAccessPolicyRules.direction, direction),
+						isNull(applicationEnvironmentAccessPolicyRules.archivedAt),
+					),
+				)
+			const activeKeys = new Set(
+				activeEnvironmentRows.map(
+					(row) => `${row.ruleApplication}|${row.ruleNamespace ?? ""}|${row.ruleCluster ?? ""}`,
+				),
+			)
+			if (activeKeys.size > 0) {
+				return {
+					activeKeys,
+					legacyKeys: new Set(),
+					unionKeys: activeKeys,
+					legacyFallbackVisible: false,
+					legacyFallbackReason: "active_environment_rules",
+				}
+			}
+
+			const allEnvironmentRows = await tx
+				.select({
+					id: applicationEnvironments.id,
+					naisTeamId: applicationEnvironments.naisTeamId,
+				})
+				.from(applicationEnvironments)
+				.where(eq(applicationEnvironments.applicationId, effectiveApplicationId))
+
+			const historyCoverageRows = await tx
+				.select({
+					applicationEnvironmentId: applicationEnvironmentAccessPolicyRules.applicationEnvironmentId,
+					naisTeamId: applicationEnvironments.naisTeamId,
+				})
+				.from(applicationEnvironmentAccessPolicyRules)
+				.innerJoin(
+					applicationEnvironments,
+					eq(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironments.id),
+				)
+				.where(
+					and(
+						eq(applicationEnvironments.applicationId, effectiveApplicationId),
+						eq(applicationEnvironmentAccessPolicyRules.direction, direction),
+					),
+				)
+				.groupBy(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironments.naisTeamId)
+
+			const coveredTeamIds = new Set(historyCoverageRows.map((row) => row.naisTeamId ?? "__null_team__"))
+			const scopedEnvironmentCount = allEnvironmentRows.filter((env) =>
+				coveredTeamIds.has(env.naisTeamId ?? "__null_team__"),
+			).length
+			const isCompleteCoverage = scopedEnvironmentCount > 0 && historyCoverageRows.length === scopedEnvironmentCount
+			const legacyFallbackVisible = historyCoverageRows.length === 0 || !isCompleteCoverage
+			const legacyFallbackReason: LegacyFallbackReason =
+				historyCoverageRows.length === 0
+					? "no_environment_history"
+					: isCompleteCoverage
+						? "complete_environment_history"
+						: "incomplete_environment_history"
+			const legacyKeys = new Set<string>()
+			if (legacyFallbackVisible) {
+				const legacyRows = await tx
+					.select({
+						ruleApplication: applicationAccessPolicyRules.ruleApplication,
+						ruleNamespace: applicationAccessPolicyRules.ruleNamespace,
+						ruleCluster: applicationAccessPolicyRules.ruleCluster,
+					})
+					.from(applicationAccessPolicyRules)
+					.where(
+						and(
+							eq(applicationAccessPolicyRules.applicationId, effectiveApplicationId),
+							eq(applicationAccessPolicyRules.direction, direction),
+							isNull(applicationAccessPolicyRules.archivedAt),
+						),
+					)
+				for (const row of legacyRows) {
+					legacyKeys.add(`${row.ruleApplication}|${row.ruleNamespace ?? ""}|${row.ruleCluster ?? ""}`)
+				}
+			}
+			const unionKeys = new Set<string>(activeKeys)
+			for (const key of legacyKeys) unionKeys.add(key)
+			return {
+				activeKeys,
+				legacyKeys,
+				unionKeys,
+				legacyFallbackVisible,
+				legacyFallbackReason,
+			}
+		}
+		const beforeState = await getDirectionUnionState()
+
+		if (uniqueRules.length === 0) {
+			const [hasHistory] = await tx
+				.select({ id: applicationEnvironmentAccessPolicyRules.id })
+				.from(applicationEnvironmentAccessPolicyRules)
+				.where(
+					and(
+						eq(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironmentId),
+						eq(applicationEnvironmentAccessPolicyRules.direction, direction),
+					),
+				)
+				.limit(1)
+
+			if (!hasHistory) {
+				await tx.insert(applicationEnvironmentAccessPolicyRules).values({
+					applicationEnvironmentId,
+					direction,
+					ruleApplication: "__empty__",
+					ruleNamespace: null,
+					ruleCluster: null,
+					archivedAt: new Date(),
+					archivedBy: performedBy,
+					updatedAt: new Date(),
+				})
+			}
+		}
+
+		const existing = await tx
+			.select()
+			.from(applicationEnvironmentAccessPolicyRules)
+			.where(
+				and(
+					eq(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironmentId),
+					eq(applicationEnvironmentAccessPolicyRules.direction, direction),
+					isNull(applicationEnvironmentAccessPolicyRules.archivedAt),
+				),
+			)
+
+		const keyOf = (r: { ruleApplication: string; ruleNamespace: string | null; ruleCluster: string | null }) =>
+			`${r.ruleApplication}|${r.ruleNamespace ?? ""}|${r.ruleCluster ?? ""}`
+
+		const existingByKey = new Map(existing.map((row) => [keyOf(row), row]))
+		const desiredKeys = new Set<string>()
+
+		const toInsert: Array<{
+			applicationEnvironmentId: string
+			direction: "inbound" | "outbound"
+			ruleApplication: string
+			ruleNamespace: string | null
+			ruleCluster: string | null
+		}> = []
+
+		for (const rule of uniqueRules) {
+			const ruleNamespace = rule.namespace ?? null
+			const ruleCluster = rule.cluster ?? null
+			const key = `${rule.application}|${ruleNamespace ?? ""}|${ruleCluster ?? ""}`
+			desiredKeys.add(key)
+			if (!existingByKey.has(key)) {
+				toInsert.push({
+					applicationEnvironmentId,
+					direction,
+					ruleApplication: rule.application,
+					ruleNamespace,
+					ruleCluster,
+				})
+			}
+		}
+
+		const toArchive = existing.filter((row) => !desiredKeys.has(keyOf(row)))
+
+		if (toArchive.length > 0 || toInsert.length > 0) {
+			logger.info("[access-policy-sync] Rule diff detected", {
+				sync_component: "access_policy_rules",
+				applicationId,
+				applicationEnvironmentId,
+				applicationName: context?.appName,
+				teamSlug: context?.teamSlug,
+				sourceCluster: context?.sourceCluster,
+				sourceClusters: context?.sourceClusters,
+				syncRunId: context?.syncRunId,
+				direction,
+				existingCount: existing.length,
+				desiredCount: uniqueRules.length,
+				toArchiveCount: toArchive.length,
+				toInsertCount: toInsert.length,
+				toArchiveKeys: toArchive.map((r) => keyOf(r)),
+				toInsertKeys: toInsert.map((r) => `${r.ruleApplication}|${r.ruleNamespace ?? ""}|${r.ruleCluster ?? ""}`),
+			})
+		}
+
+		for (const row of toArchive) {
+			await tx
+				.update(applicationEnvironmentAccessPolicyRules)
+				.set({ archivedAt: new Date(), archivedBy: performedBy, updatedAt: new Date() })
+				.where(eq(applicationEnvironmentAccessPolicyRules.id, row.id))
+		}
+
+		if (toInsert.length > 0) {
+			await tx.insert(applicationEnvironmentAccessPolicyRules).values(toInsert).returning()
+		}
+
+		const afterState = await getDirectionUnionState()
+		const addedKeys = [...afterState.unionKeys].filter((key) => !beforeState.unionKeys.has(key))
+		const removedKeys = [...beforeState.unionKeys].filter((key) => !afterState.unionKeys.has(key))
+
+		for (const key of addedKeys) {
+			const payload = parseKey(key)
+			const metadata: Record<string, unknown> = { applicationEnvironmentId }
+			if (
+				!beforeState.legacyFallbackVisible &&
+				afterState.legacyFallbackVisible &&
+				afterState.legacyKeys.has(key) &&
+				!afterState.activeKeys.has(key)
+			) {
+				metadata.legacyFallbackBecameVisible = true
+				metadata.legacyFallbackVisibilityReason = afterState.legacyFallbackReason
+			}
+			await writeAuditLog(
+				{
+					action: "access_policy_rule_added",
+					entityType: "application",
+					entityId: effectiveApplicationId,
+					newValue: JSON.stringify({
+						direction,
+						ruleApplication: payload.ruleApplication,
+						ruleNamespace: payload.ruleNamespace,
+						ruleCluster: payload.ruleCluster,
+					}),
+					metadata,
+					performedBy,
+				},
+				tx,
+			)
+		}
+
+		for (const key of removedKeys) {
+			const removedOnlyByTransitionalFallbackSuppression =
+				beforeState.legacyFallbackVisible &&
+				!afterState.legacyFallbackVisible &&
+				afterState.legacyFallbackReason === "active_environment_rules" &&
+				beforeState.legacyKeys.has(key) &&
+				!beforeState.activeKeys.has(key)
+			if (removedOnlyByTransitionalFallbackSuppression) {
+				continue
+			}
+
+			const payload = parseKey(key)
+			const metadata: Record<string, unknown> = { applicationEnvironmentId }
+			if (beforeState.legacyFallbackVisible && !afterState.legacyFallbackVisible && beforeState.legacyKeys.has(key)) {
+				metadata.legacyFallbackSuppressed = true
+				metadata.legacyFallbackSuppressionReason = afterState.legacyFallbackReason
+			}
+			await writeAuditLog(
+				{
+					action: "access_policy_rule_removed",
+					entityType: "application",
+					entityId: effectiveApplicationId,
+					previousValue: JSON.stringify({
+						direction,
+						ruleApplication: payload.ruleApplication,
+						ruleNamespace: payload.ruleNamespace,
+						ruleCluster: payload.ruleCluster,
+					}),
+					metadata,
+					performedBy,
+				},
+				tx,
+			)
+		}
+	})
+}
+
+/**
+ * Archive rules for environments belonging to (application, team) that were not seen in current sync.
+ */
+export async function archiveMissingEnvironmentAccessPolicyRules(
+	applicationId: string,
+	naisTeamId: string,
+	seenEnvironmentIds: string[],
+	directions: Array<"inbound" | "outbound"> = ["inbound", "outbound"],
+	performedBy = "nais-sync",
+	context?: {
+		appName?: string
+		teamSlug?: string
+		syncRunId?: string
+	},
+) {
+	if (directions.length === 0) return
+
+	const staleEnvironments =
+		seenEnvironmentIds.length > 0
+			? await db
+					.select({
+						id: applicationEnvironments.id,
+						cluster: applicationEnvironments.cluster,
+					})
+					.from(applicationEnvironments)
+					.where(
+						and(
+							eq(applicationEnvironments.applicationId, applicationId),
+							eq(applicationEnvironments.naisTeamId, naisTeamId),
+							notInArray(applicationEnvironments.id, seenEnvironmentIds),
+						),
+					)
+			: await db
+					.select({
+						id: applicationEnvironments.id,
+						cluster: applicationEnvironments.cluster,
+					})
+					.from(applicationEnvironments)
+					.where(
+						and(
+							eq(applicationEnvironments.applicationId, applicationId),
+							eq(applicationEnvironments.naisTeamId, naisTeamId),
+						),
+					)
+
+	for (const env of staleEnvironments) {
+		for (const direction of directions) {
+			await upsertAccessPolicyRulesForEnvironment(applicationId, env.id, direction, [], performedBy, {
+				appName: context?.appName,
+				teamSlug: context?.teamSlug,
+				sourceCluster: env.cluster,
+				sourceClusters: [env.cluster],
+				syncRunId: context?.syncRunId,
+			})
+		}
+	}
+}
+
 /** Get all active (non-archived) access policy rules for an application. */
 export async function getAccessPolicyRules(applicationId: string) {
-	return db
-		.select()
+	const environmentRuleRows = await db
+		.select({
+			id: sql<string>`MIN(${applicationEnvironmentAccessPolicyRules.id}::text)`,
+			direction: applicationEnvironmentAccessPolicyRules.direction,
+			ruleApplication: applicationEnvironmentAccessPolicyRules.ruleApplication,
+			ruleNamespace: applicationEnvironmentAccessPolicyRules.ruleNamespace,
+			ruleCluster: applicationEnvironmentAccessPolicyRules.ruleCluster,
+		})
+		.from(applicationEnvironmentAccessPolicyRules)
+		.innerJoin(
+			applicationEnvironments,
+			eq(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironments.id),
+		)
+		.where(
+			and(
+				eq(applicationEnvironments.applicationId, applicationId),
+				isNull(applicationEnvironmentAccessPolicyRules.archivedAt),
+			),
+		)
+		.groupBy(
+			applicationEnvironmentAccessPolicyRules.direction,
+			applicationEnvironmentAccessPolicyRules.ruleApplication,
+			applicationEnvironmentAccessPolicyRules.ruleNamespace,
+			applicationEnvironmentAccessPolicyRules.ruleCluster,
+		)
+		.orderBy(
+			applicationEnvironmentAccessPolicyRules.direction,
+			applicationEnvironmentAccessPolicyRules.ruleApplication,
+			applicationEnvironmentAccessPolicyRules.ruleNamespace,
+			applicationEnvironmentAccessPolicyRules.ruleCluster,
+		)
+
+	const result = [...environmentRuleRows]
+	const directionsWithActiveEnvironmentRules = new Set(environmentRuleRows.map((row) => row.direction))
+	const allEnvironmentRows = await db
+		.select({
+			id: applicationEnvironments.id,
+			naisTeamId: applicationEnvironments.naisTeamId,
+		})
+		.from(applicationEnvironments)
+		.where(eq(applicationEnvironments.applicationId, applicationId))
+
+	const environmentDirectionsWithHistoryRows = await db
+		.select({
+			direction: applicationEnvironmentAccessPolicyRules.direction,
+			applicationEnvironmentId: applicationEnvironmentAccessPolicyRules.applicationEnvironmentId,
+			naisTeamId: applicationEnvironments.naisTeamId,
+		})
+		.from(applicationEnvironmentAccessPolicyRules)
+		.innerJoin(
+			applicationEnvironments,
+			eq(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironments.id),
+		)
+		.where(eq(applicationEnvironments.applicationId, applicationId))
+		.groupBy(
+			applicationEnvironmentAccessPolicyRules.direction,
+			applicationEnvironmentAccessPolicyRules.applicationEnvironmentId,
+			applicationEnvironments.naisTeamId,
+		)
+
+	const byDirectionHistory = new Map<
+		"inbound" | "outbound",
+		{
+			environmentIds: Set<string>
+			teamIds: Set<string>
+		}
+	>()
+	for (const row of environmentDirectionsWithHistoryRows) {
+		const entry = byDirectionHistory.get(row.direction) ?? {
+			environmentIds: new Set<string>(),
+			teamIds: new Set<string>(),
+		}
+		entry.environmentIds.add(row.applicationEnvironmentId)
+		entry.teamIds.add(row.naisTeamId ?? "__null_team__")
+		byDirectionHistory.set(row.direction, entry)
+	}
+	const directionsWithEnvironmentHistory = new Set(byDirectionHistory.keys())
+	const directionsWithCompleteEnvironmentHistory = new Set<"inbound" | "outbound">()
+	for (const [direction, coverage] of byDirectionHistory) {
+		const scopedEnvironmentCount = allEnvironmentRows.filter((env) =>
+			coverage.teamIds.has(env.naisTeamId ?? "__null_team__"),
+		).length
+		if (coverage.environmentIds.size === scopedEnvironmentCount) {
+			directionsWithCompleteEnvironmentHistory.add(direction)
+		}
+	}
+
+	const legacyRows = await db
+		.select({
+			id: applicationAccessPolicyRules.id,
+			direction: applicationAccessPolicyRules.direction,
+			ruleApplication: applicationAccessPolicyRules.ruleApplication,
+			ruleNamespace: applicationAccessPolicyRules.ruleNamespace,
+			ruleCluster: applicationAccessPolicyRules.ruleCluster,
+		})
 		.from(applicationAccessPolicyRules)
 		.where(
 			and(
@@ -2094,7 +2662,47 @@ export async function getAccessPolicyRules(applicationId: string) {
 				isNull(applicationAccessPolicyRules.archivedAt),
 			),
 		)
-		.orderBy(applicationAccessPolicyRules.direction, applicationAccessPolicyRules.ruleApplication)
+		.orderBy(
+			applicationAccessPolicyRules.direction,
+			applicationAccessPolicyRules.ruleApplication,
+			applicationAccessPolicyRules.ruleNamespace,
+			applicationAccessPolicyRules.ruleCluster,
+		)
+
+	for (const row of legacyRows) {
+		if (directionsWithActiveEnvironmentRules.has(row.direction)) {
+			continue
+		}
+
+		if (
+			directionsWithEnvironmentHistory.has(row.direction) &&
+			directionsWithCompleteEnvironmentHistory.has(row.direction)
+		) {
+			continue
+		}
+
+		result.push(row)
+	}
+
+	result.sort((a, b) => {
+		if (a.direction !== b.direction) return a.direction.localeCompare(b.direction, "nb")
+		if (a.ruleApplication !== b.ruleApplication) return a.ruleApplication.localeCompare(b.ruleApplication, "nb")
+		if ((a.ruleNamespace ?? "") !== (b.ruleNamespace ?? "")) {
+			return (a.ruleNamespace ?? "").localeCompare(b.ruleNamespace ?? "", "nb")
+		}
+		if ((a.ruleCluster ?? "") !== (b.ruleCluster ?? "")) {
+			return (a.ruleCluster ?? "").localeCompare(b.ruleCluster ?? "", "nb")
+		}
+		return a.id.localeCompare(b.id, "nb")
+	})
+
+	const seenKeys = new Set<string>()
+	return result.filter((row) => {
+		const key = `${row.direction}|${row.ruleApplication}|${row.ruleNamespace ?? ""}|${row.ruleCluster ?? ""}`
+		if (seenKeys.has(key)) return false
+		seenKeys.add(key)
+		return true
+	})
 }
 
 export interface AccessPolicyAcknowledgment {

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm"
 import {
 	type AnyPgColumn,
 	boolean,
+	index,
 	integer,
 	pgTable,
 	text,
@@ -44,18 +45,25 @@ export const monitoredApplications = pgTable("monitored_applications", {
 	archivedBy: text("archived_by"),
 })
 
-export const applicationEnvironments = pgTable("application_environments", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	applicationId: uuid("application_id")
-		.notNull()
-		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
-	cluster: text("cluster").notNull(),
-	namespace: text("namespace").notNull(),
-	imageName: text("image_name"),
-	gitRepository: text("git_repository"),
-	naisTeamId: uuid("nais_team_id").references(() => naisTeams.id),
-	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const applicationEnvironments = pgTable(
+	"application_environments",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
+		cluster: text("cluster").notNull(),
+		namespace: text("namespace").notNull(),
+		imageName: text("image_name"),
+		gitRepository: text("git_repository"),
+		naisTeamId: uuid("nais_team_id").references(() => naisTeams.id),
+		discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [
+		index("idx_application_environments_app_team").on(t.applicationId, t.naisTeamId),
+		index("idx_application_environments_team_app").on(t.naisTeamId, t.applicationId),
+	],
+)
 
 export const applicationTeamMappings = pgTable(
 	"application_team_mappings",
@@ -256,6 +264,36 @@ export const applicationAccessPolicyRules = pgTable("application_access_policy_r
 	archivedAt: timestamp("archived_at", { withTimezone: true }),
 	archivedBy: text("archived_by"),
 })
+
+export const applicationEnvironmentAccessPolicyRules = pgTable(
+	"application_environment_access_policy_rules",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationEnvironmentId: uuid("application_environment_id")
+			.notNull()
+			.references(() => applicationEnvironments.id, { onDelete: "restrict" }),
+		direction: text("direction", { enum: accessPolicyDirectionEnum }).notNull(),
+		ruleApplication: text("rule_application").notNull(),
+		ruleNamespace: text("rule_namespace"),
+		ruleCluster: text("rule_cluster"),
+		discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(t) => [
+		uniqueIndex("application_env_access_policy_rules_active_unique_idx")
+			.on(
+				t.applicationEnvironmentId,
+				t.direction,
+				t.ruleApplication,
+				sql`COALESCE(${t.ruleNamespace}, '')`,
+				sql`COALESCE(${t.ruleCluster}, '')`,
+			)
+			.where(sql`archived_at IS NULL`),
+		index("idx_app_env_access_policy_rules_env_direction").on(t.applicationEnvironmentId, t.direction),
+	],
+)
 
 export const accessPolicyAcknowledgments = pgTable("access_policy_acknowledgments", {
 	id: uuid("id").primaryKey().defaultRandom(),

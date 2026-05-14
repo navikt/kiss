@@ -107,6 +107,7 @@ describe("Database migrations", () => {
 				"application_control_history",
 				"application_controls",
 				"application_environments",
+				"application_environment_access_policy_rules",
 				"application_group_assessments",
 				"application_manual_groups",
 				"application_persistence",
