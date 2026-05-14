@@ -74,6 +74,12 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Synkronisering og vedlikeholdsoperasjoner for systemet.</BodyLong>
 				</Link>
+				<Link to="/admin/synkjobber" className="admin-card">
+					<Heading size="small" level="3">
+						Synkjobber
+					</Heading>
+					<BodyLong size="small">Se og filtrer alle synkroniseringsjobber fra NAIS og RPA.</BodyLong>
+				</Link>
 				<Link to="/admin/okonomisystemer" className="admin-card">
 					<Heading size="small" level="3">
 						Økonomisystemer

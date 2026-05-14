@@ -190,3 +190,52 @@ export async function listRecentSyncJobs(limit = 10): Promise<SyncJob[]> {
 
 	return rows.map(toModel)
 }
+
+export interface SyncJobSummary {
+	id: string
+	jobType: string
+	state: SyncJobState
+	createdAt: string
+	message: string | null
+	error: string | null
+}
+
+export async function listSyncJobSummaries(filters?: {
+	state?: SyncJobState
+	jobType?: string
+	limit?: number
+}): Promise<SyncJobSummary[]> {
+	const conditions = []
+	if (filters?.state) {
+		conditions.push(eq(syncJobs.state, filters.state))
+	}
+	if (filters?.jobType) {
+		conditions.push(eq(syncJobs.jobType, filters.jobType))
+	}
+
+	const query = db
+		.select({
+			id: syncJobs.id,
+			jobType: syncJobs.jobType,
+			state: syncJobs.state,
+			createdAt: syncJobs.createdAt,
+			message: syncJobs.message,
+			error: syncJobs.error,
+		})
+		.from(syncJobs)
+
+	if (conditions.length > 0) {
+		query.where(and(...conditions))
+	}
+
+	const rows = await query.orderBy(desc(syncJobs.createdAt)).limit(filters?.limit ?? 100)
+
+	return rows.map((row) => ({
+		id: row.id,
+		jobType: row.jobType,
+		state: row.state,
+		createdAt: row.createdAt.toISOString(),
+		message: row.message,
+		error: row.error,
+	}))
+}

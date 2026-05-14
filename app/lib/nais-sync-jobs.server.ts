@@ -7,8 +7,7 @@ import {
 } from "~/db/queries/sync-jobs.server"
 import type { SyncResult } from "~/lib/nais-sync.server"
 import { runFullNaisSync } from "~/lib/nais-sync.server"
-
-export const NAIS_SYNC_JOB_TYPE = "nais_full_sync"
+import { SYNC_JOB_TYPES } from "~/lib/sync-job-types"
 
 export interface NaisSyncJobResult {
 	jobId: string
@@ -36,7 +35,7 @@ export async function runTrackedNaisSync({
 	scopeId?: string
 }): Promise<NaisSyncJobResult> {
 	const job = await createSyncJob({
-		jobType: NAIS_SYNC_JOB_TYPE,
+		jobType: SYNC_JOB_TYPES.NAIS_FULL_SYNC,
 		performedBy,
 		scopeType,
 		scopeId,

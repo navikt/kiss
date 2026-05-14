@@ -7,8 +7,7 @@ import {
 	markSyncJobSkipped,
 	type SyncJob,
 } from "~/db/queries/sync-jobs.server"
-
-const RPA_SYNC_JOB_TYPE = "rpa_group_member_sync"
+import { SYNC_JOB_TYPES } from "~/lib/sync-job-types"
 
 export interface RpaSyncJobResult {
 	groupsSynced: number
@@ -41,7 +40,7 @@ function toRpaSyncJob(job: SyncJob): RpaSyncJob {
 
 export async function createRpaSyncJob(performedBy: string): Promise<RpaSyncJob> {
 	const job = await createSyncJob({
-		jobType: RPA_SYNC_JOB_TYPE,
+		jobType: SYNC_JOB_TYPES.RPA_GROUP_MEMBER_SYNC,
 		performedBy,
 		message: "Venter på start",
 	})
@@ -74,6 +73,6 @@ export async function markRpaSyncJobFailed(jobId: string, error: string, perform
 }
 
 export async function getRpaSyncJob(jobId: string): Promise<RpaSyncJob | null> {
-	const job = await getSyncJob(jobId, RPA_SYNC_JOB_TYPE)
+	const job = await getSyncJob(jobId, SYNC_JOB_TYPES.RPA_GROUP_MEMBER_SYNC)
 	return job ? toRpaSyncJob(job) : null
 }
