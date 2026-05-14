@@ -2,6 +2,43 @@ import { getClientCredentialToken } from "./azure.server"
 import { logger } from "./logger.server"
 
 const GRAPH_SCOPE = "https://graph.microsoft.com/.default"
+const MAX_GRAPH_429_RETRIES = 3
+const DEFAULT_429_BACKOFF_MS = 1000
+
+function parseRetryAfterMs(retryAfter: string | null): number | null {
+	if (!retryAfter) return null
+	const seconds = Number(retryAfter)
+	if (Number.isFinite(seconds) && seconds >= 0) {
+		return Math.round(seconds * 1000)
+	}
+
+	const dateMs = Date.parse(retryAfter)
+	if (Number.isNaN(dateMs)) return null
+	return Math.max(0, dateMs - Date.now())
+}
+
+async function waitMs(ms: number): Promise<void> {
+	if (ms <= 0) return
+	await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function fetchWith429Retry(url: string, initFactory: () => RequestInit, context: string): Promise<Response> {
+	let attempt = 0
+	for (;;) {
+		const init = initFactory()
+		const response = await fetch(url, init)
+		if (response.status !== 429 || attempt >= MAX_GRAPH_429_RETRIES) {
+			return response
+		}
+
+		const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"))
+		const backoffMs = retryAfterMs ?? DEFAULT_429_BACKOFF_MS * 2 ** attempt
+		logger.warn(`[graph] 429 for ${context}, retrying in ${backoffMs}ms (attempt ${attempt + 1})`)
+		await response.body?.cancel()
+		await waitMs(backoffMs)
+		attempt++
+	}
+}
 
 interface GraphGroupInfo {
 	id: string
@@ -354,10 +391,14 @@ export async function fetchGroupMembers(groupId: string): Promise<GroupMember[]>
 		`https://graph.microsoft.com/v1.0/groups/${groupId}/members?$select=id,displayName,userPrincipalName,accountEnabled&$top=100`
 
 	while (url) {
-		const response = await fetch(url, {
-			headers: { Authorization: `Bearer ${token}` },
-			signal: AbortSignal.timeout(30_000),
-		})
+		const response = await fetchWith429Retry(
+			url,
+			() => ({
+				headers: { Authorization: `Bearer ${token}` },
+				signal: AbortSignal.timeout(30_000),
+			}),
+			`group members ${groupId}`,
+		)
 
 		if (!response.ok) {
 			throw new Error(`Graph group members request failed for ${groupId}: ${response.status}`)
@@ -425,10 +466,14 @@ export async function fetchUserGroupMemberships(userObjectId: string): Promise<U
 		`https://graph.microsoft.com/v1.0/users/${userObjectId}/memberOf?$select=id,displayName&$top=100`
 
 	while (url) {
-		const response = await fetch(url, {
-			headers: { Authorization: `Bearer ${token}` },
-			signal: AbortSignal.timeout(30_000),
-		})
+		const response = await fetchWith429Retry(
+			url,
+			() => ({
+				headers: { Authorization: `Bearer ${token}` },
+				signal: AbortSignal.timeout(30_000),
+			}),
+			`user memberOf ${userObjectId}`,
+		)
 
 		if (!response.ok) {
 			throw new Error(`Graph memberOf request failed for user ${userObjectId}: ${response.status}`)
@@ -452,4 +497,8 @@ export async function fetchUserGroupMemberships(userObjectId: string): Promise<U
 	}
 
 	return groups
+}
+
+export const _testing = {
+	parseRetryAfterMs,
 }
