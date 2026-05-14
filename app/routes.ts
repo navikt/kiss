@@ -129,6 +129,7 @@ export default [
 	route("admin/vedlikehold", "routes/admin.vedlikehold/index.tsx"),
 	route("admin/okonomisystemer", "routes/admin.okonomisystemer/index.tsx"),
 	route("admin/rpa-grupper", "routes/admin.rpa-grupper/index.tsx"),
+	route("admin/rpa-grupper/:userObjectId", "routes/admin.rpa-grupper.$userObjectId/index.tsx"),
 	route("admin/audit-logg-volum", "routes/admin.audit-logg-volum/index.tsx"),
 	route("admin/audit-logg-volum/detaljer", "routes/admin.audit-logg-volum.detaljer/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),
