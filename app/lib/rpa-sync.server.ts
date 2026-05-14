@@ -13,6 +13,36 @@ import { withAdvisoryLock } from "./lock.server"
 import { logger } from "./logger.server"
 
 const SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const USER_MEMBERSHIP_CONCURRENCY = 5
+
+async function mapWithConcurrency<T, R>(
+	items: T[],
+	limit: number,
+	worker: (item: T) => Promise<R>,
+): Promise<Array<{ item: T; value?: R; error?: unknown }>> {
+	if (items.length === 0) return []
+	const safeLimit = Math.max(1, limit)
+	const results: Array<{ item: T; value?: R; error?: unknown }> = []
+	let index = 0
+
+	const run = async () => {
+		for (;;) {
+			const current = index
+			index++
+			if (current >= items.length) return
+			const item = items[current]
+			try {
+				const value = await worker(item)
+				results.push({ item, value })
+			} catch (error) {
+				results.push({ item, error })
+			}
+		}
+	}
+
+	await Promise.all(Array.from({ length: Math.min(safeLimit, items.length) }, () => run()))
+	return results
+}
 
 /**
  * Sync RPA group members from Microsoft Graph API.
@@ -82,17 +112,22 @@ export async function runRpaGroupMemberSync(options: { force?: boolean } = {}): 
 
 	const userGroupMemberships = new Map<string, Awaited<ReturnType<typeof fetchUserGroupMemberships>>>()
 	const failedUserIds = new Set<string>()
-	for (const [userObjectId, displayName] of allUniqueUsers) {
-		try {
-			const groups = await fetchUserGroupMemberships(userObjectId)
-			userGroupMemberships.set(userObjectId, groups)
-		} catch (err) {
+	const userFetchResults = await mapWithConcurrency(
+		[...allUniqueUsers.entries()],
+		USER_MEMBERSHIP_CONCURRENCY,
+		async ([userObjectId]) => fetchUserGroupMemberships(userObjectId),
+	)
+	for (const result of userFetchResults) {
+		const [userObjectId, displayName] = result.item
+		if (result.error) {
 			failedUserIds.add(userObjectId)
 			logger.warn(
 				`[rpa-sync] Failed to fetch group memberships for user "${displayName}" (${userObjectId})`,
-				err instanceof Error ? err : new Error(String(err)),
+				result.error instanceof Error ? result.error : new Error(String(result.error)),
 			)
+			continue
 		}
+		userGroupMemberships.set(userObjectId, result.value ?? [])
 	}
 
 	logger.info(`[rpa-sync] Fetched group memberships for ${userGroupMemberships.size}/${allUniqueUsers.size} RPA users`)
@@ -208,18 +243,22 @@ export async function syncSingleRpaGroup(rpaGroupId: string, entraGroupId: strin
 
 	// Fetch group memberships for all unique users
 	const userGroupMemberships = new Map<string, Awaited<ReturnType<typeof fetchUserGroupMemberships>>>()
-	for (const member of members) {
-		if (!userGroupMemberships.has(member.userObjectId)) {
-			try {
-				const groups = await fetchUserGroupMemberships(member.userObjectId)
-				userGroupMemberships.set(member.userObjectId, groups)
-			} catch (err) {
-				logger.warn(
-					`[rpa-sync] Failed to fetch group memberships for user "${member.displayName ?? member.userObjectId}"`,
-					err instanceof Error ? err : new Error(String(err)),
-				)
-			}
+	const failedUserIds = new Set<string>()
+	const uniqueMembers = [...new Map(members.map((m) => [m.userObjectId, m])).values()]
+	const userFetchResults = await mapWithConcurrency(uniqueMembers, USER_MEMBERSHIP_CONCURRENCY, async (member) =>
+		fetchUserGroupMemberships(member.userObjectId),
+	)
+	for (const result of userFetchResults) {
+		const member = result.item
+		if (result.error) {
+			failedUserIds.add(member.userObjectId)
+			logger.warn(
+				`[rpa-sync] Failed to fetch group memberships for user "${member.displayName ?? member.userObjectId}"`,
+				result.error instanceof Error ? result.error : new Error(String(result.error)),
+			)
+			continue
 		}
+		userGroupMemberships.set(member.userObjectId, result.value ?? [])
 	}
 
 	// Write to DB under lock — no staleness check needed for user-triggered sync
@@ -232,6 +271,7 @@ export async function syncSingleRpaGroup(rpaGroupId: string, entraGroupId: strin
 			try {
 				await syncRpaUserGroupMemberships(userObjectId, groups)
 			} catch (err) {
+				failedUserIds.add(userObjectId)
 				logger.warn(
 					`[rpa-sync] Failed to sync group memberships for user ${userObjectId}`,
 					err instanceof Error ? err : new Error(String(err)),
@@ -239,8 +279,14 @@ export async function syncSingleRpaGroup(rpaGroupId: string, entraGroupId: strin
 			}
 		}
 
-		// Mark as synced only after all writes are complete
-		await markRpaGroupSynced(rpaGroupId)
+		// Mark as synced only after all writes are complete and membership lookups succeeded
+		if (failedUserIds.size === 0) {
+			await markRpaGroupSynced(rpaGroupId)
+		} else {
+			logger.warn(
+				`[rpa-sync] Single group "${groupName ?? entraGroupId}" has ${failedUserIds.size} failed membership lookups — will retry next scheduled sync`,
+			)
+		}
 
 		logger.info(
 			`[rpa-sync] Single group "${groupName ?? entraGroupId}": +${result.added} added, ${result.updated} updated, ${userGroupMemberships.size} user memberships synced`,
@@ -248,4 +294,8 @@ export async function syncSingleRpaGroup(rpaGroupId: string, entraGroupId: strin
 
 		return result
 	})
+}
+
+export const _testing = {
+	mapWithConcurrency,
 }
