@@ -242,6 +242,59 @@ export async function getAllActiveRpaMembers() {
 		.orderBy(rpaGroupMembers.displayName, rpaGroupMembers.userPrincipalName, rpaGroups.groupName)
 }
 
+export async function getRpaMemberByUserObjectId(userObjectId: string) {
+	const rows = await db
+		.select({
+			userObjectId: rpaGroupMembers.userObjectId,
+			displayName: rpaGroupMembers.displayName,
+			userPrincipalName: rpaGroupMembers.userPrincipalName,
+			accountEnabled: rpaGroupMembers.accountEnabled,
+			rpaGroupId: rpaGroups.id,
+			rpaGroupEntraId: rpaGroups.groupId,
+			rpaGroupName: rpaGroups.groupName,
+		})
+		.from(rpaGroupMembers)
+		.innerJoin(rpaGroups, eq(rpaGroupMembers.rpaGroupId, rpaGroups.id))
+		.where(
+			and(
+				eq(rpaGroupMembers.userObjectId, userObjectId),
+				isNull(rpaGroupMembers.archivedAt),
+				isNull(rpaGroups.archivedAt),
+			),
+		)
+		.orderBy(rpaGroups.groupName, rpaGroups.groupId)
+
+	if (rows.length === 0) {
+		return null
+	}
+
+	const [member] = rows
+
+	return {
+		userObjectId: member.userObjectId,
+		displayName: member.displayName,
+		userPrincipalName: member.userPrincipalName,
+		accountEnabled: member.accountEnabled,
+		rpaGroups: rows.map((row) => ({
+			id: row.rpaGroupId,
+			groupName: row.rpaGroupName ?? row.rpaGroupEntraId,
+		})),
+	}
+}
+
+export async function getRpaUserGroupMemberships(userObjectId: string) {
+	return db
+		.select({
+			id: rpaUserGroupMemberships.id,
+			groupId: rpaUserGroupMemberships.groupId,
+			groupDisplayName: rpaUserGroupMemberships.groupDisplayName,
+			syncedAt: rpaUserGroupMemberships.syncedAt,
+		})
+		.from(rpaUserGroupMemberships)
+		.where(eq(rpaUserGroupMemberships.userObjectId, userObjectId))
+		.orderBy(rpaUserGroupMemberships.groupDisplayName, rpaUserGroupMemberships.groupId)
+}
+
 /** Mark an RPA group as recently synced by updating its updatedAt timestamp. */
 export async function markRpaGroupSynced(rpaGroupId: string) {
 	await db

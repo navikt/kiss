@@ -1807,3 +1807,28 @@ export function mockAdminRpaGrupperData(overrides?: Record<string, unknown>) {
 		...overrides,
 	}
 }
+
+export function mockAdminRpaRobotDetailData(overrides?: Record<string, unknown>) {
+	return {
+		member: {
+			displayName: "RPA Pensjon Bot",
+			userPrincipalName: "rpa-pensjon@nav.no",
+			accountEnabled: true,
+			userObjectId: "user-obj-1",
+			rpaGroups: [{ id: "rpa-g-1", groupName: "Pensjon-RPA-Gruppe" }],
+		},
+		memberships: [
+			{ id: "m-1", groupId: "group-id-1", groupDisplayName: "0000-GA-Robotbrukere", syncedAt: "2026-05-13T22:25:18.000Z" },
+			{ id: "m-2", groupId: "group-id-2", groupDisplayName: "0000-GA-Pensjon-Lese", syncedAt: "2026-05-13T22:25:18.000Z" },
+			{ id: "m-3", groupId: "group-id-3", groupDisplayName: "0000-GA-Pensjon-Skrive", syncedAt: "2026-05-13T22:25:18.000Z" },
+			{ id: "m-4", groupId: "group-id-4", groupDisplayName: "0010-GA-Felles-Drift", syncedAt: "2026-05-13T22:25:18.000Z" },
+			{ id: "m-5", groupId: "group-id-5", groupDisplayName: "0100-GA-Saksbehandling", syncedAt: "2026-05-13T22:25:18.000Z" },
+			{ id: "m-6", groupId: "group-id-6", groupDisplayName: "0200-GA-Integrasjoner", syncedAt: "2026-05-13T22:25:18.000Z" },
+			{ id: "m-7", groupId: "group-id-7", groupDisplayName: "0300-GA-Overvåking", syncedAt: "2026-05-13T22:25:18.000Z" },
+			{ id: "m-8", groupId: "group-id-8", groupDisplayName: "0400-GA-Loggtilgang", syncedAt: "2026-05-13T22:25:18.000Z" },
+			{ id: "m-9", groupId: "group-id-9", groupDisplayName: "0500-GA-Pensjon-Prod", syncedAt: "2026-05-13T22:25:18.000Z" },
+			{ id: "m-10", groupId: "group-id-10", groupDisplayName: "9999-GA-Test-Roboter", syncedAt: "2026-05-13T22:25:18.000Z" },
+		],
+		...overrides,
+	}
+}
