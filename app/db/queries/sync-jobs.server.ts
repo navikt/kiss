@@ -9,6 +9,9 @@ export interface SyncJob {
 	scopeId: string | null
 	state: SyncJobState
 	createdAt: string
+	createdBy: string
+	updatedAt: string
+	updatedBy: string
 	startedAt: string | null
 	finishedAt: string | null
 	message: string | null
@@ -23,6 +26,9 @@ function toModel(row: {
 	scopeId: string | null
 	state: SyncJobState
 	createdAt: Date
+	createdBy: string
+	updatedAt: Date
+	updatedBy: string
 	startedAt: Date | null
 	finishedAt: Date | null
 	message: string | null
@@ -36,6 +42,9 @@ function toModel(row: {
 		scopeId: row.scopeId,
 		state: row.state,
 		createdAt: row.createdAt.toISOString(),
+		createdBy: row.createdBy,
+		updatedAt: row.updatedAt.toISOString(),
+		updatedBy: row.updatedBy,
 		startedAt: row.startedAt ? row.startedAt.toISOString() : null,
 		finishedAt: row.finishedAt ? row.finishedAt.toISOString() : null,
 		message: row.message,
@@ -71,6 +80,9 @@ export async function createSyncJob(params: {
 			scopeId: syncJobs.scopeId,
 			state: syncJobs.state,
 			createdAt: syncJobs.createdAt,
+			createdBy: syncJobs.createdBy,
+			updatedAt: syncJobs.updatedAt,
+			updatedBy: syncJobs.updatedBy,
 			startedAt: syncJobs.startedAt,
 			finishedAt: syncJobs.finishedAt,
 			message: syncJobs.message,
@@ -156,6 +168,9 @@ export async function getSyncJob(jobId: string, jobType?: string): Promise<SyncJ
 			scopeId: syncJobs.scopeId,
 			state: syncJobs.state,
 			createdAt: syncJobs.createdAt,
+			createdBy: syncJobs.createdBy,
+			updatedAt: syncJobs.updatedAt,
+			updatedBy: syncJobs.updatedBy,
 			startedAt: syncJobs.startedAt,
 			finishedAt: syncJobs.finishedAt,
 			message: syncJobs.message,
@@ -178,6 +193,9 @@ export async function listRecentSyncJobs(limit = 10): Promise<SyncJob[]> {
 			scopeId: syncJobs.scopeId,
 			state: syncJobs.state,
 			createdAt: syncJobs.createdAt,
+			createdBy: syncJobs.createdBy,
+			updatedAt: syncJobs.updatedAt,
+			updatedBy: syncJobs.updatedBy,
 			startedAt: syncJobs.startedAt,
 			finishedAt: syncJobs.finishedAt,
 			message: syncJobs.message,
