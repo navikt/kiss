@@ -7,6 +7,7 @@ const mockMarkSyncJobRunning = vi.fn()
 const mockMarkSyncJobCompleted = vi.fn()
 const mockMarkSyncJobSkipped = vi.fn()
 const mockMarkSyncJobFailed = vi.fn()
+const mockRunRpaGroupMemberSync = vi.fn()
 
 vi.mock("~/db/queries/sync-jobs.server", () => ({
 	createSyncJob: mockCreateSyncJob,
@@ -17,6 +18,10 @@ vi.mock("~/db/queries/sync-jobs.server", () => ({
 	markSyncJobFailed: mockMarkSyncJobFailed,
 }))
 
+vi.mock("~/lib/rpa-sync.server", () => ({
+	runRpaGroupMemberSync: mockRunRpaGroupMemberSync,
+}))
+
 const {
 	createRpaSyncJob,
 	getRpaSyncJob,
@@ -24,11 +29,25 @@ const {
 	markRpaSyncJobFailed,
 	markRpaSyncJobRunning,
 	markRpaSyncJobSkipped,
+	runTrackedRpaGroupMemberSync,
 } = await import("~/lib/rpa-sync-jobs.server")
 
 describe("rpa sync jobs wrapper", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
+		mockCreateSyncJob.mockResolvedValue({
+			id: "job-1",
+			jobType: SYNC_JOB_TYPES.RPA_GROUP_MEMBER_SYNC,
+			scopeType: null,
+			scopeId: null,
+			state: "pending",
+			createdAt: new Date().toISOString(),
+			startedAt: null,
+			finishedAt: null,
+			message: "Venter på start",
+			result: null,
+			error: null,
+		})
 	})
 
 	it("creates job with fixed RPA job type", async () => {
@@ -91,5 +110,45 @@ describe("rpa sync jobs wrapper", () => {
 		)
 		expect(mockMarkSyncJobSkipped).toHaveBeenCalledWith("job-1", "Skippet", "Z123456")
 		expect(mockMarkSyncJobFailed).toHaveBeenCalledWith("job-1", "Boom", "Z123456", "Synkronisering feilet")
+	})
+
+	it("runs tracked sync and marks completed", async () => {
+		mockRunRpaGroupMemberSync.mockResolvedValue({ groupsSynced: 2, totalAdded: 3, totalArchived: 1 })
+
+		const result = await runTrackedRpaGroupMemberSync({
+			performedBy: "unified-scheduler",
+			scopeType: "scheduler",
+			scopeId: "unified-scheduler",
+		})
+
+		expect(result).toEqual({
+			jobId: "job-1",
+			state: "completed",
+			result: { groupsSynced: 2, totalAdded: 3, totalArchived: 1 },
+		})
+		expect(mockRunRpaGroupMemberSync).toHaveBeenCalledWith({ force: undefined, jobId: "job-1" })
+		expect(mockMarkSyncJobCompleted).toHaveBeenCalled()
+		expect(mockMarkSyncJobSkipped).not.toHaveBeenCalled()
+		expect(mockMarkSyncJobFailed).not.toHaveBeenCalled()
+	})
+
+	it("runs tracked sync and marks skipped when lock is held", async () => {
+		mockRunRpaGroupMemberSync.mockResolvedValue(null)
+
+		const result = await runTrackedRpaGroupMemberSync({
+			performedBy: "unified-scheduler",
+		})
+
+		expect(result).toEqual({
+			jobId: "job-1",
+			state: "skipped",
+			result: null,
+		})
+		expect(mockMarkSyncJobSkipped).toHaveBeenCalledWith(
+			"job-1",
+			"Synkronisering pågår allerede i en annen prosess.",
+			"unified-scheduler",
+		)
+		expect(mockMarkSyncJobFailed).not.toHaveBeenCalled()
 	})
 })

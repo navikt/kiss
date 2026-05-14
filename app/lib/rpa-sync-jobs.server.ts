@@ -7,6 +7,7 @@ import {
 	markSyncJobSkipped,
 	type SyncJob,
 } from "~/db/queries/sync-jobs.server"
+import { runRpaGroupMemberSync } from "~/lib/rpa-sync.server"
 import { SYNC_JOB_TYPES } from "~/lib/sync-job-types"
 
 export interface RpaSyncJobResult {
@@ -16,6 +17,12 @@ export interface RpaSyncJobResult {
 }
 
 export interface RpaSyncJob extends Omit<SyncJob, "result"> {
+	result: RpaSyncJobResult | null
+}
+
+export interface TrackedRpaSyncJobResult {
+	jobId: string
+	state: "completed" | "skipped"
 	result: RpaSyncJobResult | null
 }
 
@@ -38,10 +45,15 @@ function toRpaSyncJob(job: SyncJob): RpaSyncJob {
 	}
 }
 
-export async function createRpaSyncJob(performedBy: string): Promise<RpaSyncJob> {
+export async function createRpaSyncJob(
+	performedBy: string,
+	options?: { scopeType?: string; scopeId?: string },
+): Promise<RpaSyncJob> {
 	const job = await createSyncJob({
 		jobType: SYNC_JOB_TYPES.RPA_GROUP_MEMBER_SYNC,
 		performedBy,
+		scopeType: options?.scopeType,
+		scopeId: options?.scopeId,
 		message: "Venter på start",
 	})
 	return toRpaSyncJob(job)
@@ -75,4 +87,46 @@ export async function markRpaSyncJobFailed(jobId: string, error: string, perform
 export async function getRpaSyncJob(jobId: string): Promise<RpaSyncJob | null> {
 	const job = await getSyncJob(jobId, SYNC_JOB_TYPES.RPA_GROUP_MEMBER_SYNC)
 	return job ? toRpaSyncJob(job) : null
+}
+
+export async function runTrackedRpaGroupMemberSync({
+	performedBy,
+	force,
+	scopeType,
+	scopeId,
+}: {
+	performedBy: string
+	force?: boolean
+	scopeType?: string
+	scopeId?: string
+}): Promise<TrackedRpaSyncJobResult> {
+	const job = await createRpaSyncJob(performedBy, { scopeType, scopeId })
+	await markRpaSyncJobRunning(job.id, performedBy)
+
+	const execution = await runRpaGroupMemberSync({ force, jobId: job.id }).then(
+		(result) => ({ ok: true as const, result }),
+		(error) => ({ ok: false as const, error }),
+	)
+
+	if (!execution.ok) {
+		const message = execution.error instanceof Error ? execution.error.message : String(execution.error)
+		await markRpaSyncJobFailed(job.id, message, performedBy)
+		throw execution.error
+	}
+
+	if (execution.result === null) {
+		await markRpaSyncJobSkipped(job.id, "Synkronisering pågår allerede i en annen prosess.", performedBy)
+		return {
+			jobId: job.id,
+			state: "skipped",
+			result: null,
+		}
+	}
+
+	await markRpaSyncJobCompleted(job.id, execution.result, performedBy)
+	return {
+		jobId: job.id,
+		state: "completed",
+		result: execution.result,
+	}
 }
