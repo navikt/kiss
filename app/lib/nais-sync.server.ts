@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { writeAuditLog } from "~/db/queries/audit.server"
 import {
 	syncDiscoveredApps,
@@ -56,6 +57,7 @@ export async function syncNaisAppsForTeam(
 	naisTeamId: string,
 ): Promise<SyncResult | null> {
 	return withAdvisoryLock(`nais-sync-apps-${teamSlug}`, async () => {
+		const syncRunId = randomUUID()
 		const apps = await fetchNaisApps(token, teamSlug)
 		let newApps = 0
 		let newEnvs = 0
@@ -66,6 +68,8 @@ export async function syncNaisAppsForTeam(
 		// Previously each environment call did a full replacement, causing
 		// constant archive/re-insert churn for apps deployed in multiple clusters.
 		const appInboundRules = new Map<string, Array<{ application: string; namespace?: string; cluster?: string }>>()
+		const appNames = new Map<string, string>()
+		const appSourceClusters = new Map<string, Set<string>>()
 
 		// Accumulate auth integrations across all environments per (appId, type)
 		// so we call upsertAppAuthIntegration once per unique integration.
@@ -76,6 +80,10 @@ export async function syncNaisAppsForTeam(
 		for (const app of apps) {
 			const { id: appId, isNew } = await upsertMonitoredApp(app.name, SYNC_PERFORMER)
 			if (isNew) newApps++
+			appNames.set(appId, app.name)
+			const existingClusters = appSourceClusters.get(appId) ?? new Set<string>()
+			existingClusters.add(app.cluster)
+			appSourceClusters.set(appId, existingClusters)
 
 			const gitRepository = app.deployInfo?.repository ? `https://github.com/${app.deployInfo.repository}` : null
 			const envIsNew = await upsertAppEnvironment(
@@ -139,7 +147,14 @@ export async function syncNaisAppsForTeam(
 		// Upsert access policy rules once per app with the union of all environments.
 		// upsertAccessPolicyRules handles deduplication internally.
 		for (const [appId, rules] of appInboundRules) {
-			await upsertAccessPolicyRules(appId, "inbound", rules, SYNC_PERFORMER)
+			const sourceClusters = [...(appSourceClusters.get(appId) ?? new Set<string>())].sort()
+			await upsertAccessPolicyRules(appId, "inbound", rules, SYNC_PERFORMER, {
+				appName: appNames.get(appId),
+				teamSlug,
+				sourceCluster: sourceClusters.length === 1 ? sourceClusters[0] : "multiple",
+				sourceClusters,
+				syncRunId,
+			})
 		}
 
 		logger.info(
