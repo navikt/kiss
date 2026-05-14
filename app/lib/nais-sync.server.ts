@@ -57,6 +57,7 @@ export async function syncNaisAppsForTeam(
 	token: string | undefined,
 	teamSlug: string,
 	naisTeamId: string,
+	jobId?: string,
 ): Promise<SyncResult | null> {
 	return withAdvisoryLock(`nais-sync-apps-${teamSlug}`, async () => {
 		const syncRunId = randomUUID()
@@ -130,6 +131,7 @@ export async function syncNaisAppsForTeam(
 					sourceCluster: app.cluster,
 					sourceClusters: [app.cluster],
 					syncRunId,
+					syncJobId: jobId,
 				},
 			)
 		}
@@ -155,6 +157,7 @@ export async function syncNaisAppsForTeam(
 					appName: appNames.get(appId) ?? appName,
 					teamSlug,
 					syncRunId,
+					syncJobId: jobId,
 				},
 			)
 		}
@@ -248,7 +251,7 @@ export async function runFullNaisSync(
 
 		const appResults: { teamSlug: string; result: SyncResult }[] = []
 		for (const team of monitoredTeams) {
-			const result = await syncNaisAppsForTeam(token, team.slug, team.id)
+			const result = await syncNaisAppsForTeam(token, team.slug, team.id, jobId)
 			if (result) {
 				appResults.push({ teamSlug: team.slug, result })
 			}

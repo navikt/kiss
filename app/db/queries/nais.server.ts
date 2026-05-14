@@ -2041,6 +2041,7 @@ export async function upsertAccessPolicyRules(
 		sourceCluster?: string
 		sourceClusters?: string[]
 		syncRunId?: string
+		syncJobId?: string
 	},
 ) {
 	// Dedupliser inputregler — samme app kan dukke opp i flere miljø-snapshots.
@@ -2116,6 +2117,7 @@ export async function upsertAccessPolicyRules(
 		}
 
 		for (const row of toArchive) {
+			const metadata: Record<string, unknown> = context?.syncRunId ? { syncRunId: context.syncRunId } : {}
 			await tx
 				.update(applicationAccessPolicyRules)
 				.set({ archivedAt: new Date(), archivedBy: performedBy, updatedAt: new Date() })
@@ -2132,7 +2134,9 @@ export async function upsertAccessPolicyRules(
 						ruleNamespace: row.ruleNamespace,
 						ruleCluster: row.ruleCluster,
 					}),
+					metadata,
 					performedBy,
+					syncJobId: context?.syncJobId,
 				},
 				tx,
 			)
@@ -2141,6 +2145,7 @@ export async function upsertAccessPolicyRules(
 		if (toInsert.length > 0) {
 			const inserted = await tx.insert(applicationAccessPolicyRules).values(toInsert).returning()
 			for (const row of inserted) {
+				const metadata: Record<string, unknown> = context?.syncRunId ? { syncRunId: context.syncRunId } : {}
 				await writeAuditLog(
 					{
 						action: "access_policy_rule_added",
@@ -2152,7 +2157,9 @@ export async function upsertAccessPolicyRules(
 							ruleNamespace: row.ruleNamespace,
 							ruleCluster: row.ruleCluster,
 						}),
+						metadata,
 						performedBy,
+						syncJobId: context?.syncJobId,
 					},
 					tx,
 				)
@@ -2178,6 +2185,7 @@ export async function upsertAccessPolicyRulesForEnvironment(
 		sourceCluster?: string
 		sourceClusters?: string[]
 		syncRunId?: string
+		syncJobId?: string
 	},
 ) {
 	const seen = new Set<string>()
@@ -2435,7 +2443,10 @@ export async function upsertAccessPolicyRulesForEnvironment(
 
 		for (const key of addedKeys) {
 			const payload = parseKey(key)
-			const metadata: Record<string, unknown> = { applicationEnvironmentId }
+			const metadata: Record<string, unknown> = {
+				applicationEnvironmentId,
+				...(context?.syncRunId ? { syncRunId: context.syncRunId } : {}),
+			}
 			if (
 				!beforeState.legacyFallbackVisible &&
 				afterState.legacyFallbackVisible &&
@@ -2458,6 +2469,7 @@ export async function upsertAccessPolicyRulesForEnvironment(
 					}),
 					metadata,
 					performedBy,
+					syncJobId: context?.syncJobId,
 				},
 				tx,
 			)
@@ -2475,7 +2487,10 @@ export async function upsertAccessPolicyRulesForEnvironment(
 			}
 
 			const payload = parseKey(key)
-			const metadata: Record<string, unknown> = { applicationEnvironmentId }
+			const metadata: Record<string, unknown> = {
+				applicationEnvironmentId,
+				...(context?.syncRunId ? { syncRunId: context.syncRunId } : {}),
+			}
 			if (beforeState.legacyFallbackVisible && !afterState.legacyFallbackVisible && beforeState.legacyKeys.has(key)) {
 				metadata.legacyFallbackSuppressed = true
 				metadata.legacyFallbackSuppressionReason = afterState.legacyFallbackReason
@@ -2493,6 +2508,7 @@ export async function upsertAccessPolicyRulesForEnvironment(
 					}),
 					metadata,
 					performedBy,
+					syncJobId: context?.syncJobId,
 				},
 				tx,
 			)
@@ -2513,6 +2529,7 @@ export async function archiveMissingEnvironmentAccessPolicyRules(
 		appName?: string
 		teamSlug?: string
 		syncRunId?: string
+		syncJobId?: string
 	},
 ) {
 	if (directions.length === 0) return
@@ -2553,6 +2570,7 @@ export async function archiveMissingEnvironmentAccessPolicyRules(
 				sourceCluster: env.cluster,
 				sourceClusters: [env.cluster],
 				syncRunId: context?.syncRunId,
+				syncJobId: context?.syncJobId,
 			})
 		}
 	}
