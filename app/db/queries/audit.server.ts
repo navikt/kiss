@@ -60,18 +60,26 @@ export async function getAuditLogsForSyncJob(
 	syncJobId: string,
 	options: {
 		limit?: number
+		offset?: number
 		action?: AuditLogAction
 		entityType?: string
 	} = {},
 ) {
 	const limit = options.limit ?? 100
+	const offset = options.offset ?? 0
 	const where = and(
 		eq(auditLog.syncJobId, syncJobId),
 		options.action ? eq(auditLog.action, options.action) : undefined,
 		options.entityType ? eq(auditLog.entityType, options.entityType) : undefined,
 	)
 
-	return db.select().from(auditLog).where(where).orderBy(desc(auditLog.performedAt)).limit(limit)
+	return db
+		.select()
+		.from(auditLog)
+		.where(where)
+		.orderBy(desc(auditLog.performedAt), desc(auditLog.id))
+		.limit(limit)
+		.offset(offset)
 }
 
 /** Get the total audit log count for a specific sync job. */

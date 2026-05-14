@@ -31,34 +31,43 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const url = new URL(request.url)
 	const actionFilter = parseAuditLogAction(url.searchParams.get("action"))
 	const entityTypeFilter = url.searchParams.get("entityType") || ""
-	const auditLogLimit = 100
+	const pageSize = 25
+	const requestedPage = parsePositiveInt(url.searchParams.get("page"))
 
 	const job = await getSyncJob(jobId)
 	if (!job) {
 		throw new Response("Job not found", { status: 404 })
 	}
 
-	const [auditLogsWithExtra, totalAuditLogs, availableActions, availableEntityTypes] = await Promise.all([
-		getAuditLogsForSyncJob(jobId, {
-			limit: auditLogLimit + 1,
-			action: actionFilter,
-			entityType: entityTypeFilter || undefined,
-		}),
+	const [totalAuditLogs, availableActions, availableEntityTypes] = await Promise.all([
 		getAuditLogCountForSyncJob(jobId, { action: actionFilter, entityType: entityTypeFilter || undefined }),
 		getDistinctAuditLogActionsForSyncJob(jobId),
 		getDistinctAuditLogEntityTypesForSyncJob(jobId),
 	])
-	const hasMoreAuditLogs = auditLogsWithExtra.length > auditLogLimit
-	const auditLogs = hasMoreAuditLogs ? auditLogsWithExtra.slice(0, auditLogLimit) : auditLogsWithExtra
+	const totalPages = totalAuditLogs > 0 ? Math.ceil(totalAuditLogs / pageSize) : 1
+	const page = Math.min(requestedPage, totalPages)
+	const offset = (page - 1) * pageSize
+	const auditLogs = await getAuditLogsForSyncJob(jobId, {
+		limit: pageSize,
+		offset,
+		action: actionFilter,
+		entityType: entityTypeFilter || undefined,
+	})
+	const hasPreviousPage = page > 1
+	const hasNextPage = page < totalPages
 
 	return data({
 		job,
 		auditLogs,
 		totalAuditLogs,
-		hasMoreAuditLogs,
+		page,
+		pageSize,
+		totalPages,
+		hasPreviousPage,
+		hasNextPage,
 		availableActions,
 		availableEntityTypes,
-		actionFilter,
+		actionFilter: actionFilter ?? "",
 		entityTypeFilter,
 	})
 }
@@ -68,12 +77,18 @@ export default function JobDetailPage() {
 		job,
 		auditLogs,
 		totalAuditLogs,
-		hasMoreAuditLogs,
+		page,
+		pageSize,
+		totalPages,
+		hasPreviousPage,
+		hasNextPage,
 		availableActions,
 		availableEntityTypes,
 		actionFilter,
 		entityTypeFilter,
 	} = useLoaderData<typeof loader>()
+	const firstItemOnPage = totalAuditLogs === 0 ? 0 : (page - 1) * pageSize + 1
+	const lastItemOnPage = totalAuditLogs === 0 ? 0 : firstItemOnPage + auditLogs.length - 1
 
 	return (
 		<div style={{ padding: "var(--ax-space-16)" }}>
@@ -215,9 +230,9 @@ export default function JobDetailPage() {
 						<Heading level="2" size="medium">
 							Revisjonslogg ({auditLogs.length} av {totalAuditLogs})
 						</Heading>
-						{hasMoreAuditLogs && (
-							<BodyLong>Viser de første 100 revisjonslogginnslagene knyttet til denne synkjobben.</BodyLong>
-						)}
+						<BodyLong>
+							Viser {firstItemOnPage}–{lastItemOnPage} av {totalAuditLogs} revisjonslogginnslag.
+						</BodyLong>
 
 						<Form method="get">
 							<HStack gap="space-4" wrap>
@@ -237,6 +252,7 @@ export default function JobDetailPage() {
 										</option>
 									))}
 								</Select>
+								<input type="hidden" name="page" value="1" />
 								<HStack gap="space-2" align="end">
 									<Button type="submit" size="small">
 										Filtrer
@@ -277,6 +293,41 @@ export default function JobDetailPage() {
 								</Table>
 							</section>
 						)}
+						<HStack gap="space-4" align="center" justify="space-between">
+							<BodyLong>
+								Side {page} av {totalPages}
+							</BodyLong>
+							<HStack gap="space-2">
+								{hasPreviousPage ? (
+									<Button
+										as={Link}
+										to={buildAuditLogPageLink(job.id, actionFilter, entityTypeFilter, page - 1)}
+										variant="secondary"
+										size="small"
+									>
+										Forrige
+									</Button>
+								) : (
+									<Button variant="secondary" size="small" disabled>
+										Forrige
+									</Button>
+								)}
+								{hasNextPage ? (
+									<Button
+										as={Link}
+										to={buildAuditLogPageLink(job.id, actionFilter, entityTypeFilter, page + 1)}
+										variant="secondary"
+										size="small"
+									>
+										Neste
+									</Button>
+								) : (
+									<Button variant="secondary" size="small" disabled>
+										Neste
+									</Button>
+								)}
+							</HStack>
+						</HStack>
 					</VStack>
 				</section>
 			</VStack>
@@ -328,4 +379,24 @@ function parseAuditLogAction(value: string | null): AuditLogAction | undefined {
 		return undefined
 	}
 	return (auditLogActionEnum as readonly string[]).includes(value) ? (value as AuditLogAction) : undefined
+}
+
+function parsePositiveInt(value: string | null): number {
+	const parsed = Number(value)
+	if (!Number.isInteger(parsed) || parsed < 1) {
+		return 1
+	}
+	return parsed
+}
+
+function buildAuditLogPageLink(jobId: string, actionFilter: string, entityTypeFilter: string, page: number): string {
+	const query = new URLSearchParams()
+	if (actionFilter) {
+		query.set("action", actionFilter)
+	}
+	if (entityTypeFilter) {
+		query.set("entityType", entityTypeFilter)
+	}
+	query.set("page", String(page))
+	return `/admin/synkjobber/${jobId}?${query.toString()}`
 }
