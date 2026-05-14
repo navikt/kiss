@@ -1,4 +1,5 @@
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { foreignKey, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { syncJobs } from "./sync-jobs"
 
 /**
  * Enumerasjon av alle handlinger som kan skrives til `audit_log`.
@@ -244,9 +245,12 @@ export const auditLog = pgTable(
 		metadata: text("metadata"),
 		performedBy: text("performed_by").notNull(),
 		performedAt: timestamp("performed_at", { withTimezone: true }).notNull().defaultNow(),
+		syncJobId: uuid("sync_job_id"),
 	},
 	(table) => [
 		index("idx_audit_log_action_performed_at").on(table.action, table.performedAt.desc()),
 		index("idx_audit_log_entity_performed_at").on(table.entityType, table.entityId, table.performedAt.desc()),
+		index("idx_audit_log_sync_job_id").on(table.syncJobId, table.performedAt.desc()),
+		foreignKey({ columns: [table.syncJobId], foreignColumns: [syncJobs.id], name: "fk_audit_log_sync_job_id" }),
 	],
 )

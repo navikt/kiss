@@ -231,7 +231,10 @@ function mergeInboundRules(
  * Full sync: discover teams, then discover apps for each monitored team.
  * Token is optional — omit when using local Nais API proxy.
  */
-export async function runFullNaisSync(token?: string): Promise<{
+export async function runFullNaisSync(
+	token?: string,
+	jobId?: string,
+): Promise<{
 	teams: SyncResult
 	apps: { teamSlug: string; result: SyncResult }[]
 } | null> {
@@ -288,6 +291,7 @@ export async function runFullNaisSync(token?: string): Promise<{
 				newApps: totalNewApps,
 			}),
 			performedBy: SYNC_PERFORMER,
+			syncJobId: jobId,
 		})
 
 		return syncResult

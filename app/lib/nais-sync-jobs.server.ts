@@ -44,7 +44,7 @@ export async function runTrackedNaisSync({
 
 	await markSyncJobRunning(job.id, performedBy, "Synkronisering pågår")
 
-	const execution = await runFullNaisSync(token).then(
+	const execution = await runFullNaisSync(token, job.id).then(
 		(result) => ({ ok: true as const, result }),
 		(error) => ({ ok: false as const, error }),
 	)

@@ -70,7 +70,7 @@ describe("admin.rpa-grupper action sync-all", () => {
 		expect(response.jobId).toBe("job-1")
 		expect(mockCreateRpaSyncJob).toHaveBeenCalledWith("Z123456")
 		expect(mockMarkRunning).toHaveBeenCalledWith("job-1", "Z123456")
-		expect(mockRunRpaGroupMemberSync).toHaveBeenCalledWith({ force: true })
+		expect(mockRunRpaGroupMemberSync).toHaveBeenCalledWith({ force: true, jobId: "job-1" })
 		expect(mockMarkRunning.mock.invocationCallOrder[0]).toBeLessThan(
 			mockRunRpaGroupMemberSync.mock.invocationCallOrder[0],
 		)
