@@ -238,10 +238,74 @@ export async function syncDiscoveredApps(teamSlug: string, appNames: string[]): 
 	})
 }
 
-/** Upsert a monitored application — insert if new, skip if exists. Returns the app. */
-export async function upsertMonitoredApp(name: string, createdBy: string): Promise<{ id: string; isNew: boolean }> {
-	const [existing] = await db.select().from(monitoredApplications).where(eq(monitoredApplications.name, name)).limit(1)
-	if (existing) return { id: existing.id, isNew: false }
+/**
+ * Upsert a monitored application.
+ *
+ * When naisTeamId is provided we enforce identity per (name, team):
+ * - Reuse an app with the same name that is exclusively tied to that team.
+ * - If a legacy app with the same name is shared across multiple teams, split by creating
+ *   a dedicated row and moving this team's environments to the new row.
+ * - Otherwise create a new app row for this team.
+ *
+ * Without naisTeamId (manual/admin flows), keep legacy name-based behavior.
+ */
+export async function upsertMonitoredApp(
+	name: string,
+	createdBy: string,
+	naisTeamId?: string,
+): Promise<{ id: string; isNew: boolean }> {
+	if (!naisTeamId) {
+		const [existing] = await db
+			.select()
+			.from(monitoredApplications)
+			.where(eq(monitoredApplications.name, name))
+			.limit(1)
+		if (existing) return { id: existing.id, isNew: false }
+		const [app] = await db.insert(monitoredApplications).values({ name, createdBy, updatedBy: createdBy }).returning()
+		return { id: app.id, isNew: true }
+	}
+
+	const candidates = await db
+		.select({
+			id: monitoredApplications.id,
+			name: monitoredApplications.name,
+			teamCount: sql<number>`COUNT(DISTINCT ${applicationEnvironments.naisTeamId})`,
+			hasTargetTeam: sql<boolean>`BOOL_OR(${applicationEnvironments.naisTeamId} = ${naisTeamId})`,
+		})
+		.from(monitoredApplications)
+		.leftJoin(applicationEnvironments, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+		.where(and(eq(monitoredApplications.name, name), isNull(monitoredApplications.archivedAt)))
+		.groupBy(monitoredApplications.id, monitoredApplications.name)
+		.orderBy(monitoredApplications.id)
+
+	const dedicated = candidates.find((c) => c.hasTargetTeam && Number(c.teamCount) === 1)
+	if (dedicated) return { id: dedicated.id, isNew: false }
+
+	const legacyShared = candidates.find((c) => c.hasTargetTeam && Number(c.teamCount) > 1)
+	if (legacyShared) {
+		return db.transaction(async (tx) => {
+			const [app] = await tx.insert(monitoredApplications).values({ name, createdBy, updatedBy: createdBy }).returning()
+			await tx
+				.update(applicationEnvironments)
+				.set({ applicationId: app.id })
+				.where(
+					and(
+						eq(applicationEnvironments.applicationId, legacyShared.id),
+						eq(applicationEnvironments.naisTeamId, naisTeamId),
+					),
+				)
+
+			logger.warn("[nais-sync] Split shared monitored application by team identity", {
+				sync_component: "nais_app_identity_split",
+				name,
+				legacyAppId: legacyShared.id,
+				newAppId: app.id,
+				naisTeamId,
+			})
+
+			return { id: app.id, isNew: true }
+		})
+	}
 
 	const [app] = await db.insert(monitoredApplications).values({ name, createdBy, updatedBy: createdBy }).returning()
 	return { id: app.id, isNew: true }
