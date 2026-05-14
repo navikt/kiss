@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type AuditLogAction, auditLog } from "../schema/audit"
 
@@ -56,13 +56,62 @@ export async function getAuditLogByAction(action: AuditLogAction, limit = 50) {
 }
 
 /** Get audit log entries for a specific sync job. */
-export async function getAuditLogsForSyncJob(syncJobId: string, limit = 100) {
-	return db
-		.select()
+export async function getAuditLogsForSyncJob(
+	syncJobId: string,
+	options: {
+		limit?: number
+		action?: AuditLogAction
+		entityType?: string
+	} = {},
+) {
+	const limit = options.limit ?? 100
+	const where = and(
+		eq(auditLog.syncJobId, syncJobId),
+		options.action ? eq(auditLog.action, options.action) : undefined,
+		options.entityType ? eq(auditLog.entityType, options.entityType) : undefined,
+	)
+
+	return db.select().from(auditLog).where(where).orderBy(desc(auditLog.performedAt)).limit(limit)
+}
+
+/** Get the total audit log count for a specific sync job. */
+export async function getAuditLogCountForSyncJob(
+	syncJobId: string,
+	options: {
+		action?: AuditLogAction
+		entityType?: string
+	} = {},
+) {
+	const where = and(
+		eq(auditLog.syncJobId, syncJobId),
+		options.action ? eq(auditLog.action, options.action) : undefined,
+		options.entityType ? eq(auditLog.entityType, options.entityType) : undefined,
+	)
+
+	const [result] = await db.select({ count: sql<number>`count(*)` }).from(auditLog).where(where)
+	return Number(result?.count ?? 0)
+}
+
+/** Get all distinct actions used by audit logs for a specific sync job. */
+export async function getDistinctAuditLogActionsForSyncJob(syncJobId: string) {
+	const rows = await db
+		.selectDistinct({ action: auditLog.action })
 		.from(auditLog)
 		.where(eq(auditLog.syncJobId, syncJobId))
-		.orderBy(desc(auditLog.performedAt))
-		.limit(limit)
+		.orderBy(auditLog.action)
+
+	return rows.map((row) => row.action)
+}
+
+/** Get all distinct entity types used by audit logs for a specific sync job. */
+export async function getDistinctAuditLogEntityTypesForSyncJob(syncJobId: string) {
+	const rows = await db
+		.selectDistinct({ entityType: auditLog.entityType })
+		.from(auditLog)
+		.where(eq(auditLog.syncJobId, syncJobId))
+		.orderBy(auditLog.entityType)
+
+	return rows.map((row) => row.entityType)
 }
 
 /** Get audit log entries for multiple sync jobs. */

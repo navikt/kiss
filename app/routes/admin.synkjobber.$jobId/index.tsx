@@ -1,12 +1,18 @@
-import { BodyLong, Heading, HGrid, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyLong, Button, Heading, HGrid, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
-import { getAuditLogsForSyncJob } from "~/db/queries/audit.server"
+import { data, Form, Link, useLoaderData } from "react-router"
+import {
+	getAuditLogCountForSyncJob,
+	getAuditLogsForSyncJob,
+	getDistinctAuditLogActionsForSyncJob,
+	getDistinctAuditLogEntityTypesForSyncJob,
+} from "~/db/queries/audit.server"
 import { getSyncJob } from "~/db/queries/sync-jobs.server"
+import { type AuditLogAction, auditLogActionEnum } from "~/db/schema/audit"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
-import { formatDateTimeOslo, isValidUuid } from "~/lib/utils"
+import { formatDateTimeOslo, isValidUuid, safeJsonParse } from "~/lib/utils"
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -22,18 +28,52 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		throw new Response("Job not found", { status: 404 })
 	}
 
+	const url = new URL(request.url)
+	const actionFilter = parseAuditLogAction(url.searchParams.get("action"))
+	const entityTypeFilter = url.searchParams.get("entityType") || ""
+	const auditLogLimit = 100
+
 	const job = await getSyncJob(jobId)
 	if (!job) {
 		throw new Response("Job not found", { status: 404 })
 	}
 
-	const auditLogs = await getAuditLogsForSyncJob(jobId, 100)
+	const [auditLogsWithExtra, totalAuditLogs, availableActions, availableEntityTypes] = await Promise.all([
+		getAuditLogsForSyncJob(jobId, {
+			limit: auditLogLimit + 1,
+			action: actionFilter,
+			entityType: entityTypeFilter || undefined,
+		}),
+		getAuditLogCountForSyncJob(jobId, { action: actionFilter, entityType: entityTypeFilter || undefined }),
+		getDistinctAuditLogActionsForSyncJob(jobId),
+		getDistinctAuditLogEntityTypesForSyncJob(jobId),
+	])
+	const hasMoreAuditLogs = auditLogsWithExtra.length > auditLogLimit
+	const auditLogs = hasMoreAuditLogs ? auditLogsWithExtra.slice(0, auditLogLimit) : auditLogsWithExtra
 
-	return data({ job, auditLogs })
+	return data({
+		job,
+		auditLogs,
+		totalAuditLogs,
+		hasMoreAuditLogs,
+		availableActions,
+		availableEntityTypes,
+		actionFilter,
+		entityTypeFilter,
+	})
 }
 
 export default function JobDetailPage() {
-	const { job, auditLogs } = useLoaderData<typeof loader>()
+	const {
+		job,
+		auditLogs,
+		totalAuditLogs,
+		hasMoreAuditLogs,
+		availableActions,
+		availableEntityTypes,
+		actionFilter,
+		entityTypeFilter,
+	} = useLoaderData<typeof loader>()
 
 	return (
 		<div style={{ padding: "var(--ax-space-16)" }}>
@@ -173,8 +213,40 @@ export default function JobDetailPage() {
 				<section style={{ padding: "var(--ax-space-12)", backgroundColor: "var(--ax-bg-subtle)" }}>
 					<VStack gap="space-8">
 						<Heading level="2" size="medium">
-							Revisjonslogg ({auditLogs.length})
+							Revisjonslogg ({auditLogs.length} av {totalAuditLogs})
 						</Heading>
+						{hasMoreAuditLogs && (
+							<BodyLong>Viser de første 100 revisjonslogginnslagene knyttet til denne synkjobben.</BodyLong>
+						)}
+
+						<Form method="get">
+							<HStack gap="space-4" wrap>
+								<Select label="Handling" name="action" defaultValue={actionFilter}>
+									<option value="">Alle handlinger</option>
+									{availableActions.map((action) => (
+										<option key={action} value={action}>
+											{action}
+										</option>
+									))}
+								</Select>
+								<Select label="Entitytype" name="entityType" defaultValue={entityTypeFilter}>
+									<option value="">Alle entitytyper</option>
+									{availableEntityTypes.map((entityType) => (
+										<option key={entityType} value={entityType}>
+											{entityType}
+										</option>
+									))}
+								</Select>
+								<HStack gap="space-2" align="end">
+									<Button type="submit" size="small">
+										Filtrer
+									</Button>
+									<Button as={Link} to={`/admin/synkjobber/${job.id}`} variant="secondary" size="small">
+										Nullstill
+									</Button>
+								</HStack>
+							</HStack>
+						</Form>
 
 						{auditLogs.length === 0 ? (
 							<BodyLong>Ingen revisjonslogginnslag knyttet til denne jobben.</BodyLong>
@@ -186,8 +258,7 @@ export default function JobDetailPage() {
 										<Table.Row>
 											<Table.HeaderCell>Tidspunkt</Table.HeaderCell>
 											<Table.HeaderCell>Handling</Table.HeaderCell>
-											<Table.HeaderCell>Entitytype</Table.HeaderCell>
-											<Table.HeaderCell>Entity-ID</Table.HeaderCell>
+											<Table.HeaderCell>Detaljer</Table.HeaderCell>
 											<Table.HeaderCell>Utført av</Table.HeaderCell>
 										</Table.Row>
 									</Table.Header>
@@ -196,9 +267,8 @@ export default function JobDetailPage() {
 											<Table.Row key={`${log.performedAt}-${log.id}`}>
 												<Table.DataCell>{formatDateTimeOslo(log.performedAt)}</Table.DataCell>
 												<Table.DataCell>{log.action}</Table.DataCell>
-												<Table.DataCell>{log.entityType}</Table.DataCell>
-												<Table.DataCell style={{ wordBreak: "break-all" }}>
-													<code style={{ fontSize: "0.875rem" }}>{log.entityId}</code>
+												<Table.DataCell>
+													{formatAuditLogDetails(log.entityType, log.entityId, log.metadata)}
 												</Table.DataCell>
 												<Table.DataCell>{log.performedBy}</Table.DataCell>
 											</Table.Row>
@@ -212,4 +282,50 @@ export default function JobDetailPage() {
 			</VStack>
 		</div>
 	)
+}
+
+function formatAuditLogDetails(entityType: string, entityId: string, metadata: string | null): string {
+	const details = [`${entityType}: ${entityId}`]
+	if (!metadata) {
+		return details[0]
+	}
+
+	const parsed = safeJsonParse(metadata)
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		return details[0]
+	}
+
+	const metadataEntries = Object.entries(parsed as Record<string, unknown>).filter(([key]) => key !== "syncJobId")
+	const visibleMetadataEntries = metadataEntries.slice(0, 2)
+
+	if (visibleMetadataEntries.length > 0) {
+		const metadataString = visibleMetadataEntries
+			.map(([key, value]) => `${key}=${formatMetadataValue(value)}`)
+			.join(", ")
+		const suffix = metadataEntries.length > visibleMetadataEntries.length ? " …" : ""
+		details.push(`${metadataString}${suffix}`)
+	}
+
+	return details.join(" — ")
+}
+
+function formatMetadataValue(value: unknown): string {
+	if (value === null || value === undefined) {
+		return String(value)
+	}
+	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+		return String(value)
+	}
+	try {
+		return JSON.stringify(value)
+	} catch {
+		return "[ukjent]"
+	}
+}
+
+function parseAuditLogAction(value: string | null): AuditLogAction | undefined {
+	if (!value) {
+		return undefined
+	}
+	return (auditLogActionEnum as readonly string[]).includes(value) ? (value as AuditLogAction) : undefined
 }
