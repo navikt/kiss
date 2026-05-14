@@ -18,7 +18,13 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react"
 import { type ActionFunctionArgs, data, Link, type LoaderFunctionArgs, useFetcher, useLoaderData } from "react-router"
 import { getAuditLogByAction } from "~/db/queries/audit.server"
-import { addRpaGroup, getActiveRpaGroups, getMemberCountPerRpaGroup, removeRpaGroup } from "~/db/queries/rpa.server"
+import {
+	addRpaGroup,
+	getActiveRpaGroups,
+	getAllActiveRpaMembers,
+	getMemberCountPerRpaGroup,
+	removeRpaGroup,
+} from "~/db/queries/rpa.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { syncSingleRpaGroup } from "~/lib/rpa-sync.server"
@@ -28,10 +34,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)
 
-	const [groups, memberCounts, auditLog] = await Promise.all([
+	const [groups, memberCounts, auditLog, allMembers] = await Promise.all([
 		getActiveRpaGroups(),
 		getMemberCountPerRpaGroup(),
 		getAuditLogByAction("rpa_group_members_synced", 10),
+		getAllActiveRpaMembers(),
 	])
 
 	const countMap = new Map(memberCounts.map((c) => [c.rpaGroupId, c]))
@@ -45,7 +52,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		}
 	})
 
-	return { groups: groupsWithStats, auditLog }
+	const members = allMembers.map((m) => ({
+		...m,
+		syncedAt: m.syncedAt.toISOString(),
+	}))
+
+	return { groups: groupsWithStats, auditLog, members }
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -106,7 +118,7 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function AdminRpaGrupper() {
-	const { groups, auditLog } = useLoaderData<typeof loader>()
+	const { groups, auditLog, members } = useLoaderData<typeof loader>()
 	const addModalRef = useRef<HTMLDialogElement>(null)
 
 	return (
@@ -135,6 +147,8 @@ export default function AdminRpaGrupper() {
 			</HStack>
 
 			<GroupTable groups={groups} />
+
+			<MembersSection members={members} />
 
 			<AuditLogSection auditLog={auditLog} />
 
@@ -447,6 +461,149 @@ function RemoveGroupModal({ group, onClose }: { group: GroupWithStats | null; on
 				</fetcher.Form>
 			</Modal.Footer>
 		</Modal>
+	)
+}
+
+// ─── Members Section ──────────────────────────────────────────────────────────
+
+interface RpaMember {
+	id: string
+	userObjectId: string
+	displayName: string | null
+	userPrincipalName: string | null
+	accountEnabled: boolean | null
+	syncedAt: string
+	rpaGroupId: string
+	rpaGroupName: string | null
+}
+
+function MembersSection({ members }: { members: RpaMember[] }) {
+	const [searchValue, setSearchValue] = useState("")
+
+	if (members.length === 0) {
+		return (
+			<VStack gap="space-2">
+				<Heading size="medium" level="3">
+					Robotbrukere
+				</Heading>
+				<Alert variant="info" size="small">
+					Ingen robotbrukere er synkronisert ennå.
+				</Alert>
+			</VStack>
+		)
+	}
+
+	const userMap = new Map<
+		string,
+		{
+			displayName: string | null
+			userPrincipalName: string | null
+			accountEnabled: boolean | null
+			groups: Array<{ id: string; name: string | null }>
+		}
+	>()
+	for (const m of members) {
+		const existing = userMap.get(m.userObjectId)
+		if (existing) {
+			existing.groups.push({ id: m.rpaGroupId, name: m.rpaGroupName })
+		} else {
+			userMap.set(m.userObjectId, {
+				displayName: m.displayName,
+				userPrincipalName: m.userPrincipalName,
+				accountEnabled: m.accountEnabled,
+				groups: [{ id: m.rpaGroupId, name: m.rpaGroupName }],
+			})
+		}
+	}
+
+	const uniqueUsers = [...userMap.entries()].map(([userObjectId, u]) => ({
+		userObjectId,
+		...u,
+	}))
+
+	const query = searchValue.trim().toLowerCase()
+
+	const filtered = query
+		? uniqueUsers.filter(
+				(u) => u.displayName?.toLowerCase().includes(query) || u.userPrincipalName?.toLowerCase().includes(query),
+			)
+		: uniqueUsers
+
+	return (
+		<VStack gap="space-4">
+			<HStack justify="space-between" align="center" wrap>
+				<Heading size="medium" level="3">
+					Robotbrukere ({uniqueUsers.length})
+				</Heading>
+				<div style={{ maxWidth: "20rem", width: "100%" }}>
+					<Search
+						label="Søk etter robotbruker"
+						hideLabel
+						value={searchValue}
+						onChange={setSearchValue}
+						onClear={() => setSearchValue("")}
+						size="small"
+						placeholder="Søk etter navn eller UPN…"
+					/>
+				</div>
+			</HStack>
+
+			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable container needs keyboard access */}
+			<section className="table-scroll" tabIndex={0} aria-label="Robotbrukere">
+				<Table size="small">
+					<Table.Header>
+						<Table.Row>
+							<Table.HeaderCell>Navn</Table.HeaderCell>
+							<Table.HeaderCell>Brukernavn (UPN)</Table.HeaderCell>
+							<Table.HeaderCell>Status</Table.HeaderCell>
+							<Table.HeaderCell>RPA-grupper</Table.HeaderCell>
+						</Table.Row>
+					</Table.Header>
+					<Table.Body>
+						{filtered.map((user) => (
+							<Table.Row key={user.userObjectId}>
+								<Table.DataCell>
+									<BodyShort size="small" weight="semibold">
+										{user.displayName ?? "Ukjent"}
+									</BodyShort>
+								</Table.DataCell>
+								<Table.DataCell>
+									<Detail style={{ fontFamily: "monospace" }}>{user.userPrincipalName ?? "–"}</Detail>
+								</Table.DataCell>
+								<Table.DataCell>
+									<Tag
+										variant={
+											user.accountEnabled === true ? "success" : user.accountEnabled === false ? "warning" : "neutral"
+										}
+										size="small"
+									>
+										{user.accountEnabled === true ? "Aktiv" : user.accountEnabled === false ? "Deaktivert" : "Ukjent"}
+									</Tag>
+								</Table.DataCell>
+								<Table.DataCell>
+									<HStack gap="space-1" wrap>
+										{user.groups.map((g) => (
+											<Tag key={g.id} variant="neutral" size="small">
+												{g.name ?? g.id}
+											</Tag>
+										))}
+									</HStack>
+								</Table.DataCell>
+							</Table.Row>
+						))}
+						{filtered.length === 0 && (
+							<Table.Row>
+								<Table.DataCell colSpan={4}>
+									<BodyShort size="small" textColor="subtle">
+										Ingen robotbrukere matcher søket.
+									</BodyShort>
+								</Table.DataCell>
+							</Table.Row>
+						)}
+					</Table.Body>
+				</Table>
+			</section>
+		</VStack>
 	)
 }
 
