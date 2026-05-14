@@ -32,6 +32,64 @@ import { writeAuditLog } from "./audit.server"
 
 const SYNC_PERFORMER = "nais-sync"
 
+type IncomingAccessPolicyRule = { application: string; namespace?: string; cluster?: string }
+type AccessPolicyRuleFields = { ruleApplication: string; ruleNamespace: string | null; ruleCluster: string | null }
+
+function toAccessPolicyRuleKey(rule: AccessPolicyRuleFields): string {
+	return `${rule.ruleApplication}|${rule.ruleNamespace ?? ""}|${rule.ruleCluster ?? ""}`
+}
+
+function dedupeIncomingAccessPolicyRules(rules: IncomingAccessPolicyRule[]): AccessPolicyRuleFields[] {
+	const seen = new Set<string>()
+	const deduped: AccessPolicyRuleFields[] = []
+	for (const rule of rules) {
+		const normalized: AccessPolicyRuleFields = {
+			ruleApplication: rule.application,
+			ruleNamespace: rule.namespace ?? null,
+			ruleCluster: rule.cluster ?? null,
+		}
+		const key = toAccessPolicyRuleKey(normalized)
+		if (seen.has(key)) continue
+		seen.add(key)
+		deduped.push(normalized)
+	}
+	return deduped
+}
+
+function diffAccessPolicyRules<TExisting extends AccessPolicyRuleFields, TInsert extends AccessPolicyRuleFields>(
+	existing: TExisting[],
+	incomingRules: IncomingAccessPolicyRule[],
+	mapToInsert: (rule: AccessPolicyRuleFields) => TInsert,
+): {
+	desiredCount: number
+	toArchive: TExisting[]
+	toInsert: TInsert[]
+	toArchiveKeys: string[]
+	toInsertKeys: string[]
+} {
+	const desiredRules = dedupeIncomingAccessPolicyRules(incomingRules)
+	const existingByKey = new Map(existing.map((row) => [toAccessPolicyRuleKey(row), row]))
+	const desiredKeys = new Set<string>()
+	const toInsert: TInsert[] = []
+
+	for (const rule of desiredRules) {
+		const key = toAccessPolicyRuleKey(rule)
+		desiredKeys.add(key)
+		if (!existingByKey.has(key)) {
+			toInsert.push(mapToInsert(rule))
+		}
+	}
+
+	const toArchive = existing.filter((row) => !desiredKeys.has(toAccessPolicyRuleKey(row)))
+	return {
+		desiredCount: desiredRules.length,
+		toArchive,
+		toInsert,
+		toArchiveKeys: toArchive.map((row) => toAccessPolicyRuleKey(row)),
+		toInsertKeys: toInsert.map((row) => toAccessPolicyRuleKey(row)),
+	}
+}
+
 /** Get all Nais teams. */
 export async function getNaisTeams() {
 	return db.select().from(naisTeams).orderBy(naisTeams.slug)
@@ -2033,7 +2091,7 @@ export async function resolveAppNames(names: string[]): Promise<Record<string, A
 export async function upsertAccessPolicyRules(
 	applicationId: string,
 	direction: "inbound" | "outbound",
-	rules: Array<{ application: string; namespace?: string; cluster?: string }>,
+	rules: IncomingAccessPolicyRule[],
 	performedBy = "nais-sync",
 	context?: {
 		appName?: string
@@ -2044,15 +2102,6 @@ export async function upsertAccessPolicyRules(
 		syncJobId?: string
 	},
 ) {
-	// Dedupliser inputregler — samme app kan dukke opp i flere miljø-snapshots.
-	const seen = new Set<string>()
-	const uniqueRules = rules.filter((rule) => {
-		const key = `${rule.application}|${rule.namespace ?? ""}|${rule.cluster ?? ""}`
-		if (seen.has(key)) return false
-		seen.add(key)
-		return true
-	})
-
 	await db.transaction(async (tx) => {
 		const existing = await tx
 			.select()
@@ -2065,37 +2114,17 @@ export async function upsertAccessPolicyRules(
 				),
 			)
 
-		const keyOf = (r: { ruleApplication: string; ruleNamespace: string | null; ruleCluster: string | null }) =>
-			`${r.ruleApplication}|${r.ruleNamespace ?? ""}|${r.ruleCluster ?? ""}`
-
-		const existingByKey = new Map(existing.map((row) => [keyOf(row), row]))
-		const desiredKeys = new Set<string>()
-
-		const toInsert: Array<{
-			applicationId: string
-			direction: "inbound" | "outbound"
-			ruleApplication: string
-			ruleNamespace: string | null
-			ruleCluster: string | null
-		}> = []
-
-		for (const rule of uniqueRules) {
-			const ruleNamespace = rule.namespace ?? null
-			const ruleCluster = rule.cluster ?? null
-			const key = `${rule.application}|${ruleNamespace ?? ""}|${ruleCluster ?? ""}`
-			desiredKeys.add(key)
-			if (!existingByKey.has(key)) {
-				toInsert.push({
-					applicationId,
-					direction,
-					ruleApplication: rule.application,
-					ruleNamespace,
-					ruleCluster,
-				})
-			}
-		}
-
-		const toArchive = existing.filter((row) => !desiredKeys.has(keyOf(row)))
+		const { desiredCount, toArchive, toInsert, toArchiveKeys, toInsertKeys } = diffAccessPolicyRules(
+			existing,
+			rules,
+			(rule) => ({
+				applicationId,
+				direction,
+				ruleApplication: rule.ruleApplication,
+				ruleNamespace: rule.ruleNamespace,
+				ruleCluster: rule.ruleCluster,
+			}),
+		)
 
 		if (toArchive.length > 0 || toInsert.length > 0) {
 			logger.info("[access-policy-sync] Rule diff detected", {
@@ -2108,11 +2137,11 @@ export async function upsertAccessPolicyRules(
 				syncRunId: context?.syncRunId,
 				direction,
 				existingCount: existing.length,
-				desiredCount: uniqueRules.length,
+				desiredCount,
 				toArchiveCount: toArchive.length,
 				toInsertCount: toInsert.length,
-				toArchiveKeys: toArchive.map((r) => keyOf(r)),
-				toInsertKeys: toInsert.map((r) => `${r.ruleApplication}|${r.ruleNamespace ?? ""}|${r.ruleCluster ?? ""}`),
+				toArchiveKeys,
+				toInsertKeys,
 			})
 		}
 
@@ -2177,7 +2206,7 @@ export async function upsertAccessPolicyRulesForEnvironment(
 	applicationId: string,
 	applicationEnvironmentId: string,
 	direction: "inbound" | "outbound",
-	rules: Array<{ application: string; namespace?: string; cluster?: string }>,
+	rules: IncomingAccessPolicyRule[],
 	performedBy = "nais-sync",
 	context?: {
 		appName?: string
@@ -2188,14 +2217,6 @@ export async function upsertAccessPolicyRulesForEnvironment(
 		syncJobId?: string
 	},
 ) {
-	const seen = new Set<string>()
-	const uniqueRules = rules.filter((rule) => {
-		const key = `${rule.application}|${rule.namespace ?? ""}|${rule.cluster ?? ""}`
-		if (seen.has(key)) return false
-		seen.add(key)
-		return true
-	})
-
 	await db.transaction(async (tx) => {
 		const [environmentRow] = await tx
 			.select({
@@ -2337,7 +2358,7 @@ export async function upsertAccessPolicyRulesForEnvironment(
 		}
 		const beforeState = await getDirectionUnionState()
 
-		if (uniqueRules.length === 0) {
+		if (rules.length === 0) {
 			const [hasHistory] = await tx
 				.select({ id: applicationEnvironmentAccessPolicyRules.id })
 				.from(applicationEnvironmentAccessPolicyRules)
@@ -2373,38 +2394,17 @@ export async function upsertAccessPolicyRulesForEnvironment(
 					isNull(applicationEnvironmentAccessPolicyRules.archivedAt),
 				),
 			)
-
-		const keyOf = (r: { ruleApplication: string; ruleNamespace: string | null; ruleCluster: string | null }) =>
-			`${r.ruleApplication}|${r.ruleNamespace ?? ""}|${r.ruleCluster ?? ""}`
-
-		const existingByKey = new Map(existing.map((row) => [keyOf(row), row]))
-		const desiredKeys = new Set<string>()
-
-		const toInsert: Array<{
-			applicationEnvironmentId: string
-			direction: "inbound" | "outbound"
-			ruleApplication: string
-			ruleNamespace: string | null
-			ruleCluster: string | null
-		}> = []
-
-		for (const rule of uniqueRules) {
-			const ruleNamespace = rule.namespace ?? null
-			const ruleCluster = rule.cluster ?? null
-			const key = `${rule.application}|${ruleNamespace ?? ""}|${ruleCluster ?? ""}`
-			desiredKeys.add(key)
-			if (!existingByKey.has(key)) {
-				toInsert.push({
-					applicationEnvironmentId,
-					direction,
-					ruleApplication: rule.application,
-					ruleNamespace,
-					ruleCluster,
-				})
-			}
-		}
-
-		const toArchive = existing.filter((row) => !desiredKeys.has(keyOf(row)))
+		const { desiredCount, toArchive, toInsert, toArchiveKeys, toInsertKeys } = diffAccessPolicyRules(
+			existing,
+			rules,
+			(rule) => ({
+				applicationEnvironmentId,
+				direction,
+				ruleApplication: rule.ruleApplication,
+				ruleNamespace: rule.ruleNamespace,
+				ruleCluster: rule.ruleCluster,
+			}),
+		)
 
 		if (toArchive.length > 0 || toInsert.length > 0) {
 			logger.info("[access-policy-sync] Rule diff detected", {
@@ -2418,11 +2418,11 @@ export async function upsertAccessPolicyRulesForEnvironment(
 				syncRunId: context?.syncRunId,
 				direction,
 				existingCount: existing.length,
-				desiredCount: uniqueRules.length,
+				desiredCount,
 				toArchiveCount: toArchive.length,
 				toInsertCount: toInsert.length,
-				toArchiveKeys: toArchive.map((r) => keyOf(r)),
-				toInsertKeys: toInsert.map((r) => `${r.ruleApplication}|${r.ruleNamespace ?? ""}|${r.ruleCluster ?? ""}`),
+				toArchiveKeys,
+				toInsertKeys,
 			})
 		}
 
