@@ -150,6 +150,7 @@ export default [
 	route("api/eksport/screening", "routes/api.eksport.screening/index.tsx"),
 	route("api/graph/groups", "routes/api.graph.groups/index.tsx"),
 	route("api/graph/users", "routes/api.graph.users/index.tsx"),
+	route("api/rpa-sync-status/:jobId", "routes/api.rpa-sync-status.$jobId/index.tsx"),
 	route("api/sync-application-controls", "routes/api.sync-application-controls/index.tsx"),
 	// Generic evidence routes
 	route("api/evidence-status", "routes/api.evidence-status/index.tsx"),

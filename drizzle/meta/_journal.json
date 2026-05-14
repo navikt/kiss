@@ -575,6 +575,13 @@
       "when": 1781916820000,
       "tag": "0081_rpa_group_members_user_active_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1781916880000,
+      "tag": "0082_sync_jobs",
+      "breakpoints": true
     }
   ]
 }

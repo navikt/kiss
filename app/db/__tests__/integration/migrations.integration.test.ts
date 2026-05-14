@@ -153,6 +153,7 @@ describe("Database migrations", () => {
 				"section_environments",
 				"section_ignored_applications",
 				"sections",
+				"sync_jobs",
 				"entra_group_classifications",
 				"routine_group_classification_links",
 				"technology_elements",

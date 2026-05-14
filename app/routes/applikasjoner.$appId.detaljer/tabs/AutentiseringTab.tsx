@@ -1,4 +1,5 @@
 import { BodyLong, BodyShort, CopyButton, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { formatDateTimeOslo } from "~/lib/utils"
 import { GroupsSection } from "../components/GroupsSection"
 import { authLabels } from "../shared"
 
@@ -231,7 +232,7 @@ function RpaUsersSection({ rpaUsers }: { rpaUsers: RpaUser[] }) {
 				<Heading size="small" level="3">
 					RPA-brukere ({users.length})
 				</Heading>
-				<Detail textColor="subtle">Sist synkronisert: {new Date(latestSync).toLocaleString("nb-NO")}</Detail>
+				<Detail textColor="subtle">Sist synkronisert: {formatDateTimeOslo(latestSync)}</Detail>
 			</HStack>
 
 			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable container needs keyboard access */}
@@ -303,3 +304,5 @@ function RpaUsersSection({ rpaUsers }: { rpaUsers: RpaUser[] }) {
 		</VStack>
 	)
 }
+
+export const _testing = { formatDateTimeOslo }

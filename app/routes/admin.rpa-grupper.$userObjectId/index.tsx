@@ -17,6 +17,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRpaMemberByUserObjectId, getRpaUserGroupMemberships } from "~/db/queries/rpa.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import { formatDateTimeOslo } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -177,7 +178,7 @@ export default function AdminRpaRobotDetail() {
 										<Detail style={{ fontFamily: "monospace" }}>{membership.groupId}</Detail>
 									</Table.DataCell>
 									<Table.DataCell>
-										<Detail>{formatDateTime(membership.syncedAt)}</Detail>
+										<Detail>{formatDateTimeOslo(membership.syncedAt)}</Detail>
 									</Table.DataCell>
 								</Table.Row>
 							))}
@@ -206,12 +207,6 @@ function StatusTag({ accountEnabled }: { accountEnabled: boolean | null }) {
 			{accountEnabled === true ? "Aktiv" : accountEnabled === false ? "Deaktivert" : "Ukjent"}
 		</Tag>
 	)
-}
-
-function formatDateTime(dateString: string) {
-	return new Date(dateString).toLocaleString("nb-NO", {
-		timeZone: "Europe/Oslo",
-	})
 }
 
 export { RouteErrorBoundary as ErrorBoundary }
