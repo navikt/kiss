@@ -2802,7 +2802,7 @@ export async function upsertGroupClassification(
 			return inserted
 		}
 
-		// Race: en annen pod opprettet eller arkiverte en rad mellom SELECT og INSERT.
+		// Race: en annen instans opprettet eller arkiverte en rad mellom SELECT og INSERT.
 		const [raceRow] = await tx
 			.select()
 			.from(entraGroupClassifications)
