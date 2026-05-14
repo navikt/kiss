@@ -6,7 +6,7 @@ import { db } from "~/db/connection.server"
 import { syncAllApplicationControls } from "~/db/queries/application-controls.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
-import { runFullNaisSync } from "~/lib/nais-sync.server"
+import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -66,10 +66,15 @@ export async function action({ request }: ActionFunctionArgs) {
 	if (intent === "nais-sync") {
 		const token = process.env.NAIS_API_TOKEN || undefined
 		const start = Date.now()
-		const result = await runFullNaisSync(token)
+		const tracked = await runTrackedNaisSync({
+			token,
+			performedBy: authedUser.navIdent,
+			scopeType: "manual",
+			scopeId: "admin-vedlikehold",
+		})
 		const elapsed = Date.now() - start
 
-		if (!result) {
+		if (!tracked.result) {
 			return data({
 				intent: "nais-sync",
 				success: false,
@@ -81,8 +86,8 @@ export async function action({ request }: ActionFunctionArgs) {
 		return data({
 			intent: "nais-sync",
 			success: true,
-			teams: result.teams,
-			apps: result.apps,
+			teams: tracked.result.teams,
+			apps: tracked.result.apps,
 			elapsed,
 		})
 	}

@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // --- Mocks -----------------------------------------------------------
 
 const mockGetAuthenticatedUser = vi.fn()
+const mockRequireUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
 	getAuthenticatedUser: mockGetAuthenticatedUser,
+	requireUser: mockRequireUser,
 }))
 
 const mockLinkNaisTeamToSection = vi.fn()
@@ -23,8 +25,8 @@ vi.mock("~/db/queries/sections.server", () => ({
 	getSections: vi.fn().mockResolvedValue([]),
 }))
 
-vi.mock("~/lib/nais-sync.server", () => ({
-	runFullNaisSync: vi.fn(),
+vi.mock("~/lib/nais-sync-jobs.server", () => ({
+	runTrackedNaisSync: vi.fn(),
 }))
 
 const { action } = await import("../index")
@@ -59,6 +61,7 @@ describe("nais-overvaking action – section linking", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		mockGetAuthenticatedUser.mockResolvedValue(testUser)
+		mockRequireUser.mockReturnValue(testUser)
 	})
 
 	it("links a Nais team to a section and sets status to monitored", async () => {

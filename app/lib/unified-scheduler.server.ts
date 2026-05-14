@@ -42,12 +42,17 @@ const jobs: JobConfig[] = [
 		everyCycles: 1,
 		envVar: "ENABLE_NAIS_SYNC",
 		async run() {
-			const { runFullNaisSync } = await import("./nais-sync.server")
+			const { runTrackedNaisSync } = await import("./nais-sync-jobs.server")
 			const token = process.env.NAIS_API_KEY || process.env.NAIS_API_TOKEN || undefined
-			const result = await runFullNaisSync(token)
-			if (result) {
+			const tracked = await runTrackedNaisSync({
+				token,
+				performedBy: "unified-scheduler",
+				scopeType: "scheduler",
+				scopeId: "unified-scheduler",
+			})
+			if (tracked.result) {
 				logger.info(
-					`[unified-scheduler] nais-sync complete: ${result.teams.new} new teams, ${result.apps.length} teams scanned`,
+					`[unified-scheduler] nais-sync complete: ${tracked.result.teams.new} new teams, ${tracked.result.apps.length} teams scanned`,
 				)
 			} else {
 				logger.info("[unified-scheduler] nais-sync skipped — another pod holds the lock")

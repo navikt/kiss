@@ -26,8 +26,8 @@ import {
 	updateNaisTeamStatus,
 } from "~/db/queries/nais.server"
 import { getSections } from "~/db/queries/sections.server"
-import { getAuthenticatedUser } from "~/lib/auth.server"
-import { runFullNaisSync } from "~/lib/nais-sync.server"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
 
 export async function loader(_args: LoaderFunctionArgs) {
 	const [teams, appCounts, lastSync, allSectionsIncludingArchived] = await Promise.all([
@@ -61,17 +61,23 @@ export async function loader(_args: LoaderFunctionArgs) {
 
 export async function action({ request }: ActionFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
+	const authedUser = requireUser(user)
 	const formData = await request.formData()
 	const intent = formData.get("intent")
-	const userName = user?.navIdent ?? "system"
+	const userName = authedUser.navIdent
 
 	if (intent === "sync") {
 		const token = process.env.NAIS_API_TOKEN || undefined
-		const result = await runFullNaisSync(token)
-		if (!result) {
+		const tracked = await runTrackedNaisSync({
+			token,
+			performedBy: authedUser.navIdent,
+			scopeType: "manual",
+			scopeId: "nais-overvaking",
+		})
+		if (!tracked.result) {
 			return data({ message: "Synkronisering kjører allerede" })
 		}
-		return data({ success: true, newTeams: result.teams.new })
+		return data({ success: true, newTeams: tracked.result.teams.new })
 	}
 
 	if (intent === "link-section") {
