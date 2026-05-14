@@ -128,6 +128,7 @@ export default [
 	route("admin/teknologielementer", "routes/admin.teknologielementer/index.tsx"),
 	route("admin/vedlikehold", "routes/admin.vedlikehold/index.tsx"),
 	route("admin/synkjobber", "routes/admin.synkjobber/index.tsx"),
+	route("admin/synkjobber/:jobId", "routes/admin.synkjobber.$jobId/index.tsx"),
 	route("admin/okonomisystemer", "routes/admin.okonomisystemer/index.tsx"),
 	route("admin/rpa-grupper", "routes/admin.rpa-grupper/index.tsx"),
 	route("admin/rpa-grupper/:userObjectId", "routes/admin.rpa-grupper.$userObjectId/index.tsx"),

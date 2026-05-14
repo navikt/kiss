@@ -1,6 +1,6 @@
 import { BodyLong, Button, Detail, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
-import { data, Form, useLoaderData } from "react-router"
+import { data, Form, Link, useLoaderData } from "react-router"
 import { listSyncJobSummaries } from "~/db/queries/sync-jobs.server"
 import type { SyncJobState } from "~/db/schema/sync-jobs"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
@@ -110,7 +110,9 @@ export default function AdminSyncJobsPage() {
 							{syncJobs.map((job) => (
 								<Table.Row key={job.id}>
 									<Table.DataCell>
-										<Detail>{formatDateTimeOslo(job.createdAt)}</Detail>
+										<Link to={`/admin/synkjobber/${job.id}`}>
+											<Detail>{formatDateTimeOslo(job.createdAt)}</Detail>
+										</Link>
 									</Table.DataCell>
 									<Table.DataCell>
 										<Detail>{job.jobType}</Detail>
