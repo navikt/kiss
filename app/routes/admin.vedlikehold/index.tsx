@@ -1,24 +1,27 @@
-import { Alert, BodyLong, Button, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import { sql } from "drizzle-orm"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, useFetcher, useLoaderData } from "react-router"
 import { db } from "~/db/connection.server"
 import { syncAllApplicationControls } from "~/db/queries/application-controls.server"
+import { listRecentSyncJobs, type SyncJob } from "~/db/queries/sync-jobs.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
+import { formatDateTimeOslo } from "~/lib/utils"
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)
 
-	const [appControlStats, naisSyncEnabled] = await Promise.all([
+	const [appControlStats, naisSyncEnabled, recentSyncJobs] = await Promise.all([
 		getApplicationControlStats(),
 		Promise.resolve(process.env.ENABLE_NAIS_SYNC === "true"),
+		listRecentSyncJobs(10),
 	])
 
-	return data({ appControlStats, naisSyncEnabled })
+	return data({ appControlStats, naisSyncEnabled, recentSyncJobs })
 }
 
 async function getApplicationControlStats() {
@@ -98,7 +101,7 @@ export async function action({ request }: ActionFunctionArgs) {
 export { RouteErrorBoundary as ErrorBoundary } from "~/components/RouteErrorBoundary"
 
 export default function AdminVedlikehold() {
-	const { appControlStats, naisSyncEnabled } = useLoaderData<typeof loader>()
+	const { appControlStats, naisSyncEnabled, recentSyncJobs } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -112,6 +115,7 @@ export default function AdminVedlikehold() {
 			<VStack gap="space-6">
 				<SyncControlsCard stats={appControlStats} />
 				<NaisSyncCard enabled={naisSyncEnabled} />
+				<RecentSyncJobsCard jobs={recentSyncJobs} />
 			</VStack>
 		</VStack>
 	)
@@ -217,7 +221,95 @@ function NaisSyncCard({ enabled }: { enabled: boolean }) {
 	)
 }
 
+function RecentSyncJobsCard({ jobs }: { jobs: SyncJob[] }) {
+	return (
+		<section className="admin-maintenance-card">
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Siste synkjobber
+				</Heading>
+				<BodyLong>Viser de 10 siste synkjobbene som er registrert i systemet.</BodyLong>
+
+				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table wrapper needs keyboard access */}
+				<section className="table-scroll" tabIndex={0} aria-label="Siste synkjobber">
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Tidspunkt</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Jobbtype</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Melding</Table.HeaderCell>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{jobs.map((job) => (
+								<Table.Row key={job.id}>
+									<Table.DataCell>
+										<Detail>{formatDateTimeOslo(job.createdAt)}</Detail>
+									</Table.DataCell>
+									<Table.DataCell>
+										<Detail>{job.jobType}</Detail>
+									</Table.DataCell>
+									<Table.DataCell>
+										<Tag variant={getSyncStateTagVariant(job.state)} size="xsmall">
+											{getSyncStateLabel(job.state)}
+										</Tag>
+									</Table.DataCell>
+									<Table.DataCell>
+										<Detail>{job.error ?? job.message ?? "—"}</Detail>
+									</Table.DataCell>
+								</Table.Row>
+							))}
+							{jobs.length === 0 && (
+								<Table.Row>
+									<Table.DataCell colSpan={4}>
+										<Detail textColor="subtle">Ingen synkjobber registrert ennå.</Detail>
+									</Table.DataCell>
+								</Table.Row>
+							)}
+						</Table.Body>
+					</Table>
+				</section>
+			</VStack>
+		</section>
+	)
+}
+
+function getSyncStateLabel(state: SyncJob["state"]): string {
+	switch (state) {
+		case "pending":
+			return "Venter"
+		case "running":
+			return "Pågår"
+		case "completed":
+			return "Fullført"
+		case "failed":
+			return "Feilet"
+		case "skipped":
+			return "Hoppet over"
+	}
+	return "Ukjent"
+}
+
+function getSyncStateTagVariant(state: SyncJob["state"]): "neutral" | "info" | "success" | "error" | "warning" {
+	switch (state) {
+		case "pending":
+			return "neutral"
+		case "running":
+			return "info"
+		case "completed":
+			return "success"
+		case "failed":
+			return "error"
+		case "skipped":
+			return "warning"
+	}
+	return "neutral"
+}
+
 function formatElapsed(ms: number): string {
 	if (ms < 1000) return `${ms}ms`
 	return `${(ms / 1000).toFixed(1)}s`
 }
+
+export const _testing = { getSyncStateLabel, getSyncStateTagVariant }
