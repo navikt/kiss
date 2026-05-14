@@ -6,7 +6,7 @@ import { getSyncJob } from "~/db/queries/sync-jobs.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
-import { formatDateTimeOslo } from "~/lib/utils"
+import { formatDateTimeOslo, isValidUuid } from "~/lib/utils"
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -18,9 +18,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		throw new Response("Missing jobId", { status: 400 })
 	}
 
-	// Validate that jobId is a valid UUID to prevent postgres errors
-	const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-	if (!uuidPattern.test(jobId)) {
+	if (!isValidUuid(jobId)) {
 		throw new Response("Job not found", { status: 404 })
 	}
 

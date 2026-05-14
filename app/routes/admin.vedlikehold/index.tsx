@@ -8,6 +8,7 @@ import { listRecentSyncJobs, type SyncJob } from "~/db/queries/sync-jobs.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
+import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
 import { formatDateTimeOslo } from "~/lib/utils"
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -251,8 +252,8 @@ function RecentSyncJobsCard({ jobs }: { jobs: SyncJob[] }) {
 										<Detail>{job.jobType}</Detail>
 									</Table.DataCell>
 									<Table.DataCell>
-										<Tag variant={getSyncStateTagVariant(job.state)} size="xsmall">
-											{getSyncStateLabel(job.state)}
+										<Tag variant={getSyncJobStateTagVariant(job.state)} size="xsmall">
+											{getSyncJobStateLabel(job.state)}
 										</Tag>
 									</Table.DataCell>
 									<Table.DataCell>
@@ -275,41 +276,7 @@ function RecentSyncJobsCard({ jobs }: { jobs: SyncJob[] }) {
 	)
 }
 
-function getSyncStateLabel(state: SyncJob["state"]): string {
-	switch (state) {
-		case "pending":
-			return "Venter"
-		case "running":
-			return "Pågår"
-		case "completed":
-			return "Fullført"
-		case "failed":
-			return "Feilet"
-		case "skipped":
-			return "Hoppet over"
-	}
-	return "Ukjent"
-}
-
-function getSyncStateTagVariant(state: SyncJob["state"]): "neutral" | "info" | "success" | "error" | "warning" {
-	switch (state) {
-		case "pending":
-			return "neutral"
-		case "running":
-			return "info"
-		case "completed":
-			return "success"
-		case "failed":
-			return "error"
-		case "skipped":
-			return "warning"
-	}
-	return "neutral"
-}
-
 function formatElapsed(ms: number): string {
 	if (ms < 1000) return `${ms}ms`
 	return `${(ms / 1000).toFixed(1)}s`
 }
-
-export const _testing = { getSyncStateLabel, getSyncStateTagVariant }

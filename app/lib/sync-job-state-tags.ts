@@ -11,6 +11,8 @@ export const SYNC_JOB_STATE_TAGS: Record<
 	skipped: { label: "Hoppet over", variant: "warning" },
 }
 
+export const SYNC_JOB_STATE_VALUES = Object.keys(SYNC_JOB_STATE_TAGS) as SyncJobState[]
+
 export function getSyncJobStateLabel(state: SyncJobState): string {
 	return SYNC_JOB_STATE_TAGS[state].label
 }
