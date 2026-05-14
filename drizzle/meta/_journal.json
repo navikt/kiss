@@ -603,6 +603,13 @@
       "when": 1781917060000,
       "tag": "0085_access_policy_fallback_cutovers",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1781917120000,
+      "tag": "0086_sync_job_events",
+      "breakpoints": true
     }
   ]
 }

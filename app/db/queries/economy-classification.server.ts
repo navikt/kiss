@@ -177,10 +177,18 @@ export async function saveEconomyClassification(
 	} catch (error: unknown) {
 		// Handle unique constraint violation from concurrent first-time inserts:
 		// retry once — the winner's row now exists and will be locked by FOR UPDATE
-		const isUniqueViolation = error instanceof Error && (error as Error & { code?: string }).code === "23505"
+		const isUniqueViolation = hasPostgresCode(error, "23505")
 		if (isUniqueViolation && retryCount < 1) {
 			return saveEconomyClassification(params, retryCount + 1)
 		}
 		throw error
 	}
+}
+
+function hasPostgresCode(error: unknown, code: string): boolean {
+	if (typeof error !== "object" || error === null) {
+		return false
+	}
+	const err = error as { code?: unknown; cause?: { code?: unknown } }
+	return err.code === code || err.cause?.code === code
 }
