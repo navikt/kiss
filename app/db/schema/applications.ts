@@ -295,6 +295,23 @@ export const applicationEnvironmentAccessPolicyRules = pgTable(
 	],
 )
 
+export const applicationAccessPolicyFallbackCutovers = pgTable(
+	"application_access_policy_fallback_cutovers",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
+		direction: text("direction", { enum: accessPolicyDirectionEnum }).notNull(),
+		cutoverAt: timestamp("cutover_at", { withTimezone: true }).notNull().defaultNow(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+	},
+	(t) => [uniqueIndex("application_access_policy_fallback_cutovers_unique_idx").on(t.applicationId, t.direction)],
+)
+
 export const accessPolicyAcknowledgments = pgTable("access_policy_acknowledgments", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	applicationId: uuid("application_id")

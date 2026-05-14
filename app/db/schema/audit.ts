@@ -116,6 +116,7 @@ export const auditLogActionEnum = [
 	// Access policy-regler (Nais inbound/outbound)
 	"access_policy_rule_added",
 	"access_policy_rule_removed",
+	"access_policy_legacy_fallback_cutover",
 
 	// Brukerroller (rolletildeling og -inndragelse)
 	"user_role_granted",

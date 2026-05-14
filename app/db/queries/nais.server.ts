@@ -4,6 +4,7 @@ import { db } from "../connection.server"
 import {
 	type AuthIntegrationType,
 	accessPolicyAcknowledgments,
+	applicationAccessPolicyFallbackCutovers,
 	applicationAccessPolicyRules,
 	applicationAuthIntegrations,
 	applicationEnvironmentAccessPolicyRules,
@@ -2253,41 +2254,9 @@ export async function upsertAccessPolicyRulesForEnvironment(
 			unionKeys: Set<string>
 			legacyFallbackVisible: boolean
 			legacyFallbackReason: LegacyFallbackReason
+			historyCoverageComplete: boolean
 		}
-		const getDirectionUnionState = async (): Promise<DirectionUnionState> => {
-			const activeEnvironmentRows = await tx
-				.select({
-					ruleApplication: applicationEnvironmentAccessPolicyRules.ruleApplication,
-					ruleNamespace: applicationEnvironmentAccessPolicyRules.ruleNamespace,
-					ruleCluster: applicationEnvironmentAccessPolicyRules.ruleCluster,
-				})
-				.from(applicationEnvironmentAccessPolicyRules)
-				.innerJoin(
-					applicationEnvironments,
-					eq(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironments.id),
-				)
-				.where(
-					and(
-						eq(applicationEnvironments.applicationId, effectiveApplicationId),
-						eq(applicationEnvironmentAccessPolicyRules.direction, direction),
-						isNull(applicationEnvironmentAccessPolicyRules.archivedAt),
-					),
-				)
-			const activeKeys = new Set(
-				activeEnvironmentRows.map(
-					(row) => `${row.ruleApplication}|${row.ruleNamespace ?? ""}|${row.ruleCluster ?? ""}`,
-				),
-			)
-			if (activeKeys.size > 0) {
-				return {
-					activeKeys,
-					legacyKeys: new Set(),
-					unionKeys: activeKeys,
-					legacyFallbackVisible: false,
-					legacyFallbackReason: "active_environment_rules",
-				}
-			}
-
+		const getDirectionCoverage = async () => {
 			const allEnvironmentRows = await tx
 				.select({
 					id: applicationEnvironments.id,
@@ -2318,12 +2287,53 @@ export async function upsertAccessPolicyRulesForEnvironment(
 			const scopedEnvironmentCount = allEnvironmentRows.filter((env) =>
 				coveredTeamIds.has(env.naisTeamId ?? "__null_team__"),
 			).length
-			const isCompleteCoverage = scopedEnvironmentCount > 0 && historyCoverageRows.length === scopedEnvironmentCount
-			const legacyFallbackVisible = historyCoverageRows.length === 0 || !isCompleteCoverage
+			const historyCoverageComplete =
+				scopedEnvironmentCount > 0 && historyCoverageRows.length === scopedEnvironmentCount
+			return {
+				historyCoverageRows,
+				historyCoverageComplete,
+			}
+		}
+		const getDirectionUnionState = async (): Promise<DirectionUnionState> => {
+			const coverage = await getDirectionCoverage()
+			const activeEnvironmentRows = await tx
+				.select({
+					ruleApplication: applicationEnvironmentAccessPolicyRules.ruleApplication,
+					ruleNamespace: applicationEnvironmentAccessPolicyRules.ruleNamespace,
+					ruleCluster: applicationEnvironmentAccessPolicyRules.ruleCluster,
+				})
+				.from(applicationEnvironmentAccessPolicyRules)
+				.innerJoin(
+					applicationEnvironments,
+					eq(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironments.id),
+				)
+				.where(
+					and(
+						eq(applicationEnvironments.applicationId, effectiveApplicationId),
+						eq(applicationEnvironmentAccessPolicyRules.direction, direction),
+						isNull(applicationEnvironmentAccessPolicyRules.archivedAt),
+					),
+				)
+			const activeKeys = new Set(
+				activeEnvironmentRows.map(
+					(row) => `${row.ruleApplication}|${row.ruleNamespace ?? ""}|${row.ruleCluster ?? ""}`,
+				),
+			)
+			if (activeKeys.size > 0) {
+				return {
+					activeKeys,
+					legacyKeys: new Set(),
+					unionKeys: activeKeys,
+					legacyFallbackVisible: false,
+					legacyFallbackReason: "active_environment_rules",
+					historyCoverageComplete: coverage.historyCoverageComplete,
+				}
+			}
+			const legacyFallbackVisible = coverage.historyCoverageRows.length === 0 || !coverage.historyCoverageComplete
 			const legacyFallbackReason: LegacyFallbackReason =
-				historyCoverageRows.length === 0
+				coverage.historyCoverageRows.length === 0
 					? "no_environment_history"
-					: isCompleteCoverage
+					: coverage.historyCoverageComplete
 						? "complete_environment_history"
 						: "incomplete_environment_history"
 			const legacyKeys = new Set<string>()
@@ -2354,6 +2364,7 @@ export async function upsertAccessPolicyRulesForEnvironment(
 				unionKeys,
 				legacyFallbackVisible,
 				legacyFallbackReason,
+				historyCoverageComplete: coverage.historyCoverageComplete,
 			}
 		}
 		const beforeState = await getDirectionUnionState()
@@ -2438,6 +2449,43 @@ export async function upsertAccessPolicyRulesForEnvironment(
 		}
 
 		const afterState = await getDirectionUnionState()
+		if (afterState.historyCoverageComplete) {
+			const [insertedCutover] = await tx
+				.insert(applicationAccessPolicyFallbackCutovers)
+				.values({
+					applicationId: effectiveApplicationId,
+					direction,
+					createdBy: performedBy,
+					updatedBy: performedBy,
+				})
+				.onConflictDoNothing({
+					target: [
+						applicationAccessPolicyFallbackCutovers.applicationId,
+						applicationAccessPolicyFallbackCutovers.direction,
+					],
+				})
+				.returning()
+			if (insertedCutover) {
+				await writeAuditLog(
+					{
+						action: "access_policy_legacy_fallback_cutover",
+						entityType: "application",
+						entityId: effectiveApplicationId,
+						newValue: JSON.stringify({
+							direction,
+							cutoverSource: "environment_sync",
+						}),
+						metadata: {
+							applicationEnvironmentId,
+							...(context?.syncRunId ? { syncRunId: context.syncRunId } : {}),
+						},
+						performedBy,
+						syncJobId: context?.syncJobId,
+					},
+					tx,
+				)
+			}
+		}
 		const addedKeys = [...afterState.unionKeys].filter((key) => !beforeState.unionKeys.has(key))
 		const removedKeys = [...beforeState.unionKeys].filter((key) => !afterState.unionKeys.has(key))
 
@@ -2664,6 +2712,11 @@ export async function getAccessPolicyRules(applicationId: string) {
 			directionsWithCompleteEnvironmentHistory.add(direction)
 		}
 	}
+	const legacyFallbackCutoverRows = await db
+		.select({ direction: applicationAccessPolicyFallbackCutovers.direction })
+		.from(applicationAccessPolicyFallbackCutovers)
+		.where(eq(applicationAccessPolicyFallbackCutovers.applicationId, applicationId))
+	const directionsWithLegacyFallbackCutover = new Set(legacyFallbackCutoverRows.map((row) => row.direction))
 
 	const legacyRows = await db
 		.select({
@@ -2688,6 +2741,10 @@ export async function getAccessPolicyRules(applicationId: string) {
 		)
 
 	for (const row of legacyRows) {
+		if (directionsWithLegacyFallbackCutover.has(row.direction)) {
+			continue
+		}
+
 		if (directionsWithActiveEnvironmentRules.has(row.direction)) {
 			continue
 		}

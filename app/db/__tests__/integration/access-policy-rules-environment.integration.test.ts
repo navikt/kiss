@@ -63,6 +63,7 @@ describe("Access policy rules per environment", () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `DELETE FROM application_environment_access_policy_rules`)
 		await db.execute(/* sql */ `DELETE FROM application_access_policy_rules`)
+		await db.execute(/* sql */ `DELETE FROM application_access_policy_fallback_cutovers`)
 		await db.execute(/* sql */ `DELETE FROM application_environments`)
 		await db.execute(/* sql */ `DELETE FROM section_environments`)
 		await db.execute(/* sql */ `DELETE FROM monitored_applications`)
@@ -274,6 +275,38 @@ describe("Access policy rules per environment", () => {
 
 		const merged = await getAccessPolicyRules(app.id)
 		expect(merged).toHaveLength(0)
+	})
+
+	it("keeps legacy fallback disabled after cutover, even when a new environment appears", async () => {
+		const teamId = await createNaisTeam("teampensjon")
+		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
+		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
+
+		await upsertAccessPolicyRules(
+			app.id,
+			"inbound",
+			[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
+			"nais-sync",
+		)
+
+		await upsertAccessPolicyRulesForEnvironment(
+			app.id,
+			prodEnv.id,
+			"inbound",
+			[{ application: "env-client", namespace: "teampensjon", cluster: "prod-gcp" }],
+			"nais-sync",
+		)
+
+		const devEnv = await upsertAppEnvironment(app.id, "dev-gcp", "teampensjon", teamId)
+
+		await upsertAccessPolicyRulesForEnvironment(app.id, prodEnv.id, "inbound", [], "nais-sync")
+
+		const merged = await getAccessPolicyRules(app.id)
+		expect(merged).toHaveLength(0)
+
+		await upsertAccessPolicyRulesForEnvironment(app.id, devEnv.id, "inbound", [], "nais-sync")
+		const mergedAfterDevMarker = await getAccessPolicyRules(app.id)
+		expect(mergedAfterDevMarker).toHaveLength(0)
 	})
 
 	it("backfills naisTeamId on existing environment rows", async () => {

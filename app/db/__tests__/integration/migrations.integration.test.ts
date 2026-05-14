@@ -108,6 +108,7 @@ describe("Database migrations", () => {
 				"application_controls",
 				"application_environments",
 				"application_environment_access_policy_rules",
+				"application_access_policy_fallback_cutovers",
 				"application_group_assessments",
 				"application_manual_groups",
 				"application_persistence",
