@@ -42,6 +42,7 @@ export const rpaGroupMembers = pgTable(
 	},
 	(t) => [
 		uniqueIndex("rpa_group_members_active_unique_idx").on(t.rpaGroupId, t.userObjectId).where(sql`archived_at IS NULL`),
+		index("rpa_group_members_user_active_idx").on(t.userObjectId).where(sql`archived_at IS NULL`),
 	],
 )
 

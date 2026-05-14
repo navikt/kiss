@@ -403,10 +403,10 @@ function extractCreateIndexNames(sqlContent: string): string[] {
 	// bli aktuelt må denne stripper-en gjøres mer presis).
 	const stripped = sqlContent.replace(/--.*$/gm, "")
 	const names: string[] = []
-	const regex = /CREATE\s+(?:UNIQUE\s+)?INDEX[^"]*"(\w+)"/g
+	const regex = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/gi
 	let match = regex.exec(stripped)
 	while (match) {
-		names.push(match[1])
+		names.push(match[1] ?? match[2])
 		match = regex.exec(stripped)
 	}
 	return names

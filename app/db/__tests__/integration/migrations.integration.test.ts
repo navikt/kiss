@@ -595,6 +595,12 @@ describe("Migration seed helpers", () => {
 		expect(_testing.shouldSkipMigration(sqlContent, tables, columns, new Set(), new Set())).toBeNull()
 	})
 
+	it("extractCreateIndexNames should handle CREATE INDEX IF NOT EXISTS with unquoted names", () => {
+		const sqlContent = `CREATE INDEX IF NOT EXISTS rpa_group_members_user_active_idx ON rpa_group_members (user_object_id) WHERE archived_at IS NULL;`
+		const names = _testing.extractCreateIndexNames(sqlContent)
+		expect(names).toEqual(["rpa_group_members_user_active_idx"])
+	})
+
 	it("shouldSkipMigration should NOT skip CREATE TABLE when table was later dropped", () => {
 		const sqlContent = `CREATE TABLE "old_table" ("id" uuid PRIMARY KEY);`
 		const tables = new Set(["sections"]) // old_table doesn't exist
