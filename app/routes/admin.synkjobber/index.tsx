@@ -5,18 +5,14 @@ import { listSyncJobSummaries } from "~/db/queries/sync-jobs.server"
 import type { SyncJobState } from "~/db/schema/sync-jobs"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import { getSyncJobStateLabel, getSyncJobStateTagVariant, SYNC_JOB_STATE_VALUES } from "~/lib/sync-job-state-tags"
 import { ALL_SYNC_JOB_TYPES } from "~/lib/sync-job-types"
 import { formatDateTimeOslo } from "~/lib/utils"
 
-const SYNC_JOB_STATES: Array<{ value: SyncJobState; label: string }> = [
-	{ value: "pending", label: "Venter" },
-	{ value: "running", label: "Pågår" },
-	{ value: "completed", label: "Fullført" },
-	{ value: "skipped", label: "Hoppet over" },
-	{ value: "failed", label: "Feilet" },
-]
-
-const VALID_STATES = SYNC_JOB_STATES.map((s) => s.value)
+const SYNC_JOB_STATES: Array<{ value: SyncJobState; label: string }> = SYNC_JOB_STATE_VALUES.map((value) => ({
+	value,
+	label: getSyncJobStateLabel(value),
+}))
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -28,7 +24,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const jobTypeParam = url.searchParams.get("jobType") || ""
 
 	// Validate state filter against known values
-	const stateFilter = (VALID_STATES.includes(stateParam as SyncJobState) ? stateParam : "") as SyncJobState | ""
+	const stateFilter = (SYNC_JOB_STATE_VALUES.includes(stateParam as SyncJobState) ? stateParam : "") as
+		| SyncJobState
+		| ""
 
 	// Validate jobType filter against known values
 	const jobTypeFilter = ALL_SYNC_JOB_TYPES.includes(jobTypeParam as (typeof ALL_SYNC_JOB_TYPES)[number])
@@ -118,8 +116,8 @@ export default function AdminSyncJobsPage() {
 										<Detail>{job.jobType}</Detail>
 									</Table.DataCell>
 									<Table.DataCell>
-										<Tag variant={getSyncStateTagVariant(job.state)} size="xsmall">
-											{getSyncStateLabel(job.state)}
+										<Tag variant={getSyncJobStateTagVariant(job.state)} size="xsmall">
+											{getSyncJobStateLabel(job.state)}
 										</Tag>
 									</Table.DataCell>
 									<Table.DataCell>
@@ -143,37 +141,3 @@ export default function AdminSyncJobsPage() {
 		</div>
 	)
 }
-
-function getSyncStateLabel(state: SyncJobState): string {
-	switch (state) {
-		case "pending":
-			return "Venter"
-		case "running":
-			return "Pågår"
-		case "completed":
-			return "Fullført"
-		case "failed":
-			return "Feilet"
-		case "skipped":
-			return "Hoppet over"
-	}
-	return "Ukjent"
-}
-
-function getSyncStateTagVariant(state: SyncJobState): "neutral" | "info" | "success" | "error" | "warning" {
-	switch (state) {
-		case "pending":
-			return "neutral"
-		case "running":
-			return "info"
-		case "completed":
-			return "success"
-		case "failed":
-			return "error"
-		case "skipped":
-			return "warning"
-	}
-	return "neutral"
-}
-
-export const _testing = { getSyncStateLabel, getSyncStateTagVariant }
