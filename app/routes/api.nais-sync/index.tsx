@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs } from "react-router"
 import { data } from "react-router"
-import { getAuthenticatedUser } from "~/lib/auth.server"
-import { runFullNaisSync } from "~/lib/nais-sync.server"
+import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
 
 /** POST /api/nais-sync — trigger a full Nais sync. Requires authentication. */
 export async function action({ request }: ActionFunctionArgs) {
@@ -9,16 +9,22 @@ export async function action({ request }: ActionFunctionArgs) {
 	if (!user) {
 		return data({ error: "Ikke autentisert" }, { status: 401 })
 	}
+	const authedUser = requireUser(user)
 
 	const token = process.env.NAIS_API_TOKEN || undefined
-	const result = await runFullNaisSync(token)
-	if (!result) {
+	const tracked = await runTrackedNaisSync({
+		token,
+		performedBy: authedUser.navIdent,
+		scopeType: "manual",
+		scopeId: "api-nais-sync",
+	})
+	if (!tracked.result) {
 		return data({ message: "Synkronisering pågår allerede." }, { status: 409 })
 	}
 
 	return data({
 		success: true,
-		teams: result.teams,
-		apps: result.apps,
+		teams: tracked.result.teams,
+		apps: tracked.result.apps,
 	})
 }
