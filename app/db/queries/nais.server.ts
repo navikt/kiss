@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm"
+import { logger } from "~/lib/logger.server"
 import { db } from "../connection.server"
 import {
 	type AuthIntegrationType,
@@ -1945,6 +1946,20 @@ export async function upsertAccessPolicyRules(
 		}
 
 		const toArchive = existing.filter((row) => !desiredKeys.has(keyOf(row)))
+
+		if (toArchive.length > 0 || toInsert.length > 0) {
+			logger.info("[access-policy-sync] Rule diff detected", {
+				sync_component: "access_policy_rules",
+				applicationId,
+				direction,
+				existingCount: existing.length,
+				desiredCount: uniqueRules.length,
+				toArchiveCount: toArchive.length,
+				toInsertCount: toInsert.length,
+				toArchiveKeys: toArchive.map((r) => keyOf(r)),
+				toInsertKeys: toInsert.map((r) => `${r.ruleApplication}|${r.ruleNamespace ?? ""}|${r.ruleCluster ?? ""}`),
+			})
+		}
 
 		for (const row of toArchive) {
 			await tx
