@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type SyncJobState, syncJobs } from "../schema/sync-jobs"
 
@@ -167,4 +167,26 @@ export async function getSyncJob(jobId: string, jobType?: string): Promise<SyncJ
 		.limit(1)
 
 	return job ? toModel(job) : null
+}
+
+export async function listRecentSyncJobs(limit = 10): Promise<SyncJob[]> {
+	const rows = await db
+		.select({
+			id: syncJobs.id,
+			jobType: syncJobs.jobType,
+			scopeType: syncJobs.scopeType,
+			scopeId: syncJobs.scopeId,
+			state: syncJobs.state,
+			createdAt: syncJobs.createdAt,
+			startedAt: syncJobs.startedAt,
+			finishedAt: syncJobs.finishedAt,
+			message: syncJobs.message,
+			result: syncJobs.result,
+			error: syncJobs.error,
+		})
+		.from(syncJobs)
+		.orderBy(desc(syncJobs.createdAt))
+		.limit(limit)
+
+	return rows.map(toModel)
 }
