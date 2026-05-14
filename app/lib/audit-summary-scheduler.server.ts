@@ -1,5 +1,12 @@
 import { and, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "../db/connection.server"
+import {
+	createSyncJob,
+	markSyncJobCompleted,
+	markSyncJobFailed,
+	markSyncJobRunning,
+	markSyncJobSkipped,
+} from "../db/queries/sync-jobs.server"
 import { applicationPersistence } from "../db/schema/applications"
 import { auditLog } from "../db/schema/audit"
 import { applicationOracleInstances } from "../db/schema/audit-evidence"
@@ -7,6 +14,7 @@ import { persistenceAuditSummaries } from "../db/schema/audit-logging"
 import { withAdvisoryLock } from "./lock.server"
 import { logger } from "./logger.server"
 import { getAuditEvidenceSummary, getOracleInstances } from "./oracle-revisjon.server"
+import { SYNC_JOB_TYPES } from "./sync-job-types"
 
 const SYNC_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
 const INITIAL_DELAY_MS = 60 * 1000 // 60 seconds after startup
@@ -14,6 +22,30 @@ const RETRY_DELAY_MS = 5 * 1000 // 5 seconds retry delay
 const PERFORMER = "audit-summary-sync"
 
 let intervalId: ReturnType<typeof setInterval> | null = null
+
+function buildAuditSummarySyncAuditLog(params: {
+	processed: number
+	succeeded: number
+	failed: number
+	skipped: number
+	durationMs: number
+	syncJobId?: string
+}) {
+	return {
+		action: "audit_summary_synced" as const,
+		entityType: "persistence_audit_summary",
+		entityId: "batch",
+		newValue: JSON.stringify({
+			processed: params.processed,
+			succeeded: params.succeeded,
+			failed: params.failed,
+			skipped: params.skipped,
+			durationMs: params.durationMs,
+		}),
+		performedBy: PERFORMER,
+		syncJobId: params.syncJobId ?? null,
+	}
+}
 
 /**
  * Resolve Oracle instance ID: explicit link > auto-match > name fallback.
@@ -46,7 +78,7 @@ async function fetchSummaryWithRetry(instanceId: string, retries = 1) {
 	return null
 }
 
-async function syncAuditSummaries(): Promise<{
+async function syncAuditSummaries(syncJobId?: string): Promise<{
 	processed: number
 	succeeded: number
 	failed: number
@@ -201,13 +233,9 @@ async function syncAuditSummaries(): Promise<{
 
 		// Audit log the sync run
 		if (succeeded > 0 || failed > 0) {
-			await db.insert(auditLog).values({
-				action: "audit_summary_synced",
-				entityType: "persistence_audit_summary",
-				entityId: "batch",
-				newValue: JSON.stringify({ processed, succeeded, failed, skipped, durationMs }),
-				performedBy: PERFORMER,
-			})
+			await db
+				.insert(auditLog)
+				.values(buildAuditSummarySyncAuditLog({ processed, succeeded, failed, skipped, durationMs, syncJobId }))
 		}
 
 		return { processed, succeeded, failed, skipped, durationMs }
@@ -216,18 +244,42 @@ async function syncAuditSummaries(): Promise<{
 
 /** Run audit summary sync once (used by unified scheduler). */
 export async function runAuditSummarySync() {
-	try {
-		const result = await syncAuditSummaries()
-		if (result) {
-			logger.info(
-				`[audit-summary-sync] Complete: ${result.succeeded} succeeded, ${result.failed} failed, ${result.skipped} skipped (${result.durationMs}ms)`,
-			)
-		} else {
-			logger.info("[audit-summary-sync] Skipped — another pod holds the lock")
-		}
-	} catch (err) {
-		logger.error("[audit-summary-sync] Sync failed", err)
+	const job = await createSyncJob({
+		jobType: SYNC_JOB_TYPES.AUDIT_SUMMARY_SYNC,
+		performedBy: PERFORMER,
+		scopeType: "scheduler",
+		scopeId: "audit-summary-sync",
+		message: "Venter på start",
+	})
+	await markSyncJobRunning(job.id, PERFORMER, "Synkronisering pågår")
+
+	const execution = await syncAuditSummaries(job.id).then(
+		(result) => ({ ok: true as const, result }),
+		(error) => ({ ok: false as const, error }),
+	)
+
+	if (!execution.ok) {
+		const message = execution.error instanceof Error ? execution.error.message : String(execution.error)
+		await markSyncJobFailed(job.id, message, PERFORMER, "Synkronisering feilet")
+		logger.error("[audit-summary-sync] Sync failed", execution.error)
+		return
 	}
+
+	if (execution.result === null) {
+		await markSyncJobSkipped(job.id, "Synkronisering pågår allerede i en annen prosess.", PERFORMER)
+		logger.info("[audit-summary-sync] Skipped — another pod holds the lock")
+		return
+	}
+
+	await markSyncJobCompleted(
+		job.id,
+		execution.result,
+		PERFORMER,
+		`Synkronisering fullført: ${execution.result.succeeded} vellykket, ${execution.result.failed} feilet`,
+	)
+	logger.info(
+		`[audit-summary-sync] Complete: ${execution.result.succeeded} succeeded, ${execution.result.failed} failed, ${execution.result.skipped} skipped (${execution.result.durationMs}ms)`,
+	)
 }
 
 /** @deprecated Use unified-scheduler instead. Start periodic audit summary sync. */
@@ -263,3 +315,5 @@ export function stopAuditSummaryScheduler() {
 		logger.info("[audit-summary-sync] Stopped")
 	}
 }
+
+export const _testing = { buildAuditSummarySyncAuditLog }

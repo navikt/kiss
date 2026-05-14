@@ -5,11 +5,19 @@ import {
 	touchSyncAttempt,
 	upsertDeploymentVerification,
 } from "../db/queries/deployment-audit.server"
+import {
+	createSyncJob,
+	markSyncJobCompleted,
+	markSyncJobFailed,
+	markSyncJobRunning,
+	markSyncJobSkipped,
+} from "../db/queries/sync-jobs.server"
 import { auditLog } from "../db/schema/audit"
 import { deploymentVerificationSummaries } from "../db/schema/deployment-audit"
 import { getVerificationSummary } from "./deployment-audit.server"
 import { withAdvisoryLock } from "./lock.server"
 import { logger } from "./logger.server"
+import { SYNC_JOB_TYPES } from "./sync-job-types"
 
 const SYNC_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
 const INITIAL_DELAY_MS = 60 * 1000 // 60 seconds after startup
@@ -21,11 +29,35 @@ const PERFORMER = "deployment-audit-sync"
 let intervalId: ReturnType<typeof setInterval> | null = null
 let timeoutId: ReturnType<typeof setTimeout> | null = null
 
+function buildDeploymentAuditSyncLog(params: {
+	processed: number
+	succeeded: number
+	failed: number
+	skippedNotMonitored: number
+	durationMs: number
+	syncJobId?: string
+}) {
+	return {
+		action: "deployment_verification_synced" as const,
+		entityType: "deployment_verification_summary",
+		entityId: "batch",
+		newValue: JSON.stringify({
+			processed: params.processed,
+			succeeded: params.succeeded,
+			failed: params.failed,
+			skippedNotMonitored: params.skippedNotMonitored,
+			durationMs: params.durationMs,
+		}),
+		performedBy: PERFORMER,
+		syncJobId: params.syncJobId ?? null,
+	}
+}
+
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function syncDeploymentVerifications(): Promise<{
+async function syncDeploymentVerifications(syncJobId?: string): Promise<{
 	processed: number
 	succeeded: number
 	failed: number
@@ -153,13 +185,11 @@ async function syncDeploymentVerifications(): Promise<{
 		}
 
 		if (succeeded > 0 || failed > 0) {
-			await db.insert(auditLog).values({
-				action: "deployment_verification_synced",
-				entityType: "deployment_verification_summary",
-				entityId: "batch",
-				newValue: JSON.stringify({ processed, succeeded, failed, skippedNotMonitored, durationMs }),
-				performedBy: PERFORMER,
-			})
+			await db
+				.insert(auditLog)
+				.values(
+					buildDeploymentAuditSyncLog({ processed, succeeded, failed, skippedNotMonitored, durationMs, syncJobId }),
+				)
 		}
 
 		return { processed, succeeded, failed, skippedNotMonitored, durationMs }
@@ -168,18 +198,42 @@ async function syncDeploymentVerifications(): Promise<{
 
 /** Run deployment audit sync once (used by unified scheduler). */
 export async function runDeploymentAuditSync() {
-	try {
-		const result = await syncDeploymentVerifications()
-		if (result) {
-			logger.info(
-				`[deployment-audit-sync] Complete: ${result.succeeded} succeeded, ${result.failed} failed, ${result.skippedNotMonitored} skipped (${result.durationMs}ms)`,
-			)
-		} else {
-			logger.info("[deployment-audit-sync] Skipped — another pod holds the lock")
-		}
-	} catch (err) {
-		logger.error("[deployment-audit-sync] Sync failed", err)
+	const job = await createSyncJob({
+		jobType: SYNC_JOB_TYPES.DEPLOYMENT_AUDIT_SYNC,
+		performedBy: PERFORMER,
+		scopeType: "scheduler",
+		scopeId: "deployment-audit-sync",
+		message: "Venter på start",
+	})
+	await markSyncJobRunning(job.id, PERFORMER, "Synkronisering pågår")
+
+	const execution = await syncDeploymentVerifications(job.id).then(
+		(result) => ({ ok: true as const, result }),
+		(error) => ({ ok: false as const, error }),
+	)
+
+	if (!execution.ok) {
+		const message = execution.error instanceof Error ? execution.error.message : String(execution.error)
+		await markSyncJobFailed(job.id, message, PERFORMER, "Synkronisering feilet")
+		logger.error("[deployment-audit-sync] Sync failed", execution.error)
+		return
 	}
+
+	if (execution.result === null) {
+		await markSyncJobSkipped(job.id, "Synkronisering pågår allerede i en annen prosess.", PERFORMER)
+		logger.info("[deployment-audit-sync] Skipped — another pod holds the lock")
+		return
+	}
+
+	await markSyncJobCompleted(
+		job.id,
+		execution.result,
+		PERFORMER,
+		`Synkronisering fullført: ${execution.result.succeeded} vellykket, ${execution.result.failed} feilet`,
+	)
+	logger.info(
+		`[deployment-audit-sync] Complete: ${execution.result.succeeded} succeeded, ${execution.result.failed} failed, ${execution.result.skippedNotMonitored} skipped (${execution.result.durationMs}ms)`,
+	)
 }
 
 /** @deprecated Use unified-scheduler instead. Start periodic deployment verification sync. */
@@ -215,3 +269,5 @@ export function stopDeploymentAuditScheduler() {
 		logger.info("[deployment-audit-sync] Stopped")
 	}
 }
+
+export const _testing = { buildDeploymentAuditSyncLog }
