@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { SYNC_JOB_TYPES } from "~/lib/sync-job-types"
 
 const mockCreateSyncJob = vi.fn()
 const mockMarkSyncJobRunning = vi.fn()
@@ -43,7 +44,7 @@ describe("nais sync jobs wrapper", () => {
 		expect(result.state).toBe("completed")
 		expect(result.jobId).toBe("job-1")
 		expect(mockCreateSyncJob).toHaveBeenCalledWith({
-			jobType: "nais_full_sync",
+			jobType: SYNC_JOB_TYPES.NAIS_FULL_SYNC,
 			performedBy: "Z123456",
 			scopeType: "manual",
 			scopeId: "admin",

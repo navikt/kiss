@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { SYNC_JOB_TYPES } from "~/lib/sync-job-types"
 
 const mockCreateSyncJob = vi.fn()
 const mockGetSyncJob = vi.fn()
@@ -33,7 +34,7 @@ describe("rpa sync jobs wrapper", () => {
 	it("creates job with fixed RPA job type", async () => {
 		mockCreateSyncJob.mockResolvedValue({
 			id: "job-1",
-			jobType: "rpa_group_member_sync",
+			jobType: SYNC_JOB_TYPES.RPA_GROUP_MEMBER_SYNC,
 			scopeType: null,
 			scopeId: null,
 			state: "pending",
@@ -48,7 +49,7 @@ describe("rpa sync jobs wrapper", () => {
 		await createRpaSyncJob("Z123456")
 
 		expect(mockCreateSyncJob).toHaveBeenCalledWith({
-			jobType: "rpa_group_member_sync",
+			jobType: SYNC_JOB_TYPES.RPA_GROUP_MEMBER_SYNC,
 			performedBy: "Z123456",
 			message: "Venter på start",
 		})
@@ -57,7 +58,7 @@ describe("rpa sync jobs wrapper", () => {
 	it("filters get by RPA job type", async () => {
 		mockGetSyncJob.mockResolvedValue({
 			id: "job-1",
-			jobType: "rpa_group_member_sync",
+			jobType: SYNC_JOB_TYPES.RPA_GROUP_MEMBER_SYNC,
 			scopeType: null,
 			scopeId: null,
 			state: "completed",
@@ -71,7 +72,7 @@ describe("rpa sync jobs wrapper", () => {
 
 		const job = await getRpaSyncJob("job-1")
 
-		expect(mockGetSyncJob).toHaveBeenCalledWith("job-1", "rpa_group_member_sync")
+		expect(mockGetSyncJob).toHaveBeenCalledWith("job-1", SYNC_JOB_TYPES.RPA_GROUP_MEMBER_SYNC)
 		expect(job?.result).toEqual({ groupsSynced: 1, totalAdded: 2, totalArchived: 3 })
 	})
 
