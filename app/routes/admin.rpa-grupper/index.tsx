@@ -138,7 +138,7 @@ export async function action({ request }: ActionFunctionArgs) {
 				await markRpaSyncJobFailed(job.id, message, authedUser.navIdent)
 			}
 			// Fire-and-forget — return immediately, sync runs in background
-			void runRpaGroupMemberSync({ force: true })
+			void runRpaGroupMemberSync({ force: true, jobId: job.id })
 				.then(async (result) => {
 					if (result === null) {
 						logger.info("[rpa-sync] Manual sync skipped — advisory lock held by another process")

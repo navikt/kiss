@@ -53,7 +53,7 @@ async function mapWithConcurrency<T, R>(
  * a database connection during slow HTTP requests. The lock is only held for the
  * brief DB-write phase.
  */
-export async function runRpaGroupMemberSync(options: { force?: boolean } = {}): Promise<{
+export async function runRpaGroupMemberSync(options: { force?: boolean; jobId?: string } = {}): Promise<{
 	groupsSynced: number
 	totalAdded: number
 	totalArchived: number
@@ -198,6 +198,7 @@ export async function runRpaGroupMemberSync(options: { force?: boolean } = {}): 
 				entityId: "sync",
 				newValue: JSON.stringify({ groupsSynced, totalAdded, totalArchived }),
 				performedBy: "system:rpa-sync",
+				syncJobId: options.jobId,
 			})
 		}
 

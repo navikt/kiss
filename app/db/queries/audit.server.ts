@@ -14,6 +14,7 @@ export async function writeAuditLog(
 		newValue?: string | null
 		metadata?: Record<string, unknown>
 		performedBy: string
+		syncJobId?: string
 	},
 	tx?: DbExecutor,
 ) {
@@ -24,8 +25,13 @@ export async function writeAuditLog(
 		entityId: entry.entityId,
 		previousValue: entry.previousValue ?? null,
 		newValue: entry.newValue ?? null,
-		metadata: entry.metadata ? JSON.stringify(entry.metadata) : null,
+		metadata: entry.metadata
+			? JSON.stringify({ ...entry.metadata, syncJobId: entry.syncJobId })
+			: entry.syncJobId
+				? JSON.stringify({ syncJobId: entry.syncJobId })
+				: null,
 		performedBy: entry.performedBy,
+		syncJobId: entry.syncJobId ?? null,
 	})
 }
 
@@ -47,4 +53,27 @@ export async function getRecentAuditLog(limit = 100) {
 /** Get audit log entries by action type. */
 export async function getAuditLogByAction(action: AuditLogAction, limit = 50) {
 	return db.select().from(auditLog).where(eq(auditLog.action, action)).orderBy(desc(auditLog.performedAt)).limit(limit)
+}
+
+/** Get audit log entries for a specific sync job. */
+export async function getAuditLogsForSyncJob(syncJobId: string, limit = 100) {
+	return db
+		.select()
+		.from(auditLog)
+		.where(eq(auditLog.syncJobId, syncJobId))
+		.orderBy(desc(auditLog.performedAt))
+		.limit(limit)
+}
+
+/** Get audit log entries for multiple sync jobs. */
+export async function getAuditLogsForSyncJobs(syncJobIds: string[], limit = 100) {
+	if (syncJobIds.length === 0) {
+		return []
+	}
+	return db
+		.select()
+		.from(auditLog)
+		.where(sql`${auditLog.syncJobId} = ANY(${syncJobIds})`)
+		.orderBy(desc(auditLog.performedAt))
+		.limit(limit)
 }

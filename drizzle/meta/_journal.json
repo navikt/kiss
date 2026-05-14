@@ -589,6 +589,13 @@
       "when": 1781916940000,
       "tag": "0083_application_environment_access_policy_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1781917000000,
+      "tag": "0084_audit_log_sync_job_id",
+      "breakpoints": true
     }
   ]
 }
