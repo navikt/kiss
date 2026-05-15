@@ -1,4 +1,4 @@
-import { BodyLong, BodyShort, CopyButton, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyLong, BodyShort, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import { Link } from "react-router"
 import { formatDateTimeOslo } from "~/lib/utils"
 import { GroupsSection } from "../components/GroupsSection"
@@ -252,10 +252,7 @@ function RpaUsersSection({ rpaUsers }: { rpaUsers: RpaUser[] }) {
 						{users.map((user) => (
 							<Table.Row key={user.userObjectId}>
 								<Table.DataCell>
-									<HStack gap="space-1" align="center">
-										<Link to={`/rpa-brukere/${user.userObjectId}`}>{user.displayName ?? "Ukjent"}</Link>
-										<CopyButton copyText={user.userObjectId} size="xsmall" />
-									</HStack>
+									<Link to={`/rpa-brukere/${user.userObjectId}`}>{user.displayName ?? "Ukjent"}</Link>
 								</Table.DataCell>
 								<Table.DataCell>
 									<Detail style={{ fontFamily: "monospace" }}>{user.userPrincipalName ?? "—"}</Detail>
