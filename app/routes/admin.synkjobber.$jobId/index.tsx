@@ -7,8 +7,14 @@ import {
 	getDistinctAuditLogActionsForSyncJob,
 	getDistinctAuditLogEntityTypesForSyncJob,
 } from "~/db/queries/audit.server"
+import {
+	getDistinctSyncJobEventTypes,
+	getSyncJobEventCount,
+	listSyncJobEvents,
+} from "~/db/queries/sync-job-events.server"
 import { getSyncJob } from "~/db/queries/sync-jobs.server"
 import { type AuditLogAction, auditLogActionEnum } from "~/db/schema/audit"
+import { type SyncJobEventType, syncJobEventTypeEnum } from "~/db/schema/sync-job-events"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
@@ -33,42 +39,63 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const entityTypeFilter = url.searchParams.get("entityType") || ""
 	const pageSize = 25
 	const requestedPage = parsePositiveInt(url.searchParams.get("page"))
+	const eventTypeFilter = parseSyncJobEventType(url.searchParams.get("eventType"))
+	const eventRequestedPage = parsePositiveInt(url.searchParams.get("eventPage"))
+	const eventPageSize = 25
 
 	const job = await getSyncJob(jobId)
 	if (!job) {
 		throw new Response("Job not found", { status: 404 })
 	}
 
-	const [totalAuditLogs, availableActions, availableEntityTypes] = await Promise.all([
+	const [totalAuditLogs, availableActions, availableEntityTypes, totalEvents, eventTypeOptions] = await Promise.all([
 		getAuditLogCountForSyncJob(jobId, { action: actionFilter, entityType: entityTypeFilter || undefined }),
 		getDistinctAuditLogActionsForSyncJob(jobId),
 		getDistinctAuditLogEntityTypesForSyncJob(jobId),
+		getSyncJobEventCount(jobId, { eventType: eventTypeFilter }),
+		getDistinctSyncJobEventTypes(jobId),
 	])
 	const totalPages = totalAuditLogs > 0 ? Math.ceil(totalAuditLogs / pageSize) : 1
 	const page = Math.min(requestedPage, totalPages)
 	const offset = (page - 1) * pageSize
-	const auditLogs = await getAuditLogsForSyncJob(jobId, {
-		limit: pageSize,
-		offset,
-		action: actionFilter,
-		entityType: entityTypeFilter || undefined,
-	})
-	const hasPreviousPage = page > 1
-	const hasNextPage = page < totalPages
+	const eventTotalPages = totalEvents > 0 ? Math.ceil(totalEvents / eventPageSize) : 1
+	const eventPage = Math.min(eventRequestedPage, eventTotalPages)
+	const eventOffset = (eventPage - 1) * eventPageSize
+	const eventTypeOptionsWithFilter = eventTypeFilter
+		? Array.from(new Set([...eventTypeOptions, eventTypeFilter]))
+		: eventTypeOptions
+	const [auditLogs, events] = await Promise.all([
+		getAuditLogsForSyncJob(jobId, {
+			limit: pageSize,
+			offset,
+			action: actionFilter,
+			entityType: entityTypeFilter || undefined,
+		}),
+		listSyncJobEvents(jobId, {
+			limit: eventPageSize,
+			offset: eventOffset,
+			eventType: eventTypeFilter,
+		}),
+	])
 
 	return data({
 		job,
 		auditLogs,
+		events,
 		totalAuditLogs,
+		totalEvents,
 		page,
 		pageSize,
 		totalPages,
-		hasPreviousPage,
-		hasNextPage,
+		eventPage,
+		eventPageSize,
+		eventTotalPages,
 		availableActions,
 		availableEntityTypes,
+		eventTypeOptions: eventTypeOptionsWithFilter,
 		actionFilter: actionFilter ?? "",
 		entityTypeFilter,
+		eventTypeFilter: eventTypeFilter ?? "",
 	})
 }
 
@@ -76,19 +103,26 @@ export default function JobDetailPage() {
 	const {
 		job,
 		auditLogs,
+		events,
 		totalAuditLogs,
+		totalEvents,
 		page,
 		pageSize,
 		totalPages,
-		hasPreviousPage,
-		hasNextPage,
+		eventPage,
+		eventPageSize,
+		eventTotalPages,
 		availableActions,
 		availableEntityTypes,
+		eventTypeOptions,
 		actionFilter,
 		entityTypeFilter,
+		eventTypeFilter,
 	} = useLoaderData<typeof loader>()
 	const firstItemOnPage = totalAuditLogs === 0 ? 0 : (page - 1) * pageSize + 1
 	const lastItemOnPage = totalAuditLogs === 0 ? 0 : firstItemOnPage + auditLogs.length - 1
+	const firstEventOnPage = totalEvents === 0 ? 0 : (eventPage - 1) * eventPageSize + 1
+	const lastEventOnPage = totalEvents === 0 ? 0 : firstEventOnPage + events.length - 1
 
 	return (
 		<div style={{ padding: "var(--ax-space-16)" }}>
@@ -224,6 +258,129 @@ export default function JobDetailPage() {
 					</section>
 				)}
 
+				{/* Event timeline */}
+				<section style={{ padding: "var(--ax-space-12)", backgroundColor: "var(--ax-bg-subtle)" }}>
+					<VStack gap="space-8">
+						<Heading level="2" size="medium">
+							Hendelseslogg ({events.length} av {totalEvents})
+						</Heading>
+						<BodyLong>
+							Viser {firstEventOnPage}–{lastEventOnPage} av {totalEvents} hendelser.
+						</BodyLong>
+
+						<Form method="get">
+							<HStack gap="space-4" wrap>
+								<Select label="Hendelsetype" name="eventType" defaultValue={eventTypeFilter}>
+									<option value="">Alle hendelsestyper</option>
+									{eventTypeOptions.map((eventType) => (
+										<option key={eventType} value={eventType}>
+											{eventType}
+										</option>
+									))}
+								</Select>
+								<input type="hidden" name="eventPage" value="1" />
+								<input type="hidden" name="action" value={actionFilter} />
+								<input type="hidden" name="entityType" value={entityTypeFilter} />
+								<input type="hidden" name="page" value={String(page)} />
+								<HStack gap="space-2" align="end">
+									<Button type="submit" size="small">
+										Filtrer
+									</Button>
+									<Button
+										as={Link}
+										to={buildJobDetailLink(job.id, actionFilter, entityTypeFilter, page, "", 1)}
+										variant="secondary"
+										size="small"
+									>
+										Nullstill
+									</Button>
+								</HStack>
+							</HStack>
+						</Form>
+
+						{events.length === 0 ? (
+							<BodyLong>
+								{eventTypeFilter
+									? `Ingen hendelser med type "${eventTypeFilter}" for denne jobben.`
+									: "Ingen hendelser registrert for denne jobben."}
+							</BodyLong>
+						) : (
+							// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table wrapper needs keyboard access
+							<section className="table-scroll" tabIndex={0} aria-label="Hendelseslogg">
+								<Table>
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell>Tidspunkt</Table.HeaderCell>
+											<Table.HeaderCell>Type</Table.HeaderCell>
+											<Table.HeaderCell>Detaljer</Table.HeaderCell>
+											<Table.HeaderCell>Utført av</Table.HeaderCell>
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{events.map((event) => (
+											<Table.Row key={event.id}>
+												<Table.DataCell>{formatDateTimeOslo(event.createdAt)}</Table.DataCell>
+												<Table.DataCell>{event.eventType}</Table.DataCell>
+												<Table.DataCell>{formatSyncJobEventDetails(event.message, event.metadata)}</Table.DataCell>
+												<Table.DataCell>{event.createdBy}</Table.DataCell>
+											</Table.Row>
+										))}
+									</Table.Body>
+								</Table>
+							</section>
+						)}
+						<HStack gap="space-4" align="center" justify="space-between">
+							<BodyLong>
+								Side {eventPage} av {eventTotalPages}
+							</BodyLong>
+							<HStack gap="space-2">
+								{eventPage > 1 ? (
+									<Button
+										as={Link}
+										to={buildJobDetailLink(
+											job.id,
+											actionFilter,
+											entityTypeFilter,
+											page,
+											eventTypeFilter,
+											eventPage - 1,
+										)}
+										variant="secondary"
+										size="small"
+									>
+										Forrige
+									</Button>
+								) : (
+									<Button variant="secondary" size="small" disabled>
+										Forrige
+									</Button>
+								)}
+								{eventPage < eventTotalPages ? (
+									<Button
+										as={Link}
+										to={buildJobDetailLink(
+											job.id,
+											actionFilter,
+											entityTypeFilter,
+											page,
+											eventTypeFilter,
+											eventPage + 1,
+										)}
+										variant="secondary"
+										size="small"
+									>
+										Neste
+									</Button>
+								) : (
+									<Button variant="secondary" size="small" disabled>
+										Neste
+									</Button>
+								)}
+							</HStack>
+						</HStack>
+					</VStack>
+				</section>
+
 				{/* Audit Logs */}
 				<section style={{ padding: "var(--ax-space-12)", backgroundColor: "var(--ax-bg-subtle)" }}>
 					<VStack gap="space-8">
@@ -253,11 +410,18 @@ export default function JobDetailPage() {
 									))}
 								</Select>
 								<input type="hidden" name="page" value="1" />
+								<input type="hidden" name="eventType" value={eventTypeFilter} />
+								<input type="hidden" name="eventPage" value={String(eventPage)} />
 								<HStack gap="space-2" align="end">
 									<Button type="submit" size="small">
 										Filtrer
 									</Button>
-									<Button as={Link} to={`/admin/synkjobber/${job.id}`} variant="secondary" size="small">
+									<Button
+										as={Link}
+										to={buildJobDetailLink(job.id, "", "", 1, eventTypeFilter, eventPage)}
+										variant="secondary"
+										size="small"
+									>
 										Nullstill
 									</Button>
 								</HStack>
@@ -298,10 +462,17 @@ export default function JobDetailPage() {
 								Side {page} av {totalPages}
 							</BodyLong>
 							<HStack gap="space-2">
-								{hasPreviousPage ? (
+								{page > 1 ? (
 									<Button
 										as={Link}
-										to={buildAuditLogPageLink(job.id, actionFilter, entityTypeFilter, page - 1)}
+										to={buildJobDetailLink(
+											job.id,
+											actionFilter,
+											entityTypeFilter,
+											page - 1,
+											eventTypeFilter,
+											eventPage,
+										)}
 										variant="secondary"
 										size="small"
 									>
@@ -312,10 +483,17 @@ export default function JobDetailPage() {
 										Forrige
 									</Button>
 								)}
-								{hasNextPage ? (
+								{page < totalPages ? (
 									<Button
 										as={Link}
-										to={buildAuditLogPageLink(job.id, actionFilter, entityTypeFilter, page + 1)}
+										to={buildJobDetailLink(
+											job.id,
+											actionFilter,
+											entityTypeFilter,
+											page + 1,
+											eventTypeFilter,
+											eventPage,
+										)}
 										variant="secondary"
 										size="small"
 									>
@@ -381,6 +559,13 @@ function parseAuditLogAction(value: string | null): AuditLogAction | undefined {
 	return (auditLogActionEnum as readonly string[]).includes(value) ? (value as AuditLogAction) : undefined
 }
 
+function parseSyncJobEventType(value: string | null): SyncJobEventType | undefined {
+	if (!value) {
+		return undefined
+	}
+	return (syncJobEventTypeEnum as readonly string[]).includes(value) ? (value as SyncJobEventType) : undefined
+}
+
 function parsePositiveInt(value: string | null): number {
 	const parsed = Number(value)
 	if (!Number.isInteger(parsed) || parsed < 1) {
@@ -389,7 +574,25 @@ function parsePositiveInt(value: string | null): number {
 	return parsed
 }
 
-function buildAuditLogPageLink(jobId: string, actionFilter: string, entityTypeFilter: string, page: number): string {
+function buildJobDetailLink(
+	jobId: string,
+	actionFilter: string,
+	entityTypeFilter: string,
+	auditPage: number,
+	eventTypeFilter: string,
+	eventPage: number,
+): string {
+	const query = buildJobDetailQuery(actionFilter, entityTypeFilter, auditPage, eventTypeFilter, eventPage)
+	return `/admin/synkjobber/${jobId}?${query.toString()}`
+}
+
+function buildJobDetailQuery(
+	actionFilter: string,
+	entityTypeFilter: string,
+	auditPage: number,
+	eventTypeFilter: string,
+	eventPage: number,
+): URLSearchParams {
 	const query = new URLSearchParams()
 	if (actionFilter) {
 		query.set("action", actionFilter)
@@ -397,6 +600,27 @@ function buildAuditLogPageLink(jobId: string, actionFilter: string, entityTypeFi
 	if (entityTypeFilter) {
 		query.set("entityType", entityTypeFilter)
 	}
-	query.set("page", String(page))
-	return `/admin/synkjobber/${jobId}?${query.toString()}`
+	if (eventTypeFilter) {
+		query.set("eventType", eventTypeFilter)
+	}
+	query.set("page", String(auditPage))
+	query.set("eventPage", String(eventPage))
+	return query
+}
+
+function formatSyncJobEventDetails(message: string | null, metadata: Record<string, unknown> | null): string {
+	if (!metadata || Object.keys(metadata).length === 0) {
+		return message ?? "—"
+	}
+
+	const metadataString = Object.entries(metadata)
+		.slice(0, 3)
+		.map(([key, value]) => `${key}=${formatMetadataValue(value)}`)
+		.join(", ")
+	const suffix = Object.keys(metadata).length > 3 ? " …" : ""
+
+	if (!message) {
+		return `${metadataString}${suffix}`
+	}
+	return `${message} — ${metadataString}${suffix}`
 }

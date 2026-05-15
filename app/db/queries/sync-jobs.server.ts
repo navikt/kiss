@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type SyncJobState, syncJobs } from "../schema/sync-jobs"
+import { appendSyncJobEvent } from "./sync-job-events.server"
 
 export interface SyncJob {
 	id: string
@@ -53,6 +54,21 @@ function toModel(row: {
 	}
 }
 
+function summarizeSyncJobResultMetadata(result: Record<string, unknown>): Record<string, unknown> {
+	const entries = Object.entries(result)
+	const scalarEntries = entries.filter(([, value]) => {
+		const valueType = typeof value
+		return value === null || valueType === "string" || valueType === "number" || valueType === "boolean"
+	})
+	const appValue = result.apps
+
+	return {
+		resultKeys: entries.map(([key]) => key),
+		scalarFields: Object.fromEntries(scalarEntries.slice(0, 5)),
+		appCount: Array.isArray(appValue) ? appValue.length : undefined,
+	}
+}
+
 export async function createSyncJob(params: {
 	jobType: string
 	performedBy: string
@@ -60,50 +76,84 @@ export async function createSyncJob(params: {
 	scopeId?: string | null
 	message?: string | null
 }): Promise<SyncJob> {
-	const [job] = await db
-		.insert(syncJobs)
-		.values({
-			jobType: params.jobType,
-			scopeType: params.scopeType ?? null,
-			scopeId: params.scopeId ?? null,
-			state: "pending",
-			message: params.message ?? "Venter på start",
-			result: null,
-			error: null,
-			createdBy: params.performedBy,
-			updatedBy: params.performedBy,
-		})
-		.returning({
-			id: syncJobs.id,
-			jobType: syncJobs.jobType,
-			scopeType: syncJobs.scopeType,
-			scopeId: syncJobs.scopeId,
-			state: syncJobs.state,
-			createdAt: syncJobs.createdAt,
-			createdBy: syncJobs.createdBy,
-			updatedAt: syncJobs.updatedAt,
-			updatedBy: syncJobs.updatedBy,
-			startedAt: syncJobs.startedAt,
-			finishedAt: syncJobs.finishedAt,
-			message: syncJobs.message,
-			result: syncJobs.result,
-			error: syncJobs.error,
-		})
+	return db.transaction(async (tx) => {
+		const [job] = await tx
+			.insert(syncJobs)
+			.values({
+				jobType: params.jobType,
+				scopeType: params.scopeType ?? null,
+				scopeId: params.scopeId ?? null,
+				state: "pending",
+				message: params.message ?? "Venter på start",
+				result: null,
+				error: null,
+				createdBy: params.performedBy,
+				updatedBy: params.performedBy,
+			})
+			.returning({
+				id: syncJobs.id,
+				jobType: syncJobs.jobType,
+				scopeType: syncJobs.scopeType,
+				scopeId: syncJobs.scopeId,
+				state: syncJobs.state,
+				createdAt: syncJobs.createdAt,
+				createdBy: syncJobs.createdBy,
+				updatedAt: syncJobs.updatedAt,
+				updatedBy: syncJobs.updatedBy,
+				startedAt: syncJobs.startedAt,
+				finishedAt: syncJobs.finishedAt,
+				message: syncJobs.message,
+				result: syncJobs.result,
+				error: syncJobs.error,
+			})
 
-	return toModel(job)
+		await appendSyncJobEvent(
+			{
+				syncJobId: job.id,
+				eventType: "job_created",
+				createdBy: params.performedBy,
+				message: params.message ?? "Venter på start",
+				metadata: {
+					jobType: params.jobType,
+					scopeType: params.scopeType ?? null,
+					scopeId: params.scopeId ?? null,
+				},
+			},
+			tx,
+		)
+
+		return toModel(job)
+	})
 }
 
 export async function markSyncJobRunning(jobId: string, performedBy: string, message = "Synkronisering pågår") {
-	await db
-		.update(syncJobs)
-		.set({
-			state: "running",
-			startedAt: new Date(),
-			message,
-			updatedBy: performedBy,
-			updatedAt: new Date(),
-		})
-		.where(and(eq(syncJobs.id, jobId), eq(syncJobs.state, "pending")))
+	await db.transaction(async (tx) => {
+		const updated = await tx
+			.update(syncJobs)
+			.set({
+				state: "running",
+				startedAt: new Date(),
+				message,
+				updatedBy: performedBy,
+				updatedAt: new Date(),
+			})
+			.where(and(eq(syncJobs.id, jobId), eq(syncJobs.state, "pending")))
+			.returning({ id: syncJobs.id })
+
+		if (updated.length === 0) {
+			return
+		}
+
+		await appendSyncJobEvent(
+			{
+				syncJobId: jobId,
+				eventType: "job_started",
+				createdBy: performedBy,
+				message,
+			},
+			tx,
+		)
+	})
 }
 
 export async function markSyncJobCompleted(
@@ -112,32 +162,76 @@ export async function markSyncJobCompleted(
 	performedBy: string,
 	message: string,
 ) {
-	await db
-		.update(syncJobs)
-		.set({
-			state: "completed",
-			finishedAt: new Date(),
-			message,
-			result,
-			error: null,
-			updatedBy: performedBy,
-			updatedAt: new Date(),
-		})
-		.where(eq(syncJobs.id, jobId))
+	await db.transaction(async (tx) => {
+		const updated = await tx
+			.update(syncJobs)
+			.set({
+				state: "completed",
+				finishedAt: new Date(),
+				message,
+				result,
+				error: null,
+				updatedBy: performedBy,
+				updatedAt: new Date(),
+			})
+			.where(eq(syncJobs.id, jobId))
+			.returning({ id: syncJobs.id })
+
+		if (updated.length === 0) {
+			return
+		}
+
+		await appendSyncJobEvent(
+			{
+				syncJobId: jobId,
+				eventType: "job_step_completed",
+				createdBy: performedBy,
+				message: "Steg fullført",
+				metadata: summarizeSyncJobResultMetadata(result),
+			},
+			tx,
+		)
+		await appendSyncJobEvent(
+			{
+				syncJobId: jobId,
+				eventType: "job_completed",
+				createdBy: performedBy,
+				message,
+			},
+			tx,
+		)
+	})
 }
 
 export async function markSyncJobSkipped(jobId: string, message: string, performedBy: string) {
-	await db
-		.update(syncJobs)
-		.set({
-			state: "skipped",
-			finishedAt: new Date(),
-			message,
-			error: null,
-			updatedBy: performedBy,
-			updatedAt: new Date(),
-		})
-		.where(eq(syncJobs.id, jobId))
+	await db.transaction(async (tx) => {
+		const updated = await tx
+			.update(syncJobs)
+			.set({
+				state: "skipped",
+				finishedAt: new Date(),
+				message,
+				error: null,
+				updatedBy: performedBy,
+				updatedAt: new Date(),
+			})
+			.where(eq(syncJobs.id, jobId))
+			.returning({ id: syncJobs.id })
+
+		if (updated.length === 0) {
+			return
+		}
+
+		await appendSyncJobEvent(
+			{
+				syncJobId: jobId,
+				eventType: "job_warning",
+				createdBy: performedBy,
+				message,
+			},
+			tx,
+		)
+	})
 }
 
 export async function markSyncJobFailed(
@@ -146,17 +240,35 @@ export async function markSyncJobFailed(
 	performedBy: string,
 	message = "Synkronisering feilet",
 ) {
-	await db
-		.update(syncJobs)
-		.set({
-			state: "failed",
-			finishedAt: new Date(),
-			message,
-			error,
-			updatedBy: performedBy,
-			updatedAt: new Date(),
-		})
-		.where(eq(syncJobs.id, jobId))
+	await db.transaction(async (tx) => {
+		const updated = await tx
+			.update(syncJobs)
+			.set({
+				state: "failed",
+				finishedAt: new Date(),
+				message,
+				error,
+				updatedBy: performedBy,
+				updatedAt: new Date(),
+			})
+			.where(eq(syncJobs.id, jobId))
+			.returning({ id: syncJobs.id })
+
+		if (updated.length === 0) {
+			return
+		}
+
+		await appendSyncJobEvent(
+			{
+				syncJobId: jobId,
+				eventType: "job_failed",
+				createdBy: performedBy,
+				message,
+				metadata: { error },
+			},
+			tx,
+		)
+	})
 }
 
 export async function getSyncJob(jobId: string, jobType?: string): Promise<SyncJob | null> {
