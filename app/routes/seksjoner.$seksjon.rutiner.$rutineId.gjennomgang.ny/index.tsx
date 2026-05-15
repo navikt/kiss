@@ -1,5 +1,5 @@
 import { BodyShort, Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
@@ -52,15 +52,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const activityProviderType = routine.activityType ? getProviderTypeForActivity(routine.activityType) : null
 	const oracleInstancesByAppId: Record<string, string[]> = {}
 	if (activityProviderType === "oracle" && routine.isSectionRoutine !== 1) {
-		const { getOracleInstancesForApp } = await import("~/db/queries/audit-evidence.server")
-		const perApp = await Promise.all(
-			apps.map(async (app) => ({
-				appId: app.id,
-				instances: (await getOracleInstancesForApp(app.id)).map((instance) => instance.instanceId),
-			})),
-		)
-		for (const entry of perApp) {
-			oracleInstancesByAppId[entry.appId] = entry.instances
+		const { getOracleInstancesForApps } = await import("~/db/queries/audit-evidence.server")
+		const groupedInstances = await getOracleInstancesForApps(apps.map((app) => app.id))
+		for (const app of apps) {
+			oracleInstancesByAppId[app.id] = groupedInstances[app.id] ?? []
 		}
 	}
 
@@ -147,12 +142,27 @@ export default function NyGjennomgang() {
 	const [searchParams] = useSearchParams()
 	const preselectedAppId = searchParams.get("appId") ?? ""
 	const [selectedAppId, setSelectedAppId] = useState(preselectedAppId)
+	const [selectedOracleInstanceId, setSelectedOracleInstanceId] = useState("")
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
-	const instanceOptions =
-		activityProviderType === "oracle" && selectedAppId ? (oracleInstancesByAppId[selectedAppId] ?? []) : []
+	const instanceOptions = useMemo(
+		() => (activityProviderType === "oracle" && selectedAppId ? (oracleInstancesByAppId[selectedAppId] ?? []) : []),
+		[activityProviderType, oracleInstancesByAppId, selectedAppId],
+	)
 	const hasOracleInstanceSelection =
 		activityProviderType === "oracle" && routine.isSectionRoutine !== 1 && selectedAppId
+
+	useEffect(() => {
+		setSelectedOracleInstanceId((previous) => {
+			if (!hasOracleInstanceSelection) {
+				return ""
+			}
+			if (previous && instanceOptions.includes(previous)) {
+				return previous
+			}
+			return instanceOptions.length === 1 ? instanceOptions[0] : ""
+		})
+	}, [hasOracleInstanceSelection, instanceOptions])
 
 	return (
 		<VStack gap="space-8">
@@ -200,7 +210,8 @@ export default function NyGjennomgang() {
 									label="Oracle-instans"
 									name="oracleInstanceId"
 									size="small"
-									defaultValue={instanceOptions.length === 1 ? instanceOptions[0] : ""}
+									value={selectedOracleInstanceId}
+									onChange={(e) => setSelectedOracleInstanceId(e.target.value)}
 								>
 									<option value="">Velg instans</option>
 									{instanceOptions.map((instanceId) => (
