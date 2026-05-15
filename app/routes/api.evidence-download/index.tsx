@@ -19,6 +19,7 @@ import {
 	validateProviderDownloadConstraints,
 	validateProviderEvidenceType,
 } from "~/lib/evidence-providers/validation.server"
+import { logger } from "~/lib/logger.server"
 import { isValidUuid } from "~/lib/utils"
 
 const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024 // 50 MB
@@ -153,8 +154,12 @@ async function handleDownloadFromApi(
 		const message = err instanceof Error ? err.message : ""
 		// Provider validation errors (invalid format, unsupported type) → 400
 		if (message.includes("Unsupported")) {
-			return data({ error: message }, { status: 400 })
+			return data({ error: "Formatet eller bevistypen støttes ikke av leverandøren." }, { status: 400 })
 		}
+		logger.error(
+			`Evidence download failed [providerType=${providerType}]`,
+			err instanceof Error ? err : new Error(String(err)),
+		)
 		return data({ error: "Kunne ikke laste ned bevis fra leverandøren. Prøv igjen senere." }, { status: 502 })
 	}
 
@@ -322,7 +327,11 @@ async function handleGenerateReport(
 			)
 		}
 		const message = err instanceof Error ? err.message : "Ukjent feil"
-		return data({ error: `Kunne ikke starte rapportgenerering: ${message}` }, { status: 502 })
+		logger.error(
+			`Evidence report generation failed [providerType=${providerType}]`,
+			err instanceof Error ? err : new Error(message),
+		)
+		return data({ error: "Kunne ikke starte rapportgenerering. Prøv igjen senere." }, { status: 502 })
 	}
 }
 
@@ -370,7 +379,10 @@ async function handlePollJob(
 		const result = await provider.getJobStatus(providerParams, jobId)
 		return data({ success: true, ...result })
 	} catch (err) {
-		const message = err instanceof Error ? err.message : "Ukjent feil"
-		return data({ error: `Kunne ikke sjekke jobbstatus: ${message}` }, { status: 502 })
+		logger.error(
+			`Evidence job status poll failed [providerType=${providerType}, jobId=${jobId}]`,
+			err instanceof Error ? err : new Error(String(err)),
+		)
+		return data({ error: "Kunne ikke sjekke jobbstatus. Prøv igjen senere." }, { status: 502 })
 	}
 }
