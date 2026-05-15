@@ -2300,17 +2300,9 @@ export async function upsertAccessPolicyRulesForEnvironment(
 				ruleCluster: ruleClusterRaw === "" ? null : ruleClusterRaw,
 			}
 		}
-		type LegacyFallbackReason =
-			| "active_environment_rules"
-			| "incomplete_environment_history"
-			| "complete_environment_history"
-			| "no_environment_history"
 		type DirectionUnionState = {
 			activeKeys: Set<string>
-			legacyKeys: Set<string>
 			unionKeys: Set<string>
-			legacyFallbackVisible: boolean
-			legacyFallbackReason: LegacyFallbackReason
 			historyCoverageComplete: boolean
 		}
 		const getDirectionCoverage = async () => {
@@ -2379,26 +2371,13 @@ export async function upsertAccessPolicyRulesForEnvironment(
 			if (activeKeys.size > 0) {
 				return {
 					activeKeys,
-					legacyKeys: new Set(),
 					unionKeys: activeKeys,
-					legacyFallbackVisible: false,
-					legacyFallbackReason: "active_environment_rules",
 					historyCoverageComplete: coverage.historyCoverageComplete,
 				}
 			}
-			const legacyFallbackReason: LegacyFallbackReason =
-				coverage.historyCoverageRows.length === 0
-					? "no_environment_history"
-					: coverage.historyCoverageComplete
-						? "complete_environment_history"
-						: "incomplete_environment_history"
-			const legacyKeys = new Set<string>()
 			return {
 				activeKeys,
-				legacyKeys,
 				unionKeys: activeKeys,
-				legacyFallbackVisible: false,
-				legacyFallbackReason,
 				historyCoverageComplete: coverage.historyCoverageComplete,
 			}
 		}
@@ -2534,15 +2513,6 @@ export async function upsertAccessPolicyRulesForEnvironment(
 				applicationEnvironmentId,
 				...(context?.syncRunId ? { syncRunId: context.syncRunId } : {}),
 			}
-			if (
-				!beforeState.legacyFallbackVisible &&
-				afterState.legacyFallbackVisible &&
-				afterState.legacyKeys.has(key) &&
-				!afterState.activeKeys.has(key)
-			) {
-				metadata.legacyFallbackBecameVisible = true
-				metadata.legacyFallbackVisibilityReason = afterState.legacyFallbackReason
-			}
 			await writeAuditLog(
 				{
 					action: "access_policy_rule_added",
@@ -2564,24 +2534,10 @@ export async function upsertAccessPolicyRulesForEnvironment(
 		}
 
 		for (const key of removedKeys) {
-			const removedOnlyByTransitionalFallbackSuppression =
-				beforeState.legacyFallbackVisible &&
-				!afterState.legacyFallbackVisible &&
-				afterState.legacyFallbackReason === "active_environment_rules" &&
-				beforeState.legacyKeys.has(key) &&
-				!beforeState.activeKeys.has(key)
-			if (removedOnlyByTransitionalFallbackSuppression) {
-				continue
-			}
-
 			const payload = parseKey(key)
 			const metadata: Record<string, unknown> = {
 				applicationEnvironmentId,
 				...(context?.syncRunId ? { syncRunId: context.syncRunId } : {}),
-			}
-			if (beforeState.legacyFallbackVisible && !afterState.legacyFallbackVisible && beforeState.legacyKeys.has(key)) {
-				metadata.legacyFallbackSuppressed = true
-				metadata.legacyFallbackSuppressionReason = afterState.legacyFallbackReason
 			}
 			await writeAuditLog(
 				{
