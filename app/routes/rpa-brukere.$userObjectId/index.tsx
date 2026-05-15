@@ -16,13 +16,12 @@ import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRpaMemberByUserObjectId, getRpaUserGroupMemberships } from "~/db/queries/rpa.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
+import { isAdmin } from "~/lib/authorization.server"
 import { formatDateTimeOslo } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
 
 	const userObjectId = params.userObjectId
 	if (!userObjectId) throw new Response("Mangler robotbruker", { status: 400 })
@@ -36,6 +35,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	return data({
 		member,
+		canViewAdminGroups: isAdmin(authedUser),
 		memberships: memberships.map((membership) => ({
 			...membership,
 			syncedAt: membership.syncedAt.toISOString(),
@@ -45,8 +45,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 type SortKey = "groupName"
 
-export default function AdminRpaRobotDetail() {
-	const { member, memberships } = useLoaderData<typeof loader>()
+export default function RpaBrukerDetail() {
+	const { member, memberships, canViewAdminGroups } = useLoaderData<typeof loader>()
 	const [searchValue, setSearchValue] = useState("")
 	const [sort, setSort] = useState<SortState>({ orderBy: "groupName", direction: "ascending" })
 
@@ -91,7 +91,7 @@ export default function AdminRpaRobotDetail() {
 					</Heading>
 					<BodyLong>Alle Entra ID-grupper robotbrukeren er medlem av.</BodyLong>
 				</div>
-				<Link to="/admin/rpa-grupper">← Tilbake til RPA-grupper</Link>
+				{canViewAdminGroups && <Link to="/admin/rpa-grupper">← Tilbake til RPA-grupper</Link>}
 			</HStack>
 
 			<VStack gap="space-4">

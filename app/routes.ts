@@ -131,7 +131,7 @@ export default [
 	route("admin/synkjobber/:jobId", "routes/admin.synkjobber.$jobId/index.tsx"),
 	route("admin/okonomisystemer", "routes/admin.okonomisystemer/index.tsx"),
 	route("admin/rpa-grupper", "routes/admin.rpa-grupper/index.tsx"),
-	route("admin/rpa-grupper/:userObjectId", "routes/admin.rpa-grupper.$userObjectId/index.tsx"),
+	route("rpa-brukere/:userObjectId", "routes/rpa-brukere.$userObjectId/index.tsx"),
 	route("admin/audit-logg-volum", "routes/admin.audit-logg-volum/index.tsx"),
 	route("admin/audit-logg-volum/detaljer", "routes/admin.audit-logg-volum.detaljer/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),
