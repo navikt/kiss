@@ -188,6 +188,29 @@ export async function getOracleInstancesForApp(appId: string): Promise<OracleIns
 	})
 }
 
+export async function getOracleInstancesForApps(appIds: string[]): Promise<Record<string, string[]>> {
+	if (appIds.length === 0) {
+		return {}
+	}
+
+	const rows = await db
+		.select({
+			applicationId: applicationOracleInstances.applicationId,
+			instanceId: applicationOracleInstances.instanceId,
+		})
+		.from(applicationOracleInstances)
+		.where(
+			and(inArray(applicationOracleInstances.applicationId, appIds), isNull(applicationOracleInstances.archivedAt)),
+		)
+		.orderBy(applicationOracleInstances.applicationId, applicationOracleInstances.instanceId)
+
+	const grouped: Record<string, string[]> = Object.fromEntries(appIds.map((appId) => [appId, [] as string[]]))
+	for (const row of rows) {
+		grouped[row.applicationId]?.push(row.instanceId)
+	}
+	return grouped
+}
+
 export async function setIncludeInReport(appId: string, instanceId: string, include: boolean) {
 	await db
 		.update(applicationOracleInstances)

@@ -44,6 +44,7 @@ interface ActivityProp {
 
 export interface OracleEvidenceDataProp {
 	configuredInstances: Array<{ instanceId: string }>
+	selectedInstanceId?: string | null
 	downloads: EvidenceDownload[]
 	evidenceTypes: string[]
 }
@@ -71,8 +72,11 @@ const config = getProviderUiConfig("oracle")
 // ─── Component ────────────────────────────────────────────────────────────
 
 export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }: Props) {
-	const { configuredInstances, downloads, evidenceTypes } = oracleEvidenceData
-	const [selectedInstance, setSelectedInstance] = useState<string>(configuredInstances[0]?.instanceId ?? "")
+	const { configuredInstances, selectedInstanceId, downloads, evidenceTypes } = oracleEvidenceData
+	const [selectedInstance, setSelectedInstance] = useState<string>(
+		selectedInstanceId ?? configuredInstances[0]?.instanceId ?? "",
+	)
+	const isConfiguredInstanceLocked = !!selectedInstanceId
 	const [fromDate, setFromDate] = useState<string>("")
 	const [toDate, setToDate] = useState<string>("")
 	const [forceFetchState, setForceFetchState] = useState<{
@@ -224,7 +228,11 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 			{configuredInstances.length > 0 && (
 				<VStack gap="space-4">
 					<HStack gap="space-4" align="end">
-						{configuredInstances.length === 1 ? (
+						{isConfiguredInstanceLocked ? (
+							<BodyShort size="small">
+								{config.instanceLabel}: <strong>{config.formatInstanceId(selectedInstanceId)}</strong>
+							</BodyShort>
+						) : configuredInstances.length === 1 ? (
 							<BodyShort size="small">
 								{config.instanceLabel}: <strong>{config.formatInstanceId(configuredInstances[0].instanceId)}</strong>
 							</BodyShort>

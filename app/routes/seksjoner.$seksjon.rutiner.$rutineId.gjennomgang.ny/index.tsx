@@ -1,4 +1,5 @@
 import { BodyShort, Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
+import { useEffect, useMemo, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
@@ -11,6 +12,7 @@ import {
 	getRoutine,
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getProviderTypeForActivity } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
 
@@ -47,7 +49,17 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const apps = await getAppsRequiringRoutine(rutineId)
 
-	return data({ section, routine, apps })
+	const activityProviderType = routine.activityType ? getProviderTypeForActivity(routine.activityType) : null
+	const oracleInstancesByAppId: Record<string, string[]> = {}
+	if (activityProviderType === "oracle" && routine.isSectionRoutine !== 1) {
+		const { getOracleInstancesForApps } = await import("~/db/queries/audit-evidence.server")
+		const groupedInstances = await getOracleInstancesForApps(apps.map((app) => app.id))
+		for (const app of apps) {
+			oracleInstancesByAppId[app.id] = groupedInstances[app.id] ?? []
+		}
+	}
+
+	return data({ section, routine, apps, oracleInstancesByAppId, activityProviderType })
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -66,6 +78,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const reviewedTime = (formData.get("reviewedTime") as string) || "00:00"
 	const summary = (formData.get("summary") as string)?.trim() || null
 	const participantsRaw = formData.get("participants")
+	const oracleInstanceIdRaw = (formData.get("oracleInstanceId") as string | null)?.trim() || ""
 
 	if (!title) {
 		throw data({ message: "Tittel er påkrevd" }, { status: 400 })
@@ -86,6 +99,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		throw data({ message: "Rutinen tilhører ikke denne seksjonen" }, { status: 403 })
 	}
 	const effectiveAppId = routine.isSectionRoutine === 1 ? null : applicationId
+	const activityProviderType = routine.activityType ? getProviderTypeForActivity(routine.activityType) : null
+	let providerConfig: { instanceId: string } | null = null
+
+	if (activityProviderType === "oracle") {
+		if (!effectiveAppId) {
+			throw data({ message: "Oracle-revisjonsbevis krever at applikasjon er valgt" }, { status: 400 })
+		}
+		const { getOracleInstancesForApp } = await import("~/db/queries/audit-evidence.server")
+		const configuredInstances = (await getOracleInstancesForApp(effectiveAppId)).map((instance) => instance.instanceId)
+		if (configuredInstances.length === 0) {
+			throw data({ message: "Ingen Oracle-instanser er konfigurert for valgt applikasjon" }, { status: 400 })
+		}
+		const selectedInstanceId = oracleInstanceIdRaw || (configuredInstances.length === 1 ? configuredInstances[0] : "")
+		if (!selectedInstanceId) {
+			throw data({ message: "Oracle-instans er påkrevd for denne gjennomgangen" }, { status: 400 })
+		}
+		if (!configuredInstances.includes(selectedInstanceId)) {
+			throw data({ message: "Valgt Oracle-instans er ikke konfigurert for applikasjonen" }, { status: 400 })
+		}
+		providerConfig = { instanceId: selectedInstanceId }
+	}
 
 	const review = await createReview({
 		routineId: rutineId,
@@ -98,17 +132,37 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		participants,
 	})
 
-	await autoCreateActivityForReview(review.id, rutineId, effectiveAppId, authedUser.navIdent)
+	await autoCreateActivityForReview(review.id, rutineId, effectiveAppId, authedUser.navIdent, providerConfig)
 
 	return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}/gjennomgang/${review.id}`)
 }
 
 export default function NyGjennomgang() {
-	const { routine, apps } = useLoaderData<typeof loader>()
+	const { routine, apps, oracleInstancesByAppId, activityProviderType } = useLoaderData<typeof loader>()
 	const [searchParams] = useSearchParams()
 	const preselectedAppId = searchParams.get("appId") ?? ""
+	const [selectedAppId, setSelectedAppId] = useState(preselectedAppId)
+	const [selectedOracleInstanceId, setSelectedOracleInstanceId] = useState("")
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
+	const instanceOptions = useMemo(
+		() => (activityProviderType === "oracle" && selectedAppId ? (oracleInstancesByAppId[selectedAppId] ?? []) : []),
+		[activityProviderType, oracleInstancesByAppId, selectedAppId],
+	)
+	const hasOracleInstanceSelection =
+		activityProviderType === "oracle" && routine.isSectionRoutine !== 1 && selectedAppId
+
+	useEffect(() => {
+		setSelectedOracleInstanceId((previous) => {
+			if (!hasOracleInstanceSelection) {
+				return ""
+			}
+			if (previous && instanceOptions.includes(previous)) {
+				return previous
+			}
+			return instanceOptions.length === 1 ? instanceOptions[0] : ""
+		})
+	}, [hasOracleInstanceSelection, instanceOptions])
 
 	return (
 		<VStack gap="space-8">
@@ -139,8 +193,11 @@ export default function NyGjennomgang() {
 								size="small"
 								defaultValue={preselectedAppId}
 								disabled={!!preselectedAppId}
+								onChange={(e) => setSelectedAppId(e.target.value)}
 							>
-								<option value="">Generell (ikke applikasjonsspesifikk)</option>
+								<option value="">
+									{activityProviderType === "oracle" ? "Velg applikasjon" : "Generell (ikke applikasjonsspesifikk)"}
+								</option>
 								{apps.map((app) => (
 									<option key={app.id} value={app.id}>
 										{app.name}
@@ -148,6 +205,22 @@ export default function NyGjennomgang() {
 								))}
 							</Select>
 							{preselectedAppId && <input type="hidden" name="applicationId" value={preselectedAppId} />}
+							{hasOracleInstanceSelection && (
+								<Select
+									label="Oracle-instans"
+									name="oracleInstanceId"
+									size="small"
+									value={selectedOracleInstanceId}
+									onChange={(e) => setSelectedOracleInstanceId(e.target.value)}
+								>
+									<option value="">Velg instans</option>
+									{instanceOptions.map((instanceId) => (
+										<option key={instanceId} value={instanceId}>
+											{instanceId}
+										</option>
+									))}
+								</Select>
+							)}
 						</>
 					)}
 

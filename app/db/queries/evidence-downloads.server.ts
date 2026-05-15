@@ -330,6 +330,7 @@ export interface ActivityContext {
 	activityId: string
 	activityType: string
 	activityStatus: string
+	providerConfig?: Record<string, unknown> | null
 	reviewId: string
 	reviewStatus: string
 	routineId: string
@@ -344,6 +345,7 @@ SELECT
 a.id as activity_id,
 a.type as activity_type,
 a.status as activity_status,
+a.provider_config as provider_config,
 rv.id as review_id,
 rv.status as review_status,
 r.id as routine_id,
@@ -361,6 +363,7 @@ WHERE a.id = ${activityId}
 		activityId: row.activity_id as string,
 		activityType: row.activity_type as string,
 		activityStatus: row.activity_status as string,
+		providerConfig: isRecord(row.provider_config) ? row.provider_config : null,
 		reviewId: row.review_id as string,
 		reviewStatus: row.review_status as string,
 		routineId: row.routine_id as string,

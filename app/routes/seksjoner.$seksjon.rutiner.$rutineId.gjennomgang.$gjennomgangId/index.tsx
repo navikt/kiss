@@ -98,6 +98,14 @@ function parseOracleProviderMetadata(providerMetadata: Record<string, unknown>) 
 	}
 }
 
+function parseOracleInstanceFromProviderConfig(providerConfig: unknown): string | null {
+	if (!providerConfig || typeof providerConfig !== "object" || Array.isArray(providerConfig)) {
+		return null
+	}
+	const instanceId = (providerConfig as Record<string, unknown>).instanceId
+	return typeof instanceId === "string" && instanceId ? instanceId : null
+}
+
 export async function loader({ params }: LoaderFunctionArgs) {
 	const { seksjon, rutineId, gjennomgangId } = params
 	if (!seksjon || !rutineId || !gjennomgangId) {
@@ -186,6 +194,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const evidenceProviderType = activity ? getProviderTypeForActivity(activity.type) : null
 	let oracleEvidenceData: {
 		configuredInstances: Array<{ instanceId: string }>
+		selectedInstanceId: string | null
 		downloads: Array<{
 			id: string
 			instanceId: string
@@ -211,6 +220,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		])
 		oracleEvidenceData = {
 			configuredInstances: configuredInstances.map((i) => ({ instanceId: i.instanceId })),
+			selectedInstanceId: parseOracleInstanceFromProviderConfig(activity.providerConfig),
 			downloads: downloads
 				.map((d) => {
 					if (d.providerType !== "oracle") {
