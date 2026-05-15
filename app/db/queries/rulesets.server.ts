@@ -335,7 +335,9 @@ export async function createRuleset(input: {
  * Oppdaterer et regelsett. Guarded i DB-laget mot arkiverte rad — UPDATE
  * skjer kun hvis `archived_at IS NULL`, slik at TOCTOU mellom action og
  * mutasjon ikke kan utnyttes. Returnerer `true` ved suksess, `false` hvis
- * regelsettet ikke finnes eller er arkivert.
+ * regelsettet ikke finnes eller er arkivert. Når `requireUnapproved=true`
+ * kjøres mutasjonen i transaksjon med `SELECT FOR UPDATE` på regelsett-raden
+ * slik at sjekken mot `ruleset_approvals` serialiseres mot `approveRuleset`.
  */
 export async function updateRuleset(
 	rulesetId: string,
@@ -358,18 +360,36 @@ export async function updateRuleset(
 	if (input.responsibleRole !== undefined) set.responsibleRole = input.responsibleRole
 	if (input.frequency !== undefined) set.frequency = input.frequency
 
+	if (input.requireUnapproved) {
+		return db.transaction(async (tx) => {
+			const [locked] = await tx
+				.select({ archivedAt: rulesets.archivedAt })
+				.from(rulesets)
+				.where(eq(rulesets.id, rulesetId))
+				.for("update")
+				.limit(1)
+			if (!locked || locked.archivedAt) return false
+
+			const [approval] = await tx
+				.select({ id: rulesetApprovals.id })
+				.from(rulesetApprovals)
+				.where(eq(rulesetApprovals.rulesetId, rulesetId))
+				.limit(1)
+			if (approval) return false
+
+			const updated = await tx
+				.update(rulesets)
+				.set(set)
+				.where(and(eq(rulesets.id, rulesetId), isNull(rulesets.archivedAt)))
+				.returning({ id: rulesets.id })
+			return updated.length > 0
+		})
+	}
+
 	const updated = await db
 		.update(rulesets)
 		.set(set)
-		.where(
-			and(
-				eq(rulesets.id, rulesetId),
-				isNull(rulesets.archivedAt),
-				input.requireUnapproved
-					? sql`NOT EXISTS (SELECT 1 FROM ${rulesetApprovals} WHERE ${rulesetApprovals.rulesetId} = ${rulesets.id})`
-					: undefined,
-			),
-		)
+		.where(and(eq(rulesets.id, rulesetId), isNull(rulesets.archivedAt)))
 		.returning({ id: rulesets.id })
 	return updated.length > 0
 }
