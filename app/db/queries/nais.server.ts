@@ -2386,13 +2386,24 @@ export async function upsertAccessPolicyRulesForEnvironment(
 					historyCoverageComplete: coverage.historyCoverageComplete,
 				}
 			}
-			const legacyFallbackVisible = coverage.historyCoverageRows.length === 0 || !coverage.historyCoverageComplete
 			const legacyFallbackReason: LegacyFallbackReason =
 				coverage.historyCoverageRows.length === 0
 					? "no_environment_history"
 					: coverage.historyCoverageComplete
 						? "complete_environment_history"
 						: "incomplete_environment_history"
+			// Inbound legacy fallback is phased out; inbound visibility is now based only on environment rules.
+			if (direction === "inbound") {
+				return {
+					activeKeys,
+					legacyKeys: new Set(),
+					unionKeys: activeKeys,
+					legacyFallbackVisible: false,
+					legacyFallbackReason,
+					historyCoverageComplete: coverage.historyCoverageComplete,
+				}
+			}
+			const legacyFallbackVisible = coverage.historyCoverageRows.length === 0 || !coverage.historyCoverageComplete
 			const legacyKeys = new Set<string>()
 			if (legacyFallbackVisible) {
 				const legacyRows = await tx
@@ -2804,6 +2815,7 @@ export async function getAccessPolicyRules(applicationId: string) {
 		.where(
 			and(
 				eq(applicationAccessPolicyRules.applicationId, applicationId),
+				eq(applicationAccessPolicyRules.direction, "outbound"),
 				isNull(applicationAccessPolicyRules.archivedAt),
 			),
 		)
