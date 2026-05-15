@@ -19,15 +19,10 @@ import { withAdvisoryLock } from "./lock.server"
 import { logger } from "./logger.server"
 import { SYNC_JOB_TYPES } from "./sync-job-types"
 
-const SYNC_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
-const INITIAL_DELAY_MS = 60 * 1000 // 60 seconds after startup
 const DELAY_BETWEEN_REQUESTS_MS = 200 // Rate limiting: 5 req/sec
 const BATCH_SIZE = 50
 const NOT_MONITORED_RECHECK_MS = 24 * 60 * 60 * 1000 // 24 hours
 const PERFORMER = "deployment-audit-sync"
-
-let intervalId: ReturnType<typeof setInterval> | null = null
-let timeoutId: ReturnType<typeof setTimeout> | null = null
 
 function buildDeploymentAuditSyncLog(params: {
 	processed: number
@@ -234,40 +229,6 @@ export async function runDeploymentAuditSync() {
 	logger.info(
 		`[deployment-audit-sync] Complete: ${execution.result.succeeded} succeeded, ${execution.result.failed} failed, ${execution.result.skippedNotMonitored} skipped (${execution.result.durationMs}ms)`,
 	)
-}
-
-/** @deprecated Use unified-scheduler instead. Start periodic deployment verification sync. */
-export function startDeploymentAuditScheduler() {
-	if (intervalId) return
-
-	const enabled = process.env.ENABLE_DEPLOYMENT_AUDIT_SYNC === "true"
-	if (!enabled) {
-		logger.info("[deployment-audit-sync] Disabled (set ENABLE_DEPLOYMENT_AUDIT_SYNC=true to enable)")
-		return
-	}
-
-	logger.info(
-		`[deployment-audit-sync] Starting — interval ${SYNC_INTERVAL_MS / 1000}s, initial delay ${INITIAL_DELAY_MS / 1000}s`,
-	)
-
-	timeoutId = setTimeout(() => {
-		timeoutId = null
-		runDeploymentAuditSync()
-		intervalId = setInterval(runDeploymentAuditSync, SYNC_INTERVAL_MS)
-	}, INITIAL_DELAY_MS)
-}
-
-/** Stop the scheduler (for graceful shutdown). */
-export function stopDeploymentAuditScheduler() {
-	if (timeoutId) {
-		clearTimeout(timeoutId)
-		timeoutId = null
-	}
-	if (intervalId) {
-		clearInterval(intervalId)
-		intervalId = null
-		logger.info("[deployment-audit-sync] Stopped")
-	}
 }
 
 export const _testing = { buildDeploymentAuditSyncLog }

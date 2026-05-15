@@ -16,12 +16,8 @@ import { logger } from "./logger.server"
 import { getAuditEvidenceSummary, getOracleInstances } from "./oracle-revisjon.server"
 import { SYNC_JOB_TYPES } from "./sync-job-types"
 
-const SYNC_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
-const INITIAL_DELAY_MS = 60 * 1000 // 60 seconds after startup
 const RETRY_DELAY_MS = 5 * 1000 // 5 seconds retry delay
 const PERFORMER = "audit-summary-sync"
-
-let intervalId: ReturnType<typeof setInterval> | null = null
 
 function buildAuditSummarySyncAuditLog(params: {
 	processed: number
@@ -63,7 +59,6 @@ function resolveInstanceId(
 	}
 	return entry.name
 }
-let timeoutId: ReturnType<typeof setTimeout> | null = null
 
 async function fetchSummaryWithRetry(instanceId: string, retries = 1) {
 	const result = await getAuditEvidenceSummary(instanceId)
@@ -280,40 +275,6 @@ export async function runAuditSummarySync() {
 	logger.info(
 		`[audit-summary-sync] Complete: ${execution.result.succeeded} succeeded, ${execution.result.failed} failed, ${execution.result.skipped} skipped (${execution.result.durationMs}ms)`,
 	)
-}
-
-/** @deprecated Use unified-scheduler instead. Start periodic audit summary sync. */
-export function startAuditSummaryScheduler() {
-	if (intervalId) return
-
-	const enabled = process.env.ENABLE_AUDIT_SUMMARY_SYNC === "true"
-	if (!enabled) {
-		logger.info("[audit-summary-sync] Disabled (set ENABLE_AUDIT_SUMMARY_SYNC=true to enable)")
-		return
-	}
-
-	logger.info(
-		`[audit-summary-sync] Starting — interval ${SYNC_INTERVAL_MS / 1000}s, initial delay ${INITIAL_DELAY_MS / 1000}s`,
-	)
-
-	timeoutId = setTimeout(() => {
-		timeoutId = null
-		runAuditSummarySync()
-		intervalId = setInterval(runAuditSummarySync, SYNC_INTERVAL_MS)
-	}, INITIAL_DELAY_MS)
-}
-
-/** Stop the scheduler (for graceful shutdown). */
-export function stopAuditSummaryScheduler() {
-	if (timeoutId) {
-		clearTimeout(timeoutId)
-		timeoutId = null
-	}
-	if (intervalId) {
-		clearInterval(intervalId)
-		intervalId = null
-		logger.info("[audit-summary-sync] Stopped")
-	}
 }
 
 export const _testing = { buildAuditSummarySyncAuditLog }
