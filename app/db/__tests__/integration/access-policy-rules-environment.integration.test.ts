@@ -185,7 +185,7 @@ describe("Access policy rules per environment", () => {
 		expect(merged).toHaveLength(0)
 	})
 
-	it("keeps legacy outbound rules while inbound is sourced from environment table", async () => {
+	it("does not expose legacy rules when only inbound environment rules exist", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
@@ -201,10 +201,7 @@ describe("Access policy rules per environment", () => {
 		)
 
 		const merged = await getAccessPolicyRules(app.id)
-		expect(merged.map((r) => `${r.direction}:${r.ruleApplication}`).sort()).toEqual([
-			"inbound:env-inbound-app",
-			"outbound:legacy-outbound-app",
-		])
+		expect(merged.map((r) => `${r.direction}:${r.ruleApplication}`).sort()).toEqual(["inbound:env-inbound-app"])
 	})
 
 	it("does not reintroduce legacy inbound rules when environment rules are active", async () => {
@@ -517,7 +514,7 @@ describe("Access policy rules per environment", () => {
 		})
 	})
 
-	it("keeps legacy outbound rules on old app when split only migrates inbound", async () => {
+	it("does not keep legacy outbound rules on old app when split only migrates inbound", async () => {
 		const teamA = await createNaisTeam("teama")
 		const teamB = await createNaisTeam("teamb")
 		const shared = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
@@ -530,7 +527,7 @@ describe("Access policy rules per environment", () => {
 		await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
 
 		const sharedAppRules = await getAccessPolicyRules(shared.id)
-		expect(sharedAppRules.map((r) => `${r.direction}:${r.ruleApplication}`)).toEqual(["outbound:legacy-outbound"])
+		expect(sharedAppRules).toHaveLength(0)
 	})
 
 	it("emits added when first env rule appears after inbound fallback retirement", async () => {
