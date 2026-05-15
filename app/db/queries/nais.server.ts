@@ -2368,13 +2368,6 @@ export async function upsertAccessPolicyRulesForEnvironment(
 					(row) => `${row.ruleApplication}|${row.ruleNamespace ?? ""}|${row.ruleCluster ?? ""}`,
 				),
 			)
-			if (activeKeys.size > 0) {
-				return {
-					activeKeys,
-					unionKeys: activeKeys,
-					historyCoverageComplete: coverage.historyCoverageComplete,
-				}
-			}
 			return {
 				activeKeys,
 				unionKeys: activeKeys,
