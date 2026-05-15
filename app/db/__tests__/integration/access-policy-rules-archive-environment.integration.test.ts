@@ -10,12 +10,20 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { upsertAccessPolicyRules } = await import("~/db/queries/nais.server")
+const { upsertAccessPolicyRulesForEnvironment, getAccessPolicyRules } = await import("~/db/queries/nais.server")
 
 async function createTestApp(name: string) {
 	const db = getTestDb()
 	const result = await db.execute(
 		/* sql */ `INSERT INTO monitored_applications (name, created_by, updated_by) VALUES ('${name}', 'test', 'test') RETURNING id`,
+	)
+	return (result.rows[0] as { id: string }).id
+}
+
+async function createTestEnvironment(appId: string, cluster: string, namespace: string) {
+	const db = getTestDb()
+	const result = await db.execute(
+		/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace) VALUES ('${appId}', '${cluster}', '${namespace}') RETURNING id`,
 	)
 	return (result.rows[0] as { id: string }).id
 }
@@ -33,10 +41,10 @@ async function getAuditByEntity(entityType: string, entityId: string) {
 	}>
 }
 
-async function getAllRules(applicationId: string) {
+async function getAllEnvRules(appEnvId: string) {
 	const db = getTestDb()
 	const r = await db.execute(
-		/* sql */ `SELECT id, direction, rule_application, rule_namespace, rule_cluster, archived_at, archived_by FROM application_access_policy_rules WHERE application_id = '${applicationId}' ORDER BY discovered_at, id`,
+		/* sql */ `SELECT id, direction, rule_application, rule_namespace, rule_cluster, archived_at, archived_by FROM application_environment_access_policy_rules WHERE application_environment_id = '${appEnvId}' ORDER BY discovered_at, id`,
 	)
 	return r.rows as Array<{
 		id: string
@@ -49,7 +57,7 @@ async function getAllRules(applicationId: string) {
 	}>
 }
 
-describe("Access policy rules soft-delete integration tests", () => {
+describe("Access policy rules soft-delete integration tests (environment-based)", () => {
 	beforeAll(async () => {
 		await setupTestDatabase()
 	}, 120_000)
@@ -61,24 +69,27 @@ describe("Access policy rules soft-delete integration tests", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
-			DELETE FROM application_access_policy_rules;
+			DELETE FROM application_environment_access_policy_rules;
+			DELETE FROM application_environments;
+			DELETE FROM application_access_policy_fallback_cutovers;
 			DELETE FROM monitored_applications;
 			DELETE FROM audit_log;
 		`)
 	})
 
-	it("inserts new rules and writes added-audit on first sync", async () => {
+	it("inserts new rules and writes added-audit on first sync (environment-based)", async () => {
 		const appId = await createTestApp("App A")
-		await upsertAccessPolicyRules(
+		const envId = await createTestEnvironment(appId, "prod-gcp", "team-a")
+		await upsertAccessPolicyRulesForEnvironment(
 			appId,
+			envId,
 			"inbound",
 			[{ application: "frontend", namespace: "team-a", cluster: "prod-gcp" }, { application: "backend" }],
 			"alice",
 		)
 
-		// Legacy inbound data leses direkte fra tabellen (getAccessPolicyRules returnerer ikke legacy inbound)
-		const all = await getAllRules(appId)
-		expect(all.filter((r) => r.archived_at === null)).toHaveLength(2)
+		const active = await getAccessPolicyRules(appId)
+		expect(active).toHaveLength(2)
 
 		const audit = await getAuditByEntity("application", appId)
 		const added = audit.filter((a) => a.action === "access_policy_rule_added")
@@ -88,29 +99,32 @@ describe("Access policy rules soft-delete integration tests", () => {
 		expect(removed).toHaveLength(0)
 	})
 
-	it("archives rules that are no longer reported instead of hard-deleting them", async () => {
+	it("archives rules that are no longer reported instead of hard-deleting them (environment-based)", async () => {
 		const appId = await createTestApp("App B")
-		await upsertAccessPolicyRules(
+		const envId = await createTestEnvironment(appId, "prod-gcp", "team-a")
+		await upsertAccessPolicyRulesForEnvironment(
 			appId,
+			envId,
 			"inbound",
 			[{ application: "frontend", namespace: "team-a", cluster: "prod-gcp" }, { application: "backend" }],
 			"alice",
 		)
 
 		// Andre sync: backend forsvinner
-		await upsertAccessPolicyRules(
+		await upsertAccessPolicyRulesForEnvironment(
 			appId,
+			envId,
 			"inbound",
 			[{ application: "frontend", namespace: "team-a", cluster: "prod-gcp" }],
 			"bob",
 		)
 
-		// Legacy inbound data leses direkte fra tabellen
-		const all = await getAllRules(appId)
+		const active = await getAccessPolicyRules(appId)
+		expect(active).toHaveLength(1)
+		expect(active[0].ruleApplication).toBe("frontend")
+
+		const all = await getAllEnvRules(envId)
 		expect(all).toHaveLength(2)
-		const activeRows = all.filter((r) => r.archived_at === null)
-		expect(activeRows).toHaveLength(1)
-		expect(activeRows[0].rule_application).toBe("frontend")
 		const archivedRow = all.find((r) => r.rule_application === "backend")
 		expect(archivedRow?.archived_at).not.toBeNull()
 		expect(archivedRow?.archived_by).toBe("bob")
@@ -125,25 +139,30 @@ describe("Access policy rules soft-delete integration tests", () => {
 		})
 	})
 
-	it("archives rule when removed — row stays in table but is archived (legacy)", async () => {
+	it("filters archived rows from getAccessPolicyRules (environment-based)", async () => {
 		const appId = await createTestApp("App C")
-		await upsertAccessPolicyRules(appId, "inbound", [{ application: "frontend" }], "alice")
-		await upsertAccessPolicyRules(appId, "inbound", [], "alice")
+		const envId = await createTestEnvironment(appId, "prod-gcp", "team-a")
+		await upsertAccessPolicyRulesForEnvironment(appId, envId, "inbound", [{ application: "frontend" }], "alice")
+		await upsertAccessPolicyRulesForEnvironment(appId, envId, "inbound", [], "alice")
+		const active = await getAccessPolicyRules(appId)
+		expect(active).toHaveLength(0)
 
-		// Legacy inbound vises ikke via getAccessPolicyRules — sjekk tabellen direkte
-		const all = await getAllRules(appId)
+		const all = await getAllEnvRules(envId)
 		expect(all).toHaveLength(1)
 		expect(all[0].archived_at).not.toBeNull()
 	})
 
-	it("re-adds a previously archived rule as a new active row (history preserved)", async () => {
+	it("re-adds a previously archived rule as a new active row (history preserved) (environment-based)", async () => {
 		const appId = await createTestApp("App D")
-		await upsertAccessPolicyRules(appId, "inbound", [{ application: "frontend" }], "alice")
-		await upsertAccessPolicyRules(appId, "inbound", [], "alice")
-		await upsertAccessPolicyRules(appId, "inbound", [{ application: "frontend" }], "alice")
+		const envId = await createTestEnvironment(appId, "prod-gcp", "team-a")
+		await upsertAccessPolicyRulesForEnvironment(appId, envId, "inbound", [{ application: "frontend" }], "alice")
+		await upsertAccessPolicyRulesForEnvironment(appId, envId, "inbound", [], "alice")
+		await upsertAccessPolicyRulesForEnvironment(appId, envId, "inbound", [{ application: "frontend" }], "alice")
 
-		// Sjekk tabellen direkte — to rader (1 arkivert, 1 aktiv)
-		const all = await getAllRules(appId)
+		const active = await getAccessPolicyRules(appId)
+		expect(active).toHaveLength(1)
+
+		const all = await getAllEnvRules(envId)
 		expect(all).toHaveLength(2)
 		const archivedRow = all.find((r) => r.archived_at !== null)
 		const activeRow = all.find((r) => r.archived_at === null)
@@ -152,35 +171,40 @@ describe("Access policy rules soft-delete integration tests", () => {
 		expect(archivedRow?.id).not.toBe(activeRow?.id)
 	})
 
-	it("is idempotent on identical sync — no audit and no row changes", async () => {
+	it("is idempotent on identical sync — no audit and no row changes (environment-based)", async () => {
 		const appId = await createTestApp("App E")
-		await upsertAccessPolicyRules(
+		const envId = await createTestEnvironment(appId, "prod-gcp", "team-a")
+		await upsertAccessPolicyRulesForEnvironment(
 			appId,
+			envId,
 			"inbound",
 			[{ application: "frontend", namespace: "team-a", cluster: "prod-gcp" }, { application: "backend" }],
 			"alice",
 		)
 		const auditBefore = await getAuditByEntity("application", appId)
-		const allBefore = await getAllRules(appId)
+		const allBefore = await getAllEnvRules(envId)
 
-		await upsertAccessPolicyRules(
+		await upsertAccessPolicyRulesForEnvironment(
 			appId,
+			envId,
 			"inbound",
 			[{ application: "frontend", namespace: "team-a", cluster: "prod-gcp" }, { application: "backend" }],
 			"alice",
 		)
 		const auditAfter = await getAuditByEntity("application", appId)
-		const allAfter = await getAllRules(appId)
+		const allAfter = await getAllEnvRules(envId)
 
 		expect(auditAfter.length).toBe(auditBefore.length)
 		expect(allAfter.length).toBe(allBefore.length)
 		expect(allAfter.map((r) => r.id).sort()).toEqual(allBefore.map((r) => r.id).sort())
 	})
 
-	it("dedupes input rules so the same (app, namespace, cluster) is only inserted once", async () => {
+	it("dedupes input rules so the same (app, namespace, cluster) is only inserted once (environment-based)", async () => {
 		const appId = await createTestApp("App F")
-		await upsertAccessPolicyRules(
+		const envId = await createTestEnvironment(appId, "prod-gcp", "team-a")
+		await upsertAccessPolicyRulesForEnvironment(
 			appId,
+			envId,
 			"inbound",
 			[
 				{ application: "frontend", namespace: "team-a", cluster: "prod-gcp" },
@@ -188,23 +212,24 @@ describe("Access policy rules soft-delete integration tests", () => {
 			],
 			"alice",
 		)
-		const all = await getAllRules(appId)
-		expect(all.filter((r) => r.archived_at === null)).toHaveLength(1)
+		const active = await getAccessPolicyRules(appId)
+		expect(active).toHaveLength(1)
 
 		const audit = await getAuditByEntity("application", appId)
 		const added = audit.filter((a) => a.action === "access_policy_rule_added")
 		expect(added).toHaveLength(1)
 	})
 
-	it("scopes diff to a single direction — outbound rules are unaffected by inbound sync", async () => {
+	it("scopes diff to a single direction — outbound rules are unaffected by inbound sync (environment-based)", async () => {
 		const appId = await createTestApp("App G")
-		await upsertAccessPolicyRules(appId, "inbound", [{ application: "in-1" }], "alice")
-		await upsertAccessPolicyRules(appId, "outbound", [{ application: "out-1" }], "alice")
+		const envId = await createTestEnvironment(appId, "prod-gcp", "team-a")
+		await upsertAccessPolicyRulesForEnvironment(appId, envId, "inbound", [{ application: "in-1" }], "alice")
+		await upsertAccessPolicyRulesForEnvironment(appId, envId, "outbound", [{ application: "out-1" }], "alice")
 
 		// Synkroniser inbound på nytt med tom liste — outbound skal ikke berøres
-		await upsertAccessPolicyRules(appId, "inbound", [], "alice")
+		await upsertAccessPolicyRulesForEnvironment(appId, envId, "inbound", [], "alice")
 
-		const all = await getAllRules(appId)
+		const all = await getAllEnvRules(envId)
 		const activeOutbound = all.filter((r) => r.direction === "outbound" && r.archived_at === null)
 		expect(activeOutbound).toHaveLength(1)
 		expect(activeOutbound[0].rule_application).toBe("out-1")
@@ -213,10 +238,12 @@ describe("Access policy rules soft-delete integration tests", () => {
 		expect(archivedInbound).toHaveLength(1)
 	})
 
-	it("writes audit payloads with full rule context", async () => {
+	it("writes audit payloads with full rule context (environment-based)", async () => {
 		const appId = await createTestApp("App H")
-		await upsertAccessPolicyRules(
+		const envId = await createTestEnvironment(appId, "prod-gcp", "team-a")
+		await upsertAccessPolicyRulesForEnvironment(
 			appId,
+			envId,
 			"outbound",
 			[{ application: "downstream", namespace: "team-x", cluster: "prod-gcp" }],
 			"alice",
@@ -234,12 +261,13 @@ describe("Access policy rules soft-delete integration tests", () => {
 		})
 	})
 
-	it("transactional consistency — both diff and audit are committed together", async () => {
+	it("transactional consistency — both diff and audit are committed together (environment-based)", async () => {
 		const appId = await createTestApp("App I")
-		await upsertAccessPolicyRules(appId, "inbound", [{ application: "frontend" }], "alice")
-		await upsertAccessPolicyRules(appId, "inbound", [{ application: "backend" }], "bob")
+		const envId = await createTestEnvironment(appId, "prod-gcp", "team-a")
+		await upsertAccessPolicyRulesForEnvironment(appId, envId, "inbound", [{ application: "frontend" }], "alice")
+		await upsertAccessPolicyRulesForEnvironment(appId, envId, "inbound", [{ application: "backend" }], "bob")
 
-		const all = await getAllRules(appId)
+		const all = await getAllEnvRules(envId)
 		expect(all).toHaveLength(2)
 
 		const audit = await getAuditByEntity("application", appId)

@@ -235,7 +235,7 @@ describe("Access policy rules per environment", () => {
 		])
 	})
 
-	it("keeps legacy fallback when environment history is incomplete and there are no active environment rules", async () => {
+	it("does not expose inbound legacy fallback when there are no active environment rules", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
@@ -254,10 +254,7 @@ describe("Access policy rules per environment", () => {
 		await upsertAccessPolicyRulesForEnvironment(app.id, prodEnv.id, "inbound", [], "nais-sync")
 
 		const merged = await getAccessPolicyRules(app.id)
-		expect(merged.map((r) => `${r.direction}:${r.ruleApplication}:${r.ruleCluster ?? ""}`).sort()).toEqual([
-			"inbound:legacy-client-a:prod-gcp",
-			"inbound:legacy-client-b:dev-gcp",
-		])
+		expect(merged).toHaveLength(0)
 	})
 
 	it("suppresses stale legacy inbound rules when environment sync reports empty rules", async () => {
@@ -398,7 +395,7 @@ describe("Access policy rules per environment", () => {
 		expect(removed).toHaveLength(0)
 	})
 
-	it("writes removed audit when history marker suppresses legacy fallback", async () => {
+	it("does not write fallback suppression audit when inbound fallback is retired", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
@@ -414,16 +411,7 @@ describe("Access policy rules per environment", () => {
 
 		const audit = await getAuditByEntity("application", app.id)
 		const removed = audit.filter((a) => a.action === "access_policy_rule_removed")
-		expect(removed).toHaveLength(1)
-		expect(JSON.parse(removed[0].previous_value as string)).toMatchObject({
-			direction: "inbound",
-			ruleApplication: "legacy-client",
-		})
-		expect(JSON.parse(removed[0].metadata as string)).toMatchObject({
-			legacyFallbackSuppressed: true,
-			legacyFallbackSuppressionReason: "complete_environment_history",
-		})
-		expect(removed[0].new_value).toBeNull()
+		expect(removed).toHaveLength(0)
 	})
 
 	it("tracks summary counts from real union-level audits", async () => {
@@ -473,12 +461,12 @@ describe("Access policy rules per environment", () => {
 			const metadata = JSON.parse(entry.metadata)
 			return metadata?.syncRunId === syncRunId
 		})
-		expect(delta.filter((a) => a.action === "access_policy_rule_added")).toHaveLength(1)
+		expect(delta.filter((a) => a.action === "access_policy_rule_added")).toHaveLength(2)
 		expect(delta.filter((a) => a.action === "access_policy_rule_removed")).toHaveLength(1)
 		expect(collector.applicationIds.size).toBe(1)
-		expect(collector.applicationEnvironmentIds.size).toBe(1)
+		expect(collector.applicationEnvironmentIds.size).toBe(2)
 		expect([...collector.directions]).toEqual(["inbound"])
-		expect(collector.addedRules).toBe(1)
+		expect(collector.addedRules).toBe(2)
 		expect(collector.removedRules).toBe(1)
 		expect(collector.cutovers).toBe(1)
 	})
@@ -545,7 +533,7 @@ describe("Access policy rules per environment", () => {
 		expect(sharedAppRules.map((r) => `${r.direction}:${r.ruleApplication}`)).toEqual(["outbound:legacy-outbound"])
 	})
 
-	it("does not emit false added when first env rule matches visible legacy fallback", async () => {
+	it("emits added when first env rule appears after inbound fallback retirement", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
@@ -572,11 +560,11 @@ describe("Access policy rules per environment", () => {
 		const auditAfter = await getAuditByEntity("application", app.id)
 		const added = auditAfter.slice(auditBefore.length).filter((a) => a.action === "access_policy_rule_added")
 		const removed = auditAfter.slice(auditBefore.length).filter((a) => a.action === "access_policy_rule_removed")
-		expect(added).toHaveLength(0)
+		expect(added).toHaveLength(1)
 		expect(removed).toHaveLength(0)
 	})
 
-	it("logs fallback additions when archiving last active env rule makes legacy visible again", async () => {
+	it("logs removed when archiving last active env rule after inbound fallback retirement", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
@@ -607,9 +595,9 @@ describe("Access policy rules per environment", () => {
 		const delta = auditAfter.slice(auditBefore.length)
 		const added = delta.filter((a) => a.action === "access_policy_rule_added")
 		const removed = delta.filter((a) => a.action === "access_policy_rule_removed")
-		expect(removed).toHaveLength(0)
-		expect(added).toHaveLength(1)
-		expect(JSON.parse(added[0].new_value as string)).toMatchObject({ ruleApplication: "legacy-only" })
+		expect(removed).toHaveLength(1)
+		expect(added).toHaveLength(0)
+		expect(JSON.parse(removed[0].previous_value as string)).toMatchObject({ ruleApplication: "legacy-shared" })
 	})
 
 	it("suppresses legacy fallback when direction history is complete for covered teams", async () => {
