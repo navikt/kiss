@@ -12,6 +12,7 @@ vi.mock("~/db/connection.server", () => ({
 
 const {
 	archiveMissingEnvironmentAccessPolicyRules,
+	createAccessPolicySyncSummaryCollector,
 	getMonitoredAppsForNaisTeam,
 	getAccessPolicyRules,
 	upsertAccessPolicyRules,
@@ -270,7 +271,6 @@ describe("Access policy rules per environment", () => {
 			[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
 			"nais-sync",
 		)
-
 		await upsertAccessPolicyRulesForEnvironment(app.id, prodEnv.id, "inbound", [], "nais-sync")
 
 		const merged = await getAccessPolicyRules(app.id)
@@ -424,6 +424,63 @@ describe("Access policy rules per environment", () => {
 			legacyFallbackSuppressionReason: "complete_environment_history",
 		})
 		expect(removed[0].new_value).toBeNull()
+	})
+
+	it("tracks summary counts from real union-level audits", async () => {
+		const teamId = await createNaisTeam("teampensjon")
+		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
+		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
+		const devEnv = await upsertAppEnvironment(app.id, "dev-gcp", "teampensjon", teamId)
+		const collector = createAccessPolicySyncSummaryCollector()
+		const syncRunId = "summary-union-test"
+
+		await upsertAccessPolicyRules(
+			app.id,
+			"inbound",
+			[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
+			"nais-sync",
+		)
+		await upsertAccessPolicyRulesForEnvironment(
+			app.id,
+			prodEnv.id,
+			"inbound",
+			[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
+			"nais-sync",
+			{ accessPolicySyncSummary: collector, syncRunId },
+		)
+
+		await upsertAccessPolicyRulesForEnvironment(
+			app.id,
+			devEnv.id,
+			"inbound",
+			[
+				{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" },
+				{ application: "unique-client", namespace: "teampensjon", cluster: "dev-gcp" },
+				{ application: "unique-client", namespace: "teampensjon", cluster: "dev-gcp" },
+			],
+			"nais-sync",
+			{ accessPolicySyncSummary: collector, syncRunId },
+		)
+
+		await archiveMissingEnvironmentAccessPolicyRules(app.id, teamId, [prodEnv.id], ["inbound"], "nais-sync", {
+			accessPolicySyncSummary: collector,
+			syncRunId,
+		})
+
+		const auditAfter = await getAuditByEntity("application", app.id)
+		const delta = auditAfter.filter((entry) => {
+			if (!entry.metadata) return false
+			const metadata = JSON.parse(entry.metadata)
+			return metadata?.syncRunId === syncRunId
+		})
+		expect(delta.filter((a) => a.action === "access_policy_rule_added")).toHaveLength(1)
+		expect(delta.filter((a) => a.action === "access_policy_rule_removed")).toHaveLength(1)
+		expect(collector.applicationIds.size).toBe(1)
+		expect(collector.applicationEnvironmentIds.size).toBe(1)
+		expect([...collector.directions]).toEqual(["inbound"])
+		expect(collector.addedRules).toBe(1)
+		expect(collector.removedRules).toBe(1)
+		expect(collector.cutovers).toBe(1)
 	})
 
 	it("rejects mismatched application/environment ids", async () => {

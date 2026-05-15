@@ -35,6 +35,54 @@ const SYNC_PERFORMER = "nais-sync"
 
 type IncomingAccessPolicyRule = { application: string; namespace?: string; cluster?: string }
 type AccessPolicyRuleFields = { ruleApplication: string; ruleNamespace: string | null; ruleCluster: string | null }
+export type AccessPolicySyncSummaryCollector = {
+	applicationIds: Set<string>
+	applicationEnvironmentIds: Set<string>
+	directions: Set<"inbound" | "outbound">
+	addedRules: number
+	removedRules: number
+	cutovers: number
+}
+
+export function createAccessPolicySyncSummaryCollector(): AccessPolicySyncSummaryCollector {
+	return {
+		applicationIds: new Set<string>(),
+		applicationEnvironmentIds: new Set<string>(),
+		directions: new Set<"inbound" | "outbound">(),
+		addedRules: 0,
+		removedRules: 0,
+		cutovers: 0,
+	}
+}
+
+function recordAccessPolicySyncSummary(
+	collector: AccessPolicySyncSummaryCollector | undefined,
+	params: {
+		applicationId: string
+		applicationEnvironmentId?: string
+		direction: "inbound" | "outbound"
+		addedRules?: number
+		removedRules?: number
+		cutoverCreated?: boolean
+	},
+) {
+	if (!collector) return
+	if (!params.addedRules && !params.removedRules && !params.cutoverCreated) return
+	collector.applicationIds.add(params.applicationId)
+	collector.directions.add(params.direction)
+	if (params.applicationEnvironmentId) {
+		collector.applicationEnvironmentIds.add(params.applicationEnvironmentId)
+	}
+	if (params.addedRules) {
+		collector.addedRules += params.addedRules
+	}
+	if (params.removedRules) {
+		collector.removedRules += params.removedRules
+	}
+	if (params.cutoverCreated) {
+		collector.cutovers += 1
+	}
+}
 
 function toAccessPolicyRuleKey(rule: AccessPolicyRuleFields): string {
 	return `${rule.ruleApplication}|${rule.ruleNamespace ?? ""}|${rule.ruleCluster ?? ""}`
@@ -2101,6 +2149,7 @@ export async function upsertAccessPolicyRules(
 		sourceClusters?: string[]
 		syncRunId?: string
 		syncJobId?: string
+		accessPolicySyncSummary?: AccessPolicySyncSummaryCollector
 	},
 ) {
 	await db.transaction(async (tx) => {
@@ -2195,6 +2244,13 @@ export async function upsertAccessPolicyRules(
 				)
 			}
 		}
+
+		recordAccessPolicySyncSummary(context?.accessPolicySyncSummary, {
+			applicationId,
+			direction,
+			addedRules: toInsert.length,
+			removedRules: toArchive.length,
+		})
 	})
 }
 
@@ -2216,6 +2272,7 @@ export async function upsertAccessPolicyRulesForEnvironment(
 		sourceClusters?: string[]
 		syncRunId?: string
 		syncJobId?: string
+		accessPolicySyncSummary?: AccessPolicySyncSummaryCollector
 	},
 ) {
 	await db.transaction(async (tx) => {
@@ -2449,6 +2506,9 @@ export async function upsertAccessPolicyRulesForEnvironment(
 		}
 
 		const afterState = await getDirectionUnionState()
+		let insertedCutoverCreated = false
+		let addedAuditCount = 0
+		let removedAuditCount = 0
 		if (afterState.historyCoverageComplete) {
 			const [insertedCutover] = await tx
 				.insert(applicationAccessPolicyFallbackCutovers)
@@ -2466,6 +2526,7 @@ export async function upsertAccessPolicyRulesForEnvironment(
 				})
 				.returning()
 			if (insertedCutover) {
+				insertedCutoverCreated = true
 				await writeAuditLog(
 					{
 						action: "access_policy_legacy_fallback_cutover",
@@ -2521,6 +2582,7 @@ export async function upsertAccessPolicyRulesForEnvironment(
 				},
 				tx,
 			)
+			addedAuditCount++
 		}
 
 		for (const key of removedKeys) {
@@ -2560,7 +2622,17 @@ export async function upsertAccessPolicyRulesForEnvironment(
 				},
 				tx,
 			)
+			removedAuditCount++
 		}
+
+		recordAccessPolicySyncSummary(context?.accessPolicySyncSummary, {
+			applicationId: effectiveApplicationId,
+			applicationEnvironmentId,
+			direction,
+			addedRules: addedAuditCount,
+			removedRules: removedAuditCount,
+			cutoverCreated: insertedCutoverCreated,
+		})
 	})
 }
 
@@ -2578,6 +2650,7 @@ export async function archiveMissingEnvironmentAccessPolicyRules(
 		teamSlug?: string
 		syncRunId?: string
 		syncJobId?: string
+		accessPolicySyncSummary?: AccessPolicySyncSummaryCollector
 	},
 ) {
 	if (directions.length === 0) return
@@ -2619,6 +2692,7 @@ export async function archiveMissingEnvironmentAccessPolicyRules(
 				sourceClusters: [env.cluster],
 				syncRunId: context?.syncRunId,
 				syncJobId: context?.syncJobId,
+				accessPolicySyncSummary: context?.accessPolicySyncSummary,
 			})
 		}
 	}
