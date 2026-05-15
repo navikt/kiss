@@ -53,9 +53,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				hasExactRoleForSection(user, ruleset.responsibleRole as UserRole, section.id)))
 	const canEditDraft =
 		user !== null &&
-		(isAdmin(user) || hasAnySectionRole(user, section.id)) &&
 		ruleset.status !== "archived" &&
-		ruleset.lastApproval === null
+		(isAdmin(user) || (hasAnySectionRole(user, section.id) && ruleset.lastApproval === null))
 	const userIsAdmin = user ? isAdmin(user) : false
 	const canMutate = userIsAdmin && ruleset.status !== "archived"
 

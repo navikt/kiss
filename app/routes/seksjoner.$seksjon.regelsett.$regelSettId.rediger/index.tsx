@@ -92,6 +92,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const formData = await request.formData()
 	const intent = formData.get("intent")
+	const userIsAdmin = isAdmin(authedUser)
 
 	// Mutasjoner som krever at regelsettet er aktivt (ikke arkivert) — pluss
 	// `archive`/`unarchive` som er statusoverganger og som må valideres mot
@@ -109,7 +110,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				error: "Regelsettet er arkivert. Reaktiver det før du gjør endringer.",
 			})
 		}
-		if (!isAdmin(authedUser) && current.lastApproval) {
+		if (!userIsAdmin && current.lastApproval) {
 			return data<ActionResult>({
 				success: false,
 				error: "Regelsettet er godkjent og kan ikke redigeres.",
@@ -160,12 +161,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 					: null,
 				frequency: isRoutineFrequency(frequency) ? (frequency as RoutineFrequency) : undefined,
 				updatedBy: authedUser.navIdent,
+				requireUnapproved: !userIsAdmin,
 			})
 
 			if (!updated) {
 				return data<ActionResult>({
 					success: false,
-					error: "Regelsettet er arkivert eller finnes ikke.",
+					error: userIsAdmin
+						? "Regelsettet er arkivert eller finnes ikke."
+						: "Regelsettet er godkjent, arkivert eller finnes ikke.",
 				})
 			}
 			return data<ActionResult>({ success: true, message: "Regelsett oppdatert." })
@@ -192,11 +196,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (typeof controlId !== "string" || !controlId.trim()) {
 				return data<ActionResult>({ success: false, error: "Velg et kontrollkrav." })
 			}
-			const linked = await linkControlToRuleset(regelSettId, controlId.trim(), authedUser.navIdent)
+			const linked = await linkControlToRuleset(regelSettId, controlId.trim(), authedUser.navIdent, {
+				requireUnapproved: !userIsAdmin,
+			})
 			if (!linked) {
 				return data<ActionResult>({
 					success: false,
-					error: "Regelsettet er arkivert eller finnes ikke.",
+					error: userIsAdmin
+						? "Regelsettet er arkivert eller finnes ikke."
+						: "Regelsettet er godkjent, arkivert eller finnes ikke.",
 				})
 			}
 			return data<ActionResult>({ success: true, message: "Kontrollkrav koblet." })
@@ -207,11 +215,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (typeof linkId !== "string" || !linkId.trim()) {
 				return data<ActionResult>({ success: false, error: "Mangler kobling-ID." })
 			}
-			const unlinked = await unlinkControlFromRuleset(regelSettId, linkId.trim(), authedUser.navIdent)
+			const unlinked = await unlinkControlFromRuleset(regelSettId, linkId.trim(), authedUser.navIdent, {
+				requireUnapproved: !userIsAdmin,
+			})
 			if (!unlinked) {
 				return data<ActionResult>({
 					success: false,
-					error: "Regelsettet er arkivert eller finnes ikke.",
+					error: userIsAdmin
+						? "Regelsettet er arkivert eller finnes ikke."
+						: "Regelsettet er godkjent, arkivert eller finnes ikke.",
 				})
 			}
 			return data<ActionResult>({ success: true, message: "Kontrollkrav fjernet." })

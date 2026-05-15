@@ -110,7 +110,10 @@ describe("ruleset edit action authorization", () => {
 
 		expect(mockRequireAnySectionRole).toHaveBeenCalledWith(fakeUser, fakeSection.id)
 		expect(data).toEqual({ success: true, message: "Regelsett oppdatert." })
-		expect(mockUpdateRuleset).toHaveBeenCalled()
+		expect(mockUpdateRuleset).toHaveBeenCalledWith(
+			"ruleset-1",
+			expect.objectContaining({ requireUnapproved: true, updatedBy: fakeUser.navIdent }),
+		)
 	})
 
 	it("rejects section-role user when ruleset is approved", async () => {
@@ -143,6 +146,9 @@ describe("ruleset edit action authorization", () => {
 		const data = getData(result)
 
 		expect(data).toEqual({ success: true, message: "Regelsett oppdatert." })
-		expect(mockUpdateRuleset).toHaveBeenCalled()
+		expect(mockUpdateRuleset).toHaveBeenCalledWith(
+			"ruleset-1",
+			expect.objectContaining({ requireUnapproved: false, updatedBy: fakeUser.navIdent }),
+		)
 	})
 })

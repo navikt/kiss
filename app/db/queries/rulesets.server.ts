@@ -347,6 +347,7 @@ export async function updateRuleset(
 		responsibleRole?: string | null
 		frequency?: RoutineFrequency
 		updatedBy: string
+		requireUnapproved?: boolean
 	},
 ): Promise<boolean> {
 	const set: Record<string, unknown> = { updatedAt: new Date(), updatedBy: input.updatedBy }
@@ -360,7 +361,15 @@ export async function updateRuleset(
 	const updated = await db
 		.update(rulesets)
 		.set(set)
-		.where(and(eq(rulesets.id, rulesetId), isNull(rulesets.archivedAt)))
+		.where(
+			and(
+				eq(rulesets.id, rulesetId),
+				isNull(rulesets.archivedAt),
+				input.requireUnapproved
+					? sql`NOT EXISTS (SELECT 1 FROM ${rulesetApprovals} WHERE ${rulesetApprovals.rulesetId} = ${rulesets.id})`
+					: undefined,
+			),
+		)
 		.returning({ id: rulesets.id })
 	return updated.length > 0
 }
@@ -521,6 +530,7 @@ export async function linkControlToRuleset(
 	rulesetId: string,
 	controlId: string,
 	performedBy: string,
+	options?: { requireUnapproved?: boolean },
 ): Promise<boolean> {
 	return db.transaction(async (tx) => {
 		const [locked] = await tx
@@ -530,6 +540,14 @@ export async function linkControlToRuleset(
 			.for("update")
 			.limit(1)
 		if (!locked || locked.archivedAt) return false
+		if (options?.requireUnapproved) {
+			const [approval] = await tx
+				.select({ id: rulesetApprovals.id })
+				.from(rulesetApprovals)
+				.where(eq(rulesetApprovals.rulesetId, rulesetId))
+				.limit(1)
+			if (approval) return false
+		}
 		// Eksplisitt eksistens-sjekk under samme tx-lås: ruleset_controls har ingen
 		// unik begrensning på (ruleset_id, control_id), så onConflictDoNothing gir
 		// ingen reell idempotens. FOR UPDATE på regelsett-raden serialiserer
@@ -574,6 +592,7 @@ export async function unlinkControlFromRuleset(
 	rulesetId: string,
 	linkId: string,
 	performedBy: string,
+	options?: { requireUnapproved?: boolean },
 ): Promise<boolean> {
 	return db.transaction(async (tx) => {
 		// FOR UPDATE for å serialisere mot samtidige link/unlink-operasjoner på
@@ -585,6 +604,14 @@ export async function unlinkControlFromRuleset(
 			.for("update")
 			.limit(1)
 		if (!locked || locked.archivedAt) return false
+		if (options?.requireUnapproved) {
+			const [approval] = await tx
+				.select({ id: rulesetApprovals.id })
+				.from(rulesetApprovals)
+				.where(eq(rulesetApprovals.rulesetId, rulesetId))
+				.limit(1)
+			if (approval) return false
+		}
 		const archived = await tx
 			.update(rulesetControls)
 			.set({ archivedAt: new Date(), archivedBy: performedBy })
