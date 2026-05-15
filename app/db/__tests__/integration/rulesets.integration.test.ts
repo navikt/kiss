@@ -399,6 +399,44 @@ describe("rulesets.server integration tests", () => {
 		})
 	})
 
+	describe("Approval guards on related mutations", () => {
+		it("blocks non-admin style update when ruleset has approvals", async () => {
+			const sectionId = await createSectionRow("secA1")
+			const id = await createRuleset({ sectionId, name: "A", frequency: "annually", createdBy: "admin" })
+			await approveRuleset({
+				rulesetId: id,
+				approvedBy: "admin",
+				approvedByName: "Admin",
+				frequency: "annually",
+			})
+
+			expect(
+				await updateRuleset(id, { name: "Skal ikke lagres", updatedBy: "section-user", requireUnapproved: true }),
+			).toBe(false)
+			expect(await updateRuleset(id, { name: "Admin kan lagre", updatedBy: "admin" })).toBe(true)
+		})
+
+		it("blocks control link/unlink when requireUnapproved is set and ruleset has approvals", async () => {
+			const sectionId = await createSectionRow("secA2")
+			const id = await createRuleset({ sectionId, name: "B", frequency: "annually", createdBy: "admin" })
+			const controlA = await createControl("K-AP.01")
+			const controlB = await createControl("K-AP.02")
+			expect(await linkControlToRuleset(id, controlA, "admin")).toBe(true)
+			await approveRuleset({
+				rulesetId: id,
+				approvedBy: "admin",
+				approvedByName: "Admin",
+				frequency: "annually",
+			})
+
+			expect(await linkControlToRuleset(id, controlB, "section-user", { requireUnapproved: true })).toBe(false)
+			const detail = await getRulesetDetail(id)
+			const linkId = detail?.controls.find((c) => c.id === controlA)?.linkId as string
+			expect(await unlinkControlFromRuleset(id, linkId, "section-user", { requireUnapproved: true })).toBe(false)
+			expect(await unlinkControlFromRuleset(id, linkId, "admin")).toBe(true)
+		})
+	})
+
 	describe("getRulesetsForSection", () => {
 		it("lists rulesets for a section with approval status", async () => {
 			const sectionId = await createSectionRow("sec9")

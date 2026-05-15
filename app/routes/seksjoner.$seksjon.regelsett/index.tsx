@@ -8,7 +8,7 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { approvalStatusConfig } from "~/lib/approval-status"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
+import { hasAnySectionRole } from "~/lib/authorization.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -24,12 +24,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return data({
 		section,
 		rulesets,
-		canAdmin: user ? isAdmin(user) : false,
+		canCreateRuleset: user ? hasAnySectionRole(user, section.id) : false,
 	})
 }
 
 export default function SeksjonRegelsettIndex() {
-	const { section, rulesets, canAdmin } = useLoaderData<typeof loader>()
+	const { section, rulesets, canCreateRuleset } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-6">
@@ -45,7 +45,7 @@ export default function SeksjonRegelsettIndex() {
 					>
 						Eksporter
 					</Button>
-					{canAdmin && (
+					{canCreateRuleset && (
 						<Button as={Link} to={`/seksjoner/${section.slug}/regelsett/ny`} variant="primary" size="small">
 							Opprett nytt regelsett
 						</Button>

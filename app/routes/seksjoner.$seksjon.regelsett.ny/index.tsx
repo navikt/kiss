@@ -8,7 +8,7 @@ import { createRuleset } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
+import { requireAnySectionRole } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
 	isRoutineFrequency,
@@ -31,10 +31,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
+	requireAnySectionRole(authedUser, section.id)
 
 	return data({
 		section,
@@ -50,10 +50,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
+	requireAnySectionRole(authedUser, section.id)
 
 	const formData = await request.formData()
 	const name = formData.get("name")
