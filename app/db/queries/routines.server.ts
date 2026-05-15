@@ -4125,7 +4125,7 @@ export async function createReviewActivity(
 		entityType: "routine_review_activity",
 		entityId: activity.id,
 		newValue: type,
-		metadata: { reviewId, providerConfig },
+		metadata: providerConfig ? { reviewId, providerConfig } : { reviewId },
 		performedBy,
 	})
 
