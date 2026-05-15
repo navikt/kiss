@@ -2392,45 +2392,12 @@ export async function upsertAccessPolicyRulesForEnvironment(
 					: coverage.historyCoverageComplete
 						? "complete_environment_history"
 						: "incomplete_environment_history"
-			// Inbound legacy fallback is phased out; inbound visibility is now based only on environment rules.
-			if (direction === "inbound") {
-				return {
-					activeKeys,
-					legacyKeys: new Set(),
-					unionKeys: activeKeys,
-					legacyFallbackVisible: false,
-					legacyFallbackReason,
-					historyCoverageComplete: coverage.historyCoverageComplete,
-				}
-			}
-			const legacyFallbackVisible = coverage.historyCoverageRows.length === 0 || !coverage.historyCoverageComplete
 			const legacyKeys = new Set<string>()
-			if (legacyFallbackVisible) {
-				const legacyRows = await tx
-					.select({
-						ruleApplication: applicationAccessPolicyRules.ruleApplication,
-						ruleNamespace: applicationAccessPolicyRules.ruleNamespace,
-						ruleCluster: applicationAccessPolicyRules.ruleCluster,
-					})
-					.from(applicationAccessPolicyRules)
-					.where(
-						and(
-							eq(applicationAccessPolicyRules.applicationId, effectiveApplicationId),
-							eq(applicationAccessPolicyRules.direction, direction),
-							isNull(applicationAccessPolicyRules.archivedAt),
-						),
-					)
-				for (const row of legacyRows) {
-					legacyKeys.add(`${row.ruleApplication}|${row.ruleNamespace ?? ""}|${row.ruleCluster ?? ""}`)
-				}
-			}
-			const unionKeys = new Set<string>(activeKeys)
-			for (const key of legacyKeys) unionKeys.add(key)
 			return {
 				activeKeys,
 				legacyKeys,
-				unionKeys,
-				legacyFallbackVisible,
+				unionKeys: activeKeys,
+				legacyFallbackVisible: false,
 				legacyFallbackReason,
 				historyCoverageComplete: coverage.historyCoverageComplete,
 			}
@@ -2742,109 +2709,7 @@ export async function getAccessPolicyRules(applicationId: string) {
 			applicationEnvironmentAccessPolicyRules.ruleNamespace,
 			applicationEnvironmentAccessPolicyRules.ruleCluster,
 		)
-
 	const result = [...environmentRuleRows]
-	const directionsWithActiveEnvironmentRules = new Set(environmentRuleRows.map((row) => row.direction))
-	const allEnvironmentRows = await db
-		.select({
-			id: applicationEnvironments.id,
-			naisTeamId: applicationEnvironments.naisTeamId,
-		})
-		.from(applicationEnvironments)
-		.where(eq(applicationEnvironments.applicationId, applicationId))
-
-	const environmentDirectionsWithHistoryRows = await db
-		.select({
-			direction: applicationEnvironmentAccessPolicyRules.direction,
-			applicationEnvironmentId: applicationEnvironmentAccessPolicyRules.applicationEnvironmentId,
-			naisTeamId: applicationEnvironments.naisTeamId,
-		})
-		.from(applicationEnvironmentAccessPolicyRules)
-		.innerJoin(
-			applicationEnvironments,
-			eq(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironments.id),
-		)
-		.where(eq(applicationEnvironments.applicationId, applicationId))
-		.groupBy(
-			applicationEnvironmentAccessPolicyRules.direction,
-			applicationEnvironmentAccessPolicyRules.applicationEnvironmentId,
-			applicationEnvironments.naisTeamId,
-		)
-
-	const byDirectionHistory = new Map<
-		"inbound" | "outbound",
-		{
-			environmentIds: Set<string>
-			teamIds: Set<string>
-		}
-	>()
-	for (const row of environmentDirectionsWithHistoryRows) {
-		const entry = byDirectionHistory.get(row.direction) ?? {
-			environmentIds: new Set<string>(),
-			teamIds: new Set<string>(),
-		}
-		entry.environmentIds.add(row.applicationEnvironmentId)
-		entry.teamIds.add(row.naisTeamId ?? "__null_team__")
-		byDirectionHistory.set(row.direction, entry)
-	}
-	const directionsWithEnvironmentHistory = new Set(byDirectionHistory.keys())
-	const directionsWithCompleteEnvironmentHistory = new Set<"inbound" | "outbound">()
-	for (const [direction, coverage] of byDirectionHistory) {
-		const scopedEnvironmentCount = allEnvironmentRows.filter((env) =>
-			coverage.teamIds.has(env.naisTeamId ?? "__null_team__"),
-		).length
-		if (coverage.environmentIds.size === scopedEnvironmentCount) {
-			directionsWithCompleteEnvironmentHistory.add(direction)
-		}
-	}
-	const legacyFallbackCutoverRows = await db
-		.select({ direction: applicationAccessPolicyFallbackCutovers.direction })
-		.from(applicationAccessPolicyFallbackCutovers)
-		.where(eq(applicationAccessPolicyFallbackCutovers.applicationId, applicationId))
-	const directionsWithLegacyFallbackCutover = new Set(legacyFallbackCutoverRows.map((row) => row.direction))
-
-	const legacyRows = await db
-		.select({
-			id: applicationAccessPolicyRules.id,
-			direction: applicationAccessPolicyRules.direction,
-			ruleApplication: applicationAccessPolicyRules.ruleApplication,
-			ruleNamespace: applicationAccessPolicyRules.ruleNamespace,
-			ruleCluster: applicationAccessPolicyRules.ruleCluster,
-		})
-		.from(applicationAccessPolicyRules)
-		.where(
-			and(
-				eq(applicationAccessPolicyRules.applicationId, applicationId),
-				eq(applicationAccessPolicyRules.direction, "outbound"),
-				isNull(applicationAccessPolicyRules.archivedAt),
-			),
-		)
-		.orderBy(
-			applicationAccessPolicyRules.direction,
-			applicationAccessPolicyRules.ruleApplication,
-			applicationAccessPolicyRules.ruleNamespace,
-			applicationAccessPolicyRules.ruleCluster,
-		)
-
-	for (const row of legacyRows) {
-		if (directionsWithLegacyFallbackCutover.has(row.direction)) {
-			continue
-		}
-
-		if (directionsWithActiveEnvironmentRules.has(row.direction)) {
-			continue
-		}
-
-		if (
-			directionsWithEnvironmentHistory.has(row.direction) &&
-			directionsWithCompleteEnvironmentHistory.has(row.direction)
-		) {
-			continue
-		}
-
-		result.push(row)
-	}
-
 	result.sort((a, b) => {
 		if (a.direction !== b.direction) return a.direction.localeCompare(b.direction, "nb")
 		if (a.ruleApplication !== b.ruleApplication) return a.ruleApplication.localeCompare(b.ruleApplication, "nb")
