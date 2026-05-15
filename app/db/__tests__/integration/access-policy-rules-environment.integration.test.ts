@@ -15,6 +15,7 @@ const {
 	createAccessPolicySyncSummaryCollector,
 	getMonitoredAppsForNaisTeam,
 	getAccessPolicyRules,
+	runAccessPolicyFallbackCutoverBackfill,
 	upsertAccessPolicyRules,
 	upsertAccessPolicyRulesForEnvironment,
 	upsertAppEnvironment,
@@ -619,5 +620,51 @@ describe("Access policy rules per environment", () => {
 
 		const merged = await getAccessPolicyRules(app.id)
 		expect(merged).toHaveLength(0)
+	})
+
+	it("backfills cutover markers and logs audit entries for complete direction coverage", async () => {
+		const db = getTestDb()
+		const teamId = await createNaisTeam("teampensjon")
+		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
+		const env = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
+
+		await db.execute(
+			/* sql */ `INSERT INTO application_environment_access_policy_rules (application_environment_id, direction, rule_application, rule_namespace, rule_cluster)
+				VALUES ('${env.id}', 'inbound', 'in-client', 'teampensjon', 'prod-gcp')`,
+		)
+		await db.execute(
+			/* sql */ `INSERT INTO application_environment_access_policy_rules (application_environment_id, direction, rule_application, rule_namespace, rule_cluster)
+				VALUES ('${env.id}', 'outbound', 'out-client', 'teampensjon', 'prod-gcp')`,
+		)
+
+		const result = await runAccessPolicyFallbackCutoverBackfill("admin-user")
+		expect(result).toEqual({
+			inserted: 2,
+			inboundInserted: 1,
+			outboundInserted: 1,
+		})
+
+		const cutoverRows = await db.execute<{ direction: string }>(
+			/* sql */ `SELECT direction FROM application_access_policy_fallback_cutovers WHERE application_id = '${app.id}' ORDER BY direction`,
+		)
+		expect(cutoverRows.rows.map((row) => row.direction)).toEqual(["inbound", "outbound"])
+
+		const audit = await getAuditByEntity("application", app.id)
+		const cutoverAudit = audit.filter((entry) => entry.action === "access_policy_legacy_fallback_cutover")
+		expect(cutoverAudit).toHaveLength(2)
+		for (const entry of cutoverAudit) {
+			expect(entry.performed_by).toBe("admin-user")
+			const newValue = JSON.parse(entry.new_value as string)
+			expect(newValue.cutoverSource).toBe("manual_backfill")
+			const metadata = JSON.parse(entry.metadata as string)
+			expect(metadata.trigger).toBe("admin_vedlikehold")
+		}
+
+		const rerun = await runAccessPolicyFallbackCutoverBackfill("admin-user")
+		expect(rerun).toEqual({
+			inserted: 0,
+			inboundInserted: 0,
+			outboundInserted: 0,
+		})
 	})
 })
