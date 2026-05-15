@@ -610,6 +610,13 @@
       "when": 1781917120000,
       "tag": "0086_sync_job_events",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1781917180000,
+      "tag": "0087_review_activity_provider_config",
+      "breakpoints": true
     }
   ]
 }

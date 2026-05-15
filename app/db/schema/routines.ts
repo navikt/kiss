@@ -242,6 +242,10 @@ export interface PeriodConfig {
 	periodStart: string
 }
 
+export interface ReviewActivityProviderConfig {
+	instanceId?: string
+}
+
 export const routineReviewActivities = pgTable("routine_review_activities", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	reviewId: uuid("review_id")
@@ -252,6 +256,7 @@ export const routineReviewActivities = pgTable("routine_review_activities", {
 	snapshotBefore: jsonb("snapshot_before"),
 	snapshotAfter: jsonb("snapshot_after"),
 	periodConfig: jsonb("period_config").$type<PeriodConfig>(),
+	providerConfig: jsonb("provider_config").$type<ReviewActivityProviderConfig>(),
 	completedAt: timestamp("completed_at", { withTimezone: true }),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })

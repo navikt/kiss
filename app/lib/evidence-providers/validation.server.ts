@@ -129,6 +129,11 @@ async function validateOracleAccess(params: Record<string, unknown>, ctx: Activi
 	if (typeof instanceId !== "string" || !instanceId) {
 		throw data({ error: "instanceId er påkrevd" }, { status: 400 })
 	}
+	const configuredInstanceId =
+		ctx.providerConfig && typeof ctx.providerConfig.instanceId === "string" ? ctx.providerConfig.instanceId : null
+	if (configuredInstanceId && configuredInstanceId !== instanceId) {
+		throw data({ error: "Oracle-instans matcher ikke valgt instans for gjennomgangen" }, { status: 403 })
+	}
 	if (!ctx.applicationId) {
 		throw data({ error: "Gjennomgangen mangler applikasjonstilknytning" }, { status: 400 })
 	}

@@ -28,6 +28,7 @@ import {
 	type FollowUpPointAttachmentKind,
 	type FollowUpPointStatus,
 	type PeriodConfig,
+	type ReviewActivityProviderConfig,
 	type ReviewStatus,
 	type RoutineActivityType,
 	type RoutineStatus,
@@ -4089,6 +4090,7 @@ export async function autoCreateActivityForReview(
 	routineId: string,
 	applicationId: string | null,
 	performedBy: string,
+	providerConfig?: ReviewActivityProviderConfig | null,
 ) {
 	const routine = await getRoutine(routineId)
 	if (!routine?.activityType) return null
@@ -4098,7 +4100,7 @@ export async function autoCreateActivityForReview(
 		snapshotBefore = await buildEntraGroupSnapshot(applicationId)
 	}
 
-	return createReviewActivity(reviewId, routine.activityType, snapshotBefore, performedBy)
+	return createReviewActivity(reviewId, routine.activityType, snapshotBefore, performedBy, providerConfig ?? null)
 }
 
 export async function createReviewActivity(
@@ -4106,6 +4108,7 @@ export async function createReviewActivity(
 	type: RoutineActivityType,
 	snapshotBefore: EntraGroupSnapshot | null,
 	performedBy: string,
+	providerConfig: ReviewActivityProviderConfig | null = null,
 ) {
 	const [activity] = await db
 		.insert(routineReviewActivities)
@@ -4113,6 +4116,7 @@ export async function createReviewActivity(
 			reviewId,
 			type,
 			snapshotBefore,
+			providerConfig,
 		})
 		.returning()
 
@@ -4121,7 +4125,7 @@ export async function createReviewActivity(
 		entityType: "routine_review_activity",
 		entityId: activity.id,
 		newValue: type,
-		metadata: { reviewId },
+		metadata: { reviewId, providerConfig },
 		performedBy,
 	})
 
