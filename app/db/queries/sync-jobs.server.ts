@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm"
+import { and, count, desc, eq } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type SyncJobState, syncJobs } from "../schema/sync-jobs"
 import { appendSyncJobEvent } from "./sync-job-events.server"
@@ -334,6 +334,7 @@ export async function listSyncJobSummaries(filters?: {
 	state?: SyncJobState
 	jobType?: string
 	limit?: number
+	offset?: number
 }): Promise<SyncJobSummary[]> {
 	const conditions = []
 	if (filters?.state) {
@@ -358,7 +359,10 @@ export async function listSyncJobSummaries(filters?: {
 		query.where(and(...conditions))
 	}
 
-	const rows = await query.orderBy(desc(syncJobs.createdAt)).limit(filters?.limit ?? 100)
+	const rows = await query
+		.orderBy(desc(syncJobs.createdAt))
+		.limit(filters?.limit ?? 100)
+		.offset(filters?.offset ?? 0)
 
 	return rows.map((row) => ({
 		id: row.id,
@@ -368,4 +372,22 @@ export async function listSyncJobSummaries(filters?: {
 		message: row.message,
 		error: row.error,
 	}))
+}
+
+export async function countSyncJobSummaries(filters?: { state?: SyncJobState; jobType?: string }): Promise<number> {
+	const conditions = []
+	if (filters?.state) {
+		conditions.push(eq(syncJobs.state, filters.state))
+	}
+	if (filters?.jobType) {
+		conditions.push(eq(syncJobs.jobType, filters.jobType))
+	}
+
+	const query = db.select({ count: count() }).from(syncJobs)
+	if (conditions.length > 0) {
+		query.where(and(...conditions))
+	}
+
+	const [result] = await query
+	return result?.count ?? 0
 }

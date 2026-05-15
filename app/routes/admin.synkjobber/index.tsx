@@ -1,13 +1,15 @@
 import { BodyLong, Button, Detail, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
-import { listSyncJobSummaries } from "~/db/queries/sync-jobs.server"
+import { countSyncJobSummaries, listSyncJobSummaries } from "~/db/queries/sync-jobs.server"
 import type { SyncJobState } from "~/db/schema/sync-jobs"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getSyncJobStateLabel, getSyncJobStateTagVariant, SYNC_JOB_STATE_VALUES } from "~/lib/sync-job-state-tags"
 import { ALL_SYNC_JOB_TYPES } from "~/lib/sync-job-types"
 import { formatDateTimeOslo } from "~/lib/utils"
+
+const PAGE_SIZE = 25
 
 const SYNC_JOB_STATES: Array<{ value: SyncJobState; label: string }> = SYNC_JOB_STATE_VALUES.map((value) => ({
 	value,
@@ -22,6 +24,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const url = new URL(request.url)
 	const stateParam = url.searchParams.get("state") || ""
 	const jobTypeParam = url.searchParams.get("jobType") || ""
+	const requestedPage = parsePositiveInt(url.searchParams.get("page"))
 
 	// Validate state filter against known values
 	const stateFilter = (SYNC_JOB_STATE_VALUES.includes(stateParam as SyncJobState) ? stateParam : "") as
@@ -33,17 +36,37 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		? jobTypeParam
 		: ""
 
+	const totalSyncJobs = await countSyncJobSummaries({
+		state: stateFilter || undefined,
+		jobType: jobTypeFilter || undefined,
+	})
+	const totalPages = totalSyncJobs > 0 ? Math.ceil(totalSyncJobs / PAGE_SIZE) : 1
+	const page = Math.min(requestedPage, totalPages)
+	const offset = (page - 1) * PAGE_SIZE
+
 	const syncJobs = await listSyncJobSummaries({
 		state: stateFilter || undefined,
 		jobType: jobTypeFilter || undefined,
-		limit: 100,
+		limit: PAGE_SIZE,
+		offset,
 	})
 
-	return data({ syncJobs, stateFilter, jobTypeFilter })
+	return data({
+		syncJobs,
+		stateFilter,
+		jobTypeFilter,
+		totalSyncJobs,
+		page,
+		pageSize: PAGE_SIZE,
+		totalPages,
+	})
 }
 
 export default function AdminSyncJobsPage() {
-	const { syncJobs, stateFilter, jobTypeFilter } = useLoaderData<typeof loader>()
+	const { syncJobs, stateFilter, jobTypeFilter, totalSyncJobs, page, pageSize, totalPages } =
+		useLoaderData<typeof loader>()
+	const firstItemOnPage = totalSyncJobs === 0 ? 0 : (page - 1) * pageSize + 1
+	const lastItemOnPage = totalSyncJobs === 0 ? 0 : firstItemOnPage + syncJobs.length - 1
 
 	return (
 		<div style={{ padding: "var(--a-spacing-8)" }}>
@@ -80,6 +103,7 @@ export default function AdminSyncJobsPage() {
 									))}
 								</Select>
 							</HStack>
+							<input type="hidden" name="page" value="1" />
 
 							<HStack gap="space-4">
 								<Button type="submit" variant="primary">
@@ -136,8 +160,62 @@ export default function AdminSyncJobsPage() {
 					</Table>
 				</section>
 
-				<Detail textColor="subtle">Totalt {syncJobs.length} synkjobber.</Detail>
+				<HStack gap="space-4" align="center" justify="space-between">
+					<Detail textColor="subtle">
+						Viser {firstItemOnPage}–{lastItemOnPage} av {totalSyncJobs} synkjobber.
+					</Detail>
+					<HStack gap="space-2">
+						{page > 1 ? (
+							<Button
+								as={Link}
+								to={buildSyncJobsLink(stateFilter, jobTypeFilter, page - 1)}
+								variant="secondary"
+								size="small"
+							>
+								Forrige
+							</Button>
+						) : (
+							<Button variant="secondary" size="small" disabled>
+								Forrige
+							</Button>
+						)}
+						{page < totalPages ? (
+							<Button
+								as={Link}
+								to={buildSyncJobsLink(stateFilter, jobTypeFilter, page + 1)}
+								variant="secondary"
+								size="small"
+							>
+								Neste
+							</Button>
+						) : (
+							<Button variant="secondary" size="small" disabled>
+								Neste
+							</Button>
+						)}
+					</HStack>
+				</HStack>
 			</VStack>
 		</div>
 	)
+}
+
+function parsePositiveInt(value: string | null): number {
+	const parsed = Number(value)
+	if (!Number.isInteger(parsed) || parsed < 1) {
+		return 1
+	}
+	return parsed
+}
+
+function buildSyncJobsLink(stateFilter: string, jobTypeFilter: string, page: number): string {
+	const query = new URLSearchParams()
+	if (stateFilter) {
+		query.set("state", stateFilter)
+	}
+	if (jobTypeFilter) {
+		query.set("jobType", jobTypeFilter)
+	}
+	query.set("page", String(page))
+	return `/admin/synkjobber?${query.toString()}`
 }
