@@ -1,4 +1,5 @@
 import { BodyLong, BodyShort, CopyButton, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { Link } from "react-router"
 import { formatDateTimeOslo } from "~/lib/utils"
 import { GroupsSection } from "../components/GroupsSection"
 import { authLabels } from "../shared"
@@ -252,7 +253,7 @@ function RpaUsersSection({ rpaUsers }: { rpaUsers: RpaUser[] }) {
 							<Table.Row key={user.userObjectId}>
 								<Table.DataCell>
 									<HStack gap="space-1" align="center">
-										<BodyShort size="small">{user.displayName ?? "Ukjent"}</BodyShort>
+										<Link to={`/rpa-brukere/${user.userObjectId}`}>{user.displayName ?? "Ukjent"}</Link>
 										<CopyButton copyText={user.userObjectId} size="xsmall" />
 									</HStack>
 								</Table.DataCell>

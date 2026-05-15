@@ -755,7 +755,7 @@ function MembersSection({ members }: { members: RpaMember[] }) {
 						{filtered.map((user) => (
 							<Table.Row key={user.userObjectId}>
 								<Table.DataCell>
-									<Link to={`/admin/rpa-grupper/${user.userObjectId}`}>{user.displayName ?? "Ukjent"}</Link>
+									<Link to={`/rpa-brukere/${user.userObjectId}`}>{user.displayName ?? "Ukjent"}</Link>
 								</Table.DataCell>
 								<Table.DataCell>
 									<Detail style={{ fontFamily: "monospace" }}>{user.userPrincipalName ?? "–"}</Detail>
