@@ -29,7 +29,7 @@ import {
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
+import { isAdmin, requireAdmin, requireAnySectionRole } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
 	isRoutineFrequency,
@@ -52,14 +52,18 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
+	requireAnySectionRole(authedUser, section.id)
 
 	const ruleset = await getRulesetDetail(regelSettId)
 	if (!ruleset || ruleset.sectionId !== section.id) {
 		throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
+	}
+	const userIsAdmin = isAdmin(authedUser)
+	if (!userIsAdmin && ruleset.lastApproval) {
+		throw new Response("Ikke autorisert", { status: 403 })
 	}
 
 	const allControls = await getAllControlsForSelection()
@@ -68,6 +72,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		section,
 		ruleset,
 		allControls,
+		canArchive: userIsAdmin,
 		frequencies: ROUTINE_FREQUENCIES.map((f) => ({ value: f, label: frequencyLabels[f] })),
 	})
 }
@@ -80,10 +85,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const user = await getAuthenticatedUser(request)
 	const authedUser = requireUser(user)
-	requireAdmin(authedUser)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
+	requireAnySectionRole(authedUser, section.id)
 
 	const formData = await request.formData()
 	const intent = formData.get("intent")
@@ -94,18 +99,25 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	// section-binding) — DB-laget har egne TOCTOU-guards, enten som guarded
 	// UPDATE eller via transaksjon + FOR SHARE, avhengig av mutasjonen.
 	if (intent === "update" || intent === "link-control" || intent === "unlink-control") {
-		const current = await getRulesetMeta(regelSettId)
+		const current = await getRulesetDetail(regelSettId)
 		if (!current || current.sectionId !== section.id) {
 			throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
 		}
-		if (current.archivedAt) {
+		if (current.status === "archived") {
 			return data<ActionResult>({
 				success: false,
 				error: "Regelsettet er arkivert. Reaktiver det før du gjør endringer.",
 			})
 		}
+		if (!isAdmin(authedUser) && current.lastApproval) {
+			return data<ActionResult>({
+				success: false,
+				error: "Regelsettet er godkjent og kan ikke redigeres.",
+			})
+		}
 	}
 	if (intent === "archive" || intent === "unarchive") {
+		requireAdmin(authedUser)
 		const current = await getRulesetMeta(regelSettId)
 		if (!current || current.sectionId !== section.id) {
 			throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
@@ -211,7 +223,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RegelsettRediger() {
-	const { section, ruleset, allControls, frequencies } = useLoaderData<typeof loader>()
+	const { section, ruleset, allControls, canArchive, frequencies } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const initialType = ruleset.responsibleRole ? "role" : "person"
 	const [responsibleType, setResponsibleType] = useState<"person" | "role">(initialType)
@@ -351,34 +363,36 @@ export default function RegelsettRediger() {
 				</VStack>
 			)}
 
-			<VStack gap="space-4">
-				<Heading size="small" level="3">
-					Arkivering
-				</Heading>
-				{ruleset.status === "archived" ? (
-					<>
-						<BodyLong size="small">
-							Regelsettet er arkivert og vises ikke i oversikten. Reaktiver for å gjøre det synlig igjen.
-						</BodyLong>
-						<Form method="post">
-							<input type="hidden" name="intent" value="unarchive" />
-							<Button type="submit" variant="secondary" size="small">
-								Reaktiver regelsett
-							</Button>
-						</Form>
-					</>
-				) : (
-					<>
-						<BodyLong size="small">Arkivering skjuler regelsettet fra oversikten.</BodyLong>
-						<Form method="post">
-							<input type="hidden" name="intent" value="archive" />
-							<Button type="submit" variant="danger" size="small">
-								Arkiver regelsett
-							</Button>
-						</Form>
-					</>
-				)}
-			</VStack>
+			{canArchive && (
+				<VStack gap="space-4">
+					<Heading size="small" level="3">
+						Arkivering
+					</Heading>
+					{ruleset.status === "archived" ? (
+						<>
+							<BodyLong size="small">
+								Regelsettet er arkivert og vises ikke i oversikten. Reaktiver for å gjøre det synlig igjen.
+							</BodyLong>
+							<Form method="post">
+								<input type="hidden" name="intent" value="unarchive" />
+								<Button type="submit" variant="secondary" size="small">
+									Reaktiver regelsett
+								</Button>
+							</Form>
+						</>
+					) : (
+						<>
+							<BodyLong size="small">Arkivering skjuler regelsettet fra oversikten.</BodyLong>
+							<Form method="post">
+								<input type="hidden" name="intent" value="archive" />
+								<Button type="submit" variant="danger" size="small">
+									Arkiver regelsett
+								</Button>
+							</Form>
+						</>
+					)}
+				</VStack>
+			)}
 		</VStack>
 	)
 }

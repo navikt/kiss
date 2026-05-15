@@ -28,7 +28,7 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { approvalStatusConfig } from "~/lib/approval-status"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { hasExactRoleForSection, isAdmin, requireAdmin } from "~/lib/authorization.server"
+import { hasAnySectionRole, hasExactRoleForSection, isAdmin, requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 
@@ -51,6 +51,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		((ruleset.responsibleIdent !== null && user.navIdent === ruleset.responsibleIdent) ||
 			(ruleset.responsibleRole !== null &&
 				hasExactRoleForSection(user, ruleset.responsibleRole as UserRole, section.id)))
+	const canEditDraft =
+		user !== null &&
+		hasAnySectionRole(user, section.id) &&
+		ruleset.status !== "archived" &&
+		ruleset.lastApproval === null
 	const userIsAdmin = user ? isAdmin(user) : false
 	const canMutate = userIsAdmin && ruleset.status !== "archived"
 
@@ -74,7 +79,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		section,
 		ruleset,
 		canApprove,
-		canAdmin: userIsAdmin,
+		canEditDraft,
 		canMutate,
 		responsibleDisplay,
 		descriptionHtml: renderMarkdown(ruleset.description),
@@ -185,8 +190,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RegelsettDetalj() {
-	const { section, ruleset, canApprove, canAdmin, canMutate, responsibleDisplay, descriptionHtml, availableRoutines } =
-		useLoaderData<typeof loader>()
+	const {
+		section,
+		ruleset,
+		canApprove,
+		canEditDraft,
+		canMutate,
+		responsibleDisplay,
+		descriptionHtml,
+		availableRoutines,
+	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const [approveOpen, setApproveOpen] = useState(false)
 
@@ -202,7 +215,7 @@ export default function RegelsettDetalj() {
 							Godkjenn
 						</Button>
 					)}
-					{canAdmin && (
+					{canEditDraft && (
 						<Button
 							as={Link}
 							to={`/seksjoner/${section.slug}/regelsett/${ruleset.id}/rediger`}
