@@ -94,11 +94,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const intent = formData.get("intent")
 	const userIsAdmin = isAdmin(authedUser)
 
-	// Mutasjoner som krever at regelsettet er aktivt (ikke arkivert) — pluss
-	// `archive`/`unarchive` som er statusoverganger og som må valideres mot
-	// `seksjon`. Bruker lett `getRulesetMeta` for ren guard (arkiv-status og
-	// section-binding) — DB-laget har egne TOCTOU-guards, enten som guarded
-	// UPDATE eller via transaksjon + FOR SHARE, avhengig av mutasjonen.
+	// Mutasjoner som krever at regelsettet er aktivt (ikke arkivert) og (for
+	// ikke-admin) ikke godkjent. Bruker `getRulesetDetail` fordi vi må validere
+	// både section-binding, status og `lastApproval` før vi forsøker mutasjon.
+	// DB-laget har egne TOCTOU-guards for ikke-admin via `requireUnapproved`.
 	if (intent === "update" || intent === "link-control" || intent === "unlink-control") {
 		const current = await getRulesetDetail(regelSettId)
 		if (!current || current.sectionId !== section.id) {
