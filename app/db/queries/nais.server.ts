@@ -2676,6 +2676,95 @@ export async function archiveMissingEnvironmentAccessPolicyRules(
 	}
 }
 
+export async function runAccessPolicyFallbackCutoverBackfill(performedBy: string) {
+	return db.transaction(async (tx) => {
+		const insertedRowsResult = await tx.execute<{
+			application_id: string
+			direction: "inbound" | "outbound"
+		}>(sql`
+			WITH direction_history AS (
+				SELECT
+					ae.application_id,
+					aer.direction,
+					aer.application_environment_id,
+					COALESCE(ae.nais_team_id::text, '__null_team__') AS team_key
+				FROM application_environment_access_policy_rules aer
+				INNER JOIN application_environments ae
+					ON ae.id = aer.application_environment_id
+				GROUP BY ae.application_id, aer.direction, aer.application_environment_id, COALESCE(ae.nais_team_id::text, '__null_team__')
+			),
+			direction_coverage AS (
+				SELECT
+					dh.application_id,
+					dh.direction,
+					COUNT(DISTINCT dh.application_environment_id)::int AS history_environment_count,
+					(
+						SELECT COUNT(*)::int
+						FROM application_environments ae2
+						WHERE ae2.application_id = dh.application_id
+							AND COALESCE(ae2.nais_team_id::text, '__null_team__') IN (
+								SELECT DISTINCT dh2.team_key
+								FROM direction_history dh2
+								WHERE dh2.application_id = dh.application_id
+									AND dh2.direction = dh.direction
+							)
+					) AS scoped_environment_count
+				FROM direction_history dh
+				GROUP BY dh.application_id, dh.direction
+			),
+			eligible AS (
+				SELECT application_id, direction
+				FROM direction_coverage
+				WHERE scoped_environment_count > 0
+					AND history_environment_count = scoped_environment_count
+			),
+			inserted AS (
+				INSERT INTO application_access_policy_fallback_cutovers (application_id, direction, created_by, updated_by)
+				SELECT e.application_id, e.direction, ${performedBy}, ${performedBy}
+				FROM eligible e
+				ON CONFLICT (application_id, direction) DO NOTHING
+				RETURNING application_id, direction
+			)
+			SELECT application_id, direction
+			FROM inserted
+		`)
+
+		const insertedRows = insertedRowsResult.rows
+		let inboundInserted = 0
+		let outboundInserted = 0
+
+		for (const row of insertedRows) {
+			if (row.direction === "inbound") {
+				inboundInserted += 1
+			} else {
+				outboundInserted += 1
+			}
+			await writeAuditLog(
+				{
+					action: "access_policy_legacy_fallback_cutover",
+					entityType: "application",
+					entityId: row.application_id,
+					newValue: JSON.stringify({
+						direction: row.direction,
+						cutoverSource: "manual_backfill",
+					}),
+					metadata: {
+						trigger: "admin_vedlikehold",
+					},
+					performedBy,
+				},
+				tx,
+			)
+		}
+
+		return {
+			inserted: insertedRows.length,
+			inboundInserted,
+			outboundInserted,
+		}
+	})
+}
+
 /** Get all active (non-archived) access policy rules for an application. */
 export async function getAccessPolicyRules(applicationId: string) {
 	const environmentRuleRows = await db
