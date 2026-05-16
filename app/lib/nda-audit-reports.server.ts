@@ -240,7 +240,7 @@ export async function listNdaAuditReports(team: string, env: string, app: string
 	}
 
 	const basePath = buildAppBasePath(team, env, app)
-	const response = await fetchWithAuth(`${basePath}/`)
+	const response = await fetchWithAuth(basePath)
 
 	if (!response.ok) {
 		await handleErrorResponse(response, "list reports")
