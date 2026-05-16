@@ -64,7 +64,6 @@ describe("Access policy rules per environment", () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `DELETE FROM application_environment_access_policy_rules`)
 		await db.execute(/* sql */ `DELETE FROM application_access_policy_rules`)
-		await db.execute(/* sql */ `DELETE FROM application_access_policy_fallback_cutovers`)
 		await db.execute(/* sql */ `DELETE FROM application_environments`)
 		await db.execute(/* sql */ `DELETE FROM section_environments`)
 		await db.execute(/* sql */ `DELETE FROM monitored_applications`)
