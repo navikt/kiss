@@ -85,6 +85,12 @@ spec:
       value: https://console.nav.cloud.nais.io/graphql
     - name: ENABLE_NAIS_SYNC
       value: "true"
+    - name: ENABLE_SYNC_JOB_RETENTION_CLEANUP
+      value: "true"
+    - name: SYNC_JOB_RETENTION_DAYS
+      value: "90"
+    - name: SYNC_JOB_RETENTION_BATCH_SIZE
+      value: "500"
     - name: KISS_ADMIN_GROUP_IDS
       value: "1e97cbc6-0687-4d23-aebd-c611035279c1"
     - name: KISS_AUDITOR_GROUP_IDS
