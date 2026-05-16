@@ -121,4 +121,58 @@ describe("Sync jobs integration tests", () => {
 
 		expect(auditRowAfterDelete).toBeDefined()
 	})
+
+	it("preserves audit logs when deleting old sync jobs", async () => {
+		const db = getTestDb()
+		const oldCompleted = await createSyncJob({ jobType: "nais_full_sync", performedBy: "test-user" })
+		await markSyncJobRunning(oldCompleted.id, "test-user")
+		await markSyncJobCompleted(oldCompleted.id, { ok: true }, "test-user", "Ferdig")
+
+		await db.execute(
+			sql`UPDATE sync_jobs
+				SET created_at = now() - interval '120 days'
+				WHERE id = ${oldCompleted.id}`,
+		)
+
+		await writeAuditLog({
+			action: "nais_sync_completed",
+			entityType: "sync_job",
+			entityId: oldCompleted.id,
+			performedBy: "test-user",
+			syncJobId: oldCompleted.id,
+		})
+
+		const [beforeDelete] = await db
+			.select({
+				count: sql<number>`count(*)`,
+			})
+			.from(auditLog)
+			.where(and(eq(auditLog.entityType, "sync_job"), eq(auditLog.entityId, oldCompleted.id)))
+
+		expect(Number(beforeDelete?.count ?? 0)).toBe(1)
+
+		await deleteOldFinishedSyncJobs({
+			olderThan: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+			limit: 100,
+		})
+
+		const [afterDelete] = await db
+			.select({
+				count: sql<number>`count(*)`,
+			})
+			.from(auditLog)
+			.where(and(eq(auditLog.entityType, "sync_job"), eq(auditLog.entityId, oldCompleted.id)))
+
+		expect(Number(afterDelete?.count ?? 0)).toBe(1)
+
+		const [auditRowAfterDelete] = await db
+			.select({
+				syncJobId: auditLog.syncJobId,
+			})
+			.from(auditLog)
+			.where(and(eq(auditLog.entityType, "sync_job"), eq(auditLog.entityId, oldCompleted.id)))
+			.limit(1)
+
+		expect(auditRowAfterDelete?.syncJobId).toBeNull()
+	})
 })
