@@ -140,6 +140,43 @@ describe("nda-audit-reports API client", () => {
 			expect(result.buffer.toString()).toBe(pdfContent)
 		})
 
+		it("listNdaAuditReports calls base endpoint without trailing slash", async () => {
+			const mockResponse = {
+				app: { team: "pensjon", environment: "prod-gcp", name: "my-app", auditStartDate: null, applicationGroup: null },
+				reports: [],
+			}
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }))
+
+			const { listNdaAuditReports } = await import("../nda-audit-reports.server")
+			await listNdaAuditReports("pensjon", "prod-gcp", "my-app")
+
+			expect(fetchSpy).toHaveBeenCalledOnce()
+			const calledUrl = fetchSpy.mock.calls[0][0] as string
+			expect(calledUrl).toContain("/api/v1/apps/pensjon/prod-gcp/my-app/audit-reports")
+			expect(calledUrl).not.toContain("/audit-reports/")
+		})
+
+		it("downloadNdaAuditReport forwards requested format", async () => {
+			const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+				new Response("%PDF-1.4 test content", {
+					status: 200,
+					headers: {
+						"Content-Type": "application/pdf",
+						"Content-Disposition": 'attachment; filename="AUDIT-2025-my-app.xlsx"',
+					},
+				}),
+			)
+			const { downloadNdaAuditReport } = await import("../nda-audit-reports.server")
+
+			await downloadNdaAuditReport("pensjon", "prod-gcp", "my-app", "AUDIT-2025", "excel")
+
+			expect(fetchSpy).toHaveBeenCalledOnce()
+			const calledUrl = fetchSpy.mock.calls[0][0] as string
+			expect(calledUrl).toContain("/download?format=excel")
+		})
+
 		it("handleErrorResponse throws with error message from JSON", async () => {
 			vi.spyOn(globalThis, "fetch").mockResolvedValue(
 				new Response(JSON.stringify({ error: "Invalid period" }), { status: 400 }),
