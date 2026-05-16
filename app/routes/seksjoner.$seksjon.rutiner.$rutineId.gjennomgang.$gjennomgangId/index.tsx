@@ -690,6 +690,30 @@ function formatFileSize(bytes: number | null) {
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function AttachmentSourceTag({ sourceType }: { sourceType: string }) {
+	if (sourceType === "automated") {
+		return (
+			<Tag variant="info" size="xsmall">
+				Hentet automatisk
+			</Tag>
+		)
+	}
+
+	if (sourceType === "manual") {
+		return (
+			<Tag variant="neutral" size="xsmall">
+				Lastet opp manuelt
+			</Tag>
+		)
+	}
+
+	return (
+		<Tag variant="neutral" size="xsmall">
+			Ukjent
+		</Tag>
+	)
+}
+
 function AddLinkSection() {
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
@@ -2319,6 +2343,7 @@ export default function GjennomgangDetalj() {
 								<Table.HeaderCell>Filnavn</Table.HeaderCell>
 								<Table.HeaderCell>Type</Table.HeaderCell>
 								<Table.HeaderCell>Størrelse</Table.HeaderCell>
+								<Table.HeaderCell>Kilde</Table.HeaderCell>
 								<Table.HeaderCell>Lastet opp av</Table.HeaderCell>
 								<Table.HeaderCell>Dato</Table.HeaderCell>
 								<Table.HeaderCell />
@@ -2330,6 +2355,9 @@ export default function GjennomgangDetalj() {
 									<Table.DataCell>{a.fileName}</Table.DataCell>
 									<Table.DataCell>{a.contentType}</Table.DataCell>
 									<Table.DataCell>{formatFileSize(a.sizeBytes)}</Table.DataCell>
+									<Table.DataCell>
+										<AttachmentSourceTag sourceType={a.sourceType} />
+									</Table.DataCell>
 									<Table.DataCell>{a.uploadedBy}</Table.DataCell>
 									<Table.DataCell>{formatDate(a.uploadedAt)}</Table.DataCell>
 									<Table.DataCell>
