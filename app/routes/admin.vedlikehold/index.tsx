@@ -4,7 +4,6 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, useFetcher, useLoaderData } from "react-router"
 import { db } from "~/db/connection.server"
 import { syncAllApplicationControls } from "~/db/queries/application-controls.server"
-import { runAccessPolicyFallbackCutoverBackfill } from "~/db/queries/nais.server"
 import { listRecentSyncJobs, type SyncJob } from "~/db/queries/sync-jobs.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
@@ -17,14 +16,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const authedUser = requireUser(user)
 	requireAdmin(authedUser)
 
-	const [appControlStats, naisSyncEnabled, recentSyncJobs, latestAccessPolicyCutoverBackfillRun] = await Promise.all([
+	const [appControlStats, naisSyncEnabled, recentSyncJobs] = await Promise.all([
 		getApplicationControlStats(),
 		Promise.resolve(process.env.ENABLE_NAIS_SYNC === "true"),
 		listRecentSyncJobs(10),
-		getLatestAccessPolicyCutoverBackfillRun(),
 	])
 
-	return data({ appControlStats, naisSyncEnabled, recentSyncJobs, latestAccessPolicyCutoverBackfillRun })
+	return data({ appControlStats, naisSyncEnabled, recentSyncJobs })
 }
 
 async function getApplicationControlStats() {
@@ -44,26 +42,6 @@ async function getApplicationControlStats() {
 	return {
 		totalApps: Number(totalApps.count),
 		syncedApps: Number(syncedApps.count),
-	}
-}
-
-async function getLatestAccessPolicyCutoverBackfillRun() {
-	const [latestRun] = (
-		await db.execute<{ performed_at: Date; performed_by: string }>(sql`
-		SELECT performed_at, performed_by
-		FROM audit_log
-		WHERE action = 'access_policy_legacy_fallback_cutover'
-			AND COALESCE(new_value::jsonb ->> 'cutoverSource', '') = 'manual_backfill'
-			AND COALESCE(metadata::jsonb ->> 'trigger', '') = 'admin_vedlikehold'
-		ORDER BY performed_at DESC
-		LIMIT 1
-	`)
-	).rows
-
-	if (!latestRun) return null
-	return {
-		performedAt: latestRun.performed_at,
-		performedBy: latestRun.performed_by,
 	}
 }
 
@@ -118,27 +96,13 @@ export async function action({ request }: ActionFunctionArgs) {
 		})
 	}
 
-	if (intent === "access-policy-cutover-backfill") {
-		const start = Date.now()
-		const result = await runAccessPolicyFallbackCutoverBackfill(authedUser.navIdent)
-		const elapsed = Date.now() - start
-
-		return data({
-			intent: "access-policy-cutover-backfill",
-			success: true,
-			elapsed,
-			...result,
-		})
-	}
-
 	return data({ intent: "unknown", success: false, message: "Ukjent handling" }, { status: 400 })
 }
 
 export { RouteErrorBoundary as ErrorBoundary } from "~/components/RouteErrorBoundary"
 
 export default function AdminVedlikehold() {
-	const { appControlStats, naisSyncEnabled, recentSyncJobs, latestAccessPolicyCutoverBackfillRun } =
-		useLoaderData<typeof loader>()
+	const { appControlStats, naisSyncEnabled, recentSyncJobs } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -152,7 +116,6 @@ export default function AdminVedlikehold() {
 			<VStack gap="space-6">
 				<SyncControlsCard stats={appControlStats} />
 				<NaisSyncCard enabled={naisSyncEnabled} />
-				<AccessPolicyCutoverBackfillCard latestRun={latestAccessPolicyCutoverBackfillRun} />
 				<RecentSyncJobsCard jobs={recentSyncJobs} />
 			</VStack>
 		</VStack>
@@ -252,55 +215,6 @@ function NaisSyncCard({ enabled }: { enabled: boolean }) {
 				{result?.success === false && "message" in result && (
 					<Alert variant="warning" size="small">
 						{result.message}
-					</Alert>
-				)}
-			</VStack>
-		</section>
-	)
-}
-
-function AccessPolicyCutoverBackfillCard({
-	latestRun,
-}: {
-	latestRun: { performedAt: Date; performedBy: string } | null
-}) {
-	const fetcher = useFetcher<typeof action>()
-	const isSubmitting = fetcher.state !== "idle"
-	const result = fetcher.data?.intent === "access-policy-cutover-backfill" ? fetcher.data : null
-	const inserted = result?.success && "inserted" in result ? result.inserted : 0
-
-	return (
-		<section className="admin-maintenance-card">
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Backfill cutover-markører (access policy)
-				</Heading>
-				<BodyLong>
-					Kjører en engangs backfill som markerer ferdig migrerte kombinasjoner av applikasjon og retning
-					(inbound/outbound) i <code>application_access_policy_fallback_cutovers</code>.
-				</BodyLong>
-
-				{latestRun ? (
-					<Detail textColor="subtle">
-						Sist kjørt: {formatDateTimeOslo(latestRun.performedAt)} av {latestRun.performedBy}
-					</Detail>
-				) : (
-					<Detail textColor="subtle">Ikke kjørt ennå.</Detail>
-				)}
-
-				<HStack gap="space-4" align="center">
-					<fetcher.Form method="post">
-						<input type="hidden" name="intent" value="access-policy-cutover-backfill" />
-						<Button type="submit" variant="secondary" size="small" loading={isSubmitting}>
-							{isSubmitting ? "Kjører backfill..." : "Kjør backfill én gang"}
-						</Button>
-					</fetcher.Form>
-				</HStack>
-
-				{result?.success === true && "inserted" in result && (
-					<Alert variant={inserted > 0 ? "success" : "info"} size="small">
-						Backfill fullført på {formatElapsed(result.elapsed)}. {result.inserted} nye cutover-markører opprettet (
-						{result.inboundInserted} inbound, {result.outboundInserted} outbound).
 					</Alert>
 				)}
 			</VStack>
