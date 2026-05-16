@@ -16,6 +16,7 @@ import {
 	type NdaStatusResponse,
 	type PeriodType,
 } from "~/lib/nda-audit-reports.server"
+import { formatPeriodLabel } from "~/lib/period-format"
 import type {
 	EvidenceFile,
 	EvidenceJobResult,
@@ -53,7 +54,11 @@ function assertNdaParams(params: Record<string, unknown>): NdaProviderParams {
 	return { team, environment, appName, periodType: periodType as PeriodType, periodStart }
 }
 
-function mapDeploymentStatusItem(status: NdaStatusResponse, existingReports: NdaReportSummary[]): EvidenceStatusItem {
+function mapDeploymentStatusItem(
+	status: NdaStatusResponse,
+	existingReports: NdaReportSummary[],
+	selectedPeriodLabel: string,
+): EvidenceStatusItem {
 	const { deployments } = status
 	const hasReport = existingReports.length > 0
 	const allApproved = deployments.notApproved === 0 && deployments.pending === 0
@@ -73,7 +78,7 @@ function mapDeploymentStatusItem(status: NdaStatusResponse, existingReports: Nda
 
 	return {
 		id: "deployment_evidence_report",
-		label: `Leveranserapport — ${status.period.label}`,
+		label: `Leveranserapport — ${selectedPeriodLabel}`,
 		status: itemStatus,
 		formats: status.availableFormats,
 		canDownload: hasReport,
@@ -105,10 +110,11 @@ export class NdaEvidenceProvider implements EvidenceProvider {
 
 	async getStatus(params: Record<string, unknown>): Promise<EvidenceStatusResponse | null> {
 		const { team, environment, appName, periodType, periodStart } = assertNdaParams(params)
+		const selectedPeriodLabel = formatPeriodLabel(periodType, periodStart)
 
 		try {
 			const [status, reportList] = await Promise.all([
-				getNdaAuditStatus(team, environment, appName, periodType, periodStart),
+				getNdaAuditStatus(team, environment, appName),
 				listNdaAuditReports(team, environment, appName),
 			])
 
@@ -121,12 +127,17 @@ export class NdaEvidenceProvider implements EvidenceProvider {
 				sourceLabel: `${team}/${appName} (${environment})`,
 				collectedAt: new Date().toISOString(),
 				externalUrl: null,
-				items: [mapDeploymentStatusItem(status, periodReports)],
+				items: [mapDeploymentStatusItem(status, periodReports, selectedPeriodLabel)],
 				metadata: {
 					team,
 					environment,
 					appName,
-					period: status.period,
+					period: {
+						type: periodType,
+						label: selectedPeriodLabel,
+						start: periodStart,
+						end: status.period?.end ?? periodStart,
+					},
 					deployments: status.deployments,
 					existingReports: periodReports,
 					auditStartDate: status.app.auditStartDate,
@@ -167,9 +178,9 @@ export class NdaEvidenceProvider implements EvidenceProvider {
 	}
 
 	async requestGeneration(params: Record<string, unknown>, reason?: string): Promise<{ jobId: string }> {
-		const { team, environment, appName, periodType, periodStart } = assertNdaParams(params)
+		const { team, environment, appName } = assertNdaParams(params)
 
-		const result = await generateNdaAuditReport(team, environment, appName, periodType, periodStart, {
+		const result = await generateNdaAuditReport(team, environment, appName, {
 			reason,
 		})
 

@@ -25,7 +25,7 @@ describe("nda-audit-reports API client", () => {
 			vi.restoreAllMocks()
 		})
 
-		it("getNdaAuditStatus calls correct URL with params", async () => {
+		it("getNdaAuditStatus calls correct URL without period params", async () => {
 			const mockResponse = {
 				app: { team: "pensjon", environment: "prod-gcp", name: "my-app", auditStartDate: null, applicationGroup: null },
 				period: { type: "yearly", label: "2025", start: "2025-01-01", end: "2025-12-31" },
@@ -47,17 +47,17 @@ describe("nda-audit-reports API client", () => {
 				.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 200 }))
 
 			const { getNdaAuditStatus } = await import("../nda-audit-reports.server")
-			const result = await getNdaAuditStatus("pensjon", "prod-gcp", "my-app", "yearly", "2025-01-01")
+			const result = await getNdaAuditStatus("pensjon", "prod-gcp", "my-app")
 
 			expect(fetchSpy).toHaveBeenCalledOnce()
 			const calledUrl = fetchSpy.mock.calls[0][0] as string
 			expect(calledUrl).toContain("/api/v1/apps/pensjon/prod-gcp/my-app/audit-reports/status")
-			expect(calledUrl).toContain("periodType=yearly")
-			expect(calledUrl).toContain("periodStart=2025-01-01")
+			expect(calledUrl).not.toContain("periodType")
+			expect(calledUrl).not.toContain("periodStart")
 			expect(result.deployments.total).toBe(42)
 		})
 
-		it("generateNdaAuditReport sends POST with JSON body", async () => {
+		it("generateNdaAuditReport sends POST without period fields", async () => {
 			const mockResponse = {
 				app: { team: "pensjon", environment: "prod-gcp", name: "my-app", auditStartDate: null, applicationGroup: null },
 				jobId: "job-123",
@@ -71,14 +71,14 @@ describe("nda-audit-reports API client", () => {
 				.mockResolvedValue(new Response(JSON.stringify(mockResponse), { status: 202 }))
 
 			const { generateNdaAuditReport } = await import("../nda-audit-reports.server")
-			const result = await generateNdaAuditReport("pensjon", "prod-gcp", "my-app", "yearly", "2025-01-01")
+			const result = await generateNdaAuditReport("pensjon", "prod-gcp", "my-app")
 
 			expect(fetchSpy).toHaveBeenCalledOnce()
 			const [, options] = fetchSpy.mock.calls[0]
 			expect(options?.method).toBe("POST")
 			const body = JSON.parse(options?.body as string) as Record<string, string>
-			expect(body.periodType).toBe("yearly")
-			expect(body.periodStart).toBe("2025-01-01")
+			expect(body.periodType).toBeUndefined()
+			expect(body.periodStart).toBeUndefined()
 			expect(result.jobId).toBe("job-123")
 		})
 
@@ -89,9 +89,7 @@ describe("nda-audit-reports API client", () => {
 
 			const { generateNdaAuditReport, NdaConflictError } = await import("../nda-audit-reports.server")
 
-			await expect(generateNdaAuditReport("pensjon", "prod-gcp", "my-app", "yearly", "2025-01-01")).rejects.toThrow(
-				NdaConflictError,
-			)
+			await expect(generateNdaAuditReport("pensjon", "prod-gcp", "my-app")).rejects.toThrow(NdaConflictError)
 		})
 
 		it("getNdaAuditJobStatus parses Retry-After header", async () => {
@@ -147,7 +145,7 @@ describe("nda-audit-reports API client", () => {
 
 			const { getNdaAuditStatus } = await import("../nda-audit-reports.server")
 
-			await expect(getNdaAuditStatus("pensjon", "prod-gcp", "my-app", "yearly", "2025-01-01")).rejects.toThrow("400")
+			await expect(getNdaAuditStatus("pensjon", "prod-gcp", "my-app")).rejects.toThrow("400")
 		})
 	})
 
@@ -168,7 +166,7 @@ describe("nda-audit-reports API client", () => {
 
 		it("getNdaAuditStatus returns mock data", async () => {
 			const { getNdaAuditStatus } = await import("../nda-audit-reports.server")
-			const result = await getNdaAuditStatus("pensjon", "prod-gcp", "my-app", "yearly", "2025-01-01")
+			const result = await getNdaAuditStatus("pensjon", "prod-gcp", "my-app")
 
 			expect(result.app.team).toBe("pensjon")
 			expect(result.deployments.total).toBeGreaterThan(0)
@@ -177,7 +175,7 @@ describe("nda-audit-reports API client", () => {
 
 		it("generateNdaAuditReport returns mock job", async () => {
 			const { generateNdaAuditReport } = await import("../nda-audit-reports.server")
-			const result = await generateNdaAuditReport("pensjon", "prod-gcp", "my-app", "yearly", "2025-01-01")
+			const result = await generateNdaAuditReport("pensjon", "prod-gcp", "my-app")
 
 			expect(result.jobId).toContain("mock-job-")
 			expect(result.status).toBe("pending")

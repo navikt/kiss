@@ -157,27 +157,22 @@ function getMockAppMetadata(team: string, env: string, app: string): NdaAppMetad
 	}
 }
 
-function getMockStatusResponse(
-	team: string,
-	env: string,
-	app: string,
-	periodType: PeriodType,
-	periodStart: string,
-): NdaStatusResponse {
+function getMockStatusResponse(team: string, env: string, app: string): NdaStatusResponse {
 	const hash = [...`${team}/${env}/${app}`].reduce((acc, c) => acc + c.charCodeAt(0), 0)
 	const total = 30 + (hash % 120)
 	const approved = Math.round(total * (0.85 + (hash % 15) / 100))
 	const pending = Math.min(3, total - approved)
 	const notApproved = total - approved - pending
 	const withChangeOrigin = Math.round(total * 0.8)
+	const periodYear = new Date().getFullYear() - 1
 
 	return {
 		app: getMockAppMetadata(team, env, app),
 		period: {
-			type: periodType,
-			label: periodStart.substring(0, 4),
-			start: periodStart,
-			end: `${periodStart.substring(0, 4)}-12-31`,
+			type: "yearly",
+			label: String(periodYear),
+			start: `${periodYear}-01-01`,
+			end: `${periodYear}-12-31`,
 		},
 		deployments: {
 			total,
@@ -203,24 +198,17 @@ function getMockListResponse(team: string, env: string, app: string): NdaListRes
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /**
- * Get deployment status and existing reports for a specific period.
+ * Get deployment status and existing reports.
  * Maps to `GET /api/v1/apps/{team}/{env}/{app}/audit-reports/status`
  */
-export async function getNdaAuditStatus(
-	team: string,
-	env: string,
-	app: string,
-	periodType: PeriodType,
-	periodStart: string,
-): Promise<NdaStatusResponse> {
+export async function getNdaAuditStatus(team: string, env: string, app: string): Promise<NdaStatusResponse> {
 	if (isDevMode()) {
 		logger.warn("NDA_AUDIT_REPORTS_BASE_URL not set — returning mock data", { team, env, app })
-		return getMockStatusResponse(team, env, app, periodType, periodStart)
+		return getMockStatusResponse(team, env, app)
 	}
 
 	const basePath = buildAppBasePath(team, env, app)
-	const params = new URLSearchParams({ periodType, periodStart })
-	const response = await fetchWithAuth(`${basePath}/status?${params.toString()}`)
+	const response = await fetchWithAuth(`${basePath}/status`)
 
 	if (!response.ok) {
 		await handleErrorResponse(response, "status")
@@ -260,8 +248,6 @@ export async function generateNdaAuditReport(
 	team: string,
 	env: string,
 	app: string,
-	periodType: PeriodType,
-	periodStart: string,
 	options?: { format?: string; reason?: string },
 ): Promise<NdaGenerateResponse> {
 	if (isDevMode()) {
@@ -276,7 +262,7 @@ export async function generateNdaAuditReport(
 	}
 
 	const basePath = buildAppBasePath(team, env, app)
-	const body: Record<string, string> = { periodType, periodStart }
+	const body: Record<string, string> = {}
 	if (options?.format) body.format = options.format
 	if (options?.reason) body.reason = options.reason
 

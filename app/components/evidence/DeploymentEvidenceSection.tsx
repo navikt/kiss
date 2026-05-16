@@ -25,6 +25,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useFetcher, useRevalidator } from "react-router"
 import type { EvidenceStatusResponse } from "~/lib/evidence-providers/types"
 import { getProviderUiConfig } from "~/lib/evidence-providers/ui-config"
+import { formatPeriodLabelSafe, getPeriodTypeLabel } from "~/lib/period-format"
 import { EvidenceStatusBadge } from "./EvidenceStatusBadge"
 import { PeriodSelector } from "./PeriodSelector"
 
@@ -264,6 +265,8 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 	const validStatus = status != null && "providerType" in status ? status : null
 	const isLoadingStatus = statusFetcher.state === "loading"
 	const isGenerating = generateFetcher.state !== "idle" || jobStatus === "pending" || jobStatus === "processing"
+	const periodTypeLabel = getPeriodTypeLabel(periodConfig.periodType)
+	const periodLabel = formatPeriodLabelSafe(periodConfig.periodType, periodConfig.periodStart)
 
 	return (
 		<VStack gap="space-4">
@@ -272,12 +275,9 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 					{appParams.team}/{appParams.appName} ({appParams.environment})
 				</Tag>
 				<Tag variant="info" size="small">
-					{periodConfig.periodType === "yearly" && "Årlig"}
-					{periodConfig.periodType === "tertiary" && "Tertialsvis"}
-					{periodConfig.periodType === "quarterly" && "Kvartalsvis"}
-					{periodConfig.periodType === "monthly" && "Månedlig"}
+					{periodTypeLabel}
 					{" — "}
-					{periodConfig.periodStart}
+					{periodLabel}
 				</Tag>
 				<Button variant="tertiary" size="xsmall" onClick={refreshStatus} loading={isLoadingStatus}>
 					Oppdater status
