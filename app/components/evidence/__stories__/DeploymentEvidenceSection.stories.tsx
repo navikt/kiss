@@ -507,3 +507,62 @@ export const IngenAppParamsMedNedlastinger: Story = {
 		return <Stub initialEntries={["/"]} />
 	},
 }
+
+export const StatusfeilFraApi: Story = {
+	name: "Statusfeil fra API",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					appParams,
+					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+					downloads: [],
+				}}
+				isDraft={false}
+			/>
+		)
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-status",
+				loader: async () => ({ error: "Kunne ikke hente status fra leverandøren" }),
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
+export const NdaUtilgjengelig: Story = {
+	name: "NDA utilgjengelig (degradert status)",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					appParams,
+					periodConfig: { periodType: "yearly", periodStart: "2025-01-01" },
+					downloads: [],
+				}}
+				isDraft={true}
+			/>
+		)
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-status",
+				loader: async () =>
+					makeStatusResponse({
+						items: [],
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							error: "Leveranserapport-tjenesten er ikke tilgjengelig. Prøv igjen senere.",
+						},
+					}),
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
