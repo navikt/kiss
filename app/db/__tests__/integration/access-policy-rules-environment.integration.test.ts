@@ -169,14 +169,6 @@ describe("Access policy rules per environment", () => {
 			[{ application: "dev-client", namespace: "teampensjon", cluster: "dev-gcp" }],
 			"nais-sync",
 		)
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(
-		// 	app.id,
-		// 	"inbound",
-		// 	[{ application: "legacy-client", namespace: "teampensjon", cluster: "legacy-gcp" }],
-		// 	"nais-sync",
-		// )
-
 		await archiveMissingEnvironmentAccessPolicyRules(app.id, teamId, [], ["inbound"], "nais-sync")
 
 		const merged = await getAccessPolicyRules(app.id)
@@ -187,9 +179,6 @@ describe("Access policy rules per environment", () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
-
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(app.id, "outbound", [{ application: "legacy-outbound-app" }], "nais-sync")
 
 		await upsertAccessPolicyRulesForEnvironment(
 			app.id,
@@ -208,16 +197,6 @@ describe("Access policy rules per environment", () => {
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(
-		// 	app.id,
-		// 	"inbound",
-		// 	[
-		// 		{ application: "shared-client", namespace: "teampensjon", cluster: "prod-gcp" },
-		// 		{ application: "legacy-only-client", namespace: "teampensjon", cluster: "dev-gcp" },
-		// 	],
-		// 	"nais-sync",
-		// )
 		await upsertAccessPolicyRulesForEnvironment(
 			app.id,
 			prodEnv.id,
@@ -238,17 +217,6 @@ describe("Access policy rules per environment", () => {
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 		await upsertAppEnvironment(app.id, "dev-gcp", "teampensjon", teamId)
 
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(
-		// 	app.id,
-		// 	"inbound",
-		// 	[
-		// 		{ application: "legacy-client-a", namespace: "teampensjon", cluster: "prod-gcp" },
-		// 		{ application: "legacy-client-b", namespace: "teampensjon", cluster: "dev-gcp" },
-		// 	],
-		// 	"nais-sync",
-		// )
-
 		await upsertAccessPolicyRulesForEnvironment(app.id, prodEnv.id, "inbound", [], "nais-sync")
 
 		const merged = await getAccessPolicyRules(app.id)
@@ -260,13 +228,6 @@ describe("Access policy rules per environment", () => {
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(
-		// 	app.id,
-		// 	"inbound",
-		// 	[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
-		// 	"nais-sync",
-		// )
 		await upsertAccessPolicyRulesForEnvironment(app.id, prodEnv.id, "inbound", [], "nais-sync")
 
 		const merged = await getAccessPolicyRules(app.id)
@@ -277,14 +238,6 @@ describe("Access policy rules per environment", () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
-
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(
-		// 	app.id,
-		// 	"inbound",
-		// 	[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
-		// 	"nais-sync",
-		// )
 
 		await upsertAccessPolicyRulesForEnvironment(
 			app.id,
@@ -400,14 +353,6 @@ describe("Access policy rules per environment", () => {
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(
-		// 	app.id,
-		// 	"inbound",
-		// 	[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
-		// 	"nais-sync",
-		// )
-
 		await upsertAccessPolicyRulesForEnvironment(app.id, prodEnv.id, "inbound", [], "nais-sync")
 
 		const audit = await getAuditByEntity("application", app.id)
@@ -423,13 +368,6 @@ describe("Access policy rules per environment", () => {
 		const collector = createAccessPolicySyncSummaryCollector()
 		const syncRunId = "summary-union-test"
 
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(
-		// 	app.id,
-		// 	"inbound",
-		// 	[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
-		// 	"nais-sync",
-		// )
 		await upsertAccessPolicyRulesForEnvironment(
 			app.id,
 			prodEnv.id,
@@ -489,68 +427,11 @@ describe("Access policy rules per environment", () => {
 		).rejects.toThrow("Mismatched application/environment")
 	})
 
-	// Legacy app-level function removed - test focused only on legacy app-level split handling
-	// it("archives legacy app-level rules when splitting shared app identity", async () => {
-	// 	const teamA = await createNaisTeam("teama")
-	// 	const teamB = await createNaisTeam("teamb")
-	// 	const shared = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
-	//
-	// 	await upsertAppEnvironment(shared.id, "prod-gcp", "teama", teamA)
-	// 	await upsertAppEnvironment(shared.id, "prod-fss", "teamb", teamB)
-	// 	await upsertAccessPolicyRules(
-	// 		shared.id,
-	// 		"inbound",
-	// 		[{ application: "legacy-client", namespace: "teama", cluster: "prod-gcp" }],
-	// 		"nais-sync",
-	// 	)
-	//
-	// 	const split = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
-	// 	expect(split.id).not.toBe(shared.id)
-	//
-	// 	const sharedAppRules = await getAccessPolicyRules(shared.id)
-	// 	expect(sharedAppRules).toHaveLength(0)
-	//
-	// 	const audit = await getAuditByEntity("application", shared.id)
-	// 	const removed = audit.filter((a) => a.action === "access_policy_rule_removed")
-	// 	expect(removed.length).toBeGreaterThanOrEqual(1)
-	// 	const metadata = typeof removed[0].metadata === "string" ? JSON.parse(removed[0].metadata) : removed[0].metadata
-	// 	expect(metadata).toMatchObject({
-	// 		suppressedByAppSplit: true,
-	// 	})
-	// })
-
-	// Legacy app-level function removed - test focused only on legacy app-level split handling
-	// it("does not keep legacy outbound rules on old app when split only migrates inbound", async () => {
-	// 	const teamA = await createNaisTeam("teama")
-	// 	const teamB = await createNaisTeam("teamb")
-	// 	const shared = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
-	//
-	// 	await upsertAppEnvironment(shared.id, "prod-gcp", "teama", teamA)
-	// 	await upsertAppEnvironment(shared.id, "prod-fss", "teamb", teamB)
-	// 	await upsertAccessPolicyRules(shared.id, "inbound", [{ application: "legacy-inbound" }], "nais-sync")
-	// 	await upsertAccessPolicyRules(shared.id, "outbound", [{ application: "legacy-outbound" }], "nais-sync")
-	//
-	// 	await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
-	//
-	// 	const sharedAppRules = await getAccessPolicyRules(shared.id)
-	// 	expect(sharedAppRules).toHaveLength(0)
-	// })
-
 	it("emits added when first env rule appears after inbound fallback retirement", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(
-		// 	app.id,
-		// 	"inbound",
-		// 	[
-		// 		{ application: "shared-client", namespace: "teampensjon", cluster: "prod-gcp" },
-		// 		{ application: "legacy-only-client", namespace: "teampensjon", cluster: "dev-gcp" },
-		// 	],
-		// 	"nais-sync",
-		// )
 		const auditBefore = await getAuditByEntity("application", app.id)
 
 		await upsertAccessPolicyRulesForEnvironment(
@@ -573,17 +454,6 @@ describe("Access policy rules per environment", () => {
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 		await upsertAppEnvironment(app.id, "dev-gcp", "teampensjon", teamId)
-
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(
-		// 	app.id,
-		// 	"inbound",
-		// 	[
-		// 		{ application: "legacy-shared", namespace: "teampensjon", cluster: "prod-gcp" },
-		// 		{ application: "legacy-only", namespace: "teampensjon", cluster: "dev-gcp" },
-		// 	],
-		// 	"nais-sync",
-		// )
 
 		await upsertAccessPolicyRulesForEnvironment(
 			app.id,
@@ -612,17 +482,6 @@ describe("Access policy rules per environment", () => {
 
 		const teamAEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamA)
 		await upsertAppEnvironment(app.id, "prod-fss", "pensjondeployer", teamB)
-
-		// Legacy app-level function removed - test focuses on environment-level rules
-		// await upsertAccessPolicyRules(
-		// 	app.id,
-		// 	"inbound",
-		// 	[
-		// 		{ application: "legacy-client-a", namespace: "teampensjon", cluster: "prod-gcp" },
-		// 		{ application: "legacy-client-b", namespace: "pensjondeployer", cluster: "prod-fss" },
-		// 	],
-		// 	"nais-sync",
-		// )
 
 		await upsertAccessPolicyRulesForEnvironment(app.id, teamAEnv.id, "inbound", [], "nais-sync")
 
