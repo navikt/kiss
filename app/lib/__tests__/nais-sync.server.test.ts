@@ -35,7 +35,6 @@ vi.mock("~/db/queries/nais.server", () => ({
 		directions: new Set<"inbound" | "outbound">(),
 		addedRules: 0,
 		removedRules: 0,
-		cutovers: 0,
 	}),
 	getMonitoredAppsForNaisTeam: mockGetMonitoredAppsForNaisTeam,
 	syncDiscoveredApps: vi.fn(),
@@ -119,7 +118,6 @@ describe("nais sync summary audit", () => {
 						directions: Set<"inbound" | "outbound">
 						addedRules: number
 						removedRules: number
-						cutovers: number
 					}
 				},
 			) => {

@@ -15,7 +15,6 @@ const {
 	createAccessPolicySyncSummaryCollector,
 	getMonitoredAppsForNaisTeam,
 	getAccessPolicyRules,
-	upsertAccessPolicyRules,
 	upsertAccessPolicyRulesForEnvironment,
 	upsertAppEnvironment,
 	upsertMonitoredApp,
@@ -63,7 +62,6 @@ describe("Access policy rules per environment", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `DELETE FROM application_environment_access_policy_rules`)
-		await db.execute(/* sql */ `DELETE FROM application_access_policy_rules`)
 		await db.execute(/* sql */ `DELETE FROM application_environments`)
 		await db.execute(/* sql */ `DELETE FROM section_environments`)
 		await db.execute(/* sql */ `DELETE FROM monitored_applications`)
@@ -171,25 +169,16 @@ describe("Access policy rules per environment", () => {
 			[{ application: "dev-client", namespace: "teampensjon", cluster: "dev-gcp" }],
 			"nais-sync",
 		)
-		await upsertAccessPolicyRules(
-			app.id,
-			"inbound",
-			[{ application: "legacy-client", namespace: "teampensjon", cluster: "legacy-gcp" }],
-			"nais-sync",
-		)
-
 		await archiveMissingEnvironmentAccessPolicyRules(app.id, teamId, [], ["inbound"], "nais-sync")
 
 		const merged = await getAccessPolicyRules(app.id)
 		expect(merged).toHaveLength(0)
 	})
 
-	it("does not expose legacy rules when only inbound environment rules exist", async () => {
+	it("returns only environment-level inbound rules", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
-
-		await upsertAccessPolicyRules(app.id, "outbound", [{ application: "legacy-outbound-app" }], "nais-sync")
 
 		await upsertAccessPolicyRulesForEnvironment(
 			app.id,
@@ -203,20 +192,11 @@ describe("Access policy rules per environment", () => {
 		expect(merged.map((r) => `${r.direction}:${r.ruleApplication}`).sort()).toEqual(["inbound:env-inbound-app"])
 	})
 
-	it("does not reintroduce legacy inbound rules when environment rules are active", async () => {
+	it("returns environment rules matching the synced direction", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 
-		await upsertAccessPolicyRules(
-			app.id,
-			"inbound",
-			[
-				{ application: "shared-client", namespace: "teampensjon", cluster: "prod-gcp" },
-				{ application: "legacy-only-client", namespace: "teampensjon", cluster: "dev-gcp" },
-			],
-			"nais-sync",
-		)
 		await upsertAccessPolicyRulesForEnvironment(
 			app.id,
 			prodEnv.id,
@@ -231,21 +211,22 @@ describe("Access policy rules per environment", () => {
 		])
 	})
 
-	it("does not expose inbound legacy fallback when there are no active environment rules", async () => {
+	it("returns empty when all environment rules are archived", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 		await upsertAppEnvironment(app.id, "dev-gcp", "teampensjon", teamId)
 
-		await upsertAccessPolicyRules(
-			app.id,
-			"inbound",
-			[
-				{ application: "legacy-client-a", namespace: "teampensjon", cluster: "prod-gcp" },
-				{ application: "legacy-client-b", namespace: "teampensjon", cluster: "dev-gcp" },
-			],
-			"nais-sync",
-		)
+		await upsertAccessPolicyRulesForEnvironment(app.id, prodEnv.id, "inbound", [], "nais-sync")
+
+		const merged = await getAccessPolicyRules(app.id)
+		expect(merged).toHaveLength(0)
+	})
+
+	it("returns empty when environment sync reports empty rules", async () => {
+		const teamId = await createNaisTeam("teampensjon")
+		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
+		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 
 		await upsertAccessPolicyRulesForEnvironment(app.id, prodEnv.id, "inbound", [], "nais-sync")
 
@@ -253,34 +234,10 @@ describe("Access policy rules per environment", () => {
 		expect(merged).toHaveLength(0)
 	})
 
-	it("suppresses stale legacy inbound rules when environment sync reports empty rules", async () => {
+	it("returns empty when all environments have empty rules, including newly added", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
-
-		await upsertAccessPolicyRules(
-			app.id,
-			"inbound",
-			[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
-			"nais-sync",
-		)
-		await upsertAccessPolicyRulesForEnvironment(app.id, prodEnv.id, "inbound", [], "nais-sync")
-
-		const merged = await getAccessPolicyRules(app.id)
-		expect(merged).toHaveLength(0)
-	})
-
-	it("keeps legacy fallback disabled after cutover, even when a new environment appears", async () => {
-		const teamId = await createNaisTeam("teampensjon")
-		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
-		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
-
-		await upsertAccessPolicyRules(
-			app.id,
-			"inbound",
-			[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
-			"nais-sync",
-		)
 
 		await upsertAccessPolicyRulesForEnvironment(
 			app.id,
@@ -391,17 +348,10 @@ describe("Access policy rules per environment", () => {
 		expect(removed).toHaveLength(0)
 	})
 
-	it("does not write fallback suppression audit when inbound fallback is retired", async () => {
+	it("does not write removed audit when syncing empty rules with no prior active rules", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
-
-		await upsertAccessPolicyRules(
-			app.id,
-			"inbound",
-			[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
-			"nais-sync",
-		)
 
 		await upsertAccessPolicyRulesForEnvironment(app.id, prodEnv.id, "inbound", [], "nais-sync")
 
@@ -418,12 +368,6 @@ describe("Access policy rules per environment", () => {
 		const collector = createAccessPolicySyncSummaryCollector()
 		const syncRunId = "summary-union-test"
 
-		await upsertAccessPolicyRules(
-			app.id,
-			"inbound",
-			[{ application: "legacy-client", namespace: "teampensjon", cluster: "prod-gcp" }],
-			"nais-sync",
-		)
 		await upsertAccessPolicyRulesForEnvironment(
 			app.id,
 			prodEnv.id,
@@ -483,65 +427,11 @@ describe("Access policy rules per environment", () => {
 		).rejects.toThrow("Mismatched application/environment")
 	})
 
-	it("archives legacy app-level rules when splitting shared app identity", async () => {
-		const teamA = await createNaisTeam("teama")
-		const teamB = await createNaisTeam("teamb")
-		const shared = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
-
-		await upsertAppEnvironment(shared.id, "prod-gcp", "teama", teamA)
-		await upsertAppEnvironment(shared.id, "prod-fss", "teamb", teamB)
-		await upsertAccessPolicyRules(
-			shared.id,
-			"inbound",
-			[{ application: "legacy-client", namespace: "teama", cluster: "prod-gcp" }],
-			"nais-sync",
-		)
-
-		const split = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
-		expect(split.id).not.toBe(shared.id)
-
-		const sharedAppRules = await getAccessPolicyRules(shared.id)
-		expect(sharedAppRules).toHaveLength(0)
-
-		const audit = await getAuditByEntity("application", shared.id)
-		const removed = audit.filter((a) => a.action === "access_policy_rule_removed")
-		expect(removed.length).toBeGreaterThanOrEqual(1)
-		const metadata = typeof removed[0].metadata === "string" ? JSON.parse(removed[0].metadata) : removed[0].metadata
-		expect(metadata).toMatchObject({
-			suppressedByAppSplit: true,
-		})
-	})
-
-	it("does not keep legacy outbound rules on old app when split only migrates inbound", async () => {
-		const teamA = await createNaisTeam("teama")
-		const teamB = await createNaisTeam("teamb")
-		const shared = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
-
-		await upsertAppEnvironment(shared.id, "prod-gcp", "teama", teamA)
-		await upsertAppEnvironment(shared.id, "prod-fss", "teamb", teamB)
-		await upsertAccessPolicyRules(shared.id, "inbound", [{ application: "legacy-inbound" }], "nais-sync")
-		await upsertAccessPolicyRules(shared.id, "outbound", [{ application: "legacy-outbound" }], "nais-sync")
-
-		await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
-
-		const sharedAppRules = await getAccessPolicyRules(shared.id)
-		expect(sharedAppRules).toHaveLength(0)
-	})
-
-	it("emits added when first env rule appears after inbound fallback retirement", async () => {
+	it("emits added audit when first environment rule is synced", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 
-		await upsertAccessPolicyRules(
-			app.id,
-			"inbound",
-			[
-				{ application: "shared-client", namespace: "teampensjon", cluster: "prod-gcp" },
-				{ application: "legacy-only-client", namespace: "teampensjon", cluster: "dev-gcp" },
-			],
-			"nais-sync",
-		)
 		const auditBefore = await getAuditByEntity("application", app.id)
 
 		await upsertAccessPolicyRulesForEnvironment(
@@ -559,21 +449,11 @@ describe("Access policy rules per environment", () => {
 		expect(removed).toHaveLength(0)
 	})
 
-	it("logs removed when archiving last active env rule after inbound fallback retirement", async () => {
+	it("logs removed audit when last active environment rule is archived", async () => {
 		const teamId = await createNaisTeam("teampensjon")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamId)
 		const prodEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamId)
 		await upsertAppEnvironment(app.id, "dev-gcp", "teampensjon", teamId)
-
-		await upsertAccessPolicyRules(
-			app.id,
-			"inbound",
-			[
-				{ application: "legacy-shared", namespace: "teampensjon", cluster: "prod-gcp" },
-				{ application: "legacy-only", namespace: "teampensjon", cluster: "dev-gcp" },
-			],
-			"nais-sync",
-		)
 
 		await upsertAccessPolicyRulesForEnvironment(
 			app.id,
@@ -595,23 +475,13 @@ describe("Access policy rules per environment", () => {
 		expect(JSON.parse(removed[0].previous_value as string)).toMatchObject({ ruleApplication: "legacy-shared" })
 	})
 
-	it("suppresses legacy fallback when direction history is complete for covered teams", async () => {
+	it("returns empty when direction has history marker for covered teams", async () => {
 		const teamA = await createNaisTeam("teampensjon")
 		const teamB = await createNaisTeam("pensjondeployer")
 		const app = await upsertMonitoredApp("pensjon-kodeverk", "nais-sync", teamA)
 
 		const teamAEnv = await upsertAppEnvironment(app.id, "prod-gcp", "teampensjon", teamA)
 		await upsertAppEnvironment(app.id, "prod-fss", "pensjondeployer", teamB)
-
-		await upsertAccessPolicyRules(
-			app.id,
-			"inbound",
-			[
-				{ application: "legacy-client-a", namespace: "teampensjon", cluster: "prod-gcp" },
-				{ application: "legacy-client-b", namespace: "pensjondeployer", cluster: "prod-fss" },
-			],
-			"nais-sync",
-		)
 
 		await upsertAccessPolicyRulesForEnvironment(app.id, teamAEnv.id, "inbound", [], "nais-sync")
 

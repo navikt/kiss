@@ -321,11 +321,13 @@ function shouldSkipMigration(
 
 	// Check ALTER TABLE ADD COLUMN — skip if the column doesn't exist
 	// UNLESS the column was dropped by a later migration
+	// OR the table itself was dropped (all columns are implicitly dropped)
 	const addedColumns = extractAlterTableAddColumns(sqlContent)
 	for (const { table, column } of addedColumns) {
 		if (!existingTables.has(table) && !droppedTables.has(table)) {
 			return `table "${table}" does not exist`
 		}
+		if (droppedTables.has(table)) continue
 		const colKey = `${table}.${column}`
 		if (!existingColumns.has(colKey) && !droppedColumns.has(colKey)) {
 			return `column "${colKey}" does not exist`

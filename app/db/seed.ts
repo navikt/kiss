@@ -334,24 +334,7 @@ async function seed() {
 		},
 	])
 
-	// Access policy rules + acknowledgments
-	await db.insert(schema.applicationAccessPolicyRules).values([
-		{
-			applicationId: appRegler.id,
-			direction: "inbound",
-			ruleApplication: "pensjon-frontend",
-			ruleNamespace: "pensjon",
-			ruleCluster: "prod-gcp",
-		},
-		{
-			applicationId: appRegler.id,
-			direction: "outbound",
-			ruleApplication: "arbeid-api",
-			ruleNamespace: "arbeid",
-			ruleCluster: "prod-gcp",
-		},
-	])
-
+	// Access policy acknowledgments
 	await db.insert(schema.accessPolicyAcknowledgments).values({
 		applicationId: appRegler.id,
 		ruleApplication: "pensjon-frontend",
