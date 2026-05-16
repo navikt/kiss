@@ -252,6 +252,10 @@ export const auditLog = pgTable(
 		index("idx_audit_log_action_performed_at").on(table.action, table.performedAt.desc()),
 		index("idx_audit_log_entity_performed_at").on(table.entityType, table.entityId, table.performedAt.desc()),
 		index("idx_audit_log_sync_job_id").on(table.syncJobId, table.performedAt.desc()),
-		foreignKey({ columns: [table.syncJobId], foreignColumns: [syncJobs.id], name: "fk_audit_log_sync_job_id" }),
+		foreignKey({
+			columns: [table.syncJobId],
+			foreignColumns: [syncJobs.id],
+			name: "fk_audit_log_sync_job_id",
+		}).onDelete("set null"),
 	],
 )

@@ -130,6 +130,9 @@ Kopier `.env.example` til `.env` for å tilpasse konfigurasjon:
 | `NAIS_API_URL` | `https://console.nav.cloud.nais.io/graphql` | Nais Console GraphQL API URL |
 | `NAIS_API_TOKEN` | – | Bearer-token for Nais API (ikke nødvendig med lokal proxy) |
 | `ENABLE_NAIS_SYNC` | `false` | Aktiver periodisk Nais-synkronisering (`true`/`false`) |
+| `ENABLE_SYNC_JOB_RETENTION_CLEANUP` | `false` | Aktiver periodisk opprydding av gamle ferdige sync-jobber (`true`/`false`) |
+| `SYNC_JOB_RETENTION_DAYS` | `90` | Antall dager ferdige sync-jobber beholdes før sletting |
+| `SYNC_JOB_RETENTION_BATCH_SIZE` | `500` | Maks antall sync-jobber som slettes per cleanup-kjøring |
 
 ### Kommandoer
 

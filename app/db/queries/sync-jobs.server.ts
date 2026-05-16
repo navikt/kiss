@@ -1,4 +1,4 @@
-import { and, count, desc, eq } from "drizzle-orm"
+import { and, asc, count, desc, eq, inArray, lt } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type SyncJobState, syncJobs } from "../schema/sync-jobs"
 import { appendSyncJobEvent } from "./sync-job-events.server"
@@ -390,4 +390,23 @@ export async function countSyncJobSummaries(filters?: { state?: SyncJobState; jo
 
 	const [result] = await query
 	return result?.count ?? 0
+}
+
+export async function deleteOldFinishedSyncJobs(params: {
+	olderThan: Date
+	limit?: number
+}): Promise<{ deletedJobIds: string[] }> {
+	const batchSize = params.limit ?? 500
+	const terminalStates: SyncJobState[] = ["completed", "failed", "skipped"]
+
+	const candidates = db
+		.select({ id: syncJobs.id })
+		.from(syncJobs)
+		.where(and(lt(syncJobs.createdAt, params.olderThan), inArray(syncJobs.state, terminalStates)))
+		.orderBy(asc(syncJobs.createdAt))
+		.limit(batchSize)
+
+	const deletedRows = await db.delete(syncJobs).where(inArray(syncJobs.id, candidates)).returning({ id: syncJobs.id })
+
+	return { deletedJobIds: deletedRows.map((row) => row.id) }
 }

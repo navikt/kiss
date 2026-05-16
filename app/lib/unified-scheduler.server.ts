@@ -13,6 +13,7 @@
  *   - Compliance sync:      every 3rd cycle (15 min)
  *   - Audit summary sync:   every 6th cycle (30 min)
  *   - Deployment audit sync: every 6th cycle (30 min)
+ *   - Sync-job retention:   first cycle after startup, then every 24h
  */
 
 import { logPoolStats } from "~/db/connection.server"
@@ -20,6 +21,7 @@ import { logger } from "./logger.server"
 
 const CYCLE_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — base cycle
 const INITIAL_DELAY_MS = 30 * 1000 // 30 seconds after startup
+const CYCLES_PER_24_HOURS = Math.floor((24 * 60 * 60 * 1000) / CYCLE_INTERVAL_MS)
 
 let running = false
 let timeoutId: ReturnType<typeof setTimeout> | null = null
@@ -31,6 +33,8 @@ interface JobConfig {
 	name: string
 	/** Run this job every N cycles (1 = every cycle, 3 = every 3rd, etc.) */
 	everyCycles: number
+	/** Also run on cycle 1, then fall back to everyCycles cadence */
+	runOnCycleOne?: boolean
 	envVar: string
 	run: () => Promise<void>
 }
@@ -116,6 +120,26 @@ const jobs: JobConfig[] = [
 			}
 		},
 	},
+	{
+		name: "sync-job-retention-cleanup",
+		// Cycle 1 is startup run; cycle 289 gives 24h separation at 5m interval.
+		everyCycles: CYCLES_PER_24_HOURS + 1,
+		runOnCycleOne: true,
+		envVar: "ENABLE_SYNC_JOB_RETENTION_CLEANUP",
+		async run() {
+			const { runSyncJobRetentionCleanup } = await import("./sync-job-retention.server")
+			const result = await runSyncJobRetentionCleanup({
+				performedBy: "unified-scheduler",
+			})
+			if (result) {
+				logger.info(
+					`[unified-scheduler] sync-job-retention-cleanup complete: ${result.deletedCount} jobber slettet (retention ${result.retentionDays} dager, batch ${result.batchSize})`,
+				)
+			} else {
+				logger.info("[unified-scheduler] sync-job-retention-cleanup skipped — another pod holds the lock")
+			}
+		},
+	},
 ]
 
 async function runCycle() {
@@ -126,7 +150,8 @@ async function runCycle() {
 
 	for (const job of jobs) {
 		if (process.env[job.envVar] !== "true") continue
-		if (cycleCount % job.everyCycles !== 0) continue
+		const runOnStartup = cycleCount === 1 && job.runOnCycleOne === true
+		if (!runOnStartup && cycleCount % job.everyCycles !== 0) continue
 
 		try {
 			const jobStart = Date.now()
