@@ -1,7 +1,6 @@
 import {
 	createSyncJob,
 	deleteOldFinishedSyncJobs,
-	listSyncJobSummaries,
 	markSyncJobCompleted,
 	markSyncJobFailed,
 	markSyncJobRunning,
@@ -12,7 +11,6 @@ import { SYNC_JOB_TYPES } from "~/lib/sync-job-types"
 
 const DEFAULT_RETENTION_DAYS = 90
 const DEFAULT_BATCH_SIZE = 500
-const MIN_RUN_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24h
 const RETENTION_LOCK_NAME = "sync-jobs-retention-cleanup"
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
@@ -30,7 +28,6 @@ export async function runSyncJobRetentionCleanup(params?: {
 	deletedCount: number
 	retentionDays: number
 	batchSize: number
-	skippedReason?: "recently_ran"
 } | null> {
 	const retentionDays =
 		params?.retentionDays ?? parsePositiveInt(process.env.SYNC_JOB_RETENTION_DAYS, DEFAULT_RETENTION_DAYS)
@@ -39,27 +36,6 @@ export async function runSyncJobRetentionCleanup(params?: {
 	const olderThan = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000)
 
 	return withAdvisoryLock(RETENTION_LOCK_NAME, async () => {
-		const latestCompletedRuns = await listSyncJobSummaries({
-			jobType: SYNC_JOB_TYPES.SYNC_JOB_RETENTION_CLEANUP,
-			state: "completed",
-			limit: 1,
-		})
-		const latestCompletedRun = latestCompletedRuns[0]
-		if (latestCompletedRun) {
-			const ageMs = Date.now() - new Date(latestCompletedRun.createdAt).getTime()
-			if (ageMs < MIN_RUN_INTERVAL_MS) {
-				logger.info(
-					`[sync-job-retention] skipped: completed run exists within 24h window (ageMs=${ageMs}, retentionDays=${retentionDays}, batchSize=${batchSize})`,
-				)
-				return {
-					deletedCount: 0,
-					retentionDays,
-					batchSize,
-					skippedReason: "recently_ran",
-				}
-			}
-		}
-
 		const job = await createSyncJob({
 			jobType: SYNC_JOB_TYPES.SYNC_JOB_RETENTION_CLEANUP,
 			performedBy,
