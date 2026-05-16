@@ -14,9 +14,9 @@ import {
 	listNdaAuditReports,
 	type NdaReportSummary,
 	type NdaStatusResponse,
-	type PeriodType,
 } from "~/lib/nda-audit-reports.server"
 import { formatPeriodLabel, getPeriodEndDate } from "~/lib/period-format"
+import { isValidPeriodStart, isValidPeriodType, type PeriodType } from "~/lib/period-validation"
 import type {
 	EvidenceFile,
 	EvidenceJobResult,
@@ -106,10 +106,14 @@ export class NdaEvidenceProvider implements EvidenceProvider {
 
 	async getStatus(params: Record<string, unknown>): Promise<EvidenceStatusResponse | null> {
 		const { team, environment, appName, periodType, periodStart } = assertNdaParams(params)
-		const selectedPeriodLabel = formatPeriodLabel(periodType, periodStart)
-		const selectedPeriodEnd = getPeriodEndDate(periodType, periodStart)
 
 		try {
+			if (!isValidPeriodType(periodType) || !isValidPeriodStart(periodType, periodStart)) {
+				throw new Error(`Invalid period config [periodType=${periodType}, periodStart=${periodStart}]`)
+			}
+
+			const selectedPeriodLabel = formatPeriodLabel(periodType, periodStart)
+			const selectedPeriodEnd = getPeriodEndDate(periodType, periodStart)
 			const [status, reportList] = await Promise.all([
 				getNdaAuditStatus(team, environment, appName),
 				listNdaAuditReports(team, environment, appName),

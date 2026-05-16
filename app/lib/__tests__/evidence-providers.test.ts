@@ -194,6 +194,46 @@ describe("NDA provider", () => {
 		vi.restoreAllMocks()
 	})
 
+	it("returns degraded response for invalid period config instead of throwing", async () => {
+		const { vi } = await import("vitest")
+
+		const getNdaAuditStatus = vi.fn()
+		const listNdaAuditReports = vi.fn()
+
+		vi.doMock("~/lib/nda-audit-reports.server", () => ({
+			getNdaAuditStatus,
+			listNdaAuditReports,
+			downloadNdaAuditReport: vi.fn(),
+			generateNdaAuditReport: vi.fn(),
+			getNdaAuditJobStatus: vi.fn(),
+		}))
+
+		vi.doMock("~/lib/logger.server", () => ({
+			logger: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+		}))
+
+		vi.resetModules()
+		const { NdaEvidenceProvider: FreshProvider } = await import("../evidence-providers/nda.server")
+		const provider = new FreshProvider()
+
+		const result = await provider.getStatus({
+			team: "pensjon",
+			environment: "prod-gcp",
+			appName: "my-app",
+			periodType: "weekly",
+			periodStart: "2025-01-01",
+		})
+
+		expect(result).not.toBeNull()
+		expect(result?.items).toEqual([])
+		expect(result?.metadata.error).toBe("Leveranserapport-tjenesten er ikke tilgjengelig. Prøv igjen senere.")
+		expect(result?.sourceLabel).toBe("pensjon/my-app (prod-gcp)")
+		expect(getNdaAuditStatus).not.toHaveBeenCalled()
+		expect(listNdaAuditReports).not.toHaveBeenCalled()
+
+		vi.restoreAllMocks()
+	})
+
 	it("keeps metadata period aligned with selected period and stores NDA observed period separately", async () => {
 		const { vi } = await import("vitest")
 
