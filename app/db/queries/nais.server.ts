@@ -4,7 +4,6 @@ import { db } from "../connection.server"
 import {
 	type AuthIntegrationType,
 	accessPolicyAcknowledgments,
-	applicationAccessPolicyFallbackCutovers,
 	applicationAccessPolicyRules,
 	applicationAuthIntegrations,
 	applicationEnvironmentAccessPolicyRules,
@@ -41,7 +40,6 @@ export type AccessPolicySyncSummaryCollector = {
 	directions: Set<"inbound" | "outbound">
 	addedRules: number
 	removedRules: number
-	cutovers: number
 }
 
 export function createAccessPolicySyncSummaryCollector(): AccessPolicySyncSummaryCollector {
@@ -51,7 +49,6 @@ export function createAccessPolicySyncSummaryCollector(): AccessPolicySyncSummar
 		directions: new Set<"inbound" | "outbound">(),
 		addedRules: 0,
 		removedRules: 0,
-		cutovers: 0,
 	}
 }
 
@@ -63,11 +60,10 @@ function recordAccessPolicySyncSummary(
 		direction: "inbound" | "outbound"
 		addedRules?: number
 		removedRules?: number
-		cutoverCreated?: boolean
 	},
 ) {
 	if (!collector) return
-	if (!params.addedRules && !params.removedRules && !params.cutoverCreated) return
+	if (!params.addedRules && !params.removedRules) return
 	collector.applicationIds.add(params.applicationId)
 	collector.directions.add(params.direction)
 	if (params.applicationEnvironmentId) {
@@ -78,9 +74,6 @@ function recordAccessPolicySyncSummary(
 	}
 	if (params.removedRules) {
 		collector.removedRules += params.removedRules
-	}
-	if (params.cutoverCreated) {
-		collector.cutovers += 1
 	}
 }
 
@@ -2303,48 +2296,8 @@ export async function upsertAccessPolicyRulesForEnvironment(
 		type DirectionUnionState = {
 			activeKeys: Set<string>
 			unionKeys: Set<string>
-			historyCoverageComplete: boolean
-		}
-		const getDirectionCoverage = async () => {
-			const allEnvironmentRows = await tx
-				.select({
-					id: applicationEnvironments.id,
-					naisTeamId: applicationEnvironments.naisTeamId,
-				})
-				.from(applicationEnvironments)
-				.where(eq(applicationEnvironments.applicationId, effectiveApplicationId))
-
-			const historyCoverageRows = await tx
-				.select({
-					applicationEnvironmentId: applicationEnvironmentAccessPolicyRules.applicationEnvironmentId,
-					naisTeamId: applicationEnvironments.naisTeamId,
-				})
-				.from(applicationEnvironmentAccessPolicyRules)
-				.innerJoin(
-					applicationEnvironments,
-					eq(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironments.id),
-				)
-				.where(
-					and(
-						eq(applicationEnvironments.applicationId, effectiveApplicationId),
-						eq(applicationEnvironmentAccessPolicyRules.direction, direction),
-					),
-				)
-				.groupBy(applicationEnvironmentAccessPolicyRules.applicationEnvironmentId, applicationEnvironments.naisTeamId)
-
-			const coveredTeamIds = new Set(historyCoverageRows.map((row) => row.naisTeamId ?? "__null_team__"))
-			const scopedEnvironmentCount = allEnvironmentRows.filter((env) =>
-				coveredTeamIds.has(env.naisTeamId ?? "__null_team__"),
-			).length
-			const historyCoverageComplete =
-				scopedEnvironmentCount > 0 && historyCoverageRows.length === scopedEnvironmentCount
-			return {
-				historyCoverageRows,
-				historyCoverageComplete,
-			}
 		}
 		const getDirectionUnionState = async (): Promise<DirectionUnionState> => {
-			const coverage = await getDirectionCoverage()
 			const activeEnvironmentRows = await tx
 				.select({
 					ruleApplication: applicationEnvironmentAccessPolicyRules.ruleApplication,
@@ -2371,7 +2324,6 @@ export async function upsertAccessPolicyRulesForEnvironment(
 			return {
 				activeKeys,
 				unionKeys: activeKeys,
-				historyCoverageComplete: coverage.historyCoverageComplete,
 			}
 		}
 		const beforeState = await getDirectionUnionState()
@@ -2456,47 +2408,8 @@ export async function upsertAccessPolicyRulesForEnvironment(
 		}
 
 		const afterState = await getDirectionUnionState()
-		let insertedCutoverCreated = false
 		let addedAuditCount = 0
 		let removedAuditCount = 0
-		if (afterState.historyCoverageComplete) {
-			const [insertedCutover] = await tx
-				.insert(applicationAccessPolicyFallbackCutovers)
-				.values({
-					applicationId: effectiveApplicationId,
-					direction,
-					createdBy: performedBy,
-					updatedBy: performedBy,
-				})
-				.onConflictDoNothing({
-					target: [
-						applicationAccessPolicyFallbackCutovers.applicationId,
-						applicationAccessPolicyFallbackCutovers.direction,
-					],
-				})
-				.returning()
-			if (insertedCutover) {
-				insertedCutoverCreated = true
-				await writeAuditLog(
-					{
-						action: "access_policy_legacy_fallback_cutover",
-						entityType: "application",
-						entityId: effectiveApplicationId,
-						newValue: JSON.stringify({
-							direction,
-							cutoverSource: "environment_sync",
-						}),
-						metadata: {
-							applicationEnvironmentId,
-							...(context?.syncRunId ? { syncRunId: context.syncRunId } : {}),
-						},
-						performedBy,
-						syncJobId: context?.syncJobId,
-					},
-					tx,
-				)
-			}
-		}
 		const addedKeys = [...afterState.unionKeys].filter((key) => !beforeState.unionKeys.has(key))
 		const removedKeys = [...beforeState.unionKeys].filter((key) => !afterState.unionKeys.has(key))
 
@@ -2558,7 +2471,6 @@ export async function upsertAccessPolicyRulesForEnvironment(
 			direction,
 			addedRules: addedAuditCount,
 			removedRules: removedAuditCount,
-			cutoverCreated: insertedCutoverCreated,
 		})
 	})
 }
@@ -2623,95 +2535,6 @@ export async function archiveMissingEnvironmentAccessPolicyRules(
 			})
 		}
 	}
-}
-
-export async function runAccessPolicyFallbackCutoverBackfill(performedBy: string) {
-	return db.transaction(async (tx) => {
-		const insertedRowsResult = await tx.execute<{
-			application_id: string
-			direction: "inbound" | "outbound"
-		}>(sql`
-			WITH direction_history AS (
-				SELECT
-					ae.application_id,
-					aer.direction,
-					aer.application_environment_id,
-					COALESCE(ae.nais_team_id::text, '__null_team__') AS team_key
-				FROM application_environment_access_policy_rules aer
-				INNER JOIN application_environments ae
-					ON ae.id = aer.application_environment_id
-				GROUP BY ae.application_id, aer.direction, aer.application_environment_id, COALESCE(ae.nais_team_id::text, '__null_team__')
-			),
-			direction_coverage AS (
-				SELECT
-					dh.application_id,
-					dh.direction,
-					COUNT(DISTINCT dh.application_environment_id)::int AS history_environment_count,
-					(
-						SELECT COUNT(*)::int
-						FROM application_environments ae2
-						WHERE ae2.application_id = dh.application_id
-							AND COALESCE(ae2.nais_team_id::text, '__null_team__') IN (
-								SELECT DISTINCT dh2.team_key
-								FROM direction_history dh2
-								WHERE dh2.application_id = dh.application_id
-									AND dh2.direction = dh.direction
-							)
-					) AS scoped_environment_count
-				FROM direction_history dh
-				GROUP BY dh.application_id, dh.direction
-			),
-			eligible AS (
-				SELECT application_id, direction
-				FROM direction_coverage
-				WHERE scoped_environment_count > 0
-					AND history_environment_count = scoped_environment_count
-			),
-			inserted AS (
-				INSERT INTO application_access_policy_fallback_cutovers (application_id, direction, created_by, updated_by)
-				SELECT e.application_id, e.direction, ${performedBy}, ${performedBy}
-				FROM eligible e
-				ON CONFLICT (application_id, direction) DO NOTHING
-				RETURNING application_id, direction
-			)
-			SELECT application_id, direction
-			FROM inserted
-		`)
-
-		const insertedRows = insertedRowsResult.rows
-		let inboundInserted = 0
-		let outboundInserted = 0
-
-		for (const row of insertedRows) {
-			if (row.direction === "inbound") {
-				inboundInserted += 1
-			} else {
-				outboundInserted += 1
-			}
-			await writeAuditLog(
-				{
-					action: "access_policy_legacy_fallback_cutover",
-					entityType: "application",
-					entityId: row.application_id,
-					newValue: JSON.stringify({
-						direction: row.direction,
-						cutoverSource: "manual_backfill",
-					}),
-					metadata: {
-						trigger: "admin_vedlikehold",
-					},
-					performedBy,
-				},
-				tx,
-			)
-		}
-
-		return {
-			inserted: insertedRows.length,
-			inboundInserted,
-			outboundInserted,
-		}
-	})
 }
 
 /** Get all active (non-archived) access policy rules for an application. */

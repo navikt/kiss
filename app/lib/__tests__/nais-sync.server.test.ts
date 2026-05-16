@@ -163,7 +163,6 @@ describe("nais sync summary audit", () => {
 			teamSlug: "teampensjon",
 			addedRules: 3,
 			removedRules: 0,
-			cutovers: 0,
 			directions: ["inbound"],
 		})
 	})

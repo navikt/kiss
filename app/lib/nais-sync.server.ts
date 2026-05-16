@@ -179,11 +179,7 @@ export async function syncNaisAppsForTeam(
 			}
 		}
 
-		if (
-			accessPolicySummary.addedRules > 0 ||
-			accessPolicySummary.removedRules > 0 ||
-			accessPolicySummary.cutovers > 0
-		) {
+		if (accessPolicySummary.addedRules > 0 || accessPolicySummary.removedRules > 0) {
 			await writeAuditLog({
 				action: "access_policy_rules_synced",
 				entityType: "nais_sync",
@@ -196,7 +192,6 @@ export async function syncNaisAppsForTeam(
 					directions: [...accessPolicySummary.directions].sort(),
 					addedRules: accessPolicySummary.addedRules,
 					removedRules: accessPolicySummary.removedRules,
-					cutovers: accessPolicySummary.cutovers,
 				}),
 				metadata: {
 					teamSlug,

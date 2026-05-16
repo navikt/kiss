@@ -71,7 +71,6 @@ describe("Access policy rules soft-delete integration tests (environment-based)"
 		await db.execute(/* sql */ `
 			DELETE FROM application_environment_access_policy_rules;
 			DELETE FROM application_environments;
-			DELETE FROM application_access_policy_fallback_cutovers;
 			DELETE FROM monitored_applications;
 			DELETE FROM audit_log;
 		`)
