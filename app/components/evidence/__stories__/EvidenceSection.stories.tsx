@@ -4,7 +4,13 @@ import type React from "react"
 import { createRoutesStub } from "react-router"
 import { EvidenceSection } from "../EvidenceSection"
 
-const oracleApiRoutes = [
+type StubRoute = {
+	path: string
+	loader?: () => unknown
+	action?: () => unknown
+}
+
+const oracleApiRoutes: StubRoute[] = [
 	{
 		path: "/api/evidence-status",
 		loader: () => ({
@@ -39,10 +45,65 @@ const oracleApiRoutes = [
 	},
 ]
 
-// biome-ignore lint/suspicious/noExplicitAny: Storybook render prop typing
-function renderWithApiRoutes(Component: React.ComponentType<any>, props: Record<string, unknown>) {
+const deploymentsApiRoutes: StubRoute[] = [
+	{
+		path: "/api/evidence-status",
+		loader: () => ({
+			providerType: "deployments",
+			sourceLabel: "pensjon-saksbehandling/pensjon-pen (prod-gcp)",
+			collectedAt: "2026-04-01T10:00:00Z",
+			externalUrl: null,
+			items: [
+				{
+					id: "deployment_evidence_report",
+					label: "Leveranserapport — Q1 2026",
+					status: "ok",
+					formats: ["pdf"],
+					canDownload: true,
+				},
+			],
+			metadata: {
+				team: "pensjon-saksbehandling",
+				environment: "prod-gcp",
+				appName: "pensjon-pen",
+				period: {
+					type: "quarterly",
+					label: "Q1 2026",
+					start: "2026-01-01",
+					end: "2026-04-01",
+				},
+				deployments: {
+					total: 45,
+					approved: 42,
+					pending: 2,
+					notApproved: 1,
+					approvedPercent: 93,
+					withChangeOrigin: 40,
+					changeOriginPercent: 89,
+				},
+				existingReports: [
+					{
+						reportId: "report-q1-2026",
+						generatedAt: "2026-04-01T09:30:00Z",
+						availableFormats: ["pdf"],
+					},
+				],
+			},
+		}),
+	},
+	{
+		path: "/api/evidence-period-config",
+		action: () => ({ success: true }),
+	},
+	{
+		path: "/api/evidence-download",
+		action: () => ({ success: true }),
+	},
+]
+
+function renderWithApiRoutes<P extends object>(Component: React.ComponentType<P>, props: P, routes = oracleApiRoutes) {
 	const Wrapper = () => <Component {...props} />
-	const Stub = createRoutesStub([{ path: "/", Component: Wrapper }, ...oracleApiRoutes])
+	const Stub = createRoutesStub([{ path: "/", Component: Wrapper }, ...routes])
 	return <Stub initialEntries={["/"]} />
 }
 
@@ -80,43 +141,44 @@ export const OracleProviderFullfort: Story = {
 export const DeploymentsPlaceholder: Story = {
 	name: "Deployments – ingen periode valgt",
 	render: () => {
-		const Wrapper = () => (
-			<EvidenceSection
-				providerType="deployments"
-				activity={{
+		return renderWithApiRoutes(
+			EvidenceSection,
+			{
+				providerType: "deployments",
+				activity: {
 					id: "activity-nda-1",
 					type: "deployment_evidence_report",
 					status: "pending",
 					completedAt: null,
 					createdAt: "2026-03-01T08:00:00Z",
-				}}
-				evidenceData={{
+				},
+				evidenceData: {
 					appParams: { team: "pensjon-saksbehandling", environment: "prod-gcp", appName: "pensjon-pen" },
 					periodConfig: null,
 					downloads: [],
-				}}
-				isDraft={true}
-			/>
+				},
+				isDraft: true,
+			},
+			deploymentsApiRoutes,
 		)
-		const Stub = createRoutesStub([{ path: "/", Component: Wrapper }])
-		return <Stub initialEntries={["/"]} />
 	},
 }
 
 export const DeploymentsMedPeriode: Story = {
 	name: "Deployments – periode valgt",
 	render: () => {
-		const Wrapper = () => (
-			<EvidenceSection
-				providerType="deployments"
-				activity={{
+		return renderWithApiRoutes(
+			EvidenceSection,
+			{
+				providerType: "deployments",
+				activity: {
 					id: "activity-nda-2",
 					type: "deployment_evidence_report",
 					status: "pending",
 					completedAt: null,
 					createdAt: "2026-03-01T08:00:00Z",
-				}}
-				evidenceData={{
+				},
+				evidenceData: {
 					appParams: { team: "pensjon-saksbehandling", environment: "prod-gcp", appName: "pensjon-pen" },
 					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
 					downloads: [
@@ -131,11 +193,10 @@ export const DeploymentsMedPeriode: Story = {
 							performedAt: "2026-04-01T10:30:00Z",
 						},
 					],
-				}}
-				isDraft={false}
-			/>
+				},
+				isDraft: false,
+			},
+			deploymentsApiRoutes,
 		)
-		const Stub = createRoutesStub([{ path: "/", Component: Wrapper }])
-		return <Stub initialEntries={["/"]} />
 	},
 }

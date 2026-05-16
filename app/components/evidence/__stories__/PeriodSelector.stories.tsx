@@ -54,3 +54,18 @@ export const MedOnSaved: Story = {
 		return <Stub initialEntries={["/"]} />
 	},
 }
+
+export const ValideringsfeilFraApi: Story = {
+	name: "Valideringsfeil fra API",
+	render: () => {
+		const Wrapper = () => <PeriodSelector activityId="activity-1" />
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-period-config",
+				action: async () => ({ error: "Perioden er ikke avsluttet ennå" }),
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
