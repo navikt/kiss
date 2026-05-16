@@ -193,4 +193,76 @@ describe("NDA provider", () => {
 
 		vi.restoreAllMocks()
 	})
+
+	it("keeps metadata period aligned with selected period and stores NDA observed period separately", async () => {
+		const { vi } = await import("vitest")
+
+		vi.doMock("~/lib/nda-audit-reports.server", () => ({
+			getNdaAuditStatus: vi.fn().mockResolvedValue({
+				app: {
+					team: "pensjon",
+					environment: "prod-gcp",
+					name: "my-app",
+					auditStartDate: null,
+					applicationGroup: null,
+				},
+				period: {
+					type: "yearly",
+					label: "2024",
+					start: "2024-01-01",
+					end: "2024-12-31",
+				},
+				deployments: {
+					total: 42,
+					approved: 40,
+					pending: 1,
+					notApproved: 1,
+					approvedPercent: 95.2,
+					withChangeOrigin: 35,
+					changeOriginPercent: 83.3,
+				},
+				existingReports: [],
+				availableFormats: ["pdf"],
+			}),
+			listNdaAuditReports: vi.fn().mockResolvedValue({
+				app: { team: "pensjon", environment: "prod-gcp", name: "my-app", auditStartDate: null, applicationGroup: null },
+				reports: [],
+			}),
+			downloadNdaAuditReport: vi.fn(),
+			generateNdaAuditReport: vi.fn(),
+			getNdaAuditJobStatus: vi.fn(),
+		}))
+
+		vi.doMock("~/lib/logger.server", () => ({
+			logger: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+		}))
+
+		vi.resetModules()
+		const { NdaEvidenceProvider: FreshProvider } = await import("../evidence-providers/nda.server")
+		const provider = new FreshProvider()
+
+		const result = await provider.getStatus({
+			team: "pensjon",
+			environment: "prod-gcp",
+			appName: "my-app",
+			periodType: "quarterly",
+			periodStart: "2025-10-01",
+		})
+
+		expect(result).not.toBeNull()
+		expect(result?.metadata.period).toMatchObject({
+			type: "quarterly",
+			label: "Q4 2025",
+			start: "2025-10-01",
+			end: "2025-12-31",
+		})
+		expect(result?.metadata.observedPeriodFromNda).toMatchObject({
+			type: "yearly",
+			label: "2024",
+			start: "2024-01-01",
+			end: "2024-12-31",
+		})
+
+		vi.restoreAllMocks()
+	})
 })

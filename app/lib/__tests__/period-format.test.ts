@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatPeriodLabel, formatPeriodLabelSafe, getPeriodTypeLabel } from "../period-format"
+import { formatPeriodLabel, formatPeriodLabelSafe, getPeriodEndDate, getPeriodTypeLabel } from "../period-format"
 
 describe("period format helpers", () => {
 	describe("formatPeriodLabel", () => {
@@ -39,6 +39,23 @@ describe("period format helpers", () => {
 
 		it("falls back to raw value for unknown period type", () => {
 			expect(getPeriodTypeLabel("unknown")).toBe("unknown")
+		})
+	})
+
+	describe("getPeriodEndDate", () => {
+		it("calculates inclusive end date for period types", () => {
+			expect(getPeriodEndDate("yearly", "2025-01-01")).toBe("2025-12-31")
+			expect(getPeriodEndDate("tertiary", "2025-05-01")).toBe("2025-08-31")
+			expect(getPeriodEndDate("quarterly", "2025-10-01")).toBe("2025-12-31")
+			expect(getPeriodEndDate("monthly", "2025-02-01")).toBe("2025-02-28")
+		})
+
+		it("handles leap years for monthly periods", () => {
+			expect(getPeriodEndDate("monthly", "2024-02-01")).toBe("2024-02-29")
+		})
+
+		it("throws on invalid period start for type", () => {
+			expect(() => getPeriodEndDate("tertiary", "2025-02-01")).toThrow("Invalid periodStart")
 		})
 	})
 

@@ -7,6 +7,33 @@ const PERIOD_TYPE_LABELS: Record<PeriodType, string> = {
 	monthly: "Månedlig",
 }
 
+const PERIOD_LENGTH_IN_MONTHS: Record<PeriodType, number> = {
+	yearly: 12,
+	tertiary: 4,
+	quarterly: 3,
+	monthly: 1,
+}
+
+function formatDateUtc(date: Date): string {
+	const year = date.getUTCFullYear()
+	const month = String(date.getUTCMonth() + 1).padStart(2, "0")
+	const day = String(date.getUTCDate()).padStart(2, "0")
+	return `${year}-${month}-${day}`
+}
+
+export function getPeriodEndDate(periodType: PeriodType, periodStart: string): string {
+	if (!isValidPeriodStart(periodType, periodStart)) {
+		throw new Error(`Invalid periodStart '${periodStart}' for periodType '${periodType}'`)
+	}
+
+	const [yearString, monthString] = periodStart.split("-")
+	const year = Number.parseInt(yearString, 10)
+	const month = Number.parseInt(monthString, 10)
+	const endDate = new Date(Date.UTC(year, month - 1 + PERIOD_LENGTH_IN_MONTHS[periodType], 0))
+
+	return formatDateUtc(endDate)
+}
+
 /**
  * Formats a selected period to a compact label used in UI/status payloads.
  * Throws for invalid period boundaries so callers with validated input

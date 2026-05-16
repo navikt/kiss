@@ -16,7 +16,7 @@ import {
 	type NdaStatusResponse,
 	type PeriodType,
 } from "~/lib/nda-audit-reports.server"
-import { formatPeriodLabel } from "~/lib/period-format"
+import { formatPeriodLabel, getPeriodEndDate } from "~/lib/period-format"
 import type {
 	EvidenceFile,
 	EvidenceJobResult,
@@ -111,6 +111,7 @@ export class NdaEvidenceProvider implements EvidenceProvider {
 	async getStatus(params: Record<string, unknown>): Promise<EvidenceStatusResponse | null> {
 		const { team, environment, appName, periodType, periodStart } = assertNdaParams(params)
 		const selectedPeriodLabel = formatPeriodLabel(periodType, periodStart)
+		const selectedPeriodEnd = getPeriodEndDate(periodType, periodStart)
 
 		try {
 			const [status, reportList] = await Promise.all([
@@ -136,7 +137,13 @@ export class NdaEvidenceProvider implements EvidenceProvider {
 						type: periodType,
 						label: selectedPeriodLabel,
 						start: periodStart,
-						end: status.period?.end ?? periodStart,
+						end: selectedPeriodEnd,
+					},
+					observedPeriodFromNda: {
+						type: status.period.type,
+						label: status.period.label,
+						start: status.period.start,
+						end: status.period.end,
 					},
 					deployments: status.deployments,
 					existingReports: periodReports,
