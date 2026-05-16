@@ -213,6 +213,68 @@ export const MedNedlastinger: Story = {
 	},
 }
 
+export const UlikPeriodeMellomKissOgNda: Story = {
+	name: "Ulik periode (KISS vs NDA)",
+	render: () => {
+		const Wrapper = () => (
+			<DeploymentEvidenceSection
+				activity={baseActivity}
+				evidenceData={{
+					appParams,
+					periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+					downloads: [],
+				}}
+				isDraft={false}
+			/>
+		)
+		const Stub = createRoutesStub([
+			{ path: "/", Component: Wrapper },
+			{
+				path: "/api/evidence-status",
+				loader: async () =>
+					makeStatusResponse({
+						items: [
+							{
+								id: "deployment-stats",
+								label: "Leveranserapport — 2025",
+								status: "partial",
+								formats: ["pdf"],
+								canDownload: false,
+							},
+						],
+						metadata: {
+							team: appParams.team,
+							environment: appParams.environment,
+							appName: appParams.appName,
+							period: {
+								type: "quarterly",
+								label: "Q1 2026",
+								start: "2026-01-01",
+								end: "2026-03-31",
+							},
+							observedPeriodFromNda: {
+								type: "yearly",
+								label: "2025",
+								start: "2025-01-01",
+								end: "2025-12-31",
+							},
+							deployments: {
+								total: 55,
+								approved: 41,
+								pending: 9,
+								notApproved: 5,
+								approvedPercent: 75,
+								withChangeOrigin: 49,
+								changeOriginPercent: 89,
+							},
+						},
+					}),
+			},
+		])
+		return <Stub initialEntries={["/"]} />
+	},
+}
+
 export const ManuellOpplasting: Story = {
 	name: "Manuell opplasting",
 	render: () => {

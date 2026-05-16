@@ -111,6 +111,13 @@ interface StatusPanelProps {
 	config: ReturnType<typeof getProviderUiConfig>
 }
 
+interface PeriodMetadata {
+	type: string
+	label: string
+	start: string
+	end: string
+}
+
 function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, isDraft, config }: StatusPanelProps) {
 	const statusFetcher = useFetcher<EvidenceStatusResponse | { error: string }>()
 	const generateFetcher = useFetcher()
@@ -267,6 +274,14 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 	const isGenerating = generateFetcher.state !== "idle" || jobStatus === "pending" || jobStatus === "processing"
 	const periodTypeLabel = getPeriodTypeLabel(periodConfig.periodType)
 	const periodLabel = formatPeriodLabelSafe(periodConfig.periodType, periodConfig.periodStart)
+	const observedPeriod = (validStatus?.metadata?.observedPeriodFromNda as PeriodMetadata | undefined) ?? null
+	const selectedPeriod = (validStatus?.metadata?.period as PeriodMetadata | undefined) ?? null
+	const hasPeriodMismatch =
+		observedPeriod != null &&
+		selectedPeriod != null &&
+		(observedPeriod.type !== selectedPeriod.type ||
+			observedPeriod.start !== selectedPeriod.start ||
+			observedPeriod.end !== selectedPeriod.end)
 
 	return (
 		<VStack gap="space-4">
@@ -305,7 +320,25 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 						</Alert>
 					)}
 
-					{!validStatus.metadata?.error && <DeploymentStats metadata={validStatus.metadata} />}
+					{!validStatus.metadata?.error && (
+						<VStack gap="space-4">
+							<HStack gap="space-2" align="center">
+								<Tag variant="neutral" size="xsmall">
+									Statusgrunnlag (NDA): {observedPeriod?.label ?? "Ukjent periode"}
+								</Tag>
+								<Tag variant="neutral" size="xsmall">
+									Valgt periode (rapporter): {periodLabel}
+								</Tag>
+							</HStack>
+							{hasPeriodMismatch && (
+								<Alert variant="info" size="small">
+									Status-tallene er hentet for NDA-perioden <strong>{observedPeriod?.label ?? "ukjent"}</strong>. Valgt
+									periode <strong>{periodLabel}</strong> brukes for filtrering av rapporter i KISS.
+								</Alert>
+							)}
+							<DeploymentStats metadata={validStatus.metadata} />
+						</VStack>
+					)}
 
 					{validStatus.items.length > 0 && (
 						<Table size="small">

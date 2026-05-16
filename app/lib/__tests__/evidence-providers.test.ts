@@ -256,6 +256,7 @@ describe("NDA provider", () => {
 			start: "2025-10-01",
 			end: "2025-12-31",
 		})
+		expect(result?.items[0]?.label).toBe("Leveranserapport — 2024")
 		expect(result?.metadata.observedPeriodFromNda).toMatchObject({
 			type: "yearly",
 			label: "2024",

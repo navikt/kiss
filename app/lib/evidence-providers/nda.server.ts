@@ -54,11 +54,7 @@ function assertNdaParams(params: Record<string, unknown>): NdaProviderParams {
 	return { team, environment, appName, periodType: periodType as PeriodType, periodStart }
 }
 
-function mapDeploymentStatusItem(
-	status: NdaStatusResponse,
-	existingReports: NdaReportSummary[],
-	selectedPeriodLabel: string,
-): EvidenceStatusItem {
+function mapDeploymentStatusItem(status: NdaStatusResponse, existingReports: NdaReportSummary[]): EvidenceStatusItem {
 	const { deployments } = status
 	const hasReport = existingReports.length > 0
 	const allApproved = deployments.notApproved === 0 && deployments.pending === 0
@@ -78,7 +74,7 @@ function mapDeploymentStatusItem(
 
 	return {
 		id: "deployment_evidence_report",
-		label: `Leveranserapport — ${selectedPeriodLabel}`,
+		label: `Leveranserapport — ${status.period.label}`,
 		status: itemStatus,
 		formats: status.availableFormats,
 		canDownload: hasReport,
@@ -128,7 +124,7 @@ export class NdaEvidenceProvider implements EvidenceProvider {
 				sourceLabel: `${team}/${appName} (${environment})`,
 				collectedAt: new Date().toISOString(),
 				externalUrl: null,
-				items: [mapDeploymentStatusItem(status, periodReports, selectedPeriodLabel)],
+				items: [mapDeploymentStatusItem(status, periodReports)],
 				metadata: {
 					team,
 					environment,
