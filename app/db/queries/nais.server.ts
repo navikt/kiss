@@ -4,7 +4,6 @@ import { db } from "../connection.server"
 import {
 	type AuthIntegrationType,
 	accessPolicyAcknowledgments,
-	applicationAccessPolicyRules,
 	applicationAuthIntegrations,
 	applicationEnvironmentAccessPolicyRules,
 	applicationEnvironments,
@@ -403,22 +402,6 @@ export async function upsertMonitoredApp(
 	if (legacyShared) {
 		return db.transaction(async (tx) => {
 			const [app] = await tx.insert(monitoredApplications).values({ name, createdBy, updatedBy: createdBy }).returning()
-			const activeLegacyRules = await tx
-				.select({
-					id: applicationAccessPolicyRules.id,
-					direction: applicationAccessPolicyRules.direction,
-					ruleApplication: applicationAccessPolicyRules.ruleApplication,
-					ruleNamespace: applicationAccessPolicyRules.ruleNamespace,
-					ruleCluster: applicationAccessPolicyRules.ruleCluster,
-				})
-				.from(applicationAccessPolicyRules)
-				.where(
-					and(
-						eq(applicationAccessPolicyRules.applicationId, legacyShared.id),
-						eq(applicationAccessPolicyRules.direction, "inbound"),
-						isNull(applicationAccessPolicyRules.archivedAt),
-					),
-				)
 			await tx
 				.update(applicationEnvironments)
 				.set({ applicationId: app.id })
@@ -428,41 +411,6 @@ export async function upsertMonitoredApp(
 						eq(applicationEnvironments.naisTeamId, naisTeamId),
 					),
 				)
-			if (activeLegacyRules.length > 0) {
-				await tx
-					.update(applicationAccessPolicyRules)
-					.set({ archivedAt: new Date(), archivedBy: createdBy, updatedAt: new Date() })
-					.where(
-						and(
-							eq(applicationAccessPolicyRules.applicationId, legacyShared.id),
-							eq(applicationAccessPolicyRules.direction, "inbound"),
-							isNull(applicationAccessPolicyRules.archivedAt),
-						),
-					)
-				for (const row of activeLegacyRules) {
-					await writeAuditLog(
-						{
-							action: "access_policy_rule_removed",
-							entityType: "application",
-							entityId: legacyShared.id,
-							previousValue: JSON.stringify({
-								direction: row.direction,
-								ruleApplication: row.ruleApplication,
-								ruleNamespace: row.ruleNamespace,
-								ruleCluster: row.ruleCluster,
-							}),
-							metadata: {
-								suppressedByAppSplit: true,
-								splitFromAppId: legacyShared.id,
-								splitToAppId: app.id,
-								naisTeamId,
-							},
-							performedBy: createdBy,
-						},
-						tx,
-					)
-				}
-			}
 
 			logger.warn("[nais-sync] Split shared monitored application by team identity", {
 				sync_component: "nais_app_identity_split",
@@ -2116,135 +2064,6 @@ export async function resolveAppNames(names: string[]): Promise<Record<string, A
 	}
 
 	return result
-}
-
-/** Synkroniser access policy-regler for en applikasjon og retning.
- *
- * Tidligere ble alle eksisterende regler hard-slettet og deretter re-insertet.
- * Det betydde at vi mistet sporbarhet på når regler dukket opp og forsvant.
- * Nå utfører vi en eksplisitt diff: regler som ikke lenger finnes arkiveres
- * (soft-delete med archived_at/archived_by), og helt nye regler legges til.
- * Eksisterende aktive regler som fortsatt er rapportert beholdes som de er.
- *
- * Hele operasjonen og tilhørende audit-logging skjer i samme transaksjon.
- * Concurrency håndteres av advisory-låsen `nais-sync-apps-{teamSlug}` på
- * caller-siden, slik at to podder ikke kjører dette samtidig per team.
- */
-export async function upsertAccessPolicyRules(
-	applicationId: string,
-	direction: "inbound" | "outbound",
-	rules: IncomingAccessPolicyRule[],
-	performedBy = "nais-sync",
-	context?: {
-		appName?: string
-		teamSlug?: string
-		sourceCluster?: string
-		sourceClusters?: string[]
-		syncRunId?: string
-		syncJobId?: string
-		accessPolicySyncSummary?: AccessPolicySyncSummaryCollector
-	},
-) {
-	await db.transaction(async (tx) => {
-		const existing = await tx
-			.select()
-			.from(applicationAccessPolicyRules)
-			.where(
-				and(
-					eq(applicationAccessPolicyRules.applicationId, applicationId),
-					eq(applicationAccessPolicyRules.direction, direction),
-					isNull(applicationAccessPolicyRules.archivedAt),
-				),
-			)
-
-		const { desiredCount, toArchive, toInsert, toArchiveKeys, toInsertKeys } = diffAccessPolicyRules(
-			existing,
-			rules,
-			(rule) => ({
-				applicationId,
-				direction,
-				ruleApplication: rule.ruleApplication,
-				ruleNamespace: rule.ruleNamespace,
-				ruleCluster: rule.ruleCluster,
-			}),
-		)
-
-		if (toArchive.length > 0 || toInsert.length > 0) {
-			logger.info("[access-policy-sync] Rule diff detected", {
-				sync_component: "access_policy_rules",
-				applicationId,
-				applicationName: context?.appName,
-				teamSlug: context?.teamSlug,
-				sourceCluster: context?.sourceCluster,
-				sourceClusters: context?.sourceClusters,
-				syncRunId: context?.syncRunId,
-				direction,
-				existingCount: existing.length,
-				desiredCount,
-				toArchiveCount: toArchive.length,
-				toInsertCount: toInsert.length,
-				toArchiveKeys,
-				toInsertKeys,
-			})
-		}
-
-		for (const row of toArchive) {
-			const metadata: Record<string, unknown> = context?.syncRunId ? { syncRunId: context.syncRunId } : {}
-			await tx
-				.update(applicationAccessPolicyRules)
-				.set({ archivedAt: new Date(), archivedBy: performedBy, updatedAt: new Date() })
-				.where(eq(applicationAccessPolicyRules.id, row.id))
-
-			await writeAuditLog(
-				{
-					action: "access_policy_rule_removed",
-					entityType: "application",
-					entityId: applicationId,
-					previousValue: JSON.stringify({
-						direction,
-						ruleApplication: row.ruleApplication,
-						ruleNamespace: row.ruleNamespace,
-						ruleCluster: row.ruleCluster,
-					}),
-					metadata,
-					performedBy,
-					syncJobId: context?.syncJobId,
-				},
-				tx,
-			)
-		}
-
-		if (toInsert.length > 0) {
-			const inserted = await tx.insert(applicationAccessPolicyRules).values(toInsert).returning()
-			for (const row of inserted) {
-				const metadata: Record<string, unknown> = context?.syncRunId ? { syncRunId: context.syncRunId } : {}
-				await writeAuditLog(
-					{
-						action: "access_policy_rule_added",
-						entityType: "application",
-						entityId: applicationId,
-						newValue: JSON.stringify({
-							direction,
-							ruleApplication: row.ruleApplication,
-							ruleNamespace: row.ruleNamespace,
-							ruleCluster: row.ruleCluster,
-						}),
-						metadata,
-						performedBy,
-						syncJobId: context?.syncJobId,
-					},
-					tx,
-				)
-			}
-		}
-
-		recordAccessPolicySyncSummary(context?.accessPolicySyncSummary, {
-			applicationId,
-			direction,
-			addedRules: toInsert.length,
-			removedRules: toArchive.length,
-		})
-	})
 }
 
 /**
