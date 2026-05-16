@@ -193,4 +193,69 @@ describe("NDA provider", () => {
 
 		vi.restoreAllMocks()
 	})
+
+	it("passes selected period to NDA status and generate calls", async () => {
+		const { vi } = await import("vitest")
+
+		const getNdaAuditStatus = vi.fn().mockResolvedValue({
+			app: { team: "pensjon", environment: "prod-gcp", name: "my-app", auditStartDate: null, applicationGroup: null },
+			period: { type: "quarterly", label: "Q1 2026", start: "2026-01-01", end: "2026-03-31" },
+			deployments: {
+				total: 10,
+				approved: 10,
+				pending: 0,
+				notApproved: 0,
+				approvedPercent: 100,
+				withChangeOrigin: 10,
+				changeOriginPercent: 100,
+			},
+			existingReports: [],
+			availableFormats: ["pdf", "excel"],
+		})
+		const listNdaAuditReports = vi.fn().mockResolvedValue({
+			app: { team: "pensjon", environment: "prod-gcp", name: "my-app", auditStartDate: null, applicationGroup: null },
+			reports: [],
+		})
+		const generateNdaAuditReport = vi.fn().mockResolvedValue({
+			app: { team: "pensjon", environment: "prod-gcp", name: "my-app", auditStartDate: null, applicationGroup: null },
+			jobId: "job-123",
+			status: "pending",
+			reportId: null,
+			message: "started",
+		})
+
+		vi.doMock("~/lib/nda-audit-reports.server", () => ({
+			getNdaAuditStatus,
+			listNdaAuditReports,
+			generateNdaAuditReport,
+			downloadNdaAuditReport: vi.fn(),
+			getNdaAuditJobStatus: vi.fn(),
+		}))
+
+		vi.doMock("~/lib/logger.server", () => ({
+			logger: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+		}))
+
+		vi.resetModules()
+		const { NdaEvidenceProvider: FreshProvider } = await import("../evidence-providers/nda.server")
+		const provider = new FreshProvider()
+
+		const params = {
+			team: "pensjon",
+			environment: "prod-gcp",
+			appName: "my-app",
+			periodType: "quarterly",
+			periodStart: "2026-01-01",
+		}
+
+		await provider.getStatus(params)
+		await provider.requestGeneration?.(params, "ny kjøring")
+
+		expect(getNdaAuditStatus).toHaveBeenCalledWith("pensjon", "prod-gcp", "my-app", "quarterly", "2026-01-01")
+		expect(generateNdaAuditReport).toHaveBeenCalledWith("pensjon", "prod-gcp", "my-app", "quarterly", "2026-01-01", {
+			reason: "ny kjøring",
+		})
+
+		vi.restoreAllMocks()
+	})
 })

@@ -117,7 +117,7 @@ export const MedPeriodeUtenNedlastinger: Story = {
 								type: "quarterly",
 								label: "Q1 2026",
 								start: "2026-01-01",
-								end: "2026-04-01",
+								end: "2026-03-31",
 							},
 							deployments: {
 								total: 45,
@@ -194,7 +194,7 @@ export const MedNedlastinger: Story = {
 								type: "quarterly",
 								label: "Q1 2026",
 								start: "2026-01-01",
-								end: "2026-04-01",
+								end: "2026-03-31",
 							},
 							deployments: {
 								total: 45,
@@ -253,7 +253,7 @@ export const ManuellOpplasting: Story = {
 								type: "yearly",
 								label: "2025",
 								start: "2025-01-01",
-								end: "2026-01-01",
+								end: "2025-12-31",
 							},
 						},
 					}),
@@ -300,7 +300,7 @@ export const KlarTilGenerering: Story = {
 								type: "quarterly",
 								label: "Q1 2026",
 								start: "2026-01-01",
-								end: "2026-04-01",
+								end: "2026-03-31",
 							},
 							deployments: {
 								total: 38,
@@ -377,7 +377,7 @@ export const PollFeil: Story = {
 								type: "quarterly",
 								label: "Q1 2026",
 								start: "2026-01-01",
-								end: "2026-04-01",
+								end: "2026-03-31",
 							},
 							deployments: {
 								total: 20,
@@ -438,7 +438,7 @@ export const KonfliktVedGenerering: Story = {
 								type: "yearly",
 								label: "2025",
 								start: "2025-01-01",
-								end: "2026-01-01",
+								end: "2025-12-31",
 							},
 							deployments: {
 								total: 120,
