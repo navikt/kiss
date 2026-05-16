@@ -231,7 +231,7 @@ export async function getNdaAuditStatus(
 
 /**
  * List all active (non-archived, non-superseded) reports for an app.
- * Maps to `GET /api/v1/apps/{team}/{env}/{app}/audit-reports/`
+ * Maps to `GET /api/v1/apps/{team}/{env}/{app}/audit-reports`
  */
 export async function listNdaAuditReports(team: string, env: string, app: string): Promise<NdaListResponse> {
 	if (isDevMode()) {
