@@ -430,6 +430,20 @@ describe("Database migrations", () => {
 			// Undo 0075: drop the evidence_downloads table so 0074 can recreate it
 			// with the old schema, and 0075 can then transform it
 			await testDb.execute(sql`DROP TABLE IF EXISTS "routine_review_evidence_downloads" CASCADE`)
+			// Undo 0090: recreate application_access_policy_rules so 0041/0056 can ALTER it,
+			// then 0090 will drop it again
+			await testDb.execute(sql`
+				CREATE TABLE IF NOT EXISTS "application_access_policy_rules" (
+					"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+					"application_id" uuid NOT NULL,
+					"direction" text NOT NULL,
+					"rule_application" text NOT NULL,
+					"rule_namespace" text,
+					"rule_cluster" text,
+					"discovered_at" timestamp with time zone DEFAULT now() NOT NULL,
+					"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+				)
+			`)
 
 			// Run migrations — seed should stop at 0032 (tables don't exist),
 			// then migrate() applies 0032 through 0037
@@ -440,6 +454,7 @@ describe("Database migrations", () => {
 			expect(tableNames).toContain("application_control_history")
 			expect(tableNames).toContain("section_environments")
 			expect(tableNames).not.toContain("section_excluded_environments")
+			expect(tableNames).not.toContain("application_access_policy_rules")
 
 			// Verify routines.status column was also applied
 			const columns = await testDb.execute<{ column_name: string }>(sql`
