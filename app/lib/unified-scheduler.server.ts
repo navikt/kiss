@@ -118,7 +118,7 @@ const jobs: JobConfig[] = [
 	},
 	{
 		name: "sync-job-retention-cleanup",
-		everyCycles: 288, // every 24h (288 * 5 min)
+		everyCycles: 6, // every 30min; persistence gate in DB ensures max once per 24h
 		envVar: "ENABLE_SYNC_JOB_RETENTION_CLEANUP",
 		async run() {
 			const { runSyncJobRetentionCleanup } = await import("./sync-job-retention.server")
@@ -126,9 +126,13 @@ const jobs: JobConfig[] = [
 				performedBy: "unified-scheduler",
 			})
 			if (result) {
-				logger.info(
-					`[unified-scheduler] sync-job-retention-cleanup complete: ${result.deletedCount} jobber slettet (retention ${result.retentionDays} dager, batch ${result.batchSize})`,
-				)
+				if (result.skippedReason === "recently_ran") {
+					logger.info("[unified-scheduler] sync-job-retention-cleanup skipped — already completed within 24h")
+				} else {
+					logger.info(
+						`[unified-scheduler] sync-job-retention-cleanup complete: ${result.deletedCount} jobber slettet (retention ${result.retentionDays} dager, batch ${result.batchSize})`,
+					)
+				}
 			} else {
 				logger.info("[unified-scheduler] sync-job-retention-cleanup skipped — another pod holds the lock")
 			}
