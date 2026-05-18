@@ -867,8 +867,11 @@ export async function archiveRoutine(id: string, performedBy: string) {
 			.returning()
 		if (!archived) {
 			const [existing] = await tx.select().from(routines).where(eq(routines.id, id)).limit(1)
-			if (!existing) return null
-			return existing
+			if (!existing) throw new Response(`Rutine med id=${id} finnes ikke`, { status: 404 })
+			if (existing.archivedAt) return existing // idempotent: allerede arkivert
+			throw new Response(`Kan ikke arkivere rutine (status="${existing.status}", forventet "approved")`, {
+				status: 409,
+			})
 		}
 		await writeAuditLog(
 			{
@@ -895,6 +898,45 @@ export async function archiveRoutine(id: string, performedBy: string) {
 }
 
 /**
+ * Sletter en draft-rutine ved å arkivere den med status='deleted'.
+ * Kun draft-rutiner kan slettes — godkjente rutiner skal arkiveres via archiveRoutine.
+ */
+export async function deleteDraftRoutine(id: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [deleted] = await tx
+			.update(routines)
+			.set({
+				status: "deleted",
+				archivedAt: new Date(),
+				archivedBy: performedBy,
+				updatedAt: new Date(),
+				updatedBy: performedBy,
+			})
+			.where(and(eq(routines.id, id), isNull(routines.archivedAt), eq(routines.status, "draft")))
+			.returning()
+		if (!deleted) {
+			const [existing] = await tx.select().from(routines).where(eq(routines.id, id)).limit(1)
+			if (!existing) throw new Response(`Rutine med id=${id} finnes ikke`, { status: 404 })
+			if (existing.archivedAt && existing.status === "deleted") return existing // idempotent: allerede slettet
+			throw new Response(`Kan ikke slette rutine (status="${existing.status}", forventet "draft")`, { status: 409 })
+		}
+
+		await writeAuditLog(
+			{
+				action: "routine_deleted",
+				entityType: "routine",
+				entityId: id,
+				previousValue: JSON.stringify({ name: deleted.name, status: "draft" }),
+				newValue: JSON.stringify({ name: deleted.name, status: "deleted", archivedAt: deleted.archivedAt }),
+				performedBy,
+			},
+			tx,
+		)
+		return deleted
+	})
+}
+
+/**
  * Reaktiverer en arkivert rutine. SELECT FOR UPDATE for å låse raden og
  * fange faktisk pre-update archived_at, slik at audit-loggens previousValue
  * registrerer når rutinen var arkivert.
@@ -908,8 +950,8 @@ export async function archiveRoutine(id: string, performedBy: string) {
 export async function unarchiveRoutine(id: string, performedBy: string) {
 	return db.transaction(async (tx) => {
 		const [existing] = await tx.select().from(routines).where(eq(routines.id, id)).for("update").limit(1)
-		if (!existing) return null
-		if (!existing.archivedAt) return existing
+		if (!existing) throw new Response(`Rutine med id=${id} finnes ikke`, { status: 404 })
+		if (!existing.archivedAt) return existing // idempotent: allerede aktiv
 		const previousArchivedAt = existing.archivedAt
 		const previousStatus = existing.status
 		const restoreLegacyStatus = previousStatus === "deleted"

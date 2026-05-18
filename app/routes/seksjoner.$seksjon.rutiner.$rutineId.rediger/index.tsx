@@ -27,7 +27,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import {
 	approveRoutine,
-	archiveRoutine,
+	deleteDraftRoutine,
 	getRoutine,
 	replaceRoutine,
 	unarchiveRoutine,
@@ -328,7 +328,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (existingRoutine.status !== "draft") {
 			throw new Response("Kun draft-rutiner kan slettes.", { status: 403 })
 		}
-		await archiveRoutine(rutineId, authedUser.navIdent)
+		await deleteDraftRoutine(rutineId, authedUser.navIdent)
 		return redirect(`/seksjoner/${seksjon}/rutiner`)
 	}
 
