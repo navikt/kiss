@@ -336,6 +336,123 @@ spec:
 		expect(result[0].persistence).toEqual([{ type: "oracle", name: "pen" }])
 	})
 
+	it("detects on-prem PostgreSQL from vault paths in manifest", async () => {
+		const manifest = `apiVersion: nais.io/v1alpha1
+kind: Application
+spec:
+  vault:
+    enabled: true
+    paths:
+    - kvPath: postgresql/prod-fss/static-creds/pensjon-pselv-db-15-prod-static-admin
+      mountPath: /secrets/postgres`
+
+		const nodes = [
+			{
+				name: "pensjon-pselv",
+				image: null,
+				manifest: { content: manifest },
+				authIntegrations: [],
+				teamEnvironment: { environment: { name: "prod-fss" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		expect(result[0].persistence).toEqual([{ type: "on_prem_postgres", name: "pensjon-pselv-db-15-prod" }])
+	})
+
+	it("deduplicates vault postgres when envFrom secret also matches", async () => {
+		const manifest = `apiVersion: nais.io/v1alpha1
+kind: Application
+spec:
+  envFrom:
+  - secret: my-app-postgresql
+  vault:
+    enabled: true
+    paths:
+    - kvPath: postgresql/prod-fss/static-creds/my-app-db-12-prod-static-admin
+      mountPath: /secrets/postgres`
+
+		const nodes = [
+			{
+				name: "my-app",
+				image: null,
+				manifest: { content: manifest },
+				authIntegrations: [],
+				teamEnvironment: { environment: { name: "prod-fss" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		const pgResources = result[0].persistence.filter((p) => p.type === "on_prem_postgres")
+		expect(pgResources).toHaveLength(1)
+		expect(pgResources[0].name).toBe("my-app-db-12-prod")
+	})
+
+	it("detects multiple vault postgres databases from same manifest", async () => {
+		const manifest = `apiVersion: nais.io/v1alpha1
+kind: Application
+spec:
+  vault:
+    enabled: true
+    paths:
+    - kvPath: postgresql/prod-fss/static-creds/app-db-1-prod-static-admin
+      mountPath: /secrets/postgres1
+    - kvPath: postgresql/prod-fss/static-creds/app-db-2-prod-static-readonly
+      mountPath: /secrets/postgres2`
+
+		const nodes = [
+			{
+				name: "multi-db-app",
+				image: null,
+				manifest: { content: manifest },
+				authIntegrations: [],
+				teamEnvironment: { environment: { name: "prod-fss" } },
+				sqlInstances: { nodes: [] },
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		expect(result[0].persistence).toEqual([
+			{ type: "on_prem_postgres", name: "app-db-1-prod" },
+			{ type: "on_prem_postgres", name: "app-db-2-prod" },
+		])
+	})
+
 	it("detects on-prem PostgreSQL from envFrom secrets in manifest", async () => {
 		const manifest = `apiVersion: nais.io/v1alpha1
 kind: Application
