@@ -21,6 +21,7 @@ const {
 	getRulesetsForSection,
 	getRulesetDetail,
 	getRulesetsForControl,
+	getRulesetsLinkedToControls,
 	linkRoutineToRuleset,
 	unlinkRoutineFromRuleset,
 } = await import("~/db/queries/rulesets.server")
@@ -493,6 +494,111 @@ describe("rulesets.server integration tests", () => {
 
 			log = await getAuditLogForEntity("ruleset_routine", rulesetId)
 			expect(log.filter((r) => r.action === "ruleset_routine_removed")).toHaveLength(1)
+		})
+	})
+
+	describe("getRulesetsLinkedToControls", () => {
+		it("returns rulesets that share controls with given control IDs", async () => {
+			const sectionId = await createSectionRow("sec1")
+			const controlId1 = await createControl("K-ST.01")
+			const controlId2 = await createControl("K-ST.02")
+
+			const rulesetId = await createRuleset({
+				sectionId,
+				name: "Shared Ruleset",
+				frequency: "quarterly",
+				createdBy: "test",
+			})
+			await linkControlToRuleset(rulesetId, controlId1, "test")
+			await linkControlToRuleset(rulesetId, controlId2, "test")
+
+			const result = await getRulesetsLinkedToControls([controlId1], sectionId)
+			expect(result).toHaveLength(1)
+			expect(result[0].name).toBe("Shared Ruleset")
+			expect(result[0].controls).toHaveLength(2)
+			expect(result[0].controls.map((c) => c.controlId)).toContain("K-ST.01")
+			expect(result[0].controls.map((c) => c.controlId)).toContain("K-ST.02")
+		})
+
+		it("returns empty array when no controlIds provided", async () => {
+			const sectionId = await createSectionRow("sec1")
+			const result = await getRulesetsLinkedToControls([], sectionId)
+			expect(result).toEqual([])
+		})
+
+		it("excludes archived rulesets", async () => {
+			const sectionId = await createSectionRow("sec1")
+			const controlId = await createControl("K-ST.01")
+
+			const rulesetId = await createRuleset({
+				sectionId,
+				name: "Archived RS",
+				frequency: "quarterly",
+				createdBy: "test",
+			})
+			await linkControlToRuleset(rulesetId, controlId, "test")
+			await archiveRuleset(rulesetId, "test")
+
+			const result = await getRulesetsLinkedToControls([controlId], sectionId)
+			expect(result).toHaveLength(0)
+		})
+
+		it("excludes archived control links", async () => {
+			const sectionId = await createSectionRow("sec1")
+			const controlId = await createControl("K-ST.01")
+
+			const rulesetId = await createRuleset({ sectionId, name: "RS", frequency: "quarterly", createdBy: "test" })
+			await linkControlToRuleset(rulesetId, controlId, "test")
+
+			const detail = await getRulesetDetail(rulesetId)
+			const linkId = detail?.controls[0].linkId as string
+			await unlinkControlFromRuleset(rulesetId, linkId, "test")
+
+			const result = await getRulesetsLinkedToControls([controlId], sectionId)
+			expect(result).toHaveLength(0)
+		})
+
+		it("enriches with approval status", async () => {
+			const sectionId = await createSectionRow("sec1")
+			const controlId = await createControl("K-ST.01")
+
+			const rulesetId = await createRuleset({
+				sectionId,
+				name: "Approved RS",
+				frequency: "quarterly",
+				createdBy: "test",
+			})
+			await linkControlToRuleset(rulesetId, controlId, "test")
+
+			await approveRuleset({
+				rulesetId,
+				approvedBy: "test",
+				approvedByName: "Test User",
+				frequency: "quarterly",
+			})
+
+			const result = await getRulesetsLinkedToControls([controlId], sectionId)
+			expect(result).toHaveLength(1)
+			expect(result[0].approvalStatus).toBe("valid")
+			expect(result[0].lastApproval).not.toBeNull()
+			expect(result[0].lastApproval?.validUntil).toBeDefined()
+		})
+
+		it("does not return rulesets from other sections", async () => {
+			const sectionId1 = await createSectionRow("sec1")
+			const sectionId2 = await createSectionRow("sec2")
+			const controlId = await createControl("K-ST.01")
+
+			const rulesetId = await createRuleset({
+				sectionId: sectionId2,
+				name: "Other Section RS",
+				frequency: "quarterly",
+				createdBy: "test",
+			})
+			await linkControlToRuleset(rulesetId, controlId, "test")
+
+			const result = await getRulesetsLinkedToControls([controlId], sectionId1)
+			expect(result).toHaveLength(0)
 		})
 	})
 })

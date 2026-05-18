@@ -134,7 +134,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	await autoCreateActivityForReview(review.id, rutineId, effectiveAppId, authedUser.navIdent, providerConfig)
 
-	return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}/gjennomgang/${review.id}`)
+	return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}/gjennomgang/${review.id}?step=innledning`)
 }
 
 export default function NyGjennomgang() {

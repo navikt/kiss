@@ -1,0 +1,63 @@
+.layout {
+	display: grid;
+	grid-template-columns: 18rem 1fr;
+	gap: var(--ax-space-24);
+	align-items: start;
+}
+
+.stepper {
+	position: sticky;
+	top: var(--ax-space-16);
+	max-height: calc(100vh - var(--ax-space-32));
+	overflow-y: auto;
+	background: var(--ax-bg-subtle);
+	border-radius: var(--ax-radius-8);
+	padding: var(--ax-space-16);
+
+	--__axc-stepper-circle-size: 1.5rem;
+	--__axc-stepper-line-length: 0.25rem;
+}
+
+.stepper :global(.aksel-stepper__content) {
+	font-size: var(--ax-font-size-small);
+}
+
+.stepper :global(.aksel-stepper__step) {
+	margin-bottom: 0.25rem;
+}
+
+.stepperTitle {
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	font-weight: 600;
+	margin-bottom: var(--ax-space-4);
+}
+
+.content {
+	min-width: 0;
+}
+
+.stepCard {
+	background: var(--ax-bg-default);
+	border: 1px solid var(--ax-border-subtle);
+	border-radius: var(--ax-radius-8);
+	padding: var(--ax-space-24);
+}
+
+.navigation {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding-top: var(--ax-space-16);
+}
+
+@media (max-width: 768px) {
+	.layout {
+		grid-template-columns: 1fr;
+	}
+
+	.stepper {
+		position: static;
+		max-height: none;
+	}
+}

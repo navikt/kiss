@@ -1,11 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import { mockGjennomgangDetaljData, mockGjennomgangDetaljOracleEvidenceData } from "@storybook-mocks/data"
-import { renderWithLoader } from "@storybook-mocks/router"
 import type { ComponentType } from "react"
 import { createRoutesStub } from "react-router"
 import GjennomgangDetalj from "../index"
 
-// Mock API routes for Oracle evidence fetchers
+// ─── Helpers ────────────────────────────────────────────────────────
+
+const ROUTE_PATH = "seksjoner/pensjon-og-ufore/rutiner/routine-1/gjennomgang/rev-1"
+const BASE_URL = `/${ROUTE_PATH}`
+
 const oracleApiRoutes = [
 	{
 		path: "/api/evidence-status",
@@ -36,109 +39,177 @@ const oracleApiRoutes = [
 	},
 ]
 
-const PATH = "/seksjoner/pensjon-og-ufore/rutiner/routine-1/gjennomgang/rev-1"
-const basePath = PATH
+const graphApiRoutes = [
+	{
+		path: "/api/graph/users",
+		loader: () => ({
+			results: [
+				{ navIdent: "Z994433", displayName: "Varm Solstråle", mail: "varm.solstrale@nav.no" },
+				{ navIdent: "Z995544", displayName: "Klok Ugle", mail: "klok.ugle@nav.no" },
+			],
+		}),
+	},
+]
 
 // biome-ignore lint/suspicious/noExplicitAny: Route components have varying prop shapes from React Router
-function renderWithLoaderAndApiRoutes(Component: ComponentType<any>, loaderData: unknown) {
-	const Stub = createRoutesStub([{ path: basePath.slice(1), Component, loader: () => loaderData }, ...oracleApiRoutes])
-	return <Stub initialEntries={[basePath]} />
+function renderWizard(Component: ComponentType<any>, loaderData: unknown, step?: string) {
+	const initialEntry = step ? `${BASE_URL}?step=${step}` : BASE_URL
+	const Stub = createRoutesStub([
+		{ path: ROUTE_PATH, Component, loader: () => loaderData, action: async () => ({ ok: true }) },
+		...oracleApiRoutes,
+		...graphApiRoutes,
+	])
+	return <Stub initialEntries={[initialEntry]} />
 }
 
+// ─── Meta ───────────────────────────────────────────────────────────
+
 const meta = {
-	title: "Sider/Seksjoner/Rutiner/Gjennomgang/Detalj",
+	title: "Sider/Seksjoner/Rutiner/Gjennomgang/Wizard",
 	component: GjennomgangDetalj,
+	parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof GjennomgangDetalj>
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const Default: Story = {
-	render: () => renderWithLoaderAndApiRoutes(GjennomgangDetalj, mockGjennomgangDetaljData()),
+// ─── Wizard – Steg for steg (Utkast) ───────────────────────────────
+
+export const Innledning: Story = {
+	name: "Steg 1 – Innledning",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft" }), "innledning"),
 }
 
-export const Utkast: Story = {
-	name: "Utkast (uten oppfølgingspunkter)",
-	render: () => renderWithLoader(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft" }), PATH),
+export const Krav: Story = {
+	name: "Steg 2 – Krav",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft" }), "krav"),
 }
 
-export const UtkastMedOppfølgingspunkter: Story = {
-	name: "Utkast med oppfølgingspunkter",
+export const Regelsett: Story = {
+	name: "Steg 3 – Regelsett",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft" }), "regelsett"),
+}
+
+export const Rutine: Story = {
+	name: "Steg 4 – Rutine",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft" }), "rutine"),
+}
+
+export const Dokumentasjon: Story = {
+	name: "Steg 5 – Dokumentasjon",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft" }), "dokumentasjon"),
+}
+
+export const Oppfølgingspunkter: Story = {
+	name: "Steg 6 – Oppfølgingspunkter",
 	render: () =>
-		renderWithLoader(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft", followUpPoints: "mixed" }), PATH),
-}
-
-export const MåFølgesOpp: Story = {
-	name: "Må følges opp (åpne punkter)",
-	render: () =>
-		renderWithLoader(
+		renderWizard(
 			GjennomgangDetalj,
-			mockGjennomgangDetaljData({ status: "needs_follow_up", followUpPoints: "all_open" }),
-			PATH,
+			mockGjennomgangDetaljData({ status: "draft", followUpPoints: "mixed" }),
+			"oppfolging",
 		),
 }
 
-export const MåFølgesOppDelvisAdressert: Story = {
-	name: "Må følges opp (delvis adressert)",
+export const Fullfør: Story = {
+	name: "Steg 7 – Fullfør",
 	render: () =>
-		renderWithLoader(
-			GjennomgangDetalj,
-			mockGjennomgangDetaljData({ status: "needs_follow_up", followUpPoints: "mixed" }),
-			PATH,
-		),
+		renderWizard(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft", followUpPoints: "mixed" }), "fullfor"),
 }
 
-export const Fullført: Story = {
-	name: "Fullført (alle punkter adressert)",
+// ─── Betingede steg ─────────────────────────────────────────────────
+
+export const UtenKravOgRegelsett: Story = {
+	name: "Uten krav og regelsett",
+	render: () => {
+		const data = {
+			...mockGjennomgangDetaljData({ status: "draft" }),
+			routine: {
+				...mockGjennomgangDetaljData({ status: "draft" }).routine,
+				controls: [],
+			},
+			linkedRulesets: [],
+		}
+		return renderWizard(GjennomgangDetalj, data)
+	},
+}
+
+// ─── Oracle-aktivitet ───────────────────────────────────────────────
+
+export const AktivitetOracle: Story = {
+	name: "Aktivitet – Oracle evidence",
 	render: () =>
-		renderWithLoader(
-			GjennomgangDetalj,
-			mockGjennomgangDetaljData({ status: "completed", followUpPoints: "all_resolved" }),
-			PATH,
-		),
+		renderWizard(GjennomgangDetalj, mockGjennomgangDetaljOracleEvidenceData({ withDownloads: true }), "aktivitet"),
 }
 
-export const FullførtUtenPunkter: Story = {
-	name: "Fullført uten oppfølgingspunkter",
+export const AktivitetOracleAlleTyper: Story = {
+	name: "Aktivitet – Oracle alle typer",
 	render: () =>
-		renderWithLoader(
-			GjennomgangDetalj,
-			mockGjennomgangDetaljData({ status: "completed", followUpPoints: "none" }),
-			PATH,
-		),
-}
-
-export const Forkastet: Story = {
-	name: "Forkastet",
-	render: () => renderWithLoader(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "discarded" }), PATH),
-}
-
-export const OracleEvidenceUtenNedlastinger: Story = {
-	render: () => renderWithLoaderAndApiRoutes(GjennomgangDetalj, mockGjennomgangDetaljOracleEvidenceData()),
-}
-
-export const OracleEvidenceMedNedlastinger: Story = {
-	render: () =>
-		renderWithLoaderAndApiRoutes(GjennomgangDetalj, mockGjennomgangDetaljOracleEvidenceData({ withDownloads: true })),
-}
-
-export const OracleEvidenceAlleTyper: Story = {
-	render: () =>
-		renderWithLoaderAndApiRoutes(
+		renderWizard(
 			GjennomgangDetalj,
 			mockGjennomgangDetaljOracleEvidenceData({
 				evidenceTypes: ["audit", "profiles", "roles", "users", "period"],
 				withDownloads: true,
 			}),
+			"aktivitet",
 		),
 }
 
-export const OracleEvidenceFullfort: Story = {
+// ─── Fullført gjennomgang (read-only) ──────────────────────────────
+
+export const FullførtInnledning: Story = {
+	name: "Fullført – Innledning (read-only)",
 	render: () =>
-		renderWithLoaderAndApiRoutes(
+		renderWizard(
 			GjennomgangDetalj,
-			mockGjennomgangDetaljOracleEvidenceData({
-				withDownloads: true,
-				activityStatus: "completed",
-			}),
+			mockGjennomgangDetaljData({ status: "completed", followUpPoints: "all_resolved" }),
+			"innledning",
 		),
+}
+
+export const FullførtDokumentasjon: Story = {
+	name: "Fullført – Dokumentasjon (read-only)",
+	render: () =>
+		renderWizard(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljData({ status: "completed", followUpPoints: "all_resolved" }),
+			"dokumentasjon",
+		),
+}
+
+export const FullførtFullførSteg: Story = {
+	name: "Fullført – Fullfør-steg",
+	render: () =>
+		renderWizard(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljData({ status: "completed", followUpPoints: "all_resolved" }),
+			"fullfor",
+		),
+}
+
+// ─── Må følges opp ─────────────────────────────────────────────────
+
+export const MåFølgesOppOppfølging: Story = {
+	name: "Må følges opp – Oppfølgingspunkter",
+	render: () =>
+		renderWizard(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljData({ status: "needs_follow_up", followUpPoints: "all_open" }),
+			"oppfolging",
+		),
+}
+
+export const MåFølgesOppDelvisAdressert: Story = {
+	name: "Må følges opp – delvis adressert",
+	render: () =>
+		renderWizard(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljData({ status: "needs_follow_up", followUpPoints: "mixed" }),
+			"oppfolging",
+		),
+}
+
+// ─── Forkastet ─────────────────────────────────────────────────────
+
+export const Forkastet: Story = {
+	name: "Forkastet",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "discarded" }), "fullfor"),
 }

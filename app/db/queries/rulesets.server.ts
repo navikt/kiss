@@ -155,6 +155,114 @@ export async function getRulesetsForSection(sectionId: string): Promise<RulesetL
 	})
 }
 
+/**
+ * Find rulesets in a section that share at least one control with the given control IDs.
+ * Used by the review wizard to show relevant rulesets with full detail.
+ */
+export async function getRulesetsLinkedToControls(
+	controlIds: string[],
+	sectionId: string,
+): Promise<
+	Array<{
+		id: string
+		code: string | null
+		name: string
+		description: string | null
+		frequency: string
+		status: string
+		responsibleName: string | null
+		responsibleRole: string | null
+		approvalStatus: ApprovalStatus
+		lastApproval: { validFrom: string; validUntil: string } | null
+		controls: Array<{ id: string; controlId: string; shortTitle: string | null }>
+	}>
+> {
+	if (controlIds.length === 0) return []
+
+	const rows = await db
+		.selectDistinct({
+			id: rulesets.id,
+			code: rulesets.code,
+			name: rulesets.name,
+			description: rulesets.description,
+			frequency: rulesets.frequency,
+			status: rulesets.status,
+			responsibleName: rulesets.responsibleName,
+			responsibleRole: rulesets.responsibleRole,
+		})
+		.from(rulesets)
+		.innerJoin(rulesetControls, eq(rulesetControls.rulesetId, rulesets.id))
+		.where(
+			and(
+				eq(rulesets.sectionId, sectionId),
+				isNull(rulesets.archivedAt),
+				isNull(rulesetControls.archivedAt),
+				inArray(rulesetControls.controlId, controlIds),
+			),
+		)
+		.orderBy(rulesets.name)
+
+	if (rows.length === 0) return []
+
+	const rulesetIds = rows.map((r) => r.id)
+
+	// Load approvals and controls for each ruleset
+	const [allApprovals, allControls] = await Promise.all([
+		db
+			.select()
+			.from(rulesetApprovals)
+			.where(inArray(rulesetApprovals.rulesetId, rulesetIds))
+			.orderBy(desc(rulesetApprovals.validFrom)),
+		db
+			.select({
+				rulesetId: rulesetControls.rulesetId,
+				id: frameworkControls.id,
+				controlId: frameworkControls.controlId,
+				shortTitle: frameworkControls.shortTitle,
+			})
+			.from(rulesetControls)
+			.innerJoin(frameworkControls, eq(rulesetControls.controlId, frameworkControls.id))
+			.where(and(inArray(rulesetControls.rulesetId, rulesetIds), isNull(rulesetControls.archivedAt)))
+			.orderBy(frameworkControls.controlId),
+	])
+
+	const latestByRuleset = new Map<string, (typeof allApprovals)[0]>()
+	for (const a of allApprovals) {
+		if (!latestByRuleset.has(a.rulesetId)) {
+			latestByRuleset.set(a.rulesetId, a)
+		}
+	}
+
+	const controlsByRuleset = new Map<string, Array<{ id: string; controlId: string; shortTitle: string | null }>>()
+	for (const c of allControls) {
+		const arr = controlsByRuleset.get(c.rulesetId) ?? []
+		arr.push({ id: c.id, controlId: c.controlId, shortTitle: c.shortTitle })
+		controlsByRuleset.set(c.rulesetId, arr)
+	}
+
+	return rows.map((r) => {
+		const latest = latestByRuleset.get(r.id)
+		return {
+			id: r.id,
+			code: r.code,
+			name: r.name,
+			description: r.description,
+			frequency: r.frequency,
+			status: r.status,
+			responsibleName: r.responsibleName,
+			responsibleRole: r.responsibleRole,
+			approvalStatus: computeApprovalStatus(
+				r.status as RulesetStatus,
+				latest ? { validUntil: latest.validUntil } : null,
+			),
+			lastApproval: latest
+				? { validFrom: latest.validFrom.toISOString(), validUntil: latest.validUntil.toISOString() }
+				: null,
+			controls: controlsByRuleset.get(r.id) ?? [],
+		}
+	})
+}
+
 export interface RulesetMeta {
 	id: string
 	sectionId: string
