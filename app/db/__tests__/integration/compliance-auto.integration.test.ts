@@ -283,4 +283,104 @@ describe("compliance-auto.server integration tests", () => {
 		expect(result.has(screeningKey(controlA, TECH_ELEMENT_ALL))).toBe(false)
 		expect(result.has(screeningKey(controlB, TECH_ELEMENT_ALL))).toBe(false)
 	})
+
+	it("excludes section-scoped questions for apps in disabled environments", async () => {
+		// Create a test app in a disabled environment
+		const testSectionId = await rawInsert("sections", {
+			name: "Test Disabled",
+			slug: "test-disabled",
+			created_by: "admin",
+			updated_by: "admin",
+		})
+		const testNaisTeamId = await rawInsert("nais_teams", {
+			name: "test-team-disabled",
+			slug: "test-team-disabled",
+			section_id: testSectionId,
+		})
+		const testAppId = await rawInsert("monitored_applications", {
+			name: "test-app-disabled",
+			created_by: "admin",
+			updated_by: "admin",
+		})
+
+		// Add app environment in a disabled cluster
+		await rawExec(
+			`INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${testAppId}', 'dev-gcp', 'default', '${testNaisTeamId}')`,
+		)
+
+		// Disable the dev-gcp cluster
+		await rawExec(
+			`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${testSectionId}', 'dev-gcp', false, 'test', 'test')`,
+		)
+
+		// Create a section-scoped question
+		const testQ = await rawInsert("screening_questions", {
+			status: "approved",
+			question_text: "Section question?",
+			section_id: testSectionId,
+			created_by: "admin",
+			updated_by: "admin",
+		})
+		const testC = await rawInsert("screening_question_choices", { question_id: testQ, label: "Ja" })
+		await rawInsert("screening_choice_effects", { choice_id: testC, control_id: controlA, effect: "implemented" })
+		await rawExec(
+			`INSERT INTO screening_answers (application_id, question_id, answer, answered_by) VALUES ('${testAppId}', '${testQ}', 'Ja', 'X')`,
+		)
+
+		// App is in disabled environment, so section questions should not be loaded
+		const result = await getScreeningEffectsByControlForApp(testAppId)
+		expect(result.size).toBe(0)
+	})
+
+	it("includes section-scoped questions if app has at least one enabled environment", async () => {
+		// Create a test app in both disabled and enabled environments
+		const testSectionId = await rawInsert("sections", {
+			name: "Test Mixed Envs",
+			slug: "test-mixed-envs",
+			created_by: "admin",
+			updated_by: "admin",
+		})
+		const testNaisTeamId = await rawInsert("nais_teams", {
+			name: "test-team-mixed",
+			slug: "test-team-mixed",
+			section_id: testSectionId,
+		})
+		const testAppId = await rawInsert("monitored_applications", {
+			name: "test-app-mixed",
+			created_by: "admin",
+			updated_by: "admin",
+		})
+
+		// Add app environments in both dev-gcp (disabled) and prod-gcp (enabled)
+		await rawExec(
+			`INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${testAppId}', 'dev-gcp', 'default', '${testNaisTeamId}')`,
+		)
+		await rawExec(
+			`INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${testAppId}', 'prod-gcp', 'default', '${testNaisTeamId}')`,
+		)
+
+		// Disable only dev-gcp
+		await rawExec(
+			`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${testSectionId}', 'dev-gcp', false, 'test', 'test')`,
+		)
+
+		// Create a section-scoped question
+		const testQ = await rawInsert("screening_questions", {
+			status: "approved",
+			question_text: "Section question 2?",
+			section_id: testSectionId,
+			created_by: "admin",
+			updated_by: "admin",
+		})
+		const testC = await rawInsert("screening_question_choices", { question_id: testQ, label: "Ja" })
+		await rawInsert("screening_choice_effects", { choice_id: testC, control_id: controlA, effect: "implemented" })
+		await rawExec(
+			`INSERT INTO screening_answers (application_id, question_id, answer, answered_by) VALUES ('${testAppId}', '${testQ}', 'Ja', 'X')`,
+		)
+
+		// App has prod-gcp enabled, so it should see section questions
+		const result = await getScreeningEffectsByControlForApp(testAppId)
+		expect(result.has(screeningKey(controlA, TECH_ELEMENT_ALL))).toBe(true)
+		expect(result.get(screeningKey(controlA, TECH_ELEMENT_ALL))?.effects).toEqual(["implemented"])
+	})
 })

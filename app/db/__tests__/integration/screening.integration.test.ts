@@ -76,10 +76,10 @@ async function createNaisTeam(slug: string, sectionId: string) {
 	return (r.rows[0] as { id: string }).id
 }
 
-async function createAppEnvironment(appId: string, naisTeamId: string) {
+async function createAppEnvironment(appId: string, naisTeamId: string, cluster: string = "prod-gcp") {
 	const db = getTestDb()
 	await db.execute(
-		/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', 'prod-gcp', 'team-ns', '${naisTeamId}')`,
+		/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', '${cluster}', 'team-ns', '${naisTeamId}')`,
 	)
 }
 
@@ -545,6 +545,50 @@ describe("screening.server integration tests", () => {
 			const result = await getScreeningDataForApp(appId)
 			expect(result.questions).toHaveLength(1)
 			expect(result.questions[0].questionText).toBe("No tech links?")
+		})
+
+		it("excludes section questions for apps in disabled environments", async () => {
+			const db = getTestDb()
+			const section = await createSectionRow("test-disabled-env")
+			const naisTeamId = await createNaisTeam("test-team-disabled", section)
+			const appId = await createApp("test-app-disabled")
+			await createAppEnvironment(appId, naisTeamId, "dev-gcp")
+
+			// Disable the dev-gcp cluster
+			await db.execute(
+				`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${section}', 'dev-gcp', false, 'test', 'test')`,
+			)
+
+			const q1 = await createScreeningQuestion("Section question?", null, "test", section, "boolean")
+			await changeScreeningQuestionStatus(q1.id, "ready", "test")
+			await changeScreeningQuestionStatus(q1.id, "approved", "test")
+
+			const result = await getScreeningDataForApp(appId)
+			// App is in disabled environment, so it should not see section-scoped questions
+			expect(result.questions).toHaveLength(0)
+		})
+
+		it("includes app if it has at least one enabled environment", async () => {
+			const db = getTestDb()
+			const section = await createSectionRow("test-multi-env-section")
+			const naisTeamId = await createNaisTeam("test-team-multi", section)
+			const appId = await createApp("test-app-multi")
+			await createAppEnvironment(appId, naisTeamId, "dev-gcp")
+			await createAppEnvironment(appId, naisTeamId, "prod-gcp")
+
+			// Disable only dev-gcp
+			await db.execute(
+				`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${section}', 'dev-gcp', false, 'test', 'test')`,
+			)
+
+			const q1 = await createScreeningQuestion("Section question?", null, "test", section, "boolean")
+			await changeScreeningQuestionStatus(q1.id, "ready", "test")
+			await changeScreeningQuestionStatus(q1.id, "approved", "test")
+
+			const result = await getScreeningDataForApp(appId)
+			// App has prod-gcp enabled, so it should see section questions
+			expect(result.questions).toHaveLength(1)
+			expect(result.questions[0].questionText).toBe("Section question?")
 		})
 	})
 

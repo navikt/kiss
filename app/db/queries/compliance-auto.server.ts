@@ -4,10 +4,11 @@
  * These are designed to be called once per app, returning data
  * grouped by control for efficient auto-status derivation.
  */
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, notExists } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationEnvironments, naisTeams } from "../schema/applications"
 import { applicationTechnologyElements } from "../schema/framework"
+import { sectionEnvironments } from "../schema/organization"
 import {
 	screeningAnswers,
 	screeningChoiceEffects,
@@ -46,12 +47,30 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 		)
 	const appTechElementIds = new Set(appTechRows.map((r) => r.elementId))
 
-	// 2. Find app's section IDs
+	// 2. Find app's section IDs via enabled environments only
 	const sectionRows = await db
 		.selectDistinct({ sectionId: naisTeams.sectionId })
 		.from(applicationEnvironments)
 		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(and(eq(applicationEnvironments.applicationId, applicationId), isNotNull(naisTeams.sectionId)))
+		.where(
+			and(
+				eq(applicationEnvironments.applicationId, applicationId),
+				isNotNull(naisTeams.sectionId),
+				// Exclude environments that are disabled for their section
+				notExists(
+					db
+						.select({ cluster: sectionEnvironments.cluster })
+						.from(sectionEnvironments)
+						.where(
+							and(
+								eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+								eq(sectionEnvironments.sectionId, naisTeams.sectionId),
+								eq(sectionEnvironments.included, false),
+							),
+						),
+				),
+			),
+		)
 	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
 
 	// 3. Load all applicable questions (global + section-scoped, kun godkjente)
