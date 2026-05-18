@@ -70,7 +70,7 @@ const deploymentsApiRoutes: StubRoute[] = [
 					type: "quarterly",
 					label: "Q1 2026",
 					start: "2026-01-01",
-					end: "2026-04-01",
+					end: "2026-03-31",
 				},
 				deployments: {
 					total: 45,
