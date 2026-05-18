@@ -37,6 +37,7 @@ describe("Audit logging integration tests", () => {
 			DELETE FROM application_team_mappings;
 			DELETE FROM dev_team_nais_team_mappings;
 			DELETE FROM section_ignored_applications;
+			DELETE FROM section_environments;
 			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
 			DELETE FROM nais_teams;

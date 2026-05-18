@@ -56,6 +56,7 @@ describe("compliance-auto.server integration tests", () => {
 			DELETE FROM application_technology_elements;
 			DELETE FROM technology_elements;
 			DELETE FROM application_environments;
+			DELETE FROM section_environments;
 			DELETE FROM nais_teams;
 			DELETE FROM monitored_applications;
 			DELETE FROM control_technology_elements;
