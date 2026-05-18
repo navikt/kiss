@@ -133,34 +133,163 @@ export async function getSectionDetail(seksjonSlug: string) {
 		.where(and(eq(devTeams.sectionId, section.id), isNull(devTeams.archivedAt)))
 		.orderBy(devTeams.name)
 
-	// Load excluded environments for this section
-	const excludedEnvRows = await db
-		.select({ cluster: sectionEnvironments.cluster })
-		.from(sectionEnvironments)
-		.where(and(eq(sectionEnvironments.sectionId, section.id), eq(sectionEnvironments.included, false)))
+	if (teams.length === 0) {
+		const sectionTotals = { apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 }
+		return { section, teams: [], unassignedStats: sectionTotals, allAppIds: [], sectionTotals }
+	}
+
+	const teamIds = teams.map((t) => t.id)
+
+	// Bulk fetch all data in parallel (5 queries instead of ~60 sequential)
+	const [excludedEnvRows, directMappingRows, naisTeamMappingRows, ignoredAppRows, sectionNaisTeamRows] =
+		await Promise.all([
+			db
+				.select({ cluster: sectionEnvironments.cluster })
+				.from(sectionEnvironments)
+				.where(and(eq(sectionEnvironments.sectionId, section.id), eq(sectionEnvironments.included, false))),
+			db
+				.select({ devTeamId: applicationTeamMappings.devTeamId, appId: applicationTeamMappings.applicationId })
+				.from(applicationTeamMappings)
+				.innerJoin(monitoredApplications, eq(applicationTeamMappings.applicationId, monitoredApplications.id))
+				.where(
+					and(
+						inArray(applicationTeamMappings.devTeamId, teamIds),
+						isNull(applicationTeamMappings.archivedAt),
+						isNull(monitoredApplications.primaryApplicationId),
+					),
+				),
+			db
+				.select({ devTeamId: devTeamNaisTeamMappings.devTeamId, naisTeamId: devTeamNaisTeamMappings.naisTeamId })
+				.from(devTeamNaisTeamMappings)
+				.where(and(inArray(devTeamNaisTeamMappings.devTeamId, teamIds), isNull(devTeamNaisTeamMappings.archivedAt))),
+			db
+				.select({ appId: sectionIgnoredApplications.applicationId })
+				.from(sectionIgnoredApplications)
+				.where(
+					and(eq(sectionIgnoredApplications.sectionId, section.id), isNull(sectionIgnoredApplications.archivedAt)),
+				),
+			db.select().from(naisTeams).where(eq(naisTeams.sectionId, section.id)),
+		])
+
 	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
+	const ignoredAppIds = new Set(ignoredAppRows.map((r) => r.appId))
 
-	// Phase 1: Collect all app IDs per team
-	const teamAppMaps: { team: (typeof teams)[0]; allIds: Set<string> }[] = []
-	const allAssignedAppIds = new Set<string>()
+	// Group direct mappings by team
+	const directByTeam = new Map<string, Set<string>>()
+	for (const row of directMappingRows) {
+		if (!directByTeam.has(row.devTeamId)) directByTeam.set(row.devTeamId, new Set())
+		directByTeam.get(row.devTeamId)!.add(row.appId)
+	}
 
-	for (const team of teams) {
-		const { allIds } = await getTeamAppIds(team.id, section.id, excludedEnvs)
-		teamAppMaps.push({ team, allIds })
-		for (const id of allIds) {
-			allAssignedAppIds.add(id)
+	// Group nais-team links by dev team
+	const naisTeamsByDevTeam = new Map<string, string[]>()
+	const allLinkedNaisTeamIds = new Set<string>()
+	for (const row of naisTeamMappingRows) {
+		if (!naisTeamsByDevTeam.has(row.devTeamId)) naisTeamsByDevTeam.set(row.devTeamId, [])
+		naisTeamsByDevTeam.get(row.devTeamId)!.push(row.naisTeamId)
+		allLinkedNaisTeamIds.add(row.naisTeamId)
+	}
+
+	// Bulk fetch nais apps for all linked nais teams
+	let naisAppsByNaisTeam = new Map<string, Set<string>>()
+	if (allLinkedNaisTeamIds.size > 0) {
+		const envConditions = [
+			inArray(applicationEnvironments.naisTeamId, [...allLinkedNaisTeamIds]),
+			isNull(monitoredApplications.primaryApplicationId),
+		]
+		if (excludedEnvs.size > 0) {
+			const excludedArray = [...excludedEnvs]
+			envConditions.push(
+				sql`${applicationEnvironments.cluster} NOT IN (${sql.join(
+					excludedArray.map((e) => sql`${e}`),
+					sql`, `,
+				)})`,
+			)
+		}
+
+		const naisAppRows = await db
+			.select({
+				naisTeamId: applicationEnvironments.naisTeamId,
+				appId: applicationEnvironments.applicationId,
+			})
+			.from(applicationEnvironments)
+			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
+			.where(and(...envConditions))
+
+		for (const row of naisAppRows) {
+			if (ignoredAppIds.has(row.appId) || !row.naisTeamId) continue
+			if (!naisAppsByNaisTeam.has(row.naisTeamId)) naisAppsByNaisTeam.set(row.naisTeamId, new Set())
+			naisAppsByNaisTeam.get(row.naisTeamId)!.add(row.appId)
 		}
 	}
 
-	// Phase 2: Collect unassigned app IDs
-	const sectionNaisTeamRows = await db.select().from(naisTeams).where(eq(naisTeams.sectionId, section.id))
-	const naisTeamIds = sectionNaisTeamRows.map((t) => t.id)
+	// Build per-team app sets
+	const allCandidateAppIds = new Set<string>()
+	const teamAppSets = new Map<string, Set<string>>()
 
+	for (const team of teams) {
+		const merged = new Set<string>()
+		const directs = directByTeam.get(team.id)
+		if (directs) for (const id of directs) merged.add(id)
+
+		const linkedNaisTeams = naisTeamsByDevTeam.get(team.id)
+		if (linkedNaisTeams) {
+			for (const ntId of linkedNaisTeams) {
+				const apps = naisAppsByNaisTeam.get(ntId)
+				if (apps) for (const id of apps) merged.add(id)
+			}
+		}
+
+		teamAppSets.set(team.id, merged)
+		for (const id of merged) allCandidateAppIds.add(id)
+	}
+
+	// Bulk env-filter: remove apps whose ONLY environments are excluded
+	if (excludedEnvs.size > 0 && allCandidateAppIds.size > 0) {
+		const appEnvRows = await db
+			.select({ appId: applicationEnvironments.applicationId, cluster: applicationEnvironments.cluster })
+			.from(applicationEnvironments)
+			.where(inArray(applicationEnvironments.applicationId, [...allCandidateAppIds]))
+
+		const appEnvMap = new Map<string, Set<string>>()
+		for (const row of appEnvRows) {
+			if (!appEnvMap.has(row.appId)) appEnvMap.set(row.appId, new Set())
+			appEnvMap.get(row.appId)!.add(row.cluster)
+		}
+
+		const appsToRemove = new Set<string>()
+		for (const appId of allCandidateAppIds) {
+			const clusters = appEnvMap.get(appId)
+			if (clusters && clusters.size > 0 && [...clusters].every((c) => excludedEnvs.has(c))) {
+				appsToRemove.add(appId)
+			}
+		}
+
+		if (appsToRemove.size > 0) {
+			for (const [teamId, appSet] of teamAppSets) {
+				for (const appId of appsToRemove) appSet.delete(appId)
+				teamAppSets.set(teamId, appSet)
+			}
+			for (const id of appsToRemove) allCandidateAppIds.delete(id)
+		}
+	}
+
+	// Build final team results
+	const teamAppMaps: { team: (typeof teams)[0]; allIds: Set<string> }[] = []
+	const allAssignedAppIds = new Set<string>()
+	for (const team of teams) {
+		const allIds = teamAppSets.get(team.id) ?? new Set()
+		teamAppMaps.push({ team, allIds })
+		for (const id of allIds) allAssignedAppIds.add(id)
+	}
+
+	// Collect unassigned app IDs (from section nais teams, not assigned to any dev team)
+	const sectionNaisTeamIds = sectionNaisTeamRows.map((t) => t.id)
 	let unassignedAppIds: string[] = []
 
-	if (naisTeamIds.length > 0) {
+	if (sectionNaisTeamIds.length > 0) {
 		const envConditions = [
-			sql`${applicationEnvironments.naisTeamId} IN (${sql.join(naisTeamIds, sql`, `)})`,
+			sql`${applicationEnvironments.naisTeamId} IN (${sql.join(sectionNaisTeamIds, sql`, `)})`,
 			isNull(monitoredApplications.primaryApplicationId),
 		]
 		if (excludedEnvs.size > 0) {
@@ -179,27 +308,16 @@ export async function getSectionDetail(seksjonSlug: string) {
 			.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
 			.where(and(...envConditions))
 
-		const ignoredAppIds = new Set(
-			(
-				await db
-					.select({ appId: sectionIgnoredApplications.applicationId })
-					.from(sectionIgnoredApplications)
-					.where(
-						and(eq(sectionIgnoredApplications.sectionId, section.id), isNull(sectionIgnoredApplications.archivedAt)),
-					)
-			).map((r) => r.appId),
-		)
-
 		unassignedAppIds = naisAppRows
 			.map((r) => r.appId)
 			.filter((id) => !allAssignedAppIds.has(id) && !ignoredAppIds.has(id))
 	}
 
-	// Phase 3: Batch-fetch compliance summaries (stats + totals) for ALL apps in a single SQL query
+	// Batch-fetch compliance summaries for ALL apps in a single SQL query
 	const allAppIds = [...allAssignedAppIds, ...unassignedAppIds.filter((id) => !allAssignedAppIds.has(id))]
 	const summaryMap = await getComplianceSummaries(allAppIds)
 
-	// Phase 4: Build team stats from the pre-fetched map
+	// Build team stats from the pre-fetched map
 	const teamStats = teamAppMaps.map(({ team, allIds }) => {
 		let implemented = 0
 		let partial = 0
@@ -228,7 +346,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 		}
 	})
 
-	// Phase 5: Build unassigned stats
+	// Build unassigned stats
 	let unassignedStats = {
 		apps: 0,
 		implemented: 0,
@@ -268,7 +386,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 		}
 	}
 
-	// Phase 6: Compute deduplicated section-level totals (apps shared across teams counted once)
+	// Compute deduplicated section-level totals (apps shared across teams counted once)
 	let sectionImplemented = 0
 	let sectionPartial = 0
 	let sectionNotImplemented = 0
