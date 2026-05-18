@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react"
-import { mockGjennomgangDetaljData, mockGjennomgangDetaljOracleEvidenceData } from "@storybook-mocks/data"
+import {
+	mockGjennomgangDetaljData,
+	mockGjennomgangDetaljOracleEvidenceData,
+	mockGjennomgangMultiActivityData,
+} from "@storybook-mocks/data"
 import type { ComponentType } from "react"
 import { createRoutesStub } from "react-router"
 import GjennomgangDetalj from "../index"
@@ -137,7 +141,7 @@ export const UtenKravOgRegelsett: Story = {
 export const AktivitetOracle: Story = {
 	name: "Aktivitet – Oracle evidence",
 	render: () =>
-		renderWizard(GjennomgangDetalj, mockGjennomgangDetaljOracleEvidenceData({ withDownloads: true }), "aktivitet"),
+		renderWizard(GjennomgangDetalj, mockGjennomgangDetaljOracleEvidenceData({ withDownloads: true }), "aktivitet-0"),
 }
 
 export const AktivitetOracleAlleTyper: Story = {
@@ -149,7 +153,7 @@ export const AktivitetOracleAlleTyper: Story = {
 				evidenceTypes: ["audit", "profiles", "roles", "users", "period"],
 				withDownloads: true,
 			}),
-			"aktivitet",
+			"aktivitet-0",
 		),
 }
 
@@ -212,4 +216,32 @@ export const MåFølgesOppDelvisAdressert: Story = {
 export const Forkastet: Story = {
 	name: "Forkastet",
 	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "discarded" }), "fullfor"),
+}
+
+// ─── Flere vedlikeholdsaktiviteter ──────────────────────────────────
+
+export const MultiAktivitetOversikt: Story = {
+	name: "Multi-aktivitet – Innledning",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangMultiActivityData(), "innledning"),
+}
+
+export const MultiAktivitetOracle: Story = {
+	name: "Multi-aktivitet – Oracle (steg 1)",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangMultiActivityData(), "aktivitet-0"),
+}
+
+export const MultiAktivitetEntra: Story = {
+	name: "Multi-aktivitet – Entra ID (steg 2)",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangMultiActivityData(), "aktivitet-1"),
+}
+
+export const MultiAktivitetDeployment: Story = {
+	name: "Multi-aktivitet – Deployment (steg 3)",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangMultiActivityData(), "aktivitet-2"),
+}
+
+export const MultiAktivitetFullført: Story = {
+	name: "Multi-aktivitet – Fullført (read-only)",
+	render: () =>
+		renderWizard(GjennomgangDetalj, mockGjennomgangMultiActivityData({ status: "completed" }), "aktivitet-0"),
 }

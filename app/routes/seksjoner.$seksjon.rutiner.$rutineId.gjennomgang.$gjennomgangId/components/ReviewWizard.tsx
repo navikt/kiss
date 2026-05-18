@@ -3,7 +3,7 @@ import { Button, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
 import { useCallback, useMemo, useRef } from "react"
 import { useActionData, useNavigation, useSubmit } from "react-router"
 import { ReviewWizardStepper } from "./ReviewWizardStepper"
-import { buildSteps, getStepIndex } from "./shared"
+import { type ActivityStepInfo, buildSteps, getStepIndex } from "./shared"
 import styles from "./wizard.module.css"
 
 type Props = {
@@ -17,8 +17,8 @@ type Props = {
 	hasControls: boolean
 	/** Whether the routine has linked rulesets */
 	hasRulesets: boolean
-	/** Whether the routine has an activity type */
-	hasActivity: boolean
+	/** Activities for this routine (used to build dynamic steps) */
+	activities: ActivityStepInfo[]
 	/** Called to get the current step ID from URL */
 	currentStepId: string
 	/** Which steps are "completed" (have data) */
@@ -50,14 +50,14 @@ export function ReviewWizard({
 	title,
 	hasControls,
 	hasRulesets,
-	hasActivity,
+	activities,
 	currentStepId,
 	completedSteps,
 	onStepChange,
 }: Props) {
 	const steps = useMemo(
-		() => buildSteps({ hasControls, hasRulesets, hasActivity }),
-		[hasControls, hasRulesets, hasActivity],
+		() => buildSteps({ hasControls, hasRulesets, activities }),
+		[hasControls, hasRulesets, activities],
 	)
 	const submit = useSubmit()
 	const navigation = useNavigation()

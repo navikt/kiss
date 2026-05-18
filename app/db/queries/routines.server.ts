@@ -32,6 +32,7 @@ import {
 	type ReviewStatus,
 	type RoutineActivityType,
 	type RoutineStatus,
+	routineActivityLinks,
 	routineControls,
 	routineGroupClassificationLinks,
 	routineOracleRoleCriticalityLinks,
@@ -243,6 +244,7 @@ export async function createRoutine(params: {
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
 	activityType?: RoutineActivityType | null
+	activityTypes?: RoutineActivityType[]
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
 		dataClassification: DataClassification | null
@@ -262,113 +264,142 @@ export async function createRoutine(params: {
 		throw new Response("Seksjonsrutiner krever en eierrolle (sectionRoutineOwnerRole)", { status: 400 })
 	}
 
-	const [routine] = await db
-		.insert(routines)
-		.values({
-			sectionId: params.sectionId,
-			name: params.name,
-			description: params.description,
-			frequency: params.frequency,
-			eventFrequency: params.eventFrequency ?? null,
-			responsibleRole: params.responsibleRole,
-			appliesToAllInSection: params.isSectionRoutine ? 1 : params.appliesToAllInSection ? 1 : 0,
-			isSectionRoutine: params.isSectionRoutine ? 1 : 0,
-			sectionRoutineOwnerRole: params.isSectionRoutine ? (params.sectionRoutineOwnerRole ?? null) : null,
-			activityType: params.isSectionRoutine ? null : (params.activityType ?? null),
-			screeningQuestionId: params.screeningQuestionId,
-			screeningChoiceValue: params.screeningChoiceValue,
-			...(params.status && { status: params.status }),
-			createdBy: params.createdBy,
-			updatedBy: params.createdBy,
-		})
-		.returning()
+	const routine = await db.transaction(async (tx) => {
+		const [routine] = await tx
+			.insert(routines)
+			.values({
+				sectionId: params.sectionId,
+				name: params.name,
+				description: params.description,
+				frequency: params.frequency,
+				eventFrequency: params.eventFrequency ?? null,
+				responsibleRole: params.responsibleRole,
+				appliesToAllInSection: params.isSectionRoutine ? 1 : params.appliesToAllInSection ? 1 : 0,
+				isSectionRoutine: params.isSectionRoutine ? 1 : 0,
+				sectionRoutineOwnerRole: params.isSectionRoutine ? (params.sectionRoutineOwnerRole ?? null) : null,
+				activityType: params.isSectionRoutine
+					? null
+					: params.activityTypes !== undefined
+						? (params.activityTypes[0] ?? null)
+						: (params.activityType ?? null),
+				screeningQuestionId: params.screeningQuestionId,
+				screeningChoiceValue: params.screeningChoiceValue,
+				...(params.status && { status: params.status }),
+				createdBy: params.createdBy,
+				updatedBy: params.createdBy,
+			})
+			.returning()
 
-	if (params.technologyElementIds.length > 0) {
-		await db.insert(routineTechnologyElements).values(
-			params.technologyElementIds.map((elementId) => ({
-				routineId: routine.id,
-				elementId,
-			})),
+		if (params.technologyElementIds.length > 0) {
+			await tx.insert(routineTechnologyElements).values(
+				params.technologyElementIds.map((elementId) => ({
+					routineId: routine.id,
+					elementId,
+				})),
+			)
+		}
+
+		if (params.controlIds.length > 0) {
+			await tx.insert(routineControls).values(
+				params.controlIds.map((controlId) => ({
+					routineId: routine.id,
+					controlId,
+				})),
+			)
+		}
+
+		// Insert persistence links
+		if (params.persistenceLinks.length > 0) {
+			await tx.insert(routinePersistenceLinks).values(
+				params.persistenceLinks.map((link) => ({
+					routineId: routine.id,
+					persistenceType: link.persistenceType,
+					dataClassification: link.dataClassification,
+				})),
+			)
+		}
+
+		// Insert group classification links
+		const gcLinks = params.groupClassifications ?? []
+		if (gcLinks.length > 0) {
+			await tx.insert(routineGroupClassificationLinks).values(
+				gcLinks.map((classification) => ({
+					routineId: routine.id,
+					classification,
+				})),
+			)
+		}
+
+		// Insert oracle role criticality links
+		const orcLinks = params.oracleRoleCriticalities ?? []
+		if (orcLinks.length > 0) {
+			await tx.insert(routineOracleRoleCriticalityLinks).values(
+				orcLinks.map((criticality) => ({
+					routineId: routine.id,
+					criticality,
+				})),
+			)
+		}
+
+		// Insert screening question links (new many-to-many)
+		const links = params.screeningQuestionLinks ?? []
+		// Also include legacy single link if set and not already in the list
+		if (params.screeningQuestionId && !links.some((l) => l.questionId === params.screeningQuestionId)) {
+			links.push({ questionId: params.screeningQuestionId, choiceValue: params.screeningChoiceValue })
+		}
+		if (links.length > 0) {
+			await tx.insert(routineScreeningQuestions).values(
+				links.map((link) => ({
+					routineId: routine.id,
+					questionId: link.questionId,
+					choiceValue: link.choiceValue,
+				})),
+			)
+		}
+
+		// Insert activity links (new multi-activity support)
+		const activityTypes = [
+			...new Set(
+				params.isSectionRoutine ? [] : (params.activityTypes ?? (params.activityType ? [params.activityType] : [])),
+			),
+		]
+		if (activityTypes.length > 0) {
+			await tx.insert(routineActivityLinks).values(
+				activityTypes.map((activityType, index) => ({
+					routineId: routine.id,
+					activityType,
+					sortOrder: index,
+					createdBy: params.createdBy,
+				})),
+			)
+		}
+
+		await writeAuditLog(
+			{
+				action: "routine_created",
+				entityType: "routine",
+				entityId: routine.id,
+				newValue: params.name,
+				metadata: {
+					sectionId: params.sectionId,
+					frequency: params.frequency,
+					eventFrequency: params.eventFrequency,
+					responsibleRole: params.responsibleRole,
+					isSectionRoutine: params.isSectionRoutine,
+					sectionRoutineOwnerRole: params.sectionRoutineOwnerRole,
+					persistenceLinks: params.persistenceLinks,
+					screeningQuestionId: params.screeningQuestionId,
+					screeningQuestionLinks: links,
+					technologyElementIds: params.technologyElementIds,
+					controlIds: params.controlIds,
+					activityTypes,
+				},
+				performedBy: params.createdBy,
+			},
+			tx,
 		)
-	}
 
-	if (params.controlIds.length > 0) {
-		await db.insert(routineControls).values(
-			params.controlIds.map((controlId) => ({
-				routineId: routine.id,
-				controlId,
-			})),
-		)
-	}
-
-	// Insert persistence links
-	if (params.persistenceLinks.length > 0) {
-		await db.insert(routinePersistenceLinks).values(
-			params.persistenceLinks.map((link) => ({
-				routineId: routine.id,
-				persistenceType: link.persistenceType,
-				dataClassification: link.dataClassification,
-			})),
-		)
-	}
-
-	// Insert group classification links
-	const gcLinks = params.groupClassifications ?? []
-	if (gcLinks.length > 0) {
-		await db.insert(routineGroupClassificationLinks).values(
-			gcLinks.map((classification) => ({
-				routineId: routine.id,
-				classification,
-			})),
-		)
-	}
-
-	// Insert oracle role criticality links
-	const orcLinks = params.oracleRoleCriticalities ?? []
-	if (orcLinks.length > 0) {
-		await db.insert(routineOracleRoleCriticalityLinks).values(
-			orcLinks.map((criticality) => ({
-				routineId: routine.id,
-				criticality,
-			})),
-		)
-	}
-
-	// Insert screening question links (new many-to-many)
-	const links = params.screeningQuestionLinks ?? []
-	// Also include legacy single link if set and not already in the list
-	if (params.screeningQuestionId && !links.some((l) => l.questionId === params.screeningQuestionId)) {
-		links.push({ questionId: params.screeningQuestionId, choiceValue: params.screeningChoiceValue })
-	}
-	if (links.length > 0) {
-		await db.insert(routineScreeningQuestions).values(
-			links.map((link) => ({
-				routineId: routine.id,
-				questionId: link.questionId,
-				choiceValue: link.choiceValue,
-			})),
-		)
-	}
-
-	await writeAuditLog({
-		action: "routine_created",
-		entityType: "routine",
-		entityId: routine.id,
-		newValue: params.name,
-		metadata: {
-			sectionId: params.sectionId,
-			frequency: params.frequency,
-			eventFrequency: params.eventFrequency,
-			responsibleRole: params.responsibleRole,
-			isSectionRoutine: params.isSectionRoutine,
-			sectionRoutineOwnerRole: params.sectionRoutineOwnerRole,
-			persistenceLinks: params.persistenceLinks,
-			screeningQuestionId: params.screeningQuestionId,
-			screeningQuestionLinks: links,
-			technologyElementIds: params.technologyElementIds,
-			controlIds: params.controlIds,
-		},
-		performedBy: params.createdBy,
+		return routine
 	})
 
 	// Routine changes affect compliance — sync apps in this section (fire-and-forget)
@@ -394,6 +425,7 @@ export async function updateRoutine(params: {
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
 	activityType?: RoutineActivityType | null
+	activityTypes?: RoutineActivityType[]
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
 		dataClassification: DataClassification | null
@@ -429,6 +461,20 @@ export async function updateRoutine(params: {
 		// Use explicit param if provided, otherwise fall back to current DB value
 		const effectiveIsSectionRoutine = params.isSectionRoutine ?? locked.isSectionRoutine === 1
 
+		// Compute effective activity types before UPDATE (used both for legacy field and link table)
+		// When neither activityTypes nor activityType is provided, preserve existing state
+		const hasActivityInput =
+			params.activityTypes !== undefined || params.activityType !== undefined || params.isSectionRoutine !== undefined
+		const effectiveActivityTypes = hasActivityInput
+			? [
+					...new Set(
+						effectiveIsSectionRoutine
+							? []
+							: (params.activityTypes ?? (params.activityType ? [params.activityType] : [])),
+					),
+				]
+			: null
+
 		// Validate owner role for section routines
 		if (effectiveIsSectionRoutine && params.isSectionRoutine !== undefined && !params.sectionRoutineOwnerRole) {
 			throw new Response("Seksjonsrutiner krever en eierrolle (sectionRoutineOwnerRole)", { status: 400 })
@@ -449,7 +495,9 @@ export async function updateRoutine(params: {
 				...(params.isSectionRoutine !== undefined && {
 					sectionRoutineOwnerRole: effectiveIsSectionRoutine ? (params.sectionRoutineOwnerRole ?? null) : null,
 				}),
-				activityType: effectiveIsSectionRoutine ? null : (params.activityType ?? null),
+				...(effectiveActivityTypes !== null && {
+					activityType: effectiveIsSectionRoutine ? null : (effectiveActivityTypes[0] ?? null),
+				}),
 				screeningQuestionId: params.screeningQuestionId,
 				screeningChoiceValue: params.screeningChoiceValue,
 				...(params.status && { status: params.status }),
@@ -710,6 +758,38 @@ export async function updateRoutine(params: {
 			}
 		}
 
+		// ── Activity links (new multi-activity) — skip when no activity input provided
+		if (effectiveActivityTypes !== null) {
+			const existingActivityLinks = await tx
+				.select({ activityType: routineActivityLinks.activityType })
+				.from(routineActivityLinks)
+				.where(and(eq(routineActivityLinks.routineId, params.id), isNull(routineActivityLinks.archivedAt)))
+				.orderBy(routineActivityLinks.sortOrder)
+			const prevActivityTypes = existingActivityLinks.map((a) => a.activityType)
+			const activityChanged =
+				effectiveActivityTypes.length !== prevActivityTypes.length ||
+				effectiveActivityTypes.some((t, i) => t !== prevActivityTypes[i])
+
+			if (activityChanged) {
+				// Archive existing
+				await tx
+					.update(routineActivityLinks)
+					.set({ archivedAt: new Date(), archivedBy: params.updatedBy })
+					.where(and(eq(routineActivityLinks.routineId, params.id), isNull(routineActivityLinks.archivedAt)))
+				// Insert new
+				if (effectiveActivityTypes.length > 0) {
+					await tx.insert(routineActivityLinks).values(
+						effectiveActivityTypes.map((activityType, index) => ({
+							routineId: params.id,
+							activityType,
+							sortOrder: index,
+							createdBy: params.updatedBy,
+						})),
+					)
+				}
+			}
+		}
+
 		// ── Audit: hovedoppdatering + én rad per added/removed-link
 		await writeAuditLog(
 			{
@@ -726,6 +806,9 @@ export async function updateRoutine(params: {
 					screeningQuestionLinks: links,
 					technologyElementIds: finalTechIds,
 					controlIds: nextControlIds,
+					// Only include activityTypes when activity input was explicitly provided.
+					// null means "no input given, DB state preserved" and should not be logged.
+					...(effectiveActivityTypes !== null && { activityTypes: effectiveActivityTypes }),
 				},
 				performedBy: params.updatedBy,
 			},
@@ -1560,13 +1643,15 @@ export async function completeReview(reviewId: string, performedBy: string) {
 		)
 	}
 
-	// Bygg Entra-snapshot UTENFOR tx (eksternt HTTP-kall mot Microsoft Graph).
+	// Bygg Entra-snapshots UTENFOR tx (eksternt HTTP-kall mot Microsoft Graph).
 	// Selve activity-completion + status-UPDATE går inn i samme tx for å
 	// hindre inkonsistente tilstander (aktivitet=completed, review≠completed).
-	const activity = await getReviewActivity(reviewId)
-	let snapshotAfter: EntraGroupSnapshot | null = null
-	if (activity?.status === "pending" && activity.type === "entra_id_group_maintenance" && existing.applicationId) {
-		snapshotAfter = await buildEntraGroupSnapshot(existing.applicationId)
+	const allActivities = await getReviewActivities(reviewId)
+	const snapshotsByActivityId = new Map<string, EntraGroupSnapshot>()
+	for (const activity of allActivities) {
+		if (activity.status === "pending" && activity.type === "entra_id_group_maintenance" && existing.applicationId) {
+			snapshotsByActivityId.set(activity.id, await buildEntraGroupSnapshot(existing.applicationId))
+		}
 	}
 
 	// Atomisk: archive-guard + activity-complete + status UPDATE i samme tx
@@ -1587,10 +1672,13 @@ export async function completeReview(reviewId: string, performedBy: string) {
 			})
 		}
 
-		// Aktivitet fullføres innenfor tx slik at den rolles back hvis
-		// status-UPDATE feiler eller archive-guarden kaster.
-		if (activity && activity.status === "pending") {
-			await completeReviewActivity(activity.id, snapshotAfter, performedBy, tx)
+		// Fullfør alle ventende aktiviteter innenfor tx slik at de rolles
+		// tilbake hvis status-UPDATE feiler eller archive-guarden kaster.
+		for (const activity of allActivities) {
+			if (activity.status === "pending") {
+				const snapshot = snapshotsByActivityId.get(activity.id) ?? null
+				await completeReviewActivity(activity.id, snapshot, performedBy, tx)
+			}
 		}
 
 		// Hvis det finnes uadresserte oppfølgingspunkter blir status
@@ -4192,6 +4280,129 @@ export async function getReviewActivity(reviewId: string) {
 	return { ...activity, changes }
 }
 
+export async function getReviewActivityByType(reviewId: string, type: RoutineActivityType) {
+	const [activity] = await db
+		.select()
+		.from(routineReviewActivities)
+		.where(and(eq(routineReviewActivities.reviewId, reviewId), eq(routineReviewActivities.type, type)))
+		.limit(1)
+
+	if (!activity) return null
+
+	const changes = await db
+		.select()
+		.from(routineReviewActivityEntraChanges)
+		.where(eq(routineReviewActivityEntraChanges.activityId, activity.id))
+		.orderBy(routineReviewActivityEntraChanges.performedAt)
+
+	return { ...activity, changes }
+}
+
+export async function getReviewActivities(reviewId: string) {
+	const activities = await db
+		.select()
+		.from(routineReviewActivities)
+		.where(eq(routineReviewActivities.reviewId, reviewId))
+		.orderBy(routineReviewActivities.sortOrder, routineReviewActivities.createdAt)
+
+	if (activities.length === 0) return []
+
+	const activityIds = activities.map((a) => a.id)
+	const allChanges = await db
+		.select()
+		.from(routineReviewActivityEntraChanges)
+		.where(inArray(routineReviewActivityEntraChanges.activityId, activityIds))
+		.orderBy(routineReviewActivityEntraChanges.performedAt)
+
+	const changesByActivity = new Map<string, (typeof allChanges)[number][]>()
+	for (const c of allChanges) {
+		const arr = changesByActivity.get(c.activityId) ?? []
+		arr.push(c)
+		changesByActivity.set(c.activityId, arr)
+	}
+
+	return activities.map((a) => ({ ...a, changes: changesByActivity.get(a.id) ?? [] }))
+}
+
+export async function autoCreateActivitiesForReview(
+	reviewId: string,
+	routineId: string,
+	applicationId: string | null,
+	performedBy: string,
+	providerConfigs?: Record<string, ReviewActivityProviderConfig>,
+) {
+	const activityLinks = await db
+		.select({ activityType: routineActivityLinks.activityType })
+		.from(routineActivityLinks)
+		.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
+		.orderBy(routineActivityLinks.sortOrder)
+
+	// Fallback to legacy single activityType if no links exist
+	if (activityLinks.length === 0) {
+		const [row] = await db
+			.select({ activityType: routines.activityType })
+			.from(routines)
+			.where(eq(routines.id, routineId))
+			.limit(1)
+		if (row?.activityType) {
+			activityLinks.push({ activityType: row.activityType })
+		}
+	}
+
+	// Build Entra snapshot OUTSIDE the transaction – external HTTP call to Microsoft Graph.
+	// At most one entra_id_group_maintenance link per routine due to the unique constraint.
+	// Skip the snapshot if the Entra activity already exists for this review (e.g. partial backfill).
+	const existingReviewTypes = new Set(
+		(
+			await db
+				.select({ type: routineReviewActivities.type })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.reviewId, reviewId))
+		).map((r) => r.type),
+	)
+	let entraSnapshot: EntraGroupSnapshot | null = null
+	const entraLinkIsNew =
+		!existingReviewTypes.has("entra_id_group_maintenance") &&
+		activityLinks.some((l) => l.activityType === "entra_id_group_maintenance")
+	if (applicationId && entraLinkIsNew) {
+		entraSnapshot = await buildEntraGroupSnapshot(applicationId)
+	}
+
+	await db.transaction(async (tx) => {
+		for (let i = 0; i < activityLinks.length; i++) {
+			const link = activityLinks[i]
+			const snapshotBefore = link.activityType === "entra_id_group_maintenance" ? entraSnapshot : null
+			const config = providerConfigs?.[link.activityType] ?? null
+			// onConflictDoNothing: unique constraint on (review_id, type) handles race conditions
+			const [inserted] = await tx
+				.insert(routineReviewActivities)
+				.values({
+					reviewId,
+					type: link.activityType as RoutineActivityType,
+					sortOrder: i,
+					snapshotBefore,
+					providerConfig: config,
+				})
+				.onConflictDoNothing({ target: [routineReviewActivities.reviewId, routineReviewActivities.type] })
+				.returning()
+
+			if (inserted) {
+				await writeAuditLog(
+					{
+						action: "review_activity_created",
+						entityType: "routine_review_activity",
+						entityId: inserted.id,
+						newValue: link.activityType,
+						metadata: config ? { reviewId, providerConfig: config } : { reviewId },
+						performedBy,
+					},
+					tx,
+				)
+			}
+		}
+	})
+}
+
 export async function savePeriodConfig(activityId: string, periodConfig: PeriodConfig) {
 	const [updated] = await db
 		.update(routineReviewActivities)
@@ -4281,6 +4492,7 @@ export async function getActivitiesForReviews(reviewIds: string[]) {
 		.select()
 		.from(routineReviewActivities)
 		.where(inArray(routineReviewActivities.reviewId, reviewIds))
+		.orderBy(routineReviewActivities.reviewId, routineReviewActivities.sortOrder, routineReviewActivities.createdAt)
 
 	if (activities.length === 0) return []
 
@@ -4448,6 +4660,23 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 			)
 		}
 
+		// Copy activity links (multi-activity support)
+		const sourceActivityLinks = await tx
+			.select()
+			.from(routineActivityLinks)
+			.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
+			.orderBy(routineActivityLinks.sortOrder)
+		if (sourceActivityLinks.length > 0) {
+			await tx.insert(routineActivityLinks).values(
+				sourceActivityLinks.map((link) => ({
+					routineId: copy.id,
+					activityType: link.activityType,
+					sortOrder: link.sortOrder,
+					createdBy: performedBy,
+				})),
+			)
+		}
+
 		await writeAuditLog(
 			{
 				action: "routine_copied",
@@ -4516,4 +4745,62 @@ export async function replaceRoutine(
 	})
 
 	return { newRoutine: newRoutineId, oldRoutine: oldRoutineId, deadlinePolicy }
+}
+
+// ─── Routine Activity Links ──────────────────────────────────────────────
+
+export async function getRoutineActivityLinks(routineId: string) {
+	return db
+		.select({
+			id: routineActivityLinks.id,
+			activityType: routineActivityLinks.activityType,
+			sortOrder: routineActivityLinks.sortOrder,
+		})
+		.from(routineActivityLinks)
+		.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
+		.orderBy(routineActivityLinks.sortOrder)
+}
+
+export async function reorderRoutineActivities(routineId: string, orderedIds: string[], performedBy: string) {
+	await db.transaction(async (tx) => {
+		// Validate that orderedIds exactly matches the routine's active link set
+		const activeLinks = await tx
+			.select({ id: routineActivityLinks.id, activityType: routineActivityLinks.activityType })
+			.from(routineActivityLinks)
+			.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
+
+		const activeLinkIds = new Set(activeLinks.map((l) => l.id))
+		const suppliedIds = new Set(orderedIds)
+
+		if (
+			orderedIds.length !== activeLinkIds.size ||
+			suppliedIds.size !== activeLinkIds.size ||
+			[...activeLinkIds].some((id) => !suppliedIds.has(id))
+		) {
+			throw new Error("orderedIds must exactly match the routine's active activity links")
+		}
+
+		for (let i = 0; i < orderedIds.length; i++) {
+			await tx
+				.update(routineActivityLinks)
+				.set({ sortOrder: i })
+				.where(and(eq(routineActivityLinks.id, orderedIds[i]), eq(routineActivityLinks.routineId, routineId)))
+		}
+
+		// Keep routines.activity_type in sync with the new first link
+		const linkById = new Map(activeLinks.map((l) => [l.id, l.activityType]))
+		const firstActivityType = orderedIds.length > 0 ? (linkById.get(orderedIds[0]) ?? null) : null
+		await tx.update(routines).set({ activityType: firstActivityType }).where(eq(routines.id, routineId))
+
+		await writeAuditLog(
+			{
+				action: "routine_updated",
+				entityType: "routine",
+				entityId: routineId,
+				newValue: `Activity order: ${orderedIds.join(", ")}`,
+				performedBy,
+			},
+			tx,
+		)
+	})
 }

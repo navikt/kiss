@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm"
-import { integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
+import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_ACTIVITY_TYPES } from "../../lib/activity-types"
 import { EVIDENCE_PROVIDER_TYPES } from "../../lib/evidence-providers/types"
 import type { PeriodType } from "../../lib/period-validation"
@@ -72,6 +72,30 @@ export const routines = pgTable("routines", {
 	archivedAt: timestamp("archived_at", { withTimezone: true }),
 	archivedBy: text("archived_by"),
 })
+
+// ─── Routine ↔ Activity linking ──────────────────────────────────────────
+
+export const routineActivityLinks = pgTable(
+	"routine_activity_links",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		routineId: uuid("routine_id")
+			.notNull()
+			.references(() => routines.id, { onDelete: "cascade" }),
+		activityType: text("activity_type", { enum: ROUTINE_ACTIVITY_TYPES }).notNull(),
+		sortOrder: integer("sort_order").notNull().default(0),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(table) => [
+		uniqueIndex("routine_activity_links_active_unique_idx")
+			.on(table.routineId, table.activityType)
+			.where(sql`${table.archivedAt} IS NULL`),
+		index("routine_activity_links_routine_idx").on(table.routineId).where(sql`${table.archivedAt} IS NULL`),
+	],
+)
 
 // ─── Routine ↔ Persistence linking ───────────────────────────────────────
 
@@ -246,20 +270,25 @@ export interface ReviewActivityProviderConfig {
 	instanceId?: string
 }
 
-export const routineReviewActivities = pgTable("routine_review_activities", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	reviewId: uuid("review_id")
-		.notNull()
-		.references(() => routineReviews.id, { onDelete: "cascade" }),
-	type: text("type", { enum: ROUTINE_ACTIVITY_TYPES }).notNull(),
-	status: text("status", { enum: REVIEW_ACTIVITY_STATUSES }).notNull().default("pending"),
-	snapshotBefore: jsonb("snapshot_before"),
-	snapshotAfter: jsonb("snapshot_after"),
-	periodConfig: jsonb("period_config").$type<PeriodConfig>(),
-	providerConfig: jsonb("provider_config").$type<ReviewActivityProviderConfig>(),
-	completedAt: timestamp("completed_at", { withTimezone: true }),
-	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const routineReviewActivities = pgTable(
+	"routine_review_activities",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		reviewId: uuid("review_id")
+			.notNull()
+			.references(() => routineReviews.id, { onDelete: "cascade" }),
+		type: text("type", { enum: ROUTINE_ACTIVITY_TYPES }).notNull(),
+		status: text("status", { enum: REVIEW_ACTIVITY_STATUSES }).notNull().default("pending"),
+		sortOrder: integer("sort_order").notNull().default(0),
+		snapshotBefore: jsonb("snapshot_before"),
+		snapshotAfter: jsonb("snapshot_after"),
+		periodConfig: jsonb("period_config").$type<PeriodConfig>(),
+		providerConfig: jsonb("provider_config").$type<ReviewActivityProviderConfig>(),
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [uniqueIndex("review_activities_review_type_unique_idx").on(table.reviewId, table.type)],
+)
 
 export const routineReviewActivityEntraChanges = pgTable("routine_review_activity_entra_changes", {
 	id: uuid("id").primaryKey().defaultRandom(),

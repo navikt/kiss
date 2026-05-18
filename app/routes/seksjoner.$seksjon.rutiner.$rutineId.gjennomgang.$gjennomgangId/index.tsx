@@ -37,14 +37,16 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addFollowUpPoint,
 	addReviewLink,
-	autoCreateActivityForReview,
+	autoCreateActivitiesForReview,
 	completeReview,
 	deleteFollowUpPoint,
 	deleteReviewLink,
 	discardReview,
 	getReview,
-	getReviewActivity,
+	getReviewActivities,
+	getReviewActivityByType,
 	getRoutine,
+	getRoutineActivityLinks,
 	getRoutineArchivedStatusByReviewId,
 	recordEntraChange,
 	updateFollowUpPointDescription,
@@ -55,8 +57,9 @@ import {
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applications"
 import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus } from "~/db/schema/routines"
-import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "~/lib/activity-types"
+import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { logger } from "~/lib/logger.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
 import { ReviewWizard } from "./components/ReviewWizard"
@@ -68,7 +71,7 @@ import { StepIntroduction } from "./components/StepIntroduction"
 import { StepRoutine } from "./components/StepRoutine"
 import { StepRulesets } from "./components/StepRulesets"
 import { StepSummary } from "./components/StepSummary"
-import { buildSteps } from "./components/shared"
+import { type ActivityStepInfo, buildSteps, parseActivityStepIndex } from "./components/shared"
 
 const MAX_SIZE_MB = 50
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
@@ -137,63 +140,30 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		appAuthIntegrations = appDetail?.authIntegrations ?? []
 	}
 
-	// Load activity data — auto-create only for draft reviews missing an activity
-	// (handles reviews created before the activity system was deployed)
-	let activity = await getReviewActivity(gjennomgangId)
-	if (!activity && routine.activityType && review.status === "draft") {
-		await autoCreateActivityForReview(gjennomgangId, rutineId, review.applicationId, "system")
-		activity = await getReviewActivity(gjennomgangId)
+	// Load activity data — auto-create activities for any draft review that is missing them.
+	// This covers both legacy reviews created before the multi-activity system and reviews
+	// that were created when the routine had no linked activities but later gained some.
+	let activities = await getReviewActivities(gjennomgangId)
+	if (review.status === "draft") {
+		const routineLinks = await getRoutineActivityLinks(rutineId)
+		const existingTypes = new Set(activities.map((a) => a.type))
+		const needsBackfill = activities.length === 0 || routineLinks.some((l) => !existingTypes.has(l.activityType))
+		if (needsBackfill) {
+			await autoCreateActivitiesForReview(gjennomgangId, rutineId, review.applicationId, "system")
+			activities = await getReviewActivities(gjennomgangId)
+		}
 	}
-	let entraGroupsData: {
+
+	// Build per-activity evidence data
+	type EntraGroupsData = {
 		naisGroupIds: string[]
 		manualGroups: Array<{ id: string; groupId: string; groupName: string | null; createdBy: string; createdAt: string }>
 		ghostGroupIds: string[]
 		groupNames: Record<string, string>
 		assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
-	} | null = null
-
-	if (activity?.type === "entra_id_group_maintenance" && review.applicationId) {
-		const { getManualGroupsForApp, getGroupAssessmentsForApp } = await import("~/db/queries/nais.server")
-		const { resolveGroupNames } = await import("~/lib/graph.server")
-		const [manualGroups, groupAssessments] = await Promise.all([
-			getManualGroupsForApp(review.applicationId),
-			getGroupAssessmentsForApp(review.applicationId),
-		])
-		const naisGroupIds: string[] = []
-		for (const auth of appAuthIntegrations) {
-			if (auth.groups) {
-				const groups = JSON.parse(auth.groups) as string[]
-				naisGroupIds.push(...groups)
-			}
-		}
-		const naisGroupIdSet = new Set(naisGroupIds)
-		const manualGroupIdSet = new Set(manualGroups.map((g) => g.groupId))
-		const ghostGroupIds = groupAssessments
-			.filter((a) => !naisGroupIdSet.has(a.groupId) && !manualGroupIdSet.has(a.groupId))
-			.map((a) => a.groupId)
-		const allGroupIds = [...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds])]
-		const groupNames = await resolveGroupNames(allGroupIds)
-		const assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }> = {}
-		for (const a of groupAssessments) {
-			assessmentsByGroupId[a.groupId] = {
-				criticality: a.criticality,
-				updatedBy: a.updatedBy,
-				updatedAt: a.updatedAt.toISOString(),
-			}
-		}
-		entraGroupsData = {
-			naisGroupIds,
-			manualGroups: manualGroups.map((g) => ({ ...g, createdAt: g.createdAt.toISOString() })),
-			ghostGroupIds,
-			groupNames,
-			assessmentsByGroupId,
-		}
 	}
 
-	// Load evidence data for provider activities. Currently only Oracle is implemented;
-	// deployment evidence loading will be added when the NDA provider is ready.
-	const evidenceProviderType = activity ? getProviderTypeForActivity(activity.type) : null
-	let oracleEvidenceData: {
+	type OracleEvidenceData = {
 		configuredInstances: Array<{ instanceId: string }>
 		selectedInstanceId: string | null
 		downloads: Array<{
@@ -210,50 +180,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			performedAt: string
 		}>
 		evidenceTypes: string[]
-	} | null = null
-
-	if (activity && evidenceProviderType === "oracle" && review.applicationId) {
-		const { getOracleInstancesForApp } = await import("~/db/queries/audit-evidence.server")
-		const { getEvidenceDownloadsForActivityWithBucketDetails } = await import("~/db/queries/evidence-downloads.server")
-		const [configuredInstances, downloads] = await Promise.all([
-			getOracleInstancesForApp(review.applicationId),
-			getEvidenceDownloadsForActivityWithBucketDetails(activity.id),
-		])
-		oracleEvidenceData = {
-			configuredInstances: configuredInstances.map((i) => ({ instanceId: i.instanceId })),
-			selectedInstanceId: parseOracleInstanceFromProviderConfig(activity.providerConfig),
-			downloads: downloads
-				.map((d) => {
-					if (d.providerType !== "oracle") {
-						return null
-					}
-
-					const oracleMetadata = parseOracleProviderMetadata(d.providerMetadata)
-					if (!oracleMetadata) {
-						return null
-					}
-
-					return {
-						id: d.id,
-						instanceId: oracleMetadata.instanceId,
-						evidenceType: oracleMetadata.evidenceType,
-						format: d.format,
-						fileName: d.fileName,
-						sizeBytes: d.sizeBytes,
-						source: d.source,
-						apiInstanceName: oracleMetadata.apiInstanceName,
-						forceFetchJustification: d.forceFetchJustification,
-						performedBy: d.performedBy,
-						performedAt: d.performedAt.toISOString(),
-					}
-				})
-				.filter((download): download is NonNullable<typeof download> => download !== null),
-			evidenceTypes: getEvidenceTypesForActivity(activity.type) ?? [],
-		}
 	}
 
-	// Load NDA evidence data
-	let ndaEvidenceData: {
+	type NdaEvidenceData = {
 		appParams: { team: string; environment: string; appName: string } | null
 		periodConfig: { periodType: string; periodStart: string } | null
 		downloads: Array<{
@@ -266,31 +195,194 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			performedBy: string
 			performedAt: string
 		}>
-	} | null = null
+	}
 
-	if (activity && evidenceProviderType === "deployments") {
-		const { getNdaAppParams } = await import("~/db/queries/deployment-audit.server")
-		const { getEvidenceDownloadsForActivityWithBucketDetails } = await import("~/db/queries/evidence-downloads.server")
-		const [appParams, downloads] = await Promise.all([
-			review.applicationId ? getNdaAppParams(review.applicationId) : Promise.resolve(null),
-			getEvidenceDownloadsForActivityWithBucketDetails(activity.id),
-		])
-		ndaEvidenceData = {
-			appParams,
-			periodConfig: activity.periodConfig ?? null,
-			downloads: downloads
-				.filter((d) => d.providerType === "deployments")
-				.map((d) => ({
-					id: d.id,
-					format: d.format,
-					fileName: d.fileName,
-					sizeBytes: d.sizeBytes,
-					source: d.source,
-					forceFetchJustification: d.forceFetchJustification,
-					performedBy: d.performedBy,
-					performedAt: d.performedAt.toISOString(),
+	type ActivityWithEvidence = {
+		id: string
+		type: RoutineActivityType
+		status: string
+		completedAt: string | null
+		createdAt: string
+		providerConfig: unknown
+		periodConfig: { periodType: string; periodStart: string } | null
+		changes: Array<{
+			id: string
+			changeType: string
+			groupId: string
+			groupName: string | null
+			previousValue: string | null
+			newValue: string | null
+			performedBy: string
+			performedAt: string
+		}>
+		entraGroupsData: EntraGroupsData | null
+		oracleEvidenceData: OracleEvidenceData | null
+		ndaEvidenceData: NdaEvidenceData | null
+		evidenceProviderType: string | null
+		evidenceLoadError?: string
+	}
+
+	const activitiesWithEvidence: ActivityWithEvidence[] = []
+
+	// Cache Oracle instances per application (shared across all Oracle activities)
+	let cachedOracleInstances: Array<{ instanceId: string }> | null = null
+
+	for (const activity of activities) {
+		let actEntraGroupsData: EntraGroupsData | null = null
+		let actOracleEvidenceData: OracleEvidenceData | null = null
+		let actNdaEvidenceData: NdaEvidenceData | null = null
+		const evidenceProviderType = getProviderTypeForActivity(activity.type)
+
+		try {
+			if (activity.type === "entra_id_group_maintenance" && review.applicationId) {
+				const { getManualGroupsForApp, getGroupAssessmentsForApp } = await import("~/db/queries/nais.server")
+				const { resolveGroupNames } = await import("~/lib/graph.server")
+				const [manualGroups, groupAssessments] = await Promise.all([
+					getManualGroupsForApp(review.applicationId),
+					getGroupAssessmentsForApp(review.applicationId),
+				])
+				const naisGroupIds: string[] = []
+				for (const auth of appAuthIntegrations) {
+					if (auth.groups) {
+						const groups = JSON.parse(auth.groups) as string[]
+						naisGroupIds.push(...groups)
+					}
+				}
+				const naisGroupIdSet = new Set(naisGroupIds)
+				const manualGroupIdSet = new Set(manualGroups.map((g) => g.groupId))
+				const ghostGroupIds = groupAssessments
+					.filter((a) => !naisGroupIdSet.has(a.groupId) && !manualGroupIdSet.has(a.groupId))
+					.map((a) => a.groupId)
+				const allGroupIds = [...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds])]
+				const groupNames = await resolveGroupNames(allGroupIds)
+				const assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }> = {}
+				for (const a of groupAssessments) {
+					assessmentsByGroupId[a.groupId] = {
+						criticality: a.criticality,
+						updatedBy: a.updatedBy,
+						updatedAt: a.updatedAt.toISOString(),
+					}
+				}
+				actEntraGroupsData = {
+					naisGroupIds,
+					manualGroups: manualGroups.map((g) => ({ ...g, createdAt: g.createdAt.toISOString() })),
+					ghostGroupIds,
+					groupNames,
+					assessmentsByGroupId,
+				}
+			}
+
+			if (evidenceProviderType === "oracle" && review.applicationId) {
+				const { getEvidenceDownloadsForActivityWithBucketDetails } = await import(
+					"~/db/queries/evidence-downloads.server"
+				)
+				if (!cachedOracleInstances) {
+					const { getOracleInstancesForApp } = await import("~/db/queries/audit-evidence.server")
+					const instances = await getOracleInstancesForApp(review.applicationId)
+					cachedOracleInstances = instances.map((i) => ({ instanceId: i.instanceId }))
+				}
+				const downloads = await getEvidenceDownloadsForActivityWithBucketDetails(activity.id)
+				actOracleEvidenceData = {
+					configuredInstances: cachedOracleInstances,
+					selectedInstanceId: parseOracleInstanceFromProviderConfig(activity.providerConfig),
+					downloads: downloads
+						.map((d) => {
+							if (d.providerType !== "oracle") {
+								return null
+							}
+
+							const oracleMetadata = parseOracleProviderMetadata(d.providerMetadata)
+							if (!oracleMetadata) {
+								return null
+							}
+
+							return {
+								id: d.id,
+								instanceId: oracleMetadata.instanceId,
+								evidenceType: oracleMetadata.evidenceType,
+								format: d.format,
+								fileName: d.fileName,
+								sizeBytes: d.sizeBytes,
+								source: d.source,
+								apiInstanceName: oracleMetadata.apiInstanceName,
+								forceFetchJustification: d.forceFetchJustification,
+								performedBy: d.performedBy,
+								performedAt: d.performedAt.toISOString(),
+							}
+						})
+						.filter((download): download is NonNullable<typeof download> => download !== null),
+					evidenceTypes: getEvidenceTypesForActivity(activity.type) ?? [],
+				}
+			}
+
+			if (evidenceProviderType === "deployments") {
+				const { getNdaAppParams } = await import("~/db/queries/deployment-audit.server")
+				const { getEvidenceDownloadsForActivityWithBucketDetails } = await import(
+					"~/db/queries/evidence-downloads.server"
+				)
+				const [appParams, downloads] = await Promise.all([
+					review.applicationId ? getNdaAppParams(review.applicationId) : Promise.resolve(null),
+					getEvidenceDownloadsForActivityWithBucketDetails(activity.id),
+				])
+				actNdaEvidenceData = {
+					appParams,
+					periodConfig: activity.periodConfig ?? null,
+					downloads: downloads
+						.filter((d) => d.providerType === "deployments")
+						.map((d) => ({
+							id: d.id,
+							format: d.format,
+							fileName: d.fileName,
+							sizeBytes: d.sizeBytes,
+							source: d.source,
+							forceFetchJustification: d.forceFetchJustification,
+							performedBy: d.performedBy,
+							performedAt: d.performedAt.toISOString(),
+						})),
+				}
+			}
+		} catch (err) {
+			logger.error(`Failed to load evidence data for activity ${activity.id} (${activity.type})`, {
+				error: err,
+			})
+			activitiesWithEvidence.push({
+				id: activity.id,
+				type: activity.type,
+				status: activity.status,
+				completedAt: activity.completedAt?.toISOString() ?? null,
+				createdAt: activity.createdAt.toISOString(),
+				providerConfig: activity.providerConfig,
+				periodConfig: activity.periodConfig ?? null,
+				changes: activity.changes.map((c) => ({
+					...c,
+					performedAt: c.performedAt.toISOString(),
 				})),
+				entraGroupsData: null,
+				oracleEvidenceData: null,
+				ndaEvidenceData: null,
+				evidenceProviderType,
+				evidenceLoadError: "Kunne ikke laste bevisdata. Prøv å laste siden på nytt.",
+			})
+			continue
 		}
+
+		activitiesWithEvidence.push({
+			id: activity.id,
+			type: activity.type,
+			status: activity.status,
+			completedAt: activity.completedAt?.toISOString() ?? null,
+			createdAt: activity.createdAt.toISOString(),
+			providerConfig: activity.providerConfig,
+			periodConfig: activity.periodConfig ?? null,
+			changes: activity.changes.map((c) => ({
+				...c,
+				performedAt: c.performedAt.toISOString(),
+			})),
+			entraGroupsData: actEntraGroupsData,
+			oracleEvidenceData: actOracleEvidenceData,
+			ndaEvidenceData: actNdaEvidenceData,
+			evidenceProviderType,
+		})
 	}
 
 	// Load rulesets that share controls with this routine
@@ -326,20 +418,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		routine,
 		routineDescriptionHtml,
 		linkedRulesets: linkedRulesetsWithHtml,
-		activity: activity
-			? {
-					...activity,
-					completedAt: activity.completedAt?.toISOString() ?? null,
-					createdAt: activity.createdAt.toISOString(),
-					changes: activity.changes.map((c) => ({
-						...c,
-						performedAt: c.performedAt.toISOString(),
-					})),
-				}
-			: null,
-		entraGroupsData,
-		oracleEvidenceData,
-		ndaEvidenceData,
+		activities: activitiesWithEvidence,
 		review: {
 			...review,
 			applicationName,
@@ -526,7 +605,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 		const { addManualGroup } = await import("~/db/queries/nais.server")
 		await addManualGroup(review.applicationId, groupId, groupName, authedUser.navIdent)
-		const activity = await getReviewActivity(gjennomgangId)
+		const activity = await getReviewActivityByType(gjennomgangId, "entra_id_group_maintenance")
 		if (activity) {
 			await recordEntraChange({
 				activityId: activity.id,
@@ -554,7 +633,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 		const { removeManualGroup } = await import("~/db/queries/nais.server")
 		await removeManualGroup(manualGroupId, review.applicationId, authedUser.navIdent)
-		const activity = await getReviewActivity(gjennomgangId)
+		const activity = await getReviewActivityByType(gjennomgangId, "entra_id_group_maintenance")
 		if (activity && groupId) {
 			await recordEntraChange({
 				activityId: activity.id,
@@ -583,7 +662,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const existingAssessments = await getGroupAssessmentsForApp(review.applicationId)
 		const previousCriticality = existingAssessments.find((a) => a.groupId === groupId)?.criticality ?? null
 		await upsertGroupCriticality(review.applicationId, groupId, criticality as GroupCriticality, authedUser.navIdent)
-		const activity = await getReviewActivity(gjennomgangId)
+		const activity = await getReviewActivityByType(gjennomgangId, "entra_id_group_maintenance")
 		if (activity && previousCriticality !== criticality) {
 			await recordEntraChange({
 				activityId: activity.id,
@@ -745,7 +824,7 @@ type EntraGroupsDataProp = {
 
 type ActivityProp = {
 	id: string
-	type: string
+	type: RoutineActivityType
 	status: string
 	completedAt: string | null
 	createdAt: string
@@ -1796,29 +1875,24 @@ function FollowUpPointAttachments({
 }
 
 export default function GjennomgangDetalj() {
-	const {
-		section,
-		routine,
-		routineDescriptionHtml,
-		linkedRulesets,
-		review,
-		activity,
-		entraGroupsData,
-		oracleEvidenceData,
-		ndaEvidenceData,
-	} = useLoaderData<typeof loader>()
+	const { section, routine, routineDescriptionHtml, linkedRulesets, review, activities } =
+		useLoaderData<typeof loader>()
 	const isDraft = review.status === "draft"
-	const evidenceProviderType = activity ? getProviderTypeForActivity(activity.type) : null
 
 	const hasControls = routine.controls.length > 0
 	const hasRulesets = linkedRulesets.length > 0
-	const hasActivity = !!activity
+
+	// Build ActivityStepInfo[] from the review's frozen activities (not the routine's current config)
+	const activityStepInfos: ActivityStepInfo[] = activities.map((a) => ({
+		id: a.id,
+		activityType: a.type,
+	}))
 
 	const [searchParams, setSearchParams] = useSearchParams()
 	const stepParam = searchParams.get("step")
 
 	// Default to first step
-	const steps = buildSteps({ hasControls, hasRulesets, hasActivity })
+	const steps = buildSteps({ hasControls, hasRulesets, activities: activityStepInfos })
 	const currentStepId = steps.find((s) => s.id === stepParam)?.id ?? steps[0]?.id ?? "innledning"
 
 	const handleStepChange = useCallback(
@@ -1844,8 +1918,13 @@ export default function GjennomgangDetalj() {
 		if (hasControls) completed.add("krav")
 		if (hasRulesets) completed.add("regelsett")
 		completed.add("rutine")
-		// Activity is completed if status is completed
-		if (activity?.status === "completed") completed.add("aktivitet")
+		// Each activity step is completed if the corresponding review activity has status "completed"
+		for (let i = 0; i < activityStepInfos.length; i++) {
+			const reviewActivity = activities.find((a) => a.type === activityStepInfos[i].activityType)
+			if (reviewActivity?.status === "completed") {
+				completed.add(`aktivitet-${i}`)
+			}
+		}
 		// Dokumentasjon is completed if there's summary text, attachments, or links
 		if (review.summary || review.attachments.length > 0 || review.links.length > 0) completed.add("dokumentasjon")
 		// Follow-ups is completed if there are points
@@ -1853,9 +1932,33 @@ export default function GjennomgangDetalj() {
 		// Fullfør is completed if review is completed
 		if (review.status === "completed" || review.status === "needs_follow_up") completed.add("fullfor")
 		return completed
-	}, [hasControls, hasRulesets, activity, review])
+	}, [hasControls, hasRulesets, activities, activityStepInfos, review])
 
 	function renderStep() {
+		// Check if current step is a dynamic activity step
+		const activityIndex = parseActivityStepIndex(currentStepId)
+		if (activityIndex !== null && activityIndex < activityStepInfos.length) {
+			const activityType = activityStepInfos[activityIndex].activityType
+			const activity = activities.find((a) => a.type === activityType) ?? null
+
+			if (activity?.type === "entra_id_group_maintenance" && activity.entraGroupsData) {
+				return (
+					<EntraMaintenanceSection activity={activity} entraGroupsData={activity.entraGroupsData} isDraft={isDraft} />
+				)
+			}
+			return (
+				<StepActivity
+					activity={activity}
+					entraGroupsData={activity?.entraGroupsData ?? null}
+					oracleEvidenceData={activity?.oracleEvidenceData ?? null}
+					ndaEvidenceData={activity?.ndaEvidenceData ?? null}
+					evidenceProviderType={activity?.evidenceProviderType ?? null}
+					evidenceLoadError={activity?.evidenceLoadError}
+					isDraft={isDraft}
+				/>
+			)
+		}
+
 		switch (currentStepId) {
 			case "innledning":
 				return <StepIntroduction review={review} isDraft={isDraft} />
@@ -1866,20 +1969,6 @@ export default function GjennomgangDetalj() {
 			case "rutine":
 				return (
 					<StepRoutine routine={routine} routineDescriptionHtml={routineDescriptionHtml} sectionSlug={section.slug} />
-				)
-			case "aktivitet":
-				if (activity?.type === "entra_id_group_maintenance" && entraGroupsData) {
-					return <EntraMaintenanceSection activity={activity} entraGroupsData={entraGroupsData} isDraft={isDraft} />
-				}
-				return (
-					<StepActivity
-						activity={activity}
-						entraGroupsData={entraGroupsData}
-						oracleEvidenceData={oracleEvidenceData}
-						ndaEvidenceData={ndaEvidenceData}
-						evidenceProviderType={evidenceProviderType}
-						isDraft={isDraft}
-					/>
 				)
 			case "dokumentasjon":
 				return (
@@ -1903,7 +1992,7 @@ export default function GjennomgangDetalj() {
 			status={review.status}
 			hasControls={hasControls}
 			hasRulesets={hasRulesets}
-			hasActivity={hasActivity}
+			activities={activityStepInfos}
 			currentStepId={currentStepId}
 			completedSteps={completedSteps}
 			onStepChange={handleStepChange}

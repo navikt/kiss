@@ -20,15 +20,16 @@ import {
 import { useEffect, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useActionData, useLoaderData } from "react-router"
-import { ActivityTypeOptions } from "~/components/ActivityTypeOptions"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { SortableActivityList } from "~/components/SortableActivityList"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import {
 	approveRoutine,
 	deleteDraftRoutine,
 	getRoutine,
+	getRoutineActivityLinks,
 	replaceRoutine,
 	unarchiveRoutine,
 	updateRoutine,
@@ -109,11 +110,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
 	if (routine.sectionId !== section.id) throw new Response("Rutine ikke funnet", { status: 404 })
 
-	const [globalQuestions, sectionQuestions, technologyElements, controls] = await Promise.all([
+	const [globalQuestions, sectionQuestions, technologyElements, controls, activityLinks] = await Promise.all([
 		getScreeningQuestions({ status: "approved" }),
 		getSectionScreeningQuestions(section.id, { status: "approved" }),
 		getAllTechnologyElements(),
 		getAllControlsForSelection(),
+		getRoutineActivityLinks(rutineId),
 	])
 
 	const allQuestions = [...globalQuestions, ...sectionQuestions]
@@ -144,6 +146,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		seksjon,
 		section,
 		routine,
+		activityLinks: (activityLinks.length > 0
+			? activityLinks.map((l) => l.activityType)
+			: routine.activityType
+				? [routine.activityType]
+				: []) as RoutineActivityType[],
 		questionsWithChoices,
 		technologyElements,
 		controls,
@@ -218,12 +225,45 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				{ status: 400 },
 			)
 		}
-		const activityTypeRaw = (formData.get("activityType") as string)?.trim() || null
-		// Section routines can't use app-specific activity types (reviews have applicationId=null)
-		const activityType =
-			!isSectionRoutine && activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
-				? (activityTypeRaw as RoutineActivityType)
-				: null
+		const activityTypesField = formData.get("activityTypes") as string | null
+		let activityTypes: RoutineActivityType[] | undefined
+		let activityType: RoutineActivityType | null | undefined
+		if (activityTypesField !== null) {
+			const raw = activityTypesField.trim() || "[]"
+			let parsed: unknown
+			try {
+				parsed = JSON.parse(raw)
+			} catch {
+				return data(
+					{ fieldErrors: { activityTypes: "Ugyldig format for vedlikeholdsaktiviteter" } as FieldErrors },
+					{ status: 400 },
+				)
+			}
+			if (!Array.isArray(parsed)) {
+				return data(
+					{ fieldErrors: { activityTypes: "Ugyldig format for vedlikeholdsaktiviteter" } as FieldErrors },
+					{ status: 400 },
+				)
+			}
+			if (!isSectionRoutine) {
+				activityTypes = [
+					...new Set(
+						(parsed as string[]).filter((t): t is RoutineActivityType =>
+							ROUTINE_ACTIVITY_TYPES.includes(t as RoutineActivityType),
+						),
+					),
+				]
+			} else {
+				activityTypes = []
+			}
+		} else {
+			// Legacy form: read single activityType field
+			const activityTypeRaw = (formData.get("activityType") as string)?.trim() || null
+			activityType =
+				!isSectionRoutine && activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
+					? (activityTypeRaw as RoutineActivityType)
+					: null
+		}
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
 		const controlIds = formData.getAll("controlIds") as string[]
 		const groupClassifications = formData.getAll("groupClassifications") as string[]
@@ -305,6 +345,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			appliesToAllInSection,
 			isSectionRoutine,
 			sectionRoutineOwnerRole,
+			activityTypes,
 			activityType,
 			persistenceLinks,
 			screeningQuestionId: firstLink?.questionId ?? null,
@@ -426,7 +467,8 @@ function ApproveReplaceModal({
 }
 
 export default function RedigerRutine() {
-	const { routine, questionsWithChoices, technologyElements, controls, userCanApprove } = useLoaderData<typeof loader>()
+	const { routine, activityLinks, questionsWithChoices, technologyElements, controls, userCanApprove } =
+		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const fieldErrors =
 		actionData && typeof actionData === "object" && "fieldErrors" in actionData
@@ -604,6 +646,9 @@ export default function RedigerRutine() {
 								<ErrorSummary.Item href="#sectionRoutineOwnerRole">
 									{fieldErrors.sectionRoutineOwnerRole}
 								</ErrorSummary.Item>
+							)}
+							{fieldErrors.activityTypes && (
+								<ErrorSummary.Item href="#activityTypes">{fieldErrors.activityTypes}</ErrorSummary.Item>
 							)}
 						</ErrorSummary>
 					)}
@@ -925,15 +970,7 @@ export default function RedigerRutine() {
 						</CheckboxGroup>
 					)}
 
-					<Select
-						label="Vedlikeholdsaktivitet"
-						description="Velg om gjennomganger av denne rutinen skal inkludere en strukturert vedlikeholdsaktivitet"
-						name="activityType"
-						defaultValue={routine.activityType ?? ""}
-						size="small"
-					>
-						<ActivityTypeOptions />
-					</Select>
+					<SortableActivityList initialActivities={activityLinks} disabled={isSectionRoutine} />
 
 					<HStack gap="space-4">
 						<Button type="submit" variant="primary" size="small">

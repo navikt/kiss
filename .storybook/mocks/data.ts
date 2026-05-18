@@ -919,6 +919,57 @@ export function mockNyRutineData() {
 	}
 }
 
+export function mockRedigerRutineData(overrides?: { activityLinks?: string[] }) {
+	return {
+		seksjon: "pensjon-og-ufore",
+		section: mockSection,
+		routine: {
+			...mockRoutineBase({
+				id: "routine-1",
+				name: "Sikkerhetstesting av applikasjoner",
+				status: "approved",
+				frequency: "quarterly",
+				description: "Gjennomfør sikkerhetstesting inkludert OWASP Top 10 og SAST/DAST-skanning.",
+			}),
+			controls: [
+				{ id: "c-1", controlId: "K-ST.01", name: "Sikkerhetstesting av applikasjoner", responsible: "Utviklerteam" },
+			],
+			technologyElements: [{ id: "te-1", name: "Applikasjon" }],
+			screeningQuestions: [],
+			persistenceLinks: [],
+			groupClassifications: [],
+			oracleRoleCriticalities: [],
+		},
+		activityLinks: overrides?.activityLinks ?? [
+			"oracle_evidence_audit",
+			"entra_id_group_maintenance",
+			"deployment_evidence_report",
+		],
+		questionsWithChoices: [
+			{
+				id: "q-1",
+				questionText: "Behandler applikasjonen personopplysninger?",
+				sectionId: null,
+				isSection: false,
+				choices: [
+					{ id: "ch-1", label: "Ja" },
+					{ id: "ch-2", label: "Nei" },
+				],
+			},
+		],
+		technologyElements: [
+			{ id: "te-1", name: "Applikasjon" },
+			{ id: "te-2", name: "Database" },
+			{ id: "te-3", name: "API" },
+		],
+		controls: [
+			{ id: "c-1", controlId: "K-ST.01", name: "Sikkerhetstesting av applikasjoner", responsible: "Utviklerteam", frequency: "quarterly" as const },
+			{ id: "c-2", controlId: "K-TS.01", name: "Tilgangskontroll og autorisering", responsible: "Sikkerhetsansvarlig", frequency: "semi_annually" as const },
+		],
+		userCanApprove: true,
+	}
+}
+
 export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; eventOnly?: boolean; dualFrequency?: boolean; withFollowUp?: boolean }) {
 	const isSec = overrides?.isSectionRoutine ?? false
 	const eventOnly = overrides?.eventOnly ?? false
@@ -1474,10 +1525,8 @@ export function mockGjennomgangDetaljData(overrides?: {
 		routineDescriptionHtml:
 			"<h2>Formål</h2><p>Sikre at alle produksjonsapplikasjoner gjennomgår jevnlig sikkerhetstesting.</p><h2>Fremgangsmåte</h2><ol><li>Kjør automatiserte sikkerhetstester</li><li>Gjennomgå rapporter fra verktøy</li><li>Verifiser at funn er adressert</li><li>Dokumenter resultater</li></ol>",
 		linkedRulesets: mockLinkedRulesets,
-		activity: null,
-		entraGroupsData: null,
-		oracleEvidenceData: null,
-		ndaEvidenceData: null,
+		activities: [],
+		activityLinks: [],
 		review: {
 			id: "rev-1",
 			routineId: "routine-1",
@@ -1603,16 +1652,145 @@ export function mockGjennomgangDetaljOracleEvidenceData(overrides?: {
 	withDownloads?: boolean
 	activityStatus?: string
 }) {
+	const activity = mockOracleEvidenceActivity({ status: overrides?.activityStatus })
 	return {
 		...mockGjennomgangDetaljData(),
-		activity: mockOracleEvidenceActivity({ status: overrides?.activityStatus }),
+		activities: [
+			{
+				...activity,
+				changes: [],
+				providerConfig: null,
+				periodConfig: null,
+				entraGroupsData: null,
+				oracleEvidenceData: {
+					...mockOracleEvidenceData({
+						evidenceTypes: overrides?.evidenceTypes,
+						withDownloads: overrides?.withDownloads,
+					}),
+					selectedInstanceId: "PENSJON_PROD",
+				},
+				ndaEvidenceData: null,
+				evidenceProviderType: "oracle",
+			},
+		],
+		activityLinks: [{ id: "link-oracle-1", activityType: "oracle_evidence_audit" }],
+	}
+}
+
+export function mockGjennomgangMultiActivityData(overrides?: { status?: GjennomgangDetaljStatus }) {
+	const oracleActivity = {
+		id: "activity-oracle-1",
+		type: "oracle_evidence_audit",
+		status: "completed",
+		completedAt: "2026-03-02T11:00:00Z",
+		createdAt: "2026-03-01T08:00:00Z",
+		changes: [],
+		providerConfig: null,
+		periodConfig: null,
+		entraGroupsData: null,
 		oracleEvidenceData: {
-			...mockOracleEvidenceData({
-				evidenceTypes: overrides?.evidenceTypes,
-				withDownloads: overrides?.withDownloads,
-			}),
+			...mockOracleEvidenceData({ evidenceTypes: ["audit"], withDownloads: true }),
 			selectedInstanceId: "PENSJON_PROD",
 		},
+		ndaEvidenceData: null,
+		evidenceProviderType: "oracle",
+	}
+
+	const entraActivity = {
+		id: "activity-entra-1",
+		type: "entra_id_group_maintenance",
+		status: "pending",
+		completedAt: null,
+		createdAt: "2026-03-01T08:00:00Z",
+		changes: [
+			{
+				id: "ch-1",
+				changeType: "member_added",
+				groupId: "g-1",
+				groupName: "0000-GA-PENSJON_SAKSBEHANDLER",
+				previousValue: null,
+				newValue: "Z994433 (Varm Solstråle)",
+				performedBy: "A123456",
+				performedAt: "2026-03-01T09:00:00Z",
+			},
+			{
+				id: "ch-2",
+				changeType: "member_removed",
+				groupId: "g-2",
+				groupName: "0000-GA-PENSJON_ADMIN",
+				previousValue: "Z995544 (Klok Ugle)",
+				newValue: null,
+				performedBy: "A123456",
+				performedAt: "2026-03-01T09:05:00Z",
+			},
+		],
+		providerConfig: null,
+		periodConfig: null,
+		entraGroupsData: {
+			naisGroupIds: ["g-1", "g-2"],
+			manualGroups: [
+				{
+					id: "mg-1",
+					groupId: "g-3",
+					groupName: "0000-GA-PENSJON_SPESIAL",
+					createdBy: "A123456",
+					createdAt: "2026-02-15T10:00:00Z",
+				},
+			],
+			ghostGroupIds: [],
+			groupNames: {
+				"g-1": "0000-GA-PENSJON_SAKSBEHANDLER",
+				"g-2": "0000-GA-PENSJON_ADMIN",
+				"g-3": "0000-GA-PENSJON_SPESIAL",
+			},
+			assessmentsByGroupId: {
+				"g-1": { criticality: "medium", updatedBy: "A123456", updatedAt: "2026-01-15T10:00:00Z" },
+				"g-2": { criticality: "very_high", updatedBy: "B654321", updatedAt: "2026-01-20T14:00:00Z" },
+			},
+		},
+		oracleEvidenceData: null,
+		ndaEvidenceData: null,
+		evidenceProviderType: null,
+	}
+
+	const deploymentActivity = {
+		id: "activity-deploy-1",
+		type: "deployment_evidence_report",
+		status: "pending",
+		completedAt: null,
+		createdAt: "2026-03-01T08:00:00Z",
+		changes: [],
+		providerConfig: null,
+		periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+		entraGroupsData: null,
+		oracleEvidenceData: null,
+		ndaEvidenceData: {
+			appParams: { team: "starte-pensjon", environment: "prod", appName: "pensjon-sak" },
+			periodConfig: { periodType: "quarterly", periodStart: "2026-01-01" },
+			downloads: [
+				{
+					id: "dl-nda-1",
+					format: "PDF",
+					fileName: "deployment-report-Q1-2026.pdf",
+					sizeBytes: 450_000,
+					source: "m2m_api",
+					forceFetchJustification: null,
+					performedBy: "system",
+					performedAt: "2026-03-01T10:00:00Z",
+				},
+			],
+		},
+		evidenceProviderType: "deployments",
+	}
+
+	return {
+		...mockGjennomgangDetaljData({ status: overrides?.status }),
+		activities: [oracleActivity, entraActivity, deploymentActivity],
+		activityLinks: [
+			{ id: "link-oracle-1", activityType: "oracle_evidence_audit" },
+			{ id: "link-entra-1", activityType: "entra_id_group_maintenance" },
+			{ id: "link-deploy-1", activityType: "deployment_evidence_report" },
+		],
 	}
 }
 

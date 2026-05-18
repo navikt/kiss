@@ -1,4 +1,4 @@
-import { BodyShort, Heading, VStack } from "@navikt/ds-react"
+import { Alert, BodyShort, Heading, VStack } from "@navikt/ds-react"
 import { EvidenceSection } from "~/components/evidence"
 
 type Props = {
@@ -61,6 +61,7 @@ type Props = {
 		}>
 	} | null
 	evidenceProviderType: string | null
+	evidenceLoadError?: string
 	isDraft: boolean
 }
 
@@ -79,6 +80,7 @@ export function StepActivity({
 	oracleEvidenceData,
 	ndaEvidenceData,
 	evidenceProviderType,
+	evidenceLoadError,
 	isDraft,
 }: Props) {
 	if (!activity) {
@@ -102,6 +104,8 @@ export function StepActivity({
 					Utfør vedlikeholdsaktiviteten og dokumenter eventuelle endringer.
 				</BodyShort>
 			</div>
+
+			{evidenceLoadError && <Alert variant="error">{evidenceLoadError}</Alert>}
 
 			{/* Oracle evidence */}
 			{evidenceProviderType === "oracle" && oracleEvidenceData && (

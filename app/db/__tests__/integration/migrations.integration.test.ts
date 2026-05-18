@@ -130,6 +130,7 @@ describe("Database migrations", () => {
 				"monitored_applications",
 				"nais_teams",
 				"reports",
+				"routine_activity_links",
 				"routine_controls",
 				"routine_persistence_links",
 				"routine_review_activities",
