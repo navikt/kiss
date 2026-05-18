@@ -75,7 +75,6 @@ const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
 
 type ActionResult = {
 	success: boolean
-	message?: string
 	error?: string
 	intent?: string
 	pointId?: string
@@ -427,7 +426,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			authedUser.navIdent,
 		)
 
-		return data<ActionResult>({ success: true, message: "Gjennomgang oppdatert.", intent: "update-review" })
+		return data<ActionResult>({ success: true, intent: "update-review" })
 	}
 
 	if (intent === "complete") {
@@ -465,14 +464,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			})
 		}
 
-		const message =
-			updated?.status === "needs_follow_up"
-				? "Gjennomgangen er fullført med oppfølgingspunkter som må adresseres."
-				: "Gjennomgangen er fullført."
-
 		return data<ActionResult>({
 			success: true,
-			message,
 			intent: "complete",
 		})
 	}
@@ -506,7 +499,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return data<ActionResult>({ success: false, error: "Ugyldig URL", intent: "add-link" })
 		}
 		await addReviewLink({ reviewId: gjennomgangId, url, title, addedBy: authedUser.navIdent })
-		return data<ActionResult>({ success: true, message: "Lenke lagt til.", intent: "add-link" })
+		return data<ActionResult>({ success: true, intent: "add-link" })
 	}
 
 	if (intent === "delete-link") {
@@ -518,7 +511,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!deleted) {
 			return data<ActionResult>({ success: false, error: "Fant ikke lenken.", intent: "delete-link" }, { status: 404 })
 		}
-		return data<ActionResult>({ success: true, message: "Lenke fjernet.", intent: "delete-link" })
+		return data<ActionResult>({ success: true, intent: "delete-link" })
 	}
 
 	if (intent === "add-manual-group") {
@@ -545,7 +538,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				performedBy: authedUser.navIdent,
 			})
 		}
-		return data<ActionResult>({ success: true, message: "Gruppe lagt til.", intent: "add-manual-group" })
+		return data<ActionResult>({ success: true, intent: "add-manual-group" })
 	}
 
 	if (intent === "remove-manual-group") {
@@ -573,7 +566,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				performedBy: authedUser.navIdent,
 			})
 		}
-		return data<ActionResult>({ success: true, message: "Gruppe fjernet.", intent: "remove-manual-group" })
+		return data<ActionResult>({ success: true, intent: "remove-manual-group" })
 	}
 
 	if (intent === "set-group-criticality") {
@@ -612,7 +605,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return data<ActionResult>({ success: false, error: "Tittel er påkrevd", intent: "add-follow-up" })
 		}
 		await addFollowUpPoint({ reviewId: gjennomgangId, text, description, performedBy: authedUser.navIdent })
-		return data<ActionResult>({ success: true, message: "Oppfølgingspunkt lagt til.", intent: "add-follow-up" })
+		return data<ActionResult>({ success: true, intent: "add-follow-up" })
 	}
 
 	if (intent === "update-follow-up-status") {
@@ -640,7 +633,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		})
 		return data<ActionResult>({
 			success: true,
-			message: "Status oppdatert.",
 			intent: "update-follow-up-status",
 			pointId,
 		})
@@ -660,7 +652,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		})
 		return data<ActionResult>({
 			success: true,
-			message: "Oppfølgingspunkt oppdatert.",
 			intent: "update-follow-up-text",
 			pointId,
 		})
@@ -687,7 +678,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		})
 		return data<ActionResult>({
 			success: true,
-			message: "Beskrivelse oppdatert.",
 			intent: "update-follow-up-description",
 			pointId,
 		})
@@ -699,7 +689,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return data<ActionResult>({ success: false, error: "Mangler ID", intent: "delete-follow-up" })
 		}
 		await deleteFollowUpPoint({ pointId, expectedReviewId: gjennomgangId, performedBy: authedUser.navIdent })
-		return data<ActionResult>({ success: true, message: "Oppfølgingspunkt fjernet.", intent: "delete-follow-up" })
+		return data<ActionResult>({ success: true, intent: "delete-follow-up" })
 	}
 
 	return data<ActionResult>({ success: false, error: "Ukjent handling" })

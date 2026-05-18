@@ -213,11 +213,6 @@ export function StepIntroduction({ review, isDraft }: Props) {
 						}))}
 					/>
 
-					{actionData?.intent === "update-review" && actionData.success && (
-						<Alert variant="success" size="small">
-							{actionData.message}
-						</Alert>
-					)}
 					{actionData?.intent === "update-review" && actionData.error && (
 						<Alert variant="error" size="small">
 							{actionData.error}
