@@ -1,18 +1,15 @@
-import { DownloadIcon, ExternalLinkIcon, LinkIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
+import { DownloadIcon, ExternalLinkIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
 import type { FileObject, SortState } from "@navikt/ds-react"
 import {
-	Link as AkselLink,
 	Alert,
 	BodyShort,
 	Box,
 	Button,
-	ConfirmationPanel,
 	CopyButton,
 	Detail,
 	Dialog,
 	Heading,
 	HStack,
-	Label,
 	ReadMore,
 	Search,
 	Select,
@@ -27,20 +24,15 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import {
 	data,
 	Form,
-	Link,
 	redirect,
 	useActionData,
 	useFetcher,
 	useLoaderData,
 	useNavigation,
 	useRevalidator,
-	useSubmit,
+	useSearchParams,
 } from "react-router"
 import { AutoUploadDropzone } from "~/components/AutoUploadDropzone"
-import { EvidenceSection } from "~/components/evidence"
-import { FrequencyDisplay } from "~/components/FrequencyDisplay"
-import { MarkdownEditor } from "~/components/MarkdownEditor"
-import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addFollowUpPoint,
@@ -67,6 +59,16 @@ import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "~/lib/a
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
+import { ReviewWizard } from "./components/ReviewWizard"
+import { StepActivity } from "./components/StepActivity"
+import { StepAttachments } from "./components/StepAttachments"
+import { StepComplete } from "./components/StepComplete"
+import { StepControls } from "./components/StepControls"
+import { StepIntroduction } from "./components/StepIntroduction"
+import { StepRoutine } from "./components/StepRoutine"
+import { StepRulesets } from "./components/StepRulesets"
+import { StepSummary } from "./components/StepSummary"
+import { buildSteps } from "./components/shared"
 
 const MAX_SIZE_MB = 50
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
@@ -292,9 +294,39 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	}
 
+	// Load rulesets that share controls with this routine
+	const routineControlIds = routine.controls.map((c) => c.id)
+	let linkedRulesets: Array<{
+		id: string
+		code: string | null
+		name: string
+		description: string | null
+		frequency: string
+		status: string
+		responsibleName: string | null
+		responsibleRole: string | null
+		approvalStatus: string
+		lastApproval: { validFrom: string; validUntil: string } | null
+		controls: Array<{ id: string; controlId: string; shortTitle: string | null }>
+	}> = []
+	if (routineControlIds.length > 0) {
+		const { getRulesetsLinkedToControls } = await import("~/db/queries/rulesets.server")
+		linkedRulesets = await getRulesetsLinkedToControls(routineControlIds, routine.sectionId)
+	}
+
+	// Render ruleset descriptions as HTML
+	const linkedRulesetsWithHtml = linkedRulesets.map((rs) => ({
+		...rs,
+		descriptionHtml: renderMarkdown(rs.description),
+	}))
+
+	const routineDescriptionHtml = renderMarkdown(routine.description)
+
 	return data({
 		section,
 		routine,
+		routineDescriptionHtml,
+		linkedRulesets: linkedRulesetsWithHtml,
 		activity: activity
 			? {
 					...activity,
@@ -367,17 +399,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "update-review") {
-		const title = (formData.get("title") as string)?.trim()
-		const summary = (formData.get("summary") as string)?.trim() || null
-		const reviewedAt = formData.get("reviewedAt") as string
-		const reviewedTime = (formData.get("reviewedTime") as string) || "00:00"
-		const participantsRaw = formData.get("participants")
+		// Only update fields that are actually present in the form submission.
+		// Each wizard step sends only its own fields — absent fields must not overwrite existing data.
+		const hasTitle = formData.has("title")
+		const hasSummary = formData.has("summary")
+		const hasReviewedAt = formData.has("reviewedAt")
+		const hasParticipants = formData.has("participants")
 
-		if (!title) {
+		const title = hasTitle ? (formData.get("title") as string).trim() : undefined
+		const summary = hasSummary ? (formData.get("summary") as string)?.trim() || null : undefined
+		const reviewedAt = hasReviewedAt ? (formData.get("reviewedAt") as string) : undefined
+		const reviewedTime = (formData.get("reviewedTime") as string) || "00:00"
+		const participants = hasParticipants ? parseParticipantsFormValue(formData.get("participants")) : undefined
+
+		if (hasTitle && !title) {
 			return data<ActionResult>({ success: false, error: "Tittel er påkrevd", intent: "update-review" })
 		}
-
-		const participants = parseParticipantsFormValue(participantsRaw)
 
 		await updateReview(
 			gjennomgangId,
@@ -460,7 +497,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return data<ActionResult>({ success: false, error: "URL er påkrevd", intent: "add-link" })
 		}
 		try {
-			new URL(url)
+			const parsed = new URL(url)
+			const safeProtocols = new Set(["http:", "https:", "mailto:"])
+			if (!safeProtocols.has(parsed.protocol)) {
+				return data<ActionResult>({ success: false, error: "Kun http, https og mailto er tillatt", intent: "add-link" })
+			}
 		} catch {
 			return data<ActionResult>({ success: false, error: "Ugyldig URL", intent: "add-link" })
 		}
@@ -688,179 +729,6 @@ function formatFileSize(bytes: number | null) {
 	if (bytes < 1024) return `${bytes} B`
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function AttachmentSourceTag({ sourceType }: { sourceType: string }) {
-	if (sourceType === "automated") {
-		return (
-			<Tag variant="info" size="xsmall">
-				Hentet automatisk
-			</Tag>
-		)
-	}
-
-	if (sourceType === "manual") {
-		return (
-			<Tag variant="neutral" size="xsmall">
-				Lastet opp manuelt
-			</Tag>
-		)
-	}
-
-	return (
-		<Tag variant="neutral" size="xsmall">
-			Ukjent
-		</Tag>
-	)
-}
-
-function AddLinkSection() {
-	const actionData = useActionData<typeof action>()
-	const navigation = useNavigation()
-	const isSubmitting = navigation.state === "submitting"
-	const [url, setUrl] = useState("")
-	const [title, setTitle] = useState("")
-
-	return (
-		<Box padding="space-6" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-			<Heading size="small" level="4" spacing>
-				Legg til lenke
-			</Heading>
-			<Form
-				method="post"
-				onSubmit={() => {
-					setTimeout(() => {
-						setUrl("")
-						setTitle("")
-					}, 100)
-				}}
-			>
-				<input type="hidden" name="intent" value="add-link" />
-				<VStack gap="space-4">
-					<HStack gap="space-4" align="end" style={{ flexWrap: "wrap" }}>
-						<TextField
-							label="Tittel (valgfritt)"
-							name="linkTitle"
-							size="small"
-							autoComplete="off"
-							value={title}
-							onChange={(e) => setTitle(e.target.value)}
-							style={{ minWidth: "15rem", flex: 1 }}
-						/>
-						<TextField
-							label="URL"
-							name="url"
-							size="small"
-							type="url"
-							autoComplete="off"
-							value={url}
-							onChange={(e) => setUrl(e.target.value)}
-							placeholder="https://..."
-							style={{ minWidth: "20rem", flex: 2 }}
-						/>
-						<Button
-							type="submit"
-							variant="secondary"
-							size="small"
-							loading={isSubmitting}
-							icon={<LinkIcon aria-hidden />}
-						>
-							Legg til
-						</Button>
-					</HStack>
-					{actionData?.intent === "add-link" && actionData.error && (
-						<Alert variant="error" size="small">
-							{actionData.error}
-						</Alert>
-					)}
-				</VStack>
-			</Form>
-		</Box>
-	)
-}
-
-function UploadSection({ reviewId }: { reviewId: string }) {
-	const revalidator = useRevalidator()
-	const [files, setFiles] = useState<FileObject[]>([])
-	const [uploading, setUploading] = useState(false)
-	const [uploadResult, setUploadResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null)
-
-	async function uploadFile(file: File) {
-		setUploading(true)
-		setUploadResult(null)
-
-		try {
-			const formData = new FormData()
-			formData.append("file", file)
-
-			const response = await fetch(`/api/gjennomgang/${reviewId}/vedlegg`, {
-				method: "POST",
-				body: formData,
-			})
-
-			if (response.status === 413) {
-				setUploadResult({
-					success: false,
-					error: `Filen er for stor. Maksimal filstørrelse er ${MAX_SIZE_MB} MB.`,
-				})
-				return
-			}
-
-			const result = await response.json()
-			setUploadResult(result)
-
-			if (result.success) {
-				revalidator.revalidate()
-			}
-		} catch {
-			setUploadResult({ success: false, error: "Nettverksfeil ved opplasting." })
-		} finally {
-			setFiles([])
-			setUploading(false)
-		}
-	}
-
-	function handleFileSelect(newFiles: FileObject[]) {
-		if (uploading && newFiles.length > 0) return
-		setFiles(newFiles)
-		const accepted = newFiles.find((f) => !f.error)
-		if (accepted) {
-			uploadFile(accepted.file)
-		}
-	}
-
-	return (
-		<VStack gap="space-4">
-			<Heading size="small" level="4">
-				Last opp vedlegg
-			</Heading>
-
-			{uploadResult?.error && (
-				<Alert variant="error" size="small">
-					{uploadResult.error}
-				</Alert>
-			)}
-			{uploadResult?.success && (
-				<Alert variant="success" size="small">
-					{uploadResult.message}
-				</Alert>
-			)}
-
-			<AutoUploadDropzone
-				label="Dra og slipp fil, eller klikk for å velge"
-				description={`Maks ${MAX_SIZE_MB} MB. Støttede formater: PDF, DOCX, XLSX, PPTX, PNG, JPG, TXT, MD`}
-				accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.txt,.md"
-				maxSizeInBytes={MAX_SIZE_BYTES}
-				files={files}
-				onFilesChange={handleFileSelect}
-				isUploading={uploading}
-				rejectionErrors={{
-					fileType: "Filtypen er ikke støttet",
-					fileSize: `Filen er for stor (maks ${MAX_SIZE_MB} MB)`,
-				}}
-			/>
-		</VStack>
-	)
 }
 
 const groupCriticalityLabels: Record<string, string> = {
@@ -1298,53 +1166,6 @@ function EntraMaintenanceSection({
 				</VStack>
 			)}
 		</VStack>
-	)
-}
-
-function DiscardSection() {
-	const [dialogOpen, setDialogOpen] = useState(false)
-	const navigation = useNavigation()
-	const isSubmitting = navigation.state === "submitting"
-
-	return (
-		<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-			<VStack gap="space-4">
-				<Heading size="small" level="4">
-					Forkast gjennomgang
-				</Heading>
-				<BodyShort>
-					Forkaster du gjennomgangen vil den fjernes fra alle oversikter. Dataene beholdes for sporbarhet.
-				</BodyShort>
-				<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-					<Dialog.Trigger>
-						<Button type="button" variant="danger" size="small">
-							Forkast gjennomgang
-						</Button>
-					</Dialog.Trigger>
-					<Dialog.Popup width="small" position="center" closeOnOutsideClick aria-label="Bekreft forkasting">
-						<Dialog.Header>Forkast gjennomgang?</Dialog.Header>
-						<Dialog.Body>
-							<VStack gap="space-6">
-								<BodyShort>
-									Er du sikker på at du vil forkaste denne gjennomgangen? Handlingen kan ikke angres.
-								</BodyShort>
-								<Form method="post">
-									<input type="hidden" name="intent" value="discard-review" />
-									<HStack gap="space-4">
-										<Button type="submit" variant="danger" size="small" disabled={isSubmitting} loading={isSubmitting}>
-											Ja, forkast
-										</Button>
-										<Button type="button" variant="secondary" size="small" onClick={() => setDialogOpen(false)}>
-											Avbryt
-										</Button>
-									</HStack>
-								</Form>
-							</VStack>
-						</Dialog.Body>
-					</Dialog.Popup>
-				</Dialog>
-			</VStack>
-		</Box>
 	)
 }
 
@@ -1984,480 +1805,121 @@ function FollowUpPointAttachments({
 	)
 }
 
-function CompleteSection({
-	followUpPoints,
-}: {
-	followUpPoints: Array<{ id: string; text: string; description: string | null }>
-}) {
-	const submit = useSubmit()
-	const navigation = useNavigation()
-	const actionData = useActionData<ActionResult>()
-	const [confirmed, setConfirmed] = useState(false)
-	const isSubmitting = navigation.state === "submitting"
+export default function GjennomgangDetalj() {
+	const {
+		section,
+		routine,
+		routineDescriptionHtml,
+		linkedRulesets,
+		review,
+		activity,
+		entraGroupsData,
+		oracleEvidenceData,
+		ndaEvidenceData,
+	} = useLoaderData<typeof loader>()
+	const isDraft = review.status === "draft"
+	const evidenceProviderType = activity ? getProviderTypeForActivity(activity.type) : null
 
-	const pointsMissingDescription = followUpPoints.filter((p) => !p.description || p.description.trim().length === 0)
-	const hasMissingDescriptions = pointsMissingDescription.length > 0
+	const hasControls = routine.controls.length > 0
+	const hasRulesets = linkedRulesets.length > 0
+	const hasActivity = !!activity
 
-	function handleComplete() {
-		if (!confirmed || hasMissingDescriptions) return
-		const formData = new FormData()
-		formData.set("intent", "complete")
-		submit(formData, { method: "post" })
+	const [searchParams, setSearchParams] = useSearchParams()
+	const stepParam = searchParams.get("step")
+
+	// Default to first step
+	const steps = buildSteps({ hasControls, hasRulesets, hasActivity })
+	const currentStepId = steps.find((s) => s.id === stepParam)?.id ?? steps[0]?.id ?? "innledning"
+
+	const handleStepChange = useCallback(
+		(stepId: string) => {
+			setSearchParams(
+				(prev) => {
+					const next = new URLSearchParams(prev)
+					next.set("step", stepId)
+					return next
+				},
+				{ replace: true },
+			)
+		},
+		[setSearchParams],
+	)
+
+	// Determine which steps are "completed" (have data)
+	const completedSteps = useMemo(() => {
+		const completed = new Set<string>()
+		// Innledning is always done if the review exists
+		completed.add("innledning")
+		// Read-only steps are always "completed"
+		if (hasControls) completed.add("krav")
+		if (hasRulesets) completed.add("regelsett")
+		completed.add("rutine")
+		// Activity is completed if status is completed
+		if (activity?.status === "completed") completed.add("aktivitet")
+		// Dokumentasjon is completed if there's summary text, attachments, or links
+		if (review.summary || review.attachments.length > 0 || review.links.length > 0) completed.add("dokumentasjon")
+		// Follow-ups is completed if there are points
+		if (review.followUpPoints.length > 0) completed.add("oppfolging")
+		// Fullfør is completed if review is completed
+		if (review.status === "completed" || review.status === "needs_follow_up") completed.add("fullfor")
+		return completed
+	}, [hasControls, hasRulesets, activity, review])
+
+	function renderStep() {
+		switch (currentStepId) {
+			case "innledning":
+				return <StepIntroduction review={review} isDraft={isDraft} />
+			case "krav":
+				return <StepControls controls={routine.controls} />
+			case "regelsett":
+				return <StepRulesets rulesets={linkedRulesets} sectionSlug={section.slug} />
+			case "rutine":
+				return (
+					<StepRoutine routine={routine} routineDescriptionHtml={routineDescriptionHtml} sectionSlug={section.slug} />
+				)
+			case "aktivitet":
+				if (activity?.type === "entra_id_group_maintenance" && entraGroupsData) {
+					return <EntraMaintenanceSection activity={activity} entraGroupsData={entraGroupsData} isDraft={isDraft} />
+				}
+				return (
+					<StepActivity
+						activity={activity}
+						entraGroupsData={entraGroupsData}
+						oracleEvidenceData={oracleEvidenceData}
+						ndaEvidenceData={ndaEvidenceData}
+						evidenceProviderType={evidenceProviderType}
+						isDraft={isDraft}
+					/>
+				)
+			case "dokumentasjon":
+				return (
+					<VStack gap="space-12">
+						<StepSummary review={review} isDraft={isDraft} />
+						<StepAttachments reviewId={review.id} attachments={review.attachments} isDraft={isDraft} />
+					</VStack>
+				)
+			case "oppfolging":
+				return <FollowUpPointsSection reviewId={review.id} status={review.status} points={review.followUpPoints} />
+			case "fullfor":
+				return <StepComplete review={review} isDraft={isDraft} />
+			default:
+				return null
+		}
 	}
 
 	return (
-		<Box padding="space-8" borderWidth="1" borderColor="warning" borderRadius="8" background="warning-softA">
-			<VStack gap="space-4">
-				<Heading size="small" level="4">
-					Fullfør gjennomgang
-				</Heading>
-				<BodyShort>
-					Når gjennomgangen er fullført låses oppsummering, referat og deltakerlisten. Eventuelle uadresserte
-					oppfølgingspunkter vil føre til at gjennomgangen får status «må følges opp», og du kan fortsatt oppdatere
-					status og oppfølging på punktene inntil alle er adressert.
-				</BodyShort>
-
-				{hasMissingDescriptions && (
-					<Alert variant="warning" size="small">
-						<BodyShort spacing>
-							Alle oppfølgingspunkter må ha en beskrivelse før gjennomgangen kan fullføres. Legg til beskrivelse på:
-						</BodyShort>
-						<ul style={{ margin: 0, paddingLeft: "1.25rem" }}>
-							{pointsMissingDescription.map((p) => (
-								<li key={p.id}>{p.text}</li>
-							))}
-						</ul>
-					</Alert>
-				)}
-
-				{actionData?.intent === "complete" && actionData.error && (
-					<Alert variant="error" size="small">
-						{actionData.error}
-					</Alert>
-				)}
-
-				<ConfirmationPanel
-					checked={confirmed}
-					onChange={() => setConfirmed(!confirmed)}
-					label="Jeg bekrefter at gjennomgangen er komplett"
-					size="small"
-					disabled={hasMissingDescriptions}
-				/>
-
-				<HStack>
-					<Button
-						type="button"
-						variant="primary"
-						size="small"
-						onClick={handleComplete}
-						disabled={!confirmed || isSubmitting || hasMissingDescriptions}
-						loading={isSubmitting}
-					>
-						Fullfør gjennomgang
-					</Button>
-				</HStack>
-			</VStack>
-		</Box>
-	)
-}
-
-export default function GjennomgangDetalj() {
-	const { section, routine, review, activity, entraGroupsData, oracleEvidenceData, ndaEvidenceData } =
-		useLoaderData<typeof loader>()
-	const actionData = useActionData<typeof action>()
-	const confirmedCount = review.participants.filter((p) => p.confirmedAt).length
-	const isDraft = review.status === "draft"
-	const evidenceProviderType = activity ? getProviderTypeForActivity(activity.type) : null
-	const isCompleted = review.status === "completed"
-	const isNeedsFollowUp = review.status === "needs_follow_up"
-	const isDiscarded = review.status === "discarded"
-
-	const reviewDate = new Date(review.reviewedAt)
-	const defaultDate = reviewDate.toISOString().split("T")[0]
-	const defaultTime = reviewDate.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })
-
-	return (
-		<VStack gap="space-8" style={{ maxWidth: "64rem" }}>
-			<div>
-				<HStack gap="space-4" align="center">
-					<Heading size="xlarge" level="2">
-						{review.title}
-					</Heading>
-					{isDraft && (
-						<Tag variant="warning" size="small">
-							Utkast
-						</Tag>
-					)}
-					{isNeedsFollowUp && (
-						<Tag variant="warning" size="small">
-							Må følges opp
-						</Tag>
-					)}
-					{isCompleted && (
-						<Tag variant="success" size="small">
-							Fullført
-						</Tag>
-					)}
-					{isDiscarded && (
-						<Tag variant="neutral" size="small">
-							Forkastet
-						</Tag>
-					)}
-				</HStack>
-			</div>
-
-			{isDraft ? (
-				/* Editable form for drafts */
-				<Form method="post">
-					<input type="hidden" name="intent" value="update-review" />
-					<VStack gap="space-6">
-						<TextField label="Tittel" name="title" size="small" autoComplete="off" defaultValue={review.title} />
-
-						{/* Metadata (read-only info + editable date) */}
-						<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-							<VStack gap="space-4">
-								<HStack gap="space-12" wrap>
-									<VStack gap="space-2">
-										<Label size="small">Rutine</Label>
-										<BodyShort>
-											<AkselLink as={Link} to={`/seksjoner/${section.slug}/rutiner/${routine.id}`}>
-												{routine.name}
-											</AkselLink>
-										</BodyShort>
-									</VStack>
-									<VStack gap="space-2">
-										<Label size="small">Frekvens</Label>
-										<FrequencyDisplay frequency={routine.frequency} eventFrequency={routine.eventFrequency} />
-									</VStack>
-									{review.applicationId && (
-										<VStack gap="space-2">
-											<Label size="small">Applikasjon</Label>
-											<BodyShort>
-												<AkselLink as={Link} to={`/applikasjoner/${review.applicationId}/detaljer`}>
-													{review.applicationName ?? review.applicationId}
-												</AkselLink>
-											</BodyShort>
-										</VStack>
-									)}
-									<VStack gap="space-2">
-										<Label size="small">Opprettet av</Label>
-										<BodyShort>{review.createdBy}</BodyShort>
-									</VStack>
-								</HStack>
-								<HStack gap="space-6" align="end">
-									<div>
-										<Label size="small" htmlFor="reviewedAt">
-											Dato for gjennomgang
-										</Label>
-										<input
-											type="date"
-											id="reviewedAt"
-											name="reviewedAt"
-											defaultValue={defaultDate}
-											className="navds-text-field__input navds-body-short navds-body-short--small"
-										/>
-									</div>
-									<div>
-										<Label size="small" htmlFor="reviewedTime">
-											Tidspunkt
-										</Label>
-										<input
-											type="time"
-											id="reviewedTime"
-											name="reviewedTime"
-											defaultValue={defaultTime}
-											className="navds-text-field__input navds-body-short navds-body-short--small"
-										/>
-									</div>
-								</HStack>
-							</VStack>
-						</Box>
-
-						<MarkdownEditor label="Oppsummering/referat" name="summary" defaultValue={review.summary ?? ""} />
-
-						<ParticipantsCombobox
-							key={review.id}
-							name="participants"
-							label="Deltakere"
-							description="Søk på navn eller e-post for å legge til personer. Du kan også skrive inn en NAV-ident direkte."
-							defaultParticipants={review.participants.map((p) => ({
-								navIdent: p.userIdent,
-								displayName: p.userName,
-							}))}
-						/>
-
-						{actionData?.intent === "update-review" && actionData.success && (
-							<Alert variant="success" size="small">
-								{actionData.message}
-							</Alert>
-						)}
-						{actionData?.intent === "update-review" && actionData.error && (
-							<Alert variant="error" size="small">
-								{actionData.error}
-							</Alert>
-						)}
-
-						<HStack>
-							<Button type="submit" variant="primary" size="small">
-								Lagre endringer
-							</Button>
-						</HStack>
-					</VStack>
-				</Form>
-			) : (
-				<>
-					{/* Metadata (read-only) */}
-					<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-						<HStack gap="space-12" wrap>
-							<VStack gap="space-2">
-								<Label size="small">Rutine</Label>
-								<BodyShort>
-									<AkselLink as={Link} to={`/seksjoner/${section.slug}/rutiner/${routine.id}`}>
-										{routine.name}
-									</AkselLink>
-								</BodyShort>
-							</VStack>
-							<VStack gap="space-2">
-								<Label size="small">Frekvens</Label>
-								<FrequencyDisplay frequency={routine.frequency} eventFrequency={routine.eventFrequency} />
-							</VStack>
-							<VStack gap="space-2">
-								<Label size="small">Gjennomgangsdato</Label>
-								<BodyShort>{formatDateTime(review.reviewedAt)}</BodyShort>
-							</VStack>
-							<VStack gap="space-2">
-								<Label size="small">Opprettet av</Label>
-								<BodyShort>{review.createdBy}</BodyShort>
-							</VStack>
-							<VStack gap="space-2">
-								<Label size="small">Opprettet</Label>
-								<BodyShort>{formatDateTime(review.createdAt)}</BodyShort>
-							</VStack>
-							{review.applicationId && (
-								<VStack gap="space-2">
-									<Label size="small">Applikasjon</Label>
-									<BodyShort>
-										<AkselLink as={Link} to={`/applikasjoner/${review.applicationId}/detaljer`}>
-											{review.applicationName ?? review.applicationId}
-										</AkselLink>
-									</BodyShort>
-								</VStack>
-							)}
-						</HStack>
-					</Box>
-
-					{/* Summary (read-only) */}
-					{review.summaryHtml && (
-						<VStack gap="space-2">
-							<Heading size="medium" level="3">
-								Oppsummering / referat
-							</Heading>
-							<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-								<div
-									className="markdown-content"
-									// biome-ignore lint/security/noDangerouslySetInnerHtml: server-sanitized
-									dangerouslySetInnerHTML={{ __html: review.summaryHtml }}
-								/>
-							</Box>
-						</VStack>
-					)}
-				</>
-			)}
-
-			{/* Oppfølgingspunkter — rett under oppsummering/referat */}
-			{!isDiscarded && (
-				<FollowUpPointsSection reviewId={review.id} status={review.status} points={review.followUpPoints} />
-			)}
-
-			{/* Participants */}
-			{review.participants.length > 0 && (
-				<VStack gap="space-4">
-					<Heading size="medium" level="3">
-						Deltakere ({confirmedCount}/{review.participants.length} bekreftet)
-					</Heading>
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell>Ident</Table.HeaderCell>
-								<Table.HeaderCell>Navn</Table.HeaderCell>
-								<Table.HeaderCell>Status</Table.HeaderCell>
-								<Table.HeaderCell>Bekreftet</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{review.participants.map((p) => (
-								<Table.Row key={p.id}>
-									<Table.DataCell>{p.userIdent}</Table.DataCell>
-									<Table.DataCell>{p.userName ?? "—"}</Table.DataCell>
-									<Table.DataCell>
-										{p.confirmedAt ? (
-											<Tag variant="success" size="xsmall">
-												Bekreftet
-											</Tag>
-										) : (
-											<Tag variant="warning" size="xsmall">
-												Venter
-											</Tag>
-										)}
-									</Table.DataCell>
-									<Table.DataCell>{p.confirmedAt ? formatDate(p.confirmedAt) : "—"}</Table.DataCell>
-								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
-				</VStack>
-			)}
-
-			{/* Entra ID-gruppevedlikehold */}
-			{activity?.type === "entra_id_group_maintenance" && entraGroupsData && (
-				<EntraMaintenanceSection activity={activity} entraGroupsData={entraGroupsData} isDraft={isDraft} />
-			)}
-
-			{/* Revisjonsbevis (Oracle, NDA, etc.) */}
-			{activity && evidenceProviderType === "oracle" && oracleEvidenceData && (
-				<EvidenceSection
-					providerType="oracle"
-					activity={activity}
-					evidenceData={oracleEvidenceData}
-					isDraft={isDraft}
-				/>
-			)}
-			{activity && evidenceProviderType === "deployments" && ndaEvidenceData && (
-				<EvidenceSection
-					providerType="deployments"
-					activity={activity}
-					evidenceData={ndaEvidenceData}
-					isDraft={isDraft}
-				/>
-			)}
-
-			{/* Vedlegg */}
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Vedlegg
-				</Heading>
-				{review.attachments.length > 0 ? (
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell>Filnavn</Table.HeaderCell>
-								<Table.HeaderCell>Type</Table.HeaderCell>
-								<Table.HeaderCell>Størrelse</Table.HeaderCell>
-								<Table.HeaderCell>Kilde</Table.HeaderCell>
-								<Table.HeaderCell>Lastet opp av</Table.HeaderCell>
-								<Table.HeaderCell>Dato</Table.HeaderCell>
-								<Table.HeaderCell />
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{review.attachments.map((a) => (
-								<Table.Row key={a.id}>
-									<Table.DataCell>{a.fileName}</Table.DataCell>
-									<Table.DataCell>{a.contentType}</Table.DataCell>
-									<Table.DataCell>{formatFileSize(a.sizeBytes)}</Table.DataCell>
-									<Table.DataCell>
-										<AttachmentSourceTag sourceType={a.sourceType} />
-									</Table.DataCell>
-									<Table.DataCell>{a.uploadedBy}</Table.DataCell>
-									<Table.DataCell>{formatDate(a.uploadedAt)}</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-2">
-											<Button
-												as="a"
-												href={`/api/rutine-vedlegg/${a.id}`}
-												target="_blank"
-												rel="noopener noreferrer"
-												variant="tertiary"
-												size="xsmall"
-												icon={<ExternalLinkIcon aria-hidden />}
-											>
-												Åpne
-											</Button>
-											<Button
-												as="a"
-												href={`/api/rutine-vedlegg/${a.id}?download=true`}
-												download={a.fileName}
-												variant="tertiary"
-												size="xsmall"
-												icon={<DownloadIcon aria-hidden />}
-											>
-												Last ned
-											</Button>
-										</HStack>
-									</Table.DataCell>
-								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
-				) : (
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<BodyShort>Ingen vedlegg er lagt til denne gjennomgangen.</BodyShort>
-					</Box>
-				)}
-			</VStack>
-
-			{/* Lenker */}
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Lenker
-				</Heading>
-				{review.links.length > 0 ? (
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell>Tittel</Table.HeaderCell>
-								<Table.HeaderCell>URL</Table.HeaderCell>
-								<Table.HeaderCell>Lagt til av</Table.HeaderCell>
-								<Table.HeaderCell>Dato</Table.HeaderCell>
-								{isDraft && <Table.HeaderCell />}
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{review.links.map((l) => (
-								<Table.Row key={l.id}>
-									<Table.DataCell>{l.title || "—"}</Table.DataCell>
-									<Table.DataCell>
-										<AkselLink href={l.url} target="_blank" rel="noopener noreferrer">
-											{l.url.length > 60 ? `${l.url.slice(0, 60)}…` : l.url}
-											<ExternalLinkIcon aria-hidden style={{ marginLeft: "0.25rem" }} />
-										</AkselLink>
-									</Table.DataCell>
-									<Table.DataCell>{l.addedBy}</Table.DataCell>
-									<Table.DataCell>{formatDate(l.addedAt)}</Table.DataCell>
-									{isDraft && (
-										<Table.DataCell>
-											<Form method="post">
-												<input type="hidden" name="intent" value="delete-link" />
-												<input type="hidden" name="linkId" value={l.id} />
-												<Button type="submit" variant="tertiary-neutral" size="xsmall" icon={<TrashIcon aria-hidden />}>
-													Fjern
-												</Button>
-											</Form>
-										</Table.DataCell>
-									)}
-								</Table.Row>
-							))}
-						</Table.Body>
-					</Table>
-				) : (
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<BodyShort>Ingen lenker er lagt til denne gjennomgangen.</BodyShort>
-					</Box>
-				)}
-			</VStack>
-
-			{/* Add link — only for drafts */}
-			{isDraft && <AddLinkSection />}
-
-			{/* Upload section — only for drafts */}
-			{isDraft && <UploadSection reviewId={review.id} />}
-
-			{/* Complete section — only for drafts */}
-			{isDraft && <CompleteSection followUpPoints={review.followUpPoints} />}
-
-			{/* Discard section — only for drafts */}
-			{isDraft && <DiscardSection />}
-		</VStack>
+		<ReviewWizard
+			title={review.title}
+			status={review.status}
+			hasControls={hasControls}
+			hasRulesets={hasRulesets}
+			hasActivity={hasActivity}
+			currentStepId={currentStepId}
+			completedSteps={completedSteps}
+			onStepChange={handleStepChange}
+		>
+			{renderStep()}
+		</ReviewWizard>
 	)
 }
 

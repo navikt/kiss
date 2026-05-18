@@ -1419,17 +1419,65 @@ export function mockGjennomgangDetaljData(overrides?: {
 						)
 					: allPoints
 
+	const mockControls = [
+		{
+			id: "c-1",
+			controlId: "K-ST.01",
+			name: "Sikkerhetstesting av applikasjoner",
+			responsible: "Sikkerhetsansvarlig",
+			domainSlug: "sikkerhetstesting",
+		},
+		{
+			id: "c-2",
+			controlId: "K-ST.03",
+			name: "Sårbarhetsskanning",
+			responsible: "Utviklingsteamet",
+			domainSlug: "sikkerhetstesting",
+		},
+	]
+
+	const mockLinkedRulesets = [
+		{
+			id: "rs-1",
+			code: "RS-ST.01",
+			name: "Regelsett for sikkerhetstesting",
+			description:
+				"## Krav til sikkerhetstesting\n\nAlle produksjonsapplikasjoner skal gjennomgå sikkerhetstesting minst én gang per kvartal.\n\n### Omfang\n- Automatiserte DAST-skanninger\n- Manuell kodegjennomgang av kritiske moduler\n- Verifisering av avhengigheter (SCA)",
+			descriptionHtml:
+				"<h2>Krav til sikkerhetstesting</h2><p>Alle produksjonsapplikasjoner skal gjennomgå sikkerhetstesting minst én gang per kvartal.</p><h3>Omfang</h3><ul><li>Automatiserte DAST-skanninger</li><li>Manuell kodegjennomgang av kritiske moduler</li><li>Verifisering av avhengigheter (SCA)</li></ul>",
+			frequency: "quarterly",
+			status: "active",
+			responsibleName: "Ola Nordmann",
+			responsibleRole: "Sikkerhetsansvarlig",
+			approvalStatus: "valid",
+			lastApproval: { validFrom: "2026-04-15T10:00:00Z", validUntil: "2026-07-15T10:00:00Z" },
+			controls: [
+				{ id: "c-1", controlId: "K-ST.01", shortTitle: "Sikkerhetstesting av applikasjoner" },
+				{ id: "c-2", controlId: "K-ST.03", shortTitle: "Sårbarhetsskanning" },
+			],
+		},
+	]
+
 	return {
 		section: mockSection,
-		routine: mockRoutineBase({
-			id: "routine-1",
-			name: "Sikkerhetstesting av applikasjoner",
-			status: "approved",
-			frequency: "quarterly",
-		}),
+		routine: {
+			...mockRoutineBase({
+				id: "routine-1",
+				name: "Sikkerhetstesting av applikasjoner",
+				status: "approved",
+				frequency: "quarterly",
+				description:
+					"## Formål\nSikre at alle produksjonsapplikasjoner gjennomgår jevnlig sikkerhetstesting.\n\n## Fremgangsmåte\n1. Kjør automatiserte sikkerhetstester\n2. Gjennomgå rapporter fra verktøy\n3. Verifiser at funn er adressert\n4. Dokumenter resultater",
+			}),
+			controls: mockControls,
+		},
+		routineDescriptionHtml:
+			"<h2>Formål</h2><p>Sikre at alle produksjonsapplikasjoner gjennomgår jevnlig sikkerhetstesting.</p><h2>Fremgangsmåte</h2><ol><li>Kjør automatiserte sikkerhetstester</li><li>Gjennomgå rapporter fra verktøy</li><li>Verifiser at funn er adressert</li><li>Dokumenter resultater</li></ol>",
+		linkedRulesets: mockLinkedRulesets,
 		activity: null,
 		entraGroupsData: null,
 		oracleEvidenceData: null,
+		ndaEvidenceData: null,
 		review: {
 			id: "rev-1",
 			routineId: "routine-1",
@@ -1466,6 +1514,7 @@ export function mockGjennomgangDetaljData(overrides?: {
 					fileName: "pentest-rapport.pdf",
 					contentType: "application/pdf",
 					sizeBytes: 3_400_000,
+					sourceType: "manual",
 					uploadedAt: "2026-03-01T09:30:00Z",
 					uploadedBy: "A123456",
 				},
@@ -1557,10 +1606,13 @@ export function mockGjennomgangDetaljOracleEvidenceData(overrides?: {
 	return {
 		...mockGjennomgangDetaljData(),
 		activity: mockOracleEvidenceActivity({ status: overrides?.activityStatus }),
-		oracleEvidenceData: mockOracleEvidenceData({
-			evidenceTypes: overrides?.evidenceTypes,
-			withDownloads: overrides?.withDownloads,
-		}),
+		oracleEvidenceData: {
+			...mockOracleEvidenceData({
+				evidenceTypes: overrides?.evidenceTypes,
+				withDownloads: overrides?.withDownloads,
+			}),
+			selectedInstanceId: "PENSJON_PROD",
+		},
 	}
 }
 
