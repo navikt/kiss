@@ -13,6 +13,7 @@ vi.mock("~/db/connection.server", () => ({
 const {
 	archiveRoutine,
 	unarchiveRoutine,
+	deleteDraftRoutine,
 	createRoutine,
 	getRoutine,
 	getRoutinesForSection,
@@ -784,6 +785,68 @@ describe("Routine archive (soft-delete) integration tests", () => {
 					participants: [],
 				}),
 			).rejects.toMatchObject({ status: 400 })
+		})
+	})
+
+	describe("deleteDraftRoutine", () => {
+		it("soft-deletes a draft routine with status='deleted' and archivedAt", async () => {
+			const sectionId = await createTestSection("Sec", "sec")
+			const routine = await createTestRoutine(sectionId, "Draft to delete")
+
+			const deleted = await deleteDraftRoutine(routine.id, "deleter")
+			expect(deleted?.status).toBe("deleted")
+			expect(deleted?.archivedAt).not.toBeNull()
+			expect(deleted?.archivedBy).toBe("deleter")
+
+			const fetched = await getRoutine(routine.id)
+			expect(fetched?.archivedAt).not.toBeNull()
+			expect(fetched?.status).toBe("deleted")
+		})
+
+		it("excludes deleted draft from getRoutinesForSection()", async () => {
+			const sectionId = await createTestSection("Sec", "sec")
+			const active = await createTestRoutine(sectionId, "Active")
+			const toDelete = await createTestRoutine(sectionId, "ToDelete")
+			await deleteDraftRoutine(toDelete.id, "admin")
+
+			const listed = await getRoutinesForSection(sectionId)
+			expect(listed.map((r) => r.id)).toContain(active.id)
+			expect(listed.map((r) => r.id)).not.toContain(toDelete.id)
+		})
+
+		it("writes exactly one audit_log entry", async () => {
+			const sectionId = await createTestSection("Sec", "sec")
+			const routine = await createTestRoutine(sectionId, "Audited")
+			await deleteDraftRoutine(routine.id, "admin")
+
+			const audit = await getAuditByEntity("routine", routine.id)
+			const deletes = audit.filter((a) => a.action === "routine_deleted")
+			expect(deletes).toHaveLength(1)
+			expect(deletes[0].performed_by).toBe("admin")
+		})
+
+		it("is idempotent: second call returns existing without extra audit", async () => {
+			const sectionId = await createTestSection("Sec", "sec")
+			const routine = await createTestRoutine(sectionId, "R1")
+			await deleteDraftRoutine(routine.id, "first")
+			await deleteDraftRoutine(routine.id, "second")
+
+			const audit = await getAuditByEntity("routine", routine.id)
+			const deletes = audit.filter((a) => a.action === "routine_deleted")
+			expect(deletes).toHaveLength(1)
+			expect(deletes[0].performed_by).toBe("first")
+		})
+
+		it("throws when routine does not exist", async () => {
+			await expect(deleteDraftRoutine("00000000-0000-0000-0000-000000000000", "admin")).rejects.toThrow("finnes ikke")
+		})
+
+		it("throws when routine is approved (not draft)", async () => {
+			const sectionId = await createTestSection("Sec", "sec")
+			const routine = await createTestRoutine(sectionId, "Approved")
+			await approveForArchiving(routine.id)
+
+			await expect(deleteDraftRoutine(routine.id, "admin")).rejects.toThrow('forventet "draft"')
 		})
 	})
 })

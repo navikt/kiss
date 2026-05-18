@@ -912,7 +912,12 @@ export async function deleteDraftRoutine(id: string, performedBy: string) {
 			})
 			.where(and(eq(routines.id, id), isNull(routines.archivedAt), eq(routines.status, "draft")))
 			.returning()
-		if (!deleted) return null
+		if (!deleted) {
+			const [existing] = await tx.select().from(routines).where(eq(routines.id, id)).limit(1)
+			if (!existing) throw new Error(`Rutine med id=${id} finnes ikke`)
+			if (existing.archivedAt) return existing // idempotent: allerede slettet
+			throw new Error(`Kan ikke slette rutine med id=${id} (status="${existing.status}", forventet "draft")`)
+		}
 
 		await writeAuditLog(
 			{
