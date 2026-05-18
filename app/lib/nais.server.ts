@@ -381,6 +381,28 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 				}
 			}
 
+			// Detect on-prem PostgreSQL from vault paths in manifest
+			if (node.manifest?.content) {
+				const pgVaultPaths = node.manifest.content.match(/kvPath:\s*(postgresql\/[^\s]+)/g)
+				if (pgVaultPaths) {
+					const dbNames = new Set<string>()
+					for (const match of pgVaultPaths) {
+						const path = match.replace("kvPath:", "").trim()
+						// postgresql/{cluster}/static-creds/{db-name}-static-{role}
+						const credsMatch = path.match(/postgresql\/[^/]+\/static-creds\/(.+)-static-\w+$/)
+						if (credsMatch) {
+							dbNames.add(credsMatch[1])
+						}
+					}
+					for (const dbName of dbNames) {
+						persistence.push({
+							type: "on_prem_postgres",
+							name: dbName,
+						})
+					}
+				}
+			}
+
 			// Detect on-prem PostgreSQL from envFrom secrets in manifest
 			if (node.manifest?.content) {
 				const secretMatches = node.manifest.content.match(/-\s*secret:\s*([^\s]+)/g)
@@ -388,9 +410,8 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 					for (const match of secretMatches) {
 						const secretName = match.replace(/-\s*secret:\s*/, "").trim()
 						if (/postgres(?:ql)?$/i.test(secretName)) {
-							// Avoid duplicates if already detected as cloud_sql or nais postgres
 							const alreadyHasPostgres = persistence.some(
-								(p) => p.type === "cloud_sql_postgres" || p.type === "nais_postgres",
+								(p) => p.type === "cloud_sql_postgres" || p.type === "nais_postgres" || p.type === "on_prem_postgres",
 							)
 							if (!alreadyHasPostgres) {
 								persistence.push({
