@@ -294,7 +294,6 @@ describe("compliance-auto.server integration tests", () => {
 			updated_by: "admin",
 		})
 		const testNaisTeamId = await rawInsert("nais_teams", {
-			name: "test-team-disabled",
 			slug: "test-team-disabled",
 			section_id: testSectionId,
 		})
@@ -342,7 +341,6 @@ describe("compliance-auto.server integration tests", () => {
 			updated_by: "admin",
 		})
 		const testNaisTeamId = await rawInsert("nais_teams", {
-			name: "test-team-mixed",
 			slug: "test-team-mixed",
 			section_id: testSectionId,
 		})
