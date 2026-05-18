@@ -224,11 +224,15 @@ describe("Routine archive (soft-delete) integration tests", () => {
 	})
 
 	it("throws when archiving a non-existent routine", async () => {
-		await expect(archiveRoutine("00000000-0000-0000-0000-000000000000", "admin")).rejects.toThrow("finnes ikke")
+		await expect(archiveRoutine("00000000-0000-0000-0000-000000000000", "admin")).rejects.toMatchObject({
+			status: 404,
+		})
 	})
 
 	it("throws when unarchiving a non-existent routine", async () => {
-		await expect(unarchiveRoutine("00000000-0000-0000-0000-000000000000", "admin")).rejects.toThrow("finnes ikke")
+		await expect(unarchiveRoutine("00000000-0000-0000-0000-000000000000", "admin")).rejects.toMatchObject({
+			status: 404,
+		})
 	})
 
 	it("preserves reviews after soft-delete", async () => {
@@ -838,7 +842,9 @@ describe("Routine archive (soft-delete) integration tests", () => {
 		})
 
 		it("throws when routine does not exist", async () => {
-			await expect(deleteDraftRoutine("00000000-0000-0000-0000-000000000000", "admin")).rejects.toThrow("finnes ikke")
+			await expect(deleteDraftRoutine("00000000-0000-0000-0000-000000000000", "admin")).rejects.toMatchObject({
+				status: 404,
+			})
 		})
 
 		it("throws when routine is approved (not draft)", async () => {
@@ -846,7 +852,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const routine = await createTestRoutine(sectionId, "Approved")
 			await approveForArchiving(routine.id)
 
-			await expect(deleteDraftRoutine(routine.id, "admin")).rejects.toThrow('forventet "draft"')
+			await expect(deleteDraftRoutine(routine.id, "admin")).rejects.toMatchObject({ status: 409 })
 		})
 	})
 })

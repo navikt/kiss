@@ -867,9 +867,11 @@ export async function archiveRoutine(id: string, performedBy: string) {
 			.returning()
 		if (!archived) {
 			const [existing] = await tx.select().from(routines).where(eq(routines.id, id)).limit(1)
-			if (!existing) throw new Error(`Rutine med id=${id} finnes ikke`)
+			if (!existing) throw new Response(`Rutine med id=${id} finnes ikke`, { status: 404 })
 			if (existing.archivedAt) return existing // idempotent: allerede arkivert
-			throw new Error(`Kan ikke arkivere rutine med id=${id} (status="${existing.status}", forventet "approved")`)
+			throw new Response(`Kan ikke arkivere rutine (status="${existing.status}", forventet "approved")`, {
+				status: 409,
+			})
 		}
 		await writeAuditLog(
 			{
@@ -914,9 +916,9 @@ export async function deleteDraftRoutine(id: string, performedBy: string) {
 			.returning()
 		if (!deleted) {
 			const [existing] = await tx.select().from(routines).where(eq(routines.id, id)).limit(1)
-			if (!existing) throw new Error(`Rutine med id=${id} finnes ikke`)
-			if (existing.archivedAt) return existing // idempotent: allerede slettet
-			throw new Error(`Kan ikke slette rutine med id=${id} (status="${existing.status}", forventet "draft")`)
+			if (!existing) throw new Response(`Rutine med id=${id} finnes ikke`, { status: 404 })
+			if (existing.archivedAt && existing.status === "deleted") return existing // idempotent: allerede slettet
+			throw new Response(`Kan ikke slette rutine (status="${existing.status}", forventet "draft")`, { status: 409 })
 		}
 
 		await writeAuditLog(
@@ -948,7 +950,7 @@ export async function deleteDraftRoutine(id: string, performedBy: string) {
 export async function unarchiveRoutine(id: string, performedBy: string) {
 	return db.transaction(async (tx) => {
 		const [existing] = await tx.select().from(routines).where(eq(routines.id, id)).for("update").limit(1)
-		if (!existing) throw new Error(`Rutine med id=${id} finnes ikke`)
+		if (!existing) throw new Response(`Rutine med id=${id} finnes ikke`, { status: 404 })
 		if (!existing.archivedAt) return existing // idempotent: allerede aktiv
 		const previousArchivedAt = existing.archivedAt
 		const previousStatus = existing.status
