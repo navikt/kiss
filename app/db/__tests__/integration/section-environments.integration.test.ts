@@ -16,6 +16,8 @@ const {
 	includeEnvironment,
 	upsertAppEnvironment,
 	getUnassignedAppsForSection,
+	getNaisTeamAppCounts,
+	getNaisTeamDetail,
 } = await import("~/db/queries/nais.server")
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -245,6 +247,47 @@ describe("section_environments integration tests", () => {
 			await includeEnvironment(sectionId, "dev-gcp", "test")
 			const candidatesAfter = await getUnassignedAppsForSection(sectionId)
 			expect(candidatesAfter.map((c) => c.appId)).toContain(devOnlyApp)
+		})
+	})
+
+	describe("Nais team views — excluded cluster filtering", () => {
+		it("getNaisTeamDetail hides apps and environments that only exist in excluded clusters", async () => {
+			const sectionId = await createSection("Nais Team Detail Section")
+			const naisTeamSlug = "team-detail-filter"
+			const naisTeamId = await createNaisTeam(naisTeamSlug, sectionId)
+
+			const prodAppId = await createApp("team-detail-prod")
+			const devOnlyAppId = await createApp("team-detail-dev-only")
+
+			await upsertAppEnvironment(prodAppId, "prod-gcp", naisTeamSlug, naisTeamId)
+			await upsertAppEnvironment(devOnlyAppId, "dev-fss", naisTeamSlug, naisTeamId)
+
+			await excludeEnvironment(sectionId, "dev-fss", "test")
+
+			const detail = await getNaisTeamDetail(naisTeamSlug)
+			expect(detail).not.toBeNull()
+
+			const appIds = detail?.apps.map((app) => app.appId) ?? []
+			expect(appIds).toContain(prodAppId)
+			expect(appIds).not.toContain(devOnlyAppId)
+			expect(detail?.apps.flatMap((app) => app.environments.map((env) => env.cluster))).not.toContain("dev-fss")
+		})
+
+		it("getNaisTeamAppCounts excludes apps that only have excluded environments", async () => {
+			const sectionId = await createSection("Nais Team Count Section")
+			const naisTeamSlug = "team-count-filter"
+			const naisTeamId = await createNaisTeam(naisTeamSlug, sectionId)
+
+			const prodAppId = await createApp("team-count-prod")
+			const devOnlyAppId = await createApp("team-count-dev-only")
+
+			await upsertAppEnvironment(prodAppId, "prod-gcp", naisTeamSlug, naisTeamId)
+			await upsertAppEnvironment(devOnlyAppId, "dev-fss", naisTeamSlug, naisTeamId)
+
+			await excludeEnvironment(sectionId, "dev-fss", "test")
+
+			const counts = await getNaisTeamAppCounts()
+			expect(counts.get(naisTeamId)).toBe(1)
 		})
 	})
 })

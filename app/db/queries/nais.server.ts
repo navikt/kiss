@@ -150,6 +150,21 @@ export async function getNaisTeamDetail(slug: string) {
 		sectionSlug = section?.slug ?? null
 	}
 
+	const excludedClusters =
+		team.sectionId !== null
+			? (
+					await db
+						.select({ cluster: sectionEnvironments.cluster })
+						.from(sectionEnvironments)
+						.where(and(eq(sectionEnvironments.sectionId, team.sectionId), eq(sectionEnvironments.included, false)))
+				).map((row) => row.cluster)
+			: []
+
+	const envConditions = [
+		eq(applicationEnvironments.naisTeamId, team.id),
+		isNull(monitoredApplications.primaryApplicationId),
+	] as const
+
 	// Get apps for this team via applicationEnvironments (excludes linked/child apps)
 	const envRows = await db
 		.select({
@@ -161,7 +176,12 @@ export async function getNaisTeamDetail(slug: string) {
 		})
 		.from(applicationEnvironments)
 		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
-		.where(and(eq(applicationEnvironments.naisTeamId, team.id), isNull(monitoredApplications.primaryApplicationId)))
+		.where(
+			and(
+				...envConditions,
+				excludedClusters.length > 0 ? notInArray(applicationEnvironments.cluster, excludedClusters) : sql`TRUE`,
+			),
+		)
 		.orderBy(monitoredApplications.name, applicationEnvironments.cluster)
 
 	// Group by app, collect environments
@@ -206,7 +226,18 @@ export async function getNaisTeamAppCounts(): Promise<Map<string, number>> {
 		})
 		.from(applicationEnvironments)
 		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
-		.where(isNull(monitoredApplications.primaryApplicationId))
+		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+		.where(
+			and(
+				isNull(monitoredApplications.primaryApplicationId),
+				sql`NOT EXISTS (
+					SELECT 1 FROM ${sectionEnvironments} se
+					WHERE se.section_id = ${naisTeams.sectionId}
+					AND se.cluster = ${applicationEnvironments.cluster}
+					AND se.included = false
+				)`,
+			),
+		)
 		.groupBy(applicationEnvironments.naisTeamId)
 
 	const map = new Map<string, number>()
