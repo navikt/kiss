@@ -1,8 +1,9 @@
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import { applicationTechnologyElements, frameworkControls, technologyElements } from "../schema/framework"
+import { sectionEnvironments } from "../schema/organization"
 import { routineControls, routines } from "../schema/routines"
 import { rulesetControls } from "../schema/rulesets"
 import {
@@ -921,12 +922,30 @@ export async function getScreeningDataForApp(applicationId: string) {
 	// Get global questions + section-scoped questions for the app's section(s)
 	const globalQuestions = await getScreeningQuestions({ status: "approved" })
 
-	// Find section IDs for this app via its nais team environments
+	// Find section IDs for this app via its nais team environments (enabled only)
 	const sectionRows = await db
 		.selectDistinct({ sectionId: naisTeams.sectionId })
 		.from(applicationEnvironments)
 		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(and(eq(applicationEnvironments.applicationId, applicationId), isNotNull(naisTeams.sectionId)))
+		.where(
+			and(
+				eq(applicationEnvironments.applicationId, applicationId),
+				isNotNull(naisTeams.sectionId),
+				// Exclude environments that are disabled for their section
+				notExists(
+					db
+						.select({ cluster: sectionEnvironments.cluster })
+						.from(sectionEnvironments)
+						.where(
+							and(
+								eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+								eq(sectionEnvironments.sectionId, naisTeams.sectionId),
+								eq(sectionEnvironments.included, false),
+							),
+						),
+				),
+			),
+		)
 
 	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
 

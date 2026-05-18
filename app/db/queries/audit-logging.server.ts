@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, notExists, sql } from "drizzle-orm"
 import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
 import { db } from "../connection.server"
 import {
@@ -14,7 +14,7 @@ import { auditLog } from "../schema/audit"
 import { applicationOracleInstances } from "../schema/audit-evidence"
 import type { AuditConclusion } from "../schema/audit-logging"
 import { persistenceAuditConfirmations, persistenceAuditSummaries } from "../schema/audit-logging"
-import { devTeams, sections } from "../schema/organization"
+import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -418,6 +418,14 @@ async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 	const allNaisTeamIds = [...new Set([...linkedNaisTeamIds, ...sectionNaisTeamIds])]
 
 	if (allNaisTeamIds.length > 0) {
+		// Get excluded clusters for this section
+		const excludedClusters = await db
+			.select({ cluster: sectionEnvironments.cluster })
+			.from(sectionEnvironments)
+			.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false)))
+
+		const excludedClusterList = excludedClusters.map((r) => r.cluster)
+
 		const naisAppRows = await db
 			.selectDistinct({ appId: applicationEnvironments.applicationId })
 			.from(applicationEnvironments)
@@ -426,6 +434,20 @@ async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 				and(
 					inArray(applicationEnvironments.naisTeamId, allNaisTeamIds),
 					isNull(monitoredApplications.primaryApplicationId),
+					excludedClusterList.length > 0
+						? notExists(
+								db
+									.select({ cluster: sectionEnvironments.cluster })
+									.from(sectionEnvironments)
+									.where(
+										and(
+											eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+											eq(sectionEnvironments.sectionId, sectionId),
+											eq(sectionEnvironments.included, false),
+										),
+									),
+							)
+						: sql`TRUE`,
 				),
 			)
 		for (const row of naisAppRows) appIds.add(row.appId)

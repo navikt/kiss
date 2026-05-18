@@ -37,6 +37,7 @@ describe("Audit logging integration tests", () => {
 			DELETE FROM application_team_mappings;
 			DELETE FROM dev_team_nais_team_mappings;
 			DELETE FROM section_ignored_applications;
+			DELETE FROM section_environments;
 			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
 			DELETE FROM nais_teams;
@@ -96,10 +97,10 @@ describe("Audit logging integration tests", () => {
 		return (result.rows[0] as Record<string, string>).id
 	}
 
-	async function createAppEnvironment(appId: string, naisTeamId: string) {
+	async function createAppEnvironment(appId: string, naisTeamId: string, cluster: string = "prod-gcp") {
 		const db = getTestDb()
 		await db.execute(
-			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', 'prod-gcp', 'default', '${naisTeamId}')`,
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', '${cluster}', 'default', '${naisTeamId}')`,
 		)
 	}
 
@@ -254,6 +255,48 @@ describe("Audit logging integration tests", () => {
 			expect(result).toHaveLength(1)
 			expect(result[0].appName).toBe("dual-path-app")
 			expect(result[0].teamName).toBe("Backend")
+		})
+
+		it("excludes apps that only exist in disabled environments", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const naisTeamId = await createNaisTeam("nais-team", sectionId)
+
+			// Create an app in a disabled cluster
+			const appId = await createTestApp("disabled-cluster-app")
+			await createAppEnvironment(appId, naisTeamId, "dev-gcp") // app in dev-gcp
+			await createPersistence(appId, "my-db", "cloud_sql_postgres")
+
+			// Disable the dev-gcp cluster for this section
+			await db.execute(
+				`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
+				 VALUES ('${sectionId}', 'dev-gcp', false, 'test', 'test')`,
+			)
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(0)
+		})
+
+		it("includes apps if they have at least one enabled environment", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const naisTeamId = await createNaisTeam("nais-team", sectionId)
+
+			// Create an app in both dev-gcp (disabled) and prod-gcp (enabled)
+			const appId = await createTestApp("multi-env-app")
+			await createAppEnvironment(appId, naisTeamId, "dev-gcp")
+			await createAppEnvironment(appId, naisTeamId, "prod-gcp")
+			await createPersistence(appId, "my-db", "cloud_sql_postgres")
+
+			// Disable only dev-gcp
+			await db.execute(
+				`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
+				 VALUES ('${sectionId}', 'dev-gcp', false, 'test', 'test')`,
+			)
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(1)
+			expect(result[0].appName).toBe("multi-env-app")
 		})
 	})
 
