@@ -21,6 +21,7 @@ const {
 	archiveTeam,
 	unarchiveTeam,
 	getTeamsForSection,
+	getSectionDetail,
 } = await import("~/db/queries/sections.server")
 
 async function getAuditByEntity(entityType: string, entityId: string) {
@@ -48,7 +49,12 @@ describe("sections.server integration tests", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
+			DELETE FROM section_ignored_applications;
+			DELETE FROM section_environments;
+			DELETE FROM application_team_mappings;
+			DELETE FROM application_environments;
 			DELETE FROM dev_team_nais_team_mappings;
+			DELETE FROM monitored_applications;
 			DELETE FROM nais_teams;
 			DELETE FROM dev_teams;
 			DELETE FROM sections;
@@ -306,6 +312,170 @@ describe("sections.server integration tests", () => {
 
 			expect(a?.linkedNaisTeams).toEqual(["nais-alpha"])
 			expect(b?.linkedNaisTeams).toEqual(["nais-gamma"])
+		})
+	})
+
+	describe("getSectionDetail", () => {
+		async function createApp(name: string) {
+			const db = getTestDb()
+			const [app] = (
+				await db.execute(
+					/* sql */ `INSERT INTO monitored_applications (name, created_by, updated_by) VALUES ('${name}', 'test', 'test') RETURNING id`,
+				)
+			).rows as { id: string }[]
+			return app
+		}
+
+		async function createEnv(appId: string, cluster: string, namespace: string, naisTeamId?: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', '${cluster}', '${namespace}', ${naisTeamId ? `'${naisTeamId}'` : "NULL"})`,
+			)
+		}
+
+		async function createDirectMapping(appId: string, devTeamId: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES ('${appId}', '${devTeamId}', 'test')`,
+			)
+		}
+
+		async function createNaisTeamMapping(devTeamId: string, naisTeamId: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by) VALUES ('${devTeamId}', '${naisTeamId}', 'test')`,
+			)
+		}
+
+		async function createNaisTeam(slug: string, sectionId: string) {
+			const db = getTestDb()
+			const [team] = (
+				await db.execute(
+					/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('${slug}', '${sectionId}') RETURNING id`,
+				)
+			).rows as { id: string }[]
+			return team
+		}
+
+		async function ignoreApp(sectionId: string, appId: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO section_ignored_applications (section_id, application_id, ignored_by) VALUES ('${sectionId}', '${appId}', 'test')`,
+			)
+		}
+
+		async function excludeEnv(sectionId: string, cluster: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${sectionId}', '${cluster}', false, 'test', 'test')`,
+			)
+		}
+
+		it("returns null for non-existent section", async () => {
+			const result = await getSectionDetail("non-existent-slug")
+			expect(result).toBeNull()
+		})
+
+		it("returns section with 0 dev teams but includes unassigned NAIS team apps", async () => {
+			const section = await createSection("Empty Section", "No teams", "admin")
+			const naisTeam = await createNaisTeam("nais-team-1", section.id)
+			const app = await createApp("nais-app-1")
+			await createEnv(app.id, "prod-gcp", "team1", naisTeam.id)
+
+			const result = await getSectionDetail(section.slug)
+			expect(result).not.toBeNull()
+			expect(result!.teams).toHaveLength(0)
+			expect(result!.unassignedStats.apps).toBe(1)
+			expect(result!.allAppIds).toContain(app.id)
+		})
+
+		it("includes apps from direct team mappings", async () => {
+			const section = await createSection("Direct Section", "Desc", "admin")
+			const team = await createTeam(section.id, "Team Alpha", "team-alpha", "admin")
+			const app = await createApp("direct-app")
+			await createEnv(app.id, "prod-gcp", "ns", undefined)
+			await createDirectMapping(app.id, team.id)
+
+			const result = await getSectionDetail(section.slug)
+			expect(result).not.toBeNull()
+			expect(result!.teams).toHaveLength(1)
+			expect(result!.teams[0].apps).toBe(1)
+			expect(result!.allAppIds).toContain(app.id)
+		})
+
+		it("includes apps from linked NAIS teams", async () => {
+			const section = await createSection("Nais Section", "Desc", "admin")
+			const team = await createTeam(section.id, "Team Beta", "team-beta", "admin")
+			const naisTeam = await createNaisTeam("nais-linked", section.id)
+			await createNaisTeamMapping(team.id, naisTeam.id)
+			const app = await createApp("nais-linked-app")
+			await createEnv(app.id, "prod-gcp", "ns", naisTeam.id)
+
+			const result = await getSectionDetail(section.slug)
+			expect(result).not.toBeNull()
+			expect(result!.teams).toHaveLength(1)
+			expect(result!.teams[0].apps).toBe(1)
+			expect(result!.allAppIds).toContain(app.id)
+		})
+
+		it("filters out ignored apps from NAIS-derived sets and unassigned", async () => {
+			const section = await createSection("Ignored Section", "Desc", "admin")
+			const naisTeam = await createNaisTeam("nais-ignored", section.id)
+			const team = await createTeam(section.id, "Team Gamma", "team-gamma", "admin")
+			await createNaisTeamMapping(team.id, naisTeam.id)
+
+			const appKept = await createApp("kept-app")
+			const appIgnored = await createApp("ignored-app")
+			await createEnv(appKept.id, "prod-gcp", "ns", naisTeam.id)
+			await createEnv(appIgnored.id, "prod-gcp", "ns", naisTeam.id)
+			await ignoreApp(section.id, appIgnored.id)
+
+			const result = await getSectionDetail(section.slug)
+			expect(result).not.toBeNull()
+			expect(result!.teams[0].apps).toBe(1)
+			expect(result!.allAppIds).toContain(appKept.id)
+			expect(result!.allAppIds).not.toContain(appIgnored.id)
+		})
+
+		it("excludes apps whose only environments are in excluded clusters", async () => {
+			const section = await createSection("Excluded Env Section", "Desc", "admin")
+			const team = await createTeam(section.id, "Team Delta", "team-delta", "admin")
+			await excludeEnv(section.id, "dev-gcp")
+
+			const appExcluded = await createApp("only-dev-app")
+			await createEnv(appExcluded.id, "dev-gcp", "ns", undefined)
+			await createDirectMapping(appExcluded.id, team.id)
+
+			const appKept = await createApp("prod-and-dev-app")
+			await createEnv(appKept.id, "dev-gcp", "ns", undefined)
+			await createEnv(appKept.id, "prod-gcp", "ns", undefined)
+			await createDirectMapping(appKept.id, team.id)
+
+			const result = await getSectionDetail(section.slug)
+			expect(result).not.toBeNull()
+			expect(result!.teams[0].apps).toBe(1)
+			expect(result!.allAppIds).toContain(appKept.id)
+			expect(result!.allAppIds).not.toContain(appExcluded.id)
+		})
+
+		it("does not double-count apps shared across multiple teams", async () => {
+			const section = await createSection("Shared Section", "Desc", "admin")
+			const teamA = await createTeam(section.id, "Team A", "team-a", "admin")
+			const teamB = await createTeam(section.id, "Team B", "team-b", "admin")
+			const app = await createApp("shared-app")
+			await createEnv(app.id, "prod-gcp", "ns", undefined)
+			await createDirectMapping(app.id, teamA.id)
+			await createDirectMapping(app.id, teamB.id)
+
+			const result = await getSectionDetail(section.slug)
+			expect(result).not.toBeNull()
+			expect(result!.teams).toHaveLength(2)
+			expect(result!.teams[0].apps).toBe(1)
+			expect(result!.teams[1].apps).toBe(1)
+			// allAppIds should only contain the app once
+			expect(result!.allAppIds.filter((id) => id === app.id)).toHaveLength(1)
+			// sectionTotals counts per unique app, not per team assignment
+			expect(result!.sectionTotals.apps).toBe(1)
 		})
 	})
 })
