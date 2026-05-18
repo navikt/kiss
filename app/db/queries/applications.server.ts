@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, eq, ilike, inArray, isNotNull, isNull, or, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	applicationEnvironments,
@@ -19,6 +19,55 @@ import {
 import { devTeams, sectionEnvironments } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 import { getScreeningDerivedControlIds } from "./screening.server"
+
+/** Search applications while excluding auto-discovered apps that only exist in deactivated environments. */
+export async function searchApplications(query: string, limit = 200) {
+	const pattern = `%${query}%`
+
+	const hasVisibleNaisEnvironment = sql`EXISTS (
+		SELECT 1 FROM ${applicationEnvironments} ae
+		LEFT JOIN ${naisTeams} nt ON nt.id = ae.nais_team_id
+		WHERE ae.application_id = ${monitoredApplications.id}
+		AND (
+			nt.section_id IS NULL
+			OR NOT EXISTS (
+				SELECT 1 FROM ${sectionEnvironments} se
+				WHERE se.section_id = nt.section_id
+				AND se.cluster = ae.cluster
+				AND se.included = false
+			)
+		)
+	)`
+
+	const hasActiveTeamMapping = sql`EXISTS (
+		SELECT 1 FROM ${applicationTeamMappings} atm
+		INNER JOIN ${devTeams} dt ON dt.id = atm.dev_team_id
+		WHERE atm.application_id = ${monitoredApplications.id}
+		AND atm.archived_at IS NULL
+		AND dt.archived_at IS NULL
+	)`
+
+	return db
+		.select({
+			id: monitoredApplications.id,
+			name: monitoredApplications.name,
+			description: monitoredApplications.description,
+		})
+		.from(monitoredApplications)
+		.where(
+			and(
+				isNull(monitoredApplications.archivedAt),
+				isNull(monitoredApplications.primaryApplicationId),
+				or(
+					eq(monitoredApplications.addedManually, true),
+					sql`${hasVisibleNaisEnvironment}`,
+					sql`${hasActiveTeamMapping}`,
+				),
+				or(ilike(monitoredApplications.name, pattern), ilike(monitoredApplications.description, pattern)),
+			),
+		)
+		.limit(limit)
+}
 
 /** Get all monitored applications with compliance summary (excludes linked/child apps and archived). */
 export async function getApplications() {

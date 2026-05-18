@@ -1,6 +1,7 @@
 import { and, eq, ilike, inArray, isNull, or } from "drizzle-orm"
 import type { LoaderFunctionArgs } from "react-router"
 import { db } from "~/db/connection.server"
+import { searchApplications } from "~/db/queries/applications.server"
 import { getControlDomainMap } from "~/db/queries/framework.server"
 import {
 	applicationTeamMappings,
@@ -8,7 +9,6 @@ import {
 	frameworkControls,
 	frameworkDomains,
 	frameworkRisks,
-	monitoredApplications,
 	naisTeams,
 	sections,
 } from "~/db/schema"
@@ -52,20 +52,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 	const [appResults, teamResults, sectionResults, riskResults, controlResults] = await Promise.all([
 		// Applications
-		db
-			.select({
-				id: monitoredApplications.id,
-				name: monitoredApplications.name,
-				description: monitoredApplications.description,
-			})
-			.from(monitoredApplications)
-			.where(
-				and(
-					isNull(monitoredApplications.archivedAt),
-					or(ilike(monitoredApplications.name, pattern), ilike(monitoredApplications.description, pattern)),
-				),
-			)
-			.limit(limit),
+		searchApplications(query, limit),
 
 		// Nais teams
 		db

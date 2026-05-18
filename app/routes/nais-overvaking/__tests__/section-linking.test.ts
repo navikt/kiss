@@ -12,24 +12,26 @@ vi.mock("~/lib/auth.server", () => ({
 const mockLinkNaisTeamToSection = vi.fn()
 const mockUnlinkNaisTeamFromSection = vi.fn()
 const mockUpdateNaisTeamStatus = vi.fn()
+const mockGetNaisTeams = vi.fn()
+const mockGetNaisTeamAppCounts = vi.fn()
+const mockGetLastSyncTimestamp = vi.fn()
 vi.mock("~/db/queries/nais.server", () => ({
-	getNaisTeams: vi.fn().mockResolvedValue([]),
-	getNaisTeamAppCounts: vi.fn().mockResolvedValue(new Map()),
-	getLastSyncTimestamp: vi.fn().mockResolvedValue(null),
+	getNaisTeams: mockGetNaisTeams,
+	getNaisTeamAppCounts: mockGetNaisTeamAppCounts,
+	getLastSyncTimestamp: mockGetLastSyncTimestamp,
 	linkNaisTeamToSection: mockLinkNaisTeamToSection,
 	unlinkNaisTeamFromSection: mockUnlinkNaisTeamFromSection,
 	updateNaisTeamStatus: mockUpdateNaisTeamStatus,
 }))
 
-vi.mock("~/db/queries/sections.server", () => ({
-	getSections: vi.fn().mockResolvedValue([]),
-}))
+const mockGetSections = vi.fn()
+vi.mock("~/db/queries/sections.server", () => ({ getSections: mockGetSections }))
 
 vi.mock("~/lib/nais-sync-jobs.server", () => ({
 	runTrackedNaisSync: vi.fn(),
 }))
 
-const { action } = await import("../index")
+const { action, loader } = await import("../index")
 
 // --- Helpers ---------------------------------------------------------
 
@@ -62,6 +64,10 @@ describe("nais-overvaking action – section linking", () => {
 		vi.clearAllMocks()
 		mockGetAuthenticatedUser.mockResolvedValue(testUser)
 		mockRequireUser.mockReturnValue(testUser)
+		mockGetNaisTeams.mockResolvedValue([])
+		mockGetNaisTeamAppCounts.mockResolvedValue(new Map())
+		mockGetLastSyncTimestamp.mockResolvedValue(null)
+		mockGetSections.mockResolvedValue([])
 	})
 
 	it("links a Nais team to a section and sets status to monitored", async () => {
@@ -144,5 +150,36 @@ describe("nais-overvaking action – section linking", () => {
 			expect(thrown).toBeInstanceOf(Response)
 			expect((thrown as Response).status).toBe(400)
 		}
+	})
+})
+
+describe("nais-overvaking loader", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+		mockGetSections.mockResolvedValue([])
+		mockGetLastSyncTimestamp.mockResolvedValue(null)
+	})
+
+	it("uses filtered app counts from getNaisTeamAppCounts", async () => {
+		mockGetNaisTeams.mockResolvedValue([
+			{
+				id: "team-1",
+				slug: "pensjon-q0",
+				displayName: "Pensjon Q0",
+				appCount: 10,
+				discoveredAt: new Date("2026-05-16T10:00:00.000Z"),
+				sectionId: null,
+			},
+		])
+		mockGetNaisTeamAppCounts.mockResolvedValue(new Map([["team-1", 2]]))
+
+		const result = await loader({
+			request: new Request("http://localhost/admin/nais-overvaking"),
+			params: {},
+			context: {},
+		} as unknown as Parameters<typeof loader>[0])
+
+		const payload = "data" in result ? (result as { data: { teams: Array<{ appCount: number }> } }).data : null
+		expect(payload?.teams[0]?.appCount).toBe(2)
 	})
 })

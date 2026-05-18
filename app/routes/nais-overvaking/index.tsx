@@ -42,7 +42,7 @@ export async function loader(_args: LoaderFunctionArgs) {
 	const naisTeams = teams.map((t) => ({
 		slug: t.slug,
 		displayName: t.displayName,
-		appCount: Math.max(t.appCount, appCounts.get(t.id) ?? 0),
+		appCount: appCounts.get(t.id) ?? 0,
 		discoveredAt: new Date(t.discoveredAt).toISOString().split("T")[0],
 		sectionId: t.sectionId,
 		sectionName: t.sectionId ? (sectionMap.get(t.sectionId) ?? null) : null,

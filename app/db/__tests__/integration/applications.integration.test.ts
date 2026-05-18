@@ -12,9 +12,8 @@ vi.mock("~/db/connection.server", () => ({
 }))
 
 const { stageFrameworkImport, applyFrameworkImport } = await import("~/db/queries/framework.server")
-const { getApplications, getApplicationsForSection, linkAppToTeam, unlinkAppFromTeam } = await import(
-	"~/db/queries/applications.server"
-)
+const { getApplications, getApplicationsForSection, linkAppToTeam, searchApplications, unlinkAppFromTeam } =
+	await import("~/db/queries/applications.server")
 const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
 const { archiveTeam } = await import("~/db/queries/sections.server")
 
@@ -69,16 +68,39 @@ async function createTestDevTeam(name: string, slug: string, sectionId: string) 
 }
 
 /** Create a monitored application and return its id. */
-async function createTestApp(name: string) {
+async function createTestApp(name: string, addedManually = false) {
 	const db = getTestDb()
 	const result = await db.execute(
 		/* sql */ `
-		INSERT INTO monitored_applications (name, created_by, updated_by)
-		VALUES ('${name}', 'test', 'test')
+		INSERT INTO monitored_applications (name, added_manually, created_by, updated_by)
+		VALUES ('${name}', ${addedManually}, 'test', 'test')
 		RETURNING id
 	`,
 	)
 	return (result.rows[0] as { id: string }).id
+}
+
+/** Create a nais team and return its id. */
+async function createTestNaisTeam(slug: string, sectionId: string) {
+	const db = getTestDb()
+	const result = await db.execute(
+		/* sql */ `
+		INSERT INTO nais_teams (slug, section_id)
+		VALUES ('${slug}', '${sectionId}')
+		RETURNING id
+	`,
+	)
+	return (result.rows[0] as { id: string }).id
+}
+
+async function createAppEnvironment(appId: string, naisTeamId: string, cluster: string, namespace: string) {
+	const db = getTestDb()
+	await db.execute(
+		/* sql */ `
+		INSERT INTO application_environments (application_id, nais_team_id, cluster, namespace)
+		VALUES ('${appId}', '${naisTeamId}', '${cluster}', '${namespace}')
+	`,
+	)
 }
 
 describe("Applications integration tests", () => {
@@ -268,5 +290,33 @@ describe("Applications integration tests", () => {
 		expect(app?.controlsNotImplemented).toBeTypeOf("number")
 		expect(app?.controlsNotRelevant).toBeTypeOf("number")
 		expect(app?.controlsPartial).toBeTypeOf("number")
+	})
+
+	it("searchApplications excludes apps with only excluded environments, but keeps manually added apps", async () => {
+		const db = getTestDb()
+		const sectionId = await createTestSection("Search Section", "search-section")
+		const naisTeamId = await createTestNaisTeam("search-team", sectionId)
+
+		const activeAppId = await createTestApp("search-active-app")
+		await createAppEnvironment(activeAppId, naisTeamId, "prod-gcp", "ns-prod")
+
+		const excludedAppId = await createTestApp("search-excluded-app")
+		await createAppEnvironment(excludedAppId, naisTeamId, "dev-fss", "ns-dev")
+
+		const manualAppId = await createTestApp("search-manual-app", true)
+
+		await db.execute(
+			/* sql */ `
+			INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
+			VALUES ('${sectionId}', 'dev-fss', false, 'test', 'test')
+		`,
+		)
+
+		const results = await searchApplications("search", 50)
+		const ids = results.map((app) => app.id)
+
+		expect(ids).toContain(activeAppId)
+		expect(ids).toContain(manualAppId)
+		expect(ids).not.toContain(excludedAppId)
 	})
 })
