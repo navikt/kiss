@@ -222,14 +222,12 @@ describe("Routine archive (soft-delete) integration tests", () => {
 		expect(unarchives[0].performed_by).toBe("first")
 	})
 
-	it("returns null when archiving a non-existent routine", async () => {
-		const result = await archiveRoutine("00000000-0000-0000-0000-000000000000", "admin")
-		expect(result).toBeNull()
+	it("throws when archiving a non-existent routine", async () => {
+		await expect(archiveRoutine("00000000-0000-0000-0000-000000000000", "admin")).rejects.toThrow("finnes ikke")
 	})
 
-	it("returns null when unarchiving a non-existent routine", async () => {
-		const result = await unarchiveRoutine("00000000-0000-0000-0000-000000000000", "admin")
-		expect(result).toBeNull()
+	it("throws when unarchiving a non-existent routine", async () => {
+		await expect(unarchiveRoutine("00000000-0000-0000-0000-000000000000", "admin")).rejects.toThrow("finnes ikke")
 	})
 
 	it("preserves reviews after soft-delete", async () => {

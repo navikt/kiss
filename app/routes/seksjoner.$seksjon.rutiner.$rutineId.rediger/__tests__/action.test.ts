@@ -22,14 +22,14 @@ vi.mock("~/lib/authorization.server", () => ({
 
 const mockGetRoutine = vi.fn()
 const mockUpdateRoutine = vi.fn()
-const mockArchiveRoutine = vi.fn()
+const mockDeleteDraftRoutine = vi.fn()
 const mockUnarchiveRoutine = vi.fn()
 const mockApproveRoutine = vi.fn()
 const mockReplaceRoutine = vi.fn()
 vi.mock("~/db/queries/routines.server", () => ({
 	getRoutine: mockGetRoutine,
 	updateRoutine: mockUpdateRoutine,
-	archiveRoutine: mockArchiveRoutine,
+	deleteDraftRoutine: mockDeleteDraftRoutine,
 	unarchiveRoutine: mockUnarchiveRoutine,
 	approveRoutine: mockApproveRoutine,
 	replaceRoutine: mockReplaceRoutine,
@@ -229,7 +229,7 @@ describe("routine edit guards", () => {
 
 		await expect(callAction(fd)).rejects.toMatchObject({ status: 404 })
 		expect(mockUpdateRoutine).not.toHaveBeenCalled()
-		expect(mockArchiveRoutine).not.toHaveBeenCalled()
+		expect(mockDeleteDraftRoutine).not.toHaveBeenCalled()
 	})
 
 	it("allows editing a draft routine", async () => {
@@ -434,21 +434,21 @@ describe("non-admin user access", () => {
 		fd.set("intent", "delete")
 
 		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
-		expect(mockArchiveRoutine).not.toHaveBeenCalled()
+		expect(mockDeleteDraftRoutine).not.toHaveBeenCalled()
 	})
 })
 
 describe("delete intent restrictions", () => {
 	it("allows admin to delete a draft routine", async () => {
 		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft" }))
-		mockArchiveRoutine.mockResolvedValue(undefined)
+		mockDeleteDraftRoutine.mockResolvedValue(undefined)
 
 		const fd = new FormData()
 		fd.set("intent", "delete")
 
 		const response = await callAction(fd)
 		expect(getStatus(response)).toBe(302)
-		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockDeleteDraftRoutine).toHaveBeenCalledWith("routine-1", "T123456")
 	})
 
 	it("rejects deletion of active routine", async () => {
@@ -458,7 +458,7 @@ describe("delete intent restrictions", () => {
 		fd.set("intent", "delete")
 
 		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
-		expect(mockArchiveRoutine).not.toHaveBeenCalled()
+		expect(mockDeleteDraftRoutine).not.toHaveBeenCalled()
 	})
 })
 
@@ -552,7 +552,7 @@ describe("archive/unarchive intent", () => {
 		fd.set("intent", "delete")
 
 		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
-		expect(mockArchiveRoutine).not.toHaveBeenCalled()
+		expect(mockDeleteDraftRoutine).not.toHaveBeenCalled()
 	})
 
 	it("rejects approve-replace intent on an archived routine with 403 (archivedAt guard)", async () => {
