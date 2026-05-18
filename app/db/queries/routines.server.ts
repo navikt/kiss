@@ -4349,7 +4349,7 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 			.insert(routines)
 			.values({
 				sectionId: source.sectionId,
-				name: `${source.name} (kopi)`,
+				name: source.name,
 				description: source.description,
 				frequency: source.frequency,
 				eventFrequency: source.eventFrequency,
