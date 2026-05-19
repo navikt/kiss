@@ -259,6 +259,23 @@ export async function listUsersWithRoles(): Promise<UserWithRoles[]> {
 
 // ─── User preferences ────────────────────────────────────────────────────
 
+/** Get all users with an active role in the given dev team. */
+export async function getUsersForTeam(
+	teamId: string,
+): Promise<Array<{ navIdent: string; name: string; role: UserRole }>> {
+	const rows = await db
+		.select({
+			navIdent: users.navIdent,
+			name: users.name,
+			role: userRoles.role,
+		})
+		.from(userRoles)
+		.innerJoin(users, eq(userRoles.userId, users.id))
+		.where(and(eq(userRoles.devTeamId, teamId), isNull(userRoles.archivedAt)))
+		.orderBy(users.name)
+	return rows.map((r) => ({ ...r, role: r.role as UserRole }))
+}
+
 export async function getUserLandingPage(navIdent: string): Promise<LandingPage> {
 	const [row] = await db
 		.select({ landingPage: userPreferences.landingPage })
