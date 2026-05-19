@@ -16,9 +16,9 @@ import {
 import { useEffect, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
-import { ActivityTypeOptions } from "~/components/ActivityTypeOptions"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { SortableActivityList } from "~/components/SortableActivityList"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import { createRoutine } from "~/db/queries/routines.server"
 import {
@@ -154,12 +154,45 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			{ status: 400 },
 		)
 	}
-	const activityTypeRaw = (formData.get("activityType") as string)?.trim() || null
-	// Section routines can't use app-specific activity types (reviews have applicationId=null)
-	const activityType =
-		!isSectionRoutine && activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
-			? (activityTypeRaw as RoutineActivityType)
-			: null
+	const activityTypesField = formData.get("activityTypes") as string | null
+	let activityTypes: RoutineActivityType[] | undefined
+	let activityType: RoutineActivityType | null | undefined
+	if (activityTypesField !== null) {
+		const raw = activityTypesField.trim() || "[]"
+		let parsed: unknown
+		try {
+			parsed = JSON.parse(raw)
+		} catch {
+			return data(
+				{ fieldErrors: { activityTypes: "Ugyldig format for vedlikeholdsaktiviteter" } as FieldErrors },
+				{ status: 400 },
+			)
+		}
+		if (!Array.isArray(parsed)) {
+			return data(
+				{ fieldErrors: { activityTypes: "Ugyldig format for vedlikeholdsaktiviteter" } as FieldErrors },
+				{ status: 400 },
+			)
+		}
+		if (!isSectionRoutine) {
+			activityTypes = [
+				...new Set(
+					(parsed as string[]).filter((t): t is RoutineActivityType =>
+						ROUTINE_ACTIVITY_TYPES.includes(t as RoutineActivityType),
+					),
+				),
+			]
+		} else {
+			activityTypes = []
+		}
+	} else {
+		// Legacy form: read single activityType field
+		const activityTypeRaw = (formData.get("activityType") as string)?.trim() || null
+		activityType =
+			!isSectionRoutine && activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
+				? (activityTypeRaw as RoutineActivityType)
+				: null
+	}
 	const technologyElementIds = formData.getAll("technologyElementIds")
 	const controlIds = formData.getAll("controlIds") as string[]
 	const groupClassifications = formData.getAll("groupClassifications") as string[]
@@ -241,6 +274,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		appliesToAllInSection,
 		isSectionRoutine,
 		sectionRoutineOwnerRole,
+		activityTypes,
 		activityType,
 		persistenceLinks,
 		screeningQuestionId: firstLink?.questionId ?? null,
@@ -355,6 +389,9 @@ export default function NyRutine() {
 								<ErrorSummary.Item href="#sectionRoutineOwnerRole">
 									{fieldErrors.sectionRoutineOwnerRole}
 								</ErrorSummary.Item>
+							)}
+							{fieldErrors.activityTypes && (
+								<ErrorSummary.Item href="#activityTypes">{fieldErrors.activityTypes}</ErrorSummary.Item>
 							)}
 						</ErrorSummary>
 					)}
@@ -642,15 +679,7 @@ export default function NyRutine() {
 						</CheckboxGroup>
 					)}
 
-					<Select
-						label="Vedlikeholdsaktivitet"
-						description="Velg om gjennomganger av denne rutinen skal inkludere en strukturert vedlikeholdsaktivitet"
-						name="activityType"
-						defaultValue=""
-						size="small"
-					>
-						<ActivityTypeOptions />
-					</Select>
+					<SortableActivityList disabled={isSectionRoutine} />
 
 					<HStack gap="space-4">
 						<Button type="submit" variant="primary">

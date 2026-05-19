@@ -6,12 +6,14 @@ import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
-	autoCreateActivityForReview,
+	autoCreateActivitiesForReview,
 	createReview,
 	getAppsRequiringRoutine,
 	getRoutine,
+	getRoutineActivityLinks,
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import type { ReviewActivityProviderConfig } from "~/db/schema/routines"
 import { getProviderTypeForActivity } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
@@ -48,10 +50,18 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	}
 
 	const apps = await getAppsRequiringRoutine(rutineId)
+	const activityLinks = await getRoutineActivityLinks(rutineId)
 
-	const activityProviderType = routine.activityType ? getProviderTypeForActivity(routine.activityType) : null
+	// Determine provider type from activity links (fallback to legacy field for pre-migration routines)
+	const activityTypes =
+		activityLinks.length > 0
+			? activityLinks.map((l) => l.activityType)
+			: routine.activityType
+				? [routine.activityType]
+				: []
+	const hasOracleActivity = activityTypes.some((t) => getProviderTypeForActivity(t) === "oracle")
 	const oracleInstancesByAppId: Record<string, string[]> = {}
-	if (activityProviderType === "oracle" && routine.isSectionRoutine !== 1) {
+	if (hasOracleActivity && routine.isSectionRoutine !== 1) {
 		const { getOracleInstancesForApps } = await import("~/db/queries/audit-evidence.server")
 		const groupedInstances = await getOracleInstancesForApps(apps.map((app) => app.id))
 		for (const app of apps) {
@@ -59,7 +69,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	}
 
-	return data({ section, routine, apps, oracleInstancesByAppId, activityProviderType })
+	return data({ section, routine, apps, oracleInstancesByAppId, hasOracleActivity })
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -99,10 +109,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		throw data({ message: "Rutinen tilhører ikke denne seksjonen" }, { status: 403 })
 	}
 	const effectiveAppId = routine.isSectionRoutine === 1 ? null : applicationId
-	const activityProviderType = routine.activityType ? getProviderTypeForActivity(routine.activityType) : null
+	const activityLinks = await getRoutineActivityLinks(rutineId)
+	const activityTypes =
+		activityLinks.length > 0
+			? activityLinks.map((l) => l.activityType)
+			: routine.activityType
+				? [routine.activityType]
+				: []
+	const hasOracleActivity = activityTypes.some((t) => getProviderTypeForActivity(t) === "oracle")
 	let providerConfig: { instanceId: string } | null = null
 
-	if (activityProviderType === "oracle") {
+	if (hasOracleActivity) {
 		if (!effectiveAppId) {
 			throw data({ message: "Oracle-revisjonsbevis krever at applikasjon er valgt" }, { status: 400 })
 		}
@@ -132,13 +149,24 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		participants,
 	})
 
-	await autoCreateActivityForReview(review.id, rutineId, effectiveAppId, authedUser.navIdent, providerConfig)
+	// Build provider config map for activities that need it (e.g., Oracle needs instance selection)
+	const providerConfigs: Record<string, ReviewActivityProviderConfig> = {}
+	if (providerConfig) {
+		for (const actType of activityTypes) {
+			const provType = getProviderTypeForActivity(actType)
+			if (provType === "oracle") {
+				providerConfigs[actType] = providerConfig
+			}
+		}
+	}
+
+	await autoCreateActivitiesForReview(review.id, rutineId, effectiveAppId, authedUser.navIdent, providerConfigs)
 
 	return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}/gjennomgang/${review.id}?step=innledning`)
 }
 
 export default function NyGjennomgang() {
-	const { routine, apps, oracleInstancesByAppId, activityProviderType } = useLoaderData<typeof loader>()
+	const { routine, apps, oracleInstancesByAppId, hasOracleActivity } = useLoaderData<typeof loader>()
 	const [searchParams] = useSearchParams()
 	const preselectedAppId = searchParams.get("appId") ?? ""
 	const [selectedAppId, setSelectedAppId] = useState(preselectedAppId)
@@ -146,11 +174,10 @@ export default function NyGjennomgang() {
 	const today = new Date().toISOString().split("T")[0]
 	const defaultTitle = `${routine.name} — ${new Date().toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
 	const instanceOptions = useMemo(
-		() => (activityProviderType === "oracle" && selectedAppId ? (oracleInstancesByAppId[selectedAppId] ?? []) : []),
-		[activityProviderType, oracleInstancesByAppId, selectedAppId],
+		() => (hasOracleActivity && selectedAppId ? (oracleInstancesByAppId[selectedAppId] ?? []) : []),
+		[hasOracleActivity, oracleInstancesByAppId, selectedAppId],
 	)
-	const hasOracleInstanceSelection =
-		activityProviderType === "oracle" && routine.isSectionRoutine !== 1 && selectedAppId
+	const hasOracleInstanceSelection = hasOracleActivity && routine.isSectionRoutine !== 1 && selectedAppId
 
 	useEffect(() => {
 		setSelectedOracleInstanceId((previous) => {
@@ -196,7 +223,7 @@ export default function NyGjennomgang() {
 								onChange={(e) => setSelectedAppId(e.target.value)}
 							>
 								<option value="">
-									{activityProviderType === "oracle" ? "Velg applikasjon" : "Generell (ikke applikasjonsspesifikk)"}
+									{hasOracleActivity ? "Velg applikasjon" : "Generell (ikke applikasjonsspesifikk)"}
 								</option>
 								{apps.map((app) => (
 									<option key={app.id} value={app.id}>

@@ -13,12 +13,14 @@ vi.mock("~/db/queries/sections.server", () => ({
 }))
 
 const mockCreateReview = vi.fn()
-const mockAutoCreateActivityForReview = vi.fn()
+const mockAutoCreateActivitiesForReview = vi.fn()
 const mockGetRoutine = vi.fn()
+const mockGetRoutineActivityLinks = vi.fn()
 vi.mock("~/db/queries/routines.server", () => ({
 	createReview: mockCreateReview,
-	autoCreateActivityForReview: mockAutoCreateActivityForReview,
+	autoCreateActivitiesForReview: mockAutoCreateActivitiesForReview,
 	getRoutine: mockGetRoutine,
+	getRoutineActivityLinks: mockGetRoutineActivityLinks,
 	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
 }))
 
@@ -69,7 +71,8 @@ beforeEach(() => {
 	mockRequireUser.mockReturnValue(fakeUser)
 	mockGetSectionBySlug.mockResolvedValue(fakeSection)
 	mockCreateReview.mockResolvedValue({ id: "review-1" })
-	mockAutoCreateActivityForReview.mockResolvedValue({ id: "activity-1" })
+	mockAutoCreateActivitiesForReview.mockResolvedValue(undefined)
+	mockGetRoutineActivityLinks.mockResolvedValue([])
 })
 
 describe("gjennomgang.ny action - oracle provider config", () => {
@@ -123,8 +126,8 @@ describe("gjennomgang.ny action - oracle provider config", () => {
 
 		const response = await callAction(fd)
 		expect(getStatus(response)).toBe(302)
-		expect(mockAutoCreateActivityForReview).toHaveBeenCalledWith("review-1", "r1", "app-1", "T123456", {
-			instanceId: "PENSJON_PROD",
+		expect(mockAutoCreateActivitiesForReview).toHaveBeenCalledWith("review-1", "r1", "app-1", "T123456", {
+			oracle_evidence_audit: { instanceId: "PENSJON_PROD" },
 		})
 	})
 })
