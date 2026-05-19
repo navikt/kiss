@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm"
+import { and, asc, eq, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	devTeams,
@@ -257,12 +257,10 @@ export async function listUsersWithRoles(): Promise<UserWithRoles[]> {
 	}))
 }
 
-// ─── User preferences ────────────────────────────────────────────────────
-
-/** Get all users with an active role in the given dev team. */
+/** Get all users with an active role in the given dev team, grouped by user. */
 export async function getUsersForTeam(
 	teamId: string,
-): Promise<Array<{ navIdent: string; name: string; role: UserRole }>> {
+): Promise<Array<{ navIdent: string; name: string; roles: UserRole[] }>> {
 	const rows = await db
 		.select({
 			navIdent: users.navIdent,
@@ -272,9 +270,18 @@ export async function getUsersForTeam(
 		.from(userRoles)
 		.innerJoin(users, eq(userRoles.userId, users.id))
 		.where(and(eq(userRoles.devTeamId, teamId), isNull(userRoles.archivedAt)))
-		.orderBy(users.name)
-	return rows.map((r) => ({ ...r, role: r.role as UserRole }))
+		.orderBy(asc(users.name), asc(users.navIdent), asc(userRoles.role))
+
+	const byUser = new Map<string, { navIdent: string; name: string; roles: UserRole[] }>()
+	for (const r of rows) {
+		const entry = byUser.get(r.navIdent) ?? { navIdent: r.navIdent, name: r.name, roles: [] }
+		entry.roles.push(r.role as UserRole)
+		byUser.set(r.navIdent, entry)
+	}
+	return Array.from(byUser.values())
 }
+
+// ─── User preferences ────────────────────────────────────────────────────
 
 export async function getUserLandingPage(navIdent: string): Promise<LandingPage> {
 	const [row] = await db

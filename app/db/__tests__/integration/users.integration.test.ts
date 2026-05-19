@@ -13,6 +13,7 @@ vi.mock("~/db/connection.server", () => ({
 const {
 	upsertUser,
 	getUserRoles,
+	getUsersForTeam,
 	assignRole,
 	removeRole,
 	listUsersWithRoles,
@@ -195,6 +196,49 @@ describe("users.server integration tests", () => {
 			expect(teams).toHaveLength(2)
 			expect(teams[0].name).toBe("Team alpha")
 			expect(teams[1].name).toBe("Team zeta")
+		})
+	})
+
+	describe("getUsersForTeam", () => {
+		it("returns users with their active roles grouped by user", async () => {
+			const sectionId = await createSection("sec-team-users")
+			const teamId = await createTeam(sectionId, "team-a")
+			await assignRole("U001", "Alice", "developer", "test", undefined, teamId)
+			await assignRole("U001", "Alice", "tech_lead", "test", undefined, teamId)
+			await assignRole("U002", "Bob", "product_owner", "test", undefined, teamId)
+
+			const result = await getUsersForTeam(teamId)
+			expect(result).toHaveLength(2)
+
+			const alice = result.find((u) => u.navIdent === "U001")
+			expect(alice).toBeDefined()
+			expect(alice!.name).toBe("Alice")
+			expect(alice!.roles).toHaveLength(2)
+			expect(alice!.roles).toContain("developer")
+			expect(alice!.roles).toContain("tech_lead")
+
+			const bob = result.find((u) => u.navIdent === "U002")
+			expect(bob).toBeDefined()
+			expect(bob!.roles).toEqual(["product_owner"])
+		})
+
+		it("excludes archived roles", async () => {
+			const sectionId = await createSection("sec-team-archive")
+			const teamId = await createTeam(sectionId, "team-b")
+			await assignRole("U003", "Carol", "developer", "test", undefined, teamId)
+			const roles = await getUserRoles("U003")
+			await removeRole(roles[0].id, "test")
+
+			const result = await getUsersForTeam(teamId)
+			expect(result).toHaveLength(0)
+		})
+
+		it("returns empty array for team with no members", async () => {
+			const sectionId = await createSection("sec-team-empty")
+			const teamId = await createTeam(sectionId, "team-c")
+
+			const result = await getUsersForTeam(teamId)
+			expect(result).toHaveLength(0)
 		})
 	})
 })

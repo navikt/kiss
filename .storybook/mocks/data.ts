@@ -241,6 +241,10 @@ export function mockTeamDetailData() {
 		totalMangler: 6,
 		overallPercent: 75,
 		deploymentStats: mockDeploymentStats(),
+		teamUsers: [
+			{ navIdent: "ABC123", name: "Ola Nordmann", roles: ["developer", "tech_lead"] as const },
+			{ navIdent: "DEF456", name: "Kari Nordmann", roles: ["product_owner"] as const },
+		],
 	}
 }
 

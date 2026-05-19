@@ -60,7 +60,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	const availableApps = canAddApp && teamRecord ? await getAvailableAppsForTeam(teamRecord.id) : []
-	const teamUsers = teamRecord ? await getUsersForTeam(teamRecord.id) : []
+	const teamUsers = user && teamRecord ? await getUsersForTeam(teamRecord.id) : []
 
 	const totalControls = result.apps.reduce((sum, a) => sum + a.total, 0)
 	const totalImplemented = result.apps.reduce((sum, a) => sum + a.implemented, 0)
@@ -336,7 +336,7 @@ export default function TeamDashboard() {
 									<Table.Row key={u.navIdent}>
 										<Table.DataCell>{u.name}</Table.DataCell>
 										<Table.DataCell>{u.navIdent}</Table.DataCell>
-										<Table.DataCell>{userRoleLabels[u.role]}</Table.DataCell>
+										<Table.DataCell>{u.roles.map((r) => userRoleLabels[r] ?? r).join(", ")}</Table.DataCell>
 									</Table.Row>
 								))}
 							</Table.Body>
