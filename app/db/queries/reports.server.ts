@@ -405,6 +405,7 @@ export async function generateAppComplianceReport(params: {
 	const { getAppAssessments } = await import("./applications.server")
 	const { getReviewsForApp } = await import("./routines.server")
 	const { getApplicationDetail } = await import("./nais.server")
+	const { enrichAppAssessments } = await import("./app-assessment-enrichment.server")
 	const { default: PDFDocument } = await import("pdfkit")
 	const { PDFDocument: PDFLibDocument } = await import("pdf-lib")
 
@@ -425,7 +426,13 @@ export async function generateAppComplianceReport(params: {
 
 	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
 
-	const assessments = assessmentsResult?.assessments ?? []
+	const enriched = await enrichAppAssessments(applicationId, assessmentsResult?.assessments ?? [])
+	const assessments = enriched.map((a) => ({
+		...a,
+		status: a.effectiveStatus,
+		assessedBy: a.commentUpdatedBy,
+		assessedAt: a.commentUpdatedAt,
+	}))
 	let completedReviews = reviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up")
 	if (reviewIds) {
 		completedReviews = completedReviews.filter((r) => reviewIds.includes(r.id))

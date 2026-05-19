@@ -2,6 +2,7 @@ import JSZip from "jszip"
 import { PDFDocument as PDFLibDocument } from "pdf-lib"
 import PDFDocument from "pdfkit"
 import type { LoaderFunctionArgs } from "react-router"
+import { enrichAppAssessments } from "~/db/queries/app-assessment-enrichment.server"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getApplicationDetail } from "~/db/queries/nais.server"
 import { getReviewsForApp } from "~/db/queries/routines.server"
@@ -21,7 +22,17 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
 
-	const assessments = assessmentsResult?.assessments ?? []
+	const enriched = await enrichAppAssessments(appId, assessmentsResult?.assessments ?? [])
+	const assessments: Assessment[] = enriched.map((a) => ({
+		controlId: a.controlId,
+		controlName: a.controlName,
+		domainCode: a.domainCode,
+		domainName: a.domainName,
+		effectiveStatus: a.effectiveStatus,
+		comment: a.comment,
+		commentUpdatedBy: a.commentUpdatedBy,
+		commentUpdatedAt: a.commentUpdatedAt,
+	}))
 	const reportReviews = reviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up")
 
 	const namespace = detail.environments[0]?.namespace ?? null
@@ -157,10 +168,10 @@ interface Assessment {
 	controlName: string
 	domainCode: string
 	domainName: string
-	status: string | null
+	effectiveStatus: string | null
 	comment: string | null
-	assessedBy: string | null
-	assessedAt: string | null
+	commentUpdatedBy: string | null
+	commentUpdatedAt: string | null
 }
 
 interface FollowUpPoint {
@@ -315,11 +326,11 @@ function buildComplianceSummary(doc: PDFKit.PDFDocument, assessments: Assessment
 	doc.moveDown(0.3)
 
 	const total = assessments.length
-	const implemented = assessments.filter((a) => a.status === "implemented").length
-	const partial = assessments.filter((a) => a.status === "partially_implemented").length
-	const notImpl = assessments.filter((a) => a.status === "not_implemented").length
-	const notRel = assessments.filter((a) => a.status === "not_relevant").length
-	const notAssessed = assessments.filter((a) => !a.status).length
+	const implemented = assessments.filter((a) => a.effectiveStatus === "implemented").length
+	const partial = assessments.filter((a) => a.effectiveStatus === "partially_implemented").length
+	const notImpl = assessments.filter((a) => a.effectiveStatus === "not_implemented").length
+	const notRel = assessments.filter((a) => a.effectiveStatus === "not_relevant").length
+	const notAssessed = assessments.filter((a) => !a.effectiveStatus).length
 
 	const pct = (n: number) => (total > 0 ? ((n / total) * 100).toFixed(1) : "0.0")
 
@@ -350,10 +361,10 @@ function buildDomainBreakdown(doc: PDFKit.PDFDocument, assessments: Assessment[]
 			notRel: 0,
 		}
 		d.total++
-		if (a.status === "implemented") d.implemented++
-		if (a.status === "partially_implemented") d.partial++
-		if (a.status === "not_implemented") d.notImpl++
-		if (a.status === "not_relevant") d.notRel++
+		if (a.effectiveStatus === "implemented") d.implemented++
+		if (a.effectiveStatus === "partially_implemented") d.partial++
+		if (a.effectiveStatus === "not_implemented") d.notImpl++
+		if (a.effectiveStatus === "not_relevant") d.notRel++
 		domainStats.set(key, d)
 	}
 
@@ -397,7 +408,7 @@ function buildAssessmentDetails(doc: PDFKit.PDFDocument, assessments: Assessment
 			a.controlId,
 			a.controlName.slice(0, 35),
 			a.domainName.slice(0, 18),
-			getStatusLabel(a.status),
+			getStatusLabel(a.effectiveStatus),
 			(a.comment ?? "").slice(0, 30),
 		])
 	}
