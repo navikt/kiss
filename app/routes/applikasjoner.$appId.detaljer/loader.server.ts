@@ -6,6 +6,11 @@ import { getOracleInstancesForApp, getSnapshotHistory } from "~/db/queries/audit
 import { getOracleAuditSummariesForApp } from "~/db/queries/audit-logging.server"
 import { getScreeningEffectsByControlForApp } from "~/db/queries/compliance-auto.server"
 import {
+	getGitHubAccessChangeLog,
+	getGitHubCollaboratorsForApp,
+	getGitHubTeamsForApp,
+} from "~/db/queries/github-access.server"
+import {
 	getActiveAcknowledgments,
 	getApplicationDetail,
 	getGroupAssessmentsForApp,
@@ -49,6 +54,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const [detail, assessmentsResult] = await Promise.all([getApplicationDetail(appId), getAppAssessments(appId)])
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
+
+	// Resolve effective git repository: prefer app-level, fallback to oldest environment with a repo
+	// (matches sync job logic: ORDER BY discovered_at ASC LIMIT 1)
+	const appRepo = detail.app.gitRepository?.trim() || null
+	const envRepo =
+		detail.environments
+			.filter((e) => e.gitRepository?.trim())
+			.sort((a, b) => new Date(a.discoveredAt).getTime() - new Date(b.discoveredAt).getTime())
+			.at(0)
+			?.gitRepository?.trim() || null
+	const effectiveGitRepository = appRepo || envRepo
 
 	// Extract referenced app names from detail (pure computation, no I/O)
 	const referencedAppNames = new Set<string>()
@@ -112,6 +128,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		deploymentVerifications,
 		manualGroups,
 		groupAssessments,
+		githubTeams,
+		githubCollaborators,
+		githubChangeLog,
 	] = await Promise.all([
 		resolveAppNames([...referencedAppNames]),
 		getActiveAcknowledgments(appId),
@@ -121,6 +140,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getDeploymentVerificationForAppWithFetch(appId),
 		getManualGroupsForApp(appId),
 		getGroupAssessmentsForApp(appId),
+		effectiveGitRepository ? getGitHubTeamsForApp(appId) : Promise.resolve([]),
+		effectiveGitRepository ? getGitHubCollaboratorsForApp(appId) : Promise.resolve([]),
+		effectiveGitRepository ? getGitHubAccessChangeLog(appId) : Promise.resolve([]),
 	])
 
 	// Compute auto-compliance from parallel results
@@ -333,6 +355,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return data({
 		...breadcrumbCtx,
 		app: detail.app,
+		effectiveGitRepository,
 		environments: detail.environments,
 		persistence: detail.persistence,
 		oracleAuditSummaries,
@@ -437,5 +460,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				}
 			})
 		})(),
+		githubAccess: {
+			teams: githubTeams.map((t) => ({
+				...t,
+				syncedAt: t.syncedAt.toISOString(),
+			})),
+			collaborators: githubCollaborators.map((c) => ({
+				...c,
+				syncedAt: c.syncedAt.toISOString(),
+			})),
+			changeLog: githubChangeLog.map((e) => ({
+				...e,
+				performedAt: e.performedAt.toISOString(),
+			})),
+		},
 	})
 }

@@ -140,6 +140,24 @@ const jobs: JobConfig[] = [
 			}
 		},
 	},
+	{
+		name: "github-access-sync",
+		everyCycles: CYCLES_PER_24_HOURS,
+		runOnCycleOne: true,
+		envVar: "ENABLE_GITHUB_ACCESS_SYNC",
+		async run() {
+			const { runGitHubAccessSync } = await import("./github-access-sync.server")
+			const outcome = await runGitHubAccessSync()
+			if (outcome.status === "success") {
+				const r = outcome.result
+				logger.info(
+					`[unified-scheduler] github-access-sync complete: ${r.appsProcessed} apps, +${r.teamsAdded}/-${r.teamsRemoved}/~${r.teamsUpdated} teams, +${r.collaboratorsAdded}/-${r.collaboratorsRemoved}/~${r.collaboratorsUpdated} collaborators (${r.durationMs}ms)`,
+				)
+			} else {
+				logger.info(`[unified-scheduler] github-access-sync skipped — ${outcome.status}`)
+			}
+		},
+	},
 ]
 
 async function runCycle() {

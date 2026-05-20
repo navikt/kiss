@@ -137,6 +137,7 @@ export default [
 	route("api/isalive", "routes/api.isalive/index.tsx"),
 	route("api/isready", "routes/api.isready/index.tsx"),
 	route("api/nais-sync", "routes/api.nais-sync/index.tsx"),
+	route("api/github-access-sync", "routes/api.github-access-sync/index.tsx"),
 	route("api/search", "routes/api.search/index.tsx"),
 	route("api/applikasjoner/:appId/export-xlsx", "routes/api.applikasjoner.$appId.export-xlsx/index.tsx"),
 	route("api/applikasjoner/:appId/rapport-pdf", "routes/api.applikasjoner.$appId.rapport-pdf/index.tsx"),
