@@ -22,11 +22,11 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam } from "~/db/queries/applications.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getSectionBySlug, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
-import { getUserRoles, getUsersForTeam } from "~/db/queries/users.server"
+import { getUsersForTeam } from "~/db/queries/users.server"
 import { userRoleLabels } from "~/db/schema/organization"
 import { useFeatureFlags } from "~/hooks/useFeatureFlags"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
+import { canManageTeam } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -37,12 +37,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const user = await getAuthenticatedUser(request)
 
-	const [result, section, teamRecord] = await Promise.all([
-		getTeamApps(teamSlug),
-		getSectionBySlug(seksjon),
-		getTeamBySlug(teamSlug),
-	])
+	const [result, section] = await Promise.all([getTeamApps(teamSlug), getSectionBySlug(seksjon)])
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
+	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+	if (result.team.sectionId !== section.id) throw new Response("Team tilhører ikke denne seksjonen", { status: 404 })
 
 	const appIds = result.apps.map((a) => a.appId)
 	const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
@@ -51,16 +49,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getScreeningProgressForApps(appIds),
 	])
 
-	const admin = user ? isAdmin(user) : false
-	let canAddApp = admin
+	const canManage = user ? canManageTeam(user, result.team.id) : false
+	let canAddApp = canManage
 
-	if (!canAddApp && user && teamRecord) {
-		const roles = await getUserRoles(user.navIdent)
-		canAddApp = roles.some((r) => r.devTeamId === teamRecord.id)
+	if (!canAddApp && user) {
+		canAddApp = user.dbRoles.some((r) => r.devTeamId === result.team.id)
 	}
 
-	const availableApps = canAddApp && teamRecord ? await getAvailableAppsForTeam(teamRecord.id) : []
-	const teamUsers = user && teamRecord ? await getUsersForTeam(teamRecord.id) : []
+	const availableApps = canAddApp ? await getAvailableAppsForTeam(result.team.id) : []
+	const teamUsers = user ? await getUsersForTeam(result.team.id) : []
 
 	const totalControls = result.apps.reduce((sum, a) => sum + a.total, 0)
 	const totalImplemented = result.apps.reduce((sum, a) => sum + a.implemented, 0)
@@ -78,13 +75,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		seksjon,
 		seksjonName: section?.name ?? seksjon,
 		team: teamSlug,
-		teamId: teamRecord?.id ?? null,
+		teamId: result.team.id,
 		teamName: result.team.name,
 		apps: result.apps.map((a) => ({
 			...a,
 			screeningProgress: screeningProgressMap.get(a.appId) ?? { answered: 0, total: 0 },
 		})),
-		canAdmin: admin,
+		canManage,
 		canAddApp,
 		availableApps,
 		teamUsers,
@@ -106,11 +103,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const teamRecord = await getTeamBySlug(teamSlug)
 	if (!teamRecord) throw new Response("Team ikke funnet", { status: 404 })
 
-	// Check authorization: admin or team member
-	const admin = isAdmin(authedUser)
-	if (!admin) {
-		const roles = await getUserRoles(authedUser.navIdent)
-		const isMember = roles.some((r) => r.devTeamId === teamRecord.id)
+	const section = await getSectionBySlug(seksjon)
+	if (!section || section.id !== teamRecord.sectionId) throw new Response("Seksjon/team mismatch", { status: 404 })
+
+	// Check authorization: team admin (admin/product_owner/tech_lead) or any team member
+	if (!canManageTeam(authedUser, teamRecord.id)) {
+		const isMember = authedUser.dbRoles.some((r) => r.devTeamId === teamRecord.id)
 		if (!isMember) throw new Response("Ikke tilgang", { status: 403 })
 	}
 
@@ -135,7 +133,7 @@ export default function TeamDashboard() {
 		team,
 		teamName,
 		apps,
-		canAdmin,
+		canManage,
 		canAddApp,
 		availableApps,
 		teamUsers,
@@ -160,7 +158,7 @@ export default function TeamDashboard() {
 				<Heading size="xlarge" level="2">
 					{teamName}
 				</Heading>
-				{canAdmin && (
+				{canManage && (
 					<Button as={Link} to={`/seksjoner/${seksjon}/team/${team}/rediger`} variant="tertiary" size="small">
 						Administrer
 					</Button>
