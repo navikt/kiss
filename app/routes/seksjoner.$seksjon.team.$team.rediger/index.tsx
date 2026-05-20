@@ -328,9 +328,12 @@ export default function RedigerTeam() {
 			</VStack>
 
 			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Direkte tilknyttede applikasjoner ({apps.filter((a) => a.source === "direct").length})
-				</Heading>
+				<HStack align="center" justify="space-between" wrap>
+					<Heading size="medium" level="3">
+						Direkte tilknyttede applikasjoner ({apps.filter((a) => a.source === "direct").length})
+					</Heading>
+					{availableApps.length > 0 && <AddAppModal availableApps={availableApps} teamId={teamId} intent="link-app" />}
+				</HStack>
 				<BodyLong size="small">Disse applikasjonene er manuelt lagt til teamet.</BodyLong>
 
 				{apps.filter((a) => a.source === "direct").length > 0 && (
@@ -368,10 +371,6 @@ export default function RedigerTeam() {
 							</Table.Body>
 						</Table>
 					</section>
-				)}
-
-				{availableApps.length > 0 && (
-					<AddAppModal availableApps={availableApps} teamId={teamId} intent="link-app" buttonVariant="secondary" />
 				)}
 
 				{availableApps.length === 0 && apps.length === 0 && <BodyLong>Ingen applikasjoner tilgjengelig.</BodyLong>}
