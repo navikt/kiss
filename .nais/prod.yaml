@@ -48,10 +48,12 @@ spec:
         tier: db-f1-micro
         pointInTimeRecovery: true
         flags:
-          - name: cloudsql.enable_pgaudit
+          - name: "cloudsql.enable_pgaudit"
             value: "on"
-          - name: pgaudit.log
-            value: "all"
+          - name: "pgaudit.log"
+            value: "write,ddl,role"
+          - name: "pgaudit.log_parameter"
+            value: "on"
         databases:
           - name: kiss
     buckets:
