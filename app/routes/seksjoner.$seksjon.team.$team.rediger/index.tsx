@@ -17,6 +17,7 @@ import {
 import { useRef } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
+import { AddAppModal } from "~/components/AddAppModal"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
 import { getNaisTeamsForSection } from "~/db/queries/nais.server"
@@ -370,23 +371,7 @@ export default function RedigerTeam() {
 				)}
 
 				{availableApps.length > 0 && (
-					<Form method="post">
-						<input type="hidden" name="intent" value="link-app" />
-						<input type="hidden" name="teamId" value={teamId} />
-						<HStack gap="space-4" align="end">
-							<Select label="Velg applikasjon" name="applicationId" size="small">
-								<option value="">Velg …</option>
-								{availableApps.map((app) => (
-									<option key={app.id} value={app.id}>
-										{app.name}
-									</option>
-								))}
-							</Select>
-							<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
-								Legg til
-							</Button>
-						</HStack>
-					</Form>
+					<AddAppModal availableApps={availableApps} teamId={teamId} intent="link-app" buttonVariant="secondary" />
 				)}
 
 				{availableApps.length === 0 && apps.length === 0 && <BodyLong>Ingen applikasjoner tilgjengelig.</BodyLong>}
