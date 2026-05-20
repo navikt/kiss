@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react"
 import {
 	mockGjennomgangDetaljData,
 	mockGjennomgangDetaljOracleEvidenceData,
+	mockGjennomgangDetaljRpaMaintenanceData,
 	mockGjennomgangMultiActivityData,
 } from "@storybook-mocks/data"
 import type { ComponentType } from "react"
@@ -244,4 +245,30 @@ export const MultiAktivitetFullført: Story = {
 	name: "Multi-aktivitet – Fullført (read-only)",
 	render: () =>
 		renderWizard(GjennomgangDetalj, mockGjennomgangMultiActivityData({ status: "completed" }), "aktivitet-0"),
+}
+
+// ─── RPA User Maintenance ───────────────────────────────────────────
+
+export const AktivitetRpaVedlikehold: Story = {
+	name: "Aktivitet – RPA-brukervedlikehold (utkast)",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljRpaMaintenanceData(), "aktivitet-0"),
+}
+
+export const AktivitetRpaVedlikeholdFullført: Story = {
+	name: "Aktivitet – RPA-brukervedlikehold (fullført)",
+	render: () => {
+		const base = mockGjennomgangDetaljRpaMaintenanceData()
+		return renderWizard(
+			GjennomgangDetalj,
+			{
+				...base,
+				activities: base.activities.map((a) => ({
+					...a,
+					status: "completed",
+					completedAt: "2026-05-10T12:00:00Z",
+				})),
+			},
+			"aktivitet-0",
+		)
+	},
 }

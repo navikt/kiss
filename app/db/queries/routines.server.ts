@@ -4804,3 +4804,12 @@ export async function reorderRoutineActivities(routineId: string, orderedIds: st
 		)
 	})
 }
+
+export async function hasReviewActivityType(reviewId: string, type: RoutineActivityType) {
+	const result = await db
+		.select({ id: routineReviewActivities.id })
+		.from(routineReviewActivities)
+		.where(and(eq(routineReviewActivities.reviewId, reviewId), eq(routineReviewActivities.type, type)))
+		.limit(1)
+	return result.length > 0
+}

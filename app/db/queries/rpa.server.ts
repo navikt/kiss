@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationAuthIntegrations, applicationManualGroups } from "../schema/applications"
+import { type RpaDecision, routineReviews, routineRpaUserAssessments, routines } from "../schema/routines"
 import { rpaGroupMembers, rpaGroups, rpaUserGroupMemberships } from "../schema/rpa"
 import { writeAuditLog } from "./audit.server"
 
@@ -753,4 +754,172 @@ export async function getRpaUsersForSection(sectionId: string): Promise<RpaUserF
 	}
 
 	return [...resultMap.values()]
+}
+
+// ─── RPA User Maintenance Assessments ────────────────────────────────────────
+
+export type RpaUserAssessment = {
+	id: string
+	reviewId: string
+	userObjectId: string
+	owner: string | null
+	needComment: string | null
+	criticalityComment: string | null
+	securityComment: string | null
+	decision: RpaDecision | null
+	decisionDeadline: string | null
+	createdBy: string
+	updatedBy: string
+}
+
+export async function getRpaUserAssessmentsForReview(reviewId: string): Promise<Map<string, RpaUserAssessment>> {
+	const rows = await db.select().from(routineRpaUserAssessments).where(eq(routineRpaUserAssessments.reviewId, reviewId))
+	const map = new Map<string, RpaUserAssessment>()
+	for (const row of rows) {
+		map.set(row.userObjectId, {
+			id: row.id,
+			reviewId: row.reviewId,
+			userObjectId: row.userObjectId,
+			owner: row.owner,
+			needComment: row.needComment,
+			criticalityComment: row.criticalityComment,
+			securityComment: row.securityComment,
+			decision: row.decision as RpaDecision | null,
+			decisionDeadline: row.decisionDeadline,
+			createdBy: row.createdBy,
+			updatedBy: row.updatedBy,
+		})
+	}
+	return map
+}
+
+export async function upsertRpaUserAssessment(
+	reviewId: string,
+	userObjectId: string,
+	navIdent: string,
+	fields: {
+		owner?: string | null
+		needComment?: string | null
+		criticalityComment?: string | null
+		securityComment?: string | null
+		decision?: RpaDecision | null
+		decisionDeadline?: string | null
+	},
+): Promise<void> {
+	const now = new Date()
+	await db.transaction(async (tx) => {
+		// Guard: ensure the parent review is still in draft and the routine is not archived
+		const [snapshot] = await tx
+			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.from(routineReviews)
+			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+			.where(eq(routineReviews.id, reviewId))
+			.for("share", { of: [routines] })
+			.limit(1)
+		if (!snapshot) {
+			throw new Response("Gjennomgang ikke funnet.", { status: 404 })
+		}
+		if (snapshot.archivedAt) {
+			throw new Response("Kan ikke endre vurderinger på en arkivert rutine.", { status: 403 })
+		}
+		if (snapshot.reviewStatus !== "draft") {
+			throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
+		}
+
+		const [existing] = await tx
+			.select()
+			.from(routineRpaUserAssessments)
+			.where(
+				and(eq(routineRpaUserAssessments.reviewId, reviewId), eq(routineRpaUserAssessments.userObjectId, userObjectId)),
+			)
+
+		// Guard: if decisionDeadline is submitted without decision, validate against effective decision
+		// to avoid violating the DB CHECK constraint (deadline requires decision = avvikles|endres)
+		if (fields.decisionDeadline != null && fields.decision === undefined) {
+			const effectiveDecision = existing?.decision ?? null
+			const deadlineAllowed = effectiveDecision === "avvikles" || effectiveDecision === "endres"
+			if (!deadlineAllowed) {
+				fields = { ...fields, decisionDeadline: null }
+			}
+		}
+
+		// Enforce invariant: when decision is updated to one that does not allow a deadline,
+		// always clear the deadline — even if the caller did not explicitly pass decisionDeadline: null.
+		// This prevents violating the DB CHECK constraint when only 'decision' is submitted.
+		if (fields.decision !== undefined && fields.decision !== "avvikles" && fields.decision !== "endres") {
+			fields = { ...fields, decisionDeadline: null }
+		}
+
+		// Guard: no-op when fields is empty (no columns would be written)
+		if (Object.keys(fields).length === 0) return
+
+		// Guard: avoid creating an all-null row when there is no existing assessment and every
+		// provided field value resolves to null/undefined (e.g. an empty-string-only POST).
+		if (!existing) {
+			const allNull = Object.values(fields).every((v) => v == null)
+			if (allNull) return
+		}
+
+		// Short-circuit: skip DB write and audit log when no submitted field would change an existing value
+		if (existing) {
+			const hasChanges =
+				(fields.owner !== undefined && fields.owner !== existing.owner) ||
+				(fields.needComment !== undefined && fields.needComment !== existing.needComment) ||
+				(fields.criticalityComment !== undefined && fields.criticalityComment !== existing.criticalityComment) ||
+				(fields.securityComment !== undefined && fields.securityComment !== existing.securityComment) ||
+				(fields.decision !== undefined && fields.decision !== existing.decision) ||
+				(fields.decisionDeadline !== undefined && fields.decisionDeadline !== existing.decisionDeadline)
+			if (!hasChanges) return
+		}
+
+		const [upserted] = await tx
+			.insert(routineRpaUserAssessments)
+			.values({
+				reviewId,
+				userObjectId,
+				owner: fields.owner ?? null,
+				needComment: fields.needComment ?? null,
+				criticalityComment: fields.criticalityComment ?? null,
+				securityComment: fields.securityComment ?? null,
+				decision: (fields.decision ?? null) as RpaDecision | null,
+				decisionDeadline: fields.decisionDeadline ?? null,
+				createdBy: navIdent,
+				updatedBy: navIdent,
+			})
+			.onConflictDoUpdate({
+				target: [routineRpaUserAssessments.reviewId, routineRpaUserAssessments.userObjectId],
+				set: {
+					...(fields.owner !== undefined && { owner: fields.owner }),
+					...(fields.needComment !== undefined && { needComment: fields.needComment }),
+					...(fields.criticalityComment !== undefined && { criticalityComment: fields.criticalityComment }),
+					...(fields.securityComment !== undefined && { securityComment: fields.securityComment }),
+					...(fields.decision !== undefined && { decision: fields.decision as RpaDecision | null }),
+					...(fields.decisionDeadline !== undefined && { decisionDeadline: fields.decisionDeadline }),
+					updatedBy: navIdent,
+					updatedAt: now,
+				},
+			})
+			.returning({ id: routineRpaUserAssessments.id })
+		await writeAuditLog(
+			{
+				action: "rpa_user_assessment_saved",
+				entityType: "routine_rpa_user_assessment",
+				entityId: upserted.id,
+				previousValue: existing
+					? JSON.stringify({
+							owner: existing.owner,
+							needComment: existing.needComment,
+							criticalityComment: existing.criticalityComment,
+							securityComment: existing.securityComment,
+							decision: existing.decision,
+							decisionDeadline: existing.decisionDeadline,
+						})
+					: null,
+				newValue: JSON.stringify({ reviewId, userObjectId, ...fields }),
+				metadata: { reviewId, userObjectId },
+				performedBy: navIdent,
+			},
+			tx,
+		)
+	})
 }

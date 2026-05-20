@@ -45,6 +45,10 @@ describe("getProviderTypeForActivity", () => {
 		expect(getProviderTypeForActivity("entra_id_group_maintenance")).toBeNull()
 	})
 
+	it("returns null for rpa_user_maintenance", () => {
+		expect(getProviderTypeForActivity("rpa_user_maintenance")).toBeNull()
+	})
+
 	it("returns null for unknown activity types", () => {
 		expect(getProviderTypeForActivity("unknown_type")).toBeNull()
 	})
@@ -70,6 +74,10 @@ describe("getEvidenceTypesForActivity", () => {
 		expect(getEvidenceTypesForActivity("entra_id_group_maintenance")).toBeNull()
 	})
 
+	it("returns null for rpa_user_maintenance", () => {
+		expect(getEvidenceTypesForActivity("rpa_user_maintenance")).toBeNull()
+	})
+
 	it("returns null for unknown types", () => {
 		expect(getEvidenceTypesForActivity("unknown")).toBeNull()
 	})
@@ -90,6 +98,10 @@ describe("ROUTINE_ACTIVITY_TYPES", () => {
 
 	it("includes entra_id_group_maintenance", () => {
 		expect(ROUTINE_ACTIVITY_TYPES).toContain("entra_id_group_maintenance")
+	})
+
+	it("includes rpa_user_maintenance", () => {
+		expect(ROUTINE_ACTIVITY_TYPES).toContain("rpa_user_maintenance")
 	})
 })
 
