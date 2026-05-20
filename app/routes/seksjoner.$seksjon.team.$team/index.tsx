@@ -1,21 +1,7 @@
-import { PlusIcon } from "@navikt/aksel-icons"
-import {
-	Alert,
-	BodyLong,
-	Box,
-	Button,
-	Detail,
-	Heading,
-	HGrid,
-	HStack,
-	Modal,
-	Search,
-	Table,
-	VStack,
-} from "@navikt/ds-react"
-import { useRef, useState } from "react"
+import { Alert, BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
+import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
+import { AddAppModal } from "~/components/AddAppModal"
 import { ComplianceStatsPlaceholder } from "~/components/ComplianceStatsPlaceholder"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -147,12 +133,7 @@ export default function TeamDashboard() {
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
-	const addAppModalRef = useRef<HTMLDialogElement>(null)
-	const [appSearch, setAppSearch] = useState("")
-	const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
 	const { showComplianceStats } = useFeatureFlags()
-
-	const filteredApps = availableApps.filter((a) => a.name.toLowerCase().includes(appSearch.toLowerCase()))
 
 	return (
 		<VStack gap="space-8">
@@ -220,20 +201,7 @@ export default function TeamDashboard() {
 				<Heading size="large" level="3">
 					Applikasjoner
 				</Heading>
-				{canAddApp && availableApps.length > 0 && (
-					<Button
-						variant="tertiary"
-						size="small"
-						icon={<PlusIcon aria-hidden />}
-						onClick={() => {
-							setAppSearch("")
-							setSelectedAppId(null)
-							addAppModalRef.current?.showModal()
-						}}
-					>
-						Legg til applikasjon
-					</Button>
-				)}
+				{canAddApp && availableApps.length > 0 && <AddAppModal availableApps={availableApps} intent="add-app" />}
 			</HStack>
 
 			{actionData && "error" in actionData && <Alert variant="error">{actionData.error}</Alert>}
@@ -344,63 +312,6 @@ export default function TeamDashboard() {
 					</section>
 				</VStack>
 			)}
-
-			{/* Modal: Legg til applikasjon */}
-			<Modal ref={addAppModalRef} header={{ heading: "Legg til applikasjon" }}>
-				<Modal.Body>
-					<VStack gap="space-6">
-						<Search
-							label="Søk etter applikasjon"
-							value={appSearch}
-							onChange={setAppSearch}
-							onClear={() => setAppSearch("")}
-							size="small"
-						/>
-						{filteredApps.length > 0 ? (
-							<section
-								className="table-scroll"
-								// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1
-								tabIndex={0}
-								aria-label="Tilgjengelige applikasjoner"
-								style={{ maxHeight: "20rem", overflow: "auto" }}
-							>
-								<Table size="small">
-									<Table.Body>
-										{filteredApps.map((app) => (
-											<Table.Row
-												key={app.id}
-												selected={selectedAppId === app.id}
-												onClick={() => setSelectedAppId(app.id)}
-												style={{ cursor: "pointer" }}
-											>
-												<Table.DataCell>{app.name}</Table.DataCell>
-											</Table.Row>
-										))}
-									</Table.Body>
-								</Table>
-							</section>
-						) : (
-							<BodyLong size="small">
-								{appSearch ? "Ingen applikasjoner funnet." : "Ingen tilgjengelige applikasjoner."}
-							</BodyLong>
-						)}
-					</VStack>
-				</Modal.Body>
-				<Modal.Footer>
-					<Form method="post" onSubmit={() => addAppModalRef.current?.close()}>
-						<input type="hidden" name="intent" value="add-app" />
-						<input type="hidden" name="applicationId" value={selectedAppId ?? ""} />
-						<HStack gap="space-4">
-							<Button type="submit" size="small" disabled={!selectedAppId}>
-								Legg til
-							</Button>
-							<Button type="button" variant="secondary" size="small" onClick={() => addAppModalRef.current?.close()}>
-								Avbryt
-							</Button>
-						</HStack>
-					</Form>
-				</Modal.Footer>
-			</Modal>
 		</VStack>
 	)
 }
