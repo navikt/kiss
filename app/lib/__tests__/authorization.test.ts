@@ -3,6 +3,7 @@ import type { NavUser } from "../auth.server"
 import { isAdminSuppressed } from "../auth.server"
 import {
 	canApproveRoutine,
+	canManageTeam,
 	hasAnySectionRole,
 	hasRole,
 	hasRoleForSection,
@@ -21,6 +22,65 @@ function makeUser(overrides: Partial<NavUser> = {}): NavUser {
 		...overrides,
 	}
 }
+
+describe("canManageTeam", () => {
+	const devTeamId = "team-abc"
+
+	it("returns true for admin regardless of devTeamId", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId)).toBe(true)
+	})
+
+	it("returns true for product_owner with matching devTeamId", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "product_owner", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId)).toBe(true)
+	})
+
+	it("returns true for tech_lead with matching devTeamId", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "tech_lead", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId)).toBe(true)
+	})
+
+	it("returns false for product_owner with null devTeamId (no wildcard)", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "product_owner", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId)).toBe(false)
+	})
+
+	it("returns false for tech_lead with null devTeamId (no wildcard)", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "tech_lead", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId)).toBe(false)
+	})
+
+	it("returns false for product_owner with wrong devTeamId", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "product_owner", sectionId: null, devTeamId: "other-team", devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId)).toBe(false)
+	})
+
+	it("returns false for user with no roles", () => {
+		const user = makeUser()
+		expect(canManageTeam(user, devTeamId)).toBe(false)
+	})
+
+	it("returns false for suppressed admin", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+			adminSuppressed: true,
+		})
+		expect(canManageTeam(user, devTeamId)).toBe(false)
+	})
+})
 
 describe("canApproveRoutine", () => {
 	const sectionId = "section-1"
