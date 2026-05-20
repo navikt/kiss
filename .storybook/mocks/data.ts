@@ -265,6 +265,38 @@ function mockAppSummary(overrides: {
 	}
 }
 
+// ─── Team rediger ───────────────────────────────────────────────────
+
+export function mockTeamEditData() {
+	return {
+		seksjon: "pensjon-og-ufore",
+		seksjonName: "Pensjon og uføre",
+		teamSlug: "starte-pensjon",
+		teamId: "t-01",
+		teamName: "Starte pensjon",
+		teamDescription: "Team som jobber med oppstart av alderspensjon",
+		teamArchivedAt: null as string | null,
+		apps: [
+			mockAppSummary({ appId: "app-1", appName: "pensjon-sak", implemented: 18, partial: 4, notImplemented: 2, notRelevant: 3 }),
+			mockAppSummary({ appId: "app-2", appName: "psak-frontend", implemented: 15, partial: 6, notImplemented: 3, notRelevant: 3 }),
+			{ ...mockAppSummary({ appId: "app-6", appName: "pensjon-pselv", implemented: 12, partial: 3, notImplemented: 4, notRelevant: 2 }), source: "nais-team" as const },
+		],
+		availableApps: [
+			{ id: "app-4", name: "pensjon-opptjening" },
+			{ id: "app-5", name: "pensjon-vedtak" },
+			{ id: "app-7", name: "pensjon-simulering" },
+		],
+		linkedNaisTeams: [
+			{ id: "nt-1", slug: "pensjonsdeployer", displayName: "Pensjonsdeployer", appCount: 12 },
+			{ id: "nt-2", slug: "pensjonsamhandling", displayName: "Pensjonsamhandling", appCount: 5 },
+		],
+		availableNaisTeams: [
+			{ slug: "pensjonskalkulator" },
+			{ slug: "pensjon-regler" },
+		],
+	}
+}
+
 // ─── Mine team ──────────────────────────────────────────────────────
 
 export function mockMineTeamData() {
