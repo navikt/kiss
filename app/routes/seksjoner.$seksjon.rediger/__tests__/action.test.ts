@@ -27,21 +27,16 @@ vi.mock("~/db/queries/sections.server", () => ({
 
 const mockLinkNaisTeamToSection = vi.fn()
 const mockUnlinkNaisTeamFromSection = vi.fn()
-const mockIgnoreAppForSection = vi.fn()
 const mockUnignoreAppForSection = vi.fn()
-const mockGetNaisTeamsForSection = vi.fn()
-const mockGetUnlinkedNaisTeams = vi.fn()
-const mockGetUnassignedAppsForSection = vi.fn()
-const mockGetIgnoredAppsForSection = vi.fn()
 vi.mock("~/db/queries/nais.server", () => ({
 	linkNaisTeamToSection: mockLinkNaisTeamToSection,
 	unlinkNaisTeamFromSection: mockUnlinkNaisTeamFromSection,
-	ignoreAppForSection: mockIgnoreAppForSection,
 	unignoreAppForSection: mockUnignoreAppForSection,
-	getNaisTeamsForSection: mockGetNaisTeamsForSection,
-	getUnlinkedNaisTeams: mockGetUnlinkedNaisTeams,
-	getUnassignedAppsForSection: mockGetUnassignedAppsForSection,
-	getIgnoredAppsForSection: mockGetIgnoredAppsForSection,
+}))
+
+const mockLinkAppToTeam = vi.fn()
+vi.mock("~/db/queries/applications.server", () => ({
+	linkAppToTeam: mockLinkAppToTeam,
 }))
 
 const { action } = await import("../index")
@@ -301,7 +296,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 		})
 	})
 
-	describe("ignore-app", () => {
+	describe("link-team", () => {
 		beforeEach(() => {
 			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
 			mockRequireUser.mockReturnValue(adminUser)
@@ -309,28 +304,24 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 		})
 
-		it("ignores app and redirects", async () => {
-			mockIgnoreAppForSection.mockResolvedValue({})
-
+		it("links app to team and redirects to alle-applikasjoner", async () => {
+			mockLinkAppToTeam.mockResolvedValue(undefined)
 			const formData = new FormData()
-			formData.set("intent", "ignore-app")
+			formData.set("intent", "link-team")
 			formData.set("applicationId", "app-1")
-			formData.set("reason", "Ikke relevant")
+			formData.set("devTeamId", "team-1")
 
-			try {
-				await callAction(formData)
-			} catch (thrown) {
-				expect(thrown).toBeInstanceOf(Response)
-				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=applikasjoner")
-			}
-
-			expect(mockIgnoreAppForSection).toHaveBeenCalledWith("sec-1", "app-1", "Z999999", "Ikke relevant")
+			const response = await callAction(formData)
+			expect(response).toBeInstanceOf(Response)
+			expect((response as Response).status).toBe(302)
+			expect((response as Response).headers.get("Location")).toContain("fane=alle-applikasjoner")
+			expect(mockLinkAppToTeam).toHaveBeenCalledWith("app-1", "team-1", "Z999999")
 		})
 
 		it("returns 400 when applicationId is missing", async () => {
 			const formData = new FormData()
-			formData.set("intent", "ignore-app")
+			formData.set("intent", "link-team")
+			formData.set("devTeamId", "team-1")
 
 			try {
 				await callAction(formData)
@@ -339,8 +330,20 @@ describe("seksjoner.$seksjon.rediger action", () => {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(400)
 			}
+		})
 
-			expect(mockIgnoreAppForSection).not.toHaveBeenCalled()
+		it("returns 400 when devTeamId is missing", async () => {
+			const formData = new FormData()
+			formData.set("intent", "link-team")
+			formData.set("applicationId", "app-1")
+
+			try {
+				await callAction(formData)
+				expect.unreachable("Should have thrown 400")
+			} catch (thrown) {
+				expect(thrown).toBeInstanceOf(Response)
+				expect((thrown as Response).status).toBe(400)
+			}
 		})
 	})
 
@@ -352,21 +355,16 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 		})
 
-		it("unignores app and redirects", async () => {
-			mockUnignoreAppForSection.mockResolvedValue({})
-
+		it("unignores app and redirects to alle-applikasjoner", async () => {
+			mockUnignoreAppForSection.mockResolvedValue(undefined)
 			const formData = new FormData()
 			formData.set("intent", "unignore-app")
 			formData.set("applicationId", "app-1")
 
-			try {
-				await callAction(formData)
-			} catch (thrown) {
-				expect(thrown).toBeInstanceOf(Response)
-				expect((thrown as Response).status).toBe(302)
-				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=applikasjoner")
-			}
-
+			const response = await callAction(formData)
+			expect(response).toBeInstanceOf(Response)
+			expect((response as Response).status).toBe(302)
+			expect((response as Response).headers.get("Location")).toContain("fane=alle-applikasjoner")
 			expect(mockUnignoreAppForSection).toHaveBeenCalledWith("sec-1", "app-1", "Z999999")
 		})
 
@@ -381,8 +379,6 @@ describe("seksjoner.$seksjon.rediger action", () => {
 				expect(thrown).toBeInstanceOf(Response)
 				expect((thrown as Response).status).toBe(400)
 			}
-
-			expect(mockUnignoreAppForSection).not.toHaveBeenCalled()
 		})
 	})
 

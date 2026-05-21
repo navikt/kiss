@@ -3,7 +3,6 @@ import { redirect } from "react-router"
 import { linkAppToTeam } from "~/db/queries/applications.server"
 import {
 	excludeEnvironment,
-	ignoreAppForSection,
 	includeEnvironment,
 	linkNaisTeamToSection,
 	unignoreAppForSection,
@@ -62,37 +61,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirectToTab(seksjon, "nais")
 	}
 
-	if (intent === "ignore-app") {
+	if (intent === "link-team") {
 		const applicationId = formData.get("applicationId") as string
-		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
-		const reason = formData.get("reason")
-		await ignoreAppForSection(result.section.id, applicationId, userId, typeof reason === "string" ? reason : undefined)
-		return redirectToTab(seksjon, "applikasjoner")
+		const devTeamId = formData.get("devTeamId") as string
+		if (!applicationId || !devTeamId) throw new Response("Velg et team.", { status: 400 })
+		await linkAppToTeam(applicationId, devTeamId, userId)
+		return redirectToTab(seksjon, "alle-applikasjoner")
 	}
 
 	if (intent === "unignore-app") {
 		const applicationId = formData.get("applicationId") as string
 		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
 		await unignoreAppForSection(result.section.id, applicationId, userId)
-		return redirectToTab(seksjon, "applikasjoner")
-	}
-
-	if (intent === "bulk-assign-team") {
-		const teamId = formData.get("teamId") as string
-		const appIds = formData.getAll("appId") as string[]
-		if (!teamId) throw new Response("Mangler team", { status: 400 })
-		if (appIds.length === 0) throw new Response("Ingen applikasjoner valgt", { status: 400 })
-		for (const appId of appIds) {
-			await linkAppToTeam(appId, teamId, userId)
-		}
-		return redirectToTab(seksjon, "applikasjoner")
-	}
-
-	if (intent === "link-team") {
-		const applicationId = formData.get("applicationId") as string
-		const devTeamId = formData.get("devTeamId") as string
-		if (!applicationId || !devTeamId) throw new Response("Velg et team.", { status: 400 })
-		await linkAppToTeam(applicationId, devTeamId, userId)
 		return redirectToTab(seksjon, "alle-applikasjoner")
 	}
 

@@ -43,6 +43,7 @@ export default [
 		"routes/ctx-seksjon.applikasjoner.$appId.kontroll.$controlId.rutiner/index.tsx",
 	),
 	route("seksjoner/:seksjon/rediger", "routes/seksjoner.$seksjon.rediger/index.tsx"),
+	route("seksjoner/:seksjon/applikasjoner-uten-team", "routes/seksjoner.$seksjon.applikasjoner-uten-team/index.tsx"),
 	route("seksjoner/:seksjon/nais-team", "routes/seksjoner.$seksjon.nais-team/index.tsx"),
 	route("seksjoner/:seksjon/team/:team", "routes/seksjoner.$seksjon.team.$team/index.tsx"),
 	route("seksjoner/:seksjon/team/:team/rediger", "routes/seksjoner.$seksjon.team.$team.rediger/index.tsx"),

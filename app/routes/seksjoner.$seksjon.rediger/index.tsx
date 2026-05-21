@@ -6,7 +6,6 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import type { loader } from "./loader.server"
 import type { LinkedNaisTeam } from "./shared"
 import { AlleApplikasjonerTab } from "./tabs/AlleApplikasjonerTab"
-import { ApplikasjonerUtenTeamTab } from "./tabs/ApplikasjonerUtenTeamTab"
 import { NaisTab } from "./tabs/NaisTab"
 import { SeksjonTab } from "./tabs/SeksjonTab"
 import { UtviklingsteamTab } from "./tabs/UtviklingsteamTab"
@@ -21,9 +20,8 @@ export default function RedigerSeksjon() {
 		teams,
 		linkedNaisTeams,
 		unlinkedNaisTeams,
-		unassignedApps,
-		ignoredApps,
 		sectionApps,
+		ignoredApps,
 		persistenceMap,
 		sectionEnvironments,
 		seksjon,
@@ -56,10 +54,6 @@ export default function RedigerSeksjon() {
 					<Tabs.Tab value="seksjon" label="Seksjon" />
 					<Tabs.Tab value="team" label={`Utviklingsteam (${teams.filter((t) => !t.archivedAt).length})`} />
 					<Tabs.Tab value="nais" label={`Nais-team (${linkedNaisTeams.length})`} />
-					<Tabs.Tab
-						value="applikasjoner"
-						label={`Applikasjoner uten team (${unassignedApps.length})${unassignedApps.length > 0 ? " ⚠" : ""}`}
-					/>
 					<Tabs.Tab value="alle-applikasjoner" label={`Alle applikasjoner (${sectionApps.length})`} />
 				</Tabs.List>
 
@@ -83,12 +77,13 @@ export default function RedigerSeksjon() {
 					/>
 				</Tabs.Panel>
 
-				<Tabs.Panel value="applikasjoner" style={{ paddingTop: "var(--ax-space-6)" }}>
-					<ApplikasjonerUtenTeamTab unassignedApps={unassignedApps} ignoredApps={ignoredApps} teams={teams} />
-				</Tabs.Panel>
-
 				<Tabs.Panel value="alle-applikasjoner" style={{ paddingTop: "var(--ax-space-6)" }}>
-					<AlleApplikasjonerTab sectionApps={sectionApps} teams={teams} persistenceMap={persistenceMap} />
+					<AlleApplikasjonerTab
+						sectionApps={sectionApps}
+						teams={teams}
+						persistenceMap={persistenceMap}
+						ignoredApps={ignoredApps}
+					/>
 				</Tabs.Panel>
 			</Tabs>
 

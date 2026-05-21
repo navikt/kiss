@@ -35,11 +35,9 @@ export type UnlinkedNaisTeam = {
 	displayName: string | null
 }
 
-export type UnassignedApp = {
-	appId: string
-	appName: string
-	naisTeamSlug: string
-	environments: string[]
+export type SectionEnvironment = {
+	cluster: string
+	included: boolean
 }
 
 export type IgnoredApp = {
@@ -48,9 +46,4 @@ export type IgnoredApp = {
 	reason: string | null
 	ignoredBy: string
 	ignoredAt: string | null
-}
-
-export type SectionEnvironment = {
-	cluster: string
-	included: boolean
 }

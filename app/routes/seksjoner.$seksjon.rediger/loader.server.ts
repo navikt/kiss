@@ -6,7 +6,6 @@ import {
 	getIgnoredAppsForSection,
 	getNaisTeamsForSection,
 	getSectionEnvironments,
-	getUnassignedAppsForSection,
 	getUnlinkedNaisTeams,
 } from "~/db/queries/nais.server"
 import { getSectionDetail, getTeamsForSection } from "~/db/queries/sections.server"
@@ -26,15 +25,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const sectionId = result.section.id
 
-	const [teams, linkedNaisTeams, unlinkedNaisTeams, unassignedApps, ignoredApps, sectionApps, sectionEnvironmentsList] =
+	const [teams, linkedNaisTeams, unlinkedNaisTeams, sectionApps, sectionEnvironmentsList, ignoredApps] =
 		await Promise.all([
 			getTeamsForSection(sectionId, { includeArchived: true }),
 			getNaisTeamsForSection(sectionId),
 			getUnlinkedNaisTeams(),
-			getUnassignedAppsForSection(sectionId),
-			getIgnoredAppsForSection(sectionId),
 			getApplicationsForSection(sectionId),
 			getSectionEnvironments(sectionId),
+			getIgnoredAppsForSection(sectionId),
 		])
 
 	const sectionAppIds = sectionApps.map((a) => a.id)
@@ -64,7 +62,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			slug: t.slug,
 			displayName: t.displayName,
 		})),
-		unassignedApps,
+		sectionApps,
 		ignoredApps: ignoredApps.map((a) => ({
 			appId: a.appId,
 			appName: a.appName,
@@ -72,7 +70,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			ignoredBy: a.ignoredBy,
 			ignoredAt: a.ignoredAt?.toISOString() ?? null,
 		})),
-		sectionApps,
 		persistenceMap: Object.fromEntries(persistenceMap),
 		sectionEnvironments: sectionEnvironmentsList,
 		seksjon,

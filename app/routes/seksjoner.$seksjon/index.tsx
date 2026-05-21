@@ -260,7 +260,7 @@ export default function SeksjonDashboard() {
 								unassigned.notImplemented -
 								unassigned.notRelevant
 							return (
-								<Link to={`/seksjoner/${seksjon}/rediger?fane=applikasjoner`} className="domain-status-card-link">
+								<Link to={`/seksjoner/${seksjon}/applikasjoner-uten-team`} className="domain-status-card-link">
 									<div className="domain-status-header">
 										<Heading size="small" level="4">
 											Uten team
@@ -315,7 +315,7 @@ export default function SeksjonDashboard() {
 						</Link>
 					))}
 					{unassigned.apps > 0 && (
-						<Link to={`/seksjoner/${seksjon}/rediger?fane=applikasjoner`} className="domain-status-card-link">
+						<Link to={`/seksjoner/${seksjon}/applikasjoner-uten-team`} className="domain-status-card-link">
 							<div className="domain-status-header">
 								<Heading size="small" level="4">
 									Uten team
