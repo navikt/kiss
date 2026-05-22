@@ -185,6 +185,111 @@ Compliance:    Applikasjon × Kontroll → Vurdering (med historikk)
 Rapporter:     Snapshot → Rapport (lagret i bucket)
 ```
 
+## Overvåking – utgående HTTP-kall
+
+Alle utgående HTTP-kall i applikasjonen logges strukturert via `loggedFetch()` i `app/lib/http-logger.server.ts`. Hvert kall produserer én loggmelding med faste felter som gjør det enkelt å filtrere og analysere i ELK og Loki.
+
+### Feltstruktur
+
+| Felt | Type | Eksempel | Beskrivelse |
+|------|------|---------|-------------|
+| `log_type` | string | `"outgoing_http"` | Fast diskriminator – brukes til å filtrere kun utgående kall |
+| `area` | string | `"nais"` | Funksjonelt område som initierte kallet |
+| `method` | string | `"POST"` | HTTP-metode |
+| `host` | string | `"login.microsoftonline.com"` | Vertsnavn (uten path/query) |
+| `path` | string | `"/oauth2/v2.0/token"` | Path-del av URL |
+| `url` | string | `"https://login.microsoftonline.com/…?scope=read"` | Fullstendig URL (sensitive query-params redaktet) |
+| `status` | number | `200` | HTTP-statuskode |
+| `ok` | boolean | `true` | `true` om status er 200–299 |
+| `durationMs` | number | `143` | Responstid i millisekunder |
+| `error` | string | `"Connection refused"` | Settes kun ved nettverksfeil |
+| `error_name` | string | `"TypeError"` | Feiltype ved nettverksfeil |
+| `stack_trace` | string | `"TypeError: …\n  at …"` | Stack trace ved nettverksfeil |
+| `cause` | string/array | `"ECONNREFUSED"` | Cause-kjede ved nettverksfeil |
+
+Sensitive query-parametere (`token`, `secret`, `password`, `code`, `assertion` m.fl.) erstattes med `[REDACTED]` i `url`-feltet. Userinfo (brukernavn/passord i URL) fjernes alltid.
+
+### Verdier for `area`
+
+| `area` | System |
+|--------|--------|
+| `azure-ad` | Azure AD token-endepunkter (OBO + client credentials) |
+| `nais` | Nais Console GraphQL API |
+| `github` | GitHub Apps API |
+| `microsoft-graph` | Microsoft Graph API |
+| `deployment-audit` | Nav Deployment Audit API |
+| `nda-audit` | NDA audit-rapporter |
+| `oracle-revisjon` | Oracle revisjons-API |
+
+### Analyse i ELK (Kibana)
+
+**Filtrer alle utgående kall:**
+```
+log_type: "outgoing_http"
+```
+
+**Kall mot et bestemt system:**
+```
+log_type: "outgoing_http" AND area: "nais"
+```
+
+**Kun feilende kall (HTTP-feil):**
+```
+log_type: "outgoing_http" AND ok: false
+```
+
+**Kun nettverksfeil (ingen respons):**
+```
+log_type: "outgoing_http" AND error: *
+```
+
+**Trege kall (over 1 sekund):**
+```
+log_type: "outgoing_http" AND durationMs > 1000
+```
+
+**Kall mot en bestemt host:**
+```
+log_type: "outgoing_http" AND host: "login.microsoftonline.com"
+```
+
+Anbefalte kolonner i Kibana Discover: `@timestamp`, `area`, `method`, `host`, `path`, `status`, `durationMs`.
+
+### Analyse i Loki (Grafana)
+
+**Alle utgående kall (JSON-parsing):**
+```logql
+{app="kiss"} | json | log_type = "outgoing_http"
+```
+
+**Kall per område over tid:**
+```logql
+sum by (area) (
+  rate({app="kiss"} | json | log_type = "outgoing_http" [5m])
+)
+```
+
+**Gjennomsnittlig responstid per area:**
+```logql
+avg by (area) (
+  avg_over_time(
+    {app="kiss"} | json | log_type = "outgoing_http" | unwrap durationMs [5m]
+  )
+)
+```
+
+**Feilrate (non-2xx) per area:**
+```logql
+sum by (area) (
+  rate({app="kiss"} | json | log_type = "outgoing_http" | ok = "false" [5m])
+)
+```
+
+**Nettverksfeil:**
+```logql
+{app="kiss"} | json | log_type = "outgoing_http" | error != ""
+```
+
 ## Integrasjoner
 
 - **[Nav Deployment Audit](https://github.com/navikt/deployment-audit)**: Konsoliderte rapporter (planlagt)
