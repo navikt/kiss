@@ -8,6 +8,7 @@ import {
 	Detail,
 	Heading,
 	HStack,
+	ReadMore,
 	Select,
 	Table,
 	Tag,
@@ -16,7 +17,7 @@ import {
 import { Fragment } from "react"
 import { Form, Link } from "react-router"
 import { compliancePercent } from "~/lib/utils"
-import { persistenceLabels, type TeamItem } from "../shared"
+import { type IgnoredApp, persistenceLabels, type TeamItem } from "../shared"
 
 type SectionApp = {
 	id: string
@@ -34,10 +35,12 @@ export function AlleApplikasjonerTab({
 	sectionApps,
 	teams,
 	persistenceMap,
+	ignoredApps,
 }: {
 	sectionApps: SectionApp[]
 	teams: TeamItem[]
 	persistenceMap: Record<string, Array<{ type: string }>>
+	ignoredApps: IgnoredApp[]
 }) {
 	return (
 		<VStack gap="space-6">
@@ -176,6 +179,42 @@ export function AlleApplikasjonerTab({
 				<Alert variant="info" size="small">
 					Ingen applikasjoner funnet for seksjonens Nais-team.
 				</Alert>
+			)}
+
+			{ignoredApps.length > 0 && (
+				<ReadMore header={`Ignorerte applikasjoner (${ignoredApps.length})`}>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+					<section className="table-scroll" tabIndex={0} aria-label="Ignorerte applikasjoner">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Begrunnelse</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Ignorert av</Table.HeaderCell>
+									<Table.HeaderCell scope="col" />
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{ignoredApps.map((app) => (
+									<Table.Row key={app.appId}>
+										<Table.DataCell>{app.appName}</Table.DataCell>
+										<Table.DataCell>{app.reason || "–"}</Table.DataCell>
+										<Table.DataCell>{app.ignoredBy}</Table.DataCell>
+										<Table.DataCell align="right">
+											<Form method="post">
+												<input type="hidden" name="intent" value="unignore-app" />
+												<input type="hidden" name="applicationId" value={app.appId} />
+												<Button type="submit" variant="tertiary-neutral" size="xsmall">
+													Gjenopprett
+												</Button>
+											</Form>
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				</ReadMore>
 			)}
 		</VStack>
 	)
