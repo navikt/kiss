@@ -1,4 +1,5 @@
 import { getClientCredentialToken } from "./azure.server"
+import { loggedFetch } from "./http-logger.server"
 import { logger } from "./logger.server"
 
 const ORACLE_REVISJON_SCOPE = process.env.ORACLE_REVISJON_SCOPE
@@ -75,22 +76,16 @@ async function fetchWithAuth(path: string, headers: Record<string, string> = {})
 	const token = await getClientCredentialToken(ORACLE_REVISJON_SCOPE)
 
 	const url = `${ORACLE_REVISJON_BASE_URL}${path}`
-	logger.debug("Fetching oracle-revisjon", { url })
 
-	const response = await fetch(url, {
-		headers: {
-			Authorization: `Bearer ${token}`,
-			...headers,
-		},
-	})
+	const response = await loggedFetch(
+		url,
+		{ headers: { Authorization: `Bearer ${token}`, ...headers } },
+		{ area: "oracle-revisjon" },
+	)
 
 	if (!response.ok) {
 		const text = await response.text()
-		logger.error("oracle-revisjon request failed", {
-			url,
-			status: response.status,
-			body: text,
-		})
+		logger.error("oracle-revisjon request failed", { url, status: response.status, body: text })
 		throw new Error(`oracle-revisjon request failed: ${response.status} ${text}`)
 	}
 

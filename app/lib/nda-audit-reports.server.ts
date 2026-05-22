@@ -9,6 +9,7 @@
  */
 
 import { getClientCredentialToken } from "./azure.server"
+import { loggedFetch } from "./http-logger.server"
 import { logger } from "./logger.server"
 
 const NDA_AUDIT_REPORTS_SCOPE = process.env.NDA_AUDIT_REPORTS_SCOPE ?? process.env.DEPLOYMENT_AUDIT_SCOPE
@@ -121,12 +122,7 @@ async function fetchWithAuth(path: string, options?: RequestInit): Promise<Respo
 	const headers = new Headers(options?.headers as HeadersInit | undefined)
 	headers.set("Authorization", `Bearer ${token}`)
 
-	logger.debug("Fetching nda-audit-reports", { url, method: options?.method ?? "GET" })
-
-	return fetch(url, {
-		...options,
-		headers,
-	})
+	return loggedFetch(url, { ...options, headers }, { area: "nda-audit" })
 }
 
 async function handleErrorResponse(response: Response, context: string): Promise<never> {

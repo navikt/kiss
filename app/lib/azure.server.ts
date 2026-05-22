@@ -1,4 +1,5 @@
 import type { NavUser } from "./auth.server"
+import { loggedFetch } from "./http-logger.server"
 
 const AZURE_OPENID_CONFIG_TOKEN_ENDPOINT = process.env.AZURE_OPENID_CONFIG_TOKEN_ENDPOINT
 const AZURE_APP_CLIENT_ID = process.env.AZURE_APP_CLIENT_ID
@@ -18,18 +19,22 @@ export async function getOnBehalfOfToken(user: NavUser, targetScope: string): Pr
 		throw new Error("Azure AD environment variables not configured")
 	}
 
-	const response = await fetch(AZURE_OPENID_CONFIG_TOKEN_ENDPOINT, {
-		method: "POST",
-		headers: { "Content-Type": "application/x-www-form-urlencoded" },
-		body: new URLSearchParams({
-			grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-			client_id: AZURE_APP_CLIENT_ID,
-			client_secret: AZURE_APP_CLIENT_SECRET,
-			assertion: user.token,
-			scope: targetScope,
-			requested_token_use: "on_behalf_of",
-		}),
-	})
+	const response = await loggedFetch(
+		AZURE_OPENID_CONFIG_TOKEN_ENDPOINT,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({
+				grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+				client_id: AZURE_APP_CLIENT_ID,
+				client_secret: AZURE_APP_CLIENT_SECRET,
+				assertion: user.token,
+				scope: targetScope,
+				requested_token_use: "on_behalf_of",
+			}),
+		},
+		{ area: "azure-ad" },
+	)
 
 	if (!response.ok) {
 		const text = await response.text()
@@ -71,16 +76,20 @@ async function fetchClientCredentialToken(targetScope: string): Promise<string> 
 		throw new Error("Azure AD environment variables not configured")
 	}
 
-	const response = await fetch(AZURE_OPENID_CONFIG_TOKEN_ENDPOINT, {
-		method: "POST",
-		headers: { "Content-Type": "application/x-www-form-urlencoded" },
-		body: new URLSearchParams({
-			grant_type: "client_credentials",
-			client_id: AZURE_APP_CLIENT_ID,
-			client_secret: AZURE_APP_CLIENT_SECRET,
-			scope: targetScope,
-		}),
-	})
+	const response = await loggedFetch(
+		AZURE_OPENID_CONFIG_TOKEN_ENDPOINT,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({
+				grant_type: "client_credentials",
+				client_id: AZURE_APP_CLIENT_ID,
+				client_secret: AZURE_APP_CLIENT_SECRET,
+				scope: targetScope,
+			}),
+		},
+		{ area: "azure-ad" },
+	)
 
 	if (!response.ok) {
 		const text = await response.text()

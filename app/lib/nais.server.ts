@@ -1,3 +1,4 @@
+import { loggedFetch } from "./http-logger.server"
 import { logger } from "./logger.server"
 
 const NAIS_API_URL = process.env.NAIS_API_URL ?? "https://console.nav.cloud.nais.io/graphql"
@@ -75,11 +76,15 @@ async function naisGraphQL<T>(query: string, variables?: Record<string, unknown>
 		headers.Authorization = `Bearer ${token}`
 	}
 
-	const response = await fetch(NAIS_API_URL, {
-		method: "POST",
-		headers,
-		body: JSON.stringify({ query, variables }),
-	})
+	const response = await loggedFetch(
+		NAIS_API_URL,
+		{
+			method: "POST",
+			headers,
+			body: JSON.stringify({ query, variables }),
+		},
+		{ area: "nais" },
+	)
 
 	if (!response.ok) {
 		const text = await response.text()

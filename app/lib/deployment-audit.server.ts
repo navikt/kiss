@@ -1,5 +1,6 @@
 import type { VerificationSummaryResponse } from "../db/schema/deployment-audit"
 import { getClientCredentialToken } from "./azure.server"
+import { loggedFetch } from "./http-logger.server"
 import { logger } from "./logger.server"
 
 const DEPLOYMENT_AUDIT_SCOPE = process.env.DEPLOYMENT_AUDIT_SCOPE
@@ -20,13 +21,12 @@ async function fetchWithAuth(path: string): Promise<Response> {
 	const token = await getClientCredentialToken(DEPLOYMENT_AUDIT_SCOPE)
 
 	const url = `${DEPLOYMENT_AUDIT_BASE_URL}${path}`
-	logger.debug("Fetching deployment-audit", { url })
 
-	const response = await fetch(url, {
-		headers: {
-			Authorization: `Bearer ${token}`,
-		},
-	})
+	const response = await loggedFetch(
+		url,
+		{ headers: { Authorization: `Bearer ${token}` } },
+		{ area: "deployment-audit" },
+	)
 
 	return response
 }

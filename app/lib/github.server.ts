@@ -1,5 +1,6 @@
 import crypto from "node:crypto"
 import { importJWK, SignJWT } from "jose"
+import { loggedFetch } from "./http-logger.server"
 import { logger } from "./logger.server"
 
 // --- Types ---
@@ -83,14 +84,18 @@ async function fetchInstallationToken(): Promise<string> {
 	const { installationId } = getConfig()
 	const jwt = await generateJwt()
 
-	const response = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${jwt}`,
-			Accept: "application/vnd.github+json",
-			"X-GitHub-Api-Version": "2022-11-28",
+	const response = await loggedFetch(
+		`https://api.github.com/app/installations/${installationId}/access_tokens`,
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${jwt}`,
+				Accept: "application/vnd.github+json",
+				"X-GitHub-Api-Version": "2022-11-28",
+			},
 		},
-	})
+		{ area: "github" },
+	)
 
 	if (!response.ok) {
 		const body = await response.text()
@@ -114,13 +119,17 @@ async function fetchAllPages<T>(url: string): Promise<T[]> {
 	let nextUrl: string | null = `${url}${url.includes("?") ? "&" : "?"}per_page=100`
 
 	while (nextUrl) {
-		const response = await fetch(nextUrl, {
-			headers: {
-				Authorization: `token ${token}`,
-				Accept: "application/vnd.github+json",
-				"X-GitHub-Api-Version": "2022-11-28",
+		const response = await loggedFetch(
+			nextUrl,
+			{
+				headers: {
+					Authorization: `token ${token}`,
+					Accept: "application/vnd.github+json",
+					"X-GitHub-Api-Version": "2022-11-28",
+				},
 			},
-		})
+			{ area: "github" },
+		)
 
 		if (!response.ok) {
 			const body = await response.text()

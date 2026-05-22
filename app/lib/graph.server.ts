@@ -1,4 +1,5 @@
 import { getClientCredentialToken } from "./azure.server"
+import { loggedFetch } from "./http-logger.server"
 import { logger } from "./logger.server"
 
 const GRAPH_SCOPE = "https://graph.microsoft.com/.default"
@@ -26,7 +27,7 @@ async function fetchWith429Retry(url: string, initFactory: () => RequestInit, co
 	let attempt = 0
 	for (;;) {
 		const init = initFactory()
-		const response = await fetch(url, init)
+		const response = await loggedFetch(url, init, { area: "microsoft-graph" })
 		if (response.status !== 429 || attempt >= MAX_GRAPH_429_RETRIES) {
 			return response
 		}
