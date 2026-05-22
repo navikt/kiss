@@ -6,7 +6,10 @@ vi.mock("~/lib/azure.server", () => ({
 
 vi.mock("~/lib/logger.server", () => ({
 	logger: {
+		debug: vi.fn(),
+		info: vi.fn(),
 		warn: vi.fn(),
+		error: vi.fn(),
 	},
 }))
 
