@@ -1,4 +1,5 @@
 import { getClientCredentialToken } from "./azure.server"
+import { loggedFetch } from "./http-logger.server"
 import { logger } from "./logger.server"
 
 const GRAPH_SCOPE = "https://graph.microsoft.com/.default"
@@ -26,7 +27,7 @@ async function fetchWith429Retry(url: string, initFactory: () => RequestInit, co
 	let attempt = 0
 	for (;;) {
 		const init = initFactory()
-		const response = await fetch(url, init)
+		const response = await loggedFetch(url, init, { area: "microsoft-graph" })
 		if (response.status !== 429 || attempt >= MAX_GRAPH_429_RETRIES) {
 			return response
 		}
@@ -92,9 +93,11 @@ export async function resolveGroupNames(groupIds: string[]): Promise<Record<stri
 }
 
 async function fetchSingleGroupName(token: string, groupId: string): Promise<string | null> {
-	const response = await fetch(`https://graph.microsoft.com/v1.0/groups/${groupId}?$select=displayName`, {
-		headers: { Authorization: `Bearer ${token}` },
-	})
+	const response = await loggedFetch(
+		`https://graph.microsoft.com/v1.0/groups/${groupId}?$select=displayName`,
+		{ headers: { Authorization: `Bearer ${token}` } },
+		{ area: "microsoft-graph" },
+	)
 
 	if (!response.ok) {
 		logger.warn(`Failed to fetch group name for ${groupId}: ${response.status}`)
@@ -120,14 +123,18 @@ async function fetchGroupNamesBatch(token: string, groupIds: string[]): Promise<
 			})),
 		}
 
-		const response = await fetch("https://graph.microsoft.com/v1.0/$batch", {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${token}`,
-				"Content-Type": "application/json",
+		const response = await loggedFetch(
+			"https://graph.microsoft.com/v1.0/$batch",
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(batchBody),
 			},
-			body: JSON.stringify(batchBody),
-		})
+			{ area: "microsoft-graph" },
+		)
 
 		if (!response.ok) {
 			logger.warn(`Graph $batch request failed: ${response.status}`)
@@ -198,12 +205,11 @@ export async function searchGroups(query: string): Promise<GroupSearchResult[]> 
 		url.searchParams.set("$orderby", "displayName")
 		url.searchParams.set("$count", "true")
 
-		const response = await fetch(url.toString(), {
-			headers: {
-				Authorization: `Bearer ${token}`,
-				ConsistencyLevel: "eventual",
-			},
-		})
+		const response = await loggedFetch(
+			url.toString(),
+			{ headers: { Authorization: `Bearer ${token}`, ConsistencyLevel: "eventual" } },
+			{ area: "microsoft-graph" },
+		)
 
 		if (!response.ok) {
 			const body = await response.text().catch(() => "")
@@ -307,12 +313,11 @@ export async function searchUsers(query: string): Promise<UserSearchResult[]> {
 		url.searchParams.set("$orderby", "displayName")
 		url.searchParams.set("$count", "true")
 
-		const response = await fetch(url.toString(), {
-			headers: {
-				Authorization: `Bearer ${token}`,
-				ConsistencyLevel: "eventual",
-			},
-		})
+		const response = await loggedFetch(
+			url.toString(),
+			{ headers: { Authorization: `Bearer ${token}`, ConsistencyLevel: "eventual" } },
+			{ area: "microsoft-graph" },
+		)
 
 		if (!response.ok) {
 			const body = await response.text().catch(() => "")
