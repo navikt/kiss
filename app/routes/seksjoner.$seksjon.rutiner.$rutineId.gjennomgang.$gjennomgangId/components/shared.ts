@@ -1,5 +1,23 @@
 import { activityTypeLabels, type RoutineActivityType } from "~/lib/activity-types"
 
+export type ActivityProp = {
+	id: string
+	type: RoutineActivityType
+	status: string
+	completedAt: string | null
+	createdAt: string
+	changes: Array<{
+		id: string
+		changeType: string
+		groupId: string
+		groupName: string | null
+		previousValue: string | null
+		newValue: string | null
+		performedBy: string
+		performedAt: string
+	}>
+}
+
 export type ReviewStep = {
 	id: string
 	label: string
