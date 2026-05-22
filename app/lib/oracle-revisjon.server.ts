@@ -85,7 +85,7 @@ async function fetchWithAuth(path: string, headers: Record<string, string> = {})
 
 	if (!response.ok) {
 		const text = await response.text()
-		logger.error("oracle-revisjon request failed", { url, status: response.status, body: text })
+		logger.error("oracle-revisjon request failed", { status: response.status, body: text })
 		throw new Error(`oracle-revisjon request failed: ${response.status} ${text}`)
 	}
 

@@ -21,6 +21,9 @@ const SENSITIVE_PARAMS = new Set([
 function redactUrl(rawUrl: string): { host: string; path: string; url: string } {
 	try {
 		const parsed = new URL(rawUrl)
+		// Clear userinfo (username/password) to prevent credential leakage
+		parsed.username = ""
+		parsed.password = ""
 		for (const key of parsed.searchParams.keys()) {
 			if (SENSITIVE_PARAMS.has(key.toLowerCase())) {
 				parsed.searchParams.set(key, "[REDACTED]")
@@ -32,7 +35,22 @@ function redactUrl(rawUrl: string): { host: string; path: string; url: string } 
 			url: parsed.toString(),
 		}
 	} catch {
-		return { host: "[unknown]", path: rawUrl, url: rawUrl }
+		// For relative URLs (start with /), try with a dummy base so sensitive query params are still redacted.
+		// For truly unparseable URLs, keep a safe placeholder to avoid leaking the raw value.
+		if (rawUrl.startsWith("/") || rawUrl.startsWith("./") || rawUrl.startsWith("../")) {
+			try {
+				const parsed = new URL(rawUrl, "http://localhost")
+				for (const key of parsed.searchParams.keys()) {
+					if (SENSITIVE_PARAMS.has(key.toLowerCase())) {
+						parsed.searchParams.set(key, "[REDACTED]")
+					}
+				}
+				return { host: "[relative]", path: parsed.pathname, url: `[relative]${parsed.search}` }
+			} catch {
+				// fall through to placeholder
+			}
+		}
+		return { host: "[unknown]", path: "[unparseable URL]", url: "[unparseable URL]" }
 	}
 }
 
@@ -92,7 +110,7 @@ export async function loggedFetch(
 			path,
 			url: redactedUrl,
 			durationMs,
-			error: error instanceof Error ? error.message : String(error),
+			...(error instanceof Error ? { error: error.message, stack_trace: error.stack } : { error: String(error) }),
 		})
 
 		throw error
