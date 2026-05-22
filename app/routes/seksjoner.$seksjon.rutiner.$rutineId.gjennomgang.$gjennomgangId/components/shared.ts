@@ -1,5 +1,12 @@
 import { activityTypeLabels, type RoutineActivityType } from "~/lib/activity-types"
 
+export type ActionResult = {
+	success: boolean
+	error?: string
+	intent?: string
+	pointId?: string
+}
+
 export type ActivityProp = {
 	id: string
 	type: RoutineActivityType
