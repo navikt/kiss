@@ -68,9 +68,21 @@ describe("loggedFetch", () => {
 			area: "test-area",
 			method: "POST",
 			error: "Connection refused",
+			error_name: "Error",
 			stack_trace: networkError.stack,
 		})
 		expect(mockLogger.info).not.toHaveBeenCalled()
+	})
+
+	it("includes cause chain in error log", async () => {
+		const cause = new Error("DNS lookup failed")
+		const networkError = new Error("Connection refused", { cause })
+		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(networkError))
+
+		await expect(loggedFetch("https://example.com/api", undefined, { area: "test" })).rejects.toThrow()
+
+		const [, meta] = mockLogger.error.mock.calls[0]
+		expect(meta.cause).toBe("DNS lookup failed")
 	})
 
 	it("redacts sensitive query parameters from the logged URL", async () => {
@@ -132,26 +144,15 @@ describe("loggedFetch", () => {
 		expect(mockLogger.error).not.toHaveBeenCalled()
 	})
 
-	it("redacts sensitive params from relative URLs", async () => {
+	it("redacts sensitive params from relative URLs and includes pathname in url field", async () => {
 		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })))
 
 		await loggedFetch("/api/token?access_token=secret&scope=read", undefined, { area: "test" })
 
 		const [, meta] = mockLogger.info.mock.calls[0]
 		expect(meta.url).not.toContain("secret")
-		expect(meta.url).toContain("access_token=")
-		expect(meta.url).not.toContain("access_token=secret")
+		expect(meta.url).toContain("/api/token")
+		expect(meta.url).toContain("scope=read")
 		expect(meta.host).toBe("[relative]")
-	})
-
-	it("logs error message and stack trace when network fails", async () => {
-		const networkError = new Error("Connection refused")
-		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(networkError))
-
-		await expect(loggedFetch("https://example.com/api", { method: "POST" }, { area: "test-area" })).rejects.toThrow()
-
-		const [, meta] = mockLogger.error.mock.calls[0]
-		expect(meta.error).toBe(networkError.message)
-		expect(meta.stack_trace).toBe(networkError.stack)
 	})
 })

@@ -45,13 +45,40 @@ function redactUrl(rawUrl: string): { host: string; path: string; url: string } 
 						parsed.searchParams.set(key, "[REDACTED]")
 					}
 				}
-				return { host: "[relative]", path: parsed.pathname, url: `[relative]${parsed.search}` }
+				return { host: "[relative]", path: parsed.pathname, url: `${parsed.pathname}${parsed.search}` }
 			} catch {
 				// fall through to placeholder
 			}
 		}
 		return { host: "[unknown]", path: "[unparseable URL]", url: "[unparseable URL]" }
 	}
+}
+
+/** Extract error fields including cause chain, mirroring logger.server.ts behaviour */
+function collectErrorMeta(error: unknown): Record<string, unknown> {
+	if (!(error instanceof Error)) {
+		return { error: String(error) }
+	}
+	const meta: Record<string, unknown> = {
+		error: error.message,
+		error_name: error.name,
+		stack_trace: error.stack,
+	}
+	const causes: string[] = []
+	let current: unknown = error.cause
+	while (current) {
+		if (current instanceof Error) {
+			causes.push(current.message)
+			current = current.cause
+		} else {
+			causes.push(String(current))
+			break
+		}
+	}
+	if (causes.length > 0) {
+		meta.cause = causes.length === 1 ? causes[0] : causes
+	}
+	return meta
 }
 
 export interface LoggedFetchOptions {
@@ -110,7 +137,7 @@ export async function loggedFetch(
 			path,
 			url: redactedUrl,
 			durationMs,
-			...(error instanceof Error ? { error: error.message, stack_trace: error.stack } : { error: String(error) }),
+			...collectErrorMeta(error),
 		})
 
 		throw error
