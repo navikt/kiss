@@ -142,6 +142,7 @@ describe("Database migrations", () => {
 				"routine_review_links",
 				"routine_review_participants",
 				"routine_reviews",
+				"routine_rpa_user_assessments",
 				"routine_screening_questions",
 				"routine_technology_elements",
 				"routines",

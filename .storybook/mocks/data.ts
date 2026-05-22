@@ -1698,6 +1698,7 @@ export function mockGjennomgangDetaljOracleEvidenceData(overrides?: {
 				providerConfig: null,
 				periodConfig: null,
 				entraGroupsData: null,
+				rpaMaintenanceData: null,
 				oracleEvidenceData: {
 					...mockOracleEvidenceData({
 						evidenceTypes: overrides?.evidenceTypes,
@@ -1729,6 +1730,7 @@ export function mockGjennomgangMultiActivityData(overrides?: { status?: Gjennomg
 			selectedInstanceId: "PENSJON_PROD",
 		},
 		ndaEvidenceData: null,
+		rpaMaintenanceData: null,
 		evidenceProviderType: "oracle",
 	}
 
@@ -1786,6 +1788,7 @@ export function mockGjennomgangMultiActivityData(overrides?: { status?: Gjennomg
 		},
 		oracleEvidenceData: null,
 		ndaEvidenceData: null,
+		rpaMaintenanceData: null,
 		evidenceProviderType: null,
 	}
 
@@ -1816,6 +1819,7 @@ export function mockGjennomgangMultiActivityData(overrides?: { status?: Gjennomg
 				},
 			],
 		},
+		rpaMaintenanceData: null,
 		evidenceProviderType: "deployments",
 	}
 
@@ -2096,5 +2100,78 @@ export function mockAdminRpaRobotDetailData(overrides?: Record<string, unknown>)
 			{ id: "m-10", groupId: "group-id-10", groupDisplayName: "9999-GA-Test-Roboter", syncedAt: "2026-05-13T22:25:18.000Z" },
 		],
 		...overrides,
+	}
+}
+
+// ─── RPA User Maintenance Gjennomgang ────────────────────────────────────────
+
+export function mockGjennomgangDetaljRpaMaintenanceData() {
+	return {
+		...mockGjennomgangDetaljData(),
+		activities: [
+			{
+				id: "activity-rpa-1",
+				type: "rpa_user_maintenance" as const,
+				status: "pending",
+				completedAt: null,
+				createdAt: "2026-05-01T08:00:00Z",
+				changes: [],
+				providerConfig: null,
+				periodConfig: null,
+				entraGroupsData: null,
+				oracleEvidenceData: null,
+				ndaEvidenceData: null,
+				rpaMaintenanceData: {
+					users: [
+						{
+							userObjectId: "user-rpa-1",
+							displayName: "SVC-Pensjon-Robot-01",
+							userPrincipalName: "svc-pensjon-robot-01@nav.no",
+							accountEnabled: true,
+							rpaGroupName: "Pensjon-RPA-Gruppe",
+							matchSource: "nais" as const,
+						},
+						{
+							userObjectId: "user-rpa-2",
+							displayName: "SVC-Pensjon-Robot-02",
+							userPrincipalName: "svc-pensjon-robot-02@nav.no",
+							accountEnabled: false,
+							rpaGroupName: "Pensjon-RPA-Gruppe",
+							matchSource: "nais" as const,
+						},
+						{
+							userObjectId: "user-rpa-3",
+							displayName: "SVC-Ufore-Robot-01",
+							userPrincipalName: "svc-ufore-robot-01@nav.no",
+							accountEnabled: true,
+							rpaGroupName: "\u00d8vre-RPA-Gruppe",
+							matchSource: "manual" as const,
+						},
+					],
+					assessments: {
+						"user-rpa-1": {
+							id: "assessment-1",
+							owner: "Ola Nordmann (A123456)",
+							needComment: "Automatiserer inntektskontroll. Plan om API-integrasjon Q4 2026.",
+							criticalityComment: "Lesetilgang til personopplysninger. Ikke skrivetilgang.",
+							securityComment: "Passord i CyberArk. Roteres hvert 90. dag. Logging via Splunk.",
+							decision: "videref\u00f8res",
+							decisionDeadline: null,
+						},
+						"user-rpa-2": {
+							id: "assessment-2",
+							owner: null,
+							needComment: null,
+							criticalityComment: null,
+							securityComment: null,
+							decision: "avvikles",
+							decisionDeadline: "2026-06-30",
+						},
+					},
+				},
+				evidenceProviderType: null,
+			},
+		],
+		activityLinks: [{ id: "link-rpa-1", activityType: "rpa_user_maintenance" }],
 	}
 }

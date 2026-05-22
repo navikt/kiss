@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm"
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
+import { check, date, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_ACTIVITY_TYPES } from "../../lib/activity-types"
 import { EVIDENCE_PROVIDER_TYPES } from "../../lib/evidence-providers/types"
 import type { PeriodType } from "../../lib/period-validation"
@@ -370,3 +370,38 @@ export const routineReviewFollowUpPointAttachments = pgTable("routine_review_fol
 	uploadedBy: text("uploaded_by").notNull(),
 	uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 })
+
+// ─── RPA User Maintenance Assessments ────────────────────────────────────
+// Per-review, per-user assessments for the rpa_user_maintenance activity type.
+
+export const RPA_DECISION_VALUES = ["avvikles", "endres", "videreføres"] as const
+export type RpaDecision = (typeof RPA_DECISION_VALUES)[number]
+
+export const routineRpaUserAssessments = pgTable(
+	"routine_rpa_user_assessments",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		reviewId: uuid("review_id")
+			.notNull()
+			.references(() => routineReviews.id, { onDelete: "restrict" }),
+		userObjectId: text("user_object_id").notNull(),
+		owner: text("owner"),
+		needComment: text("need_comment"),
+		criticalityComment: text("criticality_comment"),
+		securityComment: text("security_comment"),
+		decision: text("decision", { enum: RPA_DECISION_VALUES }),
+		decisionDeadline: date("decision_deadline"),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+	},
+	(table) => [
+		uniqueIndex("routine_rpa_user_assessments_unique_idx").on(table.reviewId, table.userObjectId),
+		index("routine_rpa_user_assessments_review_idx").on(table.reviewId),
+		check(
+			"routine_rpa_user_assessments_deadline_check",
+			sql`${table.decisionDeadline} IS NULL OR ${table.decision} IN ('avvikles', 'endres')`,
+		),
+	],
+)

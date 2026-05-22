@@ -9,7 +9,9 @@ import {
 	Detail,
 	Dialog,
 	Heading,
+	HGrid,
 	HStack,
+	Label,
 	ReadMore,
 	Search,
 	Select,
@@ -48,6 +50,7 @@ import {
 	getRoutine,
 	getRoutineActivityLinks,
 	getRoutineArchivedStatusByReviewId,
+	hasReviewActivityType,
 	recordEntraChange,
 	updateFollowUpPointDescription,
 	updateFollowUpPointStatus,
@@ -56,7 +59,12 @@ import {
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applications"
-import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus } from "~/db/schema/routines"
+import {
+	FOLLOW_UP_POINT_STATUSES,
+	type FollowUpPointStatus,
+	RPA_DECISION_VALUES,
+	type RpaDecision,
+} from "~/db/schema/routines"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { logger } from "~/lib/logger.server"
@@ -81,6 +89,30 @@ type ActionResult = {
 	error?: string
 	intent?: string
 	pointId?: string
+}
+
+type RpaUserEntry = {
+	userObjectId: string
+	displayName: string | null
+	userPrincipalName: string | null
+	accountEnabled: boolean | null
+	rpaGroupName: string | null
+	matchSource: "nais" | "manual" | "removed"
+}
+
+type RpaUserAssessmentEntry = {
+	id: string
+	owner: string | null
+	needComment: string | null
+	criticalityComment: string | null
+	securityComment: string | null
+	decision: RpaDecision | null
+	decisionDeadline: string | null
+}
+
+type RpaMaintenanceData = {
+	users: RpaUserEntry[]
+	assessments: Record<string, RpaUserAssessmentEntry>
 }
 
 function getNullableString(value: unknown): string | null {
@@ -132,7 +164,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	}
 
 	let applicationName: string | null = null
-	let appAuthIntegrations: Array<{ type: string; groups: string | null }> = []
+	let appAuthIntegrations: Array<{ type: string; groups: string | null; allowAllUsers?: boolean | null }> = []
 	if (review.applicationId) {
 		const { getApplicationDetail } = await import("~/db/queries/nais.server")
 		const appDetail = await getApplicationDetail(review.applicationId)
@@ -218,6 +250,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		entraGroupsData: EntraGroupsData | null
 		oracleEvidenceData: OracleEvidenceData | null
 		ndaEvidenceData: NdaEvidenceData | null
+		rpaMaintenanceData: RpaMaintenanceData | null
 		evidenceProviderType: string | null
 		evidenceLoadError?: string
 	}
@@ -231,6 +264,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		let actEntraGroupsData: EntraGroupsData | null = null
 		let actOracleEvidenceData: OracleEvidenceData | null = null
 		let actNdaEvidenceData: NdaEvidenceData | null = null
+		let actRpaMaintenanceData: RpaMaintenanceData | null = null
 		const evidenceProviderType = getProviderTypeForActivity(activity.type)
 
 		try {
@@ -341,6 +375,69 @@ export async function loader({ params }: LoaderFunctionArgs) {
 						})),
 				}
 			}
+
+			if (activity.type === "rpa_user_maintenance" && review.applicationId) {
+				const { getRpaUsersForApp, getRpaUserAssessmentsForReview } = await import("~/db/queries/rpa.server")
+				const { getManualGroupsForApp } = await import("~/db/queries/nais.server")
+				const naisGroupIds: string[] = []
+				for (const auth of appAuthIntegrations) {
+					if (auth.groups) {
+						const groups = JSON.parse(auth.groups) as string[]
+						naisGroupIds.push(...groups)
+					}
+				}
+				const hasAllowAllUsers = appAuthIntegrations.some(
+					(auth) => auth.type === "entra_id" && auth.allowAllUsers === true,
+				)
+				const manualGroups = await getManualGroupsForApp(review.applicationId)
+				const [rpaUsers, assessmentsMap] = await Promise.all([
+					getRpaUsersForApp(
+						naisGroupIds,
+						manualGroups.map((g) => g.groupId),
+						hasAllowAllUsers,
+					),
+					getRpaUserAssessmentsForReview(gjennomgangId),
+				])
+				const assessments: Record<string, RpaUserAssessmentEntry> = {}
+				for (const [objectId, a] of assessmentsMap) {
+					assessments[objectId] = {
+						id: a.id,
+						owner: a.owner,
+						needComment: a.needComment,
+						criticalityComment: a.criticalityComment,
+						securityComment: a.securityComment,
+						decision: a.decision,
+						decisionDeadline: a.decisionDeadline,
+					}
+				}
+				const rpaUserIds = new Set(rpaUsers.map((u) => u.userObjectId))
+				// Include users that have saved assessments but are no longer returned by getRpaUsersForApp
+				// (e.g. removed from app access) so their decisions remain visible in the review.
+				const ghostUsers: RpaUserEntry[] = [...assessmentsMap.keys()]
+					.filter((id) => !rpaUserIds.has(id))
+					.map((id) => ({
+						userObjectId: id,
+						displayName: null,
+						userPrincipalName: null,
+						accountEnabled: null,
+						rpaGroupName: null,
+						matchSource: "removed",
+					}))
+				actRpaMaintenanceData = {
+					users: [
+						...rpaUsers.map((u) => ({
+							userObjectId: u.userObjectId,
+							displayName: u.displayName,
+							userPrincipalName: u.userPrincipalName,
+							accountEnabled: u.accountEnabled,
+							rpaGroupName: u.rpaGroupName,
+							matchSource: u.matchSource,
+						})),
+						...ghostUsers,
+					],
+					assessments,
+				}
+			}
 		} catch (err) {
 			logger.error(`Failed to load evidence data for activity ${activity.id} (${activity.type})`, {
 				error: err,
@@ -360,6 +457,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				entraGroupsData: null,
 				oracleEvidenceData: null,
 				ndaEvidenceData: null,
+				rpaMaintenanceData: null,
 				evidenceProviderType,
 				evidenceLoadError: "Kunne ikke laste bevisdata. Prøv å laste siden på nytt.",
 			})
@@ -381,6 +479,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			entraGroupsData: actEntraGroupsData,
 			oracleEvidenceData: actOracleEvidenceData,
 			ndaEvidenceData: actNdaEvidenceData,
+			rpaMaintenanceData: actRpaMaintenanceData,
 			evidenceProviderType,
 		})
 	}
@@ -769,6 +868,114 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 		await deleteFollowUpPoint({ pointId, expectedReviewId: gjennomgangId, performedBy: authedUser.navIdent })
 		return data<ActionResult>({ success: true, intent: "delete-follow-up" })
+	}
+
+	if (intent === "save-rpa-user-assessment") {
+		const rawUserObjectId = formData.get("userObjectId")
+		if (typeof rawUserObjectId !== "string" || !rawUserObjectId.trim()) {
+			return data<ActionResult>(
+				{ success: false, error: "Mangler bruker-ID", intent: "save-rpa-user-assessment" },
+				{ status: 400 },
+			)
+		}
+		const userObjectId = rawUserObjectId.trim()
+		// Verify the review actually has an rpa_user_maintenance activity (lightweight EXISTS check)
+		if (!(await hasReviewActivityType(gjennomgangId, "rpa_user_maintenance"))) {
+			return data<ActionResult>(
+				{
+					success: false,
+					error: "Gjennomgangen har ingen RPA-vedlikeholdsaktivitet",
+					intent: "save-rpa-user-assessment",
+				},
+				{ status: 403 },
+			)
+		}
+		const { upsertRpaUserAssessment } = await import("~/db/queries/rpa.server")
+		const fields: {
+			owner?: string | null
+			needComment?: string | null
+			criticalityComment?: string | null
+			securityComment?: string | null
+			decision?: (typeof RPA_DECISION_VALUES)[number] | null
+			decisionDeadline?: string | null
+		} = {}
+		for (const key of ["owner", "needComment", "criticalityComment", "securityComment"] as const) {
+			const val = formData.get(key)
+			if (val !== null) {
+				if (typeof val !== "string") {
+					return data<ActionResult>(
+						{ success: false, error: `Ugyldig verdi for felt: ${key}`, intent: "save-rpa-user-assessment" },
+						{ status: 400 },
+					)
+				}
+				fields[key] = val.trim() || null
+			}
+		}
+		const rawDecision = formData.get("decision")
+		if (rawDecision !== null) {
+			if (typeof rawDecision !== "string") {
+				return data<ActionResult>(
+					{ success: false, error: "Ugyldig beslutningsverdi", intent: "save-rpa-user-assessment" },
+					{ status: 400 },
+				)
+			}
+			const trimmed = rawDecision.trim()
+			if (trimmed && !(RPA_DECISION_VALUES as readonly string[]).includes(trimmed)) {
+				return data<ActionResult>(
+					{ success: false, error: "Ugyldig beslutning", intent: "save-rpa-user-assessment" },
+					{ status: 400 },
+				)
+			}
+			const validDecision = trimmed ? (trimmed as (typeof RPA_DECISION_VALUES)[number]) : null
+			fields.decision = validDecision
+			// Clear deadline when decision no longer requires one
+			if (validDecision !== "avvikles" && validDecision !== "endres") {
+				fields.decisionDeadline = null
+			}
+		}
+		// Read decisionDeadline independently — the field can be submitted alone via onBlur
+		// without resending the current decision value. Skip if already nulled by decision change above.
+		if (fields.decisionDeadline === undefined) {
+			const rawDeadline = formData.get("decisionDeadline")
+			if (rawDeadline !== null) {
+				if (typeof rawDeadline !== "string") {
+					return data<ActionResult>(
+						{ success: false, error: "Ugyldig datoformat", intent: "save-rpa-user-assessment" },
+						{ status: 400 },
+					)
+				}
+				const trimmedDeadline = rawDeadline.trim()
+				if (trimmedDeadline && !/^\d{4}-\d{2}-\d{2}$/.test(trimmedDeadline)) {
+					return data<ActionResult>(
+						{
+							success: false,
+							error: "Ugyldig datoformat (forventet ÅÅÅÅ-MM-DD)",
+							intent: "save-rpa-user-assessment",
+						},
+						{ status: 400 },
+					)
+				}
+				if (trimmedDeadline) {
+					const [y, m, d] = trimmedDeadline.split("-").map(Number)
+					const parsed = new Date(Date.UTC(y, m - 1, d))
+					if (parsed.getUTCFullYear() !== y || parsed.getUTCMonth() + 1 !== m || parsed.getUTCDate() !== d) {
+						return data<ActionResult>(
+							{ success: false, error: "Ugyldig dato", intent: "save-rpa-user-assessment" },
+							{ status: 400 },
+						)
+					}
+				}
+				fields.decisionDeadline = trimmedDeadline || null
+			}
+		}
+		if (Object.keys(fields).length === 0) {
+			return data<ActionResult>(
+				{ success: false, error: "Ingen felt å lagre", intent: "save-rpa-user-assessment" },
+				{ status: 400 },
+			)
+		}
+		await upsertRpaUserAssessment(gjennomgangId, userObjectId, authedUser.navIdent, fields)
+		return data<ActionResult>({ success: true, intent: "save-rpa-user-assessment" })
 	}
 
 	return data<ActionResult>({ success: false, error: "Ukjent handling" })
@@ -1233,6 +1440,241 @@ function EntraMaintenanceSection({
 						</Table>
 					</section>
 				</VStack>
+			)}
+		</VStack>
+	)
+}
+
+// ─── RPA User Maintenance Section ────────────────────────────────────────────
+
+const RPA_DECISION_LABELS: Record<(typeof RPA_DECISION_VALUES)[number], string> = {
+	avvikles: "Avvikles",
+	endres: "Endres",
+	videreføres: "Videreføres",
+}
+const RPA_DECISIONS = RPA_DECISION_VALUES.map((value) => ({ value, label: RPA_DECISION_LABELS[value] }))
+
+function RpaUserCard({
+	user,
+	assessment,
+	isDraft,
+}: {
+	user: RpaMaintenanceData["users"][number]
+	assessment: RpaMaintenanceData["assessments"][string] | undefined
+	isDraft: boolean
+}) {
+	// Use separate fetchers per field group so that submitting one field cannot
+	// cancel an in-flight request for a different field (React Router aborts
+	// the previous request on the same fetcher when a new submit is made).
+	const textFetcher = useFetcher() // owner, needComment, criticalityComment, securityComment
+	const decisionFetcher = useFetcher() // decision
+	const deadlineFetcher = useFetcher() // decisionDeadline
+
+	// Track the selected decision in local state so that `showDeadline` stays
+	// stable when the in-flight fetcher is submitting a different field (e.g.
+	// decisionDeadline on blur) and fetcher.formData therefore has no "decision"
+	// key — which would otherwise cause the deadline field to flicker away.
+	const [localDecision, setLocalDecision] = useState<RpaDecision | null>(assessment?.decision ?? null)
+	useEffect(() => {
+		setLocalDecision(assessment?.decision ?? null)
+	}, [assessment?.decision])
+	const decision = localDecision
+	const showDeadline = decision === "avvikles" || decision === "endres"
+
+	function submitField(
+		fetcher: ReturnType<typeof useFetcher>,
+		name: string,
+		value: string,
+		currentValue?: string | null,
+		extraFields?: Record<string, string>,
+	) {
+		// Skip submit if trimmed value matches the current stored value (avoids no-op DB writes)
+		if (currentValue !== undefined && value.trim() === (currentValue ?? "").trim()) return
+		// Skip submit if there is no existing assessment and the value is empty (avoids creating empty rows)
+		if (currentValue === undefined && !assessment && !value.trim()) return
+		fetcher.submit(
+			{
+				intent: "save-rpa-user-assessment",
+				userObjectId: user.userObjectId,
+				[name]: value,
+				...extraFields,
+			},
+			{ method: "POST" },
+		)
+	}
+
+	return (
+		<VStack gap="space-4">
+			{/* Brukerinfo – Steg 1 */}
+			<HStack gap="space-4" align="center" justify="space-between" wrap={false}>
+				<VStack gap="space-1">
+					<BodyShort weight="semibold">{user.displayName ?? user.userObjectId}</BodyShort>
+					<Detail>{user.userPrincipalName ?? "—"}</Detail>
+				</VStack>
+				<HStack gap="space-2">
+					{user.matchSource === "removed" ? (
+						<Tag variant="warning" size="small">
+							Fjernet
+						</Tag>
+					) : (
+						<>
+							<Tag
+								variant={
+									user.accountEnabled === true ? "success" : user.accountEnabled === false ? "neutral" : "warning"
+								}
+								size="small"
+							>
+								{user.accountEnabled === true ? "Aktiv" : user.accountEnabled === false ? "Inaktiv" : "Ukjent"}
+							</Tag>
+							<Tag variant={user.matchSource === "nais" ? "info" : "alt3"} size="small">
+								{user.matchSource === "nais" ? "Nais" : "Manuell"}
+							</Tag>
+							{user.rpaGroupName && (
+								<Tag variant="neutral" size="small">
+									{user.rpaGroupName}
+								</Tag>
+							)}
+						</>
+					)}
+				</HStack>
+			</HStack>
+
+			<TextField
+				label="Eier"
+				description="Hvem er ansvarlig for denne brukeren? (navn og rolle)"
+				size="small"
+				defaultValue={assessment?.owner ?? ""}
+				disabled={!isDraft}
+				onBlur={(e) => submitField(textFetcher, "owner", e.target.value, assessment?.owner)}
+			/>
+
+			{/* Steg 2–4 i tre kolonner */}
+			<HGrid columns={{ xs: 1, md: 3 }} gap="space-4">
+				<Textarea
+					label="Tjenstlig behov"
+					description="Hva gjør roboten og kan oppgaven løses via API?"
+					size="small"
+					minRows={4}
+					defaultValue={assessment?.needComment ?? ""}
+					disabled={!isDraft}
+					onBlur={(e) => submitField(textFetcher, "needComment", e.target.value, assessment?.needComment)}
+				/>
+				<Textarea
+					label="Kritikalitet"
+					description="Tilganger, sensitive data, mulig skadeomfang"
+					size="small"
+					minRows={4}
+					defaultValue={assessment?.criticalityComment ?? ""}
+					disabled={!isDraft}
+					onBlur={(e) => submitField(textFetcher, "criticalityComment", e.target.value, assessment?.criticalityComment)}
+				/>
+				<Textarea
+					label="Sikkerhet"
+					description="Passordlagring, rotasjon, logging, kompenserende tiltak"
+					size="small"
+					minRows={4}
+					defaultValue={assessment?.securityComment ?? ""}
+					disabled={!isDraft}
+					onBlur={(e) => submitField(textFetcher, "securityComment", e.target.value, assessment?.securityComment)}
+				/>
+			</HGrid>
+
+			{/* Beslutning */}
+			<HStack gap="space-4" align="end">
+				<Select
+					label="Beslutning"
+					size="small"
+					defaultValue={assessment?.decision ?? ""}
+					disabled={!isDraft}
+					onChange={(e) => {
+						const val = (RPA_DECISION_VALUES as readonly string[]).includes(e.target.value)
+							? (e.target.value as RpaDecision)
+							: null
+						setLocalDecision(val)
+						submitField(decisionFetcher, "decision", e.target.value)
+					}}
+					style={{ minWidth: "12rem" }}
+				>
+					<option value="">Velg beslutning…</option>
+					{RPA_DECISIONS.map((d) => (
+						<option key={d.value} value={d.value}>
+							{d.label}
+						</option>
+					))}
+				</Select>
+				{showDeadline && (
+					<div>
+						<Label size="small" htmlFor={`deadline-${user.userObjectId}`}>
+							Frist
+						</Label>
+						<input
+							id={`deadline-${user.userObjectId}`}
+							type="date"
+							defaultValue={assessment?.decisionDeadline ?? ""}
+							disabled={!isDraft}
+							onBlur={(e) =>
+								submitField(
+									deadlineFetcher,
+									"decisionDeadline",
+									e.target.value,
+									assessment?.decisionDeadline,
+									// Include localDecision to prevent race where deadline POST arrives before decision POST
+									localDecision ? { decision: localDecision } : undefined,
+								)
+							}
+							className="navds-text-field__input navds-body-short navds-body-medium"
+							style={{ display: "block", marginTop: "var(--ax-space-1)" }}
+						/>
+					</div>
+				)}
+			</HStack>
+		</VStack>
+	)
+}
+
+function RpaUserMaintenanceSection({
+	activity,
+	rpaMaintenanceData,
+	isDraft,
+}: {
+	activity: ActivityProp
+	rpaMaintenanceData: RpaMaintenanceData
+	isDraft: boolean
+}) {
+	const { users, assessments } = rpaMaintenanceData
+	return (
+		<VStack gap="space-4">
+			<Heading level="3" size="small">
+				RPA-brukervedlikehold
+			</Heading>
+			<BodyShort>
+				Gjennomgå alle RPA (Robotic Process Automation) brukere som har tilgang til applikasjonen. Kartlegg eier og
+				tjenstlig behov, vurder kritikalitet og sikkerhet, og ta en beslutning per bruker.
+			</BodyShort>
+			{users.length === 0 ? (
+				<Alert variant="info">Ingen RPA-brukere funnet for denne applikasjonen.</Alert>
+			) : (
+				<div style={{ marginTop: "var(--ax-space-32)" }}>
+					{users.map((user, i) => (
+						<div key={user.userObjectId}>
+							{i > 0 && (
+								<hr
+									style={{
+										border: "none",
+										borderTop: "1px solid var(--ax-border-neutral-subtle)",
+										marginBlock: "var(--ax-space-32)",
+									}}
+								/>
+							)}
+							<RpaUserCard user={user} assessment={assessments[user.userObjectId]} isDraft={isDraft} />
+						</div>
+					))}
+				</div>
+			)}
+			{activity.status === "completed" && (
+				<Alert variant="success" size="small">
+					Aktiviteten er fullført.
+				</Alert>
 			)}
 		</VStack>
 	)
@@ -1944,6 +2386,15 @@ export default function GjennomgangDetalj() {
 			if (activity?.type === "entra_id_group_maintenance" && activity.entraGroupsData) {
 				return (
 					<EntraMaintenanceSection activity={activity} entraGroupsData={activity.entraGroupsData} isDraft={isDraft} />
+				)
+			}
+			if (activity?.type === "rpa_user_maintenance" && activity.rpaMaintenanceData) {
+				return (
+					<RpaUserMaintenanceSection
+						activity={activity}
+						rpaMaintenanceData={activity.rpaMaintenanceData}
+						isDraft={isDraft}
+					/>
 				)
 			}
 			return (

@@ -192,16 +192,24 @@ export async function getSectionDetail(seksjonSlug: string) {
 	// Group direct mappings by team
 	const directByTeam = new Map<string, Set<string>>()
 	for (const row of directMappingRows) {
-		if (!directByTeam.has(row.devTeamId)) directByTeam.set(row.devTeamId, new Set())
-		directByTeam.get(row.devTeamId)?.add(row.appId)
+		let set = directByTeam.get(row.devTeamId)
+		if (!set) {
+			set = new Set()
+			directByTeam.set(row.devTeamId, set)
+		}
+		set.add(row.appId)
 	}
 
 	// Group nais-team links by dev team
 	const naisTeamsByDevTeam = new Map<string, string[]>()
 	const allLinkedNaisTeamIds = new Set<string>()
 	for (const row of naisTeamMappingRows) {
-		if (!naisTeamsByDevTeam.has(row.devTeamId)) naisTeamsByDevTeam.set(row.devTeamId, [])
-		naisTeamsByDevTeam.get(row.devTeamId)?.push(row.naisTeamId)
+		let arr = naisTeamsByDevTeam.get(row.devTeamId)
+		if (!arr) {
+			arr = []
+			naisTeamsByDevTeam.set(row.devTeamId, arr)
+		}
+		arr.push(row.naisTeamId)
 		allLinkedNaisTeamIds.add(row.naisTeamId)
 	}
 
@@ -233,8 +241,12 @@ export async function getSectionDetail(seksjonSlug: string) {
 
 		for (const row of naisAppRows) {
 			if (ignoredAppIds.has(row.appId) || !row.naisTeamId) continue
-			if (!naisAppsByNaisTeam.has(row.naisTeamId)) naisAppsByNaisTeam.set(row.naisTeamId, new Set())
-			naisAppsByNaisTeam.get(row.naisTeamId)?.add(row.appId)
+			let set = naisAppsByNaisTeam.get(row.naisTeamId)
+			if (!set) {
+				set = new Set()
+				naisAppsByNaisTeam.set(row.naisTeamId, set)
+			}
+			set.add(row.appId)
 		}
 	}
 
@@ -268,8 +280,12 @@ export async function getSectionDetail(seksjonSlug: string) {
 
 		const appEnvMap = new Map<string, Set<string>>()
 		for (const row of appEnvRows) {
-			if (!appEnvMap.has(row.appId)) appEnvMap.set(row.appId, new Set())
-			appEnvMap.get(row.appId)?.add(row.cluster)
+			let set = appEnvMap.get(row.appId)
+			if (!set) {
+				set = new Set()
+				appEnvMap.set(row.appId, set)
+			}
+			set.add(row.cluster)
 		}
 
 		const appsToRemove = new Set<string>()
