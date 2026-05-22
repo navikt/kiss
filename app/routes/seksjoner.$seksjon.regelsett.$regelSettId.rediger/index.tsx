@@ -2,6 +2,7 @@ import {
 	Alert,
 	BodyLong,
 	Button,
+	Detail,
 	Heading,
 	HStack,
 	Radio,
@@ -11,7 +12,7 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useActionData, useLoaderData } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
@@ -337,19 +338,27 @@ export default function RegelsettRediger() {
 								</Table.Header>
 								<Table.Body>
 									{ruleset.controls.map((c) => (
-										<Table.Row key={c.linkId}>
-											<Table.DataCell>{c.controlId}</Table.DataCell>
-											<Table.DataCell>{c.shortTitle ?? "–"}</Table.DataCell>
-											<Table.DataCell>
-												<Form method="post">
-													<input type="hidden" name="intent" value="unlink-control" />
-													<input type="hidden" name="linkId" value={c.linkId} />
-													<Button type="submit" variant="tertiary-neutral" size="xsmall">
-														Fjern
-													</Button>
-												</Form>
-											</Table.DataCell>
-										</Table.Row>
+										<Fragment key={c.linkId}>
+											<Table.Row>
+												<Table.DataCell>{c.controlId}</Table.DataCell>
+												<Table.DataCell>{c.shortTitle ?? "–"}</Table.DataCell>
+												<Table.DataCell>
+													<Form method="post">
+														<input type="hidden" name="intent" value="unlink-control" />
+														<input type="hidden" name="linkId" value={c.linkId} />
+														<Button type="submit" variant="tertiary-neutral" size="xsmall">
+															Fjern
+														</Button>
+													</Form>
+												</Table.DataCell>
+											</Table.Row>
+											<Table.Row>
+												<Table.DataCell colSpan={3}>
+													<Detail textColor="subtle">Krav</Detail>
+													<BodyLong size="small">{c.requirement ?? "–"}</BodyLong>
+												</Table.DataCell>
+											</Table.Row>
+										</Fragment>
 									))}
 								</Table.Body>
 							</Table>
