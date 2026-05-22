@@ -12,7 +12,7 @@ import {
 	Textarea,
 	VStack,
 } from "@navikt/ds-react"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -285,12 +285,20 @@ export default function RegelsettDetalj() {
 							</Table.Header>
 							<Table.Body>
 								{ruleset.controls.map((c) => (
-									<Table.Row key={c.id}>
-										<Table.DataCell>
-											<Link to={`/kontrollrammeverk/_/${c.controlId}`}>{c.controlId}</Link>
-										</Table.DataCell>
-										<Table.DataCell>{c.shortTitle ?? "–"}</Table.DataCell>
-									</Table.Row>
+									<Fragment key={c.id}>
+										<Table.Row>
+											<Table.DataCell>
+												<Link to={`/kontrollrammeverk/_/${c.controlId}`}>{c.controlId}</Link>
+											</Table.DataCell>
+											<Table.DataCell>{c.shortTitle ?? "–"}</Table.DataCell>
+										</Table.Row>
+										<Table.Row>
+											<Table.DataCell colSpan={2}>
+												<Detail textColor="subtle">Krav</Detail>
+												<BodyLong size="small">{c.requirement ?? "–"}</BodyLong>
+											</Table.DataCell>
+										</Table.Row>
+									</Fragment>
 								))}
 							</Table.Body>
 						</Table>

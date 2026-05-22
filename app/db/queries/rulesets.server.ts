@@ -50,6 +50,7 @@ export interface RulesetDetail extends RulesetListItem {
 		linkId: string
 		controlId: string
 		shortTitle: string | null
+		requirement: string | null
 	}[]
 	linkedRoutines: {
 		linkId: string
@@ -323,6 +324,7 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 				id: frameworkControls.id,
 				controlId: frameworkControls.controlId,
 				shortTitle: frameworkControls.shortTitle,
+				requirement: frameworkControls.requirement,
 			})
 			.from(rulesetControls)
 			.innerJoin(frameworkControls, eq(rulesetControls.controlId, frameworkControls.id))
@@ -385,6 +387,7 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 			linkId: c.linkId,
 			controlId: c.controlId,
 			shortTitle: c.shortTitle,
+			requirement: c.requirement,
 		})),
 		linkedRoutines: linkedRoutineRows.map((r) => ({
 			linkId: r.linkId,
