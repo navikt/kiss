@@ -230,6 +230,18 @@ export const auditLogActionEnum = [
 	"rpa_group_added",
 	"rpa_group_removed",
 	"rpa_group_members_synced",
+
+	// GitHub-repo-tilganger
+	"github_access_team_added",
+	"github_access_team_removed",
+	"github_access_team_permission_changed",
+	"github_access_team_updated",
+	"github_access_collaborator_added",
+	"github_access_collaborator_removed",
+	"github_access_collaborator_permission_changed",
+	"github_access_team_member_added",
+	"github_access_team_member_removed",
+	"github_access_team_member_role_changed",
 ] as const
 
 export type AuditLogAction = (typeof auditLogActionEnum)[number]

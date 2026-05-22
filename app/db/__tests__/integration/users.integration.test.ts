@@ -1,3 +1,4 @@
+import assert from "node:assert"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
@@ -211,15 +212,15 @@ describe("users.server integration tests", () => {
 			expect(result).toHaveLength(2)
 
 			const alice = result.find((u) => u.navIdent === "U001")
-			expect(alice).toBeDefined()
-			expect(alice!.name).toBe("Alice")
-			expect(alice!.roles).toHaveLength(2)
-			expect(alice!.roles).toContain("developer")
-			expect(alice!.roles).toContain("tech_lead")
+			assert(alice, "Expected alice to be defined")
+			expect(alice.name).toBe("Alice")
+			expect(alice.roles).toHaveLength(2)
+			expect(alice.roles).toContain("developer")
+			expect(alice.roles).toContain("tech_lead")
 
 			const bob = result.find((u) => u.navIdent === "U002")
-			expect(bob).toBeDefined()
-			expect(bob!.roles).toEqual(["product_owner"])
+			assert(bob, "Expected bob to be defined")
+			expect(bob.roles).toEqual(["product_owner"])
 		})
 
 		it("excludes archived roles", async () => {

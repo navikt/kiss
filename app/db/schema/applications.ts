@@ -33,6 +33,7 @@ export const monitoredApplications = pgTable("monitored_applications", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	name: text("name").notNull(),
 	description: text("description"),
+	gitRepository: text("git_repository"),
 	addedManually: boolean("added_manually").notNull().default(false),
 	primaryApplicationId: uuid("primary_application_id").references((): AnyPgColumn => monitoredApplications.id, {
 		onDelete: "restrict",

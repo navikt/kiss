@@ -1,3 +1,4 @@
+import assert from "node:assert"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
@@ -383,10 +384,10 @@ describe("sections.server integration tests", () => {
 			await createEnv(app.id, "prod-gcp", "team1", naisTeam.id)
 
 			const result = await getSectionDetail(section.slug)
-			expect(result).not.toBeNull()
-			expect(result!.teams).toHaveLength(0)
-			expect(result!.unassignedStats.apps).toBe(1)
-			expect(result!.allAppIds).toContain(app.id)
+			assert(result, "Expected result to not be null")
+			expect(result.teams).toHaveLength(0)
+			expect(result.unassignedStats.apps).toBe(1)
+			expect(result.allAppIds).toContain(app.id)
 		})
 
 		it("includes apps from direct team mappings", async () => {
@@ -397,10 +398,10 @@ describe("sections.server integration tests", () => {
 			await createDirectMapping(app.id, team.id)
 
 			const result = await getSectionDetail(section.slug)
-			expect(result).not.toBeNull()
-			expect(result!.teams).toHaveLength(1)
-			expect(result!.teams[0].apps).toBe(1)
-			expect(result!.allAppIds).toContain(app.id)
+			assert(result, "Expected result to not be null")
+			expect(result.teams).toHaveLength(1)
+			expect(result.teams[0].apps).toBe(1)
+			expect(result.allAppIds).toContain(app.id)
 		})
 
 		it("includes apps from linked NAIS teams", async () => {
@@ -412,10 +413,10 @@ describe("sections.server integration tests", () => {
 			await createEnv(app.id, "prod-gcp", "ns", naisTeam.id)
 
 			const result = await getSectionDetail(section.slug)
-			expect(result).not.toBeNull()
-			expect(result!.teams).toHaveLength(1)
-			expect(result!.teams[0].apps).toBe(1)
-			expect(result!.allAppIds).toContain(app.id)
+			assert(result, "Expected result to not be null")
+			expect(result.teams).toHaveLength(1)
+			expect(result.teams[0].apps).toBe(1)
+			expect(result.allAppIds).toContain(app.id)
 		})
 
 		it("filters out ignored apps from NAIS-derived sets and unassigned", async () => {
@@ -431,10 +432,10 @@ describe("sections.server integration tests", () => {
 			await ignoreApp(section.id, appIgnored.id)
 
 			const result = await getSectionDetail(section.slug)
-			expect(result).not.toBeNull()
-			expect(result!.teams[0].apps).toBe(1)
-			expect(result!.allAppIds).toContain(appKept.id)
-			expect(result!.allAppIds).not.toContain(appIgnored.id)
+			assert(result, "Expected result to not be null")
+			expect(result.teams[0].apps).toBe(1)
+			expect(result.allAppIds).toContain(appKept.id)
+			expect(result.allAppIds).not.toContain(appIgnored.id)
 		})
 
 		it("excludes apps whose only environments are in excluded clusters", async () => {
@@ -452,10 +453,10 @@ describe("sections.server integration tests", () => {
 			await createDirectMapping(appKept.id, team.id)
 
 			const result = await getSectionDetail(section.slug)
-			expect(result).not.toBeNull()
-			expect(result!.teams[0].apps).toBe(1)
-			expect(result!.allAppIds).toContain(appKept.id)
-			expect(result!.allAppIds).not.toContain(appExcluded.id)
+			assert(result, "Expected result to not be null")
+			expect(result.teams[0].apps).toBe(1)
+			expect(result.allAppIds).toContain(appKept.id)
+			expect(result.allAppIds).not.toContain(appExcluded.id)
 		})
 
 		it("does not double-count apps shared across multiple teams", async () => {
@@ -468,14 +469,14 @@ describe("sections.server integration tests", () => {
 			await createDirectMapping(app.id, teamB.id)
 
 			const result = await getSectionDetail(section.slug)
-			expect(result).not.toBeNull()
-			expect(result!.teams).toHaveLength(2)
-			expect(result!.teams[0].apps).toBe(1)
-			expect(result!.teams[1].apps).toBe(1)
+			assert(result, "Expected result to not be null")
+			expect(result.teams).toHaveLength(2)
+			expect(result.teams[0].apps).toBe(1)
+			expect(result.teams[1].apps).toBe(1)
 			// allAppIds should only contain the app once
-			expect(result!.allAppIds.filter((id) => id === app.id)).toHaveLength(1)
+			expect(result.allAppIds.filter((id) => id === app.id)).toHaveLength(1)
 			// sectionTotals counts per unique app, not per team assignment
-			expect(result!.sectionTotals.apps).toBe(1)
+			expect(result.sectionTotals.apps).toBe(1)
 		})
 	})
 })

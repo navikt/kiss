@@ -21,6 +21,7 @@ import type { loader } from "./loader.server"
 import { AutentiseringTab } from "./tabs/AutentiseringTab"
 import { AutoriserteAppsTab } from "./tabs/AutoriserteAppsTab"
 import { DeploymentsTab } from "./tabs/DeploymentsTab"
+import { GitHubTilgangerTab } from "./tabs/GitHubTilgangerTab"
 import { KontrollerTab } from "./tabs/KontrollerTab"
 import { LenkedeAppsTab } from "./tabs/LenkedeAppsTab"
 import { MiljoerTab } from "./tabs/MiljoerTab"
@@ -68,6 +69,8 @@ export default function ApplikasjonDetalj() {
 		inaccessibleOracleGroups,
 		oracleRoles,
 		instanceSnapshotHistories,
+		githubAccess,
+		effectiveGitRepository,
 	} = useLoaderData<typeof loader>()
 
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -76,9 +79,11 @@ export default function ApplikasjonDetalj() {
 	const sectionSlug = useSectionSlug()
 
 	const isOnPrem = environments.some((e: { cluster: string | null }) => e.cluster?.includes("-fss"))
-	const gitHubUrl =
-		environments.find((e: { gitRepository: string | null }) => e.gitRepository)?.gitRepository ??
-		`https://github.com/navikt/${app.name}`
+	const gitHubUrl = effectiveGitRepository
+		? effectiveGitRepository.startsWith("http")
+			? effectiveGitRepository
+			: `https://github.com/${effectiveGitRepository}`
+		: `https://github.com/navikt/${app.name}`
 
 	return (
 		<VStack gap="space-24">
@@ -289,6 +294,7 @@ export default function ApplikasjonDetalj() {
 					<Tabs.Tab value="persistering" label="Persistering" />
 					{oracleInstances.length > 0 && <Tabs.Tab value="revisjonsbevis" label="Revisjonsbevis" />}
 					{linkedApps.length > 0 && <Tabs.Tab value="lenkede-applikasjoner" label="Lenkede applikasjoner" />}
+					{effectiveGitRepository && <Tabs.Tab value="github-tilganger" label="GitHub-tilganger" />}
 					<Tabs.Tab value="rapporter" label="Rapporter" />
 				</Tabs.List>
 
@@ -369,6 +375,16 @@ export default function ApplikasjonDetalj() {
 				{linkedApps.length > 0 && (
 					<Tabs.Panel value="lenkede-applikasjoner" style={{ paddingTop: "var(--ax-space-6)" }}>
 						<LenkedeAppsTab linkedApps={linkedApps} />
+					</Tabs.Panel>
+				)}
+
+				{effectiveGitRepository && (
+					<Tabs.Panel value="github-tilganger" style={{ paddingTop: "var(--ax-space-6)" }}>
+						<GitHubTilgangerTab
+							teams={githubAccess.teams}
+							collaborators={githubAccess.collaborators}
+							changeLog={githubAccess.changeLog}
+						/>
 					</Tabs.Panel>
 				)}
 
