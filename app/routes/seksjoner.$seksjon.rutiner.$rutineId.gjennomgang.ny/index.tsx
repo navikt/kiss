@@ -1,7 +1,7 @@
-import { BodyShort, Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
+import { Alert, BodyShort, Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
 import { useEffect, useMemo, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
+import { data, Form, Link, redirect, useActionData, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -123,9 +123,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const activeConflict = await findActiveReviewConflict(effectiveAppId, activityTypes)
 	if (activeConflict) {
 		const label = activityTypeLabels[activeConflict.activityType] ?? activeConflict.activityType
-		throw data(
+		return data(
 			{
-				message: `Det finnes allerede en aktiv gjennomgang for aktivitetstypen «${label}» på denne applikasjonen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`,
+				conflictError: `Det finnes allerede en aktiv gjennomgang for aktivitetstypen «${label}» på denne applikasjonen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`,
 			},
 			{ status: 409 },
 		)
@@ -179,6 +179,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 export default function NyGjennomgang() {
 	const { routine, apps, oracleInstancesByAppId, hasOracleActivity } = useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
+	const conflictError = actionData && "conflictError" in actionData ? actionData.conflictError : null
 	const [searchParams] = useSearchParams()
 	const preselectedAppId = searchParams.get("appId") ?? ""
 	const [selectedAppId, setSelectedAppId] = useState(preselectedAppId)
@@ -297,6 +299,12 @@ export default function NyGjennomgang() {
 						label="Deltakere"
 						description="Søk på navn eller e-post for å legge til personer. Du kan også skrive inn en NAV-ident direkte."
 					/>
+
+					{conflictError && (
+						<Alert variant="error" size="small">
+							{conflictError}
+						</Alert>
+					)}
 
 					<HStack gap="space-4">
 						<Button type="submit" variant="primary" size="small">
