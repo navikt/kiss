@@ -269,16 +269,14 @@ export function ScreeningWizard({
 						<BodyShort size="small" textColor="subtle">
 							{answeredCount} av {screening.length} spørsmål besvart
 						</BodyShort>
-						<div className={styles.questionCard}>
-							{autoSave ? (
-								<Form method="post" ref={formRef}>
-									<input type="hidden" name="intent" value="update-participants" />
-									{participantsContent}
-								</Form>
-							) : (
-								participantsContent
-							)}
-						</div>
+						{autoSave ? (
+							<Form method="post" ref={formRef}>
+								<input type="hidden" name="intent" value="update-participants" />
+								{participantsContent}
+							</Form>
+						) : (
+							participantsContent
+						)}
 						<nav className={styles.navigation} aria-label="Spørsmålsnavigasjon">
 							<span />
 							<Button
@@ -320,7 +318,7 @@ export function ScreeningWizard({
 						{answeredCount} av {screening.length} spørsmål besvart
 					</BodyShort>
 
-					<div className={styles.questionCard} id={`q-${slugify(currentQuestion.questionText)}`}>
+					<div id={`q-${slugify(currentQuestion.questionText)}`}>
 						<VStack gap="space-4">
 							<Heading size="small" level="3">
 								{currentQuestion.questionText}
