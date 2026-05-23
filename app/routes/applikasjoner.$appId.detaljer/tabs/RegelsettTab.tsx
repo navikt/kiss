@@ -61,18 +61,11 @@ export function RegelsettTab({ rulesets }: { rulesets: AppRuleset[] }) {
 							return (
 								<Table.Row key={rs.id}>
 									<Table.DataCell>
-										<VStack gap="space-2">
-											<Link to={`/seksjoner/${rs.sectionSlug}/regelsett/${rs.id}`} className="navds-link">
-												<BodyShort size="small" weight="semibold" as="span">
-													{rs.code ? `${rs.code} – ${rs.name}` : rs.name}
-												</BodyShort>
-											</Link>
-											{rs.description && (
-												<BodyShort size="small" textColor="subtle" truncate>
-													{rs.description}
-												</BodyShort>
-											)}
-										</VStack>
+										<Link to={`/seksjoner/${rs.sectionSlug}/regelsett/${rs.id}`} className="navds-link">
+											<BodyShort size="small" weight="semibold" as="span">
+												{rs.code ? `${rs.code} – ${rs.name}` : rs.name}
+											</BodyShort>
+										</Link>
 									</Table.DataCell>
 									<Table.DataCell>
 										<BodyShort size="small">{rs.sectionName}</BodyShort>
