@@ -4770,3 +4770,40 @@ export async function hasReviewActivityType(reviewId: string, type: RoutineActiv
 		.limit(1)
 	return result.length > 0
 }
+
+/**
+ * Sjekker om det finnes en aktiv gjennomgang (status 'draft' eller 'needs_follow_up') for
+ * samme applicationId og minst én av de oppgitte aktivitetstypene.
+ *
+ * Brukes som guard ved opprettelse av ny gjennomgang for å hindre duplikater.
+ * applicationId=null representerer seksjonsrutiner og behandles som egen scope.
+ *
+ * @returns Første konflikt funnet, eller null hvis ingen konflikt.
+ */
+export async function findActiveReviewConflict(
+	applicationId: string | null,
+	activityTypes: RoutineActivityType[],
+): Promise<{ activityType: RoutineActivityType; reviewId: string } | null> {
+	if (activityTypes.length === 0) return null
+
+	const appFilter =
+		applicationId !== null ? eq(routineReviews.applicationId, applicationId) : isNull(routineReviews.applicationId)
+
+	const [conflict] = await db
+		.select({
+			activityType: routineReviewActivities.type,
+			reviewId: routineReviews.id,
+		})
+		.from(routineReviews)
+		.innerJoin(routineReviewActivities, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.where(
+			and(
+				appFilter,
+				inArray(routineReviews.status, ["draft", "needs_follow_up"] as ReviewStatus[]),
+				inArray(routineReviewActivities.type, activityTypes),
+			),
+		)
+		.limit(1)
+
+	return conflict ?? null
+}

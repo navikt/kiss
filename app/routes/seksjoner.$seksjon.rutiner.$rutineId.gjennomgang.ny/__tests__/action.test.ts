@@ -16,12 +16,14 @@ const mockCreateReview = vi.fn()
 const mockAutoCreateActivitiesForReview = vi.fn()
 const mockGetRoutine = vi.fn()
 const mockGetRoutineActivityLinks = vi.fn()
+const mockFindActiveReviewConflict = vi.fn().mockResolvedValue(null)
 vi.mock("~/db/queries/routines.server", () => ({
 	createReview: mockCreateReview,
 	autoCreateActivitiesForReview: mockAutoCreateActivitiesForReview,
 	getRoutine: mockGetRoutine,
 	getRoutineActivityLinks: mockGetRoutineActivityLinks,
 	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
+	findActiveReviewConflict: mockFindActiveReviewConflict,
 }))
 
 const mockGetOracleInstancesForApp = vi.fn()

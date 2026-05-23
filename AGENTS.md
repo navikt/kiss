@@ -308,7 +308,7 @@ Under gjennomgangen skrives vurderinger **kun til per-gjennomgang-tabellen** (`r
 
 **Gjenopptakelse:** En pågående gjennomgang kan gjenopptas fritt — brukeren kan navigere bort og tilbake uten tap av data. Per-gjennomgang-tabellen bevarer alle vurderinger løpende. Det finnes ingen automatisk opprydding av ufullstendige gjennomganger.
 
-**Én aktiv gjennomgang per aktivitetstype per applikasjon:** 🚧 *Planlagt.* Systemet skal hindre at to åpne gjennomganger av samme aktivitetstype eksisterer for samme applikasjon. `needs_follow_up`-status regnes som aktiv; `discarded`-status er ikke aktiv. Validering implementeres som guard ved aktivitetsopprettelse.
+**Én aktiv gjennomgang per aktivitetstype per applikasjon:** Systemet hindrer at to åpne gjennomganger av samme aktivitetstype eksisterer for samme applikasjon. `needs_follow_up`-status regnes som aktiv; `discarded`-status er ikke aktiv. Guard er implementert i `findActiveReviewConflict()` (`app/db/queries/routines.server.ts`) og kalles ved aktivitetsopprettelse i `gjennomgang.ny`-action. Seksjonsrutiner (`applicationId = null`) håndteres som egen scope.
 
 ##### 6. Atomisk commit ved fullføring
 
@@ -349,7 +349,7 @@ Aktivitetsstart:
 Under gjennomgangen:
   → skriv kun til routine_*_assessments
   → gjennomgang kan gjenopptas fritt (ingen automatisk opprydding)
-  → én aktiv gjennomgang per aktivitetstype per app (🚧 planlagt)
+  → én aktiv gjennomgang per aktivitetstype per app (guard i `findActiveReviewConflict()`)
 
 Fullføring (transaksjon):
   [1] activity.status === 'completed'? → returner suksess (idempotens)

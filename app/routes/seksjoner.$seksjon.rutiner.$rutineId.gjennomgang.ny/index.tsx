@@ -8,13 +8,14 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	autoCreateActivitiesForReview,
 	createReview,
+	findActiveReviewConflict,
 	getAppsRequiringRoutine,
 	getRoutine,
 	getRoutineActivityLinks,
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import type { ReviewActivityProviderConfig } from "~/db/schema/routines"
-import { getProviderTypeForActivity } from "~/lib/activity-types"
+import { activityTypeLabels, getProviderTypeForActivity } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
 
@@ -118,6 +119,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				: []
 	const hasOracleActivity = activityTypes.some((t) => getProviderTypeForActivity(t) === "oracle")
 	let providerConfig: { instanceId: string } | null = null
+
+	const activeConflict = await findActiveReviewConflict(effectiveAppId, activityTypes)
+	if (activeConflict) {
+		const label = activityTypeLabels[activeConflict.activityType] ?? activeConflict.activityType
+		throw data(
+			{
+				message: `Det finnes allerede en aktiv gjennomgang for aktivitetstypen «${label}» på denne applikasjonen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`,
+			},
+			{ status: 409 },
+		)
+	}
 
 	if (hasOracleActivity) {
 		if (!effectiveAppId) {

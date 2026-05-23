@@ -31,6 +31,7 @@ const {
 	completeReviewActivity,
 	getActivitiesForReviews,
 	getRoutineDeadlinesForApp,
+	findActiveReviewConflict,
 } = await import("~/db/queries/routines.server")
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -667,6 +668,202 @@ describe("Routines integration tests", () => {
 			expect(reviews).toHaveLength(2)
 			expect(reviews[0].title).toBe("Newer Review")
 			expect(reviews[1].title).toBe("Older Review")
+		})
+	})
+
+	// ─── Aktiv gjennomgang-guard ──────────────────────────────────────────
+
+	describe("findActiveReviewConflict", () => {
+		async function makeApprovedRoutine(sectionId: string, name: string) {
+			const routine = await createRoutine({
+				sectionId,
+				name,
+				description: null,
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+			await markRoutineApproved(routine.id)
+			return routine
+		}
+
+		it("should return null when no active reviews exist", async () => {
+			const conflict = await findActiveReviewConflict("non-existent-app-id", ["entra_id_group_maintenance"])
+			expect(conflict).toBeNull()
+		})
+
+		it("should return null when activityTypes is empty", async () => {
+			const conflict = await findActiveReviewConflict("any-app-id", [])
+			expect(conflict).toBeNull()
+		})
+
+		it("should detect conflict for an active (draft) review with matching activityType", async () => {
+			const sectionId = await createTestSection("Guard test section", "guard-test")
+			const appId = await createTestApp("Guard test app")
+			const routine = await makeApprovedRoutine(sectionId, "Guard test routine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Active review",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+
+			const conflict = await findActiveReviewConflict(appId, ["entra_id_group_maintenance"])
+			expect(conflict).not.toBeNull()
+			expect(conflict?.activityType).toBe("entra_id_group_maintenance")
+			expect(conflict?.reviewId).toBe(review.id)
+		})
+
+		it("should detect conflict for needs_follow_up status", async () => {
+			const sectionId = await createTestSection("Guard nfu section", "guard-nfu")
+			const appId = await createTestApp("Guard nfu app")
+			const routine = await makeApprovedRoutine(sectionId, "Guard nfu routine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Needs follow-up review",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+
+			// Set review to needs_follow_up
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'needs_follow_up' WHERE id = '${review.id}'`)
+
+			const conflict = await findActiveReviewConflict(appId, ["entra_id_group_maintenance"])
+			expect(conflict).not.toBeNull()
+			expect(conflict?.activityType).toBe("entra_id_group_maintenance")
+		})
+
+		it("should not detect conflict for completed reviews", async () => {
+			const sectionId = await createTestSection("Guard completed section", "guard-completed")
+			const appId = await createTestApp("Guard completed app")
+			const routine = await makeApprovedRoutine(sectionId, "Guard completed routine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Completed review",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'completed' WHERE id = '${review.id}'`)
+
+			const conflict = await findActiveReviewConflict(appId, ["entra_id_group_maintenance"])
+			expect(conflict).toBeNull()
+		})
+
+		it("should not detect conflict for discarded reviews", async () => {
+			const sectionId = await createTestSection("Guard discarded section", "guard-discarded")
+			const appId = await createTestApp("Guard discarded app")
+			const routine = await makeApprovedRoutine(sectionId, "Guard discarded routine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Discarded review",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'discarded' WHERE id = '${review.id}'`)
+
+			const conflict = await findActiveReviewConflict(appId, ["entra_id_group_maintenance"])
+			expect(conflict).toBeNull()
+		})
+
+		it("should not detect conflict for a different application", async () => {
+			const sectionId = await createTestSection("Guard diff app section", "guard-diff-app")
+			const appA = await createTestApp("App A")
+			const appB = await createTestApp("App B")
+			const routine = await makeApprovedRoutine(sectionId, "Guard diff app routine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appA,
+				title: "App A review",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+
+			const conflict = await findActiveReviewConflict(appB, ["entra_id_group_maintenance"])
+			expect(conflict).toBeNull()
+		})
+
+		it("should detect conflict for section routines (applicationId = null)", async () => {
+			const sectionId = await createTestSection("Guard section routine", "guard-section-routine")
+			const routine = await makeApprovedRoutine(sectionId, "Guard section routine A")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: null,
+				title: "Section review",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+
+			const conflict = await findActiveReviewConflict(null, ["entra_id_group_maintenance"])
+			expect(conflict).not.toBeNull()
+			expect(conflict?.activityType).toBe("entra_id_group_maintenance")
+		})
+
+		it("should not match null applicationId against a real applicationId", async () => {
+			const sectionId = await createTestSection("Guard null vs real", "guard-null-vs-real")
+			const appId = await createTestApp("Real app for null test")
+			const routine = await makeApprovedRoutine(sectionId, "Guard null vs real routine")
+
+			// Create review for a specific app
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Real app review",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+
+			// Guard for null (section routine) should not match
+			const conflict = await findActiveReviewConflict(null, ["entra_id_group_maintenance"])
+			expect(conflict).toBeNull()
 		})
 	})
 
