@@ -4781,13 +4781,28 @@ export async function hasReviewActivityType(reviewId: string, type: RoutineActiv
  * @returns Første konflikt funnet, eller null hvis ingen konflikt.
  */
 export async function findActiveReviewConflict(
+	routineId: string,
 	applicationId: string | null,
 	activityTypes: RoutineActivityType[],
-): Promise<{ activityType: RoutineActivityType; reviewId: string } | null> {
-	if (activityTypes.length === 0) return null
-
+): Promise<{ activityType: RoutineActivityType | null; reviewId: string } | null> {
 	const appFilter =
 		applicationId !== null ? eq(routineReviews.applicationId, applicationId) : isNull(routineReviews.applicationId)
+
+	if (activityTypes.length === 0) {
+		// No activity types on the routine → guard by routine identity instead of activity type
+		const [conflict] = await db
+			.select({ reviewId: routineReviews.id })
+			.from(routineReviews)
+			.where(
+				and(
+					eq(routineReviews.routineId, routineId),
+					appFilter,
+					inArray(routineReviews.status, ["draft", "needs_follow_up"] as ReviewStatus[]),
+				),
+			)
+			.limit(1)
+		return conflict ? { activityType: null, reviewId: conflict.reviewId } : null
+	}
 
 	const [conflict] = await db
 		.select({

@@ -19,7 +19,7 @@ import { activityTypeLabels, getProviderTypeForActivity } from "~/lib/activity-t
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
@@ -70,7 +70,23 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	}
 
-	return data({ section, routine, apps, oracleInstancesByAppId, hasOracleActivity })
+	// Sjekk for konflikt når vi allerede vet hvilken app som er valgt.
+	// For seksjonsrutiner er scope alltid null.
+	// For applikasjonsrutiner sjekker vi kun når ?appId= er i URL (preselektert).
+	let loaderConflictError: string | null = null
+	const url = new URL(request.url)
+	const preselectedAppId = url.searchParams.get("appId") ?? null
+	const effectiveAppIdForConflict = routine.isSectionRoutine === 1 ? null : preselectedAppId
+	if (routine.isSectionRoutine === 1 || preselectedAppId) {
+		const conflict = await findActiveReviewConflict(rutineId, effectiveAppIdForConflict, activityTypes)
+		if (conflict) {
+			loaderConflictError = conflict.activityType
+				? `Det finnes allerede en aktiv gjennomgang for aktivitetstypen «${activityTypeLabels[conflict.activityType] ?? conflict.activityType}». Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`
+				: "Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."
+		}
+	}
+
+	return data({ section, routine, apps, oracleInstancesByAppId, hasOracleActivity, loaderConflictError })
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -120,15 +136,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const hasOracleActivity = activityTypes.some((t) => getProviderTypeForActivity(t) === "oracle")
 	let providerConfig: { instanceId: string } | null = null
 
-	const activeConflict = await findActiveReviewConflict(effectiveAppId, activityTypes)
+	const activeConflict = await findActiveReviewConflict(rutineId, effectiveAppId, activityTypes)
 	if (activeConflict) {
-		const label = activityTypeLabels[activeConflict.activityType] ?? activeConflict.activityType
-		return data(
-			{
-				conflictError: `Det finnes allerede en aktiv gjennomgang for aktivitetstypen «${label}» på denne applikasjonen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`,
-			},
-			{ status: 409 },
-		)
+		const conflictMessage = activeConflict.activityType
+			? `Det finnes allerede en aktiv gjennomgang for aktivitetstypen «${activityTypeLabels[activeConflict.activityType] ?? activeConflict.activityType}» på denne applikasjonen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`
+			: "Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."
+		return data({ conflictError: conflictMessage }, { status: 409 })
 	}
 
 	if (hasOracleActivity) {
@@ -178,9 +191,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function NyGjennomgang() {
-	const { routine, apps, oracleInstancesByAppId, hasOracleActivity } = useLoaderData<typeof loader>()
+	const { routine, apps, oracleInstancesByAppId, hasOracleActivity, loaderConflictError } =
+		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
-	const conflictError = actionData && "conflictError" in actionData ? actionData.conflictError : null
+	const conflictError = actionData && "conflictError" in actionData ? actionData.conflictError : loaderConflictError
 	const [searchParams] = useSearchParams()
 	const preselectedAppId = searchParams.get("appId") ?? ""
 	const [selectedAppId, setSelectedAppId] = useState(preselectedAppId)

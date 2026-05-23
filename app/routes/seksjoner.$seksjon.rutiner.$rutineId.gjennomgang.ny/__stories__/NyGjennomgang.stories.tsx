@@ -31,8 +31,40 @@ export const Seksjonsrutine: Story = {
 		),
 }
 
+// Konflikten oppdages i loader (preselektert app via ?appId= i URL, eller seksjonsrutine).
+// Vises umiddelbart når siden lastes – bruker trenger ikke sende inn skjema.
+
 export const KonfliktApplikasjon: Story = {
-	name: "Konflikt – applikasjonsrutine (aktiv gjennomgang finnes)",
+	name: "Konflikt – applikasjonsrutine (oppdaget i loader)",
+	render: () =>
+		renderWithLoader(
+			NyGjennomgang,
+			mockNyGjennomgangData({
+				loaderConflictError:
+					"Det finnes allerede en aktiv gjennomgang for aktivitetstypen «Entra ID-gruppevedlikehold» på denne applikasjonen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.",
+			}),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-1/gjennomgang/ny?appId=app-1",
+		),
+}
+
+export const KonfliktSeksjonsrutine: Story = {
+	name: "Konflikt – seksjonsrutine (oppdaget i loader)",
+	render: () =>
+		renderWithLoader(
+			NyGjennomgang,
+			mockNyGjennomgangData({
+				isSectionRoutine: true,
+				loaderConflictError:
+					"Det finnes allerede en aktiv gjennomgang for aktivitetstypen «RPA-brukervedlikehold» på denne applikasjonen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.",
+			}),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-2/gjennomgang/ny",
+		),
+}
+
+// Konflikten oppdages i action – skjer når app velges i skjema-select og skjema sendes inn.
+
+export const KonfliktViaSkjema: Story = {
+	name: "Konflikt – via skjema-submit (app valgt i dropdown)",
 	render: () =>
 		renderWithLoaderAndAction(
 			NyGjennomgang,
@@ -46,23 +78,5 @@ export const KonfliktApplikasjon: Story = {
 					{ status: 409 },
 				),
 			"/seksjoner/pensjon-og-ufore/rutiner/routine-1/gjennomgang/ny",
-		),
-}
-
-export const KonfliktSeksjonsrutine: Story = {
-	name: "Konflikt – seksjonsrutine (aktiv gjennomgang finnes)",
-	render: () =>
-		renderWithLoaderAndAction(
-			NyGjennomgang,
-			mockNyGjennomgangData({ isSectionRoutine: true }),
-			() =>
-				data(
-					{
-						conflictError:
-							"Det finnes allerede en aktiv gjennomgang for aktivitetstypen «RPA-brukervedlikehold» på denne applikasjonen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.",
-					},
-					{ status: 409 },
-				),
-			"/seksjoner/pensjon-og-ufore/rutiner/routine-2/gjennomgang/ny",
 		),
 }

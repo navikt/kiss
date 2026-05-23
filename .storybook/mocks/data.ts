@@ -1296,7 +1296,7 @@ export function mockSeksjonsrutinerData() {
 	}
 }
 
-export function mockNyGjennomgangData(overrides?: { isSectionRoutine?: boolean }) {
+export function mockNyGjennomgangData(overrides?: { isSectionRoutine?: boolean; loaderConflictError?: string | null }) {
 	const isSec = overrides?.isSectionRoutine ?? false
 	return {
 		section: mockSection,
@@ -1314,6 +1314,7 @@ export function mockNyGjennomgangData(overrides?: { isSectionRoutine?: boolean }
 					{ id: "app-2", name: "psak-frontend" },
 					{ id: "app-3", name: "pensjon-selvbetjening" },
 				],
+		loaderConflictError: overrides?.loaderConflictError ?? null,
 	}
 }
 

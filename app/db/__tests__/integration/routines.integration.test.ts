@@ -694,12 +694,20 @@ describe("Routines integration tests", () => {
 		}
 
 		it("should return null when no active reviews exist", async () => {
-			const conflict = await findActiveReviewConflict("non-existent-app-id", ["entra_id_group_maintenance"])
+			const conflict = await findActiveReviewConflict(
+				"00000000-0000-0000-0000-000000000001",
+				"00000000-0000-0000-0000-000000000002",
+				["entra_id_group_maintenance"],
+			)
 			expect(conflict).toBeNull()
 		})
 
-		it("should return null when activityTypes is empty", async () => {
-			const conflict = await findActiveReviewConflict("any-app-id", [])
+		it("should return null when activityTypes is empty and no active review for routine", async () => {
+			const conflict = await findActiveReviewConflict(
+				"00000000-0000-0000-0000-000000000001",
+				"00000000-0000-0000-0000-000000000002",
+				[],
+			)
 			expect(conflict).toBeNull()
 		})
 
@@ -720,7 +728,7 @@ describe("Routines integration tests", () => {
 			})
 			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
 
-			const conflict = await findActiveReviewConflict(appId, ["entra_id_group_maintenance"])
+			const conflict = await findActiveReviewConflict(routine.id, appId, ["entra_id_group_maintenance"])
 			expect(conflict).not.toBeNull()
 			expect(conflict?.activityType).toBe("entra_id_group_maintenance")
 			expect(conflict?.reviewId).toBe(review.id)
@@ -747,7 +755,7 @@ describe("Routines integration tests", () => {
 			const db = getTestDb()
 			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'needs_follow_up' WHERE id = '${review.id}'`)
 
-			const conflict = await findActiveReviewConflict(appId, ["entra_id_group_maintenance"])
+			const conflict = await findActiveReviewConflict(routine.id, appId, ["entra_id_group_maintenance"])
 			expect(conflict).not.toBeNull()
 			expect(conflict?.activityType).toBe("entra_id_group_maintenance")
 		})
@@ -772,7 +780,7 @@ describe("Routines integration tests", () => {
 			const db = getTestDb()
 			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'completed' WHERE id = '${review.id}'`)
 
-			const conflict = await findActiveReviewConflict(appId, ["entra_id_group_maintenance"])
+			const conflict = await findActiveReviewConflict(routine.id, appId, ["entra_id_group_maintenance"])
 			expect(conflict).toBeNull()
 		})
 
@@ -796,7 +804,7 @@ describe("Routines integration tests", () => {
 			const db = getTestDb()
 			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'discarded' WHERE id = '${review.id}'`)
 
-			const conflict = await findActiveReviewConflict(appId, ["entra_id_group_maintenance"])
+			const conflict = await findActiveReviewConflict(routine.id, appId, ["entra_id_group_maintenance"])
 			expect(conflict).toBeNull()
 		})
 
@@ -818,7 +826,7 @@ describe("Routines integration tests", () => {
 			})
 			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
 
-			const conflict = await findActiveReviewConflict(appB, ["entra_id_group_maintenance"])
+			const conflict = await findActiveReviewConflict(routine.id, appB, ["entra_id_group_maintenance"])
 			expect(conflict).toBeNull()
 		})
 
@@ -838,7 +846,7 @@ describe("Routines integration tests", () => {
 			})
 			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
 
-			const conflict = await findActiveReviewConflict(null, ["entra_id_group_maintenance"])
+			const conflict = await findActiveReviewConflict(routine.id, null, ["entra_id_group_maintenance"])
 			expect(conflict).not.toBeNull()
 			expect(conflict?.activityType).toBe("entra_id_group_maintenance")
 		})
@@ -862,8 +870,120 @@ describe("Routines integration tests", () => {
 			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
 
 			// Guard for null (section routine) should not match
-			const conflict = await findActiveReviewConflict(null, ["entra_id_group_maintenance"])
+			const conflict = await findActiveReviewConflict(routine.id, null, ["entra_id_group_maintenance"])
 			expect(conflict).toBeNull()
+		})
+
+		// ─── No-activity-type (routine-scoped) guard ──────────────────────────
+
+		it("should detect conflict for routine with no activityTypes (draft review exists)", async () => {
+			const sectionId = await createTestSection("Guard no-activity section", "guard-no-activity")
+			const appId = await createTestApp("Guard no-activity app")
+			const routine = await makeApprovedRoutine(sectionId, "Guard no-activity routine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Active review (no activity)",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+
+			const conflict = await findActiveReviewConflict(routine.id, appId, [])
+			expect(conflict).not.toBeNull()
+			expect(conflict?.activityType).toBeNull()
+			expect(conflict?.reviewId).toBe(review.id)
+		})
+
+		it("should detect conflict for no-activity routine with needs_follow_up status", async () => {
+			const sectionId = await createTestSection("Guard no-act nfu section", "guard-no-act-nfu")
+			const appId = await createTestApp("Guard no-act nfu app")
+			const routine = await makeApprovedRoutine(sectionId, "Guard no-act nfu routine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Needs follow-up review (no activity)",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'needs_follow_up' WHERE id = '${review.id}'`)
+
+			const conflict = await findActiveReviewConflict(routine.id, appId, [])
+			expect(conflict).not.toBeNull()
+			expect(conflict?.activityType).toBeNull()
+		})
+
+		it("should not detect conflict for completed review with no activityTypes", async () => {
+			const sectionId = await createTestSection("Guard no-act completed section", "guard-no-act-completed")
+			const appId = await createTestApp("Guard no-act completed app")
+			const routine = await makeApprovedRoutine(sectionId, "Guard no-act completed routine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Completed review (no activity)",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'completed' WHERE id = '${review.id}'`)
+
+			const conflict = await findActiveReviewConflict(routine.id, appId, [])
+			expect(conflict).toBeNull()
+		})
+
+		it("should not detect conflict for a different routine when activityTypes is empty", async () => {
+			const sectionId = await createTestSection("Guard diff routine section", "guard-diff-routine")
+			const appId = await createTestApp("Guard diff routine app")
+			const routineA = await makeApprovedRoutine(sectionId, "Guard diff routine A")
+			const routineB = await makeApprovedRoutine(sectionId, "Guard diff routine B")
+
+			await createReview({
+				routineId: routineA.id,
+				applicationId: appId,
+				title: "Review for routine A",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+
+			// Guard for routineB should not match routineA's review
+			const conflict = await findActiveReviewConflict(routineB.id, appId, [])
+			expect(conflict).toBeNull()
+		})
+
+		it("should detect conflict for section routine with no activityTypes", async () => {
+			const sectionId = await createTestSection("Guard sec no-act section", "guard-sec-no-act")
+			const routine = await makeApprovedRoutine(sectionId, "Guard sec no-act routine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: null,
+				title: "Section review (no activity)",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test-user",
+				participants: [],
+			})
+
+			const conflict = await findActiveReviewConflict(routine.id, null, [])
+			expect(conflict).not.toBeNull()
+			expect(conflict?.activityType).toBeNull()
+			expect(conflict?.reviewId).toBe(review.id)
 		})
 	})
 

@@ -1,4 +1,5 @@
 import {
+	Alert,
 	BodyShort,
 	Button,
 	Checkbox,
@@ -11,10 +12,11 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
-import { Link } from "react-router"
+import { Link, useActionData } from "react-router"
 import { FrequencyDisplay, frequencyDisplayText } from "~/components/FrequencyDisplay"
 import type { DataClassification } from "~/db/schema/applications"
 import { dataClassificationLabels } from "~/db/schema/applications"
+import type { action } from "../action.server"
 import { persistenceLabels } from "../shared"
 
 type RoutineDeadline = {
@@ -63,6 +65,16 @@ export function RutinerTab({
 	})
 	const [routineSearch, setRoutineSearch] = useState("")
 	const [routineStatusFilter, setRoutineStatusFilter] = useState<string[]>([])
+
+	const actionData = useActionData<typeof action>()
+	const createDraftError =
+		actionData &&
+		"success" in actionData &&
+		!actionData.success &&
+		"intent" in actionData &&
+		actionData.intent === "create-draft"
+			? actionData.error
+			: null
 
 	// Split routines into scheduled (with periodic frequency) and event-only
 	const scheduledRoutines = routineDeadlines.filter((dl) => dl.routine && dl.routine.frequency !== null)
@@ -145,6 +157,11 @@ export function RutinerTab({
 			<Heading size="medium" level="3">
 				Rutinestatus
 			</Heading>
+			{createDraftError && (
+				<Alert variant="error" size="small">
+					{createDraftError}
+				</Alert>
+			)}
 			{routineDeadlines.length === 0 ? (
 				<BodyShort>Ingen rutiner er knyttet til denne applikasjonen.</BodyShort>
 			) : (
