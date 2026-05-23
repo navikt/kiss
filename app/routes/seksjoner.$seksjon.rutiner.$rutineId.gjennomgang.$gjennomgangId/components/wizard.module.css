@@ -1,7 +1,6 @@
 .layout {
 	display: grid;
 	grid-template-columns: 18rem 1fr;
-	gap: var(--ax-space-24);
 	align-items: start;
 }
 
@@ -10,9 +9,8 @@
 	top: var(--ax-space-16);
 	max-height: calc(100vh - var(--ax-space-32));
 	overflow-y: auto;
-	background: var(--ax-bg-subtle);
-	border-radius: var(--ax-radius-8);
-	padding: var(--ax-space-16);
+	padding: var(--ax-space-16) var(--ax-space-16) var(--ax-space-16) 0;
+	border-right: 1px solid var(--ax-border-neutral-subtleA);
 
 	--__axc-stepper-circle-size: 1.5rem;
 	--__axc-stepper-line-length: 0.25rem;
@@ -35,13 +33,7 @@
 
 .content {
 	min-width: 0;
-}
-
-.stepCard {
-	background: var(--ax-bg-default);
-	border: 1px solid var(--ax-border-subtle);
-	border-radius: var(--ax-radius-8);
-	padding: var(--ax-space-24);
+	padding-left: var(--ax-space-48);
 }
 
 .navigation {
@@ -59,5 +51,13 @@
 	.stepper {
 		position: static;
 		max-height: none;
+		border-right: none;
+		border-bottom: 1px solid var(--ax-border-neutral-subtleA);
+		padding: 0 0 var(--ax-space-16) 0;
+	}
+
+	.content {
+		padding-left: 0;
+		padding-top: var(--ax-space-24);
 	}
 }
