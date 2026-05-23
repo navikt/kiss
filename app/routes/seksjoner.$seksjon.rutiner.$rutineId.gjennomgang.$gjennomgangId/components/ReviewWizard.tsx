@@ -126,7 +126,7 @@ export function ReviewWizard({
 				/>
 
 				<div className={styles.content}>
-					<div className={styles.stepCard}>{children}</div>
+					{children}
 
 					<div className={styles.navigation}>
 						<Button
