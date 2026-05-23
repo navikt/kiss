@@ -106,6 +106,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		screeningSessions,
 		screeningEffectsByControl,
 		persistedControls,
+		appRulesets,
 	] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesWithControls(appId),
@@ -116,6 +117,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getScreeningSessionsForApp(appId, user ? isAdmin(user) : false),
 		getScreeningEffectsByControlForApp(appId),
 		getActiveApplicationControls(appId),
+		(async () => {
+			const { getRulesetsSelectedByApp } = await import("~/db/queries/rulesets.server")
+			return getRulesetsSelectedByApp(appId)
+		})(),
 	])
 
 	// Batch 2: Supporting queries (independent of batch 1 results)
@@ -474,5 +479,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				performedAt: e.performedAt.toISOString(),
 			})),
 		},
+		appRulesets,
 	})
 }

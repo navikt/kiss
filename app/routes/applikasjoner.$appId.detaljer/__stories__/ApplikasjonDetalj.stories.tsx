@@ -53,3 +53,72 @@ export const MedRpaBrukere: Story = {
 			"/applikasjoner/app-1/detaljer?fane=autentisering",
 		),
 }
+
+export const MedRegelsett: Story = {
+	name: "Med regelsett (Regelsett-fanen)",
+	render: () =>
+		renderWithLoader(
+			ApplikasjonDetalj,
+			mockAppDetaljerData({
+				appRulesets: [
+					{
+						id: "rs-1",
+						code: "RS-01",
+						name: "Sikkerhet i databasetilgang",
+						description: "Regelsett for å sikre at tilgang til databaser er kontrollert og logget.",
+						frequency: "quarterly",
+						status: "approved",
+						sectionId: "s-01",
+						sectionSlug: "pensjon-og-ufore",
+						sectionName: "Pensjon og uføre",
+						responsibleName: "Ola Nordmann",
+						responsibleRole: "tech_manager",
+						approvalStatus: "valid",
+						lastApproval: { validFrom: "2026-01-01T00:00:00Z", validUntil: "2027-01-01T00:00:00Z" },
+						controls: [
+							{ id: "c-1", controlId: "K-ST.01", shortTitle: "Tilgangsstyring" },
+							{ id: "c-2", controlId: "K-ST.03", shortTitle: "Logging og overvåking" },
+						],
+					},
+					{
+						id: "rs-2",
+						code: "RS-02",
+						name: "Kryptering av data i transit",
+						description: null,
+						frequency: "annually",
+						status: "approved",
+						sectionId: "s-01",
+						sectionSlug: "pensjon-og-ufore",
+						sectionName: "Pensjon og uføre",
+						responsibleName: null,
+						responsibleRole: "tech_lead",
+						approvalStatus: "expiring_soon",
+						lastApproval: { validFrom: "2025-06-01T00:00:00Z", validUntil: "2026-06-01T00:00:00Z" },
+						controls: [
+							{ id: "c-3", controlId: "K-TS.02", shortTitle: "Kryptering" },
+							{ id: "c-4", controlId: "K-TS.04", shortTitle: "Nettverkssikkerhet" },
+							{ id: "c-5", controlId: "K-TS.05", shortTitle: "Sertifikathåndtering" },
+							{ id: "c-6", controlId: "K-TS.06", shortTitle: "API-sikkerhet" },
+						],
+					},
+					{
+						id: "rs-3",
+						code: null,
+						name: "Personvern og dataminimering",
+						description: "Regelsett som sikrer GDPR-compliance i databehandling.",
+						frequency: "semi_annually",
+						status: "draft",
+						sectionId: "s-01",
+						sectionSlug: "pensjon-og-ufore",
+						sectionName: "Pensjon og uføre",
+						responsibleName: null,
+						responsibleRole: null,
+						approvalStatus: "draft",
+						lastApproval: null,
+						controls: [{ id: "c-7", controlId: "K-PV.01", shortTitle: "Personvern" }],
+					},
+				],
+			}),
+			"/applikasjoner/app-1/detaljer?fane=regelsett",
+		),
+}

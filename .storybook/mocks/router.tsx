@@ -31,9 +31,10 @@ export const withRouter: Decorator = (Story) => {
  */
 // biome-ignore lint/suspicious/noExplicitAny: Route components have varying prop shapes from React Router
 export function renderWithLoader<T>(Component: React.ComponentType<any>, loaderData: T, path = "/") {
+	const routePath = path.split("?")[0]
 	const Stub = createRoutesStub([
 		{
-			path,
+			path: routePath,
 			Component,
 			loader: () => loaderData,
 		},

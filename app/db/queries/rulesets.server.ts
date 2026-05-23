@@ -116,6 +116,50 @@ export async function resolveRoleHolder(
 
 // ─── Queries ──────────────────────────────────────────────────────────────
 
+type RulesetEnrichment = {
+	latestByRuleset: Map<string, { validFrom: Date; validUntil: Date }>
+	controlsByRuleset: Map<string, Array<{ id: string; controlId: string; shortTitle: string | null }>>
+}
+
+async function enrichRulesetsWithApprovalsAndControls(rulesetIds: string[]): Promise<RulesetEnrichment> {
+	const [latestApprovals, allControls] = await Promise.all([
+		db
+			.selectDistinctOn([rulesetApprovals.rulesetId], {
+				rulesetId: rulesetApprovals.rulesetId,
+				validFrom: rulesetApprovals.validFrom,
+				validUntil: rulesetApprovals.validUntil,
+			})
+			.from(rulesetApprovals)
+			.where(inArray(rulesetApprovals.rulesetId, rulesetIds))
+			.orderBy(rulesetApprovals.rulesetId, desc(rulesetApprovals.validFrom)),
+		db
+			.select({
+				rulesetId: rulesetControls.rulesetId,
+				id: frameworkControls.id,
+				controlId: frameworkControls.controlId,
+				shortTitle: frameworkControls.shortTitle,
+			})
+			.from(rulesetControls)
+			.innerJoin(frameworkControls, eq(rulesetControls.controlId, frameworkControls.id))
+			.where(and(inArray(rulesetControls.rulesetId, rulesetIds), isNull(rulesetControls.archivedAt)))
+			.orderBy(frameworkControls.controlId),
+	])
+
+	const latestByRuleset = new Map<string, { validFrom: Date; validUntil: Date }>()
+	for (const a of latestApprovals) {
+		latestByRuleset.set(a.rulesetId, { validFrom: a.validFrom, validUntil: a.validUntil })
+	}
+
+	const controlsByRuleset = new Map<string, Array<{ id: string; controlId: string; shortTitle: string | null }>>()
+	for (const c of allControls) {
+		const arr = controlsByRuleset.get(c.rulesetId) ?? []
+		arr.push({ id: c.id, controlId: c.controlId, shortTitle: c.shortTitle })
+		controlsByRuleset.set(c.rulesetId, arr)
+	}
+
+	return { latestByRuleset, controlsByRuleset }
+}
+
 export async function getRulesetsForSection(sectionId: string): Promise<RulesetListItem[]> {
 	const rows = await db
 		.select()
@@ -219,6 +263,81 @@ export async function getRulesetIdsSelectedByApp(applicationId: string): Promise
 }
 
 /**
+ * Returns full ruleset details for rulesets an app has opted into via screening.
+ * Reuses getRulesetIdsSelectedByApp for ID resolution, then fetches details + approvals.
+ */
+export async function getRulesetsSelectedByApp(applicationId: string): Promise<
+	Array<{
+		id: string
+		code: string | null
+		name: string
+		description: string | null
+		frequency: string
+		status: string
+		sectionId: string
+		sectionSlug: string
+		sectionName: string
+		responsibleName: string | null
+		responsibleRole: string | null
+		approvalStatus: ApprovalStatus
+		lastApproval: { validFrom: string; validUntil: string } | null
+		controls: Array<{ id: string; controlId: string; shortTitle: string | null }>
+	}>
+> {
+	const selectedIds = await getRulesetIdsSelectedByApp(applicationId)
+	if (selectedIds.size === 0) return []
+
+	const rows = await db
+		.select({
+			id: rulesets.id,
+			code: rulesets.code,
+			name: rulesets.name,
+			description: rulesets.description,
+			frequency: rulesets.frequency,
+			status: rulesets.status,
+			sectionId: rulesets.sectionId,
+			sectionSlug: sections.slug,
+			sectionName: sections.name,
+			responsibleName: rulesets.responsibleName,
+			responsibleRole: rulesets.responsibleRole,
+		})
+		.from(rulesets)
+		.innerJoin(sections, eq(sections.id, rulesets.sectionId))
+		.where(and(inArray(rulesets.id, [...selectedIds]), isNull(rulesets.archivedAt)))
+		.orderBy(rulesets.name)
+
+	if (rows.length === 0) return []
+
+	const rulesetIds = rows.map((r) => r.id)
+	const { latestByRuleset, controlsByRuleset } = await enrichRulesetsWithApprovalsAndControls(rulesetIds)
+
+	return rows.map((r) => {
+		const latest = latestByRuleset.get(r.id)
+		return {
+			id: r.id,
+			code: r.code,
+			name: r.name,
+			description: r.description,
+			frequency: r.frequency,
+			status: r.status,
+			sectionId: r.sectionId,
+			sectionSlug: r.sectionSlug,
+			sectionName: r.sectionName,
+			responsibleName: r.responsibleName,
+			responsibleRole: r.responsibleRole,
+			approvalStatus: computeApprovalStatus(
+				r.status as RulesetStatus,
+				latest ? { validUntil: latest.validUntil } : null,
+			),
+			lastApproval: latest
+				? { validFrom: latest.validFrom.toISOString(), validUntil: latest.validUntil.toISOString() }
+				: null,
+			controls: controlsByRuleset.get(r.id) ?? [],
+		}
+	})
+}
+
+/**
  * Find rulesets in a section that share at least one control with the given control IDs.
  * Used by the review wizard to show relevant rulesets with full detail.
  */
@@ -268,40 +387,7 @@ export async function getRulesetsLinkedToControls(
 	if (rows.length === 0) return []
 
 	const rulesetIds = rows.map((r) => r.id)
-
-	// Load approvals and controls for each ruleset
-	const [allApprovals, allControls] = await Promise.all([
-		db
-			.select()
-			.from(rulesetApprovals)
-			.where(inArray(rulesetApprovals.rulesetId, rulesetIds))
-			.orderBy(desc(rulesetApprovals.validFrom)),
-		db
-			.select({
-				rulesetId: rulesetControls.rulesetId,
-				id: frameworkControls.id,
-				controlId: frameworkControls.controlId,
-				shortTitle: frameworkControls.shortTitle,
-			})
-			.from(rulesetControls)
-			.innerJoin(frameworkControls, eq(rulesetControls.controlId, frameworkControls.id))
-			.where(and(inArray(rulesetControls.rulesetId, rulesetIds), isNull(rulesetControls.archivedAt)))
-			.orderBy(frameworkControls.controlId),
-	])
-
-	const latestByRuleset = new Map<string, (typeof allApprovals)[0]>()
-	for (const a of allApprovals) {
-		if (!latestByRuleset.has(a.rulesetId)) {
-			latestByRuleset.set(a.rulesetId, a)
-		}
-	}
-
-	const controlsByRuleset = new Map<string, Array<{ id: string; controlId: string; shortTitle: string | null }>>()
-	for (const c of allControls) {
-		const arr = controlsByRuleset.get(c.rulesetId) ?? []
-		arr.push({ id: c.id, controlId: c.controlId, shortTitle: c.shortTitle })
-		controlsByRuleset.set(c.rulesetId, arr)
-	}
+	const { latestByRuleset, controlsByRuleset } = await enrichRulesetsWithApprovalsAndControls(rulesetIds)
 
 	return rows.map((r) => {
 		const latest = latestByRuleset.get(r.id)
