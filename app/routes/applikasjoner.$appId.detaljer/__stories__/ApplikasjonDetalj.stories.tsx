@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import { mockAppDetaljerData, mockRpaUsers } from "@storybook-mocks/data"
-import { renderWithLoader } from "@storybook-mocks/router"
+import { renderWithLoader, renderWithLoaderAndAction } from "@storybook-mocks/router"
+import { data } from "react-router"
 import ApplikasjonDetalj from "../index"
 
 const meta = {
@@ -120,5 +121,29 @@ export const MedRegelsett: Story = {
 				],
 			}),
 			"/applikasjoner/app-1/detaljer?fane=regelsett",
+		),
+}
+
+// Konflikt oppdages når bruker trykker «Ny gjennomgang» fra rutine-kortet.
+// create-draft-action returnerer feil og RutinerTab viser Alert.
+
+export const KonfliktNyGjennomgang: Story = {
+	name: "Konflikt – aktiv gjennomgang finnes (RutinerTab)",
+	render: () =>
+		renderWithLoaderAndAction(
+			ApplikasjonDetalj,
+			mockAppDetaljerData(),
+			() =>
+				data(
+					{
+						success: false,
+						message: null,
+						error:
+							"Det finnes allerede en aktiv gjennomgang for aktivitetstypen «Entra ID-gruppevedlikehold» på denne applikasjonen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.",
+						intent: "create-draft",
+					},
+					{ status: 409 },
+				),
+			"/applikasjoner/app-1/detaljer?fane=rutiner",
 		),
 }

@@ -182,22 +182,35 @@ export const routineTechnologyElements = pgTable("routine_technology_elements", 
 export const reviewStatusEnum = ["draft", "needs_follow_up", "completed", "discarded"] as const
 export type ReviewStatus = (typeof reviewStatusEnum)[number]
 
-export const routineReviews = pgTable("routine_reviews", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	routineId: uuid("routine_id")
-		.notNull()
-		.references(() => routines.id, { onDelete: "restrict" }),
-	applicationId: uuid("application_id").references(() => monitoredApplications.id, {
-		onDelete: "restrict",
-	}),
-	title: text("title").notNull(),
-	summary: text("summary"),
-	routineSnapshotPath: text("routine_snapshot_path"),
-	status: text("status", { enum: reviewStatusEnum }).notNull().default("draft"),
-	reviewedAt: timestamp("reviewed_at", { withTimezone: true }).notNull(),
-	createdBy: text("created_by").notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const routineReviews = pgTable(
+	"routine_reviews",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		routineId: uuid("routine_id")
+			.notNull()
+			.references(() => routines.id, { onDelete: "restrict" }),
+		applicationId: uuid("application_id").references(() => monitoredApplications.id, {
+			onDelete: "restrict",
+		}),
+		title: text("title").notNull(),
+		summary: text("summary"),
+		routineSnapshotPath: text("routine_snapshot_path"),
+		status: text("status", { enum: reviewStatusEnum }).notNull().default("draft"),
+		reviewedAt: timestamp("reviewed_at", { withTimezone: true }).notNull(),
+		createdBy: text("created_by").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		// Prevents two active reviews for the same (routine, app) — DB-level TOCTOU guard
+		uniqueIndex("routine_reviews_active_per_routine_app_idx")
+			.on(table.routineId, table.applicationId)
+			.where(sql`status IN ('draft', 'needs_follow_up') AND application_id IS NOT NULL`),
+		// Prevents two active section-routine reviews for the same routine
+		uniqueIndex("routine_reviews_active_section_routine_idx")
+			.on(table.routineId)
+			.where(sql`status IN ('draft', 'needs_follow_up') AND application_id IS NULL`),
+	],
+)
 
 // ─── Review Participants ─────────────────────────────────────────────────
 

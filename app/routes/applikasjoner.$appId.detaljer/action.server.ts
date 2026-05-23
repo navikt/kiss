@@ -63,17 +63,66 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			}
 		}
 		const now = new Date()
+		const { getRoutineActivityLinks, findActiveReviewConflict } = await import("~/db/queries/routines.server")
+		const activityLinks = await getRoutineActivityLinks(routineId)
+		const activityTypes =
+			activityLinks.length > 0
+				? activityLinks.map((l) => l.activityType)
+				: routine.activityType
+					? [routine.activityType]
+					: []
+		const effectiveAppId = routine.isSectionRoutine === 1 ? null : appId
+		const conflict = await findActiveReviewConflict(routineId, effectiveAppId, activityTypes)
+		if (conflict) {
+			let conflictMessage: string
+			if (conflict.activityType) {
+				const { activityTypeLabels } = await import("~/lib/activity-types")
+				const label = activityTypeLabels[conflict.activityType] ?? conflict.activityType
+				conflictMessage = `Det finnes allerede en aktiv gjennomgang for «${label}». Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`
+			} else {
+				conflictMessage =
+					"Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."
+			}
+			return data(
+				{
+					success: false,
+					message: null,
+					error: conflictMessage,
+					intent: "create-draft",
+				},
+				{ status: 409 },
+			)
+		}
 		const title = `${routine.name} — ${now.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
-		const review = await createReview({
-			routineId,
-			applicationId: routine.isSectionRoutine === 1 ? null : appId,
-			title,
-			summary: null,
-			routineSnapshotPath: null,
-			reviewedAt: now,
-			createdBy: authedUser.navIdent,
-			participants: [],
-		})
+		let review: Awaited<ReturnType<typeof createReview>>
+		try {
+			review = await createReview({
+				routineId,
+				applicationId: routine.isSectionRoutine === 1 ? null : appId,
+				title,
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: now,
+				createdBy: authedUser.navIdent,
+				participants: [],
+			})
+		} catch (err) {
+			const isUniqueViolation =
+				typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "23505"
+			if (isUniqueViolation) {
+				return data(
+					{
+						success: false,
+						message: null,
+						error:
+							"Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.",
+						intent: "create-draft",
+					},
+					{ status: 409 },
+				)
+			}
+			throw err
+		}
 		return redirect(`/seksjoner/${sectionSlug}/rutiner/${routineId}/gjennomgang/${review.id}`)
 	}
 
