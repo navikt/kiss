@@ -1,4 +1,5 @@
 import type { Decorator } from "@storybook/react"
+import { useEffect, useRef } from "react"
 import type React from "react"
 import { createRoutesStub } from "react-router"
 import AppRoot from "../../app/root"
@@ -40,6 +41,63 @@ export function renderWithLoader<T>(Component: React.ComponentType<any>, loaderD
 		},
 	])
 	return <Stub initialEntries={[path]} />
+}
+
+/**
+ * Renders a route component with both a mock loader and a mock action.
+ * Wraps the result in an `AutoSubmitWrapper` so the form is submitted automatically
+ * on mount — useful for stories showing action-result states (e.g. inline errors).
+ *
+ * @example
+ * ```tsx
+ * export const ConflictError: StoryObj = {
+ *   render: () =>
+ *     renderWithLoaderAndAction(
+ *       MyPage,
+ *       mockData(),
+ *       () => ({ error: "Conflict!" }),
+ *       "/seksjoner/foo/rutiner/r1/gjennomgang/ny",
+ *     ),
+ * }
+ * ```
+ */
+// biome-ignore lint/suspicious/noExplicitAny: Route components have varying prop shapes from React Router
+export function renderWithLoaderAndAction<T>(
+	Component: React.ComponentType<any>,
+	loaderData: T,
+	// biome-ignore lint/suspicious/noExplicitAny: Action return shape varies by route
+	action: () => any,
+	path = "/",
+) {
+	const routePath = path.split("?")[0]
+	const Stub = createRoutesStub([
+		{
+			path: routePath,
+			Component,
+			loader: () => loaderData,
+			action,
+		},
+	])
+
+	function AutoSubmitWrapper() {
+		const ref = useRef<HTMLDivElement>(null)
+		useEffect(() => {
+			const el = ref.current
+			if (!el) return
+			const timer = setTimeout(() => {
+				const form = el.querySelector("form")
+				form?.requestSubmit()
+			}, 100)
+			return () => clearTimeout(timer)
+		}, [])
+		return (
+			<div ref={ref}>
+				<Stub initialEntries={[path]} />
+			</div>
+		)
+	}
+
+	return <AutoSubmitWrapper />
 }
 
 /**

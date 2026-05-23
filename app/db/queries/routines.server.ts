@@ -4770,3 +4770,58 @@ export async function hasReviewActivityType(reviewId: string, type: RoutineActiv
 		.limit(1)
 	return result.length > 0
 }
+
+/**
+ * Sjekker om det finnes en aktiv gjennomgang (status 'draft' eller 'needs_follow_up') for
+ * samme applicationId og minst én av de oppgitte aktivitetstypene.
+ *
+ * Brukes som guard ved opprettelse av ny gjennomgang for å hindre duplikater.
+ * applicationId=null representerer seksjonsrutiner og behandles som egen scope.
+ *
+ * @returns Første konflikt funnet, eller null hvis ingen konflikt.
+ */
+export async function findActiveReviewConflict(
+	routineId: string,
+	applicationId: string | null,
+	activityTypes: RoutineActivityType[],
+): Promise<{ activityType: RoutineActivityType | null; reviewId: string } | null> {
+	const appFilter =
+		applicationId !== null ? eq(routineReviews.applicationId, applicationId) : isNull(routineReviews.applicationId)
+
+	if (activityTypes.length === 0) {
+		// No activity types on the routine → guard by routine identity instead of activity type
+		const [conflict] = await db
+			.select({ reviewId: routineReviews.id })
+			.from(routineReviews)
+			.where(
+				and(
+					eq(routineReviews.routineId, routineId),
+					appFilter,
+					inArray(routineReviews.status, ["draft", "needs_follow_up"] as ReviewStatus[]),
+				),
+			)
+			.limit(1)
+		return conflict ? { activityType: null, reviewId: conflict.reviewId } : null
+	}
+
+	const [conflict] = await db
+		.select({
+			activityType: routineReviewActivities.type,
+			reviewId: routineReviews.id,
+		})
+		.from(routineReviews)
+		.innerJoin(routineReviewActivities, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.where(
+			and(
+				appFilter,
+				// For section routines (applicationId = null) the appFilter matches all section reviews
+				// globally. Scope to this routine to avoid cross-section false conflicts.
+				applicationId === null ? eq(routineReviews.routineId, routineId) : undefined,
+				inArray(routineReviews.status, ["draft", "needs_follow_up"] as ReviewStatus[]),
+				inArray(routineReviewActivities.type, activityTypes),
+			),
+		)
+		.limit(1)
+
+	return conflict ?? null
+}

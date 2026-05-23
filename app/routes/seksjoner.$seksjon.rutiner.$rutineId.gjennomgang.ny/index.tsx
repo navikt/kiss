@@ -1,24 +1,43 @@
-import { BodyShort, Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
+import { Alert, BodyShort, Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
 import { useEffect, useMemo, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, Form, Link, redirect, useLoaderData, useSearchParams } from "react-router"
+import { data, Form, Link, redirect, useActionData, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	autoCreateActivitiesForReview,
 	createReview,
+	findActiveReviewConflict,
 	getAppsRequiringRoutine,
 	getRoutine,
 	getRoutineActivityLinks,
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import type { ReviewActivityProviderConfig } from "~/db/schema/routines"
-import { getProviderTypeForActivity } from "~/lib/activity-types"
+import type { RoutineActivityType } from "~/lib/activity-types"
+import { activityTypeLabels, getProviderTypeForActivity } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+function isUniqueViolation(err: unknown): boolean {
+	return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "23505"
+}
+
+function buildConflictMessage(
+	conflict: { activityType: RoutineActivityType | null },
+	isSectionRoutine: boolean,
+	effectiveAppId: string | null,
+): string {
+	if (conflict.activityType) {
+		const label = activityTypeLabels[conflict.activityType] ?? conflict.activityType
+		const suffix = isSectionRoutine ? " for denne seksjonen" : effectiveAppId ? " på denne applikasjonen" : ""
+		return `Det finnes allerede en aktiv gjennomgang for aktivitetstypen «${label}»${suffix}. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`
+	}
+	return "Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."
+}
+
+export async function loader({ params, request }: LoaderFunctionArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
@@ -69,7 +88,21 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	}
 
-	return data({ section, routine, apps, oracleInstancesByAppId, hasOracleActivity })
+	// Sjekk for konflikt når vi allerede vet hvilken app som er valgt.
+	// For seksjonsrutiner er scope alltid null.
+	// For applikasjonsrutiner sjekker vi kun når ?appId= er i URL (preselektert).
+	let loaderConflictError: string | null = null
+	const url = new URL(request.url)
+	const preselectedAppId = url.searchParams.get("appId") ?? null
+	const effectiveAppIdForConflict = routine.isSectionRoutine === 1 ? null : preselectedAppId
+	if (routine.isSectionRoutine === 1 || preselectedAppId) {
+		const conflict = await findActiveReviewConflict(rutineId, effectiveAppIdForConflict, activityTypes)
+		if (conflict) {
+			loaderConflictError = buildConflictMessage(conflict, routine.isSectionRoutine === 1, effectiveAppIdForConflict)
+		}
+	}
+
+	return data({ section, routine, apps, oracleInstancesByAppId, hasOracleActivity, loaderConflictError })
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -119,6 +152,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const hasOracleActivity = activityTypes.some((t) => getProviderTypeForActivity(t) === "oracle")
 	let providerConfig: { instanceId: string } | null = null
 
+	const activeConflict = await findActiveReviewConflict(rutineId, effectiveAppId, activityTypes)
+	if (activeConflict) {
+		const conflictMessage = buildConflictMessage(activeConflict, routine.isSectionRoutine === 1, effectiveAppId)
+		return data({ conflictError: conflictMessage }, { status: 409 })
+	}
+
 	if (hasOracleActivity) {
 		if (!effectiveAppId) {
 			throw data({ message: "Oracle-revisjonsbevis krever at applikasjon er valgt" }, { status: 400 })
@@ -138,16 +177,33 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		providerConfig = { instanceId: selectedInstanceId }
 	}
 
-	const review = await createReview({
-		routineId: rutineId,
-		applicationId: effectiveAppId,
-		title,
-		summary,
-		routineSnapshotPath: null,
-		reviewedAt: reviewedAt ? new Date(`${reviewedAt}T${reviewedTime}`) : new Date(),
-		createdBy: authedUser.navIdent,
-		participants,
-	})
+	let review: Awaited<ReturnType<typeof createReview>>
+	try {
+		review = await createReview({
+			routineId: rutineId,
+			applicationId: effectiveAppId,
+			title,
+			summary,
+			routineSnapshotPath: null,
+			reviewedAt: reviewedAt ? new Date(`${reviewedAt}T${reviewedTime}`) : new Date(),
+			createdBy: authedUser.navIdent,
+			participants,
+		})
+	} catch (err) {
+		if (isUniqueViolation(err)) {
+			return data(
+				{
+					conflictError: buildConflictMessage(
+						{ activityType: activityTypes[0] ?? null },
+						routine.isSectionRoutine === 1,
+						effectiveAppId,
+					),
+				},
+				{ status: 409 },
+			)
+		}
+		throw err
+	}
 
 	// Build provider config map for activities that need it (e.g., Oracle needs instance selection)
 	const providerConfigs: Record<string, ReviewActivityProviderConfig> = {}
@@ -166,7 +222,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function NyGjennomgang() {
-	const { routine, apps, oracleInstancesByAppId, hasOracleActivity } = useLoaderData<typeof loader>()
+	const { routine, apps, oracleInstancesByAppId, hasOracleActivity, loaderConflictError } =
+		useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
+	const conflictError = actionData && "conflictError" in actionData ? actionData.conflictError : loaderConflictError
 	const [searchParams] = useSearchParams()
 	const preselectedAppId = searchParams.get("appId") ?? ""
 	const [selectedAppId, setSelectedAppId] = useState(preselectedAppId)
@@ -285,6 +344,12 @@ export default function NyGjennomgang() {
 						label="Deltakere"
 						description="Søk på navn eller e-post for å legge til personer. Du kan også skrive inn en NAV-ident direkte."
 					/>
+
+					{conflictError && (
+						<Alert variant="error" size="small">
+							{conflictError}
+						</Alert>
+					)}
 
 					<HStack gap="space-4">
 						<Button type="submit" variant="primary" size="small">

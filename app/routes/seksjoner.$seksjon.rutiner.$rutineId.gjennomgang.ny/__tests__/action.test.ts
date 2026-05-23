@@ -16,12 +16,14 @@ const mockCreateReview = vi.fn()
 const mockAutoCreateActivitiesForReview = vi.fn()
 const mockGetRoutine = vi.fn()
 const mockGetRoutineActivityLinks = vi.fn()
+const mockFindActiveReviewConflict = vi.fn().mockResolvedValue(null)
 vi.mock("~/db/queries/routines.server", () => ({
 	createReview: mockCreateReview,
 	autoCreateActivitiesForReview: mockAutoCreateActivitiesForReview,
 	getRoutine: mockGetRoutine,
 	getRoutineActivityLinks: mockGetRoutineActivityLinks,
 	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
+	findActiveReviewConflict: mockFindActiveReviewConflict,
 }))
 
 const mockGetOracleInstancesForApp = vi.fn()
@@ -129,5 +131,59 @@ describe("gjennomgang.ny action - oracle provider config", () => {
 		expect(mockAutoCreateActivitiesForReview).toHaveBeenCalledWith("review-1", "r1", "app-1", "T123456", {
 			oracle_evidence_audit: { instanceId: "PENSJON_PROD" },
 		})
+	})
+})
+
+describe("gjennomgang.ny action - aktiv gjennomgang-guard", () => {
+	const baseRoutine = {
+		id: "r1",
+		sectionId: "section-1",
+		isSectionRoutine: 0,
+		activityType: null,
+		archivedAt: null,
+		status: "approved",
+	}
+
+	it("returns 409 with conflictError when preflight detects existing active review", async () => {
+		mockGetRoutine.mockResolvedValue(baseRoutine)
+		mockFindActiveReviewConflict.mockResolvedValue({ activityType: null, reviewId: "existing-review" })
+
+		const fd = new FormData()
+		fd.set("title", "Ny gjennomgang")
+		fd.set("applicationId", "app-1")
+
+		const response = await callAction(fd)
+		expect(getStatus(response)).toBe(409)
+		expect(response).toMatchObject({ data: { conflictError: expect.any(String) } })
+		expect(mockCreateReview).not.toHaveBeenCalled()
+	})
+
+	it("returns 409 with conflictError when createReview throws Postgres 23505 (race condition)", async () => {
+		mockGetRoutine.mockResolvedValue(baseRoutine)
+		mockFindActiveReviewConflict.mockResolvedValue(null)
+		const pgError = Object.assign(new Error("unique_violation"), { code: "23505" })
+		mockCreateReview.mockRejectedValue(pgError)
+
+		const fd = new FormData()
+		fd.set("title", "Ny gjennomgang")
+		fd.set("applicationId", "app-1")
+
+		const response = await callAction(fd)
+		expect(getStatus(response)).toBe(409)
+		expect(response).toMatchObject({ data: { conflictError: expect.any(String) } })
+	})
+
+	it("re-throws non-23505 errors from createReview", async () => {
+		mockGetRoutine.mockResolvedValue(baseRoutine)
+		mockFindActiveReviewConflict.mockResolvedValue(null)
+		mockCreateReview.mockRejectedValue(new Error("database connection lost"))
+
+		const fd = new FormData()
+		fd.set("title", "Ny gjennomgang")
+		fd.set("applicationId", "app-1")
+
+		const result = await callAction(fd)
+		expect(result).toBeInstanceOf(Error)
+		expect((result as Error).message).toBe("database connection lost")
 	})
 })

@@ -500,6 +500,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Sec", "sec")
 			const appId = await createTestApp("App")
+			const appId2 = await createTestApp("App2")
 			const routine = await createTestRoutine(sectionId, "R1")
 			await db.execute(/* sql */ `UPDATE routines SET status = 'approved' WHERE id = '${routine.id}'`)
 			const review1 = await createReview({
@@ -512,9 +513,10 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				createdBy: "tester",
 				participants: [],
 			})
+			// Use a different appId so the unique active-review index is not violated
 			const review2 = await createReview({
 				routineId: routine.id,
-				applicationId: appId,
+				applicationId: appId2,
 				title: "R2",
 				summary: null,
 				routineSnapshotPath: null,
