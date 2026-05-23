@@ -3896,70 +3896,27 @@ export async function getRoutineDeadlinesForAppByRuleset(
 	excludeRoutineIds: Set<string> = new Set(),
 	opts?: ResolverOpts,
 ): Promise<RoutineDeadlineInfo[]> {
-	// Find section IDs for this app
+	const { getRulesetIdsSelectedByApp } = await import("./rulesets.server")
+	const selectedRulesetIds = await getRulesetIdsSelectedByApp(applicationId)
+	if (selectedRulesetIds.size === 0) return []
+
+	// Scope to active, non-archived rulesets in the app's current sections
 	const sectionIds = await getSectionIdsForApp(applicationId)
 	if (sectionIds.length === 0) return []
 
-	// Find rulesets in these sections
-	const { rulesetRoutines } = await import("../schema/rulesets")
-	const { rulesets } = await import("../schema/rulesets")
-	const sectionRulesets = await db
+	const { rulesets, rulesetRoutines } = await import("../schema/rulesets")
+	const activeRulesets = await db
 		.select({ id: rulesets.id })
 		.from(rulesets)
-		.where(and(inArray(rulesets.sectionId, sectionIds), eq(rulesets.status, "active")))
-	const rulesetIds = sectionRulesets.map((r) => r.id)
-	if (rulesetIds.length === 0) return []
-
-	// Filter: only include rulesets where the app has answered a screening question linked to that ruleset.
-	// Two paths:
-	// 1. Question has rulesetId pointing to the ruleset (non-ruleset answer types)
-	// 2. Question has answerType='ruleset' and the answer IS the ruleset ID (ruleset selection questions)
-	const answeredRulesetRows = await db
-		.selectDistinct({ rulesetId: screeningQuestions.rulesetId })
-		.from(screeningAnswers)
-		.innerJoin(
-			screeningQuestions,
-			and(
-				eq(screeningQuestions.id, screeningAnswers.questionId),
-				isNull(screeningQuestions.archivedAt),
-				eq(screeningQuestions.status, "approved"),
-			),
-		)
 		.where(
 			and(
-				eq(screeningAnswers.applicationId, applicationId),
-				isNotNull(screeningQuestions.rulesetId),
-				inArray(screeningQuestions.rulesetId, rulesetIds),
-				isNotNull(screeningAnswers.answer),
+				inArray(rulesets.id, [...selectedRulesetIds]),
+				inArray(rulesets.sectionId, sectionIds),
+				eq(rulesets.status, "active"),
+				isNull(rulesets.archivedAt),
 			),
 		)
-
-	const selectedRulesetRows = await db
-		.selectDistinct({ rulesetId: screeningAnswers.answer })
-		.from(screeningAnswers)
-		.innerJoin(
-			screeningQuestions,
-			and(
-				eq(screeningQuestions.id, screeningAnswers.questionId),
-				isNull(screeningQuestions.archivedAt),
-				eq(screeningQuestions.status, "approved"),
-				eq(screeningQuestions.answerType, "ruleset"),
-			),
-		)
-		.where(
-			and(
-				eq(screeningAnswers.applicationId, applicationId),
-				isNotNull(screeningAnswers.answer),
-				inArray(screeningAnswers.answer, rulesetIds),
-			),
-		)
-
-	const answeredRulesetIds = [
-		...new Set([
-			...answeredRulesetRows.map((r) => r.rulesetId).filter((id): id is string => id !== null),
-			...selectedRulesetRows.map((r) => r.rulesetId).filter((id): id is string => id !== null),
-		]),
-	]
+	const answeredRulesetIds = activeRulesets.map((r) => r.id)
 	if (answeredRulesetIds.length === 0) return []
 
 	// Find routines linked to the answered rulesets

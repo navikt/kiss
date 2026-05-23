@@ -420,7 +420,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		})
 	}
 
-	// Load rulesets that share controls with this routine
+	// Load rulesets that share controls with this routine, filtered by screening selection when app is set
 	const routineControlIds = routine.controls.map((c) => c.id)
 	let linkedRulesets: Array<{
 		id: string
@@ -436,8 +436,17 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		controls: Array<{ id: string; controlId: string; shortTitle: string | null }>
 	}> = []
 	if (routineControlIds.length > 0) {
-		const { getRulesetsLinkedToControls } = await import("~/db/queries/rulesets.server")
-		linkedRulesets = await getRulesetsLinkedToControls(routineControlIds, routine.sectionId)
+		const { getRulesetsLinkedToControls, getRulesetIdsSelectedByApp } = await import("~/db/queries/rulesets.server")
+
+		if (review.applicationId) {
+			const [allLinked, selectedIds] = await Promise.all([
+				getRulesetsLinkedToControls(routineControlIds, routine.sectionId),
+				getRulesetIdsSelectedByApp(review.applicationId),
+			])
+			linkedRulesets = allLinked.filter((rs) => selectedIds.has(rs.id))
+		} else {
+			linkedRulesets = await getRulesetsLinkedToControls(routineControlIds, routine.sectionId)
+		}
 	}
 
 	// Render ruleset descriptions as HTML
