@@ -1,7 +1,6 @@
-import { BodyShort, Heading, HStack, Radio, RadioGroup, Select, Tag, Textarea, VStack } from "@navikt/ds-react"
+import { BodyShort, Box, Heading, HStack, Radio, RadioGroup, Select, Tag, Textarea, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import { economySystemTypeEnum, economySystemTypeLabels } from "~/db/schema/applications"
-import styles from "./wizard.module.css"
 
 export type EconomyClassificationData = {
 	id: string
@@ -26,29 +25,31 @@ export function EconomySystemSection({ classification }: { classification: Econo
 	return (
 		<VStack gap="space-6">
 			{classification && (
-				<div className={styles.questionCard}>
-					<Heading size="xsmall" level="4">
-						Gjeldende klassifisering
-					</Heading>
-					<HStack gap="space-4" align="center">
-						<Tag variant={classification.isEconomySystem ? "warning" : "neutral"} size="small">
-							{classification.isEconomySystem
-								? `Økonomisystem${classification.economySystemType ? ` (${economySystemTypeLabels[classification.economySystemType as keyof typeof economySystemTypeLabels]})` : ""}`
-								: "Ikke økonomisystem"}
-						</Tag>
-						{isExpired && (
-							<Tag variant="error" size="xsmall">
-								Utløpt – trenger revisjon
+				<Box padding="space-24" borderColor="neutral-subtle" borderRadius="8" borderWidth="1">
+					<VStack gap="space-4">
+						<Heading size="xsmall" level="4">
+							Gjeldende klassifisering
+						</Heading>
+						<HStack gap="space-4" align="center">
+							<Tag variant={classification.isEconomySystem ? "warning" : "neutral"} size="small">
+								{classification.isEconomySystem
+									? `Økonomisystem${classification.economySystemType ? ` (${economySystemTypeLabels[classification.economySystemType as keyof typeof economySystemTypeLabels]})` : ""}`
+									: "Ikke økonomisystem"}
 							</Tag>
-						)}
-						{!isExpired && (
-							<BodyShort size="small" textColor="subtle">
-								Gyldig til {new Date(classification.validUntil).toLocaleDateString("nb-NO")}
-							</BodyShort>
-						)}
-					</HStack>
-					<BodyShort size="small">{classification.justification}</BodyShort>
-				</div>
+							{isExpired && (
+								<Tag variant="error" size="xsmall">
+									Utløpt – trenger revisjon
+								</Tag>
+							)}
+							{!isExpired && (
+								<BodyShort size="small" textColor="subtle">
+									Gyldig til {new Date(classification.validUntil).toLocaleDateString("nb-NO")}
+								</BodyShort>
+							)}
+						</HStack>
+						<BodyShort size="small">{classification.justification}</BodyShort>
+					</VStack>
+				</Box>
 			)}
 
 			<VStack gap="space-4">
