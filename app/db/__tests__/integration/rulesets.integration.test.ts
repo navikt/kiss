@@ -24,6 +24,7 @@ const {
 	getRulesetsLinkedToControls,
 	linkRoutineToRuleset,
 	unlinkRoutineFromRuleset,
+	getRulesetIdsSelectedByApp,
 } = await import("~/db/queries/rulesets.server")
 
 async function createSectionRow(slug: string) {
@@ -62,6 +63,9 @@ describe("rulesets.server integration tests", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
+			DELETE FROM screening_answers;
+			DELETE FROM screening_questions;
+			DELETE FROM monitored_applications;
 			DELETE FROM ruleset_routines;
 			DELETE FROM ruleset_attachments;
 			DELETE FROM ruleset_controls;
@@ -599,6 +603,121 @@ describe("rulesets.server integration tests", () => {
 
 			const result = await getRulesetsLinkedToControls([controlId], sectionId1)
 			expect(result).toHaveLength(0)
+		})
+	})
+
+	describe("getRulesetIdsSelectedByApp", () => {
+		async function createApp(name: string) {
+			const db = getTestDb()
+			const r = await db.execute(
+				/* sql */ `INSERT INTO monitored_applications (name, created_by, updated_by) VALUES ('${name}', 'test', 'test') RETURNING id`,
+			)
+			return (r.rows[0] as { id: string }).id
+		}
+
+		async function createScreeningQuestion(sectionId: string, rulesetId: string | null, answerType = "boolean") {
+			const db = getTestDb()
+			const rulesetVal = rulesetId ? `'${rulesetId}'` : "NULL"
+			const r = await db.execute(
+				/* sql */ `INSERT INTO screening_questions (section_id, ruleset_id, question_text, answer_type, status, created_by, updated_by)
+				VALUES ('${sectionId}', ${rulesetVal}, 'Test question', '${answerType}', 'approved', 'test', 'test') RETURNING id`,
+			)
+			return (r.rows[0] as { id: string }).id
+		}
+
+		async function answerQuestion(appId: string, questionId: string, answer: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO screening_answers (application_id, question_id, answer, answered_by) VALUES ('${appId}', '${questionId}', '${answer}', 'test')`,
+			)
+		}
+
+		it("returns empty set when app has no screening answers", async () => {
+			const appId = await createApp("TestApp")
+			const result = await getRulesetIdsSelectedByApp(appId)
+			expect(result.size).toBe(0)
+		})
+
+		it("includes rulesetId from answered questions linked to a ruleset", async () => {
+			const sectionId = await createSectionRow("sec-screen1")
+			const rulesetId = await createRuleset({ sectionId, name: "RS1", frequency: "annually", createdBy: "test" })
+			const appId = await createApp("App1")
+			const questionId = await createScreeningQuestion(sectionId, rulesetId)
+			await answerQuestion(appId, questionId, "ja")
+
+			const result = await getRulesetIdsSelectedByApp(appId)
+			expect(result.has(rulesetId)).toBe(true)
+		})
+
+		it("includes ruleset selected via answerType=ruleset (answer IS the ruleset ID)", async () => {
+			const sectionId = await createSectionRow("sec-screen2")
+			const rulesetId = await createRuleset({ sectionId, name: "RS2", frequency: "annually", createdBy: "test" })
+			const appId = await createApp("App2")
+			const questionId = await createScreeningQuestion(sectionId, null, "ruleset")
+			await answerQuestion(appId, questionId, rulesetId)
+
+			const result = await getRulesetIdsSelectedByApp(appId)
+			expect(result.has(rulesetId)).toBe(true)
+		})
+
+		it("excludes rulesets not linked to any answered question", async () => {
+			const sectionId = await createSectionRow("sec-screen3")
+			const rulesetA = await createRuleset({ sectionId, name: "RSA", frequency: "annually", createdBy: "test" })
+			const rulesetB = await createRuleset({ sectionId, name: "RSB", frequency: "annually", createdBy: "test" })
+			const appId = await createApp("App3")
+			const questionId = await createScreeningQuestion(sectionId, rulesetA)
+			await answerQuestion(appId, questionId, "ja")
+
+			const result = await getRulesetIdsSelectedByApp(appId)
+			expect(result.has(rulesetA)).toBe(true)
+			expect(result.has(rulesetB)).toBe(false)
+		})
+
+		it("excludes archived screening questions", async () => {
+			const sectionId = await createSectionRow("sec-screen4")
+			const rulesetId = await createRuleset({ sectionId, name: "RS4", frequency: "annually", createdBy: "test" })
+			const appId = await createApp("App4")
+			const questionId = await createScreeningQuestion(sectionId, rulesetId)
+			await answerQuestion(appId, questionId, "ja")
+
+			// Archive the question
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `UPDATE screening_questions SET archived_at = NOW(), archived_by = 'test' WHERE id = '${questionId}'`,
+			)
+
+			const result = await getRulesetIdsSelectedByApp(appId)
+			expect(result.has(rulesetId)).toBe(false)
+		})
+
+		it("resolves primaryApplicationId inheritance (child reads from parent screening)", async () => {
+			const sectionId = await createSectionRow("sec-screen5")
+			const rulesetId = await createRuleset({ sectionId, name: "RS5", frequency: "annually", createdBy: "test" })
+			const parentId = await createApp("ParentApp")
+			const db = getTestDb()
+			const childResult = await db.execute(
+				/* sql */ `INSERT INTO monitored_applications (name, primary_application_id, created_by, updated_by) VALUES ('ChildApp', '${parentId}', 'test', 'test') RETURNING id`,
+			)
+			const childId = (childResult.rows[0] as { id: string }).id
+
+			// Answer screening on parent
+			const questionId = await createScreeningQuestion(sectionId, rulesetId)
+			await answerQuestion(parentId, questionId, "ja")
+
+			// Child should inherit parent's screening answers
+			const result = await getRulesetIdsSelectedByApp(childId)
+			expect(result.has(rulesetId)).toBe(true)
+		})
+
+		it("ignores invalid UUIDs in answerType=ruleset answers", async () => {
+			const sectionId = await createSectionRow("sec-screen6")
+			const appId = await createApp("App6")
+			const questionId = await createScreeningQuestion(sectionId, null, "ruleset")
+			// Answer with a non-UUID string (legacy/corrupt data)
+			await answerQuestion(appId, questionId, "not-a-valid-uuid")
+
+			const result = await getRulesetIdsSelectedByApp(appId)
+			expect(result.size).toBe(0)
 		})
 	})
 })

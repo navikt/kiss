@@ -1,7 +1,9 @@
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import type { RoutineFrequency } from "../../lib/routine-frequencies"
 import { frequencyDays } from "../../lib/routine-frequencies"
+import { isValidUuid } from "../../lib/utils"
 import { db } from "../connection.server"
+import { monitoredApplications } from "../schema/applications"
 import { frameworkControls } from "../schema/framework"
 import { sections, type UserRole, userRoles, users } from "../schema/organization"
 import { routines } from "../schema/routines"
@@ -13,6 +15,7 @@ import {
 	rulesetRoutines,
 	rulesets,
 } from "../schema/rulesets"
+import { screeningAnswers, screeningQuestions } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -154,6 +157,65 @@ export async function getRulesetsForSection(sectionId: string): Promise<RulesetL
 			lastApproval: latest ? { validFrom: latest.validFrom, validUntil: latest.validUntil } : null,
 		}
 	})
+}
+
+/**
+ * Returns the set of ruleset IDs that an application has opted into via screening.
+ * Two paths:
+ * 1. Question has rulesetId pointing to a ruleset and the app has answered it
+ * 2. Question has answerType='ruleset' and the answer IS the ruleset ID
+ */
+export async function getRulesetIdsSelectedByApp(applicationId: string): Promise<Set<string>> {
+	// Resolve primary application inheritance (child apps inherit screening from parent)
+	const [app] = await db
+		.select({ primaryApplicationId: monitoredApplications.primaryApplicationId })
+		.from(monitoredApplications)
+		.where(eq(monitoredApplications.id, applicationId))
+		.limit(1)
+	const screeningAppId = app?.primaryApplicationId ?? applicationId
+
+	const [answeredRows, selectedRows] = await Promise.all([
+		db
+			.selectDistinct({ rulesetId: screeningQuestions.rulesetId })
+			.from(screeningAnswers)
+			.innerJoin(
+				screeningQuestions,
+				and(
+					eq(screeningQuestions.id, screeningAnswers.questionId),
+					isNull(screeningQuestions.archivedAt),
+					eq(screeningQuestions.status, "approved"),
+				),
+			)
+			.where(
+				and(
+					eq(screeningAnswers.applicationId, screeningAppId),
+					isNotNull(screeningQuestions.rulesetId),
+					isNotNull(screeningAnswers.answer),
+				),
+			),
+		db
+			.selectDistinct({ rulesetId: screeningAnswers.answer })
+			.from(screeningAnswers)
+			.innerJoin(
+				screeningQuestions,
+				and(
+					eq(screeningQuestions.id, screeningAnswers.questionId),
+					isNull(screeningQuestions.archivedAt),
+					eq(screeningQuestions.status, "approved"),
+					eq(screeningQuestions.answerType, "ruleset"),
+				),
+			)
+			.where(and(eq(screeningAnswers.applicationId, screeningAppId), isNotNull(screeningAnswers.answer))),
+	])
+
+	const ids = new Set<string>()
+	for (const r of answeredRows) {
+		if (r.rulesetId) ids.add(r.rulesetId)
+	}
+	for (const r of selectedRows) {
+		if (r.rulesetId && isValidUuid(r.rulesetId)) ids.add(r.rulesetId)
+	}
+	return ids
 }
 
 /**
