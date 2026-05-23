@@ -572,6 +572,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 		} as Record<string, { comment: string; acknowledgedBy: string; acknowledgedAt: string }>,
 		screeningSessions: [],
 		rpaUsers: [],
+		appRulesets: [],
 		...overrides,
 	}
 }

@@ -25,6 +25,7 @@ const {
 	linkRoutineToRuleset,
 	unlinkRoutineFromRuleset,
 	getRulesetIdsSelectedByApp,
+	getRulesetsSelectedByApp,
 } = await import("~/db/queries/rulesets.server")
 
 async function createSectionRow(slug: string) {
@@ -718,6 +719,134 @@ describe("rulesets.server integration tests", () => {
 
 			const result = await getRulesetIdsSelectedByApp(appId)
 			expect(result.size).toBe(0)
+		})
+	})
+
+	describe("getRulesetsSelectedByApp", () => {
+		async function createApp(name: string) {
+			const db = getTestDb()
+			const r = await db.execute(
+				/* sql */ `INSERT INTO monitored_applications (name, created_by, updated_by) VALUES ('${name}', 'test', 'test') RETURNING id`,
+			)
+			return (r.rows[0] as { id: string }).id
+		}
+
+		async function createScreeningQuestion(sectionId: string, rulesetId: string | null, answerType = "boolean") {
+			const db = getTestDb()
+			const rulesetVal = rulesetId ? `'${rulesetId}'` : "NULL"
+			const r = await db.execute(
+				/* sql */ `INSERT INTO screening_questions (section_id, ruleset_id, question_text, answer_type, status, created_by, updated_by)
+				VALUES ('${sectionId}', ${rulesetVal}, 'Test question', '${answerType}', 'approved', 'test', 'test') RETURNING id`,
+			)
+			return (r.rows[0] as { id: string }).id
+		}
+
+		async function answerQuestion(appId: string, questionId: string, answer: string) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO screening_answers (application_id, question_id, answer, answered_by) VALUES ('${appId}', '${questionId}', '${answer}', 'test')`,
+			)
+		}
+
+		it("returns empty array when app has no screening answers", async () => {
+			const appId = await createApp("DetailApp1")
+			const result = await getRulesetsSelectedByApp(appId)
+			expect(result).toHaveLength(0)
+		})
+
+		it("returns full ruleset details for selected rulesets", async () => {
+			const sectionId = await createSectionRow("sec-detail1")
+			const rulesetId = await createRuleset({
+				sectionId,
+				name: "Detail RS",
+				description: "Test description",
+				frequency: "annually",
+				createdBy: "test",
+			})
+			const appId = await createApp("DetailApp2")
+			const questionId = await createScreeningQuestion(sectionId, rulesetId)
+			await answerQuestion(appId, questionId, "ja")
+
+			const result = await getRulesetsSelectedByApp(appId)
+			expect(result).toHaveLength(1)
+			expect(result[0].id).toBe(rulesetId)
+			expect(result[0].name).toBe("Detail RS")
+			expect(result[0].description).toBe("Test description")
+			expect(result[0].frequency).toBe("annually")
+			expect(result[0].approvalStatus).toBe("draft")
+			expect(result[0].sectionName).toBeDefined()
+			expect(result[0].controls).toEqual([])
+			expect(result[0].lastApproval).toBeNull()
+		})
+
+		it("excludes archived rulesets", async () => {
+			const sectionId = await createSectionRow("sec-detail2")
+			const rulesetId = await createRuleset({
+				sectionId,
+				name: "Archived RS",
+				frequency: "annually",
+				createdBy: "test",
+			})
+			const appId = await createApp("DetailApp3")
+			const questionId = await createScreeningQuestion(sectionId, rulesetId)
+			await answerQuestion(appId, questionId, "ja")
+
+			await archiveRuleset(rulesetId, "test")
+
+			const result = await getRulesetsSelectedByApp(appId)
+			expect(result).toHaveLength(0)
+		})
+
+		it("includes controls linked to the ruleset", async () => {
+			const sectionId = await createSectionRow("sec-detail3")
+			const db = getTestDb()
+			const controlResult = await db.execute(
+				/* sql */ `INSERT INTO framework_controls (control_id, short_title, requirement)
+				VALUES ('K-ST.99', 'Test kontroll', 'Test krav') RETURNING id`,
+			)
+			const controlId = (controlResult.rows[0] as { id: string }).id
+
+			const rulesetId = await createRuleset({
+				sectionId,
+				name: "RS with controls",
+				frequency: "quarterly",
+				createdBy: "test",
+			})
+			await linkControlToRuleset(rulesetId, controlId, "test")
+
+			const appId = await createApp("DetailApp4")
+			const questionId = await createScreeningQuestion(sectionId, rulesetId)
+			await answerQuestion(appId, questionId, "ja")
+
+			const result = await getRulesetsSelectedByApp(appId)
+			expect(result).toHaveLength(1)
+			expect(result[0].controls).toHaveLength(1)
+			expect(result[0].controls[0].controlId).toBe("K-ST.99")
+		})
+
+		it("includes approval status and lastApproval when approved", async () => {
+			const sectionId = await createSectionRow("sec-detail4")
+			const rulesetId = await createRuleset({
+				sectionId,
+				name: "Approved RS",
+				frequency: "annually",
+				createdBy: "test",
+			})
+			await approveRuleset({
+				rulesetId,
+				approvedBy: "test",
+				approvedByName: "Test User",
+				frequency: "annually",
+			})
+
+			const appId = await createApp("DetailApp5")
+			const questionId = await createScreeningQuestion(sectionId, rulesetId)
+			await answerQuestion(appId, questionId, "ja")
+
+			const result = await getRulesetsSelectedByApp(appId)
+			expect(result).toHaveLength(1)
+			expect(result[0].approvalStatus).toBe("valid")
+			expect(result[0].lastApproval).not.toBeNull()
 		})
 	})
 })

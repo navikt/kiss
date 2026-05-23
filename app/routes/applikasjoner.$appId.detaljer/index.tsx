@@ -27,6 +27,7 @@ import { LenkedeAppsTab } from "./tabs/LenkedeAppsTab"
 import { MiljoerTab } from "./tabs/MiljoerTab"
 import { PersisteringTab } from "./tabs/PersisteringTab"
 import { RapporterTab } from "./tabs/RapporterTab"
+import { RegelsettTab } from "./tabs/RegelsettTab"
 import { RevisjonsbevisTab } from "./tabs/RevisjonsbevisTab"
 import { RutinerTab } from "./tabs/RutinerTab"
 import { ScreeningerTab } from "./tabs/ScreeningerTab"
@@ -71,6 +72,7 @@ export default function ApplikasjonDetalj() {
 		instanceSnapshotHistories,
 		githubAccess,
 		effectiveGitRepository,
+		appRulesets,
 	} = useLoaderData<typeof loader>()
 
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -286,6 +288,7 @@ export default function ApplikasjonDetalj() {
 				<Tabs.List>
 					<Tabs.Tab value="rutiner" label="Rutiner" />
 					<Tabs.Tab value="screeninger" label="Screeninger" />
+					<Tabs.Tab value="regelsett" label="Regelsett" />
 					<Tabs.Tab value="kontroller" label="Kontroller" />
 					<Tabs.Tab value="autentisering" label="Autentisering" />
 					<Tabs.Tab value="autoriserte-applikasjoner" label="Autoriserte applikasjoner" />
@@ -308,6 +311,10 @@ export default function ApplikasjonDetalj() {
 
 				<Tabs.Panel value="screeninger" style={{ paddingTop: "var(--ax-space-6)" }}>
 					<ScreeningerTab screeningSessions={screeningSessions} appBasePath={appBase} canAdmin={canAdmin} />
+				</Tabs.Panel>
+
+				<Tabs.Panel value="regelsett" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<RegelsettTab rulesets={appRulesets} />
 				</Tabs.Panel>
 
 				<Tabs.Panel value="kontroller" style={{ paddingTop: "var(--ax-space-6)" }}>
