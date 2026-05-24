@@ -361,8 +361,14 @@ export const applicationGroupAssessments = pgTable(
 		assessedAt: timestamp("assessed_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedBy: text("updated_by").notNull(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
 	},
-	(t) => [unique().on(t.applicationId, t.groupId)],
+	(t) => [
+		uniqueIndex("application_group_assessments_active_unique_idx")
+			.on(t.applicationId, t.groupId)
+			.where(sql`archived_at IS NULL`),
+	],
 )
 
 // ─── Entra Group Access Classification ────────────────────────────────────

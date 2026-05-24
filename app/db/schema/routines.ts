@@ -295,7 +295,7 @@ export const routineReviewActivities = pgTable(
 		sortOrder: integer("sort_order").notNull().default(0),
 		snapshotBefore: jsonb("snapshot_before"),
 		snapshotAfter: jsonb("snapshot_after"),
-		stagedData: jsonb("staged_data"),
+		stagedData: jsonb("staged_data").$type<Record<string, unknown> | null>(),
 		periodConfig: jsonb("period_config").$type<PeriodConfig>(),
 		providerConfig: jsonb("provider_config").$type<ReviewActivityProviderConfig>(),
 		completedAt: timestamp("completed_at", { withTimezone: true }),

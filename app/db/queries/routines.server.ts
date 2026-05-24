@@ -1,8 +1,21 @@
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm"
+import {
+	applyEntraStagedDataPatch,
+	ENTRA_STAGED_DATA_ACTIVITY_TYPE,
+	ENTRA_STAGED_DATA_SCHEMA_VERSION,
+	type EntraGroupSnapshot,
+	type EntraStagedData,
+	parseEntraStagedData,
+	type StagedDataPatch,
+	toEntraGroupSnapshot,
+} from "../../lib/entra-staged-data"
+import { resolveGroupNames } from "../../lib/graph.server"
+import { withAdvisoryLock } from "../../lib/lock.server"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
 import {
 	applicationAuthIntegrations,
+	applicationGroupAssessments,
 	applicationManualGroups,
 	applicationPersistence,
 	type DataClassification,
@@ -51,6 +64,7 @@ import {
 } from "../schema/routines"
 import { screeningAnswers, screeningQuestions, screeningRoutineSelections } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
+import { getAppAuthIntegrations, getGroupAssessmentsForApp, getManualGroupsForApp } from "./nais.server"
 import { getEffectiveAppIdsInSection } from "./sections.server"
 
 // ─── Resolver opts for deadline pipeline ─────────────────────────────────
@@ -1643,14 +1657,15 @@ export async function completeReview(reviewId: string, performedBy: string) {
 		)
 	}
 
-	// Bygg Entra-snapshots UTENFOR tx (eksternt HTTP-kall mot Microsoft Graph).
-	// Selve activity-completion + status-UPDATE går inn i samme tx for å
-	// hindre inkonsistente tilstander (aktivitet=completed, review≠completed).
 	const allActivities = await getReviewActivities(reviewId)
-	const snapshotsByActivityId = new Map<string, EntraGroupSnapshot>()
 	for (const activity of allActivities) {
-		if (activity.status === "pending" && activity.type === "entra_id_group_maintenance" && existing.applicationId) {
-			snapshotsByActivityId.set(activity.id, await buildEntraGroupSnapshot(existing.applicationId))
+		if (
+			activity.status === "pending" &&
+			activity.type === "entra_id_group_maintenance" &&
+			existing.applicationId &&
+			!activity.stagedData
+		) {
+			await seedEntraActivity(activity.id, existing.applicationId, performedBy)
 		}
 	}
 
@@ -1676,8 +1691,7 @@ export async function completeReview(reviewId: string, performedBy: string) {
 		// tilbake hvis status-UPDATE feiler eller archive-guarden kaster.
 		for (const activity of allActivities) {
 			if (activity.status === "pending") {
-				const snapshot = snapshotsByActivityId.get(activity.id) ?? null
-				await completeReviewActivity(activity.id, snapshot, performedBy, tx)
+				await completeReviewActivity(activity.id, null, performedBy, tx)
 			}
 		}
 
@@ -4105,13 +4119,134 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 
 // ─── Review Activities ───────────────────────────────────────────────────
 
-export type EntraGroupSnapshot = {
-	groups: Array<{
-		groupId: string
-		groupName: string | null
-		source: "nais" | "manual" | "removed"
-		criticality: string | null
-	}>
+function parseEntraGroupIdsFromAuthIntegrations(authIntegrations: Array<{ groups: string | null }>): string[] {
+	const groupIds: string[] = []
+
+	for (const auth of authIntegrations) {
+		if (!auth.groups) continue
+		try {
+			const parsed = JSON.parse(auth.groups) as unknown
+			if (!Array.isArray(parsed)) continue
+			groupIds.push(
+				...parsed
+					.filter((groupId): groupId is string => typeof groupId === "string" && groupId.trim().length > 0)
+					.map((groupId) => groupId.trim()),
+			)
+		} catch {}
+	}
+
+	return [...new Set(groupIds)]
+}
+
+async function waitForEntraSeed(activityId: string): Promise<EntraStagedData | null> {
+	for (let attempt = 0; attempt < 20; attempt++) {
+		const [activity] = await db
+			.select({ stagedData: routineReviewActivities.stagedData })
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activityId))
+			.limit(1)
+
+		if (activity?.stagedData) {
+			return parseEntraStagedData(activity.stagedData)
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, 200))
+	}
+
+	return null
+}
+
+async function buildEntraSeedResult(
+	applicationId: string,
+): Promise<{ stagedData: EntraStagedData; snapshot: EntraGroupSnapshot }> {
+	const [authIntegrations, manualGroups, groupAssessments] = await Promise.all([
+		getAppAuthIntegrations(applicationId),
+		getManualGroupsForApp(applicationId),
+		getGroupAssessmentsForApp(applicationId),
+	])
+
+	const naisGroupIds = parseEntraGroupIdsFromAuthIntegrations(authIntegrations)
+	const naisGroupIdSet = new Set(naisGroupIds)
+	const manualGroupsByGroupId = new Map(manualGroups.map((group) => [group.groupId, group]))
+	const manualGroupIdSet = new Set(manualGroupsByGroupId.keys())
+	const assessmentByGroupId = new Map(groupAssessments.map((assessment) => [assessment.groupId, assessment]))
+	const ghostGroupIds = groupAssessments
+		.filter((assessment) => !naisGroupIdSet.has(assessment.groupId) && !manualGroupIdSet.has(assessment.groupId))
+		.map((assessment) => assessment.groupId)
+	const allGroupIds = [...new Set([...naisGroupIds, ...manualGroupIdSet, ...ghostGroupIds])]
+	const groupNames = await resolveGroupNames(allGroupIds)
+
+	const groups = [
+		...naisGroupIds.map((groupId) => {
+			const manualGroup = manualGroupsByGroupId.get(groupId) ?? null
+			const assessment = assessmentByGroupId.get(groupId) ?? null
+			return {
+				groupId,
+				groupName: groupNames[groupId]?.trim() || manualGroup?.groupName?.trim() || null,
+				source: "nais_auth" as const,
+				hasNaisSource: true,
+				hasManualSource: manualGroup !== null,
+				isNewAssessment: assessment === null,
+				isAddedDuringReview: false,
+				isGone: false,
+				seededManualGroupId: manualGroup?.id ?? null,
+				criticality: assessment?.criticality ?? null,
+				criticalitySetBy: assessment?.assessedBy ?? null,
+				criticalitySetAt: assessment?.assessedAt?.toISOString() ?? null,
+			}
+		}),
+		...manualGroups
+			.filter((group) => !naisGroupIdSet.has(group.groupId))
+			.map((group) => {
+				const assessment = assessmentByGroupId.get(group.groupId) ?? null
+				return {
+					groupId: group.groupId,
+					groupName: groupNames[group.groupId]?.trim() || group.groupName?.trim() || null,
+					source: "manual" as const,
+					hasNaisSource: false,
+					hasManualSource: true,
+					isNewAssessment: assessment === null,
+					isAddedDuringReview: false,
+					isGone: false,
+					seededManualGroupId: group.id,
+					criticality: assessment?.criticality ?? null,
+					criticalitySetBy: assessment?.assessedBy ?? null,
+					criticalitySetAt: assessment?.assessedAt?.toISOString() ?? null,
+				}
+			}),
+		...ghostGroupIds.map((groupId) => {
+			const assessment = assessmentByGroupId.get(groupId)
+			if (!assessment) {
+				throw new Error(`Fant ikke lagret vurdering for ghost-gruppe ${groupId}`)
+			}
+			return {
+				groupId,
+				groupName: groupNames[groupId]?.trim() || null,
+				source: "ghost" as const,
+				hasNaisSource: false,
+				hasManualSource: false,
+				isNewAssessment: false,
+				isAddedDuringReview: false,
+				isGone: false,
+				seededManualGroupId: null,
+				criticality: assessment.criticality,
+				criticalitySetBy: assessment.assessedBy,
+				criticalitySetAt: assessment.assessedAt.toISOString(),
+			}
+		}),
+	]
+
+	const stagedData = parseEntraStagedData({
+		activityType: ENTRA_STAGED_DATA_ACTIVITY_TYPE,
+		schemaVersion: ENTRA_STAGED_DATA_SCHEMA_VERSION,
+		seededAt: new Date().toISOString(),
+		groups,
+	})
+
+	return {
+		stagedData,
+		snapshot: toEntraGroupSnapshot(stagedData),
+	}
 }
 
 /**
@@ -4120,74 +4255,284 @@ export type EntraGroupSnapshot = {
  * Eksternt kall: resolver gruppenavn via Microsoft Graph.
  */
 export async function buildEntraGroupSnapshot(applicationId: string): Promise<EntraGroupSnapshot> {
-	const { getAppAuthIntegrations, getManualGroupsForApp, getGroupAssessmentsForApp } = await import("./nais.server")
-	const { resolveGroupNames } = await import("../../lib/graph.server")
+	const { snapshot } = await buildEntraSeedResult(applicationId)
+	return snapshot
+}
 
-	const [authIntegrations, manualGroups, groupAssessments] = await Promise.all([
-		getAppAuthIntegrations(applicationId),
-		getManualGroupsForApp(applicationId),
-		getGroupAssessmentsForApp(applicationId),
-	])
-
-	const naisGroupIds: string[] = []
-	for (const auth of authIntegrations) {
-		if (auth.groups) {
-			const groups = JSON.parse(auth.groups) as string[]
-			naisGroupIds.push(...groups)
-		}
+export async function seedEntraActivity(
+	activityId: string,
+	applicationId: string,
+	performedBy: string,
+): Promise<EntraStagedData> {
+	if (!applicationId) {
+		throw new Error("Kan ikke seed'e Entra-aktivitet uten applikasjon")
 	}
 
-	const naisGroupIdSet = new Set(naisGroupIds)
-	const manualGroupIdSet = new Set(manualGroups.map((g) => g.groupId))
-	const ghostGroupIds = groupAssessments
-		.filter((a) => !naisGroupIdSet.has(a.groupId) && !manualGroupIdSet.has(a.groupId))
-		.map((a) => a.groupId)
+	// Quick check without lock — avoids Graph HTTP call if already seeded
+	const [precheck] = await db
+		.select({
+			type: routineReviewActivities.type,
+			status: routineReviewActivities.status,
+			stagedData: routineReviewActivities.stagedData,
+		})
+		.from(routineReviewActivities)
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
 
-	const allGroupIds = [...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds])]
-	const groupNames = await resolveGroupNames(allGroupIds)
+	if (!precheck) {
+		throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+	}
+	if (precheck.type !== "entra_id_group_maintenance") {
+		throw new Error(`Aktivitet ${activityId} er ikke Entra-vedlikehold`)
+	}
+	if (precheck.status !== "pending") {
+		throw new Response("Kan ikke seed'e en fullført aktivitet", { status: 409 })
+	}
+	if (precheck.stagedData) {
+		return parseEntraStagedData(precheck.stagedData)
+	}
 
-	const assessmentsByGroupId = new Map(groupAssessments.map((a) => [a.groupId, a.criticality]))
+	// Build seed result OUTSIDE lock — includes Graph HTTP calls (resolveGroupNames)
+	const seeded = await buildEntraSeedResult(applicationId)
 
-	const groups: EntraGroupSnapshot["groups"] = [
-		...naisGroupIds.map((id) => ({
-			groupId: id,
-			groupName: groupNames[id] ?? null,
-			source: "nais" as const,
-			criticality: assessmentsByGroupId.get(id) ?? null,
-		})),
-		...manualGroups.map((g) => ({
-			groupId: g.groupId,
-			groupName: groupNames[g.groupId] ?? null,
-			source: "manual" as const,
-			criticality: assessmentsByGroupId.get(g.groupId) ?? null,
-		})),
-		...ghostGroupIds.map((id) => ({
-			groupId: id,
-			groupName: groupNames[id] ?? null,
-			source: "removed" as const,
-			criticality: assessmentsByGroupId.get(id) ?? null,
-		})),
-	]
+	const lockName = `entra_id_group_maintenance-activity-${activityId}`
+	const result = await withAdvisoryLock(lockName, async () => {
+		// Re-check under lock — another request may have seeded while we were building
+		const [current] = await db
+			.select({
+				status: routineReviewActivities.status,
+				stagedData: routineReviewActivities.stagedData,
+			})
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activityId))
+			.limit(1)
 
-	return { groups }
+		if (!current) {
+			throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+		}
+		if (current.status !== "pending") {
+			throw new Response("Kan ikke seed'e en fullført aktivitet", { status: 409 })
+		}
+		if (current.stagedData) {
+			return parseEntraStagedData(current.stagedData)
+		}
+
+		return db.transaction(async (tx) => {
+			const [updated] = await tx
+				.update(routineReviewActivities)
+				.set({
+					stagedData: seeded.stagedData,
+					snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seeded.snapshot)}::jsonb)`,
+				})
+				.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
+				.returning({ stagedData: routineReviewActivities.stagedData })
+
+			if (updated?.stagedData) {
+				await writeAuditLog(
+					{
+						action: "review_activity_seeded",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						performedBy: performedBy,
+					},
+					tx,
+				)
+				return parseEntraStagedData(updated.stagedData)
+			}
+
+			const [current2] = await tx
+				.select({ stagedData: routineReviewActivities.stagedData })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activityId))
+				.limit(1)
+
+			if (!current2?.stagedData) {
+				throw new Error(`Kunne ikke seed'e Entra-aktivitet ${activityId}`)
+			}
+
+			return parseEntraStagedData(current2.stagedData)
+		})
+	})
+
+	if (result !== null) {
+		return result
+	}
+
+	const polled = await waitForEntraSeed(activityId)
+	if (polled) {
+		return polled
+	}
+
+	throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+}
+
+export async function patchEntraActivity(
+	activityId: string,
+	patch: StagedDataPatch,
+	performedBy: string,
+): Promise<void> {
+	// Quick pre-check without lock to decide if we need to build a seed result
+	const [precheck] = await db
+		.select({
+			type: routineReviewActivities.type,
+			status: routineReviewActivities.status,
+			stagedData: routineReviewActivities.stagedData,
+			applicationId: routineReviews.applicationId,
+		})
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+
+	if (!precheck) {
+		throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+	}
+	if (precheck.type !== "entra_id_group_maintenance") {
+		throw new Error(`Aktivitet ${activityId} er ikke Entra-vedlikehold`)
+	}
+	if (precheck.status !== "pending") {
+		throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
+	}
+
+	// Build seed result OUTSIDE lock — includes Graph HTTP calls (resolveGroupNames)
+	const seedResult =
+		!precheck.stagedData && precheck.applicationId
+			? await buildEntraSeedResult(precheck.applicationId)
+			: !precheck.stagedData
+				? (() => {
+						throw new Error("Entra-aktiviteten mangler applikasjon")
+					})()
+				: null
+
+	const lockName = `entra_id_group_maintenance-activity-${activityId}`
+	const result = await withAdvisoryLock(lockName, async () => {
+		return db.transaction(async (tx) => {
+			const [activity] = await tx
+				.select({
+					status: routineReviewActivities.status,
+					stagedData: routineReviewActivities.stagedData,
+				})
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activityId))
+				.limit(1)
+
+			if (!activity) {
+				throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+			}
+			if (activity.status !== "pending") {
+				throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
+			}
+
+			let stagedData = activity.stagedData ? parseEntraStagedData(activity.stagedData) : null
+			let seededInThisCall = false
+			if (!stagedData) {
+				if (!seedResult) {
+					throw new Error(`Mangler staged_data for Entra-aktivitet ${activityId}`)
+				}
+				stagedData = seedResult.stagedData
+				await tx
+					.update(routineReviewActivities)
+					.set({
+						stagedData: seedResult.stagedData,
+						snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seedResult.snapshot)}::jsonb)`,
+					})
+					.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
+				seededInThisCall = true
+			}
+
+			let updatedData: EntraStagedData
+			try {
+				updatedData = parseEntraStagedData(applyEntraStagedDataPatch(stagedData, patch))
+			} catch (e) {
+				throw new Response(e instanceof Error ? e.message : "Ugyldig patch-operasjon", { status: 400 })
+			}
+			await tx
+				.update(routineReviewActivities)
+				.set({ stagedData: updatedData })
+				.where(eq(routineReviewActivities.id, activityId))
+
+			// Audit-log seeding if it happened in this call
+			if (seededInThisCall) {
+				await writeAuditLog(
+					{
+						action: "review_activity_seeded",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						performedBy,
+					},
+					tx,
+				)
+			}
+
+			// Skip change logging if the patch was a no-op (staged_data identical before/after)
+			const wasNoOp = JSON.stringify(stagedData.groups) === JSON.stringify(updatedData.groups)
+			if (wasNoOp) {
+				return
+			}
+
+			// Infer and record the change atomically within the same transaction
+			const beforeGroup = stagedData.groups.find((g) => g.groupId === patch.groupId) ?? null
+			type ChangeRecord = {
+				changeType: EntraChangeType
+				groupId: string
+				groupName: string | null
+				previousValue: string | null
+				newValue: string | null
+			}
+			let change: ChangeRecord | null = null
+			if (patch.op === "add-group") {
+				if (!beforeGroup || beforeGroup.isGone || beforeGroup.source === "ghost") {
+					change = {
+						changeType: "added",
+						groupId: patch.groupId,
+						groupName: patch.groupName ?? null,
+						previousValue: null,
+						newValue: patch.groupName ?? patch.groupId,
+					}
+				}
+			} else if (patch.op === "mark-gone" || patch.op === "remove-manual-source") {
+				if (beforeGroup) {
+					change = {
+						changeType: "removed",
+						groupId: patch.groupId,
+						groupName: beforeGroup.groupName,
+						previousValue: beforeGroup.groupName ?? patch.groupId,
+						newValue: null,
+					}
+				}
+			} else if (patch.op === "set-criticality") {
+				if (beforeGroup) {
+					change = {
+						changeType: "criticality_changed",
+						groupId: patch.groupId,
+						groupName: beforeGroup.groupName,
+						previousValue: beforeGroup.criticality,
+						newValue: patch.criticality,
+					}
+				}
+			}
+			if (change) {
+				await recordEntraChange({ activityId, performedBy, ...change }, tx)
+			}
+		})
+	})
+
+	if (result === null) {
+		throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+	}
 }
 
 export async function autoCreateActivityForReview(
 	reviewId: string,
 	routineId: string,
-	applicationId: string | null,
+	_applicationId: string | null,
 	performedBy: string,
 	providerConfig?: ReviewActivityProviderConfig | null,
 ) {
 	const routine = await getRoutine(routineId)
 	if (!routine?.activityType) return null
 
-	let snapshotBefore: EntraGroupSnapshot | null = null
-	if (routine.activityType === "entra_id_group_maintenance" && applicationId) {
-		snapshotBefore = await buildEntraGroupSnapshot(applicationId)
-	}
-
-	return createReviewActivity(reviewId, routine.activityType, snapshotBefore, performedBy, providerConfig ?? null)
+	return createReviewActivity(reviewId, routine.activityType, null, performedBy, providerConfig ?? null)
 }
 
 export async function createReviewActivity(
@@ -4284,7 +4629,7 @@ export async function getReviewActivities(reviewId: string) {
 export async function autoCreateActivitiesForReview(
 	reviewId: string,
 	routineId: string,
-	applicationId: string | null,
+	_applicationId: string | null,
 	performedBy: string,
 	providerConfigs?: Record<string, ReviewActivityProviderConfig>,
 ) {
@@ -4306,29 +4651,9 @@ export async function autoCreateActivitiesForReview(
 		}
 	}
 
-	// Build Entra snapshot OUTSIDE the transaction – external HTTP call to Microsoft Graph.
-	// At most one entra_id_group_maintenance link per routine due to the unique constraint.
-	// Skip the snapshot if the Entra activity already exists for this review (e.g. partial backfill).
-	const existingReviewTypes = new Set(
-		(
-			await db
-				.select({ type: routineReviewActivities.type })
-				.from(routineReviewActivities)
-				.where(eq(routineReviewActivities.reviewId, reviewId))
-		).map((r) => r.type),
-	)
-	let entraSnapshot: EntraGroupSnapshot | null = null
-	const entraLinkIsNew =
-		!existingReviewTypes.has("entra_id_group_maintenance") &&
-		activityLinks.some((l) => l.activityType === "entra_id_group_maintenance")
-	if (applicationId && entraLinkIsNew) {
-		entraSnapshot = await buildEntraGroupSnapshot(applicationId)
-	}
-
 	await db.transaction(async (tx) => {
 		for (let i = 0; i < activityLinks.length; i++) {
 			const link = activityLinks[i]
-			const snapshotBefore = link.activityType === "entra_id_group_maintenance" ? entraSnapshot : null
 			const config = providerConfigs?.[link.activityType] ?? null
 			// onConflictDoNothing: unique constraint on (review_id, type) handles race conditions
 			const [inserted] = await tx
@@ -4337,7 +4662,7 @@ export async function autoCreateActivitiesForReview(
 					reviewId,
 					type: link.activityType as RoutineActivityType,
 					sortOrder: i,
-					snapshotBefore,
+					snapshotBefore: null,
 					providerConfig: config,
 				})
 				.onConflictDoNothing({ target: [routineReviewActivities.reviewId, routineReviewActivities.type] })
@@ -4373,44 +4698,322 @@ export async function savePeriodConfig(activityId: string, periodConfig: PeriodC
 	return updated
 }
 
-export async function recordEntraChange(params: {
-	activityId: string
-	changeType: EntraChangeType
-	groupId: string
-	groupName: string | null
-	previousValue: string | null
-	newValue: string | null
-	performedBy: string
-}) {
-	const [change] = await db
-		.insert(routineReviewActivityEntraChanges)
-		.values({
-			activityId: params.activityId,
-			changeType: params.changeType,
-			groupId: params.groupId,
-			groupName: params.groupName,
-			previousValue: params.previousValue,
-			newValue: params.newValue,
-			performedBy: params.performedBy,
-		})
-		.returning()
+export async function recordEntraChange(
+	params: {
+		activityId: string
+		changeType: EntraChangeType
+		groupId: string
+		groupName: string | null
+		previousValue: string | null
+		newValue: string | null
+		performedBy: string
+	},
+	tx?: DbExecutor,
+) {
+	const run = async (exec: DbExecutor) => {
+		const [change] = await exec
+			.insert(routineReviewActivityEntraChanges)
+			.values({
+				activityId: params.activityId,
+				changeType: params.changeType,
+				groupId: params.groupId,
+				groupName: params.groupName,
+				previousValue: params.previousValue,
+				newValue: params.newValue,
+				performedBy: params.performedBy,
+			})
+			.returning()
 
-	await writeAuditLog({
-		action: "review_activity_entra_change",
-		entityType: "routine_review_activity",
-		entityId: params.activityId,
-		newValue: JSON.stringify({
-			changeType: params.changeType,
-			groupId: params.groupId,
-			groupName: params.groupName,
-		}),
-		performedBy: params.performedBy,
-	})
+		await writeAuditLog(
+			{
+				action: "review_activity_entra_change",
+				entityType: "routine_review_activity",
+				entityId: params.activityId,
+				newValue: JSON.stringify({
+					changeType: params.changeType,
+					groupId: params.groupId,
+					groupName: params.groupName,
+				}),
+				performedBy: params.performedBy,
+			},
+			exec,
+		)
 
-	return change
+		return change
+	}
+	return tx ? run(tx) : db.transaction(run)
 }
 
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+async function completeEntraReviewActivity(activityId: string, performedBy: string, executor: DbExecutor) {
+	const [activity] = await executor
+		.select({
+			id: routineReviewActivities.id,
+			status: routineReviewActivities.status,
+			stagedData: routineReviewActivities.stagedData,
+			applicationId: routineReviews.applicationId,
+		})
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+
+	if (!activity) {
+		throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+	}
+	if (activity.status !== "pending") {
+		throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+	}
+	if (!activity.applicationId) {
+		throw new Response("Entra-aktiviteten mangler applikasjon", { status: 400 })
+	}
+
+	let stagedData = activity.stagedData ? parseEntraStagedData(activity.stagedData) : null
+	if (!stagedData) {
+		const seeded = await buildEntraSeedResult(activity.applicationId)
+		const [seededActivity] = await executor
+			.update(routineReviewActivities)
+			.set({
+				stagedData: seeded.stagedData,
+				snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seeded.snapshot)}::jsonb)`,
+			})
+			.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
+			.returning({ stagedData: routineReviewActivities.stagedData })
+
+		if (seededActivity?.stagedData) {
+			await writeAuditLog(
+				{
+					action: "review_activity_seeded",
+					entityType: "routine_review_activity",
+					entityId: activityId,
+					performedBy,
+				},
+				executor,
+			)
+			stagedData = parseEntraStagedData(seededActivity.stagedData)
+		} else {
+			const [currentActivity] = await executor
+				.select({ stagedData: routineReviewActivities.stagedData })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activityId))
+				.limit(1)
+
+			if (!currentActivity?.stagedData) {
+				throw new Error(`Mangler staged_data for Entra-aktivitet ${activityId}`)
+			}
+
+			stagedData = parseEntraStagedData(currentActivity.stagedData)
+		}
+	}
+
+	const nonGoneGroups = stagedData.groups.filter((group) => !group.isGone)
+	const groupsMissingCriticality = nonGoneGroups.filter((group) => group.criticality === null)
+	if (groupsMissingCriticality.length > 0) {
+		throw new Response(
+			`Alle aktive Entra-grupper må ha kritikalitet før fullføring: ${groupsMissingCriticality
+				.map((group) => group.groupId)
+				.join(", ")}`,
+			{ status: 400 },
+		)
+	}
+	const activeGroups = nonGoneGroups.filter(
+		(
+			group,
+		): group is (typeof nonGoneGroups)[number] & {
+			criticality: NonNullable<(typeof nonGoneGroups)[number]["criticality"]>
+		} => group.criticality !== null,
+	)
+
+	const existingAssessments =
+		activeGroups.length > 0
+			? await executor
+					.select()
+					.from(applicationGroupAssessments)
+					.where(
+						and(
+							eq(applicationGroupAssessments.applicationId, activity.applicationId),
+							inArray(
+								applicationGroupAssessments.groupId,
+								activeGroups.map((group) => group.groupId),
+							),
+							isNull(applicationGroupAssessments.archivedAt),
+						),
+					)
+			: []
+	const assessmentsByGroupId = new Map(existingAssessments.map((assessment) => [assessment.groupId, assessment]))
+
+	for (const group of activeGroups) {
+		const existingAssessment = assessmentsByGroupId.get(group.groupId) ?? null
+		if (existingAssessment && existingAssessment.criticality === group.criticality) {
+			continue
+		}
+
+		const performedAt = group.criticalitySetAt ? new Date(group.criticalitySetAt) : new Date()
+		const performedByForAssessment = group.criticalitySetBy ?? performedBy
+		const nextValue = JSON.stringify({ groupId: group.groupId, criticality: group.criticality })
+
+		if (existingAssessment) {
+			await executor
+				.update(applicationGroupAssessments)
+				.set({
+					criticality: group.criticality,
+					assessedBy: performedByForAssessment,
+					assessedAt: performedAt,
+					updatedBy: performedByForAssessment,
+					updatedAt: performedAt,
+					archivedAt: null,
+					archivedBy: null,
+				})
+				.where(eq(applicationGroupAssessments.id, existingAssessment.id))
+
+			await writeAuditLog(
+				{
+					action: "group_criticality_updated",
+					entityType: "application",
+					entityId: activity.applicationId,
+					previousValue: JSON.stringify({ groupId: group.groupId, criticality: existingAssessment.criticality }),
+					newValue: nextValue,
+					performedBy: performedByForAssessment,
+				},
+				executor,
+			)
+			continue
+		}
+
+		await executor.insert(applicationGroupAssessments).values({
+			applicationId: activity.applicationId,
+			groupId: group.groupId,
+			criticality: group.criticality,
+			assessedBy: performedByForAssessment,
+			assessedAt: performedAt,
+			updatedBy: performedByForAssessment,
+			updatedAt: performedAt,
+		})
+
+		await writeAuditLog(
+			{
+				action: "group_criticality_updated",
+				entityType: "application",
+				entityId: activity.applicationId,
+				newValue: nextValue,
+				performedBy: performedByForAssessment,
+			},
+			executor,
+		)
+	}
+
+	for (const group of stagedData.groups.filter(
+		(entry) => entry.isAddedDuringReview && entry.hasManualSource && !entry.isGone,
+	)) {
+		const [insertedManualGroup] = await executor
+			.insert(applicationManualGroups)
+			.values({
+				applicationId: activity.applicationId,
+				groupId: group.groupId,
+				groupName: group.groupName,
+				createdBy: performedBy,
+			})
+			.onConflictDoNothing({
+				target: [applicationManualGroups.applicationId, applicationManualGroups.groupId],
+				where: isNull(applicationManualGroups.archivedAt),
+			})
+			.returning()
+
+		if (!insertedManualGroup) {
+			continue
+		}
+
+		await writeAuditLog(
+			{
+				action: "manual_group_added",
+				entityType: "application",
+				entityId: activity.applicationId,
+				newValue: JSON.stringify({ groupId: group.groupId, groupName: group.groupName }),
+				performedBy,
+			},
+			executor,
+		)
+	}
+
+	for (const group of stagedData.groups.filter((entry) => entry.source === "ghost" && entry.isGone)) {
+		const [archivedAssessment] = await executor
+			.update(applicationGroupAssessments)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(
+				and(
+					eq(applicationGroupAssessments.applicationId, activity.applicationId),
+					eq(applicationGroupAssessments.groupId, group.groupId),
+					isNull(applicationGroupAssessments.archivedAt),
+				),
+			)
+			.returning({
+				groupId: applicationGroupAssessments.groupId,
+				criticality: applicationGroupAssessments.criticality,
+				assessedBy: applicationGroupAssessments.assessedBy,
+			})
+
+		if (!archivedAssessment) {
+			continue
+		}
+
+		await writeAuditLog(
+			{
+				action: "ghost_group_archived",
+				entityType: "application",
+				entityId: activity.applicationId,
+				previousValue: JSON.stringify({
+					groupId: archivedAssessment.groupId,
+					criticality: archivedAssessment.criticality,
+					assessedBy: archivedAssessment.assessedBy,
+				}),
+				performedBy,
+			},
+			executor,
+		)
+	}
+
+	for (const group of stagedData.groups) {
+		// Archive when: (1) mark-gone was applied (isGone=true), OR
+		// (2) remove-manual-source was applied (hasManualSource=false, isGone=false).
+		// In both cases a seededManualGroupId must be present.
+		if (!group.seededManualGroupId || (!group.isGone && group.hasManualSource)) {
+			continue
+		}
+
+		const [archivedManualGroup] = await executor
+			.update(applicationManualGroups)
+			.set({ archivedAt: new Date(), archivedBy: performedBy })
+			.where(
+				and(
+					eq(applicationManualGroups.id, group.seededManualGroupId),
+					eq(applicationManualGroups.applicationId, activity.applicationId),
+					isNull(applicationManualGroups.archivedAt),
+				),
+			)
+			.returning()
+
+		if (!archivedManualGroup) {
+			continue
+		}
+
+		await writeAuditLog(
+			{
+				action: "manual_group_removed",
+				entityType: "application",
+				entityId: activity.applicationId,
+				previousValue: JSON.stringify({
+					groupId: archivedManualGroup.groupId,
+					groupName: archivedManualGroup.groupName,
+				}),
+				performedBy,
+			},
+			executor,
+		)
+	}
+
+	return toEntraGroupSnapshot(stagedData)
+}
 
 export async function completeReviewActivity(
 	activityId: string,
@@ -4418,28 +5021,96 @@ export async function completeReviewActivity(
 	performedBy: string,
 	tx?: DbExecutor,
 ) {
-	const executor = tx ?? db
-	const [updated] = await executor
-		.update(routineReviewActivities)
-		.set({
-			status: "completed",
-			snapshotAfter,
-			completedAt: new Date(),
+	const [activity] = await (tx ?? db)
+		.select({
+			type: routineReviewActivities.type,
+			status: routineReviewActivities.status,
+			stagedData: routineReviewActivities.stagedData,
+			applicationId: routineReviews.applicationId,
 		})
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
 		.where(eq(routineReviewActivities.id, activityId))
-		.returning()
+		.limit(1)
 
-	await writeAuditLog(
-		{
-			action: "review_activity_completed",
-			entityType: "routine_review_activity",
-			entityId: activityId,
-			performedBy,
-		},
-		tx,
-	)
+	if (!activity) {
+		throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+	}
+	if (activity.status !== "pending") {
+		throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+	}
 
-	return updated
+	// Use the Entra staged_data commit path for entra_id_group_maintenance activities that have an
+	// application. Section-level Entra activities (applicationId = null) fall through to generic completion.
+	// completeEntraReviewActivity handles seeding if staged_data is null (legacy rows or no prior seed).
+	if (activity.type === "entra_id_group_maintenance" && activity.applicationId !== null) {
+		const lockName = `entra_id_group_maintenance-activity-${activityId}`
+		const result = await withAdvisoryLock(lockName, async () => {
+			const run = async (exec: DbExecutor) => {
+				const snapshot = await completeEntraReviewActivity(activityId, performedBy, exec)
+
+				const [updated] = await exec
+					.update(routineReviewActivities)
+					.set({ status: "completed", snapshotAfter: snapshot, completedAt: new Date() })
+					.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
+					.returning()
+
+				if (!updated) {
+					throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+				}
+
+				await writeAuditLog(
+					{
+						action: "review_activity_completed",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						performedBy,
+					},
+					exec,
+				)
+
+				return updated
+			}
+
+			return tx ? run(tx) : db.transaction(run)
+		})
+
+		if (result === null) {
+			throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+		}
+
+		return result
+	}
+
+	const runGeneric = async (exec: DbExecutor) => {
+		const [updated] = await exec
+			.update(routineReviewActivities)
+			.set({
+				status: "completed",
+				snapshotAfter,
+				completedAt: new Date(),
+			})
+			.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
+			.returning()
+
+		if (!updated) {
+			throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+		}
+
+		await writeAuditLog(
+			{
+				action: "review_activity_completed",
+				entityType: "routine_review_activity",
+				entityId: activityId,
+				performedBy,
+			},
+			exec,
+		)
+
+		return updated
+	}
+
+	return tx ? runGeneric(tx) : db.transaction(runGeneric)
 }
 
 export async function getActivitiesForReviews(reviewIds: string[]) {

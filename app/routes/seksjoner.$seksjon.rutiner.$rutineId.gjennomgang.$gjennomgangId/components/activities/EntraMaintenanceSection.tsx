@@ -17,16 +17,17 @@ import {
 } from "@navikt/ds-react"
 import { useCallback, useMemo, useRef, useState } from "react"
 import { useFetcher } from "react-router"
+import type { EntraCriticality } from "~/lib/entra-staged-data"
 import type { ActivityProp } from "../shared"
 import { formatDateTime } from "../utils"
 
-const groupCriticalityLabels: Record<string, string> = {
+const groupCriticalityLabels: Record<EntraCriticality, string> = {
 	low: "Lav",
 	medium: "Middels",
 	high: "Høy",
 	very_high: "Svært høy",
 }
-const groupCriticalityOptions = ["low", "medium", "high", "very_high"] as const
+const groupCriticalityOptions: EntraCriticality[] = ["low", "medium", "high", "very_high"]
 
 const entraChangeTypeLabels: Record<string, string> = {
 	added: "Lagt til",
@@ -34,12 +35,18 @@ const entraChangeTypeLabels: Record<string, string> = {
 	criticality_changed: "Kritikalitet endret",
 }
 
-export type EntraGroupsDataProp = {
-	naisGroupIds: string[]
-	manualGroups: Array<{ id: string; groupId: string; groupName: string | null; createdBy: string; createdAt: string }>
-	ghostGroupIds: string[]
-	groupNames: Record<string, string>
-	assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
+export type EntraStagedGroupsProp = {
+	groups: Array<{
+		groupId: string
+		groupName: string | null
+		source: "nais_auth" | "manual" | "ghost"
+		hasNaisSource: boolean
+		hasManualSource: boolean
+		isGone: boolean
+		isNewAssessment: boolean
+		isAddedDuringReview: boolean
+		criticality: EntraCriticality | null
+	}>
 }
 
 export function EntraMaintenanceSection({
@@ -48,7 +55,7 @@ export function EntraMaintenanceSection({
 	isDraft,
 }: {
 	activity: ActivityProp
-	entraGroupsData: EntraGroupsDataProp
+	entraGroupsData: EntraStagedGroupsProp
 	isDraft: boolean
 }) {
 	const addFetcher = useFetcher()
@@ -62,14 +69,18 @@ export function EntraMaintenanceSection({
 	const searchInputRef = useRef<HTMLInputElement>(null)
 	const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-	const { naisGroupIds, manualGroups, ghostGroupIds, groupNames, assessmentsByGroupId } = entraGroupsData
+	const { groups } = entraGroupsData
 	const searchResults = searchFetcher.data?.results ?? []
 	const isSearching = searchFetcher.state === "loading"
 
-	const naisGroupIdSet = useMemo(() => new Set(naisGroupIds), [naisGroupIds])
-	const allExistingGroupIds = useMemo(
-		() => new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId)]),
-		[naisGroupIds, manualGroups],
+	const activeGroupIds = useMemo(
+		() =>
+			new Set(
+				groups
+					.filter((group) => !group.isGone && (group.hasNaisSource || group.hasManualSource))
+					.map((group) => group.groupId),
+			),
+		[groups],
 	)
 
 	const handleSearch = useCallback(
@@ -90,57 +101,32 @@ export function EntraMaintenanceSection({
 
 	const handleAddGroup = useCallback(
 		(groupId: string, displayName: string) => {
-			if (allExistingGroupIds.has(groupId)) return
+			if (activeGroupIds.has(groupId)) return
 			addFetcher.submit({ intent: "add-manual-group", groupId, groupName: displayName }, { method: "POST" })
 			setSearchQuery("")
 			setShowResults(false)
 			setDialogOpen(false)
 		},
-		[addFetcher, allExistingGroupIds],
+		[activeGroupIds, addFetcher],
 	)
-
-	type UnifiedGroup = {
-		groupId: string
-		source: "nais" | "manual" | "removed"
-		manualGroupDbId?: string
-	}
-
-	const unifiedGroups = useMemo(() => {
-		const groups: UnifiedGroup[] = []
-		for (const gid of naisGroupIds) {
-			groups.push({ groupId: gid, source: "nais" })
-		}
-		for (const mg of manualGroups) {
-			if (!naisGroupIdSet.has(mg.groupId)) {
-				groups.push({ groupId: mg.groupId, source: "manual", manualGroupDbId: mg.id })
-			}
-		}
-		for (const gid of ghostGroupIds) {
-			groups.push({ groupId: gid, source: "removed" })
-		}
-		return groups
-	}, [naisGroupIds, manualGroups, ghostGroupIds, naisGroupIdSet])
 
 	const sortedGroups = useMemo(() => {
 		const dir = sort.direction === "ascending" ? 1 : -1
-		return [...unifiedGroups].sort((a, b) => {
-			const nameA = groupNames[a.groupId] ?? ""
-			const nameB = groupNames[b.groupId] ?? ""
+		return [...groups].sort((a, b) => {
+			const nameA = a.groupName ?? ""
+			const nameB = b.groupName ?? ""
 			switch (sort.orderBy) {
 				case "name":
 					return dir * nameA.localeCompare(nameB, "nb")
 				case "source":
 					return dir * a.source.localeCompare(b.source)
-				case "criticality": {
-					const critA = assessmentsByGroupId[a.groupId]?.criticality ?? ""
-					const critB = assessmentsByGroupId[b.groupId]?.criticality ?? ""
-					return dir * critA.localeCompare(critB, "nb")
-				}
+				case "criticality":
+					return dir * (a.criticality ?? "").localeCompare(b.criticality ?? "", "nb")
 				default:
 					return 0
 			}
 		})
-	}, [unifiedGroups, sort, groupNames, assessmentsByGroupId])
+	}, [groups, sort])
 
 	const handleSort = (sortKey: string) => {
 		setSort((prev) =>
@@ -169,8 +155,7 @@ export function EntraMaintenanceSection({
 				)}
 			</HStack>
 
-			{/* Groups table */}
-			{unifiedGroups.length > 0 ? (
+			{sortedGroups.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
 				<section className="table-scroll" tabIndex={0} aria-label="Entra ID-grupper">
 					<Table size="small" sort={sort} onSortChange={handleSort}>
@@ -193,60 +178,77 @@ export function EntraMaintenanceSection({
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
-							{sortedGroups.map((ug) => {
-								const assessment = assessmentsByGroupId[ug.groupId]
-								const displayName = groupNames[ug.groupId] ?? null
+							{sortedGroups.map((group) => {
+								const canRemove =
+									!group.isGone &&
+									(group.source === "manual" ||
+										group.source === "ghost" ||
+										(group.source === "nais_auth" && group.hasManualSource))
 
 								return (
-									<Table.Row key={`${ug.source}-${ug.groupId}`}>
+									<Table.Row
+										key={group.groupId}
+										style={group.isGone ? { backgroundColor: "var(--ax-bg-danger-soft)" } : undefined}
+									>
 										<Table.DataCell>
 											<VStack gap="space-1">
-												{displayName ?? (
+												{group.groupName ?? (
 													<BodyShort size="small" textColor="subtle">
 														Ukjent
 													</BodyShort>
 												)}
 												<HStack gap="space-1" align="center">
 													<Detail textColor="subtle" style={{ fontFamily: "monospace" }}>
-														{ug.groupId}
+														{group.groupId}
 													</Detail>
-													<CopyButton copyText={ug.groupId} size="xsmall" />
+													<CopyButton copyText={group.groupId} size="xsmall" />
 												</HStack>
 											</VStack>
 										</Table.DataCell>
 										<Table.DataCell>
-											{ug.source === "nais" && (
-												<Tag variant="info" size="xsmall">
-													Nais
-												</Tag>
-											)}
-											{ug.source === "manual" && (
-												<Tag variant="neutral" size="xsmall">
-													Manuell
-												</Tag>
-											)}
-											{ug.source === "removed" && (
-												<Tag variant="error" size="xsmall">
-													Fjernet
-												</Tag>
-											)}
+											<HStack gap="space-2" wrap>
+												{group.hasNaisSource && (
+													<Tag variant="info" size="xsmall">
+														Nais
+													</Tag>
+												)}
+												{group.hasManualSource && (
+													<Tag variant="neutral" size="xsmall">
+														Manuell
+													</Tag>
+												)}
+												{group.source === "ghost" && (
+													<Tag variant="error" size="xsmall">
+														Fjernet
+													</Tag>
+												)}
+												{group.isGone && (
+													<Tag variant="error" size="xsmall">
+														Fjernet i gjennomgang
+													</Tag>
+												)}
+											</HStack>
 										</Table.DataCell>
 										<Table.DataCell>
-											{isDraft && isPending ? (
+											{group.isGone ? (
+												<BodyShort size="small" style={{ color: "var(--ax-text-danger)" }}>
+													Fjernet i gjennomgangen
+												</BodyShort>
+											) : isDraft && isPending ? (
 												<criticalityFetcher.Form method="post">
 													<input type="hidden" name="intent" value="set-group-criticality" />
-													<input type="hidden" name="groupId" value={ug.groupId} />
+													<input type="hidden" name="groupId" value={group.groupId} />
 													<Select
 														label="Kritikalitet"
 														hideLabel
 														size="small"
-														value={assessment?.criticality ?? ""}
-														onChange={(e) => {
+														value={group.criticality ?? ""}
+														onChange={(event) => {
 															criticalityFetcher.submit(
 																{
 																	intent: "set-group-criticality",
-																	groupId: ug.groupId,
-																	criticality: e.target.value,
+																	groupId: group.groupId,
+																	criticality: event.target.value,
 																},
 																{ method: "POST" },
 															)
@@ -256,29 +258,26 @@ export function EntraMaintenanceSection({
 														<option value="" disabled>
 															Velg…
 														</option>
-														{groupCriticalityOptions.map((c) => (
-															<option key={c} value={c}>
-																{groupCriticalityLabels[c]}
+														{groupCriticalityOptions.map((criticality) => (
+															<option key={criticality} value={criticality}>
+																{groupCriticalityLabels[criticality]}
 															</option>
 														))}
 													</Select>
 												</criticalityFetcher.Form>
 											) : (
 												<BodyShort size="small">
-													{assessment?.criticality
-														? (groupCriticalityLabels[assessment.criticality] ?? assessment.criticality)
-														: "—"}
+													{group.criticality ? (groupCriticalityLabels[group.criticality] ?? group.criticality) : "—"}
 												</BodyShort>
 											)}
 										</Table.DataCell>
 										{isDraft && isPending && (
 											<Table.DataCell>
-												{ug.source === "manual" && ug.manualGroupDbId && (
+												{canRemove && (
 													<removeFetcher.Form method="post">
 														<input type="hidden" name="intent" value="remove-manual-group" />
-														<input type="hidden" name="manualGroupId" value={ug.manualGroupDbId} />
-														<input type="hidden" name="groupId" value={ug.groupId} />
-														<input type="hidden" name="groupName" value={displayName ?? ""} />
+														<input type="hidden" name="groupId" value={group.groupId} />
+														<input type="hidden" name="groupName" value={group.groupName ?? ""} />
 														<Button
 															type="submit"
 															variant="tertiary-neutral"
@@ -304,7 +303,6 @@ export function EntraMaintenanceSection({
 				</BodyShort>
 			)}
 
-			{/* Add group button — only for pending activities in drafts */}
 			{isDraft && isPending && (
 				<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
 					<Dialog.Trigger>
@@ -348,7 +346,7 @@ export function EntraMaintenanceSection({
 										) : searchResults.length > 0 ? (
 											<VStack>
 												{searchResults.map((result) => {
-													const alreadyAdded = allExistingGroupIds.has(result.id)
+													const alreadyAdded = activeGroupIds.has(result.id)
 													return (
 														<Button
 															key={result.id}
@@ -382,7 +380,6 @@ export function EntraMaintenanceSection({
 				</Dialog>
 			)}
 
-			{/* Changes log */}
 			{activity.changes.length > 0 && (
 				<VStack gap="space-4">
 					<Heading size="small" level="4">
@@ -401,34 +398,41 @@ export function EntraMaintenanceSection({
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
-								{activity.changes.map((c) => (
-									<Table.Row key={c.id}>
-										<Table.DataCell>{formatDateTime(c.performedAt)}</Table.DataCell>
+								{activity.changes.map((change) => (
+									<Table.Row key={change.id}>
+										<Table.DataCell>{formatDateTime(change.performedAt)}</Table.DataCell>
 										<Table.DataCell>
 											<Tag
-												variant={c.changeType === "added" ? "success" : c.changeType === "removed" ? "error" : "info"}
+												variant={
+													change.changeType === "added" ? "success" : change.changeType === "removed" ? "error" : "info"
+												}
 												size="xsmall"
 											>
-												{entraChangeTypeLabels[c.changeType] ?? c.changeType}
+												{entraChangeTypeLabels[change.changeType] ?? change.changeType}
 											</Tag>
 										</Table.DataCell>
 										<Table.DataCell>
 											<VStack gap="space-1">
-												{c.groupName && <BodyShort size="small">{c.groupName}</BodyShort>}
+												{change.groupName && <BodyShort size="small">{change.groupName}</BodyShort>}
 												<Detail textColor="subtle" style={{ fontFamily: "monospace" }}>
-													{c.groupId}
+													{change.groupId}
 												</Detail>
 											</VStack>
 										</Table.DataCell>
 										<Table.DataCell>
-											{c.changeType === "criticality_changed" && (
+											{change.changeType === "criticality_changed" && (
 												<BodyShort size="small">
-													{c.previousValue ? (groupCriticalityLabels[c.previousValue] ?? c.previousValue) : "Ingen"} →{" "}
-													{c.newValue ? (groupCriticalityLabels[c.newValue] ?? c.newValue) : "Ingen"}
+													{change.previousValue
+														? (groupCriticalityLabels[change.previousValue as EntraCriticality] ?? change.previousValue)
+														: "Ingen"}{" "}
+													→{" "}
+													{change.newValue
+														? (groupCriticalityLabels[change.newValue as EntraCriticality] ?? change.newValue)
+														: "Ingen"}
 												</BodyShort>
 											)}
 										</Table.DataCell>
-										<Table.DataCell>{c.performedBy}</Table.DataCell>
+										<Table.DataCell>{change.performedBy}</Table.DataCell>
 									</Table.Row>
 								))}
 							</Table.Body>

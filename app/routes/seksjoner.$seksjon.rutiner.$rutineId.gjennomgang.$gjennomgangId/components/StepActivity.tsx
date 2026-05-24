@@ -1,5 +1,6 @@
 import { Alert, BodyShort, Heading, VStack } from "@navikt/ds-react"
 import { EvidenceSection } from "~/components/evidence"
+import type { EntraStagedGroupsProp } from "./activities/EntraMaintenanceSection"
 
 type Props = {
 	activity: {
@@ -21,13 +22,7 @@ type Props = {
 			performedAt: string
 		}>
 	} | null
-	entraGroupsData: {
-		naisGroupIds: string[]
-		manualGroups: Array<{ id: string; groupId: string; groupName: string | null; createdBy: string; createdAt: string }>
-		ghostGroupIds: string[]
-		groupNames: Record<string, string>
-		assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
-	} | null
+	entraGroupsData: EntraStagedGroupsProp | null
 	oracleEvidenceData: {
 		configuredInstances: Array<{ instanceId: string }>
 		selectedInstanceId: string | null

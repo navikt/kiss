@@ -673,6 +673,13 @@
       "when": 1781917660000,
       "tag": "0095_add_staged_data_column",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1781917720000,
+      "tag": "0096_archive_application_group_assessments",
+      "breakpoints": true
     }
   ]
 }

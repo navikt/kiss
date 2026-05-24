@@ -1724,8 +1724,24 @@ describe("Routines integration tests", () => {
 				"entra_id_group_maintenance",
 				{
 					groups: [
-						{ groupId: "group-1", groupName: "Group 1", source: "nais", criticality: null },
-						{ groupId: "group-2", groupName: "Group 2", source: "manual", criticality: "high" },
+						{
+							groupId: "group-1",
+							groupName: "Group 1",
+							source: "nais_auth",
+							hasNaisSource: true,
+							hasManualSource: false,
+							isGone: false,
+							criticality: null,
+						},
+						{
+							groupId: "group-2",
+							groupName: "Group 2",
+							source: "manual",
+							hasNaisSource: false,
+							hasManualSource: true,
+							isGone: false,
+							criticality: "high",
+						},
 					],
 				},
 				"test",
@@ -1738,8 +1754,24 @@ describe("Routines integration tests", () => {
 			expect(activity.status).toBe("pending")
 			expect(activity.snapshotBefore).toEqual({
 				groups: [
-					{ groupId: "group-1", groupName: "Group 1", source: "nais", criticality: null },
-					{ groupId: "group-2", groupName: "Group 2", source: "manual", criticality: "high" },
+					{
+						groupId: "group-1",
+						groupName: "Group 1",
+						source: "nais_auth",
+						hasNaisSource: true,
+						hasManualSource: false,
+						isGone: false,
+						criticality: null,
+					},
+					{
+						groupId: "group-2",
+						groupName: "Group 2",
+						source: "manual",
+						hasNaisSource: false,
+						hasManualSource: true,
+						isGone: false,
+						criticality: "high",
+					},
 				],
 			})
 			expect(activity.snapshotAfter).toBeNull()
@@ -1862,7 +1894,19 @@ describe("Routines integration tests", () => {
 			const activity = await createReviewActivity(
 				review.id,
 				"entra_id_group_maintenance",
-				{ groups: [{ groupId: "a", groupName: "A", source: "nais", criticality: null }] },
+				{
+					groups: [
+						{
+							groupId: "a",
+							groupName: "A",
+							source: "nais_auth",
+							hasNaisSource: true,
+							hasManualSource: false,
+							isGone: false,
+							criticality: null,
+						},
+					],
+				},
 				"test",
 			)
 
@@ -1873,8 +1917,24 @@ describe("Routines integration tests", () => {
 				activity.id,
 				{
 					groups: [
-						{ groupId: "a", groupName: "A", source: "nais", criticality: null },
-						{ groupId: "b", groupName: "B", source: "manual", criticality: "low" },
+						{
+							groupId: "a",
+							groupName: "A",
+							source: "nais_auth",
+							hasNaisSource: true,
+							hasManualSource: false,
+							isGone: false,
+							criticality: null,
+						},
+						{
+							groupId: "b",
+							groupName: "B",
+							source: "manual",
+							hasNaisSource: false,
+							hasManualSource: true,
+							isGone: false,
+							criticality: "low",
+						},
 					],
 				},
 				"test",
@@ -1884,8 +1944,24 @@ describe("Routines integration tests", () => {
 			expect(completed.completedAt).toBeDefined()
 			expect(completed.snapshotAfter).toEqual({
 				groups: [
-					{ groupId: "a", groupName: "A", source: "nais", criticality: null },
-					{ groupId: "b", groupName: "B", source: "manual", criticality: "low" },
+					{
+						groupId: "a",
+						groupName: "A",
+						source: "nais_auth",
+						hasNaisSource: true,
+						hasManualSource: false,
+						isGone: false,
+						criticality: null,
+					},
+					{
+						groupId: "b",
+						groupName: "B",
+						source: "manual",
+						hasNaisSource: false,
+						hasManualSource: true,
+						isGone: false,
+						criticality: "low",
+					},
 				],
 			})
 		})
