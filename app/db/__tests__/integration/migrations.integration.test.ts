@@ -213,6 +213,18 @@ describe("Database migrations", () => {
 			const colNames = columns.rows.map((r) => r.column_name)
 			expect(colNames).toContain("status")
 		})
+
+		it("should include staged_data column on routine_review_activities (migration 0095)", async () => {
+			await runMigrations()
+
+			const columns = await testDb.execute<{ column_name: string }>(sql`
+				SELECT column_name FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'routine_review_activities'
+				ORDER BY column_name
+			`)
+			const colNames = columns.rows.map((r) => r.column_name)
+			expect(colNames).toContain("staged_data")
+		})
 	})
 
 	// ── 2. Idempotency ──────────────────────────────────────────────────
