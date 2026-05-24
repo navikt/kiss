@@ -219,11 +219,11 @@ Når nye ruter introduseres:
 
 Det finnes to arkitektonisk ulike kategorier aktivitetstyper. Tabellen under er den autoritative listen over eksisterende og planlagte aktivitetstyper.
 
-| Aktivitetstype | Kategori | Per-gjennomgang-tabell (seed/vurdering) | Commit til primærlagring | Status |
+| Aktivitetstype | Kategori | Arbeidsformat | Commit til primærlagring | Status |
 |---|---|---|---|---|
-| `oracle_role_criticality` | Vedlikehold | `routine_oracle_role_criticality_assessments` *(planlagt)* | Ja *(planlagt)* | 🔲 Planlagt |
-| `rpa_user_maintenance` | Vedlikehold | `routine_rpa_user_assessments` | ⚠️ Mangler (tech debt) | ✅ Implementert |
-| `entra_id_group_maintenance` | Vedlikehold | Ingen ekte seed-tabell *(avvik)*. `routine_review_activity_entra_changes` logger endringer | ⚠️ Avvik (tech debt) | ✅ Implementert |
+| `oracle_role_criticality` | Vedlikehold | `staged_data JSONB` *(planlagt)* | Ja *(planlagt)* | 🔲 Planlagt |
+| `rpa_user_maintenance` | Vedlikehold | `routine_rpa_user_assessments` ⚠️ avvik — ikke referanseimplementasjon | ⚠️ Mangler (tech debt) | ✅ Implementert |
+| `entra_id_group_maintenance` | Vedlikehold | `staged_data JSONB` 🚧 Under refaktorering | ✅ (etter refaktorering) | 🚧 Under refaktorering |
 | `oracle_evidence_audit` | Bevis | Ingen | Nei | ✅ Implementert |
 | `oracle_evidence_profiles` | Bevis | Ingen | Nei | ✅ Implementert |
 | `oracle_evidence_roles` | Bevis | Ingen | Nei | ✅ Implementert |
@@ -238,7 +238,7 @@ Disse prinsippene er **bindende krav for alle nye vedlikeholdsaktivitetstyper**.
 
 ##### Begrepsdefinisjoner
 
-- **`is_gone = true`**: Verdien ble ikke returnert av M2M-API ved aktivitetsstart i denne gjennomgangen. Er gjennomgangs-spesifikk og lagres kun i per-gjennomgang-tabellen.
+- **`is_gone = true`**: Verdien ble ikke returnert av M2M-API ved aktivitetsstart i denne gjennomgangen. Er gjennomgangs-spesifikk og lagres kun i `staged_data`.
 - **`archivedAt IS NOT NULL`**: Verdien er soft-deleted i KISS primærlagring — typisk satt av en tidligere gjennomgang ved commit. Er permanent og lagret i applikasjonens primærlagring.
 - **Aktiv vurdering i KISS**: En rad i primærlagringen med `archivedAt IS NULL` og obligatoriske vurderingsfelt satt (f.eks. `criticality IS NOT NULL`).
 - **Matching-nøkkel**: Nøkkelen som avgjør at én verdi i KISS og én verdi fra M2M-API er «samme verdi». **Defineres eksplisitt per aktivitetstype i implementasjonen** (f.eks. Oracle: `instance_id + role_name`, Entra: `groupId`). Dokumenteres med navngitt konstant i seed-funksjonen. Seed-funksjonen **skal normalisere matching-nøkkel** (trim whitespace, konsistent casing) og **deduplisere API-input** før insert — duplikater fra API skal avvises eksplisitt.
@@ -290,9 +290,9 @@ Verdier fra M2M-API flettes inn ved aktivitetsstart mot eksisterende KISS-verdie
 - **Borte** (`is_gone = true`): Finnes i KISS, men returneres ikke av M2M-API → markeres `is_gone = true` og `is_new = false`
 - **Eksisterende** (finnes i begge): Beholdes med gjeldende vurdering; `is_gone` settes eksplisitt til `false`
 
-Fletteresultatet lagres i per-gjennomgang-tabellen og fryses for gjennomgangen.
+Fletteresultatet lagres i `staged_data` og fryses for gjennomgangen.
 
-**Reaktivering av tidligere arkiverte verdier:** Hvis en verdi har `archivedAt IS NOT NULL` i KISS OG returneres av M2M-API, presenteres den som `is_new = true` i per-gjennomgang-tabellen og **må vurderes på nytt**. Den gamle, arkiverte raden røres ikke og beholdes for historikk. **Ny rad opprettes i primærlagringen atomisk ved commit** (se prinsipp 6, steg 3).
+**Reaktivering av tidligere arkiverte verdier:** Hvis en verdi har `archivedAt IS NOT NULL` i KISS OG returneres av M2M-API, presenteres den som `is_new = true` i `staged_data` og **må vurderes på nytt**. Den gamle, arkiverte raden røres ikke og beholdes for historikk. **Ny rad opprettes i primærlagringen atomisk ved commit** (se prinsipp 6, steg 3).
 
 **API utilgjengelig ved oppstart:** Hvis M2M-API ikke svarer, seedes aktiviteten utelukkende fra KISS sin primærlagring. Brukeren varsles tydelig i UI om at API-data mangler og at nye verdier ikke kan oppdages. `snapshotBefore` og `snapshotAfter` inkluderer `apiUnavailable: true` som metadata om seed-konteksten — dette lagres **kun i snapshotene**, ikke som egen kolonne på aktiviteten. Fullføring er likevel tillatt, og rapporten skal vise advarsel om degradert gjennomgang. *(Målarkitektur — ikke implementert i eksisterende aktivitetstyper.)*
 
@@ -304,9 +304,9 @@ Hvis M2M-API er utilgjengelig ved aktivitetsstart, er «borte»-status ukjent �
 
 ##### 5. Isolasjonsprinsipp
 
-Under gjennomgangen skrives vurderinger **kun til per-gjennomgang-tabellen** (`routine_*`). Applikasjonens primærlagring oppdateres **ikke** underveis.
+Under gjennomgangen skrives vurderinger **kun til `staged_data JSONB`** på `routine_review_activities`. Applikasjonens primærlagring oppdateres **ikke** underveis.
 
-**Gjenopptakelse:** En pågående gjennomgang kan gjenopptas fritt — brukeren kan navigere bort og tilbake uten tap av data. Per-gjennomgang-tabellen bevarer alle vurderinger løpende. Det finnes ingen automatisk opprydding av ufullstendige gjennomganger.
+**Gjenopptakelse:** En pågående gjennomgang kan gjenopptas fritt — brukeren kan navigere bort og tilbake uten tap av data. `staged_data` bevarer alle vurderinger løpende. Det finnes ingen automatisk opprydding av ufullstendige gjennomganger.
 
 **Én aktiv gjennomgang per aktivitetstype per applikasjon:** Systemet hindrer at to åpne gjennomganger av samme aktivitetstype eksisterer for samme applikasjon. `needs_follow_up`-status regnes som aktiv; `discarded`-status er ikke aktiv. Guard er implementert i `findActiveReviewConflict()` (`app/db/queries/routines.server.ts`) og kalles fra tre steder: (1) `gjennomgang.ny`-loader (preflight ved forhåndsvalgt app eller seksjonsrutine), (2) `gjennomgang.ny`-action (before `createReview()`), og (3) `applikasjoner.$appId.detaljer` create-draft action. DB-level TOCTOU-beskyttelse via partielle unike indekser i migrasjonen `0094`. Seksjonsrutiner (`applicationId = null`) håndteres som egen scope.
 
@@ -328,7 +328,53 @@ Alle vurderinger skrives til applikasjonens primærlagring i **én databasetrans
 
 ##### 7. Fullføringskriterium
 
-Fullføringsvalidering skjer mot **per-gjennomgang-tabellen alene**: alle rader der `is_gone = false` må ha en vurdering satt. Hva som utgjør en «vurdering» defineres per aktivitetstype (f.eks. `criticality IS NOT NULL` for Oracle-roller, `decision IS NOT NULL` for RPA).
+Fullføringsvalidering skjer mot **`staged_data` alene**: alle elementer der `is_gone = false` må ha en vurdering satt. Hva som utgjør en «vurdering» defineres per aktivitetstype (f.eks. `criticality IS NOT NULL` for Oracle-roller, `decision IS NOT NULL` for RPA).
+
+##### 8. `staged_data JSONB` — generisk arbeidsformat for nye aktivitetstyper
+
+Nye vedlikeholdsaktivitetstyper bruker `staged_data JSONB` på `routine_review_activities` som arbeidsområde — **ikke** separate tabeller per aktivitetstype og **ikke** primærlagringstabellene direkte. **Forutsetter at kolonnen eksisterer** — legg til via idempotent migrasjon (`ALTER TABLE routine_review_activities ADD COLUMN IF NOT EXISTS staged_data JSONB`) og oppdater Drizzle-schema før implementasjon.
+
+**Livssyklus:**
+- **Seed**: ved aktivitetsopprettelse bygges et JSON-dokument av gjeldende tilstand (fra KISS + M2M-API) og lagres i `staged_data`. `snapshotBefore` lagres atomisk i samme operasjon.
+- **Under gjennomgang**: frontend sender kun det som er endret (patch). Backend bruker `withAdvisoryLock()` med låsnavn `<activityType>-activity-<activityId>` (f.eks. `entra_id_group_maintenance-activity-abc123`) fra `app/lib/lock.server.ts` for å unngå race conditions mellom samtidige fetcher-kall. Seed er idempotent — returnerer eksisterende `staged_data` uten endringer hvis allerede satt.
+- **Fullføringsvalidering**: leses fra `staged_data` i action (JS-loop per aktivitetstype).
+- **Commit**: `staged_data` leses, resultater skrives atomisk til primærlagring og `snapshotAfter` i én transaksjon. `staged_data` **beholdes etter commit** (full arbeidshistorikk, aldri slett data).
+- **Discard**: ingen skriving til primærlagring. `staged_data` beholdes.
+
+**Dokumentstruktur:** Alle `staged_data`-dokumenter har `activityType` og `schemaVersion` som obligatoriske toppnivå-felt:
+```jsonc
+// Entra:
+{ "activityType": "entra_id_group_maintenance", "schemaVersion": 1, "groups": [] }
+// RPA (om det refaktoreres):
+{ "activityType": "rpa_user_maintenance", "schemaVersion": 1, "users": [] }
+```
+Runtime-validering er påkrevd — selv om Drizzle støtter `jsonb(...).$type<T>()` for TypeScript-typing, gir det ingen garanti mot utdatert eller korrupt data i databasen. Bruk et runtime-valideringsbibliotek (f.eks. Zod — **NB: ikke i package.json per nå, må legges til**) for å oppdage schema-brudd tidlig.
+
+**Patch-mønster:**
+```ts
+const lockName = `${activityType}-activity-${activityId}`
+const result = await withAdvisoryLock(lockName, async () => {
+  await db.transaction(async (tx) => {
+    const [activity] = await tx
+      .select({ stagedData: routineReviewActivities.stagedData })
+      .from(routineReviewActivities)
+      .where(/* ... */)
+    const updated = applyStagedDataPatch(activity.stagedData, patch)
+    await tx
+      .update(routineReviewActivities)
+      .set({ stagedData: updated })
+      .where(/* ... */)
+  })
+})
+// withAdvisoryLock returnerer null hvis låsen allerede holdes av en annen pod/request
+if (result === null) {
+  throw data({ error: "Gjennomgangen er låst av en annen operasjon. Prøv igjen." }, { status: 409 })
+}
+```
+
+**`staged_data` vs. snapshots:** `staged_data` er arbeidsstate med full detalj. `snapshotBefore`/`snapshotAfter` er summarisk permanent historikk for rapporten.
+
+**Eksisterende avvik:** `rpa_user_maintenance` bruker normalisert tabell `routine_rpa_user_assessments` i stedet for `staged_data`. Dette er **ikke referanseimplementasjon** for nye aktivitetstyper. Nye aktivitetstyper skal alltid bruke `staged_data`-mønsteret.
 
 #### Dataflyt — målarkitektur for nye vedlikeholdsaktivitetstyper
 
@@ -343,11 +389,11 @@ Aktivitetsstart:
     KISS-primærlagring (alle rader med archivedAt IS NULL)
     + M2M-API [hvis tilgjengelig] — normaliser + dedupliser matching-nøkkel
          ↓ (matching-nøkkel per aktivitetstype)
-    routine_*_assessments: is_new / is_gone / eksisterende
+    staged_data (JSONB på routine_review_activities): is_new / is_gone / eksisterende
     NB: Arkiverte KISS-verdier som returneres av API → is_new = true (ny rad ved commit)
 
 Under gjennomgangen:
-  → skriv kun til routine_*_assessments
+  → skriv kun til staged_data (via advisory lock + transaksjon)
   → gjennomgang kan gjenopptas fritt (ingen automatisk opprydding)
   → én aktiv gjennomgang per aktivitetstype per app (guard i `findActiveReviewConflict()`)
 
@@ -373,12 +419,12 @@ Alle nye vedlikeholdsaktivitetstyper **skal** implementere følgende steg i rekk
 
 1. Legg til aktivitetstypen i `ROUTINE_ACTIVITY_TYPES`, label og gruppe i `app/lib/activity-types.ts`
 2. Verifiser/opprett **primærlagringstabell** i `app/db/schema/` med matching-nøkkel som partial unique index (`CREATE UNIQUE INDEX ... WHERE archived_at IS NULL`), vurderingsfelt, og audit-kolonner
-3. Opprett **per-gjennomgang-tabell** `routine_{type}_assessments` med `review_id`, identitetsnøkkel (matching-nøkkel), vurderingsfelt, `is_new`, `is_gone`, og audit-kolonner. Legg til unik constraint på `(review_id, <matching-key-kolonner>)` og nødvendige indekser. (Oracle bruker kompositt: `(review_id, instance_id, role_name)`; enkle nøkler som Entras `group_id` bruker kun én kolonne.)
+3. Definer TypeScript-type og runtime-schema (Zod eller tilsvarende — se prinsipp 8) for aktivitetens **`staged_data`-dokumentstruktur**. Dokumentet må ha `activityType` og `schemaVersion` som toppnivå-felt, samt `is_new`, `is_gone` og vurderingsfelt per element.
 4. Definer matching-nøkkel som navngitt konstant i seed-funksjonen
-5. Implementer seed-funksjon: ta `snapshotBefore` fra KISS (FØR fletting, alle rader med `archivedAt IS NULL` i kode / `archived_at IS NULL` i DB; valider at obligatoriske felt er satt og logg/varsle om ikke), hent M2M-API, normaliser og dedupliser matching-nøkkel fra API-input, flett (new/gone/existing), håndter `apiUnavailable` i snapshot, lagre i per-gjennomgang-tabell
-6. Implementer save-action i gjennomgangsruten — skriv **kun** til `routine_*`-tabellen
+5. Implementer seed-funksjon: ta `snapshotBefore` fra KISS (FØR fletting, alle rader med `archivedAt IS NULL` i kode / `archived_at IS NULL` i DB; valider at obligatoriske felt er satt og logg/varsle om ikke), hent M2M-API, normaliser og dedupliser matching-nøkkel fra API-input, flett (new/gone/existing), håndter `apiUnavailable` i snapshot, lagre i `staged_data` (idempotent — returner eksisterende hvis allerede satt)
+6. Implementer patch-actions i gjennomgangsruten — skriv **kun** til `staged_data` via `withAdvisoryLock()` (se prinsipp 8)
 7. Legg til aktivitetstype-spesifikk action-håndtering i gjennomgangsruten (intent-basert routing for save, complete og eventuelt skip/discard)
-8. Implementer commit-funksjon i transaksjon: idempotenssjekk (`WHERE activity.status = 'pending'`), upsert aktive rader (`is_gone = false, is_new = false`), **insert ny rad for reaktiverte verdier** (`is_new = true` med matching-nøkkel tilsvarende arkivert rad), soft-delete borte rader, `snapshotAfter` med diskriminert union, sett `activity.status = 'completed'`
+8. Implementer commit-funksjon i transaksjon: idempotenssjekk (`WHERE routine_review_activities.status = 'pending'`), les `staged_data`, upsert aktive rader (`is_gone = false, is_new = false`), **insert ny rad for reaktiverte verdier** (`is_new = true`), soft-delete borte rader, `snapshotAfter` med diskriminert union, sett `routine_review_activities.status = 'completed'`
 9. Implementer UI-stegkomponent som integreres i gjennomgangs-wizarden
 10. Legg til snapshot-parsingstøtte i rapportgeneratoren for ny `snapshot.type`
 11. Legg til aktivitetstypen i implementasjonsmatrisen under
@@ -389,24 +435,24 @@ Alle nye vedlikeholdsaktivitetstyper **skal** implementere følgende steg i rekk
 
 *Gjelder kun vedlikeholdsaktiviteter. Bevisaktiviteter vurderes ikke mot disse prinsippene — de følger en annen lagrings- og kjøremodell (se Oversikt over aktivitetstyper over).*
 
-| Aktivitet | Isolasjon | API-fletting | Snapshot | Commit-tx |
-|---|---|---|---|---|
-| `oracle_role_criticality` *(planlagt)* | ✅ | ✅ | ✅ | ✅ |
-| `rpa_user_maintenance` | ✅ | Ingen ekstern kilde ¹ | ✅ | ⚠️ Mangler |
-| `entra_id_group_maintenance` | ⚠️ Avvik | Delvis | ✅ | ⚠️ Avvik |
+| Aktivitet | Isolasjon | API-fletting | Snapshot | Commit-tx | `staged_data` |
+|---|---|---|---|---|---|
+| `oracle_role_criticality` *(planlagt)* | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `rpa_user_maintenance` | ✅ | Ingen ekstern kilde ¹ | ✅ | ⚠️ Mangler | ⚠️ Avvik |
+| `entra_id_group_maintenance` | ⚠️ Avvik | Delvis | ✅ | ⚠️ Avvik | 🚧 Under refaktorering |
 
 ¹ RPA har ingen ekstern M2M-kilde. Seed skjer kun fra KISS sin primærlagring. `is_new`/`is_gone` brukes ikke. Dette er et legitimt designvalg for aktivitetstyper uten ekstern datakilde, ikke et avvik fra prinsipp 3.
 
-**RPA-avvik (tech debt):** RPA-vurderinger skrives ikke tilbake til primærlagring ved fullføring — det mangler app-nivå-tabell og commit-transaksjon. Refaktoreres separat.
+**RPA-avvik (tech debt):** `rpa_user_maintenance` bruker normalisert tabell `routine_rpa_user_assessments` i stedet for `staged_data JSONB`. RPA-vurderinger skrives heller ikke tilbake til primærlagring ved fullføring — commit-transaksjon mangler. Dette er **ikke referanseimplementasjon** for nye aktivitetstyper. Nye aktivitetstyper skal følge `staged_data`-mønsteret (prinsipp 8). Refaktoreres separat.
 
-**Entra-avvik (tech debt):** `set-group-criticality`, `add-manual-group` og `remove-manual-group` skriver direkte til `application_group_assessments` og `application_manual_groups` (app-nivå tabeller) under gjennomgangen (bryter prinsipp 5 og 6). Det finnes ingen ekte per-gjennomgang-tabell — fullføringsvalidering (prinsipp 7) skjer ikke mot seeded data. `routine_review_activity_entra_changes` er en endringslogg, ikke en seed-tabell. Snapshot tas ikke etter standard mønster. Refaktoreres separat.
+**Entra-avvik (tech debt — under refaktorering):** `set-group-criticality`, `add-manual-group` og `remove-manual-group` skriver direkte til `application_group_assessments` og `application_manual_groups` under gjennomgangen (bryter prinsipp 5 og 6). Fullføringsvalidering skjer ikke mot seeded data (bryter prinsipp 7). `routine_review_activity_entra_changes` er endringslogg, ikke arbeidsområde. Refaktoreres til `staged_data`-mønsteret (prinsipp 8).
 
 #### Skillet mellom vedlikeholdsaktiviteter og bevisaktiviteter
 
-**Vedlikeholdsaktiviteter** følger prinsippene 1–7. Per-gjennomgang-tabell seedes ved oppstart, vurderinger lagres kun der under gjennomgangen, og transaksjons-commit til primærlagring ved fullføring.
+**Vedlikeholdsaktiviteter** følger prinsippene 1–8. `staged_data JSONB` seedes ved oppstart, vurderinger lagres kun der under gjennomgangen (via advisory lock), og transaksjons-commit til primærlagring ved fullføring.
 - Eksempler: `oracle_role_criticality`, `rpa_user_maintenance`, `entra_id_group_maintenance`
 
-**Bevisaktiviteter** er arkitektonisk ulike. Brukeren laster ned revisjonsbevis fra et eksternt system. Ingen per-gjennomgang-tabell med vurderinger, ingen tilbakeskrivingstransaksjon. `snapshotBefore`/`snapshotAfter` brukes til bevismetadata (ikke vurderingsdata). Bevisfil lagres i GCS, metadata i provider-spesifikke tabeller (f.eks. `audit_evidence_snapshots` for Oracle).
+**Bevisaktiviteter** er arkitektonisk ulike. Brukeren laster ned revisjonsbevis fra et eksternt system. Ingen `staged_data` med vurderinger, ingen tilbakeskrivingstransaksjon. `snapshotBefore`/`snapshotAfter` brukes til bevismetadata (ikke vurderingsdata). Bevisfil lagres i GCS, metadata i provider-spesifikke tabeller (f.eks. `audit_evidence_snapshots` for Oracle).
 - Eksempler: `oracle_evidence_roles`, `oracle_evidence_audit`, `deployment_evidence_report`
 - Bruker `EvidenceSection`-komponenten og `EvidenceProvider`-interfacet
 
