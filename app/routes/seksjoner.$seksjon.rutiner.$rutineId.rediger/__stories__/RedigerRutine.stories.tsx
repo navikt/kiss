@@ -35,3 +35,49 @@ export const IngenAktiviteter: Story = {
 			"/seksjoner/pensjon-og-ufore/rutiner/routine-1/rediger",
 		),
 }
+
+export const GodkjennErstatning: Story = {
+	name: "Godkjenn rutine som erstatter eksisterende (viser modal)",
+	render: () =>
+		renderWithLoader(
+			RedigerRutine,
+			mockRedigerRutineData({
+				routine: {
+					status: "ready",
+					sourceRoutineId: "original-routine-id",
+				},
+			}),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-1/rediger",
+		),
+	parameters: {
+		docs: {
+			description: {
+				story:
+					'Klikk på "Godkjenn"-knappen for å se modalen som lar brukeren velge om eksisterende rutinegjennomganger skal beholde sin frist (continue) eller starte på nytt (reset).',
+			},
+		},
+	},
+}
+
+export const GodkjennNy: Story = {
+	name: "Godkjenn ny rutine (uten erstatning)",
+	render: () =>
+		renderWithLoader(
+			RedigerRutine,
+			mockRedigerRutineData({
+				routine: {
+					status: "ready",
+					sourceRoutineId: null,
+				},
+			}),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-1/rediger",
+		),
+	parameters: {
+		docs: {
+			description: {
+				story:
+					'Rutinen er helt ny (ingen sourceRoutineId). "Godkjenn"-knappen vises ikke på redigeringssiden for nye rutiner. Godkjenning av nye rutiner skjer fra rutinedetaljsiden etter at status er satt til "ready".',
+			},
+		},
+	},
+}

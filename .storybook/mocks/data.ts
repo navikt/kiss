@@ -956,7 +956,12 @@ export function mockNyRutineData() {
 	}
 }
 
-export function mockRedigerRutineData(overrides?: { activityLinks?: string[] }) {
+type RedigerRutineDataOverrides = {
+	activityLinks?: string[]
+	routine?: Partial<ReturnType<typeof mockRoutineBase>>
+}
+
+export function mockRedigerRutineData(overrides?: RedigerRutineDataOverrides) {
 	return {
 		seksjon: "pensjon-og-ufore",
 		section: mockSection,
@@ -968,6 +973,7 @@ export function mockRedigerRutineData(overrides?: { activityLinks?: string[] }) 
 				frequency: "quarterly",
 				description: "Gjennomfør sikkerhetstesting inkludert OWASP Top 10 og SAST/DAST-skanning.",
 			}),
+			...overrides?.routine,
 			controls: [
 				{ id: "c-1", controlId: "K-ST.01", name: "Sikkerhetstesting av applikasjoner", responsible: "Utviklerteam" },
 			],

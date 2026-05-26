@@ -5494,47 +5494,108 @@ export async function replaceRoutine(
 	deadlinePolicy: "reset" | "continue",
 	performedBy: string,
 ) {
-	const newRoutine = await getRoutine(newRoutineId)
-	const oldRoutine = await getRoutine(oldRoutineId)
-	if (!newRoutine || !oldRoutine) return null
+	// Validate IDs are different
+	if (newRoutineId === oldRoutineId) {
+		throw new Response("Ny og gammel rutine kan ikke være den samme", { status: 400 })
+	}
 
-	const now = new Date()
+	return db.transaction(async (tx) => {
+		// Lock and validate new routine (must be ready, not archived, and point to old routine)
+		const [newLocked] = await tx
+			.select({
+				status: routines.status,
+				archivedAt: routines.archivedAt,
+				name: routines.name,
+				sourceRoutineId: routines.sourceRoutineId,
+			})
+			.from(routines)
+			.where(eq(routines.id, newRoutineId))
+			.for("share")
+			.limit(1)
+		if (!newLocked) {
+			throw new Response("Rutinen som skal godkjennes ble ikke funnet", { status: 404 })
+		}
+		if (newLocked.archivedAt) {
+			throw new Response("Arkiverte rutiner kan ikke godkjennes. Reaktiver rutinen først.", { status: 403 })
+		}
+		if (newLocked.status !== "ready") {
+			throw new Response("Kun ferdige rutiner kan godkjennes", { status: 400 })
+		}
+		// Verify that the new routine actually points to the old routine we're replacing
+		if (newLocked.sourceRoutineId !== oldRoutineId) {
+			throw new Response("Rutinen peker ikke på den opprinnelige rutinen som skal erstattes", { status: 400 })
+		}
 
-	// Approve the new routine
-	await db
-		.update(routines)
-		.set({ status: "approved", approvedBy: performedBy, approvedAt: now, updatedBy: performedBy, updatedAt: now })
-		.where(eq(routines.id, newRoutineId))
+		// Lock and validate old routine (must be approved, not archived)
+		const [oldLocked] = await tx
+			.select({ status: routines.status, archivedAt: routines.archivedAt, name: routines.name })
+			.from(routines)
+			.where(eq(routines.id, oldRoutineId))
+			.for("share")
+			.limit(1)
+		if (!oldLocked) {
+			throw new Response("Rutinen som skal erstattes ble ikke funnet", { status: 404 })
+		}
+		if (oldLocked.archivedAt) {
+			throw new Response("Kan ikke erstatte en arkivert rutine.", { status: 400 })
+		}
+		if (oldLocked.status !== "approved") {
+			throw new Response("Kun godkjente rutiner kan erstattes", { status: 400 })
+		}
 
-	// Archive the old routine and mark replacement
-	await db
-		.update(routines)
-		.set({
-			status: "archived",
-			replacedByRoutineId: newRoutineId,
-			replacedAt: now,
-			updatedBy: performedBy,
-			updatedAt: now,
-		})
-		.where(eq(routines.id, oldRoutineId))
+		const now = new Date()
 
-	// If deadlinePolicy is "continue", copy the last review date reference
-	// by storing replacement metadata. The deadline calculation will check
-	// the old routine's last review when no reviews exist on the new one.
-	await writeAuditLog({
-		action: "routine_replaced",
-		entityType: "routine",
-		entityId: newRoutineId,
-		metadata: {
-			replacedRoutineId: oldRoutineId,
-			replacedRoutineName: oldRoutine.name,
-			newRoutineName: newRoutine.name,
-			deadlinePolicy,
-		},
-		performedBy,
+		// Approve the new routine (with WHERE guards for TOCTOU protection)
+		const [updatedNew] = await tx
+			.update(routines)
+			.set({ status: "approved", approvedBy: performedBy, approvedAt: now, updatedBy: performedBy, updatedAt: now })
+			.where(and(eq(routines.id, newRoutineId), eq(routines.status, "ready"), isNull(routines.archivedAt)))
+			.returning()
+		if (!updatedNew) {
+			throw new Response("Rutinen kan ikke godkjennes lenger (status eller archived_at endret seg).", {
+				status: 409,
+			})
+		}
+
+		// Archive the old routine and mark replacement (with WHERE guards)
+		const [updatedOld] = await tx
+			.update(routines)
+			.set({
+				status: "archived",
+				archivedAt: now,
+				archivedBy: performedBy,
+				replacedByRoutineId: newRoutineId,
+				replacedAt: now,
+				updatedBy: performedBy,
+				updatedAt: now,
+			})
+			.where(and(eq(routines.id, oldRoutineId), eq(routines.status, "approved"), isNull(routines.archivedAt)))
+			.returning()
+		if (!updatedOld) {
+			throw new Response("Den gamle rutinen kan ikke erstattes lenger (status eller archived_at endret seg).", {
+				status: 409,
+			})
+		}
+
+		// Store replacement metadata for audit trail
+		await writeAuditLog(
+			{
+				action: "routine_replaced",
+				entityType: "routine",
+				entityId: newRoutineId,
+				metadata: {
+					replacedRoutineId: oldRoutineId,
+					replacedRoutineName: oldLocked.name,
+					newRoutineName: newLocked.name,
+					deadlinePolicy,
+				},
+				performedBy,
+			},
+			tx,
+		)
+
+		return { newRoutine: newRoutineId, oldRoutine: oldRoutineId, deadlinePolicy }
 	})
-
-	return { newRoutine: newRoutineId, oldRoutine: oldRoutineId, deadlinePolicy }
 }
 
 // ─── Routine Activity Links ──────────────────────────────────────────────

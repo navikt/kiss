@@ -15,6 +15,7 @@ import {
 import { useRef } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useFetcher, useLoaderData } from "react-router"
+import { ApproveReplaceModal } from "~/components/ApproveReplaceModal"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
@@ -29,6 +30,7 @@ import {
 	getRoutine,
 	getRoutineFollowUpApplicationIds,
 	isOverdue,
+	replaceRoutine,
 } from "~/db/queries/routines.server"
 import { getScreeningQuestion } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
@@ -166,16 +168,40 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const intent = formData.get("intent")
 
 	// Arkiverte rutiner kan ikke godkjennes eller kopieres — reaktiver først.
-	if (routine.archivedAt && (intent === "approve" || intent === "copy")) {
+	if (
+		routine.archivedAt &&
+		intent &&
+		typeof intent === "string" &&
+		["approve", "approve-replace", "approve-as-new", "copy"].includes(intent)
+	) {
 		throw data({ message: "Arkiverte rutiner kan ikke endres. Reaktiver rutinen først." }, { status: 403 })
 	}
 
-	if (intent === "approve") {
+	if (intent === "approve" || intent === "approve-as-new") {
 		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
 		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw data({ message: "Du har ikke riktig rolle til å godkjenne denne rutinen" }, { status: 403 })
 		}
 		await approveRoutine(rutineId, authedUser.navIdent)
+		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
+	}
+
+	if (intent === "approve-replace") {
+		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
+			throw data({ message: "Du har ikke riktig rolle til å godkjenne denne rutinen" }, { status: 403 })
+		}
+
+		const deadlinePolicy = formData.get("deadlinePolicy") as "reset" | "continue"
+		if (!deadlinePolicy || !["reset", "continue"].includes(deadlinePolicy)) {
+			throw data({ message: "Ugyldig fristpolicy" }, { status: 400 })
+		}
+
+		if (!routine.sourceRoutineId) {
+			throw data({ message: "Rutinen har ikke et opphav å erstatte" }, { status: 400 })
+		}
+
+		await replaceRoutine(rutineId, routine.sourceRoutineId, deadlinePolicy, authedUser.navIdent)
 		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
 	}
 
@@ -225,6 +251,7 @@ export default function RutineDetaljer() {
 	const fetcher = useFetcher()
 	const archiveFetcher = useFetcher()
 	const archiveModalRef = useRef<HTMLDialogElement>(null)
+	const approveModalRef = useRef<HTMLDialogElement>(null)
 	const userCanArchive = !routine.archivedAt && routine.status === "approved" && (userCanAdmin || userCanApprove)
 
 	return (
@@ -284,14 +311,26 @@ export default function RutineDetaljer() {
 								</Button>
 							</fetcher.Form>
 						)}
-						{!routine.archivedAt && routine.status === "ready" && userCanApprove && (
-							<fetcher.Form method="post">
-								<input type="hidden" name="intent" value="approve" />
-								<Button type="submit" variant="primary" size="small" loading={fetcher.state !== "idle"}>
+						{!routine.archivedAt &&
+							routine.status === "ready" &&
+							userCanApprove &&
+							(routine.sourceRoutineId ? (
+								<Button
+									type="button"
+									variant="primary"
+									size="small"
+									onClick={() => approveModalRef.current?.showModal()}
+								>
 									Godkjenn
 								</Button>
-							</fetcher.Form>
-						)}
+							) : (
+								<fetcher.Form method="post">
+									<input type="hidden" name="intent" value="approve" />
+									<Button type="submit" variant="primary" size="small" loading={fetcher.state !== "idle"}>
+										Godkjenn
+									</Button>
+								</fetcher.Form>
+							))}
 						{userCanArchive && (
 							<Button variant="tertiary" size="small" onClick={() => archiveModalRef.current?.showModal()}>
 								Arkiver
@@ -624,6 +663,15 @@ export default function RutineDetaljer() {
 					</Table>
 				)}
 			</VStack>
+
+			{routine.sourceRoutineId && (
+				<ApproveReplaceModal
+					key={routine.id}
+					modalRef={approveModalRef}
+					routineName={routine.name}
+					hasSource={!!routine.sourceRoutineId}
+				/>
+			)}
 
 			<Modal ref={archiveModalRef} header={{ heading: "Arkiver rutine" }}>
 				<Modal.Body>
