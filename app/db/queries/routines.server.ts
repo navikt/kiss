@@ -65,6 +65,7 @@ import {
 import { screeningAnswers, screeningQuestions, screeningRoutineSelections } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 import { getAppAuthIntegrations, getGroupAssessmentsForApp, getManualGroupsForApp } from "./nais.server"
+import { completeRpaReviewActivity } from "./rpa.server"
 import { getEffectiveAppIdsInSection } from "./sections.server"
 
 // ─── Resolver opts for deadline pipeline ─────────────────────────────────
@@ -4762,6 +4763,19 @@ export async function getReviewActivityByType(reviewId: string, type: RoutineAct
 	return { ...activity, changes }
 }
 
+/**
+ * Lightweight lookup: returns only the activity ID for a given review and type.
+ * Use this instead of getReviewActivityByType when you only need the ID (e.g., for patches).
+ */
+export async function getReviewActivityIdByType(reviewId: string, type: RoutineActivityType): Promise<string | null> {
+	const [row] = await db
+		.select({ id: routineReviewActivities.id })
+		.from(routineReviewActivities)
+		.where(and(eq(routineReviewActivities.reviewId, reviewId), eq(routineReviewActivities.type, type)))
+		.limit(1)
+	return row?.id ?? null
+}
+
 export async function getReviewActivities(reviewId: string) {
 	const activities = await db
 		.select()
@@ -5189,6 +5203,7 @@ export async function completeReviewActivity(
 			status: routineReviewActivities.status,
 			stagedData: routineReviewActivities.stagedData,
 			applicationId: routineReviews.applicationId,
+			reviewId: routineReviews.id,
 		})
 		.from(routineReviewActivities)
 		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
@@ -5210,6 +5225,46 @@ export async function completeReviewActivity(
 		const result = await withAdvisoryLock(lockName, async () => {
 			const run = async (exec: DbExecutor) => {
 				const snapshot = await completeEntraReviewActivity(activityId, performedBy, exec)
+
+				const [updated] = await exec
+					.update(routineReviewActivities)
+					.set({ status: "completed", snapshotAfter: snapshot, completedAt: new Date() })
+					.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
+					.returning()
+
+				if (!updated) {
+					throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+				}
+
+				await writeAuditLog(
+					{
+						action: "review_activity_completed",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						performedBy,
+					},
+					exec,
+				)
+
+				return updated
+			}
+
+			return tx ? run(tx) : db.transaction(run)
+		})
+
+		if (result === null) {
+			throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+		}
+
+		return result
+	}
+
+	// Use the RPA staged_data commit path for rpa_user_maintenance activities that have an application.
+	if (activity.type === "rpa_user_maintenance" && activity.applicationId !== null) {
+		const lockName = `rpa_user_maintenance-activity-${activityId}`
+		const result = await withAdvisoryLock(lockName, async () => {
+			const run = async (exec: DbExecutor) => {
+				const snapshot = await completeRpaReviewActivity(activityId, activity.reviewId, performedBy, exec)
 
 				const [updated] = await exec
 					.update(routineReviewActivities)

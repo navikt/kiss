@@ -15,31 +15,10 @@ import {
 import { useEffect, useState } from "react"
 import { useFetcher } from "react-router"
 import { RPA_DECISION_VALUES, type RpaDecision } from "~/db/schema/routines"
+import type { RpaMaintenanceData, RpaUserAssessmentEntry, RpaUserEntry } from "~/lib/rpa-staged-data"
 import type { ActivityProp } from "../shared"
 
-export type RpaUserEntry = {
-	userObjectId: string
-	displayName: string | null
-	userPrincipalName: string | null
-	accountEnabled: boolean | null
-	rpaGroupName: string | null
-	matchSource: "nais" | "manual" | "removed"
-}
-
-export type RpaUserAssessmentEntry = {
-	id: string
-	owner: string | null
-	needComment: string | null
-	criticalityComment: string | null
-	securityComment: string | null
-	decision: RpaDecision | null
-	decisionDeadline: string | null
-}
-
-export type RpaMaintenanceData = {
-	users: RpaUserEntry[]
-	assessments: Record<string, RpaUserAssessmentEntry>
-}
+export type { RpaMaintenanceData, RpaUserAssessmentEntry, RpaUserEntry }
 
 const RPA_DECISION_LABELS: Record<(typeof RPA_DECISION_VALUES)[number], string> = {
 	avvikles: "Avvikles",

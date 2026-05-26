@@ -1,9 +1,31 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { withAdvisoryLock } from "~/lib/lock.server"
+import { logger } from "~/lib/logger.server"
+import {
+	applyRpaStagedDataPatch,
+	parseRpaStagedData,
+	RPA_STAGED_DATA_ACTIVITY_TYPE,
+	RPA_STAGED_DATA_SCHEMA_VERSION,
+	type RpaStagedData,
+	type RpaStagedDataPatch,
+	type RpaStagedUser,
+	type RpaUserSnapshot,
+	toRpaUserSnapshot,
+} from "~/lib/rpa-staged-data"
 import { db } from "../connection.server"
 import { applicationAuthIntegrations, applicationManualGroups } from "../schema/applications"
-import { type RpaDecision, routineReviews, routineRpaUserAssessments, routines } from "../schema/routines"
+import {
+	type RpaDecision,
+	routineReviewActivities,
+	routineReviews,
+	routineRpaUserAssessments,
+	routines,
+} from "../schema/routines"
 import { rpaGroupMembers, rpaGroups, rpaUserGroupMemberships } from "../schema/rpa"
 import { writeAuditLog } from "./audit.server"
+import { getManualGroupsForApp } from "./nais.server"
+
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 // ─── RPA Group CRUD ───────────────────────────────────────────────────────────
 
@@ -418,6 +440,7 @@ export async function getRpaUsersForApp(
 	naisGroupIds: string[],
 	manualGroupIds: string[],
 	hasAllowAllUsers: boolean,
+	executor: DbExecutor = db,
 ): Promise<
 	Array<{
 		rpaGroupId: string
@@ -449,7 +472,7 @@ export async function getRpaUsersForApp(
 	if (accessGroupIds.size === 0) return []
 
 	// Get all active RPA users (members of any active RPA group)
-	const activeRpaGroups = await db
+	const activeRpaGroups = await executor
 		.select({
 			id: rpaGroups.id,
 			groupId: rpaGroups.groupId,
@@ -461,7 +484,7 @@ export async function getRpaUsersForApp(
 	if (activeRpaGroups.length === 0) return []
 
 	const rpaGroupIds = activeRpaGroups.map((g) => g.id)
-	const allMembers = await db
+	const allMembers = await executor
 		.select({
 			rpaGroupId: rpaGroupMembers.rpaGroupId,
 			userObjectId: rpaGroupMembers.userObjectId,
@@ -483,7 +506,7 @@ export async function getRpaUsersForApp(
 	// Fetch their Entra ID group memberships that match app access groups
 	const accessGroupIdList = [...accessGroupIds.keys()]
 	if (accessGroupIdList.length === 0) return []
-	const matchingMemberships = await db
+	const matchingMemberships = await executor
 		.select({
 			userObjectId: rpaUserGroupMemberships.userObjectId,
 			groupId: rpaUserGroupMemberships.groupId,
@@ -772,14 +795,68 @@ export type RpaUserAssessment = {
 	updatedBy: string
 }
 
-export async function getRpaUserAssessmentsForReview(reviewId: string): Promise<Map<string, RpaUserAssessment>> {
-	const rows = await db.select().from(routineRpaUserAssessments).where(eq(routineRpaUserAssessments.reviewId, reviewId))
-	const map = new Map<string, RpaUserAssessment>()
+/**
+ * Build a Map from assessment rows with deterministic collision handling.
+ * - Prefers "clean" rows (userObjectId === userObjectId.trim())
+ * - Falls back to lowest id for tie-break
+ * - Keys are trimmed userObjectId, values preserve original userObjectId for upsert conflict matching
+ */
+function buildAssessmentMapWithCollisionHandling<T extends { id: string; userObjectId: string }>(
+	rows: T[],
+): Map<string, T> {
+	const map = new Map<string, T>()
 	for (const row of rows) {
-		map.set(row.userObjectId, {
+		const trimmedId = row.userObjectId.trim()
+		const isClean = row.userObjectId === trimmedId
+
+		const existing = map.get(trimmedId)
+		if (existing) {
+			// Collision: multiple rows differ only by whitespace
+			// Prefer "clean" row (no whitespace), otherwise pick by lowest id for determinism
+			const existingIsClean = existing.userObjectId === trimmedId
+			if (existingIsClean && !isClean) {
+				// Keep existing clean row
+				logger.warn(
+					`RPA assessment collision: keeping clean row ${existing.id}, skipping ${row.id} for trimmedId=${trimmedId}`,
+				)
+				continue
+			}
+			if (!existingIsClean && isClean) {
+				// Replace with clean row
+				logger.warn(
+					`RPA assessment collision: replacing ${existing.id} with clean row ${row.id} for trimmedId=${trimmedId}`,
+				)
+			} else {
+				// Both clean or both dirty — pick lowest id
+				if (existing.id < row.id) {
+					logger.warn(`RPA assessment collision: keeping ${existing.id}, skipping ${row.id} for trimmedId=${trimmedId}`)
+					continue
+				}
+				logger.warn(`RPA assessment collision: replacing ${existing.id} with ${row.id} for trimmedId=${trimmedId}`)
+			}
+		}
+		map.set(trimmedId, row)
+	}
+	return map
+}
+
+export async function getRpaUserAssessmentsForReview(
+	reviewId: string,
+	executor: DbExecutor = db,
+): Promise<Map<string, RpaUserAssessment>> {
+	const rows = await executor
+		.select()
+		.from(routineRpaUserAssessments)
+		.where(eq(routineRpaUserAssessments.reviewId, reviewId))
+	const map = buildAssessmentMapWithCollisionHandling(rows)
+
+	// Transform to RpaUserAssessment type (preserving original userObjectId for upsert)
+	const result = new Map<string, RpaUserAssessment>()
+	for (const [trimmedId, row] of map) {
+		result.set(trimmedId, {
 			id: row.id,
 			reviewId: row.reviewId,
-			userObjectId: row.userObjectId,
+			userObjectId: row.userObjectId, // Keep original for upsert conflict matching
 			owner: row.owner,
 			needComment: row.needComment,
 			criticalityComment: row.criticalityComment,
@@ -790,7 +867,7 @@ export async function getRpaUserAssessmentsForReview(reviewId: string): Promise<
 			updatedBy: row.updatedBy,
 		})
 	}
-	return map
+	return result
 }
 
 export async function upsertRpaUserAssessment(
@@ -922,4 +999,535 @@ export async function upsertRpaUserAssessment(
 			tx,
 		)
 	})
+}
+
+// ─── RPA staged_data: seed → patch → commit ───────────────────────────────────
+
+/**
+ * Build the initial staged_data document for an RPA user maintenance activity.
+ * Reads local DB only — no external API calls.
+ * Merges any existing `routine_rpa_user_assessments` rows (migration path).
+ *
+ * Should be called OUTSIDE the advisory lock to keep lock duration short for
+ * activities with external API calls. RPA activities use local DB queries only,
+ * so calling inside lock/tx is acceptable (no external I/O blocking).
+ */
+export async function buildRpaSeedResult(
+	applicationId: string,
+	reviewId: string,
+	executor: DbExecutor = db,
+): Promise<{ stagedData: RpaStagedData; snapshot: RpaUserSnapshot }> {
+	const authRows = await executor
+		.select({
+			type: applicationAuthIntegrations.type,
+			groups: applicationAuthIntegrations.groups,
+			allowAllUsers: applicationAuthIntegrations.allowAllUsers,
+		})
+		.from(applicationAuthIntegrations)
+		.where(eq(applicationAuthIntegrations.applicationId, applicationId))
+
+	const naisGroupIds: string[] = []
+	for (const auth of authRows) {
+		if (auth.groups) {
+			try {
+				const parsed = JSON.parse(auth.groups) as unknown
+				if (Array.isArray(parsed)) {
+					for (const g of parsed) {
+						if (typeof g === "string") {
+							const trimmed = g.trim()
+							if (trimmed) naisGroupIds.push(trimmed)
+						}
+					}
+				}
+			} catch {
+				logger.warn("Ugyldig JSON i application_auth_integrations.groups — access-grupper hoppes over", {
+					applicationId,
+					rawValue: auth.groups,
+				})
+			}
+		}
+	}
+	const hasAllowAllUsers = authRows.some((auth) => auth.type === "entra_id" && auth.allowAllUsers === true)
+
+	// Use executor consistently for all reads within the transaction
+	const [manualGroups, existingAssessments] = await Promise.all([
+		getManualGroupsForApp(applicationId, executor),
+		getRpaUserAssessmentsForReview(reviewId, executor),
+	])
+
+	const manualGroupIds = manualGroups.map((g) => g.groupId)
+	const rpaUsersResolved = await getRpaUsersForApp(naisGroupIds, manualGroupIds, hasAllowAllUsers, executor)
+
+	// Deduplicate by userObjectId — a user can appear in multiple RPA groups.
+	// Sort first for deterministic tie-break: prefer entry with displayName set, then by rpaGroupName, then by rpaGroupId.
+	// Total ordering ensures same user is picked regardless of DB order or runtime locale.
+	const sortedForDedupe = [...rpaUsersResolved].sort((a, b) => {
+		// Prefer entries with displayName set
+		const aHasName = a.displayName ? 0 : 1
+		const bHasName = b.displayName ? 0 : 1
+		if (aHasName !== bHasName) return aHasName - bHasName
+		// Then by rpaGroupName with Norwegian locale for consistent æ/ø/å ordering
+		const nameCompare = (a.rpaGroupName ?? "").localeCompare(b.rpaGroupName ?? "", "nb")
+		if (nameCompare !== 0) return nameCompare
+		// Final tie-break on rpaGroupId for total ordering
+		return a.rpaGroupId.localeCompare(b.rpaGroupId)
+	})
+	const rpaUserMap = new Map<string, (typeof rpaUsersResolved)[number]>()
+	for (const u of sortedForDedupe) {
+		const id = u.userObjectId.trim()
+		if (!rpaUserMap.has(id)) {
+			rpaUserMap.set(id, u)
+		}
+	}
+	const rpaUserIds = new Set(rpaUserMap.keys())
+	const seededAt = new Date().toISOString()
+
+	const activeUsers: RpaStagedUser[] = [...rpaUserMap.values()].map((u) => {
+		const trimmedId = u.userObjectId.trim()
+		const a = existingAssessments.get(trimmedId)
+		return {
+			userObjectId: trimmedId,
+			displayName: u.displayName,
+			userPrincipalName: u.userPrincipalName,
+			accountEnabled: u.accountEnabled,
+			rpaGroupName: u.rpaGroupName,
+			matchSource: u.matchSource as "nais" | "manual",
+			isGone: false,
+			owner: a?.owner ?? null,
+			needComment: a?.needComment ?? null,
+			criticalityComment: a?.criticalityComment ?? null,
+			securityComment: a?.securityComment ?? null,
+			decision: (a?.decision as RpaDecision | null) ?? null,
+			decisionDeadline: a?.decisionDeadline ?? null,
+		}
+	})
+
+	const goneUsers: RpaStagedUser[] = [...existingAssessments.entries()]
+		.filter(([id]) => !rpaUserIds.has(id))
+		.map(([, a]) => ({
+			userObjectId: a.userObjectId.trim(),
+			displayName: null,
+			userPrincipalName: null,
+			accountEnabled: null,
+			rpaGroupName: null,
+			matchSource: null,
+			isGone: true,
+			owner: a.owner,
+			needComment: a.needComment,
+			criticalityComment: a.criticalityComment,
+			securityComment: a.securityComment,
+			decision: a.decision as RpaDecision | null,
+			decisionDeadline: a.decisionDeadline ?? null,
+		}))
+
+	// Sort: active users by displayName (fallback to userObjectId), then gone users last
+	const allUsers = [...activeUsers, ...goneUsers].sort((a, b) => {
+		// Gone users go last
+		if (a.isGone !== b.isGone) return a.isGone ? 1 : -1
+		// Sort by displayName (case-insensitive), fallback to userObjectId for determinism
+		// Use Norwegian locale for correct æ/ø/å ordering
+		const aName = (a.displayName ?? "").toLowerCase() || a.userObjectId.toLowerCase()
+		const bName = (b.displayName ?? "").toLowerCase() || b.userObjectId.toLowerCase()
+		const cmp = aName.localeCompare(bName, "nb")
+		if (cmp !== 0) return cmp
+		// Tie-break on userObjectId for full determinism
+		return a.userObjectId.localeCompare(b.userObjectId, "nb")
+	})
+
+	const stagedData: RpaStagedData = {
+		activityType: RPA_STAGED_DATA_ACTIVITY_TYPE,
+		schemaVersion: RPA_STAGED_DATA_SCHEMA_VERSION,
+		seededAt,
+		users: allUsers,
+	}
+
+	return { stagedData, snapshot: toRpaUserSnapshot(stagedData) }
+}
+
+/**
+ * Seed an RPA user maintenance activity with the initial list of RPA users.
+ * If already seeded, returns the existing staged_data without modification.
+ * applicationId is fetched from the activity's review to enforce the invariant.
+ */
+export async function seedRpaActivity(activityId: string, performedBy: string): Promise<RpaStagedData> {
+	const [precheck] = await db
+		.select({
+			type: routineReviewActivities.type,
+			status: routineReviewActivities.status,
+			stagedData: routineReviewActivities.stagedData,
+			reviewId: routineReviews.id,
+			applicationId: routineReviews.applicationId,
+		})
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+
+	if (!precheck) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+	if (precheck.type !== "rpa_user_maintenance") throw new Error(`Aktivitet ${activityId} er ikke RPA-brukervedlikehold`)
+	if (!precheck.applicationId) throw new Response("RPA-aktiviteten mangler applikasjon", { status: 400 })
+	if (precheck.status !== "pending") throw new Response("Kan ikke seed'e en fullført aktivitet", { status: 409 })
+	if (precheck.stagedData) return parseRpaStagedData(precheck.stagedData)
+
+	const seeded = await buildRpaSeedResult(precheck.applicationId, precheck.reviewId)
+
+	const lockName = `rpa_user_maintenance-activity-${activityId}`
+	const lockResult = await withAdvisoryLock(lockName, async () => {
+		const [current] = await db
+			.select({ status: routineReviewActivities.status, stagedData: routineReviewActivities.stagedData })
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activityId))
+			.limit(1)
+
+		if (!current) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+		if (current.status !== "pending") throw new Response("Kan ikke seed'e en fullført aktivitet", { status: 409 })
+		if (current.stagedData) return parseRpaStagedData(current.stagedData)
+
+		return db.transaction(async (tx) => {
+			const [updated] = await tx
+				.update(routineReviewActivities)
+				.set({
+					stagedData: seeded.stagedData,
+					snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seeded.snapshot)}::jsonb)`,
+				})
+				.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
+				.returning({ stagedData: routineReviewActivities.stagedData })
+
+			if (updated?.stagedData) {
+				await writeAuditLog(
+					{
+						action: "review_activity_seeded",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						performedBy,
+					},
+					tx,
+				)
+				return parseRpaStagedData(updated.stagedData)
+			}
+
+			const [current2] = await tx
+				.select({ stagedData: routineReviewActivities.stagedData })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activityId))
+				.limit(1)
+
+			if (!current2?.stagedData) throw new Error(`Kunne ikke seed'e RPA-aktivitet ${activityId}`)
+			return parseRpaStagedData(current2.stagedData)
+		})
+	})
+
+	if (lockResult !== null) return lockResult
+	throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+}
+
+/**
+ * Apply a patch to the staged_data of an RPA user maintenance activity.
+ * Seeds the activity first if staged_data is not yet set.
+ */
+export async function patchRpaActivity(
+	activityId: string,
+	patch: RpaStagedDataPatch,
+	performedBy: string,
+): Promise<void> {
+	const [precheck] = await db
+		.select({
+			type: routineReviewActivities.type,
+			status: routineReviewActivities.status,
+			stagedData: routineReviewActivities.stagedData,
+			applicationId: routineReviews.applicationId,
+			reviewId: routineReviews.id,
+			reviewStatus: routineReviews.status,
+			routineArchivedAt: routines.archivedAt,
+		})
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+
+	if (!precheck) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+	if (precheck.type !== "rpa_user_maintenance") throw new Error(`Aktivitet ${activityId} er ikke RPA-brukervedlikehold`)
+	if (precheck.routineArchivedAt)
+		throw new Response("Kan ikke endre vurderinger på en arkivert rutine.", { status: 403 })
+	if (precheck.reviewStatus !== "draft") throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
+	if (precheck.status !== "pending") throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
+
+	const seedResult =
+		!precheck.stagedData && precheck.applicationId
+			? await buildRpaSeedResult(precheck.applicationId, precheck.reviewId)
+			: !precheck.stagedData
+				? (() => {
+						throw new Response("RPA-aktiviteten mangler applikasjon", { status: 400 })
+					})()
+				: null
+
+	const lockName = `rpa_user_maintenance-activity-${activityId}`
+	const lockResult = await withAdvisoryLock(lockName, async () => {
+		return db.transaction(async (tx) => {
+			const [activity] = await tx
+				.select({ status: routineReviewActivities.status, stagedData: routineReviewActivities.stagedData })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activityId))
+				.limit(1)
+
+			if (!activity) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+			if (activity.status !== "pending") throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
+
+			let stagedData = activity.stagedData ? parseRpaStagedData(activity.stagedData) : null
+			let seededInThisCall = false
+			if (!stagedData) {
+				if (!seedResult) throw new Error(`Mangler staged_data for RPA-aktivitet ${activityId}`)
+				stagedData = seedResult.stagedData
+				await tx
+					.update(routineReviewActivities)
+					.set({
+						stagedData: seedResult.stagedData,
+						snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seedResult.snapshot)}::jsonb)`,
+					})
+					.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
+				seededInThisCall = true
+			}
+
+			let updatedData: RpaStagedData
+			try {
+				updatedData = applyRpaStagedDataPatch(stagedData, patch)
+			} catch (e) {
+				throw new Response(e instanceof Error ? e.message : "Ugyldig patch-operasjon", { status: 400 })
+			}
+
+			// Check for no-op before writing to DB to avoid unnecessary write load
+			const wasNoOp = JSON.stringify(stagedData.users) === JSON.stringify(updatedData.users)
+
+			// Only update staged_data if there's an actual change
+			// (if seededInThisCall && wasNoOp, seed already wrote correct data — skip redundant UPDATE)
+			if (!wasNoOp) {
+				await tx
+					.update(routineReviewActivities)
+					.set({ stagedData: updatedData })
+					.where(eq(routineReviewActivities.id, activityId))
+			}
+
+			if (seededInThisCall) {
+				await writeAuditLog(
+					{
+						action: "review_activity_seeded",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						performedBy,
+					},
+					tx,
+				)
+			}
+
+			if (wasNoOp) return
+
+			const patchedUser = updatedData.users.find((u) => u.userObjectId === patch.userObjectId)
+			const previousUser = stagedData.users.find((u) => u.userObjectId === patch.userObjectId)
+
+			await writeAuditLog(
+				{
+					action: "review_activity_rpa_patched",
+					entityType: "routine_review_activity",
+					entityId: activityId,
+					previousValue: previousUser
+						? JSON.stringify({
+								owner: previousUser.owner,
+								needComment: previousUser.needComment,
+								criticalityComment: previousUser.criticalityComment,
+								securityComment: previousUser.securityComment,
+								decision: previousUser.decision,
+								decisionDeadline: previousUser.decisionDeadline,
+							})
+						: null,
+					newValue: patchedUser
+						? JSON.stringify({
+								userObjectId: patchedUser.userObjectId,
+								owner: patchedUser.owner,
+								needComment: patchedUser.needComment,
+								criticalityComment: patchedUser.criticalityComment,
+								securityComment: patchedUser.securityComment,
+								decision: patchedUser.decision,
+								decisionDeadline: patchedUser.decisionDeadline,
+							})
+						: null,
+					metadata: { activityId, userObjectId: patch.userObjectId },
+					performedBy,
+				},
+				tx,
+			)
+		})
+	})
+
+	if (lockResult === null) {
+		throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+	}
+}
+
+/**
+ * Complete an RPA user maintenance activity:
+ * - Validates all non-gone users have a decision.
+ * - Writes final assessments atomically to routine_rpa_user_assessments.
+ * - Returns a snapshot of the final state for snapshotAfter.
+ *
+ * Must be called from within an advisory lock and a transaction.
+ */
+export async function completeRpaReviewActivity(
+	activityId: string,
+	reviewId: string,
+	performedBy: string,
+	executor: DbExecutor,
+): Promise<RpaUserSnapshot> {
+	const [activity] = await executor
+		.select({
+			id: routineReviewActivities.id,
+			reviewId: routineReviewActivities.reviewId,
+			status: routineReviewActivities.status,
+			stagedData: routineReviewActivities.stagedData,
+			applicationId: routineReviews.applicationId,
+		})
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+
+	if (!activity) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+	// Validate reviewId parameter matches the activity's actual reviewId
+	if (activity.reviewId !== reviewId) {
+		throw new Response(`reviewId mismatch: forventet ${activity.reviewId}, fikk ${reviewId}`, { status: 400 })
+	}
+	if (activity.status !== "pending") throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+	if (!activity.applicationId) throw new Response("RPA-aktiviteten mangler applikasjon", { status: 400 })
+
+	let stagedData = activity.stagedData ? parseRpaStagedData(activity.stagedData) : null
+	if (!stagedData) {
+		// Use executor to see uncommitted changes from same transaction (e.g., Entra's manual group changes)
+		// Use activity.reviewId (validated to match parameter) for consistency
+		const seeded = await buildRpaSeedResult(activity.applicationId, activity.reviewId, executor)
+		const [seededActivity] = await executor
+			.update(routineReviewActivities)
+			.set({
+				stagedData: seeded.stagedData,
+				snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seeded.snapshot)}::jsonb)`,
+			})
+			.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
+			.returning({ stagedData: routineReviewActivities.stagedData })
+
+		if (seededActivity?.stagedData) {
+			await writeAuditLog(
+				{ action: "review_activity_seeded", entityType: "routine_review_activity", entityId: activityId, performedBy },
+				executor,
+			)
+			stagedData = parseRpaStagedData(seededActivity.stagedData)
+		} else {
+			const [current] = await executor
+				.select({ stagedData: routineReviewActivities.stagedData })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activityId))
+				.limit(1)
+			if (!current?.stagedData) throw new Error(`Mangler staged_data for RPA-aktivitet ${activityId}`)
+			stagedData = parseRpaStagedData(current.stagedData)
+		}
+	}
+
+	const activeUsers = stagedData.users.filter((u) => !u.isGone)
+	const missingDecision = activeUsers.filter((u) => u.decision === null)
+	if (missingDecision.length > 0) {
+		throw new Response(
+			`Alle aktive RPA-brukere må ha en beslutning før fullføring: ${missingDecision
+				.map((u) => u.displayName ?? u.userObjectId)
+				.join(", ")}`,
+			{ status: 400 },
+		)
+	}
+
+	const now = new Date()
+
+	// Hent alle eksisterende assessments for denne gjennomgangen i én query (unngår N+1)
+	// Use same collision handling as getRpaUserAssessmentsForReview for consistency
+	const existingAssessments = await executor
+		.select()
+		.from(routineRpaUserAssessments)
+		.where(eq(routineRpaUserAssessments.reviewId, reviewId))
+	const existingByUserObjectId = buildAssessmentMapWithCollisionHandling(existingAssessments)
+
+	for (const user of stagedData.users) {
+		const existing = existingByUserObjectId.get(user.userObjectId) ?? null
+
+		const hasChanges =
+			!existing ||
+			existing.owner !== user.owner ||
+			existing.needComment !== user.needComment ||
+			existing.criticalityComment !== user.criticalityComment ||
+			existing.securityComment !== user.securityComment ||
+			existing.decision !== user.decision ||
+			existing.decisionDeadline !== user.decisionDeadline
+
+		if (!hasChanges) continue
+
+		// Use existing row's original userObjectId (may have whitespace) to hit correct unique constraint
+		// For new rows, use trimmed value from staged_data
+		const upsertUserObjectId = existing?.userObjectId ?? user.userObjectId
+
+		const [upserted] = await executor
+			.insert(routineRpaUserAssessments)
+			.values({
+				reviewId,
+				userObjectId: upsertUserObjectId,
+				owner: user.owner,
+				needComment: user.needComment,
+				criticalityComment: user.criticalityComment,
+				securityComment: user.securityComment,
+				decision: user.decision as RpaDecision | null,
+				decisionDeadline: user.decisionDeadline,
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
+			.onConflictDoUpdate({
+				target: [routineRpaUserAssessments.reviewId, routineRpaUserAssessments.userObjectId],
+				set: {
+					owner: user.owner,
+					needComment: user.needComment,
+					criticalityComment: user.criticalityComment,
+					securityComment: user.securityComment,
+					decision: user.decision as RpaDecision | null,
+					decisionDeadline: user.decisionDeadline,
+					updatedBy: performedBy,
+					updatedAt: now,
+				},
+			})
+			.returning({ id: routineRpaUserAssessments.id })
+
+		await writeAuditLog(
+			{
+				action: "rpa_user_assessment_saved",
+				entityType: "routine_rpa_user_assessment",
+				entityId: upserted.id,
+				previousValue: existing
+					? JSON.stringify({
+							owner: existing.owner,
+							needComment: existing.needComment,
+							criticalityComment: existing.criticalityComment,
+							securityComment: existing.securityComment,
+							decision: existing.decision,
+							decisionDeadline: existing.decisionDeadline,
+						})
+					: null,
+				newValue: JSON.stringify({
+					userObjectId: user.userObjectId,
+					owner: user.owner,
+					needComment: user.needComment,
+					criticalityComment: user.criticalityComment,
+					securityComment: user.securityComment,
+					decision: user.decision,
+					decisionDeadline: user.decisionDeadline,
+				}),
+				metadata: { reviewId, userObjectId: user.userObjectId },
+				performedBy,
+			},
+			executor,
+		)
+	}
+
+	return toRpaUserSnapshot(stagedData)
 }
