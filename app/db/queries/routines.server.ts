@@ -2537,17 +2537,17 @@ async function applyRoutineConstraintFilters(
 		if (filtered.length === 0) return []
 	}
 
-	// Persistence: app must match ≥1 of the routine's persistence links
+	// Persistence: app must match ≥1 of the routine's persistence links, scoped to candidates
 	if (constraints.persistenceLinks.length > 0) {
-		const persAppIds = await findAppsByPersistenceMatch(constraints.persistenceLinks)
+		const persAppIds = await findAppsByPersistenceMatch(constraints.persistenceLinks, filtered)
 		const passing = new Set(persAppIds)
 		filtered = filtered.filter((id) => passing.has(id))
 		if (filtered.length === 0) return []
 	}
 
-	// Oracle role criticality: app must have a matching Oracle role assessment
+	// Oracle role criticality: app must have a matching Oracle role assessment, scoped to candidates
 	if (constraints.oracleRoleCriticalities.length > 0) {
-		const orcAppIds = await findAppsByOracleRoleCriticalityMatch(constraints.oracleRoleCriticalities)
+		const orcAppIds = await findAppsByOracleRoleCriticalityMatch(constraints.oracleRoleCriticalities, filtered)
 		const passing = new Set(orcAppIds)
 		filtered = filtered.filter((id) => passing.has(id))
 	}
@@ -2675,9 +2675,11 @@ export async function getAppsRequiringRoutine(
 
 /** Reverse lookup: find apps that have persistence matching the routine's persistence links.
  * Mirrors forward logic: type and classification are matched independently across
- * all of an app's persistence entries (cross-product), not within a single row. */
+ * all of an app's persistence entries (cross-product), not within a single row.
+ * If `candidateIds` is provided, the query is scoped to those apps only. */
 async function findAppsByPersistenceMatch(
 	persistenceLinks: Array<{ persistenceType: PersistenceType | null; dataClassification: DataClassification | null }>,
+	candidateIds?: string[],
 ): Promise<string[]> {
 	// Collect all required types and classifications from the routine's links
 	const requiredTypes = [
@@ -2689,6 +2691,9 @@ async function findAppsByPersistenceMatch(
 
 	// Pre-filter persistence entries by relevant types/classifications
 	const filters = [isNull(applicationPersistence.archivedAt)]
+	if (candidateIds && candidateIds.length > 0) {
+		filters.push(inArray(applicationPersistence.applicationId, candidateIds))
+	}
 	if (requiredTypes.length > 0 && requiredClassifications.length > 0) {
 		const combined = or(
 			inArray(applicationPersistence.type, requiredTypes),
@@ -2796,19 +2801,26 @@ async function findAppsByGroupClassificationMatch(
 	return [...allApps]
 }
 
-/** Reverse lookup: find apps with Oracle roles matching the routine's criticality links */
+/** Reverse lookup: find apps with Oracle roles matching the routine's criticality links.
+ * If `candidateIds` is provided, the query is scoped to those apps only. */
 async function findAppsByOracleRoleCriticalityMatch(
 	oracleRoleCriticalities: Array<{ criticality: GroupCriticality | null }>,
+	candidateIds?: string[],
 ): Promise<string[]> {
 	const criticalities = oracleRoleCriticalities
 		.map((orc) => orc.criticality)
 		.filter((c): c is GroupCriticality => c !== null)
 	if (criticalities.length === 0) return []
 
+	const filters = [inArray(oracleRoleAssessments.criticality, criticalities)]
+	if (candidateIds && candidateIds.length > 0) {
+		filters.push(inArray(oracleRoleAssessments.applicationId, candidateIds))
+	}
+
 	const matchingAssessments = await db
 		.select({ applicationId: oracleRoleAssessments.applicationId })
 		.from(oracleRoleAssessments)
-		.where(inArray(oracleRoleAssessments.criticality, criticalities))
+		.where(and(...filters))
 
 	return [...new Set(matchingAssessments.map((r) => r.applicationId))]
 }
@@ -3994,13 +4006,19 @@ export async function getRoutineDeadlinesForAppBySection(
 			if (!hasMatch) continue
 		}
 
-		// Persistence constraint: app must satisfy ≥1 persistence link (type AND classification, cross-product)
+		// Persistence constraint: app must satisfy ≥1 persistence link (type AND classification, cross-product).
+		// A link with both fields null is skipped (matches nothing — consistent with findAppsByPersistenceMatch).
+		// App must have at least one persistence entry for any persistence link to fire.
 		if (routinePers.length > 0) {
-			const hasMatch = routinePers.some((link) => {
-				const typeOk = !link.persistenceType || appPersTypes.has(link.persistenceType)
-				const classOk = !link.dataClassification || appPersClassifications.has(link.dataClassification)
-				return typeOk && classOk
-			})
+			const effectiveLinks = routinePers.filter((l) => l.persistenceType !== null || l.dataClassification !== null)
+			const hasMatch =
+				effectiveLinks.length > 0 &&
+				appPersTypes.size > 0 &&
+				effectiveLinks.some((link) => {
+					const typeOk = !link.persistenceType || appPersTypes.has(link.persistenceType)
+					const classOk = !link.dataClassification || appPersClassifications.has(link.dataClassification)
+					return typeOk && classOk
+				})
 			if (!hasMatch) continue
 		}
 

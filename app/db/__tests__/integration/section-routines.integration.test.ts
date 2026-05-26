@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import type { DataClassification, GroupCriticality, PersistenceType } from "~/db/schema/applications"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
@@ -551,28 +552,28 @@ describe("Section routine constraint filtering", () => {
 		)
 	}
 
-	async function addPersistence(appId: string, type: string, classification: string | null) {
+	async function addPersistence(appId: string, type: PersistenceType, classification: DataClassification | null) {
 		const db = getTestDb()
 		const cls = classification ? `'${classification}'` : "NULL"
 		await db.execute(
-			/* sql */ `INSERT INTO application_persistence (application_id, type, data_classification, manually_added)
-				VALUES ('${appId}', '${type}', ${cls}, true)`,
+			/* sql */ `INSERT INTO application_persistence (application_id, type, name, data_classification, manually_added)
+				VALUES ('${appId}', '${type}', '${type}-test', ${cls}, true)`,
 		)
 	}
 
-	async function addOracleAssessment(appId: string, criticality: string) {
+	async function addOracleAssessment(appId: string, criticality: GroupCriticality) {
 		const db = getTestDb()
 		await db.execute(
-			/* sql */ `INSERT INTO oracle_role_assessments (application_id, criticality, created_by)
-				VALUES ('${appId}', '${criticality}', 'test')`,
+			/* sql */ `INSERT INTO oracle_role_assessments (application_id, instance_id, role_name, criticality, assessed_by, updated_by)
+				VALUES ('${appId}', 'TEST_INST', 'TEST_ROLE', '${criticality}', 'test', 'test')`,
 		)
 	}
 
 	async function makeSectionRoutine(
 		sectionId: string,
 		technologyElementIds: string[],
-		persistenceLinks: Array<{ type: string | null; classification: string | null }>,
-		oracleRoleCriticalities: string[],
+		persistenceLinks: Array<{ type: PersistenceType | null; classification: DataClassification | null }>,
+		oracleRoleCriticalities: GroupCriticality[],
 	) {
 		const routine = await createRoutine({
 			sectionId,
@@ -587,12 +588,12 @@ describe("Section routine constraint filtering", () => {
 			isSectionRoutine: true,
 			technologyElementIds,
 			persistenceLinks: persistenceLinks.map((p) => ({
-				persistenceType: p.type as never,
-				dataClassification: p.classification as never,
+				persistenceType: p.type,
+				dataClassification: p.classification,
 			})),
 			controlIds: [],
 			groupClassifications: [],
-			oracleRoleCriticalities: oracleRoleCriticalities as never[],
+			oracleRoleCriticalities,
 			createdBy: "test",
 		})
 		const db = getTestDb()
@@ -651,8 +652,8 @@ describe("Section routine constraint filtering", () => {
 		const sectionId = await makeSection(`sec-${Date.now()}`)
 		const appWith = await makeApp("With Critical Oracle", sectionId)
 		const appWithout = await makeApp("No Oracle", sectionId)
-		await addOracleAssessment(appWith, "critical")
-		const routine = await makeSectionRoutine(sectionId, [], [], ["critical"])
+		await addOracleAssessment(appWith, "high")
+		const routine = await makeSectionRoutine(sectionId, [], [], ["high"])
 
 		const apps = await getAppsRequiringRoutine(routine.id)
 		const ids = apps.map((a) => a.id)
