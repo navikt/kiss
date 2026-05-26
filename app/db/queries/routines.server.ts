@@ -2657,7 +2657,8 @@ export async function getAppsRequiringRoutine(
 
 	if (allMatchedAppIds.size === 0) return []
 
-	// Apply constraint filters: technology elements, persistence, and oracle criticality
+	// Apply tech element constraint filter (the only AND-filter for non-section routines;
+	// persistence and oracle criticality are OR-inclusion paths above, not AND-filters here)
 	const filteredIds = await applyRoutineConstraintFilters([...allMatchedAppIds], {
 		technologyElements: routine.technologyElements,
 		persistenceLinks: [],
@@ -2729,10 +2730,15 @@ async function findAppsByPersistenceMatch(
 		if (entry.dataClassification) sets.classifications.add(entry.dataClassification)
 	}
 
-	// For each app, check if any routine link matches using cross-product logic
+	// For each app, check if any routine link matches using cross-product logic.
+	// Links with both fields null are skipped (no constraint → matches nothing),
+	// consistent with getRoutineDeadlinesForAppBySection forward logic.
+	const effectiveLinks = persistenceLinks.filter((l) => l.persistenceType !== null || l.dataClassification !== null)
+	if (effectiveLinks.length === 0) return []
+
 	const matchedApps = new Set<string>()
 	for (const [appId, sets] of appSets) {
-		for (const link of persistenceLinks) {
+		for (const link of effectiveLinks) {
 			const typeMatch = !link.persistenceType || sets.types.has(link.persistenceType)
 			const classMatch = !link.dataClassification || sets.classifications.has(link.dataClassification)
 			if (typeMatch && classMatch) {
@@ -4026,9 +4032,10 @@ export async function getRoutineDeadlinesForAppBySection(
 			if (!hasMatch) continue
 		}
 
-		// Oracle criticality constraint: app must have ≥1 matching Oracle role assessment
+		// Oracle criticality constraint: app must have ≥1 matching Oracle role assessment.
+		// criticality is a NOT NULL enum, so every link always has a value.
 		if (routineOracle.length > 0) {
-			const hasMatch = routineOracle.some((link) => !link.criticality || appOracleCriticalities.has(link.criticality))
+			const hasMatch = routineOracle.some((link) => appOracleCriticalities.has(link.criticality))
 			if (!hasMatch) continue
 		}
 
