@@ -2521,7 +2521,7 @@ async function applyRoutineConstraintFilters(
 	if (constraints.technologyElements.length > 0) {
 		const elementIds = constraints.technologyElements.map((e) => e.id)
 		const rows = await db
-			.select({ applicationId: applicationTechnologyElements.applicationId })
+			.selectDistinct({ applicationId: applicationTechnologyElements.applicationId })
 			.from(applicationTechnologyElements)
 			.where(
 				and(
@@ -2681,6 +2681,8 @@ async function findAppsByPersistenceMatch(
 	persistenceLinks: Array<{ persistenceType: PersistenceType | null; dataClassification: DataClassification | null }>,
 	candidateIds?: string[],
 ): Promise<string[]> {
+	// If caller scoped to a candidate set that is empty, there can be no matches
+	if (candidateIds !== undefined && candidateIds.length === 0) return []
 	// Collect all required types and classifications from the routine's links
 	const requiredTypes = [
 		...new Set(persistenceLinks.map((l) => l.persistenceType).filter(Boolean)),
@@ -2807,6 +2809,8 @@ async function findAppsByOracleRoleCriticalityMatch(
 	oracleRoleCriticalities: Array<{ criticality: GroupCriticality | null }>,
 	candidateIds?: string[],
 ): Promise<string[]> {
+	// If caller scoped to a candidate set that is empty, there can be no matches
+	if (candidateIds !== undefined && candidateIds.length === 0) return []
 	const criticalities = oracleRoleCriticalities
 		.map((orc) => orc.criticality)
 		.filter((c): c is GroupCriticality => c !== null)

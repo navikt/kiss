@@ -708,4 +708,46 @@ describe("Section routine constraint filtering", () => {
 		const deadlines = await getRoutineDeadlinesForAppBySection(appId)
 		expect(deadlines.some((d) => d.routine?.id === routine.id)).toBe(false)
 	})
+
+	it("getRoutineDeadlinesForAppBySection excludes routine with unmatched oracle criticality", async () => {
+		const sectionId = await makeSection(`sec-${Date.now()}`)
+		const appId = await makeApp("App no oracle", sectionId)
+		// App has NO oracle assessment
+		const routine = await makeSectionRoutine(sectionId, [], [], ["high"])
+
+		const deadlines = await getRoutineDeadlinesForAppBySection(appId)
+		expect(deadlines.some((d) => d.routine?.id === routine.id)).toBe(false)
+	})
+
+	it("getRoutineDeadlinesForAppBySection includes routine when app has matching oracle criticality", async () => {
+		const sectionId = await makeSection(`sec-${Date.now()}`)
+		const appId = await makeApp("App with oracle", sectionId)
+		await addOracleAssessment(appId, "high")
+		const routine = await makeSectionRoutine(sectionId, [], [], ["high"])
+
+		const deadlines = await getRoutineDeadlinesForAppBySection(appId)
+		expect(deadlines.some((d) => d.routine?.id === routine.id)).toBe(true)
+	})
+
+	it("AND-logic: app matching only tech element (not persistence) is excluded", async () => {
+		const sectionId = await makeSection(`sec-${Date.now()}`)
+		const appMatchesOnlyElement = await makeApp("Only element", sectionId)
+		const appMatchesBoth = await makeApp("Both element and persistence", sectionId)
+		const elementId = await makeTechElement(`el-and-${Date.now()}`)
+		await confirmTechElement(appMatchesOnlyElement, elementId)
+		await confirmTechElement(appMatchesBoth, elementId)
+		await addPersistence(appMatchesBoth, "cloud_sql_postgres", "financial_regulation")
+		// Routine requires BOTH a tech element AND a persistence type+classification
+		const routine = await makeSectionRoutine(
+			sectionId,
+			[elementId],
+			[{ type: "cloud_sql_postgres", classification: "financial_regulation" }],
+			[],
+		)
+
+		const apps = await getAppsRequiringRoutine(routine.id)
+		const ids = apps.map((a) => a.id)
+		expect(ids).toContain(appMatchesBoth)
+		expect(ids).not.toContain(appMatchesOnlyElement)
+	})
 })
