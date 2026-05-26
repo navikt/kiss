@@ -76,9 +76,11 @@ export function RutinerTab({
 			? actionData.error
 			: null
 
-	// Split routines into scheduled (with periodic frequency) and event-only
-	const scheduledRoutines = routineDeadlines.filter((dl) => dl.routine && dl.routine.frequency !== null)
-	const eventOnlyRoutines = routineDeadlines.filter((dl) => dl.routine && dl.routine.frequency === null)
+	// Split routines into scheduled (with periodic frequency), event-only, and section routines
+	const sectionRoutines = routineDeadlines.filter((dl) => dl.isSectionRoutine)
+	const nonSectionRoutines = routineDeadlines.filter((dl) => !dl.isSectionRoutine)
+	const scheduledRoutines = nonSectionRoutines.filter((dl) => dl.routine && dl.routine.frequency !== null)
+	const eventOnlyRoutines = nonSectionRoutines.filter((dl) => dl.routine && dl.routine.frequency === null)
 
 	const routineStatusKey = (dl: RoutineDeadline): string => {
 		if (dl.overdue) return "overdue"
@@ -116,6 +118,7 @@ export function RutinerTab({
 
 	const filteredRoutines = scheduledRoutines.filter(filterRoutine)
 	const filteredEventRoutines = eventOnlyRoutines.filter(filterRoutine)
+	const filteredSectionRoutines = sectionRoutines.filter(filterRoutine)
 
 	const sortedRoutines = [...filteredRoutines].sort((a, b) => {
 		const dir = routineSort.direction === "ascending" ? 1 : -1
@@ -192,7 +195,7 @@ export function RutinerTab({
 						</HStack>
 					</CheckboxGroup>
 
-					{sortedRoutines.length === 0 && filteredEventRoutines.length === 0 ? (
+					{sortedRoutines.length === 0 && filteredEventRoutines.length === 0 && filteredSectionRoutines.length === 0 ? (
 						<BodyShort>Ingen rutiner matcher søket/filteret.</BodyShort>
 					) : (
 						<>
@@ -250,11 +253,6 @@ export function RutinerTab({
 															</Link>
 														) : (
 															(dl.routine?.name ?? "—")
-														)}
-														{dl.isSectionRoutine && (
-															<Tag variant="alt1" size="xsmall" style={{ marginLeft: "var(--ax-space-2)" }}>
-																Seksjonsrutine
-															</Tag>
 														)}
 													</Table.DataCell>
 													<Table.DataCell>
@@ -348,11 +346,7 @@ export function RutinerTab({
 														</HStack>
 													</Table.DataCell>
 													<Table.DataCell>
-														{dl.isSectionRoutine ? (
-															<BodyShort size="small" textColor="subtle">
-																Gjennomgås av {dl.sectionRoutineOwnerRole ?? "seksjonsleder"}
-															</BodyShort>
-														) : dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+														{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
 															<form method="post" style={{ display: "inline" }}>
 																<input type="hidden" name="intent" value="create-draft" />
 																<input type="hidden" name="routineId" value={dl.routine.id} />
@@ -371,7 +365,7 @@ export function RutinerTab({
 							)}
 							{filteredEventRoutines.length > 0 && (
 								<>
-									<Heading size="medium" level="4">
+									<Heading size="small" level="4">
 										Hendelsesbaserte rutiner
 									</Heading>
 									{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
@@ -399,11 +393,6 @@ export function RutinerTab({
 															) : (
 																(dl.routine?.name ?? "—")
 															)}
-															{dl.isSectionRoutine && (
-																<Tag variant="alt1" size="xsmall" style={{ marginLeft: "var(--ax-space-2)" }}>
-																	Seksjonsrutine
-																</Tag>
-															)}
 														</Table.DataCell>
 														<Table.DataCell>{matchSourceLabel(dl.matchSource)}</Table.DataCell>
 														<Table.DataCell>{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>
@@ -411,11 +400,7 @@ export function RutinerTab({
 															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
 														</Table.DataCell>
 														<Table.DataCell>
-															{dl.isSectionRoutine ? (
-																<BodyShort size="small" textColor="subtle">
-																	Gjennomgås av {dl.sectionRoutineOwnerRole ?? "seksjonsleder"}
-																</BodyShort>
-															) : dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+															{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
 																<form method="post" style={{ display: "inline" }}>
 																	<input type="hidden" name="intent" value="create-draft" />
 																	<input type="hidden" name="routineId" value={dl.routine.id} />
@@ -429,6 +414,84 @@ export function RutinerTab({
 																	</Button>
 																</form>
 															) : null}
+														</Table.DataCell>
+													</Table.Row>
+												))}
+											</Table.Body>
+										</Table>
+									</section>
+								</>
+							)}
+							{filteredSectionRoutines.length > 0 && (
+								<>
+									<Heading size="small" level="4">
+										Seksjonsbaserte rutiner
+									</Heading>
+									{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+									<section className="table-scroll" aria-label="Seksjonsbaserte rutiner" tabIndex={0}>
+										<Table size="small">
+											<Table.Header>
+												<Table.Row>
+													<Table.HeaderCell>Rutine</Table.HeaderCell>
+													<Table.HeaderCell>Eierrolle</Table.HeaderCell>
+													<Table.HeaderCell>Frekvens</Table.HeaderCell>
+													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
+													<Table.HeaderCell>Frist</Table.HeaderCell>
+													<Table.HeaderCell>Status</Table.HeaderCell>
+												</Table.Row>
+											</Table.Header>
+											<Table.Body>
+												{filteredSectionRoutines.map((dl, index) => (
+													<Table.Row key={dl.routine?.id ?? `section-${index}`}>
+														<Table.DataCell>
+															{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+																<Link
+																	to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}
+																>
+																	{dl.routine?.name ?? "—"}
+																</Link>
+															) : (
+																(dl.routine?.name ?? "—")
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															<BodyShort size="small" textColor="subtle">
+																{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}
+															</BodyShort>
+														</Table.DataCell>
+														<Table.DataCell>
+															<FrequencyDisplay
+																frequency={dl.routine?.frequency}
+																eventFrequency={dl.routine?.eventFrequency}
+															/>
+														</Table.DataCell>
+														<Table.DataCell>
+															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
+														</Table.DataCell>
+														<Table.DataCell>
+															{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
+														</Table.DataCell>
+														<Table.DataCell>
+															<HStack gap="space-2" align="center" wrap>
+																{dl.overdue ? (
+																	<Tag variant="error" size="small">
+																		Over frist
+																	</Tag>
+																) : dl.lastReviewDate ? (
+																	<Tag variant="success" size="small">
+																		OK
+																	</Tag>
+																) : (
+																	<Tag variant="warning" size="small">
+																		Ikke gjennomført
+																	</Tag>
+																)}
+																{dl.needsFollowUp && (
+																	<Tag variant="warning" size="small">
+																		Må følges opp
+																	</Tag>
+																)}
+															</HStack>
 														</Table.DataCell>
 													</Table.Row>
 												))}
