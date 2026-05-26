@@ -25,7 +25,7 @@ import {
 	monitoredApplications,
 	type PersistenceType,
 } from "../schema/applications"
-import type { AuditLogAction } from "../schema/audit"
+import { type AuditLogAction, auditLog } from "../schema/audit"
 import { oracleRoleAssessments } from "../schema/audit-evidence"
 import {
 	applicationTechnologyElements,
@@ -2555,11 +2555,16 @@ async function applyRoutineConstraintFilters(
 	return filtered
 }
 
+type RoutineData = Awaited<ReturnType<typeof getRoutine>>
+
 export async function getAppsRequiringRoutine(
 	routineId: string,
-	opts?: { sectionAppIdsCache?: Map<string, string[]> },
+	opts?: {
+		sectionAppIdsCache?: Map<string, string[]>
+		routineData?: RoutineData
+	},
 ) {
-	const routine = await getRoutine(routineId)
+	const routine = opts?.routineData ?? (await getRoutine(routineId))
 	if (!routine) return []
 
 	// Section routines: start with all apps in the section, then apply constraints
@@ -2949,6 +2954,270 @@ export async function getLatestSectionReview(routineId: string) {
 }
 
 /**
+ * Henter den effektive siste gjennomgangsdatoen for fristberegning.
+ *
+ * Når en rutine erstatter en eksisterende rutine (har `sourceRoutineId`), bestemmer
+ * `deadlinePolicy` om fristen skal fortsette fra den gamle rutinens gjennomganger
+ * eller starte på nytt:
+ *
+ * - **`deadlinePolicy: "continue"`**: Returnerer den ERSTATTEDE rutinens siste gjennomgang.
+ *   Brukes når rutinen oppdateres uten å kreve nye gjennomganger. Fristen beregnes som:
+ *   `(gammel rutines siste gjennomgang) + (nye rutinens frekvens)`.
+ *
+ * - **`deadlinePolicy: "reset"`** eller ingen policy: Returnerer den NYE rutinens egen siste
+ *   gjennomgang (typisk null ved godkjenning). Brukes når rutinen krever nye gjennomganger.
+ *   Fristen beregnes som: `(nye rutinens godkjenningsdato) + (nye rutinens frekvens)`.
+ *
+ * **Viktig**: Frekvensen kommer ALLTID fra den nye rutinen, ikke den gamle. Kun base-datoen
+ * for fristberegningen påvirkes av `deadlinePolicy`.
+ *
+ * **Performance**: For å unngå N+1 queries, bruk `getEffectiveLastReviewDatesBatch()` når
+ * du trenger review-datoer for flere rutiner samtidig.
+ *
+ * @param routineId - IDen til rutinen det skal beregnes frist for (typisk den NYE rutinen)
+ * @param applicationId - App-ID for app-spesifikke rutiner, `null` for seksjonsrutiner
+ * @returns Siste gjennomgangsdato å bruke som base i fristberegning, eller `null` hvis ingen finnes
+ *
+ * @example
+ * // Rutine med "continue"-policy:
+ * const lastReview = await getEffectiveLastReviewDate(newRoutineId, appId)
+ * // → Returnerer gammel rutines siste gjennomgang (f.eks. 2025-01-15)
+ * const deadline = calculateDeadline(lastReview, newRoutine.createdAt, newRoutine.frequency)
+ * // → Frist = 2025-01-15 + nye rutinens frekvens
+ *
+ * @example
+ * // Rutine med "reset"-policy eller ingen erstatning:
+ * const lastReview = await getEffectiveLastReviewDate(routineId, appId)
+ * // → Returnerer null (ingen gjennomganger ennå)
+ * const deadline = calculateDeadline(lastReview, routine.createdAt, routine.frequency)
+ * // → Frist = routine.createdAt + frekvens
+ */
+export async function getEffectiveLastReviewDate(
+	routineId: string,
+	applicationId: string | null,
+): Promise<Date | null> {
+	// Delegér til batch-variant for konsistent transitiv chain-walking
+	const routine = await db
+		.select({ id: routines.id, sourceRoutineId: routines.sourceRoutineId })
+		.from(routines)
+		.where(eq(routines.id, routineId))
+		.limit(1)
+		.then((rows) => rows[0])
+
+	if (!routine) return null
+
+	const results = await getEffectiveLastReviewDatesBatch([routine], applicationId)
+	return results.get(routineId) ?? null
+}
+
+/**
+ * Batch-variant av `getEffectiveLastReviewDate()` som henter review-datoer
+ * for flere rutiner samtidig med minimalt antall database-queries.
+ *
+ * Unngår N+1 query-problem ved å batch-hente:
+ * 1. Alle sourceRoutineId-er i én query
+ * 2. Alle relevante audit_log-entries i én query
+ * 3. Alle reviews (både for current og source routines) i én query
+ *
+ * @param routineRows - Rutiner med `id` og `sourceRoutineId`-felter
+ * @param applicationId - App-ID for app-spesifikke rutiner, `null` for seksjonsrutiner
+ * @returns Map fra routineId til siste gjennomgangsdato (eller null)
+ *
+ * @example
+ * const reviewDateMap = await getEffectiveLastReviewDatesBatch(routineRows, appId)
+ * for (const routine of routineRows) {
+ *   const lastReviewDate = reviewDateMap.get(routine.id) ?? null
+ *   const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency)
+ * }
+ */
+export async function getEffectiveLastReviewDatesBatch(
+	routineRows: Array<{ id: string; sourceRoutineId: string | null }>,
+	applicationId: string | null,
+): Promise<Map<string, Date | null>> {
+	const result = new Map<string, Date | null>()
+
+	if (routineRows.length === 0) {
+		return result
+	}
+
+	const currentRoutineIds = routineRows.map((r) => r.id)
+
+	// Build initial source map from input
+	const sourceMap = new Map<string, string>()
+	for (const routine of routineRows) {
+		if (routine.sourceRoutineId) {
+			sourceMap.set(routine.id, routine.sourceRoutineId)
+		}
+	}
+
+	// Collect all routine IDs we need to fetch (current + transitive sources)
+	const allRoutineIds = new Set<string>(currentRoutineIds)
+	const toProcess = [...currentRoutineIds]
+	let depth = 0
+	const maxDepth = 10
+
+	// Fetch all source routines transitively
+	while (toProcess.length > 0 && depth < maxDepth) {
+		const batch = toProcess.splice(0, 100) // Process in batches of 100
+		const sourceIds = batch
+			.map((id) => sourceMap.get(id))
+			.filter((id): id is string => id !== undefined && id !== null && !allRoutineIds.has(id))
+
+		if (sourceIds.length === 0) break
+
+		// Fetch sourceRoutineId for these routines
+		const sourceRoutines = await db
+			.select({ id: routines.id, sourceRoutineId: routines.sourceRoutineId })
+			.from(routines)
+			.where(inArray(routines.id, sourceIds))
+
+		for (const r of sourceRoutines) {
+			allRoutineIds.add(r.id)
+			if (r.sourceRoutineId) {
+				sourceMap.set(r.id, r.sourceRoutineId)
+				toProcess.push(r.id)
+			}
+		}
+
+		depth++
+	}
+
+	// 1. Batch-fetch audit log entries for all routines
+	const policyMap = new Map<string, string>()
+	if (allRoutineIds.size > 0) {
+		const auditEntries = await db
+			.select({
+				routineId: auditLog.entityId,
+				metadata: auditLog.metadata,
+			})
+			.from(auditLog)
+			.where(
+				and(
+					eq(auditLog.action, "routine_replaced"),
+					eq(auditLog.entityType, "routine"),
+					inArray(auditLog.entityId, [...allRoutineIds]),
+				),
+			)
+			.orderBy(auditLog.entityId, desc(auditLog.performedAt))
+
+		// Keep only the most recent entry per routine
+		const seenRoutines = new Set<string>()
+		for (const entry of auditEntries) {
+			if (!seenRoutines.has(entry.routineId)) {
+				seenRoutines.add(entry.routineId)
+				// audit_log.metadata is stored as JSON string - parse it
+				let policy: string | undefined
+				if (entry.metadata) {
+					try {
+						const parsed = JSON.parse(entry.metadata)
+						policy = parsed?.deadlinePolicy
+					} catch {
+						// Invalid JSON - treat as missing policy
+					}
+				}
+				if (policy) {
+					policyMap.set(entry.routineId, policy)
+				}
+			}
+		}
+	}
+
+	// 2. Batch-fetch reviews for all routines (current + all sources)
+	let reviewMap: Map<string, Date>
+	if (applicationId) {
+		// App-specific routines
+		const reviews = await db
+			.selectDistinctOn([routineReviews.routineId], {
+				routineId: routineReviews.routineId,
+				reviewedAt: routineReviews.reviewedAt,
+			})
+			.from(routineReviews)
+			.where(
+				and(
+					inArray(routineReviews.routineId, [...allRoutineIds]),
+					eq(routineReviews.applicationId, applicationId),
+					eq(routineReviews.status, "completed"),
+				),
+			)
+			.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+
+		reviewMap = new Map(reviews.map((r) => [r.routineId, r.reviewedAt]))
+	} else {
+		// Section routines
+		const reviews = await db
+			.selectDistinctOn([routineReviews.routineId], {
+				routineId: routineReviews.routineId,
+				reviewedAt: routineReviews.reviewedAt,
+			})
+			.from(routineReviews)
+			.where(
+				and(
+					inArray(routineReviews.routineId, [...allRoutineIds]),
+					isNull(routineReviews.applicationId),
+					eq(routineReviews.status, "completed"),
+				),
+			)
+			.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+
+		reviewMap = new Map(reviews.map((r) => [r.routineId, r.reviewedAt]))
+	}
+
+	// 3. Build result map by applying deadlinePolicy logic
+	// For "continue" policy, walk the replacement chain transitively until we find
+	// a routine with reviews or reach the end of the chain
+	for (const routine of routineRows) {
+		const sourceRoutineId = sourceMap.get(routine.id)
+
+		if (!sourceRoutineId) {
+			// No replacement → use routine's own review
+			result.set(routine.id, reviewMap.get(routine.id) ?? null)
+			continue
+		}
+
+		const policy = policyMap.get(routine.id)
+
+		if (policy === "continue") {
+			// Continue policy → follow the replacement chain to find the effective source
+			// Walk backwards: current → source → source's source → ... until we find reviews
+			let effectiveSourceId = sourceRoutineId
+			let chainDepth = 0
+			const maxChainDepth = 10 // Prevent infinite loops
+
+			while (chainDepth < maxChainDepth) {
+				// If this routine has reviews, use it
+				if (reviewMap.has(effectiveSourceId)) {
+					break
+				}
+
+				// Otherwise, check if this routine itself is a replacement
+				const nextSource = sourceMap.get(effectiveSourceId)
+				if (!nextSource) {
+					// End of chain, no more sources
+					break
+				}
+
+				// Check if the next source also has "continue" policy
+				const nextPolicy = policyMap.get(effectiveSourceId)
+				if (nextPolicy !== "continue") {
+					// Chain broken by "reset" policy
+					break
+				}
+
+				effectiveSourceId = nextSource
+				chainDepth++
+			}
+
+			result.set(routine.id, reviewMap.get(effectiveSourceId) ?? null)
+		} else {
+			// Reset or missing policy → use current routine's review
+			result.set(routine.id, reviewMap.get(routine.id) ?? null)
+		}
+	}
+
+	return result
+}
+
+/**
  * Returns the latest review (any non-discarded status) for a given
  * routine + application. Used for UI labels like «Må følges opp» that
  * reflect the actual most recent gjennomgang regardless of completion
@@ -3005,9 +3274,31 @@ export async function getRoutineFollowUpApplicationIds(routineId: string): Promi
 }
 
 /**
- * Beregner neste frist for en rutine basert på frekvens. Bruker `lastReviewDate`
- * hvis tilgjengelig, ellers `routineCreatedAt` som baseline.
- * Returnerer `null` for rutiner uten periodisk frekvens (hendelsesbaserte).
+ * Beregner neste frist for en rutine basert på frekvens.
+ *
+ * **Viktig**: For rutiner som erstatter eksisterende rutiner (med `sourceRoutineId`),
+ * skal `lastReviewDate` hentes via `getEffectiveLastReviewDate()` for å respektere
+ * `deadlinePolicy` ("continue" vs "reset"). Ikke bruk `getLatestReviewForApp()` direkte
+ * for slike rutiner.
+ *
+ * Fristberegning:
+ * - Base-dato: `lastReviewDate` hvis tilgjengelig, ellers `routineCreatedAt`
+ * - Frist: base-dato + antall dager basert på `frequency`
+ *
+ * @param lastReviewDate - Siste gjennomgangsdato (hent via `getEffectiveLastReviewDate()`)
+ * @param routineCreatedAt - Rutinens opprettelsesdato (fallback hvis ingen gjennomganger)
+ * @param frequency - Rutinens frekvens (f.eks. "90_days", "180_days")
+ * @returns Frist-dato, eller `null` for hendelsesbaserte rutiner (ingen periodisk frekvens)
+ *
+ * @example
+ * // For rutiner som kan ha blitt erstattet:
+ * const lastReview = await getEffectiveLastReviewDate(routineId, appId)
+ * const deadline = calculateDeadline(lastReview, routine.createdAt, routine.frequency)
+ *
+ * @example
+ * // For helt nye rutiner (ingen sourceRoutineId):
+ * const lastReview = await getLatestReviewForApp(routineId, appId)
+ * const deadline = calculateDeadline(lastReview?.reviewedAt ?? null, routine.createdAt, routine.frequency)
  */
 export function calculateDeadline(
 	lastReviewDate: Date | null,
@@ -3044,57 +3335,219 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 		.from(routines)
 		.where(and(eq(routines.sectionId, sectionId), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
 
-	const results: RoutineDeadlineInfo[] = []
+	if (sectionRoutines.length === 0) return []
 
-	// Pre-fetch section-level reviews for section routines
-	const sectionRoutineIds = sectionRoutines.filter((r) => r.isSectionRoutine === 1).map((r) => r.id)
-	const sectionReviewMap = new Map<string, Date | null>()
-	if (sectionRoutineIds.length > 0) {
-		const sectionReviews = await db
-			.selectDistinctOn([routineReviews.routineId], {
-				routineId: routineReviews.routineId,
-				reviewedAt: routineReviews.reviewedAt,
+	const results: RoutineDeadlineInfo[] = []
+	const sectionAppIdsCache = new Map<string, string[]>()
+	const routineIds = sectionRoutines.map((r) => r.id)
+
+	// Batch-fetch all routine-related data (technology elements, screening, persistence, controls, etc.)
+	const [allElements, allScreeningLinks, allPersLinks, allControlRows, allGcLinks, allOrcLinks] = await Promise.all([
+		db
+			.select({
+				routineId: routineTechnologyElements.routineId,
+				id: technologyElements.id,
+				name: technologyElements.name,
 			})
-			.from(routineReviews)
+			.from(routineTechnologyElements)
+			.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
 			.where(
+				and(inArray(routineTechnologyElements.routineId, routineIds), isNull(routineTechnologyElements.archivedAt)),
+			),
+		db
+			.select()
+			.from(routineScreeningQuestions)
+			.where(
+				and(inArray(routineScreeningQuestions.routineId, routineIds), isNull(routineScreeningQuestions.archivedAt)),
+			),
+		db
+			.select()
+			.from(routinePersistenceLinks)
+			.where(and(inArray(routinePersistenceLinks.routineId, routineIds), isNull(routinePersistenceLinks.archivedAt))),
+		db
+			.selectDistinct({
+				routineId: routineControls.routineId,
+				id: frameworkControls.id,
+				controlId: frameworkControls.controlId,
+				shortTitle: frameworkControls.shortTitle,
+				responsible: frameworkControls.responsible,
+				domainSlug: frameworkDomains.code,
+			})
+			.from(routineControls)
+			.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
+			.innerJoin(
+				frameworkRiskControlMappings,
 				and(
-					inArray(routineReviews.routineId, sectionRoutineIds),
-					isNull(routineReviews.applicationId),
-					eq(routineReviews.status, "completed"),
+					eq(frameworkControls.id, frameworkRiskControlMappings.controlId),
+					isNull(frameworkRiskControlMappings.archivedAt),
 				),
 			)
-			.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-		for (const sr of sectionReviews) {
-			sectionReviewMap.set(sr.routineId, sr.reviewedAt)
+			.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+			.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+			.where(and(inArray(routineControls.routineId, routineIds), isNull(routineControls.archivedAt))),
+		db
+			.select()
+			.from(routineGroupClassificationLinks)
+			.where(
+				and(
+					inArray(routineGroupClassificationLinks.routineId, routineIds),
+					isNull(routineGroupClassificationLinks.archivedAt),
+				),
+			),
+		db
+			.select()
+			.from(routineOracleRoleCriticalityLinks)
+			.where(
+				and(
+					inArray(routineOracleRoleCriticalityLinks.routineId, routineIds),
+					isNull(routineOracleRoleCriticalityLinks.archivedAt),
+				),
+			),
+	])
+
+	// Group by routineId
+	const elementsByRoutine = new Map<string, typeof allElements>()
+	for (const elem of allElements) {
+		const list = elementsByRoutine.get(elem.routineId) ?? []
+		list.push(elem)
+		elementsByRoutine.set(elem.routineId, list)
+	}
+
+	const screeningByRoutine = new Map<string, typeof allScreeningLinks>()
+	for (const link of allScreeningLinks) {
+		const list = screeningByRoutine.get(link.routineId) ?? []
+		list.push(link)
+		screeningByRoutine.set(link.routineId, list)
+	}
+
+	const persByRoutine = new Map<string, typeof allPersLinks>()
+	for (const link of allPersLinks) {
+		const list = persByRoutine.get(link.routineId) ?? []
+		list.push(link)
+		persByRoutine.set(link.routineId, list)
+	}
+
+	const controlsByRoutine = new Map<
+		string,
+		Array<{ id: string; controlId: string; name: string; responsible: string | null; domainSlug: string }>
+	>()
+	for (const ctrl of allControlRows) {
+		const list = controlsByRoutine.get(ctrl.routineId) ?? []
+		list.push({
+			id: ctrl.id,
+			controlId: ctrl.controlId,
+			name: ctrl.shortTitle ?? ctrl.controlId,
+			responsible: ctrl.responsible,
+			domainSlug: ctrl.domainSlug,
+		})
+		controlsByRoutine.set(ctrl.routineId, list)
+	}
+
+	const gcLinksByRoutine = new Map<string, typeof allGcLinks>()
+	for (const link of allGcLinks) {
+		const list = gcLinksByRoutine.get(link.routineId) ?? []
+		list.push(link)
+		gcLinksByRoutine.set(link.routineId, list)
+	}
+
+	const orcLinksByRoutine = new Map<string, typeof allOrcLinks>()
+	for (const link of allOrcLinks) {
+		const list = orcLinksByRoutine.get(link.routineId) ?? []
+		list.push(link)
+		orcLinksByRoutine.set(link.routineId, list)
+	}
+
+	// Build list of all (routine, app) pairs using pre-fetched data
+	type RoutineAppPair = {
+		routine: (typeof sectionRoutines)[number]
+		appId: string
+		appName: string
+	}
+	const routineAppPairs: RoutineAppPair[] = []
+
+	for (const routine of sectionRoutines) {
+		// Build routine data object from batch-fetched maps to avoid N+1 getRoutine() calls
+		const routineData: RoutineData = {
+			...routine,
+			technologyElements: (elementsByRoutine.get(routine.id) ?? []).map((e) => ({
+				id: e.id,
+				name: e.name,
+			})),
+			screeningQuestions: screeningByRoutine.get(routine.id) ?? [],
+			persistenceLinks: persByRoutine.get(routine.id) ?? [],
+			controls: controlsByRoutine.get(routine.id) ?? [],
+			groupClassifications: gcLinksByRoutine.get(routine.id) ?? [],
+			oracleRoleCriticalities: orcLinksByRoutine.get(routine.id) ?? [],
+		}
+
+		const apps = await getAppsRequiringRoutine(routine.id, {
+			sectionAppIdsCache,
+			routineData,
+		})
+
+		for (const app of apps) {
+			routineAppPairs.push({ routine, appId: app.id, appName: app.name })
 		}
 	}
 
-	const sectionAppIdsCache = new Map<string, string[]>()
-	for (const routine of sectionRoutines) {
-		const fullRoutine = await getRoutine(routine.id)
-		const apps = await getAppsRequiringRoutine(routine.id, { sectionAppIdsCache })
+	// Group routine-app pairs by applicationId to enable efficient batching
+	// Section routines (isSectionRoutine === 1) all use null as applicationId
+	const pairsByAppId = new Map<string | null, typeof routineAppPairs>()
+	for (const pair of routineAppPairs) {
+		const key = pair.routine.isSectionRoutine === 1 ? null : pair.appId
+		const existing = pairsByAppId.get(key) ?? []
+		existing.push(pair)
+		pairsByAppId.set(key, existing)
+	}
 
-		for (const app of apps) {
-			// Section routines use section-level review; regular routines use per-app review
-			const lastReviewDate =
-				routine.isSectionRoutine === 1
-					? (sectionReviewMap.get(routine.id) ?? null)
-					: ((await getLatestReviewForApp(routine.id, app.id))?.reviewedAt ?? null)
-			const deadline = calculateDeadline(
-				lastReviewDate,
-				routine.createdAt,
-				routine.frequency as RoutineFrequency | null,
-			)
+	// Batch-fetch effective review dates per unique applicationId
+	const reviewDateLookup = new Map<string, Date | null>()
 
-			results.push({
-				routine: fullRoutine,
-				applicationId: app.id,
-				applicationName: app.name,
-				lastReviewDate,
-				deadline,
-				overdue: isOverdue(deadline),
-			})
+	for (const [applicationId, pairs] of pairsByAppId) {
+		// Deduplicate routines (same routine can appear multiple times for different apps)
+		const uniqueRoutines = new Map<string, { id: string; sourceRoutineId: string | null }>()
+		for (const p of pairs) {
+			if (!uniqueRoutines.has(p.routine.id)) {
+				uniqueRoutines.set(p.routine.id, {
+					id: p.routine.id,
+					sourceRoutineId: p.routine.sourceRoutineId,
+				})
+			}
 		}
+		const routinesToBatch = [...uniqueRoutines.values()]
+
+		const reviewDateMap = await getEffectiveLastReviewDatesBatch(routinesToBatch, applicationId)
+
+		// Store results with composite key "routineId:appId"
+		for (const pair of pairs) {
+			const reviewDate = reviewDateMap.get(pair.routine.id) ?? null
+			reviewDateLookup.set(`${pair.routine.id}:${pair.appId}`, reviewDate)
+		}
+	}
+
+	// Build results
+	for (const { routine, appId, appName } of routineAppPairs) {
+		const fullRoutine = {
+			...routine,
+			technologyElements: elementsByRoutine.get(routine.id)?.map((e) => ({ id: e.id, name: e.name })) ?? [],
+			screeningQuestions: screeningByRoutine.get(routine.id) ?? [],
+			persistenceLinks: persByRoutine.get(routine.id) ?? [],
+			controls: controlsByRoutine.get(routine.id) ?? [],
+			groupClassifications: gcLinksByRoutine.get(routine.id) ?? [],
+			oracleRoleCriticalities: orcLinksByRoutine.get(routine.id) ?? [],
+		}
+
+		const lastReviewDate = reviewDateLookup.get(`${routine.id}:${appId}`) ?? null
+		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+
+		results.push({
+			routine: fullRoutine,
+			applicationId: appId,
+			applicationName: appName,
+			lastReviewDate,
+			deadline,
+			overdue: isOverdue(deadline),
+		})
 	}
 
 	return results
@@ -3224,22 +3677,8 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 
 	const appName = await resolveAppName(applicationId, opts)
 
-	// Step 4: Get latest completed reviews for all matching routines in batch
-	const latestReviews = await db
-		.selectDistinctOn([routineReviews.routineId], {
-			routineId: routineReviews.routineId,
-			reviewedAt: routineReviews.reviewedAt,
-		})
-		.from(routineReviews)
-		.where(
-			and(
-				inArray(routineReviews.routineId, routineIdList),
-				eq(routineReviews.applicationId, applicationId),
-				eq(routineReviews.status, "completed"),
-			),
-		)
-		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	// Step 4: Get effective review dates for all routines (respects deadlinePolicy)
+	const reviewDateMap = await getEffectiveLastReviewDatesBatch(routineRows, applicationId)
 
 	// Step 5: Build results
 	const results: RoutineDeadlineInfo[] = []
@@ -3262,7 +3701,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
@@ -3375,22 +3814,12 @@ export async function getRoutineDeadlinesForAppByPersistence(
 
 	const appName = await resolveAppName(applicationId, opts)
 
-	// Get latest completed reviews
-	const latestReviews = await db
-		.selectDistinctOn([routineReviews.routineId], {
-			routineId: routineReviews.routineId,
-			reviewedAt: routineReviews.reviewedAt,
-		})
-		.from(routineReviews)
-		.where(
-			and(
-				inArray(routineReviews.routineId, routineIdList),
-				eq(routineReviews.applicationId, applicationId),
-				eq(routineReviews.status, "completed"),
-			),
-		)
-		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	// Get effective review dates for all routines (respects deadlinePolicy)
+	const routineRowsForBatch = matchingRoutines.map((m) => ({
+		id: m.routine.id,
+		sourceRoutineId: m.routine.sourceRoutineId,
+	}))
+	const reviewDateMap = await getEffectiveLastReviewDatesBatch(routineRowsForBatch, applicationId)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const { routine, matchedLinks } of matchingRoutines) {
@@ -3404,7 +3833,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
@@ -3554,22 +3983,12 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 
 	const appName = await resolveAppName(applicationId, opts)
 
-	// Get latest completed reviews
-	const latestReviews = await db
-		.selectDistinctOn([routineReviews.routineId], {
-			routineId: routineReviews.routineId,
-			reviewedAt: routineReviews.reviewedAt,
-		})
-		.from(routineReviews)
-		.where(
-			and(
-				inArray(routineReviews.routineId, routineIdList),
-				eq(routineReviews.applicationId, applicationId),
-				eq(routineReviews.status, "completed"),
-			),
-		)
-		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	// Get effective review dates for all routines (respects deadlinePolicy)
+	const routineRowsForBatch = matchingRoutines.map((m) => ({
+		id: m.routine.id,
+		sourceRoutineId: m.routine.sourceRoutineId,
+	}))
+	const reviewDateMap = await getEffectiveLastReviewDatesBatch(routineRowsForBatch, applicationId)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const { routine } of matchingRoutines) {
@@ -3583,7 +4002,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
@@ -3695,22 +4114,12 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 
 	const appName = await resolveAppName(applicationId, opts)
 
-	// Get latest completed reviews
-	const latestReviews = await db
-		.selectDistinctOn([routineReviews.routineId], {
-			routineId: routineReviews.routineId,
-			reviewedAt: routineReviews.reviewedAt,
-		})
-		.from(routineReviews)
-		.where(
-			and(
-				inArray(routineReviews.routineId, routineIdList),
-				eq(routineReviews.applicationId, applicationId),
-				eq(routineReviews.status, "completed"),
-			),
-		)
-		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	// Get effective review dates for all routines (respects deadlinePolicy)
+	const routineRowsForBatch = candidateRoutines.map((r) => ({
+		id: r.id,
+		sourceRoutineId: r.sourceRoutineId,
+	}))
+	const reviewDateMap = await getEffectiveLastReviewDatesBatch(routineRowsForBatch, applicationId)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const routine of candidateRoutines) {
@@ -3724,7 +4133,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
@@ -3812,21 +4221,12 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 
 	const appName = await resolveAppName(applicationId, opts)
 
-	const latestReviews = await db
-		.selectDistinctOn([routineReviews.routineId], {
-			routineId: routineReviews.routineId,
-			reviewedAt: routineReviews.reviewedAt,
-		})
-		.from(routineReviews)
-		.where(
-			and(
-				inArray(routineReviews.routineId, uniqueIds),
-				eq(routineReviews.applicationId, applicationId),
-				eq(routineReviews.status, "completed"),
-			),
-		)
-		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	// Get effective review dates for all routines (respects deadlinePolicy)
+	const routineRowsForBatch = routineRows.map((r) => ({
+		id: r.id,
+		sourceRoutineId: r.sourceRoutineId,
+	}))
+	const reviewDateMap = await getEffectiveLastReviewDatesBatch(routineRowsForBatch, applicationId)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const routine of routineRows) {
@@ -3840,7 +4240,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
@@ -3988,21 +4388,12 @@ export async function getRoutineDeadlinesForAppBySection(
 
 	const appName = await resolveAppName(applicationId, opts)
 
-	const latestReviews = await db
-		.selectDistinctOn([routineReviews.routineId], {
-			routineId: routineReviews.routineId,
-			reviewedAt: routineReviews.reviewedAt,
-		})
-		.from(routineReviews)
-		.where(
-			and(
-				inArray(routineReviews.routineId, routineIdList),
-				eq(routineReviews.applicationId, applicationId),
-				eq(routineReviews.status, "completed"),
-			),
-		)
-		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	// Get effective review dates for all routines (respects deadlinePolicy)
+	const routineRowsForBatch = matchingRoutines.map((r) => ({
+		id: r.id,
+		sourceRoutineId: r.sourceRoutineId,
+	}))
+	const reviewDateMap = await getEffectiveLastReviewDatesBatch(routineRowsForBatch, applicationId)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const routine of matchingRoutines) {
@@ -4049,7 +4440,7 @@ export async function getRoutineDeadlinesForAppBySection(
 			oracleRoleCriticalities: routineOracle,
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
@@ -4154,21 +4545,12 @@ export async function getRoutineDeadlinesForAppByRuleset(
 
 	const appName = await resolveAppName(applicationId, opts)
 
-	const latestReviews = await db
-		.selectDistinctOn([routineReviews.routineId], {
-			routineId: routineReviews.routineId,
-			reviewedAt: routineReviews.reviewedAt,
-		})
-		.from(routineReviews)
-		.where(
-			and(
-				inArray(routineReviews.routineId, uniqueIds),
-				eq(routineReviews.applicationId, applicationId),
-				eq(routineReviews.status, "completed"),
-			),
-		)
-		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r.reviewedAt]))
+	// Get effective review dates for all routines (respects deadlinePolicy)
+	const routineRowsForBatch = routineRows.map((r) => ({
+		id: r.id,
+		sourceRoutineId: r.sourceRoutineId,
+	}))
+	const reviewDateMap = await getEffectiveLastReviewDatesBatch(routineRowsForBatch, applicationId)
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const routine of routineRows) {
@@ -4182,7 +4564,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			oracleRoleCriticalities: [],
 		}
 
-		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
+		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		results.push({
@@ -4243,7 +4625,78 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 
 	const routineIds = sectionRoutineRows.map((r) => r.id)
 
-	// Get latest completed section-level review (applicationId IS NULL) per routine
+	// Get effective review dates for all section routines (respects deadlinePolicy)
+	// This internally fetches reviews for both current and source routines
+	const reviewDateMap = await getEffectiveLastReviewDatesBatch(sectionRoutineRows, null)
+
+	// Now fetch the full review objects for routines that have reviews
+	// We need to determine which routines to fetch reviews for based on deadlinePolicy
+
+	// Collect all routineIds that might have reviews (current + transitive sources)
+	const routineIdsToFetchReviews = new Set<string>(routineIds)
+	const policyMap = new Map<string, string>()
+
+	// For each routine with a sourceRoutineId, check deadlinePolicy and potentially add source
+	const sourceRoutineIds = sectionRoutineRows.map((r) => r.sourceRoutineId).filter((id): id is string => id !== null)
+
+	if (sourceRoutineIds.length > 0) {
+		// Fetch audit log to determine policy for each routine
+		const auditEntries = await db
+			.select({
+				routineId: auditLog.entityId,
+				metadata: auditLog.metadata,
+			})
+			.from(auditLog)
+			.where(
+				and(
+					eq(auditLog.action, "routine_replaced"),
+					eq(auditLog.entityType, "routine"),
+					inArray(auditLog.entityId, routineIds),
+				),
+			)
+			.orderBy(auditLog.entityId, desc(auditLog.performedAt))
+
+		const seenRoutines = new Set<string>()
+		for (const entry of auditEntries) {
+			if (!seenRoutines.has(entry.routineId)) {
+				seenRoutines.add(entry.routineId)
+				// audit_log.metadata is stored as JSON string - parse it
+				let policy: string | undefined
+				if (entry.metadata) {
+					try {
+						const parsed = JSON.parse(entry.metadata)
+						policy = parsed?.deadlinePolicy
+					} catch {
+						// Invalid JSON - treat as missing policy
+					}
+				}
+				if (policy) {
+					policyMap.set(entry.routineId, policy)
+				}
+			}
+		}
+
+		// For each routine with "continue" policy, we need to fetch reviews from the source
+		for (const routine of sectionRoutineRows) {
+			if (routine.sourceRoutineId && policyMap.get(routine.id) === "continue") {
+				// Walk the chain transitively to find the effective source
+				let effectiveSource = routine.sourceRoutineId
+				let depth = 0
+				while (depth < 10) {
+					routineIdsToFetchReviews.add(effectiveSource)
+					// Check if this source also has a source with "continue"
+					const sourceRoutine = sectionRoutineRows.find((r) => r.id === effectiveSource)
+					if (!sourceRoutine?.sourceRoutineId || policyMap.get(effectiveSource) !== "continue") {
+						break
+					}
+					effectiveSource = sourceRoutine.sourceRoutineId
+					depth++
+				}
+			}
+		}
+	}
+
+	// Fetch reviews for all relevant routine IDs
 	const latestReviews = await db
 		.selectDistinctOn([routineReviews.routineId], {
 			routineId: routineReviews.routineId,
@@ -4256,7 +4709,7 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 		.from(routineReviews)
 		.where(
 			and(
-				inArray(routineReviews.routineId, routineIds),
+				inArray(routineReviews.routineId, [...routineIdsToFetchReviews]),
 				isNull(routineReviews.applicationId),
 				eq(routineReviews.status, "completed"),
 			),
@@ -4265,10 +4718,40 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 
 	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r]))
 
+	// Build result - determine effectiveRoutineId using the same logic as getEffectiveLastReviewDatesBatch
 	return sectionRoutineRows.map((routine) => {
-		const lastReview = reviewByRoutine.get(routine.id) ?? null
-		const lastReviewDate = lastReview?.reviewedAt ?? null
+		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
+
+		// Find which routine's review we should return by walking the chain
+		let effectiveRoutineId = routine.id
+
+		if (routine.sourceRoutineId) {
+			const policy = policyMap.get(routine.id)
+			if (policy === "continue") {
+				// Walk the chain to find the effective source (same as batch function logic)
+				let current = routine.sourceRoutineId
+				let depth = 0
+				while (depth < 10) {
+					// Check if this routine has a review
+					if (reviewByRoutine.has(current)) {
+						effectiveRoutineId = current
+						break
+					}
+					// Check if this routine also has a source with "continue"
+					const sourceRoutine = sectionRoutineRows.find((r) => r.id === current)
+					if (!sourceRoutine?.sourceRoutineId || policyMap.get(current) !== "continue") {
+						// No review found in chain, use current routine id
+						break
+					}
+					current = sourceRoutine.sourceRoutineId
+					depth++
+				}
+			}
+		}
+
+		const lastReview = reviewByRoutine.get(effectiveRoutineId) ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+
 		return {
 			routine,
 			lastReview,
