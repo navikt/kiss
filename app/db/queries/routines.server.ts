@@ -2499,6 +2499,62 @@ export async function addFollowUpPointAttachment(params: {
 
 // ─── Eligibility — which apps need a routine? ────────────────────────────
 
+/**
+ * Filters a list of candidate app IDs against a routine's optional constraints.
+ * Applied as AND-logic: each non-empty constraint type must be satisfied independently.
+ * If a routine has no constraints of a given type, that type is skipped (no-op).
+ *
+ * Reuses the same reverse-lookup helpers as the non-section routine paths so that
+ * section routines and regular routines behave consistently.
+ */
+async function applyRoutineConstraintFilters(
+	candidateIds: string[],
+	constraints: {
+		technologyElements: Array<{ id: string }>
+		persistenceLinks: Array<{ persistenceType: PersistenceType | null; dataClassification: DataClassification | null }>
+		oracleRoleCriticalities: Array<{ criticality: GroupCriticality | null }>
+	},
+): Promise<string[]> {
+	let filtered = candidateIds
+
+	// Technology elements: app must have ≥1 confirmed, non-rejected element from the routine's list
+	if (constraints.technologyElements.length > 0) {
+		const elementIds = constraints.technologyElements.map((e) => e.id)
+		const rows = await db
+			.selectDistinct({ applicationId: applicationTechnologyElements.applicationId })
+			.from(applicationTechnologyElements)
+			.where(
+				and(
+					inArray(applicationTechnologyElements.applicationId, filtered),
+					inArray(applicationTechnologyElements.elementId, elementIds),
+					isNull(applicationTechnologyElements.archivedAt),
+					isNotNull(applicationTechnologyElements.confirmedAt),
+					isNull(applicationTechnologyElements.rejectedAt),
+				),
+			)
+		const passing = new Set(rows.map((r) => r.applicationId))
+		filtered = filtered.filter((id) => passing.has(id))
+		if (filtered.length === 0) return []
+	}
+
+	// Persistence: app must match ≥1 of the routine's persistence links, scoped to candidates
+	if (constraints.persistenceLinks.length > 0) {
+		const persAppIds = await findAppsByPersistenceMatch(constraints.persistenceLinks, filtered)
+		const passing = new Set(persAppIds)
+		filtered = filtered.filter((id) => passing.has(id))
+		if (filtered.length === 0) return []
+	}
+
+	// Oracle role criticality: app must have a matching Oracle role assessment, scoped to candidates
+	if (constraints.oracleRoleCriticalities.length > 0) {
+		const orcAppIds = await findAppsByOracleRoleCriticalityMatch(constraints.oracleRoleCriticalities, filtered)
+		const passing = new Set(orcAppIds)
+		filtered = filtered.filter((id) => passing.has(id))
+	}
+
+	return filtered
+}
+
 export async function getAppsRequiringRoutine(
 	routineId: string,
 	opts?: { sectionAppIdsCache?: Map<string, string[]> },
@@ -2506,7 +2562,7 @@ export async function getAppsRequiringRoutine(
 	const routine = await getRoutine(routineId)
 	if (!routine) return []
 
-	// Section routines apply to all apps in the section — resolve via section membership
+	// Section routines: start with all apps in the section, then apply constraints
 	if (routine.isSectionRoutine === 1 && routine.sectionId) {
 		const cache = opts?.sectionAppIdsCache
 		let appIds: string[]
@@ -2517,10 +2573,18 @@ export async function getAppsRequiringRoutine(
 			cache?.set(routine.sectionId, appIds)
 		}
 		if (appIds.length === 0) return []
+
+		const filteredIds = await applyRoutineConstraintFilters(appIds, {
+			technologyElements: routine.technologyElements,
+			persistenceLinks: routine.persistenceLinks,
+			oracleRoleCriticalities: routine.oracleRoleCriticalities,
+		})
+		if (filteredIds.length === 0) return []
+
 		return db
 			.select()
 			.from(monitoredApplications)
-			.where(and(inArray(monitoredApplications.id, appIds), isNull(monitoredApplications.archivedAt)))
+			.where(and(inArray(monitoredApplications.id, filteredIds), isNull(monitoredApplications.archivedAt)))
 			.orderBy(monitoredApplications.name)
 	}
 
@@ -2593,42 +2657,33 @@ export async function getAppsRequiringRoutine(
 
 	if (allMatchedAppIds.size === 0) return []
 
-	// Filter by technology elements if routine requires them
-	let filteredAppIds = [...allMatchedAppIds]
-	if (routine.technologyElements.length > 0) {
-		const elementIds = routine.technologyElements.map((e) => e.id)
-		const appsWithElements = await db
-			.select({
-				applicationId: applicationTechnologyElements.applicationId,
-			})
-			.from(applicationTechnologyElements)
-			.where(
-				and(
-					inArray(applicationTechnologyElements.applicationId, filteredAppIds),
-					inArray(applicationTechnologyElements.elementId, elementIds),
-					isNull(applicationTechnologyElements.archivedAt),
-					isNotNull(applicationTechnologyElements.confirmedAt),
-					isNull(applicationTechnologyElements.rejectedAt),
-				),
-			)
-		filteredAppIds = [...new Set(appsWithElements.map((a) => a.applicationId))]
-	}
+	// Apply tech element constraint filter (the only AND-filter for non-section routines;
+	// persistence and oracle criticality are OR-inclusion paths above, not AND-filters here)
+	const filteredIds = await applyRoutineConstraintFilters([...allMatchedAppIds], {
+		technologyElements: routine.technologyElements,
+		persistenceLinks: [],
+		oracleRoleCriticalities: [],
+	})
 
-	if (filteredAppIds.length === 0) return []
+	if (filteredIds.length === 0) return []
 
 	return db
 		.select()
 		.from(monitoredApplications)
-		.where(and(inArray(monitoredApplications.id, filteredAppIds), isNull(monitoredApplications.archivedAt)))
+		.where(and(inArray(monitoredApplications.id, filteredIds), isNull(monitoredApplications.archivedAt)))
 		.orderBy(monitoredApplications.name)
 }
 
 /** Reverse lookup: find apps that have persistence matching the routine's persistence links.
  * Mirrors forward logic: type and classification are matched independently across
- * all of an app's persistence entries (cross-product), not within a single row. */
+ * all of an app's persistence entries (cross-product), not within a single row.
+ * If `candidateIds` is provided, the query is scoped to those apps only. */
 async function findAppsByPersistenceMatch(
 	persistenceLinks: Array<{ persistenceType: PersistenceType | null; dataClassification: DataClassification | null }>,
+	candidateIds?: string[],
 ): Promise<string[]> {
+	// If caller scoped to a candidate set that is empty, there can be no matches
+	if (candidateIds !== undefined && candidateIds.length === 0) return []
 	// Collect all required types and classifications from the routine's links
 	const requiredTypes = [
 		...new Set(persistenceLinks.map((l) => l.persistenceType).filter(Boolean)),
@@ -2639,6 +2694,9 @@ async function findAppsByPersistenceMatch(
 
 	// Pre-filter persistence entries by relevant types/classifications
 	const filters = [isNull(applicationPersistence.archivedAt)]
+	if (candidateIds && candidateIds.length > 0) {
+		filters.push(inArray(applicationPersistence.applicationId, candidateIds))
+	}
 	if (requiredTypes.length > 0 && requiredClassifications.length > 0) {
 		const combined = or(
 			inArray(applicationPersistence.type, requiredTypes),
@@ -2672,10 +2730,15 @@ async function findAppsByPersistenceMatch(
 		if (entry.dataClassification) sets.classifications.add(entry.dataClassification)
 	}
 
-	// For each app, check if any routine link matches using cross-product logic
+	// For each app, check if any routine link matches using cross-product logic.
+	// Links with both fields null are skipped (no constraint → matches nothing),
+	// consistent with getRoutineDeadlinesForAppBySection forward logic.
+	const effectiveLinks = persistenceLinks.filter((l) => l.persistenceType !== null || l.dataClassification !== null)
+	if (effectiveLinks.length === 0) return []
+
 	const matchedApps = new Set<string>()
 	for (const [appId, sets] of appSets) {
-		for (const link of persistenceLinks) {
+		for (const link of effectiveLinks) {
 			const typeMatch = !link.persistenceType || sets.types.has(link.persistenceType)
 			const classMatch = !link.dataClassification || sets.classifications.has(link.dataClassification)
 			if (typeMatch && classMatch) {
@@ -2746,19 +2809,28 @@ async function findAppsByGroupClassificationMatch(
 	return [...allApps]
 }
 
-/** Reverse lookup: find apps with Oracle roles matching the routine's criticality links */
+/** Reverse lookup: find apps with Oracle roles matching the routine's criticality links.
+ * If `candidateIds` is provided, the query is scoped to those apps only. */
 async function findAppsByOracleRoleCriticalityMatch(
 	oracleRoleCriticalities: Array<{ criticality: GroupCriticality | null }>,
+	candidateIds?: string[],
 ): Promise<string[]> {
+	// If caller scoped to a candidate set that is empty, there can be no matches
+	if (candidateIds !== undefined && candidateIds.length === 0) return []
 	const criticalities = oracleRoleCriticalities
 		.map((orc) => orc.criticality)
 		.filter((c): c is GroupCriticality => c !== null)
 	if (criticalities.length === 0) return []
 
+	const filters = [inArray(oracleRoleAssessments.criticality, criticalities)]
+	if (candidateIds && candidateIds.length > 0) {
+		filters.push(inArray(oracleRoleAssessments.applicationId, candidateIds))
+	}
+
 	const matchingAssessments = await db
 		.select({ applicationId: oracleRoleAssessments.applicationId })
 		.from(oracleRoleAssessments)
-		.where(inArray(oracleRoleAssessments.criticality, criticalities))
+		.where(and(...filters))
 
 	return [...new Set(matchingAssessments.map((r) => r.applicationId))]
 }
@@ -3812,7 +3884,16 @@ export async function getRoutineDeadlinesForAppBySection(
 
 	const routineIdList = matchingRoutines.map((r) => r.id)
 
-	const [allElements, allScreeningLinks, allPersLinks] = await Promise.all([
+	// Load routine constraints and app's own attributes in parallel
+	const [
+		allElements,
+		allScreeningLinks,
+		allPersLinks,
+		allOracleLinks,
+		appTechElements,
+		appPersistence,
+		appOracleAssessments,
+	] = await Promise.all([
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -3836,6 +3917,40 @@ export async function getRoutineDeadlinesForAppBySection(
 			.where(
 				and(inArray(routinePersistenceLinks.routineId, routineIdList), isNull(routinePersistenceLinks.archivedAt)),
 			),
+		db
+			.select()
+			.from(routineOracleRoleCriticalityLinks)
+			.where(
+				and(
+					inArray(routineOracleRoleCriticalityLinks.routineId, routineIdList),
+					isNull(routineOracleRoleCriticalityLinks.archivedAt),
+				),
+			),
+		// App's confirmed, non-rejected technology elements
+		db
+			.select({ elementId: applicationTechnologyElements.elementId })
+			.from(applicationTechnologyElements)
+			.where(
+				and(
+					eq(applicationTechnologyElements.applicationId, applicationId),
+					isNull(applicationTechnologyElements.archivedAt),
+					isNotNull(applicationTechnologyElements.confirmedAt),
+					isNull(applicationTechnologyElements.rejectedAt),
+				),
+			),
+		// App's non-archived persistence entries
+		db
+			.select({
+				type: applicationPersistence.type,
+				dataClassification: applicationPersistence.dataClassification,
+			})
+			.from(applicationPersistence)
+			.where(and(eq(applicationPersistence.applicationId, applicationId), isNull(applicationPersistence.archivedAt))),
+		// App's Oracle role assessments
+		db
+			.select({ criticality: oracleRoleAssessments.criticality })
+			.from(oracleRoleAssessments)
+			.where(eq(oracleRoleAssessments.applicationId, applicationId)),
 	])
 
 	const elemsByRoutine = new Map<string, { id: string; name: string }[]>()
@@ -3856,6 +3971,20 @@ export async function getRoutineDeadlinesForAppBySection(
 		list.push(p)
 		persByRoutine.set(p.routineId, list)
 	}
+	const oracleByRoutine = new Map<string, typeof allOracleLinks>()
+	for (const o of allOracleLinks) {
+		const list = oracleByRoutine.get(o.routineId) ?? []
+		list.push(o)
+		oracleByRoutine.set(o.routineId, list)
+	}
+
+	// Pre-build app attribute sets for O(1) constraint checks
+	const appElementIds = new Set(appTechElements.map((e) => e.elementId))
+	const appPersTypes = new Set(appPersistence.map((p) => p.type))
+	const appPersClassifications = new Set(
+		appPersistence.map((p) => p.dataClassification).filter((c): c is DataClassification => c !== null),
+	)
+	const appOracleCriticalities = new Set(appOracleAssessments.map((a) => a.criticality))
 
 	const appName = await resolveAppName(applicationId, opts)
 
@@ -3877,14 +4006,47 @@ export async function getRoutineDeadlinesForAppBySection(
 
 	const results: RoutineDeadlineInfo[] = []
 	for (const routine of matchingRoutines) {
+		const routineElements = elemsByRoutine.get(routine.id) ?? []
+		const routinePers = persByRoutine.get(routine.id) ?? []
+		const routineOracle = oracleByRoutine.get(routine.id) ?? []
+
+		// Technology element constraint: app must have ≥1 matching confirmed element
+		if (routineElements.length > 0) {
+			const hasMatch = routineElements.some((e) => appElementIds.has(e.id))
+			if (!hasMatch) continue
+		}
+
+		// Persistence constraint: app must satisfy ≥1 persistence link (type AND classification, cross-product).
+		// A link with both fields null is skipped (matches nothing — consistent with findAppsByPersistenceMatch).
+		// App must have at least one persistence entry for any persistence link to fire.
+		if (routinePers.length > 0) {
+			const effectiveLinks = routinePers.filter((l) => l.persistenceType !== null || l.dataClassification !== null)
+			const hasMatch =
+				effectiveLinks.length > 0 &&
+				appPersTypes.size > 0 &&
+				effectiveLinks.some((link) => {
+					const typeOk = !link.persistenceType || appPersTypes.has(link.persistenceType)
+					const classOk = !link.dataClassification || appPersClassifications.has(link.dataClassification)
+					return typeOk && classOk
+				})
+			if (!hasMatch) continue
+		}
+
+		// Oracle criticality constraint: app must have ≥1 matching Oracle role assessment.
+		// criticality is a NOT NULL enum, so every link always has a value.
+		if (routineOracle.length > 0) {
+			const hasMatch = routineOracle.some((link) => appOracleCriticalities.has(link.criticality))
+			if (!hasMatch) continue
+		}
+
 		const fullRoutine = {
 			...routine,
-			technologyElements: elemsByRoutine.get(routine.id) ?? [],
+			technologyElements: routineElements,
 			screeningQuestions: screenByRoutine.get(routine.id) ?? [],
-			persistenceLinks: persByRoutine.get(routine.id) ?? [],
+			persistenceLinks: routinePers,
 			controls: [],
 			groupClassifications: [],
-			oracleRoleCriticalities: [],
+			oracleRoleCriticalities: routineOracle,
 		}
 
 		const lastReviewDate = reviewByRoutine.get(routine.id) ?? null
