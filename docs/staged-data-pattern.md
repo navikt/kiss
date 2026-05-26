@@ -346,7 +346,7 @@ audit-logges atomisk i samme transaksjon (se A5).
 Dersom commit seeder, **SKAL** seed-resultatet bygges *utenfor* advisory lock og/eller
 *utenfor* `db.transaction`. Eksternt API-kall inne i lock/tx blokkerer connection-pool
 og gir økt konfliktfare. Dokumenter eksplisitt i koden hvis dette unntaksvis ikke er mulig,
-og grunngi hvorfor det er akseptabelt.
+og begrunn hvorfor det er akseptabelt.
 
 ---
 
