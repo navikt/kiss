@@ -196,7 +196,7 @@ audit-logges i transaksjonen **før** wasNoOp-sjekken:
 // 5. recordXxxChange (endringslogg for selve patchen)
 ```
 
-Begrunnelse: wasNoOp-return hopper over endringslogg-kallet, men seeding SKAL alltid loggast
+Begrunnelse: wasNoOp-return hopper over endringslogg-kallet, men seeding SKAL alltid logges
 uansett om patchen er en no-op.
 
 ### B3. No-op-deteksjon krever deterministisk rekkefølge
