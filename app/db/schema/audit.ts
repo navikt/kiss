@@ -101,6 +101,7 @@ export const auditLogActionEnum = [
 	// Manuelle grupperinger og kritikalitet/klassifisering
 	"manual_group_added",
 	"manual_group_removed",
+	"ghost_group_archived",
 	"group_criticality_updated",
 	"group_classification_updated",
 	"oracle_role_criticality_updated",
@@ -171,6 +172,7 @@ export const auditLogActionEnum = [
 	"review_follow_up_attachment_uploaded",
 	"review_activity_created",
 	"review_activity_completed",
+	"review_activity_seeded",
 	"review_activity_entra_change",
 	"routine_technology_element_added",
 	"routine_technology_element_removed",

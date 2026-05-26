@@ -225,6 +225,19 @@ describe("Database migrations", () => {
 			const colNames = columns.rows.map((r) => r.column_name)
 			expect(colNames).toContain("staged_data")
 		})
+
+		it("should include archived_at column on application_group_assessments (migration 0096)", async () => {
+			await runMigrations()
+
+			const columns = await testDb.execute<{ column_name: string }>(sql`
+				SELECT column_name FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'application_group_assessments'
+				ORDER BY column_name
+			`)
+			const colNames = columns.rows.map((r) => r.column_name)
+			expect(colNames).toContain("archived_at")
+			expect(colNames).toContain("archived_by")
+		})
 	})
 
 	// ── 2. Idempotency ──────────────────────────────────────────────────

@@ -2854,12 +2854,14 @@ export async function removeManualGroup(id: string, applicationId: string, perfo
 
 // ─── Group Criticality Assessments ───────────────────────────────────────
 
-/** Get all group criticality assessments for an application. */
+/** Get active (non-archived) group criticality assessments for an application. */
 export async function getGroupAssessmentsForApp(applicationId: string) {
 	return db
 		.select()
 		.from(applicationGroupAssessments)
-		.where(eq(applicationGroupAssessments.applicationId, applicationId))
+		.where(
+			and(eq(applicationGroupAssessments.applicationId, applicationId), isNull(applicationGroupAssessments.archivedAt)),
+		)
 }
 
 /** Set or update the criticality assessment for a group. */
@@ -2869,56 +2871,65 @@ export async function upsertGroupCriticality(
 	criticality: GroupCriticality,
 	performedBy: string,
 ) {
-	const existing = await db
-		.select()
-		.from(applicationGroupAssessments)
-		.where(
-			and(
-				eq(applicationGroupAssessments.applicationId, applicationId),
-				eq(applicationGroupAssessments.groupId, groupId),
-			),
-		)
-		.then((rows) => rows[0] ?? null)
+	return db.transaction(async (tx) => {
+		const existing = await tx
+			.select()
+			.from(applicationGroupAssessments)
+			.where(
+				and(
+					eq(applicationGroupAssessments.applicationId, applicationId),
+					eq(applicationGroupAssessments.groupId, groupId),
+					isNull(applicationGroupAssessments.archivedAt),
+				),
+			)
+			.then((rows) => rows[0] ?? null)
 
-	if (existing) {
-		const [updated] = await db
-			.update(applicationGroupAssessments)
-			.set({ criticality, updatedBy: performedBy, updatedAt: new Date() })
-			.where(eq(applicationGroupAssessments.id, existing.id))
+		if (existing) {
+			const [updated] = await tx
+				.update(applicationGroupAssessments)
+				.set({ criticality, updatedBy: performedBy, updatedAt: new Date(), archivedAt: null, archivedBy: null })
+				.where(eq(applicationGroupAssessments.id, existing.id))
+				.returning()
+
+			await writeAuditLog(
+				{
+					action: "group_criticality_updated",
+					entityType: "application",
+					entityId: applicationId,
+					previousValue: JSON.stringify({ groupId, criticality: existing.criticality }),
+					newValue: JSON.stringify({ groupId, criticality }),
+					performedBy,
+				},
+				tx,
+			)
+
+			return updated
+		}
+
+		const [inserted] = await tx
+			.insert(applicationGroupAssessments)
+			.values({
+				applicationId,
+				groupId,
+				criticality,
+				assessedBy: performedBy,
+				updatedBy: performedBy,
+			})
 			.returning()
 
-		await writeAuditLog({
-			action: "group_criticality_updated",
-			entityType: "application",
-			entityId: applicationId,
-			previousValue: JSON.stringify({ groupId, criticality: existing.criticality }),
-			newValue: JSON.stringify({ groupId, criticality }),
-			performedBy,
-		})
+		await writeAuditLog(
+			{
+				action: "group_criticality_updated",
+				entityType: "application",
+				entityId: applicationId,
+				newValue: JSON.stringify({ groupId, criticality }),
+				performedBy,
+			},
+			tx,
+		)
 
-		return updated
-	}
-
-	const [inserted] = await db
-		.insert(applicationGroupAssessments)
-		.values({
-			applicationId,
-			groupId,
-			criticality,
-			assessedBy: performedBy,
-			updatedBy: performedBy,
-		})
-		.returning()
-
-	await writeAuditLog({
-		action: "group_criticality_updated",
-		entityType: "application",
-		entityId: applicationId,
-		newValue: JSON.stringify({ groupId, criticality }),
-		performedBy,
+		return inserted
 	})
-
-	return inserted
 }
 
 // ─── Section-level Group Aggregation ─────────────────────────────────────

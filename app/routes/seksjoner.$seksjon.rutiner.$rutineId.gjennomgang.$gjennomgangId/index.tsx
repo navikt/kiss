@@ -18,7 +18,8 @@ import {
 	getRoutineActivityLinks,
 	getRoutineArchivedStatusByReviewId,
 	hasReviewActivityType,
-	recordEntraChange,
+	patchEntraActivity,
+	seedEntraActivity,
 	updateFollowUpPointDescription,
 	updateFollowUpPointStatus,
 	updateFollowUpPointText,
@@ -29,10 +30,16 @@ import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applica
 import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus, RPA_DECISION_VALUES } from "~/db/schema/routines"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import {
+	type EntraCriticality,
+	entraCriticalityValues,
+	parseEntraGroupSnapshot,
+	parseEntraStagedData,
+} from "~/lib/entra-staged-data"
 import { logger } from "~/lib/logger.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
-import { EntraMaintenanceSection } from "./components/activities/EntraMaintenanceSection"
+import { EntraMaintenanceSection, type EntraStagedGroupsProp } from "./components/activities/EntraMaintenanceSection"
 import {
 	type RpaMaintenanceData,
 	type RpaUserAssessmentEntry,
@@ -76,6 +83,116 @@ function parseOracleInstanceFromProviderConfig(providerConfig: unknown): string 
 	}
 	const instanceId = (providerConfig as Record<string, unknown>).instanceId
 	return typeof instanceId === "string" && instanceId ? instanceId : null
+}
+
+function toEntraGroupsData(
+	groups: Array<{
+		groupId: string
+		groupName: string | null
+		source: "nais_auth" | "manual" | "ghost"
+		hasNaisSource: boolean
+		hasManualSource: boolean
+		isGone: boolean
+		criticality: EntraCriticality | null
+		isNewAssessment?: boolean
+		isAddedDuringReview?: boolean
+	}>,
+): EntraStagedGroupsProp {
+	return {
+		groups: groups.map((group) => ({
+			groupId: group.groupId,
+			groupName: group.groupName,
+			source: group.source,
+			hasNaisSource: group.hasNaisSource,
+			hasManualSource: group.hasManualSource,
+			isGone: group.isGone,
+			isNewAssessment: group.isNewAssessment ?? false,
+			isAddedDuringReview: group.isAddedDuringReview ?? false,
+			criticality: group.criticality,
+		})),
+	}
+}
+
+function parseLegacyEntraSnapshot(snapshot: unknown): EntraStagedGroupsProp | null {
+	if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+		return null
+	}
+
+	const groups = (snapshot as { groups?: unknown }).groups
+	if (!Array.isArray(groups)) {
+		return null
+	}
+
+	type RawEntry = {
+		groupId: string
+		groupName: string | null
+		source: "nais" | "manual" | "removed"
+		criticality: EntraCriticality | null
+	}
+	const validEntries: RawEntry[] = []
+	for (const group of groups) {
+		if (!group || typeof group !== "object" || Array.isArray(group)) {
+			continue
+		}
+
+		const entry = group as {
+			groupId?: unknown
+			groupName?: unknown
+			source?: unknown
+			criticality?: unknown
+		}
+
+		if (typeof entry.groupId !== "string") {
+			continue
+		}
+		if (entry.source !== "nais" && entry.source !== "manual" && entry.source !== "removed") {
+			continue
+		}
+
+		const rawCriticality = typeof entry.criticality === "string" ? entry.criticality : null
+		const criticality: EntraCriticality | null =
+			rawCriticality !== null && (entraCriticalityValues as readonly string[]).includes(rawCriticality)
+				? (rawCriticality as EntraCriticality)
+				: null
+
+		validEntries.push({
+			groupId: entry.groupId,
+			groupName: typeof entry.groupName === "string" ? entry.groupName : null,
+			source: entry.source,
+			criticality,
+		})
+	}
+
+	// Merge entries with the same groupId — legacy snapshots can have both a
+	// "nais" and a "manual" row for overlapping groups.
+	const merged = new Map<string, EntraStagedGroupsProp["groups"][number]>()
+	for (const entry of validEntries) {
+		const existing = merged.get(entry.groupId)
+		const hasNaisSource = entry.source === "nais" || (existing?.hasNaisSource ?? false)
+		const hasManualSource = entry.source === "manual" || (existing?.hasManualSource ?? false)
+		const source: "nais_auth" | "manual" | "ghost" = hasNaisSource ? "nais_auth" : hasManualSource ? "manual" : "ghost"
+		merged.set(entry.groupId, {
+			groupId: entry.groupId,
+			groupName: entry.groupName ?? existing?.groupName ?? null,
+			source,
+			hasNaisSource,
+			hasManualSource,
+			isGone: false,
+			isNewAssessment: false,
+			isAddedDuringReview: false,
+			criticality: entry.criticality ?? existing?.criticality ?? null,
+		})
+	}
+
+	return { groups: [...merged.values()] }
+}
+
+function getCompletedEntraGroupsData(snapshot: unknown): EntraStagedGroupsProp | null {
+	try {
+		return toEntraGroupsData(parseEntraGroupSnapshot(snapshot).groups)
+	} catch {
+		return parseLegacyEntraSnapshot(snapshot)
+	}
 }
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -123,13 +240,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	}
 
 	// Build per-activity evidence data
-	type EntraGroupsData = {
-		naisGroupIds: string[]
-		manualGroups: Array<{ id: string; groupId: string; groupName: string | null; createdBy: string; createdAt: string }>
-		ghostGroupIds: string[]
-		groupNames: Record<string, string>
-		assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
-	}
+	type EntraGroupsData = EntraStagedGroupsProp
 
 	type OracleEvidenceData = {
 		configuredInstances: Array<{ instanceId: string }>
@@ -204,41 +315,14 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		const evidenceProviderType = getProviderTypeForActivity(activity.type)
 
 		try {
-			if (activity.type === "entra_id_group_maintenance" && review.applicationId) {
-				const { getManualGroupsForApp, getGroupAssessmentsForApp } = await import("~/db/queries/nais.server")
-				const { resolveGroupNames } = await import("~/lib/graph.server")
-				const [manualGroups, groupAssessments] = await Promise.all([
-					getManualGroupsForApp(review.applicationId),
-					getGroupAssessmentsForApp(review.applicationId),
-				])
-				const naisGroupIds: string[] = []
-				for (const auth of appAuthIntegrations) {
-					if (auth.groups) {
-						const groups = JSON.parse(auth.groups) as string[]
-						naisGroupIds.push(...groups)
-					}
-				}
-				const naisGroupIdSet = new Set(naisGroupIds)
-				const manualGroupIdSet = new Set(manualGroups.map((g) => g.groupId))
-				const ghostGroupIds = groupAssessments
-					.filter((a) => !naisGroupIdSet.has(a.groupId) && !manualGroupIdSet.has(a.groupId))
-					.map((a) => a.groupId)
-				const allGroupIds = [...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds])]
-				const groupNames = await resolveGroupNames(allGroupIds)
-				const assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }> = {}
-				for (const a of groupAssessments) {
-					assessmentsByGroupId[a.groupId] = {
-						criticality: a.criticality,
-						updatedBy: a.updatedBy,
-						updatedAt: a.updatedAt.toISOString(),
-					}
-				}
-				actEntraGroupsData = {
-					naisGroupIds,
-					manualGroups: manualGroups.map((g) => ({ ...g, createdAt: g.createdAt.toISOString() })),
-					ghostGroupIds,
-					groupNames,
-					assessmentsByGroupId,
+			if (activity.type === "entra_id_group_maintenance") {
+				if (activity.status === "completed") {
+					actEntraGroupsData = getCompletedEntraGroupsData(activity.snapshotAfter)
+				} else if (review.applicationId) {
+					const stagedData = activity.stagedData
+						? parseEntraStagedData(activity.stagedData)
+						: await seedEntraActivity(activity.id, review.applicationId, "system")
+					actEntraGroupsData = toEntraGroupsData(stagedData.groups)
 				}
 			}
 
@@ -375,9 +459,14 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				}
 			}
 		} catch (err) {
-			logger.error(`Failed to load evidence data for activity ${activity.id} (${activity.type})`, {
-				error: err,
-			})
+			logger.error(
+				`Failed to load evidence data for activity ${activity.id} (${activity.type})`,
+				err instanceof Error ? err : { details: String(err) },
+			)
+			const evidenceLoadError =
+				err instanceof Response && err.status === 409
+					? "Gjennomgangen er låst av en annen operasjon. Prøv å laste siden på nytt om noen sekunder."
+					: "Kunne ikke laste bevisdata. Prøv å laste siden på nytt."
 			activitiesWithEvidence.push({
 				id: activity.id,
 				type: activity.type,
@@ -395,7 +484,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				ndaEvidenceData: null,
 				rpaMaintenanceData: null,
 				evidenceProviderType,
-				evidenceLoadError: "Kunne ikke laste bevisdata. Prøv å laste siden på nytt.",
+				evidenceLoadError,
 			})
 			continue
 		}
@@ -645,50 +734,94 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 		const review = await getReview(gjennomgangId)
 		if (!review?.applicationId) {
-			return data<ActionResult>({ success: false, error: "Ingen applikasjon tilknyttet", intent: "add-manual-group" })
+			return data<ActionResult>({ success: false, error: "Ingen applikasjon", intent: "add-manual-group" })
 		}
-		const { addManualGroup } = await import("~/db/queries/nais.server")
-		await addManualGroup(review.applicationId, groupId, groupName, authedUser.navIdent)
 		const activity = await getReviewActivityByType(gjennomgangId, "entra_id_group_maintenance")
-		if (activity) {
-			await recordEntraChange({
-				activityId: activity.id,
-				changeType: "added",
-				groupId,
-				groupName,
-				previousValue: null,
-				newValue: groupName ?? groupId,
-				performedBy: authedUser.navIdent,
-			})
+		if (!activity) {
+			return data<ActionResult>(
+				{ success: false, error: "Fant ikke Entra-aktivitet", intent: "add-manual-group" },
+				{ status: 404 },
+			)
 		}
+		try {
+			await patchEntraActivity(activity.id, { op: "add-group", groupId, groupName }, authedUser.navIdent)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = e.status === 409 ? "Gjennomgangen er låst av en annen operasjon. Prøv igjen." : await e.text()
+				return data<ActionResult>({ success: false, error, intent: "add-manual-group" }, { status: e.status })
+			}
+			throw e
+		}
+
 		return data<ActionResult>({ success: true, intent: "add-manual-group" })
 	}
 
 	if (intent === "remove-manual-group") {
-		const manualGroupId = (formData.get("manualGroupId") as string)?.trim()
-		const groupId = (formData.get("groupId") as string)?.trim() || null
-		const groupName = (formData.get("groupName") as string)?.trim() || null
-		if (!manualGroupId) {
-			return data<ActionResult>({ success: false, error: "Mangler ID", intent: "remove-manual-group" })
+		const groupId = (formData.get("groupId") as string)?.trim()
+		if (!groupId) {
+			return data<ActionResult>({ success: false, error: "Mangler gruppe-ID", intent: "remove-manual-group" })
 		}
 		const review = await getReview(gjennomgangId)
 		if (!review?.applicationId) {
 			return data<ActionResult>({ success: false, error: "Ingen applikasjon", intent: "remove-manual-group" })
 		}
-		const { removeManualGroup } = await import("~/db/queries/nais.server")
-		await removeManualGroup(manualGroupId, review.applicationId, authedUser.navIdent)
 		const activity = await getReviewActivityByType(gjennomgangId, "entra_id_group_maintenance")
-		if (activity && groupId) {
-			await recordEntraChange({
-				activityId: activity.id,
-				changeType: "removed",
-				groupId,
-				groupName,
-				previousValue: groupName ?? groupId,
-				newValue: null,
-				performedBy: authedUser.navIdent,
-			})
+		if (!activity) {
+			return data<ActionResult>(
+				{ success: false, error: "Fant ikke Entra-aktivitet", intent: "remove-manual-group" },
+				{ status: 404 },
+			)
 		}
+		let stagedDataRemove: ReturnType<typeof parseEntraStagedData>
+		try {
+			stagedDataRemove = activity.stagedData
+				? parseEntraStagedData(activity.stagedData)
+				: await seedEntraActivity(activity.id, review.applicationId, authedUser.navIdent)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = e.status === 409 ? "Gjennomgangen er låst av en annen operasjon. Prøv igjen." : await e.text()
+				return data<ActionResult>({ success: false, error, intent: "remove-manual-group" }, { status: e.status })
+			}
+			throw e
+		}
+		const group = stagedDataRemove.groups.find((entry) => entry.groupId === groupId) ?? null
+		if (!group) {
+			return data<ActionResult>(
+				{ success: false, error: "Fant ikke gruppe", intent: "remove-manual-group" },
+				{ status: 404 },
+			)
+		}
+		if (group.isGone) {
+			return data<ActionResult>({ success: true, intent: "remove-manual-group" })
+		}
+		if (group.hasNaisSource && !group.hasManualSource) {
+			// Idempotency: if seededManualGroupId is set, the manual source was already removed
+			// (via remove-manual-source). A stale remove-manual-group is a no-op.
+			if (group.seededManualGroupId !== null) {
+				return data<ActionResult>({ success: true, intent: "remove-manual-group" })
+			}
+			return data<ActionResult>(
+				{ success: false, error: "Kan ikke fjerne en ren NAIS-gruppe manuelt", intent: "remove-manual-group" },
+				{ status: 400 },
+			)
+		}
+
+		try {
+			await patchEntraActivity(
+				activity.id,
+				group.hasNaisSource && group.hasManualSource
+					? { op: "remove-manual-source", groupId }
+					: { op: "mark-gone", groupId },
+				authedUser.navIdent,
+			)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = e.status === 409 ? "Gjennomgangen er låst av en annen operasjon. Prøv igjen." : await e.text()
+				return data<ActionResult>({ success: false, error, intent: "remove-manual-group" }, { status: e.status })
+			}
+			throw e
+		}
+
 		return data<ActionResult>({ success: true, intent: "remove-manual-group" })
 	}
 
@@ -702,22 +835,63 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!review?.applicationId) {
 			return data<ActionResult>({ success: false, error: "Ingen applikasjon", intent: "set-group-criticality" })
 		}
-		const { getGroupAssessmentsForApp, upsertGroupCriticality } = await import("~/db/queries/nais.server")
-		const existingAssessments = await getGroupAssessmentsForApp(review.applicationId)
-		const previousCriticality = existingAssessments.find((a) => a.groupId === groupId)?.criticality ?? null
-		await upsertGroupCriticality(review.applicationId, groupId, criticality as GroupCriticality, authedUser.navIdent)
 		const activity = await getReviewActivityByType(gjennomgangId, "entra_id_group_maintenance")
-		if (activity && previousCriticality !== criticality) {
-			await recordEntraChange({
-				activityId: activity.id,
-				changeType: "criticality_changed",
-				groupId,
-				groupName: null,
-				previousValue: previousCriticality,
-				newValue: criticality,
-				performedBy: authedUser.navIdent,
-			})
+		if (!activity) {
+			return data<ActionResult>(
+				{ success: false, error: "Fant ikke Entra-aktivitet", intent: "set-group-criticality" },
+				{ status: 404 },
+			)
 		}
+		let stagedDataCriticality: ReturnType<typeof parseEntraStagedData>
+		try {
+			stagedDataCriticality = activity.stagedData
+				? parseEntraStagedData(activity.stagedData)
+				: await seedEntraActivity(activity.id, review.applicationId, authedUser.navIdent)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = e.status === 409 ? "Gjennomgangen er låst av en annen operasjon. Prøv igjen." : await e.text()
+				return data<ActionResult>({ success: false, error, intent: "set-group-criticality" }, { status: e.status })
+			}
+			throw e
+		}
+		const group = stagedDataCriticality.groups.find((entry) => entry.groupId === groupId) ?? null
+		if (!group) {
+			return data<ActionResult>(
+				{ success: false, error: "Fant ikke gruppe", intent: "set-group-criticality" },
+				{ status: 404 },
+			)
+		}
+		if (group.isGone) {
+			return data<ActionResult>(
+				{ success: false, error: "Kan ikke endre kritikalitet for en fjernet gruppe", intent: "set-group-criticality" },
+				{ status: 400 },
+			)
+		}
+
+		if (group.criticality === criticality) {
+			return data<ActionResult>({ success: true, intent: "set-group-criticality" })
+		}
+
+		try {
+			await patchEntraActivity(
+				activity.id,
+				{
+					op: "set-criticality",
+					groupId,
+					criticality: criticality as GroupCriticality,
+					setBy: authedUser.navIdent,
+					setAt: new Date().toISOString(),
+				},
+				authedUser.navIdent,
+			)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = e.status === 409 ? "Gjennomgangen er låst av en annen operasjon. Prøv igjen." : await e.text()
+				return data<ActionResult>({ success: false, error, intent: "set-group-criticality" }, { status: e.status })
+			}
+			throw e
+		}
+
 		return data<ActionResult>({ success: true, intent: "set-group-criticality" })
 	}
 
