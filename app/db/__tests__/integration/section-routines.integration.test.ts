@@ -586,6 +586,7 @@ describe("Section routine constraint filtering", () => {
 			responsibleRole: null,
 			activityType: null,
 			isSectionRoutine: true,
+			sectionRoutineOwnerRole: "Teknologileder",
 			technologyElementIds,
 			persistenceLinks: persistenceLinks.map((p) => ({
 				persistenceType: p.type,
