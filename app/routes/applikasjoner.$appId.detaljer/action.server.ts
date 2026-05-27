@@ -2,14 +2,11 @@ import type { ActionFunctionArgs } from "react-router"
 import { data, redirect } from "react-router"
 import {
 	acknowledgeUnknownApp,
-	addManualGroup,
 	addManualPersistence,
 	archiveManualPersistence,
-	removeManualGroup,
 	revokeAcknowledgment,
 	unarchiveManualPersistence,
 	updatePersistenceClassification,
-	upsertGroupCriticality,
 } from "~/db/queries/nais.server"
 import { isInstanceLinkedToApp, upsertOracleRoleCriticality } from "~/db/queries/oracle-roles.server"
 import { generateAppComplianceReport } from "~/db/queries/reports.server"
@@ -249,33 +246,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
 		await syncApplicationControls(appId, authedUser.navIdent)
 		return data({ success: true, message: "Database reaktivert.", error: null })
-	}
-
-	if (intent === "add-manual-group") {
-		const groupId = (formData.get("groupId") as string)?.trim()
-		const groupName = (formData.get("groupName") as string)?.trim() || null
-		if (!groupId) return data({ success: false, message: null, error: "Mangler gruppe-ID" })
-		const result = await addManualGroup(appId, groupId, groupName, authedUser.navIdent)
-		if (!result) return data({ success: false, message: null, error: "Gruppen finnes allerede" })
-		return data({ success: true, message: `Gruppe "${groupName || groupId}" lagt til.`, error: null })
-	}
-
-	if (intent === "remove-manual-group") {
-		const manualGroupId = formData.get("manualGroupId") as string
-		if (!manualGroupId) throw new Response("Mangler gruppe-ID", { status: 400 })
-		await removeManualGroup(manualGroupId, appId, authedUser.navIdent)
-		return data({ success: true, message: "Gruppe fjernet.", error: null })
-	}
-
-	if (intent === "set-group-criticality") {
-		const groupId = (formData.get("groupId") as string)?.trim()
-		const criticality = formData.get("criticality") as string
-		if (!groupId) return data({ success: false, message: null, error: "Mangler gruppe-ID" })
-		if (!groupCriticalityEnum.includes(criticality as GroupCriticality)) {
-			return data({ success: false, message: null, error: "Ugyldig kritikalitet" })
-		}
-		await upsertGroupCriticality(appId, groupId, criticality as GroupCriticality, authedUser.navIdent)
-		return data({ success: true, message: "Kritikalitet oppdatert.", error: null })
 	}
 
 	if (intent === "set-oracle-role-criticality") {

@@ -334,7 +334,6 @@ export default function ApplikasjonDetalj() {
 						ghostGroupIds={ghostGroupIds}
 						groupNames={groupNames}
 						assessmentsByGroupId={assessmentsByGroupId}
-						canAdmin={canAdmin}
 						isOnPrem={isOnPrem}
 						rpaUsers={rpaUsers}
 					/>

@@ -25,7 +25,6 @@ export function AutentiseringTab({
 	ghostGroupIds,
 	groupNames,
 	assessmentsByGroupId,
-	canAdmin,
 	isOnPrem,
 	rpaUsers,
 }: {
@@ -43,7 +42,6 @@ export function AutentiseringTab({
 	ghostGroupIds: string[]
 	groupNames: Record<string, string>
 	assessmentsByGroupId: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
-	canAdmin: boolean
 	isOnPrem: boolean
 	rpaUsers: RpaUser[]
 }) {
@@ -58,7 +56,6 @@ export function AutentiseringTab({
 					groupNames={groupNames}
 					assessmentsByGroupId={assessmentsByGroupId}
 					authIntegrations={authIntegrations}
-					canAdmin={canAdmin}
 				/>
 				<RpaUsersSection rpaUsers={rpaUsers} />
 			</VStack>
@@ -190,7 +187,6 @@ export function AutentiseringTab({
 				groupNames={groupNames}
 				assessmentsByGroupId={assessmentsByGroupId}
 				authIntegrations={authIntegrations}
-				canAdmin={canAdmin}
 			/>
 			<RpaUsersSection rpaUsers={rpaUsers} />
 		</VStack>
