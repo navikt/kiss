@@ -2987,7 +2987,7 @@ export async function getLatestSectionReview(routineId: string) {
  * // Rutine med "continue"-policy, ingen egne reviews ennå:
  * const lastReview = await getEffectiveLastReviewDate(newRoutineId, appId)
  * // → Returnerer gammel rutines siste gjennomgang (f.eks. 2025-01-15) som startpunkt
- * const deadline = calculateDeadline(lastReview, newRoutine.createdAt, newRoutine.frequency)
+ * const deadline = calculateDeadline(lastReview, newRoutine.approvedAt ?? newRoutine.createdAt, newRoutine.frequency)
  * // → Frist = 2025-01-15 + nye rutinens frekvens
  *
  * @example
@@ -2999,8 +2999,8 @@ export async function getLatestSectionReview(routineId: string) {
  * // Rutine med "reset"-policy eller ingen erstatning:
  * const lastReview = await getEffectiveLastReviewDate(routineId, appId)
  * // → Returnerer null (ingen gjennomganger ennå)
- * const deadline = calculateDeadline(lastReview, routine.createdAt, routine.frequency)
- * // → Frist = routine.createdAt + frekvens
+ * const deadline = calculateDeadline(lastReview, routine.approvedAt ?? routine.createdAt, routine.frequency)
+ * // → Frist = routine.approvedAt (godkjenningsdato) + frekvens
  */
 const MAX_REPLACEMENT_CHAIN_DEPTH = 10
 
@@ -3048,7 +3048,7 @@ export async function getEffectiveLastReviewDate(
  * const reviewDateMap = await getEffectiveLastReviewDatesBatch(routineRows, appId)
  * for (const routine of routineRows) {
  *   const lastReviewDate = reviewDateMap.get(routine.id) ?? null
- *   const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency)
+ *   const deadline = calculateDeadline(lastReviewDate, routine.approvedAt ?? routine.createdAt, routine.frequency)
  * }
  */
 export async function getEffectiveLastReviewDatesBatch(
@@ -3356,31 +3356,35 @@ export async function getRoutineFollowUpApplicationIds(routineId: string): Promi
  * for slike rutiner.
  *
  * Fristberegning:
- * - Base-dato: `lastReviewDate` hvis tilgjengelig, ellers `routineCreatedAt`
+ * - Base-dato: `lastReviewDate` hvis tilgjengelig, ellers `routineApprovedAt` (godkjenningsdato)
  * - Frist: base-dato + antall dager basert på `frequency`
  *
+ * For "reset"-policy (eller helt nye rutiner uten gjennomganger) starter fristen fra
+ * godkjenningsdatoen (`approvedAt`), ikke opprettelsesdatoen (`createdAt`). Dette sikrer
+ * at fristen ikke backdateres til perioden mellom oppretting og godkjenning.
+ *
  * @param lastReviewDate - Siste gjennomgangsdato (hent via `getEffectiveLastReviewDate()`)
- * @param routineCreatedAt - Rutinens opprettelsesdato (fallback hvis ingen gjennomganger)
+ * @param routineApprovedAt - Rutinens godkjenningsdato (fallback hvis ingen gjennomganger; bruk `routine.approvedAt ?? routine.createdAt`)
  * @param frequency - Rutinens frekvens (f.eks. "quarterly", "annually")
  * @returns Frist-dato, eller `null` for hendelsesbaserte rutiner (ingen periodisk frekvens)
  *
  * @example
  * // For rutiner som kan ha blitt erstattet:
  * const lastReview = await getEffectiveLastReviewDate(routineId, appId)
- * const deadline = calculateDeadline(lastReview, routine.createdAt, routine.frequency)
+ * const deadline = calculateDeadline(lastReview, routine.approvedAt ?? routine.createdAt, routine.frequency)
  *
  * @example
  * // For helt nye rutiner (ingen sourceRoutineId):
  * const lastReview = await getLatestReviewForApp(routineId, appId)
- * const deadline = calculateDeadline(lastReview?.reviewedAt ?? null, routine.createdAt, routine.frequency)
+ * const deadline = calculateDeadline(lastReview?.reviewedAt ?? null, routine.approvedAt ?? routine.createdAt, routine.frequency)
  */
 export function calculateDeadline(
 	lastReviewDate: Date | null,
-	routineCreatedAt: Date,
+	routineApprovedAt: Date,
 	frequency: RoutineFrequency | null,
 ): Date | null {
 	if (!frequency) return null
-	const base = lastReviewDate ?? routineCreatedAt
+	const base = lastReviewDate ?? routineApprovedAt
 	const days = frequencyDays[frequency]
 	const deadline = new Date(base)
 	deadline.setDate(deadline.getDate() + days)
@@ -3612,7 +3616,11 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 		}
 
 		const lastReviewDate = reviewDateLookup.get(`${routine.id}:${appId}`) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+		const deadline = calculateDeadline(
+			lastReviewDate,
+			routine.approvedAt ?? routine.createdAt,
+			routine.frequency as RoutineFrequency | null,
+		)
 
 		results.push({
 			routine: fullRoutine,
@@ -3776,7 +3784,11 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+		const deadline = calculateDeadline(
+			lastReviewDate,
+			routine.approvedAt ?? routine.createdAt,
+			routine.frequency as RoutineFrequency | null,
+		)
 
 		results.push({
 			routine: fullRoutine,
@@ -3908,7 +3920,11 @@ export async function getRoutineDeadlinesForAppByPersistence(
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+		const deadline = calculateDeadline(
+			lastReviewDate,
+			routine.approvedAt ?? routine.createdAt,
+			routine.frequency as RoutineFrequency | null,
+		)
 
 		results.push({
 			routine: fullRoutine,
@@ -4077,7 +4093,11 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+		const deadline = calculateDeadline(
+			lastReviewDate,
+			routine.approvedAt ?? routine.createdAt,
+			routine.frequency as RoutineFrequency | null,
+		)
 
 		results.push({
 			routine: fullRoutine,
@@ -4208,7 +4228,11 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+		const deadline = calculateDeadline(
+			lastReviewDate,
+			routine.approvedAt ?? routine.createdAt,
+			routine.frequency as RoutineFrequency | null,
+		)
 
 		results.push({
 			routine: fullRoutine,
@@ -4315,7 +4339,11 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+		const deadline = calculateDeadline(
+			lastReviewDate,
+			routine.approvedAt ?? routine.createdAt,
+			routine.frequency as RoutineFrequency | null,
+		)
 
 		results.push({
 			routine: fullRoutine,
@@ -4515,7 +4543,11 @@ export async function getRoutineDeadlinesForAppBySection(
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+		const deadline = calculateDeadline(
+			lastReviewDate,
+			routine.approvedAt ?? routine.createdAt,
+			routine.frequency as RoutineFrequency | null,
+		)
 
 		results.push({
 			routine: fullRoutine,
@@ -4639,7 +4671,11 @@ export async function getRoutineDeadlinesForAppByRuleset(
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+		const deadline = calculateDeadline(
+			lastReviewDate,
+			routine.approvedAt ?? routine.createdAt,
+			routine.frequency as RoutineFrequency | null,
+		)
 
 		results.push({
 			routine: fullRoutine,
@@ -4854,7 +4890,11 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 		const lastReview = reviewByRoutine.get(effectiveRoutineId) ?? null
 		// lastReviewDate is derived from lastReview to ensure consistency (avoids duplicate chain-walking)
 		const lastReviewDate = lastReview?.reviewedAt ?? null
-		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
+		const deadline = calculateDeadline(
+			lastReviewDate,
+			routine.approvedAt ?? routine.createdAt,
+			routine.frequency as RoutineFrequency | null,
+		)
 
 		return {
 			routine,

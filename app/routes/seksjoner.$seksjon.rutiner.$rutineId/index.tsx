@@ -106,7 +106,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				routine.isSectionRoutine === 1 ? sectionLevelReviewDate : await getEffectiveLastReviewDate(rutineId, app.id)
 			const deadline = calculateDeadline(
 				lastReviewDate,
-				routine.createdAt,
+				routine.approvedAt ?? routine.createdAt,
 				routine.frequency as RoutineFrequency | null,
 			)
 			const overdue = isOverdue(deadline)

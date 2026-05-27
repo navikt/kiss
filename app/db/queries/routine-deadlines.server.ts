@@ -204,7 +204,11 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 			if (d.isSectionRoutine && d.routine) {
 				const sectionReviewDate = sectionReviewMap.get(d.routine.id) ?? null
 				d.lastReviewDate = sectionReviewDate
-				d.deadline = calculateDeadline(sectionReviewDate, d.routine.createdAt, d.routine.frequency)
+				d.deadline = calculateDeadline(
+					sectionReviewDate,
+					d.routine.approvedAt ?? d.routine.createdAt,
+					d.routine.frequency,
+				)
 				d.overdue = isOverdue(d.deadline)
 			}
 		}

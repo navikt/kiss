@@ -209,6 +209,7 @@ export async function generateComplianceReport(params: {
 		frequency: string | null
 		eventFrequency: string | null
 		createdAt: Date
+		approvedAt: Date | null
 		isSectionRoutine: number
 	}>
 	if (scope === "section" && scopeId) {
@@ -219,6 +220,7 @@ export async function generateComplianceReport(params: {
 				frequency: routines.frequency,
 				eventFrequency: routines.eventFrequency,
 				createdAt: routines.createdAt,
+				approvedAt: routines.approvedAt,
 				isSectionRoutine: routines.isSectionRoutine,
 			})
 			.from(routines)
@@ -231,6 +233,7 @@ export async function generateComplianceReport(params: {
 				frequency: routines.frequency,
 				eventFrequency: routines.eventFrequency,
 				createdAt: routines.createdAt,
+				approvedAt: routines.approvedAt,
 				isSectionRoutine: routines.isSectionRoutine,
 			})
 			.from(routines)
@@ -249,7 +252,7 @@ export async function generateComplianceReport(params: {
 				routine.isSectionRoutine === 1 ? sectionReviewDate : await getEffectiveLastReviewDate(routine.id, app.id)
 			const deadline = calculateDeadline(
 				lastReviewDate,
-				routine.createdAt,
+				routine.approvedAt ?? routine.createdAt,
 				routine.frequency as RoutineFrequency | null,
 			)
 			const overdue = isOverdue(deadline)
