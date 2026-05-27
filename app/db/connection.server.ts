@@ -166,7 +166,7 @@ pool.connect = async function wrappedConnect() {
 		if (error instanceof Error) {
 			// Map pg-specific error messages to domain errors
 			if (error.message.includes("timeout exceeded when trying to connect")) {
-				logger.warn("[pool] Connection timeout — pool exhausted", { message: error.message })
+				logger.warn("[pool] Connection timeout — pool exhausted", error)
 				throw data(
 					{
 						category: ERROR_CATEGORIES.TRANSIENT,
@@ -178,7 +178,7 @@ pool.connect = async function wrappedConnect() {
 				)
 			}
 			if (error.message.includes("remaining connection slots are reserved")) {
-				logger.warn("[pool] Connection slots exhausted", { message: error.message })
+				logger.warn("[pool] Connection slots exhausted", error)
 				throw data(
 					{
 						category: ERROR_CATEGORIES.TRANSIENT,

@@ -7,6 +7,9 @@ import { DB_ERROR_TYPES, type DomainErrorData, ERROR_CATEGORIES } from "~/db/con
  * Returns true if the error is a structured Response with category = TRANSIENT.
  * These errors should show a retry button in the UI.
  *
+ * Validates all required DomainErrorData fields to ensure sound type narrowing —
+ * callers depend on title and userMessage being strings.
+ *
  * Works both server-side and client-side because React Router serializes
  * Response objects with their status and data intact.
  */
@@ -17,7 +20,9 @@ export function isTransientError(error: unknown): error is Response & { data: Do
 		typeof error.data === "object" &&
 		error.data !== null &&
 		"category" in error.data &&
-		error.data.category === ERROR_CATEGORIES.TRANSIENT
+		error.data.category === ERROR_CATEGORIES.TRANSIENT &&
+		typeof error.data.title === "string" &&
+		typeof error.data.userMessage === "string"
 	)
 }
 
