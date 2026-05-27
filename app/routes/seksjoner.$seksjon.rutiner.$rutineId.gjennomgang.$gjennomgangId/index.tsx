@@ -14,10 +14,10 @@ import {
 	getReview,
 	getReviewActivities,
 	getReviewActivityByType,
+	getReviewActivityIdByType,
 	getRoutine,
 	getRoutineActivityLinks,
 	getRoutineArchivedStatusByReviewId,
-	hasReviewActivityType,
 	patchEntraActivity,
 	seedEntraActivity,
 	updateFollowUpPointDescription,
@@ -40,12 +40,7 @@ import { logger } from "~/lib/logger.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
 import { EntraMaintenanceSection, type EntraStagedGroupsProp } from "./components/activities/EntraMaintenanceSection"
-import {
-	type RpaMaintenanceData,
-	type RpaUserAssessmentEntry,
-	type RpaUserEntry,
-	RpaUserMaintenanceSection,
-} from "./components/activities/RpaUserMaintenanceSection"
+import { type RpaMaintenanceData, RpaUserMaintenanceSection } from "./components/activities/RpaUserMaintenanceSection"
 import { FollowUpPointsSection } from "./components/follow-up/FollowUpPointsSection"
 import { ReviewWizard } from "./components/ReviewWizard"
 import { StepActivity } from "./components/StepActivity"
@@ -217,12 +212,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	}
 
 	let applicationName: string | null = null
-	let appAuthIntegrations: Array<{ type: string; groups: string | null; allowAllUsers?: boolean | null }> = []
 	if (review.applicationId) {
 		const { getApplicationDetail } = await import("~/db/queries/nais.server")
 		const appDetail = await getApplicationDetail(review.applicationId)
 		applicationName = appDetail?.app.name ?? null
-		appAuthIntegrations = appDetail?.authIntegrations ?? []
 	}
 
 	// Load activity data — auto-create activities for any draft review that is missing them.
@@ -397,65 +390,88 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			}
 
 			if (activity.type === "rpa_user_maintenance" && review.applicationId) {
-				const { getRpaUsersForApp, getRpaUserAssessmentsForReview } = await import("~/db/queries/rpa.server")
-				const { getManualGroupsForApp } = await import("~/db/queries/nais.server")
-				const naisGroupIds: string[] = []
-				for (const auth of appAuthIntegrations) {
-					if (auth.groups) {
-						const groups = JSON.parse(auth.groups) as string[]
-						naisGroupIds.push(...groups)
+				const { parseRpaStagedData, toRpaMaintenanceData, buildReadOnlyRpaData } = await import("~/lib/rpa-staged-data")
+
+				if (activity.stagedData) {
+					// Has staged_data — parse and convert
+					actRpaMaintenanceData = toRpaMaintenanceData(parseRpaStagedData(activity.stagedData))
+				} else if (activity.status === "pending") {
+					// Pending without staged_data — seed it
+					const { seedRpaActivity } = await import("~/db/queries/rpa.server")
+					const stagedData = await seedRpaActivity(activity.id, "system")
+					actRpaMaintenanceData = toRpaMaintenanceData(stagedData)
+				} else if (activity.snapshotAfter) {
+					// Completed/other status without staged_data — legacy activity, build read-only from snapshotAfter
+					const readOnlyData = buildReadOnlyRpaData(activity.snapshotAfter)
+					if (readOnlyData) {
+						actRpaMaintenanceData = readOnlyData
+					} else {
+						// snapshotAfter has invalid shape — fall back to DB read
+						const { getRpaUserAssessmentsForReview } = await import("~/db/queries/rpa.server")
+						const assessments = await getRpaUserAssessmentsForReview(review.id)
+						if (assessments.size > 0) {
+							// Build users from entries() to use trimmed key as userObjectId (consistent with assessments keys)
+							const users = [...assessments.entries()].map(([trimmedId, a]) => ({
+								userObjectId: trimmedId,
+								displayName: null,
+								userPrincipalName: null,
+								accountEnabled: null,
+								rpaGroupName: null,
+								matchSource: "removed" as const,
+							}))
+							const assessmentEntries = Object.fromEntries(
+								[...assessments.entries()].map(([id, a]) => [
+									id,
+									{
+										id: a.id,
+										owner: a.owner,
+										needComment: a.needComment,
+										criticalityComment: a.criticalityComment,
+										securityComment: a.securityComment,
+										decision: a.decision,
+										decisionDeadline: a.decisionDeadline,
+									},
+								]),
+							)
+							actRpaMaintenanceData = { users, assessments: assessmentEntries }
+						} else {
+							actRpaMaintenanceData = { users: [], assessments: {} }
+						}
 					}
-				}
-				const hasAllowAllUsers = appAuthIntegrations.some(
-					(auth) => auth.type === "entra_id" && auth.allowAllUsers === true,
-				)
-				const manualGroups = await getManualGroupsForApp(review.applicationId)
-				const [rpaUsers, assessmentsMap] = await Promise.all([
-					getRpaUsersForApp(
-						naisGroupIds,
-						manualGroups.map((g) => g.groupId),
-						hasAllowAllUsers,
-					),
-					getRpaUserAssessmentsForReview(gjennomgangId),
-				])
-				const assessments: Record<string, RpaUserAssessmentEntry> = {}
-				for (const [objectId, a] of assessmentsMap) {
-					assessments[objectId] = {
-						id: a.id,
-						owner: a.owner,
-						needComment: a.needComment,
-						criticalityComment: a.criticalityComment,
-						securityComment: a.securityComment,
-						decision: a.decision,
-						decisionDeadline: a.decisionDeadline,
+				} else {
+					// Legacy activity without snapshotAfter — fall back to reading assessments from DB
+					const { getRpaUserAssessmentsForReview } = await import("~/db/queries/rpa.server")
+					const assessments = await getRpaUserAssessmentsForReview(review.id)
+					if (assessments.size > 0) {
+						// Build users from entries() to use trimmed key as userObjectId (consistent with assessments keys)
+						const users = [...assessments.entries()].map(([trimmedId, a]) => ({
+							userObjectId: trimmedId,
+							displayName: null,
+							userPrincipalName: null,
+							accountEnabled: null,
+							rpaGroupName: null,
+							// Legacy assessments without staged_data are ghosts — use "removed" to match isGone=true semantics
+							matchSource: "removed" as const,
+						}))
+						const assessmentEntries = Object.fromEntries(
+							[...assessments.entries()].map(([id, a]) => [
+								id,
+								{
+									id: a.id,
+									owner: a.owner,
+									needComment: a.needComment,
+									criticalityComment: a.criticalityComment,
+									securityComment: a.securityComment,
+									decision: a.decision,
+									decisionDeadline: a.decisionDeadline,
+								},
+							]),
+						)
+						actRpaMaintenanceData = { users, assessments: assessmentEntries }
+					} else {
+						// No assessments — render empty state
+						actRpaMaintenanceData = { users: [], assessments: {} }
 					}
-				}
-				const rpaUserIds = new Set(rpaUsers.map((u) => u.userObjectId))
-				// Include users that have saved assessments but are no longer returned by getRpaUsersForApp
-				// (e.g. removed from app access) so their decisions remain visible in the review.
-				const ghostUsers: RpaUserEntry[] = [...assessmentsMap.keys()]
-					.filter((id) => !rpaUserIds.has(id))
-					.map((id) => ({
-						userObjectId: id,
-						displayName: null,
-						userPrincipalName: null,
-						accountEnabled: null,
-						rpaGroupName: null,
-						matchSource: "removed",
-					}))
-				actRpaMaintenanceData = {
-					users: [
-						...rpaUsers.map((u) => ({
-							userObjectId: u.userObjectId,
-							displayName: u.displayName,
-							userPrincipalName: u.userPrincipalName,
-							accountEnabled: u.accountEnabled,
-							rpaGroupName: u.rpaGroupName,
-							matchSource: u.matchSource,
-						})),
-						...ghostUsers,
-					],
-					assessments,
 				}
 			}
 		} catch (err) {
@@ -998,18 +1014,20 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			)
 		}
 		const userObjectId = rawUserObjectId.trim()
-		// Verify the review actually has an rpa_user_maintenance activity (lightweight EXISTS check)
-		if (!(await hasReviewActivityType(gjennomgangId, "rpa_user_maintenance"))) {
+
+		// Use lightweight lookup — only need the activity ID for patching
+		const rpaActivityId = await getReviewActivityIdByType(gjennomgangId, "rpa_user_maintenance")
+		if (!rpaActivityId) {
 			return data<ActionResult>(
 				{
 					success: false,
 					error: "Gjennomgangen har ingen RPA-vedlikeholdsaktivitet",
 					intent: "save-rpa-user-assessment",
 				},
-				{ status: 403 },
+				{ status: 404 },
 			)
 		}
-		const { upsertRpaUserAssessment } = await import("~/db/queries/rpa.server")
+
 		const fields: {
 			owner?: string | null
 			needComment?: string | null
@@ -1093,7 +1111,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				{ status: 400 },
 			)
 		}
-		await upsertRpaUserAssessment(gjennomgangId, userObjectId, authedUser.navIdent, fields)
+		const { patchRpaActivity } = await import("~/db/queries/rpa.server")
+		try {
+			await patchRpaActivity(rpaActivityId, { op: "set-assessment", userObjectId, ...fields }, authedUser.navIdent)
+		} catch (e) {
+			if (e instanceof Response) {
+				const responseText = await e.text()
+				// Use response text if available; only fallback to lock message for empty 409 responses
+				const fallback = e.status === 409 ? "Gjennomgangen er låst av en annen operasjon. Prøv igjen." : "Ukjent feil"
+				const error = responseText || fallback
+				return data<ActionResult>({ success: false, error, intent: "save-rpa-user-assessment" }, { status: e.status })
+			}
+			throw e
+		}
 		return data<ActionResult>({ success: true, intent: "save-rpa-user-assessment" })
 	}
 

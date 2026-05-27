@@ -348,6 +348,28 @@ Dersom commit seeder, **SKAL** seed-resultatet bygges *utenfor* advisory lock og
 og gir økt konfliktfare. Dokumenter eksplisitt i koden hvis dette unntaksvis ikke er mulig,
 og begrunn hvorfor det er akseptabelt.
 
+### C14. Unngå N+1 queries i commit-løkken
+Commit-funksjonen **SKAL** hente alle eksisterende primærtabell-rader i én query (evt.
+begrenset til matching-nøklene i `staged_data`), bygge et `Map` for lookup, og deretter
+loope over `staged_data` uten individuelle SELECT-kall per element:
+```ts
+// ❌ FEIL — N+1: én SELECT per element
+for (const item of stagedData.items) {
+  const [existing] = await tx.select().from(tabell).where(eq(tabell.id, item.id)).limit(1)
+  // ...
+}
+
+// ✅ RIKTIG — én SELECT, Map-lookup
+const ids = stagedData.items.map(i => i.id)
+const existingRows = await tx.select().from(tabell).where(inArray(tabell.id, ids))
+const existingMap = new Map(existingRows.map(r => [r.id, r]))
+
+for (const item of stagedData.items) {
+  const existing = existingMap.get(item.id)
+  // ...
+}
+```
+
 ---
 
 ## D. Route-laget (action-handlers og loadere)
@@ -408,6 +430,22 @@ try {
 }
 ```
 
+### D7. Loader: sjekk `status` før seed — ikke seed fullførte aktiviteter
+Fullførte aktiviteter uten `staged_data` (legacy) **SKAL** håndteres read-only — **ikke**
+seedes. `seedXxxActivity` kaster 409 for ikke-pending aktiviteter, som gir unødvendig
+feilhåndtering. Sjekk `activity.status` eksplisitt:
+```ts
+if (activity.stagedData) {
+  actXxxData = toXxxData(parseXxxStagedData(activity.stagedData))
+} else if (activity.status === "pending") {
+  // Seed kun pending aktiviteter
+  actXxxData = toXxxData(await seedXxxActivity(activity.id, applicationId, "system"))
+} else {
+  // Fullført uten staged_data — legacy. Bygg read-only fra snapshotAfter eller DB.
+  actXxxData = activity.snapshotAfter ? buildReadOnlyXxxData(activity.snapshotAfter) : null
+}
+```
+
 ---
 
 ## E. Schema og typing
@@ -435,7 +473,19 @@ Bruk `superRefine` for kryss-felt-invarianter som ikke kan uttrykkes med enkelt-
 ```
 Duplikate matching-nøkler og inkonsistente kilde-flagg er typiske kandidater for `superRefine`.
 
-### E4. Komponent-props bruker spesifikke union-typer
+### E4. Applikasjonskode matcher Zod-invarianter — ingen død fallback-kode
+Når Zod-schema håndhever invarianter (f.eks. «aktive elementer **SKAL** ha `matchSource`»),
+**SKAL** applikasjonskoden reflektere dette. Fallback-verdier som kun trigges hvis Zod-validering
+feiler er død kode og kan maskere reelle feil:
+```ts
+// ❌ FEIL — fallback "manual" er død kode hvis Zod allerede avviser aktive uten matchSource
+matchSource: item.isGone ? "removed" : (item.matchSource ?? "manual")
+
+// ✅ RIKTIG — assert at Zod-invarianten holder
+matchSource: item.isGone ? "removed" : item.matchSource!  // Zod garanterer non-null for aktive
+```
+
+### E5. Komponent-props bruker spesifikke union-typer
 Props til React-komponenter **SKAL** bruke spesifikke typer (f.eks. `XxxStatus | null`)
 — ikke `string | null` som krever casts og mister compile-time sikkerhet.
 
@@ -512,7 +562,29 @@ Dersom commit-funksjonen seeder for legacy-rader (uten `staged_data`), verifiser
 - Patch på fullført aktivitet → 409
 - Commit uten at alle påkrevde felt er satt → 400
 
-### H4. Borte-elementer og reaktivering er testet
+### H4. Validerings-paths er testet med realistisk data
+Valideringslogikk (f.eks. «aktive elementer **SKAL** ha beslutning») **SKAL** testes med
+data som faktisk trigger valideringsfeil. Test-kommentarer som "vi kan ikke opprette aktiv
+bruker i test, så vi sjekker kun ghost-path" er et rødt flagg — finn en måte å seede
+testdataen på, eller bruk mocking.
+```ts
+// ❌ FEIL — tester kun at ghost-brukere ikke krever beslutning
+it("completion fails when active user lacks decision", async () => {
+  // Seed kun ghost-brukere fordi vi ikke kan lage aktive i test
+  await expect(completeReview(reviewId, "user")).resolves.not.toThrow()  // tester ikke failure
+})
+
+// ✅ RIKTIG — setter opp realistisk data som trigger validering
+it("completion fails when active user lacks decision", async () => {
+  await insertRpaGroupMembership(appId, "user-123")  // oppretter aktiv bruker via seed-path
+  await seedRpaActivity(activityId, appId, "system")
+  await expect(completeReview(reviewId, "user")).rejects.toSatisfy(
+    (e) => e instanceof Response && e.status === 400
+  )
+})
+```
+
+### H5. Borte-elementer og reaktivering er testet
 - Element markert `isGone = true` → soft-delete i primærtabell ved commit
 - Arkivert rad i primærtabell → reaktiveres korrekt ved ny gjennomgang
 
@@ -587,18 +659,21 @@ COMMIT
 [ ] previousValue i audit hentes fra .returning(), ikke staged_data
 [ ] Commit-path trigges på activity.type, ikke staged_data !== null
 [ ] Fallback-seeding i commit gjør ikke eksterne kall under lock/tx
+[ ] N+1 unngås i commit (hent alle eksisterende rader i én query, bygg Map)
 
 ROUTE-LAGET
 [ ] Alle action-branches fanger Response fra seed/patch/commit
 [ ] e.status === 409 sjekkes eksplisitt (ikke alt er lås-konflikt)
 [ ] FK-validering (applicationId o.l.) skjer i query-laget
 [ ] Loader håndterer 409 fra seed eksplisitt (ikke generisk feil)
+[ ] Loader sjekker activity.status før seed — fullførte aktiviteter seedes IKKE
 
 SCHEMA / TYPING
 [ ] staged_data-kolonne er Record<string, unknown> | null
 [ ] Zod-schema validerer alle reads og writes
 [ ] Zod superRefine brukes for kryss-felt-invarianter
 [ ] Komponent-props bruker spesifikke union-typer
+[ ] Applikasjonskode har ingen død fallback-kode for Zod-garanterte invarianter
 
 MIGRERING
 [ ] [M] Commit er duplicate-safe mot eksisterende data (upsert-mønster)
@@ -610,6 +685,7 @@ TESTER
 [ ] Feiltilfeller testet (409, 400, 404)
 [ ] [T] isGone/reaktivering testet i commit
 [ ] Alle patch-ops har enhetstest i applyXxxStagedDataPatch
+[ ] Valideringsfeil testes med realistisk data (ikke bare happy-path)
 
 LOGGING
 [ ] logger.error kaller sendes Error-instansen direkte (ikke { error: err })

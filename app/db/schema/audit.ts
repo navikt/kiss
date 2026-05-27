@@ -174,6 +174,7 @@ export const auditLogActionEnum = [
 	"review_activity_completed",
 	"review_activity_seeded",
 	"review_activity_entra_change",
+	"review_activity_rpa_patched",
 	"routine_technology_element_added",
 	"routine_technology_element_removed",
 	"routine_control_added",

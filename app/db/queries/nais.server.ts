@@ -29,6 +29,8 @@ import { auditLog } from "../schema/audit"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+
 const SYNC_PERFORMER = "nais-sync"
 
 type IncomingAccessPolicyRule = { application: string; namespace?: string; cluster?: string }
@@ -2743,8 +2745,8 @@ export async function deleteManualPersistence(persistenceId: string, performedBy
 // ─── Manual Groups ───────────────────────────────────────────────────────
 
 /** Get manually added groups for an application. */
-export async function getManualGroupsForApp(applicationId: string) {
-	return db
+export async function getManualGroupsForApp(applicationId: string, executor: DbExecutor = db) {
+	return executor
 		.select()
 		.from(applicationManualGroups)
 		.where(and(eq(applicationManualGroups.applicationId, applicationId), isNull(applicationManualGroups.archivedAt)))
