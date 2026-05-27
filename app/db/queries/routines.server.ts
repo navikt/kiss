@@ -3290,7 +3290,7 @@ export async function getRoutineFollowUpApplicationIds(routineId: string): Promi
  *
  * @param lastReviewDate - Siste gjennomgangsdato (hent via `getEffectiveLastReviewDate()`)
  * @param routineCreatedAt - Rutinens opprettelsesdato (fallback hvis ingen gjennomganger)
- * @param frequency - Rutinens frekvens (f.eks. "90_days", "180_days")
+ * @param frequency - Rutinens frekvens (f.eks. "quarterly", "annually")
  * @returns Frist-dato, eller `null` for hendelsesbaserte rutiner (ingen periodisk frekvens)
  *
  * @example
@@ -4628,13 +4628,6 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 
 	const routineIds = sectionRoutineRows.map((r) => r.id)
 
-	// Get effective review dates for all section routines (respects deadlinePolicy)
-	// This internally fetches reviews for both current and source routines
-	const reviewDateMap = await getEffectiveLastReviewDatesBatch(sectionRoutineRows, null)
-
-	// Now fetch the full review objects for routines that have reviews
-	// We need to determine which routines to fetch reviews for based on deadlinePolicy
-
 	// Collect all routineIds that might have reviews (current + transitive sources)
 	const routineIdsToFetchReviews = new Set<string>(routineIds)
 	const policyMap = new Map<string, string>()
@@ -4753,10 +4746,8 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 
 	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r]))
 
-	// Build result - determine effectiveRoutineId using the same logic as getEffectiveLastReviewDatesBatch
+	// Build result - determine effectiveRoutineId using chain walking with policyMap
 	return sectionRoutineRows.map((routine) => {
-		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
-
 		// Find which routine's review we should return by walking the chain
 		let effectiveRoutineId = routine.id
 
@@ -4785,6 +4776,8 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 		}
 
 		const lastReview = reviewByRoutine.get(effectiveRoutineId) ?? null
+		// lastReviewDate is derived from lastReview to ensure consistency (avoids duplicate chain-walking)
+		const lastReviewDate = lastReview?.reviewedAt ?? null
 		const deadline = calculateDeadline(lastReviewDate, routine.createdAt, routine.frequency as RoutineFrequency | null)
 
 		return {
