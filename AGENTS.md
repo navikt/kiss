@@ -223,7 +223,7 @@ Det finnes to arkitektonisk ulike kategorier aktivitetstyper. Tabellen under er 
 |---|---|---|---|---|
 | `oracle_role_criticality` | Vedlikehold | `staged_data JSONB` *(planlagt)* | Ja *(planlagt)* | 🔲 Planlagt |
 | `rpa_user_maintenance` | Vedlikehold | `staged_data JSONB` + commit til `routine_rpa_user_assessments` | Ja | ✅ Implementert |
-| `entra_id_group_maintenance` | Vedlikehold | `staged_data JSONB` 🚧 Under refaktorering | ✅ (etter refaktorering) | 🚧 Under refaktorering |
+| `entra_id_group_maintenance` | Vedlikehold | `staged_data JSONB` | Ja | ✅ Implementert |
 | `oracle_evidence_audit` | Bevis | Ingen | Nei | ✅ Implementert |
 | `oracle_evidence_profiles` | Bevis | Ingen | Nei | ✅ Implementert |
 | `oracle_evidence_roles` | Bevis | Ingen | Nei | ✅ Implementert |
@@ -376,7 +376,7 @@ if (result === null) {
 
 #### Dataflyt — målarkitektur for nye vedlikeholdsaktivitetstyper
 
-*Dette diagrammet beskriver målarkitekturen som alle nye vedlikeholdsaktivitetstyper skal implementere. `entra_id_group_maintenance` avviker fortsatt — se avvikstabellen. `rpa_user_maintenance` er fullt migrert (#263) og følger dette mønsteret.*
+*Dette diagrammet beskriver målarkitekturen som alle nye vedlikeholdsaktivitetstyper skal implementere. Både `rpa_user_maintenance` (#263) og `entra_id_group_maintenance` følger dette mønsteret. Se avvikstabellen for gjenværende avvik i Entra.*
 
 ```
 Aktivitetsstart:
@@ -437,13 +437,15 @@ Alle nye vedlikeholdsaktivitetstyper **skal** implementere følgende steg i rekk
 |---|---|---|---|---|---|
 | `oracle_role_criticality` *(planlagt)* | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `rpa_user_maintenance` | ✅ | Ingen ekstern kilde ¹ | ✅ | ✅ | ✅ |
-| `entra_id_group_maintenance` | ⚠️ Avvik | Delvis | ✅ | ⚠️ Avvik | 🚧 Under refaktorering |
+| `entra_id_group_maintenance` | ✅ | Delvis ² | ✅ | ✅ | ✅ |
 
 ¹ RPA har ingen ekstern M2M-kilde. Seed skjer kun fra KISS sin primærlagring. `is_new`/`is_gone` brukes ikke. Dette er et legitimt designvalg for aktivitetstyper uten ekstern datakilde, ikke et avvik fra prinsipp 3.
 
+² Entra API-fletting er kun intern (ingen `is_new`/`is_gone`-signalering): alle grupper seedes fra KISS+Nais uten å sammenstille mot eksternt API for oppdagelse av nye/bortfalte grupper.
+
 **RPA-avvik (løst i #263):** `rpa_user_maintenance` er fullt migrert til `staged_data JSONB`-mønsteret. Patch-fasen skriver kun til `staged_data`. Commit-transaksjonen skriver assessments atomisk til `routine_rpa_user_assessments` med `snapshotAfter`. Bruker `upsertRpaUserAssessment` kun for løpende endringer under gjennomgang (legacy-sti). Er nå referanseimplementasjon for aktivitetstyper uten ekstern M2M-kilde.
 
-**Entra-avvik (tech debt — under refaktorering):** `set-group-criticality`, `add-manual-group` og `remove-manual-group` skriver direkte til `application_group_assessments` og `application_manual_groups` under gjennomgangen (bryter prinsipp 5 og 6). Fullføringsvalidering skjer ikke mot seeded data (bryter prinsipp 7). `routine_review_activity_entra_changes` er endringslogg, ikke arbeidsområde. Refaktoreres til `staged_data`-mønsteret (prinsipp 8).
+**Entra-avvik (gjenværende, begrenset):** Patch-operasjoner (`set-group-criticality`, `add-manual-group`, `remove-manual-group`) bruker `patchEntraActivity()` og skriver kun til `staged_data`. Fullføring validerer mot `staged_data` og committer atomisk til primærtabellene. `routine_review_activity_entra_changes` er endringslogg for audit-formål. Gjenværende avvik: Entra-snapshots mangler `type`/`schemaVersion`-felt (legacy-format, se snapshot-formatnotater over).
 
 #### Skillet mellom vedlikeholdsaktiviteter og bevisaktiviteter
 

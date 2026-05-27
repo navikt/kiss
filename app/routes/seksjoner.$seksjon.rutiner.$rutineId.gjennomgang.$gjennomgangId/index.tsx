@@ -411,7 +411,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 						const assessments = await getRpaUserAssessmentsForReview(review.id)
 						if (assessments.size > 0) {
 							// Build users from entries() to use trimmed key as userObjectId (consistent with assessments keys)
-							const users = [...assessments.entries()].map(([trimmedId, a]) => ({
+							const users = [...assessments.entries()].map(([trimmedId, _a]) => ({
 								userObjectId: trimmedId,
 								displayName: null,
 								userPrincipalName: null,
@@ -444,7 +444,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 					const assessments = await getRpaUserAssessmentsForReview(review.id)
 					if (assessments.size > 0) {
 						// Build users from entries() to use trimmed key as userObjectId (consistent with assessments keys)
-						const users = [...assessments.entries()].map(([trimmedId, a]) => ({
+						const users = [...assessments.entries()].map(([trimmedId, _a]) => ({
 							userObjectId: trimmedId,
 							displayName: null,
 							userPrincipalName: null,
