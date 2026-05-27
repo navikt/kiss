@@ -98,7 +98,7 @@ function buildSslConfig(
 
 const pool = new Pool({
 	...buildConnectionConfig(),
-	max: 10,
+	max: 5,
 	min: 2,
 	idleTimeoutMillis: 30000,
 	connectionTimeoutMillis: 10000,
