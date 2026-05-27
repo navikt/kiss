@@ -2960,16 +2960,18 @@ export async function getLatestSectionReview(routineId: string) {
  * `deadlinePolicy` om fristen skal fortsette fra den gamle rutinens gjennomganger
  * eller starte på nytt:
  *
- * - **`deadlinePolicy: "continue"`**: Returnerer den ERSTATTEDE rutinens siste gjennomgang.
- *   Brukes når rutinen oppdateres uten å kreve nye gjennomganger. Fristen beregnes som:
- *   `(gammel rutines siste gjennomgang) + (nye rutinens frekvens)`.
+ * - **`deadlinePolicy: "continue"`**: Den nye rutinens egne gjennomganger brukes alltid
+ *   hvis de finnes. Kun når den nye rutinen ennå ikke har noen gjennomgang, arves siste
+ *   gjennomgang fra den erstattede rutinen som startpunkt for fristberegningen.
+ *   Fristen beregnes som: `(nyeste review på ny ELLER gammel rutine) + (nye rutinens frekvens)`.
  *
  * - **`deadlinePolicy: "reset"`** eller ingen policy: Returnerer den NYE rutinens egen siste
  *   gjennomgang (typisk null ved godkjenning). Brukes når rutinen krever nye gjennomganger.
  *   Fristen beregnes som: `(nye rutinens godkjenningsdato) + (nye rutinens frekvens)`.
  *
  * **Viktig**: Frekvensen kommer ALLTID fra den nye rutinen, ikke den gamle. Kun base-datoen
- * for fristberegningen påvirkes av `deadlinePolicy`.
+ * for fristberegningen påvirkes av `deadlinePolicy`. Og egne reviews på ny rutine har alltid
+ * prioritet over arvede reviews fra kilderutinen.
  *
  * **Performance**: For å unngå N+1 queries, bruk `getEffectiveLastReviewDatesBatch()` når
  * du trenger review-datoer for flere rutiner samtidig.
@@ -2979,11 +2981,16 @@ export async function getLatestSectionReview(routineId: string) {
  * @returns Siste gjennomgangsdato å bruke som base i fristberegning, eller `null` hvis ingen finnes
  *
  * @example
- * // Rutine med "continue"-policy:
+ * // Rutine med "continue"-policy, ingen egne reviews ennå:
  * const lastReview = await getEffectiveLastReviewDate(newRoutineId, appId)
- * // → Returnerer gammel rutines siste gjennomgang (f.eks. 2025-01-15)
+ * // → Returnerer gammel rutines siste gjennomgang (f.eks. 2025-01-15) som startpunkt
  * const deadline = calculateDeadline(lastReview, newRoutine.createdAt, newRoutine.frequency)
  * // → Frist = 2025-01-15 + nye rutinens frekvens
+ *
+ * @example
+ * // Samme rutine etter at den nye rutinen selv er gjennomgått:
+ * const lastReview = await getEffectiveLastReviewDate(newRoutineId, appId)
+ * // → Returnerer NY rutines siste gjennomgang (egne reviews har alltid prioritet)
  *
  * @example
  * // Rutine med "reset"-policy eller ingen erstatning:

@@ -159,6 +159,13 @@ DELETE FROM sections;
 
 		expect(effectiveDate).not.toBeNull()
 		expect(effectiveDate?.toISOString()).toBe(oldReviewDate.toISOString())
+
+		// After the new routine itself gets reviewed, its own review should take precedence
+		const newReviewDate = new Date("2025-04-01T12:00:00Z")
+		await createReview(newRoutine.id, appId, newReviewDate)
+
+		const effectiveDateAfterOwnReview = await getEffectiveLastReviewDate(newRoutine.id, appId)
+		expect(effectiveDateAfterOwnReview?.toISOString()).toBe(newReviewDate.toISOString())
 	})
 
 	it('should NOT inherit old routine review when deadlinePolicy is "reset"', async () => {
