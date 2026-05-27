@@ -5192,7 +5192,7 @@ export async function completeReviewActivity(
 	// Use the Entra staged_data commit path for entra_id_group_maintenance activities that have an
 	// application. Section-level Entra activities (applicationId = null) fall through to generic completion.
 	// completeEntraReviewActivity kaster 409 hvis staged_data er null — seedEntraActivity() MÅ kalles
-	// før commit. completeReview() håndterer dette i pre-seed-løkken (linje 1662–1670).
+	// før commit. completeReview() håndterer dette i pre-seed-løkken før transaksjonen.
 	if (activity.type === "entra_id_group_maintenance" && activity.applicationId !== null) {
 		const lockName = `entra_id_group_maintenance-activity-${activityId}`
 		const result = await withAdvisoryLock(lockName, async () => {
