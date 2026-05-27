@@ -4945,42 +4945,14 @@ async function completeEntraReviewActivity(activityId: string, performedBy: stri
 		throw new Response("Entra-aktiviteten mangler applikasjon", { status: 400 })
 	}
 
-	let stagedData = activity.stagedData ? parseEntraStagedData(activity.stagedData) : null
+	const stagedData = activity.stagedData ? parseEntraStagedData(activity.stagedData) : null
 	if (!stagedData) {
-		const seeded = await buildEntraSeedResult(activity.applicationId)
-		const [seededActivity] = await executor
-			.update(routineReviewActivities)
-			.set({
-				stagedData: seeded.stagedData,
-				snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seeded.snapshot)}::jsonb)`,
-			})
-			.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
-			.returning({ stagedData: routineReviewActivities.stagedData })
-
-		if (seededActivity?.stagedData) {
-			await writeAuditLog(
-				{
-					action: "review_activity_seeded",
-					entityType: "routine_review_activity",
-					entityId: activityId,
-					performedBy,
-				},
-				executor,
-			)
-			stagedData = parseEntraStagedData(seededActivity.stagedData)
-		} else {
-			const [currentActivity] = await executor
-				.select({ stagedData: routineReviewActivities.stagedData })
-				.from(routineReviewActivities)
-				.where(eq(routineReviewActivities.id, activityId))
-				.limit(1)
-
-			if (!currentActivity?.stagedData) {
-				throw new Error(`Mangler staged_data for Entra-aktivitet ${activityId}`)
-			}
-
-			stagedData = parseEntraStagedData(currentActivity.stagedData)
-		}
+		// staged_data skal alltid være satt før commit — seedEntraActivity() kalles av completeReview()
+		// FØR transaksjonen starter. Å seede her ville gjort Microsoft Graph HTTP-kall inne i en
+		// databasetransaksjon, noe som kan blokkere DB-koblinger unødvendig lenge.
+		throw new Response("Entra-aktiviteten er ikke initialisert. Last gjennomgangssiden på nytt og prøv igjen.", {
+			status: 409,
+		})
 	}
 
 	const nonGoneGroups = stagedData.groups.filter((group) => !group.isGone)
@@ -5219,7 +5191,8 @@ export async function completeReviewActivity(
 
 	// Use the Entra staged_data commit path for entra_id_group_maintenance activities that have an
 	// application. Section-level Entra activities (applicationId = null) fall through to generic completion.
-	// completeEntraReviewActivity handles seeding if staged_data is null (legacy rows or no prior seed).
+	// completeEntraReviewActivity kaster 409 hvis staged_data er null — seedEntraActivity() MÅ kalles
+	// før commit. completeReview() håndterer dette i pre-seed-løkken før transaksjonen.
 	if (activity.type === "entra_id_group_maintenance" && activity.applicationId !== null) {
 		const lockName = `entra_id_group_maintenance-activity-${activityId}`
 		const result = await withAdvisoryLock(lockName, async () => {
