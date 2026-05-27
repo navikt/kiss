@@ -3071,6 +3071,48 @@ export async function getEffectiveLastReviewDatesBatch(
 		}
 	}
 
+	// Fast path: no replacement chains → fetch own reviews directly, skip audit_log + BFS
+	if (sourceMap.size === 0) {
+		const ids = currentRoutineIds
+		if (applicationId) {
+			const reviews = await db
+				.selectDistinctOn([routineReviews.routineId], {
+					routineId: routineReviews.routineId,
+					reviewedAt: routineReviews.reviewedAt,
+				})
+				.from(routineReviews)
+				.where(
+					and(
+						inArray(routineReviews.routineId, ids),
+						eq(routineReviews.applicationId, applicationId),
+						eq(routineReviews.status, "completed"),
+					),
+				)
+				.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+			for (const r of reviews) result.set(r.routineId, r.reviewedAt)
+		} else {
+			const reviews = await db
+				.selectDistinctOn([routineReviews.routineId], {
+					routineId: routineReviews.routineId,
+					reviewedAt: routineReviews.reviewedAt,
+				})
+				.from(routineReviews)
+				.where(
+					and(
+						inArray(routineReviews.routineId, ids),
+						isNull(routineReviews.applicationId),
+						eq(routineReviews.status, "completed"),
+					),
+				)
+				.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
+			for (const r of reviews) result.set(r.routineId, r.reviewedAt)
+		}
+		for (const id of ids) {
+			if (!result.has(id)) result.set(id, null)
+		}
+		return result
+	}
+
 	// Collect all routine IDs we need to fetch (current + transitive sources)
 	const allRoutineIds = new Set<string>(currentRoutineIds)
 	const toProcess = [...currentRoutineIds]
