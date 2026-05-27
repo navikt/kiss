@@ -17,9 +17,8 @@ vi.mock("~/db/connection.server", () => ({
 }))
 
 // Import AFTER mocking
-const { createRoutine, copyRoutine, replaceRoutine, getEffectiveLastReviewDate } = await import(
-	"~/db/queries/routines.server"
-)
+const { createRoutine, copyRoutine, replaceRoutine, getEffectiveLastReviewDate, getSectionRoutinesForSection } =
+	await import("~/db/queries/routines.server")
 const { createSection } = await import("~/db/queries/sections.server")
 
 async function createTestApp(name: string, sectionId: string) {
@@ -327,5 +326,150 @@ DELETE FROM sections;
 
 		expect(effectiveDate).not.toBeNull()
 		expect(effectiveDate?.toISOString()).toBe(v2ReviewDate.toISOString())
+	})
+
+	it('getSectionRoutinesForSection: section routine with "continue" inherits archived source review', async () => {
+		const section = await createSection("Test Section", null, "test-user")
+
+		// Create old section routine (isSectionRoutine=false since we test app-independent, but use sectionId)
+		const oldRoutine = await createRoutine({
+			sectionId: section.id,
+			name: "Old Section Routine",
+			description: "Test",
+			frequency: "quarterly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: false,
+			responsibleRole: "tech_manager",
+			activityType: null,
+			isSectionRoutine: false,
+			sectionRoutineOwnerRole: null,
+			persistenceLinks: [],
+			technologyElementIds: [],
+			controlIds: [],
+			groupClassifications: [],
+			oracleRoleCriticalities: [],
+			createdBy: "test-user",
+		})
+
+		await setRoutineStatus(oldRoutine.id, "approved")
+
+		// Create a section-level review (applicationId = null)
+		const db = getTestDb()
+		const oldReviewDate = new Date("2025-02-01T12:00:00Z")
+		await db.execute(
+			/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by)
+VALUES ('${oldRoutine.id}', NULL, 'Section Review', '${oldReviewDate.toISOString()}', 'completed', 'test-user')`,
+		)
+
+		// Create new routine replacing old with "continue"
+		const newRoutine = await copyRoutine(oldRoutine.id, "test-user")
+		if (!newRoutine) throw new Error("Failed to copy routine")
+		await setRoutineStatus(newRoutine.id, "ready")
+		await replaceRoutine(newRoutine.id, oldRoutine.id, "continue", "test-user")
+
+		// getSectionRoutinesForSection should show new routine inheriting old review date
+		const sectionRoutines = await getSectionRoutinesForSection(section.id)
+		const result = sectionRoutines.find((r) => r.routine.id === newRoutine.id)
+
+		expect(result).toBeDefined()
+		expect(result?.lastReviewDate?.toISOString()).toBe(oldReviewDate.toISOString())
+	})
+
+	it("getSectionRoutinesForSection: uses own review after new routine is reviewed (not locked to old)", async () => {
+		const section = await createSection("Test Section", null, "test-user")
+
+		const oldRoutine = await createRoutine({
+			sectionId: section.id,
+			name: "Old Routine",
+			description: "Test",
+			frequency: "quarterly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: false,
+			responsibleRole: "tech_manager",
+			activityType: null,
+			isSectionRoutine: false,
+			sectionRoutineOwnerRole: null,
+			persistenceLinks: [],
+			technologyElementIds: [],
+			controlIds: [],
+			groupClassifications: [],
+			oracleRoleCriticalities: [],
+			createdBy: "test-user",
+		})
+
+		await setRoutineStatus(oldRoutine.id, "approved")
+
+		const db = getTestDb()
+		const oldReviewDate = new Date("2025-02-01T12:00:00Z")
+		await db.execute(
+			/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by)
+VALUES ('${oldRoutine.id}', NULL, 'Old Review', '${oldReviewDate.toISOString()}', 'completed', 'test-user')`,
+		)
+
+		const newRoutine = await copyRoutine(oldRoutine.id, "test-user")
+		if (!newRoutine) throw new Error("Failed to copy routine")
+		await setRoutineStatus(newRoutine.id, "ready")
+		await replaceRoutine(newRoutine.id, oldRoutine.id, "continue", "test-user")
+
+		// Add own review to new routine
+		const newReviewDate = new Date("2025-06-01T12:00:00Z")
+		await db.execute(
+			/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by)
+VALUES ('${newRoutine.id}', NULL, 'New Review', '${newReviewDate.toISOString()}', 'completed', 'test-user')`,
+		)
+
+		const sectionRoutines = await getSectionRoutinesForSection(section.id)
+		const result = sectionRoutines.find((r) => r.routine.id === newRoutine.id)
+
+		expect(result).toBeDefined()
+		// Should use new routine's own review, not old routine's review
+		expect(result?.lastReviewDate?.toISOString()).toBe(newReviewDate.toISOString())
+	})
+
+	it('getSectionRoutinesForSection: "reset" policy stops chain, uses own review only', async () => {
+		const section = await createSection("Test Section", null, "test-user")
+
+		const oldRoutine = await createRoutine({
+			sectionId: section.id,
+			name: "Old Routine",
+			description: "Test",
+			frequency: "quarterly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: false,
+			responsibleRole: "tech_manager",
+			activityType: null,
+			isSectionRoutine: false,
+			sectionRoutineOwnerRole: null,
+			persistenceLinks: [],
+			technologyElementIds: [],
+			controlIds: [],
+			groupClassifications: [],
+			oracleRoleCriticalities: [],
+			createdBy: "test-user",
+		})
+
+		await setRoutineStatus(oldRoutine.id, "approved")
+
+		const db = getTestDb()
+		const oldReviewDate = new Date("2025-01-01T12:00:00Z")
+		await db.execute(
+			/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by)
+VALUES ('${oldRoutine.id}', NULL, 'Old Review', '${oldReviewDate.toISOString()}', 'completed', 'test-user')`,
+		)
+
+		const newRoutine = await copyRoutine(oldRoutine.id, "test-user")
+		if (!newRoutine) throw new Error("Failed to copy routine")
+		await setRoutineStatus(newRoutine.id, "ready")
+		await replaceRoutine(newRoutine.id, oldRoutine.id, "reset", "test-user")
+
+		const sectionRoutines = await getSectionRoutinesForSection(section.id)
+		const result = sectionRoutines.find((r) => r.routine.id === newRoutine.id)
+
+		expect(result).toBeDefined()
+		// "reset" means no inheritance — lastReviewDate should be null
+		expect(result?.lastReviewDate).toBeNull()
 	})
 })
