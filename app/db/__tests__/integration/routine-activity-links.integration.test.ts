@@ -113,29 +113,6 @@ describe("Routine Activity Links integration tests", () => {
 			expect(links[1].sortOrder).toBe(1)
 		})
 
-		it("sets legacy activityType to first element", async () => {
-			const sectionId = await createTestSection("Test", "test")
-
-			const routine = await createRoutine({
-				sectionId,
-				name: "Legacy compat",
-				description: null,
-				frequency: "quarterly",
-				activityTypes: ["entra_id_group_maintenance", "oracle_evidence_audit"],
-				screeningQuestionId: null,
-				screeningChoiceValue: null,
-				appliesToAllInSection: false,
-				responsibleRole: null,
-				persistenceLinks: [],
-				controlIds: [],
-				technologyElementIds: [],
-				createdBy: "test-user",
-			})
-
-			const fetched = await getRoutine(routine.id)
-			expect(fetched?.activityType).toBe("entra_id_group_maintenance")
-		})
-
 		it("creates no links for section routines even with activityTypes", async () => {
 			const sectionId = await createTestSection("Test", "test")
 
@@ -182,30 +159,6 @@ describe("Routine Activity Links integration tests", () => {
 
 			const links = await getRoutineActivityLinks(routine.id)
 			expect(links).toHaveLength(0)
-		})
-
-		it("falls back to legacy activityType when activityTypes not provided", async () => {
-			const sectionId = await createTestSection("Test", "test")
-
-			const routine = await createRoutine({
-				sectionId,
-				name: "Legacy single",
-				description: null,
-				frequency: "quarterly",
-				activityType: "oracle_evidence_audit",
-				screeningQuestionId: null,
-				screeningChoiceValue: null,
-				appliesToAllInSection: false,
-				responsibleRole: null,
-				persistenceLinks: [],
-				controlIds: [],
-				technologyElementIds: [],
-				createdBy: "test-user",
-			})
-
-			const links = await getRoutineActivityLinks(routine.id)
-			expect(links).toHaveLength(1)
-			expect(links[0].activityType).toBe("oracle_evidence_audit")
 		})
 	})
 
@@ -528,50 +481,6 @@ describe("Routine Activity Links integration tests", () => {
 			expect(activities).toHaveLength(1)
 		})
 
-		it("falls back to legacy activityType when no links exist", async () => {
-			const sectionId = await createTestSection("Test", "test")
-			const appId = await createTestApp("Test app")
-			const db = getTestDb()
-
-			// Create routine with legacy activityType (no links)
-			const routine = await createRoutine({
-				sectionId,
-				name: "Legacy fallback",
-				description: null,
-				frequency: "quarterly",
-				activityType: "oracle_evidence_audit",
-				screeningQuestionId: null,
-				screeningChoiceValue: null,
-				appliesToAllInSection: false,
-				responsibleRole: null,
-				persistenceLinks: [],
-				controlIds: [],
-				technologyElementIds: [],
-				createdBy: "test-user",
-			})
-			await markRoutineApproved(routine.id)
-
-			// Remove the auto-created link to simulate legacy data
-			await db.execute(/* sql */ `DELETE FROM routine_activity_links WHERE routine_id = '${routine.id}'`)
-
-			const review = await createReview({
-				routineId: routine.id,
-				applicationId: appId,
-				title: "Test review",
-				summary: null,
-				routineSnapshotPath: null,
-				reviewedAt: new Date(),
-				createdBy: "test-user",
-				participants: [],
-			})
-
-			await autoCreateActivitiesForReview(review.id, routine.id, appId, "test-user")
-
-			const activities = await getReviewActivities(review.id)
-			expect(activities).toHaveLength(1)
-			expect(activities[0].type).toBe("oracle_evidence_audit")
-		})
-
 		it("passes providerConfigs to created activities", async () => {
 			const sectionId = await createTestSection("Test", "test")
 			const appId = await createTestApp("Test app")
@@ -824,6 +733,96 @@ describe("Routine Activity Links integration tests", () => {
 
 			const links = await getRoutineActivityLinks(routine.id)
 			expect(links).toHaveLength(0)
+		})
+
+		it("preserves existing activity links when activityTypes is omitted", async () => {
+			// Regression test: updateRoutine must NOT archive/recreate links when
+			// neither activityTypes nor isSectionRoutine:true is provided.
+			// isSectionRoutine:false alone must not trigger a link sync.
+			const sectionId = await createTestSection("Test", "test")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Preserve links",
+				description: null,
+				frequency: "quarterly",
+				activityTypes: ["oracle_evidence_audit", "entra_id_group_maintenance"],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			const linksBefore = await getRoutineActivityLinks(routine.id)
+			expect(linksBefore).toHaveLength(2)
+
+			// Update only metadata — no activityTypes, no isSectionRoutine
+			await updateRoutine({
+				id: routine.id,
+				name: "Preserve links renamed",
+				description: "ny beskrivelse",
+				frequency: "monthly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				updatedBy: "test-user",
+			})
+
+			const linksAfter = await getRoutineActivityLinks(routine.id)
+			// Links must be identical — same IDs, same types, same order
+			expect(linksAfter.map((l) => l.id)).toEqual(linksBefore.map((l) => l.id))
+			expect(linksAfter.map((l) => l.activityType)).toEqual(linksBefore.map((l) => l.activityType))
+		})
+
+		it("preserves existing activity links when only isSectionRoutine:false is provided", async () => {
+			// Regression test: isSectionRoutine:false without activityTypes must not clear links.
+			const sectionId = await createTestSection("Test", "test")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Preserve links isSectionRoutine false",
+				description: null,
+				frequency: "quarterly",
+				activityTypes: ["oracle_evidence_audit"],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test-user",
+			})
+
+			const linksBefore = await getRoutineActivityLinks(routine.id)
+			expect(linksBefore).toHaveLength(1)
+
+			await updateRoutine({
+				id: routine.id,
+				name: "Preserve links isSectionRoutine false",
+				description: null,
+				frequency: "quarterly",
+				isSectionRoutine: false,
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				updatedBy: "test-user",
+			})
+
+			const linksAfter = await getRoutineActivityLinks(routine.id)
+			expect(linksAfter.map((l) => l.id)).toEqual(linksBefore.map((l) => l.id))
 		})
 	})
 

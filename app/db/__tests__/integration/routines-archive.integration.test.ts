@@ -66,7 +66,6 @@ async function createTestRoutine(sectionId: string, name: string) {
 		screeningChoiceValue: null,
 		appliesToAllInSection: false,
 		responsibleRole: null,
-		activityType: null,
 		persistenceLinks: [],
 		technologyElementIds: [],
 		controlIds: [],

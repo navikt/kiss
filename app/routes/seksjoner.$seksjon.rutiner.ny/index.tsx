@@ -156,7 +156,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 	const activityTypesField = formData.get("activityTypes") as string | null
 	let activityTypes: RoutineActivityType[] | undefined
-	let activityType: RoutineActivityType | null | undefined
 	if (activityTypesField !== null) {
 		const raw = activityTypesField.trim() || "[]"
 		let parsed: unknown
@@ -185,13 +184,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		} else {
 			activityTypes = []
 		}
-	} else {
-		// Legacy form: read single activityType field
-		const activityTypeRaw = (formData.get("activityType") as string)?.trim() || null
-		activityType =
-			!isSectionRoutine && activityTypeRaw && ROUTINE_ACTIVITY_TYPES.includes(activityTypeRaw as RoutineActivityType)
-				? (activityTypeRaw as RoutineActivityType)
-				: null
 	}
 	const technologyElementIds = formData.getAll("technologyElementIds")
 	const controlIds = formData.getAll("controlIds") as string[]
@@ -275,7 +267,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		isSectionRoutine,
 		sectionRoutineOwnerRole,
 		activityTypes,
-		activityType,
 		persistenceLinks,
 		screeningQuestionId: firstLink?.questionId ?? null,
 		screeningChoiceValue: firstLink?.choiceValue ?? null,

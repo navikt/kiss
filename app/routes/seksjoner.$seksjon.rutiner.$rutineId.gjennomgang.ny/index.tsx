@@ -71,13 +71,8 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const apps = await getAppsRequiringRoutine(rutineId)
 	const activityLinks = await getRoutineActivityLinks(rutineId)
 
-	// Determine provider type from activity links (fallback to legacy field for pre-migration routines)
-	const activityTypes =
-		activityLinks.length > 0
-			? activityLinks.map((l) => l.activityType)
-			: routine.activityType
-				? [routine.activityType]
-				: []
+	// Determine provider type from activity links
+	const activityTypes = activityLinks.map((l) => l.activityType)
 	const hasOracleActivity = activityTypes.some((t) => getProviderTypeForActivity(t) === "oracle")
 	const oracleInstancesByAppId: Record<string, string[]> = {}
 	if (hasOracleActivity && routine.isSectionRoutine !== 1) {
@@ -143,12 +138,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 	const effectiveAppId = routine.isSectionRoutine === 1 ? null : applicationId
 	const activityLinks = await getRoutineActivityLinks(rutineId)
-	const activityTypes =
-		activityLinks.length > 0
-			? activityLinks.map((l) => l.activityType)
-			: routine.activityType
-				? [routine.activityType]
-				: []
+	const activityTypes = activityLinks.map((l) => l.activityType)
 	const hasOracleActivity = activityTypes.some((t) => getProviderTypeForActivity(t) === "oracle")
 	let providerConfig: { instanceId: string } | null = null
 

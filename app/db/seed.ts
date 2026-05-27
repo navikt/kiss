@@ -1009,7 +1009,6 @@ async function seed() {
 			appliesToAllInSection: 1,
 			screeningQuestionId: questionRoutine.id,
 			screeningChoiceValue: "Standardrutine",
-			activityType: "entra_id_group_maintenance",
 			status: "approved",
 			approvedBy: "B654321",
 			approvedAt: new Date(),
@@ -1050,6 +1049,12 @@ async function seed() {
 		{ routineId: routineBackup.id, controlId: controlUuidMap["K-DR.01"] },
 		{ routineId: routineDraft.id, controlId: controlUuidMap["K-ST.01"] },
 	])
+
+	await db
+		.insert(schema.routineActivityLinks)
+		.values([
+			{ routineId: routineTilgang.id, activityType: "entra_id_group_maintenance", sortOrder: 0, createdBy: "seed" },
+		])
 
 	await db.insert(schema.routineTechnologyElements).values([
 		{ routineId: routineTilgang.id, elementId: elementMap["entra-id"] },

@@ -58,9 +58,13 @@ async function createTestApp() {
 async function createTestRoutineAndReview(sectionId: string, appId: string) {
 	const db = getTestDb()
 	const routineResult = await db.execute(
-		/* sql */ `INSERT INTO routines (name, section_id, frequency, activity_type, status, created_by, updated_by) VALUES ('Oracle Test', '${sectionId}', 'quarterly', 'oracle_evidence_audit', 'approved', 'test', 'test') RETURNING id`,
+		/* sql */ `INSERT INTO routines (name, section_id, frequency, status, created_by, updated_by) VALUES ('Oracle Test', '${sectionId}', 'quarterly', 'approved', 'test', 'test') RETURNING id`,
 	)
 	const routineId = (routineResult.rows[0] as { id: string }).id
+
+	await db.execute(
+		/* sql */ `INSERT INTO routine_activity_links (routine_id, activity_type, sort_order, created_by) VALUES ('${routineId}', 'oracle_evidence_audit', 0, 'test')`,
+	)
 
 	const reviewResult = await db.execute(
 		/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, status, summary, reviewed_at, created_by) VALUES ('${routineId}', '${appId}', 'Test Review', 'draft', 'Test', NOW(), 'test') RETURNING id`,
