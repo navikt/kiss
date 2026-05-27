@@ -152,6 +152,48 @@ Normaliser alle steder: ekstern kilde, manuell kilde, ghost-kilde (finnes kun i 
 - Sorter resultat-arrayen på matching-nøkkel **før** lagring — krav for korrekt JSON.stringify no-op-deteksjon
 - Ikke legg til nøkler med whitespace — filtrer *etter* trim
 
+### A10. Kollisjonshåndtering for whitespace-duplikater i eksisterende DB-rader
+
+Hvis primærtabellen ikke har en `TRIM`-constraint, kan det finnes rader som kun skiller seg
+på whitespace (f.eks. `"user-123"` og `"user-123 "`). Bruk en deterministisk merge-strategi:
+
+```ts
+function buildAssessmentMapWithCollisionHandling<T extends { id: string; userObjectId: string }>(
+  rows: T[],
+): Map<string, T> {
+  const map = new Map<string, T>()
+  for (const row of rows) {
+    const key = row.userObjectId.trim()
+    const existing = map.get(key)
+    if (!existing) {
+      map.set(key, row)
+    } else {
+      // Prefer "clean" row (no surrounding whitespace), then lowest id for determinism
+      const isClean = row.userObjectId === row.userObjectId.trim()
+      const existingIsClean = existing.userObjectId === existing.userObjectId.trim()
+      if (isClean && !existingIsClean) {
+        map.set(key, row)
+      } else if (!isClean && existingIsClean) {
+        // keep existing
+      } else if (row.id < existing.id) {
+        map.set(key, row)
+      }
+      logger.warn("Whitespace-kollisjon i matching-nøkkel", { key, ids: [existing.id, row.id] })
+    }
+  }
+  return map
+}
+```
+
+Viktig: **bevar den originale (utrimmede) `userObjectId`** i verdien — upsert-setningen
+trenger den for å treffe riktig unik indeks i primærtabellen:
+```ts
+// ✅ RIKTIG — conflict matching mot original verdi
+await tx.insert(tabell)
+  .values({ ..., userObjectId: existing?.userObjectId ?? newTrimmedId })
+  .onConflictDoUpdate({ target: tabell.userObjectId, set: { ... } })
+```
+
 ### A8. Fletteprinsipp for API-data vs KISS-data
 
 > **Merk:** `isNew` og `isGone` er konseptuelle navn. Faktisk implementasjon kan bruke
@@ -176,6 +218,28 @@ Minimum: 4–10 sekunder (hensyn til API-latens, nettverksforsinkelse og backoff
 ---
 
 ## B. Patch-funksjonen (`patchXxxActivity`)
+
+### B0. Executor-propagering i hjelpefunksjoner
+
+Alle hjelpefunksjoner som kalles fra `buildXxxSeedResult`, `patchXxxActivity` eller
+`completeXxxReviewActivity` **SKAL** akseptere en valgfri `executor`-parameter med
+`db` som default. Dette gjelder særlig funksjoner som leser fra tabeller som kan ha
+ucommitted endringer i samme transaksjon.
+
+```ts
+// ❌ FEIL — bruker global db, kan gi inconsistent snapshot i transaksjonskontekst
+async function getRpaUserAssessments(reviewId: string) {
+  return db.select().from(routineRpaUserAssessments).where(...)
+}
+
+// ✅ RIKTIG — caller-kontrollert executor
+async function getRpaUserAssessments(reviewId: string, executor: DbExecutor = db) {
+  return executor.select().from(routineRpaUserAssessments).where(...)
+}
+```
+
+Sjekk hele call-stacken: `buildXxxSeedResult` → `getXxxUsers` → `getXxxGroups` —
+alle led bør bruke executor slik at man får konsistent lesing innen transaksjonen.
 
 ### B1. Seed-bygging UTENFOR lock (se A1)
 Dersom `stagedData === null` og seeding trengs før patch, følg samme mønster som A1:
@@ -239,8 +303,43 @@ Kast `new Response(...)` — ikke `data(...)` fra `react-router` (tilhører rout
 | Lock-konflikt, allerede fullført, race-konflikt | **409** |
 | Ugyldig input, validering feilet | **400** |
 | Ressurs ikke funnet | **404** |
+| Arkivert rutine | **403** |
+| Review ikke lenger redigerbar (discard, complete) | **409** |
 
 Ikke bruk 400 for «aktiviteten er allerede fullført» — det er en konflikttilstand → 409.
+
+### B8. `patchXxxActivity` sjekker review-status og rutine-archivedAt
+
+`patchXxxActivity` **SKAL** ha de samme guards som `upsertXxxAssessment`:
+1. Rutinen er ikke arkivert → 403
+2. Review-status er `"draft"` → 409 hvis ikke
+3. Aktivitetens status er `"pending"` → 409 hvis ikke
+
+Begrunnelse: `discardReview()` setter ikke aktivitetenes status (de forblir `"pending"`).
+Uten disse guards kan en forkastet gjennomgang fortsatt patches.
+
+```ts
+// ✅ RIKTIG — join routines i precheck og sjekk review.status
+const [precheck] = await db
+  .select({
+    type: routineReviewActivities.type,
+    status: routineReviewActivities.status,
+    reviewStatus: routineReviews.status,
+    routineArchivedAt: routines.archivedAt,
+    // ...
+  })
+  .from(routineReviewActivities)
+  .innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+  .innerJoin(routines, eq(routineReviews.routineId, routines.id))
+  .where(eq(routineReviewActivities.id, activityId))
+
+if (precheck.routineArchivedAt)
+  throw new Response("Kan ikke endre vurderinger på en arkivert rutine.", { status: 403 })
+if (precheck.reviewStatus !== "draft")
+  throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
+if (precheck.status !== "pending")
+  throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
+```
 
 ---
 
@@ -604,6 +703,34 @@ logger.error("Feil ved seeding", { error: err })
 logger.error("Feil ved seeding", err)
 ```
 
+### I2. Log warning ved ugyldig JSON-data fra DB
+
+Når JSON-kolonne-verdier fra DB feiler ved parsing (f.eks. `application_auth_integrations.groups`,
+konfigurasjonskolonner, cached API-responses), **SKAL** feilen logges med tilstrekkelig kontekst
+til at utviklere kan identifisere hvilken rad som er korrupt — ikke bare svelges stille:
+
+```ts
+// ❌ FEIL — stille ignore: brukeren ser et tomt resultat uten forklaring
+try {
+  parsed = JSON.parse(raw)
+} catch {
+  // skip
+}
+
+// ✅ RIKTIG — log med kontekst
+try {
+  parsed = JSON.parse(raw)
+} catch {
+  logger.warn("Ugyldig JSON i kolonne X — raden hoppes over", {
+    applicationId,
+    rawValue: raw,
+  })
+}
+```
+
+Begrunnelse: stille JSON-feil kan gi en subtilt feil (for liten) seed-liste uten noen advarsel
+i UI eller logger — brukere tar beslutninger basert på ufullstendig data.
+
 ---
 
 ## Hurtigsjekkliste
@@ -638,12 +765,14 @@ AUDIT / ATOMISITET
 [ ] performedBy settes fra autentisert kontekst, ikke klientpayload
 
 PATCH
+[ ] patchXxxActivity joiner routines + routineReviews i precheck og sjekker routineArchivedAt (403) og reviewStatus !== "draft" (409)
 [ ] applyXxxStagedDataPatch er exhaustiv (patch satisfies never)
 [ ] Error fra applyXxx fanges og konverteres til Response (400)
 [ ] Lock-konflikt gir 409 Response fra query-laget
 [ ] Ingen bruk av data(...) fra react-router i query-laget
 [ ] [T] No-op gir ingen endringslogg (JSON.stringify etter deterministisk sortering)
 [ ] Endringslogg skrives i query-laget, ikke i route
+[ ] Alle hjelpefunksjoner kalt fra seed/patch/commit aksepterer executor-parameter
 
 COMMIT
 [ ] Lock holdes gjennom hele commit + status-overgang
@@ -689,4 +818,6 @@ TESTER
 
 LOGGING
 [ ] logger.error kaller sendes Error-instansen direkte (ikke { error: err })
+[ ] JSON-parse-catch-blokker logger warning med tilstrekkelig kontekst (tabell, primærnøkkel, rawValue)
+[ ] Whitespace-kollisjoner i matching-nøkler logges som warning
 ```
