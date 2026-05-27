@@ -14,6 +14,7 @@ import {
 } from "react-router"
 import { AppNavigation } from "./components/AppNavigation"
 import { Breadcrumbs } from "./components/Breadcrumbs"
+import { RetryableErrorView } from "./components/RetryableErrorView"
 import { SearchDialog } from "./components/SearchDialog"
 import { UserMenu } from "./components/UserMenu"
 import { getUserRoles } from "./db/queries/users.server"
@@ -21,6 +22,7 @@ import { userRoleLabels } from "./db/schema/organization"
 import { ThemeProvider, useTheme } from "./hooks/useTheme"
 import { ADMIN_ELEVATED_COOKIE, getAuthenticatedUser } from "./lib/auth.server"
 import { isActualAdmin, isAdmin, isAuditor } from "./lib/authorization.server"
+import { isTransientError } from "./lib/db-errors"
 import { getFeatureFlags } from "./lib/feature-flags.server"
 
 import "@navikt/ds-css/dist/index.css"
@@ -221,6 +223,10 @@ export function ErrorBoundary() {
 			: typeof error === "object" && error !== null && "stack" in error
 				? String((error as { stack: unknown }).stack)
 				: undefined
+
+	if (isTransientError(error)) {
+		return <RetryableErrorView title={error.data.title} message={error.data.userMessage} />
+	}
 
 	if (isRouteErrorResponse(error)) {
 		return (
