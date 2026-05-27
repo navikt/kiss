@@ -58,7 +58,6 @@ export const routines = pgTable("routines", {
 		onDelete: "set null",
 	}),
 	screeningChoiceValue: text("screening_choice_value"),
-	activityType: text("activity_type", { enum: ROUTINE_ACTIVITY_TYPES }),
 	status: text("status", { enum: routineStatusEnum }).notNull().default("draft"),
 	approvedBy: text("approved_by"),
 	approvedAt: timestamp("approved_at", { withTimezone: true }),

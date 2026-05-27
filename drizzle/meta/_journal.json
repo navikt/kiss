@@ -680,6 +680,13 @@
       "when": 1781917720000,
       "tag": "0096_archive_application_group_assessments",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1781917780000,
+      "tag": "0097_remove_legacy_activity_type",
+      "breakpoints": true
     }
   ]
 }

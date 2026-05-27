@@ -10,13 +10,20 @@ import {
 } from "~/db/queries/nais.server"
 import { isInstanceLinkedToApp, upsertOracleRoleCriticality } from "~/db/queries/oracle-roles.server"
 import { generateAppComplianceReport } from "~/db/queries/reports.server"
-import { createReview } from "~/db/queries/routines.server"
+import {
+	createReview,
+	findActiveReviewConflict,
+	getRoutine,
+	getRoutineActivityLinks,
+} from "~/db/queries/routines.server"
+import { getSectionBySlug, isAppEffectiveInSection } from "~/db/queries/sections.server"
 import {
 	type DataClassification,
 	type GroupCriticality,
 	groupCriticalityEnum,
 	persistenceTypeEnum,
 } from "~/db/schema/applications"
+import { activityTypeLabels } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { logger } from "~/lib/logger.server"
@@ -40,40 +47,30 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!sectionSlug) {
 			return data({ success: false, message: null, error: "Mangler seksjons-slug" })
 		}
-		const { getRoutine } = await import("~/db/queries/routines.server")
 		const routine = await getRoutine(routineId)
 		if (!routine) {
 			return data({ success: false, message: null, error: "Fant ikke rutine" })
 		}
 		// Validate that the routine's section matches the submitted slug
-		const { getSectionBySlug } = await import("~/db/queries/sections.server")
 		const section = await getSectionBySlug(sectionSlug)
 		if (!section || routine.sectionId !== section.id) {
 			return data({ success: false, message: null, error: "Rutinen tilhører ikke denne seksjonen" })
 		}
 		// For section routines, verify the app is effectively in this section
 		if (routine.isSectionRoutine === 1) {
-			const { isAppEffectiveInSection } = await import("~/db/queries/sections.server")
 			const isMember = await isAppEffectiveInSection(appId, section.id)
 			if (!isMember) {
 				return data({ success: false, message: null, error: "Applikasjonen tilhører ikke denne seksjonen" })
 			}
 		}
 		const now = new Date()
-		const { getRoutineActivityLinks, findActiveReviewConflict } = await import("~/db/queries/routines.server")
 		const activityLinks = await getRoutineActivityLinks(routineId)
-		const activityTypes =
-			activityLinks.length > 0
-				? activityLinks.map((l) => l.activityType)
-				: routine.activityType
-					? [routine.activityType]
-					: []
+		const activityTypes = activityLinks.map((l) => l.activityType)
 		const effectiveAppId = routine.isSectionRoutine === 1 ? null : appId
 		const conflict = await findActiveReviewConflict(routineId, effectiveAppId, activityTypes)
 		if (conflict) {
 			let conflictMessage: string
 			if (conflict.activityType) {
-				const { activityTypeLabels } = await import("~/lib/activity-types")
 				const label = activityTypeLabels[conflict.activityType] ?? conflict.activityType
 				conflictMessage = `Det finnes allerede en aktiv gjennomgang for «${label}». Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`
 			} else {

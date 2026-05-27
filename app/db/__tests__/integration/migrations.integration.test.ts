@@ -238,6 +238,218 @@ describe("Database migrations", () => {
 			expect(colNames).toContain("archived_at")
 			expect(colNames).toContain("archived_by")
 		})
+
+		it("should not have activity_type column on routines after migration 0097", async () => {
+			await runMigrations()
+
+			const columns = await testDb.execute<{ column_name: string }>(sql`
+				SELECT column_name FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'routines'
+				ORDER BY column_name
+			`)
+			const colNames = columns.rows.map((r) => r.column_name)
+			expect(colNames).not.toContain("activity_type")
+		})
+	})
+
+	// ── 1b. Migration 0097 backfill behaviour ───────────────────────────
+	// These tests simulate the pre-0097 state by re-adding the activity_type
+	// column after a full migration run, inserting test data, then executing
+	// only the backfill INSERT from 0097 to verify correctness.
+
+	describe("migration 0097 backfill (routine_activity_links)", () => {
+		// IDs stable within each test; beforeEach wipes tables via dropAllPublicTables + runMigrations
+		let sectionId: string
+		let routineId: string
+
+		async function setupPre0097State() {
+			await runMigrations()
+			// Re-add the dropped column to simulate pre-0097 state
+			await testDb.execute(sql`ALTER TABLE routines ADD COLUMN IF NOT EXISTS activity_type text`)
+			// Create a section so routines can be inserted (FK constraint)
+			const secResult = await testDb.execute<{ id: string }>(sql`
+				INSERT INTO sections (name, slug, created_by, updated_by)
+				VALUES ('Test Section', 'test-section', 'test', 'test')
+				RETURNING id
+			`)
+			sectionId = secResult.rows[0].id
+			const routineResult = await testDb.execute<{ id: string }>(sql`
+				INSERT INTO routines (section_id, name, frequency, responsible_role,
+				                     applies_to_all_in_section, is_section_routine,
+				                     created_by, updated_by)
+				VALUES (${sectionId}, 'Test Routine', 'quarterly', 'developer', 0, 0, 'test', 'test')
+				RETURNING id
+			`)
+			routineId = routineResult.rows[0].id
+		}
+
+		async function setActivityType(value: string | null) {
+			await testDb.execute(sql`UPDATE routines SET activity_type = ${value} WHERE id = ${routineId}`)
+		}
+
+		async function insertLink(activityType: string, archived = false) {
+			await testDb.execute(sql`
+				INSERT INTO routine_activity_links (id, routine_id, activity_type, sort_order, created_by)
+				VALUES (gen_random_uuid(), ${routineId}, ${activityType}, 0, 'test')
+			`)
+			if (archived) {
+				await testDb.execute(sql`
+					UPDATE routine_activity_links
+					SET archived_at = NOW(), archived_by = 'test'
+					WHERE routine_id = ${routineId} AND activity_type = ${activityType} AND archived_at IS NULL
+				`)
+			}
+		}
+
+		async function runBackfill() {
+			// Execute only the INSERT part of migration 0097 (not the DROP).
+			// Must stay in sync with drizzle/0097_remove_legacy_activity_type.sql.
+			await testDb.execute(sql`
+				INSERT INTO routine_activity_links (id, routine_id, activity_type, sort_order, created_at, created_by)
+				SELECT
+					gen_random_uuid(),
+					r.id,
+					r.activity_type,
+					COALESCE(
+						(SELECT MAX(ral2.sort_order) + 1
+						 FROM routine_activity_links ral2
+						 WHERE ral2.routine_id = r.id AND ral2.archived_at IS NULL),
+						0
+					),
+					r.created_at,
+					r.created_by
+				FROM routines r
+				WHERE r.activity_type IS NOT NULL
+				  AND NOT EXISTS (
+				      SELECT 1
+				      FROM routine_activity_links ral
+				      WHERE ral.routine_id = r.id
+				        AND ral.activity_type = r.activity_type
+				        AND ral.archived_at IS NULL
+				  )
+				ON CONFLICT DO NOTHING
+			`)
+		}
+
+		async function getActiveLinksWithOrder(): Promise<Array<{ activityType: string; sortOrder: number }>> {
+			const result = await testDb.execute<{ activity_type: string; sort_order: number }>(sql`
+				SELECT activity_type, sort_order
+				FROM routine_activity_links
+				WHERE routine_id = ${routineId} AND archived_at IS NULL
+				ORDER BY sort_order, created_at
+			`)
+			return result.rows.map((r) => ({ activityType: r.activity_type, sortOrder: r.sort_order }))
+		}
+
+		async function getActiveLinks(): Promise<string[]> {
+			return (await getActiveLinksWithOrder()).map((r) => r.activityType)
+		}
+
+		it("backfills activity_type to routine_activity_links when no links exist", async () => {
+			await setupPre0097State()
+			await setActivityType("oracle_evidence_audit")
+
+			await runBackfill()
+
+			expect(await getActiveLinks()).toEqual(["oracle_evidence_audit"])
+		})
+
+		it("does not create duplicate when matching active link already exists", async () => {
+			await setupPre0097State()
+			await setActivityType("oracle_evidence_audit")
+			await insertLink("oracle_evidence_audit")
+
+			await runBackfill()
+
+			// Still exactly one link — no duplicate created
+			expect(await getActiveLinks()).toEqual(["oracle_evidence_audit"])
+		})
+
+		it("backfills activity_type even when an active link for a DIFFERENT type exists", async () => {
+			// This is the key correctness test: a routine with activity_type='A'
+			// and an active link for 'B' must get a new link for 'A'.
+			// The old (wrong) NOT EXISTS check would skip the insert because
+			// SOME active link existed; the correct check matches on activity_type too.
+			await setupPre0097State()
+			await setActivityType("oracle_evidence_audit")
+			await insertLink("entra_id_group_maintenance") // different type, active
+
+			await runBackfill()
+
+			const links = await getActiveLinks()
+			expect(links).toContain("oracle_evidence_audit") // backfilled
+			expect(links).toContain("entra_id_group_maintenance") // preserved
+			expect(links).toHaveLength(2)
+		})
+
+		it("appends backfilled link with sort_order after existing active links (no duplicate sort_order)", async () => {
+			// When existing links are present, the backfilled link must use
+			// max(existing sort_order)+1 to avoid duplicate sort_order values
+			// that would make ordering nondeterministic.
+			await setupPre0097State()
+			await setActivityType("oracle_evidence_audit")
+			await insertLink("entra_id_group_maintenance") // active, sort_order=0
+
+			await runBackfill()
+
+			const links = await getActiveLinksWithOrder()
+			const entraLink = links.find((l) => l.activityType === "entra_id_group_maintenance")
+			const oracleLink = links.find((l) => l.activityType === "oracle_evidence_audit")
+			expect(entraLink?.sortOrder).toBe(0)
+			expect(oracleLink?.sortOrder).toBe(1) // appended after entra
+		})
+
+		it("backfills when existing link for same type is archived (partial unique index allows new active row)", async () => {
+			await setupPre0097State()
+			await setActivityType("oracle_evidence_audit")
+			await insertLink("oracle_evidence_audit", true) // same type, but archived
+
+			await runBackfill()
+
+			// Archived row remains, new active row inserted — partial unique index allows this
+			expect(await getActiveLinks()).toContain("oracle_evidence_audit")
+		})
+
+		it("skips routines where activity_type is NULL", async () => {
+			await setupPre0097State()
+			await setActivityType(null)
+
+			await runBackfill()
+
+			expect(await getActiveLinks()).toHaveLength(0)
+		})
+
+		it("backfills archived routines as well as active ones", async () => {
+			await setupPre0097State()
+			await setActivityType("oracle_evidence_audit")
+			// Archive the routine itself
+			await testDb.execute(sql`UPDATE routines SET archived_at = NOW(), archived_by = 'test' WHERE id = ${routineId}`)
+
+			await runBackfill()
+
+			// Archived routines must be included to preserve historical data
+			expect(await getActiveLinks()).toContain("oracle_evidence_audit")
+		})
+
+		it("full 0097 SQL: backfills then drops the activity_type column", async () => {
+			await setupPre0097State()
+			await setActivityType("entra_id_group_maintenance")
+
+			// Run the complete 0097 migration SQL (backfill + DROP COLUMN)
+			const migrationSql = path.resolve(__dirname, "../../../../drizzle/0097_remove_legacy_activity_type.sql")
+			const sqlText = fs.readFileSync(migrationSql, "utf-8")
+			await testDb.execute(sql.raw(sqlText))
+
+			// Column must be gone
+			const columns = await testDb.execute<{ column_name: string }>(sql`
+				SELECT column_name FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'routines'
+			`)
+			expect(columns.rows.map((r) => r.column_name)).not.toContain("activity_type")
+
+			// Link must have been created before the drop
+			expect(await getActiveLinks()).toContain("entra_id_group_maintenance")
+		})
 	})
 
 	// ── 2. Idempotency ──────────────────────────────────────────────────
@@ -283,15 +495,18 @@ describe("Database migrations", () => {
 			const createdTables = _testing.extractAllCreateTableNames(migrationSql)
 			const addedColumns = _testing.extractAlterTableAddColumns(migrationSql)
 			const droppedTables = _testing.extractDropTableNames(migrationSql)
+			const droppedColumns = _testing.extractDropColumns(migrationSql)
 			const createdIndexes = _testing.extractCreateIndexNames(migrationSql)
 			const addedConstraints = _testing.extractAddConstraints(migrationSql)
 			const isDataMigration =
 				/UPDATE\s+"?\w+"?\s+SET\b/i.test(migrationSql) ||
-				/ALTER TABLE[\s\S]*?ALTER COLUMN[\s\S]*?SET DEFAULT/i.test(migrationSql)
+				/ALTER TABLE[\s\S]*?ALTER COLUMN[\s\S]*?SET DEFAULT/i.test(migrationSql) ||
+				/INSERT\s+INTO\b/i.test(migrationSql)
 			const hasStructuralChanges =
 				createdTables.length > 0 ||
 				addedColumns.length > 0 ||
 				droppedTables.length > 0 ||
+				droppedColumns.length > 0 ||
 				createdIndexes.length > 0 ||
 				addedConstraints.length > 0
 			const hasVerifiableChanges = hasStructuralChanges || isDataMigration
@@ -335,6 +550,11 @@ describe("Database migrations", () => {
 				// Re-create minimally so the DROP can be re-applied
 				await testDb.execute(sql.raw(`CREATE TABLE IF NOT EXISTS "${table}" ("_placeholder" text)`))
 			}
+			for (const tableColumn of droppedColumns) {
+				const [table, column] = tableColumn.split(".")
+				// Re-add minimally so the DROP COLUMN can be re-applied
+				await testDb.execute(sql.raw(`ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "${column}" text`))
+			}
 
 			const reducedCount = await getTrackingCount()
 			expect(reducedCount).toBe(fullCount - 1)
@@ -375,6 +595,21 @@ describe("Database migrations", () => {
 				for (const t of droppedTables) {
 					expect(tableNames, `Table "${t}" should have been dropped`).not.toContain(t)
 				}
+			}
+
+			// Verify dropped columns were dropped again
+			for (const tableColumn of droppedColumns) {
+				const [table, column] = tableColumn.split(".")
+				const cols = await testDb.execute<{ column_name: string }>(
+					sql.raw(`
+					SELECT column_name FROM information_schema.columns
+					WHERE table_schema = 'public' AND table_name = '${table}'
+				`),
+				)
+				expect(
+					cols.rows.map((r) => r.column_name),
+					`Column "${column}" on "${table}" should have been dropped`,
+				).not.toContain(column)
 			}
 
 			// Verify created indexes were re-created
@@ -474,6 +709,10 @@ describe("Database migrations", () => {
 					"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 				)
 			`)
+			// Undo 0097: re-add activity_type column so that when drizzle re-applies
+			// migration 0091 (which reads routines.activity_type), the column exists.
+			// Migration 0097 dropped it, but re-applying 0091 needs it present.
+			await testDb.execute(sql`ALTER TABLE "routines" ADD COLUMN IF NOT EXISTS "activity_type" text`)
 
 			// Run migrations — seed should stop at 0032 (tables don't exist),
 			// then migrate() applies 0032 through 0037

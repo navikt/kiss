@@ -32,6 +32,7 @@ const {
 	getActivitiesForReviews,
 	getRoutineDeadlinesForApp,
 	findActiveReviewConflict,
+	getRoutineActivityLinks,
 } = await import("~/db/queries/routines.server")
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -1704,7 +1705,7 @@ describe("Routines integration tests", () => {
 				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test",
-				activityType: "entra_id_group_maintenance",
+				activityTypes: ["entra_id_group_maintenance"],
 			})
 
 			await markRoutineApproved(routine.id)
@@ -1796,7 +1797,7 @@ describe("Routines integration tests", () => {
 				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test",
-				activityType: "entra_id_group_maintenance",
+				activityTypes: ["entra_id_group_maintenance"],
 			})
 
 			await markRoutineApproved(routine.id)
@@ -1876,7 +1877,7 @@ describe("Routines integration tests", () => {
 				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test",
-				activityType: "entra_id_group_maintenance",
+				activityTypes: ["entra_id_group_maintenance"],
 			})
 
 			await markRoutineApproved(routine.id)
@@ -1974,7 +1975,7 @@ describe("Routines integration tests", () => {
 			expect(activities2).toEqual([])
 		})
 
-		it("should support activityType on routine create and update", async () => {
+		it("should support activityTypes on routine create and update", async () => {
 			const sectionId = await createTestSection("act-type-section", "act-type-section")
 
 			const routine = await createRoutine({
@@ -1990,11 +1991,12 @@ describe("Routines integration tests", () => {
 				controlIds: [],
 				technologyElementIds: [],
 				createdBy: "test",
-				activityType: "entra_id_group_maintenance",
+				activityTypes: ["entra_id_group_maintenance"],
 			})
 
-			const fetched = await getRoutine(routine.id)
-			expect(fetched?.activityType).toBe("entra_id_group_maintenance")
+			const links = await getRoutineActivityLinks(routine.id)
+			expect(links).toHaveLength(1)
+			expect(links[0].activityType).toBe("entra_id_group_maintenance")
 
 			await updateRoutine({
 				id: routine.id,
@@ -2009,11 +2011,11 @@ describe("Routines integration tests", () => {
 				controlIds: [],
 				technologyElementIds: [],
 				updatedBy: "test",
-				activityType: null,
+				activityTypes: [],
 			})
 
-			const updated = await getRoutine(routine.id)
-			expect(updated?.activityType).toBeNull()
+			const updatedLinks = await getRoutineActivityLinks(routine.id)
+			expect(updatedLinks).toHaveLength(0)
 		})
 	})
 
@@ -2084,7 +2086,6 @@ describe("Routines integration tests", () => {
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
 				createdBy: "test",
-				activityType: null,
 			})
 			await markRoutineApproved(routine.id)
 			await linkRulesetRoutine(rulesetId, routine.id)
@@ -2120,7 +2121,6 @@ describe("Routines integration tests", () => {
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
 				createdBy: "test",
-				activityType: null,
 			})
 			await markRoutineApproved(routine.id)
 			await linkRulesetRoutine(rulesetId, routine.id)
@@ -2162,7 +2162,6 @@ describe("Routines integration tests", () => {
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
 				createdBy: "test",
-				activityType: null,
 			})
 			await markRoutineApproved(routineA.id)
 			await linkRulesetRoutine(rulesetA, routineA.id)
@@ -2208,7 +2207,6 @@ describe("Routines integration tests", () => {
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
 				createdBy: "test",
-				activityType: null,
 			})
 			await markRoutineApproved(routine.id)
 			await linkRulesetRoutine(rulesetId, routine.id)
@@ -2241,7 +2239,6 @@ describe("Routines integration tests", () => {
 				description: "Routine matched via screening questions",
 				sectionId,
 				frequency: "annually",
-				activityType: null,
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
 				responsibleRole: null,
@@ -2280,8 +2277,8 @@ describe("Routines integration tests", () => {
 			// Create routine with legacy screening fields
 			const db = getTestDb()
 			const result = await db.execute(
-				/* sql */ `INSERT INTO routines (name, description, section_id, frequency, activity_type, status, screening_question_id, screening_choice_value, created_by, updated_by)
-					VALUES ('Legacy Routine', 'Matched via legacy fields', '${sectionId}', 'annually', NULL, 'approved', '${questionId}', '${choiceLabel}', 'test', 'test')
+				/* sql */ `INSERT INTO routines (name, description, section_id, frequency, status, screening_question_id, screening_choice_value, created_by, updated_by)
+					VALUES ('Legacy Routine', 'Matched via legacy fields', '${sectionId}', 'annually', 'approved', '${questionId}', '${choiceLabel}', 'test', 'test')
 					RETURNING id`,
 			)
 			const routineId = (result.rows[0] as { id: string }).id
@@ -2308,7 +2305,6 @@ describe("Routines integration tests", () => {
 				description: "Should not match",
 				sectionId,
 				frequency: "annually",
-				activityType: null,
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
 				responsibleRole: null,
@@ -2331,7 +2327,6 @@ describe("Routines integration tests", () => {
 				description: "Should not match because archived",
 				sectionId,
 				frequency: "annually",
-				activityType: null,
 				screeningQuestionId: null,
 				screeningChoiceValue: null,
 				responsibleRole: null,

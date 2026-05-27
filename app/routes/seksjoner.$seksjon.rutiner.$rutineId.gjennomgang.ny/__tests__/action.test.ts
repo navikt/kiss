@@ -83,8 +83,8 @@ describe("gjennomgang.ny action - oracle provider config", () => {
 			id: "r1",
 			sectionId: "section-1",
 			isSectionRoutine: 0,
-			activityType: "oracle_evidence_audit",
 		})
+		mockGetRoutineActivityLinks.mockResolvedValue([{ activityType: "oracle_evidence_audit", sortOrder: 0 }])
 
 		const fd = new FormData()
 		fd.set("title", "Ny gjennomgang")
@@ -99,8 +99,8 @@ describe("gjennomgang.ny action - oracle provider config", () => {
 			id: "r1",
 			sectionId: "section-1",
 			isSectionRoutine: 0,
-			activityType: "oracle_evidence_audit",
 		})
+		mockGetRoutineActivityLinks.mockResolvedValue([{ activityType: "oracle_evidence_audit", sortOrder: 0 }])
 		mockGetOracleInstancesForApp.mockResolvedValue([{ instanceId: "PENSJON_PROD" }])
 
 		const fd = new FormData()
@@ -118,8 +118,8 @@ describe("gjennomgang.ny action - oracle provider config", () => {
 			id: "r1",
 			sectionId: "section-1",
 			isSectionRoutine: 0,
-			activityType: "oracle_evidence_audit",
 		})
+		mockGetRoutineActivityLinks.mockResolvedValue([{ activityType: "oracle_evidence_audit", sortOrder: 0 }])
 		mockGetOracleInstancesForApp.mockResolvedValue([{ instanceId: "PENSJON_PROD" }])
 
 		const fd = new FormData()
@@ -139,7 +139,6 @@ describe("gjennomgang.ny action - aktiv gjennomgang-guard", () => {
 		id: "r1",
 		sectionId: "section-1",
 		isSectionRoutine: 0,
-		activityType: null,
 		archivedAt: null,
 		status: "approved",
 	}

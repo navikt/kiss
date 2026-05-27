@@ -258,7 +258,6 @@ export async function createRoutine(params: {
 	appliesToAllInSection: boolean
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
-	activityType?: RoutineActivityType | null
 	activityTypes?: RoutineActivityType[]
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
@@ -292,11 +291,6 @@ export async function createRoutine(params: {
 				appliesToAllInSection: params.isSectionRoutine ? 1 : params.appliesToAllInSection ? 1 : 0,
 				isSectionRoutine: params.isSectionRoutine ? 1 : 0,
 				sectionRoutineOwnerRole: params.isSectionRoutine ? (params.sectionRoutineOwnerRole ?? null) : null,
-				activityType: params.isSectionRoutine
-					? null
-					: params.activityTypes !== undefined
-						? (params.activityTypes[0] ?? null)
-						: (params.activityType ?? null),
 				screeningQuestionId: params.screeningQuestionId,
 				screeningChoiceValue: params.screeningChoiceValue,
 				...(params.status && { status: params.status }),
@@ -373,11 +367,7 @@ export async function createRoutine(params: {
 		}
 
 		// Insert activity links (new multi-activity support)
-		const activityTypes = [
-			...new Set(
-				params.isSectionRoutine ? [] : (params.activityTypes ?? (params.activityType ? [params.activityType] : [])),
-			),
-		]
+		const activityTypes = [...new Set(params.isSectionRoutine ? [] : (params.activityTypes ?? []))]
 		if (activityTypes.length > 0) {
 			await tx.insert(routineActivityLinks).values(
 				activityTypes.map((activityType, index) => ({
@@ -428,6 +418,14 @@ export async function createRoutine(params: {
 /**
  * Oppdaterer en eksisterende rutine. Kaster 403 hvis rutinen er godkjent
  * (godkjente rutiner er låst). Erstatter alle koblinger og skriver audit-logg.
+ *
+ * **Aktivitetslenker synkroniseres kun hvis:**
+ * - `activityTypes` er eksplisitt satt (erstatter alle eksisterende lenker), eller
+ * - `isSectionRoutine: true` sendes (sletter alle lenker, seksjonsrutiner har ingen aktivitetstype)
+ *
+ * `isSectionRoutine: false` alene trigger IKKE synkronisering — eksisterende lenker bevares.
+ * Kall-steder som konverterer en seksjonsrutine til vanlig rutine MÅ sende `activityTypes`
+ * (eventuelt tom array) for at lenkene skal oppdateres.
  */
 export async function updateRoutine(params: {
 	id: string
@@ -439,7 +437,6 @@ export async function updateRoutine(params: {
 	appliesToAllInSection: boolean
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
-	activityType?: RoutineActivityType | null
 	activityTypes?: RoutineActivityType[]
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
@@ -476,18 +473,13 @@ export async function updateRoutine(params: {
 		// Use explicit param if provided, otherwise fall back to current DB value
 		const effectiveIsSectionRoutine = params.isSectionRoutine ?? locked.isSectionRoutine === 1
 
-		// Compute effective activity types before UPDATE (used both for legacy field and link table)
-		// When neither activityTypes nor activityType is provided, preserve existing state
-		const hasActivityInput =
-			params.activityTypes !== undefined || params.activityType !== undefined || params.isSectionRoutine !== undefined
+		// Compute effective activity types before UPDATE (for link table sync)
+		// When neither activityTypes nor isSectionRoutine:true is provided, preserve existing state.
+		// isSectionRoutine:false alone does NOT clear links — only explicit activityTypes or switching
+		// to section routine (isSectionRoutine:true) triggers a link sync.
+		const hasActivityInput = params.activityTypes !== undefined || params.isSectionRoutine === true
 		const effectiveActivityTypes = hasActivityInput
-			? [
-					...new Set(
-						effectiveIsSectionRoutine
-							? []
-							: (params.activityTypes ?? (params.activityType ? [params.activityType] : [])),
-					),
-				]
+			? [...new Set(effectiveIsSectionRoutine ? [] : (params.activityTypes ?? []))]
 			: null
 
 		// Validate owner role for section routines
@@ -509,9 +501,6 @@ export async function updateRoutine(params: {
 				}),
 				...(params.isSectionRoutine !== undefined && {
 					sectionRoutineOwnerRole: effectiveIsSectionRoutine ? (params.sectionRoutineOwnerRole ?? null) : null,
-				}),
-				...(effectiveActivityTypes !== null && {
-					activityType: effectiveIsSectionRoutine ? null : (effectiveActivityTypes[0] ?? null),
 				}),
 				screeningQuestionId: params.screeningQuestionId,
 				screeningChoiceValue: params.screeningChoiceValue,
@@ -5312,19 +5301,6 @@ export async function patchEntraActivity(
 	}
 }
 
-export async function autoCreateActivityForReview(
-	reviewId: string,
-	routineId: string,
-	_applicationId: string | null,
-	performedBy: string,
-	providerConfig?: ReviewActivityProviderConfig | null,
-) {
-	const routine = await getRoutine(routineId)
-	if (!routine?.activityType) return null
-
-	return createReviewActivity(reviewId, routine.activityType, null, performedBy, providerConfig ?? null)
-}
-
 export async function createReviewActivity(
 	reviewId: string,
 	type: RoutineActivityType,
@@ -5441,18 +5417,6 @@ export async function autoCreateActivitiesForReview(
 		.from(routineActivityLinks)
 		.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
 		.orderBy(routineActivityLinks.sortOrder)
-
-	// Fallback to legacy single activityType if no links exist
-	if (activityLinks.length === 0) {
-		const [row] = await db
-			.select({ activityType: routines.activityType })
-			.from(routines)
-			.where(eq(routines.id, routineId))
-			.limit(1)
-		if (row?.activityType) {
-			activityLinks.push({ activityType: row.activityType })
-		}
-	}
 
 	await db.transaction(async (tx) => {
 		for (let i = 0; i < activityLinks.length; i++) {
@@ -6056,7 +6020,6 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 				appliesToAllInSection: source.appliesToAllInSection,
 				isSectionRoutine: source.isSectionRoutine,
 				sectionRoutineOwnerRole: source.sectionRoutineOwnerRole,
-				activityType: source.activityType,
 				screeningQuestionId: source.screeningQuestionId,
 				screeningChoiceValue: source.screeningChoiceValue,
 				status: "draft",
@@ -6292,11 +6255,6 @@ export async function reorderRoutineActivities(routineId: string, orderedIds: st
 				.set({ sortOrder: i })
 				.where(and(eq(routineActivityLinks.id, orderedIds[i]), eq(routineActivityLinks.routineId, routineId)))
 		}
-
-		// Keep routines.activity_type in sync with the new first link
-		const linkById = new Map(activeLinks.map((l) => [l.id, l.activityType]))
-		const firstActivityType = orderedIds.length > 0 ? (linkById.get(orderedIds[0]) ?? null) : null
-		await tx.update(routines).set({ activityType: firstActivityType }).where(eq(routines.id, routineId))
 
 		await writeAuditLog(
 			{
