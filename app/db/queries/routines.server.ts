@@ -2566,6 +2566,9 @@ export async function getAppsRequiringRoutine(
 ) {
 	const routine = opts?.routineData ?? (await getRoutine(routineId))
 	if (!routine) return []
+	if (opts?.routineData && opts.routineData.id !== routineId) {
+		throw new Error(`routineData.id (${opts.routineData.id}) does not match routineId (${routineId})`)
+	}
 
 	// Section routines: start with all apps in the section, then apply constraints
 	if (routine.isSectionRoutine === 1 && routine.sectionId) {
@@ -3197,7 +3200,6 @@ export async function getEffectiveLastReviewDatesBatch(
 			// No own review → walk the replacement chain to inherit from source
 			let effectiveSourceId = sourceRoutineId
 			let chainDepth = 0
-			const maxChainDepth = 10 // Prevent infinite loops
 
 			while (chainDepth < maxChainDepth) {
 				// If this routine has reviews, use it

@@ -87,6 +87,7 @@ DELETE FROM sections;
 
 	it("should return null for routine without sourceRoutineId", async () => {
 		const section = await createSection("Test Section", null, "test-user")
+		const appId = await createTestApp("Test App", section.id)
 		const routine = await createRoutine({
 			sectionId: section.id,
 			name: "Test Routine",
@@ -107,7 +108,7 @@ DELETE FROM sections;
 			createdBy: "test-user",
 		})
 
-		const lastReview = await getEffectiveLastReviewDate(routine.id, null)
+		const lastReview = await getEffectiveLastReviewDate(routine.id, appId)
 
 		expect(lastReview).toBeNull()
 	})
