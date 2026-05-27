@@ -3180,8 +3180,14 @@ export async function getEffectiveLastReviewDatesBatch(
 		const policy = policyMap.get(routine.id)
 
 		if (policy === "continue") {
-			// Continue policy → follow the replacement chain to find the effective source
-			// Walk backwards: current → source → source's source → ... until we find reviews
+			// If the routine itself already has a review, use it directly —
+			// "continue" only applies as a fallback base date when the new routine has no reviews yet
+			if (reviewMap.has(routine.id)) {
+				result.set(routine.id, reviewMap.get(routine.id) ?? null)
+				continue
+			}
+
+			// No own review → walk the replacement chain to inherit from source
 			let effectiveSourceId = sourceRoutineId
 			let chainDepth = 0
 			const maxChainDepth = 10 // Prevent infinite loops
@@ -4753,7 +4759,9 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 
 		if (routine.sourceRoutineId) {
 			const policy = policyMap.get(routine.id)
-			if (policy === "continue") {
+			// Only chain-walk when the routine itself has no review — "continue" provides a fallback
+			// base date, but once the new routine has been reviewed, that review takes precedence
+			if (policy === "continue" && !reviewByRoutine.has(routine.id)) {
 				// Walk the chain to find the effective source using sourceMap
 				let current = routine.sourceRoutineId
 				let depth = 0
