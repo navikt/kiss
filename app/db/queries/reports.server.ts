@@ -210,7 +210,6 @@ export async function generateComplianceReport(params: {
 		eventFrequency: string | null
 		createdAt: Date
 		isSectionRoutine: number
-		sourceRoutineId: string | null
 	}>
 	if (scope === "section" && scopeId) {
 		scopedRoutines = await db
@@ -221,7 +220,6 @@ export async function generateComplianceReport(params: {
 				eventFrequency: routines.eventFrequency,
 				createdAt: routines.createdAt,
 				isSectionRoutine: routines.isSectionRoutine,
-				sourceRoutineId: routines.sourceRoutineId,
 			})
 			.from(routines)
 			.where(eq(routines.sectionId, scopeId))
@@ -234,7 +232,6 @@ export async function generateComplianceReport(params: {
 				eventFrequency: routines.eventFrequency,
 				createdAt: routines.createdAt,
 				isSectionRoutine: routines.isSectionRoutine,
-				sourceRoutineId: routines.sourceRoutineId,
 			})
 			.from(routines)
 	}

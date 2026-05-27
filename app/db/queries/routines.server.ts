@@ -3008,7 +3008,6 @@ export async function getEffectiveLastReviewDate(
 	routineId: string,
 	applicationId: string | null,
 ): Promise<Date | null> {
-	// Delegér til batch-variant for konsistent transitiv chain-walking
 	const routine = await db
 		.select({ id: routines.id, sourceRoutineId: routines.sourceRoutineId })
 		.from(routines)
@@ -3017,6 +3016,16 @@ export async function getEffectiveLastReviewDate(
 		.then((rows) => rows[0])
 
 	if (!routine) return null
+
+	// Fast path: no replacement chain → return own review directly without full batch machinery
+	if (!routine.sourceRoutineId) {
+		if (applicationId !== null) {
+			const review = await getLatestReviewForApp(routineId, applicationId)
+			return review?.reviewedAt ?? null
+		}
+		const review = await getLatestSectionReview(routineId)
+		return review?.reviewedAt ?? null
+	}
 
 	const results = await getEffectiveLastReviewDatesBatch([routine], applicationId)
 	return results.get(routineId) ?? null
