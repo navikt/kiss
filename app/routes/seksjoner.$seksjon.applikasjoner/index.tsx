@@ -52,7 +52,15 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	})
 }
 
-type SortKey = "appName" | "team" | "implemented" | "partial" | "notImplemented" | "unanswered" | "pct"
+type SortKey =
+	| "appName"
+	| "team"
+	| "implemented"
+	| "partial"
+	| "notImplemented"
+	| "unanswered"
+	| "pct"
+	| "economySystem"
 
 export default function SeksjonApplikasjoner() {
 	const { seksjon, seksjonName, apps, totalApps, totalImplemented, totalPartial, overallPercent } =
@@ -91,6 +99,15 @@ export default function SeksjonApplikasjoner() {
 					const pA = compliancePercent(a.implemented, a.partial, a.total, a.notRelevant)
 					const pB = compliancePercent(b.implemented, b.partial, b.total, b.notRelevant)
 					return dir * (pA - pB)
+				}
+				case "economySystem": {
+					const label = (ec: (typeof apps)[number]["economySystem"]): string => {
+						if (!ec) return ""
+						if (!ec.isEconomySystem) return "Nei"
+						if (ec.type) return economySystemTypeLabels[ec.type as keyof typeof economySystemTypeLabels] ?? "Ja"
+						return "Ja"
+					}
+					return dir * label(a.economySystem).localeCompare(label(b.economySystem), "nb")
 				}
 				default:
 					return 0
@@ -190,8 +207,8 @@ export default function SeksjonApplikasjoner() {
 										</Table.ColumnHeader>
 									</>
 								)}
-								<Table.ColumnHeader scope="col" sortKey="economySystem">
-									Øk.system
+								<Table.ColumnHeader scope="col" sortKey="economySystem" sortable>
+									Økonomisystem
 								</Table.ColumnHeader>
 							</Table.Row>
 						</Table.Header>
