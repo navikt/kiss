@@ -15,13 +15,7 @@ import { writeAuditLog } from "./audit.server"
 import { getAuditEvidenceForReport } from "./audit-evidence.server"
 import { saveBucketObject } from "./buckets.server"
 import { getActiveFrameworkVersion } from "./framework.server"
-import {
-	calculateDeadline,
-	getAppsRequiringRoutine,
-	getLatestReviewForApp,
-	getLatestSectionReview,
-	isOverdue,
-} from "./routines.server"
+import { calculateDeadline, getAppsRequiringRoutine, getEffectiveLastReviewDate, isOverdue } from "./routines.server"
 import { getEffectiveAppIdsInSection } from "./sections.server"
 
 /** Get all reports ordered by newest first. */
@@ -216,6 +210,7 @@ export async function generateComplianceReport(params: {
 		eventFrequency: string | null
 		createdAt: Date
 		isSectionRoutine: number
+		sourceRoutineId: string | null
 	}>
 	if (scope === "section" && scopeId) {
 		scopedRoutines = await db
@@ -226,6 +221,7 @@ export async function generateComplianceReport(params: {
 				eventFrequency: routines.eventFrequency,
 				createdAt: routines.createdAt,
 				isSectionRoutine: routines.isSectionRoutine,
+				sourceRoutineId: routines.sourceRoutineId,
 			})
 			.from(routines)
 			.where(eq(routines.sectionId, scopeId))
@@ -238,6 +234,7 @@ export async function generateComplianceReport(params: {
 				eventFrequency: routines.eventFrequency,
 				createdAt: routines.createdAt,
 				isSectionRoutine: routines.isSectionRoutine,
+				sourceRoutineId: routines.sourceRoutineId,
 			})
 			.from(routines)
 	}
@@ -247,14 +244,14 @@ export async function generateComplianceReport(params: {
 		const requiredApps = await getAppsRequiringRoutine(routine.id, { sectionAppIdsCache })
 		const appsInScope = requiredApps.filter((a) => apps.some((sa) => sa.id === a.id))
 
-		// For section routines, fetch section-level review once (shared across all apps)
-		const sectionReview = routine.isSectionRoutine === 1 ? await getLatestSectionReview(routine.id) : null
+		// For section routines, fetch section-level effective review once (shared across all apps)
+		const sectionReviewDate = routine.isSectionRoutine === 1 ? await getEffectiveLastReviewDate(routine.id, null) : null
 
 		for (const app of appsInScope) {
-			const lastReview =
-				routine.isSectionRoutine === 1 ? sectionReview : await getLatestReviewForApp(routine.id, app.id)
+			const lastReviewDate =
+				routine.isSectionRoutine === 1 ? sectionReviewDate : await getEffectiveLastReviewDate(routine.id, app.id)
 			const deadline = calculateDeadline(
-				lastReview?.reviewedAt ?? null,
+				lastReviewDate,
 				routine.createdAt,
 				routine.frequency as RoutineFrequency | null,
 			)
@@ -264,13 +261,13 @@ export async function generateComplianceReport(params: {
 				appName: app.name,
 				routineName: routine.name,
 				frequency: getCompositeFrequencyLabel(routine.frequency, routine.eventFrequency),
-				lastReview: lastReview?.reviewedAt?.toISOString() ?? null,
+				lastReview: lastReviewDate?.toISOString() ?? null,
 				deadline: deadline?.toISOString() ?? null,
 				status: !routine.frequency
 					? (routine.eventFrequency ?? "Ved behov")
 					: overdue
 						? "Over frist"
-						: lastReview
+						: lastReviewDate
 							? "OK"
 							: "Ikke gjennomført",
 			})

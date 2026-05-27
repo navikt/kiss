@@ -24,8 +24,7 @@ import {
 	calculateDeadline,
 	copyRoutine,
 	getAppsRequiringRoutine,
-	getLatestReviewForApp,
-	getLatestSectionReview,
+	getEffectiveLastReviewDate,
 	getReviewsForRoutine,
 	getRoutine,
 	getRoutineFollowUpApplicationIds,
@@ -96,18 +95,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		screeningQuestion = await getScreeningQuestion(routine.screeningQuestionId)
 	}
 
-	// Calculate deadline info for each app
-	// For section routines, use section-level review (applicationId IS NULL) for all apps
-	let sectionLevelReview: Awaited<ReturnType<typeof getLatestReviewForApp>> | null = null
-	if (routine.isSectionRoutine === 1) {
-		sectionLevelReview = await getLatestSectionReview(rutineId)
-	}
+	// Calculate deadline info for each app using getEffectiveLastReviewDate to respect deadlinePolicy
+	// For section routines, fetch section-level review once (null applicationId, shared across all apps)
+	const sectionLevelReviewDate =
+		routine.isSectionRoutine === 1 ? await getEffectiveLastReviewDate(rutineId, null) : null
 
 	const appsWithDeadlines = await Promise.all(
 		apps.map(async (app) => {
-			const latestReview =
-				routine.isSectionRoutine === 1 ? sectionLevelReview : await getLatestReviewForApp(rutineId, app.id)
-			const lastReviewDate = latestReview?.reviewedAt ?? null
+			const lastReviewDate =
+				routine.isSectionRoutine === 1 ? sectionLevelReviewDate : await getEffectiveLastReviewDate(rutineId, app.id)
 			const deadline = calculateDeadline(
 				lastReviewDate,
 				routine.createdAt,
@@ -123,7 +119,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				deadline,
 				overdue,
 				needsFollowUp,
-				neverReviewed: !latestReview && routine.frequency !== null,
+				neverReviewed: !lastReviewDate && routine.frequency !== null,
 			}
 		}),
 	)

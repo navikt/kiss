@@ -3002,6 +3002,8 @@ export async function getLatestSectionReview(routineId: string) {
  * const deadline = calculateDeadline(lastReview, routine.createdAt, routine.frequency)
  * // → Frist = routine.createdAt + frekvens
  */
+const MAX_REPLACEMENT_CHAIN_DEPTH = 10
+
 export async function getEffectiveLastReviewDate(
 	routineId: string,
 	applicationId: string | null,
@@ -3063,7 +3065,7 @@ export async function getEffectiveLastReviewDatesBatch(
 	// Collect all routine IDs we need to fetch (current + transitive sources)
 	const allRoutineIds = new Set<string>(currentRoutineIds)
 	const toProcess = [...currentRoutineIds]
-	const maxChainDepth = 10
+	const maxChainDepth = MAX_REPLACEMENT_CHAIN_DEPTH
 
 	// Fetch all source routines transitively (BFS traversal)
 	for (let chainDepth = 0; chainDepth < maxChainDepth; chainDepth++) {
@@ -3101,7 +3103,7 @@ export async function getEffectiveLastReviewDatesBatch(
 	}
 
 	// 1. Batch-fetch audit log entries for all routines (only most recent per routine)
-	const policyMap = new Map<string, string>()
+	const policyMap = new Map<string, "continue" | "reset">()
 	if (allRoutineIds.size > 0) {
 		const auditEntries = await db
 			.selectDistinctOn([auditLog.entityId], {
@@ -3120,11 +3122,14 @@ export async function getEffectiveLastReviewDatesBatch(
 
 		for (const entry of auditEntries) {
 			// audit_log.metadata is stored as JSON string - parse it
-			let policy: string | undefined
+			let policy: "continue" | "reset" | undefined
 			if (entry.metadata) {
 				try {
 					const parsed = JSON.parse(entry.metadata)
-					policy = parsed?.deadlinePolicy
+					const raw = parsed?.deadlinePolicy
+					if (raw === "continue" || raw === "reset") {
+						policy = raw
+					}
 				} catch {
 					// Invalid JSON - treat as missing policy
 				}
@@ -4645,7 +4650,7 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 
 	// Collect all routineIds that might have reviews (current + transitive sources)
 	const routineIdsToFetchReviews = new Set<string>(routineIds)
-	const policyMap = new Map<string, string>()
+	const policyMap = new Map<string, "continue" | "reset">()
 	const sourceMap = new Map<string, string>()
 
 	// For each routine with a sourceRoutineId, check deadlinePolicy and potentially add source
@@ -4664,7 +4669,7 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 		const allSourceIds = new Set<string>(sourceRoutineIds)
 		const allRoutineIdsInChains = new Set<string>(routineIds)
 
-		for (let chainDepth = 0; chainDepth < 10; chainDepth++) {
+		for (let chainDepth = 0; chainDepth < MAX_REPLACEMENT_CHAIN_DEPTH; chainDepth++) {
 			if (allSourceIds.size === 0) break
 
 			const currentLevel = [...allSourceIds].filter((id) => !allRoutineIdsInChains.has(id))
@@ -4708,11 +4713,14 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 
 		for (const entry of auditEntries) {
 			// audit_log.metadata is stored as JSON string - parse it
-			let policy: string | undefined
+			let policy: "continue" | "reset" | undefined
 			if (entry.metadata) {
 				try {
 					const parsed = JSON.parse(entry.metadata)
-					policy = parsed?.deadlinePolicy
+					const raw = parsed?.deadlinePolicy
+					if (raw === "continue" || raw === "reset") {
+						policy = raw
+					}
 				} catch {
 					// Invalid JSON - treat as missing policy
 				}
@@ -4728,7 +4736,7 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 			if (routine.sourceRoutineId && policyMap.get(routine.id) === "continue") {
 				let current: string | undefined = routine.sourceRoutineId
 				let depth = 0
-				while (current && depth < 10) {
+				while (current && depth < MAX_REPLACEMENT_CHAIN_DEPTH) {
 					routineIdsToFetchReviews.add(current)
 					// Stop if this routine has "reset" policy (or no policy)
 					if (policyMap.get(current) !== "continue") break
@@ -4774,7 +4782,7 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 				// Walk the chain to find the effective source using sourceMap
 				let current = routine.sourceRoutineId
 				let depth = 0
-				while (depth < 10) {
+				while (depth < MAX_REPLACEMENT_CHAIN_DEPTH) {
 					// Check if this routine has a review
 					if (reviewByRoutine.has(current)) {
 						effectiveRoutineId = current

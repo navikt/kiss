@@ -13,7 +13,13 @@ import { and, desc, eq, inArray, isNull, or, type SQL } from "drizzle-orm"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
 import { routineControls, routineReviews, routineTechnologyElements } from "../schema/routines"
-import { calculateDeadline, isOverdue, type ResolverOpts, type RoutineDeadlineInfo } from "./routines.server"
+import {
+	calculateDeadline,
+	getEffectiveLastReviewDatesBatch,
+	isOverdue,
+	type ResolverOpts,
+	type RoutineDeadlineInfo,
+} from "./routines.server"
 
 export type MatchSource =
 	| "screening"
@@ -182,30 +188,17 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 	}))
 
 	// Step 5: For section routines, override lastReviewDate with section-level review
-	const sectionRoutineIds = enriched
+	// Uses getEffectiveLastReviewDatesBatch (null applicationId) to respect deadlinePolicy
+	// and correctly inherit reviews from replacement chains.
+	const sectionRoutineRows = enriched
 		.filter(
 			(d): d is typeof d & { routine: NonNullable<typeof d.routine> } =>
 				Boolean(d.isSectionRoutine) && d.routine != null,
 		)
-		.map((d) => d.routine.id)
+		.map((d) => ({ id: d.routine.id, sourceRoutineId: d.routine.sourceRoutineId }))
 
-	if (sectionRoutineIds.length > 0) {
-		const sectionReviews = await db
-			.selectDistinctOn([routineReviews.routineId], {
-				routineId: routineReviews.routineId,
-				reviewedAt: routineReviews.reviewedAt,
-			})
-			.from(routineReviews)
-			.where(
-				and(
-					inArray(routineReviews.routineId, sectionRoutineIds),
-					isNull(routineReviews.applicationId),
-					eq(routineReviews.status, "completed"),
-				),
-			)
-			.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
-
-		const sectionReviewMap = new Map(sectionReviews.map((r) => [r.routineId, r.reviewedAt]))
+	if (sectionRoutineRows.length > 0) {
+		const sectionReviewMap = await getEffectiveLastReviewDatesBatch(sectionRoutineRows, null)
 
 		for (const d of enriched) {
 			if (d.isSectionRoutine && d.routine) {
