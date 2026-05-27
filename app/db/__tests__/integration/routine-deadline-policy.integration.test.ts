@@ -49,6 +49,11 @@ RETURNING id`,
 	return (result.rows[0] as { id: string }).id
 }
 
+async function setRoutineStatus(routineId: string, status: string) {
+	const db = getTestDb()
+	await db.execute(/* sql */ `UPDATE routines SET status = '${status}' WHERE id = '${routineId}'`)
+}
+
 describe("deadlinePolicy integration tests", () => {
 	beforeAll(async () => {
 		await setupTestDatabase()
@@ -133,12 +138,18 @@ DELETE FROM sections;
 			createdBy: "test-user",
 		})
 
+		// Old routine must be approved to be replaced
+		await setRoutineStatus(oldRoutine.id, "approved")
+
 		const oldReviewDate = new Date("2025-01-15T12:00:00Z")
 		await createReview(oldRoutine.id, appId, oldReviewDate)
 
 		// Create new routine by copying
 		const newRoutine = await copyRoutine(oldRoutine.id, "test-user")
 		if (!newRoutine) throw new Error("Failed to copy routine")
+
+		// New routine must be "ready" to be replaced
+		await setRoutineStatus(newRoutine.id, "ready")
 
 		// Replace with "continue" policy
 		await replaceRoutine(newRoutine.id, oldRoutine.id, "continue", "test-user")
@@ -175,12 +186,18 @@ DELETE FROM sections;
 			createdBy: "test-user",
 		})
 
+		// Old routine must be approved to be replaced
+		await setRoutineStatus(oldRoutine.id, "approved")
+
 		const oldReviewDate = new Date("2025-01-15T12:00:00Z")
 		await createReview(oldRoutine.id, appId, oldReviewDate)
 
 		// Create new routine by copying
 		const newRoutine = await copyRoutine(oldRoutine.id, "test-user")
 		if (!newRoutine) throw new Error("Failed to copy routine")
+
+		// New routine must be "ready" to be replaced
+		await setRoutineStatus(newRoutine.id, "ready")
 
 		// Replace with "reset" policy
 		await replaceRoutine(newRoutine.id, oldRoutine.id, "reset", "test-user")
@@ -226,17 +243,22 @@ DELETE FROM sections;
 			createdBy: "test-user",
 		})
 
+		// V1 must be approved to be replaced
+		await setRoutineStatus(v1.id, "approved")
+
 		const v1ReviewDate = new Date("2025-01-15T12:00:00Z")
 		await createReview(v1.id, appId, v1ReviewDate)
 
 		// Create V2 replacing V1 with "continue"
 		const v2 = await copyRoutine(v1.id, "test-user")
 		if (!v2) throw new Error("Failed to copy V1")
+		await setRoutineStatus(v2.id, "ready")
 		await replaceRoutine(v2.id, v1.id, "continue", "test-user")
 
 		// Create V3 replacing V2 with "continue"
 		const v3 = await copyRoutine(v2.id, "test-user")
 		if (!v3) throw new Error("Failed to copy V2")
+		await setRoutineStatus(v3.id, "ready")
 		await replaceRoutine(v3.id, v2.id, "continue", "test-user")
 
 		// V3 should inherit V1's review (transitive)
@@ -271,12 +293,16 @@ DELETE FROM sections;
 			createdBy: "test-user",
 		})
 
+		// V1 must be approved to be replaced
+		await setRoutineStatus(v1.id, "approved")
+
 		const v1ReviewDate = new Date("2025-01-15T12:00:00Z")
 		await createReview(v1.id, appId, v1ReviewDate)
 
 		// Create V2 replacing V1 with "reset" (breaks the chain)
 		const v2 = await copyRoutine(v1.id, "test-user")
 		if (!v2) throw new Error("Failed to copy V1")
+		await setRoutineStatus(v2.id, "ready")
 		await replaceRoutine(v2.id, v1.id, "reset", "test-user")
 
 		// Create V2 review
@@ -286,6 +312,7 @@ DELETE FROM sections;
 		// Create V3 replacing V2 with "continue"
 		const v3 = await copyRoutine(v2.id, "test-user")
 		if (!v3) throw new Error("Failed to copy V2")
+		await setRoutineStatus(v3.id, "ready")
 		await replaceRoutine(v3.id, v2.id, "continue", "test-user")
 
 		// V3 should inherit V2's review, NOT V1's (because V2 had "reset")
