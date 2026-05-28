@@ -101,6 +101,7 @@ function buildSslConfig(
 // The actual definitions live in ~/lib/db-error-types (client-safe, no server deps).
 export type { DbErrorType, DomainErrorData, ErrorCategory } from "~/lib/db-error-types"
 export { DB_ERROR_TYPES, ERROR_CATEGORIES } from "~/lib/db-error-types"
+export { buildConnectionConfig }
 
 const pool = new Pool({
 	...buildConnectionConfig(),

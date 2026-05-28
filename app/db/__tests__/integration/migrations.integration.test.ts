@@ -18,6 +18,11 @@ vi.mock("~/db/connection.server", () => ({
 	get pool() {
 		return pool
 	},
+	buildConnectionConfig() {
+		// Return the Testcontainer connection string so the dedicated pg.Client
+		// in runMigrations() connects to the test database instead of production.
+		return { connectionString: container.getConnectionUri() }
+	},
 }))
 
 const { runMigrations, verifyMigrationHealth, _testing } = await import("~/db/migrate.server")
