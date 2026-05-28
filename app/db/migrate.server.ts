@@ -3,8 +3,9 @@ import fs from "node:fs"
 import path from "node:path"
 import { sql } from "drizzle-orm"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
+import { Client } from "pg"
 import { logger } from "~/lib/logger.server"
-import { db, pool } from "./connection.server"
+import { buildConnectionConfig, db } from "./connection.server"
 
 const MIGRATIONS_FOLDER = "./drizzle"
 
@@ -35,7 +36,11 @@ export async function runMigrations() {
 	const startTime = Date.now()
 	logger.info("[migrations] Starting database migration process")
 
-	const client = await pool.connect()
+	// Use a dedicated Client (not from the shared pool) for the advisory lock.
+	// This prevents the migration from competing with incoming requests for pool
+	// connections, which would cause DbPoolError during startup.
+	const client = new Client(buildConnectionConfig())
+	await client.connect()
 	try {
 		// Acquire blocking advisory lock — waits if another pod is migrating
 		logger.info(`[migrations] Acquiring advisory lock (key=${MIGRATION_LOCK_KEY})...`)
@@ -64,7 +69,8 @@ export async function runMigrations() {
 		logger.error(`[migrations] Migration failed after ${elapsed}ms`, error)
 		throw error
 	} finally {
-		client.release()
+		// pg.Client uses end() instead of pool.release()
+		await client.end()
 	}
 }
 
