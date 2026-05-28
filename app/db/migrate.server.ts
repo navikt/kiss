@@ -39,7 +39,9 @@ export async function runMigrations() {
 	// Use a dedicated Client (not from the shared pool) for the advisory lock.
 	// This prevents the migration from competing with incoming requests for pool
 	// connections, which would cause DbPoolError during startup.
-	const client = new Client(buildConnectionConfig())
+	// connectionTimeoutMillis matches the shared pool setting (10s) to preserve
+	// the existing timeout behavior for stalled database connections.
+	const client = new Client({ ...buildConnectionConfig(), connectionTimeoutMillis: 10000 })
 	await client.connect()
 	try {
 		// Acquire blocking advisory lock — waits if another pod is migrating
