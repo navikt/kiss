@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
-import { data } from "react-router"
-import { DB_ERROR_TYPES, type DomainErrorData, ERROR_CATEGORIES } from "~/lib/db-error-types"
+import { DB_ERROR_TYPES, DbPoolError, type DomainErrorData, ERROR_CATEGORIES } from "~/lib/db-error-types"
 import { logger } from "~/lib/logger.server"
 import * as schema from "./schema/index"
 
@@ -134,26 +133,26 @@ pool.connect = async function wrappedConnect() {
 			// Map pg-specific error messages to domain errors
 			if (error.message.includes("timeout exceeded when trying to connect")) {
 				logger.warn("[pool] Connection timeout — pool exhausted", error)
-				throw data(
+				throw new DbPoolError(
 					{
 						category: ERROR_CATEGORIES.TRANSIENT,
 						errorType: DB_ERROR_TYPES.POOL_TIMEOUT,
 						title: "Midlertidig overbelastet",
 						userMessage: "Databasen er midlertidig overbelastet. Prøv igjen om noen sekunder.",
 					} satisfies DomainErrorData,
-					{ status: 503 },
+					503,
 				)
 			}
 			if (error.message.includes("remaining connection slots are reserved")) {
 				logger.warn("[pool] Connection slots exhausted", error)
-				throw data(
+				throw new DbPoolError(
 					{
 						category: ERROR_CATEGORIES.TRANSIENT,
 						errorType: DB_ERROR_TYPES.POOL_EXHAUSTED,
 						title: "Midlertidig overbelastet",
 						userMessage: "Databasen er midlertidig overbelastet. Prøv igjen om noen sekunder.",
 					} satisfies DomainErrorData,
-					{ status: 503 },
+					503,
 				)
 			}
 		}
