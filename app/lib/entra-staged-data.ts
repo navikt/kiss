@@ -32,6 +32,11 @@ export type EntraStagedData = {
 }
 
 export type EntraGroupSnapshot = {
+	// New snapshots always have type and schemaVersion. Legacy snapshots written
+	// before these fields were introduced may be missing them — parsers must
+	// handle both cases (use snapshot.type as discriminant, fall back to legacy parser).
+	type?: typeof ENTRA_STAGED_DATA_ACTIVITY_TYPE
+	schemaVersion?: typeof ENTRA_STAGED_DATA_SCHEMA_VERSION
 	groups: Array<{
 		groupId: string
 		groupName: string | null
@@ -121,6 +126,10 @@ export const entraStagedDataSchema = z
 	})
 
 export const entraGroupSnapshotSchema = z.object({
+	// type and schemaVersion are optional for backward compatibility with legacy snapshots
+	// that were written before these fields were introduced. New snapshots always include them.
+	type: z.literal(ENTRA_STAGED_DATA_ACTIVITY_TYPE).optional(),
+	schemaVersion: z.literal(ENTRA_STAGED_DATA_SCHEMA_VERSION).optional(),
 	groups: z.array(
 		z.object({
 			groupId: z.string().min(1),
@@ -144,6 +153,8 @@ export function parseEntraGroupSnapshot(data: unknown): EntraGroupSnapshot {
 
 export function toEntraGroupSnapshot(data: EntraStagedData): EntraGroupSnapshot {
 	return {
+		type: ENTRA_STAGED_DATA_ACTIVITY_TYPE,
+		schemaVersion: ENTRA_STAGED_DATA_SCHEMA_VERSION,
 		groups: data.groups.map((group) => ({
 			groupId: group.groupId,
 			groupName: group.groupName,

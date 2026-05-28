@@ -31,6 +31,7 @@ import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus, RPA_DECISION_VALUES
 import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import {
+	ENTRA_STAGED_DATA_ACTIVITY_TYPE,
 	type EntraCriticality,
 	entraCriticalityValues,
 	parseEntraGroupSnapshot,
@@ -183,11 +184,21 @@ function parseLegacyEntraSnapshot(snapshot: unknown): EntraStagedGroupsProp | nu
 }
 
 function getCompletedEntraGroupsData(snapshot: unknown): EntraStagedGroupsProp | null {
-	try {
+	// Snapshots written after the type/schemaVersion fields were introduced have
+	// snapshot.type = "entra_id_group_maintenance". Use explicit discriminant check
+	// instead of try/catch to distinguish new from legacy format.
+	const hasTypeField =
+		snapshot !== null &&
+		typeof snapshot === "object" &&
+		!Array.isArray(snapshot) &&
+		"type" in snapshot &&
+		(snapshot as Record<string, unknown>).type === ENTRA_STAGED_DATA_ACTIVITY_TYPE
+	if (hasTypeField) {
 		return toEntraGroupsData(parseEntraGroupSnapshot(snapshot).groups)
-	} catch {
-		return parseLegacyEntraSnapshot(snapshot)
 	}
+	// Legacy snapshots (written before type/schemaVersion) fall back to the
+	// lenient parser that handles the old { groups: [...] } shape.
+	return parseLegacyEntraSnapshot(snapshot)
 }
 
 export async function loader({ params }: LoaderFunctionArgs) {
