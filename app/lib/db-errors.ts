@@ -35,7 +35,12 @@ export function getTransientErrorInfo(error: unknown): DomainErrorData | null {
 		}
 	}
 	if (isSerializedTransientDomainError(error)) {
-		return error
+		return {
+			category: error.category,
+			errorType: error.errorType,
+			title: error.title,
+			userMessage: error.userMessage,
+		}
 	}
 	if (
 		isRouteErrorResponse(error) &&
