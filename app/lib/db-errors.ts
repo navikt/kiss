@@ -1,5 +1,5 @@
 import { isRouteErrorResponse } from "react-router"
-import { DB_ERROR_TYPES, type DomainErrorData, ERROR_CATEGORIES } from "~/db/connection.server"
+import { DB_ERROR_TYPES, type DomainErrorData, ERROR_CATEGORIES } from "~/lib/db-error-types"
 
 /**
  * Type guard for transient errors (retryable errors like pool exhaustion, timeouts, rate limits).
