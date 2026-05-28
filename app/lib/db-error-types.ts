@@ -37,3 +37,31 @@ export interface DomainErrorData {
 	/** User-facing message explaining the error */
 	userMessage: string
 }
+
+/**
+ * A proper Error subclass for database pool errors.
+ *
+ * Thrown by the pool.connect() wrapper instead of React Router's data() so that:
+ * - Code outside request handlers (migrations, advisory locks) sees a real Error
+ *   and does NOT produce an UnhandledPromiseRejection.
+ * - React Router error boundaries detect it via isTransientError() / getTransientErrorInfo()
+ *   and render the retry UI.
+ */
+export class DbPoolError extends Error {
+	readonly isDomainError = true as const
+	readonly category: ErrorCategory
+	readonly errorType: string
+	readonly title: string
+	readonly userMessage: string
+	readonly httpStatus: number
+
+	constructor(domainData: DomainErrorData, httpStatus: number) {
+		super(domainData.userMessage)
+		this.name = "DbPoolError"
+		this.category = domainData.category
+		this.errorType = domainData.errorType
+		this.title = domainData.title
+		this.userMessage = domainData.userMessage
+		this.httpStatus = httpStatus
+	}
+}

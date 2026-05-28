@@ -1724,6 +1724,8 @@ describe("Routines integration tests", () => {
 				review.id,
 				"entra_id_group_maintenance",
 				{
+					type: "entra_id_group_maintenance" as const,
+					schemaVersion: 1 as const,
 					groups: [
 						{
 							groupId: "group-1",
@@ -1754,6 +1756,8 @@ describe("Routines integration tests", () => {
 			expect(activity.type).toBe("entra_id_group_maintenance")
 			expect(activity.status).toBe("pending")
 			expect(activity.snapshotBefore).toEqual({
+				type: "entra_id_group_maintenance",
+				schemaVersion: 1,
 				groups: [
 					{
 						groupId: "group-1",
@@ -1917,6 +1921,8 @@ describe("Routines integration tests", () => {
 			const completed = await completeReviewActivity(
 				activity.id,
 				{
+					type: "entra_id_group_maintenance",
+					schemaVersion: 1,
 					groups: [
 						{
 							groupId: "a",
@@ -1944,6 +1950,8 @@ describe("Routines integration tests", () => {
 			expect(completed.status).toBe("completed")
 			expect(completed.completedAt).toBeDefined()
 			expect(completed.snapshotAfter).toEqual({
+				type: "entra_id_group_maintenance",
+				schemaVersion: 1,
 				groups: [
 					{
 						groupId: "a",

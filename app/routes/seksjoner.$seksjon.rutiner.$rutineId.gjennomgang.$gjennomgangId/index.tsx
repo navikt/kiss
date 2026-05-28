@@ -30,12 +30,7 @@ import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applica
 import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus, RPA_DECISION_VALUES } from "~/db/schema/routines"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import {
-	type EntraCriticality,
-	entraCriticalityValues,
-	parseEntraGroupSnapshot,
-	parseEntraStagedData,
-} from "~/lib/entra-staged-data"
+import { type EntraCriticality, parseCompletedEntraSnapshot, parseEntraStagedData } from "~/lib/entra-staged-data"
 import { logger } from "~/lib/logger.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
@@ -108,86 +103,12 @@ function toEntraGroupsData(
 	}
 }
 
-function parseLegacyEntraSnapshot(snapshot: unknown): EntraStagedGroupsProp | null {
-	if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-		return null
-	}
-
-	const groups = (snapshot as { groups?: unknown }).groups
-	if (!Array.isArray(groups)) {
-		return null
-	}
-
-	type RawEntry = {
-		groupId: string
-		groupName: string | null
-		source: "nais" | "manual" | "removed"
-		criticality: EntraCriticality | null
-	}
-	const validEntries: RawEntry[] = []
-	for (const group of groups) {
-		if (!group || typeof group !== "object" || Array.isArray(group)) {
-			continue
-		}
-
-		const entry = group as {
-			groupId?: unknown
-			groupName?: unknown
-			source?: unknown
-			criticality?: unknown
-		}
-
-		if (typeof entry.groupId !== "string") {
-			continue
-		}
-		if (entry.source !== "nais" && entry.source !== "manual" && entry.source !== "removed") {
-			continue
-		}
-
-		const rawCriticality = typeof entry.criticality === "string" ? entry.criticality : null
-		const criticality: EntraCriticality | null =
-			rawCriticality !== null && (entraCriticalityValues as readonly string[]).includes(rawCriticality)
-				? (rawCriticality as EntraCriticality)
-				: null
-
-		validEntries.push({
-			groupId: entry.groupId,
-			groupName: typeof entry.groupName === "string" ? entry.groupName : null,
-			source: entry.source,
-			criticality,
-		})
-	}
-
-	// Merge entries with the same groupId — legacy snapshots can have both a
-	// "nais" and a "manual" row for overlapping groups.
-	const merged = new Map<string, EntraStagedGroupsProp["groups"][number]>()
-	for (const entry of validEntries) {
-		const existing = merged.get(entry.groupId)
-		const hasNaisSource = entry.source === "nais" || (existing?.hasNaisSource ?? false)
-		const hasManualSource = entry.source === "manual" || (existing?.hasManualSource ?? false)
-		const source: "nais_auth" | "manual" | "ghost" = hasNaisSource ? "nais_auth" : hasManualSource ? "manual" : "ghost"
-		merged.set(entry.groupId, {
-			groupId: entry.groupId,
-			groupName: entry.groupName ?? existing?.groupName ?? null,
-			source,
-			hasNaisSource,
-			hasManualSource,
-			isGone: false,
-			isNewAssessment: false,
-			isAddedDuringReview: false,
-			criticality: entry.criticality ?? existing?.criticality ?? null,
-		})
-	}
-
-	return { groups: [...merged.values()] }
-}
-
 function getCompletedEntraGroupsData(snapshot: unknown): EntraStagedGroupsProp | null {
-	try {
-		return toEntraGroupsData(parseEntraGroupSnapshot(snapshot).groups)
-	} catch {
-		return parseLegacyEntraSnapshot(snapshot)
+	const parsed = parseCompletedEntraSnapshot(snapshot)
+	if (!parsed) {
+		return null
 	}
+	return toEntraGroupsData(parsed.groups)
 }
 
 export async function loader({ params }: LoaderFunctionArgs) {

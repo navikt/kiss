@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { applyEntraStagedDataPatch, parseEntraStagedData } from "~/lib/entra-staged-data"
+import {
+	applyEntraStagedDataPatch,
+	parseCompletedEntraSnapshot,
+	parseEntraStagedData,
+	parseLegacyEntraGroupSnapshot,
+} from "~/lib/entra-staged-data"
 
 const baseData = parseEntraStagedData({
 	activityType: "entra_id_group_maintenance",
@@ -153,5 +158,165 @@ describe("entra staged data", () => {
 				groupId: "nais-group",
 			}),
 		).toThrow("Kan ikke markere NAIS-gruppe nais-group som fjernet")
+	})
+})
+
+describe("parseCompletedEntraSnapshot", () => {
+	it("parses new format snapshot (with type and schemaVersion)", () => {
+		const snapshot = {
+			type: "entra_id_group_maintenance",
+			schemaVersion: 1,
+			groups: [
+				{
+					groupId: "g1",
+					groupName: "Group 1",
+					source: "nais_auth",
+					hasNaisSource: true,
+					hasManualSource: false,
+					isGone: false,
+					criticality: "high",
+				},
+			],
+		}
+		const result = parseCompletedEntraSnapshot(snapshot)
+		expect(result).not.toBeNull()
+		expect(result?.type).toBe("entra_id_group_maintenance")
+		expect(result?.schemaVersion).toBe(1)
+		expect(result?.groups).toHaveLength(1)
+		expect(result?.groups[0]).toMatchObject({
+			groupId: "g1",
+			source: "nais_auth",
+			criticality: "high",
+		})
+	})
+
+	it("parses pre-discriminant snapshot (current source values, no type field)", () => {
+		// Snapshots written before type/schemaVersion were introduced — these use
+		// the current source enum but lack the discriminant fields.
+		const snapshot = {
+			groups: [
+				{
+					groupId: "g2",
+					groupName: "Group 2",
+					source: "manual",
+					hasNaisSource: false,
+					hasManualSource: true,
+					isGone: false,
+					criticality: "medium",
+				},
+			],
+		}
+		const result = parseCompletedEntraSnapshot(snapshot)
+		expect(result).not.toBeNull()
+		expect(result?.groups).toHaveLength(1)
+		expect(result?.groups[0]).toMatchObject({
+			groupId: "g2",
+			source: "manual",
+			criticality: "medium",
+		})
+	})
+
+	it("parses old legacy snapshot (nais/manual/removed source values)", () => {
+		// Very old snapshots used source: "nais", "manual", "removed" instead of
+		// the current "nais_auth", "manual", "ghost".
+		const snapshot = {
+			groups: [
+				{
+					groupId: "g3",
+					groupName: "Group 3",
+					source: "nais",
+					criticality: "low",
+				},
+			],
+		}
+		const result = parseCompletedEntraSnapshot(snapshot)
+		expect(result).not.toBeNull()
+		expect(result?.groups).toHaveLength(1)
+		expect(result?.groups[0]).toMatchObject({
+			groupId: "g3",
+			source: "nais_auth",
+			hasNaisSource: true,
+			hasManualSource: false,
+		})
+	})
+
+	it("returns null for null input", () => {
+		expect(parseCompletedEntraSnapshot(null)).toBeNull()
+	})
+
+	it("returns null for non-object input", () => {
+		expect(parseCompletedEntraSnapshot("not an object")).toBeNull()
+		expect(parseCompletedEntraSnapshot(42)).toBeNull()
+	})
+
+	it("returns null for completely invalid snapshot", () => {
+		expect(parseCompletedEntraSnapshot({ notGroups: [] })).toBeNull()
+	})
+})
+
+describe("parseLegacyEntraGroupSnapshot", () => {
+	it("maps nais source to nais_auth", () => {
+		const result = parseLegacyEntraGroupSnapshot({
+			groups: [{ groupId: "g1", groupName: "G1", source: "nais", criticality: null }],
+		})
+		expect(result?.groups[0]).toMatchObject({ source: "nais_auth", hasNaisSource: true })
+	})
+
+	it("maps manual source to manual", () => {
+		const result = parseLegacyEntraGroupSnapshot({
+			groups: [{ groupId: "g1", groupName: "G1", source: "manual", criticality: null }],
+		})
+		expect(result?.groups[0]).toMatchObject({ source: "manual", hasManualSource: true })
+	})
+
+	it("maps removed source to ghost", () => {
+		const result = parseLegacyEntraGroupSnapshot({
+			groups: [{ groupId: "g1", groupName: "G1", source: "removed", criticality: null }],
+		})
+		expect(result?.groups[0]).toMatchObject({ source: "ghost", hasNaisSource: false, hasManualSource: false })
+	})
+
+	it("merges nais+manual rows for the same groupId", () => {
+		const result = parseLegacyEntraGroupSnapshot({
+			groups: [
+				{ groupId: "shared", groupName: "Shared Group", source: "nais", criticality: null },
+				{ groupId: "shared", groupName: "Shared Group", source: "manual", criticality: "high" },
+			],
+		})
+		expect(result?.groups).toHaveLength(1)
+		expect(result?.groups[0]).toMatchObject({
+			groupId: "shared",
+			source: "nais_auth",
+			hasNaisSource: true,
+			hasManualSource: true,
+			criticality: "high",
+		})
+	})
+
+	it("silently skips entries with unknown source values", () => {
+		const result = parseLegacyEntraGroupSnapshot({
+			groups: [
+				{ groupId: "valid", groupName: "Valid", source: "nais", criticality: null },
+				{ groupId: "invalid", groupName: "Invalid", source: "nais_auth", criticality: null },
+			],
+		})
+		// nais_auth is not a legacy source value — should be skipped
+		expect(result?.groups).toHaveLength(1)
+		expect(result?.groups[0].groupId).toBe("valid")
+	})
+
+	it("preserves criticality from legacy snapshot", () => {
+		const result = parseLegacyEntraGroupSnapshot({
+			groups: [{ groupId: "g1", groupName: "G1", source: "nais", criticality: "very_high" }],
+		})
+		expect(result?.groups[0].criticality).toBe("very_high")
+	})
+
+	it("returns null for null input", () => {
+		expect(parseLegacyEntraGroupSnapshot(null)).toBeNull()
+	})
+
+	it("returns null when groups is not an array", () => {
+		expect(parseLegacyEntraGroupSnapshot({ groups: "not-array" })).toBeNull()
 	})
 })
