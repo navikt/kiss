@@ -2,11 +2,9 @@ import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import { sql } from "drizzle-orm"
-import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
-import { Client } from "pg"
 import { logger } from "~/lib/logger.server"
-import { buildConnectionConfig } from "./connection.server"
+import { db, pool } from "./connection.server"
 
 const MIGRATIONS_FOLDER = "./drizzle"
 
@@ -37,18 +35,7 @@ export async function runMigrations() {
 	const startTime = Date.now()
 	logger.info("[migrations] Starting database migration process")
 
-	// Use a dedicated Client (not from the shared pool) for ALL migration work.
-	// This prevents migrations from competing with incoming requests for pool
-	// connections, which caused handleRequest to block for 10+ seconds while
-	// db.execute() waited for an available pool connection during startup.
-	// connectionTimeoutMillis matches the shared pool setting (10s).
-	const client = new Client({ ...buildConnectionConfig(), connectionTimeoutMillis: 10000 })
-	await client.connect()
-
-	// Build a dedicated Drizzle instance from the same client so every query
-	// inside runMigrations() (logTrackingState, seedTracking, migrate(), etc.)
-	// goes through the dedicated connection — the shared pool is never touched.
-	const migrationDb = drizzle(client) as NodePgDatabase
+	const client = await pool.connect()
 	try {
 		// Acquire blocking advisory lock — waits if another pod is migrating
 		logger.info(`[migrations] Acquiring advisory lock (key=${MIGRATION_LOCK_KEY})...`)
@@ -56,15 +43,15 @@ export async function runMigrations() {
 		logger.info("[migrations] Advisory lock acquired")
 
 		try {
-			await logTrackingState("before", migrationDb)
-			await seedTrackingForPushedDatabase(migrationDb)
-			await logPendingMigrations(migrationDb)
+			await logTrackingState("before")
+			await seedTrackingForPushedDatabase()
+			await logPendingMigrations()
 
 			logger.info("[migrations] Running drizzle migrate()...")
-			await migrate(migrationDb, { migrationsFolder: MIGRATIONS_FOLDER })
+			await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
 
-			await logTrackingState("after", migrationDb)
-			await verifyMigrationHealth(migrationDb)
+			await logTrackingState("after")
+			await verifyMigrationHealth()
 
 			const elapsed = Date.now() - startTime
 			logger.info(`[migrations] Migration process completed successfully in ${elapsed}ms`)
@@ -77,18 +64,17 @@ export async function runMigrations() {
 		logger.error(`[migrations] Migration failed after ${elapsed}ms`, error)
 		throw error
 	} finally {
-		// pg.Client uses end() instead of pool.release()
-		await client.end()
+		client.release()
 	}
 }
 
 /**
  * Log the current state of the migration tracking table.
  */
-async function logTrackingState(phase: "before" | "after", migrationDb: NodePgDatabase) {
+async function logTrackingState(phase: "before" | "after") {
 	try {
 		const [{ exists }] = (
-			await migrationDb.execute<{ exists: boolean }>(sql`
+			await db.execute<{ exists: boolean }>(sql`
 			SELECT EXISTS (
 				SELECT FROM information_schema.tables
 				WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
@@ -102,7 +88,7 @@ async function logTrackingState(phase: "before" | "after", migrationDb: NodePgDa
 		}
 
 		const [{ count }] = (
-			await migrationDb.execute<{ count: string }>(sql`
+			await db.execute<{ count: string }>(sql`
 			SELECT COUNT(*)::text AS count FROM drizzle."__drizzle_migrations"
 		`)
 		).rows
@@ -116,10 +102,10 @@ async function logTrackingState(phase: "before" | "after", migrationDb: NodePgDa
 /**
  * Log which migrations from the journal are not yet in the tracking table.
  */
-async function logPendingMigrations(migrationDb: NodePgDatabase) {
+async function logPendingMigrations() {
 	try {
 		const [{ exists }] = (
-			await migrationDb.execute<{ exists: boolean }>(sql`
+			await db.execute<{ exists: boolean }>(sql`
 			SELECT EXISTS (
 				SELECT FROM information_schema.tables
 				WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
@@ -133,7 +119,7 @@ async function logPendingMigrations(migrationDb: NodePgDatabase) {
 		}
 
 		const tracked = (
-			await migrationDb.execute<{ hash: string }>(sql`
+			await db.execute<{ hash: string }>(sql`
 			SELECT hash FROM drizzle."__drizzle_migrations"
 		`)
 		).rows
@@ -163,9 +149,8 @@ async function logPendingMigrations(migrationDb: NodePgDatabase) {
  * Verify that all critical tables exist after migration.
  * Throws if any are missing — this catches migration failures that were silently swallowed.
  */
-export async function verifyMigrationHealth(migrationDb?: NodePgDatabase) {
-	const executor = migrationDb ?? (await import("./connection.server")).db
-	const result = await executor.execute<{ tablename: string }>(sql`
+export async function verifyMigrationHealth() {
+	const result = await db.execute<{ tablename: string }>(sql`
 		SELECT tablename FROM pg_tables WHERE schemaname = 'public'
 	`)
 	const existingTables = new Set(result.rows.map((r) => r.tablename))
@@ -196,9 +181,9 @@ export async function verifyMigrationHealth(migrationDb?: NodePgDatabase) {
  * - ALTER TABLE ADD COLUMN: skip if the column doesn't exist yet
  * - All other migrations: seed as applied if target tables exist
  */
-async function seedTrackingForPushedDatabase(migrationDb: NodePgDatabase) {
+async function seedTrackingForPushedDatabase() {
 	const [{ exists: trackingExists }] = (
-		await migrationDb.execute<{ exists: boolean }>(sql`
+		await db.execute<{ exists: boolean }>(sql`
 		SELECT EXISTS (
 			SELECT FROM information_schema.tables
 			WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
@@ -212,7 +197,7 @@ async function seedTrackingForPushedDatabase(migrationDb: NodePgDatabase) {
 	}
 
 	const [{ exists: tablesExist }] = (
-		await migrationDb.execute<{ exists: boolean }>(sql`
+		await db.execute<{ exists: boolean }>(sql`
 		SELECT EXISTS (
 			SELECT FROM information_schema.tables
 			WHERE table_schema = 'public' AND table_name = 'sections'
@@ -227,8 +212,8 @@ async function seedTrackingForPushedDatabase(migrationDb: NodePgDatabase) {
 
 	logger.info("[migrations] Detected database created with db:push — seeding migration tracking...")
 
-	await migrationDb.execute(sql`CREATE SCHEMA IF NOT EXISTS drizzle`)
-	await migrationDb.execute(sql`
+	await db.execute(sql`CREATE SCHEMA IF NOT EXISTS drizzle`)
+	await db.execute(sql`
 		CREATE TABLE IF NOT EXISTS drizzle."__drizzle_migrations" (
 			id SERIAL PRIMARY KEY,
 			hash text NOT NULL,
@@ -236,8 +221,8 @@ async function seedTrackingForPushedDatabase(migrationDb: NodePgDatabase) {
 		)
 	`)
 
-	const existingTables = await getExistingPublicTables(migrationDb)
-	const existingColumns = await getExistingColumns(migrationDb)
+	const existingTables = await getExistingPublicTables()
+	const existingColumns = await getExistingColumns()
 
 	const journal = readJournal()
 
@@ -276,7 +261,7 @@ async function seedTrackingForPushedDatabase(migrationDb: NodePgDatabase) {
 		}
 
 		const hash = crypto.createHash("sha256").update(sqlContent).digest("hex")
-		await migrationDb.execute(sql`
+		await db.execute(sql`
 			INSERT INTO drizzle."__drizzle_migrations" (hash, created_at)
 			VALUES (${hash}, ${entry.when})
 		`)
@@ -294,15 +279,15 @@ function readJournal(): { entries: { idx: number; when: number; tag: string }[] 
 	return JSON.parse(fs.readFileSync(journalPath, "utf-8"))
 }
 
-async function getExistingPublicTables(migrationDb: NodePgDatabase): Promise<Set<string>> {
-	const result = await migrationDb.execute<{ tablename: string }>(sql`
+async function getExistingPublicTables(): Promise<Set<string>> {
+	const result = await db.execute<{ tablename: string }>(sql`
 		SELECT tablename FROM pg_tables WHERE schemaname = 'public'
 	`)
 	return new Set(result.rows.map((r) => r.tablename))
 }
 
-async function getExistingColumns(migrationDb: NodePgDatabase): Promise<Set<string>> {
-	const result = await migrationDb.execute<{ table_name: string; column_name: string }>(sql`
+async function getExistingColumns(): Promise<Set<string>> {
+	const result = await db.execute<{ table_name: string; column_name: string }>(sql`
 		SELECT table_name, column_name FROM information_schema.columns
 		WHERE table_schema = 'public'
 	`)

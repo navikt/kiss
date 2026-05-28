@@ -22,7 +22,7 @@ import { userRoleLabels } from "./db/schema/organization"
 import { ThemeProvider, useTheme } from "./hooks/useTheme"
 import { ADMIN_ELEVATED_COOKIE, getAuthenticatedUser } from "./lib/auth.server"
 import { isActualAdmin, isAdmin, isAuditor } from "./lib/authorization.server"
-import { getTransientErrorInfo } from "./lib/db-errors"
+import { isTransientError } from "./lib/db-errors"
 import { getFeatureFlags } from "./lib/feature-flags.server"
 
 import "@navikt/ds-css/dist/index.css"
@@ -224,9 +224,8 @@ export function ErrorBoundary() {
 				? String((error as { stack: unknown }).stack)
 				: undefined
 
-	const transientError = getTransientErrorInfo(error)
-	if (transientError) {
-		return <RetryableErrorView title={transientError.title} message={transientError.userMessage} />
+	if (isTransientError(error)) {
+		return <RetryableErrorView title={error.data.title} message={error.data.userMessage} />
 	}
 
 	if (isRouteErrorResponse(error)) {

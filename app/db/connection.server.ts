@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
-import { DB_ERROR_TYPES, DbPoolError, type DomainErrorData, ERROR_CATEGORIES } from "~/lib/db-error-types"
+import { data } from "react-router"
 import { logger } from "~/lib/logger.server"
 import * as schema from "./schema/index"
 
@@ -97,11 +97,44 @@ function buildSslConfig(
 	}
 }
 
-// Re-export shared error types so existing server-side imports continue to work.
-// The actual definitions live in ~/lib/db-error-types (client-safe, no server deps).
-export type { DbErrorType, DomainErrorData, ErrorCategory } from "~/lib/db-error-types"
-export { DB_ERROR_TYPES, ERROR_CATEGORIES } from "~/lib/db-error-types"
-export { buildConnectionConfig }
+/**
+ * Error categories — determines how the UI should handle the error.
+ */
+export const ERROR_CATEGORIES = {
+	/** Temporary error that may resolve on retry (e.g., pool exhaustion, timeout, rate limit) */
+	TRANSIENT: "TRANSIENT",
+	/** Permanent error that won't resolve on retry (e.g., constraint violation, not found) */
+	PERMANENT: "PERMANENT",
+	/** Authentication/authorization error */
+	AUTHENTICATION: "AUTHENTICATION",
+} as const
+
+export type ErrorCategory = (typeof ERROR_CATEGORIES)[keyof typeof ERROR_CATEGORIES]
+
+/**
+ * Database error types — specific error codes within a category.
+ */
+export const DB_ERROR_TYPES = {
+	POOL_EXHAUSTED: "DB_POOL_EXHAUSTED",
+	POOL_TIMEOUT: "DB_POOL_TIMEOUT",
+} as const
+
+export type DbErrorType = (typeof DB_ERROR_TYPES)[keyof typeof DB_ERROR_TYPES]
+
+/**
+ * Domain error data structure — structured errors thrown by the data access layer.
+ * Allows the presentation layer to render appropriate UI without knowing infrastructure details.
+ */
+export interface DomainErrorData {
+	/** Error category — determines UI treatment (retry button, auth prompt, etc.) */
+	category: ErrorCategory
+	/** Specific error type within the category (e.g., DB_POOL_TIMEOUT) */
+	errorType: string
+	/** User-facing title for the error (e.g., "Midlertidig overbelastet") */
+	title: string
+	/** User-facing message explaining the error */
+	userMessage: string
+}
 
 const pool = new Pool({
 	...buildConnectionConfig(),
@@ -134,26 +167,26 @@ pool.connect = async function wrappedConnect() {
 			// Map pg-specific error messages to domain errors
 			if (error.message.includes("timeout exceeded when trying to connect")) {
 				logger.warn("[pool] Connection timeout — pool exhausted", error)
-				throw new DbPoolError(
+				throw data(
 					{
 						category: ERROR_CATEGORIES.TRANSIENT,
 						errorType: DB_ERROR_TYPES.POOL_TIMEOUT,
 						title: "Midlertidig overbelastet",
 						userMessage: "Databasen er midlertidig overbelastet. Prøv igjen om noen sekunder.",
 					} satisfies DomainErrorData,
-					503,
+					{ status: 503 },
 				)
 			}
 			if (error.message.includes("remaining connection slots are reserved")) {
 				logger.warn("[pool] Connection slots exhausted", error)
-				throw new DbPoolError(
+				throw data(
 					{
 						category: ERROR_CATEGORIES.TRANSIENT,
 						errorType: DB_ERROR_TYPES.POOL_EXHAUSTED,
 						title: "Midlertidig overbelastet",
 						userMessage: "Databasen er midlertidig overbelastet. Prøv igjen om noen sekunder.",
 					} satisfies DomainErrorData,
-					503,
+					{ status: 503 },
 				)
 			}
 		}
