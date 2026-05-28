@@ -1,6 +1,23 @@
 import { isRouteErrorResponse } from "react-router"
 import { DB_ERROR_TYPES, DbPoolError, type DomainErrorData, ERROR_CATEGORIES } from "~/lib/db-error-types"
 
+function isSerializedTransientDomainError(error: unknown): error is DomainErrorData & { isDomainError?: true } {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"isDomainError" in error &&
+		error.isDomainError === true &&
+		"category" in error &&
+		error.category === ERROR_CATEGORIES.TRANSIENT &&
+		"errorType" in error &&
+		typeof error.errorType === "string" &&
+		"title" in error &&
+		typeof error.title === "string" &&
+		"userMessage" in error &&
+		typeof error.userMessage === "string"
+	)
+}
+
 /**
  * Extracts transient error info from any error value, handling both:
  * - DbPoolError (thrown from pool.connect() — a real Error, works outside request handlers)
@@ -16,6 +33,9 @@ export function getTransientErrorInfo(error: unknown): DomainErrorData | null {
 			title: error.title,
 			userMessage: error.userMessage,
 		}
+	}
+	if (isSerializedTransientDomainError(error)) {
+		return error
 	}
 	if (
 		isRouteErrorResponse(error) &&
