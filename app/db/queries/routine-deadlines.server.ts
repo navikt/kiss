@@ -9,7 +9,7 @@
  *
  * Single source of truth — avoids divergence between these consumers.
  */
-import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, or, type SQL } from "drizzle-orm"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
 import { routineControls, routineReviews, routineTechnologyElements } from "../schema/routines"

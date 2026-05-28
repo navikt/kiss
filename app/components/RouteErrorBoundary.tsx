@@ -1,8 +1,6 @@
 import { Alert, BodyLong, Box, Detail, Heading, VStack } from "@navikt/ds-react"
 import { isRouteErrorResponse, Link, useRouteError, useRouteLoaderData } from "react-router"
-import { isTransientError } from "~/lib/db-errors"
 import type { loader as rootLoader } from "~/root"
-import { RetryableErrorView } from "./RetryableErrorView"
 
 export function RouteErrorBoundary() {
 	const error = useRouteError()
@@ -24,11 +22,6 @@ export function RouteErrorBoundary() {
 			: typeof error === "object" && error !== null && "stack" in error
 				? String((error as { stack: unknown }).stack)
 				: undefined
-
-	// Transient errors (retryable) — show a user-friendly retry message
-	if (isTransientError(error)) {
-		return <RetryableErrorView title={error.data.title} message={error.data.userMessage} />
-	}
 
 	if (isRouteErrorResponse(error)) {
 		const errorMessage =
