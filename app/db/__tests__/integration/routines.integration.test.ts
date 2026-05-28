@@ -1724,6 +1724,8 @@ describe("Routines integration tests", () => {
 				review.id,
 				"entra_id_group_maintenance",
 				{
+					type: "entra_id_group_maintenance" as const,
+					schemaVersion: 1 as const,
 					groups: [
 						{
 							groupId: "group-1",

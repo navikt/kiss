@@ -184,9 +184,6 @@ function parseLegacyEntraSnapshot(snapshot: unknown): EntraStagedGroupsProp | nu
 }
 
 function getCompletedEntraGroupsData(snapshot: unknown): EntraStagedGroupsProp | null {
-	// Snapshots written after the type/schemaVersion fields were introduced have
-	// snapshot.type = "entra_id_group_maintenance". Use explicit discriminant check
-	// instead of try/catch to distinguish new from legacy format.
 	const hasTypeField =
 		snapshot !== null &&
 		typeof snapshot === "object" &&
@@ -194,11 +191,20 @@ function getCompletedEntraGroupsData(snapshot: unknown): EntraStagedGroupsProp |
 		"type" in snapshot &&
 		(snapshot as Record<string, unknown>).type === ENTRA_STAGED_DATA_ACTIVITY_TYPE
 	if (hasTypeField) {
+		// New snapshots (with type discriminant) — use current parser directly.
 		return toEntraGroupsData(parseEntraGroupSnapshot(snapshot).groups)
 	}
-	// Legacy snapshots (written before type/schemaVersion) fall back to the
-	// lenient parser that handles the old { groups: [...] } shape.
-	return parseLegacyEntraSnapshot(snapshot)
+	// Snapshots without a type field can be either:
+	// 1. Current format (nais_auth/manual/ghost source values) written before the
+	//    discriminant fields were introduced.
+	// 2. Truly old legacy format (nais/manual/removed source values).
+	// Try the current Zod schema first; only fall back to the legacy parser if
+	// that fails (ZodError), so groups from case 1 are not silently dropped.
+	try {
+		return toEntraGroupsData(parseEntraGroupSnapshot(snapshot).groups)
+	} catch {
+		return parseLegacyEntraSnapshot(snapshot)
+	}
 }
 
 export async function loader({ params }: LoaderFunctionArgs) {
