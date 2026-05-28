@@ -167,6 +167,128 @@ export function toEntraGroupSnapshot(data: EntraStagedData): EntraGroupSnapshot 
 	}
 }
 
+/**
+ * Parses a snapshot written in the old legacy format (before the current Entra group
+ * maintenance implementation). Legacy snapshots have:
+ * - No `type` or `schemaVersion` fields
+ * - `source` values of `"nais"`, `"manual"`, or `"removed"` (instead of the current
+ *   `"nais_auth"`, `"manual"`, `"ghost"`)
+ * - Potentially multiple rows per groupId (one "nais" + one "manual") that must be merged
+ *
+ * Returns null for null/invalid input. Source values are mapped to the current enum:
+ * `"nais"` → `"nais_auth"`, `"removed"` → `"ghost"`.
+ */
+export function parseLegacyEntraGroupSnapshot(raw: unknown): EntraGroupSnapshot | null {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+		return null
+	}
+
+	const groups = (raw as { groups?: unknown }).groups
+	if (!Array.isArray(groups)) {
+		return null
+	}
+
+	type LegacyEntry = {
+		groupId: string
+		groupName: string | null
+		source: "nais" | "manual" | "removed"
+		criticality: EntraCriticality | null
+	}
+	const validEntries: LegacyEntry[] = []
+	for (const group of groups) {
+		if (!group || typeof group !== "object" || Array.isArray(group)) {
+			continue
+		}
+		const entry = group as {
+			groupId?: unknown
+			groupName?: unknown
+			source?: unknown
+			criticality?: unknown
+		}
+		if (typeof entry.groupId !== "string") {
+			continue
+		}
+		if (entry.source !== "nais" && entry.source !== "manual" && entry.source !== "removed") {
+			continue
+		}
+		const rawCriticality = typeof entry.criticality === "string" ? entry.criticality : null
+		const criticality: EntraCriticality | null =
+			rawCriticality !== null && (entraCriticalityValues as readonly string[]).includes(rawCriticality)
+				? (rawCriticality as EntraCriticality)
+				: null
+		validEntries.push({
+			groupId: entry.groupId,
+			groupName: typeof entry.groupName === "string" ? entry.groupName : null,
+			source: entry.source,
+			criticality,
+		})
+	}
+
+	// Merge entries with the same groupId — legacy snapshots can have both a
+	// "nais" and a "manual" row for the same group (overlapping group membership).
+	const merged = new Map<
+		string,
+		{
+			groupId: string
+			groupName: string | null
+			source: EntraStagedGroupSource
+			hasNaisSource: boolean
+			hasManualSource: boolean
+			isGone: boolean
+			criticality: EntraCriticality | null
+		}
+	>()
+	for (const entry of validEntries) {
+		const existing = merged.get(entry.groupId)
+		const hasNaisSource = entry.source === "nais" || (existing?.hasNaisSource ?? false)
+		const hasManualSource = entry.source === "manual" || (existing?.hasManualSource ?? false)
+		const source: EntraStagedGroupSource = hasNaisSource ? "nais_auth" : hasManualSource ? "manual" : "ghost"
+		merged.set(entry.groupId, {
+			groupId: entry.groupId,
+			groupName: entry.groupName ?? existing?.groupName ?? null,
+			source,
+			hasNaisSource,
+			hasManualSource,
+			isGone: false,
+			criticality: entry.criticality ?? existing?.criticality ?? null,
+		})
+	}
+
+	return { groups: [...merged.values()] }
+}
+
+/**
+ * Parses a raw snapshot value from the database into display data, handling all
+ * known snapshot formats:
+ * - New format: has `type: "entra_id_group_maintenance"` and `schemaVersion` — parsed
+ *   directly with the current Zod schema.
+ * - Pre-discriminant format: current source values (`nais_auth`/`manual`/`ghost`) but
+ *   written before `type`/`schemaVersion` were introduced — also parsed with the
+ *   current Zod schema (which accepts optional type/schemaVersion).
+ * - Old legacy format: `source` values `"nais"`/`"manual"`/`"removed"` — parsed by
+ *   `parseLegacyEntraGroupSnapshot`.
+ *
+ * Returns null for unknown/invalid input.
+ */
+export function parseCompletedEntraSnapshot(snapshot: unknown): EntraGroupSnapshot | null {
+	if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+		return null
+	}
+	const hasTypeField =
+		"type" in snapshot && (snapshot as Record<string, unknown>).type === ENTRA_STAGED_DATA_ACTIVITY_TYPE
+	if (hasTypeField) {
+		// New snapshots with explicit discriminant — use current parser directly.
+		return parseEntraGroupSnapshot(snapshot)
+	}
+	// No type field: could be pre-discriminant (current source values) or truly old
+	// legacy (nais/manual/removed). Try current schema first; fall back on ZodError.
+	try {
+		return parseEntraGroupSnapshot(snapshot)
+	} catch {
+		return parseLegacyEntraGroupSnapshot(snapshot)
+	}
+}
+
 export function applyEntraStagedDataPatch(data: EntraStagedData, patch: StagedDataPatch): EntraStagedData {
 	const parsed = parseEntraStagedData(data)
 	const groups = parsed.groups.map((group) => ({ ...group }))
