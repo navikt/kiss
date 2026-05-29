@@ -462,7 +462,7 @@ describe("screening.server integration tests", () => {
 	})
 
 	describe("getScreeningDataForApp", () => {
-		it("always includes inventory-style questions even without matching tech elements", async () => {
+		it("viser alle godkjente spørsmål uavhengig av appens teknologielementer", async () => {
 			const section = await createSectionRow("test-section")
 			const naisTeamId = await createNaisTeam("test-team", section)
 			const appId = await createApp("test-app")
@@ -488,30 +488,23 @@ describe("screening.server integration tests", () => {
 			await setQuestionTechnologyElements(q2.id, [techElemId], "test")
 			await setQuestionTechnologyElements(q3.id, [techElemId], "test")
 
-			// App has NO tech elements — before the fix, only 0 questions would show.
-			// After the fix, inventory types (persistence, entra_id_groups) always show.
+			// App has NO tech elements — alle 3 spørsmål skal vises uansett
 			const result = await getScreeningDataForApp(appId)
 
-			expect(result.questions).toHaveLength(2)
+			expect(result.questions).toHaveLength(3)
 			const types = result.questions.map((q) => q.answerType)
 			expect(types).toContain("persistence")
 			expect(types).toContain("entra_id_groups")
-			expect(types).not.toContain("boolean")
+			expect(types).toContain("boolean")
 		})
 
-		it("includes boolean questions when app has matching tech elements", async () => {
+		it("viser spørsmål med tech-element-kobling selv om appen mangler elementet", async () => {
 			const section = await createSectionRow("test-section-2")
 			const naisTeamId = await createNaisTeam("test-team-2", section)
 			const appId = await createApp("test-app-2")
 			await createAppEnvironment(appId, naisTeamId)
 
 			const techElemId = await createTechElement("database")
-
-			// Add the tech element to the app
-			const db = getTestDb()
-			await db.execute(
-				/* sql */ `INSERT INTO application_technology_elements (application_id, element_id, source) VALUES ('${appId}', '${techElemId}', 'auto')`,
-			)
 
 			const q1 = await createScreeningQuestion("Boolean question?", null, "test", section, "boolean")
 			await changeScreeningQuestionStatus(q1.id, "ready", "test")
@@ -525,7 +518,7 @@ describe("screening.server integration tests", () => {
 
 			const result = await getScreeningDataForApp(appId)
 
-			// Both should show: boolean matches via tech element, persistence always shows
+			// Begge vises — appen trenger ikke ha tech-elementet for å se spørsmålene
 			expect(result.questions).toHaveLength(2)
 			const types = result.questions.map((q) => q.answerType)
 			expect(types).toContain("boolean")

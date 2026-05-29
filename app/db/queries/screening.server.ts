@@ -4,7 +4,7 @@ import { isValidUuid } from "../../lib/utils"
 import { db } from "../connection.server"
 import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
-import { applicationTechnologyElements, frameworkControls, technologyElements } from "../schema/framework"
+import { frameworkControls, technologyElements } from "../schema/framework"
 import { sectionEnvironments } from "../schema/organization"
 import { routineControls, routines, routineTechnologyElements } from "../schema/routines"
 import { rulesetControls } from "../schema/rulesets"
@@ -1068,55 +1068,10 @@ export async function getScreeningDataForApp(applicationId: string) {
 
 	const allQuestions = [...globalQuestions, ...sectionQuestions]
 
-	// Load technology element links for all questions
-	const allQuestionTechLinks =
-		allQuestions.length > 0
-			? await db
-					.select()
-					.from(screeningQuestionTechnologyElements)
-					.where(
-						and(
-							inArray(
-								screeningQuestionTechnologyElements.questionId,
-								allQuestions.map((q) => q.id),
-							),
-							isNull(screeningQuestionTechnologyElements.archivedAt),
-						),
-					)
-			: []
-
-	const techElementsByQuestion = new Map<string, string[]>()
-	for (const link of allQuestionTechLinks) {
-		const list = techElementsByQuestion.get(link.questionId) ?? []
-		list.push(link.elementId)
-		techElementsByQuestion.set(link.questionId, list)
-	}
-
-	// Get app's technology element IDs for filtering
-	const appTechRows = await db
-		.select({ elementId: applicationTechnologyElements.elementId })
-		.from(applicationTechnologyElements)
-		.where(
-			and(
-				eq(applicationTechnologyElements.applicationId, applicationId),
-				isNull(applicationTechnologyElements.archivedAt),
-			),
-		)
-	const appTechElementIds = new Set(appTechRows.map((r) => r.elementId))
-
-	// Inventory-style question types that show live system data should always be included
-	// regardless of tech element links, to avoid circular filtering where the question is
-	// hidden because the data it asks about hasn't been confirmed yet.
-	const inventoryAnswerTypes = new Set(["persistence", "entra_id_groups", "oracle_roles", "economy_system"])
-
-	// Filter: include questions with no tech links (apply to all), inventory-style questions,
-	// or questions matching at least one app tech element
-	const questions = allQuestions.filter((q) => {
-		if (inventoryAnswerTypes.has(q.answerType)) return true
-		const requiredElements = techElementsByQuestion.get(q.id)
-		if (!requiredElements || requiredElements.length === 0) return true
-		return requiredElements.some((elId) => appTechElementIds.has(elId))
-	})
+	// Alle godkjente spørsmål i appens scope (globale + relevante seksjonsspørsmål) vises.
+	// Teknologielement-koblinger på spørsmålet brukes til å filtrere rutinevalg,
+	// ikke til å skjule spørsmålet.
+	const questions = allQuestions
 
 	const answers = await getScreeningAnswersForApp(applicationId)
 
