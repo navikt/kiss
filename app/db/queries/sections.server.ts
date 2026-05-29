@@ -752,7 +752,12 @@ export async function getTeamApps(teamSlug: string) {
 			const app = appById.get(appId)
 			if (!app) return null
 			const s = summaryMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 }
-			const r = routineMap.get(appId) ?? { gjennomfort: 0, ikkeGjennomfort: 0, maaFolgesOpp: 0, total: 0 }
+			const r = routineMap.get(appId) ?? {
+				routinesGjennomfort: 0,
+				routinesIkkeGjennomfort: 0,
+				routinesMaaFolgesOpp: 0,
+				routinesTotal: 0,
+			}
 			return {
 				appId: app.id,
 				appName: app.name,
