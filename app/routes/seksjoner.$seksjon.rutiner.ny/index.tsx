@@ -18,6 +18,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
 import { PrioritySelect } from "~/components/PrioritySelect"
+import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { SortableActivityList } from "~/components/SortableActivityList"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
@@ -43,7 +44,7 @@ import {
 } from "~/db/schema/applications"
 import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType } from "~/db/schema/routines"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
-import { requireAnySectionRole } from "~/lib/authorization.server"
+import { canManageSection, isAdmin, requireAnySectionRole } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
 	getStrictestFrequency,
@@ -115,6 +116,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		screeningQuestions: questionsWithChoices,
 		technologyElements,
 		controls,
+		userCanChangePriority: isAdmin(authedUser) || canManageSection(authedUser, section.id),
 	})
 }
 
@@ -145,7 +147,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (priorityStr !== null && !["1", "2", "3"].includes(priorityStr)) {
 		return data({ fieldErrors: { priority: "Ugyldig prioritet" } as FieldErrors }, { status: 400 })
 	}
-	const priority = (priorityStr !== null ? Number(priorityStr) : 3) as 1 | 2 | 3
+	const canChangePriority = isAdmin(authedUser) || canManageSection(authedUser, section.id)
+	const priority = (canChangePriority && priorityStr !== null ? Number(priorityStr) : 3) as 1 | 2 | 3
 	const isSectionRoutine = formData.get("isSectionRoutine") === "on"
 	// Section routines must apply to all apps in section
 	const appliesToAllInSection = isSectionRoutine || formData.get("appliesToAllInSection") === "on"
@@ -291,7 +294,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function NyRutine() {
-	const { section, screeningQuestions, technologyElements, controls } = useLoaderData<typeof loader>()
+	const { section, screeningQuestions, technologyElements, controls, userCanChangePriority } =
+		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const fieldErrors = actionData && "fieldErrors" in actionData ? (actionData.fieldErrors as FieldErrors) : undefined
 	const errorSummaryRef = useRef<HTMLDivElement>(null)
@@ -426,7 +430,11 @@ export default function NyRutine() {
 						<EventFrequencyCombobox value={eventFrequency} onChange={setEventFrequency} />
 					</HStack>
 
-					<PrioritySelect name="priority" defaultValue={3} size="small" id="priority" error={fieldErrors?.priority} />
+					{userCanChangePriority ? (
+						<PrioritySelect name="priority" defaultValue={3} size="small" id="priority" error={fieldErrors?.priority} />
+					) : (
+						<PriorityTag priority={3} size="small" />
+					)}
 
 					{isSectionRoutine && <input type="hidden" name="appliesToAllInSection" value="on" />}
 					<Checkbox
