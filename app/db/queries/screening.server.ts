@@ -1194,6 +1194,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 				and(
 					eq(screeningRoutineSelections.applicationId, applicationId),
 					inArray(screeningRoutineSelections.choiceEffectId, [...routineEffectIds]),
+					isNull(screeningRoutineSelections.archivedAt),
 				),
 			)
 		for (const s of selections) {
@@ -1438,6 +1439,7 @@ export async function getScreeningQuestionsForSnapshot(applicationId: string, ex
 				and(
 					eq(screeningRoutineSelections.applicationId, applicationId),
 					inArray(screeningRoutineSelections.choiceEffectId, [...routineEffectIds]),
+					isNull(screeningRoutineSelections.archivedAt),
 				),
 			)
 		for (const s of selections) {
@@ -1504,23 +1506,26 @@ export async function saveRoutineSelection(
 	executor?: DbExecutor,
 ) {
 	const run = async (exec: DbExecutor) => {
+		// Soft-delete any existing active selection for this (applicationId, choiceEffectId)
 		await exec
-			.insert(screeningRoutineSelections)
-			.values({
-				applicationId,
-				choiceEffectId,
-				routineId,
-				selectedBy,
-				selectedAt: new Date(),
-			})
-			.onConflictDoUpdate({
-				target: [screeningRoutineSelections.applicationId, screeningRoutineSelections.choiceEffectId],
-				set: {
-					routineId,
-					selectedBy,
-					selectedAt: new Date(),
-				},
-			})
+			.update(screeningRoutineSelections)
+			.set({ archivedAt: new Date(), archivedBy: selectedBy })
+			.where(
+				and(
+					eq(screeningRoutineSelections.applicationId, applicationId),
+					eq(screeningRoutineSelections.choiceEffectId, choiceEffectId),
+					isNull(screeningRoutineSelections.archivedAt),
+				),
+			)
+
+		// Insert the new active selection
+		await exec.insert(screeningRoutineSelections).values({
+			applicationId,
+			choiceEffectId,
+			routineId,
+			selectedBy,
+			selectedAt: new Date(),
+		})
 
 		await writeAuditLog(
 			{
@@ -1765,9 +1770,9 @@ export async function getScreeningDerivedControlIds(appId: string): Promise<Set<
 			and(
 				eq(screeningRoutineSelections.applicationId, screeningAppId),
 				isNotNull(screeningRoutineSelections.routineId),
+				isNull(screeningRoutineSelections.archivedAt),
 			),
 		)
-
 	// Path 3: Controls via rulesets linked to answered questions (kun aktive spørsmål)
 	const rulesetEffects = await db
 		.selectDistinct({ controlId: rulesetControls.controlId })
@@ -1893,6 +1898,7 @@ export async function getBatchScreeningDerivedControlIds(appIds: string[]): Prom
 			and(
 				inArray(screeningRoutineSelections.applicationId, answeredScreeningAppIds),
 				isNotNull(screeningRoutineSelections.routineId),
+				isNull(screeningRoutineSelections.archivedAt),
 			),
 		)
 

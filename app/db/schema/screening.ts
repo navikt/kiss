@@ -156,8 +156,12 @@ export const screeningRoutineSelections = pgTable(
 		routineId: uuid("routine_id"),
 		selectedBy: text("selected_by").notNull(),
 		selectedAt: timestamp("selected_at", { withTimezone: true }).notNull().defaultNow(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
 	},
-	(t) => [unique().on(t.applicationId, t.choiceEffectId)],
+	(t) => [
+		uniqueIndex("srs_active_unique_idx").on(t.applicationId, t.choiceEffectId).where(sql`${t.archivedAt} IS NULL`),
+	],
 )
 
 // ─── Screening Sessions (Instanser) ─────────────────────────────────────

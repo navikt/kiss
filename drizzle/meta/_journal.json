@@ -701,6 +701,13 @@
       "when": 1781917900000,
       "tag": "0099_add_routine_priority",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "custom",
+      "when": 1781917960000,
+      "tag": "0100_screening_routine_selections_soft_delete",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,9 @@ import { logger } from "../../lib/logger.server"
 import { db } from "../connection.server"
 import {
 	screeningAnswers,
+	screeningChoiceEffects,
+	screeningQuestionChoices,
+	screeningRoutineSelections,
 	screeningSessionAnswers,
 	screeningSessionOperations,
 	screeningSessionParticipants,
@@ -616,6 +619,80 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 								answeredAt: sql`excluded.answered_at`,
 							},
 						})
+
+					// Remove routine selections for choice effects that are no longer active.
+					// When the answer changes (or is cleared), old choices' effects still have
+					// selections in screeningRoutineSelections — clean them up so routines from
+					// previous answers don't bleed into the current state.
+					const allQuestionIds = sessionAnswers.map((a) => a.questionId)
+					const allChoicesForQuestions = await tx
+						.select({
+							id: screeningQuestionChoices.id,
+							questionId: screeningQuestionChoices.questionId,
+							label: screeningQuestionChoices.label,
+						})
+						.from(screeningQuestionChoices)
+						.where(
+							and(
+								inArray(screeningQuestionChoices.questionId, allQuestionIds),
+								isNull(screeningQuestionChoices.archivedAt),
+							),
+						)
+
+					// Map questionId → current choice ID (undefined when answer is null/unmatched)
+					const currentChoiceIdByQuestion = new Map<string, string>()
+					for (const a of sessionAnswers) {
+						if (a.answer !== null) {
+							const match = allChoicesForQuestions.find((c) => c.questionId === a.questionId && c.label === a.answer)
+							if (match) currentChoiceIdByQuestion.set(a.questionId, match.id)
+						}
+					}
+
+					const staleChoiceIds = allChoicesForQuestions
+						.filter((c) => currentChoiceIdByQuestion.get(c.questionId) !== c.id)
+						.map((c) => c.id)
+
+					if (staleChoiceIds.length > 0) {
+						const staleEffects = await tx
+							.select({ id: screeningChoiceEffects.id })
+							.from(screeningChoiceEffects)
+							.where(
+								and(
+									inArray(screeningChoiceEffects.choiceId, staleChoiceIds),
+									isNull(screeningChoiceEffects.archivedAt),
+								),
+							)
+
+						const staleEffectIds = staleEffects.map((e) => e.id)
+
+						if (staleEffectIds.length > 0) {
+							const archivedSelections = await tx
+								.update(screeningRoutineSelections)
+								.set({ archivedAt: new Date(), archivedBy: performedBy })
+								.where(
+									and(
+										eq(screeningRoutineSelections.applicationId, frozen.applicationId),
+										inArray(screeningRoutineSelections.choiceEffectId, staleEffectIds),
+										isNull(screeningRoutineSelections.archivedAt),
+									),
+								)
+								.returning()
+
+							for (const archived of archivedSelections) {
+								await writeAuditLog(
+									{
+										action: "screening_routine_cleared",
+										entityType: "screening_routine_selection",
+										entityId: `${frozen.applicationId}/${archived.choiceEffectId}`,
+										previousValue: archived.routineId ?? "null",
+										metadata: { reason: "answer_changed", sessionId },
+										performedBy,
+									},
+									tx,
+								)
+							}
+						}
+					}
 				}
 
 				// Auto-apply preset routines for answered questions

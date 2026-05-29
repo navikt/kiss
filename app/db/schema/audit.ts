@@ -142,6 +142,7 @@ export const auditLogActionEnum = [
 	"screening_choice_effect_updated",
 	"screening_answer_saved",
 	"screening_routine_selected",
+	"screening_routine_cleared",
 	"screening_question_technology_element_added",
 	"screening_question_technology_element_removed",
 
