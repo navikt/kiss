@@ -9,7 +9,7 @@ import {
 	sectionIgnoredApplications,
 } from "../schema/applications"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
-import { getComplianceSummaries } from "./application-controls.server"
+import { getComplianceSummaries, getRoutineComplianceSummaries } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
 
 /** Get sections. By default only active (non-archived) sections are returned. */
@@ -742,13 +742,17 @@ export async function getTeamApps(teamSlug: string) {
 			: []
 	const appById = new Map(appRows.map((a) => [a.id, a]))
 	const activeAppIds = appRows.map((a) => a.id)
-	const summaryMap = await getComplianceSummaries(activeAppIds)
+	const [summaryMap, routineMap] = await Promise.all([
+		getComplianceSummaries(activeAppIds),
+		getRoutineComplianceSummaries(activeAppIds),
+	])
 
 	const apps = appIdList
 		.map((appId) => {
 			const app = appById.get(appId)
 			if (!app) return null
 			const s = summaryMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 }
+			const r = routineMap.get(appId) ?? { gjennomfort: 0, ikkeGjennomfort: 0, maaFolgesOpp: 0, total: 0 }
 			return {
 				appId: app.id,
 				appName: app.name,
@@ -758,6 +762,7 @@ export async function getTeamApps(teamSlug: string) {
 				notRelevant: s.notRelevant,
 				total: s.total,
 				source: directIds.has(appId) ? ("direct" as const) : ("nais-team" as const),
+				routineCompliance: r,
 			}
 		})
 		.filter((a): a is NonNullable<typeof a> => a !== null)

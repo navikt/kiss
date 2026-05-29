@@ -11,6 +11,7 @@ import { db } from "../connection.server"
 import { applicationControlHistory, applicationControls } from "../schema/application-controls"
 import { monitoredApplications } from "../schema/applications"
 import { applicationTechnologyElements } from "../schema/framework"
+import { routineReviews } from "../schema/routines"
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -535,6 +536,95 @@ export async function getComplianceSummaries(appIds: string[]): Promise<Map<stri
 			notRelevant: row.notRelevant,
 			total: row.total,
 		})
+	}
+
+	return result
+}
+
+export type RoutineComplianceSummary = {
+	gjennomfort: number
+	ikkeGjennomfort: number
+	maaFolgesOpp: number
+	total: number
+}
+
+/** Get routine compliance stats for multiple apps. Runs two queries in parallel:
+ * one that derives distinct per-routine status from application_controls + routine_reviews,
+ * and one against routine_reviews for the needs_follow_up count. */
+export async function getRoutineComplianceSummaries(appIds: string[]): Promise<Map<string, RoutineComplianceSummary>> {
+	const result = new Map<string, RoutineComplianceSummary>()
+	if (appIds.length === 0) return result
+	for (const id of appIds) {
+		result.set(id, { gjennomfort: 0, ikkeGjennomfort: 0, maaFolgesOpp: 0, total: 0 })
+	}
+
+	// Build a reusable IN-list for raw SQL — Drizzle's sql.join() generates individual
+	// parameterized bindings ($1, $2, ...) which work correctly in db.execute(), unlike
+	// ANY(${appIds}) which sends the JS array as a single untyped parameter.
+	const appIdsIn = sql.join(
+		appIds.map((id) => sql`${id}`),
+		sql`, `,
+	)
+
+	const [controlRows, followUpRows] = await Promise.all([
+		// Derive distinct (application_id, routine_id) pairs from matching_routine_ids, then
+		// left-join routine_reviews to determine per-routine completion status.
+		// Using UNNEST + COUNT DISTINCT on the control's routine_compliance would misclassify
+		// a routine that appears in multiple controls with different compliance values.
+		db.execute(sql<{ application_id: string; gjennomfort: number; ikke_gjennomfort: number; total: number }>`
+			WITH app_routines AS (
+				SELECT DISTINCT
+					ac.application_id,
+					t.routine_id
+				FROM application_controls ac, UNNEST(ac.matching_routine_ids) AS t(routine_id)
+				WHERE ac.application_id IN (${appIdsIn})
+					AND ac.is_active = true
+			),
+			routine_completed AS (
+				SELECT DISTINCT application_id, routine_id
+				FROM routine_reviews
+				WHERE application_id IN (${appIdsIn})
+					AND status IN ('completed', 'needs_follow_up')
+			)
+			SELECT
+				ar.application_id,
+				COUNT(*) FILTER (WHERE rc.routine_id IS NOT NULL)::int AS gjennomfort,
+				COUNT(*) FILTER (WHERE rc.routine_id IS NULL)::int AS ikke_gjennomfort,
+				COUNT(*)::int AS total
+			FROM app_routines ar
+			LEFT JOIN routine_completed rc
+				ON rc.application_id = ar.application_id
+				AND rc.routine_id = ar.routine_id
+			GROUP BY ar.application_id
+		`),
+		db
+			.select({
+				applicationId: routineReviews.applicationId,
+				count: sql<number>`count(*)::int`,
+			})
+			.from(routineReviews)
+			.where(and(inArray(routineReviews.applicationId, appIds), eq(routineReviews.status, "needs_follow_up")))
+			.groupBy(routineReviews.applicationId),
+	])
+
+	const followUpMap = new Map(followUpRows.map((r) => [r.applicationId, r.count]))
+
+	for (const row of controlRows.rows) {
+		result.set(row.application_id as string, {
+			gjennomfort: row.gjennomfort as number,
+			ikkeGjennomfort: row.ikke_gjennomfort as number,
+			maaFolgesOpp: followUpMap.get(row.application_id as string) ?? 0,
+			total: row.total as number,
+		})
+	}
+
+	// Also apply maaFolgesOpp for apps that have follow-up reviews but no active application_controls rows.
+	for (const [applicationId, count] of followUpMap) {
+		if (applicationId === null) continue
+		const existing = result.get(applicationId)
+		if (existing && existing.maaFolgesOpp === 0 && count > 0) {
+			result.set(applicationId, { ...existing, maaFolgesOpp: count })
+		}
 	}
 
 	return result
