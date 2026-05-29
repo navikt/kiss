@@ -16,6 +16,7 @@ import type React from "react"
 import { useState } from "react"
 import { Link, useActionData } from "react-router"
 import { FrequencyDisplay, frequencyDisplayText } from "~/components/FrequencyDisplay"
+import { PriorityTag } from "~/components/PriorityTag"
 import type { DataClassification, GroupCriticality, PersistenceType } from "~/db/schema/applications"
 import { dataClassificationLabels, groupCriticalityLabels } from "~/db/schema/applications"
 import type { action } from "../action.server"
@@ -30,6 +31,7 @@ type RoutineDeadline = {
 		eventFrequency?: string | null
 		technologyElements?: Array<{ id: string; name: string }>
 		controls?: Array<{ id: string; controlId: string; shortTitle: string | null }>
+		priority?: number
 	} | null
 	matchSource: string
 	deadline: Date | string | null
@@ -68,8 +70,8 @@ export function RutinerTab({
 	sectionSlugMap: Record<string, string>
 }) {
 	const [routineSort, setRoutineSort] = useState<{ orderBy: string; direction: "ascending" | "descending" }>({
-		orderBy: "status",
-		direction: "descending",
+		orderBy: "priority",
+		direction: "ascending",
 	})
 	const [routineSearch, setRoutineSearch] = useState("")
 	const [routineStatusFilter, setRoutineStatusFilter] = useState<string[]>([])
@@ -253,6 +255,11 @@ export function RutinerTab({
 			const bTime = bRaw ? new Date(bRaw).getTime() : Number.NEGATIVE_INFINITY
 			return (aTime - bTime) * dir
 		}
+		if (orderBy === "priority") {
+			const aPriority = a.routine?.priority ?? 3
+			const bPriority = b.routine?.priority ?? 3
+			return (aPriority - bPriority) * dir
+		}
 		let aVal: string
 		let bVal: string
 		if (orderBy === "name") {
@@ -345,6 +352,9 @@ export function RutinerTab({
 												<Table.ColumnHeader sortKey="name" sortable>
 													Rutine
 												</Table.ColumnHeader>
+												<Table.ColumnHeader sortKey="priority" sortable>
+													Prioritet
+												</Table.ColumnHeader>
 												<Table.ColumnHeader sortKey="matchSource" sortable>
 													Kobling
 												</Table.ColumnHeader>
@@ -378,6 +388,9 @@ export function RutinerTab({
 														) : (
 															(dl.routine?.name ?? "—")
 														)}
+													</Table.DataCell>
+													<Table.DataCell>
+														<PriorityTag priority={dl.routine?.priority ?? 3} />
 													</Table.DataCell>
 													<Table.DataCell>{renderMatchSource(dl)}</Table.DataCell>
 													<Table.DataCell>

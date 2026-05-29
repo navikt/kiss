@@ -13,7 +13,6 @@ vi.mock("~/db/connection.server", () => ({
 // Import AFTER mocking
 const {
 	createRoutine,
-	getRoutine,
 	updateRoutine,
 	createReview,
 	copyRoutine,

@@ -815,6 +815,7 @@ function mockRoutineBase(overrides: Partial<{
 	sourceRoutineId: string | null
 	replacedByRoutineId: string | null
 	replacedAt: string | null
+	priority: number
 }> = {}) {
 	return {
 		id: overrides.id ?? "routine-1",
@@ -831,6 +832,9 @@ function mockRoutineBase(overrides: Partial<{
 		screeningChoiceValue: overrides.screeningChoiceValue ?? null,
 		activityType: overrides.activityType ?? null,
 		status: overrides.status ?? "approved",
+		priority: overrides.priority ?? 3,
+		priorityUpdatedAt: "2026-01-15T10:00:00Z",
+		priorityUpdatedBy: "A123456",
 		approvedBy: overrides.approvedBy ?? "A123456",
 		approvedAt: overrides.approvedAt ?? "2026-01-15T10:00:00Z",
 		sourceRoutineId: overrides.sourceRoutineId ?? null,
@@ -852,7 +856,7 @@ export function mockRutinerListData() {
 		section: mockSection,
 		routines: [
 			{
-				...mockRoutineBase({ id: "routine-1", name: "Sikkerhetstesting", status: "approved", frequency: "quarterly" }),
+				...mockRoutineBase({ id: "routine-1", name: "Sikkerhetstesting", status: "approved", frequency: "quarterly", priority: 1 }),
 				technologyElements: [{ id: "te-1", name: "Applikasjon" }],
 				persistenceLinks: [],
 				reviewCount: 3,
@@ -867,6 +871,7 @@ export function mockRutinerListData() {
 					isSectionRoutine: 1,
 					sectionRoutineOwnerRole: "Seksjonsleder",
 					appliesToAllInSection: 1,
+					priority: 2,
 				}),
 				technologyElements: [],
 				persistenceLinks: [],

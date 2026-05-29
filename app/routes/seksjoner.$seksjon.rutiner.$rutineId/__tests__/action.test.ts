@@ -22,11 +22,13 @@ const mockGetRoutine = vi.fn()
 const mockApproveRoutine = vi.fn()
 const mockCopyRoutine = vi.fn()
 const mockArchiveRoutine = vi.fn()
+const mockUpdateRoutinePriority = vi.fn()
 vi.mock("~/db/queries/routines.server", () => ({
 	getRoutine: mockGetRoutine,
 	approveRoutine: mockApproveRoutine,
 	copyRoutine: mockCopyRoutine,
 	archiveRoutine: mockArchiveRoutine,
+	updateRoutinePriority: mockUpdateRoutinePriority,
 	calculateDeadline: vi.fn(),
 	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
 	getLatestReviewForApp: vi.fn(),
@@ -113,7 +115,7 @@ describe("approve intent", () => {
 		const fd = new FormData()
 		fd.set("intent", "approve")
 
-		const response = await callAction(fd)
+		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
 		expect(mockApproveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
 	})
@@ -138,7 +140,7 @@ describe("copy intent", () => {
 		const fd = new FormData()
 		fd.set("intent", "copy")
 
-		const response = await callAction(fd)
+		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
 		expect(response.headers.get("location")).toContain("routine-copy-1")
 		expect(mockCopyRoutine).toHaveBeenCalledWith("routine-1", "T123456")
@@ -185,7 +187,7 @@ describe("archive intent", () => {
 		const fd = new FormData()
 		fd.set("intent", "archive")
 
-		const response = await callAction(fd)
+		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
 		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
 	})
@@ -199,7 +201,7 @@ describe("archive intent", () => {
 		const fd = new FormData()
 		fd.set("intent", "archive")
 
-		const response = await callAction(fd)
+		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
 		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
 	})
@@ -254,5 +256,75 @@ describe("archive intent", () => {
 		fd.set("intent", "approve")
 
 		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 403 } })
+	})
+})
+
+describe("update-priority intent", () => {
+	it("updates priority when user has section role", async () => {
+		mockHasAnySectionRole.mockReturnValue(true)
+		mockUpdateRoutinePriority.mockResolvedValue(undefined)
+
+		const fd = new FormData()
+		fd.set("intent", "update-priority")
+		fd.set("priority", "1")
+
+		const result = await callAction(fd)
+		expect(result).toMatchObject({ data: { success: true } })
+		expect(mockUpdateRoutinePriority).toHaveBeenCalledWith("routine-1", 1, "T123456")
+	})
+
+	it("rejects when user lacks section role", async () => {
+		mockHasAnySectionRole.mockReturnValue(false)
+
+		const fd = new FormData()
+		fd.set("intent", "update-priority")
+		fd.set("priority", "2")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 403 } })
+		expect(mockUpdateRoutinePriority).not.toHaveBeenCalled()
+	})
+
+	it("rejects when routine is archived", async () => {
+		mockHasAnySectionRole.mockReturnValue(true)
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, archivedAt: new Date() })
+
+		const fd = new FormData()
+		fd.set("intent", "update-priority")
+		fd.set("priority", "2")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 403 } })
+		expect(mockUpdateRoutinePriority).not.toHaveBeenCalled()
+	})
+
+	it("rejects invalid priority value", async () => {
+		mockHasAnySectionRole.mockReturnValue(true)
+
+		const fd = new FormData()
+		fd.set("intent", "update-priority")
+		fd.set("priority", "9")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 400 } })
+		expect(mockUpdateRoutinePriority).not.toHaveBeenCalled()
+	})
+
+	it("rejects non-numeric priority", async () => {
+		mockHasAnySectionRole.mockReturnValue(true)
+
+		const fd = new FormData()
+		fd.set("intent", "update-priority")
+		fd.set("priority", "feil")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 400 } })
+		expect(mockUpdateRoutinePriority).not.toHaveBeenCalled()
+	})
+
+	it("rejects missing priority", async () => {
+		mockHasAnySectionRole.mockReturnValue(true)
+
+		const fd = new FormData()
+		fd.set("intent", "update-priority")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 400 } })
+		expect(mockUpdateRoutinePriority).not.toHaveBeenCalled()
 	})
 })

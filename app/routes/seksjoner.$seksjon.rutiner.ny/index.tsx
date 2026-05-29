@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
+import { PrioritySelect } from "~/components/PrioritySelect"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { SortableActivityList } from "~/components/SortableActivityList"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
@@ -140,6 +141,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const eventFrequencyValue = formData.get("eventFrequency")
 	const eventFrequencyRaw = typeof eventFrequencyValue === "string" ? eventFrequencyValue.trim() || null : null
 	const responsibleRole = (formData.get("responsibleRole") as string)?.trim() || null
+	const priorityStr = formData.get("priority") as string | null
+	if (priorityStr !== null && !["1", "2", "3"].includes(priorityStr)) {
+		return data({ fieldErrors: { priority: "Ugyldig prioritet" } as FieldErrors }, { status: 400 })
+	}
+	const priority = (priorityStr !== null ? Number(priorityStr) : 3) as 1 | 2 | 3
 	const isSectionRoutine = formData.get("isSectionRoutine") === "on"
 	// Section routines must apply to all apps in section
 	const appliesToAllInSection = isSectionRoutine || formData.get("appliesToAllInSection") === "on"
@@ -277,6 +283,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		oracleRoleCriticalities: oracleRoleCriticalities.filter((v): v is GroupCriticality =>
 			groupCriticalityEnum.includes(v as GroupCriticality),
 		),
+		priority: priority as 1 | 2 | 3,
 		createdBy: authedUser.navIdent,
 	})
 
@@ -418,6 +425,8 @@ export default function NyRutine() {
 						</Select>
 						<EventFrequencyCombobox value={eventFrequency} onChange={setEventFrequency} />
 					</HStack>
+
+					<PrioritySelect name="priority" defaultValue={3} size="small" id="priority" error={fieldErrors?.priority} />
 
 					{isSectionRoutine && <input type="hidden" name="appliesToAllInSection" value="on" />}
 					<Checkbox
