@@ -1,4 +1,4 @@
-import { Button, HStack, Radio, RadioGroup, Select, TextField, VStack } from "@navikt/ds-react"
+import { BodyShort, Button, HStack, Radio, RadioGroup, Select, TextField, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import { useFetcher } from "react-router"
 import type { ScreeningQuestion } from "../shared"
@@ -65,6 +65,23 @@ export function ScreeningAnswerForm({ question: q }: { question: ScreeningQuesti
 				</VStack>
 			)}
 			{routineSelections.map((rs) => {
+				if (rs.presetRoutineId) {
+					if (!rs.presetRoutineName) {
+						return (
+							<BodyShort key={rs.effectId} size="small">
+								<strong>Advarsel:</strong> En forvalgt rutine for {rs.controlTextId}
+								{rs.controlName ? `: ${rs.controlName}` : ""} er ikke lenger tilgjengelig (arkivert eller ikke godkjent)
+								og vil ikke tildeles automatisk. Velg en rutine manuelt.
+							</BodyShort>
+						)
+					}
+					return (
+						<BodyShort key={rs.effectId} size="small">
+							Rutinen <strong>{rs.presetRoutineName}</strong> tildeles automatisk for {rs.controlTextId}
+							{rs.controlName ? `: ${rs.controlName}` : ""}.
+						</BodyShort>
+					)
+				}
 				const selectId = `routine-select-${rs.effectId}`
 				return (
 					<HStack gap="space-4" align="end" key={rs.effectId}>

@@ -602,7 +602,7 @@ describe("screening.server integration tests", () => {
 			const effect = await addChoiceEffect({
 				choiceId: choice.id,
 				controlTextId: "K-EO.01",
-				effect: "positive",
+				effect: "not_relevant",
 				comment: null,
 			})
 
@@ -619,7 +619,7 @@ describe("screening.server integration tests", () => {
 			const effect = await addChoiceEffect({
 				choiceId: choice1.id,
 				controlTextId: "K-EO.02",
-				effect: "positive",
+				effect: "not_relevant",
 				comment: null,
 			})
 

@@ -141,6 +141,46 @@ export const mockScreening = [
 		choices: [],
 		affectedControls: ["K-ST.01", "K-ST.02"],
 	},
+	{
+		id: "q-routine-choice",
+		questionText: "Har applikasjonen tilgangsstyring med periodisk gjennomgang?",
+		description: "Applikasjoner med sensitiv data bør ha en rutine for periodisk gjennomgang av tilganger.",
+		descriptionHtml: "<p>Applikasjoner med sensitiv data bør ha en rutine for periodisk gjennomgang av tilganger.</p>",
+		displayOrder: 7,
+		answerType: "boolean" as const,
+		answer: null as string | null,
+		answerComment: null,
+		answerLink: null,
+		answeredBy: null as string | null,
+		answeredAt: null as string | null,
+		choices: [
+			{
+				id: "c-routine-ja",
+				label: "Ja",
+				requiresComment: false,
+				requiresLink: false,
+				routineSelections: [
+					{
+						effectId: "eff-preset-1",
+						controlTextId: "K-TS.01",
+						controlName: "Tilgangsstyring",
+						presetRoutineId: "rutine-uuid-1",
+						presetRoutineName: "Kvartalsvis tilgangsgjennomgang",
+						routines: [],
+						selectedRoutineId: null,
+					},
+				],
+			},
+			{
+				id: "c-routine-nei",
+				label: "Nei",
+				requiresComment: true,
+				requiresLink: false,
+				routineSelections: [],
+			},
+		],
+		affectedControls: ["K-TS.01"],
+	},
 ]
 
 export const mockPersistence = [

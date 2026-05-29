@@ -236,6 +236,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 				controlTextId: "ctrl-1",
 				effect: "implemented",
 				comment: null,
+				presetRoutineId: null,
 			})
 		})
 

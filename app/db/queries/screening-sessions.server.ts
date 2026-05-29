@@ -10,6 +10,7 @@ import {
 	screeningSessions,
 } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
+import { getPresetRoutinesForAnswers, saveRoutineSelection } from "./screening.server"
 
 // ─── State Snapshot ──────────────────────────────────────────────────────
 
@@ -614,6 +615,19 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 								answeredAt: sql`excluded.answered_at`,
 							},
 						})
+				}
+
+				// Auto-apply preset routines for answered questions
+				if (sessionAnswers.length > 0) {
+					const presets = await getPresetRoutinesForAnswers(
+						sessionAnswers
+							.filter((a): a is typeof a & { answer: string } => a.answer !== null)
+							.map((a) => ({ questionId: a.questionId, answer: a.answer })),
+						tx,
+					)
+					for (const preset of presets) {
+						await saveRoutineSelection(frozen.applicationId, preset.effectId, preset.presetRoutineId, performedBy, tx)
+					}
 				}
 
 				await writeAuditLog(

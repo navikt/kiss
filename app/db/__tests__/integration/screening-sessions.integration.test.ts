@@ -49,6 +49,38 @@ async function createQuestion(text: string) {
 	return (r.rows[0] as { id: string }).id
 }
 
+async function createControl(controlId: string) {
+	const db = getTestDb()
+	const r = await db.execute(
+		sql`INSERT INTO framework_controls (control_id, requirement) VALUES (${controlId}, 'req') RETURNING id`,
+	)
+	return (r.rows[0] as { id: string }).id
+}
+
+async function createSection(name: string) {
+	const db = getTestDb()
+	const r = await db.execute(
+		sql`INSERT INTO sections (name, slug, created_by, updated_by) VALUES (${name}, ${name.toLowerCase().replace(/\s+/g, "-")}, 'test', 'test') RETURNING id`,
+	)
+	return (r.rows[0] as { id: string }).id
+}
+
+async function createRoutine(name: string, sectionId: string) {
+	const db = getTestDb()
+	const r = await db.execute(
+		sql`INSERT INTO routines (name, section_id, frequency, status, created_by, updated_by) VALUES (${name}, ${sectionId}, 'quarterly', 'approved', 'test', 'test') RETURNING id`,
+	)
+	return (r.rows[0] as { id: string }).id
+}
+
+async function createChoice(questionId: string, label: string) {
+	const db = getTestDb()
+	const r = await db.execute(
+		sql`INSERT INTO screening_question_choices (question_id, label) VALUES (${questionId}, ${label}) RETURNING id`,
+	)
+	return (r.rows[0] as { id: string }).id
+}
+
 describe("screening-sessions", () => {
 	beforeAll(async () => {
 		await setupTestDatabase()
@@ -60,11 +92,18 @@ describe("screening-sessions", () => {
 
 	beforeEach(async () => {
 		const db = getTestDb()
+		await db.execute(/* sql */ `DELETE FROM screening_routine_selections`)
 		await db.execute(/* sql */ `DELETE FROM screening_session_answers`)
 		await db.execute(/* sql */ `DELETE FROM screening_session_participants`)
 		await db.execute(/* sql */ `DELETE FROM screening_sessions`)
 		await db.execute(/* sql */ `DELETE FROM screening_answers`)
+		await db.execute(/* sql */ `DELETE FROM screening_choice_effects`)
+		await db.execute(/* sql */ `DELETE FROM screening_question_choices`)
 		await db.execute(/* sql */ `DELETE FROM screening_questions`)
+		await db.execute(/* sql */ `DELETE FROM routine_controls`)
+		await db.execute(/* sql */ `DELETE FROM routines`)
+		await db.execute(/* sql */ `DELETE FROM sections`)
+		await db.execute(/* sql */ `DELETE FROM framework_controls`)
 		await db.execute(/* sql */ `DELETE FROM monitored_applications`)
 	})
 
@@ -236,6 +275,63 @@ describe("screening-sessions", () => {
 
 			await completeScreeningSession(session.id, testUser)
 			await expect(completeScreeningSession(session.id, testUser)).rejects.toThrow()
+		})
+
+		it("auto-applies preset_routine effects atomically on completion", async () => {
+			const db = getTestDb()
+			const sectionId = await createSection("test-seksjon-preset")
+			const appId = await createApp("test-app-preset")
+			const questionId = await createQuestion("Har dere tilgangsstyring?")
+			const choiceId = await createChoice(questionId, "Ja")
+			const controlId = await createControl("K-TS.99")
+			const routineId = await createRoutine("Kvartalsvis tilgangsgjennomgang", sectionId)
+
+			// Link routine to control
+			await db.execute(sql`INSERT INTO routine_controls (routine_id, control_id) VALUES (${routineId}, ${controlId})`)
+
+			// Add preset_routine effect to choice
+			const { addChoiceEffect } = await import("~/db/queries/screening.server")
+			await addChoiceEffect({
+				choiceId,
+				controlTextId: "K-TS.99",
+				effect: "preset_routine",
+				comment: null,
+				presetRoutineId: routineId,
+			})
+
+			// Create session, answer "Ja", complete
+			const session = await createScreeningSession({
+				applicationId: appId,
+				title: "Preset test",
+				participants: [],
+				performedBy: "A123456",
+			})
+			await saveScreeningSessionAnswer({
+				sessionId: session.id,
+				questionId,
+				answer: "Ja",
+				comment: null,
+				link: null,
+				performedBy: "A123456",
+			})
+
+			await completeScreeningSession(session.id, testUser)
+
+			// Assert screening_routine_selections has a row for this app + routine
+			const selections = await db.execute(
+				sql`SELECT * FROM screening_routine_selections WHERE application_id = ${appId} AND routine_id = ${routineId}`,
+			)
+			expect(selections.rows).toHaveLength(1)
+
+			// Assert audit log entry was created (entityId format: appId/choiceEffectId)
+			const effects = await db.execute(
+				sql`SELECT id FROM screening_choice_effects WHERE preset_routine_id = ${routineId} AND archived_at IS NULL LIMIT 1`,
+			)
+			const effectId = (effects.rows[0] as { id: string }).id
+			const auditRows = await db.execute(
+				sql`SELECT action FROM audit_log WHERE action = 'screening_routine_selected' AND entity_id = ${`${appId}/${effectId}`}`,
+			)
+			expect(auditRows.rows.length).toBeGreaterThan(0)
 		})
 	})
 

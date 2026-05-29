@@ -290,6 +290,11 @@ export async function handleComplianceIntent(
 			throw new Response("choiceEffectId tilhører ikke denne applikasjonens screeningspørsmål", { status: 403 })
 		}
 
+		// preset_routine effects are auto-applied at completion and cannot be user-selected
+		if (matchingEffect.presetRoutineId !== null) {
+			throw new Response("Forvalgte rutiner kan ikke endres under screening", { status: 400 })
+		}
+
 		// Validate routineId is one of the offered routines for this effect (or null to clear)
 		if (routineId !== null) {
 			const validRoutineIds = new Set(matchingEffect.routines.map((r) => r.id))

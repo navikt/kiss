@@ -314,6 +314,54 @@ export const StegRegelsett: Story = {
 	),
 }
 
+export const StegForvalgtRutine: Story = {
+	name: "Steg 9 – Tilgangsstyring (forvalgt rutine)",
+	render: () => (
+		<DataRouterWrapper initialStep="q-routine-choice">
+			<SessionPage
+				title="Compliance-screening Q2 2026"
+				appName="pensjon-sak"
+				participants={mockParticipants}
+				isCompleted={false}
+				screening={answered(mockScreening, 5)}
+				wizardArgs={defaultWizardArgs}
+			/>
+		</DataRouterWrapper>
+	),
+}
+
+export const StegForvalgtRutineValgt: Story = {
+	name: "Steg 9 – Tilgangsstyring (Ja – forvalgt rutine vises)",
+	render: () => (
+		<DataRouterWrapper initialStep="q-routine-choice">
+			<SessionPage
+				title="Compliance-screening Q2 2026"
+				appName="pensjon-sak"
+				participants={mockParticipants}
+				isCompleted={false}
+				screening={answered(mockScreening, 5).map((q) => (q.id === "q-routine-choice" ? { ...q, answer: "Ja" } : q))}
+				wizardArgs={defaultWizardArgs}
+			/>
+		</DataRouterWrapper>
+	),
+}
+
+export const StegForvalgtRutineNei: Story = {
+	name: "Steg 9 – Tilgangsstyring (Nei – krever kommentar)",
+	render: () => (
+		<DataRouterWrapper initialStep="q-routine-choice">
+			<SessionPage
+				title="Compliance-screening Q2 2026"
+				appName="pensjon-sak"
+				participants={mockParticipants}
+				isCompleted={false}
+				screening={answered(mockScreening, 5).map((q) => (q.id === "q-routine-choice" ? { ...q, answer: "Nei" } : q))}
+				wizardArgs={defaultWizardArgs}
+			/>
+		</DataRouterWrapper>
+	),
+}
+
 export const AlleBesvartOppsummering: Story = {
 	name: "Alle besvart – oppsummering",
 	render: () => (
