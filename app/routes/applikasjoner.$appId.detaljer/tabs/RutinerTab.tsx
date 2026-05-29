@@ -86,11 +86,16 @@ export function RutinerTab({
 			? actionData.error
 			: null
 
-	// Split routines into scheduled (with periodic frequency), event-only, and section routines
-	const sectionRoutines = routineDeadlines.filter((dl) => dl.isSectionRoutine)
+	// Split routines into scheduled (with periodic frequency), event-only, and section routines.
+	// Event-only section routines (frequency === null) are shown in the "Hendelsesbaserte rutiner" section,
+	// not "Seksjonsbaserte rutiner", to avoid showing "Ikke gjennomført" for routines without a periodic deadline.
+	const sectionRoutines = routineDeadlines.filter((dl) => dl.isSectionRoutine && dl.routine?.frequency !== null)
 	const nonSectionRoutines = routineDeadlines.filter((dl) => !dl.isSectionRoutine)
 	const scheduledRoutines = nonSectionRoutines.filter((dl) => dl.routine && dl.routine.frequency !== null)
-	const eventOnlyRoutines = nonSectionRoutines.filter((dl) => dl.routine && dl.routine.frequency === null)
+	const eventOnlyRoutines = [
+		...nonSectionRoutines.filter((dl) => dl.routine && dl.routine.frequency === null),
+		...routineDeadlines.filter((dl) => dl.isSectionRoutine && dl.routine?.frequency === null),
+	]
 
 	const routineStatusKey = (dl: RoutineDeadline): string => {
 		if (dl.overdue) return "overdue"
