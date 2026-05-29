@@ -4,7 +4,7 @@
  * These are designed to be called once per app, returning data
  * grouped by control for efficient auto-status derivation.
  */
-import { and, eq, inArray, isNotNull, isNull, notExists } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, notExists, or } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationEnvironments, naisTeams } from "../schema/applications"
 import { applicationTechnologyElements } from "../schema/framework"
@@ -33,7 +33,7 @@ export const TECH_ELEMENT_ALL = "all" as const
  * or "controlId:all" (for global questions without tech element constraints).
  */
 export async function getScreeningEffectsByControlForApp(applicationId: string) {
-	// 1. Get app's confirmed tech elements
+	// 1. Get app's auto-detected or confirmed tech elements (rejected are excluded)
 	const appTechRows = await db
 		.select({ elementId: applicationTechnologyElements.elementId })
 		.from(applicationTechnologyElements)
@@ -41,7 +41,7 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 			and(
 				eq(applicationTechnologyElements.applicationId, applicationId),
 				isNull(applicationTechnologyElements.archivedAt),
-				isNotNull(applicationTechnologyElements.confirmedAt),
+				or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
 				isNull(applicationTechnologyElements.rejectedAt),
 			),
 		)
