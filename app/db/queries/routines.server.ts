@@ -2992,7 +2992,7 @@ export async function getLatestReviewForApp(routineId: string, applicationId: st
 			and(
 				eq(routineReviews.routineId, routineId),
 				eq(routineReviews.applicationId, applicationId),
-				eq(routineReviews.status, "completed"),
+				inArray(routineReviews.status, ["completed", "needs_follow_up"]),
 			),
 		)
 		.orderBy(desc(routineReviews.reviewedAt))
@@ -3010,7 +3010,7 @@ export async function getLatestSectionReview(routineId: string) {
 			and(
 				eq(routineReviews.routineId, routineId),
 				isNull(routineReviews.applicationId),
-				eq(routineReviews.status, "completed"),
+				inArray(routineReviews.status, ["completed", "needs_follow_up"]),
 			),
 		)
 		.orderBy(desc(routineReviews.reviewedAt))
@@ -3148,7 +3148,7 @@ export async function getEffectiveLastReviewDatesBatch(
 					and(
 						inArray(routineReviews.routineId, ids),
 						eq(routineReviews.applicationId, applicationId),
-						eq(routineReviews.status, "completed"),
+						inArray(routineReviews.status, ["completed", "needs_follow_up"]),
 					),
 				)
 				.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
@@ -3164,7 +3164,7 @@ export async function getEffectiveLastReviewDatesBatch(
 					and(
 						inArray(routineReviews.routineId, ids),
 						isNull(routineReviews.applicationId),
-						eq(routineReviews.status, "completed"),
+						inArray(routineReviews.status, ["completed", "needs_follow_up"]),
 					),
 				)
 				.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
@@ -3268,7 +3268,7 @@ export async function getEffectiveLastReviewDatesBatch(
 				and(
 					inArray(routineReviews.routineId, [...allRoutineIds]),
 					eq(routineReviews.applicationId, applicationId),
-					eq(routineReviews.status, "completed"),
+					inArray(routineReviews.status, ["completed", "needs_follow_up"]),
 				),
 			)
 			.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
@@ -3286,7 +3286,7 @@ export async function getEffectiveLastReviewDatesBatch(
 				and(
 					inArray(routineReviews.routineId, [...allRoutineIds]),
 					isNull(routineReviews.applicationId),
-					eq(routineReviews.status, "completed"),
+					inArray(routineReviews.status, ["completed", "needs_follow_up"]),
 				),
 			)
 			.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
@@ -4926,7 +4926,7 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 			and(
 				inArray(routineReviews.routineId, [...routineIdsToFetchReviews]),
 				isNull(routineReviews.applicationId),
-				eq(routineReviews.status, "completed"),
+				inArray(routineReviews.status, ["completed", "needs_follow_up"]),
 			),
 		)
 		.orderBy(routineReviews.routineId, desc(routineReviews.reviewedAt))
