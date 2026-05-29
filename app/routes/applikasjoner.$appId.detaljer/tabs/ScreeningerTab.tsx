@@ -1,4 +1,16 @@
-import { BodyShort, Button, Detail, Heading, HStack, Modal, Table, Tag, Textarea, VStack } from "@navikt/ds-react"
+import {
+	Alert,
+	BodyShort,
+	Button,
+	Detail,
+	Heading,
+	HStack,
+	Modal,
+	Table,
+	Tag,
+	Textarea,
+	VStack,
+} from "@navikt/ds-react"
 import { useRef, useState } from "react"
 import { Form, Link, useFetcher } from "react-router"
 
@@ -39,18 +51,28 @@ export function ScreeningerTab({
 				<Heading size="medium" level="3">
 					Screeninger
 				</Heading>
-				<Button variant="primary" size="small" onClick={() => setShowCreateModal(true)}>
+				<Button
+					variant="primary"
+					size="small"
+					onClick={() => setShowCreateModal(true)}
+					disabled={draftSessions.length > 0}
+				>
 					Start ny screening
 				</Button>
 			</HStack>
 
 			{draftSessions.length > 0 && (
-				<VStack gap="space-4">
-					<Heading size="small" level="4">
-						Påbegynte
-					</Heading>
-					<SessionTable sessions={draftSessions} appBasePath={appBasePath} canAdmin={canAdmin} />
-				</VStack>
+				<>
+					<Alert variant="info" size="small">
+						Det finnes allerede en påbegynt screening. Fullfør eller fjern den før du starter en ny.
+					</Alert>
+					<VStack gap="space-4">
+						<Heading size="small" level="4">
+							Påbegynte
+						</Heading>
+						<SessionTable sessions={draftSessions} appBasePath={appBasePath} canAdmin={canAdmin} />
+					</VStack>
+				</>
 			)}
 
 			{completedSessions.length > 0 && (
