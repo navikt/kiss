@@ -12,11 +12,12 @@ import {
 	Tooltip,
 	VStack,
 } from "@navikt/ds-react"
+import type React from "react"
 import { useState } from "react"
 import { Link, useActionData } from "react-router"
 import { FrequencyDisplay, frequencyDisplayText } from "~/components/FrequencyDisplay"
-import type { DataClassification } from "~/db/schema/applications"
-import { dataClassificationLabels } from "~/db/schema/applications"
+import type { DataClassification, GroupCriticality, PersistenceType } from "~/db/schema/applications"
+import { dataClassificationLabels, groupCriticalityLabels } from "~/db/schema/applications"
 import type { action } from "../action.server"
 import { persistenceLabels } from "../shared"
 
@@ -35,7 +36,12 @@ type RoutineDeadline = {
 	lastReviewDate: Date | string | null
 	overdue: boolean
 	needsFollowUp?: boolean
-	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
+	matchedPersistenceLinks?: Array<{
+		persistenceType: PersistenceType | null
+		dataClassification: DataClassification | null
+	}>
+	matchedTechElements?: Array<{ id: string; name: string }>
+	matchedOracleCriticalities?: Array<{ criticality: GroupCriticality }>
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
 }
@@ -175,6 +181,46 @@ export function RutinerTab({
 			<Tag variant="neutral" size="xsmall">
 				Screening
 			</Tag>
+		)
+	}
+
+	const renderSectionMatchReason = (dl: RoutineDeadline) => {
+		const parts: React.ReactNode[] = []
+		for (const [teIdx, te] of (dl.matchedTechElements ?? []).entries()) {
+			parts.push(
+				<Tag key={`te-${teIdx}-${te.id}`} variant="info" size="xsmall">
+					{te.name}
+				</Tag>,
+			)
+		}
+		for (const [plIdx, pl] of (dl.matchedPersistenceLinks ?? []).entries()) {
+			parts.push(
+				<HStack key={`pl-${plIdx}-${pl.persistenceType}-${pl.dataClassification}`} gap="space-2" wrap>
+					{pl.persistenceType && (
+						<Tag variant="info" size="xsmall">
+							{persistenceLabels[pl.persistenceType] ?? pl.persistenceType}
+						</Tag>
+					)}
+					{pl.dataClassification && (
+						<Tag variant="warning" size="xsmall">
+							{dataClassificationLabels[pl.dataClassification] ?? pl.dataClassification}
+						</Tag>
+					)}
+				</HStack>,
+			)
+		}
+		for (const [ocIdx, oc] of (dl.matchedOracleCriticalities ?? []).entries()) {
+			parts.push(
+				<Tag key={`oc-${ocIdx}-${oc.criticality}`} variant="warning" size="xsmall">
+					{groupCriticalityLabels[oc.criticality] ?? oc.criticality} kritikalitet
+				</Tag>,
+			)
+		}
+		if (parts.length === 0) return null
+		return (
+			<HStack gap="space-2" wrap>
+				{parts}
+			</HStack>
 		)
 	}
 
@@ -471,6 +517,7 @@ export function RutinerTab({
 												<Table.Row>
 													<Table.HeaderCell>Rutine</Table.HeaderCell>
 													<Table.HeaderCell>Eierrolle</Table.HeaderCell>
+													<Table.HeaderCell>Kobling</Table.HeaderCell>
 													<Table.HeaderCell>Kontroller</Table.HeaderCell>
 													<Table.HeaderCell>Frekvens</Table.HeaderCell>
 													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
@@ -497,6 +544,7 @@ export function RutinerTab({
 																{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}
 															</BodyShort>
 														</Table.DataCell>
+														<Table.DataCell>{renderSectionMatchReason(dl)}</Table.DataCell>
 														<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
 														<Table.DataCell>
 															<FrequencyDisplay

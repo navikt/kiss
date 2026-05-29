@@ -3394,7 +3394,12 @@ export interface RoutineDeadlineInfo {
 	lastReviewDate: Date | null
 	deadline: Date | null
 	overdue: boolean
-	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
+	matchedPersistenceLinks?: Array<{
+		persistenceType: PersistenceType | null
+		dataClassification: DataClassification | null
+	}>
+	matchedTechElements?: Array<{ id: string; name: string }>
+	matchedOracleCriticalities?: Array<{ criticality: GroupCriticality }>
 }
 
 export async function getRoutineDeadlinesForSection(sectionId: string): Promise<RoutineDeadlineInfo[]> {
@@ -4494,32 +4499,33 @@ export async function getRoutineDeadlinesForAppBySection(
 		const routineOracle = oracleByRoutine.get(routine.id) ?? []
 
 		// Technology element constraint: app must have ≥1 matching confirmed element
+		const matchedTechElements = routineElements.filter((e) => appElementIds.has(e.id))
 		if (routineElements.length > 0) {
-			const hasMatch = routineElements.some((e) => appElementIds.has(e.id))
-			if (!hasMatch) continue
+			if (matchedTechElements.length === 0) continue
 		}
 
 		// Persistence constraint: app must satisfy ≥1 persistence link (type AND classification, cross-product).
 		// A link with both fields null is skipped (matches nothing — consistent with findAppsByPersistenceMatch).
 		// App must have at least one persistence entry for any persistence link to fire.
+		let matchedPersistenceLinks: Array<{
+			persistenceType: PersistenceType | null
+			dataClassification: DataClassification | null
+		}> = []
 		if (routinePers.length > 0) {
 			const effectiveLinks = routinePers.filter((l) => l.persistenceType !== null || l.dataClassification !== null)
-			const hasMatch =
-				effectiveLinks.length > 0 &&
-				appPersTypes.size > 0 &&
-				effectiveLinks.some((link) => {
-					const typeOk = !link.persistenceType || appPersTypes.has(link.persistenceType)
-					const classOk = !link.dataClassification || appPersClassifications.has(link.dataClassification)
-					return typeOk && classOk
-				})
-			if (!hasMatch) continue
+			matchedPersistenceLinks = effectiveLinks.filter((link) => {
+				const typeOk = !link.persistenceType || appPersTypes.has(link.persistenceType)
+				const classOk = !link.dataClassification || appPersClassifications.has(link.dataClassification)
+				return typeOk && classOk
+			}) as Array<{ persistenceType: PersistenceType | null; dataClassification: DataClassification | null }>
+			if (effectiveLinks.length === 0 || appPersTypes.size === 0 || matchedPersistenceLinks.length === 0) continue
 		}
 
 		// Oracle criticality constraint: app must have ≥1 matching Oracle role assessment.
 		// criticality is a NOT NULL enum, so every link always has a value.
+		const matchedOracleCriticalities = routineOracle.filter((link) => appOracleCriticalities.has(link.criticality))
 		if (routineOracle.length > 0) {
-			const hasMatch = routineOracle.some((link) => appOracleCriticalities.has(link.criticality))
-			if (!hasMatch) continue
+			if (matchedOracleCriticalities.length === 0) continue
 		}
 
 		const fullRoutine = {
@@ -4546,6 +4552,19 @@ export async function getRoutineDeadlinesForAppBySection(
 			lastReviewDate,
 			deadline,
 			overdue: isOverdue(deadline),
+			matchedTechElements:
+				matchedTechElements.length > 0 ? matchedTechElements.map((e) => ({ id: e.id, name: e.name })) : undefined,
+			matchedPersistenceLinks:
+				matchedPersistenceLinks.length > 0
+					? matchedPersistenceLinks.map((l) => ({
+							persistenceType: l.persistenceType,
+							dataClassification: l.dataClassification,
+						}))
+					: undefined,
+			matchedOracleCriticalities:
+				matchedOracleCriticalities.length > 0
+					? matchedOracleCriticalities.map((l) => ({ criticality: l.criticality }))
+					: undefined,
 		})
 	}
 
