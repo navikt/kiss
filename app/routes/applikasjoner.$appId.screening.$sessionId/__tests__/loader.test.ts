@@ -173,5 +173,60 @@ describe("screening session loader", () => {
 			expect(payload).toHaveProperty("appName", "test-app")
 			expect(payload).toHaveProperty("canAdmin", false)
 		})
+
+		it("uses snapshot questions for completed sessions instead of live questions", async () => {
+			const snapshotQuestion = {
+				id: "q-snap-1",
+				questionText: "Snapshot question",
+				description: null,
+				displayOrder: 1,
+				answerType: "boolean",
+				choices: [],
+				affectedControls: [],
+			}
+			mockGetScreeningSession.mockResolvedValue({
+				id: "session-1",
+				applicationId: "app-1",
+				status: "completed",
+				title: "Historical screening",
+				participants: [],
+				answers: [],
+				stateSnapshot: {
+					capturedAt: "2024-01-01T00:00:00.000Z",
+					persistence: null,
+					entraGroupsData: null,
+					oracleRolesData: null,
+					economyClassification: null,
+					questions: [snapshotQuestion],
+					rulesetOptions: [],
+				},
+			})
+			// Live questions would be different — loader should ignore these for completed sessions
+			mockGetScreeningDataForApp.mockResolvedValue({
+				questions: [
+					{
+						id: "q-live-1",
+						questionText: "Live question (should be ignored)",
+						description: null,
+						displayOrder: 1,
+						answerType: "boolean",
+						choices: [],
+						affectedControls: [],
+						sectionId: null,
+						techElementId: null,
+					},
+				],
+				sectionIds: [],
+			})
+			mockGetApplicationDetail.mockResolvedValue({ app: { name: "test-app" }, authIntegrations: [] })
+
+			const result = await callLoader()
+			const payload = "data" in result ? (result as { data: Record<string, unknown> }).data : result
+			const screening = payload.screening as Array<{ id: string }>
+
+			// Should only contain the snapshot question, not the live question
+			expect(screening.map((q) => q.id)).toEqual(["q-snap-1"])
+			expect(screening.map((q) => q.id)).not.toContain("q-live-1")
+		})
 	})
 })

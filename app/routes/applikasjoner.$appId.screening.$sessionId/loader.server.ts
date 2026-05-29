@@ -2,6 +2,7 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getApplicationDetail, getGroupAssessmentsForApp, getManualGroupsForApp } from "~/db/queries/nais.server"
 import { getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
+import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import { getScreeningDataForApp } from "~/db/queries/screening.server"
 import { getScreeningSession, getStagedOperations } from "~/db/queries/screening-sessions.server"
 import type { DataClassification, PersistenceType } from "~/db/schema/applications"
@@ -35,8 +36,41 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const useSnapshot = session.status === "completed" && session.stateSnapshot != null
 	const snapshot = useSnapshot ? (session.stateSnapshot as Record<string, unknown>) : null
 
+	// For completed sessions with a question snapshot, use it to preserve historical fidelity:
+	// questions added/archived/changed after session completion won't affect the historical view.
+	type SnapshotQuestion = {
+		id: string
+		questionText: string
+		description: string | null
+		displayOrder: number
+		answerType: string
+		choices: Array<{
+			id: string
+			label: string
+			requiresComment: boolean
+			requiresLink: boolean
+			routineSelections: Array<{
+				effectId: string
+				controlTextId: string
+				controlName: string | null
+				presetRoutineId: string | null
+				presetRoutineName: string | null
+				routines: Array<{ id: string; name: string; sectionId: string }>
+				selectedRoutineId: string | null
+			}>
+		}>
+		affectedControls: string[]
+	}
+	const rawSnapshotQuestions = snapshot?.questions
+	const snapshotQuestions: SnapshotQuestion[] | null = Array.isArray(rawSnapshotQuestions)
+		? (rawSnapshotQuestions as SnapshotQuestion[])
+		: null
+
+	// Use snapshot questions for completed sessions, live questions otherwise
+	const questionsToUse = snapshotQuestions ?? screeningData.questions
+
 	// Build persistence data if needed
-	const hasPersistenceQuestion = screeningData.questions.some((q) => q.answerType === "persistence")
+	const hasPersistenceQuestion = questionsToUse.some((q) => q.answerType === "persistence")
 	let persistence: Array<{
 		id: string
 		type: PersistenceType
@@ -61,24 +95,30 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	// Build ruleset options if needed
-	const hasRulesetQuestion = screeningData.questions.some((q) => q.answerType === "ruleset")
-	const rulesetOptions: { id: string; name: string }[] = []
-	if (hasRulesetQuestion && screeningData.sectionIds.length > 0) {
-		const { getRulesetsForSection } = await import("~/db/queries/rulesets.server")
-		const allRulesets = await Promise.all(screeningData.sectionIds.map((sid) => getRulesetsForSection(sid)))
-		const seen = new Set<string>()
-		for (const sectionRulesets of allRulesets) {
-			for (const rs of sectionRulesets) {
-				if (!seen.has(rs.id) && rs.status === "active") {
-					seen.add(rs.id)
-					rulesetOptions.push({ id: rs.id, name: rs.name })
+	const hasRulesetQuestion = questionsToUse.some((q) => q.answerType === "ruleset")
+	let rulesetOptions: { id: string; name: string }[] = []
+	if (hasRulesetQuestion) {
+		// For completed sessions with a ruleset snapshot, use it to preserve historical names.
+		// If the snapshot exists but lacks rulesetOptions (session completed before this field was added),
+		// fall back to live data so ruleset names still resolve correctly.
+		if (snapshot?.rulesetOptions && Array.isArray(snapshot.rulesetOptions)) {
+			rulesetOptions = snapshot.rulesetOptions as typeof rulesetOptions
+		} else if (screeningData.sectionIds.length > 0) {
+			const allRulesets = await Promise.all(screeningData.sectionIds.map((sid) => getRulesetsForSection(sid)))
+			const seen = new Set<string>()
+			for (const sectionRulesets of allRulesets) {
+				for (const rs of sectionRulesets) {
+					if (!seen.has(rs.id) && rs.status === "active") {
+						seen.add(rs.id)
+						rulesetOptions.push({ id: rs.id, name: rs.name })
+					}
 				}
 			}
 		}
 	}
 
 	// Entra ID groups data
-	const hasEntraGroupsQuestion = screeningData.questions.some((q) => q.answerType === "entra_id_groups")
+	const hasEntraGroupsQuestion = questionsToUse.some((q) => q.answerType === "entra_id_groups")
 	let entraGroupsData: {
 		naisGroupIds: string[]
 		manualGroups: Array<{ id: string; groupId: string; groupName: string | null; createdBy: string; createdAt: string }>
@@ -128,7 +168,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	// Oracle roles data
-	const hasOracleRolesQuestion = screeningData.questions.some((q) => q.answerType === "oracle_roles")
+	const hasOracleRolesQuestion = questionsToUse.some((q) => q.answerType === "oracle_roles")
 	let oracleRolesData: {
 		roles: Array<{ instanceId: string; roleName: string; authType: string | null; common: boolean | null }>
 		assessments: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
@@ -185,7 +225,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	}
 
 	// Economy system classification
-	const hasEconomySystemQuestion = screeningData.questions.some((q) => q.answerType === "economy_system")
+	const hasEconomySystemQuestion = questionsToUse.some((q) => q.answerType === "economy_system")
 	let economyClassification: {
 		id: string
 		isEconomySystem: boolean
@@ -331,11 +371,19 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	// Map session answers by questionId
 	const sessionAnswersMap = new Map(session.answers.map((a) => [a.questionId, a]))
 
-	// Override question answers with session-specific answers
-	const screening = screeningData.questions.map((q) => {
+	// Build the screening list from the chosen questions (snapshot or live), overlaying session answers.
+	// Explicit field mapping avoids type confusion between snapshot questions (no answer fields)
+	// and live questions (which include app-level answers that must be replaced with session answers).
+	const screening = questionsToUse.map((q) => {
 		const sessionAnswer = sessionAnswersMap.get(q.id)
 		return {
-			...q,
+			id: q.id,
+			questionText: q.questionText,
+			description: q.description,
+			displayOrder: q.displayOrder,
+			answerType: q.answerType,
+			choices: q.choices,
+			affectedControls: q.affectedControls,
 			descriptionHtml: renderMarkdown(q.description),
 			answer: sessionAnswer ? sessionAnswer.answer : null,
 			answerComment: sessionAnswer ? sessionAnswer.comment : null,
@@ -348,6 +396,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return data({
 		appId,
 		appName: appDetail.app.name,
+		hasQuestionSnapshot: snapshotQuestions !== null,
 		session: {
 			id: session.id,
 			title: session.title,
