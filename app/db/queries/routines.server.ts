@@ -4572,16 +4572,9 @@ export async function getRoutineDeadlinesForAppBySection(
 		const routinePers = persByRoutine.get(routine.id) ?? []
 		const routineOracle = oracleByRoutine.get(routine.id) ?? []
 
-		// Constraints (tech elements, persistence, oracle criticality) only filter isSectionRoutine=1 routines.
-		// Routines with appliesToAllInSection=1 but isSectionRoutine=0 apply to ALL apps in the section
-		// regardless of the app's attributes — the constraints are informational only for those routines.
-		const isStrict = routine.isSectionRoutine === 1
-
-		// Technology element constraint: app must have ≥1 matching confirmed element
+		// Technology element constraint: app must have ≥1 matching confirmed element (if any elements are defined).
 		const matchedTechElements = routineElements.filter((e) => appElementIds.has(e.id))
-		if (isStrict && routineElements.length > 0) {
-			if (matchedTechElements.length === 0) continue
-		}
+		if (routineElements.length > 0 && matchedTechElements.length === 0) continue
 
 		// Persistence constraint: app must satisfy ≥1 persistence link (type AND classification, cross-product).
 		// A link with both fields null is skipped (matches nothing — consistent with findAppsByPersistenceMatch).
@@ -4597,16 +4590,13 @@ export async function getRoutineDeadlinesForAppBySection(
 				const classOk = !link.dataClassification || appPersClassifications.has(link.dataClassification)
 				return typeOk && classOk
 			}) as Array<{ persistenceType: PersistenceType | null; dataClassification: DataClassification | null }>
-			if (isStrict && (effectiveLinks.length === 0 || appPersTypes.size === 0 || matchedPersistenceLinks.length === 0))
-				continue
+			if (effectiveLinks.length === 0 || appPersTypes.size === 0 || matchedPersistenceLinks.length === 0) continue
 		}
 
 		// Oracle criticality constraint: app must have ≥1 matching Oracle role assessment.
 		// criticality is a NOT NULL enum, so every link always has a value.
 		const matchedOracleCriticalities = routineOracle.filter((link) => appOracleCriticalities.has(link.criticality))
-		if (isStrict && routineOracle.length > 0) {
-			if (matchedOracleCriticalities.length === 0) continue
-		}
+		if (routineOracle.length > 0 && matchedOracleCriticalities.length === 0) continue
 
 		const fullRoutine = {
 			...routine,

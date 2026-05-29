@@ -814,7 +814,7 @@ describe("Section routine constraint filtering", () => {
 		return routine
 	}
 
-	it("appliesToAllInSection (isSectionRoutine=false) applies to all apps even when app lacks required tech elements", async () => {
+	it("appliesToAllInSection (isSectionRoutine=false) is filtered by tech elements when they are defined", async () => {
 		const sectionId = await makeSection(`sec-${Date.now()}`)
 		const appWithElement = await makeApp("App With Element", sectionId)
 		const appWithoutElement = await makeApp("App Without Element", sectionId)
@@ -826,11 +826,11 @@ describe("Section routine constraint filtering", () => {
 		const deadlinesWithout = await getRoutineDeadlinesForAppBySection(appWithoutElement)
 
 		expect(deadlinesWith.some((d) => d.routine?.id === routine.id)).toBe(true)
-		// appliesToAllInSection=1, isSectionRoutine=0 → bypasses tech element constraint
-		expect(deadlinesWithout.some((d) => d.routine?.id === routine.id)).toBe(true)
+		// appliesToAllInSection=1 — tech element constraint still applies
+		expect(deadlinesWithout.some((d) => d.routine?.id === routine.id)).toBe(false)
 	})
 
-	it("appliesToAllInSection (isSectionRoutine=false) applies to all apps even when app lacks required persistence", async () => {
+	it("appliesToAllInSection (isSectionRoutine=false) is filtered by persistence when it is defined", async () => {
 		const sectionId = await makeSection(`sec-${Date.now()}`)
 		const appWithPers = await makeApp("App With Persistence", sectionId)
 		const appNoPers = await makeApp("App No Persistence", sectionId)
@@ -845,7 +845,7 @@ describe("Section routine constraint filtering", () => {
 		const deadlinesWithout = await getRoutineDeadlinesForAppBySection(appNoPers)
 
 		expect(deadlinesWith.some((d) => d.routine?.id === routine.id)).toBe(true)
-		// appliesToAllInSection=1, isSectionRoutine=0 → bypasses persistence constraint
-		expect(deadlinesWithout.some((d) => d.routine?.id === routine.id)).toBe(true)
+		// appliesToAllInSection=1 — persistence constraint still applies
+		expect(deadlinesWithout.some((d) => d.routine?.id === routine.id)).toBe(false)
 	})
 })
