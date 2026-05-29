@@ -124,7 +124,12 @@ export const MedRegelsett: Story = {
 		),
 }
 
-// Konflikt oppdages når bruker trykker «Ny gjennomgang» fra rutine-kortet.
+export const RutinerFane: Story = {
+	name: "Rutiner-fanen (seksjonsrutiner med Kobling-kolonne)",
+	render: () =>
+		renderWithLoader(ApplikasjonDetalj, mockAppDetaljerData(), "/applikasjoner/app-1/detaljer?fane=rutiner"),
+}
+
 // create-draft-action returnerer feil og RutinerTab viser Alert.
 
 export const KonfliktNyGjennomgang: Story = {

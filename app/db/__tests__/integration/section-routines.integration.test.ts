@@ -681,6 +681,19 @@ describe("Section routine constraint filtering", () => {
 		expect(deadlines.some((d) => d.routine?.id === routine.id)).toBe(true)
 	})
 
+	it("matchedTechElements contains the matching element when routine matches on tech element", async () => {
+		const sectionId = await makeSection(`sec-${Date.now()}`)
+		const appId = await makeApp("App", sectionId)
+		const elementId = await makeTechElement(`el-match-${Date.now()}`)
+		await confirmTechElement(appId, elementId)
+		const routine = await makeSectionRoutine(sectionId, [elementId], [], [])
+
+		const deadlines = await getRoutineDeadlinesForAppBySection(appId)
+		const deadline = deadlines.find((d) => d.routine?.id === routine.id)
+		expect(deadline?.matchedTechElements).toHaveLength(1)
+		expect(deadline?.matchedTechElements?.[0]?.id).toBe(elementId)
+	})
+
 	it("getRoutineDeadlinesForAppBySection excludes routine with unmatched persistence", async () => {
 		const sectionId = await makeSection(`sec-${Date.now()}`)
 		const appId = await makeApp("App", sectionId)
@@ -715,6 +728,36 @@ describe("Section routine constraint filtering", () => {
 
 		const deadlines = await getRoutineDeadlinesForAppBySection(appId)
 		expect(deadlines.some((d) => d.routine?.id === routine.id)).toBe(true)
+	})
+
+	it("matchedOracleCriticalities contains the matching criticality when routine matches on oracle", async () => {
+		const sectionId = await makeSection(`sec-${Date.now()}`)
+		const appId = await makeApp("App with oracle", sectionId)
+		await addOracleAssessment(appId, "high")
+		const routine = await makeSectionRoutine(sectionId, [], [], ["high"])
+
+		const deadlines = await getRoutineDeadlinesForAppBySection(appId)
+		const deadline = deadlines.find((d) => d.routine?.id === routine.id)
+		expect(deadline?.matchedOracleCriticalities).toHaveLength(1)
+		expect(deadline?.matchedOracleCriticalities?.[0]?.criticality).toBe("high")
+	})
+
+	it("matchedPersistenceLinks contains the matching link when routine matches on persistence", async () => {
+		const sectionId = await makeSection(`sec-${Date.now()}`)
+		const appId = await makeApp("App with persistence", sectionId)
+		await addPersistence(appId, "cloud_sql_postgres", "critical")
+		const routine = await makeSectionRoutine(
+			sectionId,
+			[],
+			[{ type: "cloud_sql_postgres", classification: "critical" }],
+			[],
+		)
+
+		const deadlines = await getRoutineDeadlinesForAppBySection(appId)
+		const deadline = deadlines.find((d) => d.routine?.id === routine.id)
+		expect(deadline?.matchedPersistenceLinks).toHaveLength(1)
+		expect(deadline?.matchedPersistenceLinks?.[0]?.persistenceType).toBe("cloud_sql_postgres")
+		expect(deadline?.matchedPersistenceLinks?.[0]?.dataClassification).toBe("critical")
 	})
 
 	it("AND-logic: app matching only tech element (not persistence) is excluded", async () => {

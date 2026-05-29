@@ -44,7 +44,9 @@ export interface DeadlineWithControls {
 	deadline: Date | null
 	overdue: boolean
 	needsFollowUp?: boolean
-	matchedPersistenceLinks?: Array<{ persistenceType: string | null; dataClassification: string | null }>
+	matchedPersistenceLinks?: RoutineDeadlineInfo["matchedPersistenceLinks"]
+	matchedTechElements?: RoutineDeadlineInfo["matchedTechElements"]
+	matchedOracleCriticalities?: RoutineDeadlineInfo["matchedOracleCriticalities"]
 	matchSource: MatchSource
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null

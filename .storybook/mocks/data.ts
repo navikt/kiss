@@ -410,7 +410,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 					sectionId: "s-01",
 					frequency: "semi_annually",
 					eventFrequency: null,
-					technologyElements: [],
+					technologyElements: [{ id: "te-1", name: "Oracle" }],
 					controls: [
 						{ id: "c-3", controlId: "K-TS.01", shortTitle: "Tildeling av rettigheter" },
 						{ id: "c-4", controlId: "K-TS.02", shortTitle: "Periodisk gjennomgang" },
@@ -423,6 +423,9 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				deadline: "2026-09-15T09:00:00Z",
 				lastReviewDate: "2026-03-15T09:00:00Z",
 				overdue: false,
+				isSectionRoutine: true,
+				sectionRoutineOwnerRole: "Seksjonsleder",
+				matchedTechElements: [{ id: "te-1", name: "Oracle" }],
 			},
 			{
 				routine: {
@@ -442,6 +445,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				deadline: "2026-04-01T08:00:00Z",
 				lastReviewDate: null,
 				overdue: true,
+				matchedPersistenceLinks: [{ persistenceType: "oracle", dataClassification: "critical" }],
 			},
 			{
 				routine: {
@@ -479,6 +483,8 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				deadline: null,
 				lastReviewDate: null,
 				overdue: false,
+				isSectionRoutine: true,
+				sectionRoutineOwnerRole: "Seksjonsleder",
 			},
 			{
 				routine: {
