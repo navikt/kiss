@@ -21,7 +21,6 @@ import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
 import {
-	addChoiceEffect,
 	archiveChoice,
 	archiveChoiceEffect,
 	changeScreeningQuestionStatus,
@@ -30,6 +29,7 @@ import {
 	getChoiceEffects,
 	getChoicesForQuestion,
 	getQuestionTechnologyElements,
+	getRoutinesForAllControlsAndTechElements,
 	getScreeningQuestion,
 	setQuestionTechnologyElements,
 	updateChoice,
@@ -46,6 +46,8 @@ import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getStatusLabel } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
+import { applyPendingChoices, parsePendingChoices, validateAndAddChoiceEffect } from "~/lib/screening-actions.server"
+import type { PendingChoice, PendingEffectItem } from "~/lib/screening-types"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
@@ -71,7 +73,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const returnPath = seksjonSlug ? `/admin/screening?seksjon=${seksjonSlug}` : "/admin/screening"
 
 	if (isNew) {
-		const [controls, technologyElementsList] = await Promise.all([getAllControls(), getAllTechnologyElements()])
+		const [controls, technologyElementsList, allRoutinesForControls] = await Promise.all([
+			getAllControls(),
+			getAllTechnologyElements(),
+			getRoutinesForAllControlsAndTechElements([]),
+		])
 
 		// Check if an economy_system question already exists in this scope
 		const { getScreeningQuestions, getSectionScreeningQuestions } = await import("~/db/queries/screening.server")
@@ -98,6 +104,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			controls,
 			technologyElements: technologyElementsList,
 			rulesets: [] as { id: string; name: string }[],
+			allRoutinesForControls,
 			seksjon: seksjonSlug,
 			sectionId,
 			sectionName,
@@ -122,18 +129,24 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getQuestionTechnologyElements(questionId),
 	])
 
+	const techElementIds = questionTechElements.map((e) => e.elementId)
+
+	// Load all routines for all controls (for the add-effect form preset_routine dropdown)
+	const allRoutinesForControls = await getRoutinesForAllControlsAndTechElements(techElementIds)
+
 	return data({
 		isNew: false,
 		hasExistingEconomyQuestion: false,
 		question: {
 			...question,
 			descriptionHtml: renderMarkdown(question.description),
-			technologyElementIds: questionTechElements.map((e) => e.elementId),
+			technologyElementIds: techElementIds,
 		},
 		choices: choicesWithEffects,
 		controls,
 		technologyElements: technologyElementsList,
 		rulesets: [] as { id: string; name: string }[],
+		allRoutinesForControls,
 		seksjon: seksjonSlug,
 		sectionId,
 		sectionName,
@@ -172,36 +185,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 			await setQuestionTechnologyElements(q.id, technologyElementIds.filter(Boolean), authedUser.navIdent)
 
-			// Handle pending choices with effects for new questions
-			const pendingChoicesJson = formData.get("pendingChoices") as string | null
-			if (pendingChoicesJson) {
-				const pending = JSON.parse(pendingChoicesJson) as PendingChoice[]
-				for (const pc of pending) {
-					// Skip auto-created boolean choices if they match
-					const existingChoices = await getChoicesForQuestion(q.id)
-					const existing = existingChoices.find((c) => c.label === pc.label)
-					const choiceId = existing
-						? existing.id
-						: (
-								await createChoice({
-									questionId: q.id,
-									label: pc.label,
-									requiresComment: pc.requiresComment,
-									requiresLink: pc.requiresLink,
-									displayOrder: pc.displayOrder,
-								})
-							).id
-
-					for (const eff of pc.effects) {
-						await addChoiceEffect({
-							choiceId,
-							controlTextId: eff.controlTextId,
-							effect: eff.effect,
-							comment: eff.comment,
-						})
-					}
-				}
-			}
+			const pending = parsePendingChoices(formData.get("pendingChoices") as string | null)
+			await applyPendingChoices(q.id, pending)
 
 			return redirect(returnPath)
 		}
@@ -236,14 +221,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "addEffect") {
 		const choiceId = formData.get("choiceId") as string
 		const controlTextId = formData.get("controlTextId") as string
-		const effect = formData.get("effect") as string
+		const effectRaw = (formData.get("effect") as string) || null
 		const comment = formData.get("comment") as string
+		const presetRoutineId = (formData.get("presetRoutineId") as string) || null
 		if (!choiceId || !controlTextId) throw new Response("Mangler data", { status: 400 })
-		await addChoiceEffect({
+		await validateAndAddChoiceEffect({
 			choiceId,
 			controlTextId,
-			effect: effect || null,
+			effect: effectRaw,
 			comment: comment || null,
+			presetRoutineId,
 		})
 	}
 
@@ -271,26 +258,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	return data({ success: true })
 }
 
-interface PendingEffectItem {
-	clientId: string
-	controlTextId: string
-	controlName: string
-	effect: string | null
-	comment: string | null
-}
-
-interface PendingChoice {
-	clientId: string
-	label: string
-	requiresComment: boolean
-	requiresLink: boolean
-	displayOrder: number
-	effects: PendingEffectItem[]
-}
-
 export default function EditScreeningQuestion() {
-	const { isNew, hasExistingEconomyQuestion, question, choices, controls, technologyElements, sectionId, returnPath } =
-		useLoaderData<typeof loader>()
+	const {
+		isNew,
+		hasExistingEconomyQuestion,
+		question,
+		choices,
+		controls,
+		technologyElements,
+		sectionId,
+		returnPath,
+		allRoutinesForControls,
+	} = useLoaderData<typeof loader>()
 	const [pendingChoices, setPendingChoices] = useState<PendingChoice[]>([])
 	const [answerType, setAnswerType] = useState(question.answerType ?? "")
 	const [deleteTarget, setDeleteTarget] = useState<{
@@ -498,6 +477,7 @@ export default function EditScreeningQuestion() {
 									key={"clientId" in choice ? choice.clientId : choice.id}
 									choice={choice}
 									controls={controls}
+									allRoutinesForControls={allRoutinesForControls}
 									onDeleteChoice={
 										answerType === "boolean"
 											? undefined
@@ -655,12 +635,15 @@ type ServerChoice = {
 		controlName: string | null
 		effect: string | null
 		comment: string | null
+		presetRoutineId: string | null
+		presetRoutineName: string | null
 	}>
 }
 
 function ChoiceCard({
 	choice,
 	controls,
+	allRoutinesForControls,
 	onDeleteChoice,
 	onDeleteEffect,
 	onAddPendingEffect,
@@ -669,6 +652,7 @@ function ChoiceCard({
 }: {
 	choice: ServerChoice | PendingChoice
 	controls: Array<{ controlId: string; name: string }>
+	allRoutinesForControls?: Record<string, Array<{ id: string; name: string }>>
 	onDeleteChoice?: (label: string) => void
 	onDeleteEffect: (effectId: string, label: string) => void
 	onAddPendingEffect?: (choiceClientId: string, eff: PendingEffectItem) => void
@@ -678,6 +662,8 @@ function ChoiceCard({
 	const isPending = "clientId" in choice
 	const effects = isPending ? choice.effects : choice.effects
 	const choiceLabel = choice.label
+	const [addEffectControl, setAddEffectControl] = useState("")
+	const [addEffectType, setAddEffectType] = useState("")
 
 	return (
 		<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
@@ -724,12 +710,14 @@ function ChoiceCard({
 							<Table.Row>
 								<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Effekt</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Valgt rutine</Table.HeaderCell>
 								<Table.HeaderCell scope="col" />
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
 							{effects.map((e) => {
 								const effectId = "clientId" in e ? e.clientId : e.id
+								const isPresetRoutine = e.effect === "preset_routine"
 								return (
 									<Table.Row key={effectId}>
 										<Table.DataCell>
@@ -743,6 +731,17 @@ function ChoiceCard({
 												<Tag variant="neutral" size="xsmall">
 													{screeningEffectLabels[e.effect] ?? getStatusLabel(e.effect)}
 												</Tag>
+											) : (
+												<BodyShort size="small" textColor="subtle">
+													—
+												</BodyShort>
+											)}
+										</Table.DataCell>
+										<Table.DataCell>
+											{isPresetRoutine && "presetRoutineName" in e && e.presetRoutineName ? (
+												<BodyShort size="small">{e.presetRoutineName}</BodyShort>
+											) : isPresetRoutine && isPending && "presetRoutineId" in e && e.presetRoutineId ? (
+												<BodyShort size="small">{e.presetRoutineId}</BodyShort>
 											) : (
 												<BodyShort size="small" textColor="subtle">
 													—
@@ -779,13 +778,24 @@ function ChoiceCard({
 
 				{/* Add effect form for this choice */}
 				{isPending && onAddPendingEffect ? (
-					<AddPendingEffectForm choiceClientId={choice.clientId} controls={controls} onAdd={onAddPendingEffect} />
+					<AddPendingEffectForm
+						choiceClientId={choice.clientId}
+						controls={controls}
+						allRoutinesForControls={allRoutinesForControls ?? {}}
+						onAdd={onAddPendingEffect}
+					/>
 				) : !isPending ? (
 					<Form method="post">
 						<input type="hidden" name="intent" value="addEffect" />
 						<input type="hidden" name="choiceId" value={choice.id} />
 						<HStack gap="space-4" align="end" wrap>
-							<Select label="Kontroll" name="controlTextId" size="small">
+							<Select
+								label="Kontroll"
+								name="controlTextId"
+								size="small"
+								value={addEffectControl}
+								onChange={(e) => setAddEffectControl(e.target.value)}
+							>
 								<option value="">Velg kontroll</option>
 								{controls.map((c) => (
 									<option key={c.controlId} value={c.controlId}>
@@ -793,7 +803,13 @@ function ChoiceCard({
 									</option>
 								))}
 							</Select>
-							<Select label="Effekt" name="effect" size="small">
+							<Select
+								label="Effekt"
+								name="effect"
+								size="small"
+								value={addEffectType}
+								onChange={(e) => setAddEffectType(e.target.value)}
+							>
 								<option value="">Ingen</option>
 								{Object.entries(screeningEffectLabels).map(([v, l]) => (
 									<option key={v} value={v}>
@@ -801,6 +817,16 @@ function ChoiceCard({
 									</option>
 								))}
 							</Select>
+							{addEffectType === "preset_routine" && (
+								<Select label="Valgt rutine" name="presetRoutineId" size="small" required>
+									<option value="">— Velg rutine —</option>
+									{(allRoutinesForControls?.[addEffectControl] ?? []).map((r) => (
+										<option key={r.id} value={r.id}>
+											{r.name}
+										</option>
+									))}
+								</Select>
+							)}
 							<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
 								Legg til effekt
 							</Button>
@@ -856,32 +882,47 @@ function AddPendingChoiceForm({
 function AddPendingEffectForm({
 	choiceClientId,
 	controls,
+	allRoutinesForControls,
 	onAdd,
 }: {
 	choiceClientId: string
 	controls: Array<{ controlId: string; name: string }>
+	allRoutinesForControls: Record<string, Array<{ id: string; name: string }>>
 	onAdd: (choiceClientId: string, eff: PendingEffectItem) => void
 }) {
+	const [selectedControl, setSelectedControl] = useState("")
+	const [selectedEffect, setSelectedEffect] = useState("")
+
 	function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
 		e.preventDefault()
 		const fd = new FormData(e.currentTarget)
 		const controlTextId = fd.get("controlTextId") as string
 		if (!controlTextId) return
+		if (selectedEffect === "preset_routine" && !(fd.get("presetRoutineId") as string)) return
 		const control = controls.find((c) => c.controlId === controlTextId)
 		onAdd(choiceClientId, {
 			clientId: crypto.randomUUID(),
 			controlTextId,
 			controlName: control?.name ?? "",
-			effect: (fd.get("effect") as string) || null,
+			effect: selectedEffect || null,
 			comment: (fd.get("comment") as string) || null,
+			presetRoutineId: (fd.get("presetRoutineId") as string) || null,
 		})
 		e.currentTarget.reset()
+		setSelectedControl("")
+		setSelectedEffect("")
 	}
 
 	return (
 		<form onSubmit={handleSubmit}>
 			<HStack gap="space-4" align="end" wrap>
-				<Select label="Kontroll" name="controlTextId" size="small">
+				<Select
+					label="Kontroll"
+					name="controlTextId"
+					size="small"
+					value={selectedControl}
+					onChange={(e) => setSelectedControl(e.target.value)}
+				>
 					<option value="">Velg kontroll</option>
 					{controls.map((c) => (
 						<option key={c.controlId} value={c.controlId}>
@@ -889,7 +930,13 @@ function AddPendingEffectForm({
 						</option>
 					))}
 				</Select>
-				<Select label="Effekt" name="effect" size="small">
+				<Select
+					label="Effekt"
+					name="effect"
+					size="small"
+					value={selectedEffect}
+					onChange={(e) => setSelectedEffect(e.target.value)}
+				>
 					<option value="">Ingen</option>
 					{Object.entries(screeningEffectLabels).map(([v, l]) => (
 						<option key={v} value={v}>
@@ -897,6 +944,16 @@ function AddPendingEffectForm({
 						</option>
 					))}
 				</Select>
+				{selectedEffect === "preset_routine" && (
+					<Select label="Valgt rutine" name="presetRoutineId" size="small" required>
+						<option value="">— Velg rutine —</option>
+						{(allRoutinesForControls[selectedControl] ?? []).map((r) => (
+							<option key={r.id} value={r.id}>
+								{r.name}
+							</option>
+						))}
+					</Select>
+				)}
 				<Button type="submit" size="small" variant="secondary-neutral" icon={<PlusIcon aria-hidden />}>
 					Legg til effekt
 				</Button>

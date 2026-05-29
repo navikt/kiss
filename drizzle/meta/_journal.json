@@ -687,6 +687,13 @@
       "when": 1781917780000,
       "tag": "0097_remove_legacy_activity_type",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1781917840000,
+      "tag": "0098_screening_choice_effect_preset_routine",
+      "breakpoints": true
     }
   ]
 }

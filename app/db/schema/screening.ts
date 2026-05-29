@@ -7,12 +7,13 @@ import { sections } from "./organization"
 import { rulesets } from "./rulesets"
 
 /** Extended effect enum that includes screening-specific effects beyond compliance statuses. */
-export const screeningEffectEnum = [...complianceStatusEnum, "select_routine"] as const
+export const screeningEffectEnum = [...complianceStatusEnum, "select_routine", "preset_routine"] as const
 export type ScreeningEffect = (typeof screeningEffectEnum)[number]
 
 export const screeningEffectLabels: Record<string, string> = {
 	not_relevant: "Ikke relevant",
 	select_routine: "Velg rutine",
+	preset_routine: "Valgt rutine",
 }
 
 export const screeningQuestionStatusEnum = ["draft", "ready", "approved", "archived"] as const
@@ -76,6 +77,9 @@ export const screeningChoiceEffects = pgTable("screening_choice_effects", {
 		.references(() => frameworkControls.id),
 	effect: text("effect", { enum: screeningEffectEnum }),
 	comment: text("comment"),
+	/** When set, the routine is automatically applied during screening completion – the user cannot choose a different routine.
+	 *  FK to routines.id is enforced at DB level (not in Drizzle schema to avoid circular import). */
+	presetRoutineId: uuid("preset_routine_id"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	archivedAt: timestamp("archived_at", { withTimezone: true }),
 	archivedBy: text("archived_by"),

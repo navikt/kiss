@@ -1,12 +1,15 @@
 import { and, eq, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm"
+import { ScreeningValidationError } from "../../lib/screening-types"
+import { isValidUuid } from "../../lib/utils"
 import { db } from "../connection.server"
 import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
 import { type ComplianceStatus, complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import { applicationTechnologyElements, frameworkControls, technologyElements } from "../schema/framework"
 import { sectionEnvironments } from "../schema/organization"
-import { routineControls, routines } from "../schema/routines"
+import { routineControls, routines, routineTechnologyElements } from "../schema/routines"
 import { rulesetControls } from "../schema/rulesets"
 import {
+	type ScreeningEffect,
 	type ScreeningQuestionStatus,
 	screeningAnswers,
 	screeningChoiceEffects,
@@ -555,11 +558,14 @@ export async function getChoiceEffects(choiceId: string, opts: { includeArchived
 			controlName: frameworkControls.shortTitle,
 			effect: screeningChoiceEffects.effect,
 			comment: screeningChoiceEffects.comment,
+			presetRoutineId: screeningChoiceEffects.presetRoutineId,
+			presetRoutineName: routines.name,
 			archivedAt: screeningChoiceEffects.archivedAt,
 			archivedBy: screeningChoiceEffects.archivedBy,
 		})
 		.from(screeningChoiceEffects)
 		.innerJoin(frameworkControls, eq(screeningChoiceEffects.controlId, frameworkControls.id))
+		.leftJoin(routines, eq(screeningChoiceEffects.presetRoutineId, routines.id))
 		.where(and(...conds))
 		.orderBy(frameworkControls.controlId)
 }
@@ -567,28 +573,124 @@ export async function getChoiceEffects(choiceId: string, opts: { includeArchived
 export async function addChoiceEffect(params: {
 	choiceId: string
 	controlTextId: string
-	effect: string | null
+	effect: ScreeningEffect | null
 	comment: string | null
+	presetRoutineId?: string | null
 }) {
+	// Two-way invariant: preset_routine ↔ presetRoutineId
+	if (params.effect === "preset_routine" && !params.presetRoutineId) {
+		throw new ScreeningValidationError("Effekt 'preset_routine' krever presetRoutineId")
+	}
+	if (params.presetRoutineId && params.effect !== "preset_routine") {
+		throw new ScreeningValidationError("presetRoutineId kan kun brukes med effect 'preset_routine'")
+	}
 	const [ctrl] = await db
 		.select({ id: frameworkControls.id })
 		.from(frameworkControls)
 		.where(eq(frameworkControls.controlId, params.controlTextId))
 		.limit(1)
 
-	if (!ctrl) throw new Error(`Kontroll ${params.controlTextId} ikke funnet`)
+	if (!ctrl) throw new ScreeningValidationError(`Kontroll ${params.controlTextId} ikke funnet`)
+
+	if (params.presetRoutineId) {
+		if (!isValidUuid(params.presetRoutineId)) {
+			throw new ScreeningValidationError("presetRoutineId må være en gyldig UUID")
+		}
+		const [routine] = await db
+			.select({ id: routines.id })
+			.from(routines)
+			.where(and(eq(routines.id, params.presetRoutineId), eq(routines.status, "approved"), isNull(routines.archivedAt)))
+			.limit(1)
+		if (!routine) throw new ScreeningValidationError(`Rutine ${params.presetRoutineId} ikke funnet eller ikke godkjent`)
+
+		// Verify the routine is actively linked to the selected control
+		const [link] = await db
+			.select({ id: routineControls.id })
+			.from(routineControls)
+			.where(
+				and(
+					eq(routineControls.routineId, params.presetRoutineId),
+					eq(routineControls.controlId, ctrl.id),
+					isNull(routineControls.archivedAt),
+				),
+			)
+			.limit(1)
+		if (!link)
+			throw new ScreeningValidationError(
+				`Rutine ${params.presetRoutineId} er ikke koblet til kontroll ${params.controlTextId}`,
+			)
+	}
 
 	const [eff] = await db
 		.insert(screeningChoiceEffects)
 		.values({
 			choiceId: params.choiceId,
 			controlId: ctrl.id,
-			effect: (params.effect as ComplianceStatus) || null,
+			effect: params.effect,
 			comment: params.comment || null,
+			presetRoutineId: params.presetRoutineId ?? null,
 		})
 		.returning()
 
 	return eff
+}
+
+/**
+ * Returns routines available for use as preset on a `preset_routine` effect for a given control.
+ * Filters by:
+ * 1. Linked to the control via routine_controls
+ * 2. Approved and not archived
+ * 3. No technology element restrictions, OR overlapping tech elements with the question's tech elements
+ */
+export async function getRoutinesForControlAndTechElements(
+	controlTextId: string,
+	questionTechElementIds: string[],
+): Promise<Array<{ id: string; name: string }>> {
+	const [ctrl] = await db
+		.select({ id: frameworkControls.id })
+		.from(frameworkControls)
+		.where(eq(frameworkControls.controlId, controlTextId))
+		.limit(1)
+
+	if (!ctrl) return []
+
+	// Load all approved, non-archived routines linked to this control
+	const linked = await db
+		.select({ id: routines.id, name: routines.name })
+		.from(routineControls)
+		.innerJoin(routines, eq(routineControls.routineId, routines.id))
+		.where(
+			and(
+				eq(routineControls.controlId, ctrl.id),
+				isNull(routineControls.archivedAt),
+				eq(routines.status, "approved"),
+				isNull(routines.archivedAt),
+			),
+		)
+
+	if (linked.length === 0) return []
+
+	// Load tech element restrictions for these routines
+	const linkedIds = linked.map((r) => r.id)
+	const techLinks = await db
+		.select({ routineId: routineTechnologyElements.routineId, elementId: routineTechnologyElements.elementId })
+		.from(routineTechnologyElements)
+		.where(and(inArray(routineTechnologyElements.routineId, linkedIds), isNull(routineTechnologyElements.archivedAt)))
+
+	const techByRoutine = new Map<string, string[]>()
+	for (const link of techLinks) {
+		const list = techByRoutine.get(link.routineId) ?? []
+		list.push(link.elementId)
+		techByRoutine.set(link.routineId, list)
+	}
+
+	const questionTechSet = new Set(questionTechElementIds)
+
+	return linked.filter((r) => {
+		const requiredElements = techByRoutine.get(r.id)
+		if (!requiredElements || requiredElements.length === 0) return true
+		return requiredElements.some((elId) => questionTechSet.has(elId))
+	})
 }
 
 /** Verify that an effect belongs to a specific question (via choice → question join). */
@@ -853,7 +955,7 @@ async function _applyChoiceEffects(
 	const effects = await db.select().from(screeningChoiceEffects).where(eq(screeningChoiceEffects.choiceId, choice.id))
 
 	for (const effect of effects) {
-		if (!effect.effect || effect.effect === "select_routine") continue
+		if (!effect.effect || effect.effect === "select_routine" || effect.effect === "preset_routine") continue
 
 		const [existing] = await db
 			.select()
@@ -1061,9 +1163,19 @@ export async function getScreeningDataForApp(applicationId: string) {
 			controlTextId: frameworkControls.controlId,
 			controlName: frameworkControls.shortTitle,
 			effect: screeningChoiceEffects.effect,
+			presetRoutineId: screeningChoiceEffects.presetRoutineId,
+			presetRoutineName: routines.name,
 		})
 		.from(screeningChoiceEffects)
 		.innerJoin(frameworkControls, eq(screeningChoiceEffects.controlId, frameworkControls.id))
+		.leftJoin(
+			routines,
+			and(
+				eq(screeningChoiceEffects.presetRoutineId, routines.id),
+				eq(routines.status, "approved"),
+				isNull(routines.archivedAt),
+			),
+		)
 		.where(isNull(screeningChoiceEffects.archivedAt))
 
 	const effectsByChoice = new Map<string, (typeof allChoiceEffects)[number][]>()
@@ -1074,18 +1186,22 @@ export async function getScreeningDataForApp(applicationId: string) {
 	}
 
 	// Collect control UUIDs that have select_routine effects to load routine options
+	// Also collect preset_routine effect IDs (presetRoutineId is already on the effect row)
 	const selectRoutineControlIds = new Set<string>()
-	const selectRoutineEffectIds = new Set<string>()
+	const routineEffectIds = new Set<string>() // both select_routine and preset_routine
 	for (const effects of effectsByChoice.values()) {
 		for (const e of effects) {
 			if (e.effect === "select_routine") {
 				selectRoutineControlIds.add(e.controlId)
-				selectRoutineEffectIds.add(e.id)
+				routineEffectIds.add(e.id)
+			}
+			if (e.effect === "preset_routine") {
+				routineEffectIds.add(e.id)
 			}
 		}
 	}
 
-	// Load routines linked to these controls via routineControls
+	// Load routines linked to select_routine controls (user picks during screening)
 	const routineOptionsByControl = new Map<string, Array<{ id: string; name: string; sectionId: string }>>()
 	if (selectRoutineControlIds.size > 0) {
 		const linkedRoutines = await db
@@ -1113,16 +1229,16 @@ export async function getScreeningDataForApp(applicationId: string) {
 		}
 	}
 
-	// Load existing routine selections for this app
+	// Load existing routine selections for this app (select_routine user picks)
 	const existingSelections = new Map<string, string | null>()
-	if (selectRoutineEffectIds.size > 0) {
+	if (routineEffectIds.size > 0) {
 		const selections = await db
 			.select()
 			.from(screeningRoutineSelections)
 			.where(
 				and(
 					eq(screeningRoutineSelections.applicationId, applicationId),
-					inArray(screeningRoutineSelections.choiceEffectId, [...selectRoutineEffectIds]),
+					inArray(screeningRoutineSelections.choiceEffectId, [...routineEffectIds]),
 				),
 			)
 		for (const s of selections) {
@@ -1143,16 +1259,20 @@ export async function getScreeningDataForApp(applicationId: string) {
 				}
 			}
 
-			// Build select_routine effects per choice
+			// Build routine selection items per choice (both select_routine and preset_routine)
 			const choicesWithRoutines = choices.map((c) => {
 				const effects = effectsByChoice.get(c.id) ?? []
 				const routineSelections = effects
-					.filter((e) => e.effect === "select_routine")
+					.filter((e) => e.effect === "select_routine" || e.effect === "preset_routine")
 					.map((e) => ({
 						effectId: e.id,
 						controlTextId: e.controlTextId,
 						controlName: e.controlName,
-						routines: routineOptionsByControl.get(e.controlId) ?? [],
+						// preset_routine: presetRoutineId is always set (required at creation)
+						// select_routine: presetRoutineId is null, user picks
+						presetRoutineId: e.presetRoutineId ?? null,
+						presetRoutineName: e.presetRoutineName ?? null,
+						routines: e.effect === "select_routine" ? (routineOptionsByControl.get(e.controlId) ?? []) : [],
 						selectedRoutineId: existingSelections.get(e.id) ?? null,
 					}))
 
@@ -1185,41 +1305,195 @@ export async function getScreeningDataForApp(applicationId: string) {
 
 // ─── Screening routine selections ────────────────────────────────────────
 
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+
 /**
  * Lagrer brukerens valgte rutine for en gitt screening-effekt
  * (choice → routine-mapping per applikasjon). Erstatter eksisterende valg.
+ * Accepts an optional Drizzle transaction executor to participate in a larger transaction.
  */
 export async function saveRoutineSelection(
 	applicationId: string,
 	choiceEffectId: string,
 	routineId: string | null,
 	selectedBy: string,
+	executor?: DbExecutor,
 ) {
-	await db
-		.insert(screeningRoutineSelections)
-		.values({
-			applicationId,
-			choiceEffectId,
-			routineId,
-			selectedBy,
-			selectedAt: new Date(),
-		})
-		.onConflictDoUpdate({
-			target: [screeningRoutineSelections.applicationId, screeningRoutineSelections.choiceEffectId],
-			set: {
+	const run = async (exec: DbExecutor) => {
+		await exec
+			.insert(screeningRoutineSelections)
+			.values({
+				applicationId,
+				choiceEffectId,
 				routineId,
 				selectedBy,
 				selectedAt: new Date(),
-			},
-		})
+			})
+			.onConflictDoUpdate({
+				target: [screeningRoutineSelections.applicationId, screeningRoutineSelections.choiceEffectId],
+				set: {
+					routineId,
+					selectedBy,
+					selectedAt: new Date(),
+				},
+			})
 
-	await writeAuditLog({
-		action: "screening_routine_selected",
-		entityType: "screening_routine_selection",
-		entityId: `${applicationId}/${choiceEffectId}`,
-		newValue: routineId ?? "null",
-		performedBy: selectedBy,
-	})
+		await writeAuditLog(
+			{
+				action: "screening_routine_selected",
+				entityType: "screening_routine_selection",
+				entityId: `${applicationId}/${choiceEffectId}`,
+				newValue: routineId ?? "null",
+				performedBy: selectedBy,
+			},
+			exec,
+		)
+	}
+
+	if (executor) {
+		await run(executor)
+	} else {
+		await db.transaction(run)
+	}
+}
+
+/**
+ * For a list of session answers (questionId + answer label), returns all
+ * `preset_routine` effects that have a preset routine set. Used by
+ * `completeScreeningSession` to auto-apply preset routines atomically.
+ */
+export async function getPresetRoutinesForAnswers(
+	answers: Array<{ questionId: string; answer: string }>,
+	executor?: DbExecutor,
+): Promise<Array<{ effectId: string; presetRoutineId: string }>> {
+	if (answers.length === 0) return []
+	const exec = executor ?? db
+
+	const questionIds = answers.map((a) => a.questionId)
+
+	const matchingChoices = await exec
+		.select({
+			id: screeningQuestionChoices.id,
+			questionId: screeningQuestionChoices.questionId,
+			label: screeningQuestionChoices.label,
+		})
+		.from(screeningQuestionChoices)
+		.where(and(inArray(screeningQuestionChoices.questionId, questionIds), isNull(screeningQuestionChoices.archivedAt)))
+
+	const answerToChoice = new Map<string, string>()
+	for (const c of matchingChoices) {
+		answerToChoice.set(`${c.questionId}|${c.label}`, c.id)
+	}
+
+	const matchedChoiceIds = answers
+		.map((a) => answerToChoice.get(`${a.questionId}|${a.answer}`))
+		.filter((id): id is string => id !== undefined)
+
+	if (matchedChoiceIds.length === 0) return []
+
+	const effects = await exec
+		.select({ id: screeningChoiceEffects.id, presetRoutineId: screeningChoiceEffects.presetRoutineId })
+		.from(screeningChoiceEffects)
+		.innerJoin(
+			routines,
+			and(
+				eq(routines.id, screeningChoiceEffects.presetRoutineId),
+				isNull(routines.archivedAt),
+				eq(routines.status, "approved"),
+			),
+		)
+		.innerJoin(
+			routineControls,
+			and(
+				eq(routineControls.routineId, screeningChoiceEffects.presetRoutineId),
+				eq(routineControls.controlId, screeningChoiceEffects.controlId),
+				isNull(routineControls.archivedAt),
+			),
+		)
+		.where(
+			and(
+				inArray(screeningChoiceEffects.choiceId, matchedChoiceIds),
+				eq(screeningChoiceEffects.effect, "preset_routine"),
+				isNotNull(screeningChoiceEffects.presetRoutineId),
+				isNull(screeningChoiceEffects.archivedAt),
+			),
+		)
+
+	return effects
+		.filter((e): e is { id: string; presetRoutineId: string } => e.presetRoutineId !== null)
+		.map((e) => ({ effectId: e.id, presetRoutineId: e.presetRoutineId }))
+}
+
+/**
+ * Returns routines for ALL controls, filtered by tech element overlap.
+ * Used in admin loader so the add-effect form can show a routine dropdown
+ * immediately when "Valgt rutine" (preset_routine) is selected, without
+ * an extra round-trip per control.
+ */
+export async function getRoutinesForAllControlsAndTechElements(
+	questionTechElementIds: string[],
+): Promise<Record<string, Array<{ id: string; name: string }>>> {
+	// Load all approved, non-archived routines with their control links
+	const linkedRoutines = await db
+		.select({
+			controlId: routineControls.controlId,
+			routineId: routines.id,
+			routineName: routines.name,
+		})
+		.from(routineControls)
+		.innerJoin(routines, eq(routineControls.routineId, routines.id))
+		.where(and(isNull(routineControls.archivedAt), eq(routines.status, "approved"), isNull(routines.archivedAt)))
+
+	if (linkedRoutines.length === 0) return {}
+
+	const routineIds = [...new Set(linkedRoutines.map((r) => r.routineId))]
+
+	// Load tech element restrictions for these routines
+	const techLinks = await db
+		.select({ routineId: routineTechnologyElements.routineId, elementId: routineTechnologyElements.elementId })
+		.from(routineTechnologyElements)
+		.where(and(inArray(routineTechnologyElements.routineId, routineIds), isNull(routineTechnologyElements.archivedAt)))
+
+	const techByRoutine = new Map<string, string[]>()
+	for (const link of techLinks) {
+		const list = techByRoutine.get(link.routineId) ?? []
+		list.push(link.elementId)
+		techByRoutine.set(link.routineId, list)
+	}
+
+	const questionTechSet = new Set(questionTechElementIds)
+
+	// Load framework controls to get their controlTextId (string ID like "K-TS.01")
+	const controlIds = [...new Set(linkedRoutines.map((r) => r.controlId))]
+	const ctrlRows = await db
+		.select({ id: frameworkControls.id, controlTextId: frameworkControls.controlId })
+		.from(frameworkControls)
+		.where(inArray(frameworkControls.id, controlIds))
+	const controlTextIdMap = new Map(ctrlRows.map((c) => [c.id, c.controlTextId]))
+
+	const result: Record<string, Array<{ id: string; name: string }>> = {}
+	for (const lr of linkedRoutines) {
+		const controlTextId = controlTextIdMap.get(lr.controlId)
+		if (!controlTextId) continue
+
+		const requiredElements = techByRoutine.get(lr.routineId)
+		const techMatch =
+			questionTechElementIds.length === 0 || // isNew: vis alle rutiner uavhengig av tech-restriksjoner
+			!requiredElements ||
+			requiredElements.length === 0 ||
+			requiredElements.some((el) => questionTechSet.has(el))
+		if (!techMatch) continue
+
+		const list = result[controlTextId] ?? []
+		if (!list.some((r) => r.id === lr.routineId)) {
+			list.push({ id: lr.routineId, name: lr.routineName })
+		}
+		result[controlTextId] = list
+	}
+	for (const list of Object.values(result)) {
+		list.sort((a, b) => a.name.localeCompare(b.name, "nb"))
+	}
+	return result
 }
 
 // ─── Screening-derived control IDs ───────────────────────────────────────

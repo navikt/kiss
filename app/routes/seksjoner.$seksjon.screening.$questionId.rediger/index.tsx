@@ -4,7 +4,6 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
 import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import {
-	addChoiceEffect,
 	archiveChoice,
 	archiveChoiceEffect,
 	changeScreeningQuestionStatus,
@@ -13,6 +12,7 @@ import {
 	getChoiceEffects,
 	getChoicesForQuestion,
 	getQuestionTechnologyElements,
+	getRoutinesForAllControlsAndTechElements,
 	getScreeningQuestion,
 	getSectionScreeningQuestions,
 	isEffectOwnedByQuestion,
@@ -22,10 +22,11 @@ import {
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
-import { screeningEffectEnum, validScreeningQuestionStatuses } from "~/db/schema/screening"
+import { validScreeningQuestionStatuses } from "~/db/schema/screening"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
+import { applyPendingChoices, parsePendingChoices, validateAndAddChoiceEffect } from "~/lib/screening-actions.server"
 import { requireUuid } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -50,12 +51,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!isNew) requireUuid(questionId, "questionId")
 
 	if (isNew) {
-		const [controls, technologyElementsList, sectionRulesets, sectionQuestions] = await Promise.all([
-			getAllControls(),
-			getAllTechnologyElements(),
-			getRulesetsForSection(sectionId),
-			getSectionScreeningQuestions(sectionId, { includeArchived: false }),
-		])
+		const [controls, technologyElementsList, sectionRulesets, sectionQuestions, allRoutinesForControls] =
+			await Promise.all([
+				getAllControls(),
+				getAllTechnologyElements(),
+				getRulesetsForSection(sectionId),
+				getSectionScreeningQuestions(sectionId, { includeArchived: false }),
+				getRoutinesForAllControlsAndTechElements([]),
+			])
 		const hasExistingEconomyQuestion = sectionQuestions.some((q) => q.answerType === "economy_system")
 		return data({
 			isNew: true,
@@ -75,6 +78,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			controls,
 			technologyElements: technologyElementsList,
 			rulesets: sectionRulesets.map((rs) => ({ id: rs.id, name: rs.name })),
+			allRoutinesForControls,
 			seksjon,
 			sectionId,
 			sectionName,
@@ -101,40 +105,29 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getRulesetsForSection(sectionId),
 	])
 
+	const techElementIds = questionTechElements.map((e) => e.elementId)
+
+	// Load all routines for all controls (for the add-effect form preset_routine dropdown)
+	const allRoutinesForControls = await getRoutinesForAllControlsAndTechElements(techElementIds)
+
 	return data({
 		isNew: false,
 		hasExistingEconomyQuestion: false,
 		question: {
 			...question,
 			descriptionHtml: renderMarkdown(question.description),
-			technologyElementIds: questionTechElements.map((e) => e.elementId),
+			technologyElementIds: techElementIds,
 		},
 		choices: choicesWithEffects,
 		controls,
 		technologyElements: technologyElementsList,
 		rulesets: sectionRulesets.map((rs) => ({ id: rs.id, name: rs.name })),
+		allRoutinesForControls,
 		seksjon,
 		sectionId,
 		sectionName,
 		returnPath,
 	})
-}
-
-interface PendingEffectItem {
-	clientId: string
-	controlTextId: string
-	controlName: string
-	effect: string | null
-	comment: string | null
-}
-
-interface PendingChoice {
-	clientId: string
-	label: string
-	requiresComment: boolean
-	requiresLink: boolean
-	displayOrder: number
-	effects: PendingEffectItem[]
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -180,8 +173,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!owned) throw new Response("Effekten tilhører ikke dette spørsmålet", { status: 403 })
 	}
 
-	const validEffects: readonly string[] = screeningEffectEnum
-
 	switch (intent) {
 		case "updateQuestion": {
 			const questionText = formData.get("questionText") as string
@@ -203,62 +194,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 				await setQuestionTechnologyElements(q.id, technologyElementIds.filter(Boolean), authedUser.navIdent)
 
-				const pendingChoicesJson = formData.get("pendingChoices") as string | null
-				if (pendingChoicesJson) {
-					let pending: PendingChoice[]
-					try {
-						pending = JSON.parse(pendingChoicesJson) as PendingChoice[]
-					} catch {
-						throw new Response("Ugyldig JSON i pendingChoices", { status: 400 })
-					}
-					if (!Array.isArray(pending)) throw new Response("pendingChoices må være en liste", { status: 400 })
-					for (const pc of pending) {
-						if (!pc.label || typeof pc.label !== "string")
-							throw new Response("Hvert valg må ha en label", { status: 400 })
-						if (pc.requiresComment != null && typeof pc.requiresComment !== "boolean")
-							throw new Response("requiresComment må være boolean", { status: 400 })
-						if (pc.requiresLink != null && typeof pc.requiresLink !== "boolean")
-							throw new Response("requiresLink må være boolean", { status: 400 })
-						if (pc.displayOrder != null && typeof pc.displayOrder !== "number")
-							throw new Response("displayOrder må være et tall", { status: 400 })
-						if (!Array.isArray(pc.effects)) throw new Response("Hvert valg må ha en effects-liste", { status: 400 })
-						for (const eff of pc.effects) {
-							if (!eff.controlTextId || typeof eff.controlTextId !== "string")
-								throw new Response("Hver effekt må ha controlTextId", { status: 400 })
-							if (eff.effect != null && !validEffects.includes(eff.effect))
-								throw new Response(`Ugyldig effect-verdi: ${eff.effect}`, { status: 400 })
-							if (eff.comment != null && typeof eff.comment !== "string")
-								throw new Response("comment må være en streng eller null", { status: 400 })
-						}
-					}
-					const existingChoices = await getChoicesForQuestion(q.id)
-					const choicesByLabel = new Map(existingChoices.map((c) => [c.label, c.id]))
-					for (const pc of pending) {
-						const existing = choicesByLabel.get(pc.label)
-						const choiceId =
-							existing ??
-							(
-								await createChoice({
-									questionId: q.id,
-									label: pc.label,
-									requiresComment: pc.requiresComment,
-									requiresLink: pc.requiresLink,
-									displayOrder: pc.displayOrder,
-								})
-							).id
-
-						choicesByLabel.set(pc.label, choiceId)
-
-						for (const eff of pc.effects) {
-							await addChoiceEffect({
-								choiceId,
-								controlTextId: eff.controlTextId,
-								effect: eff.effect,
-								comment: eff.comment,
-							})
-						}
-					}
-				}
+				const pending = parsePendingChoices(formData.get("pendingChoices") as string | null)
+				await applyPendingChoices(q.id, pending)
 
 				return redirect(returnPath)
 			}
@@ -296,6 +233,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			const controlTextIdRaw = formData.get("controlTextId")
 			const effectRaw = formData.get("effect")
 			const commentRaw = formData.get("comment")
+			const presetRoutineIdRaw = formData.get("presetRoutineId")
 			if (typeof choiceIdRaw !== "string" || !choiceIdRaw) throw new Response("Mangler choiceId", { status: 400 })
 			if (typeof controlTextIdRaw !== "string" || !controlTextIdRaw)
 				throw new Response("Mangler controlTextId", { status: 400 })
@@ -304,21 +242,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (commentRaw != null && typeof commentRaw !== "string")
 				throw new Response("comment må være en streng", { status: 400 })
 			const effectValue = effectRaw || null
-			if (effectValue != null && !validEffects.includes(effectValue))
-				throw new Response(`Ugyldig effect-verdi: ${effectValue}`, { status: 400 })
+			const presetRoutineIdValue = (typeof presetRoutineIdRaw === "string" && presetRoutineIdRaw) || null
 			await validateChoiceOwnership(choiceIdRaw)
-			try {
-				await addChoiceEffect({
-					choiceId: choiceIdRaw,
-					controlTextId: controlTextIdRaw,
-					effect: effectValue,
-					comment: commentRaw || null,
-				})
-			} catch (err) {
-				if (err instanceof Error && err.message.includes("ikke funnet"))
-					throw new Response(err.message, { status: 400 })
-				throw err
-			}
+			await validateAndAddChoiceEffect({
+				choiceId: choiceIdRaw,
+				controlTextId: controlTextIdRaw,
+				effect: effectValue,
+				comment: commentRaw || null,
+				presetRoutineId: presetRoutineIdValue,
+			})
 			break
 		}
 		case "deleteEffect": {
