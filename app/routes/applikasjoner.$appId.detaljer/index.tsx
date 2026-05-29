@@ -225,7 +225,7 @@ export default function ApplikasjonDetalj() {
 			{teams.length > 0 && (
 				<Box>
 					<BodyShort weight="semibold" spacing>
-						Nais-team
+						Team
 					</BodyShort>
 					<HStack gap="space-4" wrap>
 						{teams.map((t: { teamId: string; teamName: string; teamSlug: string }) => (
