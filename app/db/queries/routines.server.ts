@@ -2518,7 +2518,7 @@ async function applyRoutineConstraintFilters(
 					inArray(applicationTechnologyElements.applicationId, filtered),
 					inArray(applicationTechnologyElements.elementId, elementIds),
 					isNull(applicationTechnologyElements.archivedAt),
-					isNotNull(applicationTechnologyElements.confirmedAt),
+					or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
 					isNull(applicationTechnologyElements.rejectedAt),
 				),
 			)
@@ -3745,7 +3745,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 				and(
 					eq(applicationTechnologyElements.applicationId, applicationId),
 					isNull(applicationTechnologyElements.archivedAt),
-					isNotNull(applicationTechnologyElements.confirmedAt),
+					or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
 					isNull(applicationTechnologyElements.rejectedAt),
 				),
 			)
@@ -4423,7 +4423,7 @@ export async function getRoutineDeadlinesForAppBySection(
 					isNull(routineOracleRoleCriticalityLinks.archivedAt),
 				),
 			),
-		// App's confirmed, non-rejected technology elements
+		// App's auto-detected or confirmed, non-rejected technology elements
 		db
 			.select({ elementId: applicationTechnologyElements.elementId })
 			.from(applicationTechnologyElements)
@@ -4431,7 +4431,7 @@ export async function getRoutineDeadlinesForAppBySection(
 				and(
 					eq(applicationTechnologyElements.applicationId, applicationId),
 					isNull(applicationTechnologyElements.archivedAt),
-					isNotNull(applicationTechnologyElements.confirmedAt),
+					or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
 					isNull(applicationTechnologyElements.rejectedAt),
 				),
 			),
@@ -4498,9 +4498,14 @@ export async function getRoutineDeadlinesForAppBySection(
 		const routinePers = persByRoutine.get(routine.id) ?? []
 		const routineOracle = oracleByRoutine.get(routine.id) ?? []
 
+		// Constraints (tech elements, persistence, oracle criticality) only filter isSectionRoutine=1 routines.
+		// Routines with appliesToAllInSection=1 but isSectionRoutine=0 apply to ALL apps in the section
+		// regardless of the app's attributes — the constraints are informational only for those routines.
+		const isStrict = routine.isSectionRoutine === 1
+
 		// Technology element constraint: app must have ≥1 matching confirmed element
 		const matchedTechElements = routineElements.filter((e) => appElementIds.has(e.id))
-		if (routineElements.length > 0) {
+		if (isStrict && routineElements.length > 0) {
 			if (matchedTechElements.length === 0) continue
 		}
 
@@ -4518,13 +4523,14 @@ export async function getRoutineDeadlinesForAppBySection(
 				const classOk = !link.dataClassification || appPersClassifications.has(link.dataClassification)
 				return typeOk && classOk
 			}) as Array<{ persistenceType: PersistenceType | null; dataClassification: DataClassification | null }>
-			if (effectiveLinks.length === 0 || appPersTypes.size === 0 || matchedPersistenceLinks.length === 0) continue
+			if (isStrict && (effectiveLinks.length === 0 || appPersTypes.size === 0 || matchedPersistenceLinks.length === 0))
+				continue
 		}
 
 		// Oracle criticality constraint: app must have ≥1 matching Oracle role assessment.
 		// criticality is a NOT NULL enum, so every link always has a value.
 		const matchedOracleCriticalities = routineOracle.filter((link) => appOracleCriticalities.has(link.criticality))
-		if (routineOracle.length > 0) {
+		if (isStrict && routineOracle.length > 0) {
 			if (matchedOracleCriticalities.length === 0) continue
 		}
 

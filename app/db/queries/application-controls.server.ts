@@ -5,7 +5,7 @@
  * auto-compliance computation and persists the results, handling soft-delete,
  * re-activation, and history tracking.
  */
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm"
 import type { ComplianceStatus, RoutineCompliance, RoutineEstablishment } from "~/lib/compliance-status"
 import { db } from "../connection.server"
 import { applicationControlHistory, applicationControls } from "../schema/application-controls"
@@ -376,7 +376,7 @@ export function triggerSyncForElement(elementId: string, performer: string): voi
 		.where(
 			and(
 				eq(applicationTechnologyElements.elementId, elementId),
-				isNotNull(applicationTechnologyElements.confirmedAt),
+				or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
 				isNull(applicationTechnologyElements.rejectedAt),
 				isNull(applicationTechnologyElements.archivedAt),
 			),

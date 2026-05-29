@@ -781,4 +781,71 @@ describe("Section routine constraint filtering", () => {
 		expect(ids).toContain(appMatchesBoth)
 		expect(ids).not.toContain(appMatchesOnlyElement)
 	})
+
+	// ─── appliesToAllInSection (isSectionRoutine=0) bypasses constraints ─────────
+
+	async function makeAllInSectionRoutine(
+		sectionId: string,
+		technologyElementIds: string[],
+		persistenceLinks: Array<{ type: PersistenceType | null; classification: DataClassification | null }>,
+	) {
+		const routine = await createRoutine({
+			sectionId,
+			name: "Gjelder alle test",
+			description: null,
+			frequency: "quarterly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: true,
+			responsibleRole: null,
+			isSectionRoutine: false,
+			technologyElementIds,
+			persistenceLinks: persistenceLinks.map((p) => ({
+				persistenceType: p.type,
+				dataClassification: p.classification,
+			})),
+			controlIds: [],
+			groupClassifications: [],
+			oracleRoleCriticalities: [],
+			createdBy: "test",
+		})
+		const db = getTestDb()
+		await db.execute(/* sql */ `UPDATE routines SET status = 'approved' WHERE id = '${routine.id}'`)
+		return routine
+	}
+
+	it("appliesToAllInSection (isSectionRoutine=false) applies to all apps even when app lacks required tech elements", async () => {
+		const sectionId = await makeSection(`sec-${Date.now()}`)
+		const appWithElement = await makeApp("App With Element", sectionId)
+		const appWithoutElement = await makeApp("App Without Element", sectionId)
+		const elementId = await makeTechElement(`el-all-${Date.now()}`)
+		await confirmTechElement(appWithElement, elementId)
+		const routine = await makeAllInSectionRoutine(sectionId, [elementId], [])
+
+		const deadlinesWith = await getRoutineDeadlinesForAppBySection(appWithElement)
+		const deadlinesWithout = await getRoutineDeadlinesForAppBySection(appWithoutElement)
+
+		expect(deadlinesWith.some((d) => d.routine?.id === routine.id)).toBe(true)
+		// appliesToAllInSection=1, isSectionRoutine=0 → bypasses tech element constraint
+		expect(deadlinesWithout.some((d) => d.routine?.id === routine.id)).toBe(true)
+	})
+
+	it("appliesToAllInSection (isSectionRoutine=false) applies to all apps even when app lacks required persistence", async () => {
+		const sectionId = await makeSection(`sec-${Date.now()}`)
+		const appWithPers = await makeApp("App With Persistence", sectionId)
+		const appNoPers = await makeApp("App No Persistence", sectionId)
+		await addPersistence(appWithPers, "cloud_sql_postgres", "critical")
+		const routine = await makeAllInSectionRoutine(
+			sectionId,
+			[],
+			[{ type: "cloud_sql_postgres", classification: "critical" }],
+		)
+
+		const deadlinesWith = await getRoutineDeadlinesForAppBySection(appWithPers)
+		const deadlinesWithout = await getRoutineDeadlinesForAppBySection(appNoPers)
+
+		expect(deadlinesWith.some((d) => d.routine?.id === routine.id)).toBe(true)
+		// appliesToAllInSection=1, isSectionRoutine=0 → bypasses persistence constraint
+		expect(deadlinesWithout.some((d) => d.routine?.id === routine.id)).toBe(true)
+	})
 })
