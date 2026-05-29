@@ -32,7 +32,7 @@ import { resolveGroupNames } from "~/lib/graph.server"
 import { logger } from "~/lib/logger.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
 import { getOracleInstances, getOracleRoles, shouldAssessRole } from "~/lib/oracle-revisjon.server"
-import { compliancePercent } from "~/lib/utils"
+import { computeRoutineComplianceCounts } from "~/lib/routine-compliance"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const appId = params.appId
@@ -195,19 +195,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			commentUpdatedBy: persisted?.commentUpdatedBy ?? null,
 		}
 	})
-	const totalControls = assessments.length
-	const implemented = assessments.filter((a) => a.effectiveStatus === "implemented").length
-	const partial = assessments.filter((a) => a.effectiveStatus === "partially_implemented").length
-	const notImplemented = assessments.filter((a) => a.effectiveStatus === "not_implemented").length
-	const notRelevant = assessments.filter((a) => a.effectiveStatus === "not_relevant").length
-	const notAssessed = assessments.filter((a) => !a.effectiveStatus).length
-
-	const withRoutine = assessments.filter((a) => a.establishment === "established").length
-	const withoutRoutine = assessments.filter((a) => a.establishment === "not_established").length
-	const routineNotRelevant = assessments.filter((a) => a.establishment === "not_relevant").length
-	const routineCompleted = assessments.filter((a) => a.routineCompliance === "completed").length
-	const routineOverdue = assessments.filter((a) => a.routineCompliance === "overdue").length
-	const routineNeverReviewed = assessments.filter((a) => a.routineCompliance === "never_reviewed").length
+	// Routine-based compliance counts — one entry per unique periodic routine
+	// (frequency !== null = shown in Rutinestatus + Seksjonsbaserte rutiner).
+	// Each routine appears exactly once in deadlinesWithControls (sources are deduplicated).
+	const { routinesGjennomfort, routinesIkkeGjennomfort, routinesMaaFolgesOpp, routineCompliancePercent } =
+		computeRoutineComplianceCounts(deadlinesWithControls)
 
 	const acknowledgments: Record<string, { comment: string; acknowledgedBy: string; acknowledgedAt: string }> = {}
 	for (const ack of acknowledgmentsRaw) {
@@ -396,21 +388,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		knownApps,
 		acknowledgments,
 		compliance: {
-			totalControls,
-			implemented,
-			partial,
-			notImplemented,
-			notRelevant,
-			notAssessed,
-			percent: compliancePercent(implemented, partial, totalControls, notRelevant),
+			percent: routineCompliancePercent,
 			hasScreeningAnswers: assessmentsResult?.hasScreeningAnswers ?? false,
 			screeningProgress: screeningProgressMap.get(appId) ?? { answered: 0, total: 0 },
-			withRoutine,
-			withoutRoutine,
-			routineNotRelevant,
-			routineCompleted,
-			routineOverdue,
-			routineNeverReviewed,
+			routinesGjennomfort,
+			routinesIkkeGjennomfort,
+			routinesMaaFolgesOpp,
 		},
 		assessments,
 		appReports: appReports.map((r) => ({
