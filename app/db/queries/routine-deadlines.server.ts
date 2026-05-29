@@ -149,7 +149,13 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 				})
 				.from(routineControls)
 				.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
-				.where(and(inArray(routineControls.routineId, allRoutineIds), isNull(routineControls.archivedAt))),
+				.where(
+					and(
+						inArray(routineControls.routineId, allRoutineIds),
+						isNull(routineControls.archivedAt),
+						isNull(frameworkControls.archivedAt),
+					),
+				),
 			db
 				.select({
 					routineId: routineTechnologyElements.routineId,
