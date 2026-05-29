@@ -1068,7 +1068,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 
 	const allQuestions = [...globalQuestions, ...sectionQuestions]
 
-	// Alle godkjente spørsmål vises til alle apper.
+	// Alle godkjente spørsmål i appens scope (globale + relevante seksjonsspørsmål) vises.
 	// Teknologielement-koblinger på spørsmålet brukes til å filtrere rutinevalg,
 	// ikke til å skjule spørsmålet.
 	const questions = allQuestions
