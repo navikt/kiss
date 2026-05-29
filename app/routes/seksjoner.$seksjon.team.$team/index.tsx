@@ -214,25 +214,18 @@ export default function TeamDashboard() {
 								<Table.HeaderCell scope="col" align="right">
 									Spørsmål
 								</Table.HeaderCell>
-								{showComplianceStats && (
-									<>
-										<Table.HeaderCell scope="col" align="right">
-											Implementert
-										</Table.HeaderCell>
-										<Table.HeaderCell scope="col" align="right">
-											Delvis
-										</Table.HeaderCell>
-										<Table.HeaderCell scope="col" align="right">
-											Ikke impl.
-										</Table.HeaderCell>
-										<Table.HeaderCell scope="col" align="right">
-											Ikke besvart
-										</Table.HeaderCell>
-										<Table.HeaderCell scope="col" align="right">
-											Status %
-										</Table.HeaderCell>
-									</>
-								)}
+								<Table.HeaderCell scope="col" align="right">
+									Rutiner gjennomført
+								</Table.HeaderCell>
+								<Table.HeaderCell scope="col" align="right">
+									Rutiner ikke gjennomført
+								</Table.HeaderCell>
+								<Table.HeaderCell scope="col" align="right">
+									Gjennomganger med åpne punkter
+								</Table.HeaderCell>
+								<Table.HeaderCell scope="col" align="right">
+									Status %
+								</Table.HeaderCell>
 								<Table.HeaderCell scope="col" />
 							</Table.Row>
 						</Table.Header>
@@ -248,22 +241,22 @@ export default function TeamDashboard() {
 										<Table.DataCell align="right">
 											{app.screeningProgress.answered}/{app.screeningProgress.total}
 										</Table.DataCell>
-										{showComplianceStats && (
-											<>
-												<Table.DataCell align="right">{app.implemented}</Table.DataCell>
-												<Table.DataCell align="right">{app.partial}</Table.DataCell>
-												<Table.DataCell align="right">{app.notImplemented}</Table.DataCell>
-												<Table.DataCell align="right">
-													{Math.max(
-														0,
-														app.total - (app.implemented + app.partial + app.notImplemented + app.notRelevant),
-													)}
-												</Table.DataCell>
-												<Table.DataCell align="right">
-													{compliancePercent(app.implemented, app.partial, app.total, app.notRelevant)}%
-												</Table.DataCell>
-											</>
-										)}
+										<Table.DataCell align="right">
+											{app.routineCompliance.total === 0 ? "–" : app.routineCompliance.gjennomfort}
+										</Table.DataCell>
+										<Table.DataCell align="right">
+											{app.routineCompliance.total === 0 ? "–" : app.routineCompliance.ikkeGjennomfort}
+										</Table.DataCell>
+										<Table.DataCell align="right">
+											{app.routineCompliance.maaFolgesOpp === 0 && app.routineCompliance.total === 0
+												? "–"
+												: app.routineCompliance.maaFolgesOpp}
+										</Table.DataCell>
+										<Table.DataCell align="right">
+											{app.routineCompliance.total === 0
+												? "–"
+												: `${Math.round((app.routineCompliance.gjennomfort / app.routineCompliance.total) * 100)}%`}
+										</Table.DataCell>
 										<Table.DataCell>
 											<Link
 												to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer?fane=screeninger`}

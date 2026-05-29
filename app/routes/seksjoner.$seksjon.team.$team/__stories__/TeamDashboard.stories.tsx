@@ -15,6 +15,47 @@ export const Default: Story = {
 		renderWithLoader(TeamDashboard, mockTeamDetailData(), "/seksjoner/pensjon-og-ufore/team/starte-pensjon"),
 }
 
+export const RutineetterlevelseMiks: Story = {
+	name: "Rutineetterlevelse – ulike tilstander",
+	render: () =>
+		renderWithLoader(
+			TeamDashboard,
+			{
+				...mockTeamDetailData(),
+				apps: [
+					...mockTeamDetailData().apps,
+					{
+						appId: "app-4",
+						appName: "pensjon-opptjening",
+						implemented: 10,
+						partial: 2,
+						notImplemented: 0,
+						notRelevant: 1,
+						total: 13,
+						source: "direct" as const,
+						teamIds: ["t-01"],
+						screeningProgress: { answered: 2, total: 6 },
+						routineCompliance: { gjennomfort: 0, ikkeGjennomfort: 0, maaFolgesOpp: 0, total: 0 },
+					},
+					{
+						appId: "app-5",
+						appName: "pensjon-vedtak",
+						implemented: 8,
+						partial: 3,
+						notImplemented: 4,
+						notRelevant: 0,
+						total: 15,
+						source: "nais-team" as const,
+						teamIds: ["t-01"],
+						screeningProgress: { answered: 6, total: 6 },
+						routineCompliance: { gjennomfort: 5, ikkeGjennomfort: 0, maaFolgesOpp: 0, total: 5 },
+					},
+				],
+			},
+			"/seksjoner/pensjon-og-ufore/team/starte-pensjon",
+		),
+}
+
 export const IngenApplikasjoner: Story = {
 	name: "Ingen applikasjoner",
 	render: () =>

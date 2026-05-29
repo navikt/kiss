@@ -255,6 +255,7 @@ function mockAppSummary(overrides: {
 	partial: number
 	notImplemented: number
 	notRelevant: number
+	routineCompliance?: { gjennomfort: number; ikkeGjennomfort: number; maaFolgesOpp: number; total: number }
 }) {
 	return {
 		...overrides,
@@ -262,6 +263,7 @@ function mockAppSummary(overrides: {
 		source: "direct" as const,
 		teamIds: ["t-01"],
 		screeningProgress: { answered: 4, total: 6 },
+		routineCompliance: overrides.routineCompliance ?? { gjennomfort: 3, ikkeGjennomfort: 2, maaFolgesOpp: 1, total: 5 },
 	}
 }
 
