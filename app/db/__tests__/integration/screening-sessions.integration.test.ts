@@ -374,6 +374,80 @@ describe("screening-sessions", () => {
 	})
 
 	describe("archiveScreeningSession", () => {
+		it("clears stale routine selections when answer changes to one without routine effect", async () => {
+			const db = getTestDb()
+			const sectionId = await createSection("test-seksjon-cleanup")
+			const appId = await createApp("test-app-cleanup")
+			const questionId = await createQuestion("Har dere tilgangsstyring?")
+			const choiceJaId = await createChoice(questionId, "Ja")
+			await createChoice(questionId, "Nei")
+			const controlId = await createControl("K-TS.98")
+			const routineId = await createRoutine("Tilgangsgjennomgang", sectionId)
+
+			await db.execute(sql`INSERT INTO routine_controls (routine_id, control_id) VALUES (${routineId}, ${controlId})`)
+
+			const { addChoiceEffect } = await import("~/db/queries/screening.server")
+			const effect = await addChoiceEffect({
+				choiceId: choiceJaId,
+				controlTextId: "K-TS.98",
+				effect: "preset_routine",
+				comment: null,
+				presetRoutineId: routineId,
+			})
+			const effectId = effect.id
+
+			// Session 1: answer "Ja" → preset routine gets selected
+			const session1 = await createScreeningSession({
+				applicationId: appId,
+				title: "Session 1",
+				participants: [],
+				performedBy: "A123456",
+			})
+			await saveScreeningSessionAnswer({
+				sessionId: session1.id,
+				questionId,
+				answer: "Ja",
+				comment: null,
+				link: null,
+				performedBy: "A123456",
+			})
+			await completeScreeningSession(session1.id, testUser)
+
+			// Verify routine selection exists (active)
+			const selectionsBefore = await db.execute(
+				sql`SELECT * FROM screening_routine_selections WHERE application_id = ${appId} AND archived_at IS NULL`,
+			)
+			expect(selectionsBefore.rows).toHaveLength(1)
+
+			// Session 2: change answer to "Nei" (no routine effect) → stale selection must be removed
+			const session2 = await createScreeningSession({
+				applicationId: appId,
+				title: "Session 2",
+				participants: [],
+				performedBy: "A123456",
+			})
+			await saveScreeningSessionAnswer({
+				sessionId: session2.id,
+				questionId,
+				answer: "Nei",
+				comment: null,
+				link: null,
+				performedBy: "A123456",
+			})
+			await completeScreeningSession(session2.id, testUser)
+
+			// Stale routine selection should be soft-deleted (no active rows)
+			const selectionsAfter = await db.execute(
+				sql`SELECT * FROM screening_routine_selections WHERE application_id = ${appId} AND archived_at IS NULL`,
+			)
+			expect(selectionsAfter.rows).toHaveLength(0)
+
+			// Audit log should record the clearing
+			const auditRows = await db.execute(
+				sql`SELECT action FROM audit_log WHERE action = 'screening_routine_cleared' AND entity_id = ${`${appId}/${effectId}`}`,
+			)
+			expect(auditRows.rows.length).toBeGreaterThan(0)
+		})
 		it("soft-deletes a session", async () => {
 			const appId = await createApp("test-app")
 			const session = await createScreeningSession({
