@@ -4,23 +4,6 @@ import { data, Link, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls, getAllRisks } from "~/db/queries/framework.server"
 
-/** Gradient from light pink to deeper mauve, based on position in the list. */
-function riskColor(index: number, total: number): string {
-	const t = total <= 1 ? 0 : index / (total - 1)
-	const r = Math.round(235 - t * 30)
-	const g = Math.round(200 - t * 50)
-	const b = Math.round(210 - t * 30)
-	return `rgb(${r}, ${g}, ${b})`
-}
-
-function controlColor(index: number, total: number): string {
-	const t = total <= 1 ? 0 : index / (total - 1)
-	const r = Math.round(200 - t * 30)
-	const g = Math.round(215 - t * 30)
-	const b = Math.round(235 - t * 20)
-	return `rgb(${r}, ${g}, ${b})`
-}
-
 /** Group items by their domainName, merging domains with same name. */
 function groupByDomain<T extends { domainCode: string; domainName: string }>(
 	items: T[],
@@ -111,8 +94,8 @@ export default function Kontrollrammeverk() {
 									<Link
 										key={risk.riskId}
 										to={`/kontrollrammeverk/risiko/${risk.riskId}`}
-										className="framework-card"
-										style={{ backgroundColor: riskColor(i, items.length) }}
+										className="framework-card framework-card--risk"
+										data-step={i % 3}
 									>
 										<BodyShort size="small" className="framework-card-id">
 											{risk.riskId}:
@@ -193,8 +176,8 @@ export default function Kontrollrammeverk() {
 									<Link
 										key={ctrl.controlId}
 										to={`/kontrollrammeverk/${ctrl.domainCode}/${ctrl.controlId}`}
-										className="framework-card"
-										style={{ backgroundColor: controlColor(i, items.length) }}
+										className="framework-card framework-card--control"
+										data-step={i % 3}
 									>
 										<BodyShort size="small" className="framework-card-id">
 											{ctrl.controlId}:

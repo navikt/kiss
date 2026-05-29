@@ -161,6 +161,26 @@ body {
 	hyphens: auto;
 }
 
+.framework-card--risk {
+	background-color: var(--ax-bg-brand-magenta-soft);
+}
+.framework-card--risk[data-step="1"] {
+	background-color: var(--ax-bg-brand-magenta-moderate);
+}
+.framework-card--risk[data-step="2"] {
+	background-color: var(--ax-bg-brand-magenta-moderate-hover);
+}
+
+.framework-card--control {
+	background-color: var(--ax-bg-brand-blue-soft);
+}
+.framework-card--control[data-step="1"] {
+	background-color: var(--ax-bg-brand-blue-moderate);
+}
+.framework-card--control[data-step="2"] {
+	background-color: var(--ax-bg-brand-blue-moderate-hover);
+}
+
 .domain-card:hover {
 	box-shadow: var(--ax-shadow-dialog);
 }
