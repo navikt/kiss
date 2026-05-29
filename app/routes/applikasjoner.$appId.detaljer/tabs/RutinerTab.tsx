@@ -108,7 +108,7 @@ export function RutinerTab({
 		return (
 			<HStack gap="space-2" wrap>
 				{controls.map((c) => (
-					<Tooltip key={c.id} content={c.shortTitle ?? c.controlId} placement="top">
+					<Tooltip key={c.id} content={c.shortTitle || c.controlId} placement="top">
 						<Link to={`/kontrollrammeverk/_/${c.controlId}`}>
 							<Tag variant="neutral" size="xsmall">
 								{c.controlId}
