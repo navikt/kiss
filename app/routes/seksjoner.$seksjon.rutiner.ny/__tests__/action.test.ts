@@ -10,8 +10,12 @@ vi.mock("~/lib/auth.server", () => ({
 }))
 
 const mockRequireAnySectionRole = vi.fn()
+const mockIsAdmin = vi.fn().mockReturnValue(true)
+const mockCanManageSection = vi.fn().mockReturnValue(true)
 vi.mock("~/lib/authorization.server", () => ({
 	requireAnySectionRole: mockRequireAnySectionRole,
+	isAdmin: mockIsAdmin,
+	canManageSection: mockCanManageSection,
 }))
 
 const mockCreateRoutine = vi.fn()

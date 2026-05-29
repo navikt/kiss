@@ -260,8 +260,8 @@ describe("archive intent", () => {
 })
 
 describe("update-priority intent", () => {
-	it("updates priority when user has section role", async () => {
-		mockHasAnySectionRole.mockReturnValue(true)
+	it("updates priority when user has approval permission", async () => {
+		mockIsAdmin.mockReturnValue(true)
 		mockUpdateRoutinePriority.mockResolvedValue(undefined)
 
 		const fd = new FormData()
@@ -273,8 +273,9 @@ describe("update-priority intent", () => {
 		expect(mockUpdateRoutinePriority).toHaveBeenCalledWith("routine-1", 1, "T123456")
 	})
 
-	it("rejects when user lacks section role", async () => {
-		mockHasAnySectionRole.mockReturnValue(false)
+	it("rejects when user lacks priority change permission", async () => {
+		mockIsAdmin.mockReturnValue(false)
+		mockCanApproveRoutine.mockReturnValue(false)
 
 		const fd = new FormData()
 		fd.set("intent", "update-priority")
@@ -285,7 +286,7 @@ describe("update-priority intent", () => {
 	})
 
 	it("rejects when routine is archived", async () => {
-		mockHasAnySectionRole.mockReturnValue(true)
+		mockIsAdmin.mockReturnValue(true)
 		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, archivedAt: new Date() })
 
 		const fd = new FormData()
@@ -297,7 +298,7 @@ describe("update-priority intent", () => {
 	})
 
 	it("rejects invalid priority value", async () => {
-		mockHasAnySectionRole.mockReturnValue(true)
+		mockIsAdmin.mockReturnValue(true)
 
 		const fd = new FormData()
 		fd.set("intent", "update-priority")
@@ -308,7 +309,7 @@ describe("update-priority intent", () => {
 	})
 
 	it("rejects non-numeric priority", async () => {
-		mockHasAnySectionRole.mockReturnValue(true)
+		mockIsAdmin.mockReturnValue(true)
 
 		const fd = new FormData()
 		fd.set("intent", "update-priority")
@@ -319,7 +320,7 @@ describe("update-priority intent", () => {
 	})
 
 	it("rejects missing priority", async () => {
-		mockHasAnySectionRole.mockReturnValue(true)
+		mockIsAdmin.mockReturnValue(true)
 
 		const fd = new FormData()
 		fd.set("intent", "update-priority")

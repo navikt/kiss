@@ -131,6 +131,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const userCanApprove = user ? canApproveRoutine(user, effectiveRole, section.id) : false
 	const userCanAdmin = user ? isAdmin(user) : false
 	const userCanEdit = user ? hasAnySectionRole(user, section.id) : false
+	const userCanChangePriority = user ? isAdmin(user) || canApproveRoutine(user, effectiveRole, section.id) : false
 
 	return data({
 		section,
@@ -142,6 +143,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		userCanApprove,
 		userCanAdmin,
 		userCanEdit,
+		userCanChangePriority,
 		effectiveRole,
 	})
 }
@@ -232,8 +234,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "update-priority") {
-		if (!hasAnySectionRole(authedUser, section.id)) {
-			throw data({ message: "Du har ikke rettigheter til å endre prioritet i denne seksjonen" }, { status: 403 })
+		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		if (!isAdmin(authedUser) && !canApproveRoutine(authedUser, effectiveRole, section.id)) {
+			throw data({ message: "Du har ikke rettigheter til å endre prioritet på denne rutinen" }, { status: 403 })
 		}
 		if (routine.archivedAt) {
 			throw data({ message: "Arkiverte rutiner kan ikke endres. Reaktiver rutinen først." }, { status: 403 })
@@ -261,6 +264,7 @@ export default function RutineDetaljer() {
 		userCanApprove,
 		userCanAdmin,
 		userCanEdit,
+		userCanChangePriority,
 		effectiveRole,
 	} = useLoaderData<typeof loader>()
 	const fetcher = useFetcher()
@@ -412,7 +416,7 @@ export default function RutineDetaljer() {
 
 				<VStack gap="space-2">
 					<Label size="small">Prioritet</Label>
-					{!routine.archivedAt && userCanEdit ? (
+					{!routine.archivedAt && userCanChangePriority ? (
 						<HStack gap="space-2" align="center">
 							<PrioritySelect
 								value={

@@ -22,6 +22,7 @@ import { ApproveReplaceModal } from "~/components/ApproveReplaceModal"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { PrioritySelect } from "~/components/PrioritySelect"
+import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { SortableActivityList } from "~/components/SortableActivityList"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
@@ -142,6 +143,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
 	const userCanApprove = canApproveRoutine(authedUser, effectiveRole, section.id)
+	const userCanChangePriority = isAdmin(authedUser) || canApproveRoutine(authedUser, effectiveRole, section.id)
 
 	return data({
 		seksjon,
@@ -152,6 +154,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		technologyElements,
 		controls,
 		userCanApprove,
+		userCanChangePriority,
 	})
 }
 
@@ -357,7 +360,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		})
 
 		if (priority !== undefined) {
-			await updateRoutinePriority(rutineId, priority, authedUser.navIdent)
+			const er =
+				existingRoutine.responsibleRole || existingRoutine.controls.find((c) => c.responsible)?.responsible || null
+			if (isAdmin(authedUser) || canApproveRoutine(authedUser, er, section.id)) {
+				await updateRoutinePriority(rutineId, priority, authedUser.navIdent)
+			}
 		}
 
 		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
@@ -407,8 +414,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RedigerRutine() {
-	const { routine, activityLinks, questionsWithChoices, technologyElements, controls, userCanApprove } =
-		useLoaderData<typeof loader>()
+	const {
+		routine,
+		activityLinks,
+		questionsWithChoices,
+		technologyElements,
+		controls,
+		userCanApprove,
+		userCanChangePriority,
+	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const fieldErrors =
 		actionData && typeof actionData === "object" && "fieldErrors" in actionData
@@ -638,12 +652,16 @@ export default function RedigerRutine() {
 						<option value="archived">Arkivert</option>
 					</Select>
 
-					<PrioritySelect
-						name="priority"
-						defaultValue={routine.priority ?? 3}
-						size="small"
-						error={fieldErrors?.priority}
-					/>
+					{userCanChangePriority ? (
+						<PrioritySelect
+							name="priority"
+							defaultValue={routine.priority ?? 3}
+							size="small"
+							error={fieldErrors?.priority}
+						/>
+					) : (
+						<PriorityTag priority={routine.priority ?? 3} size="small" />
+					)}
 
 					{isSectionRoutine && <input type="hidden" name="appliesToAllInSection" value="on" />}
 					<Checkbox
