@@ -302,6 +302,7 @@ export async function syncApplicationTechnologyElements(appId: string): Promise<
 
 		addIfActive("applikasjon")
 		addIfActive("plattformer")
+		addIfActive("støtteverktøy")
 
 		const persistence = await tx
 			.select({ type: applicationPersistence.type })
