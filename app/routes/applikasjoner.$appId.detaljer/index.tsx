@@ -14,6 +14,7 @@ import {
 } from "@navikt/ds-react"
 import { Link, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { type EconomySystemType, economySystemTypeLabels } from "~/db/schema/applications"
 import { useAppBasePath } from "~/hooks/useAppBasePath"
 import { useSectionSlug } from "~/hooks/useSectionSlug"
 
@@ -73,6 +74,7 @@ export default function ApplikasjonDetalj() {
 		githubAccess,
 		effectiveGitRepository,
 		appRulesets,
+		economyClassification,
 	} = useLoaderData<typeof loader>()
 
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -107,6 +109,25 @@ export default function ApplikasjonDetalj() {
 					</AkselLink>
 				</HStack>
 			</div>
+
+			{economyClassification?.isEconomySystem && (
+				<Box background="warning-moderate" padding="space-8" borderRadius="8">
+					<HStack gap="space-8" align="center">
+						<span aria-hidden="true" style={{ fontSize: "2.5rem" }}>
+							💰
+						</span>
+						<VStack gap="space-2">
+							<BodyShort weight="semibold">Klassifisert som økonomisystem</BodyShort>
+							{economyClassification.economySystemType && (
+								<BodyShort size="small">
+									{economySystemTypeLabels[economyClassification.economySystemType as EconomySystemType] ??
+										economyClassification.economySystemType}
+								</BodyShort>
+							)}
+						</VStack>
+					</HStack>
+				</Box>
+			)}
 
 			{primaryApp && (
 				<Box background="brand-blue-soft" padding="space-8" borderRadius="8">
