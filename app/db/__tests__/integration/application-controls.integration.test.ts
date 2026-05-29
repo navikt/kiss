@@ -444,7 +444,12 @@ describe("Application controls integration tests", () => {
 		it("returns zeros for app with no application_controls rows", async () => {
 			const appId = await createTestApp("NoControls")
 			const result = await getRoutineComplianceSummaries([appId])
-			expect(result.get(appId)).toEqual({ gjennomfort: 0, ikkeGjennomfort: 0, maaFolgesOpp: 0, total: 0 })
+			expect(result.get(appId)).toEqual({
+				routinesGjennomfort: 0,
+				routinesIkkeGjennomfort: 0,
+				routinesMaaFolgesOpp: 0,
+				routinesTotal: 0,
+			})
 		})
 
 		it("counts distinct routines — not control rows", async () => {
@@ -461,8 +466,8 @@ describe("Application controls integration tests", () => {
 
 			const result = await getRoutineComplianceSummaries([appId])
 			const s = result.get(appId)
-			expect(s?.gjennomfort).toBe(1)
-			expect(s?.total).toBe(1)
+			expect(s?.routinesGjennomfort).toBe(1)
+			expect(s?.routinesTotal).toBe(1)
 		})
 
 		it("does not double-count a routine that appears in controls with different compliance statuses", async () => {
@@ -479,9 +484,9 @@ describe("Application controls integration tests", () => {
 
 			const result = await getRoutineComplianceSummaries([appId])
 			const s = result.get(appId)
-			expect(s?.gjennomfort).toBe(1)
-			expect(s?.ikkeGjennomfort).toBe(0)
-			expect(s?.total).toBe(1)
+			expect(s?.routinesGjennomfort).toBe(1)
+			expect(s?.routinesIkkeGjennomfort).toBe(0)
+			expect(s?.routinesTotal).toBe(1)
 		})
 
 		it("filters out inactive application_controls rows", async () => {
@@ -493,8 +498,8 @@ describe("Application controls integration tests", () => {
 
 			const result = await getRoutineComplianceSummaries([appId])
 			const s = result.get(appId)
-			expect(s?.gjennomfort).toBe(0)
-			expect(s?.total).toBe(0)
+			expect(s?.routinesGjennomfort).toBe(0)
+			expect(s?.routinesTotal).toBe(0)
 		})
 
 		it("counts gjennomfort and ikkeGjennomfort correctly", async () => {
@@ -513,9 +518,9 @@ describe("Application controls integration tests", () => {
 
 			const result = await getRoutineComplianceSummaries([appId])
 			const s = result.get(appId)
-			expect(s?.gjennomfort).toBe(1)
-			expect(s?.ikkeGjennomfort).toBe(2)
-			expect(s?.total).toBe(3)
+			expect(s?.routinesGjennomfort).toBe(1)
+			expect(s?.routinesIkkeGjennomfort).toBe(2)
+			expect(s?.routinesTotal).toBe(3)
 		})
 
 		it("counts maaFolgesOpp from needs_follow_up reviews", async () => {
@@ -528,9 +533,9 @@ describe("Application controls integration tests", () => {
 
 			const result = await getRoutineComplianceSummaries([appId])
 			// needs_follow_up counts as gjennomfort (reviewed but with open points)
-			expect(result.get(appId)?.gjennomfort).toBe(1)
-			expect(result.get(appId)?.ikkeGjennomfort).toBe(0)
-			expect(result.get(appId)?.maaFolgesOpp).toBe(1)
+			expect(result.get(appId)?.routinesGjennomfort).toBe(1)
+			expect(result.get(appId)?.routinesIkkeGjennomfort).toBe(0)
+			expect(result.get(appId)?.routinesMaaFolgesOpp).toBe(1)
 		})
 
 		it("counts needs_follow_up as gjennomfort — consistent with app detail page", async () => {
@@ -542,9 +547,9 @@ describe("Application controls integration tests", () => {
 			await insertRoutineReview(appId, routineId, "needs_follow_up")
 
 			const result = await getRoutineComplianceSummaries([appId])
-			expect(result.get(appId)?.gjennomfort).toBe(1)
-			expect(result.get(appId)?.ikkeGjennomfort).toBe(0)
-			expect(result.get(appId)?.total).toBe(1)
+			expect(result.get(appId)?.routinesGjennomfort).toBe(1)
+			expect(result.get(appId)?.routinesIkkeGjennomfort).toBe(0)
+			expect(result.get(appId)?.routinesTotal).toBe(1)
 		})
 
 		it("sets maaFolgesOpp even when app has no active application_controls rows", async () => {
@@ -554,7 +559,7 @@ describe("Application controls integration tests", () => {
 			await insertRoutineReview(appId, routineId, "needs_follow_up")
 
 			const result = await getRoutineComplianceSummaries([appId])
-			expect(result.get(appId)?.maaFolgesOpp).toBe(1)
+			expect(result.get(appId)?.routinesMaaFolgesOpp).toBe(1)
 		})
 
 		it("handles multiple apps in one call", async () => {
@@ -571,10 +576,10 @@ describe("Application controls integration tests", () => {
 			await insertRoutineReview(appId1, routineId1, "completed")
 
 			const result = await getRoutineComplianceSummaries([appId1, appId2])
-			expect(result.get(appId1)?.gjennomfort).toBe(1)
-			expect(result.get(appId1)?.ikkeGjennomfort).toBe(0)
-			expect(result.get(appId2)?.gjennomfort).toBe(0)
-			expect(result.get(appId2)?.ikkeGjennomfort).toBe(1)
+			expect(result.get(appId1)?.routinesGjennomfort).toBe(1)
+			expect(result.get(appId1)?.routinesIkkeGjennomfort).toBe(0)
+			expect(result.get(appId2)?.routinesGjennomfort).toBe(0)
+			expect(result.get(appId2)?.routinesIkkeGjennomfort).toBe(1)
 		})
 	})
 })

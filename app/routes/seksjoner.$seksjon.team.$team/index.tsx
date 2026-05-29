@@ -242,20 +242,20 @@ export default function TeamDashboard() {
 											{app.screeningProgress.answered}/{app.screeningProgress.total}
 										</Table.DataCell>
 										<Table.DataCell align="right">
-											{app.routineCompliance.total === 0 ? "–" : app.routineCompliance.gjennomfort}
+											{app.routineCompliance.routinesTotal === 0 ? "–" : app.routineCompliance.routinesGjennomfort}
 										</Table.DataCell>
 										<Table.DataCell align="right">
-											{app.routineCompliance.total === 0 ? "–" : app.routineCompliance.ikkeGjennomfort}
+											{app.routineCompliance.routinesTotal === 0 ? "–" : app.routineCompliance.routinesIkkeGjennomfort}
 										</Table.DataCell>
 										<Table.DataCell align="right">
-											{app.routineCompliance.maaFolgesOpp === 0 && app.routineCompliance.total === 0
+											{app.routineCompliance.routinesMaaFolgesOpp === 0 && app.routineCompliance.routinesTotal === 0
 												? "–"
-												: app.routineCompliance.maaFolgesOpp}
+												: app.routineCompliance.routinesMaaFolgesOpp}
 										</Table.DataCell>
 										<Table.DataCell align="right">
-											{app.routineCompliance.total === 0
+											{app.routineCompliance.routinesTotal === 0
 												? "–"
-												: `${Math.round((app.routineCompliance.gjennomfort / app.routineCompliance.total) * 100)}%`}
+												: `${Math.round((app.routineCompliance.routinesGjennomfort / app.routineCompliance.routinesTotal) * 100)}%`}
 										</Table.DataCell>
 										<Table.DataCell>
 											<Link

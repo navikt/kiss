@@ -35,7 +35,12 @@ export const RutineetterlevelseMiks: Story = {
 						source: "direct" as const,
 						teamIds: ["t-01"],
 						screeningProgress: { answered: 2, total: 6 },
-						routineCompliance: { gjennomfort: 0, ikkeGjennomfort: 0, maaFolgesOpp: 0, total: 0 },
+						routineCompliance: {
+							routinesGjennomfort: 0,
+							routinesIkkeGjennomfort: 0,
+							routinesMaaFolgesOpp: 0,
+							routinesTotal: 0,
+						},
 					},
 					{
 						appId: "app-5",
@@ -48,7 +53,12 @@ export const RutineetterlevelseMiks: Story = {
 						source: "nais-team" as const,
 						teamIds: ["t-01"],
 						screeningProgress: { answered: 6, total: 6 },
-						routineCompliance: { gjennomfort: 5, ikkeGjennomfort: 0, maaFolgesOpp: 0, total: 5 },
+						routineCompliance: {
+							routinesGjennomfort: 5,
+							routinesIkkeGjennomfort: 0,
+							routinesMaaFolgesOpp: 0,
+							routinesTotal: 5,
+						},
 					},
 				],
 			},

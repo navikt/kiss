@@ -542,10 +542,10 @@ export async function getComplianceSummaries(appIds: string[]): Promise<Map<stri
 }
 
 export type RoutineComplianceSummary = {
-	gjennomfort: number
-	ikkeGjennomfort: number
-	maaFolgesOpp: number
-	total: number
+	routinesGjennomfort: number
+	routinesIkkeGjennomfort: number
+	routinesMaaFolgesOpp: number
+	routinesTotal: number
 }
 
 /** Get routine compliance stats for multiple apps. Runs two queries in parallel:
@@ -555,7 +555,7 @@ export async function getRoutineComplianceSummaries(appIds: string[]): Promise<M
 	const result = new Map<string, RoutineComplianceSummary>()
 	if (appIds.length === 0) return result
 	for (const id of appIds) {
-		result.set(id, { gjennomfort: 0, ikkeGjennomfort: 0, maaFolgesOpp: 0, total: 0 })
+		result.set(id, { routinesGjennomfort: 0, routinesIkkeGjennomfort: 0, routinesMaaFolgesOpp: 0, routinesTotal: 0 })
 	}
 
 	// Build a reusable IN-list for raw SQL — Drizzle's sql.join() generates individual
@@ -611,10 +611,10 @@ export async function getRoutineComplianceSummaries(appIds: string[]): Promise<M
 
 	for (const row of controlRows.rows) {
 		result.set(row.application_id as string, {
-			gjennomfort: row.gjennomfort as number,
-			ikkeGjennomfort: row.ikke_gjennomfort as number,
-			maaFolgesOpp: followUpMap.get(row.application_id as string) ?? 0,
-			total: row.total as number,
+			routinesGjennomfort: row.gjennomfort as number,
+			routinesIkkeGjennomfort: row.ikke_gjennomfort as number,
+			routinesMaaFolgesOpp: followUpMap.get(row.application_id as string) ?? 0,
+			routinesTotal: row.total as number,
 		})
 	}
 
@@ -622,8 +622,8 @@ export async function getRoutineComplianceSummaries(appIds: string[]): Promise<M
 	for (const [applicationId, count] of followUpMap) {
 		if (applicationId === null) continue
 		const existing = result.get(applicationId)
-		if (existing && existing.maaFolgesOpp === 0 && count > 0) {
-			result.set(applicationId, { ...existing, maaFolgesOpp: count })
+		if (existing && existing.routinesMaaFolgesOpp === 0 && count > 0) {
+			result.set(applicationId, { ...existing, routinesMaaFolgesOpp: count })
 		}
 	}
 
