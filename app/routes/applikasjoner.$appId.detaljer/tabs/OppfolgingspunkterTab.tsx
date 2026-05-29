@@ -6,7 +6,7 @@ type FollowUpPoint = {
 	reviewId: string
 	routineId: string
 	routineName: string
-	sectionId: string | null
+	sectionId: string
 	reviewTitle: string
 	reviewedAt: Date | string
 	text: string
@@ -60,7 +60,7 @@ export function OppfolgingspunkterTab({
 				</Table.Header>
 				<Table.Body>
 					{sorted.map((point) => {
-						const slug = point.sectionId ? sectionSlugMap[point.sectionId] : null
+						const slug = sectionSlugMap[point.sectionId]
 						const reviewLink = slug
 							? `/seksjoner/${slug}/rutiner/${point.routineId}/gjennomgang/${point.reviewId}`
 							: null
