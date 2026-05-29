@@ -10,7 +10,8 @@ import {
 	screeningSessions,
 } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
-import { getPresetRoutinesForAnswers, saveRoutineSelection } from "./screening.server"
+import { getRulesetsForSection } from "./rulesets.server"
+import { getPresetRoutinesForAnswers, getScreeningQuestionsForSnapshot, saveRoutineSelection } from "./screening.server"
 
 // ─── State Snapshot ──────────────────────────────────────────────────────
 
@@ -629,6 +630,39 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 						await saveRoutineSelection(frozen.applicationId, preset.effectId, preset.presetRoutineId, performedBy, tx)
 					}
 				}
+
+				// Snapshot questions at completion time for historical view fidelity.
+				// Runs after preset routines are applied so selectedRoutineId is final.
+				const { questions: snapshotQuestions, sectionIds } = await getScreeningQuestionsForSnapshot(
+					frozen.applicationId,
+					tx,
+				)
+
+				const rulesetOptions: { id: string; name: string }[] = []
+				if (sectionIds.length > 0) {
+					// getRulesetsForSection uses the global db (read-only, rulesets are never
+					// modified during session completion, so db is consistent with tx here).
+					const allRulesets = await Promise.all(sectionIds.map((sid) => getRulesetsForSection(sid)))
+					const seen = new Set<string>()
+					for (const sectionRulesets of allRulesets) {
+						for (const rs of sectionRulesets) {
+							if (!seen.has(rs.id) && rs.status === "active") {
+								seen.add(rs.id)
+								rulesetOptions.push({ id: rs.id, name: rs.name })
+							}
+						}
+					}
+				}
+
+				const existingSnapshot = (frozen.stateSnapshot as Record<string, unknown>) ?? {}
+				await tx
+					.update(screeningSessions)
+					.set({
+						stateSnapshot: { ...existingSnapshot, questions: snapshotQuestions, rulesetOptions },
+						updatedAt: new Date(),
+						updatedBy: performedBy,
+					})
+					.where(eq(screeningSessions.id, sessionId))
 
 				await writeAuditLog(
 					{

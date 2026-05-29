@@ -1,4 +1,4 @@
-import { Button, Heading, HStack, VStack } from "@navikt/ds-react"
+import { Alert, Button, Heading, HStack, VStack } from "@navikt/ds-react"
 import { useCallback } from "react"
 import { Form, useLoaderData, useSearchParams } from "react-router"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
@@ -21,6 +21,7 @@ export default function ScreeningSession() {
 		oracleRolesData,
 		economyClassification,
 		canAdmin,
+		hasQuestionSnapshot,
 	} = useLoaderData<typeof loader>()
 
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -97,6 +98,12 @@ export default function ScreeningSession() {
 					<Heading size="medium" level="3">
 						Screeningen er fullført
 					</Heading>
+					{!hasQuestionSnapshot && (
+						<Alert variant="info" size="small">
+							Denne screeningen ble fullført før historiske spørsmål ble lagret. Visningen reflekterer nåværende
+							spørsmålskonfigurasjon og kan avvike fra hva som ble besvart.
+						</Alert>
+					)}
 					<ScreeningWizard
 						screening={screening}
 						persistence={persistence}

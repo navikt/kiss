@@ -333,6 +333,44 @@ describe("screening-sessions", () => {
 			)
 			expect(auditRows.rows.length).toBeGreaterThan(0)
 		})
+
+		it("snapshots questions in stateSnapshot on completion", async () => {
+			const db = getTestDb()
+			const q1 = await createQuestion("Spørsmål 1")
+			const q2 = await createQuestion("Spørsmål 2")
+			const appId = await createApp("snapshot-test-app")
+
+			const session = await createScreeningSession({
+				applicationId: appId,
+				title: "Snapshot test",
+				participants: [],
+				performedBy: "A123456",
+			})
+			await saveScreeningSessionAnswer({
+				sessionId: session.id,
+				questionId: q1,
+				answer: "Ja",
+				comment: null,
+				link: null,
+				performedBy: "A123456",
+			})
+
+			await completeScreeningSession(session.id, testUser)
+
+			// Read the stateSnapshot directly from DB
+			const rows = await db.execute(sql`SELECT state_snapshot FROM screening_sessions WHERE id = ${session.id}`)
+			const snapshotRaw = (rows.rows[0] as { state_snapshot: unknown }).state_snapshot
+			const snapshot = snapshotRaw as {
+				questions?: Array<{ id: string; questionText: string }>
+				rulesetOptions?: Array<{ id: string; name: string }>
+			}
+
+			expect(Array.isArray(snapshot.questions)).toBe(true)
+			const questionIds = snapshot.questions?.map((q) => q.id)
+			expect(questionIds).toContain(q1)
+			expect(questionIds).toContain(q2)
+			expect(Array.isArray(snapshot.rulesetOptions)).toBe(true)
+		})
 	})
 
 	describe("archiveScreeningSession", () => {

@@ -1263,6 +1263,235 @@ export async function getScreeningDataForApp(applicationId: string) {
 type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /**
+ * Fetches the full set of screening questions visible to an app at a given point in time,
+ * without answer fields. Used to snapshot the question scope at session completion.
+ *
+ * Uses the provided executor so that uncommitted writes in the same transaction (e.g.
+ * preset routine selections) are visible.
+ */
+export async function getScreeningQuestionsForSnapshot(applicationId: string, executor: DbExecutor = db) {
+	// Section membership — same logic as getScreeningDataForApp
+	const sectionRows = await executor
+		.selectDistinct({ sectionId: naisTeams.sectionId })
+		.from(applicationEnvironments)
+		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+		.where(
+			and(
+				eq(applicationEnvironments.applicationId, applicationId),
+				isNotNull(naisTeams.sectionId),
+				notExists(
+					executor
+						.select({ cluster: sectionEnvironments.cluster })
+						.from(sectionEnvironments)
+						.where(
+							and(
+								eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+								eq(sectionEnvironments.sectionId, naisTeams.sectionId),
+								eq(sectionEnvironments.included, false),
+							),
+						),
+				),
+			),
+		)
+
+	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+
+	const globalQuestions = await executor
+		.select()
+		.from(screeningQuestions)
+		.where(
+			and(
+				isNull(screeningQuestions.sectionId),
+				isNull(screeningQuestions.archivedAt),
+				eq(screeningQuestions.status, "approved"),
+			),
+		)
+		.orderBy(screeningQuestions.displayOrder)
+
+	let sectionQuestions: typeof globalQuestions = []
+	if (sectionIds.length > 0) {
+		sectionQuestions = await executor
+			.select()
+			.from(screeningQuestions)
+			.where(
+				and(
+					inArray(screeningQuestions.sectionId, sectionIds),
+					isNull(screeningQuestions.archivedAt),
+					eq(screeningQuestions.status, "approved"),
+				),
+			)
+			.orderBy(screeningQuestions.displayOrder)
+	}
+
+	const allQuestions = [...globalQuestions, ...sectionQuestions]
+	if (allQuestions.length === 0) return { questions: [], sectionIds }
+
+	const allChoices = await executor
+		.select()
+		.from(screeningQuestionChoices)
+		.where(
+			and(
+				inArray(
+					screeningQuestionChoices.questionId,
+					allQuestions.map((q) => q.id),
+				),
+				isNull(screeningQuestionChoices.archivedAt),
+			),
+		)
+		.orderBy(screeningQuestionChoices.displayOrder)
+
+	const choicesByQuestion = new Map<string, (typeof allChoices)[number][]>()
+	for (const c of allChoices) {
+		const list = choicesByQuestion.get(c.questionId) ?? []
+		list.push(c)
+		choicesByQuestion.set(c.questionId, list)
+	}
+
+	const allChoiceEffects =
+		allChoices.length > 0
+			? await executor
+					.select({
+						id: screeningChoiceEffects.id,
+						choiceId: screeningChoiceEffects.choiceId,
+						controlId: screeningChoiceEffects.controlId,
+						controlTextId: frameworkControls.controlId,
+						controlName: frameworkControls.shortTitle,
+						effect: screeningChoiceEffects.effect,
+						presetRoutineId: screeningChoiceEffects.presetRoutineId,
+						presetRoutineName: routines.name,
+					})
+					.from(screeningChoiceEffects)
+					.innerJoin(frameworkControls, eq(screeningChoiceEffects.controlId, frameworkControls.id))
+					.leftJoin(
+						routines,
+						and(
+							eq(screeningChoiceEffects.presetRoutineId, routines.id),
+							eq(routines.status, "approved"),
+							isNull(routines.archivedAt),
+						),
+					)
+					.where(
+						and(
+							inArray(
+								screeningChoiceEffects.choiceId,
+								allChoices.map((c) => c.id),
+							),
+							isNull(screeningChoiceEffects.archivedAt),
+						),
+					)
+			: []
+
+	const effectsByChoice = new Map<string, (typeof allChoiceEffects)[number][]>()
+	for (const e of allChoiceEffects) {
+		const list = effectsByChoice.get(e.choiceId) ?? []
+		list.push(e)
+		effectsByChoice.set(e.choiceId, list)
+	}
+
+	const selectRoutineControlIds = new Set<string>()
+	const routineEffectIds = new Set<string>()
+	for (const effects of effectsByChoice.values()) {
+		for (const e of effects) {
+			if (e.effect === "select_routine") {
+				selectRoutineControlIds.add(e.controlId)
+				routineEffectIds.add(e.id)
+			}
+			if (e.effect === "preset_routine") {
+				routineEffectIds.add(e.id)
+			}
+		}
+	}
+
+	const routineOptionsByControl = new Map<string, Array<{ id: string; name: string; sectionId: string }>>()
+	if (selectRoutineControlIds.size > 0) {
+		const linkedRoutines = await executor
+			.select({
+				controlId: routineControls.controlId,
+				routineId: routines.id,
+				routineName: routines.name,
+				sectionId: routines.sectionId,
+			})
+			.from(routineControls)
+			.innerJoin(routines, eq(routineControls.routineId, routines.id))
+			.where(
+				and(
+					inArray(routineControls.controlId, [...selectRoutineControlIds]),
+					isNull(routineControls.archivedAt),
+					eq(routines.status, "approved"),
+					isNull(routines.archivedAt),
+				),
+			)
+
+		for (const lr of linkedRoutines) {
+			const list = routineOptionsByControl.get(lr.controlId) ?? []
+			list.push({ id: lr.routineId, name: lr.routineName, sectionId: lr.sectionId })
+			routineOptionsByControl.set(lr.controlId, list)
+		}
+	}
+
+	const existingSelections = new Map<string, string | null>()
+	if (routineEffectIds.size > 0) {
+		const selections = await executor
+			.select()
+			.from(screeningRoutineSelections)
+			.where(
+				and(
+					eq(screeningRoutineSelections.applicationId, applicationId),
+					inArray(screeningRoutineSelections.choiceEffectId, [...routineEffectIds]),
+				),
+			)
+		for (const s of selections) {
+			existingSelections.set(s.choiceEffectId, s.routineId)
+		}
+	}
+
+	const questions = allQuestions.map((q) => {
+		const choices = choicesByQuestion.get(q.id) ?? []
+		const affectedControls = new Set<string>()
+		for (const c of choices) {
+			for (const e of effectsByChoice.get(c.id) ?? []) {
+				affectedControls.add(e.controlTextId)
+			}
+		}
+
+		const choicesWithRoutines = choices.map((c) => {
+			const effects = effectsByChoice.get(c.id) ?? []
+			const routineSelections = effects
+				.filter((e) => e.effect === "select_routine" || e.effect === "preset_routine")
+				.map((e) => ({
+					effectId: e.id,
+					controlTextId: e.controlTextId,
+					controlName: e.controlName,
+					presetRoutineId: e.presetRoutineId ?? null,
+					presetRoutineName: e.presetRoutineName ?? null,
+					routines: e.effect === "select_routine" ? (routineOptionsByControl.get(e.controlId) ?? []) : [],
+					selectedRoutineId: existingSelections.get(e.id) ?? null,
+				}))
+
+			return {
+				id: c.id,
+				label: c.label,
+				requiresComment: c.requiresComment,
+				requiresLink: c.requiresLink,
+				routineSelections,
+			}
+		})
+
+		return {
+			id: q.id,
+			questionText: q.questionText,
+			description: q.description,
+			displayOrder: q.displayOrder,
+			answerType: q.answerType,
+			choices: choicesWithRoutines,
+			affectedControls: [...affectedControls],
+		}
+	})
+
+	return { questions, sectionIds }
+}
+
+/**
  * Lagrer brukerens valgte rutine for en gitt screening-effekt
  * (choice → routine-mapping per applikasjon). Erstatter eksisterende valg.
  * Accepts an optional Drizzle transaction executor to participate in a larger transaction.
