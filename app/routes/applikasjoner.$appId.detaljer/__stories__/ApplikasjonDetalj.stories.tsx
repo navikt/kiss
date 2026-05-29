@@ -130,6 +130,23 @@ export const RutinerFane: Story = {
 		renderWithLoader(ApplikasjonDetalj, mockAppDetaljerData(), "/applikasjoner/app-1/detaljer?fane=rutiner"),
 }
 
+export const ErOkonomisystem: Story = {
+	name: "Klassifisert som økonomisystem",
+	render: () =>
+		renderWithLoader(
+			ApplikasjonDetalj,
+			mockAppDetaljerData({
+				economyClassification: {
+					isEconomySystem: true,
+					economySystemType: "regnskapssystem",
+					justification: "Pensjon håndterer utbetaling av pensjoner og er et regnskapssystem.",
+					validUntil: "2027-01-01T00:00:00Z",
+				},
+			}),
+			"/applikasjoner/app-1/detaljer",
+		),
+}
+
 // create-draft-action returnerer feil og RutinerTab viser Alert.
 
 export const KonfliktNyGjennomgang: Story = {

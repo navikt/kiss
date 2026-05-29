@@ -600,6 +600,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 		screeningSessions: [],
 		rpaUsers: [],
 		appRulesets: [],
+		economyClassification: null,
 		...overrides,
 	}
 }

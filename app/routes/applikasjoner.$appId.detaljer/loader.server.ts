@@ -5,6 +5,7 @@ import { getAppAssessments } from "~/db/queries/applications.server"
 import { getOracleInstancesForApp, getSnapshotHistory } from "~/db/queries/audit-evidence.server"
 import { getOracleAuditSummariesForApp } from "~/db/queries/audit-logging.server"
 import { getScreeningEffectsByControlForApp } from "~/db/queries/compliance-auto.server"
+import { getEconomyClassification } from "~/db/queries/economy-classification.server"
 import {
 	getGitHubAccessChangeLog,
 	getGitHubCollaboratorsForApp,
@@ -107,6 +108,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		screeningEffectsByControl,
 		persistedControls,
 		appRulesets,
+		economyClassification,
 	] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesWithControls(appId),
@@ -121,6 +123,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			const { getRulesetsSelectedByApp } = await import("~/db/queries/rulesets.server")
 			return getRulesetsSelectedByApp(appId)
 		})(),
+		getEconomyClassification(appId),
 	])
 
 	// Batch 2: Supporting queries (independent of batch 1 results)
@@ -480,5 +483,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			})),
 		},
 		appRulesets,
+		economyClassification: economyClassification
+			? {
+					isEconomySystem: economyClassification.isEconomySystem,
+					economySystemType: economyClassification.economySystemType ?? null,
+					justification: economyClassification.justification,
+					validUntil: economyClassification.validUntil.toISOString(),
+				}
+			: null,
 	})
 }
