@@ -4,6 +4,7 @@ import { useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
+import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionRoutinesForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
@@ -35,7 +36,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 export default function Seksjonsrutiner() {
 	const { sectionRoutines, seksjon } = useLoaderData<typeof loader>()
 	const [search, setSearch] = useState("")
-	const [sort, setSort] = useState<SortState>({ orderBy: "status", direction: "descending" })
+	const [sort, setSort] = useState<SortState>({ orderBy: "priority", direction: "ascending" })
 
 	const filtered = sectionRoutines.filter((sr) => {
 		if (!search) return true
@@ -47,6 +48,9 @@ export default function Seksjonsrutiner() {
 
 	const sorted = [...filtered].sort((a, b) => {
 		const dir = sort.direction === "ascending" ? 1 : -1
+		if (sort.orderBy === "priority") {
+			return (a.routine.priority - b.routine.priority) * dir
+		}
 		if (sort.orderBy === "name") {
 			return a.routine.name.localeCompare(b.routine.name, "nb") * dir
 		}
@@ -133,6 +137,9 @@ export default function Seksjonsrutiner() {
 							>
 								<Table.Header>
 									<Table.Row>
+										<Table.ColumnHeader sortKey="priority" sortable>
+											Prioritet
+										</Table.ColumnHeader>
 										<Table.ColumnHeader sortKey="name" sortable>
 											Rutine
 										</Table.ColumnHeader>
@@ -159,6 +166,9 @@ export default function Seksjonsrutiner() {
 										const statusKey = sr.overdue ? "overdue" : sr.lastReviewDate ? "ok" : "never"
 										return (
 											<Table.Row key={sr.routine.id}>
+												<Table.DataCell>
+													<PriorityTag priority={sr.routine.priority} size="small" />
+												</Table.DataCell>
 												<Table.DataCell>
 													<Link to={`/seksjoner/${seksjon}/rutiner/${sr.routine.id}`}>{sr.routine.name}</Link>
 												</Table.DataCell>

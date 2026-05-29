@@ -4,4 +4,5 @@ export type RoutineFieldErrors = {
 	frequency?: string
 	sectionRoutineOwnerRole?: string
 	activityTypes?: string
+	priority?: string
 }

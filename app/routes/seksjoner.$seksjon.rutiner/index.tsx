@@ -18,6 +18,7 @@ import { useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
+import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
@@ -64,7 +65,7 @@ export default function SeksjonRutinerIndex() {
 	const [filterTechElement, setFilterTechElement] = useState("")
 	const [filterPersistence, setFilterPersistence] = useState("")
 	const [filterStatus, setFilterStatus] = useState<string[]>(["draft", "ready", "approved"])
-	const [sort, setSort] = useState<SortState | undefined>({ orderBy: "name", direction: "ascending" })
+	const [sort, setSort] = useState<SortState | undefined>({ orderBy: "priority", direction: "ascending" })
 
 	// Collect unique values for dropdown filters
 	const uniqueControls = useMemo(() => {
@@ -129,6 +130,8 @@ export default function SeksjonRutinerIndex() {
 		const dir = sort.direction === "ascending" ? 1 : -1
 		return [...filtered].sort((a, b) => {
 			switch (sort.orderBy) {
+				case "priority":
+					return dir * ((a.priority ?? 3) - (b.priority ?? 3))
 				case "name":
 					return dir * a.name.localeCompare(b.name)
 				case "frequency":
@@ -311,6 +314,9 @@ export default function SeksjonRutinerIndex() {
 					<Table sort={sort} onSortChange={handleSort}>
 						<Table.Header>
 							<Table.Row>
+								<Table.ColumnHeader sortKey="priority" sortable>
+									Prioritet
+								</Table.ColumnHeader>
 								<Table.ColumnHeader sortKey="name" sortable>
 									Navn
 								</Table.ColumnHeader>
@@ -335,6 +341,9 @@ export default function SeksjonRutinerIndex() {
 						<Table.Body>
 							{sorted.map((routine) => (
 								<Table.Row key={routine.id}>
+									<Table.DataCell>
+										<PriorityTag priority={routine.priority} />
+									</Table.DataCell>
 									<Table.DataCell>
 										<HStack gap="space-2" align="center" wrap>
 											<Link to={`./${routine.id}`}>{routine.name}</Link>

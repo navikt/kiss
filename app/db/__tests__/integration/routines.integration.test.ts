@@ -16,6 +16,7 @@ const {
 	getRoutine,
 	getRoutinesForSection,
 	updateRoutine,
+	updateRoutinePriority,
 	archiveRoutine,
 	createReview,
 	getSectionIdsForApp,
@@ -2352,6 +2353,128 @@ describe("Routines integration tests", () => {
 			// Neither draft nor archived routine should appear
 			expect(results.every((r) => r.routine?.id !== draftId)).toBe(true)
 			expect(results.every((r) => r.routine?.id !== archivedId)).toBe(true)
+		})
+	})
+
+	describe("updateRoutinePriority", () => {
+		it("should update priority and set priorityUpdatedAt/By", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Priority Section", "priority-section")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Prioritetsrutine",
+				description: null,
+				frequency: "quarterly",
+				eventFrequency: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				isSectionRoutine: false,
+				sectionRoutineOwnerRole: null,
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				technologyElementIds: [],
+				controlIds: [],
+				persistenceLinks: [],
+				createdBy: "test-user",
+			})
+
+			const result = await updateRoutinePriority(routine.id, 1, "prioritet-bruker")
+			expect(result.priority).toBe(1)
+			expect(result.priorityUpdatedBy).toBe("prioritet-bruker")
+			expect(result.priorityUpdatedAt).toBeTruthy()
+
+			const fetched = await getRoutine(routine.id)
+			expect(fetched?.priority).toBe(1)
+			expect(fetched?.priorityUpdatedBy).toBe("prioritet-bruker")
+
+			const auditResult = await db.execute(
+				/* sql */ `SELECT * FROM audit_log WHERE action = 'routine_priority_changed' AND entity_id = '${routine.id}'`,
+			)
+			expect(auditResult.rows.length).toBe(1)
+			const auditRow = auditResult.rows[0] as { previous_value: string; new_value: string; performed_by: string }
+			expect(auditRow.previous_value).toBe("3")
+			expect(auditRow.new_value).toBe("1")
+			expect(auditRow.performed_by).toBe("prioritet-bruker")
+		})
+
+		it("should return existing routine without changes when priority is unchanged", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Priority Noop Section", "priority-noop-section")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Uendret prioritetsrutine",
+				description: null,
+				frequency: "quarterly",
+				eventFrequency: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				isSectionRoutine: false,
+				sectionRoutineOwnerRole: null,
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				technologyElementIds: [],
+				controlIds: [],
+				persistenceLinks: [],
+				createdBy: "test-user",
+				priority: 2,
+			})
+
+			const result = await updateRoutinePriority(routine.id, 2, "test-user")
+			expect(result.priority).toBe(2)
+
+			const auditResult = await db.execute(
+				/* sql */ `SELECT * FROM audit_log WHERE action = 'routine_priority_changed' AND entity_id = '${routine.id}'`,
+			)
+			expect(auditResult.rows.length).toBe(0)
+		})
+
+		it("should reject updates to archived routines", async () => {
+			const sectionId = await createTestSection("Priority Archive Section", "priority-archive-section")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Arkivert prioritetsrutine",
+				description: null,
+				frequency: "quarterly",
+				eventFrequency: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				isSectionRoutine: false,
+				sectionRoutineOwnerRole: null,
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				technologyElementIds: [],
+				controlIds: [],
+				persistenceLinks: [],
+				createdBy: "test-user",
+			})
+			await markRoutineApproved(routine.id)
+			await archiveRoutine(routine.id, "test-user")
+
+			await expect(updateRoutinePriority(routine.id, 1, "test-user")).rejects.toThrow()
+		})
+
+		it("should reject invalid priority values at runtime", async () => {
+			const sectionId = await createTestSection("Priority Invalid Section", "priority-invalid-section")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Ugyldig prioritetsrutine",
+				description: null,
+				frequency: "quarterly",
+				eventFrequency: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				isSectionRoutine: false,
+				sectionRoutineOwnerRole: null,
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				technologyElementIds: [],
+				controlIds: [],
+				persistenceLinks: [],
+				createdBy: "test-user",
+			})
+
+			await expect(updateRoutinePriority(routine.id, 0 as 1 | 2 | 3, "test-user")).rejects.toThrow()
+			await expect(updateRoutinePriority(routine.id, 4 as 1 | 2 | 3, "test-user")).rejects.toThrow()
 		})
 	})
 })

@@ -201,8 +201,10 @@ export function toRpaMaintenanceData(data: RpaStagedData): RpaMaintenanceData {
 		userPrincipalName: u.userPrincipalName,
 		accountEnabled: u.accountEnabled,
 		rpaGroupName: u.rpaGroupName,
-		// Zod superRefine guarantees active users (isGone=false) have matchSource set
-		matchSource: u.isGone ? "removed" : u.matchSource!,
+		// superRefine (line ~139) guarantees matchSource is non-null for active users (isGone=false).
+		// The ?? "manual" fallback is intentional over a non-null assertion (!): it avoids
+		// crashing if this function is ever called outside the validated parse path.
+		matchSource: u.isGone ? "removed" : (u.matchSource ?? "manual"),
 	}))
 
 	const assessments: Record<string, RpaUserAssessmentEntry> = {}

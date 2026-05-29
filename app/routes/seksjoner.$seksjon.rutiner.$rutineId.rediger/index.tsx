@@ -21,6 +21,7 @@ import { data, Form, redirect, useActionData, useLoaderData } from "react-router
 import { ApproveReplaceModal } from "~/components/ApproveReplaceModal"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
+import { PrioritySelect } from "~/components/PrioritySelect"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { SortableActivityList } from "~/components/SortableActivityList"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
@@ -32,6 +33,7 @@ import {
 	replaceRoutine,
 	unarchiveRoutine,
 	updateRoutine,
+	updateRoutinePriority,
 } from "~/db/queries/routines.server"
 import {
 	getChoicesForQuestion,
@@ -258,6 +260,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const statusRaw = formData.get("status") as string | null
 		const status =
 			statusRaw && EDITABLE_STATUSES.includes(statusRaw as RoutineStatus) ? (statusRaw as RoutineStatus) : undefined
+		const priorityStr = formData.get("priority") as string | null
+		const priorityRaw = priorityStr !== null ? Number(priorityStr) : undefined
+		const priority =
+			priorityRaw !== undefined && [1, 2, 3].includes(priorityRaw) ? (priorityRaw as 1 | 2 | 3) : undefined
+		if (priorityStr !== null && priority === undefined) {
+			return data({ fieldErrors: { priority: "Ugyldig prioritet" } as FieldErrors }, { status: 400 })
+		}
 
 		// Parse persistence links from form
 		const plTypes = formData.getAll("plPersistenceType") as string[]
@@ -346,6 +355,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			status,
 			updatedBy: authedUser.navIdent,
 		})
+
+		if (priority !== undefined) {
+			await updateRoutinePriority(rutineId, priority, authedUser.navIdent)
+		}
 
 		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
 	}
@@ -624,6 +637,13 @@ export default function RedigerRutine() {
 						<option value="ready">Ferdig</option>
 						<option value="archived">Arkivert</option>
 					</Select>
+
+					<PrioritySelect
+						name="priority"
+						defaultValue={routine.priority ?? 3}
+						size="small"
+						error={fieldErrors?.priority}
+					/>
 
 					{isSectionRoutine && <input type="hidden" name="appliesToAllInSection" value="on" />}
 					<Checkbox

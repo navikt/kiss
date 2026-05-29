@@ -17,6 +17,8 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useFetcher, useLoaderData } from "react-router"
 import { ApproveReplaceModal } from "~/components/ApproveReplaceModal"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
+import { PrioritySelect } from "~/components/PrioritySelect"
+import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	approveRoutine,
@@ -30,6 +32,7 @@ import {
 	getRoutineFollowUpApplicationIds,
 	isOverdue,
 	replaceRoutine,
+	updateRoutinePriority,
 } from "~/db/queries/routines.server"
 import { getScreeningQuestion } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
@@ -228,6 +231,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirect(`/seksjoner/${seksjon}/rutiner/${rutineId}`)
 	}
 
+	if (intent === "update-priority") {
+		if (!hasAnySectionRole(authedUser, section.id)) {
+			throw data({ message: "Du har ikke rettigheter til å endre prioritet i denne seksjonen" }, { status: 403 })
+		}
+		if (routine.archivedAt) {
+			throw data({ message: "Arkiverte rutiner kan ikke endres. Reaktiver rutinen først." }, { status: 403 })
+		}
+		const priorityStr = formData.get("priority") as string | null
+		if (!priorityStr || !["1", "2", "3"].includes(priorityStr)) {
+			throw data({ message: "Ugyldig prioritet" }, { status: 400 })
+		}
+		const priority = Number(priorityStr) as 1 | 2 | 3
+		await updateRoutinePriority(rutineId, priority as 1 | 2 | 3, authedUser.navIdent)
+		return data({ success: true })
+	}
+
 	throw data({ message: `Ukjent handling: ${intent}` }, { status: 400 })
 }
 
@@ -389,6 +408,42 @@ export default function RutineDetaljer() {
 					<HStack gap="space-2" align="center">
 						<FrequencyDisplay frequency={routine.frequency} eventFrequency={routine.eventFrequency} />
 					</HStack>
+				</VStack>
+
+				<VStack gap="space-2">
+					<Label size="small">Prioritet</Label>
+					{!routine.archivedAt && userCanEdit ? (
+						<HStack gap="space-2" align="center">
+							<PrioritySelect
+								value={
+									fetcher.formData?.get("intent") === "update-priority"
+										? (Number(fetcher.formData.get("priority")) as 1 | 2 | 3)
+										: routine.priority
+								}
+								size="small"
+								hideLabel
+								onChange={(priority) => {
+									const formData = new FormData()
+									formData.append("intent", "update-priority")
+									formData.append("priority", priority.toString())
+									fetcher.submit(formData, { method: "post" })
+								}}
+							/>
+							{fetcher.state !== "idle" && fetcher.formData?.get("intent") === "update-priority" && (
+								<BodyShort size="small" textColor="subtle">
+									Lagrer...
+								</BodyShort>
+							)}
+						</HStack>
+					) : (
+						<PriorityTag priority={routine.priority} size="small" />
+					)}
+					{routine.priorityUpdatedAt && (
+						<BodyShort size="small" textColor="subtle">
+							Oppdatert {formatDateTime(routine.priorityUpdatedAt)}
+							{routine.priorityUpdatedBy ? ` av ${routine.priorityUpdatedBy}` : ""}
+						</BodyShort>
+					)}
 				</VStack>
 
 				{routine.technologyElements.length > 0 && (

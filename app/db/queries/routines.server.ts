@@ -270,12 +270,16 @@ export async function createRoutine(params: {
 	controlIds: string[]
 	groupClassifications?: GroupAccessClassification[]
 	oracleRoleCriticalities?: GroupCriticality[]
+	priority?: 1 | 2 | 3
 	status?: RoutineStatus
 	createdBy: string
 }) {
 	// Enforce section routine invariants at query level
 	if (params.isSectionRoutine && !params.sectionRoutineOwnerRole) {
 		throw new Response("Seksjonsrutiner krever en eierrolle (sectionRoutineOwnerRole)", { status: 400 })
+	}
+	if (params.priority !== undefined && ![1, 2, 3].includes(params.priority)) {
+		throw new Response("Ugyldig prioritet. Gyldige verdier er 1 (Kritisk), 2 (Høy) og 3 (Normal).", { status: 400 })
 	}
 
 	const routine = await db.transaction(async (tx) => {
@@ -293,6 +297,7 @@ export async function createRoutine(params: {
 				sectionRoutineOwnerRole: params.isSectionRoutine ? (params.sectionRoutineOwnerRole ?? null) : null,
 				screeningQuestionId: params.screeningQuestionId,
 				screeningChoiceValue: params.screeningChoiceValue,
+				priority: params.priority ?? 3,
 				...(params.status && { status: params.status }),
 				createdBy: params.createdBy,
 				updatedBy: params.createdBy,
@@ -982,6 +987,75 @@ export async function archiveRoutine(id: string, performedBy: string) {
 	}
 
 	return routine
+}
+
+/**
+ * Update routine priority.
+ *
+ * Priority can be changed without affecting approval status or updatedAt/updatedBy.
+ * Separate priorityUpdatedAt/priorityUpdatedBy fields track priority changes.
+ *
+ * @param routineId - Routine to update
+ * @param priority - New priority (1=Kritisk, 2=Høy, 3=Normal)
+ * @param performedBy - User making the change
+ */
+export async function updateRoutinePriority(routineId: string, priority: 1 | 2 | 3, performedBy: string) {
+	if (![1, 2, 3].includes(priority)) {
+		throw new Response("Ugyldig prioritet. Gyldige verdier er 1 (Kritisk), 2 (Høy) og 3 (Normal).", { status: 400 })
+	}
+	return db.transaction(async (tx) => {
+		const [routine] = await tx
+			.select({
+				id: routines.id,
+				name: routines.name,
+				priority: routines.priority,
+				archivedAt: routines.archivedAt,
+			})
+			.from(routines)
+			.where(eq(routines.id, routineId))
+			.for("update")
+			.limit(1)
+
+		if (!routine) {
+			throw new Response("Rutine ikke funnet", { status: 404 })
+		}
+		if (routine.archivedAt) {
+			throw new Response("Kan ikke endre prioritet på arkiverte rutiner", { status: 403 })
+		}
+		if (routine.priority === priority) {
+			const [unchanged] = await tx.select().from(routines).where(eq(routines.id, routineId)).limit(1)
+			return unchanged
+		}
+
+		const [updated] = await tx
+			.update(routines)
+			.set({
+				priority,
+				priorityUpdatedAt: new Date(),
+				priorityUpdatedBy: performedBy,
+			})
+			.where(and(eq(routines.id, routineId), isNull(routines.archivedAt)))
+			.returning()
+
+		if (!updated) {
+			throw new Response("Rutinen ble arkivert av en annen operasjon", { status: 409 })
+		}
+
+		await writeAuditLog(
+			{
+				action: "routine_priority_changed",
+				entityType: "routine",
+				entityId: routineId,
+				previousValue: String(routine.priority),
+				newValue: String(priority),
+				metadata: { routineName: routine.name },
+				performedBy,
+			},
+			tx,
+		)
+
+		return updated
+	})
 }
 
 /**
@@ -6041,6 +6115,7 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 				sectionRoutineOwnerRole: source.sectionRoutineOwnerRole,
 				screeningQuestionId: source.screeningQuestionId,
 				screeningChoiceValue: source.screeningChoiceValue,
+				priority: source.priority,
 				status: "draft",
 				sourceRoutineId: routineId,
 				createdBy: performedBy,
