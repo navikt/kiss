@@ -413,9 +413,9 @@ describe("screening-sessions", () => {
 			})
 			await completeScreeningSession(session1.id, testUser)
 
-			// Verify routine selection exists
+			// Verify routine selection exists (active)
 			const selectionsBefore = await db.execute(
-				sql`SELECT * FROM screening_routine_selections WHERE application_id = ${appId}`,
+				sql`SELECT * FROM screening_routine_selections WHERE application_id = ${appId} AND archived_at IS NULL`,
 			)
 			expect(selectionsBefore.rows).toHaveLength(1)
 
@@ -436,9 +436,9 @@ describe("screening-sessions", () => {
 			})
 			await completeScreeningSession(session2.id, testUser)
 
-			// Stale routine selection should be gone
+			// Stale routine selection should be soft-deleted (no active rows)
 			const selectionsAfter = await db.execute(
-				sql`SELECT * FROM screening_routine_selections WHERE application_id = ${appId}`,
+				sql`SELECT * FROM screening_routine_selections WHERE application_id = ${appId} AND archived_at IS NULL`,
 			)
 			expect(selectionsAfter.rows).toHaveLength(0)
 
