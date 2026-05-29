@@ -285,7 +285,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "create-screening-session") {
-		const { createScreeningSession, captureStateSnapshot } = await import("~/db/queries/screening-sessions.server")
+		const { createScreeningSession, captureStateSnapshot, getScreeningSessionsForApp } = await import(
+			"~/db/queries/screening-sessions.server"
+		)
+
+		const existingSessions = await getScreeningSessionsForApp(appId)
+		const hasActiveDraft = existingSessions.some((s) => s.status === "draft" && !s.archivedAt)
+		if (hasActiveDraft) {
+			return data(
+				{
+					success: false,
+					message: null,
+					error: "Det finnes allerede en påbegynt screening. Fullfør eller fjern den før du starter en ny.",
+				},
+				{ status: 409 },
+			)
+		}
+
 		const title = `Screening ${new Date().toLocaleDateString("nb-NO")}`
 
 		const stateSnapshot = await captureStateSnapshot(appId, authedUser.groups ?? [])
