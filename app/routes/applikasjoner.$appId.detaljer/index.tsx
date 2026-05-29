@@ -143,82 +143,31 @@ export default function ApplikasjonDetalj() {
 								{compliance.screeningProgress.answered} / {compliance.screeningProgress.total} spørsmål besvart
 							</Tag>
 						)}
-						<HStack gap="space-12" wrap>
-							<VStack align="center">
-								<BodyShort size="small" weight="semibold">
-									{compliance.implemented}
-								</BodyShort>
-								<Detail textColor="subtle">Implementert</Detail>
-							</VStack>
-							<VStack align="center">
-								<BodyShort size="small" weight="semibold">
-									{compliance.partial}
-								</BodyShort>
-								<Detail textColor="subtle">Delvis</Detail>
-							</VStack>
-							<VStack align="center">
-								<BodyShort size="small" weight="semibold">
-									{compliance.notImplemented}
-								</BodyShort>
-								<Detail textColor="subtle">Ikke impl.</Detail>
-							</VStack>
-							<VStack align="center">
-								<BodyShort size="small" weight="semibold">
-									{compliance.notRelevant}
-								</BodyShort>
-								<Detail textColor="subtle">Ikke relevant</Detail>
-							</VStack>
-							<VStack align="center">
-								<BodyShort size="small" weight="semibold">
-									{compliance.notAssessed}
-								</BodyShort>
-								<Detail textColor="subtle">Ikke vurdert</Detail>
-							</VStack>
-						</HStack>
 					</HStack>
 
-					<HStack gap="space-24" wrap>
+					{(compliance.routinesGjennomfort + compliance.routinesIkkeGjennomfort > 0 ||
+						compliance.routinesMaaFolgesOpp > 0) && (
 						<VStack gap="space-4">
 							<Detail weight="semibold" textColor="subtle">
-								Rutineetablering
+								Rutineetterlevelse
 							</Detail>
 							<HStack gap="space-8" wrap>
 								<Tag variant="success" size="xsmall">
-									{compliance.withRoutine} kontroller etablert
+									{compliance.routinesGjennomfort} gjennomført
 								</Tag>
-								<Tag variant="error" size="xsmall">
-									{compliance.withoutRoutine} kontroller mangler
-								</Tag>
-								{compliance.routineNotRelevant > 0 && (
-									<Tag variant="neutral" size="xsmall">
-										{compliance.routineNotRelevant} kontroller ikke relevant
+								{compliance.routinesIkkeGjennomfort > 0 && (
+									<Tag variant="error" size="xsmall">
+										{compliance.routinesIkkeGjennomfort} ikke gjennomført
+									</Tag>
+								)}
+								{compliance.routinesMaaFolgesOpp > 0 && (
+									<Tag variant="warning" size="xsmall">
+										{compliance.routinesMaaFolgesOpp} må følges opp
 									</Tag>
 								)}
 							</HStack>
 						</VStack>
-						{compliance.withRoutine > 0 && (
-							<VStack gap="space-4">
-								<Detail weight="semibold" textColor="subtle">
-									Rutineetterlevelse
-								</Detail>
-								<HStack gap="space-8" wrap>
-									<Tag variant="success" size="xsmall">
-										{compliance.routineCompleted} gjennomført
-									</Tag>
-									{compliance.routineOverdue > 0 && (
-										<Tag variant="warning" size="xsmall">
-											{compliance.routineOverdue} forfalt
-										</Tag>
-									)}
-									{compliance.routineNeverReviewed > 0 && (
-										<Tag variant="error" size="xsmall">
-											{compliance.routineNeverReviewed} ikke gjennomført
-										</Tag>
-									)}
-								</HStack>
-							</VStack>
-						)}
-					</HStack>
+					)}
 
 					{compliance.screeningProgress.answered === 0 && (
 						<BodyShort textColor="subtle" size="small">
