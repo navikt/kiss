@@ -9,6 +9,7 @@ import {
 	Search,
 	Table,
 	Tag,
+	Tooltip,
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
@@ -27,6 +28,7 @@ type RoutineDeadline = {
 		frequency: string | null
 		eventFrequency?: string | null
 		technologyElements?: Array<{ id: string; name: string }>
+		controls?: Array<{ id: string; controlId: string; shortTitle: string | null }>
 	} | null
 	matchSource: string
 	deadline: Date | string | null
@@ -99,6 +101,81 @@ export function RutinerTab({
 			screening: "Screening",
 		}
 		return labels[s] ?? s
+	}
+
+	const renderControlTags = (controls: NonNullable<RoutineDeadline["routine"]>["controls"]) => {
+		if (!controls || controls.length === 0) return null
+		return (
+			<HStack gap="space-2" wrap>
+				{controls.map((c) => (
+					<Tooltip key={c.id} content={c.shortTitle ?? c.controlId} placement="top">
+						<Link to={`/kontrollrammeverk/_/${c.controlId}`}>
+							<Tag variant="neutral" size="xsmall">
+								{c.controlId}
+							</Tag>
+						</Link>
+					</Tooltip>
+				))}
+			</HStack>
+		)
+	}
+
+	const renderMatchSource = (dl: RoutineDeadline) => {
+		if (dl.matchSource === "persistence") {
+			return (
+				<HStack gap="space-4" wrap>
+					{(dl.matchedPersistenceLinks ?? []).map((pl) => (
+						<HStack key={`${pl.persistenceType}-${pl.dataClassification}`} gap="space-2" wrap>
+							{pl.persistenceType && (
+								<Tag variant="info" size="xsmall">
+									{persistenceLabels[pl.persistenceType] ?? pl.persistenceType}
+								</Tag>
+							)}
+							{pl.dataClassification && (
+								<Tag variant="warning" size="xsmall">
+									{dataClassificationLabels[pl.dataClassification as DataClassification] ?? pl.dataClassification}
+								</Tag>
+							)}
+						</HStack>
+					))}
+				</HStack>
+			)
+		}
+		if (dl.matchSource === "screening_selection")
+			return (
+				<Tag variant="alt1" size="xsmall">
+					Valgt via spørsmål
+				</Tag>
+			)
+		if (dl.matchSource === "section")
+			return (
+				<Tag variant="alt3" size="xsmall">
+					Gjelder alle i seksjonen
+				</Tag>
+			)
+		if (dl.matchSource === "ruleset")
+			return (
+				<Tag variant="alt2" size="xsmall">
+					Regelsett
+				</Tag>
+			)
+		if (dl.matchSource === "group_classification")
+			return (
+				<Tag variant="info" size="xsmall">
+					Tilgangsklassifisering
+				</Tag>
+			)
+		if (dl.matchSource === "oracle_role_criticality")
+			return (
+				<Tag variant="warning" size="xsmall">
+					Oracle-roller
+				</Tag>
+			)
+		return (
+			<Tag variant="neutral" size="xsmall">
+				Screening
+			</Tag>
+		)
 	}
 
 	const filterRoutine = (dl: RoutineDeadline): boolean => {
@@ -228,6 +305,7 @@ export function RutinerTab({
 												<Table.ColumnHeader sortKey="technologyElement" sortable>
 													Teknologielement
 												</Table.ColumnHeader>
+												<Table.HeaderCell>Kontroller</Table.HeaderCell>
 												<Table.ColumnHeader sortKey="frequency" sortable>
 													Frekvens
 												</Table.ColumnHeader>
@@ -255,51 +333,7 @@ export function RutinerTab({
 															(dl.routine?.name ?? "—")
 														)}
 													</Table.DataCell>
-													<Table.DataCell>
-														{dl.matchSource === "persistence" ? (
-															<HStack gap="space-4" wrap>
-																{(dl.matchedPersistenceLinks ?? []).map((pl) => (
-																	<HStack key={`${pl.persistenceType}-${pl.dataClassification}`} gap="space-2" wrap>
-																		{pl.persistenceType && (
-																			<Tag variant="info" size="xsmall">
-																				{persistenceLabels[pl.persistenceType] ?? pl.persistenceType}
-																			</Tag>
-																		)}
-																		{pl.dataClassification && (
-																			<Tag variant="warning" size="xsmall">
-																				{dataClassificationLabels[pl.dataClassification as DataClassification] ??
-																					pl.dataClassification}
-																			</Tag>
-																		)}
-																	</HStack>
-																))}
-															</HStack>
-														) : dl.matchSource === "screening_selection" ? (
-															<Tag variant="alt1" size="xsmall">
-																Valgt via spørsmål
-															</Tag>
-														) : dl.matchSource === "section" ? (
-															<Tag variant="alt3" size="xsmall">
-																Gjelder alle i seksjonen
-															</Tag>
-														) : dl.matchSource === "ruleset" ? (
-															<Tag variant="alt2" size="xsmall">
-																Regelsett
-															</Tag>
-														) : dl.matchSource === "group_classification" ? (
-															<Tag variant="info" size="xsmall">
-																Tilgangsklassifisering
-															</Tag>
-														) : dl.matchSource === "oracle_role_criticality" ? (
-															<Tag variant="warning" size="xsmall">
-																Oracle-roller
-															</Tag>
-														) : (
-															<Tag variant="neutral" size="xsmall">
-																Screening
-															</Tag>
-														)}
-													</Table.DataCell>
+													<Table.DataCell>{renderMatchSource(dl)}</Table.DataCell>
 													<Table.DataCell>
 														{dl.routine?.technologyElements && dl.routine.technologyElements.length > 0 && (
 															<HStack gap="space-2" wrap>
@@ -311,6 +345,7 @@ export function RutinerTab({
 															</HStack>
 														)}
 													</Table.DataCell>
+													<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
 													<Table.DataCell>
 														<FrequencyDisplay
 															frequency={dl.routine?.frequency}
@@ -375,6 +410,7 @@ export function RutinerTab({
 												<Table.Row>
 													<Table.HeaderCell>Rutine</Table.HeaderCell>
 													<Table.HeaderCell>Kobling</Table.HeaderCell>
+													<Table.HeaderCell>Kontroller</Table.HeaderCell>
 													<Table.HeaderCell>Hendelsesfrekvens</Table.HeaderCell>
 													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
 													<Table.HeaderCell />
@@ -394,7 +430,8 @@ export function RutinerTab({
 																(dl.routine?.name ?? "—")
 															)}
 														</Table.DataCell>
-														<Table.DataCell>{matchSourceLabel(dl.matchSource)}</Table.DataCell>
+														<Table.DataCell>{renderMatchSource(dl)}</Table.DataCell>
+														<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
 														<Table.DataCell>{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>
 														<Table.DataCell>
 															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
@@ -434,6 +471,7 @@ export function RutinerTab({
 												<Table.Row>
 													<Table.HeaderCell>Rutine</Table.HeaderCell>
 													<Table.HeaderCell>Eierrolle</Table.HeaderCell>
+													<Table.HeaderCell>Kontroller</Table.HeaderCell>
 													<Table.HeaderCell>Frekvens</Table.HeaderCell>
 													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
 													<Table.HeaderCell>Frist</Table.HeaderCell>
@@ -459,6 +497,7 @@ export function RutinerTab({
 																{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}
 															</BodyShort>
 														</Table.DataCell>
+														<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
 														<Table.DataCell>
 															<FrequencyDisplay
 																frequency={dl.routine?.frequency}

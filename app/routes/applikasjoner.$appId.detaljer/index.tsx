@@ -184,14 +184,14 @@ export default function ApplikasjonDetalj() {
 							</Detail>
 							<HStack gap="space-8" wrap>
 								<Tag variant="success" size="xsmall">
-									{compliance.withRoutine} etablert
+									{compliance.withRoutine} kontroller etablert
 								</Tag>
 								<Tag variant="error" size="xsmall">
-									{compliance.withoutRoutine} mangler
+									{compliance.withoutRoutine} kontroller mangler
 								</Tag>
 								{compliance.routineNotRelevant > 0 && (
 									<Tag variant="neutral" size="xsmall">
-										{compliance.routineNotRelevant} ikke relevant
+										{compliance.routineNotRelevant} kontroller ikke relevant
 									</Tag>
 								)}
 							</HStack>

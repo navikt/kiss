@@ -9,9 +9,10 @@
  *
  * Single source of truth — avoids divergence between these consumers.
  */
-import { and, desc, eq, inArray, isNull, or, type SQL } from "drizzle-orm"
+import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
+import { frameworkControls } from "../schema/framework"
 import { routineControls, routineReviews, routineTechnologyElements } from "../schema/routines"
 import {
 	calculateDeadline,
@@ -33,7 +34,7 @@ export type MatchSource =
 export interface DeadlineWithControls {
 	routine:
 		| (Omit<NonNullable<RoutineDeadlineInfo["routine"]>, "controls"> & {
-				controls: Array<{ id: string }>
+				controls: Array<{ id: string; controlId: string; shortTitle: string | null }>
 				technologyElementIds: string[]
 		  })
 		| null
@@ -134,7 +135,7 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 
 	// Step 3: Load routine → control and routine → technology element mappings
 	const allRoutineIds = [...new Set(routineDeadlines.map((d) => d.routine?.id).filter(Boolean) as string[])]
-	const routineControlsMap = new Map<string, Array<{ id: string }>>()
+	const routineControlsMap = new Map<string, Array<{ id: string; controlId: string; shortTitle: string | null }>>()
 	const routineTechElementsMap = new Map<string, string[]>()
 
 	if (allRoutineIds.length > 0) {
@@ -142,9 +143,12 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 			db
 				.select({
 					routineId: routineControls.routineId,
-					controlId: routineControls.controlId,
+					id: routineControls.controlId,
+					controlId: frameworkControls.controlId,
+					shortTitle: frameworkControls.shortTitle,
 				})
 				.from(routineControls)
+				.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
 				.where(and(inArray(routineControls.routineId, allRoutineIds), isNull(routineControls.archivedAt))),
 			db
 				.select({
@@ -162,7 +166,7 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 
 		for (const row of controlRows) {
 			const list = routineControlsMap.get(row.routineId) ?? []
-			list.push({ id: row.controlId })
+			list.push({ id: row.id, controlId: row.controlId, shortTitle: row.shortTitle })
 			routineControlsMap.set(row.routineId, list)
 		}
 		for (const row of techElementRows) {
