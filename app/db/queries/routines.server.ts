@@ -62,6 +62,7 @@ import {
 	routines,
 	routineTechnologyElements,
 } from "../schema/routines"
+import { rulesetRoutines, rulesets } from "../schema/rulesets"
 import { screeningAnswers, screeningQuestions, screeningRoutineSelections } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 import { getAppAuthIntegrations, getGroupAssessmentsForApp, getManualGroupsForApp } from "./nais.server"
@@ -2911,8 +2912,6 @@ async function findAppsByOracleRoleCriticalityMatch(
  * Mirrors forward logic: for each ruleset, only includes apps that are effective
  * members of THAT ruleset's section and answered questions for THAT ruleset. */
 async function findAppsByRulesetMatch(routineId: string): Promise<string[]> {
-	const { rulesetRoutines, rulesets } = await import("../schema/rulesets")
-
 	// Find rulesets that include this routine
 	const rulesetRows = await db
 		.select({ rulesetId: rulesetRoutines.rulesetId })
@@ -4656,7 +4655,6 @@ export async function getRoutineDeadlinesForAppByRuleset(
 	const sectionIds = await getSectionIdsForApp(applicationId)
 	if (sectionIds.length === 0) return []
 
-	const { rulesets, rulesetRoutines } = await import("../schema/rulesets")
 	const activeRulesets = await db
 		.select({ id: rulesets.id })
 		.from(rulesets)
@@ -6301,6 +6299,63 @@ export async function replaceRoutine(
 			},
 			tx,
 		)
+
+		// Migrate ruleset connections: archive old links and create new ones for the replacement
+		const oldRulesetLinks = await tx
+			.select({ id: rulesetRoutines.id, rulesetId: rulesetRoutines.rulesetId })
+			.from(rulesetRoutines)
+			.where(and(eq(rulesetRoutines.routineId, oldRoutineId), isNull(rulesetRoutines.archivedAt)))
+
+		if (oldRulesetLinks.length > 0) {
+			await tx
+				.update(rulesetRoutines)
+				.set({ archivedAt: now, archivedBy: performedBy })
+				.where(
+					inArray(
+						rulesetRoutines.id,
+						oldRulesetLinks.map((r) => r.id),
+					),
+				)
+
+			for (const link of oldRulesetLinks) {
+				await writeAuditLog(
+					{
+						action: "ruleset_routine_removed",
+						entityType: "ruleset_routine",
+						entityId: link.rulesetId,
+						previousValue: JSON.stringify({ rulesetId: link.rulesetId, routineId: oldRoutineId, linkId: link.id }),
+						metadata: { routineId: oldRoutineId, linkId: link.id, reason: "routine_replaced" },
+						performedBy,
+					},
+					tx,
+				)
+			}
+
+			const newLinks = await tx
+				.insert(rulesetRoutines)
+				.values(
+					oldRulesetLinks.map((r) => ({
+						rulesetId: r.rulesetId,
+						routineId: newRoutineId,
+						createdBy: performedBy,
+					})),
+				)
+				.returning({ id: rulesetRoutines.id, rulesetId: rulesetRoutines.rulesetId })
+
+			for (const link of newLinks) {
+				await writeAuditLog(
+					{
+						action: "ruleset_routine_added",
+						entityType: "ruleset_routine",
+						entityId: link.rulesetId,
+						newValue: JSON.stringify({ rulesetId: link.rulesetId, routineId: newRoutineId }),
+						metadata: { routineId: newRoutineId, reason: "routine_replaced", replacedRoutineId: oldRoutineId },
+						performedBy,
+					},
+					tx,
+				)
+			}
+		}
 
 		return { newRoutine: newRoutineId, oldRoutine: oldRoutineId, deadlinePolicy }
 	})
