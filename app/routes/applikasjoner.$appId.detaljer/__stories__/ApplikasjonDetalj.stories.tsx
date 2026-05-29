@@ -130,6 +130,24 @@ export const RutinerFane: Story = {
 		renderWithLoader(ApplikasjonDetalj, mockAppDetaljerData(), "/applikasjoner/app-1/detaljer?fane=rutiner"),
 }
 
+export const OppfolgingspunkterFane: Story = {
+	name: "Oppfølgingspunkter-fanen (med åpne og løste punkter)",
+	render: () =>
+		renderWithLoader(ApplikasjonDetalj, mockAppDetaljerData(), "/applikasjoner/app-1/detaljer?fane=oppfolgingspunkter"),
+}
+
+export const OppfolgingspunkterFaneEmpty: Story = {
+	name: "Oppfølgingspunkter-fanen (ingen punkter)",
+	render: () =>
+		renderWithLoader(
+			ApplikasjonDetalj,
+			mockAppDetaljerData({
+				completedReviews: [],
+			}),
+			"/applikasjoner/app-1/detaljer?fane=oppfolgingspunkter",
+		),
+}
+
 export const ErOkonomisystem: Story = {
 	name: "Klassifisert som økonomisystem",
 	render: () =>

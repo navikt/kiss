@@ -26,6 +26,7 @@ import { GitHubTilgangerTab } from "./tabs/GitHubTilgangerTab"
 import { KontrollerTab } from "./tabs/KontrollerTab"
 import { LenkedeAppsTab } from "./tabs/LenkedeAppsTab"
 import { MiljoerTab } from "./tabs/MiljoerTab"
+import { OppfolgingspunkterTab } from "./tabs/OppfolgingspunkterTab"
 import { PersisteringTab } from "./tabs/PersisteringTab"
 import { RapporterTab } from "./tabs/RapporterTab"
 import { RegelsettTab } from "./tabs/RegelsettTab"
@@ -88,6 +89,29 @@ export default function ApplikasjonDetalj() {
 			? effectiveGitRepository
 			: `https://github.com/${effectiveGitRepository}`
 		: `https://github.com/navikt/${app.name}`
+
+	// Flatten follow-up points from finalized reviews (not drafts)
+	const followUpPoints = completedReviews
+		.filter((r) => r.status === "completed" || r.status === "needs_follow_up")
+		.flatMap((r) =>
+			r.followUpPoints.map((p) => ({
+				id: p.id,
+				reviewId: r.id,
+				routineId: r.routineId,
+				routineName: r.routineName,
+				sectionId: r.sectionId,
+				reviewTitle: r.title,
+				reviewedAt: r.reviewedAt,
+				text: p.text,
+				description: p.description,
+				resolution: p.resolution,
+				status: p.status as "needs_follow_up" | "completed" | "not_relevant",
+				createdBy: p.createdBy,
+				resolvedAt: p.resolvedAt,
+				resolvedBy: p.resolvedBy,
+			})),
+		)
+	const openFollowUpCount = followUpPoints.filter((p) => p.status === "needs_follow_up").length
 
 	return (
 		<VStack gap="space-24">
@@ -268,6 +292,10 @@ export default function ApplikasjonDetalj() {
 					{oracleInstances.length > 0 && <Tabs.Tab value="revisjonsbevis" label="Revisjonsbevis" />}
 					{linkedApps.length > 0 && <Tabs.Tab value="lenkede-applikasjoner" label="Lenkede applikasjoner" />}
 					{effectiveGitRepository && <Tabs.Tab value="github-tilganger" label="GitHub-tilganger" />}
+					<Tabs.Tab
+						value="oppfolgingspunkter"
+						label={openFollowUpCount > 0 ? `Oppfølgingspunkter (${openFollowUpCount})` : "Oppfølgingspunkter"}
+					/>
 					<Tabs.Tab value="rapporter" label="Rapporter" />
 				</Tabs.List>
 
@@ -363,6 +391,10 @@ export default function ApplikasjonDetalj() {
 						/>
 					</Tabs.Panel>
 				)}
+
+				<Tabs.Panel value="oppfolgingspunkter" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<OppfolgingspunkterTab followUpPoints={followUpPoints} sectionSlugMap={sectionSlugMap} />
+				</Tabs.Panel>
 
 				<Tabs.Panel value="rapporter" style={{ paddingTop: "var(--ax-space-6)" }}>
 					<RapporterTab appReports={appReports} completedReviews={completedReviews} />
