@@ -111,22 +111,18 @@ describe("startSectionBatchReport", () => {
 	it("marks sync job running and completed on success", async () => {
 		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
 		await startSectionBatchReport(baseParams)
-		// Allow background generation to complete
-		await new Promise((r) => setTimeout(r, 50))
+		await vi.waitFor(() => expect(mockMarkSyncJobCompleted).toHaveBeenCalled())
 
 		expect(mockMarkSyncJobRunning).toHaveBeenCalledWith("job-1", "Z123456", expect.any(String))
-		expect(mockMarkSyncJobCompleted).toHaveBeenCalled()
 		expect(mockMarkSyncJobFailed).not.toHaveBeenCalled()
 	})
 
 	it("marks report running then updates status on success", async () => {
 		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
 		await startSectionBatchReport(baseParams)
-		await new Promise((r) => setTimeout(r, 50))
+		await vi.waitFor(() => expect(mockDbUpdate).toHaveBeenCalled())
 
 		expect(mockUpdateReportStatus).toHaveBeenCalledWith("report-1", "running", expect.any(String))
-		// Final update is done directly via db.update (not via updateReportStatus)
-		expect(mockDbUpdate).toHaveBeenCalled()
 	})
 
 	it("completes with 0 included apps when buildAppComplianceArtifact throws for all apps", async () => {
@@ -134,10 +130,9 @@ describe("startSectionBatchReport", () => {
 
 		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
 		await startSectionBatchReport({ ...baseParams, selectedAppIds: ["app-1"] })
-		await new Promise((r) => setTimeout(r, 50))
+		await vi.waitFor(() => expect(mockMarkSyncJobCompleted).toHaveBeenCalled())
 
 		// Artifact failure is per-app — loop continues and job completes with 0 included apps
-		expect(mockMarkSyncJobCompleted).toHaveBeenCalled()
 		expect(mockMarkSyncJobFailed).not.toHaveBeenCalled()
 		expect(mockDbUpdate).toHaveBeenCalled()
 	})
@@ -147,7 +142,7 @@ describe("startSectionBatchReport", () => {
 
 		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
 		await startSectionBatchReport(baseParams)
-		await new Promise((r) => setTimeout(r, 50))
+		await vi.waitFor(() => expect(mockMarkSyncJobFailed).toHaveBeenCalled())
 
 		expect(mockMarkSyncJobFailed).toHaveBeenCalledWith(
 			"job-1",
@@ -168,10 +163,9 @@ describe("startSectionBatchReport", () => {
 
 		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
 		await startSectionBatchReport(baseParams)
-		await new Promise((r) => setTimeout(r, 50))
+		await vi.waitFor(() => expect(mockDbUpdate).toHaveBeenCalled())
 
 		// Report was already set to completed via db.update — markSyncJobFailed must NOT be called
-		expect(mockDbUpdate).toHaveBeenCalled()
 		expect(mockMarkSyncJobFailed).not.toHaveBeenCalled()
 	})
 })

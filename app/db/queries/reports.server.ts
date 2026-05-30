@@ -55,7 +55,7 @@ export async function getReportsForSection(sectionId: string) {
 	return db
 		.select()
 		.from(reports)
-		.where(and(sql`${reports.scope} = 'section_batch'`, eq(reports.scopeId, sectionId)))
+		.where(and(eq(reports.scope, "section_batch"), eq(reports.scopeId, sectionId)))
 		.orderBy(desc(reports.createdAt))
 }
 
