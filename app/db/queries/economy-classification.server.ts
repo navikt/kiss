@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from "drizzle-orm"
+import { and, eq, inArray, isNull, lt } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationEconomyClassifications, type EconomySystemType } from "../schema/applications"
 import { screeningAnswers } from "../schema/screening"
@@ -47,23 +47,43 @@ export async function getEconomyClassifications(applicationIds: string[]): Promi
  * Count economy-system applications in a section. Uses getFilteredSectionAppIds
  * — the same shared filtering path as the /okonomisystemer page — so the card
  * count and the list cannot diverge.
+ *
+ * Returns both the total count and how many have an expired classification
+ * (validUntil < now). Both counts include expired classifications.
  */
-export async function countSectionEconomySystems(sectionId: string): Promise<number> {
+export async function countSectionEconomySystems(
+	sectionId: string,
+): Promise<{ totalCount: number; expiredCount: number }> {
 	const filteredIds = await getFilteredSectionAppIds(sectionId)
-	if (filteredIds.length === 0) return 0
+	if (filteredIds.length === 0) return { totalCount: 0, expiredCount: 0 }
 
-	const rows = await db
-		.select({ applicationId: applicationEconomyClassifications.applicationId })
-		.from(applicationEconomyClassifications)
-		.where(
-			and(
-				inArray(applicationEconomyClassifications.applicationId, filteredIds),
-				isNull(applicationEconomyClassifications.archivedAt),
-				eq(applicationEconomyClassifications.isEconomySystem, true),
+	const now = new Date()
+
+	const [allRows, expiredRows] = await Promise.all([
+		db
+			.select({ applicationId: applicationEconomyClassifications.applicationId })
+			.from(applicationEconomyClassifications)
+			.where(
+				and(
+					inArray(applicationEconomyClassifications.applicationId, filteredIds),
+					isNull(applicationEconomyClassifications.archivedAt),
+					eq(applicationEconomyClassifications.isEconomySystem, true),
+				),
 			),
-		)
+		db
+			.select({ applicationId: applicationEconomyClassifications.applicationId })
+			.from(applicationEconomyClassifications)
+			.where(
+				and(
+					inArray(applicationEconomyClassifications.applicationId, filteredIds),
+					isNull(applicationEconomyClassifications.archivedAt),
+					eq(applicationEconomyClassifications.isEconomySystem, true),
+					lt(applicationEconomyClassifications.validUntil, now),
+				),
+			),
+	])
 
-	return rows.length
+	return { totalCount: allRows.length, expiredCount: expiredRows.length }
 }
 
 /** Get all active economy classifications (for admin overview). */

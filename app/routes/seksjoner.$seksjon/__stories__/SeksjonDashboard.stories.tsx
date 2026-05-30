@@ -19,7 +19,17 @@ export const IngenOkonomisystemer: Story = {
 	render: () =>
 		renderWithLoader(
 			SeksjonDashboard,
-			{ ...mockSeksjonDetailData(), economySystemCount: 0 },
+			{ ...mockSeksjonDetailData(), economySystemCount: 0, economySystemExpiredCount: 0 },
+			"/seksjoner/pensjon-og-ufore",
+		),
+}
+
+export const MedUtlopteOkonomisystemer: Story = {
+	name: "Med utløpte økonomisystemer",
+	render: () =>
+		renderWithLoader(
+			SeksjonDashboard,
+			{ ...mockSeksjonDetailData(), economySystemCount: 5, economySystemExpiredCount: 3 },
 			"/seksjoner/pensjon-og-ufore",
 		),
 }
@@ -45,6 +55,11 @@ export const IngenTeam: Story = {
 				totalMangler: 0,
 				overallPercent: 0,
 				economySystemCount: 0,
+				economySystemExpiredCount: 0,
+				screenedCount: 0,
+				routinesGjennomfort: 0,
+				routinesIkkeGjennomfort: 0,
+				needsFollowUpApps: 0,
 			},
 			"/seksjoner/pensjon-og-ufore",
 		),

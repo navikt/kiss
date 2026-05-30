@@ -56,6 +56,7 @@ const preview: Preview = {
 		options: {
 			storySort: {
 				method: "alphabetical",
+				order: ["Fullskjerm", "Sider", "Komponenter", "Components", "Screening", "*"],
 			},
 		},
 	},
