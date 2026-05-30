@@ -1,6 +1,12 @@
+import { Readable } from "node:stream"
+import { eq } from "drizzle-orm"
 import PDFDocument from "pdfkit"
 import type { LoaderFunctionArgs } from "react-router"
+import { db } from "~/db/connection.server"
 import { getReport } from "~/db/queries/reports.server"
+import { sections } from "~/db/schema/organization"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { canManageSection, isAuditor } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 interface ReportSnapshot {
@@ -37,29 +43,58 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const rapportId = params.rapportId
 	if (!rapportId) throw new Response("Mangler rapport-ID", { status: 400 })
 
+	const user = await requireAuthenticatedUser(request)
+
 	const report = await getReport(rapportId)
 	if (!report) throw new Response("Rapport ikke funnet", { status: 404 })
+
+	// Enforce access for section-batch reports
+	if (report.reportType === "section_batch") {
+		if (!report.scopeId) throw new Response("Rapport mangler seksjon-ID", { status: 500 })
+		const [section] = await db.select().from(sections).where(eq(sections.id, report.scopeId)).limit(1)
+		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+		if (!canManageSection(user, report.scopeId) && !isAuditor(user)) {
+			throw new Response("Ikke autorisert", { status: 403 })
+		}
+
+		// Batch reports: distinguish failed vs. not-ready vs. broken invariant
+		if (!report.reportBucketPath) {
+			if (report.status === "failed") {
+				throw new Response(report.progressMessage ?? "Rapportgenerering feilet", { status: 503 })
+			}
+			if (report.status === "completed") {
+				// Data-invariant brutt: completed uten bucketPath
+				throw new Response("Rapport mangler fil", { status: 500 })
+			}
+			throw new Response("Rapport er ikke klar for nedlasting ennå", { status: 409 })
+		}
+	}
 
 	const url = new URL(request.url)
 	const forceDownload = url.searchParams.get("download") === "true"
 	const storage = getStorageProvider()
 	const safeName = report.name.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_")
 
-	// App compliance reports — serve PDF or zip from bucket
-	if (report.reportType === "app_compliance" && report.reportBucketPath) {
+	// App compliance and section batch reports — serve PDF or zip from bucket
+	if ((report.reportType === "app_compliance" || report.reportType === "section_batch") && report.reportBucketPath) {
 		try {
-			const buffer = await storage.download(report.reportBucketPath)
 			const isZip = report.reportBucketPath.endsWith(".zip")
 			const ext = isZip ? "zip" : "pdf"
 			const contentType = isZip ? "application/zip" : "application/pdf"
-			// Zip files always download as attachment; PDFs can be inline
 			const disposition =
 				forceDownload || isZip ? `attachment; filename="${safeName}.${ext}"` : `inline; filename="${safeName}.${ext}"`
+			// Stream ZIP files to avoid buffering large archives in memory
+			if (isZip) {
+				const fileExists = await storage.exists(report.reportBucketPath)
+				if (!fileExists) throw new Response("Rapportfil ikke funnet i lagring", { status: 404 })
+				const nodeStream = storage.downloadStream(report.reportBucketPath)
+				return new Response(Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>, {
+					headers: { "Content-Type": contentType, "Content-Disposition": disposition },
+				})
+			}
+			const buffer = await storage.download(report.reportBucketPath)
 			return new Response(new Uint8Array(buffer), {
-				headers: {
-					"Content-Type": contentType,
-					"Content-Disposition": disposition,
-				},
+				headers: { "Content-Type": contentType, "Content-Disposition": disposition },
 			})
 		} catch {
 			throw new Response("Kunne ikke laste rapport", { status: 500 })
@@ -67,6 +102,9 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	}
 
 	// Standard compliance reports regenerate from snapshot
+	if (!report.snapshotBucketPath) {
+		throw new Response("Rapport mangler snapshot", { status: 500 })
+	}
 	let snapshot: ReportSnapshot
 	try {
 		const buf = await storage.download(report.snapshotBucketPath)

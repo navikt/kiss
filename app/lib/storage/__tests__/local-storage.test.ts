@@ -2,6 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Readable } from "node:stream"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { LocalStorageProvider } from "../local.server"
 
@@ -111,6 +112,64 @@ describe("LocalStorageProvider", () => {
 
 		it("does not throw on missing file", async () => {
 			await expect(provider.delete("ghost.txt")).resolves.toBeUndefined()
+		})
+	})
+
+	describe("uploadStream", () => {
+		it("writes streamed data to disk and returns correct metadata", async () => {
+			const content = "streamed content"
+			const stream = Readable.from([Buffer.from(content)])
+			const result = await provider.uploadStream("stream/test.txt", stream, { contentType: "text/plain" })
+
+			expect(result.path).toBe("stream/test.txt")
+			expect(result.sizeBytes).toBe(content.length)
+			expect(result.contentType).toBe("text/plain")
+
+			const onDisk = await readFile(join(testDir, "stream/test.txt"), "utf-8")
+			expect(onDisk).toBe(content)
+		})
+
+		it("stores metadata sidecar file on streamed upload", async () => {
+			const stream = Readable.from([Buffer.from("data")])
+			await provider.uploadStream("stream/meta.bin", stream, {
+				metadata: { uploadedBy: "test-user" },
+			})
+
+			const metaPath = join(testDir, "stream/meta.bin.__meta__.json")
+			expect(existsSync(metaPath)).toBe(true)
+			const meta = JSON.parse(await readFile(metaPath, "utf-8"))
+			expect(meta.uploadedBy).toBe("test-user")
+		})
+	})
+
+	describe("downloadStream", () => {
+		it("streams the same bytes as download()", async () => {
+			const content = "stream me"
+			await writeFile(join(testDir, "streamable.txt"), content)
+
+			const chunks: Buffer[] = []
+			const stream = provider.downloadStream("streamable.txt")
+			await new Promise<void>((resolve, reject) => {
+				stream.on("data", (chunk: Buffer) => chunks.push(chunk))
+				stream.on("end", resolve)
+				stream.on("error", reject)
+			})
+
+			const streamed = Buffer.concat(chunks).toString("utf-8")
+			const buffered = (await provider.download("streamable.txt")).toString("utf-8")
+			expect(streamed).toBe(buffered)
+			expect(streamed).toBe(content)
+		})
+
+		it("emits error for missing file", async () => {
+			const stream = provider.downloadStream("nonexistent.txt")
+			await expect(
+				new Promise<void>((resolve, reject) => {
+					stream.on("data", () => {})
+					stream.on("end", resolve)
+					stream.on("error", reject)
+				}),
+			).rejects.toThrow()
 		})
 	})
 

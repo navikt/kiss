@@ -2266,3 +2266,32 @@ export function mockGjennomgangDetaljRpaMaintenanceData() {
 		activityLinks: [{ id: "link-rpa-1", activityType: "rpa_user_maintenance" }],
 	}
 }
+
+export function mockRapporterData(overrides?: {
+	apps?: Array<{ id: string; name: string; isEconomySystem: boolean | null; economySystemType: string | null }>
+	existingReports?: Array<{
+		id: string
+		name: string
+		status: string
+		progressMessage: string | null
+		reportBucketPath: string | null
+		createdAt: string
+		createdBy: string
+	}>
+	canManage?: boolean
+}) {
+	return {
+		seksjon: "pensjon-og-ufore",
+		seksjonId: "seksjon-1",
+		seksjonName: "Pensjon og uføre",
+		apps: overrides?.apps ?? [
+			{ id: "app-1", name: "Pesys", isEconomySystem: true, economySystemType: "regnskapssystem" },
+			{ id: "app-2", name: "Fp-sak", isEconomySystem: false, economySystemType: null },
+			{ id: "app-3", name: "Melosys", isEconomySystem: null, economySystemType: null },
+			{ id: "app-4", name: "Rekrutteringsbistand", isEconomySystem: false, economySystemType: null },
+			{ id: "app-5", name: "Salesforce", isEconomySystem: true, economySystemType: "lonnssystem" },
+		],
+		existingReports: overrides?.existingReports ?? [],
+		canManage: overrides?.canManage ?? true,
+	}
+}

@@ -90,12 +90,21 @@ export function canManageTeam(user: NavUser, devTeamId: string): boolean {
 	)
 }
 
+/** Kan se seksjonsrapporter (admin, seksjonsleder, teknologileder for seksjonen, eller revisor) */
+export function canViewSectionReports(user: NavUser, sectionId: string): boolean {
+	return canManageSection(user, sectionId) || isAuditor(user)
+}
+
+export function requireSectionReportAccess(user: NavUser, sectionId: string): void {
+	if (!canViewSectionReports(user, sectionId)) {
+		throw new Response("Ikke autorisert", { status: 403 })
+	}
+}
+
 /** Kan tildele roller (kun admin) */
 export function canAssignRoles(user: NavUser): boolean {
 	return isAdmin(user)
 }
-
-/** Kan godkjenne en rutine basert på ansvarlig rolle */
 export function canApproveRoutine(user: NavUser, responsibleRole: string | null, sectionId: string): boolean {
 	if (isAdmin(user)) return true
 	if (!responsibleRole) return false
