@@ -1,3 +1,5 @@
+import type { Readable } from "node:stream"
+
 /** Storage provider abstraction for file storage (GCS buckets in prod, local filesystem in dev). */
 
 export interface StorageResult {
@@ -9,6 +11,9 @@ export interface StorageResult {
 export interface StorageProvider {
 	/** Upload a file to storage. */
 	upload(path: string, data: Buffer, options?: UploadOptions): Promise<StorageResult>
+
+	/** Upload a readable stream to storage. Use for large files to avoid buffering everything in memory. */
+	uploadStream(path: string, stream: Readable, options?: UploadOptions): Promise<StorageResult>
 
 	/** Download a file from storage. */
 	download(path: string): Promise<Buffer>

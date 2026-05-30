@@ -91,6 +91,7 @@ export default [
 	route("seksjoner/:seksjon/oracle-roller", "routes/seksjoner.$seksjon.oracle-roller/index.tsx"),
 	route("seksjoner/:seksjon/rpa-brukere", "routes/seksjoner.$seksjon.rpa-brukere/index.tsx"),
 	route("seksjoner/:seksjon/okonomisystemer", "routes/seksjoner.$seksjon.okonomisystemer/index.tsx"),
+	route("seksjoner/:seksjon/rapporter", "routes/seksjoner.$seksjon.rapporter/index.tsx"),
 	route("seksjoner/:seksjon/koblingsforslag", "routes/seksjoner.$seksjon.koblingsforslag/index.tsx"),
 	route("seksjoner/:seksjon/screening", "routes/seksjoner.$seksjon.screening/index.tsx"),
 	route(

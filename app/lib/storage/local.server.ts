@@ -1,6 +1,8 @@
-import { existsSync } from "node:fs"
+import { createWriteStream, existsSync } from "node:fs"
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
+import type { Readable } from "node:stream"
+import { pipeline } from "node:stream/promises"
 import { lookup } from "mime-types"
 import type { StorageProvider, StorageResult, UploadOptions } from "./types"
 
@@ -34,6 +36,19 @@ export class LocalStorageProvider implements StorageProvider {
 			sizeBytes: data.byteLength,
 			contentType,
 		}
+	}
+
+	async uploadStream(path: string, stream: Readable, options?: UploadOptions): Promise<StorageResult> {
+		const fullPath = this.resolve(path)
+		await mkdir(dirname(fullPath), { recursive: true })
+		const writeStream = createWriteStream(fullPath)
+		await pipeline(stream, writeStream)
+		const { size } = await stat(fullPath)
+		const contentType = options?.contentType ?? (lookup(path) || "application/octet-stream")
+		if (options?.metadata) {
+			await writeFile(`${fullPath}.__meta__.json`, JSON.stringify(options.metadata, null, "\t"))
+		}
+		return { path, sizeBytes: size, contentType }
 	}
 
 	async download(path: string): Promise<Buffer> {

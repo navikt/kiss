@@ -9,7 +9,7 @@ import { countSectionEconomySystems } from "~/db/queries/economy-classification.
 import { getSectionDetail } from "~/db/queries/sections.server"
 import { useFeatureFlags } from "~/hooks/useFeatureFlags"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
+import { canViewSectionReports, isAdmin } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -52,6 +52,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		totalControls,
 		overallPercent,
 		canAdmin: user ? isAdmin(user) : false,
+		canViewReports: user ? canViewSectionReports(user, result.section.id) : false,
 		deploymentStats,
 		economySystemCount,
 	})
@@ -69,6 +70,7 @@ export default function SeksjonDashboard() {
 		totalMangler,
 		overallPercent,
 		canAdmin,
+		canViewReports,
 		deploymentStats,
 		economySystemCount,
 	} = useLoaderData<typeof loader>()
@@ -114,6 +116,11 @@ export default function SeksjonDashboard() {
 				<Button as={Link} to={`/seksjoner/${seksjon}/audit-logging`} variant="secondary" size="small">
 					Audit logging
 				</Button>
+				{canViewReports && (
+					<Button as={Link} to={`/seksjoner/${seksjon}/rapporter`} variant="secondary" size="small">
+						Rapporter
+					</Button>
+				)}
 				{canAdmin && (
 					<Button as={Link} to={`/seksjoner/${seksjon}/koblingsforslag`} variant="secondary" size="small">
 						Koblingsforslag
