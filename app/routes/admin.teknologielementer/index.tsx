@@ -23,7 +23,7 @@ import {
 	unarchiveTechnologyElement,
 	updateTechnologyElement,
 } from "~/db/queries/technology-elements.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 
 interface ElementRow {
@@ -38,8 +38,7 @@ interface ElementRow {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	if (!isAdmin(authedUser)) {
 		throw new Response("Ikke tilgang", { status: 403 })
 	}
@@ -67,8 +66,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	if (!isAdmin(authedUser)) return data<ActionResult>({ success: false, error: "Ikke tilgang" }, { status: 403 })
 	const userId = authedUser.navIdent
 

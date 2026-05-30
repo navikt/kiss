@@ -17,7 +17,7 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import type { ReviewActivityProviderConfig } from "~/db/schema/routines"
 import type { RoutineActivityType } from "~/lib/activity-types"
 import { activityTypeLabels, getProviderTypeForActivity } from "~/lib/activity-types"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
 
 function isUniqueViolation(err: unknown): boolean {
@@ -106,8 +106,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
 	}
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const formData = await request.formData()
 	const title = (formData.get("title") as string)?.trim()

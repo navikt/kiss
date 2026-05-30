@@ -44,7 +44,7 @@ import {
 	type PersistenceType,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
 import { canApproveRoutine, hasAnySectionRole, isAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
@@ -152,8 +152,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) throw data({ message: "Mangler parametere" }, { status: 400 })
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })

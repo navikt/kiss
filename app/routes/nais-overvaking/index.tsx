@@ -26,7 +26,7 @@ import {
 	updateNaisTeamStatus,
 } from "~/db/queries/nais.server"
 import { getSections } from "~/db/queries/sections.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
 
 export async function loader(_args: LoaderFunctionArgs) {
@@ -60,8 +60,7 @@ export async function loader(_args: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	const formData = await request.formData()
 	const intent = formData.get("intent")
 	const userName = authedUser.navIdent

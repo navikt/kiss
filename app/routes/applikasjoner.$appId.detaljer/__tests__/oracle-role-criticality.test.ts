@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: (...args: unknown[]) => mockRequireUser(...args),
+	requireAuthenticatedUser: (...args: unknown[]) => mockRequireAuthenticatedUser(...args),
 }))
 
 const mockIsAdmin = vi.fn(() => true)
@@ -102,8 +100,7 @@ async function callAction(formData: FormData, appId = "app-1") {
 describe("applikasjoner.$appId.detaljer action – set-oracle-role-criticality", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
-		mockGetAuthenticatedUser.mockResolvedValue(fakeUser)
-		mockRequireUser.mockReturnValue(fakeUser)
+		mockRequireAuthenticatedUser.mockResolvedValue(fakeUser)
 		mockIsAdmin.mockReturnValue(true)
 		mockIsInstanceLinkedToApp.mockResolvedValue(true)
 		mockUpsertOracleRoleCriticality.mockResolvedValue({})

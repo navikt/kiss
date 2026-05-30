@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: mockRequireUser,
+	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
 const mockLinkNaisTeamToSection = vi.fn()
@@ -62,8 +60,7 @@ const testUser = {
 describe("nais-overvaking action – section linking", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
-		mockGetAuthenticatedUser.mockResolvedValue(testUser)
-		mockRequireUser.mockReturnValue(testUser)
+		mockRequireAuthenticatedUser.mockResolvedValue(testUser)
 		mockGetNaisTeams.mockResolvedValue([])
 		mockGetNaisTeamAppCounts.mockResolvedValue(new Map())
 		mockGetLastSyncTimestamp.mockResolvedValue(null)

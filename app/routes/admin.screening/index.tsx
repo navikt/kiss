@@ -18,13 +18,12 @@ import {
 	unarchiveScreeningQuestion,
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const url = new URL(request.url)
@@ -71,8 +70,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const formData = await request.formData()

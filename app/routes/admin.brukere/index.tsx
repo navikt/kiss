@@ -22,12 +22,11 @@ import { getAllTeams } from "~/db/queries/applications.server"
 import { getSections } from "~/db/queries/sections.server"
 import { assignRole, listUsersWithRoles, removeRole, type UserWithRoles } from "~/db/queries/users.server"
 import { roleScopeMap, type UserRole, userRoleEnum, userRoleLabels } from "~/db/schema/organization"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const [users, sections, teams] = await Promise.all([listUsersWithRoles(), getSections(), getAllTeams()])
@@ -42,8 +41,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const formData = await request.formData()

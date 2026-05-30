@@ -7,7 +7,7 @@ import {
 	stageOperation,
 	updateScreeningSessionParticipants,
 } from "~/db/queries/screening-sessions.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { logger } from "~/lib/logger.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
 
@@ -25,8 +25,7 @@ const STAGED_INTENTS = new Set([
 ])
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	const appId = params.appId
 	const sessionId = params.sessionId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })

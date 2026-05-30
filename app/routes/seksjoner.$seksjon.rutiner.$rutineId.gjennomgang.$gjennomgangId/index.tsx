@@ -29,7 +29,7 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applications"
 import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus, RPA_DECISION_VALUES } from "~/db/schema/routines"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import {
 	type EntraCriticality,
 	entraCriticalityValues,
@@ -606,8 +606,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
 	}
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string

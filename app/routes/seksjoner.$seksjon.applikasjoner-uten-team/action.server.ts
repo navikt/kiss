@@ -3,12 +3,11 @@ import { redirect } from "react-router"
 import { linkAppToTeam } from "~/db/queries/applications.server"
 import { getUnassignedAppsForSection } from "~/db/queries/nais.server"
 import { getSectionDetail, getTeamsForSection } from "~/db/queries/sections.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageTeam } from "~/lib/authorization.server"
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })

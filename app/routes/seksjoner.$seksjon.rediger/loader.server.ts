@@ -9,12 +9,11 @@ import {
 	getUnlinkedNaisTeams,
 } from "~/db/queries/nais.server"
 import { getSectionDetail, getTeamsForSection } from "~/db/queries/sections.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const seksjon = params.seksjon

@@ -3,7 +3,7 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import { countSyncJobSummaries, listSyncJobSummaries } from "~/db/queries/sync-jobs.server"
 import type { SyncJobState } from "~/db/schema/sync-jobs"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getSyncJobStateLabel, getSyncJobStateTagVariant, SYNC_JOB_STATE_VALUES } from "~/lib/sync-job-state-tags"
 import { ALL_SYNC_JOB_TYPES } from "~/lib/sync-job-types"
@@ -17,8 +17,7 @@ const SYNC_JOB_STATES: Array<{ value: SyncJobState; label: string }> = SYNC_JOB_
 }))
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const url = new URL(request.url)

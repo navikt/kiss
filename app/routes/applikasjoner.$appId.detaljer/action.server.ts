@@ -24,7 +24,7 @@ import {
 	persistenceTypeEnum,
 } from "~/db/schema/applications"
 import { activityTypeLabels } from "~/lib/activity-types"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { logger } from "~/lib/logger.server"
 
@@ -32,8 +32,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const formData = await request.formData()
 	const intent = formData.get("intent")

@@ -9,7 +9,7 @@ import {
 	getPendingFrameworkImport,
 	stageFrameworkImport,
 } from "~/db/queries/framework.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import {
 	type ParsedFramework,
@@ -61,8 +61,7 @@ async function loadPreviousParsed(): Promise<ParsedFramework | undefined> {
 const TOO_LARGE_ERROR = `Lagret fil er større enn ${MAX_SIZE_MB} MB. Kontakt en administrator.`
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 	const userName = authedUser.navIdent
 	const formData = await request.formData()

@@ -4,7 +4,7 @@ import { getAvailableTeamsForApp } from "~/db/queries/applications.server"
 import { getOracleInstancesForApp } from "~/db/queries/audit-evidence.server"
 import { findLinkCandidates, getApplicationDetail } from "~/db/queries/nais.server"
 import { getAllTechnologyElements, getApplicationElements } from "~/db/queries/technology-elements.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
 import { getOracleInstances } from "~/lib/oracle-revisjon.server"
@@ -13,8 +13,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const breadcrumbCtx = await (async () => {

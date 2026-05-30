@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs } from "react-router"
 import { getFollowUpPointAttachmentContext } from "~/db/queries/routines.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import {
 	FOLLOW_UP_POINT_ATTACHMENT_MAX_SIZE_BYTES,
 	storeFollowUpPointAttachment,
@@ -16,8 +16,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return Response.json({ success: false, error: "Ugyldig metode" }, { status: 405 })
 	}
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const ctx = await getFollowUpPointAttachmentContext(pointId)
 	if (!ctx) {

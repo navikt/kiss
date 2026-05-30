@@ -58,7 +58,7 @@ import {
 } from "~/db/schema/applications"
 import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType, type RoutineStatus } from "~/db/schema/routines"
 import { screeningQuestionStatusConfig } from "~/db/schema/screening"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canApproveRoutine, isAdmin, requireAdmin, requireAnySectionRole } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
@@ -97,8 +97,7 @@ interface PersistenceLinkItem {
 type FieldErrors = RoutineFieldErrors
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) throw new Response("Mangler parametere", { status: 400 })
@@ -159,8 +158,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) throw new Response("Mangler parametere", { status: 400 })

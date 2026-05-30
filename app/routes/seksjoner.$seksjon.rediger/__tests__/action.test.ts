@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: mockRequireUser,
+	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
 const mockRequireAdmin = vi.fn()
@@ -86,8 +84,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 
 	describe("authorization", () => {
 		it("rejects non-admin users with 403", async () => {
-			mockGetAuthenticatedUser.mockResolvedValue(regularUser)
-			mockRequireUser.mockReturnValue(regularUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(regularUser)
 			mockRequireAdmin.mockImplementation(() => {
 				throw new Response("Ikke autorisert", { status: 403 })
 			})
@@ -110,8 +107,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 
 	describe("update-section", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
 			mockRequireAdmin.mockImplementation(() => {})
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 		})
@@ -170,8 +166,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 
 	describe("create-team", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
 			mockRequireAdmin.mockImplementation(() => {})
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 		})
@@ -214,8 +209,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 
 	describe("link-nais-team", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
 			mockRequireAdmin.mockImplementation(() => {})
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 		})
@@ -256,8 +250,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 
 	describe("unlink-nais-team", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
 			mockRequireAdmin.mockImplementation(() => {})
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 		})
@@ -298,8 +291,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 
 	describe("link-team", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
 			mockRequireAdmin.mockImplementation(() => {})
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 		})
@@ -349,8 +341,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 
 	describe("unignore-app", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
 			mockRequireAdmin.mockImplementation(() => {})
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 		})
@@ -384,8 +375,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 
 	describe("unknown intent", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
 			mockRequireAdmin.mockImplementation(() => {})
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 		})

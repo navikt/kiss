@@ -11,7 +11,7 @@ import { type ActionFunctionArgs, data } from "react-router"
 import { getActivityContext } from "~/db/queries/evidence-downloads.server"
 import { savePeriodConfig } from "~/db/queries/routines.server"
 import { isDeploymentEvidenceActivityType } from "~/lib/activity-types"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
 import { isPeriodEnded, isValidPeriodStart, isValidPeriodType, PERIOD_TYPES } from "~/lib/period-validation"
 import { isValidUuid } from "~/lib/utils"
@@ -23,8 +23,7 @@ export async function action({ request }: ActionFunctionArgs) {
 		throw data({ error: "Method not allowed" }, { status: 405 })
 	}
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const formData = await request.formData()
 	const activityId = formData.get("activityId")

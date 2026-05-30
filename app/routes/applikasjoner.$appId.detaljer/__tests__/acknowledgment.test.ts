@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: (...args: unknown[]) => mockRequireUser(...args),
+	requireAuthenticatedUser: (...args: unknown[]) => mockRequireAuthenticatedUser(...args),
 }))
 
 vi.mock("~/lib/authorization.server", () => ({
@@ -79,8 +77,7 @@ async function callAction(formData: FormData, appId = "app-1") {
 describe("applikasjoner.$appId.detaljer action – acknowledgments", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
-		mockGetAuthenticatedUser.mockResolvedValue(fakeUser)
-		mockRequireUser.mockReturnValue(fakeUser)
+		mockRequireAuthenticatedUser.mockResolvedValue(fakeUser)
 	})
 
 	describe("acknowledge-app", () => {

@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: mockRequireUser,
+	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
 const mockRequireAdmin = vi.fn()
@@ -91,8 +89,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 
 	describe("non-admin users receive 403", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(regularUser)
-			mockRequireUser.mockReturnValue(regularUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(regularUser)
 			mockRequireAdmin.mockImplementation(() => {
 				throw new Response("Ikke autorisert", { status: 403 })
 			})
@@ -166,8 +163,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 
 	describe("admin users can perform operations", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireUser.mockReturnValue(adminUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
 			mockRequireAdmin.mockImplementation(() => {})
 		})
 

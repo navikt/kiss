@@ -42,7 +42,7 @@ import {
 	screeningQuestionStatusConfig,
 	validScreeningQuestionStatuses,
 } from "~/db/schema/screening"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getStatusLabel } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -50,8 +50,7 @@ import { applyPendingChoices, parsePendingChoices, validateAndAddChoiceEffect } 
 import type { PendingChoice, PendingEffectItem } from "~/lib/screening-types"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const url = new URL(request.url)
@@ -155,8 +154,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const questionId = params.questionId as string

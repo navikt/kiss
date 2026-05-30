@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: mockRequireUser,
+	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
 const mockRequireAnySectionRole = vi.fn()
@@ -65,8 +63,7 @@ describe("api.evidence-period-config action", () => {
 			token: "test-token",
 			groups: [],
 		}
-		mockGetAuthenticatedUser.mockResolvedValue(user)
-		mockRequireUser.mockReturnValue(user)
+		mockRequireAuthenticatedUser.mockResolvedValue(user)
 		mockRequireAnySectionRole.mockImplementation(() => {})
 		mockGetActivityContext.mockResolvedValue({
 			sectionId: "section-1",

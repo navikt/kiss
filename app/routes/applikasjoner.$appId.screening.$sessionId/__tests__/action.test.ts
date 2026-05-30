@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: (...args: unknown[]) => mockGetAuthenticatedUser(...args),
-	requireUser: (...args: unknown[]) => mockRequireUser(...args),
+	requireAuthenticatedUser: (...args: unknown[]) => mockRequireAuthenticatedUser(...args),
 }))
 
 const mockSaveScreeningSessionAnswer = vi.fn()
@@ -59,8 +57,7 @@ async function callAction(formData: FormData, params = { appId: "app-1", session
 describe("screening session action", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
-		mockGetAuthenticatedUser.mockResolvedValue(fakeUser)
-		mockRequireUser.mockReturnValue(fakeUser)
+		mockRequireAuthenticatedUser.mockResolvedValue(fakeUser)
 		mockGetScreeningSession.mockResolvedValue({
 			id: "session-1",
 			applicationId: "app-1",
@@ -76,7 +73,7 @@ describe("screening session action", () => {
 
 	describe("authentication", () => {
 		it("requires authenticated user", async () => {
-			mockRequireUser.mockImplementation(() => {
+			mockRequireAuthenticatedUser.mockImplementation(() => {
 				throw new Response("Ikke innlogget", { status: 401 })
 			})
 			const fd = new FormData()

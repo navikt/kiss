@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
+const mockRequireAuthenticatedUser = vi.fn()
 const mockGetAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
+	requireAuthenticatedUser: (...args: unknown[]) => mockRequireAuthenticatedUser(...args),
 	getAuthenticatedUser: (...args: unknown[]) => mockGetAuthenticatedUser(...args),
 }))
 
@@ -70,7 +72,7 @@ async function callLoader(params = { appId: "app-1", sessionId: "session-1" }) {
 describe("screening session loader", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
-		mockGetAuthenticatedUser.mockResolvedValue(fakeUser)
+		mockRequireAuthenticatedUser.mockResolvedValue(fakeUser)
 		mockGetStagedOperations.mockResolvedValue([])
 	})
 

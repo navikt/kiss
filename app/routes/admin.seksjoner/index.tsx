@@ -24,7 +24,7 @@ import {
 	unarchiveSection,
 	updateSection,
 } from "~/db/queries/sections.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 
 interface SectionWithTeams {
@@ -43,8 +43,7 @@ interface SectionWithTeams {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const allSections = await getSections({ includeArchived: true })
@@ -77,8 +76,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 	const userId = authedUser.navIdent
 

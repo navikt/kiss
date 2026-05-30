@@ -20,7 +20,7 @@ import {
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { screeningQuestionStatusConfig } from "~/db/schema/screening"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
 import { hasAnySectionRole, requireAnySectionRole } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { requireUuid } from "~/lib/utils"
@@ -61,8 +61,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })

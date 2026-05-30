@@ -1,13 +1,12 @@
 import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { downloadEvidenceFileFromStorage, getSectionIdForDownload } from "~/db/queries/evidence-downloads.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
 import { requireUuid } from "~/lib/utils"
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const downloadId = requireUuid(params.downloadId, "downloadId")
 

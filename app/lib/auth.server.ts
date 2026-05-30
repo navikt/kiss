@@ -149,3 +149,7 @@ export function requireUser(user: NavUser | null): NavUser {
 	}
 	return user
 }
+
+export async function requireAuthenticatedUser(request: Request): Promise<NavUser> {
+	return requireUser(await getAuthenticatedUser(request))
+}
