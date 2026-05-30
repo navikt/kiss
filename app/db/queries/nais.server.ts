@@ -1958,7 +1958,63 @@ export async function getSectionAppIds(sectionId: string): Promise<Set<string>> 
 	return new Set([...teamAppRows.map((r) => r.appId), ...naisAppRows.map((r) => r.appId)])
 }
 
-/** Accept a link suggestion: links the apps and marks suggestion as accepted. */
+/**
+ * Returns filtered effective app IDs for a section, using the same logic as
+ * the /okonomisystemer page so no count/list mismatch is possible:
+ * - Direct dev-team mappings + section-level NAIS team apps (via getSectionAppIds)
+ * - Excludes ignored apps
+ * - Excludes archived and secondary (child) apps
+ * - Excludes apps whose only environments are in excluded clusters
+ */
+export async function getFilteredSectionAppIds(sectionId: string): Promise<string[]> {
+	const allAppIds = [...(await getSectionAppIds(sectionId))]
+	if (allAppIds.length === 0) return []
+
+	const [excludedEnvRows, ignoredRows, eligibleApps] = await Promise.all([
+		db
+			.select({ cluster: sectionEnvironments.cluster })
+			.from(sectionEnvironments)
+			.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false))),
+		db
+			.select({ appId: sectionIgnoredApplications.applicationId })
+			.from(sectionIgnoredApplications)
+			.where(and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt))),
+		db
+			.select({ id: monitoredApplications.id })
+			.from(monitoredApplications)
+			.where(
+				and(
+					inArray(monitoredApplications.id, allAppIds),
+					isNull(monitoredApplications.archivedAt),
+					isNull(monitoredApplications.primaryApplicationId),
+				),
+			),
+	])
+
+	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
+	const ignoredIds = new Set(ignoredRows.map((r) => r.appId))
+	let filteredIds = eligibleApps.map((a) => a.id).filter((id) => !ignoredIds.has(id))
+
+	if (excludedEnvs.size > 0 && filteredIds.length > 0) {
+		const appEnvRows = await db
+			.select({ appId: applicationEnvironments.applicationId, cluster: applicationEnvironments.cluster })
+			.from(applicationEnvironments)
+			.where(inArray(applicationEnvironments.applicationId, filteredIds))
+		const appEnvMap = new Map<string, Set<string>>()
+		for (const row of appEnvRows) {
+			if (!appEnvMap.has(row.appId)) appEnvMap.set(row.appId, new Set())
+			appEnvMap.get(row.appId)!.add(row.cluster)
+		}
+		filteredIds = filteredIds.filter((id) => {
+			const clusters = appEnvMap.get(id)
+			if (!clusters || clusters.size === 0) return true
+			return ![...clusters].every((c) => excludedEnvs.has(c))
+		})
+	}
+
+	return filteredIds
+}
+
 export async function acceptLinkSuggestion(suggestionId: string, performedBy: string) {
 	const [suggestion] = await db.select().from(linkSuggestions).where(eq(linkSuggestions.id, suggestionId)).limit(1)
 

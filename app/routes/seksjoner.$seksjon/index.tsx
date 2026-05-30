@@ -5,6 +5,7 @@ import { ComplianceStatsPlaceholder } from "~/components/ComplianceStatsPlacehol
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
+import { countSectionEconomySystems } from "~/db/queries/economy-classification.server"
 import { getSectionDetail } from "~/db/queries/sections.server"
 import { useFeatureFlags } from "~/hooks/useFeatureFlags"
 import { getAuthenticatedUser } from "~/lib/auth.server"
@@ -20,7 +21,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const result = await getSectionDetail(seksjon)
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
 
-	const deploymentStats = await getDeploymentVerificationAggregate(result.allAppIds)
+	const [deploymentStats, economySystemCount] = await Promise.all([
+		getDeploymentVerificationAggregate(result.allAppIds),
+		countSectionEconomySystems(result.section.id),
+	])
 
 	const seksjonName = result.section.name
 	const teams = result.teams
@@ -49,6 +53,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		overallPercent,
 		canAdmin: user ? isAdmin(user) : false,
 		deploymentStats,
+		economySystemCount,
 	})
 }
 
@@ -65,6 +70,7 @@ export default function SeksjonDashboard() {
 		overallPercent,
 		canAdmin,
 		deploymentStats,
+		economySystemCount,
 	} = useLoaderData<typeof loader>()
 	const { showComplianceStats } = useFeatureFlags()
 
@@ -144,6 +150,16 @@ export default function SeksjonDashboard() {
 							</VStack>
 						</Box>
 					</Link>
+					<Link to={`/seksjoner/${seksjon}/okonomisystemer`} style={{ textDecoration: "none", color: "inherit" }}>
+						<Box padding="space-6" borderRadius="8" background="sunken">
+							<VStack align="center">
+								<Heading size="xlarge" level="3">
+									{economySystemCount}
+								</Heading>
+								<Detail>Økonomisystemer</Detail>
+							</VStack>
+						</Box>
+					</Link>
 					<Box padding="space-6" borderRadius="8" background="sunken">
 						<VStack align="center">
 							<Heading size="xlarge" level="3">
@@ -188,6 +204,16 @@ export default function SeksjonDashboard() {
 										{totalApps}
 									</Heading>
 									<Detail>Applikasjoner</Detail>
+								</VStack>
+							</Box>
+						</Link>
+						<Link to={`/seksjoner/${seksjon}/okonomisystemer`} style={{ textDecoration: "none", color: "inherit" }}>
+							<Box padding="space-6" borderRadius="8" background="sunken">
+								<VStack align="center">
+									<Heading size="xlarge" level="3">
+										{economySystemCount}
+									</Heading>
+									<Detail>Økonomisystemer</Detail>
 								</VStack>
 							</Box>
 						</Link>
