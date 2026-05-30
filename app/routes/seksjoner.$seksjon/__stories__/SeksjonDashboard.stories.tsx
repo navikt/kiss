@@ -14,6 +14,22 @@ export const Default: Story = {
 	render: () => renderWithLoader(SeksjonDashboard, mockSeksjonDetailData(), "/seksjoner/pensjon-og-ufore"),
 }
 
+export const IngenOkonomisystemer: Story = {
+	name: "Ingen økonomisystemer",
+	render: () =>
+		renderWithLoader(
+			SeksjonDashboard,
+			{ ...mockSeksjonDetailData(), economySystemCount: 0 },
+			"/seksjoner/pensjon-og-ufore",
+		),
+}
+
+export const IkkeAdmin: Story = {
+	name: "Ikke admin",
+	render: () =>
+		renderWithLoader(SeksjonDashboard, { ...mockSeksjonDetailData(), canAdmin: false }, "/seksjoner/pensjon-og-ufore"),
+}
+
 export const IngenTeam: Story = {
 	name: "Ingen team",
 	render: () =>
@@ -22,11 +38,13 @@ export const IngenTeam: Story = {
 			{
 				...mockSeksjonDetailData(),
 				teams: [],
+				unassigned: { apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 },
 				totalApps: 0,
 				totalImplemented: 0,
 				totalPartial: 0,
 				totalMangler: 0,
 				overallPercent: 0,
+				economySystemCount: 0,
 			},
 			"/seksjoner/pensjon-og-ufore",
 		),

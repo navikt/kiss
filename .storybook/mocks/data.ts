@@ -215,6 +215,7 @@ export function mockSeksjonDetailData() {
 		overallPercent: 70,
 		canAdmin: true,
 		deploymentStats: mockDeploymentStats(),
+		economySystemCount: 3,
 	}
 }
 

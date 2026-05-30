@@ -1,8 +1,9 @@
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
 import { applicationEconomyClassifications, type EconomySystemType } from "../schema/applications"
 import { screeningAnswers } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
+import { getFilteredSectionAppIds } from "./nais.server"
 
 export type EconomyClassification = typeof applicationEconomyClassifications.$inferSelect
 
@@ -25,7 +26,6 @@ export async function getEconomyClassification(applicationId: string): Promise<E
 export async function getEconomyClassifications(applicationIds: string[]): Promise<Map<string, EconomyClassification>> {
 	if (applicationIds.length === 0) return new Map()
 
-	const { inArray } = await import("drizzle-orm")
 	const rows = await db
 		.select()
 		.from(applicationEconomyClassifications)
@@ -41,6 +41,29 @@ export async function getEconomyClassifications(applicationIds: string[]): Promi
 		map.set(row.applicationId, row)
 	}
 	return map
+}
+
+/**
+ * Count economy-system applications in a section. Uses getFilteredSectionAppIds
+ * — the same shared filtering path as the /okonomisystemer page — so the card
+ * count and the list cannot diverge.
+ */
+export async function countSectionEconomySystems(sectionId: string): Promise<number> {
+	const filteredIds = await getFilteredSectionAppIds(sectionId)
+	if (filteredIds.length === 0) return 0
+
+	const rows = await db
+		.select({ applicationId: applicationEconomyClassifications.applicationId })
+		.from(applicationEconomyClassifications)
+		.where(
+			and(
+				inArray(applicationEconomyClassifications.applicationId, filteredIds),
+				isNull(applicationEconomyClassifications.archivedAt),
+				eq(applicationEconomyClassifications.isEconomySystem, true),
+			),
+		)
+
+	return rows.length
 }
 
 /** Get all active economy classifications (for admin overview). */

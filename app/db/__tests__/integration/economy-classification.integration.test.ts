@@ -10,8 +10,13 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { getEconomyClassification, getEconomyClassifications, getAllEconomyClassifications, saveEconomyClassification } =
-	await import("~/db/queries/economy-classification.server")
+const {
+	getEconomyClassification,
+	getEconomyClassifications,
+	getAllEconomyClassifications,
+	saveEconomyClassification,
+	countSectionEconomySystems,
+} = await import("~/db/queries/economy-classification.server")
 
 async function createTestApp(name: string) {
 	const db = getTestDb()
@@ -51,7 +56,14 @@ describe("Economy classification integration tests", () => {
 			DELETE FROM screening_answers;
 			DELETE FROM screening_questions;
 			DELETE FROM application_economy_classifications;
+			DELETE FROM section_ignored_applications;
+			DELETE FROM section_environments;
+			DELETE FROM application_team_mappings;
+			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
+			DELETE FROM dev_teams;
+			DELETE FROM nais_teams;
+			DELETE FROM sections;
 			DELETE FROM audit_log;
 		`)
 	})
@@ -438,5 +450,187 @@ describe("Economy classification integration tests", () => {
 			expect(appProgress?.total).toBe(1)
 			expect(appProgress?.answered).toBe(0)
 		})
+	})
+})
+
+// ─── countSectionEconomySystems ─────────────────────────────────────────────
+
+describe("countSectionEconomySystems", () => {
+	beforeAll(async () => {
+		await setupTestDatabase()
+	}, 120_000)
+
+	afterAll(async () => {
+		await teardownTestDatabase()
+	})
+
+	async function setup() {
+		const db = getTestDb()
+
+		const [{ id: sectionId }] = (
+			await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('Test seksjon', 'test-seksjon', 'test', 'test') RETURNING id`,
+			)
+		).rows as Array<{ id: string }>
+
+		const [{ id: teamId }] = (
+			await db.execute(
+				/* sql */ `INSERT INTO dev_teams (section_id, name, slug, created_by, updated_by) VALUES ('${sectionId}', 'Team A', 'team-a', 'test', 'test') RETURNING id`,
+			)
+		).rows as Array<{ id: string }>
+
+		async function createApp(name: string): Promise<string> {
+			const [{ id }] = (
+				await db.execute(
+					/* sql */ `INSERT INTO monitored_applications (name, created_by, updated_by) VALUES ('${name}', 'test', 'test') RETURNING id`,
+				)
+			).rows as Array<{ id: string }>
+			await db.execute(
+				/* sql */ `INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES ('${id}', '${teamId}', 'test')`,
+			)
+			return id
+		}
+
+		async function classifyAsEconomy(appId: string) {
+			await saveEconomyClassification({
+				applicationId: appId,
+				isEconomySystem: true,
+				economySystemType: "hjelpesystem",
+				justification: "Test",
+				performedBy: "test",
+			})
+		}
+
+		return { db, sectionId, teamId, createApp, classifyAsEconomy }
+	}
+
+	beforeEach(async () => {
+		const db = getTestDb()
+		await db.execute(/* sql */ `
+			DELETE FROM application_economy_classifications;
+			DELETE FROM section_ignored_applications;
+			DELETE FROM section_environments;
+			DELETE FROM application_team_mappings;
+			DELETE FROM application_environments;
+			DELETE FROM monitored_applications;
+			DELETE FROM dev_teams;
+			DELETE FROM nais_teams;
+			DELETE FROM sections;
+			DELETE FROM audit_log;
+		`)
+	})
+
+	it("counts only apps classified as economy system", async () => {
+		const { sectionId, createApp, classifyAsEconomy } = await setup()
+		const app1 = await createApp("app-economy")
+		const app2 = await createApp("app-not-economy")
+		await classifyAsEconomy(app1)
+		await saveEconomyClassification({
+			applicationId: app2,
+			isEconomySystem: false,
+			economySystemType: null,
+			justification: "Ikke økonomi",
+			performedBy: "test",
+		})
+
+		expect(await countSectionEconomySystems(sectionId)).toBe(1)
+	})
+
+	it("returns 0 for section with no apps", async () => {
+		const db = getTestDb()
+		const [{ id: sectionId }] = (
+			await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('Tom', 'tom', 'test', 'test') RETURNING id`,
+			)
+		).rows as Array<{ id: string }>
+
+		expect(await countSectionEconomySystems(sectionId)).toBe(0)
+	})
+
+	it("excludes ignored apps", async () => {
+		const { db, sectionId, createApp, classifyAsEconomy } = await setup()
+		const app = await createApp("ignored-app")
+		await classifyAsEconomy(app)
+		await db.execute(
+			/* sql */ `INSERT INTO section_ignored_applications (section_id, application_id, ignored_by) VALUES ('${sectionId}', '${app}', 'test')`,
+		)
+
+		expect(await countSectionEconomySystems(sectionId)).toBe(0)
+	})
+
+	it("excludes archived apps", async () => {
+		const { db, sectionId, createApp, classifyAsEconomy } = await setup()
+		const app = await createApp("archived-app")
+		await classifyAsEconomy(app)
+		await db.execute(
+			/* sql */ `UPDATE monitored_applications SET archived_at = NOW(), archived_by = 'test' WHERE id = '${app}'`,
+		)
+
+		expect(await countSectionEconomySystems(sectionId)).toBe(0)
+	})
+
+	it("excludes secondary (child) apps", async () => {
+		const { db, sectionId, createApp, classifyAsEconomy } = await setup()
+		const parent = await createApp("parent-app")
+		const child = await createApp("child-app")
+		await classifyAsEconomy(child)
+		await db.execute(
+			/* sql */ `UPDATE monitored_applications SET primary_application_id = '${parent}' WHERE id = '${child}'`,
+		)
+
+		expect(await countSectionEconomySystems(sectionId)).toBe(0)
+	})
+
+	it("excludes apps whose only environments are in excluded clusters", async () => {
+		const { db, sectionId, createApp, classifyAsEconomy } = await setup()
+		const app = await createApp("fss-only-app")
+		await classifyAsEconomy(app)
+
+		// Mark fss-prod as excluded in this section
+		await db.execute(
+			/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${sectionId}', 'fss-prod', false, 'test', 'test')`,
+		)
+		// App only has environments in the excluded cluster
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${app}', 'fss-prod', 'default', null)`,
+		)
+
+		expect(await countSectionEconomySystems(sectionId)).toBe(0)
+	})
+
+	it("keeps apps that have at least one non-excluded environment", async () => {
+		const { db, sectionId, createApp, classifyAsEconomy } = await setup()
+		const app = await createApp("mixed-env-app")
+		await classifyAsEconomy(app)
+
+		await db.execute(
+			/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${sectionId}', 'fss-prod', false, 'test', 'test')`,
+		)
+		// App has one excluded and one non-excluded environment — should be kept
+		await db.execute(/* sql */ `
+			INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES
+			  ('${app}', 'fss-prod', 'default', null),
+			  ('${app}', 'gcp-prod', 'default', null)
+		`)
+
+		expect(await countSectionEconomySystems(sectionId)).toBe(1)
+	})
+
+	it("count matches the list on the destination page (same filtering path)", async () => {
+		const { sectionId, createApp, classifyAsEconomy } = await setup()
+		const app1 = await createApp("economy-1")
+		const app2 = await createApp("economy-2")
+		const app3 = await createApp("not-economy")
+		await classifyAsEconomy(app1)
+		await classifyAsEconomy(app2)
+		await saveEconomyClassification({
+			applicationId: app3,
+			isEconomySystem: false,
+			economySystemType: null,
+			justification: "Ikke økonomi",
+			performedBy: "test",
+		})
+
+		expect(await countSectionEconomySystems(sectionId)).toBe(2)
 	})
 })
