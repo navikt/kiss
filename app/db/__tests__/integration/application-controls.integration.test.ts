@@ -436,6 +436,25 @@ describe("Application controls integration tests", () => {
 			)
 		}
 
+		async function insertOverdueRoutineReview(appId: string, routineId: string, status: string) {
+			const db = getTestDb()
+			// reviewed_at 400 days ago — overdue for any frequency (longest is annually = 365 days)
+			await db.execute(
+				/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, status, reviewed_at, created_by)
+				VALUES ('${routineId}', '${appId}', 'Old Review', '${status}', NOW() - INTERVAL '400 days', 'test')`,
+			)
+		}
+
+		async function createEventOnlyRoutineForSection(sectionId: string): Promise<string> {
+			const db = getTestDb()
+			// frequency IS NULL → event-based, excluded from gjennomfort/ikkeGjennomfort
+			const result = await db.execute(
+				/* sql */ `INSERT INTO routines (name, section_id, frequency, status, created_by, updated_by)
+				VALUES ('EventRoutine', '${sectionId}', NULL, 'approved', 'test', 'test') RETURNING id`,
+			)
+			return (result.rows[0] as { id: string }).id
+		}
+
 		it("returns empty map for empty input", async () => {
 			const result = await getRoutineComplianceSummaries([])
 			expect(result.size).toBe(0)
@@ -580,6 +599,37 @@ describe("Application controls integration tests", () => {
 			expect(result.get(appId1)?.routinesIkkeGjennomfort).toBe(0)
 			expect(result.get(appId2)?.routinesGjennomfort).toBe(0)
 			expect(result.get(appId2)?.routinesIkkeGjennomfort).toBe(1)
+		})
+
+		it("counts overdue review as ikkeGjennomfort — matches app detail overdue logic", async () => {
+			const appId = await createTestApp("OverdueApp")
+			const sectionId = await createTestSection()
+			const routineId = await createTestRoutineForSection(sectionId) // quarterly = 91 days
+			const controlIds = await getControlUuids()
+			await insertControlWithRoutineIds(appId, controlIds[0], [routineId])
+			// Review is 400 days old — overdue for quarterly routine
+			await insertOverdueRoutineReview(appId, routineId, "completed")
+
+			const result = await getRoutineComplianceSummaries([appId])
+			expect(result.get(appId)?.routinesGjennomfort).toBe(0)
+			expect(result.get(appId)?.routinesIkkeGjennomfort).toBe(1)
+			expect(result.get(appId)?.routinesTotal).toBe(1)
+		})
+
+		it("excludes event-only routines from gjennomfort/ikkeGjennomfort/total — matches app detail logic", async () => {
+			const appId = await createTestApp("EventOnlyApp")
+			const sectionId = await createTestSection()
+			const periodicId = await createTestRoutineForSection(sectionId) // quarterly
+			const eventId = await createEventOnlyRoutineForSection(sectionId) // frequency IS NULL
+			const controlIds = await getControlUuids()
+			await insertControlWithRoutineIds(appId, controlIds[0], [periodicId, eventId])
+			await insertRoutineReview(appId, periodicId, "completed")
+			// No review for the event routine — it should not affect gjennomfort/ikkeGjennomfort/total
+
+			const result = await getRoutineComplianceSummaries([appId])
+			expect(result.get(appId)?.routinesGjennomfort).toBe(1) // only the periodic one
+			expect(result.get(appId)?.routinesIkkeGjennomfort).toBe(0)
+			expect(result.get(appId)?.routinesTotal).toBe(1) // event-only excluded
 		})
 	})
 })

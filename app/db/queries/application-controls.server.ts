@@ -11,7 +11,7 @@ import { db } from "../connection.server"
 import { applicationControlHistory, applicationControls } from "../schema/application-controls"
 import { monitoredApplications } from "../schema/applications"
 import { applicationTechnologyElements } from "../schema/framework"
-import { routineReviews } from "../schema/routines"
+import { routineReviews, routines } from "../schema/routines"
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -550,7 +550,16 @@ export type RoutineComplianceSummary = {
 
 /** Get routine compliance stats for multiple apps. Runs two queries in parallel:
  * one that derives distinct per-routine status from application_controls + routine_reviews,
- * and one against routine_reviews for the needs_follow_up count. */
+ * and one against routine_reviews for the needs_follow_up count.
+ *
+ * Mirrors the logic in computeRoutineComplianceCounts (app/lib/routine-compliance.ts):
+ * - Only periodic routines (frequency IS NOT NULL) count towards gjennomfort/ikkeGjennomfort/total.
+ *   Event-based routines (frequency IS NULL) have no deadline and are excluded, matching the
+ *   app details page which also excludes them.
+ * - A routine counts as gjennomfort only if the most recent completed/needs_follow_up review
+ *   falls within the routine's frequency period (i.e. not overdue). This mirrors isOverdue().
+ * - routinesMaaFolgesOpp counts needs_follow_up reviews across ALL routines (including
+ *   event-based), same as computeRoutineComplianceCounts. */
 export async function getRoutineComplianceSummaries(appIds: string[]): Promise<Map<string, RoutineComplianceSummary>> {
 	const result = new Map<string, RoutineComplianceSummary>()
 	if (appIds.length === 0) return result
@@ -567,24 +576,50 @@ export async function getRoutineComplianceSummaries(appIds: string[]): Promise<M
 	)
 
 	const [controlRows, followUpRows] = await Promise.all([
-		// Derive distinct (application_id, routine_id) pairs from matching_routine_ids, then
-		// left-join routine_reviews to determine per-routine completion status.
-		// Using UNNEST + COUNT DISTINCT on the control's routine_compliance would misclassify
-		// a routine that appears in multiple controls with different compliance values.
+		// Only count periodic routines (frequency IS NOT NULL), matching computeRoutineComplianceCounts.
+		// A routine is gjennomfort if its most recent completed/needs_follow_up review falls within
+		// one frequency period — i.e. reviewed_at > NOW() - frequencyInterval (not overdue).
+		// frequencyDays values from app/lib/routine-frequencies.ts:
+		//   weekly=7, monthly=30, quarterly=91, tertially=122, semi_annually=182, annually=365
 		db.execute(sql<{ application_id: string; gjennomfort: number; ikke_gjennomfort: number; total: number }>`
 			WITH app_routines AS (
 				SELECT DISTINCT
 					ac.application_id,
 					t.routine_id
-				FROM application_controls ac, UNNEST(ac.matching_routine_ids) AS t(routine_id)
+				FROM application_controls ac
+				CROSS JOIN UNNEST(ac.matching_routine_ids) AS t(routine_id)
+				JOIN ${routines} r ON r.id = t.routine_id AND r.frequency IS NOT NULL
 				WHERE ac.application_id IN (${appIdsIn})
 					AND ac.is_active = true
+					AND r.archived_at IS NULL
 			),
-			routine_completed AS (
-				SELECT DISTINCT application_id, routine_id
-				FROM routine_reviews
+			last_review AS (
+				SELECT DISTINCT ON (application_id, routine_id)
+					application_id,
+					routine_id,
+					reviewed_at
+				FROM ${routineReviews}
 				WHERE application_id IN (${appIdsIn})
 					AND status IN ('completed', 'needs_follow_up')
+				ORDER BY application_id, routine_id, reviewed_at DESC NULLS LAST
+			),
+			routine_completed AS (
+				SELECT
+					lr.application_id,
+					lr.routine_id
+				FROM last_review lr
+				JOIN ${routines} r ON r.id = lr.routine_id
+				WHERE lr.reviewed_at > NOW() - (
+					CASE r.frequency
+						WHEN 'weekly'        THEN INTERVAL '7 days'
+						WHEN 'monthly'       THEN INTERVAL '30 days'
+						WHEN 'quarterly'     THEN INTERVAL '91 days'
+						WHEN 'tertially'     THEN INTERVAL '122 days'
+						WHEN 'semi_annually' THEN INTERVAL '182 days'
+						WHEN 'annually'      THEN INTERVAL '365 days'
+						ELSE INTERVAL '36500 days'
+					END
+				)
 			)
 			SELECT
 				ar.application_id,
