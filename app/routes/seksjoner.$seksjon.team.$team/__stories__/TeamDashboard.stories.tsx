@@ -41,6 +41,8 @@ export const RutineetterlevelseMiks: Story = {
 							routinesMaaFolgesOpp: 0,
 							routinesTotal: 0,
 						},
+						isEconomySystem: null,
+						economySystemType: null,
 					},
 					{
 						appId: "app-5",
@@ -59,6 +61,8 @@ export const RutineetterlevelseMiks: Story = {
 							routinesMaaFolgesOpp: 0,
 							routinesTotal: 5,
 						},
+						isEconomySystem: true,
+						economySystemType: "hjelpesystem",
 					},
 				],
 			},
