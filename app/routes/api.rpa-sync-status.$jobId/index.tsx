@@ -1,13 +1,12 @@
 import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getRpaSyncJob } from "~/lib/rpa-sync-jobs.server"
 import { isValidUuid } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const jobId = params.jobId

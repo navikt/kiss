@@ -27,7 +27,7 @@ import {
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { approvalStatusConfig } from "~/lib/approval-status"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
 import { hasAnySectionRole, hasExactRoleForSection, isAdmin, requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
@@ -92,8 +92,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const { seksjon, regelSettId } = params
 	if (!seksjon || !regelSettId) throw data({ message: "Mangler parametere" }, { status: 400 })
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })

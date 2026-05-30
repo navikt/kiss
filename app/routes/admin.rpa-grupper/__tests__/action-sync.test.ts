@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: mockRequireUser,
+	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
 const mockRequireAdmin = vi.fn()
@@ -49,8 +47,7 @@ describe("admin.rpa-grupper action sync-all", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		const user = { navIdent: "Z123456", name: "Admin", groups: [], token: "token" }
-		mockGetAuthenticatedUser.mockResolvedValue(user)
-		mockRequireUser.mockReturnValue(user)
+		mockRequireAuthenticatedUser.mockResolvedValue(user)
 		mockRequireAdmin.mockImplementation(() => {})
 		mockCreateRpaSyncJob.mockResolvedValue({ id: "job-1" })
 		mockRunRpaGroupMemberSync.mockResolvedValue({ groupsSynced: 2, totalAdded: 5, totalArchived: 1 })

@@ -19,7 +19,7 @@ import { AutoUploadDropzone } from "~/components/AutoUploadDropzone"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { saveBucketObject } from "~/db/queries/buckets.server"
 import { archiveDocument, createDocument, getAllDocuments, unarchiveDocument } from "~/db/queries/documents.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 export { RouteErrorBoundary as ErrorBoundary }
@@ -39,7 +39,7 @@ interface DocumentRow {
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	requireUser(await getAuthenticatedUser(request))
+	await requireAuthenticatedUser(request)
 	const docs = await getAllDocuments({ includeArchived: true })
 
 	return data({
@@ -55,7 +55,7 @@ const MAX_SIZE_MB = 50
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = requireUser(await getAuthenticatedUser(request))
+	const user = await requireAuthenticatedUser(request)
 	const formData = await request.formData()
 	const intent = formData.get("intent")
 

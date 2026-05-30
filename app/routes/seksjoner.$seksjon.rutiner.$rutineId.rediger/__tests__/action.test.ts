@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: mockRequireUser,
+	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
 const mockCanApproveRoutine = vi.fn()
@@ -135,8 +133,7 @@ function getFieldErrors(result: unknown): Record<string, string> | undefined {
 
 beforeEach(() => {
 	vi.resetAllMocks()
-	mockGetAuthenticatedUser.mockResolvedValue(fakeUser)
-	mockRequireUser.mockReturnValue(fakeUser)
+	mockRequireAuthenticatedUser.mockResolvedValue(fakeUser)
 	mockRequireAdmin.mockImplementation(() => undefined)
 	mockIsAdmin.mockReturnValue(true)
 	mockGetSectionBySlug.mockResolvedValue(fakeSection)
@@ -156,8 +153,7 @@ describe("routine edit guards", () => {
 	})
 
 	it("rejects users without a section role with 403", async () => {
-		mockGetAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
-		mockRequireUser.mockReturnValue(fakeNonAdminUser)
+		mockRequireAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
 		mockRequireAnySectionRole.mockImplementation(() => {
 			throw new Response("Ikke autorisert", { status: 403 })
 		})
@@ -373,8 +369,7 @@ describe("approve-as-new intent", () => {
 
 describe("non-admin user access", () => {
 	beforeEach(() => {
-		mockGetAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
-		mockRequireUser.mockReturnValue(fakeNonAdminUser)
+		mockRequireAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
 		mockRequireAdmin.mockImplementation(() => {
 			throw new Response("Forbidden", { status: 403 })
 		})
@@ -494,8 +489,7 @@ describe("archive/unarchive intent", () => {
 	})
 
 	it("non-admin approver can unarchive a routine", async () => {
-		mockGetAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
-		mockRequireUser.mockReturnValue(fakeNonAdminUser)
+		mockRequireAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
 		mockIsAdmin.mockReturnValue(false)
 		mockCanApproveRoutine.mockReturnValue(true)
 		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft", archivedAt: new Date() }))
@@ -520,8 +514,7 @@ describe("archive/unarchive intent", () => {
 	})
 
 	it("rejects non-admin non-approver from unarchiving", async () => {
-		mockGetAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
-		mockRequireUser.mockReturnValue(fakeNonAdminUser)
+		mockRequireAuthenticatedUser.mockResolvedValue(fakeNonAdminUser)
 		mockIsAdmin.mockReturnValue(false)
 		mockCanApproveRoutine.mockReturnValue(false)
 		mockGetRoutine.mockResolvedValue(makeRoutine({ status: "draft", archivedAt: new Date() }))

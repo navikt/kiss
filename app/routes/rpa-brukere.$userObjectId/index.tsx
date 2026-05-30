@@ -15,13 +15,12 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRpaMemberByUserObjectId, getRpaUserGroupMemberships } from "~/db/queries/rpa.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { formatDateTimeOslo } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const userObjectId = params.userObjectId
 	if (!userObjectId) throw new Response("Mangler robotbruker", { status: 400 })

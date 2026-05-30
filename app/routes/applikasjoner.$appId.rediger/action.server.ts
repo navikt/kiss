@@ -21,7 +21,7 @@ import {
 	rejectApplicationElement,
 	removeApplicationElement,
 } from "~/db/queries/technology-elements.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getAuditEvidence, getAuditEvidenceExcel } from "~/lib/oracle-revisjon.server"
 
@@ -34,8 +34,7 @@ export async function action({ params, request }: ActionFunctionArgs) {
 	const idx = url.pathname.indexOf(marker)
 	const appBase = idx !== -1 ? url.pathname.slice(0, idx + marker.length) : `/applikasjoner/${appId}`
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const formData = await request.formData()

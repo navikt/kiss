@@ -5,7 +5,7 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData, useNavigate } from "react-router"
 import { db } from "~/db/connection.server"
 import { normalizePeriod, periodToInterval } from "~/lib/audit-log-periods"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 
 interface AuditLogEntry {
@@ -28,8 +28,7 @@ interface LoaderData {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const url = new URL(request.url)

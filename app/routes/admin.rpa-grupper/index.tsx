@@ -33,7 +33,7 @@ import {
 	getMemberCountPerRpaGroup,
 	removeRpaGroup,
 } from "~/db/queries/rpa.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { logger } from "~/lib/logger.server"
 import { runRpaGroupMemberSync, syncSingleRpaGroup } from "~/lib/rpa-sync.server"
@@ -47,8 +47,7 @@ import {
 import { formatDateTimeOslo } from "~/lib/utils"
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const [groups, memberCounts, auditLog, allMembers] = await Promise.all([
@@ -78,8 +77,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const formData = await request.formData()

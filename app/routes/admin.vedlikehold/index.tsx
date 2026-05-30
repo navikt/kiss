@@ -5,15 +5,14 @@ import { data, useFetcher, useLoaderData } from "react-router"
 import { db } from "~/db/connection.server"
 import { syncAllApplicationControls } from "~/db/queries/application-controls.server"
 import { listRecentSyncJobs, type SyncJob } from "~/db/queries/sync-jobs.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
 import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
 import { formatDateTimeOslo } from "~/lib/utils"
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const [appControlStats, naisSyncEnabled, recentSyncJobs] = await Promise.all([
@@ -46,8 +45,7 @@ async function getApplicationControlStats() {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const formData = await request.formData()

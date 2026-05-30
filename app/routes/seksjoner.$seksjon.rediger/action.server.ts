@@ -9,7 +9,7 @@ import {
 	unlinkNaisTeamFromSection,
 } from "~/db/queries/nais.server"
 import { createTeam, getSectionDetail, updateSection } from "~/db/queries/sections.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 
 function redirectToTab(seksjon: string, tab: string) {
@@ -17,8 +17,7 @@ function redirectToTab(seksjon: string, tab: string) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const seksjon = params.seksjon

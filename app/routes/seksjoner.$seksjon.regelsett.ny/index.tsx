@@ -7,7 +7,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { createRuleset } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
@@ -29,8 +29,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { seksjon } = params
 	if (!seksjon) throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
@@ -48,8 +47,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const { seksjon } = params
 	if (!seksjon) throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })

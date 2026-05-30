@@ -8,7 +8,7 @@ import {
 } from "~/db/queries/evidence-downloads.server"
 import type { EvidenceProviderType } from "~/db/schema/routines"
 import { getProviderTypeForActivity } from "~/lib/activity-types"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
 import { getEvidenceProvider, isEvidenceProviderType } from "~/lib/evidence-providers/index.server"
 import {
@@ -45,8 +45,7 @@ async function requireWritableActivity(
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string

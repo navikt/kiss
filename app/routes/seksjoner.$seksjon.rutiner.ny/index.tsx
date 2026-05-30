@@ -43,7 +43,7 @@ import {
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
 import { ROUTINE_ACTIVITY_TYPES, type RoutineActivityType } from "~/db/schema/routines"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection, isAdmin, requireAnySectionRole } from "~/lib/authorization.server"
 import {
 	frequencyLabels,
@@ -80,8 +80,7 @@ interface PersistenceLinkItem {
 type FieldErrors = RoutineFieldErrors
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const { seksjon } = params
 	if (!seksjon) {
@@ -121,8 +120,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const { seksjon } = params
 	if (!seksjon) {

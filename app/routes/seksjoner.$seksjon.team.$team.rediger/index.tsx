@@ -32,7 +32,7 @@ import {
 	unlinkNaisTeamFromDevTeam,
 	updateTeam,
 } from "~/db/queries/sections.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageTeam } from "~/lib/authorization.server"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -45,8 +45,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const teamRecord = await getTeamBySlug(team)
 	if (!teamRecord) throw new Response("Team ikke funnet", { status: 404 })
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	if (!canManageTeam(authedUser, teamRecord.id)) throw new Response("Ikke autorisert", { status: 403 })
 
 	const section = await getSectionBySlug(seksjon)
@@ -79,8 +78,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const seksjon = params.seksjon
 	const teamSlug = params.team

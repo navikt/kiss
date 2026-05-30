@@ -36,7 +36,7 @@ import {
 	getControlElements,
 	removeControlElement,
 } from "~/db/queries/technology-elements.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getStatusLabel, getStatusVariant, statusLabels } from "~/lib/compliance-status"
 
@@ -82,8 +82,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		throw new Response("Mangler parametere", { status: 400 })
 	}
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const control = await getControlDetail(kontrollId)
@@ -104,8 +103,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const kontrollId = params.kontrollId?.toUpperCase()

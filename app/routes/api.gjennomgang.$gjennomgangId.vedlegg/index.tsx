@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs } from "react-router"
 import { saveBucketObject } from "~/db/queries/buckets.server"
 import { addReviewAttachment, getReview, getRoutineArchivedStatusByReviewId } from "~/db/queries/routines.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 const MAX_SIZE_BYTES = 50 * 1024 * 1024
@@ -16,8 +16,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return Response.json({ success: false, error: "Ugyldig metode" }, { status: 405 })
 	}
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const review = await getReview(gjennomgangId)
 	if (!review) {

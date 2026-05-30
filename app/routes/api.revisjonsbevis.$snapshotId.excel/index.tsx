@@ -1,14 +1,13 @@
 import type { LoaderFunctionArgs } from "react-router"
 import { getSnapshot } from "~/db/queries/audit-evidence.server"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAuditor } from "~/lib/authorization.server"
 import { canUserSeeInstance } from "~/lib/oracle-access.server"
 import { getOracleInstances } from "~/lib/oracle-revisjon.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAuditor(authedUser)
 
 	const snapshotId = params.snapshotId

@@ -12,7 +12,7 @@ import { getUsersForTeam } from "~/db/queries/users.server"
 import { type EconomySystemType, economySystemTypeLabels } from "~/db/schema/applications"
 import { userRoleLabels } from "~/db/schema/organization"
 import { useFeatureFlags } from "~/hooks/useFeatureFlags"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageTeam } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
 
@@ -81,8 +81,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	const teamSlug = params.team
 	const seksjon = params.seksjon
 	if (!teamSlug || !seksjon) throw new Response("Mangler parametere", { status: 400 })

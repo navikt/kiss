@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: mockRequireUser,
+	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
 const mockRequireAnySectionRole = vi.fn()
@@ -94,8 +92,7 @@ function getFieldErrors(result: unknown): Record<string, string> | undefined {
 
 beforeEach(() => {
 	vi.resetAllMocks()
-	mockGetAuthenticatedUser.mockResolvedValue(fakeUser)
-	mockRequireUser.mockReturnValue(fakeUser)
+	mockRequireAuthenticatedUser.mockResolvedValue(fakeUser)
 	mockGetSectionBySlug.mockResolvedValue(fakeSection)
 })
 

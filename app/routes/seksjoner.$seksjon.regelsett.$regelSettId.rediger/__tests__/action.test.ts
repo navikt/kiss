@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: mockRequireUser,
+	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
 const mockIsAdmin = vi.fn()
@@ -88,8 +86,7 @@ function getData(result: unknown): { success: boolean; error?: string; message?:
 
 beforeEach(() => {
 	vi.resetAllMocks()
-	mockGetAuthenticatedUser.mockResolvedValue(fakeUser)
-	mockRequireUser.mockReturnValue(fakeUser)
+	mockRequireAuthenticatedUser.mockResolvedValue(fakeUser)
 	mockIsAdmin.mockReturnValue(false)
 	mockRequireAnySectionRole.mockImplementation(() => undefined)
 	mockGetSectionBySlug.mockResolvedValue(fakeSection)

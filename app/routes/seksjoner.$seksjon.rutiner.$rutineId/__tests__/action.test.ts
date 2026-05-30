@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: mockRequireUser,
+	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
 const mockCanApproveRoutine = vi.fn()
@@ -101,8 +99,7 @@ function callAction(formData: FormData) {
 
 beforeEach(() => {
 	vi.clearAllMocks()
-	mockGetAuthenticatedUser.mockResolvedValue(fakeUser)
-	mockRequireUser.mockReturnValue(fakeUser)
+	mockRequireAuthenticatedUser.mockResolvedValue(fakeUser)
 	mockGetSectionBySlug.mockResolvedValue(fakeSection)
 	mockGetRoutine.mockResolvedValue(fakeRoutine)
 })

@@ -22,7 +22,7 @@ import {
 	groupAccessClassificationLabels,
 	groupCriticalityLabels,
 } from "~/db/schema/applications"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection } from "~/lib/authorization.server"
 import { resolveGroupNames } from "~/lib/graph.server"
 
@@ -64,8 +64,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const { seksjon } = params
 	if (!seksjon) throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })

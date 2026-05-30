@@ -15,14 +15,13 @@ import {
 import { getSyncJob } from "~/db/queries/sync-jobs.server"
 import { type AuditLogAction, auditLogActionEnum } from "~/db/schema/audit"
 import { type SyncJobEventType, syncJobEventTypeEnum } from "~/db/schema/sync-job-events"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
 import { formatDateTimeOslo, isValidUuid, safeJsonParse } from "~/lib/utils"
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const jobId = params.jobId

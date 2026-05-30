@@ -3,14 +3,13 @@ import type { LoaderFunctionArgs } from "react-router"
 import { Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { economySystemTypeLabels } from "~/db/schema/applications"
-import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 
 export { RouteErrorBoundary as ErrorBoundary }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const authedUser = requireUser(user)
+	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
 	const { getAllEconomyClassifications } = await import("~/db/queries/economy-classification.server")

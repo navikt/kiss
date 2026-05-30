@@ -2,11 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // --- Mocks -----------------------------------------------------------
 
-const mockGetAuthenticatedUser = vi.fn()
-const mockRequireUser = vi.fn()
+const mockRequireAuthenticatedUser = vi.fn()
 vi.mock("~/lib/auth.server", () => ({
-	getAuthenticatedUser: mockGetAuthenticatedUser,
-	requireUser: mockRequireUser,
+	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
 const mockCanManageTeam = vi.fn()
@@ -90,8 +88,8 @@ describe("seksjoner.$seksjon.applikasjoner-uten-team action", () => {
 
 	describe("authorization", () => {
 		it("rejects unauthenticated users", async () => {
-			mockGetAuthenticatedUser.mockResolvedValue(null)
-			mockRequireUser.mockImplementation(() => {
+			mockRequireAuthenticatedUser.mockResolvedValue(null)
+			mockRequireAuthenticatedUser.mockImplementation(() => {
 				throw new Response("Ikke autentisert", { status: 401 })
 			})
 
@@ -108,8 +106,7 @@ describe("seksjoner.$seksjon.applikasjoner-uten-team action", () => {
 		})
 
 		it("returns 403 when user cannot manage target team", async () => {
-			mockGetAuthenticatedUser.mockResolvedValue(regularUser)
-			mockRequireUser.mockReturnValue(regularUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(regularUser)
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 			mockCanManageTeam.mockReturnValue(false)
 
@@ -130,8 +127,7 @@ describe("seksjoner.$seksjon.applikasjoner-uten-team action", () => {
 		})
 
 		it("returns 403 when team does not belong to section", async () => {
-			mockGetAuthenticatedUser.mockResolvedValue(teamLeadUser)
-			mockRequireUser.mockReturnValue(teamLeadUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(teamLeadUser)
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 			mockCanManageTeam.mockReturnValue(true)
 			mockGetTeamsForSection.mockResolvedValue([]) // no teams in this section
@@ -155,8 +151,7 @@ describe("seksjoner.$seksjon.applikasjoner-uten-team action", () => {
 
 	describe("validation", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(teamLeadUser)
-			mockRequireUser.mockReturnValue(teamLeadUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(teamLeadUser)
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 			mockCanManageTeam.mockReturnValue(true)
 			mockGetTeamsForSection.mockResolvedValue(mockTeams)
@@ -228,8 +223,7 @@ describe("seksjoner.$seksjon.applikasjoner-uten-team action", () => {
 
 	describe("success", () => {
 		beforeEach(() => {
-			mockGetAuthenticatedUser.mockResolvedValue(teamLeadUser)
-			mockRequireUser.mockReturnValue(teamLeadUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(teamLeadUser)
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 			mockCanManageTeam.mockReturnValue(true)
 			mockGetTeamsForSection.mockResolvedValue(mockTeams)
@@ -257,8 +251,7 @@ describe("seksjoner.$seksjon.applikasjoner-uten-team action", () => {
 
 	describe("unknown intent", () => {
 		it("returns 400 for unknown intent", async () => {
-			mockGetAuthenticatedUser.mockResolvedValue(teamLeadUser)
-			mockRequireUser.mockReturnValue(teamLeadUser)
+			mockRequireAuthenticatedUser.mockResolvedValue(teamLeadUser)
 			mockGetSectionDetail.mockResolvedValue(mockSection)
 
 			const formData = new FormData()
