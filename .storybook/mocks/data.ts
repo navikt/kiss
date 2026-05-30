@@ -216,6 +216,11 @@ export function mockSeksjonDetailData() {
 		canAdmin: true,
 		deploymentStats: mockDeploymentStats(),
 		economySystemCount: 3,
+		economySystemExpiredCount: 1,
+		screenedCount: 8,
+		routinesGjennomfort: 12,
+		routinesIkkeGjennomfort: 4,
+		needsFollowUpApps: 2,
 	}
 }
 

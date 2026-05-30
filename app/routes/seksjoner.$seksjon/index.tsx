@@ -1,11 +1,26 @@
-import { BodyLong, BodyShort, Box, Button, Detail, Heading, HGrid, HStack, VStack } from "@navikt/ds-react"
+import {
+	BodyLong,
+	BodyShort,
+	Box,
+	Button,
+	Detail,
+	Heading,
+	HGrid,
+	HStack,
+	ReadMore,
+	Tag,
+	Tooltip,
+	VStack,
+} from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { ComplianceStatsPlaceholder } from "~/components/ComplianceStatsPlaceholder"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { getRoutineComplianceSummaries } from "~/db/queries/application-controls.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { countSectionEconomySystems } from "~/db/queries/economy-classification.server"
+import { getScreeningProgressForApps } from "~/db/queries/screening.server"
 import { getSectionDetail } from "~/db/queries/sections.server"
 import { useFeatureFlags } from "~/hooks/useFeatureFlags"
 import { getAuthenticatedUser } from "~/lib/auth.server"
@@ -21,10 +36,25 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const result = await getSectionDetail(seksjon)
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
 
-	const [deploymentStats, economySystemCount] = await Promise.all([
+	const [deploymentStats, economyStats, screeningProgress, routineSummaries] = await Promise.all([
 		getDeploymentVerificationAggregate(result.allAppIds),
 		countSectionEconomySystems(result.section.id),
+		getScreeningProgressForApps(result.allAppIds),
+		getRoutineComplianceSummaries(result.allAppIds),
 	])
+
+	// Aggregate screening: count apps where all relevant questions are answered
+	const screenedCount = [...screeningProgress.values()].filter((p) => p.total > 0 && p.answered === p.total).length
+
+	// Aggregate routine compliance across all section apps
+	let routinesGjennomfort = 0
+	let routinesIkkeGjennomfort = 0
+	let needsFollowUpApps = 0
+	for (const s of routineSummaries.values()) {
+		routinesGjennomfort += s.routinesGjennomfort
+		routinesIkkeGjennomfort += s.routinesIkkeGjennomfort
+		if (s.routinesMaaFolgesOpp > 0) needsFollowUpApps++
+	}
 
 	const seksjonName = result.section.name
 	const teams = result.teams
@@ -53,7 +83,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		overallPercent,
 		canAdmin: user ? isAdmin(user) : false,
 		deploymentStats,
-		economySystemCount,
+		economySystemCount: economyStats.totalCount,
+		economySystemExpiredCount: economyStats.expiredCount,
+		screenedCount,
+		routinesGjennomfort,
+		routinesIkkeGjennomfort,
+		needsFollowUpApps,
 	})
 }
 
@@ -71,6 +106,11 @@ export default function SeksjonDashboard() {
 		canAdmin,
 		deploymentStats,
 		economySystemCount,
+		economySystemExpiredCount,
+		screenedCount,
+		routinesGjennomfort,
+		routinesIkkeGjennomfort,
+		needsFollowUpApps,
 	} = useLoaderData<typeof loader>()
 	const { showComplianceStats } = useFeatureFlags()
 
@@ -157,6 +197,11 @@ export default function SeksjonDashboard() {
 									{economySystemCount}
 								</Heading>
 								<Detail>Økonomisystemer</Detail>
+								{economySystemExpiredCount > 0 && (
+									<Tag variant="warning" size="small">
+										{economySystemExpiredCount} utløpt
+									</Tag>
+								)}
 							</VStack>
 						</Box>
 					</Link>
@@ -189,37 +234,126 @@ export default function SeksjonDashboard() {
 				<>
 					<ComplianceStatsPlaceholder />
 					<HGrid gap="space-6" columns={{ xs: 2, sm: 3 }}>
-						<Box padding="space-6" borderRadius="8" background="sunken">
-							<VStack align="center">
-								<Heading size="xlarge" level="3">
-									{teams.length}
-								</Heading>
-								<Detail>Team</Detail>
-							</VStack>
-						</Box>
-						<Link to={`/seksjoner/${seksjon}/applikasjoner`} style={{ textDecoration: "none", color: "inherit" }}>
+						<Tooltip content="Antall team som er registrert i seksjonen.">
 							<Box padding="space-6" borderRadius="8" background="sunken">
 								<VStack align="center">
 									<Heading size="xlarge" level="3">
-										{totalApps}
+										{teams.length}
 									</Heading>
-									<Detail>Applikasjoner</Detail>
+									<Detail>Team</Detail>
 								</VStack>
 							</Box>
-						</Link>
-						<Link to={`/seksjoner/${seksjon}/okonomisystemer`} style={{ textDecoration: "none", color: "inherit" }}>
-							<Box padding="space-6" borderRadius="8" background="sunken">
-								<VStack align="center">
-									<Heading size="xlarge" level="3">
-										{economySystemCount}
-									</Heading>
-									<Detail>Økonomisystemer</Detail>
-								</VStack>
-							</Box>
-						</Link>
+						</Tooltip>
+						<Tooltip content="Antall applikasjoner som tilhører seksjonen. Klikk for å se listen.">
+							<Link to={`/seksjoner/${seksjon}/applikasjoner`} style={{ textDecoration: "none", color: "inherit" }}>
+								<Box padding="space-6" borderRadius="8" background="sunken">
+									<VStack align="center">
+										<Heading size="xlarge" level="3">
+											{totalApps}
+										</Heading>
+										<Detail>Applikasjoner</Detail>
+									</VStack>
+								</Box>
+							</Link>
+						</Tooltip>
+						<Tooltip content="Antall applikasjoner som er registrert som økonomisystem. Et utløpt-varsel betyr at klassifiseringen bør fornyes. Klikk for å se listen.">
+							<Link to={`/seksjoner/${seksjon}/okonomisystemer`} style={{ textDecoration: "none", color: "inherit" }}>
+								<Box padding="space-6" borderRadius="8" background="sunken">
+									<VStack align="center">
+										<Heading size="xlarge" level="3">
+											{economySystemCount}
+										</Heading>
+										<Detail>Økonomisystemer</Detail>
+										{economySystemExpiredCount > 0 && (
+											<Tag variant="warning" size="small">
+												{economySystemExpiredCount} utløpt
+											</Tag>
+										)}
+									</VStack>
+								</Box>
+							</Link>
+						</Tooltip>
 					</HGrid>
 				</>
 			)}
+
+			<HGrid gap="space-6" columns={{ xs: 2, sm: 4 }}>
+				<Tooltip content="Antall applikasjoner der alle screening-spørsmål er besvart.">
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{screenedCount}
+							</Heading>
+							<Detail>Ferdig screenet</Detail>
+						</VStack>
+					</Box>
+				</Tooltip>
+				<Tooltip content="Antall periodiske rutiner som er gjennomført innenfor fristen, summert for alle applikasjoner i seksjonen.">
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{routinesGjennomfort}
+							</Heading>
+							<Detail>Rutiner gjennomført</Detail>
+						</VStack>
+					</Box>
+				</Tooltip>
+				<Tooltip content="Antall periodiske rutiner der fristen er overskredet, summert for alle applikasjoner i seksjonen.">
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{routinesIkkeGjennomfort}
+							</Heading>
+							<Detail>Rutiner ikke gjennomført</Detail>
+						</VStack>
+					</Box>
+				</Tooltip>
+				<Tooltip content="Antall applikasjoner der minst én rutinegjennomgang er fullført, men der det ble oppdaget forhold som må følges opp videre.">
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{needsFollowUpApps}
+							</Heading>
+							<Detail>Krever oppfølging</Detail>
+						</VStack>
+					</Box>
+				</Tooltip>
+			</HGrid>
+
+			<ReadMore header="Hva betyr tallene?">
+				<VStack gap="space-4">
+					<BodyLong>
+						<strong>Team</strong> viser hvor mange team som er registrert i seksjonen.
+					</BodyLong>
+					<BodyLong>
+						<strong>Applikasjoner</strong> viser hvor mange systemer og tjenester som er knyttet til seksjonen.
+					</BodyLong>
+					<BodyLong>
+						<strong>Økonomisystemer</strong> viser hvor mange applikasjoner som er merket som økonomisystem – det vil si
+						systemer som behandler penger, regnskap, lønn eller annen økonomiinformasjon. Hvis noen klassifiseringer er
+						utløpt, betyr det at vurderingen bør gjøres på nytt.
+					</BodyLong>
+					<BodyLong>
+						<strong>Ferdig screenet</strong> viser antall applikasjoner der alle screening-spørsmålene er besvart.
+						Screening er en gjennomgang der teamet svarer på spørsmål om hvilke regler og krav som gjelder for
+						applikasjonen – for eksempel om den lagrer personopplysninger eller er forretningskritisk.
+					</BodyLong>
+					<BodyLong>
+						<strong>Rutiner gjennomført</strong> viser totalt antall periodiske rutiner i seksjonen som er gjennomført
+						innenfor den angitte fristen. En rutine er en fast oppgave som skal gjøres regelmessig, for eksempel
+						kvartalsvis tilgangskontroll.
+					</BodyLong>
+					<BodyLong>
+						<strong>Rutiner ikke gjennomført</strong> viser totalt antall periodiske rutiner der fristen er overskredet.
+						Disse bør prioriteres av teamet.
+					</BodyLong>
+					<BodyLong>
+						<strong>Krever oppfølging</strong> viser antall applikasjoner der minst én rutinegjennomgang er fullført,
+						men der det ble oppdaget noe som må følges opp – for eksempel en bruker med tilgang som ikke lenger skal ha
+						det. Selve rutinen er altså gjennomført, men det gjenstår en konkret oppfølgingsoppgave.
+					</BodyLong>
+				</VStack>
+			</ReadMore>
 
 			<DeploymentSummaryCards stats={deploymentStats} />
 

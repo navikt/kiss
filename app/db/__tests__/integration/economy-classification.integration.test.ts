@@ -533,7 +533,9 @@ describe("countSectionEconomySystems", () => {
 			performedBy: "test",
 		})
 
-		expect(await countSectionEconomySystems(sectionId)).toBe(1)
+		const result = await countSectionEconomySystems(sectionId)
+		expect(result.totalCount).toBe(1)
+		expect(result.expiredCount).toBe(0)
 	})
 
 	it("returns 0 for section with no apps", async () => {
@@ -544,7 +546,9 @@ describe("countSectionEconomySystems", () => {
 			)
 		).rows as Array<{ id: string }>
 
-		expect(await countSectionEconomySystems(sectionId)).toBe(0)
+		const result = await countSectionEconomySystems(sectionId)
+		expect(result.totalCount).toBe(0)
+		expect(result.expiredCount).toBe(0)
 	})
 
 	it("excludes ignored apps", async () => {
@@ -555,7 +559,7 @@ describe("countSectionEconomySystems", () => {
 			/* sql */ `INSERT INTO section_ignored_applications (section_id, application_id, ignored_by) VALUES ('${sectionId}', '${app}', 'test')`,
 		)
 
-		expect(await countSectionEconomySystems(sectionId)).toBe(0)
+		expect((await countSectionEconomySystems(sectionId)).totalCount).toBe(0)
 	})
 
 	it("excludes archived apps", async () => {
@@ -566,7 +570,7 @@ describe("countSectionEconomySystems", () => {
 			/* sql */ `UPDATE monitored_applications SET archived_at = NOW(), archived_by = 'test' WHERE id = '${app}'`,
 		)
 
-		expect(await countSectionEconomySystems(sectionId)).toBe(0)
+		expect((await countSectionEconomySystems(sectionId)).totalCount).toBe(0)
 	})
 
 	it("excludes secondary (child) apps", async () => {
@@ -578,7 +582,7 @@ describe("countSectionEconomySystems", () => {
 			/* sql */ `UPDATE monitored_applications SET primary_application_id = '${parent}' WHERE id = '${child}'`,
 		)
 
-		expect(await countSectionEconomySystems(sectionId)).toBe(0)
+		expect((await countSectionEconomySystems(sectionId)).totalCount).toBe(0)
 	})
 
 	it("excludes apps whose only environments are in excluded clusters", async () => {
@@ -595,7 +599,7 @@ describe("countSectionEconomySystems", () => {
 			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${app}', 'fss-prod', 'default', null)`,
 		)
 
-		expect(await countSectionEconomySystems(sectionId)).toBe(0)
+		expect((await countSectionEconomySystems(sectionId)).totalCount).toBe(0)
 	})
 
 	it("keeps apps that have at least one non-excluded environment", async () => {
@@ -613,7 +617,23 @@ describe("countSectionEconomySystems", () => {
 			  ('${app}', 'gcp-prod', 'default', null)
 		`)
 
-		expect(await countSectionEconomySystems(sectionId)).toBe(1)
+		expect((await countSectionEconomySystems(sectionId)).totalCount).toBe(1)
+	})
+
+	it("counts expired classifications in both totalCount and expiredCount", async () => {
+		const { db, sectionId, createApp, classifyAsEconomy } = await setup()
+		const appExpired = await createApp("expired-economy")
+		const appValid = await createApp("valid-economy")
+		await classifyAsEconomy(appExpired)
+		await classifyAsEconomy(appValid)
+		// Force the first app's classification to be expired
+		await db.execute(
+			/* sql */ `UPDATE application_economy_classifications SET valid_until = NOW() - INTERVAL '1 day' WHERE application_id = '${appExpired}'`,
+		)
+
+		const result = await countSectionEconomySystems(sectionId)
+		expect(result.totalCount).toBe(2)
+		expect(result.expiredCount).toBe(1)
 	})
 
 	it("count matches the list on the destination page (same filtering path)", async () => {
@@ -631,6 +651,6 @@ describe("countSectionEconomySystems", () => {
 			performedBy: "test",
 		})
 
-		expect(await countSectionEconomySystems(sectionId)).toBe(2)
+		expect((await countSectionEconomySystems(sectionId)).totalCount).toBe(2)
 	})
 })
