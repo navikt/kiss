@@ -3,6 +3,8 @@
  * Provides consistent, realistic test data for all KISS pages.
  */
 
+import type { EconomySystemType } from "../../app/db/schema/applications"
+
 // ─── Root loader (app shell) ────────────────────────────────────────
 
 export function mockRootLoaderData(
@@ -226,8 +228,8 @@ export function mockTeamDetailData() {
 		teamId: "t-01",
 		teamName: "Starte pensjon",
 		apps: [
-			mockAppSummary({ appId: "app-1", appName: "pensjon-sak", implemented: 18, partial: 4, notImplemented: 2, notRelevant: 3 }),
-			mockAppSummary({ appId: "app-2", appName: "psak-frontend", implemented: 15, partial: 6, notImplemented: 3, notRelevant: 3 }),
+			mockAppSummary({ appId: "app-1", appName: "pensjon-sak", implemented: 18, partial: 4, notImplemented: 2, notRelevant: 3, isEconomySystem: true, economySystemType: "regnskapssystem" }),
+			mockAppSummary({ appId: "app-2", appName: "psak-frontend", implemented: 15, partial: 6, notImplemented: 3, notRelevant: 3, isEconomySystem: false }),
 			mockAppSummary({ appId: "app-3", appName: "pensjon-selvbetjening", implemented: 20, partial: 2, notImplemented: 1, notRelevant: 4 }),
 		],
 		canAdmin: true,
@@ -256,6 +258,8 @@ function mockAppSummary(overrides: {
 	notImplemented: number
 	notRelevant: number
 	routineCompliance?: { routinesGjennomfort: number; routinesIkkeGjennomfort: number; routinesMaaFolgesOpp: number; routinesTotal: number }
+	isEconomySystem?: boolean | null
+	economySystemType?: EconomySystemType | null
 }) {
 	return {
 		...overrides,
@@ -264,6 +268,8 @@ function mockAppSummary(overrides: {
 		teamIds: ["t-01"],
 		screeningProgress: { answered: 4, total: 6 },
 		routineCompliance: overrides.routineCompliance ?? { routinesGjennomfort: 3, routinesIkkeGjennomfort: 2, routinesMaaFolgesOpp: 1, routinesTotal: 5 },
+		isEconomySystem: overrides.isEconomySystem ?? null,
+		economySystemType: overrides.economySystemType ?? null,
 	}
 }
 

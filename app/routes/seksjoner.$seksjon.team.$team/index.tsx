@@ -1,4 +1,4 @@
-import { Alert, BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
@@ -9,6 +9,7 @@ import { getAvailableAppsForTeam, linkAppToTeam } from "~/db/queries/application
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getSectionBySlug, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
 import { getUsersForTeam } from "~/db/queries/users.server"
+import { type EconomySystemType, economySystemTypeLabels } from "~/db/schema/applications"
 import { userRoleLabels } from "~/db/schema/organization"
 import { useFeatureFlags } from "~/hooks/useFeatureFlags"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
@@ -113,6 +114,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	throw new Response("Ugyldig handling", { status: 400 })
 }
 
+function economyTypeLabel(type: EconomySystemType | null): string {
+	if (!type) return "Ja"
+	return economySystemTypeLabels[type]
+}
+
 export default function TeamDashboard() {
 	const {
 		seksjon,
@@ -211,6 +217,7 @@ export default function TeamDashboard() {
 						<Table.Header>
 							<Table.Row>
 								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Økonomisystem</Table.HeaderCell>
 								<Table.HeaderCell scope="col" align="right">
 									Spørsmål
 								</Table.HeaderCell>
@@ -237,6 +244,17 @@ export default function TeamDashboard() {
 											<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer`}>
 												{app.appName}
 											</Link>
+										</Table.DataCell>
+										<Table.DataCell>
+											{app.isEconomySystem === null ? (
+												"–"
+											) : app.isEconomySystem ? (
+												<Tag variant="info" size="small">
+													{economyTypeLabel(app.economySystemType)}
+												</Tag>
+											) : (
+												"Nei"
+											)}
 										</Table.DataCell>
 										<Table.DataCell align="right">
 											{app.screeningProgress.answered}/{app.screeningProgress.total}

@@ -11,6 +11,7 @@ import {
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { getComplianceSummaries, getRoutineComplianceSummaries } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
+import { getEconomyClassifications } from "./economy-classification.server"
 
 /** Get sections. By default only active (non-archived) sections are returned. */
 export async function getSections(options: { includeArchived?: boolean } = {}) {
@@ -742,9 +743,10 @@ export async function getTeamApps(teamSlug: string) {
 			: []
 	const appById = new Map(appRows.map((a) => [a.id, a]))
 	const activeAppIds = appRows.map((a) => a.id)
-	const [summaryMap, routineMap] = await Promise.all([
+	const [summaryMap, routineMap, economyMap] = await Promise.all([
 		getComplianceSummaries(activeAppIds),
 		getRoutineComplianceSummaries(activeAppIds),
+		getEconomyClassifications(activeAppIds),
 	])
 
 	const apps = appIdList
@@ -768,6 +770,8 @@ export async function getTeamApps(teamSlug: string) {
 				total: s.total,
 				source: directIds.has(appId) ? ("direct" as const) : ("nais-team" as const),
 				routineCompliance: r,
+				isEconomySystem: economyMap.get(appId)?.isEconomySystem ?? null,
+				economySystemType: economyMap.get(appId)?.economySystemType ?? null,
 			}
 		})
 		.filter((a): a is NonNullable<typeof a> => a !== null)
