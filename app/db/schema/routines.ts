@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm"
+import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { check, date, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { ROUTINE_ACTIVITY_TYPES } from "../../lib/activity-types"
 import { EVIDENCE_PROVIDER_TYPES } from "../../lib/evidence-providers/types"
@@ -199,6 +200,10 @@ export const routineReviews = pgTable(
 		routineSnapshotPath: text("routine_snapshot_path"),
 		status: text("status", { enum: reviewStatusEnum }).notNull().default("draft"),
 		reviewedAt: timestamp("reviewed_at", { withTimezone: true }).notNull(),
+		/** Set when this review was automatically created to inherit the review date from a replaced routine (deadlinePolicy="continue"). */
+		inheritedFromReviewId: uuid("inherited_from_review_id").references((): AnyPgColumn => routineReviews.id, {
+			onDelete: "set null",
+		}),
 		createdBy: text("created_by").notNull(),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	},

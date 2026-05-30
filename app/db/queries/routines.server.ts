@@ -13,6 +13,7 @@ import { resolveGroupNames } from "../../lib/graph.server"
 import { withAdvisoryLock } from "../../lib/lock.server"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
+import { applicationControls } from "../schema/application-controls"
 import {
 	applicationAuthIntegrations,
 	applicationGroupAssessments,
@@ -63,7 +64,12 @@ import {
 	routineTechnologyElements,
 } from "../schema/routines"
 import { rulesetRoutines, rulesets } from "../schema/rulesets"
-import { screeningAnswers, screeningQuestions, screeningRoutineSelections } from "../schema/screening"
+import {
+	screeningAnswers,
+	screeningChoiceEffects,
+	screeningQuestions,
+	screeningRoutineSelections,
+} from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
 import { getAppAuthIntegrations, getGroupAssessmentsForApp, getManualGroupsForApp } from "./nais.server"
 import { completeRpaReviewActivity } from "./rpa.server"
@@ -6357,11 +6363,449 @@ export async function replaceRoutine(
 			}
 		}
 
+		// Migrate screening preset routine links: update preset_routine_id from old → new
+		const updatedPresets = await tx
+			.update(screeningChoiceEffects)
+			.set({ presetRoutineId: newRoutineId })
+			.where(and(eq(screeningChoiceEffects.presetRoutineId, oldRoutineId), isNull(screeningChoiceEffects.archivedAt)))
+			.returning({ id: screeningChoiceEffects.id })
+
+		for (const preset of updatedPresets) {
+			await writeAuditLog(
+				{
+					action: "screening_preset_routine_migrated",
+					entityType: "screening_choice_effect",
+					entityId: preset.id,
+					previousValue: JSON.stringify({ presetRoutineId: oldRoutineId }),
+					newValue: JSON.stringify({ presetRoutineId: newRoutineId }),
+					metadata: { reason: "routine_replaced" },
+					performedBy,
+				},
+				tx,
+			)
+		}
+
+		// Migrate active screening routine selections from old routine → new routine
+		const updatedSelections = await tx
+			.update(screeningRoutineSelections)
+			.set({ routineId: newRoutineId })
+			.where(and(eq(screeningRoutineSelections.routineId, oldRoutineId), isNull(screeningRoutineSelections.archivedAt)))
+			.returning({
+				id: screeningRoutineSelections.id,
+				applicationId: screeningRoutineSelections.applicationId,
+				choiceEffectId: screeningRoutineSelections.choiceEffectId,
+			})
+
+		for (const sel of updatedSelections) {
+			await writeAuditLog(
+				{
+					action: "screening_routine_selection_migrated",
+					entityType: "screening_routine_selection",
+					entityId: `${sel.applicationId}/${sel.choiceEffectId}`,
+					previousValue: JSON.stringify({ routineId: oldRoutineId, applicationId: sel.applicationId }),
+					newValue: JSON.stringify({ routineId: newRoutineId, applicationId: sel.applicationId }),
+					metadata: { reason: "routine_replaced" },
+					performedBy,
+				},
+				tx,
+			)
+		}
+
+		// Update application_controls cache: replace old routine ID with new in matching_routine_ids arrays.
+		// Deduplicates via ARRAY(SELECT DISTINCT unnest(...)) in case newRoutineId already exists.
+		await tx
+			.update(applicationControls)
+			.set({
+				matchingRoutineIds: sql`ARRAY(SELECT DISTINCT unnest(array_replace(matching_routine_ids, ${oldRoutineId}::uuid, ${newRoutineId}::uuid)))`,
+				updatedAt: now,
+				updatedBy: performedBy,
+			})
+			.where(sql`${oldRoutineId}::uuid = ANY(matching_routine_ids)`)
+
+		// If deadlinePolicy is "continue", copy latest review per applicationId from old → new so
+		// the replacement routine immediately inherits the review date without requiring chain-walking.
+		if (deadlinePolicy === "continue") {
+			const latestReviews = await tx.execute(sql`
+				SELECT DISTINCT ON (application_id) id, application_id, reviewed_at
+				FROM routine_reviews
+				WHERE routine_id = ${oldRoutineId}
+				  AND status IN ('completed', 'needs_follow_up')
+				ORDER BY application_id, reviewed_at DESC, id DESC
+			`)
+
+			// Prefetch all applicationIds that newRoutineId already has a review for — one query,
+			// then O(1) Set lookup per row instead of a SELECT per row inside the loop.
+			const existingNewReviews = await tx
+				.select({ applicationId: routineReviews.applicationId })
+				.from(routineReviews)
+				.where(
+					and(
+						eq(routineReviews.routineId, newRoutineId),
+						inArray(routineReviews.status, ["completed", "needs_follow_up"]),
+					),
+				)
+			const existingAppIds = new Set(existingNewReviews.map((r) => r.applicationId ?? "__null__"))
+
+			for (const row of latestReviews.rows as { id: string; application_id: string | null; reviewed_at: string }[]) {
+				const appKey = row.application_id ?? "__null__"
+				if (existingAppIds.has(appKey)) continue
+
+				const [inherited] = await tx
+					.insert(routineReviews)
+					.values({
+						routineId: newRoutineId,
+						applicationId: row.application_id,
+						title: `Arvet gjennomgang (rutine erstattet av ${performedBy})`,
+						status: "completed",
+						reviewedAt: new Date(row.reviewed_at),
+						inheritedFromReviewId: row.id,
+						createdBy: performedBy,
+					})
+					.returning({ id: routineReviews.id })
+
+				if (inherited) {
+					await writeAuditLog(
+						{
+							action: "routine_review_inherited",
+							entityType: "routine_review",
+							entityId: inherited.id,
+							newValue: JSON.stringify({
+								routineId: newRoutineId,
+								applicationId: row.application_id,
+								reviewedAt: row.reviewed_at,
+								inheritedFromReviewId: row.id,
+							}),
+							metadata: { reason: "routine_replaced", replacedRoutineId: oldRoutineId, deadlinePolicy },
+							performedBy,
+						},
+						tx,
+					)
+				}
+			}
+		}
+
 		return { newRoutine: newRoutineId, oldRoutine: oldRoutineId, deadlinePolicy }
 	})
 }
 
 // ─── Routine Activity Links ──────────────────────────────────────────────
+
+/**
+ * One-time idempotent backfill: fixes stale links that still point to archived/replaced routines.
+ *
+ * For each replacement chain (A→B→C→…→HEAD where HEAD is the current approved routine):
+ * - Updates `screening_choice_effects.preset_routine_id` to HEAD
+ * - Updates active `screening_routine_selections.routine_id` to HEAD
+ * - Updates `application_controls.matching_routine_ids` to replace any chain member with HEAD
+ * - For "continue" hops: inherits the latest review per-hop (X→Y) so intermediate
+ *   routines also receive inherited reviews, not just HEAD
+ *
+ * Safe to call multiple times — skips work that's already done.
+ * Returns a summary of what was changed.
+ */
+export async function migrateExistingReplacementChains(performedBy = "system-migration") {
+	return withAdvisoryLock("migrate-routine-replacement-chains", async () => {
+		// 1. Find all replacement chains using a recursive CTE.
+		//    Returns one row per (chainMember, head) pair with the per-hop deadlinePolicy
+		//    (the policy of the hop FROM member_id TO its next node in the chain) and next_id
+		//    (the routine that directly follows member_id in the chain).
+		//
+		//    Critically: hop_deadline_policy is fetched per-hop (joined on c.next_id), NOT per-head.
+		//    Review inheritance uses per-hop semantics: each "continue" hop X→Y inherits X's review
+		//    into Y directly, regardless of what follows Y in the chain.
+		//
+		//    NOTE: This read happens outside the transaction. For a one-time backfill migration this
+		//    is acceptable; a concurrent replaceRoutine() call could make results slightly stale, but
+		//    the idempotency check inside the transaction prevents incorrect inherited reviews.
+		const chains = await db.execute<{
+			member_id: string
+			head_id: string
+			next_id: string
+			hop_deadline_policy: string | null
+		}>(sql`
+		WITH RECURSIVE chain AS (
+			-- Base: start from each archived routine that was replaced
+			SELECT
+				id AS member_id,
+				replaced_by_routine_id AS next_id,
+				id AS root_id
+			FROM routines
+			WHERE replaced_by_routine_id IS NOT NULL
+			  AND archived_at IS NOT NULL
+
+			UNION ALL
+
+			-- Recursive: follow the chain forward
+			SELECT
+				r.id AS member_id,
+				r.replaced_by_routine_id AS next_id,
+				c.root_id
+			FROM routines r
+			JOIN chain c ON r.id = c.next_id
+			WHERE r.replaced_by_routine_id IS NOT NULL
+			  AND r.archived_at IS NOT NULL
+		),
+		-- Find chain head: the currently approved (non-archived) end of each chain
+		heads AS (
+			SELECT DISTINCT ON (root_id)
+				c.root_id,
+				r.id AS head_id
+			FROM chain c
+			JOIN routines r ON r.id = c.next_id
+			WHERE r.archived_at IS NULL
+			ORDER BY root_id
+		),
+		-- Per-hop deadlinePolicy: entity_id in audit_log = the NEW routine (c.next_id).
+		-- So "hop A→B" has entity_id=B. Joining on c.next_id gives the policy for each hop.
+		-- entity_id is filtered to valid UUIDs before casting to avoid errors on legacy rows.
+		-- deadlinePolicy is extracted via substring() regex instead of ::jsonb cast so that
+		-- malformed or non-JSON metadata rows never abort the backfill (returns NULL on no match).
+		hop_policies AS (
+			SELECT DISTINCT ON (entity_id)
+				entity_id::uuid AS new_routine_id,
+				substring(metadata FROM '"deadlinePolicy"\\s*:\\s*"([^"]*)"') AS deadline_policy
+			FROM audit_log
+			WHERE action = 'routine_replaced'
+			  AND entity_type = 'routine'
+			  AND entity_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+			ORDER BY entity_id, performed_at DESC, id DESC
+		)
+		SELECT
+			c.member_id,
+			h.head_id,
+			c.next_id,
+			hp.deadline_policy AS hop_deadline_policy
+		FROM chain c
+		JOIN heads h ON h.root_id = c.root_id
+		LEFT JOIN hop_policies hp ON hp.new_routine_id = c.next_id
+	`)
+
+		if (chains.rows.length === 0) return { presets: 0, selections: 0, arrayReplacements: 0, reviewsInherited: 0 }
+
+		const result = { presets: 0, selections: 0, arrayReplacements: 0, reviewsInherited: 0 }
+		// Deduplicate application_controls rows across all member iterations to avoid double-counting
+		// when a row contains multiple chain members (e.g. [A,B] gets updated twice in the loop).
+		const updatedControlIds = new Set<string>()
+
+		return db.transaction(async (tx) => {
+			// Group by head: Map<headId, Map<memberId, {nextId, hopPolicy}>>
+			// next_id is the routine that directly follows this member in the chain (towards HEAD).
+			// Duplicate CTE rows (B appearing under both root=A and root=B) are deduplicated
+			// by the inner Map.set() — same member, same values, safe to overwrite.
+			const headToChain = new Map<string, Map<string, { nextId: string; hopPolicy: string | null }>>()
+			// Per-hop "continue" edges for review inheritance: memberId → direct nextId.
+			// Review inheritance is per-hop (not per-path-to-HEAD) so that a "continue" hop
+			// inherits reviews into the immediate next even if a later "reset" follows.
+			const continueHopMap = new Map<string, string>()
+			const hopTargetSet = new Set<string>()
+			for (const row of chains.rows) {
+				if (!headToChain.has(row.head_id)) {
+					headToChain.set(row.head_id, new Map())
+				}
+				headToChain.get(row.head_id)?.set(row.member_id, { nextId: row.next_id, hopPolicy: row.hop_deadline_policy })
+				if (row.hop_deadline_policy === "continue" && !continueHopMap.has(row.member_id)) {
+					continueHopMap.set(row.member_id, row.next_id)
+					hopTargetSet.add(row.next_id)
+				}
+			}
+
+			for (const [headId, chainMap] of headToChain) {
+				const memberArr = [...chainMap.keys()]
+
+				// 2a. Fix screening_choice_effects.preset_routine_id → HEAD
+				// SELECT before UPDATE to capture previousValue for audit log
+				const existingPresets = await tx
+					.select({ id: screeningChoiceEffects.id, presetRoutineId: screeningChoiceEffects.presetRoutineId })
+					.from(screeningChoiceEffects)
+					.where(
+						and(inArray(screeningChoiceEffects.presetRoutineId, memberArr), isNull(screeningChoiceEffects.archivedAt)),
+					)
+
+				if (existingPresets.length > 0) {
+					await tx
+						.update(screeningChoiceEffects)
+						.set({ presetRoutineId: headId })
+						.where(
+							inArray(
+								screeningChoiceEffects.id,
+								existingPresets.map((p) => p.id),
+							),
+						)
+
+					for (const p of existingPresets) {
+						result.presets++
+						await writeAuditLog(
+							{
+								action: "screening_preset_routine_migrated",
+								entityType: "screening_choice_effect",
+								entityId: p.id,
+								previousValue: JSON.stringify({ presetRoutineId: p.presetRoutineId }),
+								newValue: JSON.stringify({ presetRoutineId: headId }),
+								metadata: { reason: "backfill_replacement_chain" },
+								performedBy,
+							},
+							tx,
+						)
+					}
+				}
+
+				// 2b. Fix active screening_routine_selections.routine_id → HEAD
+				// SELECT before UPDATE to capture previousValue for audit log
+				const existingSelections = await tx
+					.select({
+						id: screeningRoutineSelections.id,
+						routineId: screeningRoutineSelections.routineId,
+						applicationId: screeningRoutineSelections.applicationId,
+						choiceEffectId: screeningRoutineSelections.choiceEffectId,
+					})
+					.from(screeningRoutineSelections)
+					.where(
+						and(
+							inArray(screeningRoutineSelections.routineId, memberArr),
+							isNull(screeningRoutineSelections.archivedAt),
+						),
+					)
+
+				if (existingSelections.length > 0) {
+					await tx
+						.update(screeningRoutineSelections)
+						.set({ routineId: headId })
+						.where(
+							inArray(
+								screeningRoutineSelections.id,
+								existingSelections.map((s) => s.id),
+							),
+						)
+
+					for (const s of existingSelections) {
+						result.selections++
+						await writeAuditLog(
+							{
+								action: "screening_routine_selection_migrated",
+								entityType: "screening_routine_selection",
+								entityId: `${s.applicationId}/${s.choiceEffectId}`,
+								previousValue: JSON.stringify({ routineId: s.routineId, applicationId: s.applicationId }),
+								newValue: JSON.stringify({ routineId: headId, applicationId: s.applicationId }),
+								metadata: { reason: "backfill_replacement_chain" },
+								performedBy,
+							},
+							tx,
+						)
+					}
+				}
+
+				// 2c. Fix application_controls.matching_routine_ids → replace all chain members with HEAD in one UPDATE.
+				// Uses CASE WHEN v = ANY(memberArr) THEN headId ELSE v END over unnest() so a row containing
+				// multiple chain members (e.g. [A,B]) collapses correctly to [HEAD] in a single pass.
+				const memberArrSql = sql`ARRAY[${sql.join(
+					memberArr.map((id) => sql`${id}::uuid`),
+					sql`, `,
+				)}]::uuid[]`
+				const updated = await tx
+					.update(applicationControls)
+					.set({
+						matchingRoutineIds: sql`ARRAY(SELECT DISTINCT CASE WHEN v = ANY(${memberArrSql}) THEN ${headId}::uuid ELSE v END FROM unnest(matching_routine_ids) AS v)`,
+						updatedAt: new Date(),
+						updatedBy: performedBy,
+					})
+					.where(sql`matching_routine_ids && ${memberArrSql}`)
+					.returning({ id: applicationControls.id })
+				for (const r of updated) updatedControlIds.add(r.id)
+			}
+
+			// 2d. Per-hop review inheritance for "continue" hops.
+			// Inheritance is per-hop (not per-path-to-HEAD): if hop X→Y is "continue", Y gets X's
+			// latest review regardless of what follows Y. Hops are processed in topological order
+			// (root-to-leaf) so that transitive chains (A→B→C all continue) work correctly:
+			// A→B runs first (B gets A's review), then B→C (C gets B's now-inherited review).
+			const orderedHops: Array<{ memberId: string; nextId: string }> = []
+			{
+				const topoQueue: string[] = []
+				for (const memberId of continueHopMap.keys()) {
+					if (!hopTargetSet.has(memberId)) topoQueue.push(memberId)
+				}
+				const topoVisited = new Set<string>()
+				let qi = 0
+				while (qi < topoQueue.length) {
+					const current = topoQueue[qi++]
+					if (topoVisited.has(current)) continue
+					topoVisited.add(current)
+					const next = continueHopMap.get(current)
+					if (next !== undefined) {
+						orderedHops.push({ memberId: current, nextId: next })
+						topoQueue.push(next)
+					}
+				}
+			}
+
+			for (const { memberId, nextId } of orderedHops) {
+				const latestInHop = await tx.execute<{
+					source_review_id: string
+					application_id: string | null
+					reviewed_at: string
+				}>(sql`
+				SELECT DISTINCT ON (application_id) id AS source_review_id, application_id, reviewed_at
+				FROM routine_reviews
+				WHERE routine_id = ${memberId}::uuid
+				  AND status IN ('completed', 'needs_follow_up')
+				ORDER BY application_id, reviewed_at DESC, id DESC
+			`)
+
+				// Prefetch existing reviews for nextId once — O(1) Set lookup per row instead of N+1 SELECTs.
+				// Update the Set when inserting so the idempotency check stays current within this hop.
+				const existingNextReviews = await tx
+					.select({ applicationId: routineReviews.applicationId })
+					.from(routineReviews)
+					.where(
+						and(eq(routineReviews.routineId, nextId), inArray(routineReviews.status, ["completed", "needs_follow_up"])),
+					)
+				const existingNextAppIds = new Set(existingNextReviews.map((r) => r.applicationId ?? "__null__"))
+
+				for (const row of latestInHop.rows) {
+					const appKey = row.application_id ?? "__null__"
+					if (existingNextAppIds.has(appKey)) continue
+
+					const [inherited] = await tx
+						.insert(routineReviews)
+						.values({
+							routineId: nextId,
+							applicationId: row.application_id,
+							title: "Arvet gjennomgang (retroaktiv migrering av rutinekjede)",
+							status: "completed",
+							reviewedAt: new Date(row.reviewed_at),
+							inheritedFromReviewId: row.source_review_id,
+							createdBy: performedBy,
+						})
+						.returning({ id: routineReviews.id })
+
+					if (inherited) {
+						existingNextAppIds.add(appKey)
+						result.reviewsInherited++
+						await writeAuditLog(
+							{
+								action: "routine_review_inherited",
+								entityType: "routine_review",
+								entityId: inherited.id,
+								newValue: JSON.stringify({
+									routineId: nextId,
+									applicationId: row.application_id,
+									reviewedAt: row.reviewed_at,
+									inheritedFromReviewId: row.source_review_id,
+								}),
+								metadata: { reason: "backfill_replacement_chain" },
+								performedBy,
+							},
+							tx,
+						)
+					}
+				}
+			}
+
+			result.arrayReplacements = updatedControlIds.size
+			return result
+		})
+	})
+}
 
 export async function getRoutineActivityLinks(routineId: string) {
 	return db
