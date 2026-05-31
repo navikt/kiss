@@ -32,25 +32,26 @@ vi.mock("~/lib/storage/index.server", () => ({
 
 // Archiver mock — auto-finalizes the passThrough stream so uploadPromise resolves
 vi.mock("archiver", () => {
+	function makeSink() {
+		const sink = new PassThrough() as PassThrough & {
+			append: ReturnType<typeof vi.fn>
+			finalize: ReturnType<typeof vi.fn>
+			abort: ReturnType<typeof vi.fn>
+		}
+		// biome-ignore lint/suspicious/noExplicitAny: mock pipe overrides real type
+		;(sink as any).pipe = (dest: NodeJS.WritableStream) => {
+			// Immediately end the destination to simulate a finished archive
+			setImmediate(() => dest.end())
+			return dest
+		}
+		sink.append = vi.fn()
+		sink.finalize = vi.fn()
+		sink.abort = vi.fn()
+		sink.on = vi.fn()
+		return sink
+	}
 	return {
-		default: () => {
-			const sink = new PassThrough() as PassThrough & {
-				append: ReturnType<typeof vi.fn>
-				finalize: ReturnType<typeof vi.fn>
-				abort: ReturnType<typeof vi.fn>
-			}
-			// biome-ignore lint/suspicious/noExplicitAny: mock pipe overrides real type
-			;(sink as any).pipe = (dest: NodeJS.WritableStream) => {
-				// Immediately end the destination to simulate a finished archive
-				setImmediate(() => dest.end())
-				return dest
-			}
-			sink.append = vi.fn()
-			sink.finalize = vi.fn()
-			sink.abort = vi.fn()
-			sink.on = vi.fn()
-			return sink
-		},
+		ZipArchive: vi.fn().mockImplementation(makeSink),
 	}
 })
 
