@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getActiveApplicationControls } from "~/db/queries/application-controls.server"
-import { getAppAssessments } from "~/db/queries/applications.server"
+import { getAppAssessments, getAppScopeIds } from "~/db/queries/applications.server"
 import { getOracleInstancesForApp, getSnapshotHistory } from "~/db/queries/audit-evidence.server"
 import { getOracleAuditSummariesForApp } from "~/db/queries/audit-logging.server"
 import { getScreeningEffectsByControlForApp } from "~/db/queries/compliance-auto.server"
@@ -139,6 +139,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		githubTeams,
 		githubCollaborators,
 		githubChangeLog,
+		appScopeIds,
 	] = await Promise.all([
 		resolveAppNames([...referencedAppNames]),
 		getActiveAcknowledgments(appId),
@@ -151,6 +152,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		effectiveGitRepository ? getGitHubTeamsForApp(appId) : Promise.resolve([]),
 		effectiveGitRepository ? getGitHubCollaboratorsForApp(appId) : Promise.resolve([]),
 		effectiveGitRepository ? getGitHubAccessChangeLog(appId) : Promise.resolve([]),
+		getAppScopeIds(appId),
 	])
 
 	// Compute auto-compliance from parallel results
@@ -352,6 +354,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		}
 	}
 
+	const canAccessReports = user ? canAccessAppReports(user, appScopeIds.sectionIds, appScopeIds.devTeamIds) : false
+
 	return data({
 		...breadcrumbCtx,
 		app: detail.app,
@@ -385,18 +389,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
-		canAccessReports: (() => {
-			if (!user) return false
-			const devTeamIds = detail.teams.map((t) => t.teamId)
-			const sectionIds = [
-				...new Set(
-					[...detail.teams.map((t) => t.sectionId), ...detail.environments.map((e) => e.naisTeamSectionId)].filter(
-						(s): s is string => s !== null,
-					),
-				),
-			]
-			return canAccessAppReports(user, sectionIds, devTeamIds)
-		})(),
+		canAccessReports,
 		knownApps,
 		acknowledgments,
 		compliance: {
@@ -408,13 +401,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			routinesMaaFolgesOpp,
 		},
 		assessments,
-		appReports: appReports.map((r) => ({
-			id: r.id,
-			name: r.name,
-			createdAt: r.createdAt.toISOString(),
-			createdBy: r.createdBy,
-			reportBucketPath: r.reportBucketPath,
-		})),
+		appReports: canAccessReports
+			? appReports.map((r) => ({
+					id: r.id,
+					name: r.name,
+					createdAt: r.createdAt.toISOString(),
+					createdBy: r.createdBy,
+					reportBucketPath: r.reportBucketPath,
+				}))
+			: [],
 		screeningSessions: screeningSessions.map((s) => ({
 			id: s.id,
 			title: s.title,
@@ -431,38 +426,42 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				userName: p.userName,
 			})),
 		})),
-		oracleInstances: filteredOracleInstances.map((inst) => ({
-			...inst,
-			configuredAt: inst.configuredAt.toISOString(),
-			latestSnapshot: inst.latestSnapshot
-				? {
-						...inst.latestSnapshot,
-						fetchedAt: inst.latestSnapshot.fetchedAt.toISOString(),
-					}
-				: null,
-		})),
-		totalOracleInstanceCount,
+		oracleInstances: canAccessReports
+			? filteredOracleInstances.map((inst) => ({
+					...inst,
+					configuredAt: inst.configuredAt.toISOString(),
+					latestSnapshot: inst.latestSnapshot
+						? {
+								...inst.latestSnapshot,
+								fetchedAt: inst.latestSnapshot.fetchedAt.toISOString(),
+							}
+						: null,
+				}))
+			: [],
+		totalOracleInstanceCount: canAccessReports ? totalOracleInstanceCount : 0,
 		inaccessibleOracleGroups,
 		oracleRoles,
-		instanceSnapshotHistories: (() => {
-			const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
-			return instanceSnapshotHistories.map(({ instanceId, history }) => {
-				const meta = oracleInstanceMetaById.get(instanceId)
-				return {
-					instanceId,
-					instanceName: meta?.name ?? instanceId.toUpperCase(),
-					instanceType: meta?.type ?? null,
-					instanceGroup: meta?.group ?? null,
-					snapshots: history.map((s) => ({
-						id: s.id,
-						overallStatus: s.overallStatus,
-						collectedAt: s.collectedAt.toISOString(),
-						fetchedAt: s.fetchedAt.toISOString(),
-						fetchedBy: s.fetchedBy,
-					})),
-				}
-			})
-		})(),
+		instanceSnapshotHistories: canAccessReports
+			? (() => {
+					const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
+					return instanceSnapshotHistories.map(({ instanceId, history }) => {
+						const meta = oracleInstanceMetaById.get(instanceId)
+						return {
+							instanceId,
+							instanceName: meta?.name ?? instanceId.toUpperCase(),
+							instanceType: meta?.type ?? null,
+							instanceGroup: meta?.group ?? null,
+							snapshots: history.map((s) => ({
+								id: s.id,
+								overallStatus: s.overallStatus,
+								collectedAt: s.collectedAt.toISOString(),
+								fetchedAt: s.fetchedAt.toISOString(),
+								fetchedBy: s.fetchedBy,
+							})),
+						}
+					})
+				})()
+			: [],
 		githubAccess: {
 			teams: githubTeams.map((t) => ({
 				...t,

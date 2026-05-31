@@ -1,4 +1,4 @@
-import { and, eq, ilike, inArray, isNotNull, isNull, or, sql } from "drizzle-orm"
+import { and, eq, ilike, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	applicationEnvironments,
@@ -285,10 +285,27 @@ export async function getAppScopeIds(appId: string): Promise<{ devTeamIds: strin
 			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
 			.where(and(eq(applicationTeamMappings.applicationId, appId), isNull(applicationTeamMappings.archivedAt))),
 		db
-			.select({ sectionId: naisTeams.sectionId })
+			.selectDistinct({ sectionId: naisTeams.sectionId })
 			.from(applicationEnvironments)
 			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-			.where(eq(applicationEnvironments.applicationId, appId)),
+			.where(
+				and(
+					eq(applicationEnvironments.applicationId, appId),
+					isNotNull(naisTeams.sectionId),
+					notExists(
+						db
+							.select({ one: sql`1` })
+							.from(sectionEnvironments)
+							.where(
+								and(
+									eq(sectionEnvironments.sectionId, naisTeams.sectionId),
+									eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+									eq(sectionEnvironments.included, false),
+								),
+							),
+					),
+				),
+			),
 	])
 
 	const devTeamIds = devTeamRows.map((r) => r.devTeamId)
