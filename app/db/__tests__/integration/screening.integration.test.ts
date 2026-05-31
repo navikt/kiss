@@ -34,6 +34,7 @@ const {
 	changeScreeningQuestionStatus,
 	getScreeningDataForApp,
 	isEffectOwnedByQuestion,
+	getRoutinesForAllControlsAndTechElements,
 } = await import("~/db/queries/screening.server")
 
 async function createApp(name: string) {
@@ -109,10 +110,17 @@ describe("screening.server integration tests", () => {
 			DELETE FROM screening_question_choices;
 			DELETE FROM screening_question_effects;
 			DELETE FROM screening_question_technology_elements;
+			DELETE FROM routine_screening_questions;
 			DELETE FROM screening_questions;
 			DELETE FROM application_technology_elements;
-			DELETE FROM technology_elements;
 			DELETE FROM control_technology_elements;
+			DELETE FROM routine_controls;
+			DELETE FROM routine_technology_elements;
+			DELETE FROM routine_group_classification_links;
+			DELETE FROM routine_oracle_role_criticality_links;
+			DELETE FROM routine_persistence_links;
+			DELETE FROM routines;
+			DELETE FROM technology_elements;
 			DELETE FROM framework_controls;
 			DELETE FROM application_environments;
 			DELETE FROM section_environments;
@@ -626,6 +634,90 @@ describe("screening.server integration tests", () => {
 
 			const result = await isEffectOwnedByQuestion("00000000-0000-0000-0000-000000000000", q.id)
 			expect(result).toBe(false)
+		})
+	})
+
+	describe("Preset routine filtering", () => {
+		async function insertApprovedRoutineWithControl(
+			sectionId: string,
+			controlUuid: string,
+			name: string,
+		): Promise<string> {
+			const db = getTestDb()
+			const r = await db.execute(
+				/* sql */ `INSERT INTO routines (section_id, name, frequency, status, applies_to_all_in_section, created_by, updated_by)
+				VALUES ('${sectionId}', '${name}', 'quarterly', 'approved', 0, 'Z990001', 'Z990001') RETURNING id`,
+			)
+			const routineId = (r.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO routine_controls (routine_id, control_id) VALUES ('${routineId}', '${controlUuid}')`,
+			)
+			return routineId
+		}
+
+		async function simulateReplacement(oldRoutineId: string, newRoutineId: string) {
+			const db = getTestDb()
+			// Only set replaced_by_routine_id (without archiving) to specifically test the
+			// new isNull(replacedByRoutineId) filter, independent of the archived_at filter.
+			await db.execute(/* sql */ `
+				UPDATE routines SET
+					replaced_by_routine_id = '${newRoutineId}',
+					updated_by = 'Z990001'
+				WHERE id = '${oldRoutineId}'
+			`)
+		}
+
+		it("getRoutinesForAllControlsAndTechElements ekskluderer erstattede rutiner", async () => {
+			const sectionId = await createSectionRow("preset-filter")
+			const controlUuid = await createControl("K-PF.01")
+
+			const routineAId = await insertApprovedRoutineWithControl(sectionId, controlUuid, "Rutine A")
+			const routineBId = await insertApprovedRoutineWithControl(sectionId, controlUuid, "Rutine B")
+
+			// Before replacement: routineA appears in the dropdown
+			const before = await getRoutinesForAllControlsAndTechElements([])
+			expect(
+				Object.values(before)
+					.flat()
+					.map((r) => r.id),
+			).toContain(routineAId)
+
+			// Simulate A being replaced by B
+			await simulateReplacement(routineAId, routineBId)
+
+			// After replacement: routineA (archived+replaced) must not appear; routineB must appear
+			const after = await getRoutinesForAllControlsAndTechElements([])
+			const allIds = Object.values(after)
+				.flat()
+				.map((r) => r.id)
+			expect(allIds).not.toContain(routineAId)
+			expect(allIds).toContain(routineBId)
+		})
+
+		it("addChoiceEffect avviser erstattet rutine som forvalgt rutine", async () => {
+			const sectionId = await createSectionRow("preset-reject")
+			const controlUuid = await createControl("K-PF.02")
+
+			const routineAId = await insertApprovedRoutineWithControl(sectionId, controlUuid, "Rutine A2")
+			const routineBId = await insertApprovedRoutineWithControl(sectionId, controlUuid, "Rutine B2")
+
+			// Simulate A being replaced by B
+			await simulateReplacement(routineAId, routineBId)
+
+			// Create a screening question + choice to attach the effect to
+			const q = await createScreeningQuestion("Erstattet rutine?", null, "Z990001")
+			const choice = await createChoice({ questionId: q.id, label: "Ja" })
+
+			// Attempting to use the replaced routine as preset should fail
+			await expect(
+				addChoiceEffect({
+					choiceId: choice.id,
+					controlTextId: "K-PF.02",
+					effect: "preset_routine",
+					comment: null,
+					presetRoutineId: routineAId,
+				}),
+			).rejects.toThrow(/erstattet av en nyere versjon/)
 		})
 	})
 })
