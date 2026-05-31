@@ -1,5 +1,12 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import type { NavUser } from "~/lib/auth.server"
+import {
+	ScreeningAlreadyCompletedError,
+	ScreeningConcurrentModificationError,
+	ScreeningNotFoundError,
+	ScreeningReplayError,
+	ScreeningValidationError,
+} from "~/lib/screening-errors"
 import { logger } from "../../lib/logger.server"
 import { db } from "../connection.server"
 import {
@@ -289,50 +296,57 @@ export async function saveScreeningSessionAnswer(params: {
 	link: string | null
 	performedBy: string
 }) {
-	await db.transaction(async (tx) => {
-		// Verify session exists and is not completed (lock row to prevent race with completion)
-		const [session] = await tx
-			.select({ status: screeningSessions.status })
-			.from(screeningSessions)
-			.where(and(eq(screeningSessions.id, params.sessionId), isNull(screeningSessions.archivedAt)))
-			.for("update")
-			.limit(1)
+	try {
+		await db.transaction(async (tx) => {
+			// Verify session exists and is not completed (lock row to prevent race with completion)
+			const [session] = await tx
+				.select({ status: screeningSessions.status })
+				.from(screeningSessions)
+				.where(and(eq(screeningSessions.id, params.sessionId), isNull(screeningSessions.archivedAt)))
+				.for("update")
+				.limit(1)
 
-		if (!session) throw new Error("Screening-sesjon ikke funnet")
-		if (session.status === "completed") throw new Error("Kan ikke endre svar i fullført screening")
+			if (!session) throw new ScreeningNotFoundError()
+			if (session.status === "completed")
+				throw new ScreeningAlreadyCompletedError("Kan ikke endre svar i fullført screening")
 
-		await tx
-			.insert(screeningSessionAnswers)
-			.values({
-				sessionId: params.sessionId,
-				questionId: params.questionId,
-				answer: params.answer,
-				comment: params.comment,
-				link: params.link,
-				answeredBy: params.performedBy,
-			})
-			.onConflictDoUpdate({
-				target: [screeningSessionAnswers.sessionId, screeningSessionAnswers.questionId],
-				set: {
+			await tx
+				.insert(screeningSessionAnswers)
+				.values({
+					sessionId: params.sessionId,
+					questionId: params.questionId,
 					answer: params.answer,
 					comment: params.comment,
 					link: params.link,
 					answeredBy: params.performedBy,
-					answeredAt: new Date(),
-				},
-			})
+				})
+				.onConflictDoUpdate({
+					target: [screeningSessionAnswers.sessionId, screeningSessionAnswers.questionId],
+					set: {
+						answer: params.answer,
+						comment: params.comment,
+						link: params.link,
+						answeredBy: params.performedBy,
+						answeredAt: new Date(),
+					},
+				})
 
-		await writeAuditLog(
-			{
-				action: "screening_answer_saved",
-				entityType: "screening_session_answer",
-				entityId: `${params.sessionId}/${params.questionId}`,
-				newValue: JSON.stringify({ questionId: params.questionId, answer: params.answer }),
-				performedBy: params.performedBy,
-			},
-			tx,
-		)
-	})
+			await writeAuditLog(
+				{
+					action: "screening_answer_saved",
+					entityType: "screening_session_answer",
+					entityId: `${params.sessionId}/${params.questionId}`,
+					newValue: JSON.stringify({ questionId: params.questionId, answer: params.answer }),
+					performedBy: params.performedBy,
+				},
+				tx,
+			)
+		})
+	} catch (e) {
+		if (e instanceof Error && e.message.includes("violates foreign key"))
+			throw new ScreeningValidationError("Ugyldig spørsmål-ID")
+		throw e
+	}
 }
 
 // ─── Staged Operations ───────────────────────────────────────────────────
@@ -352,8 +366,8 @@ export async function stageOperation(params: {
 			.for("update")
 			.limit(1)
 
-		if (!session) throw new Error("Screening-sesjon ikke funnet")
-		if (session.status !== "draft") throw new Error("Kan ikke endre data i en fullført screening-sesjon")
+		if (!session) throw new ScreeningNotFoundError()
+		if (session.status !== "draft") throw new ScreeningAlreadyCompletedError()
 
 		// Economy classification uses a partial unique index — upsert to update existing row
 		if (params.intent === "save-economy-classification") {
@@ -421,7 +435,7 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 			)
 			.returning()
 
-		if (!frozen) throw new Error("Screening-sesjon ikke funnet eller er allerede fullført")
+		if (!frozen) throw new ScreeningNotFoundError("Screening-sesjon ikke funnet eller er allerede fullført")
 
 		try {
 			// Get unreplayed staged operations (skip already-replayed ops on retry)
@@ -495,7 +509,7 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 					const economySystemType = payload.economySystemType
 					const isComplete = isEconomy && justification && (isEconomy !== "ja" || economySystemType)
 					if (!isComplete) {
-						throw new Error(
+						throw new ScreeningValidationError(
 							"Økonomisteget mangler påkrevde felter. Gå tilbake til økonomisteget og fyll inn alle feltene.",
 						)
 					}
@@ -537,7 +551,7 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 					} catch (e) {
 						if (e instanceof Response) {
 							const body = await e.text()
-							throw new Error(`Replay av «${op.intent}» feilet: ${body}`)
+							throw new ScreeningReplayError(op.intent, body)
 						}
 						throw e
 					}
@@ -547,9 +561,7 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 						const body = (replayResult as { data: Record<string, unknown> }).data
 						if (body && body.success === false) {
 							const payloadDebug = JSON.stringify(op.payload)
-							throw new Error(
-								`Kunne ikke fullføre screening: operasjonen «${op.intent}» feilet: ${body.error || `ukjent feil (payload: ${payloadDebug})`}`,
-							)
+							throw new ScreeningReplayError(op.intent, String(body.error || `ukjent feil (payload: ${payloadDebug})`))
 						}
 					}
 
@@ -794,7 +806,7 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 	})
 
 	if (result === null) {
-		throw new Error("En annen bruker fullfører denne screeningen samtidig. Prøv igjen.")
+		throw new ScreeningConcurrentModificationError()
 	}
 
 	return result
@@ -879,8 +891,9 @@ export async function updateScreeningSessionParticipants(
 			.for("update")
 			.limit(1)
 
-		if (!session) throw new Error("Screening-sesjon ikke funnet")
-		if (session.status === "completed") throw new Error("Kan ikke endre deltakere på en fullført sesjon")
+		if (!session) throw new ScreeningNotFoundError()
+		if (session.status === "completed")
+			throw new ScreeningAlreadyCompletedError("Kan ikke endre deltakere på en fullført sesjon")
 
 		// Get existing active participants
 		const existing = await tx
