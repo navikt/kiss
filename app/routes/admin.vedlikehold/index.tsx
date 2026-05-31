@@ -11,12 +11,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
-	const [appControlStats, naisSyncEnabled] = await Promise.all([
-		getApplicationControlStats(),
-		Promise.resolve(process.env.ENABLE_NAIS_SYNC === "true"),
-	])
+	const appControlStats = await getApplicationControlStats()
 
-	return data({ appControlStats, naisSyncEnabled })
+	return data({ appControlStats })
 }
 
 async function getApplicationControlStats() {
@@ -89,7 +86,7 @@ export async function action({ request }: ActionFunctionArgs) {
 export { RouteErrorBoundary as ErrorBoundary } from "~/components/RouteErrorBoundary"
 
 export default function AdminVedlikehold() {
-	const { appControlStats, naisSyncEnabled } = useLoaderData<typeof loader>()
+	const { appControlStats } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -103,7 +100,6 @@ export default function AdminVedlikehold() {
 			<VStack gap="space-6">
 				<SyncControlsCard stats={appControlStats} />
 				<MigrateRoutineLinksCard />
-				<NaisSyncCard enabled={naisSyncEnabled} />
 			</VStack>
 		</VStack>
 	)
@@ -191,32 +187,6 @@ function MigrateRoutineLinksCard() {
 					<Alert variant="warning" size="small">
 						{result.message}
 					</Alert>
-				)}
-			</VStack>
-		</section>
-	)
-}
-
-function NaisSyncCard({ enabled }: { enabled: boolean }) {
-	return (
-		<section className="admin-maintenance-card">
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Nais-synkronisering
-				</Heading>
-				<BodyLong>
-					Henter team og applikasjoner fra Nais-plattformen. Nye team og applikasjoner legges til i systemet.
-					{enabled ? " Automatisk synkronisering kjører hvert 5. minutt." : " Automatisk synkronisering er deaktivert."}
-				</BodyLong>
-
-				{enabled ? (
-					<Tag variant="success" size="small">
-						Automatisk synkronisering aktiv
-					</Tag>
-				) : (
-					<Tag variant="neutral" size="small">
-						Automatisk synkronisering deaktivert
-					</Tag>
 				)}
 			</VStack>
 		</section>

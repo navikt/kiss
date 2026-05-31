@@ -58,11 +58,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		page,
 		pageSize: PAGE_SIZE,
 		totalPages,
+		naisSyncEnabled: process.env.ENABLE_NAIS_SYNC === "true",
 	})
 }
 
 export default function AdminSyncJobsPage() {
-	const { syncJobs, stateFilter, jobTypeFilter, totalSyncJobs, page, pageSize, totalPages } =
+	const { syncJobs, stateFilter, jobTypeFilter, totalSyncJobs, page, pageSize, totalPages, naisSyncEnabled } =
 		useLoaderData<typeof loader>()
 	const firstItemOnPage = totalSyncJobs === 0 ? 0 : (page - 1) * pageSize + 1
 	const lastItemOnPage = totalSyncJobs === 0 ? 0 : firstItemOnPage + syncJobs.length - 1
@@ -75,6 +76,15 @@ export default function AdminSyncJobsPage() {
 						Synkjobber
 					</Heading>
 					<BodyLong>Oversikt over kjørte og pågående synkjobber i systemet.</BodyLong>
+					{naisSyncEnabled ? (
+						<Tag variant="success" size="small" style={{ alignSelf: "flex-start" }}>
+							Automatisk synkronisering aktiv (hvert 5. minutt)
+						</Tag>
+					) : (
+						<Tag variant="neutral" size="small" style={{ alignSelf: "flex-start" }}>
+							Automatisk synkronisering deaktivert
+						</Tag>
+					)}
 				</VStack>
 
 				<section
