@@ -19,7 +19,7 @@
 import { logPoolStats } from "~/db/connection.server"
 import { logger } from "./logger.server"
 
-const CYCLE_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — base cycle
+export const CYCLE_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — base cycle
 const INITIAL_DELAY_MS = 30 * 1000 // 30 seconds after startup
 const CYCLES_PER_24_HOURS = Math.floor((24 * 60 * 60 * 1000) / CYCLE_INTERVAL_MS)
 

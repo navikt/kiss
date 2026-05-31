@@ -7,18 +7,13 @@ import { syncAllApplicationControls } from "~/db/queries/application-controls.se
 import { migrateExistingReplacementChains } from "~/db/queries/routines.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
-import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
-
 export async function loader({ request }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
-	const [appControlStats, naisSyncEnabled] = await Promise.all([
-		getApplicationControlStats(),
-		Promise.resolve(process.env.ENABLE_NAIS_SYNC === "true"),
-	])
+	const appControlStats = await getApplicationControlStats()
 
-	return data({ appControlStats, naisSyncEnabled })
+	return data({ appControlStats })
 }
 
 async function getApplicationControlStats() {
@@ -85,42 +80,13 @@ export async function action({ request }: ActionFunctionArgs) {
 		})
 	}
 
-	if (intent === "nais-sync") {
-		const token = process.env.NAIS_API_TOKEN || undefined
-		const start = Date.now()
-		const tracked = await runTrackedNaisSync({
-			token,
-			performedBy: authedUser.navIdent,
-			scopeType: "manual",
-			scopeId: "admin-vedlikehold",
-		})
-		const elapsed = Date.now() - start
-
-		if (!tracked.result) {
-			return data({
-				intent: "nais-sync",
-				success: false,
-				message: "Synkronisering pågår allerede.",
-				elapsed,
-			})
-		}
-
-		return data({
-			intent: "nais-sync",
-			success: true,
-			teams: tracked.result.teams,
-			apps: tracked.result.apps,
-			elapsed,
-		})
-	}
-
 	return data({ intent: "unknown", success: false, message: "Ukjent handling" }, { status: 400 })
 }
 
 export { RouteErrorBoundary as ErrorBoundary } from "~/components/RouteErrorBoundary"
 
 export default function AdminVedlikehold() {
-	const { appControlStats, naisSyncEnabled } = useLoaderData<typeof loader>()
+	const { appControlStats } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -134,7 +100,6 @@ export default function AdminVedlikehold() {
 			<VStack gap="space-6">
 				<SyncControlsCard stats={appControlStats} />
 				<MigrateRoutineLinksCard />
-				<NaisSyncCard enabled={naisSyncEnabled} />
 			</VStack>
 		</VStack>
 	)
@@ -216,59 +181,6 @@ function MigrateRoutineLinksCard() {
 						Migrering fullført på {formatElapsed(result.elapsed)}. {result.presets} forvalgte rutiner,{" "}
 						{result.selections} rutinevalg, {result.arrayReplacements} kontrollcache-rader og {result.reviewsInherited}{" "}
 						arvede gjennomganger oppdatert.
-					</Alert>
-				)}
-				{result?.success === false && "message" in result && (
-					<Alert variant="warning" size="small">
-						{result.message}
-					</Alert>
-				)}
-			</VStack>
-		</section>
-	)
-}
-
-function NaisSyncCard({ enabled }: { enabled: boolean }) {
-	const fetcher = useFetcher<typeof action>()
-	const isSubmitting = fetcher.state !== "idle"
-	const result = fetcher.data?.intent === "nais-sync" ? fetcher.data : null
-
-	return (
-		<section className="admin-maintenance-card">
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Nais-synkronisering
-				</Heading>
-				<BodyLong>
-					Henter team og applikasjoner fra Nais-plattformen. Nye team og applikasjoner legges til i systemet.
-					{enabled ? " Automatisk synkronisering kjører hvert 5. minutt." : " Automatisk synkronisering er deaktivert."}
-				</BodyLong>
-
-				<HStack gap="space-4" align="center">
-					{enabled ? (
-						<Tag variant="success" size="small">
-							Automatisk synkronisering aktiv
-						</Tag>
-					) : (
-						<Tag variant="neutral" size="small">
-							Automatisk synkronisering deaktivert
-						</Tag>
-					)}
-				</HStack>
-
-				<HStack gap="space-4" align="center">
-					<fetcher.Form method="post">
-						<input type="hidden" name="intent" value="nais-sync" />
-						<Button type="submit" variant="secondary" size="small" loading={isSubmitting}>
-							{isSubmitting ? "Synkroniserer..." : "Kjør manuell synkronisering"}
-						</Button>
-					</fetcher.Form>
-				</HStack>
-
-				{result?.success === true && "teams" in result && (
-					<Alert variant="success" size="small">
-						Synkronisering fullført på {formatElapsed(result.elapsed)}. {result.teams.discovered} team oppdaget (
-						{result.teams.new} nye), {result.apps.length} team synkronisert.
 					</Alert>
 				)}
 				{result?.success === false && "message" in result && (
