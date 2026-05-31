@@ -266,4 +266,92 @@ describe("screening session action", () => {
 			expect(mockUpdateScreeningSessionParticipants).toHaveBeenCalledWith("session-1", participants, "Z991234")
 		})
 	})
+
+	describe("intent: save-economy-classification", () => {
+		beforeEach(() => {
+			mockStageOperation.mockResolvedValue({})
+			mockSaveScreeningSessionAnswer.mockResolvedValue(undefined)
+		})
+
+		it("confirms the step when all required fields are present (isEconomySystem=nei)", async () => {
+			const fd = new FormData()
+			fd.set("intent", "save-economy-classification")
+			fd.set("questionId", "q-123")
+			fd.set("isEconomySystem", "nei")
+			fd.set("justification", "Dette er ikke et økonomisystem")
+
+			await callAction(fd)
+
+			expect(mockSaveScreeningSessionAnswer).toHaveBeenCalledWith(
+				expect.objectContaining({ questionId: "q-123", answer: "confirmed" }),
+			)
+		})
+
+		it("confirms the step when all required fields are present (isEconomySystem=ja with type)", async () => {
+			const fd = new FormData()
+			fd.set("intent", "save-economy-classification")
+			fd.set("questionId", "q-123")
+			fd.set("isEconomySystem", "ja")
+			fd.set("economySystemType", "hjelpesystem")
+			fd.set("justification", "Systemet påvirker regnskap")
+
+			await callAction(fd)
+
+			expect(mockSaveScreeningSessionAnswer).toHaveBeenCalledWith(
+				expect.objectContaining({ questionId: "q-123", answer: "confirmed" }),
+			)
+		})
+
+		it("un-confirms the step when justification is missing", async () => {
+			const fd = new FormData()
+			fd.set("intent", "save-economy-classification")
+			fd.set("questionId", "q-123")
+			fd.set("isEconomySystem", "nei")
+			fd.set("justification", "")
+
+			await callAction(fd)
+
+			expect(mockSaveScreeningSessionAnswer).toHaveBeenCalledWith(
+				expect.objectContaining({ questionId: "q-123", answer: null }),
+			)
+		})
+
+		it("un-confirms the step when isEconomySystem=ja but type is missing", async () => {
+			const fd = new FormData()
+			fd.set("intent", "save-economy-classification")
+			fd.set("questionId", "q-123")
+			fd.set("isEconomySystem", "ja")
+			fd.set("economySystemType", "")
+			fd.set("justification", "Systemet påvirker regnskap")
+
+			await callAction(fd)
+
+			expect(mockSaveScreeningSessionAnswer).toHaveBeenCalledWith(
+				expect.objectContaining({ questionId: "q-123", answer: null }),
+			)
+		})
+
+		it("does not call saveScreeningSessionAnswer when questionId is missing", async () => {
+			const fd = new FormData()
+			fd.set("intent", "save-economy-classification")
+			fd.set("isEconomySystem", "nei")
+			fd.set("justification", "Begrunnelse")
+
+			await callAction(fd)
+
+			expect(mockSaveScreeningSessionAnswer).not.toHaveBeenCalled()
+		})
+
+		it("does not call saveScreeningSessionAnswer when questionId does not belong to this app", async () => {
+			const fd = new FormData()
+			fd.set("intent", "save-economy-classification")
+			fd.set("questionId", "q-unknown")
+			fd.set("isEconomySystem", "nei")
+			fd.set("justification", "Begrunnelse")
+
+			await callAction(fd)
+
+			expect(mockSaveScreeningSessionAnswer).not.toHaveBeenCalled()
+		})
+	})
 })

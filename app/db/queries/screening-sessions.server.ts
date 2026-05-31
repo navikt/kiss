@@ -485,6 +485,23 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 				}
 			}
 
+			// Pre-flight: validate staged ops before replay to give actionable errors
+			// instead of a server crash mid-replay.
+			for (const op of stagedOps) {
+				if (op.intent === "save-economy-classification") {
+					const payload = op.payload as Record<string, string>
+					const isEconomy = payload.isEconomySystem
+					const justification = payload.justification?.trim()
+					const economySystemType = payload.economySystemType
+					const isComplete = isEconomy && justification && (isEconomy !== "ja" || economySystemType)
+					if (!isComplete) {
+						throw new Error(
+							"Økonomisteget mangler påkrevde felter. Gå tilbake til økonomisteget og fyll inn alle feltene.",
+						)
+					}
+				}
+			}
+
 			// Replay staged operations, mapping fake staged IDs to real DB IDs
 			if (stagedOps.length > 0) {
 				const { handleComplianceIntent } = await import(

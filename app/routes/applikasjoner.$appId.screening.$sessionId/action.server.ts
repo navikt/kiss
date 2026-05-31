@@ -83,6 +83,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (e instanceof Error && e.message.includes("ikke funnet")) throw new Response(e.message, { status: 404 })
 			if (e instanceof Error && e.message.includes("allerede fullført")) throw new Response(e.message, { status: 409 })
 			if (e instanceof Error && e.message.includes("samtidig")) throw new Response(e.message, { status: 409 })
+			if (e instanceof Error && e.message.includes("mangler påkrevde felter"))
+				throw new Response(e.message, { status: 400 })
 			// Throw as Error so React Router serializes message + stack to the error boundary
 			if (e instanceof Error) throw e
 			throw new Error(message)
@@ -173,15 +175,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			throw e
 		}
 
-		// Auto-confirm the screening answer only when economy classification is complete
+		// Keep the screening answer in sync with the economy classification form state.
+		// Confirm when all required fields are present, un-confirm when any required field is missing.
+		// This ensures the stepper reflects the actual completeness state on every save.
 		if (intent === "save-economy-classification") {
 			const questionId = formData.get("questionId") as string
 			const isEconomySystem = formData.get("isEconomySystem") as string
 			const justification = (formData.get("justification") as string)?.trim()
 			const economySystemType = formData.get("economySystemType") as string
-			const isComplete = isEconomySystem && justification && (isEconomySystem !== "ja" || economySystemType)
-			if (questionId && isComplete) {
-				// Validate questionId belongs to this app's screening before auto-confirming
+			const isComplete = !!(isEconomySystem && justification && (isEconomySystem !== "ja" || economySystemType))
+			if (questionId) {
+				// Validate questionId belongs to this app's screening
 				const { getScreeningDataForApp } = await import("~/db/queries/screening.server")
 				const screeningData = await getScreeningDataForApp(appId)
 				const validQuestionIds = new Set(screeningData.questions.map((q) => q.id))
@@ -190,7 +194,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 						await saveScreeningSessionAnswer({
 							sessionId,
 							questionId,
-							answer: "confirmed",
+							answer: isComplete ? "confirmed" : null,
 							comment: null,
 							link: null,
 							performedBy: authedUser.navIdent,
