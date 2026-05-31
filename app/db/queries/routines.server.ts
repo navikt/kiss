@@ -177,6 +177,16 @@ export async function getRoutinesForSection(sectionId: string) {
 	}))
 }
 
+/** Henter navn og status for en liste av rutine-IDer. Brukes til å vise lenker til relaterte rutiner. */
+export async function getRoutineNamesByIds(ids: string[]): Promise<Map<string, { name: string; status: string }>> {
+	if (ids.length === 0) return new Map()
+	const rows = await db
+		.select({ id: routines.id, name: routines.name, status: routines.status })
+		.from(routines)
+		.where(inArray(routines.id, ids))
+	return new Map(rows.map((r) => [r.id, { name: r.name, status: r.status }]))
+}
+
 export async function getRoutine(id: string) {
 	const [routine] = await db.select().from(routines).where(eq(routines.id, id)).limit(1)
 	if (!routine) return null

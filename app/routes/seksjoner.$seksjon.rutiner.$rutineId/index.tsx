@@ -30,6 +30,7 @@ import {
 	getReviewsForRoutine,
 	getRoutine,
 	getRoutineFollowUpApplicationIds,
+	getRoutineNamesByIds,
 	isOverdue,
 	replaceRoutine,
 	updateRoutinePriority,
@@ -133,6 +134,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const userCanEdit = user ? hasAnySectionRole(user, section.id) : false
 	const userCanChangePriority = user ? isAdmin(user) || canApproveRoutine(user, effectiveRole, section.id) : false
 
+	// Fetch names for predecessor (source) and successor (replaced-by) for lineage display
+	const lineageIds = [routine.sourceRoutineId, routine.replacedByRoutineId].filter(
+		(id): id is string => id !== null && id !== undefined,
+	)
+	const lineageNames = await getRoutineNamesByIds(lineageIds)
+	const predecessorInfo = routine.sourceRoutineId ? (lineageNames.get(routine.sourceRoutineId) ?? null) : null
+	const successorInfo = routine.replacedByRoutineId ? (lineageNames.get(routine.replacedByRoutineId) ?? null) : null
+
 	return data({
 		section,
 		routine,
@@ -145,6 +154,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		userCanEdit,
 		userCanChangePriority,
 		effectiveRole,
+		predecessorInfo,
+		successorInfo,
 	})
 }
 
@@ -265,6 +276,8 @@ export default function RutineDetaljer() {
 		userCanEdit,
 		userCanChangePriority,
 		effectiveRole,
+		predecessorInfo,
+		successorInfo,
 	} = useLoaderData<typeof loader>()
 	const fetcher = useFetcher()
 	const archiveFetcher = useFetcher()
@@ -366,6 +379,22 @@ export default function RutineDetaljer() {
 								Arkivert {new Date(routine.archivedAt).toLocaleString("nb-NO")}
 								{routine.archivedBy ? ` av ${routine.archivedBy}` : ""}. Godkjenning, kopiering og nye gjennomganger er
 								deaktivert til rutinen reaktiveres. Bruk «Rediger» for å reaktivere.
+							</BodyShort>
+						</LocalAlert.Content>
+					</LocalAlert>
+				)}
+				{routine.replacedByRoutineId && successorInfo && (
+					<LocalAlert status="announcement">
+						<LocalAlert.Header>
+							<LocalAlert.Title>Rutinen er erstattet</LocalAlert.Title>
+						</LocalAlert.Header>
+						<LocalAlert.Content>
+							<BodyShort size="small">
+								Denne rutinen er erstattet av{" "}
+								<Link to={`/seksjoner/${section.slug}/rutiner/${routine.replacedByRoutineId}`}>
+									{successorInfo.name}
+								</Link>
+								. Gå til den nye rutinen for gjennomganger og oppdatert innhold.
 							</BodyShort>
 						</LocalAlert.Content>
 					</LocalAlert>
@@ -566,7 +595,9 @@ export default function RutineDetaljer() {
 				<VStack gap="space-2">
 					<Label size="small">Opphav</Label>
 					<BodyShort size="small">
-						<Link to={`/seksjoner/${section.slug}/rutiner/${routine.sourceRoutineId}`}>Vis opprinnelig rutine</Link>
+						<Link to={`/seksjoner/${section.slug}/rutiner/${routine.sourceRoutineId}`}>
+							{predecessorInfo?.name ?? "Vis opprinnelig rutine"}
+						</Link>
 					</BodyShort>
 				</VStack>
 			)}
@@ -576,7 +607,9 @@ export default function RutineDetaljer() {
 				<VStack gap="space-2">
 					<Label size="small">Erstattet av</Label>
 					<BodyShort size="small">
-						<Link to={`/seksjoner/${section.slug}/rutiner/${routine.replacedByRoutineId}`}>Vis erstattende rutine</Link>
+						<Link to={`/seksjoner/${section.slug}/rutiner/${routine.replacedByRoutineId}`}>
+							{successorInfo?.name ?? "Vis erstattende rutine"}
+						</Link>
 					</BodyShort>
 				</VStack>
 			)}

@@ -1081,24 +1081,37 @@ export function mockRedigerRutineData(overrides?: RedigerRutineDataOverrides) {
 	}
 }
 
-export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; eventOnly?: boolean; dualFrequency?: boolean; withFollowUp?: boolean }) {
+export function mockRutineDetaljData(overrides?: {
+	isSectionRoutine?: boolean
+	eventOnly?: boolean
+	dualFrequency?: boolean
+	withFollowUp?: boolean
+	replaced?: boolean
+	isReplacement?: boolean
+}) {
 	const isSec = overrides?.isSectionRoutine ?? false
 	const eventOnly = overrides?.eventOnly ?? false
 	const dualFrequency = overrides?.dualFrequency ?? false
 	const withFollowUp = overrides?.withFollowUp ?? false
+	const replaced = overrides?.replaced ?? false
+	const isReplacement = overrides?.isReplacement ?? false
 
 	const frequency = eventOnly ? null : isSec ? "semi_annually" : "quarterly"
 	const eventFrequency = eventOnly ? "Ved endring" : dualFrequency ? "Ved behov" : null
 
 	const routine = {
 		...mockRoutineBase({
-			id: "routine-1",
+			id: replaced ? "routine-old" : isReplacement ? "routine-new" : "routine-1",
 			name: eventOnly
 				? "Sikkerhetsgjennomgang ved endring"
 				: isSec
 					? "Tilgangskontroll – gjennomgang"
-					: "Sikkerhetstesting av applikasjoner",
-			status: "approved",
+					: replaced
+						? "Sikkerhetstesting av applikasjoner (gammel)"
+						: isReplacement
+							? "Sikkerhetstesting av applikasjoner v2"
+							: "Sikkerhetstesting av applikasjoner",
+			status: replaced ? "archived" : "approved",
 			frequency,
 			eventFrequency,
 			isSectionRoutine: isSec ? 1 : 0,
@@ -1107,6 +1120,10 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 			description: isSec
 				? "Halvårlig gjennomgang av tilgangsrettigheter for alle applikasjoner i seksjonen."
 				: "Gjennomfør sikkerhetstesting inkludert OWASP Top 10 og SAST/DAST-skanning.",
+			archivedAt: replaced ? "2026-04-01T10:00:00Z" : null,
+			archivedBy: replaced ? "B654321" : null,
+			replacedByRoutineId: replaced ? "routine-new" : null,
+			sourceRoutineId: isReplacement ? "routine-old" : null,
 		}),
 		controls: [
 			{
@@ -1254,7 +1271,10 @@ export function mockRutineDetaljData(overrides?: { isSectionRoutine?: boolean; e
 		userCanApprove: true,
 		userCanAdmin: true,
 		userCanEdit: true,
+		userCanChangePriority: true,
 		effectiveRole: isSec ? "Seksjonsleder" : "Sikkerhetsansvarlig",
+		predecessorInfo: isReplacement ? { name: "Sikkerhetstesting av applikasjoner (gammel)", status: "archived" } : null,
+		successorInfo: replaced ? { name: "Sikkerhetstesting av applikasjoner v2", status: "approved" } : null,
 	}
 }
 
