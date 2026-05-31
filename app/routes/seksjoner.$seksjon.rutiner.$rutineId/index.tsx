@@ -329,12 +329,12 @@ export default function RutineDetaljer() {
 						)}
 					</HStack>
 					<HStack gap="space-2">
-						{(routine.status !== "approved" || routine.archivedAt) && (
+						{!routine.replacedByRoutineId && (routine.status !== "approved" || routine.archivedAt) && (
 							<Button as={Link} to="./rediger" variant="secondary" size="small">
 								Rediger
 							</Button>
 						)}
-						{!routine.archivedAt && routine.status === "approved" && userCanEdit && (
+						{!routine.replacedByRoutineId && !routine.archivedAt && routine.status === "approved" && userCanEdit && (
 							<fetcher.Form method="post">
 								<input type="hidden" name="intent" value="copy" />
 								<Button type="submit" variant="secondary" size="small" loading={fetcher.state !== "idle"}>
@@ -378,7 +378,9 @@ export default function RutineDetaljer() {
 							<BodyShort size="small">
 								Arkivert {new Date(routine.archivedAt).toLocaleString("nb-NO")}
 								{routine.archivedBy ? ` av ${routine.archivedBy}` : ""}. Godkjenning, kopiering og nye gjennomganger er
-								deaktivert til rutinen reaktiveres. Bruk «Rediger» for å reaktivere.
+								{routine.replacedByRoutineId
+									? " deaktivert — rutinen er erstattet og kan ikke reaktiveres."
+									: " deaktivert. Bruk «Rediger» for å reaktivere."}
 							</BodyShort>
 						</LocalAlert.Content>
 					</LocalAlert>

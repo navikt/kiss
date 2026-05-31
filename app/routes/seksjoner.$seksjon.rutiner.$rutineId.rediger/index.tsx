@@ -110,6 +110,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const routine = await getRoutine(rutineId)
 	if (!routine) throw new Response("Rutine ikke funnet", { status: 404 })
 	if (routine.sectionId !== section.id) throw new Response("Rutine ikke funnet", { status: 404 })
+	if (routine.replacedByRoutineId) {
+		throw new Response("Erstattede rutiner kan ikke redigeres eller reaktiveres.", { status: 403 })
+	}
 
 	const [globalQuestions, sectionQuestions, technologyElements, controls, activityLinks] = await Promise.all([
 		getScreeningQuestions({ status: "approved" }),
@@ -171,6 +174,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const existingRoutine = await getRoutine(rutineId)
 	if (!existingRoutine) throw new Response("Rutine ikke funnet", { status: 404 })
 	if (existingRoutine.sectionId !== section.id) throw new Response("Rutine ikke funnet", { status: 404 })
+	if (existingRoutine.replacedByRoutineId) {
+		throw new Response("Erstattede rutiner kan ikke redigeres eller reaktiveres.", { status: 403 })
+	}
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
