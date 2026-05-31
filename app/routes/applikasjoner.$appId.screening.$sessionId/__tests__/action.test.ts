@@ -251,6 +251,21 @@ describe("screening session action", () => {
 			)) as Response
 			expect(result.headers.get("Location")).toBe("/mine-team/applikasjoner/app-1/detaljer?fane=screeninger")
 		})
+
+		it("returns 400 when completeScreeningSession throws a replay validation error", async () => {
+			const fd = new FormData()
+			fd.set("intent", "complete")
+			mockCompleteScreeningSession.mockRejectedValue(new Error("Replay av «selectRoutine» feilet: Ugyldig rutine-ID"))
+
+			try {
+				await callAction(fd)
+				expect.fail("should have thrown")
+			} catch (e) {
+				expect(e).toBeInstanceOf(Response)
+				expect((e as Response).status).toBe(400)
+				expect(await (e as Response).text()).toContain("Replay av")
+			}
+		})
 	})
 
 	describe("intent: update-participants", () => {
