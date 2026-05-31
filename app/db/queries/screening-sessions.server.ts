@@ -296,51 +296,57 @@ export async function saveScreeningSessionAnswer(params: {
 	link: string | null
 	performedBy: string
 }) {
-	await db.transaction(async (tx) => {
-		// Verify session exists and is not completed (lock row to prevent race with completion)
-		const [session] = await tx
-			.select({ status: screeningSessions.status })
-			.from(screeningSessions)
-			.where(and(eq(screeningSessions.id, params.sessionId), isNull(screeningSessions.archivedAt)))
-			.for("update")
-			.limit(1)
+	try {
+		await db.transaction(async (tx) => {
+			// Verify session exists and is not completed (lock row to prevent race with completion)
+			const [session] = await tx
+				.select({ status: screeningSessions.status })
+				.from(screeningSessions)
+				.where(and(eq(screeningSessions.id, params.sessionId), isNull(screeningSessions.archivedAt)))
+				.for("update")
+				.limit(1)
 
-		if (!session) throw new ScreeningNotFoundError()
-		if (session.status === "completed")
-			throw new ScreeningAlreadyCompletedError("Kan ikke endre svar i fullført screening")
+			if (!session) throw new ScreeningNotFoundError()
+			if (session.status === "completed")
+				throw new ScreeningAlreadyCompletedError("Kan ikke endre svar i fullført screening")
 
-		await tx
-			.insert(screeningSessionAnswers)
-			.values({
-				sessionId: params.sessionId,
-				questionId: params.questionId,
-				answer: params.answer,
-				comment: params.comment,
-				link: params.link,
-				answeredBy: params.performedBy,
-			})
-			.onConflictDoUpdate({
-				target: [screeningSessionAnswers.sessionId, screeningSessionAnswers.questionId],
-				set: {
+			await tx
+				.insert(screeningSessionAnswers)
+				.values({
+					sessionId: params.sessionId,
+					questionId: params.questionId,
 					answer: params.answer,
 					comment: params.comment,
 					link: params.link,
 					answeredBy: params.performedBy,
-					answeredAt: new Date(),
-				},
-			})
+				})
+				.onConflictDoUpdate({
+					target: [screeningSessionAnswers.sessionId, screeningSessionAnswers.questionId],
+					set: {
+						answer: params.answer,
+						comment: params.comment,
+						link: params.link,
+						answeredBy: params.performedBy,
+						answeredAt: new Date(),
+					},
+				})
 
-		await writeAuditLog(
-			{
-				action: "screening_answer_saved",
-				entityType: "screening_session_answer",
-				entityId: `${params.sessionId}/${params.questionId}`,
-				newValue: JSON.stringify({ questionId: params.questionId, answer: params.answer }),
-				performedBy: params.performedBy,
-			},
-			tx,
-		)
-	})
+			await writeAuditLog(
+				{
+					action: "screening_answer_saved",
+					entityType: "screening_session_answer",
+					entityId: `${params.sessionId}/${params.questionId}`,
+					newValue: JSON.stringify({ questionId: params.questionId, answer: params.answer }),
+					performedBy: params.performedBy,
+				},
+				tx,
+			)
+		})
+	} catch (e) {
+		if (e instanceof Error && e.message.includes("violates foreign key"))
+			throw new ScreeningValidationError("Ugyldig spørsmål-ID")
+		throw e
+	}
 }
 
 // ─── Staged Operations ───────────────────────────────────────────────────

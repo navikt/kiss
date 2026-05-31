@@ -73,8 +73,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		} catch (e) {
 			if (e instanceof ScreeningNotFoundError) throw new Response(e.message, { status: 404 })
 			if (e instanceof ScreeningAlreadyCompletedError) throw new Response(e.message, { status: 409 })
-			if (e instanceof Error && e.message.includes("violates foreign key"))
-				throw new Response("Ugyldig spørsmål-ID", { status: 400 })
+			if (e instanceof ScreeningValidationError) throw new Response(e.message, { status: 400 })
 			throw e
 		}
 
