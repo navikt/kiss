@@ -2,12 +2,11 @@ import { Heading, HStack, Table, VStack } from "@navikt/ds-react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getRecentAuditLog } from "~/db/queries/audit.server"
+import { getAuditLogByEntityTypes } from "~/db/queries/audit.server"
 
 export async function loader(_args: LoaderFunctionArgs) {
-	const auditEntries = await getRecentAuditLog(200)
-	const naisAudit = auditEntries.filter((e) => e.entityType === "nais_team" || e.entityType === "nais_sync")
-	return data({ auditEntries: naisAudit })
+	const auditEntries = await getAuditLogByEntityTypes(["nais_team", "nais_sync"], 200)
+	return data({ auditEntries })
 }
 
 export default function NaisEndringslogg() {

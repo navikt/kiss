@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type AuditLogAction, auditLog } from "../schema/audit"
 
@@ -48,6 +48,16 @@ export async function getAuditLogForEntity(entityType: string, entityId: string,
 /** Get recent audit log entries across all entities. */
 export async function getRecentAuditLog(limit = 100) {
 	return db.select().from(auditLog).orderBy(desc(auditLog.performedAt)).limit(limit)
+}
+
+/** Get recent audit log entries filtered by one or more entity types. Uses idx_audit_log_entity_performed_at. */
+export async function getAuditLogByEntityTypes(entityTypes: string[], limit = 100) {
+	return db
+		.select()
+		.from(auditLog)
+		.where(inArray(auditLog.entityType, entityTypes))
+		.orderBy(desc(auditLog.performedAt))
+		.limit(limit)
 }
 
 /** Get audit log entries by action type. */

@@ -3,7 +3,7 @@ import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getRecentAuditLog } from "~/db/queries/audit.server"
+import { getAuditLogByEntityTypes } from "~/db/queries/audit.server"
 import {
 	createDomain,
 	deleteDomain,
@@ -42,8 +42,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		}),
 	)
 
-	const allAudit = await getRecentAuditLog(100)
-	const auditEntries = allAudit.filter((e) => e.entityType === "framework_domain")
+	const auditEntries = await getAuditLogByEntityTypes(["framework_domain"])
 
 	return data({ domains, auditEntries })
 }
