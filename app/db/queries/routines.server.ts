@@ -70,6 +70,7 @@ import {
 	screeningQuestions,
 	screeningRoutineSelections,
 } from "../schema/screening"
+import { syncApplicationControls } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
 import { getAppAuthIntegrations, getGroupAssessmentsForApp, getManualGroupsForApp } from "./nais.server"
 import { completeRpaReviewActivity } from "./rpa.server"
@@ -6221,7 +6222,7 @@ export async function replaceRoutine(
 		throw new Response("Ny og gammel rutine kan ikke være den samme", { status: 400 })
 	}
 
-	return db.transaction(async (tx) => {
+	const result = await db.transaction(async (tx) => {
 		// Lock and validate new routine (must be ready, not archived, and point to old routine)
 		const [newLocked] = await tx
 			.select({
@@ -6423,6 +6424,12 @@ export async function replaceRoutine(
 
 		// Update application_controls cache: replace old routine ID with new in matching_routine_ids arrays.
 		// Deduplicates via ARRAY(SELECT DISTINCT unnest(...)) in case newRoutineId already exists.
+		// Collect affected applicationIds first so we can sync compliance counters after the transaction.
+		const affectedControls = await tx
+			.select({ applicationId: applicationControls.applicationId })
+			.from(applicationControls)
+			.where(sql`${oldRoutineId}::uuid = ANY(matching_routine_ids)`)
+
 		await tx
 			.update(applicationControls)
 			.set({
@@ -6494,8 +6501,22 @@ export async function replaceRoutine(
 			}
 		}
 
-		return { newRoutine: newRoutineId, oldRoutine: oldRoutineId, deadlinePolicy }
+		return {
+			newRoutine: newRoutineId,
+			oldRoutine: oldRoutineId,
+			deadlinePolicy,
+			affectedAppIds: affectedControls.map((r) => r.applicationId),
+		}
 	})
+
+	// Sync compliance counters for all affected apps — runs outside the transaction
+	// so a sync failure does not roll back the replacement.
+	const uniqueAppIds = [...new Set(result.affectedAppIds)]
+	for (const appId of uniqueAppIds) {
+		await syncApplicationControls(appId, performedBy).catch(() => {})
+	}
+
+	return result
 }
 
 // ─── Routine Activity Links ──────────────────────────────────────────────

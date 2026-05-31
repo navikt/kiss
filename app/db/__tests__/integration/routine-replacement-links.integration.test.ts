@@ -13,7 +13,7 @@
  * - Handles transitive chains (A→B→C)
  * - Is idempotent (safe to call multiple times)
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
@@ -35,6 +35,7 @@ const {
 	getLatestSectionReview,
 } = await import("~/db/queries/routines.server")
 const { createSection } = await import("~/db/queries/sections.server")
+const applicationControlsModule = await import("~/db/queries/application-controls.server")
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,8 @@ describe("routine replacement link propagation", () => {
 	let sectionId: string
 	let appId: string
 	let controlId: string
+	// biome-ignore lint/suspicious/noExplicitAny: spy type varies by vitest version
+	let syncSpy: any
 
 	beforeAll(async () => {
 		await setupTestDatabase()
@@ -170,6 +173,10 @@ describe("routine replacement link propagation", () => {
 	})
 
 	beforeEach(async () => {
+		// Prevent syncApplicationControls from interfering with link-propagation assertions.
+		// Tests that specifically verify sync behaviour use syncSpy directly.
+		syncSpy = vi.spyOn(applicationControlsModule, "syncApplicationControls").mockResolvedValue(null)
+
 		const db = getTestDb()
 		await db.execute(/* sql */ `
 			DELETE FROM routine_review_participants;
@@ -205,6 +212,10 @@ describe("routine replacement link propagation", () => {
 		sectionId = (await createSection("Test Section", null, "Z990001")).id
 		appId = await createTestApp("Test App")
 		controlId = await createFrameworkControl()
+	})
+
+	afterEach(() => {
+		syncSpy.mockRestore()
 	})
 
 	// ─── replaceRoutine: deadlinePolicy="reset" ────────────────────────────
@@ -315,6 +326,39 @@ describe("routine replacement link propagation", () => {
 			const ids = await getMatchingRoutineIds(acId)
 			expect(ids).toContain(routineB.id)
 			expect(ids).not.toContain(routineA.id)
+		})
+
+		it("calls syncApplicationControls for affected apps after the transaction commits", async () => {
+			const routineA = await createRoutine({
+				sectionId,
+				name: "Routine A",
+				description: "Original",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: "tech_manager",
+				isSectionRoutine: false,
+				sectionRoutineOwnerRole: null,
+				persistenceLinks: [],
+				technologyElementIds: [],
+				controlIds: [],
+				groupClassifications: [],
+				oracleRoleCriticalities: [],
+				createdBy: "Z990001",
+			})
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
+			)
+
+			await insertApplicationControlsWithRoutine(appId, controlId, routineA.id)
+
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
+			await makeRoutineReady(routineB.id)
+			await replaceRoutine(routineB.id, routineA.id, "reset", "Z990001")
+
+			expect(syncSpy).toHaveBeenCalledWith(appId, "Z990001")
 		})
 
 		it("does NOT copy reviews from A to B", async () => {
