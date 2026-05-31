@@ -55,3 +55,23 @@ export const MedOppfølgingspunkter: Story = {
 			"/seksjoner/pensjon-og-ufore/rutiner/routine-1",
 		),
 }
+
+export const ErstattetRutine: Story = {
+	name: "Erstattet rutine (med etterfølger-banner)",
+	render: () =>
+		renderWithLoader(
+			RutineDetaljer,
+			mockRutineDetaljData({ replaced: true }),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-old",
+		),
+}
+
+export const NyRutineMedOpphav: Story = {
+	name: "Ny rutine med opphav (erstatter en annen)",
+	render: () =>
+		renderWithLoader(
+			RutineDetaljer,
+			mockRutineDetaljData({ isReplacement: true }),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-new",
+		),
+}
