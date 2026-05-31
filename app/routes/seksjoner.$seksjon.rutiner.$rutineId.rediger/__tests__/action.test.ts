@@ -52,7 +52,7 @@ vi.mock("~/db/queries/technology-elements.server", () => ({
 	getAllTechnologyElements: vi.fn().mockResolvedValue([]),
 }))
 
-const { action } = await import("../index")
+const { action, loader } = await import("../index")
 
 // --- Helpers ---------------------------------------------------------
 
@@ -100,6 +100,14 @@ function makeRequest(formData: FormData): Request {
 		method: "POST",
 		body: formData,
 	})
+}
+
+function callLoader() {
+	return loader({
+		request: new Request("http://localhost/seksjoner/test-seksjon/rutiner/routine-1/rediger"),
+		params: { seksjon: "test-seksjon", rutineId: "routine-1" },
+		context: {},
+	} as unknown as Parameters<typeof loader>[0])
 }
 
 function callAction(formData: FormData) {
@@ -560,5 +568,45 @@ describe("archive/unarchive intent", () => {
 		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
 		expect(mockApproveRoutine).not.toHaveBeenCalled()
 		expect(mockReplaceRoutine).not.toHaveBeenCalled()
+	})
+})
+
+describe("replaced routine guard", () => {
+	it("loader kaster 403 for erstattet rutine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ replacedByRoutineId: "newer-routine-1", archivedAt: new Date() }))
+
+		await expect(callLoader()).rejects.toMatchObject({ status: 403 })
+	})
+
+	it("action kaster 403 for update-intent på erstattet rutine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ replacedByRoutineId: "newer-routine-1", archivedAt: new Date() }))
+
+		const fd = new FormData()
+		fd.set("intent", "update")
+		fd.set("name", "Forsøk på redigering")
+		fd.set("frequency", "annually")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockUpdateRoutine).not.toHaveBeenCalled()
+	})
+
+	it("action kaster 403 for unarchive-intent på erstattet rutine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ replacedByRoutineId: "newer-routine-1", archivedAt: new Date() }))
+
+		const fd = new FormData()
+		fd.set("intent", "unarchive")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockUnarchiveRoutine).not.toHaveBeenCalled()
+	})
+
+	it("action kaster 403 for delete-intent på erstattet rutine", async () => {
+		mockGetRoutine.mockResolvedValue(makeRoutine({ replacedByRoutineId: "newer-routine-1", archivedAt: new Date() }))
+
+		const fd = new FormData()
+		fd.set("intent", "delete")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockDeleteDraftRoutine).not.toHaveBeenCalled()
 	})
 })
