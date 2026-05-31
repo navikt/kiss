@@ -388,7 +388,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		canAccessReports: (() => {
 			if (!user) return false
 			const devTeamIds = detail.teams.map((t) => t.teamId)
-			const sectionIds = [...new Set(detail.teams.map((t) => t.sectionId).filter((s): s is string => s !== null))]
+			const sectionIds = [
+				...new Set(
+					[...detail.teams.map((t) => t.sectionId), ...detail.environments.map((e) => e.naisTeamSectionId)].filter(
+						(s): s is string => s !== null,
+					),
+				),
+			]
 			return canAccessAppReports(user, sectionIds, devTeamIds)
 		})(),
 		knownApps,

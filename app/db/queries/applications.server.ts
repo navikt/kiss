@@ -275,16 +275,25 @@ export async function getAvailableAppsForTeam(devTeamId: string) {
 		.orderBy(monitoredApplications.name)
 }
 
-/** Get dev team IDs and section IDs for an application — used for authorization checks. */
+/** Get dev team IDs and section IDs for an application — used for authorization checks.
+ * Section IDs are derived from both dev-team mappings and NAIS-team environments. */
 export async function getAppScopeIds(appId: string): Promise<{ devTeamIds: string[]; sectionIds: string[] }> {
-	const rows = await db
-		.select({ devTeamId: devTeams.id, sectionId: devTeams.sectionId })
-		.from(applicationTeamMappings)
-		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-		.where(and(eq(applicationTeamMappings.applicationId, appId), isNull(applicationTeamMappings.archivedAt)))
+	const [devTeamRows, naisTeamRows] = await Promise.all([
+		db
+			.select({ devTeamId: devTeams.id, sectionId: devTeams.sectionId })
+			.from(applicationTeamMappings)
+			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+			.where(and(eq(applicationTeamMappings.applicationId, appId), isNull(applicationTeamMappings.archivedAt))),
+		db
+			.select({ sectionId: naisTeams.sectionId })
+			.from(applicationEnvironments)
+			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+			.where(eq(applicationEnvironments.applicationId, appId)),
+	])
 
-	const devTeamIds = rows.map((r) => r.devTeamId)
-	const sectionIds = [...new Set(rows.map((r) => r.sectionId).filter((s): s is string => s !== null))]
+	const devTeamIds = devTeamRows.map((r) => r.devTeamId)
+	const allSectionIds = [...devTeamRows.map((r) => r.sectionId), ...naisTeamRows.map((r) => r.sectionId)]
+	const sectionIds = [...new Set(allSectionIds.filter((s): s is string => s !== null))]
 	return { devTeamIds, sectionIds }
 }
 

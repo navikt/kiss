@@ -1,14 +1,14 @@
 import type { LoaderFunctionArgs } from "react-router"
+import { getAppScopeIds } from "~/db/queries/applications.server"
 import { getSnapshot } from "~/db/queries/audit-evidence.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireAuditor } from "~/lib/authorization.server"
+import { canAccessAppReports } from "~/lib/authorization.server"
 import { canUserSeeInstance } from "~/lib/oracle-access.server"
 import { getOracleInstances } from "~/lib/oracle-revisjon.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
-	requireAuditor(authedUser)
 
 	const snapshotId = params.snapshotId
 	if (!snapshotId) {
@@ -18,6 +18,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const snapshot = await getSnapshot(snapshotId)
 	if (!snapshot?.bucketPath) {
 		throw new Response("Ingen Excel-fil tilgjengelig", { status: 404 })
+	}
+
+	const { devTeamIds, sectionIds } = await getAppScopeIds(snapshot.applicationId)
+	if (!canAccessAppReports(authedUser, sectionIds, devTeamIds)) {
+		throw new Response("Ikke autorisert", { status: 403 })
 	}
 
 	// Check instance-level access
