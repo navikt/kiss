@@ -228,11 +228,18 @@ export default function ApplikasjonDetalj() {
 						Team
 					</BodyShort>
 					<HStack gap="space-4" wrap>
-						{teams.map((t: { teamId: string; teamName: string; teamSlug: string }) => (
-							<Tag key={t.teamId} variant="info" size="small">
-								{t.teamName}
-							</Tag>
-						))}
+						{teams.map((t: { teamId: string; teamName: string; teamSlug: string; sectionId: string | null }) => {
+							const sectionSlug = t.sectionId ? sectionSlugMap[t.sectionId] : null
+							return sectionSlug ? (
+								<Tag key={t.teamId} variant="info" size="small">
+									<Link to={`/seksjoner/${sectionSlug}/team/${t.teamSlug}`}>{t.teamName}</Link>
+								</Tag>
+							) : (
+								<Tag key={t.teamId} variant="info" size="small">
+									{t.teamName}
+								</Tag>
+							)
+						})}
 					</HStack>
 				</Box>
 			)}
