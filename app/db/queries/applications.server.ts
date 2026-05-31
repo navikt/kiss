@@ -275,6 +275,19 @@ export async function getAvailableAppsForTeam(devTeamId: string) {
 		.orderBy(monitoredApplications.name)
 }
 
+/** Get dev team IDs and section IDs for an application — used for authorization checks. */
+export async function getAppScopeIds(appId: string): Promise<{ devTeamIds: string[]; sectionIds: string[] }> {
+	const rows = await db
+		.select({ devTeamId: devTeams.id, sectionId: devTeams.sectionId })
+		.from(applicationTeamMappings)
+		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+		.where(and(eq(applicationTeamMappings.applicationId, appId), isNull(applicationTeamMappings.archivedAt)))
+
+	const devTeamIds = rows.map((r) => r.devTeamId)
+	const sectionIds = [...new Set(rows.map((r) => r.sectionId).filter((s): s is string => s !== null))]
+	return { devTeamIds, sectionIds }
+}
+
 /** Get teams NOT yet linked to a specific application. */
 export async function getAvailableTeamsForApp(applicationId: string) {
 	const linkedTeamIds = db

@@ -26,7 +26,7 @@ import { getScreeningSessionsForApp } from "~/db/queries/screening-sessions.serv
 import { getSections } from "~/db/queries/sections.server"
 import type { GroupCriticality } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
+import { canAccessAppReports, isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { logger } from "~/lib/logger.server"
@@ -385,6 +385,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
+		canAccessReports: (() => {
+			if (!user) return false
+			const devTeamIds = detail.teams.map((t) => t.teamId)
+			const sectionIds = [...new Set(detail.teams.map((t) => t.sectionId).filter((s): s is string => s !== null))]
+			return canAccessAppReports(user, sectionIds, devTeamIds)
+		})(),
 		knownApps,
 		acknowledgments,
 		compliance: {

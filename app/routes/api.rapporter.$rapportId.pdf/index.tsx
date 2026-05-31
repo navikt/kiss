@@ -3,10 +3,11 @@ import { eq } from "drizzle-orm"
 import PDFDocument from "pdfkit"
 import type { LoaderFunctionArgs } from "react-router"
 import { db } from "~/db/connection.server"
+import { getAppScopeIds } from "~/db/queries/applications.server"
 import { getReport } from "~/db/queries/reports.server"
 import { sections } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { canManageSection, isAuditor } from "~/lib/authorization.server"
+import { canAccessAppReports, canManageSection, isAuditor } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 interface ReportSnapshot {
@@ -67,6 +68,15 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 				throw new Response("Rapport mangler fil", { status: 500 })
 			}
 			throw new Response("Rapport er ikke klar for nedlasting ennå", { status: 409 })
+		}
+	}
+
+	// Enforce access for app-compliance reports
+	if (report.reportType === "app_compliance") {
+		if (!report.scopeId) throw new Response("Rapport mangler applikasjon-ID", { status: 500 })
+		const { devTeamIds, sectionIds } = await getAppScopeIds(report.scopeId)
+		if (!canAccessAppReports(user, sectionIds, devTeamIds)) {
+			throw new Response("Ikke autorisert", { status: 403 })
 		}
 	}
 

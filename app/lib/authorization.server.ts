@@ -95,6 +95,15 @@ export function canViewSectionReports(user: NavUser, sectionId: string): boolean
 	return canManageSection(user, sectionId) || isAuditor(user)
 }
 
+/** Kan generere og se applikasjonsrapporter og revisjonsbevis:
+ * admin, seksjonsleder/revisor for appens seksjon, eller tech lead/produktleder for appens team */
+export function canAccessAppReports(user: NavUser, sectionIds: string[], devTeamIds: string[]): boolean {
+	if (isAdmin(user)) return true
+	if (sectionIds.some((s) => canViewSectionReports(user, s))) return true
+	if (devTeamIds.some((t) => canManageTeam(user, t))) return true
+	return false
+}
+
 export function requireSectionReportAccess(user: NavUser, sectionId: string): void {
 	if (!canViewSectionReports(user, sectionId)) {
 		throw new Response("Ikke autorisert", { status: 403 })
