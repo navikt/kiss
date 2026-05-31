@@ -85,6 +85,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			if (e instanceof Error && e.message.includes("samtidig")) throw new Response(e.message, { status: 409 })
 			if (e instanceof Error && e.message.includes("mangler påkrevde felter"))
 				throw new Response(e.message, { status: 400 })
+			// Replay validation failures are always user-actionable (bad staged data) — surface as 400
+			// instead of letting them hit the error boundary as a generic server crash.
+			if (e instanceof Error && e.message.startsWith("Replay av")) throw new Response(e.message, { status: 400 })
 			// Throw as Error so React Router serializes message + stack to the error boundary
 			if (e instanceof Error) throw e
 			throw new Error(message)
