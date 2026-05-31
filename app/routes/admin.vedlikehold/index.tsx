@@ -1,28 +1,24 @@
-import { Alert, BodyLong, Button, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, Button, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
 import { sql } from "drizzle-orm"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, useFetcher, useLoaderData } from "react-router"
 import { db } from "~/db/connection.server"
 import { syncAllApplicationControls } from "~/db/queries/application-controls.server"
 import { migrateExistingReplacementChains } from "~/db/queries/routines.server"
-import { listRecentSyncJobs, type SyncJob } from "~/db/queries/sync-jobs.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
-import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
-import { formatDateTimeOslo } from "~/lib/utils"
 
 export async function loader({ request }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
-	const [appControlStats, naisSyncEnabled, recentSyncJobs] = await Promise.all([
+	const [appControlStats, naisSyncEnabled] = await Promise.all([
 		getApplicationControlStats(),
 		Promise.resolve(process.env.ENABLE_NAIS_SYNC === "true"),
-		listRecentSyncJobs(10),
 	])
 
-	return data({ appControlStats, naisSyncEnabled, recentSyncJobs })
+	return data({ appControlStats, naisSyncEnabled })
 }
 
 async function getApplicationControlStats() {
@@ -124,7 +120,7 @@ export async function action({ request }: ActionFunctionArgs) {
 export { RouteErrorBoundary as ErrorBoundary } from "~/components/RouteErrorBoundary"
 
 export default function AdminVedlikehold() {
-	const { appControlStats, naisSyncEnabled, recentSyncJobs } = useLoaderData<typeof loader>()
+	const { appControlStats, naisSyncEnabled } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
@@ -139,7 +135,6 @@ export default function AdminVedlikehold() {
 				<SyncControlsCard stats={appControlStats} />
 				<MigrateRoutineLinksCard />
 				<NaisSyncCard enabled={naisSyncEnabled} />
-				<RecentSyncJobsCard jobs={recentSyncJobs} />
 			</VStack>
 		</VStack>
 	)
@@ -281,60 +276,6 @@ function NaisSyncCard({ enabled }: { enabled: boolean }) {
 						{result.message}
 					</Alert>
 				)}
-			</VStack>
-		</section>
-	)
-}
-
-function RecentSyncJobsCard({ jobs }: { jobs: SyncJob[] }) {
-	return (
-		<section className="admin-maintenance-card">
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Siste synkjobber
-				</Heading>
-				<BodyLong>Viser de 10 siste synkjobbene som er registrert i systemet.</BodyLong>
-
-				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table wrapper needs keyboard access */}
-				<section className="table-scroll" tabIndex={0} aria-label="Siste synkjobber">
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Tidspunkt</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Jobbtype</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Melding</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{jobs.map((job) => (
-								<Table.Row key={job.id}>
-									<Table.DataCell>
-										<Detail>{formatDateTimeOslo(job.createdAt)}</Detail>
-									</Table.DataCell>
-									<Table.DataCell>
-										<Detail>{job.jobType}</Detail>
-									</Table.DataCell>
-									<Table.DataCell>
-										<Tag variant={getSyncJobStateTagVariant(job.state)} size="xsmall">
-											{getSyncJobStateLabel(job.state)}
-										</Tag>
-									</Table.DataCell>
-									<Table.DataCell>
-										<Detail>{job.error ?? job.message ?? "—"}</Detail>
-									</Table.DataCell>
-								</Table.Row>
-							))}
-							{jobs.length === 0 && (
-								<Table.Row>
-									<Table.DataCell colSpan={4}>
-										<Detail textColor="subtle">Ingen synkjobber registrert ennå.</Detail>
-									</Table.DataCell>
-								</Table.Row>
-							)}
-						</Table.Body>
-					</Table>
-				</section>
 			</VStack>
 		</section>
 	)
