@@ -7,6 +7,7 @@ import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getSyncJobStateLabel, getSyncJobStateTagVariant, SYNC_JOB_STATE_VALUES } from "~/lib/sync-job-state-tags"
 import { ALL_SYNC_JOB_TYPES } from "~/lib/sync-job-types"
+import { CYCLE_INTERVAL_MS } from "~/lib/unified-scheduler.server"
 import { formatDateTimeOslo } from "~/lib/utils"
 
 const PAGE_SIZE = 25
@@ -59,12 +60,22 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		pageSize: PAGE_SIZE,
 		totalPages,
 		naisSyncEnabled: process.env.ENABLE_NAIS_SYNC === "true",
+		naisSyncIntervalMinutes: Math.round(CYCLE_INTERVAL_MS / 60_000),
 	})
 }
 
 export default function AdminSyncJobsPage() {
-	const { syncJobs, stateFilter, jobTypeFilter, totalSyncJobs, page, pageSize, totalPages, naisSyncEnabled } =
-		useLoaderData<typeof loader>()
+	const {
+		syncJobs,
+		stateFilter,
+		jobTypeFilter,
+		totalSyncJobs,
+		page,
+		pageSize,
+		totalPages,
+		naisSyncEnabled,
+		naisSyncIntervalMinutes,
+	} = useLoaderData<typeof loader>()
 	const firstItemOnPage = totalSyncJobs === 0 ? 0 : (page - 1) * pageSize + 1
 	const lastItemOnPage = totalSyncJobs === 0 ? 0 : firstItemOnPage + syncJobs.length - 1
 
@@ -78,7 +89,7 @@ export default function AdminSyncJobsPage() {
 					<BodyLong>Oversikt over kjørte og pågående synkjobber i systemet.</BodyLong>
 					{naisSyncEnabled ? (
 						<Tag variant="success" size="small" style={{ alignSelf: "flex-start" }}>
-							Automatisk synkronisering aktiv (hvert 5. minutt)
+							Automatisk synkronisering aktiv (hvert {naisSyncIntervalMinutes}. minutt)
 						</Tag>
 					) : (
 						<Tag variant="neutral" size="small" style={{ alignSelf: "flex-start" }}>
