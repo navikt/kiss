@@ -12,7 +12,7 @@ type Story = StoryObj<typeof meta>
 const mockUsers = [
 	{
 		id: "u1",
-		navIdent: "A123456",
+		navIdent: "Z990001",
 		name: "Arne Arnesen",
 		email: "arne.arnesen@nav.no",
 		lastLoginAt: "2026-05-10T08:30:00Z",
@@ -34,7 +34,7 @@ const mockUsers = [
 	},
 	{
 		id: "u2",
-		navIdent: "B654321",
+		navIdent: "Z990002",
 		name: "Berit Berntsen",
 		email: "berit.berntsen@nav.no",
 		lastLoginAt: "2026-05-11T14:15:00Z",
@@ -50,7 +50,7 @@ const mockUsers = [
 				devTeamSlug: null,
 				devTeamSectionId: null,
 				createdAt: "2026-02-15T00:00:00Z",
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			},
 			{
 				id: "r3",
@@ -63,7 +63,7 @@ const mockUsers = [
 				devTeamSlug: null,
 				devTeamSectionId: null,
 				createdAt: "2026-03-01T00:00:00Z",
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			},
 		],
 	},
@@ -93,7 +93,7 @@ const mockUsers = [
 				devTeamSlug: "team-pensjon",
 				devTeamSectionId: "s1",
 				createdAt: "2026-04-01T00:00:00Z",
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			},
 		],
 	},

@@ -101,7 +101,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const links = await getRoutineActivityLinks(routine.id)
@@ -130,7 +130,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const links = await getRoutineActivityLinks(routine.id)
@@ -153,7 +153,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const links = await getRoutineActivityLinks(routine.id)
@@ -181,7 +181,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			// Archive one link
@@ -212,7 +212,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const links = await getRoutineActivityLinks(routine.id)
@@ -244,14 +244,14 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const links = await getRoutineActivityLinks(routine.id)
 			// Reverse the order
 			const reversedIds = [...links].reverse().map((l) => l.id)
 
-			await reorderRoutineActivities(routine.id, reversedIds, "test-user")
+			await reorderRoutineActivities(routine.id, reversedIds, "Z990001")
 
 			const reordered = await getRoutineActivityLinks(routine.id)
 			expect(reordered.map((l) => l.activityType)).toEqual([
@@ -277,7 +277,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const routine2 = await createRoutine({
@@ -293,13 +293,13 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const links1 = await getRoutineActivityLinks(routine1.id)
 			const reversedIds = [...links1].reverse().map((l) => l.id)
 
-			await reorderRoutineActivities(routine1.id, reversedIds, "test-user")
+			await reorderRoutineActivities(routine1.id, reversedIds, "Z990001")
 
 			// routine2 should be unaffected
 			const links2 = await getRoutineActivityLinks(routine2.id)
@@ -323,11 +323,11 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			const links = await getRoutineActivityLinks(routine.id)
 			// Only supply one of two IDs
-			await expect(reorderRoutineActivities(routine.id, [links[0].id], "test-user")).rejects.toThrow(
+			await expect(reorderRoutineActivities(routine.id, [links[0].id], "Z990001")).rejects.toThrow(
 				"orderedIds must exactly match",
 			)
 		})
@@ -347,11 +347,11 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			const links = await getRoutineActivityLinks(routine.id)
 			// Duplicate first ID
-			await expect(reorderRoutineActivities(routine.id, [links[0].id, links[0].id], "test-user")).rejects.toThrow(
+			await expect(reorderRoutineActivities(routine.id, [links[0].id, links[0].id], "Z990001")).rejects.toThrow(
 				"orderedIds must exactly match",
 			)
 		})
@@ -371,7 +371,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			const routine2 = await createRoutine({
 				sectionId,
@@ -386,11 +386,11 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			const links2 = await getRoutineActivityLinks(routine2.id)
 			// Try to reorder routine1 with routine2's IDs
-			await expect(reorderRoutineActivities(routine1.id, [links2[0].id], "test-user")).rejects.toThrow(
+			await expect(reorderRoutineActivities(routine1.id, [links2[0].id], "Z990001")).rejects.toThrow(
 				"orderedIds must exactly match",
 			)
 		})
@@ -416,7 +416,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await markRoutineApproved(routine.id)
 
@@ -427,11 +427,11 @@ describe("Routine Activity Links integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 
-			await autoCreateActivitiesForReview(review.id, routine.id, appId, "test-user")
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
 
 			const activities = await getReviewActivities(review.id)
 			expect(activities).toHaveLength(2)
@@ -457,7 +457,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await markRoutineApproved(routine.id)
 
@@ -468,13 +468,13 @@ describe("Routine Activity Links integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 
 			// Call twice — second should be a no-op
-			await autoCreateActivitiesForReview(review.id, routine.id, appId, "test-user")
-			await autoCreateActivitiesForReview(review.id, routine.id, appId, "test-user")
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
 
 			const activities = await getReviewActivities(review.id)
 			expect(activities).toHaveLength(1)
@@ -497,7 +497,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await markRoutineApproved(routine.id)
 
@@ -508,11 +508,11 @@ describe("Routine Activity Links integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 
-			await autoCreateActivitiesForReview(review.id, routine.id, appId, "test-user", {
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001", {
 				oracle_evidence_audit: { instanceId: "PENSJON_PROD" },
 			})
 
@@ -542,7 +542,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await markRoutineApproved(routine.id)
 
@@ -553,11 +553,11 @@ describe("Routine Activity Links integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 
-			await autoCreateActivitiesForReview(review.id, routine.id, appId, "test-user")
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
 
 			const entraActivity = await getReviewActivityByType(review.id, "entra_id_group_maintenance")
 			expect(entraActivity).not.toBeNull()
@@ -585,7 +585,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await markRoutineApproved(routine.id)
 
@@ -596,11 +596,11 @@ describe("Routine Activity Links integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 
-			await autoCreateActivitiesForReview(review.id, routine.id, appId, "test-user")
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
 
 			const result = await getReviewActivityByType(review.id, "entra_id_group_maintenance")
 			expect(result).toBeNull()
@@ -626,7 +626,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			await updateRoutine({
@@ -642,7 +642,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				updatedBy: "test-user",
+				updatedBy: "Z990001",
 			})
 
 			const links = await getRoutineActivityLinks(routine.id)
@@ -667,7 +667,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const linksBefore = await getRoutineActivityLinks(routine.id)
@@ -685,7 +685,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				updatedBy: "test-user",
+				updatedBy: "Z990001",
 			})
 
 			const linksAfter = await getRoutineActivityLinks(routine.id)
@@ -709,7 +709,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			await updateRoutine({
@@ -727,7 +727,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				updatedBy: "test-user",
+				updatedBy: "Z990001",
 			})
 
 			const links = await getRoutineActivityLinks(routine.id)
@@ -753,7 +753,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const linksBefore = await getRoutineActivityLinks(routine.id)
@@ -772,7 +772,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				updatedBy: "test-user",
+				updatedBy: "Z990001",
 			})
 
 			const linksAfter = await getRoutineActivityLinks(routine.id)
@@ -798,7 +798,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const linksBefore = await getRoutineActivityLinks(routine.id)
@@ -817,7 +817,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				updatedBy: "test-user",
+				updatedBy: "Z990001",
 			})
 
 			const linksAfter = await getRoutineActivityLinks(routine.id)
@@ -844,11 +844,11 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await markRoutineApproved(routine.id)
 
-			const copy = await copyRoutine(routine.id, "test-user")
+			const copy = await copyRoutine(routine.id, "Z990001")
 			expect(copy).not.toBeNull()
 			const copyId = copy?.id as string
 
@@ -879,7 +879,7 @@ describe("Routine Activity Links integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await markRoutineApproved(routine.id)
 
@@ -890,7 +890,7 @@ describe("Routine Activity Links integration tests", () => {
 				WHERE routine_id = '${routine.id}' AND activity_type = 'oracle_evidence_audit'
 			`)
 
-			const copy = await copyRoutine(routine.id, "test-user")
+			const copy = await copyRoutine(routine.id, "Z990001")
 			expect(copy).not.toBeNull()
 			const copyId = copy?.id as string
 

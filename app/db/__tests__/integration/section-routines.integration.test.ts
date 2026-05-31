@@ -236,7 +236,7 @@ describe("Section routines integration tests", () => {
 			summary: "Alt OK",
 			routineSnapshotPath: null,
 			reviewedAt: new Date(),
-			createdBy: "tester",
+			createdBy: "Z990001",
 			participants: [],
 		})
 
@@ -315,7 +315,7 @@ describe("Section routines integration tests", () => {
 			summary: null,
 			routineSnapshotPath: null,
 			reviewedAt: reviewDate,
-			createdBy: "tester",
+			createdBy: "Z990001",
 			participants: [],
 		})
 

@@ -112,7 +112,7 @@ describe("Framework integration tests", () => {
 
 	it("should import a framework as pending version", async () => {
 		const parsed = makeParsedFramework()
-		const versionId = await stageFrameworkImport(parsed, "test.xlsx", "test-user", "/uploads/test.xlsx")
+		const versionId = await stageFrameworkImport(parsed, "test.xlsx", "Z990001", "/uploads/test.xlsx")
 
 		expect(versionId).toBeDefined()
 
@@ -120,12 +120,12 @@ describe("Framework integration tests", () => {
 		expect(pending).not.toBeNull()
 		expect(pending?.status).toBe("pending")
 		expect(pending?.sourceFileName).toBe("test.xlsx")
-		expect(pending?.createdBy).toBe("test-user")
+		expect(pending?.createdBy).toBe("Z990001")
 	})
 
 	it("should apply a pending version and create live data", async () => {
 		const parsed = makeParsedFramework()
-		const versionId = await stageFrameworkImport(parsed, "test.xlsx", "test-user", "/uploads/test.xlsx")
+		const versionId = await stageFrameworkImport(parsed, "test.xlsx", "Z990001", "/uploads/test.xlsx")
 
 		await applyFrameworkImport(versionId, parsed, "admin-user")
 

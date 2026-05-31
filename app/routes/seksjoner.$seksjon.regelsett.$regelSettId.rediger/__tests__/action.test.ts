@@ -43,7 +43,7 @@ vi.mock("~/db/queries/framework.server", () => ({
 const { action } = await import("../index")
 
 const fakeUser = {
-	navIdent: "A123456",
+	navIdent: "Z990001",
 	name: "Testbruker",
 	groups: [],
 	token: "t",

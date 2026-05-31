@@ -25,74 +25,74 @@ describe("parseParticipantsFormValue", () => {
 	describe("JSON input (new format)", () => {
 		it("parses valid JSON array with navIdent and displayName", () => {
 			const json = JSON.stringify([
-				{ navIdent: "A123456", displayName: "Ada Lovelace" },
-				{ navIdent: "B654321", displayName: "Bjørn Berg" },
+				{ navIdent: "Z990001", displayName: "Glad Fjord" },
+				{ navIdent: "Z990002", displayName: "Rask Elv" },
 			])
 			expect(parseParticipantsFormValue(json)).toEqual([
-				{ userIdent: "A123456", userName: "Ada Lovelace" },
-				{ userIdent: "B654321", userName: "Bjørn Berg" },
+				{ userIdent: "Z990001", userName: "Glad Fjord" },
+				{ userIdent: "Z990002", userName: "Rask Elv" },
 			])
 		})
 
 		it("normalizes idents to uppercase", () => {
-			const json = JSON.stringify([{ navIdent: "a123456", displayName: "Ada" }])
+			const json = JSON.stringify([{ navIdent: "z990001", displayName: "Glad Fjord" }])
 			const result = parseParticipantsFormValue(json)
-			expect(result[0].userIdent).toBe("A123456")
+			expect(result[0].userIdent).toBe("Z990001")
 		})
 
 		it("handles missing displayName as null", () => {
-			const json = JSON.stringify([{ navIdent: "A123456" }])
-			expect(parseParticipantsFormValue(json)).toEqual([{ userIdent: "A123456", userName: null }])
+			const json = JSON.stringify([{ navIdent: "Z990001" }])
+			expect(parseParticipantsFormValue(json)).toEqual([{ userIdent: "Z990001", userName: null }])
 		})
 
 		it("treats empty displayName as null", () => {
-			const json = JSON.stringify([{ navIdent: "A123456", displayName: "  " }])
-			expect(parseParticipantsFormValue(json)).toEqual([{ userIdent: "A123456", userName: null }])
+			const json = JSON.stringify([{ navIdent: "Z990001", displayName: "  " }])
+			expect(parseParticipantsFormValue(json)).toEqual([{ userIdent: "Z990001", userName: null }])
 		})
 
 		it("filters out entries without a navIdent", () => {
 			const json = JSON.stringify([
-				{ navIdent: "A123456", displayName: "Ada" },
-				{ displayName: "No ident" },
-				{ navIdent: "  ", displayName: "Whitespace" },
+				{ navIdent: "Z990001", displayName: "Glad Fjord" },
+				{ displayName: "Ingen ident" },
+				{ navIdent: "  ", displayName: "Mellomrom" },
 			])
-			expect(parseParticipantsFormValue(json)).toEqual([{ userIdent: "A123456", userName: "Ada" }])
+			expect(parseParticipantsFormValue(json)).toEqual([{ userIdent: "Z990001", userName: "Glad Fjord" }])
 		})
 
 		it("dedupes case-insensitively and keeps first occurrence", () => {
 			const json = JSON.stringify([
-				{ navIdent: "a123456", displayName: "Ada" },
-				{ navIdent: "A123456", displayName: "Duplicate" },
+				{ navIdent: "z990001", displayName: "Glad Fjord" },
+				{ navIdent: "Z990001", displayName: "Duplikat" },
 			])
 			const result = parseParticipantsFormValue(json)
 			expect(result).toHaveLength(1)
-			expect(result[0]).toEqual({ userIdent: "A123456", userName: "Ada" })
+			expect(result[0]).toEqual({ userIdent: "Z990001", userName: "Glad Fjord" })
 		})
 	})
 
 	describe("legacy comma-separated input", () => {
 		it("parses comma-separated idents", () => {
-			expect(parseParticipantsFormValue("A123456, B654321")).toEqual([
-				{ userIdent: "A123456", userName: null },
-				{ userIdent: "B654321", userName: null },
+			expect(parseParticipantsFormValue("Z990001, Z990002")).toEqual([
+				{ userIdent: "Z990001", userName: null },
+				{ userIdent: "Z990002", userName: null },
 			])
 		})
 
 		it("uppercases idents from legacy format", () => {
-			expect(parseParticipantsFormValue("a123456")).toEqual([{ userIdent: "A123456", userName: null }])
+			expect(parseParticipantsFormValue("z990001")).toEqual([{ userIdent: "Z990001", userName: null }])
 		})
 
 		it("dedupes case-insensitively", () => {
-			expect(parseParticipantsFormValue("a123456, A123456, B654321")).toEqual([
-				{ userIdent: "A123456", userName: null },
-				{ userIdent: "B654321", userName: null },
+			expect(parseParticipantsFormValue("z990001, Z990001, Z990002")).toEqual([
+				{ userIdent: "Z990001", userName: null },
+				{ userIdent: "Z990002", userName: null },
 			])
 		})
 
 		it("ignores empty entries", () => {
-			expect(parseParticipantsFormValue("A123456, , ,B654321,")).toEqual([
-				{ userIdent: "A123456", userName: null },
-				{ userIdent: "B654321", userName: null },
+			expect(parseParticipantsFormValue("Z990001, , ,Z990002,")).toEqual([
+				{ userIdent: "Z990001", userName: null },
+				{ userIdent: "Z990002", userName: null },
 			])
 		})
 	})
@@ -108,7 +108,7 @@ describe("parseParticipantsFormValue", () => {
 		})
 
 		it("falls back to legacy parser when JSON is not an array", () => {
-			expect(parseParticipantsFormValue('["A123456"')).toEqual([{ userIdent: '["A123456"', userName: null }])
+			expect(parseParticipantsFormValue('["Z990001"')).toEqual([{ userIdent: '["Z990001"', userName: null }])
 		})
 	})
 })

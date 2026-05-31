@@ -30,7 +30,7 @@ function makePoint(overrides: Partial<Parameters<typeof OppfolgingspunkterTab>[0
 		description: null,
 		resolution: null,
 		status: "needs_follow_up" as const,
-		createdBy: "A123456",
+		createdBy: "Z990001",
 		resolvedAt: null,
 		resolvedBy: null,
 		...overrides,

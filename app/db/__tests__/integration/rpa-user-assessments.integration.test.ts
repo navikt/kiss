@@ -12,7 +12,7 @@ vi.mock("~/db/connection.server", () => ({
 
 const { getRpaUserAssessmentsForReview, upsertRpaUserAssessment } = await import("~/db/queries/rpa.server")
 
-const NAV_IDENT = "A123456"
+const NAV_IDENT = "Z990001"
 
 async function createSection(db: ReturnType<typeof getTestDb>) {
 	const result = await db.execute(
@@ -66,7 +66,7 @@ describe("RPA user assessments", () => {
 		const userObjectId = "user-obj-001"
 
 		await upsertRpaUserAssessment(reviewId, userObjectId, NAV_IDENT, {
-			owner: "Kari Nordmann",
+			owner: "Rask Elv",
 			needComment: "Brukes til skattejobb",
 			decision: "videreføres",
 		})
@@ -75,7 +75,7 @@ describe("RPA user assessments", () => {
 		expect(map.size).toBe(1)
 		const assessment = map.get(userObjectId)
 		expect(assessment).toBeDefined()
-		expect(assessment?.owner).toBe("Kari Nordmann")
+		expect(assessment?.owner).toBe("Rask Elv")
 		expect(assessment?.needComment).toBe("Brukes til skattejobb")
 		expect(assessment?.decision).toBe("videreføres")
 		expect(assessment?.decisionDeadline).toBeNull()
@@ -93,7 +93,7 @@ describe("RPA user assessments", () => {
 			decision: "avvikles",
 			decisionDeadline: "2026-12-31",
 		})
-		await upsertRpaUserAssessment(reviewId, userObjectId, "B654321", {
+		await upsertRpaUserAssessment(reviewId, userObjectId, "Z990002", {
 			owner: "Ny eier",
 		})
 
@@ -103,7 +103,7 @@ describe("RPA user assessments", () => {
 		// decision and deadline should remain from the first upsert since they weren't in the second
 		expect(assessment?.decision).toBe("avvikles")
 		expect(assessment?.decisionDeadline).toBe("2026-12-31")
-		expect(assessment?.updatedBy).toBe("B654321")
+		expect(assessment?.updatedBy).toBe("Z990002")
 	})
 
 	it("håndterer flere brukere for samme gjennomgang", async () => {

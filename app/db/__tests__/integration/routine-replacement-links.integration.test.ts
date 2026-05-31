@@ -38,7 +38,7 @@ const { createSection } = await import("~/db/queries/sections.server")
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-async function copyRoutineOrThrow(routineId: string, performedBy = "A123456") {
+async function copyRoutineOrThrow(routineId: string, performedBy = "Z990001") {
 	const result = await copyRoutine(routineId, performedBy)
 	if (!result) throw new Error(`copyRoutine returned null for routineId=${routineId}`)
 	return result
@@ -47,7 +47,7 @@ async function copyRoutineOrThrow(routineId: string, performedBy = "A123456") {
 async function createTestApp(name: string) {
 	const db = getTestDb()
 	const r = await db.execute(
-		/* sql */ `INSERT INTO monitored_applications (name, created_by, updated_by) VALUES ('${name}', 'A123456', 'A123456') RETURNING id`,
+		/* sql */ `INSERT INTO monitored_applications (name, created_by, updated_by) VALUES ('${name}', 'Z990001', 'Z990001') RETURNING id`,
 	)
 	return (r.rows[0] as { id: string }).id
 }
@@ -62,7 +62,7 @@ async function createFrameworkControl() {
 
 async function makeRoutineReady(routineId: string) {
 	const db = getTestDb()
-	await db.execute(/* sql */ `UPDATE routines SET status = 'ready', updated_by = 'A123456' WHERE id = '${routineId}'`)
+	await db.execute(/* sql */ `UPDATE routines SET status = 'ready', updated_by = 'Z990001' WHERE id = '${routineId}'`)
 }
 
 async function insertCompletedReview(routineId: string, applicationId: string | null, reviewedAt: Date) {
@@ -70,7 +70,7 @@ async function insertCompletedReview(routineId: string, applicationId: string | 
 	const appVal = applicationId ? `'${applicationId}'` : "NULL"
 	const r = await db.execute(
 		/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by)
-		VALUES ('${routineId}', ${appVal}, 'Test Review', '${reviewedAt.toISOString()}', 'completed', 'A123456')
+		VALUES ('${routineId}', ${appVal}, 'Test Review', '${reviewedAt.toISOString()}', 'completed', 'Z990001')
 		RETURNING id`,
 	)
 	return (r.rows[0] as { id: string }).id
@@ -81,7 +81,7 @@ async function insertNeedsFollowUpReview(routineId: string, applicationId: strin
 	const appVal = applicationId ? `'${applicationId}'` : "NULL"
 	const r = await db.execute(
 		/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by)
-		VALUES ('${routineId}', ${appVal}, 'Follow Up Review', '${reviewedAt.toISOString()}', 'needs_follow_up', 'A123456')
+		VALUES ('${routineId}', ${appVal}, 'Follow Up Review', '${reviewedAt.toISOString()}', 'needs_follow_up', 'Z990001')
 		RETURNING id`,
 	)
 	return (r.rows[0] as { id: string }).id
@@ -92,7 +92,7 @@ async function insertPresetRoutineEffect(controlId: string, routineId: string) {
 	// Create a minimal screening question + choice + effect
 	const qR = await db.execute(
 		/* sql */ `INSERT INTO screening_questions (section_id, question_text, answer_type, created_by, updated_by) 
-		VALUES ((SELECT id FROM sections LIMIT 1), 'Test Question', 'boolean', 'A123456', 'A123456') RETURNING id`,
+		VALUES ((SELECT id FROM sections LIMIT 1), 'Test Question', 'boolean', 'Z990001', 'Z990001') RETURNING id`,
 	)
 	const qId = (qR.rows[0] as { id: string }).id
 	const cR = await db.execute(
@@ -110,7 +110,7 @@ async function insertScreeningRoutineSelection(appId: string, choiceEffectId: st
 	const db = getTestDb()
 	const r = await db.execute(
 		/* sql */ `INSERT INTO screening_routine_selections (application_id, choice_effect_id, routine_id, selected_by)
-		VALUES ('${appId}', '${choiceEffectId}', '${routineId}', 'A123456') RETURNING id`,
+		VALUES ('${appId}', '${choiceEffectId}', '${routineId}', 'Z990001') RETURNING id`,
 	)
 	return (r.rows[0] as { id: string }).id
 }
@@ -119,7 +119,7 @@ async function insertApplicationControlsWithRoutine(appId: string, controlId: st
 	const db = getTestDb()
 	const r = await db.execute(
 		/* sql */ `INSERT INTO application_controls (application_id, control_id, status, establishment, routine_compliance, routines_established, routines_completed, routines_overdue, match_sources, matching_routine_ids, is_screening_derived, created_by, updated_by)
-		VALUES ('${appId}', '${controlId}', NULL, 'not_established', 'not_applicable', 0, 0, 0, '{}', ARRAY['${routineId}']::uuid[], false, 'A123456', 'A123456') RETURNING id`,
+		VALUES ('${appId}', '${controlId}', NULL, 'not_established', 'not_applicable', 0, 0, 0, '{}', ARRAY['${routineId}']::uuid[], false, 'Z990001', 'Z990001') RETURNING id`,
 	)
 	return (r.rows[0] as { id: string }).id
 }
@@ -202,7 +202,7 @@ describe("routine replacement link propagation", () => {
 			DELETE FROM sections;
 			DELETE FROM audit_log;
 		`)
-		sectionId = (await createSection("Test Section", null, "A123456")).id
+		sectionId = (await createSection("Test Section", null, "Z990001")).id
 		appId = await createTestApp("Test App")
 		controlId = await createFrameworkControl()
 	})
@@ -228,20 +228,20 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 
 			const effectId = await insertPresetRoutineEffect(controlId, routineA.id)
 			expect(await getPresetRoutineId(effectId)).toBe(routineA.id)
 
 			// Now copy + replace
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "reset", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "reset", "Z990001")
 
 			expect(await getPresetRoutineId(effectId)).toBe(routineB.id)
 		})
@@ -263,20 +263,20 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 
 			const effectId = await insertPresetRoutineEffect(controlId, routineA.id)
 			const selectionId = await insertScreeningRoutineSelection(appId, effectId, routineA.id)
 			expect(await getSelectionRoutineId(selectionId)).toBe(routineA.id)
 
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "reset", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "reset", "Z990001")
 
 			expect(await getSelectionRoutineId(selectionId)).toBe(routineB.id)
 		})
@@ -298,19 +298,19 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 
 			const acId = await insertApplicationControlsWithRoutine(appId, controlId, routineA.id)
 			expect(await getMatchingRoutineIds(acId)).toContain(routineA.id)
 
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "reset", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "reset", "Z990001")
 
 			const ids = await getMatchingRoutineIds(acId)
 			expect(ids).toContain(routineB.id)
@@ -334,17 +334,17 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 			await insertCompletedReview(routineA.id, appId, new Date("2025-01-01"))
 
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "reset", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "reset", "Z990001")
 
 			const reviewB = await getLatestReviewForApp(routineB.id, appId)
 			expect(reviewB).toBeNull()
@@ -371,18 +371,18 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 			const reviewDate = new Date("2025-06-15")
 			await insertCompletedReview(routineA.id, appId, reviewDate)
 
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "continue", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "continue", "Z990001")
 
 			const reviewB = await getLatestReviewForApp(routineB.id, appId)
 			expect(reviewB).not.toBeNull()
@@ -408,17 +408,17 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 			await insertNeedsFollowUpReview(routineA.id, appId, new Date("2025-06-01"))
 
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "continue", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "continue", "Z990001")
 
 			const reviewB = await getLatestReviewForApp(routineB.id, appId)
 			expect(reviewB).not.toBeNull()
@@ -442,19 +442,19 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 			await insertCompletedReview(routineA.id, appId, new Date("2024-01-01"))
 			const latestDate = new Date("2025-03-01")
 			await insertCompletedReview(routineA.id, appId, latestDate)
 
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "continue", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "continue", "Z990001")
 
 			expect(await getInheritedReviewCount(routineB.id)).toBe(1)
 			const reviewB = await getLatestReviewForApp(routineB.id, appId)
@@ -478,21 +478,21 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 			await insertCompletedReview(routineA.id, appId, new Date("2025-01-01"))
 
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			// Insert B's own review before replacement
 			const ownDate = new Date("2025-06-01")
 			await insertCompletedReview(routineB.id, appId, ownDate)
 
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "continue", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "continue", "Z990001")
 
 			// B should only have its own review, not an inherited one
 			expect(await getInheritedReviewCount(routineB.id)).toBe(0)
@@ -517,16 +517,16 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "continue", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "continue", "Z990001")
 
 			expect(await getInheritedReviewCount(routineB.id)).toBe(0)
 			expect(await getLatestReviewForApp(routineB.id, appId)).toBeNull()
@@ -553,20 +553,20 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 
 			const originalDate = new Date("2025-01-15")
 			await insertCompletedReview(routineA.id, appId, originalDate)
 
 			// A → B (continue)
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "continue", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "continue", "Z990001")
 
 			// Verify B inherited A's review
 			const reviewB = await getLatestReviewForApp(routineB.id, appId)
@@ -574,9 +574,9 @@ describe("routine replacement link propagation", () => {
 			expect(reviewB?.reviewedAt.toISOString()).toBe(originalDate.toISOString())
 
 			// B → C (continue)
-			const routineC = await copyRoutineOrThrow(routineB.id, "A123456")
+			const routineC = await copyRoutineOrThrow(routineB.id, "Z990001")
 			await makeRoutineReady(routineC.id)
-			await replaceRoutine(routineC.id, routineB.id, "continue", "A123456")
+			await replaceRoutine(routineC.id, routineB.id, "continue", "Z990001")
 
 			// C should inherit B's review date (which is A's original date)
 			const reviewC = await getLatestReviewForApp(routineC.id, appId)
@@ -602,23 +602,23 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 			await insertCompletedReview(routineA.id, appId, new Date("2025-01-01"))
 
 			// A → B (continue)
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "continue", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "continue", "Z990001")
 
 			// B → C (reset) — should NOT inherit
-			const routineC = await copyRoutineOrThrow(routineB.id, "A123456")
+			const routineC = await copyRoutineOrThrow(routineB.id, "Z990001")
 			await makeRoutineReady(routineC.id)
-			await replaceRoutine(routineC.id, routineB.id, "reset", "A123456")
+			await replaceRoutine(routineC.id, routineB.id, "reset", "Z990001")
 
 			const reviewC = await getLatestReviewForApp(routineC.id, appId)
 			expect(reviewC).toBeNull()
@@ -641,28 +641,28 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 
 			const effectId = await insertPresetRoutineEffect(controlId, routineA.id)
 			const acId = await insertApplicationControlsWithRoutine(appId, controlId, routineA.id)
 
 			// A → B
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "continue", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "continue", "Z990001")
 
 			expect(await getPresetRoutineId(effectId)).toBe(routineB.id)
 			expect(await getMatchingRoutineIds(acId)).toContain(routineB.id)
 
 			// B → C
-			const routineC = await copyRoutineOrThrow(routineB.id, "A123456")
+			const routineC = await copyRoutineOrThrow(routineB.id, "Z990001")
 			await makeRoutineReady(routineC.id)
-			await replaceRoutine(routineC.id, routineB.id, "continue", "A123456")
+			await replaceRoutine(routineC.id, routineB.id, "continue", "Z990001")
 
 			expect(await getPresetRoutineId(effectId)).toBe(routineC.id)
 			const ids = await getMatchingRoutineIds(acId)
@@ -699,10 +699,10 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 
 			if (opts.withReviewOnA) {
@@ -710,15 +710,15 @@ describe("routine replacement link propagation", () => {
 			}
 
 			// Create B as a copy pointing to A
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 
 			// Manually archive A and approve B (bypassing replaceRoutine's new link updates)
 			// This simulates the OLD behaviour
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'archived', archived_at = NOW(), archived_by = 'A123456', replaced_by_routine_id = '${routineB.id}' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'archived', archived_at = NOW(), archived_by = 'Z990001', replaced_by_routine_id = '${routineB.id}' WHERE id = '${routineA.id}'`,
 			)
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineB.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineB.id}'`,
 			)
 
 			// Insert audit log for replacement with deadlinePolicy
@@ -727,7 +727,7 @@ describe("routine replacement link propagation", () => {
 				/* sql */ `INSERT INTO audit_log (action, entity_type, entity_id, metadata, performed_by, performed_at)
 				VALUES ('routine_replaced', 'routine', '${routineB.id}', 
 				'{"replacedRoutineId":"${routineA.id}","deadlinePolicy":"${policy}"}',
-				'A123456', NOW())`,
+				'Z990001', NOW())`,
 			)
 
 			return { routineA, routineB }
@@ -794,18 +794,18 @@ describe("routine replacement link propagation", () => {
 			const { routineA, routineB } = await buildStaleChain({ deadlinePolicy: "continue", withReviewOnA: true })
 
 			// Create C as a copy of B, stale (same pattern)
-			const routineC = await copyRoutineOrThrow(routineB.id, "A123456")
+			const routineC = await copyRoutineOrThrow(routineB.id, "Z990001")
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'archived', archived_at = NOW(), archived_by = 'A123456', replaced_by_routine_id = '${routineC.id}' WHERE id = '${routineB.id}'`,
+				/* sql */ `UPDATE routines SET status = 'archived', archived_at = NOW(), archived_by = 'Z990001', replaced_by_routine_id = '${routineC.id}' WHERE id = '${routineB.id}'`,
 			)
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineC.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineC.id}'`,
 			)
 			await db.execute(
 				/* sql */ `INSERT INTO audit_log (action, entity_type, entity_id, metadata, performed_by, performed_at)
 				VALUES ('routine_replaced', 'routine', '${routineC.id}', 
 				'{"replacedRoutineId":"${routineB.id}","deadlinePolicy":"continue"}',
-				'A123456', NOW())`,
+				'Z990001', NOW())`,
 			)
 
 			const effectId = await insertPresetRoutineEffect(controlId, routineA.id)
@@ -842,19 +842,19 @@ describe("routine replacement link propagation", () => {
 			const { routineA, routineB } = await buildStaleChain({ deadlinePolicy: "reset", withReviewOnA: true })
 
 			// Build B→C with continue (C should inherit from B, but B has no reviews — so C gets nothing)
-			const routineC = await copyRoutineOrThrow(routineB.id, "A123456")
+			const routineC = await copyRoutineOrThrow(routineB.id, "Z990001")
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'archived', archived_at = NOW(), archived_by = 'A123456', replaced_by_routine_id = '${routineC.id}' WHERE id = '${routineB.id}'`,
+				/* sql */ `UPDATE routines SET status = 'archived', archived_at = NOW(), archived_by = 'Z990001', replaced_by_routine_id = '${routineC.id}' WHERE id = '${routineB.id}'`,
 			)
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineC.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineC.id}'`,
 			)
 			// Audit log: B→C hop has deadlinePolicy=continue
 			await db.execute(
 				/* sql */ `INSERT INTO audit_log (action, entity_type, entity_id, metadata, performed_by, performed_at)
 				VALUES ('routine_replaced', 'routine', '${routineC.id}',
 				'{"replacedRoutineId":"${routineB.id}","deadlinePolicy":"continue"}',
-				'A123456', NOW())`,
+				'Z990001', NOW())`,
 			)
 
 			await migrateExistingReplacementChains("test-migration")
@@ -873,19 +873,19 @@ describe("routine replacement link propagation", () => {
 			const { routineA, routineB } = await buildStaleChain({ deadlinePolicy: "continue", withReviewOnA: true })
 
 			// Build B→C with RESET — the reset should block A's review from reaching C
-			const routineC = await copyRoutineOrThrow(routineB.id, "A123456")
+			const routineC = await copyRoutineOrThrow(routineB.id, "Z990001")
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'archived', archived_at = NOW(), archived_by = 'A123456', replaced_by_routine_id = '${routineC.id}' WHERE id = '${routineB.id}'`,
+				/* sql */ `UPDATE routines SET status = 'archived', archived_at = NOW(), archived_by = 'Z990001', replaced_by_routine_id = '${routineC.id}' WHERE id = '${routineB.id}'`,
 			)
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineC.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineC.id}'`,
 			)
 			// Audit log: B→C hop has deadlinePolicy=reset
 			await db.execute(
 				/* sql */ `INSERT INTO audit_log (action, entity_type, entity_id, metadata, performed_by, performed_at)
 				VALUES ('routine_replaced', 'routine', '${routineC.id}',
 				'{"replacedRoutineId":"${routineB.id}","deadlinePolicy":"reset"}',
-				'A123456', NOW())`,
+				'Z990001', NOW())`,
 			)
 
 			await migrateExistingReplacementChains("test-migration")
@@ -934,19 +934,19 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
 			// Insert a section-level review (applicationId = NULL)
 			const reviewDate = new Date("2025-03-20")
 			await insertCompletedReview(routineA.id, null, reviewDate)
 
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			await makeRoutineReady(routineB.id)
-			await replaceRoutine(routineB.id, routineA.id, "continue", "A123456")
+			await replaceRoutine(routineB.id, routineA.id, "continue", "Z990001")
 
 			// B must have an inherited section-level review (applicationId = NULL)
 			const reviewB = await getLatestSectionReview(routineB.id)
@@ -974,24 +974,24 @@ describe("routine replacement link propagation", () => {
 				controlIds: [],
 				groupClassifications: [],
 				oracleRoleCriticalities: [],
-				createdBy: "A123456",
+				createdBy: "Z990001",
 			})
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineA.id}'`,
 			)
-			const routineB = await copyRoutineOrThrow(routineA.id, "A123456")
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
 			// Simulate stale replacement (bypass replaceRoutine's link propagation)
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'archived', archived_at = NOW(), archived_by = 'A123456', replaced_by_routine_id = '${routineB.id}' WHERE id = '${routineA.id}'`,
+				/* sql */ `UPDATE routines SET status = 'archived', archived_at = NOW(), archived_by = 'Z990001', replaced_by_routine_id = '${routineB.id}' WHERE id = '${routineA.id}'`,
 			)
 			await db.execute(
-				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'A123456' WHERE id = '${routineB.id}'`,
+				/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'Z990001' WHERE id = '${routineB.id}'`,
 			)
 			await db.execute(
 				/* sql */ `INSERT INTO audit_log (action, entity_type, entity_id, metadata, performed_by, performed_at)
 				VALUES ('routine_replaced', 'routine', '${routineB.id}',
 				'{"replacedRoutineId":"${routineA.id}","deadlinePolicy":"continue"}',
-				'A123456', NOW())`,
+				'Z990001', NOW())`,
 			)
 
 			// Insert section-level review on A (applicationId = NULL)

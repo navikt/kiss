@@ -411,7 +411,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 					summary: null,
 					routineSnapshotPath: null,
 					reviewedAt: new Date(),
-					createdBy: "tester",
+					createdBy: "Z990001",
 					participants: [],
 				}),
 			).rejects.toMatchObject({ status: 403 })
@@ -458,7 +458,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			await archiveRoutine(routine.id, "admin")
@@ -485,7 +485,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'completed' WHERE id = '${review.id}'`)
@@ -509,7 +509,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			// Use a different appId so the unique active-review index is not violated
@@ -520,14 +520,14 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			const link = await addReviewLink({
 				reviewId: review1.id,
 				url: "https://example.com",
 				title: "Test",
-				addedBy: "tester",
+				addedBy: "Z990001",
 			})
 
 			// Forsøk å slette link fra review1 ved å oppgi review2 som kontekst
@@ -551,14 +551,14 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			const link = await addReviewLink({
 				reviewId: review.id,
 				url: "https://example.com",
 				title: null,
-				addedBy: "tester",
+				addedBy: "Z990001",
 			})
 			await archiveRoutine(routine.id, "admin")
 
@@ -569,7 +569,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 		})
 
 		it("deleteReviewLink() returnerer null for ukjent linkId (kallere kan svare 404)", async () => {
-			const result = await deleteReviewLink("00000000-0000-0000-0000-000000000000", "any", "tester")
+			const result = await deleteReviewLink("00000000-0000-0000-0000-000000000000", "any", "Z990001")
 			expect(result).toBeNull()
 		})
 
@@ -586,10 +586,10 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			const link = await addReviewLink({ reviewId: review.id, url: "https://x", title: null, addedBy: "tester" })
+			const link = await addReviewLink({ reviewId: review.id, url: "https://x", title: null, addedBy: "Z990001" })
 
 			// Ekstern connection som starter en "archive"-transaksjon med
 			// FOR UPDATE-lås på rutinen, men ikke committer enda.
@@ -652,7 +652,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			// Direktemanipulasjon: status='completed' før discardReview kalles.
@@ -675,7 +675,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			await archiveRoutine(routine.id, "admin")
@@ -707,7 +707,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			await archiveRoutine(routine.id, "admin")
@@ -726,7 +726,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			await archiveRoutine(routine.id, "admin")
@@ -745,7 +745,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "tester",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			await completeReview(review.id, "completer1")
@@ -767,7 +767,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 					summary: null,
 					routineSnapshotPath: null,
 					reviewedAt: new Date(),
-					createdBy: "tester",
+					createdBy: "Z990001",
 					participants: [],
 				}),
 			).rejects.toMatchObject({ status: 404 })
@@ -786,7 +786,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 					summary: null,
 					routineSnapshotPath: null,
 					reviewedAt: new Date(),
-					createdBy: "tester",
+					createdBy: "Z990001",
 					participants: [],
 				}),
 			).rejects.toMatchObject({ status: 400 })

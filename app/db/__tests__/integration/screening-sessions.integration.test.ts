@@ -14,8 +14,8 @@ vi.mock("~/db/connection.server", () => ({
 import type { NavUser } from "~/lib/auth.server"
 
 const testUser: NavUser = {
-	navIdent: "A123456",
-	name: "Test User",
+	navIdent: "Z990001",
+	name: "Frisk Ål",
 	email: "test@nav.no",
 	groups: [],
 	token: "test-token",
@@ -114,10 +114,10 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "Test screening",
 				participants: [
-					{ userIdent: "A123456", userName: "Ola Nordmann" },
-					{ userIdent: "B654321", userName: "Kari Nordmann" },
+					{ userIdent: "Z990001", userName: "Glad Fjord" },
+					{ userIdent: "Z990002", userName: "Rask Elv" },
 				],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			expect(session.id).toBeDefined()
@@ -127,7 +127,7 @@ describe("screening-sessions", () => {
 			const loaded = await getScreeningSession(session.id)
 			expect(loaded).not.toBeNull()
 			expect(loaded?.participants).toHaveLength(2)
-			expect(loaded?.participants.map((p) => p.userIdent).sort()).toEqual(["A123456", "B654321"])
+			expect(loaded?.participants.map((p) => p.userIdent).sort()).toEqual(["Z990001", "Z990002"])
 		})
 
 		it("creates a session without participants", async () => {
@@ -136,7 +136,7 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "Solo screening",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			const loaded = await getScreeningSession(session.id)
@@ -151,13 +151,13 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "First",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 			await createScreeningSession({
 				applicationId: appId,
 				title: "Second",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			const sessions = await getScreeningSessionsForApp(appId)
@@ -172,9 +172,9 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "To archive",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
-			await archiveScreeningSession(session.id, "A123456", "Test removal")
+			await archiveScreeningSession(session.id, "Z990001", "Test removal")
 
 			const sessions = await getScreeningSessionsForApp(appId)
 			expect(sessions).toHaveLength(0)
@@ -189,7 +189,7 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "Test",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			await saveScreeningSessionAnswer({
@@ -198,7 +198,7 @@ describe("screening-sessions", () => {
 				answer: "Ja",
 				comment: null,
 				link: null,
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			let loaded = await getScreeningSession(session.id)
@@ -212,7 +212,7 @@ describe("screening-sessions", () => {
 				answer: "Nei",
 				comment: "Changed my mind",
 				link: null,
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			loaded = await getScreeningSession(session.id)
@@ -230,8 +230,8 @@ describe("screening-sessions", () => {
 			const session = await createScreeningSession({
 				applicationId: appId,
 				title: "Complete me",
-				participants: [{ userIdent: "A123456", userName: "Test" }],
-				performedBy: "A123456",
+				participants: [{ userIdent: "Z990001", userName: "Test" }],
+				performedBy: "Z990001",
 			})
 
 			await saveScreeningSessionAnswer({
@@ -240,7 +240,7 @@ describe("screening-sessions", () => {
 				answer: "Ja",
 				comment: null,
 				link: null,
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 			await saveScreeningSessionAnswer({
 				sessionId: session.id,
@@ -248,13 +248,13 @@ describe("screening-sessions", () => {
 				answer: "Nei",
 				comment: "Some comment",
 				link: "https://example.com",
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			const completed = await completeScreeningSession(session.id, testUser)
 			expect(completed.status).toBe("completed")
 			expect(completed.completedAt).not.toBeNull()
-			expect(completed.completedBy).toBe("A123456")
+			expect(completed.completedBy).toBe("Z990001")
 
 			// Verify answers were copied to screening_answers
 			const db = getTestDb()
@@ -270,7 +270,7 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "Already done",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			await completeScreeningSession(session.id, testUser)
@@ -304,7 +304,7 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "Preset test",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 			await saveScreeningSessionAnswer({
 				sessionId: session.id,
@@ -312,7 +312,7 @@ describe("screening-sessions", () => {
 				answer: "Ja",
 				comment: null,
 				link: null,
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			await completeScreeningSession(session.id, testUser)
@@ -344,7 +344,7 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "Snapshot test",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 			await saveScreeningSessionAnswer({
 				sessionId: session.id,
@@ -352,7 +352,7 @@ describe("screening-sessions", () => {
 				answer: "Ja",
 				comment: null,
 				link: null,
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			await completeScreeningSession(session.id, testUser)
@@ -401,7 +401,7 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "Session 1",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 			await saveScreeningSessionAnswer({
 				sessionId: session1.id,
@@ -409,7 +409,7 @@ describe("screening-sessions", () => {
 				answer: "Ja",
 				comment: null,
 				link: null,
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 			await completeScreeningSession(session1.id, testUser)
 
@@ -424,7 +424,7 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "Session 2",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 			await saveScreeningSessionAnswer({
 				sessionId: session2.id,
@@ -432,7 +432,7 @@ describe("screening-sessions", () => {
 				answer: "Nei",
 				comment: null,
 				link: null,
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 			await completeScreeningSession(session2.id, testUser)
 
@@ -454,10 +454,10 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "Delete me",
 				participants: [],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
-			const archived = await archiveScreeningSession(session.id, "A123456", "Test archive reason")
+			const archived = await archiveScreeningSession(session.id, "Z990001", "Test archive reason")
 			expect(archived).not.toBeNull()
 			expect(archived?.archivedAt).not.toBeNull()
 
@@ -473,26 +473,26 @@ describe("screening-sessions", () => {
 				applicationId: appId,
 				title: "Participants test",
 				participants: [
-					{ userIdent: "A123456", userName: "Ola" },
-					{ userIdent: "B654321", userName: "Kari" },
+					{ userIdent: "Z990001", userName: "Glad Fjord" },
+					{ userIdent: "Z990002", userName: "Rask Elv" },
 				],
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
-			// Remove B654321, add C111111
+			// Remove Z990002, add Z990003
 			await updateScreeningSessionParticipants(
 				session.id,
 				[
-					{ userIdent: "A123456", userName: "Ola" },
-					{ userIdent: "C111111", userName: "Per" },
+					{ userIdent: "Z990001", userName: "Glad Fjord" },
+					{ userIdent: "Z990003", userName: "Rask Elv" },
 				],
-				"A123456",
+				"Z990001",
 			)
 
 			const loaded = await getScreeningSession(session.id)
 			expect(loaded?.participants).toHaveLength(2)
 			const idents = loaded?.participants.map((p) => p.userIdent).sort()
-			expect(idents).toEqual(["A123456", "C111111"])
+			expect(idents).toEqual(["Z990001", "Z990003"])
 		})
 	})
 })

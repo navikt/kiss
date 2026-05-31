@@ -56,7 +56,7 @@ describe("Deployment audit queries integration tests", () => {
 		// Create a test application
 		const result = await db.execute(
 			/* sql */ `INSERT INTO monitored_applications (name, description, created_by, updated_by)
-			VALUES ('test-app', 'Test app', 'test-user', 'test-user')
+			VALUES ('test-app', 'Test app', 'Z990001', 'Z990001')
 			RETURNING id`,
 		)
 		testAppId = (result.rows[0] as { id: string }).id
@@ -84,7 +84,7 @@ describe("Deployment audit queries integration tests", () => {
 			appName: "test-app",
 			summary: mockSummary,
 			status: "synced",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
 		expect(result).toBeDefined()
@@ -191,7 +191,7 @@ describe("Deployment audit queries integration tests", () => {
 		const db = getTestDb()
 		const row = await db.execute(
 			/* sql */ `INSERT INTO monitored_applications (name, description, created_by, updated_by)
-			VALUES ('test-app-2', 'Test app 2', 'test-user', 'test-user')
+			VALUES ('test-app-2', 'Test app 2', 'Z990001', 'Z990001')
 			RETURNING id`,
 		)
 		const testAppId2 = (row.rows[0] as { id: string }).id

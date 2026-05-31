@@ -55,7 +55,7 @@ async function newDraftReview() {
 		persistenceLinks: [],
 		controlIds: [],
 		technologyElementIds: [],
-		createdBy: "test-user",
+		createdBy: "Z990001",
 	})
 	await markRoutineApproved(routine.id)
 	const review = await createReview({
@@ -65,7 +65,7 @@ async function newDraftReview() {
 		summary: null,
 		routineSnapshotPath: null,
 		reviewedAt: new Date(),
-		createdBy: "test-user",
+		createdBy: "Z990001",
 		participants: [],
 	})
 	return { routine, review }
@@ -103,7 +103,7 @@ describe("Review follow-up points integration tests", () => {
 
 	it("completes review as 'completed' when there are no follow-ups", async () => {
 		const { review } = await newDraftReview()
-		const updated = await completeReview(review.id, "test-user")
+		const updated = await completeReview(review.id, "Z990001")
 		expect(updated?.status).toBe("completed")
 	})
 
@@ -113,9 +113,9 @@ describe("Review follow-up points integration tests", () => {
 			reviewId: review.id,
 			text: "Sjekk konfig",
 			description: "Beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
-		const updated = await completeReview(review.id, "test-user")
+		const updated = await completeReview(review.id, "Z990001")
 		expect(updated?.status).toBe("needs_follow_up")
 		expect(updated?.followUpPoints).toHaveLength(1)
 		expect(updated?.followUpPoints[0].status).toBe("needs_follow_up")
@@ -127,21 +127,21 @@ describe("Review follow-up points integration tests", () => {
 			reviewId: review.id,
 			text: "P1",
 			description: "Beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		const p2 = await addFollowUpPoint({
 			reviewId: review.id,
 			text: "P2",
 			description: "Beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
-		await completeReview(review.id, "test-user")
+		await completeReview(review.id, "Z990001")
 
 		await updateFollowUpPointStatus({
 			pointId: p1.id,
 			expectedReviewId: review.id,
 			status: "completed",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		const stillNeedsFollowUp = await getReview(review.id)
 		expect(stillNeedsFollowUp?.status).toBe("needs_follow_up")
@@ -150,7 +150,7 @@ describe("Review follow-up points integration tests", () => {
 			pointId: p2.id,
 			expectedReviewId: review.id,
 			status: "not_relevant",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		const fullyDone = await getReview(review.id)
 		expect(fullyDone?.status).toBe("completed")
@@ -158,10 +158,10 @@ describe("Review follow-up points integration tests", () => {
 
 	it("transitions completed review back to 'needs_follow_up' when a new point is added", async () => {
 		const { review } = await newDraftReview()
-		const completed = await completeReview(review.id, "test-user")
+		const completed = await completeReview(review.id, "Z990001")
 		expect(completed?.status).toBe("completed")
 
-		await addFollowUpPoint({ reviewId: review.id, text: "Nytt funn", performedBy: "test-user" })
+		await addFollowUpPoint({ reviewId: review.id, text: "Nytt funn", performedBy: "Z990001" })
 		const reopened = await getReview(review.id)
 		expect(reopened?.status).toBe("needs_follow_up")
 	})
@@ -172,14 +172,14 @@ describe("Review follow-up points integration tests", () => {
 			reviewId: review.id,
 			text: "P1",
 			description: "Beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
-		await completeReview(review.id, "test-user")
+		await completeReview(review.id, "Z990001")
 		await updateFollowUpPointStatus({
 			pointId: p1.id,
 			expectedReviewId: review.id,
 			status: "completed",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		const done = await getReview(review.id)
 		expect(done?.status).toBe("completed")
@@ -188,7 +188,7 @@ describe("Review follow-up points integration tests", () => {
 			pointId: p1.id,
 			expectedReviewId: review.id,
 			status: "needs_follow_up",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		const reopened = await getReview(review.id)
 		expect(reopened?.status).toBe("needs_follow_up")
@@ -200,16 +200,16 @@ describe("Review follow-up points integration tests", () => {
 			reviewId: review.id,
 			text: "Original",
 			description: "Beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
-		await completeReview(review.id, "test-user")
+		await completeReview(review.id, "Z990001")
 
 		await expect(
 			updateFollowUpPointText({
 				pointId: p1.id,
 				expectedReviewId: review.id,
 				text: "Endret",
-				performedBy: "test-user",
+				performedBy: "Z990001",
 			}),
 		).rejects.toBeInstanceOf(Response)
 	})
@@ -220,30 +220,30 @@ describe("Review follow-up points integration tests", () => {
 			reviewId: review.id,
 			text: "Tag",
 			description: "Beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
-		await completeReview(review.id, "test-user")
+		await completeReview(review.id, "Z990001")
 
 		await expect(
 			deleteFollowUpPoint({
 				pointId: p1.id,
 				expectedReviewId: review.id,
-				performedBy: "test-user",
+				performedBy: "Z990001",
 			}),
 		).rejects.toBeInstanceOf(Response)
 	})
 
 	it("allows editing text and deleting while still draft", async () => {
 		const { review } = await newDraftReview()
-		const p1 = await addFollowUpPoint({ reviewId: review.id, text: "Tag", performedBy: "test-user" })
+		const p1 = await addFollowUpPoint({ reviewId: review.id, text: "Tag", performedBy: "Z990001" })
 		const updated = await updateFollowUpPointText({
 			pointId: p1.id,
 			expectedReviewId: review.id,
 			text: "Tag oppdatert",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		expect(updated?.text).toBe("Tag oppdatert")
-		await deleteFollowUpPoint({ pointId: p1.id, expectedReviewId: review.id, performedBy: "test-user" })
+		await deleteFollowUpPoint({ pointId: p1.id, expectedReviewId: review.id, performedBy: "Z990001" })
 		const reviewAfter = await getReview(review.id)
 		expect(reviewAfter?.followUpPoints).toHaveLength(0)
 	})
@@ -254,15 +254,15 @@ describe("Review follow-up points integration tests", () => {
 			reviewId: review.id,
 			text: "Med beskrivelse",
 			description: "Detaljer",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		await addFollowUpPoint({
 			reviewId: review.id,
 			text: "Uten beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
-		await expect(completeReview(review.id, "test-user")).rejects.toBeInstanceOf(Response)
+		await expect(completeReview(review.id, "Z990001")).rejects.toBeInstanceOf(Response)
 
 		const stillDraft = await getReview(review.id)
 		expect(stillDraft?.status).toBe("draft")
@@ -271,10 +271,10 @@ describe("Review follow-up points integration tests", () => {
 			pointId: stillDraft?.followUpPoints.find((p) => p.text === "Uten beskrivelse")?.id ?? "",
 			expectedReviewId: review.id,
 			description: "Nå har den beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
-		const updated = await completeReview(review.id, "test-user")
+		const updated = await completeReview(review.id, "Z990001")
 		expect(updated?.status).toBe("needs_follow_up")
 	})
 
@@ -284,20 +284,20 @@ describe("Review follow-up points integration tests", () => {
 			reviewId: review.id,
 			text: "Whitespace-bare",
 			description: "   ",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
-		await expect(completeReview(review.id, "test-user")).rejects.toBeInstanceOf(Response)
+		await expect(completeReview(review.id, "Z990001")).rejects.toBeInstanceOf(Response)
 	})
 
 	it("writes audit log entries for follow-up actions", async () => {
 		const { review } = await newDraftReview()
-		const p1 = await addFollowUpPoint({ reviewId: review.id, text: "Audit", performedBy: "test-user" })
+		const p1 = await addFollowUpPoint({ reviewId: review.id, text: "Audit", performedBy: "Z990001" })
 		await updateFollowUpPointStatus({
 			pointId: p1.id,
 			expectedReviewId: review.id,
 			status: "completed",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
 		const db = getTestDb()
@@ -315,7 +315,7 @@ describe("Review follow-up points integration tests", () => {
 			reviewId: review.id,
 			text: "Konfigurer alarm",
 			description: "Sett opp alarm i Grafana for når kø > 1000",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		expect(p1.description).toBe("Sett opp alarm i Grafana for når kø > 1000")
 
@@ -323,7 +323,7 @@ describe("Review follow-up points integration tests", () => {
 			pointId: p1.id,
 			expectedReviewId: review.id,
 			description: "Oppdatert beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		expect(updated?.description).toBe("Oppdatert beskrivelse")
 
@@ -331,7 +331,7 @@ describe("Review follow-up points integration tests", () => {
 			pointId: p1.id,
 			expectedReviewId: review.id,
 			description: "   ",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		expect(cleared?.description).toBeNull()
 	})
@@ -342,9 +342,9 @@ describe("Review follow-up points integration tests", () => {
 			reviewId: review.id,
 			text: "Punkt",
 			description: "Innledende beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
-		await completeReview(review.id, "test-user")
+		await completeReview(review.id, "Z990001")
 		const reviewMid = await getReview(review.id)
 		expect(reviewMid?.status).toBe("needs_follow_up")
 
@@ -353,7 +353,7 @@ describe("Review follow-up points integration tests", () => {
 				pointId: p1.id,
 				expectedReviewId: review.id,
 				description: "Skal ikke tillates etter fullføring",
-				performedBy: "test-user",
+				performedBy: "Z990001",
 			}),
 		).rejects.toBeInstanceOf(Response)
 
@@ -361,7 +361,7 @@ describe("Review follow-up points integration tests", () => {
 			pointId: p1.id,
 			expectedReviewId: review.id,
 			status: "completed",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		const reviewDone = await getReview(review.id)
 		expect(reviewDone?.status).toBe("completed")
@@ -371,20 +371,20 @@ describe("Review follow-up points integration tests", () => {
 				pointId: p1.id,
 				expectedReviewId: review.id,
 				description: "For sent",
-				performedBy: "test-user",
+				performedBy: "Z990001",
 			}),
 		).rejects.toBeInstanceOf(Response)
 	})
 
 	it("can update status together with oppsummering", async () => {
 		const { review } = await newDraftReview()
-		const p1 = await addFollowUpPoint({ reviewId: review.id, text: "Pkt", performedBy: "test-user" })
+		const p1 = await addFollowUpPoint({ reviewId: review.id, text: "Pkt", performedBy: "Z990001" })
 		await updateFollowUpPointStatus({
 			pointId: p1.id,
 			expectedReviewId: review.id,
 			status: "completed",
 			resolution: "Fikset i PR #42",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		const reviewAfter = await getReview(review.id)
 		const point = reviewAfter?.followUpPoints.find((x) => x.id === p1.id)
@@ -396,7 +396,7 @@ describe("Review follow-up points integration tests", () => {
 			expectedReviewId: review.id,
 			status: "completed",
 			resolution: "   ",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		const reviewAfter2 = await getReview(review.id)
 		expect(reviewAfter2?.followUpPoints.find((x) => x.id === p1.id)?.resolution).toBeNull()
@@ -435,7 +435,7 @@ describe("Review follow-up points integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await markRoutineApproved(routine.id)
 			return routine
@@ -459,10 +459,10 @@ describe("Review follow-up points integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date("2025-01-01T00:00:00Z"),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await completeReview(earlier.id, "test-user")
+			await completeReview(earlier.id, "Z990001")
 
 			const newer = await createReview({
 				routineId: routine.id,
@@ -471,16 +471,16 @@ describe("Review follow-up points integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date("2025-06-01T00:00:00Z"),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			await addFollowUpPoint({
 				reviewId: newer.id,
 				text: "Pkt",
 				description: "Beskrivelse",
-				performedBy: "test-user",
+				performedBy: "Z990001",
 			})
-			await completeReview(newer.id, "test-user")
+			await completeReview(newer.id, "Z990001")
 
 			const result = await getLatestNonDiscardedReviewForApp(routine.id, appId)
 			expect(result?.id).toBe(newer.id)
@@ -498,10 +498,10 @@ describe("Review follow-up points integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date("2025-01-01T00:00:00Z"),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await completeReview(completed.id, "test-user")
+			await completeReview(completed.id, "Z990001")
 
 			const discarded = await createReview({
 				routineId: routine.id,
@@ -510,10 +510,10 @@ describe("Review follow-up points integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date("2025-06-01T00:00:00Z"),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await discardReview(discarded.id, "test-user")
+			await discardReview(discarded.id, "Z990001")
 
 			const result = await getLatestNonDiscardedReviewForApp(routine.id, appId)
 			expect(result?.id).toBe(completed.id)
@@ -532,10 +532,10 @@ describe("Review follow-up points integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await completeReview(review.id, "test-user")
+			await completeReview(review.id, "Z990001")
 
 			const result = await getLatestNonDiscardedReviewForApp(routine.id, appB)
 			expect(result).toBeNull()
@@ -547,9 +547,9 @@ describe("Review follow-up points integration tests", () => {
 				reviewId: review.id,
 				text: "Pkt",
 				description: "Beskrivelse",
-				performedBy: "test-user",
+				performedBy: "Z990001",
 			})
-			await completeReview(review.id, "test-user")
+			await completeReview(review.id, "Z990001")
 
 			const result = await getLatestNonDiscardedSectionReview(routine.id)
 			expect(result?.id).toBe(review.id)
@@ -566,10 +566,10 @@ describe("Review follow-up points integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date("2030-01-01T00:00:00Z"),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await completeReview(appReview.id, "test-user")
+			await completeReview(appReview.id, "Z990001")
 
 			// Section variant should still return the section review, not appReview
 			const result = await getLatestNonDiscardedSectionReview(routine.id)

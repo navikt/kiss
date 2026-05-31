@@ -148,7 +148,7 @@ describe("Evidence downloads integration tests", () => {
 			fileName: "audit-report.xlsx",
 			contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 			collectedAt: new Date("2026-03-01T10:00:00Z"),
-			performedBy: "A123456",
+			performedBy: "Z990001",
 		})
 
 		expect(record.id).toBeDefined()
@@ -175,7 +175,7 @@ describe("Evidence downloads integration tests", () => {
 		expect(bucketObject?.size_bytes).toBe(18)
 		expect(bucketObject?.object_type).toBe("oracle_evidence")
 		expect(bucketObject?.source_type).toBe("automated")
-		expect(bucketObject?.uploaded_by).toBe("A123456")
+		expect(bucketObject?.uploaded_by).toBe("Z990001")
 	})
 
 	it("should store Oracle provider metadata for force-fetched downloads", async () => {
@@ -200,7 +200,7 @@ describe("Evidence downloads integration tests", () => {
 			contentType: "application/pdf",
 			collectedAt: null,
 			forceFetchJustification: "Gjennomgang ikke ferdig, henter bevis for fremdrift",
-			performedBy: "A123456",
+			performedBy: "Z990001",
 		})
 
 		expect(record.source).toBe("m2m_api")
@@ -233,7 +233,7 @@ describe("Evidence downloads integration tests", () => {
 			buffer: Buffer.from("manual-pdf"),
 			fileName: "manuell-rapport.pdf",
 			contentType: "application/pdf",
-			performedBy: "B654321",
+			performedBy: "Z990002",
 		})
 
 		expect(record.source).toBe("manual_upload")
@@ -250,7 +250,7 @@ describe("Evidence downloads integration tests", () => {
 		expect(bucketObject).toBeDefined()
 		expect(bucketObject?.object_type).toBe("oracle_evidence")
 		expect(bucketObject?.source_type).toBe("manual")
-		expect(bucketObject?.uploaded_by).toBe("B654321")
+		expect(bucketObject?.uploaded_by).toBe("Z990002")
 	})
 
 	it("should list evidence downloads for an activity ordered by date desc", async () => {

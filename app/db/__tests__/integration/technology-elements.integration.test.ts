@@ -159,7 +159,7 @@ describe("technology-elements.server integration tests", () => {
 			const el = await createTechnologyElement("Old2", "old2", null, 0, "admin")
 			await archiveTechnologyElement(el.id, "admin")
 			const appId = await createApp("App1")
-			await expect(addApplicationElement(appId, el.id, "test-user")).rejects.toThrow(/arkivert/i)
+			await expect(addApplicationElement(appId, el.id, "Z990001")).rejects.toThrow(/arkivert/i)
 		})
 	})
 
@@ -198,7 +198,7 @@ describe("technology-elements.server integration tests", () => {
 			const app = await createApp("LogApp")
 			await addControlElement(c1, el.id, "admin")
 			await addControlElement(c2, el.id, "admin")
-			await addApplicationElement(app, el.id, "test-user")
+			await addApplicationElement(app, el.id, "Z990001")
 
 			const result = await getTechnologyElementWithCounts(el.id)
 			expect(result?.controlCount).toBe(2)
@@ -208,7 +208,7 @@ describe("technology-elements.server integration tests", () => {
 		it("getApplicationElements lists linked elements", async () => {
 			const el = await createTechnologyElement("Cache", "cache", null, 0, "admin")
 			const app = await createApp("AppX")
-			await addApplicationElement(app, el.id, "test-user")
+			await addApplicationElement(app, el.id, "Z990001")
 
 			const linked = await getApplicationElements(app)
 			expect(linked.map((e) => e.slug)).toEqual(["cache"])
@@ -246,11 +246,11 @@ describe("technology-elements.server integration tests", () => {
 			)
 			const qId = (r.rows[0] as { id: string }).id
 
-			await setQuestionTechnologyElements(qId, [elActive.id, elArchived.id], "test-user")
+			await setQuestionTechnologyElements(qId, [elActive.id, elArchived.id], "Z990001")
 			await archiveTechnologyElement(elArchived.id, "admin")
 
 			// Edit-skjema rendrer kun aktive elementer; vi sender derfor bare elActive
-			await setQuestionTechnologyElements(qId, [elActive.id], "test-user")
+			await setQuestionTechnologyElements(qId, [elActive.id], "Z990001")
 
 			const linked = await getQuestionTechnologyElements(qId)
 			expect(linked.map((l) => l.elementId).sort()).toEqual([elActive.id, elArchived.id].sort())

@@ -60,7 +60,7 @@ describe("Framework import bucket storage", () => {
 		const bucketPath = "framework-uploads/with-meta.xlsx"
 		await provider.upload(bucketPath, Buffer.from("data"), {
 			contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-			metadata: { originalFileName: "rammeverk.xlsx", uploadedBy: "test-user" },
+			metadata: { originalFileName: "rammeverk.xlsx", uploadedBy: "Z990001" },
 		})
 
 		const metaPath = join(testDir, `${bucketPath}.__meta__.json`)

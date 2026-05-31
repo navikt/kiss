@@ -221,7 +221,7 @@ export const mockEntraGroupsData = {
 			id: "mg-1",
 			groupId: "g-manual-1",
 			groupName: "pensjon-regnskap-superusers",
-			createdBy: "A123456",
+			createdBy: "Z990001",
 			createdAt: "2026-04-01T10:00:00Z",
 		},
 	] as Array<{
@@ -278,7 +278,7 @@ export function answered(questions: typeof mockScreening, upToIndex: number) {
 		return {
 			...q,
 			answer: isInventory ? "confirmed" : (q.choices[0]?.label ?? "Ja"),
-			answeredBy: "A123456",
+			answeredBy: "Z990001",
 			answeredAt: "2026-05-06T09:30:00Z",
 		}
 	})
@@ -291,23 +291,23 @@ export const enrichedWizardArgs = {
 	entraGroupsData: {
 		...mockEntraGroupsData,
 		assessmentsByGroupId: {
-			"g-1": { criticality: "low", updatedBy: "A123456", updatedAt: "2026-05-06T09:30:00Z" },
-			"g-2": { criticality: "high", updatedBy: "B654321", updatedAt: "2026-05-06T09:35:00Z" },
-			"g-3": { criticality: "low", updatedBy: "A123456", updatedAt: "2026-05-06T09:30:00Z" },
+			"g-1": { criticality: "low", updatedBy: "Z990001", updatedAt: "2026-05-06T09:30:00Z" },
+			"g-2": { criticality: "high", updatedBy: "Z990002", updatedAt: "2026-05-06T09:35:00Z" },
+			"g-3": { criticality: "low", updatedBy: "Z990001", updatedAt: "2026-05-06T09:30:00Z" },
 		},
 	},
 	oracleRolesData: {
 		...mockOracleRolesData,
 		assessments: {
-			"pensjon-regnskap-01:CONNECT": { criticality: "low", updatedBy: "A123456", updatedAt: "2026-05-06T09:30:00Z" },
+			"pensjon-regnskap-01:CONNECT": { criticality: "low", updatedBy: "Z990001", updatedAt: "2026-05-06T09:30:00Z" },
 			"pensjon-regnskap-01:DBA": {
 				criticality: "very_high",
-				updatedBy: "B654321",
+				updatedBy: "Z990002",
 				updatedAt: "2026-05-06T09:35:00Z",
 			},
 			"pensjon-regnskap-01:APP_READER": {
 				criticality: "low",
-				updatedBy: "A123456",
+				updatedBy: "Z990001",
 				updatedAt: "2026-05-06T09:30:00Z",
 			},
 			"pensjon-regnskap-01:APP_WRITER": {

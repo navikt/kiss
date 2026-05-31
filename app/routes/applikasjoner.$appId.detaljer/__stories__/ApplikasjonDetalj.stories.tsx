@@ -72,7 +72,7 @@ export const MedRegelsett: Story = {
 						sectionId: "s-01",
 						sectionSlug: "pensjon-og-ufore",
 						sectionName: "Pensjon og uføre",
-						responsibleName: "Ola Nordmann",
+						responsibleName: "Glad Fjord",
 						responsibleRole: "tech_manager",
 						approvalStatus: "valid",
 						lastApproval: { validFrom: "2026-01-01T00:00:00Z", validUntil: "2027-01-01T00:00:00Z" },

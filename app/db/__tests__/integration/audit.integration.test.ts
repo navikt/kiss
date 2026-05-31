@@ -34,7 +34,7 @@ describe("Audit log integration tests", () => {
 			entityType: "framework_version",
 			entityId: "test-entity-1",
 			newValue: "test-file.xlsx",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
 		const db = getTestDb()
@@ -46,7 +46,7 @@ describe("Audit log integration tests", () => {
 		expect(row.entity_type).toBe("framework_version")
 		expect(row.entity_id).toBe("test-entity-1")
 		expect(row.new_value).toBe("test-file.xlsx")
-		expect(row.performed_by).toBe("test-user")
+		expect(row.performed_by).toBe("Z990001")
 	})
 
 	it("should filter audit log by entity", async () => {
@@ -54,19 +54,19 @@ describe("Audit log integration tests", () => {
 			action: "framework_imported",
 			entityType: "framework_version",
 			entityId: "version-1",
-			performedBy: "user-a",
+			performedBy: "Z990001",
 		})
 		await writeAuditLog({
 			action: "framework_activated",
 			entityType: "framework_version",
 			entityId: "version-1",
-			performedBy: "user-b",
+			performedBy: "Z990002",
 		})
 		await writeAuditLog({
 			action: "team_created",
 			entityType: "team",
 			entityId: "team-1",
-			performedBy: "user-a",
+			performedBy: "Z990001",
 		})
 
 		const logs = await getAuditLogForEntity("framework_version", "version-1")
@@ -81,7 +81,7 @@ describe("Audit log integration tests", () => {
 			entityType: "framework_version",
 			entityId: "version-1",
 			metadata: { domainCount: 3, riskCount: 5, controlCount: 10 },
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
 		const logs = await getAuditLogForEntity("framework_version", "version-1")
@@ -99,19 +99,19 @@ describe("Audit log integration tests", () => {
 			action: "framework_imported",
 			entityType: "framework_version",
 			entityId: "v1",
-			performedBy: "user",
+			performedBy: "Z990001",
 		})
 		await writeAuditLog({
 			action: "framework_activated",
 			entityType: "framework_version",
 			entityId: "v1",
-			performedBy: "user",
+			performedBy: "Z990001",
 		})
 		await writeAuditLog({
 			action: "team_created",
 			entityType: "team",
 			entityId: "t1",
-			performedBy: "user",
+			performedBy: "Z990001",
 		})
 
 		const recent = await getRecentAuditLog(10)
@@ -125,19 +125,19 @@ describe("Audit log integration tests", () => {
 			action: "framework_imported",
 			entityType: "framework_version",
 			entityId: "v1",
-			performedBy: "user",
+			performedBy: "Z990001",
 		})
 		await writeAuditLog({
 			action: "team_created",
 			entityType: "team",
 			entityId: "t1",
-			performedBy: "user",
+			performedBy: "Z990001",
 		})
 		await writeAuditLog({
 			action: "team_created",
 			entityType: "team",
 			entityId: "t2",
-			performedBy: "user",
+			performedBy: "Z990001",
 		})
 
 		const teamLogs = await getAuditLogByAction("team_created")
@@ -152,7 +152,7 @@ describe("Audit log integration tests", () => {
 			entityId: "R-TS.01",
 			previousValue: "Old title",
 			newValue: "New title",
-			performedBy: "editor",
+			performedBy: "Z990002",
 		})
 
 		const logs = await getAuditLogForEntity("framework_risk", "R-TS.01")

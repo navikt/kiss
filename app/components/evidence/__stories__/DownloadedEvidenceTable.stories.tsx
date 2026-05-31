@@ -14,7 +14,7 @@ const mockDownloads: EvidenceDownload[] = [
 		source: "m2m_api",
 		apiInstanceName: "Pensjon Prod",
 		forceFetchJustification: null,
-		performedBy: "A123456",
+		performedBy: "Z990001",
 		performedAt: "2026-03-01T10:30:00Z",
 	},
 	{
@@ -27,7 +27,7 @@ const mockDownloads: EvidenceDownload[] = [
 		source: "manual_upload",
 		apiInstanceName: null,
 		forceFetchJustification: null,
-		performedBy: "B654321",
+		performedBy: "Z990002",
 		performedAt: "2026-03-02T14:00:00Z",
 	},
 	{
@@ -40,7 +40,7 @@ const mockDownloads: EvidenceDownload[] = [
 		source: "m2m_api",
 		apiInstanceName: "Pensjon Prod",
 		forceFetchJustification: "Haster med gjennomgangen, godkjent av seksjonsleder",
-		performedBy: "A123456",
+		performedBy: "Z990001",
 		performedAt: "2026-03-03T09:15:00Z",
 	},
 ]

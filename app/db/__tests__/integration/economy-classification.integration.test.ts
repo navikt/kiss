@@ -77,14 +77,14 @@ describe("Economy classification integration tests", () => {
 				isEconomySystem: true,
 				economySystemType: "hjelpesystem",
 				justification: "Fatter vedtak som forplikter Nav.",
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			expect(result.applicationId).toBe(appId)
 			expect(result.isEconomySystem).toBe(true)
 			expect(result.economySystemType).toBe("hjelpesystem")
 			expect(result.justification).toBe("Fatter vedtak som forplikter Nav.")
-			expect(result.createdBy).toBe("A123456")
+			expect(result.createdBy).toBe("Z990001")
 			expect(result.archivedAt).toBeNull()
 
 			// validUntil should be ~1 year from now
@@ -102,7 +102,7 @@ describe("Economy classification integration tests", () => {
 				isEconomySystem: false,
 				economySystemType: null,
 				justification: "Ingen påvirkning på økonomiske disposisjoner.",
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			expect(result.isEconomySystem).toBe(false)
@@ -183,7 +183,7 @@ describe("Economy classification integration tests", () => {
 				isEconomySystem: false,
 				economySystemType: "hjelpesystem", // passed but should be ignored
 				justification: "Ikke et økonomisystem.",
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			expect(result.economySystemType).toBeNull()
@@ -264,7 +264,7 @@ describe("Economy classification integration tests", () => {
 				isEconomySystem: true,
 				economySystemType: "hjelpesystem",
 				justification: "J1.",
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			await saveEconomyClassification({
@@ -272,7 +272,7 @@ describe("Economy classification integration tests", () => {
 				isEconomySystem: false,
 				economySystemType: null,
 				justification: "J2.",
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			// app3 has no classification
@@ -300,7 +300,7 @@ describe("Economy classification integration tests", () => {
 				isEconomySystem: true,
 				economySystemType: "fakturabehandling",
 				justification: "J1.",
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			await saveEconomyClassification({
@@ -308,7 +308,7 @@ describe("Economy classification integration tests", () => {
 				isEconomySystem: true,
 				economySystemType: "lonnssystem",
 				justification: "J2.",
-				performedBy: "A123456",
+				performedBy: "Z990001",
 			})
 
 			const all = await getAllEconomyClassifications()
