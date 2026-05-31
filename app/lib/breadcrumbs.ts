@@ -434,7 +434,6 @@ const rules: BreadcrumbRule[] = [
 	{ pattern: "admin/seksjoner", segments: [ADMIN, { label: "Seksjoner" }] },
 	{ pattern: "admin/brukere", segments: [ADMIN, { label: "Brukere" }] },
 	{ pattern: "admin/screening", segments: [ADMIN, { label: "Screening" }] },
-	{ pattern: "admin/domener", segments: [ADMIN, { label: "Domener" }] },
 	{ pattern: "admin/teknologielementer", segments: [ADMIN, { label: "Teknologielementer" }] },
 	{ pattern: "admin/dokumenter", segments: [ADMIN, { label: "Dokumenter" }] },
 	{ pattern: "admin", segments: [{ label: "Admin" }] },

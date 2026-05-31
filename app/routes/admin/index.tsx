@@ -49,12 +49,6 @@ export default function Admin() {
 					</Heading>
 					<BodyLong size="small">Definer ja/nei-spørsmål som automatisk kan styre compliance-status.</BodyLong>
 				</Link>
-				<Link to="/admin/domener" className="admin-card">
-					<Heading size="small" level="3">
-						Domener
-					</Heading>
-					<BodyLong size="small">Administrer domener for risikoer og kontroller i kontrollrammeverket.</BodyLong>
-				</Link>
 				<Link to="/admin/teknologielementer" className="admin-card">
 					<Heading size="small" level="3">
 						Teknologielementer

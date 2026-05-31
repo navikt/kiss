@@ -125,7 +125,6 @@ export default [
 	route("admin/brukere", "routes/admin.brukere/index.tsx"),
 	route("admin/screening", "routes/admin.screening/index.tsx"),
 	route("admin/screening/:questionId/rediger", "routes/admin.screening.$questionId.rediger/index.tsx"),
-	route("admin/domener", "routes/admin.domener/index.tsx"),
 	route("admin/teknologielementer", "routes/admin.teknologielementer/index.tsx"),
 	route("admin/vedlikehold", "routes/admin.vedlikehold/index.tsx"),
 	route("admin/synkjobber", "routes/admin.synkjobber/index.tsx"),
