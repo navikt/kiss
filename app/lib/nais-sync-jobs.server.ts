@@ -1,5 +1,6 @@
 import {
 	createSyncJob,
+	getLastCompletedSyncJobAt,
 	markSyncJobCompleted,
 	markSyncJobFailed,
 	markSyncJobRunning,
@@ -10,7 +11,8 @@ import { runFullNaisSync } from "~/lib/nais-sync.server"
 import { SYNC_JOB_TYPES } from "~/lib/sync-job-types"
 
 export interface NaisSyncJobResult {
-	jobId: string
+	/** null when the run was skipped due to cooldown (no job record was created). */
+	jobId: string | null
 	state: "completed" | "skipped"
 	result: {
 		teams: SyncResult
@@ -28,12 +30,22 @@ export async function runTrackedNaisSync({
 	performedBy,
 	scopeType,
 	scopeId,
+	minIntervalMs,
 }: {
 	token?: string
 	performedBy: string
 	scopeType?: string
 	scopeId?: string
+	/** If the last completed nais_full_sync finished within this window, skip silently (cross-pod cooldown). */
+	minIntervalMs?: number
 }): Promise<NaisSyncJobResult> {
+	if (minIntervalMs !== undefined) {
+		const lastAt = await getLastCompletedSyncJobAt(SYNC_JOB_TYPES.NAIS_FULL_SYNC)
+		if (lastAt && Date.now() - lastAt.getTime() < minIntervalMs) {
+			return { jobId: null, state: "skipped", result: null }
+		}
+	}
+
 	const job = await createSyncJob({
 		jobType: SYNC_JOB_TYPES.NAIS_FULL_SYNC,
 		performedBy,
