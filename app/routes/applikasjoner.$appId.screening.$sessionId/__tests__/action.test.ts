@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { ScreeningReplayError } from "~/lib/screening-errors"
 
 // --- Mocks -----------------------------------------------------------
 
@@ -256,7 +255,7 @@ describe("screening session action", () => {
 		it("returns 400 when completeScreeningSession throws a replay validation error", async () => {
 			const fd = new FormData()
 			fd.set("intent", "complete")
-			mockCompleteScreeningSession.mockRejectedValue(new ScreeningReplayError("selectRoutine", "Ugyldig rutine-ID"))
+			mockCompleteScreeningSession.mockRejectedValue(new Error("Replay av «selectRoutine» feilet: Ugyldig rutine-ID"))
 
 			try {
 				await callAction(fd)
