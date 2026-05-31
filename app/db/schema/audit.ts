@@ -222,6 +222,7 @@ export const auditLogActionEnum = [
 
 	// Rapporter
 	"report_generated",
+	"report_generation_requested",
 
 	// Økonomisystem-klassifisering
 	"economy_classification_created",

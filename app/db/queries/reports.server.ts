@@ -1,5 +1,7 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
-import type PDFDocument from "pdfkit"
+import JSZip from "jszip"
+import { PDFDocument as PDFLibDocument } from "pdf-lib"
+import PDFDocument from "pdfkit"
 import { getStatusLabel } from "../../lib/compliance-status"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getCompositeFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
@@ -9,13 +11,23 @@ import { monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
 import { frameworkControls, frameworkDomains, frameworkRiskControlMappings, frameworkRisks } from "../schema/framework"
 import { sections } from "../schema/organization"
-import { reports } from "../schema/reports"
+import { type ReportStatus, reports } from "../schema/reports"
 import { routines } from "../schema/routines"
+import { enrichAppAssessments } from "./app-assessment-enrichment.server"
+import { getAppAssessments } from "./applications.server"
 import { writeAuditLog } from "./audit.server"
 import { getAuditEvidenceForReport } from "./audit-evidence.server"
 import { saveBucketObject } from "./buckets.server"
 import { getActiveFrameworkVersion } from "./framework.server"
-import { calculateDeadline, getAppsRequiringRoutine, getEffectiveLastReviewDate, isOverdue } from "./routines.server"
+import { getApplicationDetail } from "./nais.server"
+import {
+	calculateDeadline,
+	getActivitiesForReviews,
+	getAppsRequiringRoutine,
+	getEffectiveLastReviewDate,
+	getReviewsForApp,
+	isOverdue,
+} from "./routines.server"
 import { getEffectiveAppIdsInSection } from "./sections.server"
 
 /** Get all reports ordered by newest first. */
@@ -36,6 +48,72 @@ export async function getReportsForApp(applicationId: string) {
 export async function getReport(reportId: string) {
 	const [report] = await db.select().from(reports).where(eq(reports.id, reportId)).limit(1)
 	return report ?? null
+}
+
+/** Get section-batch reports for a given section, newest first. */
+export async function getReportsForSection(sectionId: string) {
+	return db
+		.select()
+		.from(reports)
+		.where(and(eq(reports.scope, "section_batch"), eq(reports.scopeId, sectionId)))
+		.orderBy(desc(reports.createdAt))
+}
+
+/** Create a pending section-batch report record. Returns the report ID and name. */
+export async function createSectionBatchReport(params: {
+	sectionId: string
+	sectionName: string
+	createdBy: string
+}): Promise<{ id: string; name: string }> {
+	const { sectionId, sectionName, createdBy } = params
+	const now = new Date()
+	const name = `Seksjonsrapport – ${sectionName} – ${now.toLocaleDateString("nb-NO")}`
+	const id = await db.transaction(async (tx) => {
+		const [report] = await tx
+			.insert(reports)
+			.values({
+				name,
+				reportType: "section_batch",
+				scope: "section_batch",
+				scopeId: sectionId,
+				snapshotBucketPath: null,
+				reportBucketPath: null,
+				appVersion: "0.1.0",
+				status: "pending",
+				progressMessage: "Venter på start…",
+				createdBy,
+			})
+			.returning({ id: reports.id })
+		await writeAuditLog(
+			{
+				action: "report_generation_requested",
+				entityType: "report",
+				entityId: report.id,
+				newValue: name,
+				metadata: { scope: "section_batch", sectionId },
+				performedBy: createdBy,
+			},
+			tx,
+		)
+		return report.id
+	})
+	return { id, name }
+}
+
+/** Update the status and optional progress message of a report. */
+export async function updateReportStatus(
+	reportId: string,
+	status: ReportStatus,
+	progressMessage?: string | null,
+): Promise<void> {
+	await db
+		.update(reports)
+		.set({
+			status,
+			updatedAt: new Date(),
+			...(progressMessage !== undefined && { progressMessage }),
+		})
+		.where(eq(reports.id, reportId))
 }
 
 /** Generate a compliance report and persist snapshot + HTML to storage. */
@@ -398,14 +476,6 @@ export async function generateAppComplianceReport(params: {
 		reviewIds,
 	} = params
 
-	// Dynamic imports to avoid circular deps and keep pdfkit server-only
-	const { getAppAssessments } = await import("./applications.server")
-	const { getReviewsForApp } = await import("./routines.server")
-	const { getApplicationDetail } = await import("./nais.server")
-	const { enrichAppAssessments } = await import("./app-assessment-enrichment.server")
-	const { default: PDFDocument } = await import("pdfkit")
-	const { PDFDocument: PDFLibDocument } = await import("pdf-lib")
-
 	const [detail, assessmentsResult] = await Promise.all([
 		getApplicationDetail(applicationId),
 		getAppAssessments(applicationId),
@@ -438,7 +508,6 @@ export async function generateAppComplianceReport(params: {
 	const auditEvidence = await getAuditEvidenceForReport(applicationId)
 
 	// Fetch review activities (Entra ID maintenance etc.)
-	const { getActivitiesForReviews } = await import("./routines.server")
 	const reviewActivities =
 		completedReviews.length > 0 ? await getActivitiesForReviews(completedReviews.map((r) => r.id)) : []
 	const activitiesByReviewId = new Map<string, typeof reviewActivities>()
@@ -673,7 +742,6 @@ export async function generateAppComplianceReport(params: {
 	// Build zip if there are non-PDF attachments
 	let reportBucketPath = pdfPath
 	if (nonPdfAttachments.length > 0) {
-		const JSZip = (await import("jszip")).default
 		const zip = new JSZip()
 		zip.file("rapport.pdf", finalPdf)
 
@@ -687,11 +755,13 @@ export async function generateAppComplianceReport(params: {
 			const subFolder = att.followUpPointText
 				? `/oppfolgingspunkter/${att.followUpPointText.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
 				: ""
-			let entryName = `${folderName}${subFolder}/${att.fileName}`
+			// Sanitise filename to prevent Zip-Slip: strip path separators and leading dots
+			const safeFileName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
+			let entryName = `${folderName}${subFolder}/${safeFileName}`
 			// Handle duplicates within same review
 			if (usedNames.has(entryName)) {
-				const ext = att.fileName.includes(".") ? `.${att.fileName.split(".").pop()}` : ""
-				const base = att.fileName.includes(".") ? att.fileName.slice(0, att.fileName.lastIndexOf(".")) : att.fileName
+				const ext = safeFileName.includes(".") ? `.${safeFileName.split(".").pop()}` : ""
+				const base = safeFileName.includes(".") ? safeFileName.slice(0, safeFileName.lastIndexOf(".")) : safeFileName
 				let counter = 2
 				do {
 					entryName = `${folderName}${subFolder}/${base} (${counter})${ext}`
@@ -741,6 +811,187 @@ export async function generateAppComplianceReport(params: {
 	})
 
 	return report.id
+}
+
+export interface AppComplianceArtifact {
+	appName: string
+	/** Final merged PDF buffer (with PDF attachments embedded as pages) */
+	pdf: Buffer
+	/** Non-PDF attachments to be included separately in a zip */
+	nonPdfAttachments: Array<{
+		fileName: string
+		contentType: string
+		data: Buffer
+		reviewTitle: string
+		reviewDate: string
+		followUpPointText?: string
+		followUpKind?: "description" | "resolution"
+	}>
+}
+
+/**
+ * Build the PDF artifact for a single application without any storage uploads or DB inserts.
+ * Used by the section batch report generator to build per-app PDFs before streaming them into a zip.
+ */
+export async function buildAppComplianceArtifact(params: {
+	applicationId: string
+	includeReviews?: boolean
+	includeAttachments?: boolean
+	includeRoutineDescription?: boolean
+	reviewIds?: string[]
+}): Promise<AppComplianceArtifact> {
+	const {
+		applicationId,
+		includeReviews = true,
+		includeAttachments = true,
+		includeRoutineDescription = false,
+		reviewIds,
+	} = params
+
+	const [detail, assessmentsResult] = await Promise.all([
+		getApplicationDetail(applicationId),
+		getAppAssessments(applicationId),
+	])
+
+	let reviews: Awaited<ReturnType<typeof getReviewsForApp>> = []
+	if (includeReviews) {
+		try {
+			reviews = await getReviewsForApp(applicationId)
+		} catch {
+			// Routine tables may not exist
+		}
+	}
+
+	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
+
+	const enriched = await enrichAppAssessments(applicationId, assessmentsResult?.assessments ?? [])
+	const assessments = enriched.map((a) => ({
+		...a,
+		status: a.effectiveStatus,
+		assessedBy: a.commentUpdatedBy,
+		assessedAt: a.commentUpdatedAt,
+	}))
+
+	let completedReviews = reviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up")
+	if (reviewIds) {
+		completedReviews = completedReviews.filter((r) => reviewIds.includes(r.id))
+	}
+
+	const [auditEvidence, reviewActivitiesRaw] = await Promise.all([
+		getAuditEvidenceForReport(applicationId),
+		completedReviews.length > 0 ? getActivitiesForReviews(completedReviews.map((r) => r.id)) : Promise.resolve([]),
+	])
+
+	const activitiesByReviewId = new Map<string, typeof reviewActivitiesRaw>()
+	for (const a of reviewActivitiesRaw) {
+		const list = activitiesByReviewId.get(a.reviewId) ?? []
+		list.push(a)
+		activitiesByReviewId.set(a.reviewId, list)
+	}
+
+	const storage = getStorageProvider()
+
+	const attachmentBuffers: Array<{
+		fileName: string
+		contentType: string
+		data: Buffer
+		reviewTitle: string
+		reviewDate: string
+		followUpPointText?: string
+		followUpKind?: "description" | "resolution"
+	}> = []
+	const failedAttachments: Array<{ fileName: string; reviewTitle: string; followUpPointText?: string }> = []
+
+	if (includeAttachments) {
+		for (const review of completedReviews) {
+			const reviewDate = new Date(review.reviewedAt).toISOString().slice(0, 10)
+			for (const att of review.attachments) {
+				try {
+					const buf = await storage.download(att.bucketPath)
+					attachmentBuffers.push({
+						fileName: att.fileName,
+						contentType: att.contentType,
+						data: buf,
+						reviewTitle: review.title,
+						reviewDate,
+					})
+				} catch {
+					failedAttachments.push({ fileName: att.fileName, reviewTitle: review.title })
+				}
+			}
+			for (const point of review.followUpPoints) {
+				for (const att of point.attachments) {
+					try {
+						const buf = await storage.download(att.bucketPath)
+						attachmentBuffers.push({
+							fileName: att.fileName,
+							contentType: att.contentType,
+							data: buf,
+							reviewTitle: review.title,
+							reviewDate,
+							followUpPointText: point.text,
+							followUpKind: att.kind,
+						})
+					} catch {
+						failedAttachments.push({ fileName: att.fileName, reviewTitle: review.title, followUpPointText: point.text })
+					}
+				}
+			}
+		}
+	}
+
+	const pdfAttachments = attachmentBuffers.filter((a) => a.contentType === "application/pdf")
+	const nonPdfAttachments = attachmentBuffers.filter((a) => a.contentType !== "application/pdf")
+
+	const mappedReviews = completedReviews.map((r) => ({
+		...r,
+		routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
+	}))
+
+	const mainPdfBuffer = await buildAppPdf(
+		PDFDocument,
+		{
+			name: detail.app.name,
+			namespace: detail.environments[0]?.namespace ?? null,
+			cluster: detail.environments[0]?.cluster ?? null,
+		},
+		assessments,
+		mappedReviews,
+		pdfAttachments,
+		auditEvidence,
+		activitiesByReviewId,
+		nonPdfAttachments,
+		failedAttachments,
+	)
+
+	let finalPdf: Buffer
+	if (pdfAttachments.length > 0) {
+		const merged = await PDFLibDocument.load(mainPdfBuffer)
+		const totalMainPages = merged.getPageCount()
+		const firstCoverPageIndex = totalMainPages - pdfAttachments.length
+
+		let insertOffset = 0
+		for (let i = pdfAttachments.length - 1; i >= 0; i--) {
+			const att = pdfAttachments[i]
+			const coverIndex = firstCoverPageIndex + i + insertOffset
+			try {
+				const attachedPdf = await PDFLibDocument.load(att.data)
+				const pageIndices = attachedPdf.getPageIndices()
+				const copiedPages = await merged.copyPages(attachedPdf, pageIndices)
+				for (let j = copiedPages.length - 1; j >= 0; j--) {
+					merged.insertPage(coverIndex + 1, copiedPages[j])
+				}
+				insertOffset += copiedPages.length
+			} catch {
+				// Skip corrupt PDFs
+			}
+		}
+		finalPdf = Buffer.from(await merged.save())
+	} else {
+		finalPdf = mainPdfBuffer
+	}
+
+	return { appName: detail.app.name, pdf: finalPdf, nonPdfAttachments }
 }
 
 function buildAppPdf(

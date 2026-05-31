@@ -1,6 +1,11 @@
+import { eq } from "drizzle-orm"
 import type { LoaderFunctionArgs } from "react-router"
 import * as XLSX from "xlsx"
+import { db } from "~/db/connection.server"
 import { getReport } from "~/db/queries/reports.server"
+import { sections } from "~/db/schema/organization"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { canManageSection, isAuditor } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 interface ReportSnapshot {
@@ -31,12 +36,29 @@ interface ReportSnapshot {
 
 import { getStatusLabel } from "~/lib/compliance-status"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
 	const rapportId = params.rapportId
 	if (!rapportId) throw new Response("Mangler rapport-ID", { status: 400 })
 
+	const user = await requireAuthenticatedUser(request)
+
 	const report = await getReport(rapportId)
 	if (!report) throw new Response("Rapport ikke funnet", { status: 404 })
+
+	// Section-batch reports require explicit auth and cannot be downloaded until ready
+	if (report.reportType === "section_batch") {
+		if (!report.scopeId) throw new Response("Rapport mangler seksjon-ID", { status: 500 })
+		const [section] = await db.select().from(sections).where(eq(sections.id, report.scopeId)).limit(1)
+		if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+		if (!canManageSection(user, report.scopeId) && !isAuditor(user)) {
+			throw new Response("Ikke autorisert", { status: 403 })
+		}
+		throw new Response("Seksjonsrapporter lastes ned som ZIP via PDF-endepunktet", { status: 400 })
+	}
+
+	if (!report.snapshotBucketPath) {
+		throw new Response("Rapport mangler snapshot", { status: 500 })
+	}
 
 	const storage = getStorageProvider()
 	let snapshot: ReportSnapshot

@@ -1,3 +1,5 @@
+import type { Readable } from "node:stream"
+import { pipeline } from "node:stream/promises"
 import { Storage } from "@google-cloud/storage"
 import type { StorageProvider, StorageResult, UploadOptions } from "./types"
 
@@ -32,10 +34,30 @@ export class GcsStorageProvider implements StorageProvider {
 		}
 	}
 
+	async uploadStream(path: string, stream: Readable, options?: UploadOptions): Promise<StorageResult> {
+		const bucket = this.storage.bucket(this.bucketName)
+		const file = bucket.file(path)
+		const writeStream = file.createWriteStream({
+			contentType: options?.contentType ?? "application/octet-stream",
+			metadata: options?.metadata ? { metadata: options.metadata } : undefined,
+		})
+		await pipeline(stream, writeStream)
+		const [metadata] = await file.getMetadata()
+		return {
+			path,
+			sizeBytes: Number(metadata.size ?? 0),
+			contentType: metadata.contentType ?? "application/octet-stream",
+		}
+	}
+
 	async download(path: string): Promise<Buffer> {
 		const bucket = this.storage.bucket(this.bucketName)
 		const [contents] = await bucket.file(path).download()
 		return contents
+	}
+
+	downloadStream(path: string): Readable {
+		return this.storage.bucket(this.bucketName).file(path).createReadStream()
 	}
 
 	async exists(path: string): Promise<boolean> {
