@@ -1,5 +1,5 @@
 import { PassThrough } from "node:stream"
-import archiver from "archiver"
+import { ZipArchive } from "archiver"
 import { eq } from "drizzle-orm"
 import { db } from "~/db/connection.server"
 import { writeAuditLog } from "~/db/queries/audit.server"
@@ -83,7 +83,7 @@ async function runSectionBatchReportGeneration(
 	} = params
 
 	// Declare streams outside try so catch block can clean them up
-	const archive = archiver("zip", { zlib: { level: 6 } })
+	const archive = new ZipArchive({ zlib: { level: 6 } })
 	const passThrough = new PassThrough()
 
 	try {
@@ -110,13 +110,13 @@ async function runSectionBatchReportGeneration(
 			logger.warn("uploadStream rejected (may already be handled in catch block)", { reportId, error: err })
 		})
 
-		archive.on("warning", (err) => {
+		archive.on("warning", (err: NodeJS.ErrnoException) => {
 			if (err.code !== "ENOENT") {
 				logger.warn("Archiver warning during section batch report", { reportId, error: err })
 			}
 		})
 
-		archive.on("error", (err) => {
+		archive.on("error", (err: Error) => {
 			logger.error("Archiver error during section batch report", { reportId, error: err })
 			passThrough.destroy(err)
 		})
