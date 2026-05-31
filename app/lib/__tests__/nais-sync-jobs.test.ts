@@ -6,6 +6,7 @@ const mockMarkSyncJobRunning = vi.fn()
 const mockMarkSyncJobCompleted = vi.fn()
 const mockMarkSyncJobSkipped = vi.fn()
 const mockMarkSyncJobFailed = vi.fn()
+const mockGetLastCompletedSyncJobAt = vi.fn()
 
 vi.mock("~/db/queries/sync-jobs.server", () => ({
 	createSyncJob: mockCreateSyncJob,
@@ -13,6 +14,7 @@ vi.mock("~/db/queries/sync-jobs.server", () => ({
 	markSyncJobCompleted: mockMarkSyncJobCompleted,
 	markSyncJobSkipped: mockMarkSyncJobSkipped,
 	markSyncJobFailed: mockMarkSyncJobFailed,
+	getLastCompletedSyncJobAt: mockGetLastCompletedSyncJobAt,
 }))
 
 const mockRunFullNaisSync = vi.fn()
@@ -24,8 +26,9 @@ const { runTrackedNaisSync } = await import("~/lib/nais-sync-jobs.server")
 
 describe("nais sync jobs wrapper", () => {
 	beforeEach(() => {
-		vi.clearAllMocks()
+		vi.resetAllMocks()
 		mockCreateSyncJob.mockResolvedValue({ id: "job-1" })
+		mockGetLastCompletedSyncJobAt.mockResolvedValue(null)
 	})
 
 	it("marks completed on successful sync", async () => {
@@ -103,5 +106,57 @@ describe("nais sync jobs wrapper", () => {
 		).rejects.toThrow("db failure")
 
 		expect(mockMarkSyncJobFailed).not.toHaveBeenCalled()
+	})
+
+	describe("cooldown (minIntervalMs)", () => {
+		it("skips without creating a job when last completed sync is within cooldown window", async () => {
+			const recentFinish = new Date(Date.now() - 60_000) // 1 minute ago
+			mockGetLastCompletedSyncJobAt.mockResolvedValue(recentFinish)
+
+			const result = await runTrackedNaisSync({
+				performedBy: "unified-scheduler",
+				minIntervalMs: 5 * 60 * 1000,
+			})
+
+			expect(result.state).toBe("skipped")
+			expect(result.jobId).toBeNull()
+			expect(result.result).toBeNull()
+			expect(mockCreateSyncJob).not.toHaveBeenCalled()
+			expect(mockRunFullNaisSync).not.toHaveBeenCalled()
+		})
+
+		it("runs normally when last completed sync is outside cooldown window", async () => {
+			const oldFinish = new Date(Date.now() - 6 * 60 * 1000) // 6 minutes ago
+			mockGetLastCompletedSyncJobAt.mockResolvedValue(oldFinish)
+			mockRunFullNaisSync.mockResolvedValue({
+				teams: { discovered: 1, new: 0, skipped: 1 },
+				apps: [],
+			})
+
+			const result = await runTrackedNaisSync({
+				performedBy: "unified-scheduler",
+				minIntervalMs: 5 * 60 * 1000,
+			})
+
+			expect(result.state).toBe("completed")
+			expect(result.jobId).toBe("job-1")
+			expect(mockCreateSyncJob).toHaveBeenCalled()
+		})
+
+		it("runs normally when no previous completed sync exists", async () => {
+			mockGetLastCompletedSyncJobAt.mockResolvedValue(null)
+			mockRunFullNaisSync.mockResolvedValue({
+				teams: { discovered: 1, new: 1, skipped: 0 },
+				apps: [],
+			})
+
+			const result = await runTrackedNaisSync({
+				performedBy: "unified-scheduler",
+				minIntervalMs: 5 * 60 * 1000,
+			})
+
+			expect(result.state).toBe("completed")
+			expect(mockCreateSyncJob).toHaveBeenCalled()
+		})
 	})
 })

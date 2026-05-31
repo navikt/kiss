@@ -52,11 +52,14 @@ const jobs: JobConfig[] = [
 				performedBy: "unified-scheduler",
 				scopeType: "scheduler",
 				scopeId: "unified-scheduler",
+				minIntervalMs: CYCLE_INTERVAL_MS,
 			})
 			if (tracked.result) {
 				logger.info(
 					`[unified-scheduler] nais-sync complete: ${tracked.result.teams.new} new teams, ${tracked.result.apps.length} teams scanned`,
 				)
+			} else if (tracked.jobId === null) {
+				logger.info("[unified-scheduler] nais-sync skipped — within cooldown window")
 			} else {
 				logger.info("[unified-scheduler] nais-sync skipped — another pod holds the lock")
 			}

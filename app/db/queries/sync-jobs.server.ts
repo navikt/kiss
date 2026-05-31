@@ -410,3 +410,14 @@ export async function deleteOldFinishedSyncJobs(params: {
 
 	return { deletedJobIds: deletedRows.map((row) => row.id) }
 }
+
+/** Returns the finishedAt timestamp of the most recently completed job of the given type, or null if none. */
+export async function getLastCompletedSyncJobAt(jobType: string): Promise<Date | null> {
+	const [row] = await db
+		.select({ finishedAt: syncJobs.finishedAt })
+		.from(syncJobs)
+		.where(and(eq(syncJobs.jobType, jobType), eq(syncJobs.state, "completed")))
+		.orderBy(desc(syncJobs.finishedAt))
+		.limit(1)
+	return row?.finishedAt ?? null
+}
