@@ -42,7 +42,7 @@ async function createReview(routineId: string, applicationId: string, reviewedAt
 	const db = getTestDb()
 	const result = await db.execute(
 		/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by) 
-VALUES ('${routineId}', '${applicationId}', 'Test Review', '${reviewedAt.toISOString()}', 'completed', 'test-user') 
+VALUES ('${routineId}', '${applicationId}', 'Test Review', '${reviewedAt.toISOString()}', 'completed', 'Z990001') 
 RETURNING id`,
 	)
 	return (result.rows[0] as { id: string }).id
@@ -86,7 +86,7 @@ DELETE FROM sections;
 	})
 
 	it("should return null for routine without sourceRoutineId", async () => {
-		const section = await createSection("Test Section", null, "test-user")
+		const section = await createSection("Test Section", null, "Z990001")
 		const appId = await createTestApp("Test App", section.id)
 		const routine = await createRoutine({
 			sectionId: section.id,
@@ -104,7 +104,7 @@ DELETE FROM sections;
 			controlIds: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 
 		const lastReview = await getEffectiveLastReviewDate(routine.id, appId)
@@ -113,7 +113,7 @@ DELETE FROM sections;
 	})
 
 	it('should inherit old routine review when deadlinePolicy is "continue"', async () => {
-		const section = await createSection("Test Section", null, "test-user")
+		const section = await createSection("Test Section", null, "Z990001")
 		const appId = await createTestApp("Test App", section.id)
 
 		// Create old routine with a review
@@ -133,7 +133,7 @@ DELETE FROM sections;
 			controlIds: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 
 		// Old routine must be approved to be replaced
@@ -143,14 +143,14 @@ DELETE FROM sections;
 		await createReview(oldRoutine.id, appId, oldReviewDate)
 
 		// Create new routine by copying
-		const newRoutine = await copyRoutine(oldRoutine.id, "test-user")
+		const newRoutine = await copyRoutine(oldRoutine.id, "Z990001")
 		if (!newRoutine) throw new Error("Failed to copy routine")
 
 		// New routine must be "ready" to be replaced
 		await setRoutineStatus(newRoutine.id, "ready")
 
 		// Replace with "continue" policy
-		await replaceRoutine(newRoutine.id, oldRoutine.id, "continue", "test-user")
+		await replaceRoutine(newRoutine.id, oldRoutine.id, "continue", "Z990001")
 
 		// Get effective last review date (should return old routine's review)
 		const effectiveDate = await getEffectiveLastReviewDate(newRoutine.id, appId)
@@ -167,7 +167,7 @@ DELETE FROM sections;
 	})
 
 	it('should NOT inherit old routine review when deadlinePolicy is "reset"', async () => {
-		const section = await createSection("Test Section", null, "test-user")
+		const section = await createSection("Test Section", null, "Z990001")
 		const appId = await createTestApp("Test App", section.id)
 
 		// Create old routine with a review
@@ -187,7 +187,7 @@ DELETE FROM sections;
 			controlIds: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 
 		// Old routine must be approved to be replaced
@@ -197,14 +197,14 @@ DELETE FROM sections;
 		await createReview(oldRoutine.id, appId, oldReviewDate)
 
 		// Create new routine by copying
-		const newRoutine = await copyRoutine(oldRoutine.id, "test-user")
+		const newRoutine = await copyRoutine(oldRoutine.id, "Z990001")
 		if (!newRoutine) throw new Error("Failed to copy routine")
 
 		// New routine must be "ready" to be replaced
 		await setRoutineStatus(newRoutine.id, "ready")
 
 		// Replace with "reset" policy
-		await replaceRoutine(newRoutine.id, oldRoutine.id, "reset", "test-user")
+		await replaceRoutine(newRoutine.id, oldRoutine.id, "reset", "Z990001")
 
 		// Get effective last review date (should return null, as new routine has no reviews)
 		const effectiveDate = await getEffectiveLastReviewDate(newRoutine.id, appId)
@@ -223,7 +223,7 @@ DELETE FROM sections;
 	})
 
 	it("should handle transitive chain V3→V2→V1 with continue policy", async () => {
-		const section = await createSection("Test Section", null, "test-user")
+		const section = await createSection("Test Section", null, "Z990001")
 		const appId = await createTestApp("Test App", section.id)
 
 		// Create V1 with a review
@@ -243,7 +243,7 @@ DELETE FROM sections;
 			controlIds: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 
 		// V1 must be approved to be replaced
@@ -253,16 +253,16 @@ DELETE FROM sections;
 		await createReview(v1.id, appId, v1ReviewDate)
 
 		// Create V2 replacing V1 with "continue"
-		const v2 = await copyRoutine(v1.id, "test-user")
+		const v2 = await copyRoutine(v1.id, "Z990001")
 		if (!v2) throw new Error("Failed to copy V1")
 		await setRoutineStatus(v2.id, "ready")
-		await replaceRoutine(v2.id, v1.id, "continue", "test-user")
+		await replaceRoutine(v2.id, v1.id, "continue", "Z990001")
 
 		// Create V3 replacing V2 with "continue"
-		const v3 = await copyRoutine(v2.id, "test-user")
+		const v3 = await copyRoutine(v2.id, "Z990001")
 		if (!v3) throw new Error("Failed to copy V2")
 		await setRoutineStatus(v3.id, "ready")
-		await replaceRoutine(v3.id, v2.id, "continue", "test-user")
+		await replaceRoutine(v3.id, v2.id, "continue", "Z990001")
 
 		// V3 should inherit V1's review (transitive)
 		const effectiveDate = await getEffectiveLastReviewDate(v3.id, appId)
@@ -272,7 +272,7 @@ DELETE FROM sections;
 	})
 
 	it('should stop at "reset" in transitive chain V3→V2→V1', async () => {
-		const section = await createSection("Test Section", null, "test-user")
+		const section = await createSection("Test Section", null, "Z990001")
 		const appId = await createTestApp("Test App", section.id)
 
 		// Create V1 with a review
@@ -292,7 +292,7 @@ DELETE FROM sections;
 			controlIds: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 
 		// V1 must be approved to be replaced
@@ -302,20 +302,20 @@ DELETE FROM sections;
 		await createReview(v1.id, appId, v1ReviewDate)
 
 		// Create V2 replacing V1 with "reset" (breaks the chain)
-		const v2 = await copyRoutine(v1.id, "test-user")
+		const v2 = await copyRoutine(v1.id, "Z990001")
 		if (!v2) throw new Error("Failed to copy V1")
 		await setRoutineStatus(v2.id, "ready")
-		await replaceRoutine(v2.id, v1.id, "reset", "test-user")
+		await replaceRoutine(v2.id, v1.id, "reset", "Z990001")
 
 		// Create V2 review
 		const v2ReviewDate = new Date("2025-03-01T12:00:00Z")
 		await createReview(v2.id, appId, v2ReviewDate)
 
 		// Create V3 replacing V2 with "continue"
-		const v3 = await copyRoutine(v2.id, "test-user")
+		const v3 = await copyRoutine(v2.id, "Z990001")
 		if (!v3) throw new Error("Failed to copy V2")
 		await setRoutineStatus(v3.id, "ready")
-		await replaceRoutine(v3.id, v2.id, "continue", "test-user")
+		await replaceRoutine(v3.id, v2.id, "continue", "Z990001")
 
 		// V3 should inherit V2's review, NOT V1's (because V2 had "reset")
 		const effectiveDate = await getEffectiveLastReviewDate(v3.id, appId)
@@ -325,7 +325,7 @@ DELETE FROM sections;
 	})
 
 	it('getSectionRoutinesForSection: section routine with "continue" inherits archived source review', async () => {
-		const section = await createSection("Test Section", null, "test-user")
+		const section = await createSection("Test Section", null, "Z990001")
 
 		const oldRoutine = await createRoutine({
 			sectionId: section.id,
@@ -343,7 +343,7 @@ DELETE FROM sections;
 			controlIds: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 
 		await setRoutineStatus(oldRoutine.id, "approved")
@@ -353,14 +353,14 @@ DELETE FROM sections;
 		const oldReviewDate = new Date("2025-02-01T12:00:00Z")
 		await db.execute(
 			/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by)
-VALUES ('${oldRoutine.id}', NULL, 'Section Review', '${oldReviewDate.toISOString()}', 'completed', 'test-user')`,
+VALUES ('${oldRoutine.id}', NULL, 'Section Review', '${oldReviewDate.toISOString()}', 'completed', 'Z990001')`,
 		)
 
 		// Create new routine replacing old with "continue"
-		const newRoutine = await copyRoutine(oldRoutine.id, "test-user")
+		const newRoutine = await copyRoutine(oldRoutine.id, "Z990001")
 		if (!newRoutine) throw new Error("Failed to copy routine")
 		await setRoutineStatus(newRoutine.id, "ready")
-		await replaceRoutine(newRoutine.id, oldRoutine.id, "continue", "test-user")
+		await replaceRoutine(newRoutine.id, oldRoutine.id, "continue", "Z990001")
 
 		// getSectionRoutinesForSection should show new routine inheriting old review date
 		const sectionRoutines = await getSectionRoutinesForSection(section.id)
@@ -371,7 +371,7 @@ VALUES ('${oldRoutine.id}', NULL, 'Section Review', '${oldReviewDate.toISOString
 	})
 
 	it("getSectionRoutinesForSection: uses own review after new routine is reviewed (not locked to old)", async () => {
-		const section = await createSection("Test Section", null, "test-user")
+		const section = await createSection("Test Section", null, "Z990001")
 
 		const oldRoutine = await createRoutine({
 			sectionId: section.id,
@@ -389,7 +389,7 @@ VALUES ('${oldRoutine.id}', NULL, 'Section Review', '${oldReviewDate.toISOString
 			controlIds: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 
 		await setRoutineStatus(oldRoutine.id, "approved")
@@ -398,19 +398,19 @@ VALUES ('${oldRoutine.id}', NULL, 'Section Review', '${oldReviewDate.toISOString
 		const oldReviewDate = new Date("2025-02-01T12:00:00Z")
 		await db.execute(
 			/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by)
-VALUES ('${oldRoutine.id}', NULL, 'Old Review', '${oldReviewDate.toISOString()}', 'completed', 'test-user')`,
+VALUES ('${oldRoutine.id}', NULL, 'Old Review', '${oldReviewDate.toISOString()}', 'completed', 'Z990001')`,
 		)
 
-		const newRoutine = await copyRoutine(oldRoutine.id, "test-user")
+		const newRoutine = await copyRoutine(oldRoutine.id, "Z990001")
 		if (!newRoutine) throw new Error("Failed to copy routine")
 		await setRoutineStatus(newRoutine.id, "ready")
-		await replaceRoutine(newRoutine.id, oldRoutine.id, "continue", "test-user")
+		await replaceRoutine(newRoutine.id, oldRoutine.id, "continue", "Z990001")
 
 		// Add own review to new routine
 		const newReviewDate = new Date("2025-06-01T12:00:00Z")
 		await db.execute(
 			/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by)
-VALUES ('${newRoutine.id}', NULL, 'New Review', '${newReviewDate.toISOString()}', 'completed', 'test-user')`,
+VALUES ('${newRoutine.id}', NULL, 'New Review', '${newReviewDate.toISOString()}', 'completed', 'Z990001')`,
 		)
 
 		const sectionRoutines = await getSectionRoutinesForSection(section.id)
@@ -422,7 +422,7 @@ VALUES ('${newRoutine.id}', NULL, 'New Review', '${newReviewDate.toISOString()}'
 	})
 
 	it('getSectionRoutinesForSection: "reset" policy stops chain, uses own review only', async () => {
-		const section = await createSection("Test Section", null, "test-user")
+		const section = await createSection("Test Section", null, "Z990001")
 
 		const oldRoutine = await createRoutine({
 			sectionId: section.id,
@@ -440,7 +440,7 @@ VALUES ('${newRoutine.id}', NULL, 'New Review', '${newReviewDate.toISOString()}'
 			controlIds: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 
 		await setRoutineStatus(oldRoutine.id, "approved")
@@ -449,13 +449,13 @@ VALUES ('${newRoutine.id}', NULL, 'New Review', '${newReviewDate.toISOString()}'
 		const oldReviewDate = new Date("2025-01-01T12:00:00Z")
 		await db.execute(
 			/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, reviewed_at, status, created_by)
-VALUES ('${oldRoutine.id}', NULL, 'Old Review', '${oldReviewDate.toISOString()}', 'completed', 'test-user')`,
+VALUES ('${oldRoutine.id}', NULL, 'Old Review', '${oldReviewDate.toISOString()}', 'completed', 'Z990001')`,
 		)
 
-		const newRoutine = await copyRoutine(oldRoutine.id, "test-user")
+		const newRoutine = await copyRoutine(oldRoutine.id, "Z990001")
 		if (!newRoutine) throw new Error("Failed to copy routine")
 		await setRoutineStatus(newRoutine.id, "ready")
-		await replaceRoutine(newRoutine.id, oldRoutine.id, "reset", "test-user")
+		await replaceRoutine(newRoutine.id, oldRoutine.id, "reset", "Z990001")
 
 		const sectionRoutines = await getSectionRoutinesForSection(section.id)
 		const result = sectionRoutines.find((r) => r.routine.id === newRoutine.id)

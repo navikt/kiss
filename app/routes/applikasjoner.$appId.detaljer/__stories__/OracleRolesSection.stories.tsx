@@ -11,7 +11,7 @@ const mockRoles: OracleRoleDisplay[] = [
 		oracleMaintained: true,
 		common: true,
 		criticality: "low",
-		updatedBy: "A123456",
+		updatedBy: "Z990001",
 		updatedAt: "2026-04-15T10:30:00Z",
 	},
 	{
@@ -21,7 +21,7 @@ const mockRoles: OracleRoleDisplay[] = [
 		oracleMaintained: true,
 		common: true,
 		criticality: "very_high",
-		updatedBy: "A123456",
+		updatedBy: "Z990001",
 		updatedAt: "2026-04-15T10:31:00Z",
 	},
 	{
@@ -31,7 +31,7 @@ const mockRoles: OracleRoleDisplay[] = [
 		oracleMaintained: false,
 		common: false,
 		criticality: "high",
-		updatedBy: "A123456",
+		updatedBy: "Z990001",
 		updatedAt: "2026-04-15T10:32:00Z",
 	},
 	{
@@ -51,7 +51,7 @@ const mockRoles: OracleRoleDisplay[] = [
 		oracleMaintained: true,
 		common: true,
 		criticality: "medium",
-		updatedBy: "B654321",
+		updatedBy: "Z990002",
 		updatedAt: "2026-04-16T08:00:00Z",
 	},
 ]

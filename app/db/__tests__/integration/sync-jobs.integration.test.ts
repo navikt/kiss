@@ -38,14 +38,14 @@ describe("Sync jobs integration tests", () => {
 	})
 
 	it("counts summaries with filters", async () => {
-		const job1 = await createSyncJob({ jobType: "nais_full_sync", performedBy: "test-user" })
-		await markSyncJobRunning(job1.id, "test-user")
-		await markSyncJobCompleted(job1.id, { ok: true }, "test-user", "Ferdig")
+		const job1 = await createSyncJob({ jobType: "nais_full_sync", performedBy: "Z990001" })
+		await markSyncJobRunning(job1.id, "Z990001")
+		await markSyncJobCompleted(job1.id, { ok: true }, "Z990001", "Ferdig")
 
-		const job2 = await createSyncJob({ jobType: "nais_full_sync", performedBy: "test-user" })
-		await markSyncJobFailed(job2.id, "Boom", "test-user")
+		const job2 = await createSyncJob({ jobType: "nais_full_sync", performedBy: "Z990001" })
+		await markSyncJobFailed(job2.id, "Boom", "Z990001")
 
-		await createSyncJob({ jobType: "rpa_group_member_sync", performedBy: "test-user" })
+		await createSyncJob({ jobType: "rpa_group_member_sync", performedBy: "Z990001" })
 
 		expect(await countSyncJobSummaries()).toBe(3)
 		expect(await countSyncJobSummaries({ jobType: "nais_full_sync" })).toBe(2)
@@ -57,7 +57,7 @@ describe("Sync jobs integration tests", () => {
 		for (let i = 0; i < 6; i++) {
 			await createSyncJob({
 				jobType: i % 2 === 0 ? "nais_full_sync" : "rpa_group_member_sync",
-				performedBy: "test-user",
+				performedBy: "Z990001",
 			})
 		}
 
@@ -71,16 +71,16 @@ describe("Sync jobs integration tests", () => {
 
 	it("deletes only old terminal jobs and cascades to sync_job_events", async () => {
 		const db = getTestDb()
-		const oldCompleted = await createSyncJob({ jobType: "nais_full_sync", performedBy: "test-user" })
-		await markSyncJobRunning(oldCompleted.id, "test-user")
-		await markSyncJobCompleted(oldCompleted.id, { ok: true }, "test-user", "Ferdig")
+		const oldCompleted = await createSyncJob({ jobType: "nais_full_sync", performedBy: "Z990001" })
+		await markSyncJobRunning(oldCompleted.id, "Z990001")
+		await markSyncJobCompleted(oldCompleted.id, { ok: true }, "Z990001", "Ferdig")
 
-		const oldRunning = await createSyncJob({ jobType: "nais_full_sync", performedBy: "test-user" })
-		await markSyncJobRunning(oldRunning.id, "test-user")
+		const oldRunning = await createSyncJob({ jobType: "nais_full_sync", performedBy: "Z990001" })
+		await markSyncJobRunning(oldRunning.id, "Z990001")
 
-		const recentCompleted = await createSyncJob({ jobType: "nais_full_sync", performedBy: "test-user" })
-		await markSyncJobRunning(recentCompleted.id, "test-user")
-		await markSyncJobCompleted(recentCompleted.id, { ok: true }, "test-user", "Ferdig")
+		const recentCompleted = await createSyncJob({ jobType: "nais_full_sync", performedBy: "Z990001" })
+		await markSyncJobRunning(recentCompleted.id, "Z990001")
+		await markSyncJobCompleted(recentCompleted.id, { ok: true }, "Z990001", "Ferdig")
 
 		await db.execute(
 			sql`UPDATE sync_jobs
@@ -92,7 +92,7 @@ describe("Sync jobs integration tests", () => {
 			action: "nais_sync_completed",
 			entityType: "sync_job",
 			entityId: oldCompleted.id,
-			performedBy: "test-user",
+			performedBy: "Z990001",
 			syncJobId: oldCompleted.id,
 		})
 
@@ -124,9 +124,9 @@ describe("Sync jobs integration tests", () => {
 
 	it("preserves audit logs when deleting old sync jobs", async () => {
 		const db = getTestDb()
-		const oldCompleted = await createSyncJob({ jobType: "nais_full_sync", performedBy: "test-user" })
-		await markSyncJobRunning(oldCompleted.id, "test-user")
-		await markSyncJobCompleted(oldCompleted.id, { ok: true }, "test-user", "Ferdig")
+		const oldCompleted = await createSyncJob({ jobType: "nais_full_sync", performedBy: "Z990001" })
+		await markSyncJobRunning(oldCompleted.id, "Z990001")
+		await markSyncJobCompleted(oldCompleted.id, { ok: true }, "Z990001", "Ferdig")
 
 		await db.execute(
 			sql`UPDATE sync_jobs
@@ -138,7 +138,7 @@ describe("Sync jobs integration tests", () => {
 			action: "nais_sync_completed",
 			entityType: "sync_job",
 			entityId: oldCompleted.id,
-			performedBy: "test-user",
+			performedBy: "Z990001",
 			syncJobId: oldCompleted.id,
 		})
 

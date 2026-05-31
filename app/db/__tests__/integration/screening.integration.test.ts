@@ -336,15 +336,15 @@ describe("screening.server integration tests", () => {
 			const e1 = await createTechElement("kubernetes")
 			const e2 = await createTechElement("postgres")
 
-			await setQuestionTechnologyElements(q.id, [e1, e2], "test-user")
+			await setQuestionTechnologyElements(q.id, [e1, e2], "Z990001")
 			let links = await getQuestionTechnologyElements(q.id)
 			expect(links.map((l) => l.elementId).sort()).toEqual([e1, e2].sort())
 
-			await setQuestionTechnologyElements(q.id, [e2], "test-user")
+			await setQuestionTechnologyElements(q.id, [e2], "Z990001")
 			links = await getQuestionTechnologyElements(q.id)
 			expect(links.map((l) => l.elementId)).toEqual([e2])
 
-			await setQuestionTechnologyElements(q.id, [], "test-user")
+			await setQuestionTechnologyElements(q.id, [], "Z990001")
 			links = await getQuestionTechnologyElements(q.id)
 			expect(links).toHaveLength(0)
 		})
@@ -437,12 +437,12 @@ describe("screening.server integration tests", () => {
 			const section = await createSectionRow("audit-status")
 			const q = await createScreeningQuestion("Audit status test", null, "test", section, "boolean")
 
-			await changeScreeningQuestionStatus(q.id, "ready", "tester")
+			await changeScreeningQuestionStatus(q.id, "ready", "Z990001")
 
 			const audit = await getAuditByAction("screening_question_status_changed")
 			const entry = audit.find((a) => a.entity_id === q.id)
 			expect(entry).toBeDefined()
-			expect(entry?.performed_by).toBe("tester")
+			expect(entry?.performed_by).toBe("Z990001")
 
 			const db = getTestDb()
 			const fullEntry = await db.execute(

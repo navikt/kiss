@@ -51,14 +51,14 @@ describe("LocalStorageProvider", () => {
 		it("stores metadata in sidecar file", async () => {
 			const data = Buffer.from("data")
 			await provider.upload("file.bin", data, {
-				metadata: { uploadedBy: "test-user", version: "1.0" },
+				metadata: { uploadedBy: "Z990001", version: "1.0" },
 			})
 
 			const metaPath = join(testDir, "file.bin.__meta__.json")
 			expect(existsSync(metaPath)).toBe(true)
 
 			const meta = JSON.parse(await readFile(metaPath, "utf-8"))
-			expect(meta.uploadedBy).toBe("test-user")
+			expect(meta.uploadedBy).toBe("Z990001")
 			expect(meta.version).toBe("1.0")
 		})
 	})

@@ -314,7 +314,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			expect(routine).toBeDefined()
@@ -339,7 +339,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [elemId],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await createRoutine({
 				sectionId,
@@ -353,7 +353,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const routinesList = await getRoutinesForSection(sectionId)
@@ -384,7 +384,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [elemId],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const routine = await getRoutine(created.id)
@@ -414,7 +414,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [elem1],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const updated = await updateRoutine({
@@ -461,7 +461,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			await markRoutineApproved(routine.id)
@@ -472,7 +472,7 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 
@@ -519,7 +519,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			// Set to 'ready' — not 'approved'
@@ -534,7 +534,7 @@ describe("Routines integration tests", () => {
 					summary: null,
 					routineSnapshotPath: null,
 					reviewedAt: new Date(),
-					createdBy: "test-user",
+					createdBy: "Z990001",
 					participants: [],
 				}),
 			).rejects.toMatchObject({ status: 400 })
@@ -555,7 +555,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			await markRoutineApproved(routine.id)
@@ -566,7 +566,7 @@ describe("Routines integration tests", () => {
 				summary: "All good",
 				routineSnapshotPath: null,
 				reviewedAt: new Date("2024-03-15"),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [
 					{ userIdent: "alice", userName: "Alice" },
 					{ userIdent: "bob", userName: "Bob" },
@@ -598,7 +598,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			await markRoutineApproved(routine.id)
@@ -609,7 +609,7 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [{ userIdent: "alice", userName: "Alice" }],
 			})
 
@@ -640,7 +640,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			await markRoutineApproved(routine.id)
@@ -651,7 +651,7 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date("2024-01-01"),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			// Complete the first review so the unique active-review index allows a second draft
@@ -664,7 +664,7 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date("2024-06-01"),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 
@@ -692,7 +692,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await markRoutineApproved(routine.id)
 			return routine
@@ -728,10 +728,10 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "Z990001")
 
 			const conflict = await findActiveReviewConflict(routine.id, appId, ["entra_id_group_maintenance"])
 			expect(conflict).not.toBeNull()
@@ -751,10 +751,10 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "Z990001")
 
 			// Set review to needs_follow_up
 			const db = getTestDb()
@@ -777,10 +777,10 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "Z990001")
 
 			const db = getTestDb()
 			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'completed' WHERE id = '${review.id}'`)
@@ -801,10 +801,10 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "Z990001")
 
 			const db = getTestDb()
 			await db.execute(/* sql */ `UPDATE routine_reviews SET status = 'discarded' WHERE id = '${review.id}'`)
@@ -826,10 +826,10 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "Z990001")
 
 			const conflict = await findActiveReviewConflict(routine.id, appB, ["entra_id_group_maintenance"])
 			expect(conflict).toBeNull()
@@ -846,10 +846,10 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "Z990001")
 
 			const conflict = await findActiveReviewConflict(routine.id, null, ["entra_id_group_maintenance"])
 			expect(conflict).not.toBeNull()
@@ -869,10 +869,10 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "Z990001")
 
 			// Guard for null (section routine) should not match
 			const conflict = await findActiveReviewConflict(routine.id, null, ["entra_id_group_maintenance"])
@@ -893,7 +893,7 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 
@@ -915,7 +915,7 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			const db = getTestDb()
@@ -938,7 +938,7 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 			const db = getTestDb()
@@ -961,7 +961,7 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 
@@ -981,7 +981,7 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
 
@@ -1007,10 +1007,10 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				participants: [],
 			})
-			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "test-user")
+			await createReviewActivity(review.id, "entra_id_group_maintenance", null, "Z990001")
 
 			// routineB should NOT be blocked
 			const conflict = await findActiveReviewConflict(routineB.id, null, ["entra_id_group_maintenance"])
@@ -1041,7 +1041,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1075,7 +1075,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [elemId],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1105,7 +1105,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1137,7 +1137,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [{ persistenceType: "oracle", dataClassification: "financial_regulation" }],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1167,7 +1167,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [{ persistenceType: "oracle", dataClassification: "financial_regulation" }],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1206,7 +1206,7 @@ describe("Routines integration tests", () => {
 				controlIds: [],
 				technologyElementIds: [],
 				groupClassifications: ["mine_tilganger"],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1244,7 +1244,7 @@ describe("Routines integration tests", () => {
 				controlIds: [],
 				technologyElementIds: [],
 				groupClassifications: ["identrutina"],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1282,7 +1282,7 @@ describe("Routines integration tests", () => {
 				controlIds: [],
 				technologyElementIds: [],
 				oracleRoleCriticalities: ["high"],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1319,7 +1319,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			// Explicit routine selection for this app
@@ -1374,7 +1374,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1428,7 +1428,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			// Link routine to ruleset
@@ -1481,7 +1481,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [{ persistenceType: "oracle", dataClassification: null }],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1506,7 +1506,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const apps = await getAppsRequiringRoutine(routine.id)
@@ -1558,7 +1558,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			// Backdate the routine so its deadline is in the past
@@ -1607,7 +1607,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			expect(routine.frequency).toBeNull()
@@ -1636,7 +1636,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			expect(routine.frequency).toBe("quarterly")
@@ -1664,7 +1664,7 @@ describe("Routines integration tests", () => {
 				persistenceLinks: [],
 				controlIds: [],
 				technologyElementIds: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const appId = await createTestApp("Event Review App")
@@ -1679,8 +1679,8 @@ describe("Routines integration tests", () => {
 				summary: null,
 				routineSnapshotPath: null,
 				reviewedAt: new Date(),
-				createdBy: "test-user",
-				participants: [{ userIdent: "test-user", userName: "Test User" }],
+				createdBy: "Z990001",
+				participants: [{ userIdent: "Z990001", userName: "Frisk Ål" }],
 			})
 
 			expect(review.routineId).toBe(routine.id)
@@ -2375,7 +2375,7 @@ describe("Routines integration tests", () => {
 				technologyElementIds: [],
 				controlIds: [],
 				persistenceLinks: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
 			const result = await updateRoutinePriority(routine.id, 1, "prioritet-bruker")
@@ -2415,11 +2415,11 @@ describe("Routines integration tests", () => {
 				technologyElementIds: [],
 				controlIds: [],
 				persistenceLinks: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				priority: 2,
 			})
 
-			const result = await updateRoutinePriority(routine.id, 2, "test-user")
+			const result = await updateRoutinePriority(routine.id, 2, "Z990001")
 			expect(result.priority).toBe(2)
 
 			const auditResult = await db.execute(
@@ -2445,12 +2445,12 @@ describe("Routines integration tests", () => {
 				technologyElementIds: [],
 				controlIds: [],
 				persistenceLinks: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 			await markRoutineApproved(routine.id)
-			await archiveRoutine(routine.id, "test-user")
+			await archiveRoutine(routine.id, "Z990001")
 
-			await expect(updateRoutinePriority(routine.id, 1, "test-user")).rejects.toThrow()
+			await expect(updateRoutinePriority(routine.id, 1, "Z990001")).rejects.toThrow()
 		})
 
 		it("should reject invalid priority values at runtime", async () => {
@@ -2470,11 +2470,11 @@ describe("Routines integration tests", () => {
 				technologyElementIds: [],
 				controlIds: [],
 				persistenceLinks: [],
-				createdBy: "test-user",
+				createdBy: "Z990001",
 			})
 
-			await expect(updateRoutinePriority(routine.id, 0 as 1 | 2 | 3, "test-user")).rejects.toThrow()
-			await expect(updateRoutinePriority(routine.id, 4 as 1 | 2 | 3, "test-user")).rejects.toThrow()
+			await expect(updateRoutinePriority(routine.id, 0 as 1 | 2 | 3, "Z990001")).rejects.toThrow()
+			await expect(updateRoutinePriority(routine.id, 4 as 1 | 2 | 3, "Z990001")).rejects.toThrow()
 		})
 	})
 })

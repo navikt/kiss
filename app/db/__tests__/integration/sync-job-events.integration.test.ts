@@ -33,19 +33,19 @@ describe("Sync job events integration tests", () => {
 	it("persists and queries events with filter/count/distinct", async () => {
 		const job = await createSyncJob({
 			jobType: "nais_full_sync",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
 		await appendSyncJobEvent({
 			syncJobId: job.id,
 			eventType: "job_started",
-			createdBy: "test-user",
+			createdBy: "Z990001",
 			message: "Start",
 		})
 		await appendSyncJobEvent({
 			syncJobId: job.id,
 			eventType: "job_warning",
-			createdBy: "test-user",
+			createdBy: "Z990001",
 			message: "Varsel",
 		})
 
@@ -64,10 +64,10 @@ describe("Sync job events integration tests", () => {
 	it("writes compact completion metadata to event timeline", async () => {
 		const job = await createSyncJob({
 			jobType: "nais_full_sync",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
-		await markSyncJobRunning(job.id, "test-user")
+		await markSyncJobRunning(job.id, "Z990001")
 		await markSyncJobCompleted(
 			job.id,
 			{
@@ -75,7 +75,7 @@ describe("Sync job events integration tests", () => {
 				apps: [{ id: "a1" }, { id: "a2" }, { id: "a3" }],
 				status: "ok",
 			},
-			"test-user",
+			"Z990001",
 			"Ferdig",
 		)
 
@@ -98,10 +98,10 @@ describe("Sync job events integration tests", () => {
 	it("writes warning event for skipped jobs", async () => {
 		const job = await createSyncJob({
 			jobType: "nais_full_sync",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
-		await markSyncJobSkipped(job.id, "Skippet pga lock", "test-user")
+		await markSyncJobSkipped(job.id, "Skippet pga lock", "Z990001")
 		const events = await listSyncJobEvents(job.id)
 		const skippedEvent = events.find((event) => event.eventType === "job_warning")
 
@@ -113,10 +113,10 @@ describe("Sync job events integration tests", () => {
 	it("writes failed event with error metadata", async () => {
 		const job = await createSyncJob({
 			jobType: "nais_full_sync",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
-		await markSyncJobFailed(job.id, "Boom", "test-user", "Synk feilet")
+		await markSyncJobFailed(job.id, "Boom", "Z990001", "Synk feilet")
 		const events = await listSyncJobEvents(job.id)
 		const failedEvent = events.find((event) => event.eventType === "job_failed")
 
@@ -128,7 +128,7 @@ describe("Sync job events integration tests", () => {
 	it("respects pagination limit/offset for multi-page event timelines", async () => {
 		const job = await createSyncJob({
 			jobType: "nais_full_sync",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
 		// Create 30 events to exceed a single page (pageSize=25)
@@ -136,7 +136,7 @@ describe("Sync job events integration tests", () => {
 			await appendSyncJobEvent({
 				syncJobId: job.id,
 				eventType: i % 2 === 0 ? "job_started" : "job_warning",
-				createdBy: "test-user",
+				createdBy: "Z990001",
 				message: `Event ${i}`,
 			})
 		}

@@ -71,7 +71,7 @@ async function createRpaReview() {
 		persistenceLinks: [],
 		controlIds: [],
 		technologyElementIds: [],
-		createdBy: "test-user",
+		createdBy: "Z990001",
 	})
 	await markRoutineApproved(routine.id)
 
@@ -82,11 +82,11 @@ async function createRpaReview() {
 		summary: null,
 		routineSnapshotPath: null,
 		reviewedAt: new Date(),
-		createdBy: "test-user",
+		createdBy: "Z990001",
 		participants: [],
 	})
 
-	await autoCreateActivitiesForReview(review.id, routine.id, appId, "test-user")
+	await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
 	const activity = await getReviewActivityByType(review.id, "rpa_user_maintenance")
 	if (!activity) {
 		throw new Error("Fant ikke RPA-aktivitet")
@@ -132,7 +132,7 @@ describe("RPA staged data integration tests", () => {
 		await insertExistingAssessment(reviewId, "user-bbb", { owner: "Eier B", decision: null })
 
 		// Seed — no active RPA groups/users, so both become ghost users
-		const staged = await seedRpaActivity(activityId, "tester")
+		const staged = await seedRpaActivity(activityId, "Z990001")
 
 		expect(staged.activityType).toBe("rpa_user_maintenance")
 		expect(staged.schemaVersion).toBe(1)
@@ -168,8 +168,8 @@ describe("RPA staged data integration tests", () => {
 	it("seed is idempotent — returns existing staged_data without reseeding", async () => {
 		const { activityId } = await createRpaReview()
 
-		const first = await seedRpaActivity(activityId, "tester")
-		const second = await seedRpaActivity(activityId, "tester")
+		const first = await seedRpaActivity(activityId, "Z990001")
+		const second = await seedRpaActivity(activityId, "Z990001")
 
 		expect(second.seededAt).toBe(first.seededAt)
 
@@ -185,7 +185,7 @@ describe("RPA staged data integration tests", () => {
 		const { reviewId, activityId } = await createRpaReview()
 		await insertExistingAssessment(reviewId, "user-ccc", { decision: "videreføres" })
 
-		await seedRpaActivity(activityId, "tester")
+		await seedRpaActivity(activityId, "Z990001")
 		await patchRpaActivity(activityId, { op: "set-assessment", userObjectId: "user-ccc", owner: "Ny eier" }, "reviewer")
 
 		// Primary table should still have the original value (patch only touches staged_data)
@@ -223,7 +223,7 @@ describe("RPA staged data integration tests", () => {
 		const { reviewId, activityId } = await createRpaReview()
 		await insertExistingAssessment(reviewId, "user-eee", { owner: "Opprinnelig eier" })
 
-		await seedRpaActivity(activityId, "tester")
+		await seedRpaActivity(activityId, "Z990001")
 		await patchRpaActivity(
 			activityId,
 			{ op: "set-assessment", userObjectId: "user-eee", owner: "Oppdatert eier" },
@@ -231,7 +231,7 @@ describe("RPA staged data integration tests", () => {
 		)
 
 		// Complete the review (which calls completeRpaReviewActivity internally)
-		await completeReview(reviewId, "test-user")
+		await completeReview(reviewId, "Z990001")
 
 		// The committed assessment should have the patched value
 		const db = getTestDb()
@@ -255,17 +255,17 @@ describe("RPA staged data integration tests", () => {
 		// → user becomes ghost (isGone=true)
 		await insertExistingAssessment(reviewId, "user-fff", { decision: null })
 
-		await seedRpaActivity(activityId, "tester")
+		await seedRpaActivity(activityId, "Z990001")
 
 		// Ghost users are NOT subject to the decision requirement → completion succeeds
-		await expect(completeReview(reviewId, "test-user")).resolves.not.toThrow()
+		await expect(completeReview(reviewId, "Z990001")).resolves.not.toThrow()
 	})
 
 	it("patch on completed activity throws 409", async () => {
 		const { reviewId, activityId } = await createRpaReview()
 		await insertExistingAssessment(reviewId, "user-ggg", { decision: "videreføres" })
-		await seedRpaActivity(activityId, "tester")
-		await completeReview(reviewId, "test-user")
+		await seedRpaActivity(activityId, "Z990001")
+		await completeReview(reviewId, "Z990001")
 
 		await expect(
 			patchRpaActivity(activityId, { op: "set-assessment", userObjectId: "user-ggg", owner: "Ny eier" }, "reviewer"),
@@ -275,11 +275,11 @@ describe("RPA staged data integration tests", () => {
 	it("double-commit is idempotent (returns existing review)", async () => {
 		const { reviewId, activityId } = await createRpaReview()
 		await insertExistingAssessment(reviewId, "user-hhh", { decision: "videreføres" })
-		await seedRpaActivity(activityId, "tester")
-		const first = await completeReview(reviewId, "test-user")
+		await seedRpaActivity(activityId, "Z990001")
+		const first = await completeReview(reviewId, "Z990001")
 
 		// Second call should return the same completed review (idempotent), not throw
-		const second = await completeReview(reviewId, "test-user")
+		const second = await completeReview(reviewId, "Z990001")
 		expect(second?.status).toBe("completed")
 		expect(second?.id).toBe(first?.id)
 	})
@@ -326,7 +326,7 @@ describe("RPA staged data integration tests", () => {
 		)
 
 		// Seed the activity — active-rpa-user should be isGone=false (active)
-		await seedRpaActivity(activityId, "tester")
+		await seedRpaActivity(activityId, "Z990001")
 
 		// Verify user is active (not ghost)
 		const activity = await getReviewActivityByType(reviewId, "rpa_user_maintenance")
@@ -336,7 +336,7 @@ describe("RPA staged data integration tests", () => {
 		expect(activeUser?.isGone).toBe(false)
 
 		// Try to complete without setting decision — should fail with 400
-		await expect(completeReview(reviewId, "test-user")).rejects.toSatisfy(
+		await expect(completeReview(reviewId, "Z990001")).rejects.toSatisfy(
 			(e) => e instanceof Response && e.status === 400,
 		)
 	})

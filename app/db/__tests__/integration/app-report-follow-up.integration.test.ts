@@ -133,7 +133,7 @@ describe("App compliance report — follow-up points", () => {
 			persistenceLinks: [],
 			controlIds: [],
 			technologyElementIds: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 		await approveRoutine(routine.id)
 
@@ -144,10 +144,10 @@ describe("App compliance report — follow-up points", () => {
 			summary: null,
 			routineSnapshotPath: null,
 			reviewedAt: new Date(),
-			createdBy: "test-user",
+			createdBy: "Z990001",
 			participants: [],
 		})
-		await completeReview(reviewA.id, "test-user")
+		await completeReview(reviewA.id, "Z990001")
 
 		const reviewB = await createReview({
 			routineId: routine.id,
@@ -156,18 +156,18 @@ describe("App compliance report — follow-up points", () => {
 			summary: null,
 			routineSnapshotPath: null,
 			reviewedAt: new Date(),
-			createdBy: "test-user",
+			createdBy: "Z990001",
 			participants: [],
 		})
 		await addFollowUpPoint({
 			reviewId: reviewB.id,
 			text: "Åpent punkt",
 			description: "Beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
-		await completeReview(reviewB.id, "test-user")
+		await completeReview(reviewB.id, "Z990001")
 
-		await generateAppComplianceReport({ applicationId: appId, createdBy: "test-user" })
+		await generateAppComplianceReport({ applicationId: appId, createdBy: "Z990001" })
 
 		const snap = readSnapshot()
 		const titles = snap.reviews.map((r) => r.title).sort()
@@ -191,7 +191,7 @@ describe("App compliance report — follow-up points", () => {
 			persistenceLinks: [],
 			controlIds: [],
 			technologyElementIds: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 		await approveRoutine(routine.id)
 
@@ -202,19 +202,19 @@ describe("App compliance report — follow-up points", () => {
 			summary: null,
 			routineSnapshotPath: null,
 			reviewedAt: new Date(),
-			createdBy: "test-user",
+			createdBy: "Z990001",
 			participants: [],
 		})
 		const point = await addFollowUpPoint({
 			reviewId: review.id,
 			text: "Sjekk MFA",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 		await updateFollowUpPointDescription({
 			pointId: point.id,
 			expectedReviewId: review.id,
 			description: "Mangler MFA på admin-konto",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
 
 		// Pre-seed buffers for both attachment kinds so download() works during report generation
@@ -228,7 +228,7 @@ describe("App compliance report — follow-up points", () => {
 			bucketPath: "attachments/desc.pdf",
 			contentType: "application/pdf",
 			sizeBytes: 9,
-			uploadedBy: "test-user",
+			uploadedBy: "Z990001",
 		})
 		await addFollowUpPointAttachment({
 			pointId: point.id,
@@ -237,7 +237,7 @@ describe("App compliance report — follow-up points", () => {
 			bucketPath: "attachments/res.pdf",
 			contentType: "application/pdf",
 			sizeBytes: 8,
-			uploadedBy: "test-user",
+			uploadedBy: "Z990001",
 		})
 
 		await updateFollowUpPointStatus({
@@ -245,11 +245,11 @@ describe("App compliance report — follow-up points", () => {
 			expectedReviewId: review.id,
 			status: "completed",
 			resolution: "MFA aktivert på alle admin-kontoer",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
-		await completeReview(review.id, "test-user")
+		await completeReview(review.id, "Z990001")
 
-		await generateAppComplianceReport({ applicationId: appId, createdBy: "test-user" })
+		await generateAppComplianceReport({ applicationId: appId, createdBy: "Z990001" })
 
 		const snap = readSnapshot()
 		expect(snap.reviews).toHaveLength(1)
@@ -279,7 +279,7 @@ describe("App compliance report — follow-up points", () => {
 			persistenceLinks: [],
 			controlIds: [],
 			technologyElementIds: [],
-			createdBy: "test-user",
+			createdBy: "Z990001",
 		})
 		await approveRoutine(routine.id)
 
@@ -290,10 +290,10 @@ describe("App compliance report — follow-up points", () => {
 			summary: null,
 			routineSnapshotPath: null,
 			reviewedAt: new Date(),
-			createdBy: "test-user",
+			createdBy: "Z990001",
 			participants: [],
 		})
-		await completeReview(completed.id, "test-user")
+		await completeReview(completed.id, "Z990001")
 
 		const open = await createReview({
 			routineId: routine.id,
@@ -302,20 +302,20 @@ describe("App compliance report — follow-up points", () => {
 			summary: null,
 			routineSnapshotPath: null,
 			reviewedAt: new Date(),
-			createdBy: "test-user",
+			createdBy: "Z990001",
 			participants: [],
 		})
 		await addFollowUpPoint({
 			reviewId: open.id,
 			text: "p",
 			description: "Beskrivelse",
-			performedBy: "test-user",
+			performedBy: "Z990001",
 		})
-		await completeReview(open.id, "test-user")
+		await completeReview(open.id, "Z990001")
 
 		await generateAppComplianceReport({
 			applicationId: appId,
-			createdBy: "test-user",
+			createdBy: "Z990001",
 			reviewIds: [open.id],
 		})
 

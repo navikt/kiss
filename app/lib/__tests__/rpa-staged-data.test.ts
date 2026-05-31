@@ -44,7 +44,7 @@ const baseData = parseRpaStagedData({
 			rpaGroupName: null,
 			matchSource: null,
 			isGone: true,
-			owner: "Kari Nordmann",
+			owner: "Rask Elv",
 			needComment: null,
 			criticalityComment: null,
 			securityComment: null,

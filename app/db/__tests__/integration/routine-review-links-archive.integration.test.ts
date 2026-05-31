@@ -75,7 +75,7 @@ async function setupReview() {
 		summary: null,
 		routineSnapshotPath: null,
 		reviewedAt: new Date(),
-		createdBy: "tester",
+		createdBy: "Z990001",
 		participants: [],
 	})
 	return { sectionId, appId, routine, review }
@@ -118,7 +118,7 @@ describe("Routine review links archive (soft-delete) integration tests", () => {
 			reviewId: review.id,
 			url: "https://example.com",
 			title: "Test",
-			addedBy: "tester",
+			addedBy: "Z990001",
 		})
 
 		const result = await deleteReviewLink(link.id, review.id, "deleter")
@@ -137,8 +137,8 @@ describe("Routine review links archive (soft-delete) integration tests", () => {
 
 	it("getReview() filtrerer bort arkiverte lenker", async () => {
 		const { review } = await setupReview()
-		const a = await addReviewLink({ reviewId: review.id, url: "https://a.example", title: null, addedBy: "tester" })
-		const b = await addReviewLink({ reviewId: review.id, url: "https://b.example", title: null, addedBy: "tester" })
+		const a = await addReviewLink({ reviewId: review.id, url: "https://a.example", title: null, addedBy: "Z990001" })
+		const b = await addReviewLink({ reviewId: review.id, url: "https://b.example", title: null, addedBy: "Z990001" })
 
 		await deleteReviewLink(a.id, review.id, "deleter")
 
@@ -153,7 +153,7 @@ describe("Routine review links archive (soft-delete) integration tests", () => {
 			reviewId: review.id,
 			url: "https://dup.example",
 			title: null,
-			addedBy: "tester",
+			addedBy: "Z990001",
 		})
 		await deleteReviewLink(first.id, review.id, "deleter")
 
@@ -176,7 +176,7 @@ describe("Routine review links archive (soft-delete) integration tests", () => {
 			reviewId: review.id,
 			url: "https://idem.example",
 			title: null,
-			addedBy: "tester",
+			addedBy: "Z990001",
 		})
 
 		const r1 = await deleteReviewLink(link.id, review.id, "deleter")
@@ -213,7 +213,7 @@ describe("Routine review links archive (soft-delete) integration tests", () => {
 	it("deleteReviewLink() på ukjent linkId skriver ingen audit", async () => {
 		const { review } = await setupReview()
 		const before = await getAuditByEntity("routine_review", review.id)
-		const result = await deleteReviewLink("00000000-0000-0000-0000-000000000000", review.id, "tester")
+		const result = await deleteReviewLink("00000000-0000-0000-0000-000000000000", review.id, "Z990001")
 		expect(result).toBeNull()
 		const after = await getAuditByEntity("routine_review", review.id)
 		expect(after.length).toBe(before.length)
@@ -226,7 +226,7 @@ describe("Routine review links archive (soft-delete) integration tests", () => {
 			reviewId: review.id,
 			url: "https://atomic.example",
 			title: null,
-			addedBy: "tester",
+			addedBy: "Z990001",
 		})
 
 		// Feil expectedReviewId — skal kaste 403 og ikke arkivere

@@ -86,7 +86,7 @@ async function createEntraReview() {
 		persistenceLinks: [],
 		controlIds: [],
 		technologyElementIds: [],
-		createdBy: "test-user",
+		createdBy: "Z990001",
 	})
 	await markRoutineApproved(routine.id)
 
@@ -97,11 +97,11 @@ async function createEntraReview() {
 		summary: null,
 		routineSnapshotPath: null,
 		reviewedAt: new Date(),
-		createdBy: "test-user",
+		createdBy: "Z990001",
 		participants: [],
 	})
 
-	await autoCreateActivitiesForReview(review.id, routine.id, appId, "test-user")
+	await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
 	const activity = await getReviewActivityByType(review.id, "entra_id_group_maintenance")
 	if (!activity) {
 		throw new Error("Fant ikke Entra-aktivitet")
@@ -145,7 +145,7 @@ describe("Entra staged data integration tests", () => {
 		await insertGroupAssessment(appId, "group-overlap", "high")
 		await insertGroupAssessment(appId, "group-ghost", "medium")
 
-		const seeded = await seedEntraActivity(activityId, appId, "tester")
+		const seeded = await seedEntraActivity(activityId, appId, "Z990001")
 		expect(seeded.groups).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -194,7 +194,7 @@ describe("Entra staged data integration tests", () => {
 		const { appId, reviewId, activityId } = await createEntraReview()
 		await insertAuthIntegration(appId, ["group-nais"])
 
-		await seedEntraActivity(activityId, appId, "tester")
+		await seedEntraActivity(activityId, appId, "Z990001")
 		await patchEntraActivity(
 			activityId,
 			{
@@ -235,7 +235,7 @@ describe("Entra staged data integration tests", () => {
 		const manualOnlyId = await insertManualGroup(appId, "group-manual", "Manual")
 		await insertGroupAssessment(appId, "group-overlap", "medium")
 
-		await seedEntraActivity(activityId, appId, "tester")
+		await seedEntraActivity(activityId, appId, "Z990001")
 		await patchEntraActivity(
 			activityId,
 			{

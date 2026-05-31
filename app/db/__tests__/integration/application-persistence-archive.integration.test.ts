@@ -296,7 +296,7 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		)
 		const activeId = (activeRow.rows[0] as { id: string }).id
 
-		const result = await ensureOraclePersistenceEntries(appId, ["ora-dupe"], "tester")
+		const result = await ensureOraclePersistenceEntries(appId, ["ora-dupe"], "Z990001")
 		// Skal ikke endre noe (en aktiv rad finnes allerede)
 		expect(result).toEqual([])
 
