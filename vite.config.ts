@@ -37,6 +37,12 @@ export default defineConfig({
 			"~": path.resolve(__dirname, "app"),
 		},
 	},
+	ssr: {
+		// archiver is CJS-only and has no ESM default export. Bundling it lets
+		// Vite/Rollup produce an ESM-compatible wrapper instead of leaving it
+		// as an external import that Node.js 22 would reject at startup.
+		noExternal: ["archiver"],
+	},
 	server: {
 		port: 3000,
 	},
