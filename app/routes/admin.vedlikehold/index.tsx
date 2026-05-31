@@ -4,6 +4,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, useFetcher, useLoaderData } from "react-router"
 import { db } from "~/db/connection.server"
 import { syncAllApplicationControls } from "~/db/queries/application-controls.server"
+import { migrateExistingReplacementChains } from "~/db/queries/routines.server"
 import { listRecentSyncJobs, type SyncJob } from "~/db/queries/sync-jobs.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
@@ -65,6 +66,29 @@ export async function action({ request }: ActionFunctionArgs) {
 		})
 	}
 
+	if (intent === "migrate-routine-links") {
+		const start = Date.now()
+		const result = await migrateExistingReplacementChains(authedUser.navIdent)
+		const elapsed = Date.now() - start
+
+		if (result === null) {
+			return data(
+				{ intent: "migrate-routine-links", success: false, message: "Migrering pågår allerede." },
+				{ status: 409 },
+			)
+		}
+
+		return data({
+			intent: "migrate-routine-links",
+			success: true,
+			presets: result.presets,
+			selections: result.selections,
+			arrayReplacements: result.arrayReplacements,
+			reviewsInherited: result.reviewsInherited,
+			elapsed,
+		})
+	}
+
 	if (intent === "nais-sync") {
 		const token = process.env.NAIS_API_TOKEN || undefined
 		const start = Date.now()
@@ -113,6 +137,7 @@ export default function AdminVedlikehold() {
 
 			<VStack gap="space-6">
 				<SyncControlsCard stats={appControlStats} />
+				<MigrateRoutineLinksCard />
 				<NaisSyncCard enabled={naisSyncEnabled} />
 				<RecentSyncJobsCard jobs={recentSyncJobs} />
 			</VStack>
@@ -160,6 +185,47 @@ function SyncControlsCard({ stats }: { stats: { totalApps: number; syncedApps: n
 					<Alert variant="success" size="small">
 						Synkronisering fullført på {formatElapsed(result.elapsed)}. {result.synced} applikasjoner synkronisert
 						{result.errors > 0 ? `, ${result.errors} feil` : ""}.
+					</Alert>
+				)}
+			</VStack>
+		</section>
+	)
+}
+
+function MigrateRoutineLinksCard() {
+	const fetcher = useFetcher<typeof action>()
+	const isSubmitting = fetcher.state !== "idle"
+	const result = fetcher.data?.intent === "migrate-routine-links" ? fetcher.data : null
+
+	return (
+		<section className="admin-maintenance-card">
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Migrer rutinelenker
+				</Heading>
+				<BodyLong>
+					Engangsoperasjon som fikser stale lenker i eksisterende rutinekjeder: oppdaterer forvalgte rutiner i
+					screening, aktive rutinevalg og kontrollcachen slik at alle peker på gjeldende rutine. Arver også
+					gjennomganger for «fortsett»-kjeder. Trygg å kjøre flere ganger — hopper over det som allerede er oppdatert.
+				</BodyLong>
+				<HStack gap="space-4" align="center">
+					<fetcher.Form method="post">
+						<input type="hidden" name="intent" value="migrate-routine-links" />
+						<Button type="submit" variant="secondary" size="small" loading={isSubmitting}>
+							{isSubmitting ? "Migrerer..." : "Kjør migrering"}
+						</Button>
+					</fetcher.Form>
+				</HStack>
+				{result?.success && "presets" in result && (
+					<Alert variant="success" size="small">
+						Migrering fullført på {formatElapsed(result.elapsed)}. {result.presets} forvalgte rutiner,{" "}
+						{result.selections} rutinevalg, {result.arrayReplacements} kontrollcache-rader og {result.reviewsInherited}{" "}
+						arvede gjennomganger oppdatert.
+					</Alert>
+				)}
+				{result?.success === false && "message" in result && (
+					<Alert variant="warning" size="small">
+						{result.message}
 					</Alert>
 				)}
 			</VStack>

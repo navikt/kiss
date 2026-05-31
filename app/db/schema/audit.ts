@@ -143,6 +143,8 @@ export const auditLogActionEnum = [
 	"screening_answer_saved",
 	"screening_routine_selected",
 	"screening_routine_cleared",
+	"screening_routine_selection_migrated",
+	"screening_preset_routine_migrated",
 	"screening_question_technology_element_added",
 	"screening_question_technology_element_removed",
 
@@ -162,6 +164,7 @@ export const auditLogActionEnum = [
 	"routine_review_completed",
 	"routine_review_discarded",
 	"routine_review_confirmed",
+	"routine_review_inherited",
 	"routine_review_participant_added",
 	"routine_review_participant_removed",
 	"review_link_added",
