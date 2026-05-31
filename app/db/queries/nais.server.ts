@@ -1352,7 +1352,7 @@ export async function getApplicationDetail(applicationId: string) {
 	const accessPolicyRules = await getAccessPolicyRules(applicationId)
 
 	const teamMappings = await db
-		.select({ teamId: devTeams.id, teamName: devTeams.name, teamSlug: devTeams.slug })
+		.select({ teamId: devTeams.id, teamName: devTeams.name, teamSlug: devTeams.slug, sectionId: devTeams.sectionId })
 		.from(applicationTeamMappings)
 		.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
 		.where(and(eq(applicationTeamMappings.applicationId, applicationId), isNull(applicationTeamMappings.archivedAt)))
