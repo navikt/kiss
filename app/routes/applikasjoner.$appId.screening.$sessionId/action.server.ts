@@ -10,6 +10,13 @@ import {
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { logger } from "~/lib/logger.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
+import {
+	ScreeningAlreadyCompletedError,
+	ScreeningConcurrentModificationError,
+	ScreeningNotFoundError,
+	ScreeningReplayError,
+	ScreeningValidationError,
+} from "~/lib/screening-errors"
 
 const STAGED_INTENTS = new Set([
 	"add-persistence",
@@ -64,8 +71,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				performedBy: authedUser.navIdent,
 			})
 		} catch (e) {
-			if (e instanceof Error && e.message.includes("ikke funnet")) throw new Response(e.message, { status: 404 })
-			if (e instanceof Error && e.message.includes("fullført")) throw new Response(e.message, { status: 409 })
+			if (e instanceof ScreeningNotFoundError) throw new Response(e.message, { status: 404 })
+			if (e instanceof ScreeningAlreadyCompletedError) throw new Response(e.message, { status: 409 })
 			if (e instanceof Error && e.message.includes("violates foreign key"))
 				throw new Response("Ugyldig spørsmål-ID", { status: 400 })
 			throw e
@@ -80,15 +87,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e)
 			logger.error("[screening-complete] Failed", { message, error: e })
-			if (e instanceof Error && e.message.includes("ikke funnet")) throw new Response(e.message, { status: 404 })
-			if (e instanceof Error && e.message.includes("allerede fullført")) throw new Response(e.message, { status: 409 })
-			if (e instanceof Error && e.message.includes("samtidig")) throw new Response(e.message, { status: 409 })
-			if (e instanceof Error && e.message.includes("mangler påkrevde felter"))
-				throw new Response(e.message, { status: 400 })
-			// Replay validation failures are always user-actionable (bad staged data) — surface as 400
-			// instead of letting them hit the error boundary as a generic server crash.
-			if (e instanceof Error && e.message.startsWith("Replay av")) throw new Response(e.message, { status: 400 })
-			// Throw as Error so React Router serializes message + stack to the error boundary
+			if (e instanceof ScreeningNotFoundError) throw new Response(e.message, { status: 404 })
+			if (e instanceof ScreeningAlreadyCompletedError) throw new Response(e.message, { status: 409 })
+			if (e instanceof ScreeningConcurrentModificationError) throw new Response(e.message, { status: 409 })
+			if (e instanceof ScreeningValidationError) throw new Response(e.message, { status: 400 })
+			if (e instanceof ScreeningReplayError) throw new Response(e.message, { status: 400 })
 			if (e instanceof Error) throw e
 			throw new Error(message)
 		}
@@ -118,8 +121,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		try {
 			await updateScreeningSessionParticipants(sessionId, participants, authedUser.navIdent)
 		} catch (e) {
-			if (e instanceof Error && e.message.includes("ikke funnet")) throw new Response(e.message, { status: 404 })
-			if (e instanceof Error && e.message.includes("fullført")) throw new Response(e.message, { status: 409 })
+			if (e instanceof ScreeningNotFoundError) throw new Response(e.message, { status: 404 })
+			if (e instanceof ScreeningAlreadyCompletedError) throw new Response(e.message, { status: 409 })
 			throw e
 		}
 		return data({ success: true })
