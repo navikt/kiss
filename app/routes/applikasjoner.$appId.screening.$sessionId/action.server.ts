@@ -18,6 +18,30 @@ import {
 	ScreeningValidationError,
 } from "~/lib/screening-errors"
 
+/**
+ * Registry of staged intents that map to a screening question step.
+ * After staging, the screening answer is synced to "confirmed" or null
+ * based on whether all required fields are present.
+ *
+ * To add a new intent: define isComplete and the formData field that holds questionId.
+ */
+type CompletenessChecker = {
+	questionIdField: string
+	isComplete: (payload: Record<string, FormDataEntryValue>) => boolean
+}
+
+const STEP_COMPLETENESS_CHECKERS: Partial<Record<string, CompletenessChecker>> = {
+	"save-economy-classification": {
+		questionIdField: "questionId",
+		isComplete: (payload) => {
+			const isEconomySystem = payload.isEconomySystem as string
+			const justification = (payload.justification as string)?.trim()
+			const economySystemType = payload.economySystemType as string
+			return !!(isEconomySystem && justification && (isEconomySystem !== "ja" || economySystemType))
+		},
+	},
+}
+
 const STAGED_INTENTS = new Set([
 	"add-persistence",
 	"update-persistence-classification",
@@ -180,17 +204,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			throw e
 		}
 
-		// Keep the screening answer in sync with the economy classification form state.
-		// Confirm when all required fields are present, un-confirm when any required field is missing.
-		// This ensures the stepper reflects the actual completeness state on every save.
-		if (intent === "save-economy-classification") {
-			const questionId = formData.get("questionId") as string
-			const isEconomySystem = formData.get("isEconomySystem") as string
-			const justification = (formData.get("justification") as string)?.trim()
-			const economySystemType = formData.get("economySystemType") as string
-			const isComplete = !!(isEconomySystem && justification && (isEconomySystem !== "ja" || economySystemType))
+		// Generic: sync screening answer for intents that map to a question step.
+		// Confirms the step when all required fields are present, un-confirms when any is missing.
+		const checker = STEP_COMPLETENESS_CHECKERS[intent]
+		if (checker) {
+			const payload = Object.fromEntries(formData.entries())
+			const questionId = payload[checker.questionIdField] as string
 			if (questionId) {
-				// Validate questionId belongs to this app's screening
 				const { getScreeningDataForApp } = await import("~/db/queries/screening.server")
 				const screeningData = await getScreeningDataForApp(appId)
 				const validQuestionIds = new Set(screeningData.questions.map((q) => q.id))
@@ -199,7 +219,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 						await saveScreeningSessionAnswer({
 							sessionId,
 							questionId,
-							answer: isComplete ? "confirmed" : null,
+							answer: checker.isComplete(payload) ? "confirmed" : null,
 							comment: null,
 							link: null,
 							performedBy: authedUser.navIdent,
