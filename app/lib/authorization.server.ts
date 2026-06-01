@@ -1,20 +1,19 @@
 import { roleScopeMap, type UserRole } from "~/db/schema/organization"
 import type { NavUser } from "./auth.server"
 
-// Azure AD group IDs – configure via environment
-const ADMIN_GROUP_IDS = (process.env.KISS_ADMIN_GROUP_IDS ?? "").split(",").filter(Boolean)
-const AUDITOR_GROUP_IDS = (process.env.KISS_AUDITOR_GROUP_IDS ?? "").split(",").filter(Boolean)
-
 // ---------------------------------------------------------------------------
 // AD-gruppe → rolle mapping
 // Begge AD-gruppe-roller (admin og auditor) supprimeres når admin-modus er deaktivert.
 // Auditor-rollen via dbRoles (eksplisitt tildelt, uavhengig av admin) supprimeres ikke.
+// Env vars leses ved kall-tidspunkt (ikke ved module-load) for å støtte vi.stubEnv i tester.
 // ---------------------------------------------------------------------------
 
 function adGroupRoles(user: NavUser): UserRole[] {
+	const adminGroupIds = (process.env.KISS_ADMIN_GROUP_IDS ?? "").split(",").filter(Boolean)
+	const auditorGroupIds = (process.env.KISS_AUDITOR_GROUP_IDS ?? "").split(",").filter(Boolean)
 	const roles: UserRole[] = []
-	if (!user.adminSuppressed && user.groups.some((g) => ADMIN_GROUP_IDS.includes(g))) roles.push("admin")
-	if (!user.adminSuppressed && user.groups.some((g) => AUDITOR_GROUP_IDS.includes(g))) roles.push("auditor")
+	if (!user.adminSuppressed && user.groups.some((g) => adminGroupIds.includes(g))) roles.push("admin")
+	if (!user.adminSuppressed && user.groups.some((g) => auditorGroupIds.includes(g))) roles.push("auditor")
 	return roles
 }
 

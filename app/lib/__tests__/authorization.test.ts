@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { NavUser } from "../auth.server"
 import { isAdminSuppressed } from "../auth.server"
 import {
@@ -259,20 +259,24 @@ describe("adminSuppressed", () => {
 		expect(isAdmin(user)).toBe(false)
 	})
 
-	it("isAuditor returns false when admin is suppressed and auditor role comes from AD group", () => {
-		// Auditor via AD-gruppe supprimeres på lik linje med admin når admin-modus er av
-		const user = makeUser({
-			groups: ["auditor-group-id"],
-			adminSuppressed: true,
-		})
-		// Simulate KISS_AUDITOR_GROUP_IDS containing "auditor-group-id" — tested via hasRole directly
-		// since adGroupRoles reads env vars; we verify the logic with dbRoles instead
-		const userWithDbAuditor = makeUser({
-			dbRoles: [{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-			adminSuppressed: true,
-		})
-		// auditor via dbRoles is NOT suppressed (explicitly assigned, independent of admin)
-		expect(hasRole(userWithDbAuditor, "auditor")).toBe(true)
+	it("auditor fra AD-gruppe supprimeres når admin-modus er av", () => {
+		vi.stubEnv("KISS_AUDITOR_GROUP_IDS", "auditor-group-id")
+		try {
+			const user = makeUser({ groups: ["auditor-group-id"], adminSuppressed: true })
+			expect(hasRole(user, "auditor")).toBe(false)
+		} finally {
+			vi.unstubAllEnvs()
+		}
+	})
+
+	it("auditor fra AD-gruppe er aktiv når admin-modus er på", () => {
+		vi.stubEnv("KISS_AUDITOR_GROUP_IDS", "auditor-group-id")
+		try {
+			const user = makeUser({ groups: ["auditor-group-id"], adminSuppressed: false })
+			expect(hasRole(user, "auditor")).toBe(true)
+		} finally {
+			vi.unstubAllEnvs()
+		}
 	})
 
 	it("auditor role from dbRoles is not suppressed when admin is suppressed", () => {
