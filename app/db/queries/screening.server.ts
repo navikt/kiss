@@ -597,11 +597,25 @@ export async function addChoiceEffect(params: {
 			throw new ScreeningValidationError("presetRoutineId må være en gyldig UUID")
 		}
 		const [routine] = await db
-			.select({ id: routines.id })
+			.select({
+				status: routines.status,
+				archivedAt: routines.archivedAt,
+				replacedByRoutineId: routines.replacedByRoutineId,
+			})
 			.from(routines)
-			.where(and(eq(routines.id, params.presetRoutineId), eq(routines.status, "approved"), isNull(routines.archivedAt)))
+			.where(eq(routines.id, params.presetRoutineId))
 			.limit(1)
-		if (!routine) throw new ScreeningValidationError(`Rutine ${params.presetRoutineId} ikke funnet eller ikke godkjent`)
+		if (!routine) throw new ScreeningValidationError(`Rutine ${params.presetRoutineId} ikke funnet`)
+		if (routine.replacedByRoutineId)
+			throw new ScreeningValidationError(
+				`Rutine ${params.presetRoutineId} er erstattet av en nyere versjon og kan ikke velges som forvalgt rutine`,
+			)
+		if (routine.archivedAt)
+			throw new ScreeningValidationError(
+				`Rutine ${params.presetRoutineId} er arkivert og kan ikke velges som forvalgt rutine`,
+			)
+		if (routine.status !== "approved")
+			throw new ScreeningValidationError(`Rutine ${params.presetRoutineId} er ikke godkjent`)
 
 		// Verify the routine is actively linked to the selected control
 		const [link] = await db
@@ -1631,7 +1645,14 @@ export async function getRoutinesForAllControlsAndTechElements(
 		})
 		.from(routineControls)
 		.innerJoin(routines, eq(routineControls.routineId, routines.id))
-		.where(and(isNull(routineControls.archivedAt), eq(routines.status, "approved"), isNull(routines.archivedAt)))
+		.where(
+			and(
+				isNull(routineControls.archivedAt),
+				eq(routines.status, "approved"),
+				isNull(routines.archivedAt),
+				isNull(routines.replacedByRoutineId),
+			),
+		)
 
 	if (linkedRoutines.length === 0) return {}
 
