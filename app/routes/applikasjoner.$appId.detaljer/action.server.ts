@@ -136,7 +136,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "generate-report") {
 		const { devTeamIds, sectionIds } = await getAppScopeIds(appId)
 		if (!canAccessAppReports(authedUser, sectionIds, devTeamIds)) {
-			return data({ success: false, message: null, error: "Ikke autorisert til å generere rapport." })
+			return data({ success: false, message: null, error: "Ikke autorisert til å generere rapport." }, { status: 403 })
 		}
 		const includeReviews = formData.get("includeReviews") === "true"
 		const includeAttachments = formData.get("includeAttachments") === "true"
