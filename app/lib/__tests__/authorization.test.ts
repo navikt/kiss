@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { NavUser } from "../auth.server"
 import { isAdminSuppressed } from "../auth.server"
 import {
+	canAccessAppReports,
 	canApproveRoutine,
 	canManageTeam,
 	hasAnySectionRole,
@@ -357,5 +358,86 @@ describe("isAdminSuppressed", () => {
 			headers: { Cookie: "kiss-theme=dark;kiss-admin-elevated=true" },
 		})
 		expect(isAdminSuppressed(request)).toBe(false)
+	})
+})
+
+describe("canAccessAppReports", () => {
+	const sectionId = "section-1"
+	const devTeamId = "team-abc"
+
+	it("returns true for admin", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canAccessAppReports(user, [sectionId], [devTeamId])).toBe(true)
+	})
+
+	it("returns true for section_manager of app section", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canAccessAppReports(user, [sectionId], [])).toBe(true)
+	})
+
+	it("returns true for tech_manager of app section", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canAccessAppReports(user, [sectionId], [])).toBe(true)
+	})
+
+	it("returns true for auditor (global)", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canAccessAppReports(user, [sectionId], [])).toBe(true)
+	})
+
+	it("returns true for tech_lead of app team", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "tech_lead", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		expect(canAccessAppReports(user, [], [devTeamId])).toBe(true)
+	})
+
+	it("returns true for product_owner of app team", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "product_owner", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		expect(canAccessAppReports(user, [], [devTeamId])).toBe(true)
+	})
+
+	it("returns false for user with no relevant roles", () => {
+		const user = makeUser()
+		expect(canAccessAppReports(user, [sectionId], [devTeamId])).toBe(false)
+	})
+
+	it("returns false for section_manager of a different section", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId: "other-section", devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canAccessAppReports(user, [sectionId], [devTeamId])).toBe(false)
+	})
+
+	it("returns false for tech_lead of a different team", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "tech_lead", sectionId: null, devTeamId: "other-team", devTeamSectionId: null }],
+		})
+		expect(canAccessAppReports(user, [], [devTeamId])).toBe(false)
+	})
+
+	it("returns false for suppressed admin", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+			adminSuppressed: true,
+		})
+		expect(canAccessAppReports(user, [sectionId], [devTeamId])).toBe(false)
+	})
+
+	it("returns false when sectionIds and devTeamIds are empty", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canAccessAppReports(user, [], [])).toBe(false)
 	})
 })

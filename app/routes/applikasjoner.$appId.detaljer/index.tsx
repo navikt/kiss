@@ -80,7 +80,13 @@ export default function ApplikasjonDetalj() {
 	} = useLoaderData<typeof loader>()
 
 	const [searchParams, setSearchParams] = useSearchParams()
-	const activeTab = searchParams.get("fane") ?? "rutiner"
+	const rawTab = searchParams.get("fane") ?? "rutiner"
+	// Normalize: fall back to default if URL references a tab the user cannot access
+	const activeTab = (() => {
+		if (rawTab === "rapporter" && !canAccessReports) return "rutiner"
+		if (rawTab === "revisjonsbevis" && (!canAccessReports || oracleInstances.length === 0)) return "rutiner"
+		return rawTab
+	})()
 	const appBase = useAppBasePath()
 	const sectionSlug = useSectionSlug()
 

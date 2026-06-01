@@ -152,7 +152,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		effectiveGitRepository ? getGitHubTeamsForApp(appId) : Promise.resolve([]),
 		effectiveGitRepository ? getGitHubCollaboratorsForApp(appId) : Promise.resolve([]),
 		effectiveGitRepository ? getGitHubAccessChangeLog(appId) : Promise.resolve([]),
-		getAppScopeIds(appId),
+		user ? getAppScopeIds(appId) : Promise.resolve({ devTeamIds: [], sectionIds: [] }),
 	])
 
 	// Compute auto-compliance from parallel results
