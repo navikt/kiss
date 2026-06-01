@@ -393,6 +393,13 @@ describe("canAccessAppReports", () => {
 		expect(canAccessAppReports(user, [sectionId], [])).toBe(true)
 	})
 
+	it("returns true for auditor even when sectionIds and devTeamIds are empty", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canAccessAppReports(user, [], [])).toBe(true)
+	})
+
 	it("returns true for tech_lead of app team", () => {
 		const user = makeUser({
 			dbRoles: [{ role: "tech_lead", sectionId: null, devTeamId, devTeamSectionId: null }],
