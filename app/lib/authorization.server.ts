@@ -6,13 +6,15 @@ const ADMIN_GROUP_IDS = (process.env.KISS_ADMIN_GROUP_IDS ?? "").split(",").filt
 const AUDITOR_GROUP_IDS = (process.env.KISS_AUDITOR_GROUP_IDS ?? "").split(",").filter(Boolean)
 
 // ---------------------------------------------------------------------------
-// AD-gruppe → rolle mapping (alltid aktiv, uavhengig av DB)
+// AD-gruppe → rolle mapping
+// Begge AD-gruppe-roller (admin og auditor) supprimeres når admin-modus er deaktivert.
+// Auditor-rollen via dbRoles (eksplisitt tildelt, uavhengig av admin) supprimeres ikke.
 // ---------------------------------------------------------------------------
 
 function adGroupRoles(user: NavUser): UserRole[] {
 	const roles: UserRole[] = []
 	if (!user.adminSuppressed && user.groups.some((g) => ADMIN_GROUP_IDS.includes(g))) roles.push("admin")
-	if (user.groups.some((g) => AUDITOR_GROUP_IDS.includes(g))) roles.push("auditor")
+	if (!user.adminSuppressed && user.groups.some((g) => AUDITOR_GROUP_IDS.includes(g))) roles.push("auditor")
 	return roles
 }
 
