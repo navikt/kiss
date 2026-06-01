@@ -56,7 +56,8 @@ export function isAdmin(user: NavUser): boolean {
 
 /** Actual admin check ignoring suppression (for toggle UI) */
 export function isActualAdmin(user: NavUser): boolean {
-	if (user.groups.some((g) => ADMIN_GROUP_IDS.includes(g))) return true
+	const adminGroupIds = (process.env.KISS_ADMIN_GROUP_IDS ?? "").split(",").filter(Boolean)
+	if (user.groups.some((g) => adminGroupIds.includes(g))) return true
 	return (user.dbRoles ?? []).some((r) => r.role === "admin")
 }
 
