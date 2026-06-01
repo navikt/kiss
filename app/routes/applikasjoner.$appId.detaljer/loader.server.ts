@@ -1,7 +1,7 @@
 import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getActiveApplicationControls } from "~/db/queries/application-controls.server"
-import { getAppAssessments } from "~/db/queries/applications.server"
+import { getAppAssessments, getAppScopeIds } from "~/db/queries/applications.server"
 import { getOracleInstancesForApp, getSnapshotHistory } from "~/db/queries/audit-evidence.server"
 import { getOracleAuditSummariesForApp } from "~/db/queries/audit-logging.server"
 import { getScreeningEffectsByControlForApp } from "~/db/queries/compliance-auto.server"
@@ -26,7 +26,7 @@ import { getScreeningSessionsForApp } from "~/db/queries/screening-sessions.serv
 import { getSections } from "~/db/queries/sections.server"
 import type { GroupCriticality } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
+import { canAccessAppReports, isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { logger } from "~/lib/logger.server"
@@ -52,9 +52,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		return {}
 	})()
 
-	const [detail, assessmentsResult] = await Promise.all([getApplicationDetail(appId), getAppAssessments(appId)])
+	// Run getAppScopeIds in parallel with the detail query so canAccessReports
+	// is known before the expensive report/evidence queries fire.
+	const [detail, assessmentsResult, appScopeIds] = await Promise.all([
+		getApplicationDetail(appId),
+		getAppAssessments(appId),
+		user ? getAppScopeIds(appId) : Promise.resolve({ devTeamIds: [], sectionIds: [] }),
+	])
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
+
+	const canAccessReports = user ? canAccessAppReports(user, appScopeIds.sectionIds, appScopeIds.devTeamIds) : false
 
 	// Resolve effective git repository: prefer app-level, fallback to oldest environment with a repo
 	// (matches sync job logic: ORDER BY discovered_at ASC LIMIT 1)
@@ -114,7 +122,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getRoutineDeadlinesWithControls(appId),
 		getReviewsForApp(appId),
 		getSections({ includeArchived: true }),
-		getReportsForApp(appId),
+		canAccessReports ? getReportsForApp(appId) : Promise.resolve([]),
 		getScreeningProgressForApps([appId]),
 		getScreeningSessionsForApp(appId, user ? isAdmin(user) : false),
 		getScreeningEffectsByControlForApp(appId),
@@ -143,7 +151,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		resolveAppNames([...referencedAppNames]),
 		getActiveAcknowledgments(appId),
 		getOracleInstances(),
-		getOracleInstancesForApp(appId),
+		canAccessReports ? getOracleInstancesForApp(appId) : Promise.resolve([]),
 		getOracleRoleAssessments(appId),
 		getDeploymentVerificationForAppWithFetch(appId),
 		getManualGroupsForApp(appId),
@@ -385,6 +393,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
+		canAccessReports,
 		knownApps,
 		acknowledgments,
 		compliance: {
@@ -396,13 +405,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			routinesMaaFolgesOpp,
 		},
 		assessments,
-		appReports: appReports.map((r) => ({
-			id: r.id,
-			name: r.name,
-			createdAt: r.createdAt.toISOString(),
-			createdBy: r.createdBy,
-			reportBucketPath: r.reportBucketPath,
-		})),
+		appReports: canAccessReports
+			? appReports.map((r) => ({
+					id: r.id,
+					name: r.name,
+					createdAt: r.createdAt.toISOString(),
+					createdBy: r.createdBy,
+					reportBucketPath: r.reportBucketPath,
+				}))
+			: [],
 		screeningSessions: screeningSessions.map((s) => ({
 			id: s.id,
 			title: s.title,
@@ -419,38 +430,42 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				userName: p.userName,
 			})),
 		})),
-		oracleInstances: filteredOracleInstances.map((inst) => ({
-			...inst,
-			configuredAt: inst.configuredAt.toISOString(),
-			latestSnapshot: inst.latestSnapshot
-				? {
-						...inst.latestSnapshot,
-						fetchedAt: inst.latestSnapshot.fetchedAt.toISOString(),
-					}
-				: null,
-		})),
-		totalOracleInstanceCount,
+		oracleInstances: canAccessReports
+			? filteredOracleInstances.map((inst) => ({
+					...inst,
+					configuredAt: inst.configuredAt.toISOString(),
+					latestSnapshot: inst.latestSnapshot
+						? {
+								...inst.latestSnapshot,
+								fetchedAt: inst.latestSnapshot.fetchedAt.toISOString(),
+							}
+						: null,
+				}))
+			: [],
+		totalOracleInstanceCount: canAccessReports ? totalOracleInstanceCount : 0,
 		inaccessibleOracleGroups,
 		oracleRoles,
-		instanceSnapshotHistories: (() => {
-			const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
-			return instanceSnapshotHistories.map(({ instanceId, history }) => {
-				const meta = oracleInstanceMetaById.get(instanceId)
-				return {
-					instanceId,
-					instanceName: meta?.name ?? instanceId.toUpperCase(),
-					instanceType: meta?.type ?? null,
-					instanceGroup: meta?.group ?? null,
-					snapshots: history.map((s) => ({
-						id: s.id,
-						overallStatus: s.overallStatus,
-						collectedAt: s.collectedAt.toISOString(),
-						fetchedAt: s.fetchedAt.toISOString(),
-						fetchedBy: s.fetchedBy,
-					})),
-				}
-			})
-		})(),
+		instanceSnapshotHistories: canAccessReports
+			? (() => {
+					const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
+					return instanceSnapshotHistories.map(({ instanceId, history }) => {
+						const meta = oracleInstanceMetaById.get(instanceId)
+						return {
+							instanceId,
+							instanceName: meta?.name ?? instanceId.toUpperCase(),
+							instanceType: meta?.type ?? null,
+							instanceGroup: meta?.group ?? null,
+							snapshots: history.map((s) => ({
+								id: s.id,
+								overallStatus: s.overallStatus,
+								collectedAt: s.collectedAt.toISOString(),
+								fetchedAt: s.fetchedAt.toISOString(),
+								fetchedBy: s.fetchedBy,
+							})),
+						}
+					})
+				})()
+			: [],
 		githubAccess: {
 			teams: githubTeams.map((t) => ({
 				...t,

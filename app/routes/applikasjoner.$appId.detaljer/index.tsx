@@ -61,6 +61,7 @@ export default function ApplikasjonDetalj() {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin,
+		canAccessReports,
 		knownApps,
 		acknowledgments,
 		compliance,
@@ -79,7 +80,13 @@ export default function ApplikasjonDetalj() {
 	} = useLoaderData<typeof loader>()
 
 	const [searchParams, setSearchParams] = useSearchParams()
-	const activeTab = searchParams.get("fane") ?? "rutiner"
+	const rawTab = searchParams.get("fane") ?? "rutiner"
+	// Normalize: fall back to default if URL references a tab the user cannot access
+	const activeTab = (() => {
+		if (rawTab === "rapporter" && !canAccessReports) return "rutiner"
+		if (rawTab === "revisjonsbevis" && (!canAccessReports || oracleInstances.length === 0)) return "rutiner"
+		return rawTab
+	})()
 	const appBase = useAppBasePath()
 	const sectionSlug = useSectionSlug()
 
@@ -296,14 +303,14 @@ export default function ApplikasjonDetalj() {
 					<Tabs.Tab value="miljoer" label="Miljøer" />
 					{environments.length > 0 && <Tabs.Tab value="deployments" label="Deployments" />}
 					<Tabs.Tab value="persistering" label="Persistering" />
-					{oracleInstances.length > 0 && <Tabs.Tab value="revisjonsbevis" label="Revisjonsbevis" />}
+					{oracleInstances.length > 0 && canAccessReports && <Tabs.Tab value="revisjonsbevis" label="Revisjonsbevis" />}
 					{linkedApps.length > 0 && <Tabs.Tab value="lenkede-applikasjoner" label="Lenkede applikasjoner" />}
 					{effectiveGitRepository && <Tabs.Tab value="github-tilganger" label="GitHub-tilganger" />}
 					<Tabs.Tab
 						value="oppfolgingspunkter"
 						label={openFollowUpCount > 0 ? `Oppfølgingspunkter (${openFollowUpCount})` : "Oppfølgingspunkter"}
 					/>
-					<Tabs.Tab value="rapporter" label="Rapporter" />
+					{canAccessReports && <Tabs.Tab value="rapporter" label="Rapporter" />}
 				</Tabs.List>
 
 				<Tabs.Panel value="rutiner" style={{ paddingTop: "var(--ax-space-6)" }}>
@@ -372,7 +379,7 @@ export default function ApplikasjonDetalj() {
 					/>
 				</Tabs.Panel>
 
-				{oracleInstances.length > 0 && (
+				{oracleInstances.length > 0 && canAccessReports && (
 					<Tabs.Panel value="revisjonsbevis" style={{ paddingTop: "var(--ax-space-6)" }}>
 						<RevisjonsbevisTab
 							oracleInstanceCount={oracleInstances.length}
@@ -403,9 +410,11 @@ export default function ApplikasjonDetalj() {
 					<OppfolgingspunkterTab followUpPoints={followUpPoints} sectionSlugMap={sectionSlugMap} />
 				</Tabs.Panel>
 
-				<Tabs.Panel value="rapporter" style={{ paddingTop: "var(--ax-space-6)" }}>
-					<RapporterTab appReports={appReports} completedReviews={completedReviews} />
-				</Tabs.Panel>
+				{canAccessReports && (
+					<Tabs.Panel value="rapporter" style={{ paddingTop: "var(--ax-space-6)" }}>
+						<RapporterTab appReports={appReports} completedReviews={completedReviews} />
+					</Tabs.Panel>
+				)}
 			</Tabs>
 		</VStack>
 	)

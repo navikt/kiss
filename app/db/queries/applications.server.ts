@@ -1,4 +1,4 @@
-import { and, eq, ilike, inArray, isNotNull, isNull, or, sql } from "drizzle-orm"
+import { and, eq, ilike, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	applicationEnvironments,
@@ -273,6 +273,45 @@ export async function getAvailableAppsForTeam(devTeamId: string) {
 			),
 		)
 		.orderBy(monitoredApplications.name)
+}
+
+/** Get dev team IDs and section IDs for an application — used for authorization checks.
+ * Section IDs are derived from both dev-team mappings and NAIS-team environments. */
+export async function getAppScopeIds(appId: string): Promise<{ devTeamIds: string[]; sectionIds: string[] }> {
+	const [devTeamRows, naisTeamRows] = await Promise.all([
+		db
+			.select({ devTeamId: devTeams.id, sectionId: devTeams.sectionId })
+			.from(applicationTeamMappings)
+			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+			.where(and(eq(applicationTeamMappings.applicationId, appId), isNull(applicationTeamMappings.archivedAt))),
+		db
+			.selectDistinct({ sectionId: naisTeams.sectionId })
+			.from(applicationEnvironments)
+			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+			.where(
+				and(
+					eq(applicationEnvironments.applicationId, appId),
+					isNotNull(naisTeams.sectionId),
+					notExists(
+						db
+							.select({ one: sql`1` })
+							.from(sectionEnvironments)
+							.where(
+								and(
+									eq(sectionEnvironments.sectionId, naisTeams.sectionId),
+									eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+									eq(sectionEnvironments.included, false),
+								),
+							),
+					),
+				),
+			),
+	])
+
+	const devTeamIds = devTeamRows.map((r) => r.devTeamId)
+	const allSectionIds = [...devTeamRows.map((r) => r.sectionId), ...naisTeamRows.map((r) => r.sectionId)]
+	const sectionIds = [...new Set(allSectionIds.filter((s): s is string => s !== null))]
+	return { devTeamIds, sectionIds }
 }
 
 /** Get teams NOT yet linked to a specific application. */

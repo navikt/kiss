@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs } from "react-router"
 import { data, redirect } from "react-router"
+import { getAppScopeIds } from "~/db/queries/applications.server"
 import {
 	acknowledgeUnknownApp,
 	addManualPersistence,
@@ -25,7 +26,7 @@ import {
 } from "~/db/schema/applications"
 import { activityTypeLabels } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
+import { canAccessAppReports, isAdmin } from "~/lib/authorization.server"
 import { logger } from "~/lib/logger.server"
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -133,6 +134,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "generate-report") {
+		const { devTeamIds, sectionIds } = await getAppScopeIds(appId)
+		if (!canAccessAppReports(authedUser, sectionIds, devTeamIds)) {
+			return data({ success: false, message: null, error: "Ikke autorisert til å generere rapport." }, { status: 403 })
+		}
 		const includeReviews = formData.get("includeReviews") === "true"
 		const includeAttachments = formData.get("includeAttachments") === "true"
 		const includeRoutineDescription = formData.get("includeRoutineDescription") === "true"
