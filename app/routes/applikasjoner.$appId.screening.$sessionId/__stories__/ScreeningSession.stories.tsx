@@ -378,6 +378,22 @@ export const AlleBesvartOppsummering: Story = {
 	),
 }
 
+export const GjenstaarSporsmal: Story = {
+	name: "Fullført-side med ubesvarte spørsmål",
+	render: () => (
+		<DataRouterWrapper initialStep="complete">
+			<SessionPage
+				title="Compliance-screening Q2 2026"
+				appName="pensjon-sak"
+				participants={mockParticipants}
+				isCompleted={false}
+				screening={answered(mockScreening, 2)}
+				wizardArgs={defaultWizardArgs}
+			/>
+		</DataRouterWrapper>
+	),
+}
+
 export const FullfortSesjon: Story = {
 	name: "Fullført sesjon (read-only)",
 	render: () => (
