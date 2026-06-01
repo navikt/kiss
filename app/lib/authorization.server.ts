@@ -8,12 +8,14 @@ import type { NavUser } from "./auth.server"
 // Env vars leses ved kall-tidspunkt (ikke ved module-load) for å støtte vi.stubEnv i tester.
 // ---------------------------------------------------------------------------
 
+function getGroupIds(envVar: string): string[] {
+	return (process.env[envVar] ?? "").split(",").filter(Boolean)
+}
+
 function adGroupRoles(user: NavUser): UserRole[] {
-	const adminGroupIds = (process.env.KISS_ADMIN_GROUP_IDS ?? "").split(",").filter(Boolean)
-	const auditorGroupIds = (process.env.KISS_AUDITOR_GROUP_IDS ?? "").split(",").filter(Boolean)
 	const roles: UserRole[] = []
-	if (!user.adminSuppressed && user.groups.some((g) => adminGroupIds.includes(g))) roles.push("admin")
-	if (!user.adminSuppressed && user.groups.some((g) => auditorGroupIds.includes(g))) roles.push("auditor")
+	if (!user.adminSuppressed && user.groups.some((g) => getGroupIds("KISS_ADMIN_GROUP_IDS").includes(g))) roles.push("admin")
+	if (!user.adminSuppressed && user.groups.some((g) => getGroupIds("KISS_AUDITOR_GROUP_IDS").includes(g))) roles.push("auditor")
 	return roles
 }
 
@@ -56,8 +58,7 @@ export function isAdmin(user: NavUser): boolean {
 
 /** Actual admin check ignoring suppression (for toggle UI) */
 export function isActualAdmin(user: NavUser): boolean {
-	const adminGroupIds = (process.env.KISS_ADMIN_GROUP_IDS ?? "").split(",").filter(Boolean)
-	if (user.groups.some((g) => adminGroupIds.includes(g))) return true
+	if (user.groups.some((g) => getGroupIds("KISS_ADMIN_GROUP_IDS").includes(g))) return true
 	return (user.dbRoles ?? []).some((r) => r.role === "admin")
 }
 
