@@ -1,18 +1,34 @@
 import { roleScopeMap, type UserRole } from "~/db/schema/organization"
 import type { NavUser } from "./auth.server"
 
-// Azure AD group IDs – configure via environment
-const ADMIN_GROUP_IDS = (process.env.KISS_ADMIN_GROUP_IDS ?? "").split(",").filter(Boolean)
-const AUDITOR_GROUP_IDS = (process.env.KISS_AUDITOR_GROUP_IDS ?? "").split(",").filter(Boolean)
+// ---------------------------------------------------------------------------
+// AD-gruppe → rolle mapping
+// Begge AD-gruppe-roller (admin og auditor) supprimeres når admin-modus er deaktivert.
+// Auditor-rollen via dbRoles (eksplisitt tildelt, uavhengig av admin) supprimeres ikke.
+// Env vars leses ved kall-tidspunkt (lazy) for å støtte vi.stubEnv i tester.
+// Resultatet caches per råverdi slik at split/trim ikke kjøres på nytt så lenge env er uendret.
+// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// AD-gruppe → rolle mapping (alltid aktiv, uavhengig av DB)
-// ---------------------------------------------------------------------------
+const groupIdCache = new Map<string, { raw: string; ids: string[] }>()
+
+function getGroupIds(envVar: string): string[] {
+	const raw = process.env[envVar] ?? ""
+	const cached = groupIdCache.get(envVar)
+	if (cached?.raw === raw) return cached.ids
+	const ids = raw
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean)
+	groupIdCache.set(envVar, { raw, ids })
+	return ids
+}
 
 function adGroupRoles(user: NavUser): UserRole[] {
+	const adminGroupIds = getGroupIds("KISS_ADMIN_GROUP_IDS")
+	const auditorGroupIds = getGroupIds("KISS_AUDITOR_GROUP_IDS")
 	const roles: UserRole[] = []
-	if (!user.adminSuppressed && user.groups.some((g) => ADMIN_GROUP_IDS.includes(g))) roles.push("admin")
-	if (user.groups.some((g) => AUDITOR_GROUP_IDS.includes(g))) roles.push("auditor")
+	if (!user.adminSuppressed && user.groups.some((g) => adminGroupIds.includes(g))) roles.push("admin")
+	if (!user.adminSuppressed && user.groups.some((g) => auditorGroupIds.includes(g))) roles.push("auditor")
 	return roles
 }
 
@@ -55,7 +71,8 @@ export function isAdmin(user: NavUser): boolean {
 
 /** Actual admin check ignoring suppression (for toggle UI) */
 export function isActualAdmin(user: NavUser): boolean {
-	if (user.groups.some((g) => ADMIN_GROUP_IDS.includes(g))) return true
+	const adminGroupIds = getGroupIds("KISS_ADMIN_GROUP_IDS")
+	if (user.groups.some((g) => adminGroupIds.includes(g))) return true
 	return (user.dbRoles ?? []).some((r) => r.role === "admin")
 }
 
