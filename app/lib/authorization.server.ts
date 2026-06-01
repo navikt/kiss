@@ -5,11 +5,22 @@ import type { NavUser } from "./auth.server"
 // AD-gruppe → rolle mapping
 // Begge AD-gruppe-roller (admin og auditor) supprimeres når admin-modus er deaktivert.
 // Auditor-rollen via dbRoles (eksplisitt tildelt, uavhengig av admin) supprimeres ikke.
-// Env vars leses ved kall-tidspunkt (ikke ved module-load) for å støtte vi.stubEnv i tester.
+// Env vars leses ved kall-tidspunkt (lazy) for å støtte vi.stubEnv i tester.
+// Resultatet caches per råverdi slik at split/trim ikke kjøres på nytt så lenge env er uendret.
 // ---------------------------------------------------------------------------
 
+const groupIdCache = new Map<string, { raw: string; ids: string[] }>()
+
 function getGroupIds(envVar: string): string[] {
-	return (process.env[envVar] ?? "").split(",").filter(Boolean)
+	const raw = process.env[envVar] ?? ""
+	const cached = groupIdCache.get(envVar)
+	if (cached?.raw === raw) return cached.ids
+	const ids = raw
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean)
+	groupIdCache.set(envVar, { raw, ids })
+	return ids
 }
 
 function adGroupRoles(user: NavUser): UserRole[] {
