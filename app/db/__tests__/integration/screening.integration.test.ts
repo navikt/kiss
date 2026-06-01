@@ -685,7 +685,7 @@ describe("screening.server integration tests", () => {
 			// Simulate A being replaced by B
 			await simulateReplacement(routineAId, routineBId)
 
-			// After replacement: routineA (archived+replaced) must not appear; routineB must appear
+			// After replacement: routineA (replaced_by_routine_id set) must not appear; routineB must appear
 			const after = await getRoutinesForAllControlsAndTechElements([])
 			const allIds = Object.values(after)
 				.flat()
