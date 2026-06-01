@@ -279,7 +279,7 @@ describe("adminSuppressed", () => {
 		}
 	})
 
-	it("auditor role from dbRoles is not suppressed when admin is suppressed", () => {
+	it("auditor fra dbRoles supprimeres IKKE når admin-modus er av", () => {
 		const user = makeUser({
 			dbRoles: [
 				{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null },
@@ -287,9 +287,34 @@ describe("adminSuppressed", () => {
 			],
 			adminSuppressed: true,
 		})
-		// admin suppressed, auditor from dbRoles remains (independently assigned)
 		expect(hasRole(user, "admin")).toBe(false)
 		expect(hasRole(user, "auditor")).toBe(true)
+	})
+
+	it("bruker med AD-auditor og DB-auditor: auditor er aktiv selv om admin-modus er av", () => {
+		vi.stubEnv("KISS_AUDITOR_GROUP_IDS", "auditor-group-id")
+		try {
+			const user = makeUser({
+				groups: ["auditor-group-id"],
+				dbRoles: [{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+				adminSuppressed: true,
+			})
+			// AD auditor supprimeres, men DB auditor gir fortsatt tilgang
+			expect(hasRole(user, "auditor")).toBe(true)
+		} finally {
+			vi.unstubAllEnvs()
+		}
+	})
+
+	it("isActualAdmin ignorerer suppresjon (for toggle-UI)", () => {
+		vi.stubEnv("KISS_ADMIN_GROUP_IDS", "admin-group-id")
+		try {
+			const user = makeUser({ groups: ["admin-group-id"], adminSuppressed: true })
+			expect(isAdmin(user)).toBe(false)
+			expect(isActualAdmin(user)).toBe(true)
+		} finally {
+			vi.unstubAllEnvs()
+		}
 	})
 })
 

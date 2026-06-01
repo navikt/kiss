@@ -23,12 +23,34 @@ function getGroupIds(envVar: string): string[] {
 	return ids
 }
 
-function adGroupRoles(user: NavUser): UserRole[] {
+// ---------------------------------------------------------------------------
+// Effektive roller — eneste sted adminSuppressed sjekkes for hasRole()
+//
+// Regler:
+//   - AD-gruppe admin   → supprimert når adminSuppressed
+//   - AD-gruppe auditor → supprimert når adminSuppressed (følger admin-modus)
+//   - dbRoles admin     → supprimert når adminSuppressed
+//   - dbRoles auditor   → IKKE supprimert (eksplisitt tildelt, uavhengig av admin-modus)
+//   - alle andre roller → aldri supprimert
+//
+// NB: isActualAdmin() er unntaket — den ignorerer bevisst adminSuppressed (for toggle-UI).
+// ---------------------------------------------------------------------------
+
+function effectiveRoles(user: NavUser): Set<UserRole> {
 	const adminGroupIds = getGroupIds("KISS_ADMIN_GROUP_IDS")
 	const auditorGroupIds = getGroupIds("KISS_AUDITOR_GROUP_IDS")
-	const roles: UserRole[] = []
-	if (!user.adminSuppressed && user.groups.some((g) => adminGroupIds.includes(g))) roles.push("admin")
-	if (!user.adminSuppressed && user.groups.some((g) => auditorGroupIds.includes(g))) roles.push("auditor")
+	const roles = new Set<UserRole>()
+
+	if (!user.adminSuppressed) {
+		if (user.groups.some((g) => adminGroupIds.includes(g))) roles.add("admin")
+		if (user.groups.some((g) => auditorGroupIds.includes(g))) roles.add("auditor")
+	}
+
+	for (const r of user.dbRoles ?? []) {
+		if (r.role === "admin" && user.adminSuppressed) continue
+		roles.add(r.role)
+	}
+
 	return roles
 }
 
@@ -38,9 +60,7 @@ function adGroupRoles(user: NavUser): UserRole[] {
 
 /** Sjekk om bruker har en gitt rolle (globalt, uavhengig av scope). */
 export function hasRole(user: NavUser, role: UserRole): boolean {
-	if (role === "admin" && user.adminSuppressed) return false
-	if (adGroupRoles(user).includes(role)) return true
-	return (user.dbRoles ?? []).some((r) => r.role === role && !(r.role === "admin" && user.adminSuppressed))
+	return effectiveRoles(user).has(role)
 }
 
 /** Sjekk om bruker har en rolle scopet til en seksjon. Admin har alltid tilgang. */
