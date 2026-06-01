@@ -13,9 +13,11 @@ function getGroupIds(envVar: string): string[] {
 }
 
 function adGroupRoles(user: NavUser): UserRole[] {
+	const adminGroupIds = getGroupIds("KISS_ADMIN_GROUP_IDS")
+	const auditorGroupIds = getGroupIds("KISS_AUDITOR_GROUP_IDS")
 	const roles: UserRole[] = []
-	if (!user.adminSuppressed && user.groups.some((g) => getGroupIds("KISS_ADMIN_GROUP_IDS").includes(g))) roles.push("admin")
-	if (!user.adminSuppressed && user.groups.some((g) => getGroupIds("KISS_AUDITOR_GROUP_IDS").includes(g))) roles.push("auditor")
+	if (!user.adminSuppressed && user.groups.some((g) => adminGroupIds.includes(g))) roles.push("admin")
+	if (!user.adminSuppressed && user.groups.some((g) => auditorGroupIds.includes(g))) roles.push("auditor")
 	return roles
 }
 
@@ -58,7 +60,8 @@ export function isAdmin(user: NavUser): boolean {
 
 /** Actual admin check ignoring suppression (for toggle UI) */
 export function isActualAdmin(user: NavUser): boolean {
-	if (user.groups.some((g) => getGroupIds("KISS_ADMIN_GROUP_IDS").includes(g))) return true
+	const adminGroupIds = getGroupIds("KISS_ADMIN_GROUP_IDS")
+	if (user.groups.some((g) => adminGroupIds.includes(g))) return true
 	return (user.dbRoles ?? []).some((r) => r.role === "admin")
 }
 
