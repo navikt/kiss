@@ -215,6 +215,7 @@ describe("admin.screening.$questionId.rediger action – authorization", () => {
 				"Oppdatert beskrivelse",
 				"Z999999",
 				null,
+				null,
 			)
 		})
 
