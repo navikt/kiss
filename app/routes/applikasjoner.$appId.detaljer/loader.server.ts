@@ -52,9 +52,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		return {}
 	})()
 
-	const [detail, assessmentsResult] = await Promise.all([getApplicationDetail(appId), getAppAssessments(appId)])
+	// Run getAppScopeIds in parallel with the detail query so canAccessReports
+	// is known before the expensive report/evidence queries fire.
+	const [detail, assessmentsResult, appScopeIds] = await Promise.all([
+		getApplicationDetail(appId),
+		getAppAssessments(appId),
+		user ? getAppScopeIds(appId) : Promise.resolve({ devTeamIds: [], sectionIds: [] }),
+	])
 
 	if (!detail) throw new Response("Applikasjon ikke funnet", { status: 404 })
+
+	const canAccessReports = user ? canAccessAppReports(user, appScopeIds.sectionIds, appScopeIds.devTeamIds) : false
 
 	// Resolve effective git repository: prefer app-level, fallback to oldest environment with a repo
 	// (matches sync job logic: ORDER BY discovered_at ASC LIMIT 1)
@@ -114,7 +122,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getRoutineDeadlinesWithControls(appId),
 		getReviewsForApp(appId),
 		getSections({ includeArchived: true }),
-		getReportsForApp(appId),
+		canAccessReports ? getReportsForApp(appId) : Promise.resolve([]),
 		getScreeningProgressForApps([appId]),
 		getScreeningSessionsForApp(appId, user ? isAdmin(user) : false),
 		getScreeningEffectsByControlForApp(appId),
@@ -139,12 +147,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		githubTeams,
 		githubCollaborators,
 		githubChangeLog,
-		appScopeIds,
 	] = await Promise.all([
 		resolveAppNames([...referencedAppNames]),
 		getActiveAcknowledgments(appId),
 		getOracleInstances(),
-		getOracleInstancesForApp(appId),
+		canAccessReports ? getOracleInstancesForApp(appId) : Promise.resolve([]),
 		getOracleRoleAssessments(appId),
 		getDeploymentVerificationForAppWithFetch(appId),
 		getManualGroupsForApp(appId),
@@ -152,7 +159,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		effectiveGitRepository ? getGitHubTeamsForApp(appId) : Promise.resolve([]),
 		effectiveGitRepository ? getGitHubCollaboratorsForApp(appId) : Promise.resolve([]),
 		effectiveGitRepository ? getGitHubAccessChangeLog(appId) : Promise.resolve([]),
-		user ? getAppScopeIds(appId) : Promise.resolve({ devTeamIds: [], sectionIds: [] }),
 	])
 
 	// Compute auto-compliance from parallel results
@@ -353,8 +359,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			updatedAt: a.updatedAt.toISOString(),
 		}
 	}
-
-	const canAccessReports = user ? canAccessAppReports(user, appScopeIds.sectionIds, appScopeIds.devTeamIds) : false
 
 	return data({
 		...breadcrumbCtx,
