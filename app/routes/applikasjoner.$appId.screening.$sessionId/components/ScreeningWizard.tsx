@@ -106,7 +106,6 @@ export function ScreeningWizard({
 		)
 	}, [setSearchParams])
 
-	const allAnswered = screening.length > 0 && screening.every((q) => isQuestionAnswered(q, economyClassification))
 	const answeredCount = screening.filter((q) => isQuestionAnswered(q, economyClassification)).length
 
 	const goToNext = useCallback(() => {
@@ -229,20 +228,35 @@ export function ScreeningWizard({
 						<BodyShort size="small" textColor="subtle">
 							{answeredCount} av {screening.length} spørsmål besvart
 						</BodyShort>
-						{unansweredQuestions.length > 0 && (
-							<Alert variant="warning" size="small">
-								{unansweredQuestions.length} spørsmål gjenstår. Gå tilbake og besvar dem for å kunne fullføre
-								screeningen.
-							</Alert>
+						{unansweredQuestions.length > 0 ? (
+							<VStack gap="space-4">
+								<Alert variant="warning" size="small">
+									{unansweredQuestions.length === 1
+										? "1 spørsmål gjenstår før du kan fullføre screeningen:"
+										: `${unansweredQuestions.length} spørsmål gjenstår før du kan fullføre screeningen:`}
+								</Alert>
+								<VStack gap="space-2" as="ul" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+									{unansweredQuestions.map((q) => (
+										<li key={q.id}>
+											<Button type="button" variant="tertiary" size="small" onClick={() => navigateTo(q.id)}>
+												{q.questionText}
+											</Button>
+										</li>
+									))}
+								</VStack>
+							</VStack>
+						) : (
+							<>
+								<WizardCompletionPage
+									questions={screening}
+									rulesetOptions={rulesetOptions}
+									economyClassification={economyClassification}
+									readOnly={readOnly}
+									onNavigateToQuestion={navigateTo}
+								/>
+								{!readOnly && completionAction}
+							</>
 						)}
-						<WizardCompletionPage
-							questions={screening}
-							rulesetOptions={rulesetOptions}
-							economyClassification={economyClassification}
-							readOnly={readOnly}
-							onNavigateToQuestion={navigateTo}
-						/>
-						{allAnswered && !readOnly && completionAction}
 					</VStack>
 				</main>
 			</div>
