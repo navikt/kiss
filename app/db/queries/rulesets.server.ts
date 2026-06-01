@@ -31,6 +31,7 @@ export interface RulesetListItem {
 	responsibleRole: string | null
 	frequency: string
 	status: RulesetStatus
+	category: string | null
 	approvalStatus: ApprovalStatus
 	lastApproval: { validFrom: Date; validUntil: Date } | null
 }
@@ -194,6 +195,7 @@ export async function getRulesetsForSection(sectionId: string): Promise<RulesetL
 			responsibleRole: r.responsibleRole,
 			frequency: r.frequency,
 			status: r.status as RulesetStatus,
+			category: r.category ?? null,
 			approvalStatus: computeApprovalStatus(
 				r.status as RulesetStatus,
 				latest ? { validUntil: latest.validUntil } : null,
@@ -432,6 +434,17 @@ export async function getRulesetMeta(rulesetId: string): Promise<RulesetMeta | n
 	return row ?? null
 }
 
+export async function getRulesetById(
+	rulesetId: string,
+): Promise<{ id: string; sectionId: string; status: string; category: string | null } | null> {
+	const [row] = await db
+		.select({ id: rulesets.id, sectionId: rulesets.sectionId, status: rulesets.status, category: rulesets.category })
+		.from(rulesets)
+		.where(and(eq(rulesets.id, rulesetId), isNull(rulesets.archivedAt)))
+		.limit(1)
+	return row ?? null
+}
+
 /**
  * Henter regelsett-detaljer inkludert tilknyttede kontroller, rutiner og
  * gjeldende godkjenningsstatus. Returnerer null hvis ikke funnet.
@@ -449,6 +462,7 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 			responsibleRole: rulesets.responsibleRole,
 			frequency: rulesets.frequency,
 			status: rulesets.status,
+			category: rulesets.category,
 			createdAt: rulesets.createdAt,
 			createdBy: rulesets.createdBy,
 			updatedAt: rulesets.updatedAt,
@@ -513,6 +527,7 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 		responsibleRole: row.responsibleRole,
 		frequency: row.frequency,
 		status: row.status as RulesetStatus,
+		category: row.category ?? null,
 		resolvedResponsible,
 		approvalStatus: computeApprovalStatus(
 			row.status as RulesetStatus,
@@ -607,6 +622,7 @@ export async function updateRuleset(
 		responsibleName?: string | null
 		responsibleRole?: string | null
 		frequency?: RoutineFrequency
+		category?: string | null
 		updatedBy: string
 		requireUnapproved?: boolean
 	},
@@ -618,6 +634,7 @@ export async function updateRuleset(
 	if (input.responsibleName !== undefined) set.responsibleName = input.responsibleName
 	if (input.responsibleRole !== undefined) set.responsibleRole = input.responsibleRole
 	if (input.frequency !== undefined) set.frequency = input.frequency
+	if (input.category !== undefined) set.category = input.category
 
 	if (input.requireUnapproved) {
 		return db.transaction(async (tx) => {
@@ -641,16 +658,42 @@ export async function updateRuleset(
 				.set(set)
 				.where(and(eq(rulesets.id, rulesetId), isNull(rulesets.archivedAt)))
 				.returning({ id: rulesets.id })
-			return updated.length > 0
+			if (updated.length === 0) return false
+
+			await writeAuditLog(
+				{
+					action: "ruleset_updated",
+					entityType: "ruleset",
+					entityId: rulesetId,
+					newValue: JSON.stringify(set),
+					performedBy: input.updatedBy,
+				},
+				tx,
+			)
+			return true
 		})
 	}
 
-	const updated = await db
-		.update(rulesets)
-		.set(set)
-		.where(and(eq(rulesets.id, rulesetId), isNull(rulesets.archivedAt)))
-		.returning({ id: rulesets.id })
-	return updated.length > 0
+	return db.transaction(async (tx) => {
+		const updated = await tx
+			.update(rulesets)
+			.set(set)
+			.where(and(eq(rulesets.id, rulesetId), isNull(rulesets.archivedAt)))
+			.returning({ id: rulesets.id })
+		if (updated.length === 0) return false
+
+		await writeAuditLog(
+			{
+				action: "ruleset_updated",
+				entityType: "ruleset",
+				entityId: rulesetId,
+				newValue: JSON.stringify(set),
+				performedBy: input.updatedBy,
+			},
+			tx,
+		)
+		return true
+	})
 }
 
 /**

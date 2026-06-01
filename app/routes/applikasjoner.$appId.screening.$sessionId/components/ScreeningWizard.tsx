@@ -200,7 +200,10 @@ export function ScreeningWizard({
 			return <OracleRolesScreeningSection key={q.id} oracleRolesData={oracleRolesData} canAdmin={canAdmin} />
 		}
 		if (q.answerType === "ruleset") {
-			return <RulesetSection key={q.id} question={q} rulesets={rulesetOptions} />
+			const filteredRulesets = q.rulesetCategoryFilter
+				? rulesetOptions.filter((rs) => rs.category === q.rulesetCategoryFilter)
+				: rulesetOptions
+			return <RulesetSection key={q.id} question={q} rulesets={filteredRulesets} />
 		}
 		if (q.answerType === "economy_system") {
 			return <EconomySystemSection key={q.id} classification={economyClassification} />

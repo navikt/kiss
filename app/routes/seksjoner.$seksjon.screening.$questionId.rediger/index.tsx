@@ -22,6 +22,7 @@ import {
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
+import { isRulesetCategory } from "~/db/schema/rulesets"
 import { validScreeningQuestionStatuses } from "~/db/schema/screening"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
@@ -71,6 +72,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				answerType: "",
 				status: "draft" as const,
 				rulesetId: null as string | null,
+				rulesetCategoryFilter: null as string | null,
 				technologyElementIds: [] as string[],
 			},
 			choices: [],
@@ -178,6 +180,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			const answerType = (formData.get("answerType") as string) || "boolean"
 			const technologyElementIds = formData.getAll("technologyElementIds") as string[]
 			const rulesetId = (formData.get("rulesetId") as string) || null
+			const rulesetCategoryFilterRaw = (formData.get("rulesetCategoryFilter") as string) || null
+			const rulesetCategoryFilter =
+				rulesetCategoryFilterRaw === null || isRulesetCategory(rulesetCategoryFilterRaw)
+					? rulesetCategoryFilterRaw
+					: null
 			if (!questionText?.trim()) throw new Response("Ugyldig data", { status: 400 })
 
 			if (questionId === "ny") {
@@ -198,7 +205,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				return redirect(returnPath)
 			}
 
-			await updateScreeningQuestion(questionId, questionText.trim(), description, authedUser.navIdent, rulesetId)
+			await updateScreeningQuestion(
+				questionId,
+				questionText.trim(),
+				description,
+				authedUser.navIdent,
+				rulesetId,
+				rulesetCategoryFilter,
+			)
 			await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean), authedUser.navIdent)
 			return redirect(returnPath)
 		}

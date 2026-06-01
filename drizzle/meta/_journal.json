@@ -722,6 +722,13 @@
       "when": 1781918080000,
       "tag": "0102_section_batch_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1781918140000,
+      "tag": "0103_ruleset_category",
+      "breakpoints": true
     }
   ]
 }

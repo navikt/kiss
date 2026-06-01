@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs } from "react-router"
 import { data, redirect } from "react-router"
+import { getRulesetById } from "~/db/queries/rulesets.server"
 import {
 	completeScreeningSession,
 	getScreeningSession,
@@ -80,9 +81,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		// Validate that questionId belongs to this app's screening questions
 		const { getScreeningDataForApp } = await import("~/db/queries/screening.server")
 		const screeningData = await getScreeningDataForApp(appId)
-		const validQuestionIds = new Set(screeningData.questions.map((q) => q.id))
-		if (!validQuestionIds.has(questionId)) {
+		const question = screeningData.questions.find((q) => q.id === questionId)
+		if (!question) {
 			throw new Response("Spørsmålet tilhører ikke denne applikasjonens screening", { status: 403 })
+		}
+
+		// For ruleset questions, validate that the submitted answer respects the category filter
+		if (question.answerType === "ruleset" && answerValue && question.rulesetCategoryFilter) {
+			const rs = await getRulesetById(answerValue)
+			const sectionIds = new Set(screeningData.sectionIds)
+			if (
+				!rs ||
+				rs.status !== "active" ||
+				!sectionIds.has(rs.sectionId) ||
+				rs.category !== question.rulesetCategoryFilter
+			) {
+				throw new Response("Det valgte regelsettet er ikke tillatt for dette spørsmålet", { status: 400 })
+			}
 		}
 
 		try {

@@ -121,22 +121,35 @@ export async function updateScreeningQuestion(
 	description: string | null,
 	updatedBy: string,
 	rulesetId?: string | null,
+	rulesetCategoryFilter?: string | null,
 ) {
-	const [q] = await db
-		.update(screeningQuestions)
-		.set({ questionText, description, updatedAt: new Date(), updatedBy, rulesetId: rulesetId ?? null })
-		.where(eq(screeningQuestions.id, id))
-		.returning()
+	return db.transaction(async (tx) => {
+		const [q] = await tx
+			.update(screeningQuestions)
+			.set({
+				questionText,
+				description,
+				updatedAt: new Date(),
+				updatedBy,
+				rulesetId: rulesetId ?? null,
+				...(rulesetCategoryFilter !== undefined && { rulesetCategoryFilter }),
+			})
+			.where(eq(screeningQuestions.id, id))
+			.returning()
 
-	await writeAuditLog({
-		action: "screening_question_updated",
-		entityType: "screening_question",
-		entityId: id,
-		newValue: questionText,
-		performedBy: updatedBy,
+		await writeAuditLog(
+			{
+				action: "screening_question_updated",
+				entityType: "screening_question",
+				entityId: id,
+				newValue: questionText,
+				performedBy: updatedBy,
+			},
+			tx,
+		)
+
+		return q
 	})
-
-	return q
 }
 
 export async function reorderScreeningQuestions(orderedIds: string[], performedBy: string) {
@@ -1261,6 +1274,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 				description: q.description,
 				displayOrder: q.displayOrder,
 				answerType: q.answerType,
+				rulesetCategoryFilter: q.rulesetCategoryFilter ?? null,
 				answer: saved?.answer ?? null,
 				answerComment: saved?.comment ?? null,
 				answerLink: saved?.link ?? null,
@@ -1499,6 +1513,7 @@ export async function getScreeningQuestionsForSnapshot(applicationId: string, ex
 			description: q.description,
 			displayOrder: q.displayOrder,
 			answerType: q.answerType,
+			rulesetCategoryFilter: q.rulesetCategoryFilter ?? null,
 			choices: choicesWithRoutines,
 			affectedControls: [...affectedControls],
 		}
