@@ -16,10 +16,7 @@ body {
 
 .app-main {
 	flex: 1;
-	max-width: 80rem;
-	margin: 0 auto;
-	padding: var(--ax-space-24);
-	width: 100%;
+	padding-block: var(--ax-space-24);
 }
 
 /* ── Breadcrumbs ── */
@@ -68,23 +65,6 @@ body {
 .app-nav {
 	background-color: var(--ax-bg-brand-blue-strong);
 	border-top: 1px solid rgba(255, 255, 255, 0.15);
-	padding: 0 var(--ax-space-24);
-}
-
-.app-nav-content {
-	max-width: 80rem;
-	margin: 0 auto;
-	display: flex;
-	align-items: center;
-	gap: var(--ax-space-8);
-}
-
-.app-nav-content form {
-	flex-shrink: 0;
-}
-
-.app-nav-content .navds-button {
-	color: var(--ax-text-brand-blue-contrast);
 }
 
 .app-nav-list {
@@ -568,7 +548,7 @@ body {
 /* ── Responsive: Tablet (≤ 768px) ── */
 @media (max-width: 768px) {
 	.app-main {
-		padding: var(--ax-space-16);
+		padding-block: var(--ax-space-16);
 	}
 
 	.dashboard-summary {
@@ -618,7 +598,6 @@ body {
 /* ── Responsive: Mobile (≤ 640px) ── */
 @media (max-width: 640px) {
 	.app-nav {
-		padding: 0 var(--ax-space-12);
 		position: relative;
 	}
 
@@ -640,7 +619,7 @@ body {
 	}
 
 	.app-main {
-		padding: var(--ax-space-12);
+		padding-block: var(--ax-space-12);
 	}
 
 	.dashboard-summary {

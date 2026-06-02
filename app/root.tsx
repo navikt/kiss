@@ -1,4 +1,4 @@
-import { BodyLong, Box, Detail, Heading, HStack, InternalHeader, Spacer, Theme, VStack } from "@navikt/ds-react"
+import { BodyLong, Box, Detail, Heading, HStack, InternalHeader, Page, Spacer, Theme, VStack } from "@navikt/ds-react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import {
 	data,
@@ -196,8 +196,10 @@ function AppShell({
 			</InternalHeader>
 			<AppNavigation isAdmin={user?.isAdmin ?? false} sections={user?.sections ?? []} teams={user?.teams ?? []} />
 			<main id="main-content" className="app-main">
-				<Breadcrumbs />
-				<Outlet />
+				<Page.Block width="2xl" gutters>
+					<Breadcrumbs />
+					<Outlet />
+				</Page.Block>
 			</main>
 		</Theme>
 	)
