@@ -27,6 +27,7 @@ import {
 } from "~/db/queries/nais.server"
 import { getSections } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { getNaisToken } from "~/lib/nais.server"
 import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
 
 export async function loader(_args: LoaderFunctionArgs) {
@@ -66,7 +67,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	const userName = authedUser.navIdent
 
 	if (intent === "sync") {
-		const token = process.env.NAIS_API_TOKEN || undefined
+		const token = getNaisToken()
 		const tracked = await runTrackedNaisSync({
 			token,
 			performedBy: authedUser.navIdent,

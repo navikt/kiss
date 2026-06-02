@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import { getNaisToken } from "~/lib/nais.server"
 import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
 
 /** POST /api/nais-sync — trigger a full Nais sync. Requires authentication. */
@@ -11,7 +12,7 @@ export async function action({ request }: ActionFunctionArgs) {
 	}
 	const authedUser = requireUser(user)
 
-	const token = process.env.NAIS_API_TOKEN || undefined
+	const token = getNaisToken()
 	const tracked = await runTrackedNaisSync({
 		token,
 		performedBy: authedUser.navIdent,

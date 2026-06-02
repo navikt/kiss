@@ -3,7 +3,7 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getNaisTeamDetail } from "~/db/queries/nais.server"
-import { fetchNaisApps } from "~/lib/nais.server"
+import { fetchNaisApps, getNaisToken } from "~/lib/nais.server"
 
 const persistenceLabels: Record<string, string> = {
 	cloud_sql_postgres: "PostgreSQL",
@@ -39,7 +39,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	// If no synced apps (unmonitored team), fetch live from Nais API
 	if (detail.apps.length === 0) {
 		try {
-			const token = process.env.NAIS_API_TOKEN || undefined
+			const token = getNaisToken()
 			const naisApps = await fetchNaisApps(token, teamSlug)
 			detail.apps = naisApps.map((app) => ({
 				appId: "",

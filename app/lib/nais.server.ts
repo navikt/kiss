@@ -66,13 +66,26 @@ interface GraphQLResponse<T> {
 	errors?: Array<{ message: string }>
 }
 
-/** Get the Nais API token. Returns undefined when using a local proxy (no auth needed). */
-export function getNaisToken(): string | undefined {
+/** Nais API token — lest fra fil ved oppstart og cachet for hele prosessens levetid. */
+function loadNaisToken(): string | undefined {
 	const tokenPath = process.env.NAIS_SERVICE_ACCOUNT_TOKEN_PATH
 	if (tokenPath) {
-		return readFileSync(tokenPath, "utf-8").trim()
+		try {
+			const token = readFileSync(tokenPath, "utf-8").trim()
+			if (token) return token
+			logger.warn(`[nais] NAIS_SERVICE_ACCOUNT_TOKEN_PATH peker til tom fil: ${tokenPath}`)
+		} catch (err) {
+			logger.error(`[nais] Kunne ikke lese NAIS_SERVICE_ACCOUNT_TOKEN_PATH (${tokenPath}): ${err}`)
+		}
 	}
-	return process.env.NAIS_API_TOKEN || undefined
+	return undefined
+}
+
+const NAIS_TOKEN = loadNaisToken()
+
+/** Get the Nais API token loaded at startup from NAIS_SERVICE_ACCOUNT_TOKEN_PATH. */
+export function getNaisToken(): string | undefined {
+	return NAIS_TOKEN
 }
 
 async function naisGraphQL<T>(query: string, variables?: Record<string, unknown>, token?: string): Promise<T> {
