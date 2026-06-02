@@ -1,3 +1,4 @@
+import { Page } from "@navikt/ds-react"
 import { useMemo } from "react"
 import { Link, useLocation } from "react-router"
 
@@ -64,7 +65,7 @@ export function AppNavigation({ isAdmin, sections, teams }: AppNavigationProps) 
 
 	return (
 		<nav className="app-nav" aria-label="Hovednavigasjon">
-			<div className="app-nav-content">
+			<Page.Block width="2xl" gutters>
 				<ul className="app-nav-list">
 					{navItems.map((item) => {
 						const isActive = item.href === activeHref
@@ -81,7 +82,7 @@ export function AppNavigation({ isAdmin, sections, teams }: AppNavigationProps) 
 						)
 					})}
 				</ul>
-			</div>
+			</Page.Block>
 		</nav>
 	)
 }
