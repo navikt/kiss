@@ -1,7 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import { createMemoryRouter, RouterProvider } from "react-router"
 import EditScreeningQuestion from "~/routes/admin.screening.$questionId.rediger"
-import { eksisterendeSporsmalData, godkjentSporsmalData, nyttSporsmalData } from "./mock-data"
+import {
+	eksisterendeSporsmalData,
+	godkjentSporsmalData,
+	nyttRegelsettsSporsmalData,
+	nyttSporsmalData,
+	regelsettsSporsmalMedKategoriData,
+	regelsettsSporsmalSeksjonsKontekstData,
+} from "./mock-data"
 
 /**
  * Wrapper that provides React Router context and mocks loader data.
@@ -87,4 +94,36 @@ export const AlleEffekttyper: Story = {
 export const GodkjentSporsmal: Story = {
 	name: "Godkjent spørsmål (status=approved)",
 	render: () => <StoryWrapper loaderData={godkjentSporsmalData} />,
+}
+
+// ─── Regelsett-spørsmål ───────────────────────────────────────────────────────
+
+/**
+ * Nytt spørsmål av typen «Regelsett» — ingen kategoribegrensning valgt.
+ * Velg en answerType for å se at kategori-feltet kun vises for Regelsett-typen.
+ * Brukeren kan her velge om kun ett regelsett-subset skal vises i screeningen.
+ */
+export const RegelsettsSporsmalUtenKategori: Story = {
+	name: "Regelsett-spørsmål – uten kategoribegrensning",
+	render: () => <StoryWrapper loaderData={nyttRegelsettsSporsmalData} />,
+}
+
+/**
+ * Eksisterende regelsett-spørsmål med kategoribegrensning «Tilgangskontroll».
+ * Viser at «Kategoribegrensning»-feltet er forhåndsvalgt, og at
+ * screeningen kun vil tilby tilgangskontroll-regelsett til brukeren.
+ */
+export const RegelsettsSporsmalMedKategori: Story = {
+	name: "Regelsett-spørsmål – med kategoribegrensning (Tilgangskontroll)",
+	render: () => <StoryWrapper loaderData={regelsettsSporsmalMedKategoriData} />,
+}
+
+/**
+ * Regelsett-spørsmål i seksjons-kontekst (pensjon-og-ufore).
+ * Bruker samme komponent og viser at seksjonsnavn og returnPath settes riktig
+ * for seksjons-ruten (seksjoner.$seksjon.screening.$questionId.rediger).
+ */
+export const RegelsettsSporsmalSeksjonsKontekst: Story = {
+	name: "Regelsett-spørsmål – seksjons-kontekst (Pensjon og uføre)",
+	render: () => <StoryWrapper loaderData={regelsettsSporsmalSeksjonsKontekstData} />,
 }
