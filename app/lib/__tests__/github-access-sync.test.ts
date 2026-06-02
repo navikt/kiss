@@ -23,26 +23,17 @@ vi.mock("~/lib/github.server", () => ({
 }))
 
 // Mock DB
-const mockDbSelect = vi.fn()
+const mockDbExecute = vi.fn()
 const mockDbTransaction = vi.fn()
 vi.mock("~/db/connection.server", () => ({
 	db: {
-		select: (...args: unknown[]) => mockDbSelect(...args),
+		execute: (...args: unknown[]) => mockDbExecute(...args),
 		transaction: (...args: unknown[]) => mockDbTransaction(...args),
 	},
 }))
 
 vi.mock("~/db/queries/audit.server", () => ({
 	writeAuditLog: vi.fn(),
-}))
-
-vi.mock("~/db/schema/applications", () => ({
-	monitoredApplications: { id: "id", name: "name", gitRepository: "git_repository", archivedAt: "archived_at" },
-	applicationEnvironments: {
-		applicationId: "application_id",
-		gitRepository: "git_repository",
-		discoveredAt: "discovered_at",
-	},
 }))
 
 vi.mock("~/db/schema/github-access", () => ({
@@ -127,22 +118,13 @@ describe("runGitHubAccessSync", () => {
 		mockIsConfigured.mockReturnValue(true)
 		mockWithAdvisoryLock.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn())
 
-		// Mock DB select: two calls inside advisory lock (direct repo + env repo)
-		mockDbSelect
-			.mockReturnValueOnce({
-				from: () => ({
-					where: () =>
-						Promise.resolve([
-							{ id: "app-1", gitRepository: "navikt/pen" },
-							{ id: "app-2", gitRepository: "navikt/modia" },
-						]),
-				}),
-			})
-			.mockReturnValueOnce({
-				from: () => ({
-					where: () => Promise.resolve([]),
-				}),
-			})
+		// findAppsWithGitRepository uses db.execute() which returns { rows: [...] } with snake_case
+		mockDbExecute.mockResolvedValueOnce({
+			rows: [
+				{ id: "app-1", git_repository: "navikt/pen" },
+				{ id: "app-2", git_repository: "navikt/modia" },
+			],
+		})
 
 		// Mock GitHub API responses
 		mockGetRepoTeams.mockResolvedValue([{ slug: "team-a", name: "Team A", permission: "push" }])
@@ -184,17 +166,9 @@ describe("runGitHubAccessSync", () => {
 		mockIsConfigured.mockReturnValue(true)
 		mockWithAdvisoryLock.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn())
 
-		mockDbSelect
-			.mockReturnValueOnce({
-				from: () => ({
-					where: () => Promise.resolve([{ id: "app-1", gitRepository: "navikt/pen" }]),
-				}),
-			})
-			.mockReturnValueOnce({
-				from: () => ({
-					where: () => Promise.resolve([]),
-				}),
-			})
+		mockDbExecute.mockResolvedValueOnce({
+			rows: [{ id: "app-1", git_repository: "navikt/pen" }],
+		})
 
 		mockGetRepoTeams.mockRejectedValue(new Error("GitHub API error: 403"))
 
@@ -211,17 +185,9 @@ describe("runGitHubAccessSync", () => {
 		mockIsConfigured.mockReturnValue(true)
 		mockWithAdvisoryLock.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn())
 
-		mockDbSelect
-			.mockReturnValueOnce({
-				from: () => ({
-					where: () => Promise.resolve([{ id: "app-1", gitRepository: "navikt/pen" }]),
-				}),
-			})
-			.mockReturnValueOnce({
-				from: () => ({
-					where: () => Promise.resolve([]),
-				}),
-			})
+		mockDbExecute.mockResolvedValueOnce({
+			rows: [{ id: "app-1", git_repository: "navikt/pen" }],
+		})
 
 		// GitHub returns team-a with NEW permission (was push, now admin)
 		mockGetRepoTeams.mockResolvedValue([{ slug: "team-a", name: "Team A", permission: "admin" }])

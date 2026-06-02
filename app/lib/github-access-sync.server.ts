@@ -1,7 +1,6 @@
-import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { db } from "../db/connection.server"
 import { writeAuditLog } from "../db/queries/audit.server"
-import { monitoredApplications } from "../db/schema/applications"
 import { githubRepoCollaborators, githubRepoTeamMembers, githubRepoTeams } from "../db/schema/github-access"
 import {
 	type GitHubCollaborator,
@@ -59,6 +58,50 @@ export function parseGitRepository(gitRepository: string): { owner: string; repo
 }
 
 /**
+ * Henter alle aktive applikasjoner som har et git-repository konfigurert.
+ * Foretrekker app-nivå git_repository, faller tilbake til første environment-repo (tidligst discoveredAt).
+ *
+ * Bruker fullstendig raw SQL med eksplisitte aliaser (ma/ae/ae2) for å unngå en Drizzle-bug
+ * der ${table.column} i sql`` scalar subquery i SELECT-listen ikke korrelerer korrekt
+ * mot outer query, og returnerer null for alle rader.
+ */
+export async function findAppsWithGitRepository(): Promise<Array<{ id: string; gitRepository: string }>> {
+	const rows = await db.execute<{ id: string; git_repository: string }>(
+		sql`
+			SELECT ma.id,
+				COALESCE(
+					NULLIF(trim(ma.git_repository), ''),
+					(
+						SELECT ae.git_repository
+						FROM application_environments ae
+						WHERE ae.application_id = ma.id
+							AND ae.git_repository IS NOT NULL
+							AND trim(ae.git_repository) != ''
+						ORDER BY ae.discovered_at ASC
+						LIMIT 1
+					)
+				) AS git_repository
+			FROM monitored_applications ma
+			WHERE ma.archived_at IS NULL
+				AND (
+					(ma.git_repository IS NOT NULL AND trim(ma.git_repository) != '')
+					OR EXISTS (
+						SELECT 1 FROM application_environments ae2
+						WHERE ae2.application_id = ma.id
+							AND ae2.git_repository IS NOT NULL
+							AND trim(ae2.git_repository) != ''
+					)
+				)
+		`,
+	)
+	return rows.rows
+		.filter(
+			(r): r is { id: string; git_repository: string } => r.git_repository != null && r.git_repository.trim() !== "",
+		)
+		.map((r) => ({ id: r.id, gitRepository: r.git_repository }))
+}
+
+/**
  * Kjører full GitHub-tilgangssynkronisering for alle applikasjoner med gitRepository.
  * Bruker advisory lock for å forhindre parallell kjøring på tvers av pods.
  */
@@ -93,53 +136,8 @@ export async function runGitHubAccessSync(performedBy = "github-access-sync"): P
 			durationMs: 0,
 		}
 
-		// Fetch apps with git repository — prefer app-level, fallback to first environment repo.
-		// Use raw SQL aliases in subqueries to avoid Drizzle table-reference issues.
-		const appsWithDirectRepo = await db
-			.select({
-				id: monitoredApplications.id,
-				gitRepository: monitoredApplications.gitRepository,
-			})
-			.from(monitoredApplications)
-			.where(
-				and(
-					isNull(monitoredApplications.archivedAt),
-					isNotNull(monitoredApplications.gitRepository),
-					sql`trim(${monitoredApplications.gitRepository}) != ''`,
-				),
-			)
-
-		const appsWithEnvRepo = await db
-			.select({
-				id: monitoredApplications.id,
-				gitRepository: sql<string | null>`(
-					SELECT ae.git_repository
-					FROM application_environments ae
-					WHERE ae.application_id = ${monitoredApplications.id}
-						AND ae.git_repository IS NOT NULL
-						AND trim(ae.git_repository) != ''
-					ORDER BY ae.discovered_at ASC
-					LIMIT 1
-				)`.as("env_git_repository"),
-			})
-			.from(monitoredApplications)
-			.where(
-				and(
-					isNull(monitoredApplications.archivedAt),
-					or(isNull(monitoredApplications.gitRepository), sql`trim(${monitoredApplications.gitRepository}) = ''`),
-					sql`EXISTS (
-						SELECT 1 FROM application_environments ae
-						WHERE ae.application_id = ${monitoredApplications.id}
-							AND ae.git_repository IS NOT NULL
-							AND trim(ae.git_repository) != ''
-					)`,
-				),
-			)
-
-		const targetApps = [...appsWithDirectRepo, ...appsWithEnvRepo]
-		logger.info(
-			`[github-access-sync] Found ${appsWithDirectRepo.length} apps with direct repo, ${appsWithEnvRepo.length} apps with env repo (${targetApps.length} total)`,
-		)
+		const targetApps = await findAppsWithGitRepository()
+		logger.info(`[github-access-sync] Found ${targetApps.length} apps with git repository`)
 
 		for (const app of targetApps) {
 			if (!app.gitRepository?.trim()) continue
