@@ -137,7 +137,7 @@ describe("RPA user assessments", () => {
 		).rejects.toMatchObject({ status: 409 })
 	})
 
-	it("kaster 403 når rutinen er arkivert", async () => {
+	it("tillater endring av vurderinger selv om rutinen er arkivert", async () => {
 		const db = getTestDb()
 		const sectionId = await createSection(db)
 		const reviewId = await createRoutineAndReview(db, sectionId)
@@ -147,9 +147,10 @@ describe("RPA user assessments", () => {
 			/* sql */ `UPDATE routines SET archived_at = NOW() WHERE id = (SELECT routine_id FROM routine_reviews WHERE id = '${reviewId}')`,
 		)
 
+		// Should succeed even though the routine is archived
 		await expect(
 			upsertRpaUserAssessment(reviewId, "user-obj-archived", NAV_IDENT, { owner: "Test" }),
-		).rejects.toMatchObject({ status: 403 })
+		).resolves.not.toThrow()
 	})
 
 	it("nullstiller decisionDeadline når den sendes uten gyldig beslutning", async () => {

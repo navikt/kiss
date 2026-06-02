@@ -1,7 +1,7 @@
-import { VStack } from "@navikt/ds-react"
+import { Alert, VStack } from "@navikt/ds-react"
 import { useCallback, useMemo } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
-import { data, redirect, useLoaderData, useSearchParams } from "react-router"
+import { data, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
 	addFollowUpPoint,
@@ -17,7 +17,7 @@ import {
 	getReviewActivityIdByType,
 	getRoutine,
 	getRoutineActivityLinks,
-	getRoutineArchivedStatusByReviewId,
+	getRoutineNamesByIds,
 	patchEntraActivity,
 	seedEntraActivity,
 	updateFollowUpPointDescription,
@@ -562,9 +562,20 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const routineDescriptionHtml = renderMarkdown(routine.description)
 
+	// If the routine is archived (replaced), fetch the replacement routine name for the warning banner.
+	let replacedByRoutineName: string | null = null
+	if (routine.archivedAt !== null && routine.replacedByRoutineId) {
+		const nameMap = await getRoutineNamesByIds([routine.replacedByRoutineId])
+		replacedByRoutineName = nameMap.get(routine.replacedByRoutineId)?.name ?? null
+	}
+
 	return data({
 		section,
+		seksjon,
 		routine,
+		routineArchivedAt: routine.archivedAt?.toISOString() ?? null,
+		replacedByRoutineId: routine.replacedByRoutineId ?? null,
+		replacedByRoutineName,
 		routineDescriptionHtml,
 		linkedRulesets: linkedRulesetsWithHtml,
 		activities: activitiesWithEvidence,
@@ -610,19 +621,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
-
-	// Soft-delete-guard: enhver mutasjon på en gjennomgang som tilhører en
-	// arkivert rutine blokkeres med 403. Brukeren må reaktivere rutinen først.
-	// Dette er forsvar i dybden — query-laget guarder også enkelt-operasjoner.
-	// Lettvekts JOIN-spørring (ikke full getReview()/getRoutine()) for å unngå
-	// unødvendige subqueries per POST.
-	const archiveStatus = await getRoutineArchivedStatusByReviewId(gjennomgangId)
-	if (archiveStatus?.archivedAt) {
-		throw data(
-			{ message: "Kan ikke endre gjennomganger på en arkivert rutine. Reaktiver rutinen først." },
-			{ status: 403 },
-		)
-	}
 
 	if (intent === "update-review") {
 		// Only update fields that are actually present in the form submission.
@@ -1130,8 +1128,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function GjennomgangDetalj() {
-	const { section, routine, routineDescriptionHtml, linkedRulesets, review, activities } =
-		useLoaderData<typeof loader>()
+	const {
+		section,
+		seksjon,
+		routine,
+		routineDescriptionHtml,
+		linkedRulesets,
+		review,
+		activities,
+		routineArchivedAt,
+		replacedByRoutineId,
+		replacedByRoutineName,
+	} = useLoaderData<typeof loader>()
 	const isDraft = review.status === "draft"
 
 	const hasControls = routine.controls.length > 0
@@ -1251,18 +1259,36 @@ export default function GjennomgangDetalj() {
 	}
 
 	return (
-		<ReviewWizard
-			title={review.title}
-			status={review.status}
-			hasControls={hasControls}
-			hasRulesets={hasRulesets}
-			activities={activityStepInfos}
-			currentStepId={currentStepId}
-			completedSteps={completedSteps}
-			onStepChange={handleStepChange}
-		>
-			{renderStep()}
-		</ReviewWizard>
+		<VStack gap="space-4">
+			{routineArchivedAt && (
+				<Alert variant="warning">
+					Rutinen er erstattet og arkivert. Gjennomgangen gjelder den tidligere versjonen av rutinen, men kan likevel
+					fullføres.
+					{replacedByRoutineId && (
+						<>
+							{" "}
+							Den nye rutinen er{" "}
+							<Link to={`/seksjoner/${seksjon}/rutiner/${replacedByRoutineId}`}>
+								{replacedByRoutineName ?? "Ukjent rutine"}
+							</Link>
+							.
+						</>
+					)}
+				</Alert>
+			)}
+			<ReviewWizard
+				title={review.title}
+				status={review.status}
+				hasControls={hasControls}
+				hasRulesets={hasRulesets}
+				activities={activityStepInfos}
+				currentStepId={currentStepId}
+				completedSteps={completedSteps}
+				onStepChange={handleStepChange}
+			>
+				{renderStep()}
+			</ReviewWizard>
+		</VStack>
 	)
 }
 

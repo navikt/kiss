@@ -180,7 +180,20 @@ export default function Seksjonsrutiner() {
 													/>
 												</Table.DataCell>
 												<Table.DataCell>{formatDate(sr.lastReviewDate)}</Table.DataCell>
-												<Table.DataCell>{sr.deadline ? formatDate(sr.deadline) : "Ingen frist"}</Table.DataCell>
+												<Table.DataCell>
+													{sr.deadline ? (
+														<VStack gap="space-0">
+															<span>{formatDate(sr.deadline)}</span>
+															{sr.deadlinePolicy === "reset" && sr.routine.sourceRoutineId && (
+																<BodyShort size="small" textColor="subtle">
+																	Frist tilbakestilt ved erstatning
+																</BodyShort>
+															)}
+														</VStack>
+													) : (
+														"Ingen frist"
+													)}
+												</Table.DataCell>
 												<Table.DataCell>
 													{!sr.routine.frequency ? (
 														sr.lastReviewDate ? (

@@ -542,7 +542,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			expect(stillThere.rows).toHaveLength(1)
 		})
 
-		it("deleteReviewLink() avviser sletting når foreldre-rutinen er arkivert", async () => {
+		it("deleteReviewLink() er tillatt selv når foreldre-rutinen er arkivert", async () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Sec", "sec")
 			const appId = await createTestApp("App")
@@ -566,10 +566,11 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			})
 			await archiveRoutine(routine.id, "admin")
 
-			await expect(deleteReviewLink(link.id, review.id, "deleter")).rejects.toMatchObject({ status: 403 })
+			const result = await deleteReviewLink(link.id, review.id, "Z990002")
+			expect(result).not.toBeNull()
 
-			const stillThere = await db.execute(/* sql */ `SELECT id FROM routine_review_links WHERE id = '${link.id}'`)
-			expect(stillThere.rows).toHaveLength(1)
+			const gone = await db.execute(/* sql */ `SELECT archived_at FROM routine_review_links WHERE id = '${link.id}'`)
+			expect((gone.rows[0] as { archived_at: unknown }).archived_at).not.toBeNull()
 		})
 
 		it("deleteReviewLink() returnerer null for ukjent linkId (kallere kan svare 404)", async () => {
@@ -618,15 +619,17 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				await new Promise((r) => setTimeout(r, 200))
 				expect(resolved).toBe(false) // bevis på at låsen blokkerer
 
-				// Nå arkiverer vi og committer — deleteReviewLink skal våkne
-				// og se archived_at satt → 403.
+				// Nå arkiverer vi og committer — deleteReviewLink skal våkne og
+				// fullføre sletningen (arkivering av rutinen er ikke lenger en
+				// blokker for sletting av lenker).
 				await externalClient.query(
-					/* sql */ `UPDATE routines SET archived_at = NOW(), archived_by = 'archiver' WHERE id = $1`,
+					/* sql */ `UPDATE routines SET archived_at = NOW(), archived_by = 'Z990001' WHERE id = $1`,
 					[routine.id],
 				)
 				await externalClient.query("COMMIT")
 
-				await expect(deletePromise).rejects.toMatchObject({ status: 403 })
+				const result = await deletePromise
+				expect(result).not.toBeNull()
 			} finally {
 				externalClient.release()
 			}
@@ -667,7 +670,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			expect(result).toBeNull()
 		})
 
-		it("addReviewLink() avviser når foreldre-rutinen er arkivert", async () => {
+		it("addReviewLink() er tillatt selv når foreldre-rutinen er arkivert", async () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("LinkSec", "link-sec")
 			const routine = await createTestRoutine(sectionId, "LinkR")
@@ -683,9 +686,9 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				participants: [],
 			})
 			await archiveRoutine(routine.id, "admin")
-			await expect(
-				addReviewLink({ reviewId: review.id, url: "https://x", title: null, addedBy: "adder" }),
-			).rejects.toMatchObject({ status: 403 })
+			const link = await addReviewLink({ reviewId: review.id, url: "https://x", title: null, addedBy: "Z990001" })
+			expect(link).not.toBeNull()
+			expect(link?.url).toBe("https://x")
 		})
 
 		it("addReviewLink() kaster 404 når review ikke finnes", async () => {
@@ -694,12 +697,12 @@ describe("Routine archive (soft-delete) integration tests", () => {
 					reviewId: "00000000-0000-0000-0000-000000000000",
 					url: "https://x",
 					title: null,
-					addedBy: "adder",
+					addedBy: "Z990001",
 				}),
 			).rejects.toMatchObject({ status: 404 })
 		})
 
-		it("updateReview() avviser når foreldre-rutinen er arkivert", async () => {
+		it("updateReview() er tillatt selv når foreldre-rutinen er arkivert", async () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("UpdSec", "upd-sec")
 			const routine = await createTestRoutine(sectionId, "UpdR")
@@ -715,10 +718,12 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				participants: [],
 			})
 			await archiveRoutine(routine.id, "admin")
-			await expect(updateReview(review.id, { title: "Endret" }, "updater")).rejects.toMatchObject({ status: 403 })
+			const result = await updateReview(review.id, { title: "Endret" }, "Z990001")
+			expect(result).not.toBeNull()
+			expect(result?.title).toBe("Endret")
 		})
 
-		it("completeReview() avviser når foreldre-rutinen er arkivert", async () => {
+		it("completeReview() er tillatt selv når foreldre-rutinen er arkivert", async () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("CompSec", "comp-sec")
 			const routine = await createTestRoutine(sectionId, "CompR")
@@ -734,7 +739,9 @@ describe("Routine archive (soft-delete) integration tests", () => {
 				participants: [],
 			})
 			await archiveRoutine(routine.id, "admin")
-			await expect(completeReview(review.id, "completer")).rejects.toMatchObject({ status: 403 })
+			const result = await completeReview(review.id, "Z990001")
+			expect(result).not.toBeNull()
+			expect(result?.status).toBe("completed")
 		})
 
 		it("completeReview() er idempotent: dobbel-fullføring skriver kun én audit-oppføring", async () => {

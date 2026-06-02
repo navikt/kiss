@@ -885,7 +885,7 @@ export async function upsertRpaUserAssessment(
 ): Promise<void> {
 	const now = new Date()
 	await db.transaction(async (tx) => {
-		// Guard: ensure the parent review is still in draft and the routine is not archived
+		// Guard: ensure the parent review is still in draft
 		const [snapshot] = await tx
 			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
 			.from(routineReviews)
@@ -895,9 +895,6 @@ export async function upsertRpaUserAssessment(
 			.limit(1)
 		if (!snapshot) {
 			throw new Response("Gjennomgang ikke funnet.", { status: 404 })
-		}
-		if (snapshot.archivedAt) {
-			throw new Response("Kan ikke endre vurderinger på en arkivert rutine.", { status: 403 })
 		}
 		if (snapshot.reviewStatus !== "draft") {
 			throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
@@ -1238,18 +1235,14 @@ export async function patchRpaActivity(
 			applicationId: routineReviews.applicationId,
 			reviewId: routineReviews.id,
 			reviewStatus: routineReviews.status,
-			routineArchivedAt: routines.archivedAt,
 		})
 		.from(routineReviewActivities)
 		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
-		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 		.where(eq(routineReviewActivities.id, activityId))
 		.limit(1)
 
 	if (!precheck) throw new Error(`Fant ikke review-aktivitet ${activityId}`)
 	if (precheck.type !== "rpa_user_maintenance") throw new Error(`Aktivitet ${activityId} er ikke RPA-brukervedlikehold`)
-	if (precheck.routineArchivedAt)
-		throw new Response("Kan ikke endre vurderinger på en arkivert rutine.", { status: 403 })
 	if (precheck.reviewStatus !== "draft") throw new Response("Gjennomgangen er ikke lenger redigerbar.", { status: 409 })
 	if (precheck.status !== "pending") throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
 

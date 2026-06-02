@@ -23,16 +23,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return Response.json({ success: false, error: "Fant ikke oppfølgingspunkt" }, { status: 404 })
 	}
 
-	if (ctx.routineArchivedAt) {
-		return Response.json(
-			{
-				success: false,
-				error: "Kan ikke laste opp vedlegg på en arkivert rutine. Reaktiver rutinen først.",
-			},
-			{ status: 403 },
-		)
-	}
-
 	if (ctx.reviewStatus === "discarded") {
 		return Response.json(
 			{ success: false, error: "Kan ikke laste opp vedlegg på en kassert gjennomgang." },
