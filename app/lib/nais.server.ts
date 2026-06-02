@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { loggedFetch } from "./http-logger.server"
 import { logger } from "./logger.server"
 
@@ -67,7 +68,11 @@ interface GraphQLResponse<T> {
 
 /** Get the Nais API token. Returns undefined when using a local proxy (no auth needed). */
 export function getNaisToken(): string | undefined {
-	return process.env.NAIS_SERVICE_ACCOUNT_TOKEN_PATH || process.env.NAIS_API_TOKEN || undefined
+	const tokenPath = process.env.NAIS_SERVICE_ACCOUNT_TOKEN_PATH
+	if (tokenPath) {
+		return readFileSync(tokenPath, "utf-8").trim()
+	}
+	return process.env.NAIS_API_TOKEN || undefined
 }
 
 async function naisGraphQL<T>(query: string, variables?: Record<string, unknown>, token?: string): Promise<T> {
