@@ -32,7 +32,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Seksjonsrutiner dedupliseres på routine.id — samme rutine kan matche
 	// mot flere apper i teamet, men lastReviewDate/deadline er seksjonsnivå.
-	// Type guard narrower dl.routine til non-null slik at UI-koden slipper optional chaining.
+	// Type guard narrows dl.routine til non-null slik at UI-koden slipper optional chaining.
 	type DeadlineWithRoutine = (typeof result.deadlines)[number] & {
 		routine: NonNullable<(typeof result.deadlines)[number]["routine"]>
 	}
