@@ -38,6 +38,7 @@ export const screeningQuestions = pgTable("screening_questions", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	sectionId: uuid("section_id").references(() => sections.id, { onDelete: "restrict" }),
 	rulesetId: uuid("ruleset_id").references(() => rulesets.id, { onDelete: "set null" }),
+	rulesetCategoryFilter: text("ruleset_category_filter"),
 	questionText: text("question_text").notNull(),
 	description: text("description"),
 	answerType: text("answer_type").notNull().default("boolean"),

@@ -9,6 +9,16 @@ import { routines as routinesRef } from "./routines"
 export const rulesetStatusEnum = ["draft", "active", "archived"] as const
 export type RulesetStatus = (typeof rulesetStatusEnum)[number]
 
+export const RULESET_CATEGORIES = ["endringskontroll", "tilgangskontroll"] as const
+export type RulesetCategory = (typeof RULESET_CATEGORIES)[number]
+export const rulesetCategoryLabels: Record<RulesetCategory, string> = {
+	endringskontroll: "Endringskontroll",
+	tilgangskontroll: "Tilgangskontroll",
+}
+export function isRulesetCategory(value: unknown): value is RulesetCategory {
+	return RULESET_CATEGORIES.includes(value as RulesetCategory)
+}
+
 export const rulesets = pgTable("rulesets", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	sectionId: uuid("section_id")
@@ -22,6 +32,7 @@ export const rulesets = pgTable("rulesets", {
 	responsibleRole: text("responsible_role"),
 	frequency: text("frequency", { enum: ROUTINE_FREQUENCIES }).notNull(),
 	status: text("status", { enum: rulesetStatusEnum }).notNull().default("draft"),
+	category: text("category"),
 	archivedAt: timestamp("archived_at", { withTimezone: true }),
 	archivedBy: text("archived_by"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

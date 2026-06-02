@@ -37,6 +37,7 @@ import {
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
+import { isRulesetCategory, RULESET_CATEGORIES, rulesetCategoryLabels } from "~/db/schema/rulesets"
 import {
 	screeningEffectLabels,
 	screeningQuestionStatusConfig,
@@ -97,6 +98,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				answerType: "",
 				status: "draft" as const,
 				rulesetId: null as string | null,
+				rulesetCategoryFilter: null as string | null,
 				technologyElementIds: [] as string[],
 			},
 			choices: [],
@@ -169,6 +171,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const answerType = (formData.get("answerType") as string) || "boolean"
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
 		const rulesetId = (formData.get("rulesetId") as string) || null
+		const rulesetCategoryFilterRaw = (formData.get("rulesetCategoryFilter") as string) || null
+		const rulesetCategoryFilter =
+			rulesetCategoryFilterRaw === null || isRulesetCategory(rulesetCategoryFilterRaw) ? rulesetCategoryFilterRaw : null
 		if (!questionText?.trim()) throw new Response("Ugyldig data", { status: 400 })
 
 		if (questionId === "ny") {
@@ -189,7 +194,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			return redirect(returnPath)
 		}
 
-		await updateScreeningQuestion(questionId, questionText.trim(), description, authedUser.navIdent, rulesetId)
+		await updateScreeningQuestion(
+			questionId,
+			questionText.trim(),
+			description,
+			authedUser.navIdent,
+			rulesetId,
+			rulesetCategoryFilter,
+		)
 		await setQuestionTechnologyElements(questionId, technologyElementIds.filter(Boolean), authedUser.navIdent)
 		return redirect(returnPath)
 	}
@@ -380,10 +392,25 @@ export default function EditScreeningQuestion() {
 						</BodyShort>
 					)}
 					{answerType === "ruleset" && (
-						<BodyShort size="small" textColor="subtle">
-							Spørsmål av typen «Regelsett» lar brukeren velge et regelsett fra seksjonen som svar. Ingen valgmuligheter
-							eller effekter trengs.
-						</BodyShort>
+						<>
+							<BodyShort size="small" textColor="subtle">
+								Spørsmål av typen «Regelsett» lar brukeren velge et regelsett fra seksjonen som svar. Ingen
+								valgmuligheter eller effekter trengs.
+							</BodyShort>
+							<Select
+								label="Kategoribegrensning (valgfritt)"
+								name="rulesetCategoryFilter"
+								defaultValue={question.rulesetCategoryFilter ?? ""}
+								description="Begrens hvilke regelsett brukeren kan velge fra"
+							>
+								<option value="">— Alle regelsett —</option>
+								{RULESET_CATEGORIES.map((c) => (
+									<option key={c} value={c}>
+										{rulesetCategoryLabels[c]}
+									</option>
+								))}
+							</Select>
+						</>
 					)}
 					{answerType === "oracle_roles" && (
 						<BodyShort size="small" textColor="subtle">

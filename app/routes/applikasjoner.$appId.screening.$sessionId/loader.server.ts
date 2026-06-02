@@ -60,6 +60,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			}>
 		}>
 		affectedControls: string[]
+		rulesetCategoryFilter?: string | null
 	}
 	const rawSnapshotQuestions = snapshot?.questions
 	const snapshotQuestions: SnapshotQuestion[] | null = Array.isArray(rawSnapshotQuestions)
@@ -96,13 +97,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Build ruleset options if needed
 	const hasRulesetQuestion = questionsToUse.some((q) => q.answerType === "ruleset")
-	let rulesetOptions: { id: string; name: string }[] = []
+	let rulesetOptions: { id: string; name: string; category: string | null }[] = []
 	if (hasRulesetQuestion) {
 		// For completed sessions with a ruleset snapshot, use it to preserve historical names.
 		// If the snapshot exists but lacks rulesetOptions (session completed before this field was added),
 		// fall back to live data so ruleset names still resolve correctly.
 		if (snapshot?.rulesetOptions && Array.isArray(snapshot.rulesetOptions)) {
-			rulesetOptions = snapshot.rulesetOptions as typeof rulesetOptions
+			// Legacy snapshots may lack category — normalise to include it
+			rulesetOptions = (snapshot.rulesetOptions as { id: string; name: string; category?: string | null }[]).map(
+				(rs) => ({ id: rs.id, name: rs.name, category: rs.category ?? null }),
+			)
 		} else if (screeningData.sectionIds.length > 0) {
 			const allRulesets = await Promise.all(screeningData.sectionIds.map((sid) => getRulesetsForSection(sid)))
 			const seen = new Set<string>()
@@ -110,7 +114,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				for (const rs of sectionRulesets) {
 					if (!seen.has(rs.id) && rs.status === "active") {
 						seen.add(rs.id)
-						rulesetOptions.push({ id: rs.id, name: rs.name })
+						rulesetOptions.push({ id: rs.id, name: rs.name, category: rs.category ?? null })
 					}
 				}
 			}
@@ -382,6 +386,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			description: q.description,
 			displayOrder: q.displayOrder,
 			answerType: q.answerType,
+			rulesetCategoryFilter: q.rulesetCategoryFilter ?? null,
 			choices: q.choices,
 			affectedControls: q.affectedControls,
 			descriptionHtml: renderMarkdown(q.description),

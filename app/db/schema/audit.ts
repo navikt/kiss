@@ -203,6 +203,7 @@ export const auditLogActionEnum = [
 	// Regelsett
 	"ruleset_archived",
 	"ruleset_unarchived",
+	"ruleset_updated",
 	"ruleset_control_added",
 	"ruleset_control_removed",
 	"ruleset_routine_added",

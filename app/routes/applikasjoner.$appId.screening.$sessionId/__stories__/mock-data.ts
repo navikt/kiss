@@ -23,6 +23,7 @@ export const mockScreening = [
 		answeredAt: null as string | null,
 		choices: [],
 		affectedControls: ["K-ØS.01", "K-ØS.02", "K-ØS.03"],
+		rulesetCategoryFilter: null,
 	},
 	{
 		id: "q-boolean",
@@ -41,6 +42,7 @@ export const mockScreening = [
 			{ id: "c-nei", label: "Nei", requiresComment: false, requiresLink: false, routineSelections: [] },
 		],
 		affectedControls: ["K-PD.01", "K-PD.02"],
+		rulesetCategoryFilter: null,
 	},
 	{
 		id: "q-single",
@@ -79,6 +81,7 @@ export const mockScreening = [
 			},
 		],
 		affectedControls: ["K-ST.01", "K-ST.03"],
+		rulesetCategoryFilter: null,
 	},
 	{
 		id: "q-persistence",
@@ -94,6 +97,7 @@ export const mockScreening = [
 		answeredAt: null as string | null,
 		choices: [],
 		affectedControls: ["K-TS.02", "K-TS.04"],
+		rulesetCategoryFilter: null,
 	},
 	{
 		id: "q-entra",
@@ -109,6 +113,7 @@ export const mockScreening = [
 		answeredAt: null as string | null,
 		choices: [],
 		affectedControls: ["K-TS.01"],
+		rulesetCategoryFilter: null,
 	},
 	{
 		id: "q-oracle",
@@ -124,6 +129,7 @@ export const mockScreening = [
 		answeredAt: null as string | null,
 		choices: [],
 		affectedControls: ["K-TS.01", "K-TS.02"],
+		rulesetCategoryFilter: null,
 	},
 	{
 		id: "q-ruleset",
@@ -140,6 +146,7 @@ export const mockScreening = [
 		answeredAt: null as string | null,
 		choices: [],
 		affectedControls: ["K-ST.01", "K-ST.02"],
+		rulesetCategoryFilter: null,
 	},
 	{
 		id: "q-routine-choice",
@@ -180,6 +187,7 @@ export const mockScreening = [
 			},
 		],
 		affectedControls: ["K-TS.01"],
+		rulesetCategoryFilter: null,
 	},
 ]
 
@@ -208,10 +216,10 @@ export const mockPersistence = [
 ]
 
 export const mockRulesetOptions = [
-	{ id: "rs-1", name: "Standard sikkerhetskrav" },
-	{ id: "rs-2", name: "Personvern-krav (GDPR)" },
-	{ id: "rs-3", name: "Finansielt regelverk" },
-	{ id: "rs-4", name: "Helseopplysninger" },
+	{ id: "rs-1", name: "Standard sikkerhetskrav", category: null },
+	{ id: "rs-2", name: "Personvern-krav (GDPR)", category: null },
+	{ id: "rs-3", name: "Finansielt regelverk", category: null },
+	{ id: "rs-4", name: "Helseopplysninger", category: null },
 ]
 
 export const mockEntraGroupsData = {

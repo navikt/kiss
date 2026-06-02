@@ -29,6 +29,7 @@ import {
 } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
+import { isRulesetCategory, RULESET_CATEGORIES, rulesetCategoryLabels } from "~/db/schema/rulesets"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin, requireAdmin, requireAnySectionRole } from "~/lib/authorization.server"
 import {
@@ -132,6 +133,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			const responsibleName = formData.get("responsibleName")
 			const responsibleRole = formData.get("responsibleRole")
 			const frequency = formData.get("frequency")
+			const categoryRaw = formData.get("category")
+			const categoryStr = typeof categoryRaw === "string" && categoryRaw.trim() ? categoryRaw.trim() : null
+			const category = categoryStr === null || isRulesetCategory(categoryStr) ? categoryStr : null
 
 			if (typeof name !== "string" || !name.trim()) {
 				return data<ActionResult>({ success: false, error: "Navn er påkrevd." })
@@ -158,6 +162,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 						: null
 					: null,
 				frequency: isRoutineFrequency(frequency) ? (frequency as RoutineFrequency) : undefined,
+				category,
 				updatedBy: authedUser.navIdent,
 				requireUnapproved: !userIsAdmin,
 			})
@@ -306,6 +311,14 @@ export default function RegelsettRediger() {
 							{frequencies.map((f) => (
 								<option key={f.value} value={f.value}>
 									{f.label}
+								</option>
+							))}
+						</Select>
+						<Select label="Kategori (valgfritt)" name="category" defaultValue={ruleset.category ?? ""}>
+							<option value="">— Ingen kategori —</option>
+							{RULESET_CATEGORIES.map((c) => (
+								<option key={c} value={c}>
+									{rulesetCategoryLabels[c]}
 								</option>
 							))}
 						</Select>
