@@ -66,7 +66,7 @@ export function parseGitRepository(gitRepository: string): { owner: string; repo
  * mot outer query, og returnerer null for alle rader.
  */
 export async function findAppsWithGitRepository(): Promise<Array<{ id: string; gitRepository: string }>> {
-	const rows = await db.execute<{ id: string; git_repository: string }>(
+	const rows = await db.execute<{ id: string; git_repository: string | null }>(
 		sql`
 			SELECT ma.id,
 				COALESCE(

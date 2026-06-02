@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
@@ -16,7 +17,7 @@ const { upsertMonitoredApp, upsertAppEnvironment } = await import("~/db/queries/
 async function setDirectRepo(appId: string, gitRepository: string) {
 	const db = getTestDb()
 	await db.execute(
-		/* sql */ `UPDATE monitored_applications SET git_repository = '${gitRepository}', updated_at = now() WHERE id = '${appId}'`,
+		sql`UPDATE monitored_applications SET git_repository = ${gitRepository}, updated_at = now() WHERE id = ${appId}`,
 	)
 }
 
@@ -70,6 +71,14 @@ describe("findAppsWithGitRepository", () => {
 		const { id: appId } = await upsertMonitoredApp("pen", "test")
 		await upsertAppEnvironment(appId, "prod-gcp", "teampensjon", null, null, "https://github.com/navikt/first")
 		await upsertAppEnvironment(appId, "dev-gcp", "teampensjon", null, null, "https://github.com/navikt/second")
+		// Sett eksplisitte timestamps så rekkefølgen er deterministisk uavhengig av transaksjonstidsstempel
+		const db = getTestDb()
+		await db.execute(
+			sql`UPDATE application_environments SET discovered_at = '2024-01-01 10:00:00+00' WHERE cluster = 'prod-gcp' AND application_id = ${appId}`,
+		)
+		await db.execute(
+			sql`UPDATE application_environments SET discovered_at = '2024-01-02 10:00:00+00' WHERE cluster = 'dev-gcp' AND application_id = ${appId}`,
+		)
 
 		const result = await findAppsWithGitRepository()
 
@@ -82,7 +91,7 @@ describe("findAppsWithGitRepository", () => {
 		await setDirectRepo(appId, "https://github.com/navikt/arkivert")
 		const db = getTestDb()
 		await db.execute(
-			/* sql */ `UPDATE monitored_applications SET archived_at = now(), archived_by = 'test' WHERE id = '${appId}'`,
+			sql`UPDATE monitored_applications SET archived_at = now(), archived_by = 'test' WHERE id = ${appId}`,
 		)
 
 		const result = await findAppsWithGitRepository()
