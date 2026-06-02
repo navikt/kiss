@@ -46,10 +46,6 @@ export async function action({ request }: ActionFunctionArgs) {
 	if (ctx.activityStatus !== "pending") {
 		throw data({ error: "Aktiviteten er allerede fullført" }, { status: 403 })
 	}
-	if (ctx.routineArchivedAt) {
-		throw data({ error: "Rutinen er arkivert" }, { status: 403 })
-	}
-
 	if (!isDeploymentEvidenceActivityType(ctx.activityType)) {
 		throw data(
 			{ error: `Periodekonfigurasjon støttes ikke for aktivitetstypen '${ctx.activityType}'` },

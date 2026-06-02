@@ -1586,24 +1586,19 @@ export async function updateReview(
 	if (params.applicationId !== undefined) updates.applicationId = params.applicationId
 	if (params.reviewedAt !== undefined) updates.reviewedAt = params.reviewedAt
 
-	// Atomisk: archive-guard + status-guard + UPDATE/participants i tx med
-	// FOR SHARE-lås på foreldre-rutinen og henter review-status atomisk så
-	// samtidig archiveRoutine() / completeReview() blokkeres / detekteres.
+	// Atomisk: status-guard + UPDATE/participants i tx med
+	// FOR UPDATE-lås på foreldre-rutinen og routine_reviews henter review-status atomisk så
+	// samtidig completeReview() blokkeres / detekteres.
 	await db.transaction(async (tx) => {
 		const [snapshot] = await tx
-			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.select({ reviewStatus: routineReviews.status })
 			.from(routineReviews)
 			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 			.where(eq(routineReviews.id, reviewId))
-			.for("share", { of: [routines] })
+			.for("update", { of: [routines, routineReviews] })
 			.limit(1)
 		if (!snapshot) {
 			throw new Response("Gjennomgang ikke funnet.", { status: 404 })
-		}
-		if (snapshot.archivedAt) {
-			throw new Response("Kan ikke endre gjennomganger på en arkivert rutine. Reaktiver rutinen først.", {
-				status: 403,
-			})
 		}
 		if (snapshot.reviewStatus !== "draft") {
 			// Status endret seg fra draft til noe annet (fullført / needs_follow_up
@@ -1751,26 +1746,12 @@ export async function completeReview(reviewId: string, performedBy: string) {
 		}
 	}
 
-	// Atomisk: archive-guard + activity-complete + status UPDATE i samme tx
-	// med FOR SHARE-lås på foreldre-rutinen så samtidig archiveRoutine()
-	// blokkeres til vår tx er ferdig. Audit + compliance-sync hopper over
+	// Atomisk: activity-complete + status UPDATE i samme tx.
+	// Audit + compliance-sync hopper over
 	// hvis status-UPDATE matchet 0 rader (samtidig completion-race).
 	const result = await db.transaction(async (tx) => {
-		const [archiveStatus] = await tx
-			.select({ archivedAt: routines.archivedAt })
-			.from(routineReviews)
-			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
-			.where(eq(routineReviews.id, reviewId))
-			.for("share", { of: [routines] })
-			.limit(1)
-		if (archiveStatus?.archivedAt) {
-			throw new Response("Kan ikke fullføre gjennomganger på en arkivert rutine. Reaktiver rutinen først.", {
-				status: 403,
-			})
-		}
-
 		// Fullfør alle ventende aktiviteter innenfor tx slik at de rolles
-		// tilbake hvis status-UPDATE feiler eller archive-guarden kaster.
+		// tilbake ved transaksjonsfeil (f.eks. statusvakt i UPDATE matchet 0 rader).
 		for (const activity of allActivities) {
 			if (activity.status === "pending") {
 				await completeReviewActivity(activity.id, null, performedBy, tx)
@@ -1928,19 +1909,14 @@ export async function addFollowUpPoint(params: {
 
 	const inserted = await db.transaction(async (tx) => {
 		const [snapshot] = await tx
-			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.select({ reviewStatus: routineReviews.status })
 			.from(routineReviews)
 			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 			.where(eq(routineReviews.id, reviewId))
-			.for("share", { of: [routines] })
+			.for("update", { of: [routines, routineReviews] })
 			.limit(1)
 		if (!snapshot) {
 			throw new Response("Gjennomgang ikke funnet", { status: 404 })
-		}
-		if (snapshot.archivedAt) {
-			throw new Response("Kan ikke legge til oppfølgingspunkt på en arkivert rutine. Reaktiver rutinen først.", {
-				status: 403,
-			})
 		}
 		if (snapshot.reviewStatus === "discarded") {
 			throw new Response("Kan ikke legge til oppfølgingspunkt på en kassert gjennomgang.", { status: 409 })
@@ -2016,17 +1992,14 @@ export async function updateFollowUpPointText(params: {
 		}
 
 		const [snapshot] = await tx
-			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.select({ reviewStatus: routineReviews.status })
 			.from(routineReviews)
 			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 			.where(eq(routineReviews.id, expectedReviewId))
-			.for("share", { of: [routines] })
+			.for("share", { of: [routines, routineReviews] })
 			.limit(1)
 		if (!snapshot) {
 			throw new Response("Gjennomgang ikke funnet", { status: 404 })
-		}
-		if (snapshot.archivedAt) {
-			throw new Response("Kan ikke endre oppfølgingspunkt på en arkivert rutine.", { status: 403 })
 		}
 		if (snapshot.reviewStatus !== "draft") {
 			throw new Response("Teksten på et oppfølgingspunkt kan kun endres mens gjennomgangen er utkast.", {
@@ -2088,17 +2061,14 @@ export async function updateFollowUpPointDescription(params: {
 		}
 
 		const [snapshot] = await tx
-			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.select({ reviewStatus: routineReviews.status })
 			.from(routineReviews)
 			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 			.where(eq(routineReviews.id, expectedReviewId))
-			.for("share", { of: [routines] })
+			.for("share", { of: [routines, routineReviews] })
 			.limit(1)
 		if (!snapshot) {
 			throw new Response("Gjennomgang ikke funnet", { status: 404 })
-		}
-		if (snapshot.archivedAt) {
-			throw new Response("Kan ikke endre oppfølgingspunkt på en arkivert rutine.", { status: 403 })
 		}
 		if (snapshot.reviewStatus !== "draft") {
 			throw new Response("Beskrivelse kan kun endres mens gjennomgangen er utkast.", {
@@ -2160,17 +2130,14 @@ export async function updateFollowUpPointStatus(params: {
 		}
 
 		const [snapshot] = await tx
-			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.select({ reviewStatus: routineReviews.status })
 			.from(routineReviews)
 			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 			.where(eq(routineReviews.id, expectedReviewId))
-			.for("share", { of: [routines] })
+			.for("update", { of: [routines, routineReviews] })
 			.limit(1)
 		if (!snapshot) {
 			throw new Response("Gjennomgang ikke funnet", { status: 404 })
-		}
-		if (snapshot.archivedAt) {
-			throw new Response("Kan ikke endre oppfølgingspunkt på en arkivert rutine.", { status: 403 })
 		}
 		if (snapshot.reviewStatus === "discarded") {
 			throw new Response("Kan ikke endre oppfølgingspunkt på en kassert gjennomgang.", { status: 409 })
@@ -2285,17 +2252,14 @@ export async function deleteFollowUpPoint(params: { pointId: string; expectedRev
 		}
 
 		const [snapshot] = await tx
-			.select({ archivedAt: routines.archivedAt, reviewStatus: routineReviews.status })
+			.select({ reviewStatus: routineReviews.status })
 			.from(routineReviews)
 			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 			.where(eq(routineReviews.id, expectedReviewId))
-			.for("share", { of: [routines] })
+			.for("share", { of: [routines, routineReviews] })
 			.limit(1)
 		if (!snapshot) {
 			throw new Response("Gjennomgang ikke funnet", { status: 404 })
-		}
-		if (snapshot.archivedAt) {
-			throw new Response("Kan ikke slette oppfølgingspunkt på en arkivert rutine.", { status: 403 })
 		}
 		if (snapshot.reviewStatus !== "draft") {
 			throw new Response("Oppfølgingspunkt kan kun slettes mens gjennomgangen er utkast.", { status: 409 })
@@ -2338,22 +2302,21 @@ async function syncComplianceForReview(reviewId: string, performedBy: string) {
 // ─── Review Links ────────────────────────────────────────────────────────
 
 export async function addReviewLink(params: { reviewId: string; url: string; title: string | null; addedBy: string }) {
-	// Atomisk: archive-guard + INSERT i tx med FOR SHARE-lås på foreldre-
-	// rutinen så samtidig archiveRoutine() blokkeres til vår tx er ferdig
-	// (lukker TOCTOU mellom action-level archived-guard og INSERT).
+	// Atomisk: INSERT i tx med FOR SHARE-lås på foreldre-rutinen og
+	// routine_reviews så statusguarden mot discarded er atomisk.
 	return db.transaction(async (tx) => {
-		const [archiveStatus] = await tx
-			.select({ archivedAt: routines.archivedAt })
+		const [snapshot] = await tx
+			.select({ reviewStatus: routineReviews.status })
 			.from(routineReviews)
 			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 			.where(eq(routineReviews.id, params.reviewId))
-			.for("share", { of: [routines] })
+			.for("share", { of: [routines, routineReviews] })
 			.limit(1)
-		if (!archiveStatus) {
+		if (!snapshot) {
 			throw new Response("Gjennomgang ikke funnet.", { status: 404 })
 		}
-		if (archiveStatus.archivedAt) {
-			throw new Response("Kan ikke legge til lenker på en arkivert rutine. Reaktiver rutinen først.", { status: 403 })
+		if (snapshot.reviewStatus === "discarded") {
+			throw new Response("Kan ikke legge til lenke på en kassert gjennomgang.", { status: 409 })
 		}
 
 		const [link] = await tx
@@ -2384,23 +2347,18 @@ export async function addReviewLink(params: { reviewId: string; url: string; tit
 /**
  * Arkiverer en review-lenke (soft-delete). Tar `expectedReviewId` for å
  * forhindre IDOR (kun lenker som tilhører den oppgitte gjennomgangen kan
- * arkiveres via en gitt rute-kontekst). Avviser også arkivering hvis
- * foreldre-rutinen er arkivert.
+ * arkiveres via en gitt rute-kontekst).
  *
  * Hele operasjonen kjøres i en transaksjon med `FOR SHARE`-lås på
- * foreldre-rutinen, slik at en samtidig `archiveRoutine()` blokkeres til
- * vår transaksjon er ferdig — sjekk og arkivering blir atomisk og lukker
- * TOCTOU-vinduet mellom archived-sjekk og oppdatering.
+ * foreldre-rutinen, slik at sjekk og arkivering blir atomisk.
  */
 export async function deleteReviewLink(linkId: string, expectedReviewId: string, performedBy: string) {
 	return db.transaction(async (tx) => {
-		// Lås foreldre-rutinen (FOR SHARE) — blokkerer samtidig archive,
-		// men tillater andre lesere. JOIN-spørring henter reviewId, routineId
-		// og archivedAt i ett kall.
-		const [archiveStatus] = await tx
+		// Lås foreldre-rutinen (FOR SHARE) — tillater andre lesere.
+		// JOIN-spørring henter reviewId og linkArchivedAt i ett kall.
+		const [linkSnapshot] = await tx
 			.select({
 				reviewId: routineReviewLinks.reviewId,
-				archivedAt: routines.archivedAt,
 				linkArchivedAt: routineReviewLinks.archivedAt,
 			})
 			.from(routineReviewLinks)
@@ -2409,15 +2367,12 @@ export async function deleteReviewLink(linkId: string, expectedReviewId: string,
 			.where(eq(routineReviewLinks.id, linkId))
 			.for("share", { of: [routines] })
 			.limit(1)
-		if (!archiveStatus) return null
-		if (archiveStatus.reviewId !== expectedReviewId) {
+		if (!linkSnapshot) return null
+		if (linkSnapshot.reviewId !== expectedReviewId) {
 			throw new Response("Lenken tilhører ikke denne gjennomgangen.", { status: 403 })
 		}
-		if (archiveStatus.archivedAt) {
-			throw new Response("Kan ikke slette lenker på en arkivert rutine. Reaktiver rutinen først.", { status: 403 })
-		}
 		// Idempotent: hvis lenken allerede er arkivert, ikke skriv audit-rad.
-		if (archiveStatus.linkArchivedAt) return null
+		if (linkSnapshot.linkArchivedAt) return null
 
 		const [link] = await tx
 			.update(routineReviewLinks)
@@ -4981,6 +4936,9 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 			lastReviewDate,
 			deadline,
 			overdue: isOverdue(deadline),
+			// "reset" means this routine replaced another but the review history was NOT inherited.
+			// null means the routine was not created by replacing another.
+			deadlinePolicy: policyMap.get(routine.id) ?? null,
 		}
 	})
 }

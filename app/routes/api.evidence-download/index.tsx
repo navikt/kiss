@@ -38,9 +38,6 @@ async function requireWritableActivity(
 	if (ctx.activityStatus !== "pending") {
 		throw data({ error: "Aktiviteten er allerede fullført" }, { status: 403 })
 	}
-	if (ctx.routineArchivedAt) {
-		throw data({ error: "Rutinen er arkivert" }, { status: 403 })
-	}
 	return ctx
 }
 
