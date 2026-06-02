@@ -35,7 +35,7 @@ spec:
       claims:
         groups:
           - id: 1e97cbc6-0687-4d23-aebd-c611035279c1  # pensjon-revisjon (admin)
-          - id: 415d3817-c83d-44c9-a52b-5116757f8fa8  # teampensjon (user)
+          - id: 44e8f280-31f5-4d38-b4d6-d0d7ff10d137  # nais-team-pensjon-kiss-revisjon (revisor)
           - id: 70c6e964-e265-4f1d-a55e-1c8d8b60ffcb  # nais-team-pensjon-kiss (user)
         extra:
           - "NAVident"
@@ -96,7 +96,7 @@ spec:
     - name: KISS_ADMIN_GROUP_IDS
       value: "1e97cbc6-0687-4d23-aebd-c611035279c1"
     - name: KISS_AUDITOR_GROUP_IDS
-      value: "415d3817-c83d-44c9-a52b-5116757f8fa8"
+      value: "44e8f280-31f5-4d38-b4d6-d0d7ff10d137"
     - name: GCS_BUCKET_NAME
       value: kiss-data
     - name: ORACLE_REVISJON_BASE_URL
