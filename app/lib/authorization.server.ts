@@ -28,9 +28,8 @@ function getGroupIds(envVar: string): string[] {
 //
 // Regler:
 //   - AD-gruppe admin   → supprimert når adminSuppressed
-//   - AD-gruppe auditor → supprimert når adminSuppressed (følger admin-modus)
+//   - AD-gruppe auditor → IKKE supprimert (uavhengig rolle, følger ikke admin-modus)
 //   - dbRoles admin     → supprimert når adminSuppressed
-//   - dbRoles auditor   → IKKE supprimert (eksplisitt tildelt, uavhengig av admin-modus)
 //   - alle andre roller → aldri supprimert
 //
 // NB: isActualAdmin() er unntaket — den ignorerer bevisst adminSuppressed (for toggle-UI).
@@ -41,10 +40,8 @@ function effectiveRoles(user: NavUser): Set<UserRole> {
 	const auditorGroupIds = getGroupIds("KISS_AUDITOR_GROUP_IDS")
 	const roles = new Set<UserRole>()
 
-	if (!user.adminSuppressed) {
-		if (user.groups.some((g) => adminGroupIds.includes(g))) roles.add("admin")
-		if (user.groups.some((g) => auditorGroupIds.includes(g))) roles.add("auditor")
-	}
+	if (!user.adminSuppressed && user.groups.some((g) => adminGroupIds.includes(g))) roles.add("admin")
+	if (user.groups.some((g) => auditorGroupIds.includes(g))) roles.add("auditor")
 
 	for (const r of user.dbRoles ?? []) {
 		if (r.role === "admin" && user.adminSuppressed) continue
