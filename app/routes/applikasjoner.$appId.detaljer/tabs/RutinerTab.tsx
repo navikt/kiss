@@ -46,6 +46,7 @@ type RoutineDeadline = {
 	matchedOracleCriticalities?: Array<{ criticality: GroupCriticality }>
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
+	draftReviewId?: string
 }
 
 type CompletedReview = {
@@ -231,6 +232,33 @@ export function RutinerTab({
 		)
 	}
 
+	const renderRoutineAction = (dl: RoutineDeadline) => {
+		if (!dl.routine?.sectionId || !sectionSlugMap[dl.routine.sectionId]) return null
+		const sectionSlug = sectionSlugMap[dl.routine.sectionId]
+		if (dl.draftReviewId) {
+			return (
+				<Button
+					as={Link}
+					to={`/seksjoner/${sectionSlug}/rutiner/${dl.routine.id}/gjennomgang/${dl.draftReviewId}`}
+					variant="tertiary"
+					size="xsmall"
+				>
+					Fortsett gjennomgang
+				</Button>
+			)
+		}
+		return (
+			<form method="post" style={{ display: "inline" }}>
+				<input type="hidden" name="intent" value="create-draft" />
+				<input type="hidden" name="routineId" value={dl.routine.id} />
+				<input type="hidden" name="sectionSlug" value={sectionSlug} />
+				<Button type="submit" variant="tertiary" size="xsmall">
+					Ny gjennomgang
+				</Button>
+			</form>
+		)
+	}
+
 	const filterRoutine = (dl: RoutineDeadline): boolean => {
 		if (routineStatusFilter.length > 0 && !routineStatusFilter.includes(routineStatusKey(dl))) return false
 		if (routineSearch) {
@@ -394,18 +422,7 @@ export function RutinerTab({
 															(dl.routine?.name ?? "—")
 														)}
 													</Table.DataCell>
-													<Table.DataCell>
-														{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
-															<form method="post" style={{ display: "inline" }}>
-																<input type="hidden" name="intent" value="create-draft" />
-																<input type="hidden" name="routineId" value={dl.routine.id} />
-																<input type="hidden" name="sectionSlug" value={sectionSlugMap[dl.routine.sectionId]} />
-																<Button type="submit" variant="tertiary" size="xsmall">
-																	Ny gjennomgang
-																</Button>
-															</form>
-														) : null}
-													</Table.DataCell>
+													<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
 													<Table.DataCell>
 														<PriorityTag priority={dl.routine?.priority ?? 3} />
 													</Table.DataCell>
@@ -494,22 +511,7 @@ export function RutinerTab({
 																(dl.routine?.name ?? "—")
 															)}
 														</Table.DataCell>
-														<Table.DataCell>
-															{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
-																<form method="post" style={{ display: "inline" }}>
-																	<input type="hidden" name="intent" value="create-draft" />
-																	<input type="hidden" name="routineId" value={dl.routine.id} />
-																	<input
-																		type="hidden"
-																		name="sectionSlug"
-																		value={sectionSlugMap[dl.routine.sectionId]}
-																	/>
-																	<Button type="submit" variant="tertiary" size="xsmall">
-																		Ny gjennomgang
-																	</Button>
-																</form>
-															) : null}
-														</Table.DataCell>
+														<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
 														<Table.DataCell>{renderMatchSource(dl)}</Table.DataCell>
 														<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
 														<Table.DataCell>{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>

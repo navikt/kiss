@@ -36,6 +36,8 @@ const {
 	getRoutineActivityLinks,
 } = await import("~/db/queries/routines.server")
 
+const { getRoutineDeadlinesWithControls } = await import("~/db/queries/routine-deadlines.server")
+
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 async function createTestSection(name: string, slug: string) {
@@ -2475,6 +2477,108 @@ describe("Routines integration tests", () => {
 
 			await expect(updateRoutinePriority(routine.id, 0 as 1 | 2 | 3, "Z990001")).rejects.toThrow()
 			await expect(updateRoutinePriority(routine.id, 4 as 1 | 2 | 3, "Z990001")).rejects.toThrow()
+		})
+	})
+
+	describe("getRoutineDeadlinesWithControls — draftReviewId", () => {
+		it("setter draftReviewId på deadline når det finnes en aktiv draft-gjennomgang for appen", async () => {
+			const sectionId = await createTestSection("Draft-seksjon", "draft-seksjon")
+			const appId = await createTestApp("Draft-app")
+			const questionId = await createTestScreeningQuestion(sectionId, "Har rutine?")
+			await createTestChoice(questionId, "ja")
+
+			const routine = await createRoutine({
+				name: "Draft-rutine",
+				description: null,
+				sectionId,
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO routine_screening_questions (routine_id, question_id, choice_value) VALUES ('${routine.id}', '${questionId}', 'ja')`,
+			)
+			await createTestScreeningAnswer(appId, questionId, "ja")
+
+			// Ingen draft ennå — draftReviewId skal være undefined
+			const before = await getRoutineDeadlinesWithControls(appId)
+			const dlBefore = before.find((d) => d.routine?.id === routine.id)
+			expect(dlBefore).toBeDefined()
+			expect(dlBefore?.draftReviewId).toBeUndefined()
+
+			// Opprett draft-gjennomgang for appen
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Utkast-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			// draftReviewId skal nå peke på gjennomgangen
+			const after = await getRoutineDeadlinesWithControls(appId)
+			const dlAfter = after.find((d) => d.routine?.id === routine.id)
+			expect(dlAfter?.draftReviewId).toBe(review.id)
+		})
+
+		it("setter ikke draftReviewId for en gjennomgang tilhørende en annen app", async () => {
+			const sectionId = await createTestSection("Annen-app-seksjon", "annen-app-seksjon")
+			const appA = await createTestApp("App A")
+			const appB = await createTestApp("App B")
+			const questionId = await createTestScreeningQuestion(sectionId, "Har rutine annen?")
+			await createTestChoice(questionId, "ja")
+
+			const routine = await createRoutine({
+				name: "Felles rutine",
+				description: null,
+				sectionId,
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO routine_screening_questions (routine_id, question_id, choice_value) VALUES ('${routine.id}', '${questionId}', 'ja')`,
+			)
+			await createTestScreeningAnswer(appA, questionId, "ja")
+			await createTestScreeningAnswer(appB, questionId, "ja")
+
+			// Opprett draft kun for app B
+			await createReview({
+				routineId: routine.id,
+				applicationId: appB,
+				title: "Draft for B",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			// App A skal ikke få draftReviewId
+			const deadlines = await getRoutineDeadlinesWithControls(appA)
+			const dl = deadlines.find((d) => d.routine?.id === routine.id)
+			expect(dl?.draftReviewId).toBeUndefined()
 		})
 	})
 })
