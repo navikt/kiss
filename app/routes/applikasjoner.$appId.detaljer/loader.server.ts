@@ -332,18 +332,21 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			...inaccessibleOracleGroupIds,
 		]),
 	]
-	const groupNames = await resolveGroupNames(allGroupIds)
 
 	// Check if app has allowAllUsers enabled (for RPA matching via manual groups)
 	const hasAllowAllUsers = detail.authIntegrations.some(
 		(auth) => auth.type === "entra_id" && auth.allowAllUsers === true,
 	)
 
-	const rpaUsers = await getRpaUsersForApp(
-		[...naisGroupIdSet],
-		manualGroups.map((g) => g.groupId),
-		hasAllowAllUsers,
-	)
+	// resolveGroupNames (Graph API) and getRpaUsersForApp (DB query) are independent — run in parallel
+	const [groupNames, rpaUsers] = await Promise.all([
+		resolveGroupNames(allGroupIds),
+		getRpaUsersForApp(
+			[...naisGroupIdSet],
+			manualGroups.map((g) => g.groupId),
+			hasAllowAllUsers,
+		),
+	])
 
 	const inaccessibleOracleGroups = inaccessibleOracleGroupIds.map((id) => ({
 		id,
