@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
+import type { UserRole } from "~/db/schema/organization"
 import type { NavUser } from "../auth.server"
 import { isAdminSuppressed } from "../auth.server"
 import {
@@ -13,12 +14,18 @@ import {
 } from "../authorization.server"
 
 function makeUser(overrides: Partial<NavUser> = {}): NavUser {
+	const dbRoles = overrides.dbRoles ?? []
+	// Derive roles from dbRoles automatically (mirrors production behaviour for db-role path).
+	// Tests that need AD-group-based roles must set `roles` explicitly.
+	const roles = overrides.roles ?? new Set<UserRole>(dbRoles.map((r) => r.role))
 	return {
 		navIdent: "T123456",
 		name: "Test Testesen",
 		groups: [],
 		token: "fake-token",
-		dbRoles: [],
+		dbRoles,
+		roles,
+		isActualAdmin: false,
 		adminSuppressed: false,
 		...overrides,
 	}
@@ -74,11 +81,9 @@ describe("canManageTeam", () => {
 		expect(canManageTeam(user, devTeamId)).toBe(false)
 	})
 
-	it("returns false for suppressed admin", () => {
-		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-			adminSuppressed: true,
-		})
+	it("returns false for suppressed admin (admin stripped at auth time)", () => {
+		// Admin was stripped from dbRoles by getAuthenticatedUser — only isActualAdmin remains
+		const user = makeUser({ isActualAdmin: true })
 		expect(canManageTeam(user, devTeamId)).toBe(false)
 	})
 })
@@ -87,10 +92,7 @@ describe("canApproveRoutine", () => {
 	const sectionId = "section-1"
 
 	it("admin can always approve regardless of responsibleRole", () => {
-		const adminUser = makeUser({
-			groups: [process.env.KISS_ADMIN_GROUP_IDS?.split(",")[0] ?? ""],
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-		})
+		const adminUser = makeUser({ roles: new Set(["admin"]) })
 		expect(canApproveRoutine(adminUser, null, sectionId)).toBe(true)
 		expect(canApproveRoutine(adminUser, "Teknologileder", sectionId)).toBe(true)
 		expect(canApproveRoutine(adminUser, "Produktleder", sectionId)).toBe(true)
@@ -197,124 +199,86 @@ describe("hasRoleForSection", () => {
 	})
 })
 
-describe("adminSuppressed", () => {
-	it("isAdmin returns false when admin is suppressed via dbRole", () => {
-		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-			adminSuppressed: true,
-		})
+describe("adminSuppressed — admin strips at auth time", () => {
+	// After suppression, admin is removed from groups/dbRoles by getAuthenticatedUser().
+	// authorization.server.ts reads groups/dbRoles directly — no adminSuppressed checks needed.
+
+	it("user without admin in dbRoles is not admin (models stripped user)", () => {
+		const user = makeUser({ dbRoles: [] })
 		expect(isAdmin(user)).toBe(false)
 	})
 
-	it("isActualAdmin returns true even when suppressed", () => {
-		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-			adminSuppressed: true,
-		})
+	it("isActualAdmin returns the isActualAdmin field", () => {
+		// isActualAdmin=true means the user is genuinely an admin (pre-computed in auth)
+		const user = makeUser({ dbRoles: [], isActualAdmin: true })
 		expect(isActualAdmin(user)).toBe(true)
+		expect(isAdmin(user)).toBe(false) // admin stripped from dbRoles → not admin
 	})
 
-	it("hasRole returns false for admin when suppressed", () => {
-		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-			adminSuppressed: true,
-		})
-		expect(hasRole(user, "admin")).toBe(false)
+	it("isActualAdmin=false for regular user", () => {
+		const user = makeUser()
+		expect(isActualAdmin(user)).toBe(false)
+		expect(isAdmin(user)).toBe(false)
 	})
 
-	it("non-admin roles are unaffected by suppression", () => {
+	it("non-admin dbRoles are unaffected by admin stripping", () => {
+		// After suppression: admin removed, tech_manager remains
 		const user = makeUser({
-			dbRoles: [
-				{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null },
-				{ role: "tech_manager", sectionId: "s1", devTeamId: null, devTeamSectionId: null },
-			],
-			adminSuppressed: true,
+			dbRoles: [{ role: "tech_manager", sectionId: "s1", devTeamId: null, devTeamSectionId: null }],
+			isActualAdmin: true, // was admin, but now suppressed
 		})
 		expect(hasRole(user, "tech_manager")).toBe(true)
 		expect(hasRole(user, "admin")).toBe(false)
 	})
 
-	it("hasRoleForSection does not bypass via admin when suppressed", () => {
-		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-			adminSuppressed: true,
-		})
+	it("hasRoleForSection does not bypass via admin when admin is stripped", () => {
+		// Admin stripped → groups and dbRoles contain no admin
+		const user = makeUser({ isActualAdmin: true })
 		expect(hasRoleForSection(user, "tech_manager", "section-1")).toBe(false)
 	})
 
-	it("canApproveRoutine does not bypass via admin when suppressed", () => {
-		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-			adminSuppressed: true,
-		})
+	it("canApproveRoutine does not bypass via admin when admin is stripped", () => {
+		const user = makeUser({ isActualAdmin: true })
 		expect(canApproveRoutine(user, "Teknologileder", "section-1")).toBe(false)
 	})
 
 	it("suppression has no effect on non-admin users", () => {
 		const user = makeUser({
 			dbRoles: [{ role: "tech_manager", sectionId: "s1", devTeamId: null, devTeamSectionId: null }],
-			adminSuppressed: true,
 		})
 		expect(hasRole(user, "tech_manager")).toBe(true)
 		expect(isAdmin(user)).toBe(false)
 	})
 
-	it("auditor fra AD-gruppe supprimeres IKKE når admin-modus er av", () => {
-		vi.stubEnv("KISS_AUDITOR_GROUP_IDS", "auditor-group-id")
-		try {
-			const user = makeUser({ groups: ["auditor-group-id"], adminSuppressed: true })
-			expect(hasRole(user, "auditor")).toBe(true)
-		} finally {
-			vi.unstubAllEnvs()
-		}
+	it("auditor fra AD-gruppe er aktiv uavhengig av admin-modus", () => {
+		// AD-gruppe → rolle mappes i buildEffectiveAuth (auth.server.ts).
+		// I authorization-tester setter vi roles direkte.
+		const user = makeUser({ roles: new Set(["auditor"]), isActualAdmin: true })
+		expect(hasRole(user, "auditor")).toBe(true)
 	})
 
-	it("auditor fra AD-gruppe er aktiv når admin-modus er på", () => {
-		vi.stubEnv("KISS_AUDITOR_GROUP_IDS", "auditor-group-id")
-		try {
-			const user = makeUser({ groups: ["auditor-group-id"], adminSuppressed: false })
-			expect(hasRole(user, "auditor")).toBe(true)
-		} finally {
-			vi.unstubAllEnvs()
-		}
-	})
-
-	it("auditor fra dbRoles supprimeres IKKE når admin-modus er av", () => {
+	it("auditor fra dbRoles er aktiv uavhengig av admin-modus", () => {
 		const user = makeUser({
-			dbRoles: [
-				{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null },
-				{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null },
-			],
-			adminSuppressed: true,
+			dbRoles: [{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+			isActualAdmin: true,
 		})
 		expect(hasRole(user, "admin")).toBe(false)
 		expect(hasRole(user, "auditor")).toBe(true)
 	})
 
-	it("bruker med AD-auditor og DB-auditor: auditor er aktiv selv om admin-modus er av", () => {
-		vi.stubEnv("KISS_AUDITOR_GROUP_IDS", "auditor-group-id")
-		try {
-			const user = makeUser({
-				groups: ["auditor-group-id"],
-				dbRoles: [{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-				adminSuppressed: true,
-			})
-			// Begge kilder gir auditor-tilgang, uavhengig av admin-suppresjon
-			expect(hasRole(user, "auditor")).toBe(true)
-		} finally {
-			vi.unstubAllEnvs()
-		}
+	it("bruker med AD-auditor og DB-auditor: auditor er aktiv selv med admin strippet", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+			roles: new Set(["auditor"]),
+			isActualAdmin: true,
+		})
+		expect(hasRole(user, "auditor")).toBe(true)
 	})
 
-	it("isActualAdmin ignorerer suppresjon (for toggle-UI)", () => {
-		vi.stubEnv("KISS_ADMIN_GROUP_IDS", "admin-group-id")
-		try {
-			const user = makeUser({ groups: ["admin-group-id"], adminSuppressed: true })
-			expect(isAdmin(user)).toBe(false)
-			expect(isActualAdmin(user)).toBe(true)
-		} finally {
-			vi.unstubAllEnvs()
-		}
+	it("admin fra AD-gruppe gir admin-rolle når ikke strippet", () => {
+		// AD-gruppe → admin mappes i buildEffectiveAuth (auth.server.ts).
+		const user = makeUser({ roles: new Set(["admin"]), isActualAdmin: true })
+		expect(isAdmin(user)).toBe(true)
 	})
 })
 
@@ -361,11 +325,8 @@ describe("hasAnySectionRole", () => {
 		expect(hasAnySectionRole(user, sectionId)).toBe(false)
 	})
 
-	it("returns false for suppressed admin", () => {
-		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-			adminSuppressed: true,
-		})
+	it("returns false for suppressed admin (admin stripped at auth time)", () => {
+		const user = makeUser({ isActualAdmin: true })
 		expect(hasAnySectionRole(user, sectionId)).toBe(false)
 	})
 
@@ -491,11 +452,8 @@ describe("canAccessAppReports", () => {
 		expect(canAccessAppReports(user, [], [devTeamId])).toBe(false)
 	})
 
-	it("returns false for suppressed admin", () => {
-		const user = makeUser({
-			dbRoles: [{ role: "admin", sectionId: null, devTeamId: null, devTeamSectionId: null }],
-			adminSuppressed: true,
-		})
+	it("returns false for suppressed admin (admin stripped at auth time)", () => {
+		const user = makeUser({ isActualAdmin: true })
 		expect(canAccessAppReports(user, [sectionId], [devTeamId])).toBe(false)
 	})
 

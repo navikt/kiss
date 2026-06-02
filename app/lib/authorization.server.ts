@@ -2,62 +2,14 @@ import { roleScopeMap, type UserRole } from "~/db/schema/organization"
 import type { NavUser } from "./auth.server"
 
 // ---------------------------------------------------------------------------
-// AD-gruppe → rolle mapping
-// Begge AD-gruppe-roller (admin og auditor) supprimeres når admin-modus er deaktivert.
-// Auditor-rollen via dbRoles (eksplisitt tildelt, uavhengig av admin) supprimeres ikke.
-// Env vars leses ved kall-tidspunkt (lazy) for å støtte vi.stubEnv i tester.
-// Resultatet caches per råverdi slik at split/trim ikke kjøres på nytt så lenge env er uendret.
-// ---------------------------------------------------------------------------
-
-const groupIdCache = new Map<string, { raw: string; ids: string[] }>()
-
-function getGroupIds(envVar: string): string[] {
-	const raw = process.env[envVar] ?? ""
-	const cached = groupIdCache.get(envVar)
-	if (cached?.raw === raw) return cached.ids
-	const ids = raw
-		.split(",")
-		.map((s) => s.trim())
-		.filter(Boolean)
-	groupIdCache.set(envVar, { raw, ids })
-	return ids
-}
-
-// ---------------------------------------------------------------------------
-// Effektive roller — eneste sted adminSuppressed sjekkes for hasRole()
-//
-// Regler:
-//   - AD-gruppe admin   → supprimert når adminSuppressed
-//   - AD-gruppe auditor → IKKE supprimert (uavhengig rolle, følger ikke admin-modus)
-//   - dbRoles admin     → supprimert når adminSuppressed
-//   - alle andre roller → aldri supprimert
-//
-// NB: isActualAdmin() er unntaket — den ignorerer bevisst adminSuppressed (for toggle-UI).
-// ---------------------------------------------------------------------------
-
-function effectiveRoles(user: NavUser): Set<UserRole> {
-	const adminGroupIds = getGroupIds("KISS_ADMIN_GROUP_IDS")
-	const auditorGroupIds = getGroupIds("KISS_AUDITOR_GROUP_IDS")
-	const roles = new Set<UserRole>()
-
-	if (!user.adminSuppressed && user.groups.some((g) => adminGroupIds.includes(g))) roles.add("admin")
-	if (user.groups.some((g) => auditorGroupIds.includes(g))) roles.add("auditor")
-
-	for (const r of user.dbRoles ?? []) {
-		if (r.role === "admin" && user.adminSuppressed) continue
-		roles.add(r.role)
-	}
-
-	return roles
-}
-
-// ---------------------------------------------------------------------------
-// Generiske rolle-sjekker
+// Globale rolle-sjekker — leser user.roles som er pre-beregnet i getAuthenticatedUser().
+// Admin er allerede strippet fra roles når elevation-cookien mangler.
+// Scopede sjekker (seksjon, team) bruker fortsatt user.dbRoles for kontekst-avhengig oppslag.
 // ---------------------------------------------------------------------------
 
 /** Sjekk om bruker har en gitt rolle (globalt, uavhengig av scope). */
 export function hasRole(user: NavUser, role: UserRole): boolean {
-	return effectiveRoles(user).has(role)
+	return user.roles.has(role)
 }
 
 /** Sjekk om bruker har en rolle scopet til en seksjon. Admin har alltid tilgang. */
@@ -86,11 +38,9 @@ export function isAdmin(user: NavUser): boolean {
 	return hasRole(user, "admin")
 }
 
-/** Actual admin check ignoring suppression (for toggle UI) */
+/** Actual admin check: reads the pre-computed field set by getAuthenticatedUser() */
 export function isActualAdmin(user: NavUser): boolean {
-	const adminGroupIds = getGroupIds("KISS_ADMIN_GROUP_IDS")
-	if (user.groups.some((g) => adminGroupIds.includes(g))) return true
-	return (user.dbRoles ?? []).some((r) => r.role === "admin")
+	return user.isActualAdmin
 }
 
 /** Revisor: egen rolle eller admin */
