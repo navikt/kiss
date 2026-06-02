@@ -13,6 +13,7 @@ vi.mock("~/db/connection.server", () => ({
 const {
 	addManualPersistence,
 	archiveManualPersistence,
+	archiveNaisPersistence,
 	deleteManualPersistence,
 	getAppPersistence,
 	getAppsPersistence,
@@ -371,5 +372,81 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 			/* sql */ `SELECT persistence_id FROM persistence_audit_summaries WHERE persistence_id = '${row.id}'`,
 		)
 		expect(summaryRow.rows).toHaveLength(1)
+	})
+})
+
+describe("archiveNaisPersistence — Nais-synkede rader", () => {
+	beforeAll(async () => {
+		await setupTestDatabase()
+	}, 120_000)
+
+	afterAll(async () => {
+		await teardownTestDatabase()
+	})
+
+	beforeEach(async () => {
+		const db = getTestDb()
+		await db.execute(/* sql */ `
+			DELETE FROM persistence_audit_confirmations;
+			DELETE FROM persistence_audit_summaries;
+			DELETE FROM application_persistence;
+			DELETE FROM monitored_applications;
+			DELETE FROM audit_log;
+		`)
+	})
+
+	it("arkiverer en Nais-synket rad og skriver audit-logg", async () => {
+		const appId = await createTestApp("App Nais-Arkiv")
+		await upsertAppPersistence(appId, "cloud_sql_postgres", "gone-db")
+		const [row] = await getAppPersistence(appId)
+
+		const archived = await archiveNaisPersistence(row.id, appId, "Z990001")
+		expect(archived.archivedAt).not.toBeNull()
+		expect(archived.archivedBy).toBe("Z990001")
+
+		const db = getTestDb()
+		const stillThere = await db.execute(
+			/* sql */ `SELECT archived_at FROM application_persistence WHERE id = '${row.id}'`,
+		)
+		expect(stillThere.rows[0].archived_at).not.toBeNull()
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const archiveEntry = audit.find((a) => a.action === "persistence_archived")
+		expect(archiveEntry).toBeDefined()
+		expect(archiveEntry?.performed_by).toBe("Z990001")
+	})
+
+	it("er idempotent — returnerer allerede arkivert rad uten feil", async () => {
+		const appId = await createTestApp("App Nais-Idempotent")
+		await upsertAppPersistence(appId, "cloud_sql_postgres", "gone-db-2")
+		const [row] = await getAppPersistence(appId)
+
+		await archiveNaisPersistence(row.id, appId, "Z990001")
+		const second = await archiveNaisPersistence(row.id, appId, "Z990002")
+		expect(second.archivedAt).not.toBeNull()
+		// Kun én audit-loggoppføring for arkivering
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		expect(audit.filter((a) => a.action === "persistence_archived")).toHaveLength(1)
+	})
+
+	it("avviser arkivering av manuell rad", async () => {
+		const appId = await createTestApp("App Nais-Manuell")
+		await addManualPersistence(appId, "cloud_sql_postgres", "manuell-db", null, "Z990001")
+		const [row] = await getAppPersistence(appId)
+
+		await expect(archiveNaisPersistence(row.id, appId, "Z990001")).rejects.toThrow(/archiveManualPersistence/)
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		expect(audit.find((a) => a.action === "persistence_archived")).toBeUndefined()
+	})
+
+	it("avviser arkivering når persistenceId tilhører annen applikasjon", async () => {
+		const appA = await createTestApp("App Nais-A")
+		const appB = await createTestApp("App Nais-B")
+		await upsertAppPersistence(appA, "cloud_sql_postgres", "db-for-a")
+		const [row] = await getAppPersistence(appA)
+
+		await expect(archiveNaisPersistence(row.id, appB, "Z990001")).rejects.toThrow(/tilhører ikke/)
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		expect(audit.find((a) => a.action === "persistence_archived")).toBeUndefined()
 	})
 })

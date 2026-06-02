@@ -26,7 +26,7 @@ import { getScreeningSessionsForApp } from "~/db/queries/screening-sessions.serv
 import { getSections } from "~/db/queries/sections.server"
 import type { GroupCriticality } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { canAccessAppReports, isAdmin } from "~/lib/authorization.server"
+import { canAccessAppReports, canManageTeam, isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { logger } from "~/lib/logger.server"
@@ -396,6 +396,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
+		canManagePersistence: user ? isAdmin(user) || appScopeIds.devTeamIds.some((id) => canManageTeam(user, id)) : false,
 		canAccessReports,
 		knownApps,
 		acknowledgments,

@@ -15,6 +15,7 @@ const defaultProps = {
 	oracleAuditSummaries: {},
 	oracleRoles: [],
 	canAdmin: false,
+	canManagePersistence: false,
 }
 
 describe("PersisteringTab – inaccessibleOracleGroups alert", () => {

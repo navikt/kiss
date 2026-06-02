@@ -5,9 +5,19 @@ import { useFetcher } from "react-router"
 import { type DataClassification, dataClassificationLabels } from "~/db/schema/applications"
 import { conclusionConfig, findingSeverityVariant, persistenceLabels, persistenceVariants } from "../shared"
 
+const NAIS_GONE_THRESHOLD_DAYS = 7
+
+function isGoneFromNais(lastSeenInNaisAt: Date | string | null): boolean {
+	if (!lastSeenInNaisAt) return false
+	const lastSeen = new Date(lastSeenInNaisAt)
+	const ageMs = Date.now() - lastSeen.getTime()
+	return ageMs > NAIS_GONE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000
+}
+
 export function PersistenceRow({
 	p,
 	oracleAuditSummaries,
+	canManagePersistence,
 }: {
 	p: {
 		id: string
@@ -21,6 +31,7 @@ export function PersistenceRow({
 		oracleInstanceId: string | null
 		dataClassification: string | null
 		manuallyAdded: boolean
+		lastSeenInNaisAt: Date | string | null
 	}
 	oracleAuditSummaries: Record<
 		string,
@@ -30,9 +41,12 @@ export function PersistenceRow({
 			findings: Array<{ severity: string; message: string }>
 		}
 	>
+	canManagePersistence: boolean
 }) {
 	const classificationFetcher = useFetcher()
 	const archiveFetcher = useFetcher()
+
+	const gone = !p.manuallyAdded && isGoneFromNais(p.lastSeenInNaisAt)
 
 	return (
 		<Table.Row>
@@ -49,6 +63,11 @@ export function PersistenceRow({
 					{!p.manuallyAdded && p.oracleInstanceId && p.oracleInstanceId === p.name && (
 						<Tag variant="neutral" size="xsmall">
 							Manuelt konfigurert
+						</Tag>
+					)}
+					{gone && (
+						<Tag variant="warning" size="xsmall">
+							Ikke lenger funnet i Nais
 						</Tag>
 					)}
 				</HStack>
@@ -140,6 +159,21 @@ export function PersistenceRow({
 				{p.manuallyAdded && (
 					<archiveFetcher.Form method="post">
 						<input type="hidden" name="intent" value="archive-persistence" />
+						<input type="hidden" name="persistenceId" value={p.id} />
+						<Button
+							type="submit"
+							variant="tertiary-neutral"
+							size="xsmall"
+							icon={<TrashIcon aria-hidden />}
+							loading={archiveFetcher.state !== "idle"}
+						>
+							Arkiver
+						</Button>
+					</archiveFetcher.Form>
+				)}
+				{gone && canManagePersistence && (
+					<archiveFetcher.Form method="post">
+						<input type="hidden" name="intent" value="archive-nais-persistence" />
 						<input type="hidden" name="persistenceId" value={p.id} />
 						<Button
 							type="submit"

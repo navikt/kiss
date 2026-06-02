@@ -5,6 +5,7 @@ import {
 	acknowledgeUnknownApp,
 	addManualPersistence,
 	archiveManualPersistence,
+	archiveNaisPersistence,
 	revokeAcknowledgment,
 	unarchiveManualPersistence,
 	updatePersistenceClassification,
@@ -26,7 +27,7 @@ import {
 } from "~/db/schema/applications"
 import { activityTypeLabels } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { canAccessAppReports, isAdmin } from "~/lib/authorization.server"
+import { canAccessAppReports, canManageTeam, isAdmin } from "~/lib/authorization.server"
 import { logger } from "~/lib/logger.server"
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -247,6 +248,20 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
 		await syncApplicationControls(appId, authedUser.navIdent)
 		return data({ success: true, message: "Database reaktivert.", error: null })
+	}
+
+	if (intent === "archive-nais-persistence") {
+		const persistenceId = (formData.get("persistenceId") as string)?.trim()
+		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
+		const appScopeIds = await getAppScopeIds(appId)
+		const canManage = isAdmin(authedUser) || appScopeIds.devTeamIds.some((id) => canManageTeam(authedUser, id))
+		if (!canManage) {
+			return data({ success: false, message: null, error: "Ikke autorisert" })
+		}
+		await archiveNaisPersistence(persistenceId, appId, authedUser.navIdent)
+		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
+		await syncApplicationControls(appId, authedUser.navIdent)
+		return data({ success: true, message: "Database arkivert.", error: null })
 	}
 
 	if (intent === "set-oracle-role-criticality") {
