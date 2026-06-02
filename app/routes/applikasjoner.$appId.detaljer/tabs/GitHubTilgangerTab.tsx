@@ -81,8 +81,12 @@ function computeUserAccess(teams: GitHubTeam[], collaborators: GitHubCollaborato
 			viaTeams: data.viaTeams,
 		}))
 		.sort((a, b) => {
-			const permDiff = PERMISSION_ORDER.indexOf(a.highestPermission) - PERMISSION_ORDER.indexOf(b.highestPermission)
-			return permDiff !== 0 ? permDiff : a.username.localeCompare(b.username)
+			// Ukjente permissions (indexOf = -1) sorteres sist, ikke først
+			const aIdx = PERMISSION_ORDER.indexOf(a.highestPermission)
+			const bIdx = PERMISSION_ORDER.indexOf(b.highestPermission)
+			const aOrder = aIdx === -1 ? PERMISSION_ORDER.length : aIdx
+			const bOrder = bIdx === -1 ? PERMISSION_ORDER.length : bIdx
+			return aOrder !== bOrder ? aOrder - bOrder : a.username.localeCompare(b.username)
 		})
 }
 
