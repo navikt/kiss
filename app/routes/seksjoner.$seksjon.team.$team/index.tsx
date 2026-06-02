@@ -57,6 +57,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		totalNotRelevant -
 		result.apps.reduce((sum, a) => sum + a.notImplemented, 0)
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
+	const totalRoutinesIkkeGjennomfort = result.apps.reduce(
+		(sum, a) => sum + a.routineCompliance.routinesIkkeGjennomfort,
+		0,
+	)
 
 	return data({
 		seksjon,
@@ -76,6 +80,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		totalPartial,
 		totalMangler,
 		overallPercent,
+		totalRoutinesIkkeGjennomfort,
 		deploymentStats,
 	})
 }
@@ -132,6 +137,7 @@ export default function TeamDashboard() {
 		totalPartial,
 		totalMangler,
 		overallPercent,
+		totalRoutinesIkkeGjennomfort,
 		deploymentStats,
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
@@ -199,6 +205,21 @@ export default function TeamDashboard() {
 			)}
 
 			<DeploymentSummaryCards stats={deploymentStats} />
+
+			{totalRoutinesIkkeGjennomfort > 0 && (
+				<Link to={`/seksjoner/${seksjon}/team/${team}/rutiner`} style={{ textDecoration: "none", color: "inherit" }}>
+					<Box padding="space-12" borderRadius="8" background="warning-moderate">
+						<HStack align="center" gap="space-8">
+							<VStack gap="space-0">
+								<Heading size="medium" level="3">
+									{totalRoutinesIkkeGjennomfort}
+								</Heading>
+								<Detail>Ikke-gjennomførte rutiner</Detail>
+							</VStack>
+						</HStack>
+					</Box>
+				</Link>
+			)}
 
 			<HStack align="center" justify="space-between" wrap>
 				<Heading size="large" level="3">
