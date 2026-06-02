@@ -1,4 +1,4 @@
-import { BodyLong, Heading, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyLong, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 
 interface TeamMember {
@@ -36,6 +36,54 @@ interface Props {
 	teams: GitHubTeam[]
 	collaborators: GitHubCollaborator[]
 	changeLog: ChangeLogEntry[]
+}
+
+const PERMISSION_ORDER = ["admin", "maintain", "push", "write", "triage", "pull", "read"]
+
+function highestPermission(permissions: string[]): string {
+	for (const p of PERMISSION_ORDER) {
+		if (permissions.includes(p)) return p
+	}
+	return permissions[0] ?? "unknown"
+}
+
+interface UserAccess {
+	username: string
+	highestPermission: string
+	directPermission: string | null
+	viaTeams: Array<{ teamSlug: string; teamName: string; permission: string }>
+}
+
+function computeUserAccess(teams: GitHubTeam[], collaborators: GitHubCollaborator[]): UserAccess[] {
+	const map = new Map<
+		string,
+		{ permissions: string[]; directPermission: string | null; viaTeams: UserAccess["viaTeams"] }
+	>()
+
+	for (const collab of collaborators) {
+		map.set(collab.username, { permissions: [collab.permission], directPermission: collab.permission, viaTeams: [] })
+	}
+
+	for (const team of teams) {
+		for (const member of team.members) {
+			const entry = map.get(member.username) ?? { permissions: [], directPermission: null, viaTeams: [] }
+			entry.permissions.push(team.permission)
+			entry.viaTeams.push({ teamSlug: team.teamSlug, teamName: team.teamName, permission: team.permission })
+			map.set(member.username, entry)
+		}
+	}
+
+	return Array.from(map.entries())
+		.map(([username, data]) => ({
+			username,
+			highestPermission: highestPermission(data.permissions),
+			directPermission: data.directPermission,
+			viaTeams: data.viaTeams,
+		}))
+		.sort((a, b) => {
+			const permDiff = PERMISSION_ORDER.indexOf(a.highestPermission) - PERMISSION_ORDER.indexOf(b.highestPermission)
+			return permDiff !== 0 ? permDiff : a.username.localeCompare(b.username)
+		})
 }
 
 function permissionTag(permission: string) {
@@ -185,6 +233,7 @@ function TeamRow({ team }: { team: GitHubTeam }) {
 
 export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 	const hasData = teams.length > 0 || collaborators.length > 0
+	const allUsers = computeUserAccess(teams, collaborators)
 
 	if (!hasData && changeLog.length === 0) {
 		return <BodyLong>Ingen GitHub-tilgangsdata synkronisert ennå.</BodyLong>
@@ -192,6 +241,52 @@ export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 
 	return (
 		<VStack gap="space-8">
+			{allUsers.length > 0 && (
+				<section>
+					<Heading size="small" spacing>
+						Alle brukere med tilgang ({allUsers.length})
+					</Heading>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollbar container for keyboard users */}
+					<section className="table-scroll" tabIndex={0} aria-label="Alle GitHub-brukere med tilgang">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Brukernavn</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Høyeste tilgang</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Tilgangskilder</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{allUsers.map((user) => (
+									<Table.Row key={user.username}>
+										<Table.DataCell>
+											<a href={`https://github.com/${user.username}`} target="_blank" rel="noopener noreferrer">
+												{user.username}
+											</a>
+										</Table.DataCell>
+										<Table.DataCell>{permissionTag(user.highestPermission)}</Table.DataCell>
+										<Table.DataCell>
+											<HStack gap="space-2" wrap>
+												{user.directPermission && (
+													<Tag variant="alt3" size="xsmall">
+														Direkte ({user.directPermission})
+													</Tag>
+												)}
+												{user.viaTeams.map((team) => (
+													<Tag key={team.teamSlug} variant="neutral" size="xsmall">
+														{team.teamName} ({team.permission})
+													</Tag>
+												))}
+											</HStack>
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				</section>
+			)}
+
 			{teams.length > 0 && (
 				<section>
 					<Heading size="small" spacing>
