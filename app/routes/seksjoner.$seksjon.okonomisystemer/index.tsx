@@ -138,11 +138,12 @@ export default function SeksjonOkonomisystemer() {
 		})
 	}, [filtered, sort])
 
-	const handleSort = (sortKey: string) => {
+	const handleSort = (sortKey: string | undefined) => {
+		const key = sortKey ?? "appName"
 		setSort((prev) => {
-			if (prev.orderBy !== sortKey) return { orderBy: sortKey, direction: "ascending" }
-			if (prev.direction === "ascending") return { orderBy: sortKey, direction: "descending" }
-			// Third click: reset to default sort (appName ascending)
+			if (prev.orderBy !== key) return { orderBy: key, direction: "ascending" }
+			if (prev.direction === "ascending") return { orderBy: key, direction: "descending" }
+			// Third click or undefined: reset to default sort (appName ascending)
 			return { orderBy: "appName", direction: "ascending" }
 		})
 	}
