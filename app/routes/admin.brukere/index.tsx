@@ -299,7 +299,13 @@ function UserRow({
 							</BodyShort>
 						)}
 						{user.roles.map((r) => {
-							const scope = r.sectionName ?? r.devTeamName
+							let scope: string | null = null
+							if (r.sectionName) {
+								scope = r.sectionName
+							} else if (r.devTeamName) {
+								const teamSection = sections.find((s) => s.id === r.devTeamSectionId)
+								scope = teamSection ? `${teamSection.name} / ${r.devTeamName}` : r.devTeamName
+							}
 							return (
 								<HStack key={r.id} gap="space-1" align="center">
 									<Tag variant="info" size="xsmall">
