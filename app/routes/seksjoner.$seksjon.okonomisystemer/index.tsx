@@ -1,8 +1,10 @@
-import { BodyShort, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import type { SortState } from "@navikt/ds-react"
+import { BodyShort, Heading, HStack, Search, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import { useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { economySystemTypeLabels } from "~/db/schema/applications"
+import { economySystemTypeEnum, economySystemTypeLabels } from "~/db/schema/applications"
 
 export async function loader({ params }: LoaderFunctionArgs) {
 	const seksjonSlug = params.seksjon
@@ -86,8 +88,63 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	})
 }
 
+type SortKey = "appName" | "team" | "type" | "status"
+
 export default function SeksjonOkonomisystemer() {
 	const { seksjonName, items } = useLoaderData<typeof loader>()
+	const [search, setSearch] = useState("")
+	const [typeFilter, setTypeFilter] = useState("")
+	const [statusFilter, setStatusFilter] = useState("")
+	const [sort, setSort] = useState<SortState>({ orderBy: "appName", direction: "ascending" })
+
+	const filtered = useMemo(() => {
+		const q = search.toLowerCase()
+		return items.filter((item) => {
+			const matchesSearch = item.appName.toLowerCase().includes(q) || (item.team ?? "").toLowerCase().includes(q)
+			const matchesType = typeFilter === "" || item.economySystemType === typeFilter
+			const matchesStatus =
+				statusFilter === "" ||
+				(statusFilter === "gyldig" && !item.isExpired) ||
+				(statusFilter === "utlopt" && item.isExpired)
+			return matchesSearch && matchesType && matchesStatus
+		})
+	}, [items, search, typeFilter, statusFilter])
+
+	const sorted = useMemo(() => {
+		const dir = sort.direction === "ascending" ? 1 : -1
+		return [...filtered].sort((a, b) => {
+			switch (sort.orderBy as SortKey) {
+				case "appName":
+					return dir * a.appName.localeCompare(b.appName, "nb")
+				case "team":
+					return dir * (a.team ?? "").localeCompare(b.team ?? "", "nb")
+				case "type": {
+					const labelA = a.economySystemType
+						? (economySystemTypeLabels[a.economySystemType as keyof typeof economySystemTypeLabels] ?? "")
+						: ""
+					const labelB = b.economySystemType
+						? (economySystemTypeLabels[b.economySystemType as keyof typeof economySystemTypeLabels] ?? "")
+						: ""
+					return dir * labelA.localeCompare(labelB, "nb")
+				}
+				case "status": {
+					// Utløpt < Gyldig ascending, then by date
+					if (a.isExpired !== b.isExpired) return dir * (a.isExpired ? -1 : 1)
+					return dir * a.validUntil.localeCompare(b.validUntil)
+				}
+				default:
+					return 0
+			}
+		})
+	}, [filtered, sort])
+
+	const handleSort = (sortKey: string) => {
+		setSort((prev) =>
+			prev.orderBy === sortKey
+				? { orderBy: sortKey, direction: prev.direction === "ascending" ? "descending" : "ascending" }
+				: { orderBy: sortKey, direction: "ascending" },
+		)
+	}
 
 	return (
 		<VStack gap="space-8">
@@ -101,56 +158,102 @@ export default function SeksjonOkonomisystemer() {
 			{items.length === 0 ? (
 				<BodyShort>Ingen applikasjoner i denne seksjonen er klassifisert som økonomisystem.</BodyShort>
 			) : (
-				// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access
-				<section className="table-scroll" tabIndex={0} aria-label="Økonomisystemer i seksjonen">
-					<Table>
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell>Applikasjon</Table.HeaderCell>
-								<Table.HeaderCell>Team</Table.HeaderCell>
-								<Table.HeaderCell>Type</Table.HeaderCell>
-								<Table.HeaderCell>Begrunnelse</Table.HeaderCell>
-								<Table.HeaderCell>Status</Table.HeaderCell>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{items.map((item) => (
-								<Table.Row key={item.appId}>
-									<Table.DataCell>
-										<Link to={`/applikasjoner/${item.appId}/detaljer`}>{item.appName}</Link>
-									</Table.DataCell>
-									<Table.DataCell>{item.team ?? "–"}</Table.DataCell>
-									<Table.DataCell>
-										{item.economySystemType
-											? economySystemTypeLabels[item.economySystemType as keyof typeof economySystemTypeLabels]
-											: "–"}
-									</Table.DataCell>
-									<Table.DataCell>
-										<BodyShort size="small" truncate style={{ maxWidth: "300px" }}>
-											{item.justification}
-										</BodyShort>
-									</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-2">
-											{item.isExpired ? (
-												<Tag variant="error" size="xsmall">
-													Utløpt
-												</Tag>
-											) : (
-												<Tag variant="success" size="xsmall">
-													Gyldig
-												</Tag>
-											)}
-											<BodyShort size="small" textColor="subtle">
-												{new Date(item.validUntil).toLocaleDateString("nb-NO")}
-											</BodyShort>
-										</HStack>
-									</Table.DataCell>
-								</Table.Row>
+				<VStack gap="space-4">
+					<HStack gap="space-4" align="end" wrap>
+						<Search
+							label="Søk etter applikasjon eller team"
+							value={search}
+							onChange={setSearch}
+							onClear={() => setSearch("")}
+							style={{ maxWidth: "20rem" }}
+						/>
+						<Select
+							label="Type"
+							value={typeFilter}
+							onChange={(e) => setTypeFilter(e.target.value)}
+							style={{ maxWidth: "16rem" }}
+						>
+							<option value="">Alle typer</option>
+							{economySystemTypeEnum.map((type) => (
+								<option key={type} value={type}>
+									{economySystemTypeLabels[type]}
+								</option>
 							))}
-						</Table.Body>
-					</Table>
-				</section>
+						</Select>
+						<Select
+							label="Status"
+							value={statusFilter}
+							onChange={(e) => setStatusFilter(e.target.value)}
+							style={{ maxWidth: "10rem" }}
+						>
+							<option value="">Alle statuser</option>
+							<option value="gyldig">Gyldig</option>
+							<option value="utlopt">Utløpt</option>
+						</Select>
+					</HStack>
+					{sorted.length === 0 ? (
+						<BodyShort textColor="subtle">Ingen applikasjoner matcher søket.</BodyShort>
+					) : (
+						// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access
+						<section className="table-scroll" tabIndex={0} aria-label="Økonomisystemer i seksjonen">
+							<Table sort={sort} onSortChange={handleSort}>
+								<Table.Header>
+									<Table.Row>
+										<Table.ColumnHeader sortKey="appName" sortable>
+											Applikasjon
+										</Table.ColumnHeader>
+										<Table.ColumnHeader sortKey="team" sortable>
+											Team
+										</Table.ColumnHeader>
+										<Table.ColumnHeader sortKey="type" sortable>
+											Type
+										</Table.ColumnHeader>
+										<Table.HeaderCell>Begrunnelse</Table.HeaderCell>
+										<Table.ColumnHeader sortKey="status" sortable>
+											Status
+										</Table.ColumnHeader>
+									</Table.Row>
+								</Table.Header>
+								<Table.Body>
+									{sorted.map((item) => (
+										<Table.Row key={item.appId}>
+											<Table.DataCell>
+												<Link to={`/applikasjoner/${item.appId}/detaljer`}>{item.appName}</Link>
+											</Table.DataCell>
+											<Table.DataCell>{item.team ?? "–"}</Table.DataCell>
+											<Table.DataCell>
+												{item.economySystemType
+													? economySystemTypeLabels[item.economySystemType as keyof typeof economySystemTypeLabels]
+													: "–"}
+											</Table.DataCell>
+											<Table.DataCell>
+												<BodyShort size="small" truncate style={{ maxWidth: "300px" }}>
+													{item.justification}
+												</BodyShort>
+											</Table.DataCell>
+											<Table.DataCell>
+												<HStack gap="space-2">
+													{item.isExpired ? (
+														<Tag variant="error" size="xsmall">
+															Utløpt
+														</Tag>
+													) : (
+														<Tag variant="success" size="xsmall">
+															Gyldig
+														</Tag>
+													)}
+													<BodyShort size="small" textColor="subtle">
+														{new Date(item.validUntil).toLocaleDateString("nb-NO")}
+													</BodyShort>
+												</HStack>
+											</Table.DataCell>
+										</Table.Row>
+									))}
+								</Table.Body>
+							</Table>
+						</section>
+					)}
+				</VStack>
 			)}
 		</VStack>
 	)
