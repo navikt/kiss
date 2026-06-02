@@ -192,7 +192,7 @@ export default function SeksjonOkonomisystemer() {
 						</Select>
 					</HStack>
 					{sorted.length === 0 ? (
-						<BodyShort textColor="subtle">Ingen applikasjoner matcher søket.</BodyShort>
+						<BodyShort textColor="subtle">Ingen applikasjoner matcher valgte filtre.</BodyShort>
 					) : (
 						// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table needs keyboard access
 						<section className="table-scroll" tabIndex={0} aria-label="Økonomisystemer i seksjonen">
