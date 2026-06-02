@@ -46,7 +46,7 @@ const jobs: JobConfig[] = [
 		envVar: "ENABLE_NAIS_SYNC",
 		async run() {
 			const { runTrackedNaisSync } = await import("./nais-sync-jobs.server")
-			const token = process.env.NAIS_API_KEY || process.env.NAIS_API_TOKEN || undefined
+			const token = process.env.NAIS_SERVICE_ACCOUNT_TOKEN_PATH || process.env.NAIS_API_TOKEN || undefined
 			const tracked = await runTrackedNaisSync({
 				token,
 				performedBy: "unified-scheduler",

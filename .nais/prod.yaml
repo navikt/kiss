@@ -117,5 +117,4 @@ spec:
     - name: SHOW_COMPLIANCE_STATS
       value: "false"
   envFrom:
-    - secret: nais-deployment-audit
     - secret: kiss-github-app
