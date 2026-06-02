@@ -248,6 +248,7 @@ export function mockTeamDetailData() {
 		totalPartial: 12,
 		totalMangler: 6,
 		overallPercent: 75,
+		totalRoutinesIkkeGjennomfort: 7,
 		deploymentStats: mockDeploymentStats(),
 		teamUsers: [
 			{ navIdent: "Z990003", name: "Glad Fjord", roles: ["developer", "tech_lead"] as const },
@@ -2313,5 +2314,137 @@ export function mockRapporterData(overrides?: {
 		],
 		existingReports: overrides?.existingReports ?? [],
 		canManage: overrides?.canManage ?? true,
+	}
+}
+
+// ─── Team rutiner (ikke-gjennomførte) ───────────────────────────────
+
+function mockDeadline(overrides: {
+	routineId: string
+	routineName: string
+	applicationId: string
+	applicationName: string
+	priority?: number
+	frequency?: string | null
+	lastReviewDate?: string | null
+	deadline?: string | null
+	overdue?: boolean
+	needsFollowUp?: boolean
+	sectionId?: string
+}) {
+	return {
+		routine: {
+			id: overrides.routineId,
+			name: overrides.routineName,
+			frequency: overrides.frequency !== undefined ? overrides.frequency : "annually",
+			eventFrequency: null,
+			priority: overrides.priority ?? 3,
+			sectionId: overrides.sectionId ?? "seksjon-1",
+			sourceRoutineId: null,
+			approvedAt: "2024-01-01T00:00:00.000Z",
+			createdAt: "2024-01-01T00:00:00.000Z",
+			isSectionRoutine: 0 as 0 | 1,
+			sectionRoutineOwnerRole: null,
+			controls: [{ id: "ctrl-1", controlId: "K-ST.01", shortTitle: "Tilgangskontroll" }],
+			technologyElementIds: [],
+			technologyElements: [],
+		},
+		applicationId: overrides.applicationId,
+		applicationName: overrides.applicationName,
+		lastReviewDate: overrides.lastReviewDate !== undefined ? overrides.lastReviewDate : null,
+		deadline: overrides.deadline !== undefined ? overrides.deadline : "2025-06-01T00:00:00.000Z",
+		overdue: overrides.overdue ?? false,
+		needsFollowUp: overrides.needsFollowUp ?? false,
+		matchSource: "screening" as const,
+		isSectionRoutine: false,
+		sectionRoutineOwnerRole: null,
+	}
+}
+
+export function mockTeamRutinerData() {
+	return {
+		seksjon: "pensjon-og-ufore",
+		seksjonName: "Pensjon og uføre",
+		team: "starte-pensjon",
+		teamName: "Starte pensjon",
+		sectionSlugMap: { "seksjon-1": "pensjon-og-ufore" },
+		deadlines: [
+			mockDeadline({
+				routineId: "r-1",
+				routineName: "Kvartalvis tilgangskontroll Oracle",
+				applicationId: "app-1",
+				applicationName: "pensjon-sak",
+				priority: 1,
+				frequency: "quarterly",
+				overdue: true,
+				deadline: "2025-03-01T00:00:00.000Z",
+			}),
+			mockDeadline({
+				routineId: "r-2",
+				routineName: "Tilgangskontroll Entra ID-grupper",
+				applicationId: "app-1",
+				applicationName: "pensjon-sak",
+				priority: 1,
+				frequency: "annually",
+				overdue: true,
+				deadline: "2025-01-15T00:00:00.000Z",
+				needsFollowUp: true,
+			}),
+			mockDeadline({
+				routineId: "r-3",
+				routineName: "Halvårlig penetrasjonstest",
+				applicationId: "app-2",
+				applicationName: "psak-frontend",
+				priority: 2,
+				frequency: "semi_annually",
+				overdue: false,
+				lastReviewDate: null,
+				deadline: "2025-12-01T00:00:00.000Z",
+			}),
+			mockDeadline({
+				routineId: "r-4",
+				routineName: "Sikkerhetskopiering og gjenoppretting",
+				applicationId: "app-2",
+				applicationName: "psak-frontend",
+				priority: 2,
+				frequency: "annually",
+				overdue: false,
+				lastReviewDate: null,
+				deadline: "2025-09-01T00:00:00.000Z",
+			}),
+			mockDeadline({
+				routineId: "r-5",
+				routineName: "Årlig sårbarhetsskanning",
+				applicationId: "app-3",
+				applicationName: "pensjon-selvbetjening",
+				priority: 3,
+				frequency: "annually",
+				overdue: false,
+				lastReviewDate: null,
+				deadline: "2025-11-01T00:00:00.000Z",
+			}),
+			mockDeadline({
+				routineId: "r-6",
+				routineName: "Logggjennomgang",
+				applicationId: "app-3",
+				applicationName: "pensjon-selvbetjening",
+				priority: 3,
+				frequency: "quarterly",
+				overdue: false,
+				lastReviewDate: null,
+				deadline: "2025-10-01T00:00:00.000Z",
+			}),
+		],
+	}
+}
+
+export function mockTeamRutinerEmptyData() {
+	return {
+		seksjon: "pensjon-og-ufore",
+		seksjonName: "Pensjon og uføre",
+		team: "starte-pensjon",
+		teamName: "Starte pensjon",
+		sectionSlugMap: { "seksjon-1": "pensjon-og-ufore" },
+		deadlines: [],
 	}
 }

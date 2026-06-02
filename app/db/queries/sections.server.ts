@@ -12,6 +12,7 @@ import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { getComplianceSummaries, getRoutineComplianceSummaries } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
 import { getEconomyClassifications } from "./economy-classification.server"
+import { getRoutineDeadlinesWithControls } from "./routine-deadlines.server"
 
 /** Get sections. By default only active (non-archived) sections are returned. */
 export async function getSections(options: { includeArchived?: boolean } = {}) {
@@ -1259,4 +1260,49 @@ export async function isAppEffectiveInSection(appId: string, sectionId: string):
 	}
 
 	return false
+}
+
+/**
+ * Get all incomplete (ikke-gjennomførte) routine deadlines across all apps in a team.
+ * A routine is incomplete if it is periodic (frequency !== null) and either overdue or never reviewed.
+ * Runs getRoutineDeadlinesWithControls in bounded parallel batches (4 at a time).
+ */
+export async function getTeamIncompleteRoutines(teamSlug: string) {
+	const [team] = await db.select().from(devTeams).where(eq(devTeams.slug, teamSlug)).limit(1)
+	if (!team) return null
+
+	const excludedEnvRows = await db
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, team.sectionId), eq(sectionEnvironments.included, false)))
+	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
+
+	const { allIds } = await getTeamAppIds(team.id, team.sectionId, excludedEnvs)
+
+	const activeAppIds =
+		allIds.size === 0
+			? []
+			: (
+					await db
+						.select({ id: monitoredApplications.id })
+						.from(monitoredApplications)
+						.where(and(inArray(monitoredApplications.id, [...allIds]), isNull(monitoredApplications.archivedAt)))
+				).map((r) => r.id)
+
+	const BATCH_SIZE = 4
+	const allDeadlines: Awaited<ReturnType<typeof getRoutineDeadlinesWithControls>> = []
+
+	for (let i = 0; i < activeAppIds.length; i += BATCH_SIZE) {
+		const batch = activeAppIds.slice(i, i + BATCH_SIZE)
+		const results = await Promise.all(batch.map((appId) => getRoutineDeadlinesWithControls(appId)))
+		for (const deadlines of results) {
+			for (const d of deadlines) {
+				if (d.routine != null && d.routine.frequency !== null && (d.overdue || d.lastReviewDate === null)) {
+					allDeadlines.push(d)
+				}
+			}
+		}
+	}
+
+	return { team, deadlines: allDeadlines }
 }

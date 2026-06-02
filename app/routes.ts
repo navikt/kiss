@@ -47,6 +47,7 @@ export default [
 	route("seksjoner/:seksjon/nais-team", "routes/seksjoner.$seksjon.nais-team/index.tsx"),
 	route("seksjoner/:seksjon/team/:team", "routes/seksjoner.$seksjon.team.$team/index.tsx"),
 	route("seksjoner/:seksjon/team/:team/rediger", "routes/seksjoner.$seksjon.team.$team.rediger/index.tsx"),
+	route("seksjoner/:seksjon/team/:team/rutiner", "routes/seksjoner.$seksjon.team.$team.rutiner/index.tsx"),
 	// Team-context app routes (breadcrumbs reflect team origin)
 	route(
 		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/detaljer",
