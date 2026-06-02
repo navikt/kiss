@@ -32,8 +32,17 @@ import {
 	unlinkNaisTeamFromDevTeam,
 	updateTeam,
 } from "~/db/queries/sections.server"
+import { assignRole, getTeamMemberRoleById, getTeamMemberRoles, removeRole } from "~/db/queries/users.server"
+import type { UserRole } from "~/db/schema/organization"
+import { userRoleLabels } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { canManageTeam } from "~/lib/authorization.server"
+import { canManageTeam, isAdmin } from "~/lib/authorization.server"
+import { requireUuid } from "~/lib/utils"
+
+/** Roller som teamledere (produktleder/tech lead) kan administrere på eget team. */
+const TEAM_MANAGEABLE_ROLES: UserRole[] = ["developer"]
+/** Roller som kun admin kan administrere. */
+const ADMIN_ONLY_ROLES: UserRole[] = ["product_owner", "tech_lead"]
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const seksjon = params.seksjon
@@ -52,15 +61,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
 	if (teamRecord.sectionId !== section.id) throw new Response("Team tilhører ikke denne seksjonen", { status: 404 })
 
-	const [result, availableApps, linkedNaisTeams, sectionNaisTeams] = await Promise.all([
+	const [result, availableApps, linkedNaisTeams, sectionNaisTeams, teamMembers] = await Promise.all([
 		getTeamApps(team),
 		getAvailableAppsForTeam(teamRecord.id),
 		getNaisTeamsForDevTeam(teamRecord.id),
 		getNaisTeamsForSection(section.id),
+		getTeamMemberRoles(teamRecord.id),
 	])
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
 
 	const availableNaisTeams = sectionNaisTeams.filter((nt) => !linkedNaisTeams.some((linked) => linked.slug === nt.slug))
+	const userIsAdmin = isAdmin(authedUser)
 
 	return data({
 		seksjon,
@@ -74,6 +85,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		availableApps,
 		linkedNaisTeams,
 		availableNaisTeams: availableNaisTeams.map((nt) => ({ slug: nt.slug })),
+		teamMembers,
+		userIsAdmin,
 	})
 }
 
@@ -146,6 +159,51 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
 	}
 
+	if (intent === "add-member") {
+		if (teamRecord.archivedAt) throw new Response("Teamet er arkivert", { status: 400 })
+
+		const rawNavIdent = formData.get("navIdent")
+		const rawName = formData.get("name")
+		const rawRole = formData.get("role")
+
+		if (typeof rawNavIdent !== "string" || !rawNavIdent.trim() || typeof rawName !== "string" || !rawName.trim()) {
+			throw new Response("NAV-ident og navn er påkrevd", { status: 400 })
+		}
+
+		const navIdent = rawNavIdent.trim().toUpperCase()
+		const name = rawName.trim()
+
+		const allTeamRoles: UserRole[] = [...TEAM_MANAGEABLE_ROLES, ...ADMIN_ONLY_ROLES]
+		if (typeof rawRole !== "string" || !allTeamRoles.includes(rawRole as UserRole)) {
+			throw new Response("Ugyldig rolle", { status: 400 })
+		}
+		const role = rawRole as UserRole
+
+		if (ADMIN_ONLY_ROLES.includes(role) && !isAdmin(authedUser)) {
+			throw new Response("Kun admin kan tildele denne rollen", { status: 403 })
+		}
+
+		await assignRole(navIdent, name, role, userId, undefined, teamRecord.id)
+		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
+	}
+
+	if (intent === "remove-member") {
+		if (teamRecord.archivedAt) throw new Response("Teamet er arkivert", { status: 400 })
+		const roleId = requireUuid(formData.get("roleId"), "Rolle-ID")
+
+		// Scope-sjekk: verifiser via målrettet DB-query at rollen tilhører dette teamet
+		const target = await getTeamMemberRoleById(roleId, teamRecord.id)
+		if (!target) throw new Response("Rolle ikke funnet i dette teamet", { status: 404 })
+
+		// Ikke-admin kan kun fjerne roller i TEAM_MANAGEABLE_ROLES (positiv allowlist)
+		if (!isAdmin(authedUser) && !TEAM_MANAGEABLE_ROLES.includes(target.role)) {
+			throw new Response("Kun admin kan fjerne denne rollen", { status: 403 })
+		}
+
+		await removeRole(roleId, userId)
+		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
+	}
+
 	throw new Response("Ugyldig handling", { status: 400 })
 }
 
@@ -159,10 +217,16 @@ export default function RedigerTeam() {
 		availableApps,
 		linkedNaisTeams,
 		availableNaisTeams,
+		teamMembers,
+		userIsAdmin,
 	} = useLoaderData<typeof loader>()
 
 	const archiveModalRef = useRef<HTMLDialogElement>(null)
 	const isArchived = teamArchivedAt !== null
+
+	const assignableRoles: UserRole[] = userIsAdmin
+		? [...TEAM_MANAGEABLE_ROLES, ...ADMIN_ONLY_ROLES]
+		: TEAM_MANAGEABLE_ROLES
 
 	return (
 		<VStack gap="space-8">
@@ -228,6 +292,73 @@ export default function RedigerTeam() {
 						</HStack>
 					</VStack>
 				</Form>
+			</VStack>
+
+			{/* Team members */}
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Teammedlemmer ({teamMembers.length})
+				</Heading>
+				<BodyLong size="small">
+					Teammedlemmer med roller i KISS. Produktledere og tech leads kan legge til utviklere. Kun admin kan tildele
+					produktleder- og tech lead-roller.
+				</BodyLong>
+
+				{teamMembers.length > 0 && (
+					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+					<section className="table-scroll" tabIndex={0} aria-label="Teammedlemmer">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+									<Table.HeaderCell scope="col">NAV-ident</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Rolle</Table.HeaderCell>
+									<Table.HeaderCell scope="col" />
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{teamMembers.map((m) => (
+									<Table.Row key={m.roleId}>
+										<Table.DataCell>{m.name}</Table.DataCell>
+										<Table.DataCell>{m.navIdent}</Table.DataCell>
+										<Table.DataCell>{userRoleLabels[m.role]}</Table.DataCell>
+										<Table.DataCell align="right">
+											{!isArchived && (userIsAdmin || TEAM_MANAGEABLE_ROLES.includes(m.role)) && (
+												<Form method="post">
+													<input type="hidden" name="intent" value="remove-member" />
+													<input type="hidden" name="roleId" value={m.roleId} />
+													<Button type="submit" variant="tertiary-neutral" size="xsmall">
+														Fjern
+													</Button>
+												</Form>
+											)}
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				)}
+
+				{!isArchived && (
+					<Form method="post">
+						<input type="hidden" name="intent" value="add-member" />
+						<HStack gap="space-4" align="end" wrap>
+							<TextField label="NAV-ident" name="navIdent" size="small" placeholder="Z999999" />
+							<TextField label="Navn" name="name" size="small" placeholder="Fornavn Etternavn" />
+							<Select label="Rolle" name="role" size="small">
+								{assignableRoles.map((r) => (
+									<option key={r} value={r}>
+										{userRoleLabels[r]}
+									</option>
+								))}
+							</Select>
+							<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
+								Legg til
+							</Button>
+						</HStack>
+					</Form>
+				)}
 			</VStack>
 
 			{/* Nais team linking */}

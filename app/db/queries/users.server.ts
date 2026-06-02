@@ -281,6 +281,38 @@ export async function getUsersForTeam(
 	return Array.from(byUser.values())
 }
 
+/** Get flat list of role assignments for a dev team, including roleId for removal. */
+export async function getTeamMemberRoles(
+	teamId: string,
+): Promise<Array<{ roleId: string; navIdent: string; name: string; role: UserRole }>> {
+	const rows = await db
+		.select({
+			roleId: userRoles.id,
+			navIdent: users.navIdent,
+			name: users.name,
+			role: userRoles.role,
+		})
+		.from(userRoles)
+		.innerJoin(users, eq(userRoles.userId, users.id))
+		.where(and(eq(userRoles.devTeamId, teamId), isNull(userRoles.archivedAt)))
+		.orderBy(asc(users.name), asc(users.navIdent), asc(userRoles.role))
+	return rows.map((r) => ({ ...r, role: r.role as UserRole }))
+}
+
+/**
+ * Henter én aktiv rolletildeling for et gitt dev-team, identifisert av roleId.
+ * Returnerer null om rollen ikke finnes, er arkivert, eller tilhører et annet team.
+ * Brukes av remove-member-action for effektiv og presis scope-sjekk.
+ */
+export async function getTeamMemberRoleById(roleId: string, teamId: string): Promise<{ role: UserRole } | null> {
+	const [row] = await db
+		.select({ role: userRoles.role })
+		.from(userRoles)
+		.where(and(eq(userRoles.id, roleId), eq(userRoles.devTeamId, teamId), isNull(userRoles.archivedAt)))
+		.limit(1)
+	return row ? { role: row.role as UserRole } : null
+}
+
 // ─── User preferences ────────────────────────────────────────────────────
 
 export async function getUserLandingPage(navIdent: string): Promise<LandingPage> {
