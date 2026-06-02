@@ -78,6 +78,7 @@ spec:
         - host: graph.microsoft.com
         - host: console.nav.cloud.nais.io
         - host: pensjon-oracle-revisjon-backend.prod-fss-pub.nais.io
+        - host: api.github.com
   env:
     - name: NODE_ENV
       value: production
@@ -111,7 +112,10 @@ spec:
       value: "api://prod-gcp.pensjon-revisjon.pensjon-deployment-audit/.default"
     - name: ENABLE_DEPLOYMENT_AUDIT_SYNC
       value: "true"
+    - name: ENABLE_GITHUB_ACCESS_SYNC
+      value: "true"
     - name: SHOW_COMPLIANCE_STATS
       value: "false"
   envFrom:
     - secret: nais-deployment-audit
+    - secret: kiss-github-app
