@@ -300,11 +300,11 @@ function UserRow({
 						)}
 						{user.roles.map((r) => {
 							let scope: string | null = null
-							if (r.sectionName) {
+							if (r.devTeamName) {
+								// Team-scoped role: sectionId and devTeamId are both stored, so sectionName is available
+								scope = r.sectionName ? `${r.sectionName} / ${r.devTeamName}` : r.devTeamName
+							} else if (r.sectionName) {
 								scope = r.sectionName
-							} else if (r.devTeamName) {
-								const teamSection = sections.find((s) => s.id === r.devTeamSectionId)
-								scope = teamSection ? `${teamSection.name} / ${r.devTeamName}` : r.devTeamName
 							}
 							return (
 								<HStack key={r.id} gap="space-1" align="center">
