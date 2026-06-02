@@ -136,6 +136,9 @@ export async function runGitHubAccessSync(performedBy = "github-access-sync"): P
 			)
 
 		const targetApps = [...appsWithDirectRepo, ...appsWithEnvRepo]
+		logger.info(
+			`[github-access-sync] Found ${appsWithDirectRepo.length} apps with direct repo, ${appsWithEnvRepo.length} apps with env repo (${targetApps.length} total)`,
+		)
 
 		for (const app of targetApps) {
 			if (!app.gitRepository?.trim()) continue
