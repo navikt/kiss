@@ -1,4 +1,4 @@
-import { BodyLong, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyLong, BodyShort, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 
 interface TeamMember {
@@ -88,6 +88,34 @@ function computeUserAccess(teams: GitHubTeam[], collaborators: GitHubCollaborato
 			const bOrder = bIdx === -1 ? PERMISSION_ORDER.length : bIdx
 			return aOrder !== bOrder ? aOrder - bOrder : a.username.localeCompare(b.username)
 		})
+}
+
+function UserSourcesContent({ user }: { user: UserAccess }) {
+	return (
+		<VStack gap="space-4">
+			{user.directPermission && (
+				<HStack gap="space-2" align="center">
+					<Detail weight="semibold">Direkte tilgang:</Detail>
+					<Tag variant="alt3" size="xsmall">
+						{user.directPermission}
+					</Tag>
+				</HStack>
+			)}
+			{user.viaTeams.length > 0 && (
+				<VStack gap="space-1">
+					<Detail weight="semibold">Via team:</Detail>
+					{user.viaTeams.map((team) => (
+						<HStack key={team.teamSlug} gap="space-2" align="center">
+							<BodyShort size="small">{team.teamName || team.teamSlug}</BodyShort>
+							<Tag variant="neutral" size="xsmall">
+								{team.permission}
+							</Tag>
+						</HStack>
+					))}
+				</VStack>
+			)}
+		</VStack>
+	)
 }
 
 function permissionTag(permission: string) {
@@ -255,35 +283,21 @@ export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 						<Table size="small">
 							<Table.Header>
 								<Table.Row>
+									<Table.HeaderCell scope="col" />
 									<Table.HeaderCell scope="col">Brukernavn</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Høyeste tilgang</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Tilgangskilder</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
 								{allUsers.map((user) => (
-									<Table.Row key={user.username}>
+									<Table.ExpandableRow key={user.username} content={<UserSourcesContent user={user} />} colSpan={3}>
 										<Table.DataCell>
 											<a href={`https://github.com/${user.username}`} target="_blank" rel="noopener noreferrer">
 												{user.username}
 											</a>
 										</Table.DataCell>
 										<Table.DataCell>{permissionTag(user.highestPermission)}</Table.DataCell>
-										<Table.DataCell>
-											<HStack gap="space-2" wrap>
-												{user.directPermission && (
-													<Tag variant="alt3" size="xsmall">
-														Direkte ({user.directPermission})
-													</Tag>
-												)}
-												{user.viaTeams.map((team) => (
-													<Tag key={team.teamSlug} variant="neutral" size="xsmall">
-														{team.teamName} ({team.permission})
-													</Tag>
-												))}
-											</HStack>
-										</Table.DataCell>
-									</Table.Row>
+									</Table.ExpandableRow>
 								))}
 							</Table.Body>
 						</Table>
