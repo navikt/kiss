@@ -1844,25 +1844,10 @@ export async function discardReview(reviewId: string, performedBy: string) {
 	if (!existing) return null
 	if (existing.status !== "draft") return null
 
-	// Atomisk: kjøres i transaksjon med FOR SHARE på foreldre-rutinen (blokkerer
-	// samtidig archiveRoutine) og atomisk UPDATE...WHERE status='draft' RETURNING
-	// som re-validerer review-status inne i tx (lukker TOCTOU mot completeReview
-	// e.l.). Pre-check utenfor tx beholdes så ikke-draft-reviews fortsatt
-	// returnerer null (bevarer kallerens kontrakt) i stedet for å kaste 403.
+	// Forkasting er en oprydningsoperasjon og skal alltid være tillatt, også
+	// på arkiverte rutiner. Atomisk UPDATE...WHERE status='draft' RETURNING
+	// lukker TOCTOU mot samtidig completeReview e.l.
 	return db.transaction(async (tx) => {
-		const [archiveStatus] = await tx
-			.select({ archivedAt: routines.archivedAt })
-			.from(routineReviews)
-			.innerJoin(routines, eq(routineReviews.routineId, routines.id))
-			.where(eq(routineReviews.id, reviewId))
-			.for("share", { of: [routines] })
-			.limit(1)
-		if (archiveStatus?.archivedAt) {
-			throw new Response("Kan ikke kassere gjennomganger på en arkivert rutine. Reaktiver rutinen først.", {
-				status: 403,
-			})
-		}
-
 		const updated = await tx
 			.update(routineReviews)
 			.set({ status: "discarded" })

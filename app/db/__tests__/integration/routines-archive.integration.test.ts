@@ -445,7 +445,7 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			await expect(copyRoutine(routine.id, "copier")).rejects.toMatchObject({ status: 403 })
 		})
 
-		it("discardReview() avviser kassering når foreldre-rutinen er arkivert", async () => {
+		it("discardReview() tillater kassering selv når foreldre-rutinen er arkivert", async () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Sec", "sec")
 			const appId = await createTestApp("App")
@@ -463,10 +463,14 @@ describe("Routine archive (soft-delete) integration tests", () => {
 			})
 			await archiveRoutine(routine.id, "admin")
 
-			await expect(discardReview(review.id, "discarder")).rejects.toMatchObject({ status: 403 })
+			// Forkasting er en oprydningsoperasjon — skal alltid lykkes uavhengig
+			// av om rutinen er arkivert.
+			const result = await discardReview(review.id, "discarder")
+			expect(result).not.toBeNull()
+			expect(result?.status).toBe("discarded")
 
 			const after = await db.execute(/* sql */ `SELECT status FROM routine_reviews WHERE id = '${review.id}'`)
-			expect((after.rows[0] as { status: string }).status).toBe("draft")
+			expect((after.rows[0] as { status: string }).status).toBe("discarded")
 		})
 
 		it("discardReview() returnerer null (ikke 403) for ikke-draft review selv på arkivert rutine", async () => {
