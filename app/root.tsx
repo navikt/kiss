@@ -20,7 +20,7 @@ import { getUserRoles } from "./db/queries/users.server"
 import { userRoleLabels } from "./db/schema/organization"
 import { ThemeProvider, useTheme } from "./hooks/useTheme"
 import { ADMIN_ELEVATED_COOKIE, getAuthenticatedUser } from "./lib/auth.server"
-import { isActualAdmin, isAdmin, isAuditor } from "./lib/authorization.server"
+import { isAdmin, isAuditor } from "./lib/authorization.server"
 import { getFeatureFlags } from "./lib/feature-flags.server"
 
 import "@navikt/ds-css/dist/index.css"
@@ -84,7 +84,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 					email: user.email,
 					isAdmin: isAdmin(user),
 					isAuditor: isAuditor(user),
-					isActualAdmin: isActualAdmin(user),
+					isActualAdmin: user.isActualAdmin,
 					adminSuppressed: user.adminSuppressed,
 					sections: userSections,
 					teams: userTeams,
@@ -99,7 +99,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
 	if (intent === "toggleAdminMode") {
 		const user = await getAuthenticatedUser(request)
-		if (!user || !isActualAdmin(user)) {
+		if (!user?.isActualAdmin) {
 			return data({ ok: false }, { status: 403 })
 		}
 		const elevate = formData.get("elevate") === "true"

@@ -14,10 +14,16 @@ export interface NavUser {
 	navIdent: string
 	name: string
 	email?: string
+	/** Effective AD groups — admin group removed when not elevated */
 	groups: string[]
 	token: string
+	/** Effective DB roles — admin role removed when not elevated */
 	dbRoles: UserRoleEntry[]
-	/** True when admin privileges are not active (no elevation cookie present) */
+	/** Pre-computed global roles for this request. Admin stripped when not elevated. */
+	roles: ReadonlySet<UserRole>
+	/** True if user is genuinely in an admin group or has the admin db-role (regardless of elevation). Used by toggle UI. */
+	isActualAdmin: boolean
+	/** True when admin privileges are not active (no elevation cookie). Used by toggle UI for button label. */
 	adminSuppressed: boolean
 }
 
@@ -67,7 +73,7 @@ export function extractBearerToken(request: Request): string | null {
 }
 
 /** Build a local dev user from environment variables. Returns null if not configured. */
-function getLocalDevUser(): NavUser | null {
+function getLocalDevUser(): Omit<NavUser, "dbRoles" | "roles" | "isActualAdmin" | "adminSuppressed"> | null {
 	const ident = process.env.LOCAL_DEV_USER
 	if (!ident) return null
 
@@ -78,9 +84,39 @@ function getLocalDevUser(): NavUser | null {
 		email: process.env.LOCAL_DEV_EMAIL ?? `${ident.toLowerCase()}@nav.no`,
 		groups,
 		token: "local-dev-token",
-		dbRoles: [],
-		adminSuppressed: false,
 	}
+}
+
+/** Read and parse group IDs from an env var (uncached — called once per request during user building). */
+function getGroupIds(envVar: string): string[] {
+	return (process.env[envVar] ?? "")
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean)
+}
+
+/**
+ * Single place where adminSuppressed is applied to authorization data.
+ * Computes isActualAdmin, strips admin from groups/dbRoles when not elevated,
+ * and pre-computes the full global role set for the request.
+ */
+function buildEffectiveAuth(
+	groups: string[],
+	dbRoles: UserRoleEntry[],
+	adminGroupIds: string[],
+	auditorGroupIds: string[],
+	adminSuppressed: boolean,
+): { groups: string[]; dbRoles: UserRoleEntry[]; roles: ReadonlySet<UserRole>; isActualAdmin: boolean } {
+	const isActualAdmin = groups.some((g) => adminGroupIds.includes(g)) || dbRoles.some((r) => r.role === "admin")
+	const effectiveGroups = adminSuppressed ? groups.filter((g) => !adminGroupIds.includes(g)) : groups
+	const effectiveDbRoles = adminSuppressed ? dbRoles.filter((r) => r.role !== "admin") : dbRoles
+
+	const roles = new Set<UserRole>()
+	if (effectiveGroups.some((g) => adminGroupIds.includes(g))) roles.add("admin")
+	if (effectiveGroups.some((g) => auditorGroupIds.includes(g))) roles.add("auditor")
+	for (const r of effectiveDbRoles) roles.add(r.role)
+
+	return { groups: effectiveGroups, dbRoles: effectiveDbRoles, roles, isActualAdmin }
 }
 
 async function loadDbRoles(navIdent: string): Promise<UserRoleEntry[]> {
@@ -109,14 +145,16 @@ export function isAdminSuppressed(request: Request): boolean {
 
 export async function getAuthenticatedUser(request: Request): Promise<NavUser | null> {
 	const adminSuppressed = isAdminSuppressed(request)
+	const adminGroupIds = getGroupIds("KISS_ADMIN_GROUP_IDS")
+	const auditorGroupIds = getGroupIds("KISS_AUDITOR_GROUP_IDS")
 
 	// In local development, use the configured dev user
-	const localUser = getLocalDevUser()
-	if (localUser) {
-		localUser.dbRoles = await loadDbRoles(localUser.navIdent)
-		localUser.adminSuppressed = adminSuppressed
-		trackLogin(localUser.navIdent, localUser.name, localUser.email)
-		return localUser
+	const localDevBase = getLocalDevUser()
+	if (localDevBase) {
+		const dbRoles = await loadDbRoles(localDevBase.navIdent)
+		const auth = buildEffectiveAuth(localDevBase.groups, dbRoles, adminGroupIds, auditorGroupIds, adminSuppressed)
+		trackLogin(localDevBase.navIdent, localDevBase.name, localDevBase.email)
+		return { ...localDevBase, ...auth, adminSuppressed }
 	}
 
 	const token = extractBearerToken(request)
@@ -131,8 +169,9 @@ export async function getAuthenticatedUser(request: Request): Promise<NavUser | 
 		const name = claims.name ?? "Ukjent bruker"
 		const email = claims.preferred_username
 		const dbRoles = await loadDbRoles(navIdent)
+		const auth = buildEffectiveAuth(groups, dbRoles, adminGroupIds, auditorGroupIds, adminSuppressed)
 		trackLogin(navIdent, name, email)
-		return { navIdent, name, email, groups, token, dbRoles, adminSuppressed }
+		return { navIdent, name, email, token, ...auth, adminSuppressed }
 	} catch {
 		return null
 	}
