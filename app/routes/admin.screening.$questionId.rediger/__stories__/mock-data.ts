@@ -13,7 +13,11 @@ export const mockTechnologyElements = [
 	{ id: "te-kafka", name: "Kafka" },
 ]
 
-export const mockRulesets = [{ id: "rs-1", name: "Standard SDLC-regelsett" }]
+export const mockRulesets = [
+	{ id: "rs-1", name: "Standard SDLC-regelsett" },
+	{ id: "rs-tilgang", name: "Tilgangskontroll-regelsett" },
+	{ id: "rs-endring", name: "Endringskontroll-regelsett" },
+]
 
 export const mockRoutines = [
 	{ id: "rutine-1", name: "Kvartalsvis tilgangsgjennomgang" },
@@ -43,6 +47,7 @@ export const nyttSporsmalData = {
 		answerType: "",
 		status: "draft" as const,
 		rulesetId: null as string | null,
+		rulesetCategoryFilter: null as string | null,
 		technologyElementIds: [] as string[],
 	},
 	choices: [] as never[],
@@ -72,6 +77,7 @@ export const eksisterendeSporsmalData = {
 		answerType: "single_choice",
 		status: "draft" as const,
 		rulesetId: null as string | null,
+		rulesetCategoryFilter: null as string | null,
 		technologyElementIds: ["te-oracle", "te-postgres"],
 	},
 	choices: [
@@ -162,4 +168,51 @@ export const godkjentSporsmalData = {
 		...eksisterendeSporsmalData.question,
 		status: "approved" as const,
 	},
+}
+
+// ─── Regelsett-spørsmål (answerType="ruleset") ────────────────────────────────
+
+/** Nytt spørsmål av type «Regelsett» — ingen kategoribegrensning valgt ennå */
+export const nyttRegelsettsSporsmalData = {
+	...nyttSporsmalData,
+	question: {
+		...nyttSporsmalData.question,
+		answerType: "ruleset",
+	},
+}
+
+/** Eksisterende regelsett-spørsmål med kategoribegrensning «Tilgangskontroll» */
+export const regelsettsSporsmalMedKategoriData = {
+	isNew: false,
+	hasExistingEconomyQuestion: false,
+	question: {
+		id: "q-tilgang",
+		questionText: "Hvilket tilgangskontroll-regelsett gjelder for applikasjonen?",
+		description: "Velg det regelsettet som beskriver kravene til tilgangskontroll for denne applikasjonen.",
+		descriptionHtml: "<p>Velg det regelsettet som beskriver kravene til tilgangskontroll for denne applikasjonen.</p>",
+		displayOrder: 3,
+		answerType: "ruleset",
+		status: "draft" as const,
+		rulesetId: null as string | null,
+		rulesetCategoryFilter: "tilgangskontroll",
+		technologyElementIds: [] as string[],
+	},
+	choices: [] as never[],
+	controls: mockControls,
+	technologyElements: mockTechnologyElements,
+	rulesets: mockRulesets,
+	allRoutinesForControls: mockAllRoutinesForControls,
+	seksjon: null as string | null,
+	sectionId: null as string | null,
+	sectionName: null as string | null,
+	returnPath: "/admin/screening",
+}
+
+/** Regelsett-spørsmål i seksjons-kontekst (samme komponent, annen kontekst) */
+export const regelsettsSporsmalSeksjonsKontekstData = {
+	...regelsettsSporsmalMedKategoriData,
+	seksjon: "pensjon-og-ufore",
+	sectionId: "seksjon-1",
+	sectionName: "Pensjon og uføre",
+	returnPath: "/seksjoner/pensjon-og-ufore/screening",
 }
