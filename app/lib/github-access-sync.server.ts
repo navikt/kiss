@@ -1,7 +1,7 @@
 import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm"
 import { db } from "../db/connection.server"
 import { writeAuditLog } from "../db/queries/audit.server"
-import { applicationEnvironments, monitoredApplications } from "../db/schema/applications"
+import { monitoredApplications } from "../db/schema/applications"
 import { githubRepoCollaborators, githubRepoTeamMembers, githubRepoTeams } from "../db/schema/github-access"
 import {
 	type GitHubCollaborator,
@@ -93,7 +93,8 @@ export async function runGitHubAccessSync(performedBy = "github-access-sync"): P
 			durationMs: 0,
 		}
 
-		// Fetch apps with git repository — prefer app-level, fallback to first environment repo
+		// Fetch apps with git repository — prefer app-level, fallback to first environment repo.
+		// Use raw SQL aliases in subqueries to avoid Drizzle table-reference issues.
 		const appsWithDirectRepo = await db
 			.select({
 				id: monitoredApplications.id,
@@ -111,13 +112,13 @@ export async function runGitHubAccessSync(performedBy = "github-access-sync"): P
 		const appsWithEnvRepo = await db
 			.select({
 				id: monitoredApplications.id,
-				gitRepository: sql<string>`(
-					SELECT ${applicationEnvironments.gitRepository}
-					FROM ${applicationEnvironments}
-					WHERE ${applicationEnvironments.applicationId} = ${monitoredApplications.id}
-						AND ${applicationEnvironments.gitRepository} IS NOT NULL
-						AND trim(${applicationEnvironments.gitRepository}) != ''
-					ORDER BY ${applicationEnvironments.discoveredAt} ASC
+				gitRepository: sql<string | null>`(
+					SELECT ae.git_repository
+					FROM application_environments ae
+					WHERE ae.application_id = ${monitoredApplications.id}
+						AND ae.git_repository IS NOT NULL
+						AND trim(ae.git_repository) != ''
+					ORDER BY ae.discovered_at ASC
 					LIMIT 1
 				)`.as("env_git_repository"),
 			})
@@ -127,15 +128,18 @@ export async function runGitHubAccessSync(performedBy = "github-access-sync"): P
 					isNull(monitoredApplications.archivedAt),
 					or(isNull(monitoredApplications.gitRepository), sql`trim(${monitoredApplications.gitRepository}) = ''`),
 					sql`EXISTS (
-						SELECT 1 FROM ${applicationEnvironments}
-						WHERE ${applicationEnvironments.applicationId} = ${monitoredApplications.id}
-							AND ${applicationEnvironments.gitRepository} IS NOT NULL
-							AND trim(${applicationEnvironments.gitRepository}) != ''
+						SELECT 1 FROM application_environments ae
+						WHERE ae.application_id = ${monitoredApplications.id}
+							AND ae.git_repository IS NOT NULL
+							AND trim(ae.git_repository) != ''
 					)`,
 				),
 			)
 
 		const targetApps = [...appsWithDirectRepo, ...appsWithEnvRepo]
+		logger.info(
+			`[github-access-sync] Found ${appsWithDirectRepo.length} apps with direct repo, ${appsWithEnvRepo.length} apps with env repo (${targetApps.length} total)`,
+		)
 
 		for (const app of targetApps) {
 			if (!app.gitRepository?.trim()) continue
