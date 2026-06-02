@@ -357,6 +357,7 @@ export function RutinerTab({
 												<Table.ColumnHeader sortKey="name" sortable>
 													Rutine
 												</Table.ColumnHeader>
+												<Table.HeaderCell>Handlinger</Table.HeaderCell>
 												<Table.ColumnHeader sortKey="priority" sortable>
 													Prioritet
 												</Table.ColumnHeader>
@@ -379,7 +380,6 @@ export function RutinerTab({
 												<Table.ColumnHeader sortKey="status" sortable>
 													Status
 												</Table.ColumnHeader>
-												<Table.HeaderCell />
 											</Table.Row>
 										</Table.Header>
 										<Table.Body>
@@ -393,6 +393,18 @@ export function RutinerTab({
 														) : (
 															(dl.routine?.name ?? "—")
 														)}
+													</Table.DataCell>
+													<Table.DataCell>
+														{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+															<form method="post" style={{ display: "inline" }}>
+																<input type="hidden" name="intent" value="create-draft" />
+																<input type="hidden" name="routineId" value={dl.routine.id} />
+																<input type="hidden" name="sectionSlug" value={sectionSlugMap[dl.routine.sectionId]} />
+																<Button type="submit" variant="tertiary" size="xsmall">
+																	Ny gjennomgang
+																</Button>
+															</form>
+														) : null}
 													</Table.DataCell>
 													<Table.DataCell>
 														<PriorityTag priority={dl.routine?.priority ?? 3} />
@@ -444,18 +456,6 @@ export function RutinerTab({
 															)}
 														</HStack>
 													</Table.DataCell>
-													<Table.DataCell>
-														{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
-															<form method="post" style={{ display: "inline" }}>
-																<input type="hidden" name="intent" value="create-draft" />
-																<input type="hidden" name="routineId" value={dl.routine.id} />
-																<input type="hidden" name="sectionSlug" value={sectionSlugMap[dl.routine.sectionId]} />
-																<Button type="submit" variant="tertiary" size="xsmall">
-																	Ny gjennomgang
-																</Button>
-															</form>
-														) : null}
-													</Table.DataCell>
 												</Table.Row>
 											))}
 										</Table.Body>
@@ -473,11 +473,11 @@ export function RutinerTab({
 											<Table.Header>
 												<Table.Row>
 													<Table.HeaderCell>Rutine</Table.HeaderCell>
+													<Table.HeaderCell>Handlinger</Table.HeaderCell>
 													<Table.HeaderCell>Kobling</Table.HeaderCell>
 													<Table.HeaderCell>Kontroller</Table.HeaderCell>
 													<Table.HeaderCell>Hendelsesfrekvens</Table.HeaderCell>
 													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
-													<Table.HeaderCell />
 												</Table.Row>
 											</Table.Header>
 											<Table.Body>
@@ -494,12 +494,6 @@ export function RutinerTab({
 																(dl.routine?.name ?? "—")
 															)}
 														</Table.DataCell>
-														<Table.DataCell>{renderMatchSource(dl)}</Table.DataCell>
-														<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
-														<Table.DataCell>{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>
-														<Table.DataCell>
-															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
-														</Table.DataCell>
 														<Table.DataCell>
 															{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
 																<form method="post" style={{ display: "inline" }}>
@@ -515,6 +509,12 @@ export function RutinerTab({
 																	</Button>
 																</form>
 															) : null}
+														</Table.DataCell>
+														<Table.DataCell>{renderMatchSource(dl)}</Table.DataCell>
+														<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
+														<Table.DataCell>{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>
+														<Table.DataCell>
+															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
 														</Table.DataCell>
 													</Table.Row>
 												))}
