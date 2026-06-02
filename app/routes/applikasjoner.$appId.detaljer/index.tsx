@@ -61,6 +61,7 @@ export default function ApplikasjonDetalj() {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin,
+		canManagePersistence,
 		canAccessReports,
 		knownApps,
 		acknowledgments,
@@ -375,6 +376,7 @@ export default function ApplikasjonDetalj() {
 						oracleAuditSummaries={oracleAuditSummaries}
 						oracleRoles={oracleRoles}
 						canAdmin={canAdmin}
+						canManagePersistence={canManagePersistence}
 						inaccessibleOracleGroups={inaccessibleOracleGroups}
 					/>
 				</Tabs.Panel>

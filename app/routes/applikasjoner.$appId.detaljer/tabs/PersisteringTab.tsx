@@ -8,6 +8,7 @@ export function PersisteringTab({
 	oracleAuditSummaries,
 	oracleRoles,
 	canAdmin,
+	canManagePersistence,
 	inaccessibleOracleGroups,
 }: {
 	persistence: Array<{
@@ -22,6 +23,7 @@ export function PersisteringTab({
 		oracleInstanceId: string | null
 		dataClassification: string | null
 		manuallyAdded: boolean
+		lastSeenInNaisAt: Date | string | null
 	}>
 	oracleAuditSummaries: Record<
 		string,
@@ -33,6 +35,7 @@ export function PersisteringTab({
 	>
 	oracleRoles: OracleRoleDisplay[]
 	canAdmin: boolean
+	canManagePersistence: boolean
 	inaccessibleOracleGroups?: Array<{ id: string; name: string }>
 }) {
 	const groups = inaccessibleOracleGroups ?? []
@@ -58,7 +61,12 @@ export function PersisteringTab({
 						</Table.Header>
 						<Table.Body>
 							{persistence.map((p) => (
-								<PersistenceRow key={p.id} p={p} oracleAuditSummaries={oracleAuditSummaries} />
+								<PersistenceRow
+									key={p.id}
+									p={p}
+									oracleAuditSummaries={oracleAuditSummaries}
+									canManagePersistence={canManagePersistence}
+								/>
 							))}
 						</Table.Body>
 					</Table>

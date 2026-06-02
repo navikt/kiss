@@ -929,21 +929,19 @@ export async function upsertAppPersistence(
 				nextState.auditLogging !== previousFields.auditLogging ||
 				nextState.auditLogUrl !== previousFields.auditLogUrl
 
-			// Hopp over UPDATE helt når det ikke er noe å endre (verken
-			// reaktivering eller feltendring). Ellers ville `updatedAt` blitt
-			// mutert ved hver Nais-resync uten tilsvarende audit-logg, som
-			// strider mot AGENTS.md regel 6 om audit på alle DB-mutasjoner.
-			if (wasArchived || fieldsChanged) {
-				await tx
-					.update(applicationPersistence)
-					.set({
-						...nextState,
-						updatedAt: new Date(),
-						archivedAt: null,
-						archivedBy: null,
-					})
-					.where(eq(applicationPersistence.id, existing.id))
-			}
+			// Oppdater alltid lastSeenInNaisAt — dette er rein operasjonell metadata
+			// som ikke berører `updatedAt` eller audit-loggen.
+			// Hopp over de øvrige feltene når det ikke er noe å endre, slik at
+			// `updatedAt` ikke muteres ved hver Nais-resync uten audit-logg.
+			await tx
+				.update(applicationPersistence)
+				.set({
+					lastSeenInNaisAt: new Date(),
+					...(wasArchived || fieldsChanged
+						? { ...nextState, updatedAt: new Date(), archivedAt: null, archivedBy: null }
+						: {}),
+				})
+				.where(eq(applicationPersistence.id, existing.id))
 
 			if (wasArchived) {
 				await writeAuditLog(
@@ -994,6 +992,7 @@ export async function upsertAppPersistence(
 				highAvailability: opts?.highAvailability ?? null,
 				auditLogging: opts?.auditLogging ?? null,
 				auditLogUrl: opts?.auditLogUrl ?? null,
+				lastSeenInNaisAt: new Date(),
 			})
 			.returning()
 
@@ -2796,6 +2795,64 @@ export async function unarchiveManualPersistence(persistenceId: string, performe
  */
 export async function deleteManualPersistence(persistenceId: string, performedBy: string) {
 	return archiveManualPersistence(persistenceId, performedBy)
+}
+
+/**
+ * Arkiverer en Nais-synket persistens-oppføring (soft-delete). Brukes for
+ * databaser som ikke lenger finnes i Nais og som admin/tech-lead/produktleder
+ * ønsker å fjerne fra KISS.
+ *
+ * Krav: raden må ha `manuallyAdded = false` og tilhøre `expectedApplicationId`.
+ * Idempotent — returnerer eksisterende rad uten feil hvis allerede arkivert.
+ */
+export async function archiveNaisPersistence(
+	persistenceId: string,
+	expectedApplicationId: string,
+	performedBy: string,
+) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(applicationPersistence)
+			.where(eq(applicationPersistence.id, persistenceId))
+			.for("update")
+			.limit(1)
+
+		if (!existing) throw new Error("Persistens-oppføring ikke funnet")
+		if (existing.applicationId !== expectedApplicationId)
+			throw new Error("Persistens-oppføring tilhører ikke denne applikasjonen")
+		if (existing.manuallyAdded) throw new Error("Bruk archiveManualPersistence for manuelt lagt til databaser")
+		if (existing.archivedAt) return existing
+
+		const [archived] = await tx
+			.update(applicationPersistence)
+			.set({ archivedAt: new Date(), archivedBy: performedBy, updatedAt: new Date() })
+			.where(eq(applicationPersistence.id, persistenceId))
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "persistence_archived",
+				entityType: "application_persistence",
+				entityId: persistenceId,
+				previousValue: JSON.stringify({
+					type: existing.type,
+					name: existing.name,
+					dataClassification: existing.dataClassification,
+				}),
+				newValue: JSON.stringify({
+					type: archived.type,
+					name: archived.name,
+					archivedAt: archived.archivedAt,
+				}),
+				metadata: { applicationId: existing.applicationId, source: "manual-admin" },
+				performedBy,
+			},
+			tx,
+		)
+
+		return archived
+	})
 }
 
 // ─── Manual Groups ───────────────────────────────────────────────────────

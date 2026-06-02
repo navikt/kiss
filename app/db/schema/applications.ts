@@ -162,6 +162,7 @@ export const applicationPersistence = pgTable(
 		extra: text("extra"),
 		discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		lastSeenInNaisAt: timestamp("last_seen_in_nais_at", { withTimezone: true }),
 		archivedAt: timestamp("archived_at", { withTimezone: true }),
 		archivedBy: text("archived_by"),
 	},
