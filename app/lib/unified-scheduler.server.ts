@@ -150,16 +150,13 @@ const jobs: JobConfig[] = [
 		runOnCycleOne: true,
 		envVar: "ENABLE_GITHUB_ACCESS_SYNC",
 		async run() {
-			const { runGitHubAccessSync } = await import("./github-access-sync.server")
-			const outcome = await runGitHubAccessSync()
-			if (outcome.status === "success") {
-				const r = outcome.result
-				logger.info(
-					`[unified-scheduler] github-access-sync complete: ${r.appsProcessed} apps, +${r.teamsAdded}/-${r.teamsRemoved}/~${r.teamsUpdated} teams, +${r.collaboratorsAdded}/-${r.collaboratorsRemoved}/~${r.collaboratorsUpdated} collaborators (${r.durationMs}ms)`,
-				)
-			} else {
-				logger.info(`[unified-scheduler] github-access-sync skipped — ${outcome.status}`)
-			}
+			const { runTrackedGitHubAccessSync } = await import("./github-access-sync-jobs.server")
+			const outcome = await runTrackedGitHubAccessSync({
+				performedBy: "unified-scheduler",
+				scopeType: "scheduler",
+				scopeId: "unified-scheduler",
+			})
+			logger.info(`[unified-scheduler] github-access-sync ${outcome.state} (jobId: ${outcome.jobId})`)
 		},
 	},
 ]
