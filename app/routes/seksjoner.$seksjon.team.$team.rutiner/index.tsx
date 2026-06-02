@@ -32,8 +32,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Seksjonsrutiner dedupliseres på routine.id — samme rutine kan matche
 	// mot flere apper i teamet, men lastReviewDate/deadline er seksjonsnivå.
+	// Type guard narrower dl.routine til non-null slik at UI-koden slipper optional chaining.
+	type DeadlineWithRoutine = (typeof result.deadlines)[number] & {
+		routine: NonNullable<(typeof result.deadlines)[number]["routine"]>
+	}
 	const seenRoutineIds = new Set<string>()
-	const sectionRoutines = result.deadlines.filter((d) => {
+	const sectionRoutines = result.deadlines.filter((d): d is DeadlineWithRoutine => {
 		if (!d.isSectionRoutine || !d.routine) return false
 		if (seenRoutineIds.has(d.routine.id)) return false
 		seenRoutineIds.add(d.routine.id)
@@ -410,29 +414,29 @@ export default function TeamUgjennomforteRutiner() {
 										</Table.Row>
 									</Table.Header>
 									<Table.Body>
-										{sortedSectionRoutines.map((dl, index) => {
-											const key = `${dl.routine?.id ?? index}-section`
+										{sortedSectionRoutines.map((dl) => {
+											const key = `${dl.routine.id}-section`
 											const routineLink =
-												dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId]
+												dl.routine.sectionId && sectionSlugMap[dl.routine.sectionId]
 													? `/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`
 													: null
 											return (
 												<Table.Row key={key}>
 													<Table.DataCell>
 														{routineLink ? (
-															<Link to={routineLink}>{dl.routine?.name ?? "—"}</Link>
+															<Link to={routineLink}>{dl.routine.name ?? "—"}</Link>
 														) : (
-															(dl.routine?.name ?? "—")
+															(dl.routine.name ?? "—")
 														)}
 													</Table.DataCell>
 													<Table.DataCell>{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}</Table.DataCell>
 													<Table.DataCell>
-														<PriorityTag priority={dl.routine?.priority ?? 3} />
+														<PriorityTag priority={dl.routine.priority ?? 3} />
 													</Table.DataCell>
 													<Table.DataCell>
 														<FrequencyDisplay
-															frequency={dl.routine?.frequency}
-															eventFrequency={dl.routine?.eventFrequency}
+															frequency={dl.routine.frequency}
+															eventFrequency={dl.routine.eventFrequency}
 														/>
 													</Table.DataCell>
 													<Table.DataCell>
