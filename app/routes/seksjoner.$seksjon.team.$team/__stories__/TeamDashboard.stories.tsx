@@ -82,6 +82,33 @@ export const IngenApplikasjoner: Story = {
 				totalPartial: 0,
 				totalMangler: 0,
 				overallPercent: 0,
+				totalRoutinesIkkeGjennomfort: 0,
+			},
+			"/seksjoner/pensjon-og-ufore/team/starte-pensjon",
+		),
+}
+
+export const IngenIkkeGjennomforteRutiner: Story = {
+	name: "Ingen ikke-gjennomførte rutiner (card skjult)",
+	render: () =>
+		renderWithLoader(
+			TeamDashboard,
+			{
+				...mockTeamDetailData(),
+				totalRoutinesIkkeGjennomfort: 0,
+			},
+			"/seksjoner/pensjon-og-ufore/team/starte-pensjon",
+		),
+}
+
+export const MedIkkeGjennomforteRutiner: Story = {
+	name: "Med ikke-gjennomførte rutiner (card synlig)",
+	render: () =>
+		renderWithLoader(
+			TeamDashboard,
+			{
+				...mockTeamDetailData(),
+				totalRoutinesIkkeGjennomfort: 12,
 			},
 			"/seksjoner/pensjon-og-ufore/team/starte-pensjon",
 		),
