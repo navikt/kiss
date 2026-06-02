@@ -15,6 +15,8 @@ const {
 	upsertUser,
 	getUserRoles,
 	getUsersForTeam,
+	getTeamMemberRoles,
+	getTeamMemberRoleById,
 	assignRole,
 	removeRole,
 	listUsersWithRoles,
@@ -240,6 +242,86 @@ describe("users.server integration tests", () => {
 
 			const result = await getUsersForTeam(teamId)
 			expect(result).toHaveLength(0)
+		})
+	})
+
+	describe("getTeamMemberRoles", () => {
+		it("returns flat role list with correct fields", async () => {
+			const sectionId = await createSection("sec-gmr-a")
+			const teamId = await createTeam(sectionId, "team-gmr-a")
+			await assignRole("Z990010", "Glad Fjord", "developer", "test", undefined, teamId)
+			await assignRole("Z990011", "Rask Elv", "tech_lead", "test", undefined, teamId)
+
+			const result = await getTeamMemberRoles(teamId)
+			expect(result).toHaveLength(2)
+
+			const glad = result.find((r) => r.navIdent === "Z990010")
+			expect(glad).toBeDefined()
+			expect(glad?.name).toBe("Glad Fjord")
+			expect(glad?.role).toBe("developer")
+			expect(glad?.roleId).toMatch(/^[0-9a-f-]{36}$/)
+
+			const rask = result.find((r) => r.navIdent === "Z990011")
+			expect(rask?.role).toBe("tech_lead")
+		})
+
+		it("excludes archived roles", async () => {
+			const sectionId = await createSection("sec-gmr-b")
+			const teamId = await createTeam(sectionId, "team-gmr-b")
+			await assignRole("Z990012", "Stille Skog", "developer", "test", undefined, teamId)
+			const roles = await getUserRoles("Z990012")
+			await removeRole(roles[0].id, "test")
+
+			const result = await getTeamMemberRoles(teamId)
+			expect(result).toHaveLength(0)
+		})
+
+		it("returns results ordered by name, navIdent, role", async () => {
+			const sectionId = await createSection("sec-gmr-c")
+			const teamId = await createTeam(sectionId, "team-gmr-c")
+			await assignRole("Z990013", "Modig Bjørk", "developer", "test", undefined, teamId)
+			await assignRole("Z990014", "Aktiv Dal", "product_owner", "test", undefined, teamId)
+			await assignRole("Z990013", "Modig Bjørk", "tech_lead", "test", undefined, teamId)
+
+			const result = await getTeamMemberRoles(teamId)
+			expect(result[0].navIdent).toBe("Z990014") // Aktiv < Modig
+			expect(result[1].role).toBe("developer") // developer < tech_lead
+			expect(result[2].role).toBe("tech_lead")
+		})
+	})
+
+	describe("getTeamMemberRoleById", () => {
+		it("returns the role when roleId belongs to the team", async () => {
+			const sectionId = await createSection("sec-gmbid-a")
+			const teamId = await createTeam(sectionId, "team-gmbid-a")
+			await assignRole("Z990020", "Fri Stein", "developer", "test", undefined, teamId)
+			const roles = await getUserRoles("Z990020")
+
+			const result = await getTeamMemberRoleById(roles[0].id, teamId)
+			expect(result).not.toBeNull()
+			expect(result?.role).toBe("developer")
+		})
+
+		it("returns null when roleId does not belong to the team", async () => {
+			const sectionId = await createSection("sec-gmbid-b")
+			const teamId1 = await createTeam(sectionId, "team-gmbid-b1")
+			const teamId2 = await createTeam(sectionId, "team-gmbid-b2")
+			await assignRole("Z990021", "Varm Sand", "developer", "test", undefined, teamId1)
+			const roles = await getUserRoles("Z990021")
+
+			const result = await getTeamMemberRoleById(roles[0].id, teamId2)
+			expect(result).toBeNull()
+		})
+
+		it("returns null when role is archived", async () => {
+			const sectionId = await createSection("sec-gmbid-c")
+			const teamId = await createTeam(sectionId, "team-gmbid-c")
+			await assignRole("Z990022", "Kald Topp", "developer", "test", undefined, teamId)
+			const roles = await getUserRoles("Z990022")
+			await removeRole(roles[0].id, "test")
+
+			const result = await getTeamMemberRoleById(roles[0].id, teamId)
+			expect(result).toBeNull()
 		})
 	})
 })
