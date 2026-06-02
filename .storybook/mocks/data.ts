@@ -310,9 +310,9 @@ export function mockTeamEditData() {
 			{ slug: "pensjon-regler" },
 		],
 		teamMembers: [
-			{ roleId: "r-01", navIdent: "Z990001", name: "Glad Fjord", role: "product_owner" as const },
-			{ roleId: "r-02", navIdent: "Z990002", name: "Rask Elv", role: "tech_lead" as const },
-			{ roleId: "r-03", navIdent: "Z990003", name: "Stille Skog", role: "developer" as const },
+			{ roleId: "00000000-0000-0000-0000-000000000001", navIdent: "Z990001", name: "Glad Fjord", role: "product_owner" as const },
+			{ roleId: "00000000-0000-0000-0000-000000000002", navIdent: "Z990002", name: "Rask Elv", role: "tech_lead" as const },
+			{ roleId: "00000000-0000-0000-0000-000000000003", navIdent: "Z990003", name: "Stille Skog", role: "developer" as const },
 		],
 		userIsAdmin: false,
 	}
