@@ -253,99 +253,6 @@ export default function TeamUgjennomforteRutiner() {
 				</Box>
 			) : (
 				<VStack gap="space-8">
-					{sectionRoutines.length > 0 && (
-						<VStack gap="space-4">
-							<Heading size="medium" level="3">
-								Seksjonsrutiner
-							</Heading>
-							<BodyShort size="small" textColor="subtle">
-								{sectionRoutines.length} seksjonsrutine{sectionRoutines.length !== 1 ? "r" : ""} ikke gjennomført
-							</BodyShort>
-							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-							<section className="table-scroll" tabIndex={0} aria-label="Ikke-gjennomførte seksjonsrutiner">
-								<Table sort={sectionSort} onSortChange={handleSectionSort}>
-									<Table.Header>
-										<Table.Row>
-											<Table.ColumnHeader sortKey="name" sortable scope="col">
-												Rutine
-											</Table.ColumnHeader>
-											<Table.ColumnHeader sortKey="ownerRole" sortable scope="col">
-												Ansvarlig rolle
-											</Table.ColumnHeader>
-											<Table.ColumnHeader sortKey="priority" sortable scope="col">
-												Prioritet
-											</Table.ColumnHeader>
-											<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
-											<Table.ColumnHeader sortKey="lastReview" sortable scope="col">
-												Siste gjennomgang
-											</Table.ColumnHeader>
-											<Table.ColumnHeader sortKey="deadline" sortable scope="col">
-												Frist
-											</Table.ColumnHeader>
-											<Table.ColumnHeader sortKey="status" sortable scope="col">
-												Status
-											</Table.ColumnHeader>
-										</Table.Row>
-									</Table.Header>
-									<Table.Body>
-										{sortedSectionRoutines.map((dl, index) => {
-											const key = `${dl.routine?.id ?? index}-section`
-											const routineLink =
-												dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId]
-													? `/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`
-													: null
-											return (
-												<Table.Row key={key}>
-													<Table.DataCell>
-														{routineLink ? (
-															<Link to={routineLink}>{dl.routine?.name ?? "—"}</Link>
-														) : (
-															(dl.routine?.name ?? "—")
-														)}
-													</Table.DataCell>
-													<Table.DataCell>{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}</Table.DataCell>
-													<Table.DataCell>
-														<PriorityTag priority={dl.routine?.priority ?? 3} />
-													</Table.DataCell>
-													<Table.DataCell>
-														<FrequencyDisplay
-															frequency={dl.routine?.frequency}
-															eventFrequency={dl.routine?.eventFrequency}
-														/>
-													</Table.DataCell>
-													<Table.DataCell>
-														{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
-													</Table.DataCell>
-													<Table.DataCell>
-														{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
-													</Table.DataCell>
-													<Table.DataCell>
-														<HStack gap="space-2" align="center" wrap>
-															{dl.overdue ? (
-																<Tag variant="error" size="small">
-																	Over frist
-																</Tag>
-															) : (
-																<Tag variant="warning" size="small">
-																	Ikke gjennomført
-																</Tag>
-															)}
-															{dl.needsFollowUp && (
-																<Tag variant="warning" size="small">
-																	Må følges opp
-																</Tag>
-															)}
-														</HStack>
-													</Table.DataCell>
-												</Table.Row>
-											)
-										})}
-									</Table.Body>
-								</Table>
-							</section>
-						</VStack>
-					)}
-
 					{appRoutines.length > 0 && (
 						<VStack gap="space-4">
 							<Heading size="medium" level="3">
@@ -465,6 +372,99 @@ export default function TeamUgjennomforteRutiner() {
 									</button>
 								</HStack>
 							)}
+						</VStack>
+					)}
+
+					{sectionRoutines.length > 0 && (
+						<VStack gap="space-4">
+							<Heading size="medium" level="3">
+								Seksjonsrutiner
+							</Heading>
+							<BodyShort size="small" textColor="subtle">
+								{sectionRoutines.length} seksjonsrutine{sectionRoutines.length !== 1 ? "r" : ""} ikke gjennomført
+							</BodyShort>
+							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+							<section className="table-scroll" tabIndex={0} aria-label="Ikke-gjennomførte seksjonsrutiner">
+								<Table sort={sectionSort} onSortChange={handleSectionSort}>
+									<Table.Header>
+										<Table.Row>
+											<Table.ColumnHeader sortKey="name" sortable scope="col">
+												Rutine
+											</Table.ColumnHeader>
+											<Table.ColumnHeader sortKey="ownerRole" sortable scope="col">
+												Ansvarlig rolle
+											</Table.ColumnHeader>
+											<Table.ColumnHeader sortKey="priority" sortable scope="col">
+												Prioritet
+											</Table.ColumnHeader>
+											<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
+											<Table.ColumnHeader sortKey="lastReview" sortable scope="col">
+												Siste gjennomgang
+											</Table.ColumnHeader>
+											<Table.ColumnHeader sortKey="deadline" sortable scope="col">
+												Frist
+											</Table.ColumnHeader>
+											<Table.ColumnHeader sortKey="status" sortable scope="col">
+												Status
+											</Table.ColumnHeader>
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{sortedSectionRoutines.map((dl, index) => {
+											const key = `${dl.routine?.id ?? index}-section`
+											const routineLink =
+												dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId]
+													? `/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`
+													: null
+											return (
+												<Table.Row key={key}>
+													<Table.DataCell>
+														{routineLink ? (
+															<Link to={routineLink}>{dl.routine?.name ?? "—"}</Link>
+														) : (
+															(dl.routine?.name ?? "—")
+														)}
+													</Table.DataCell>
+													<Table.DataCell>{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}</Table.DataCell>
+													<Table.DataCell>
+														<PriorityTag priority={dl.routine?.priority ?? 3} />
+													</Table.DataCell>
+													<Table.DataCell>
+														<FrequencyDisplay
+															frequency={dl.routine?.frequency}
+															eventFrequency={dl.routine?.eventFrequency}
+														/>
+													</Table.DataCell>
+													<Table.DataCell>
+														{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
+													</Table.DataCell>
+													<Table.DataCell>
+														{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
+													</Table.DataCell>
+													<Table.DataCell>
+														<HStack gap="space-2" align="center" wrap>
+															{dl.overdue ? (
+																<Tag variant="error" size="small">
+																	Over frist
+																</Tag>
+															) : (
+																<Tag variant="warning" size="small">
+																	Ikke gjennomført
+																</Tag>
+															)}
+															{dl.needsFollowUp && (
+																<Tag variant="warning" size="small">
+																	Må følges opp
+																</Tag>
+															)}
+														</HStack>
+													</Table.DataCell>
+												</Table.Row>
+											)
+										})}
+									</Table.Body>
+								</Table>
+							</section>
 						</VStack>
 					)}
 				</VStack>
