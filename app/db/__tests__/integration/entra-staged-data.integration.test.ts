@@ -194,7 +194,7 @@ describe("Entra staged data integration tests", () => {
 		const { appId, sectionId, activityId } = await createEntraReview()
 		const db = getTestDb()
 		await db.execute(
-			/* sql */ `INSERT INTO section_environments (section_id, cluster, included, created_by, updated_by)
+			/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
 			VALUES ('${sectionId}', 'dev-gcp', false, 'test', 'test')`,
 		)
 		await insertAuthIntegration(appId, ["group-prod"], "prod-gcp")
