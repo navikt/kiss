@@ -1354,8 +1354,15 @@ export async function getApplicationDetail(applicationId: string) {
 		}))
 		.filter((env) => !env.isExcluded)
 
+	const allExcludedClusters = new Set<string>()
+	for (const clusters of excludedBySection.values()) {
+		for (const c of clusters) allExcludedClusters.add(c)
+	}
+
 	const persistence = await getAppPersistence(applicationId)
-	const authIntegrations = await getAppAuthIntegrations(applicationId)
+	const authIntegrations = await getAppAuthIntegrations(applicationId, {
+		excludedClusters: allExcludedClusters,
+	})
 	const accessPolicyRules = await getAccessPolicyRules(applicationId)
 
 	const teamMappings = await db
