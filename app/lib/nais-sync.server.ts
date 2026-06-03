@@ -3,6 +3,7 @@ import { writeAuditLog } from "~/db/queries/audit.server"
 import {
 	archiveMissingEnvironmentAccessPolicyRules,
 	createAccessPolicySyncSummaryCollector,
+	getExcludedClustersForNaisTeam,
 	getMonitoredAppsForNaisTeam,
 	syncDiscoveredApps,
 	upsertAccessPolicyRulesForEnvironment,
@@ -77,6 +78,12 @@ export async function syncNaisAppsForTeam(
 		const appNames = new Map<string, string>()
 		const teamKnownAppsBeforeSync = await getMonitoredAppsForNaisTeam(naisTeamId)
 
+		// Fetch clusters excluded by the team's section so we don't persist
+		// auth integrations from excluded environments (e.g. dev-gcp groups).
+		const excludedClusters = await getExcludedClustersForNaisTeam(naisTeamId)
+		// Track (appId, type) pairs seen ONLY in excluded clusters so we can clear their groups.
+		const excludedOnlyAuthTypes = new Map<string, Set<AuthIntegrationType>>()
+
 		for (const app of apps) {
 			const { id: appId, isNew } = await upsertMonitoredApp(app.name, SYNC_PERFORMER, naisTeamId)
 			if (isNew) newApps++
@@ -107,8 +114,16 @@ export async function syncNaisAppsForTeam(
 				if (isNewRes) newPersistence++
 			}
 
-			// Collect auth integrations per (appId, type) across environments
+			// Collect auth integrations per (appId, type) across environments.
+			// Skip excluded clusters; track types only seen in excluded clusters for cleanup.
 			for (const auth of app.authIntegrations) {
+				if (excludedClusters.has(app.cluster)) {
+					if (!appAuthIntegrations.get(appId)?.has(auth.type)) {
+						if (!excludedOnlyAuthTypes.has(appId)) excludedOnlyAuthTypes.set(appId, new Set())
+						excludedOnlyAuthTypes.get(appId)!.add(auth.type)
+					}
+					continue
+				}
 				if (!appAuthIntegrations.has(appId)) {
 					appAuthIntegrations.set(appId, new Map())
 				}
@@ -116,6 +131,8 @@ export async function syncNaisAppsForTeam(
 				const existing = byType.get(auth.type)
 				if (!existing) {
 					byType.set(auth.type, auth)
+					// Remove from excluded-only tracking once we find a non-excluded source
+					excludedOnlyAuthTypes.get(appId)?.delete(auth.type)
 				} else {
 					byType.set(auth.type, mergeAuthIntegrations(existing, auth))
 				}
@@ -167,15 +184,24 @@ export async function syncNaisAppsForTeam(
 		}
 
 		// Upsert auth integrations once per (app, type) with merged data.
+		// When excluded clusters are configured, pass groups explicitly (null if none)
+		// so stale groups from previously included clusters are cleared.
 		for (const [appId, byType] of appAuthIntegrations) {
 			for (const [, auth] of byType) {
 				await upsertAppAuthIntegration(appId, auth.type, {
 					allowAllUsers: auth.allowAllUsers,
 					claimsExtra: auth.claimsExtra,
-					groups: auth.groups,
+					groups: excludedClusters.size > 0 ? (auth.groups ?? null) : auth.groups,
 					sidecarEnabled: auth.sidecarEnabled,
 					inboundRules: auth.inboundRules,
 				})
+			}
+		}
+
+		// Clear groups for auth integration types that were only seen in excluded clusters.
+		for (const [appId, types] of excludedOnlyAuthTypes) {
+			for (const type of types) {
+				await upsertAppAuthIntegration(appId, type, { groups: null })
 			}
 		}
 

@@ -4,6 +4,7 @@ const mockWriteAuditLog = vi.fn()
 const mockWithAdvisoryLock = vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn())
 const mockFetchNaisApps = vi.fn()
 const mockGetMonitoredAppsForNaisTeam = vi.fn()
+const mockGetExcludedClustersForNaisTeam = vi.fn()
 const mockUpsertMonitoredApp = vi.fn()
 const mockUpsertAppEnvironment = vi.fn()
 const mockUpsertAppPersistence = vi.fn()
@@ -36,6 +37,7 @@ vi.mock("~/db/queries/nais.server", () => ({
 		addedRules: 0,
 		removedRules: 0,
 	}),
+	getExcludedClustersForNaisTeam: mockGetExcludedClustersForNaisTeam,
 	getMonitoredAppsForNaisTeam: mockGetMonitoredAppsForNaisTeam,
 	syncDiscoveredApps: vi.fn(),
 	upsertAccessPolicyRulesForEnvironment: mockUpsertAccessPolicyRulesForEnvironment,
@@ -67,6 +69,8 @@ const { syncNaisAppsForTeam } = await import("~/lib/nais-sync.server")
 describe("nais sync summary audit", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
+
+		mockGetExcludedClustersForNaisTeam.mockResolvedValue(new Set())
 
 		mockFetchNaisApps.mockResolvedValue([
 			{
@@ -178,5 +182,106 @@ describe("nais sync summary audit", () => {
 			skipped: 0,
 		})
 		expect(mockWriteAuditLog).not.toHaveBeenCalled()
+	})
+})
+
+describe("excluded cluster auth integration filtering", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+
+		mockGetExcludedClustersForNaisTeam.mockResolvedValue(new Set(["dev-gcp"]))
+		mockGetMonitoredAppsForNaisTeam.mockResolvedValue([])
+		mockUpsertMonitoredApp.mockImplementation(async (name: string) => ({ id: `${name}-id`, isNew: false }))
+		mockUpsertAppEnvironment.mockImplementation(async (appId: string, cluster: string) => ({
+			id: `${appId}-${cluster}-env`,
+			isNew: false,
+		}))
+		mockUpsertAppPersistence.mockResolvedValue(false)
+		mockUpsertAppAuthIntegration.mockResolvedValue(false)
+		mockArchiveMissingEnvironmentAccessPolicyRules.mockResolvedValue(undefined)
+		mockUpsertAccessPolicyRulesForEnvironment.mockResolvedValue(undefined)
+	})
+
+	it("skips auth integrations from excluded clusters", async () => {
+		mockFetchNaisApps.mockResolvedValue([
+			{
+				name: "myapp",
+				cluster: "dev-gcp",
+				namespace: "team",
+				image: "img",
+				persistence: [],
+				authIntegrations: [{ type: "entra_id", enabled: true, groups: ["dev-group-1"] }],
+				accessPolicyInbound: [],
+			},
+		])
+
+		await syncNaisAppsForTeam("token", "teampensjon", "team-id")
+
+		// No auth integration upserted from the excluded cluster's data
+		// but groups: null should be passed to clear any previously stored dev groups
+		expect(mockUpsertAppAuthIntegration).toHaveBeenCalledWith("myapp-id", "entra_id", { groups: null })
+		expect(mockUpsertAppAuthIntegration).not.toHaveBeenCalledWith(
+			"myapp-id",
+			"entra_id",
+			expect.objectContaining({ groups: expect.arrayContaining(["dev-group-1"]) }),
+		)
+	})
+
+	it("only persists groups from non-excluded clusters when app is in both", async () => {
+		mockFetchNaisApps.mockResolvedValue([
+			{
+				name: "myapp",
+				cluster: "dev-gcp",
+				namespace: "team",
+				image: "img",
+				persistence: [],
+				authIntegrations: [{ type: "entra_id", enabled: true, groups: ["dev-group-1"] }],
+				accessPolicyInbound: [],
+			},
+			{
+				name: "myapp",
+				cluster: "prod-gcp",
+				namespace: "team",
+				image: "img",
+				persistence: [],
+				authIntegrations: [{ type: "entra_id", enabled: true, groups: ["prod-group-1"] }],
+				accessPolicyInbound: [],
+			},
+		])
+
+		await syncNaisAppsForTeam("token", "teampensjon", "team-id")
+
+		expect(mockUpsertAppAuthIntegration).toHaveBeenCalledWith(
+			"myapp-id",
+			"entra_id",
+			expect.objectContaining({ groups: ["prod-group-1"] }),
+		)
+		expect(mockUpsertAppAuthIntegration).not.toHaveBeenCalledWith(
+			"myapp-id",
+			"entra_id",
+			expect.objectContaining({ groups: expect.arrayContaining(["dev-group-1"]) }),
+		)
+	})
+
+	it("passes groups: null when non-excluded cluster has no groups, to clear stale dev groups", async () => {
+		mockFetchNaisApps.mockResolvedValue([
+			{
+				name: "myapp",
+				cluster: "prod-gcp",
+				namespace: "team",
+				image: "img",
+				persistence: [],
+				authIntegrations: [{ type: "entra_id", enabled: true }],
+				accessPolicyInbound: [],
+			},
+		])
+
+		await syncNaisAppsForTeam("token", "teampensjon", "team-id")
+
+		expect(mockUpsertAppAuthIntegration).toHaveBeenCalledWith(
+			"myapp-id",
+			"entra_id",
+			expect.objectContaining({ groups: null }),
+		)
 	})
 })

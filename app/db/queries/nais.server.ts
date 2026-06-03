@@ -720,6 +720,17 @@ export async function getExcludedEnvironments(sectionId: string): Promise<Set<st
 	return new Set(rows.map((r) => r.cluster))
 }
 
+/** Returnerer ekskluderte kluster for et Nais-teams seksjon. Returnerer tom Set hvis teamet ikke er tilknyttet en seksjon. */
+export async function getExcludedClustersForNaisTeam(naisTeamId: string): Promise<Set<string>> {
+	const [team] = await db
+		.select({ sectionId: naisTeams.sectionId })
+		.from(naisTeams)
+		.where(eq(naisTeams.id, naisTeamId))
+		.limit(1)
+	if (!team?.sectionId) return new Set()
+	return getExcludedEnvironments(team.sectionId)
+}
+
 /** Exclude a cluster for a section (idempotent). */
 export async function excludeEnvironment(sectionId: string, cluster: string, performedBy: string) {
 	await db
@@ -1138,7 +1149,7 @@ export async function upsertAppAuthIntegration(
 				enabled: true,
 				allowAllUsers: opts?.allowAllUsers ?? existing.allowAllUsers,
 				claimsExtra: claimsExtraStr ?? existingClaimsExtra,
-				groups: groupsStr ?? existingGroups,
+				groups: opts?.groups !== undefined ? groupsStr : existingGroups,
 				sidecarEnabled: opts?.sidecarEnabled ?? existing.sidecarEnabled,
 				inboundRules: inboundRulesStr ?? existingInboundRules,
 			}
