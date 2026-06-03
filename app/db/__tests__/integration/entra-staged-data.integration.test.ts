@@ -132,6 +132,7 @@ describe("Entra staged data integration tests", () => {
 			DELETE FROM application_manual_groups;
 			DELETE FROM application_auth_integrations;
 			DELETE FROM monitored_applications;
+			DELETE FROM section_environments;
 			DELETE FROM sections;
 			DELETE FROM audit_log;
 		`)
