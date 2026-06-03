@@ -1,12 +1,13 @@
-import { BodyShort, Box, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyShort, Box, Button, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
-import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getSectionBySlug, getSections, getTeamIncompleteRoutines } from "~/db/queries/sections.server"
-import { getAuthenticatedUser } from "~/lib/auth.server"
+import { getSectionBySlug, getSections, getTeamBySlug, getTeamIncompleteRoutines } from "~/db/queries/sections.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { createDraftReview } from "~/lib/create-draft-review.server"
 
 export { RouteErrorBoundary as ErrorBoundary }
 
@@ -16,7 +17,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 	if (!teamSlug) throw new Response("Mangler team", { status: 400 })
 
-	await getAuthenticatedUser(request)
+	await requireAuthenticatedUser(request)
 
 	const [result, section, allSections] = await Promise.all([
 		getTeamIncompleteRoutines(teamSlug),
@@ -57,11 +58,45 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 }
 
+export async function action({ request, params }: ActionFunctionArgs) {
+	const seksjon = params.seksjon
+	const teamSlug = params.team
+	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
+	if (!teamSlug) throw new Response("Mangler team", { status: 400 })
+
+	const authedUser = await requireAuthenticatedUser(request)
+
+	// Validate team exists and belongs to the section — same guard as loader.
+	const [section, team] = await Promise.all([getSectionBySlug(seksjon), getTeamBySlug(teamSlug)])
+	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+	if (!team) throw new Response("Team ikke funnet", { status: 404 })
+	if (team.sectionId !== section.id) throw new Response("Team tilhører ikke denne seksjonen", { status: 404 })
+
+	const formData = await request.formData()
+	const intent = formData.get("intent")
+
+	if (intent === "create-draft") {
+		const result = await createDraftReview({
+			routineId: formData.get("routineId") as string | null,
+			sectionSlug: seksjon,
+			applicationId: (formData.get("applicationId") as string | null) || null,
+			navIdent: authedUser.navIdent,
+		})
+		if (!result.ok) {
+			return data({ success: false, error: result.error, intent: "create-draft" }, { status: result.status })
+		}
+		return redirect(`/seksjoner/${result.sectionSlug}/rutiner/${result.routineId}/gjennomgang/${result.reviewId}`)
+	}
+
+	return data({ success: false, error: "Ukjent handling" }, { status: 400 })
+}
+
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 type AppSortKey = "priority" | "name" | "app" | "lastReview" | "deadline" | "status"
 type SectionSortKey = "priority" | "name" | "ownerRole" | "lastReview" | "deadline" | "status"
 type SortDirection = "ascending" | "descending"
+type ActionFilter = "alle" | "ny" | "fortsett"
 
 function routineStatusKey(dl: { overdue: boolean; lastReviewDate: Date | string | null }) {
 	if (dl.overdue) return "overdue"
@@ -72,6 +107,11 @@ function routineStatusKey(dl: { overdue: boolean; lastReviewDate: Date | string 
 export default function TeamUgjennomforteRutiner() {
 	const { seksjon, seksjonName, team, teamName, sectionRoutines, appRoutines, sectionSlugMap } =
 		useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
+	const createDraftError =
+		actionData && "error" in actionData && "intent" in actionData && actionData.intent === "create-draft"
+			? actionData.error
+			: null
 
 	const [appSort, setAppSort] = useState<{ orderBy: AppSortKey; direction: SortDirection }>({
 		orderBy: "priority",
@@ -83,6 +123,8 @@ export default function TeamUgjennomforteRutiner() {
 	})
 	const [appPage, setAppPage] = useState(1)
 	const [appPageSize, setAppPageSize] = useState(25)
+	const [appActionFilter, setAppActionFilter] = useState<ActionFilter>("alle")
+	const [sectionActionFilter, setSectionActionFilter] = useState<ActionFilter>("alle")
 
 	const handleAppSort = (sortKey: string | undefined) => {
 		if (!sortKey) return
@@ -180,9 +222,58 @@ export default function TeamUgjennomforteRutiner() {
 		})
 	}, [appRoutines, appSort])
 
-	const totalAppPages = Math.max(1, Math.ceil(sortedAppRoutines.length / appPageSize))
-	const currentAppPage = Math.min(appPage, totalAppPages)
-	const pagedAppRoutines = sortedAppRoutines.slice((currentAppPage - 1) * appPageSize, currentAppPage * appPageSize)
+	function matchesActionFilter(filter: ActionFilter, draftReviewId: string | null | undefined) {
+		if (filter === "ny") return !draftReviewId
+		if (filter === "fortsett") return !!draftReviewId
+		return true
+	}
+
+	const filteredAppRoutines = sortedAppRoutines.filter((dl) => matchesActionFilter(appActionFilter, dl.draftReviewId))
+	const filteredSectionRoutines = sortedSectionRoutines.filter((dl) =>
+		matchesActionFilter(sectionActionFilter, dl.draftReviewId),
+	)
+
+	const totalFilteredAppPages = Math.max(1, Math.ceil(filteredAppRoutines.length / appPageSize))
+	const currentFilteredAppPage = Math.min(appPage, totalFilteredAppPages)
+	const pagedFilteredAppRoutines = filteredAppRoutines.slice(
+		(currentFilteredAppPage - 1) * appPageSize,
+		currentFilteredAppPage * appPageSize,
+	)
+
+	function renderRoutineAction(dl: (typeof appRoutines)[number]) {
+		if (!dl.routine?.sectionId || !sectionSlugMap[dl.routine.sectionId]) return null
+		const sectionSlug = sectionSlugMap[dl.routine.sectionId]
+		const routineName = dl.routine.name
+		const appContext = !dl.isSectionRoutine && dl.applicationName ? ` for ${dl.applicationName}` : ""
+		if (dl.draftReviewId) {
+			return (
+				<Button
+					as={Link}
+					to={`/seksjoner/${sectionSlug}/rutiner/${dl.routine.id}/gjennomgang/${dl.draftReviewId}`}
+					variant="tertiary"
+					size="xsmall"
+					aria-label={`Fortsett gjennomgang av «${routineName}»${appContext}`}
+				>
+					Fortsett gjennomgang
+				</Button>
+			)
+		}
+		return (
+			<form method="post" style={{ display: "inline" }}>
+				<input type="hidden" name="intent" value="create-draft" />
+				<input type="hidden" name="routineId" value={dl.routine.id} />
+				{!dl.isSectionRoutine && <input type="hidden" name="applicationId" value={dl.applicationId} />}
+				<Button
+					type="submit"
+					variant="tertiary"
+					size="xsmall"
+					aria-label={`Ny gjennomgang av «${routineName}»${appContext}`}
+				>
+					Ny gjennomgang
+				</Button>
+			</form>
+		)
+	}
 
 	function routineRow(dl: (typeof appRoutines)[number], key: string, opts: { showApp: boolean }) {
 		const routineLink =
@@ -201,6 +292,7 @@ export default function TeamUgjennomforteRutiner() {
 						<Link to={appLink}>{dl.applicationName}</Link>
 					</Table.DataCell>
 				)}
+				<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
 				<Table.DataCell>
 					<PriorityTag priority={dl.routine?.priority ?? 3} />
 				</Table.DataCell>
@@ -251,6 +343,12 @@ export default function TeamUgjennomforteRutiner() {
 				<BodyShort textColor="subtle">{totalCount} rutiner ikke gjennomført</BodyShort>
 			</VStack>
 
+			{createDraftError && (
+				<Alert variant="error" size="small">
+					{createDraftError}
+				</Alert>
+			)}
+
 			{totalCount === 0 ? (
 				<Box padding="space-16" borderRadius="8" background="sunken">
 					<BodyShort>Alle rutiner er gjennomført. Bra jobbet! 🎉</BodyShort>
@@ -264,25 +362,43 @@ export default function TeamUgjennomforteRutiner() {
 							</Heading>
 							<HStack justify="space-between" align="end" wrap>
 								<BodyShort size="small" textColor="subtle">
-									Viser {(currentAppPage - 1) * appPageSize + 1}–
-									{Math.min(currentAppPage * appPageSize, sortedAppRoutines.length)} av {sortedAppRoutines.length}
+									Viser {filteredAppRoutines.length === 0 ? 0 : (currentFilteredAppPage - 1) * appPageSize + 1}–
+									{Math.min(currentFilteredAppPage * appPageSize, filteredAppRoutines.length)} av{" "}
+									{filteredAppRoutines.length}
+									{appActionFilter !== "alle" ? ` (filtrert fra ${sortedAppRoutines.length})` : ""}
 								</BodyShort>
-								<Select
-									label="Rader per side"
-									size="small"
-									value={appPageSize}
-									onChange={(e) => {
-										setAppPageSize(Number(e.target.value))
-										setAppPage(1)
-									}}
-									style={{ width: "auto" }}
-								>
-									{PAGE_SIZE_OPTIONS.map((n) => (
-										<option key={n} value={n}>
-											{n}
-										</option>
-									))}
-								</Select>
+								<HStack gap="space-4" align="end">
+									<Select
+										label="Handlinger"
+										size="small"
+										value={appActionFilter}
+										onChange={(e) => {
+											setAppActionFilter(e.target.value as ActionFilter)
+											setAppPage(1)
+										}}
+										style={{ width: "auto" }}
+									>
+										<option value="alle">Alle</option>
+										<option value="ny">Ny gjennomgang</option>
+										<option value="fortsett">Fortsett gjennomgang</option>
+									</Select>
+									<Select
+										label="Rader per side"
+										size="small"
+										value={appPageSize}
+										onChange={(e) => {
+											setAppPageSize(Number(e.target.value))
+											setAppPage(1)
+										}}
+										style={{ width: "auto" }}
+									>
+										{PAGE_SIZE_OPTIONS.map((n) => (
+											<option key={n} value={n}>
+												{n}
+											</option>
+										))}
+									</Select>
+								</HStack>
 							</HStack>
 
 							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
@@ -296,6 +412,7 @@ export default function TeamUgjennomforteRutiner() {
 											<Table.ColumnHeader sortKey="app" sortable scope="col">
 												Applikasjon
 											</Table.ColumnHeader>
+											<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
 											<Table.ColumnHeader sortKey="priority" sortable scope="col">
 												Prioritet
 											</Table.ColumnHeader>
@@ -312,7 +429,7 @@ export default function TeamUgjennomforteRutiner() {
 										</Table.Row>
 									</Table.Header>
 									<Table.Body>
-										{pagedAppRoutines.map((dl, index) =>
+										{pagedFilteredAppRoutines.map((dl, index) =>
 											routineRow(dl, `${dl.applicationId}:${dl.routine?.id ?? index}:${dl.matchSource}`, {
 												showApp: true,
 											}),
@@ -321,21 +438,21 @@ export default function TeamUgjennomforteRutiner() {
 								</Table>
 							</section>
 
-							{totalAppPages > 1 && (
+							{totalFilteredAppPages > 1 && (
 								<HStack justify="center" gap="space-2" wrap>
 									<button
 										type="button"
 										onClick={() => setAppPage((p) => Math.max(1, p - 1))}
-										disabled={currentAppPage === 1}
+										disabled={currentFilteredAppPage === 1}
 										style={{
 											padding: "var(--ax-space-4) var(--ax-space-8)",
-											cursor: currentAppPage === 1 ? "default" : "pointer",
+											cursor: currentFilteredAppPage === 1 ? "default" : "pointer",
 										}}
 									>
 										Forrige
 									</button>
-									{Array.from({ length: totalAppPages }, (_, i) => i + 1)
-										.filter((p) => p === 1 || p === totalAppPages || Math.abs(p - currentAppPage) <= 2)
+									{Array.from({ length: totalFilteredAppPages }, (_, i) => i + 1)
+										.filter((p) => p === 1 || p === totalFilteredAppPages || Math.abs(p - currentFilteredAppPage) <= 2)
 										.reduce<(number | "…")[]>((acc, p, i, arr) => {
 											if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push("…")
 											acc.push(p)
@@ -352,11 +469,11 @@ export default function TeamUgjennomforteRutiner() {
 													key={p}
 													type="button"
 													onClick={() => setAppPage(p)}
-													aria-current={p === currentAppPage ? "page" : undefined}
+													aria-current={p === currentFilteredAppPage ? "page" : undefined}
 													style={{
 														padding: "var(--ax-space-4) var(--ax-space-8)",
-														fontWeight: p === currentAppPage ? "bold" : undefined,
-														cursor: p === currentAppPage ? "default" : "pointer",
+														fontWeight: p === currentFilteredAppPage ? "bold" : undefined,
+														cursor: p === currentFilteredAppPage ? "default" : "pointer",
 													}}
 												>
 													{p}
@@ -365,11 +482,11 @@ export default function TeamUgjennomforteRutiner() {
 										)}
 									<button
 										type="button"
-										onClick={() => setAppPage((p) => Math.min(totalAppPages, p + 1))}
-										disabled={currentAppPage === totalAppPages}
+										onClick={() => setAppPage((p) => Math.min(totalFilteredAppPages, p + 1))}
+										disabled={currentFilteredAppPage === totalFilteredAppPages}
 										style={{
 											padding: "var(--ax-space-4) var(--ax-space-8)",
-											cursor: currentAppPage === totalAppPages ? "default" : "pointer",
+											cursor: currentFilteredAppPage === totalFilteredAppPages ? "default" : "pointer",
 										}}
 									>
 										Neste
@@ -384,9 +501,24 @@ export default function TeamUgjennomforteRutiner() {
 							<Heading size="medium" level="3">
 								Seksjonsrutiner
 							</Heading>
-							<BodyShort size="small" textColor="subtle">
-								{sectionRoutines.length} seksjonsrutine{sectionRoutines.length !== 1 ? "r" : ""} ikke gjennomført
-							</BodyShort>
+							<HStack justify="space-between" align="end" wrap>
+								<BodyShort size="small" textColor="subtle">
+									{filteredSectionRoutines.length} seksjonsrutine
+									{filteredSectionRoutines.length !== 1 ? "r" : ""} ikke gjennomført
+									{sectionActionFilter !== "alle" ? ` (filtrert fra ${sortedSectionRoutines.length})` : ""}
+								</BodyShort>
+								<Select
+									label="Handlinger"
+									size="small"
+									value={sectionActionFilter}
+									onChange={(e) => setSectionActionFilter(e.target.value as ActionFilter)}
+									style={{ width: "auto" }}
+								>
+									<option value="alle">Alle</option>
+									<option value="ny">Ny gjennomgang</option>
+									<option value="fortsett">Fortsett gjennomgang</option>
+								</Select>
+							</HStack>
 							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 							<section className="table-scroll" tabIndex={0} aria-label="Ikke-gjennomførte seksjonsrutiner">
 								<Table sort={sectionSort} onSortChange={handleSectionSort}>
@@ -398,6 +530,7 @@ export default function TeamUgjennomforteRutiner() {
 											<Table.ColumnHeader sortKey="ownerRole" sortable scope="col">
 												Ansvarlig rolle
 											</Table.ColumnHeader>
+											<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
 											<Table.ColumnHeader sortKey="priority" sortable scope="col">
 												Prioritet
 											</Table.ColumnHeader>
@@ -414,7 +547,7 @@ export default function TeamUgjennomforteRutiner() {
 										</Table.Row>
 									</Table.Header>
 									<Table.Body>
-										{sortedSectionRoutines.map((dl) => {
+										{filteredSectionRoutines.map((dl) => {
 											const key = `${dl.routine.id}-section`
 											const routineLink =
 												dl.routine.sectionId && sectionSlugMap[dl.routine.sectionId]
@@ -430,6 +563,7 @@ export default function TeamUgjennomforteRutiner() {
 														)}
 													</Table.DataCell>
 													<Table.DataCell>{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}</Table.DataCell>
+													<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
 													<Table.DataCell>
 														<PriorityTag priority={dl.routine.priority ?? 3} />
 													</Table.DataCell>
