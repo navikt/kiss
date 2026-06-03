@@ -11,7 +11,7 @@ export function FrequencyDisplay({
 	size = "small",
 }: {
 	frequency: string | null | undefined
-	eventFrequency: string | null | undefined
+	eventFrequency?: string | null | undefined
 	size?: "small" | "medium"
 }) {
 	const tagSize = size === "medium" ? "small" : "xsmall"

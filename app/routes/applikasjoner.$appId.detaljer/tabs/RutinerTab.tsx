@@ -87,16 +87,19 @@ export function RutinerTab({
 			? actionData.error
 			: null
 
-	// Split routines into scheduled (with periodic frequency), event-only, and section routines.
-	// Event-only section routines (frequency === null) are shown in the "Hendelsesbaserte rutiner" section,
-	// not "Seksjonsbaserte rutiner", to avoid showing "Ikke gjennomført" for routines without a periodic deadline.
+	// Split routines into scheduled (with periodic frequency), event-based, and section routines.
+	// Routines with both a periodic frequency AND an event frequency appear in both their
+	// respective tables. Section routines without a periodic frequency are shown in
+	// "Hendelsesbaserte rutiner" to avoid showing "Ikke gjennomført" without a real deadline.
 	const sectionRoutines = routineDeadlines.filter((dl) => dl.isSectionRoutine && dl.routine?.frequency !== null)
 	const nonSectionRoutines = routineDeadlines.filter((dl) => !dl.isSectionRoutine)
 	const scheduledRoutines = nonSectionRoutines.filter((dl) => dl.routine && dl.routine.frequency !== null)
-	const eventOnlyRoutines = [
-		...nonSectionRoutines.filter((dl) => dl.routine && dl.routine.frequency === null),
-		...routineDeadlines.filter((dl) => dl.isSectionRoutine && dl.routine?.frequency === null),
-	]
+	// All routines shown in "Hendelsesbaserte rutiner":
+	// - routines without a periodic frequency (shown as "Ved behov" if also no eventFrequency)
+	// - hybrid routines with both a periodic frequency AND an explicit event frequency
+	const eventBasedRoutines = routineDeadlines.filter(
+		(dl) => dl.routine?.frequency === null || dl.routine?.eventFrequency != null,
+	)
 
 	const routineStatusKey = (dl: RoutineDeadline): string => {
 		if (dl.overdue) return "overdue"
@@ -275,7 +278,7 @@ export function RutinerTab({
 	}
 
 	const filteredRoutines = scheduledRoutines.filter(filterRoutine)
-	const filteredEventRoutines = eventOnlyRoutines.filter(filterRoutine)
+	const filteredEventRoutines = eventBasedRoutines.filter(filterRoutine)
 	const filteredSectionRoutines = sectionRoutines.filter(filterRoutine)
 
 	const sortedRoutines = [...filteredRoutines].sort((a, b) => {
@@ -305,8 +308,8 @@ export function RutinerTab({
 			aVal = (a.routine?.technologyElements ?? []).map((te) => te.name).join(", ")
 			bVal = (b.routine?.technologyElements ?? []).map((te) => te.name).join(", ")
 		} else if (orderBy === "frequency") {
-			aVal = frequencyDisplayText(a.routine?.frequency, a.routine?.eventFrequency)
-			bVal = frequencyDisplayText(b.routine?.frequency, b.routine?.eventFrequency)
+			aVal = frequencyDisplayText(a.routine?.frequency, null)
+			bVal = frequencyDisplayText(b.routine?.frequency, null)
 		} else if (orderBy === "status") {
 			const order = { overdue: "0", never: "1", ok: "2" }
 			aVal = order[routineStatusKey(a) as keyof typeof order] ?? "9"
@@ -440,10 +443,7 @@ export function RutinerTab({
 													</Table.DataCell>
 													<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
 													<Table.DataCell>
-														<FrequencyDisplay
-															frequency={dl.routine?.frequency}
-															eventFrequency={dl.routine?.eventFrequency}
-														/>
+														<FrequencyDisplay frequency={dl.routine?.frequency} />
 													</Table.DataCell>
 													<Table.DataCell>
 														{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
@@ -567,10 +567,7 @@ export function RutinerTab({
 														<Table.DataCell>{renderSectionMatchReason(dl)}</Table.DataCell>
 														<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
 														<Table.DataCell>
-															<FrequencyDisplay
-																frequency={dl.routine?.frequency}
-																eventFrequency={dl.routine?.eventFrequency}
-															/>
+															<FrequencyDisplay frequency={dl.routine?.frequency} />
 														</Table.DataCell>
 														<Table.DataCell>
 															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
