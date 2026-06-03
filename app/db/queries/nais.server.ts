@@ -3169,10 +3169,14 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 		}
 	}
 
+	const criticalityRank: Record<string, number> = { very_high: 0, high: 1, medium: 2, low: 3 }
+
 	for (const a of assessments) {
 		const g = groupMap.get(a.groupId)
 		if (!g) continue
-		if (!g.assessedAt || a.updatedAt > g.assessedAt) {
+		const newRank = criticalityRank[a.criticality] ?? 99
+		const currentRank = g.criticality ? (criticalityRank[g.criticality] ?? 99) : 99
+		if (newRank < currentRank) {
 			g.criticality = a.criticality as GroupCriticality
 			g.assessedBy = a.assessedBy
 			g.assessedAt = a.assessedAt
