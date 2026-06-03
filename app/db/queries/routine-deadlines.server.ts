@@ -13,6 +13,7 @@ import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
 import { frameworkControls } from "../schema/framework"
+import type { ReviewStatus } from "../schema/routines"
 import { routineControls, routineReviews, routineTechnologyElements } from "../schema/routines"
 import {
 	calculateDeadline,
@@ -44,6 +45,7 @@ export interface DeadlineWithControls {
 	deadline: Date | null
 	overdue: boolean
 	needsFollowUp?: boolean
+	draftReviewId?: string
 	matchedPersistenceLinks?: RoutineDeadlineInfo["matchedPersistenceLinks"]
 	matchedTechElements?: RoutineDeadlineInfo["matchedTechElements"]
 	matchedOracleCriticalities?: RoutineDeadlineInfo["matchedOracleCriticalities"]
@@ -266,6 +268,40 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 		for (const d of enriched) {
 			if (d.routine && followUpRoutineIds.has(d.routine.id)) {
 				d.needsFollowUp = true
+			}
+		}
+	}
+
+	// Step 7: Fetch active draft reviews for all routines and attach draftReviewId
+	if (allRoutineIds.length > 0) {
+		const draftConditions: SQL[] = []
+		if (appLevelRoutineIds.length > 0) {
+			draftConditions.push(
+				and(inArray(routineReviews.routineId, appLevelRoutineIds), eq(routineReviews.applicationId, appId)) as SQL,
+			)
+		}
+		if (sectionRoutineIdsForFollowUp.length > 0) {
+			draftConditions.push(
+				and(
+					inArray(routineReviews.routineId, sectionRoutineIdsForFollowUp),
+					isNull(routineReviews.applicationId),
+				) as SQL,
+			)
+		}
+		if (draftConditions.length > 0) {
+			const draftReviews = await db
+				.select({ routineId: routineReviews.routineId, id: routineReviews.id })
+				.from(routineReviews)
+				.where(and(or(...draftConditions), eq(routineReviews.status, "draft" as ReviewStatus)))
+			const draftReviewMap = new Map<string, string>()
+			for (const r of draftReviews) {
+				if (!draftReviewMap.has(r.routineId)) draftReviewMap.set(r.routineId, r.id)
+			}
+			for (const d of enriched) {
+				if (d.routine) {
+					const draftId = draftReviewMap.get(d.routine.id)
+					if (draftId) d.draftReviewId = draftId
+				}
 			}
 		}
 	}
