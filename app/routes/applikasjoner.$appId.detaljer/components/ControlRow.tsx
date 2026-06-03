@@ -16,6 +16,7 @@ export function ControlRow({
 		applicationControlId: string | null
 		autoReason: string | null
 		screeningDetails: Array<{ questionId: string; questionTitle: string; answer: string; effect: string }>
+		coveringRoutines?: Array<{ id: string; name: string }>
 		comment: string | null
 		commentUpdatedAt: string | null
 		commentUpdatedBy: string | null
@@ -38,6 +39,20 @@ export function ControlRow({
 			}}
 			content={
 				<VStack gap="space-4">
+					{item.coveringRoutines && item.coveringRoutines.length > 0 && (
+						<Box padding="space-4" paddingBlock="space-2">
+							<VStack gap="space-2">
+								<Detail weight="semibold" textColor="subtle">
+									Rutiner som dekker kravet:
+								</Detail>
+								<List size="small" as="ul" aria-label="Rutiner som dekker dette kravet">
+									{item.coveringRoutines.map((r) => (
+										<List.Item key={r.id}>{r.name}</List.Item>
+									))}
+								</List>
+							</VStack>
+						</Box>
+					)}
 					{item.autoReason && (
 						<Box padding="space-4" paddingBlock="space-2">
 							<VStack gap="space-2">

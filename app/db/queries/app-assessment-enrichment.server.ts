@@ -27,6 +27,7 @@ interface RawAssessment {
 
 export type EnrichedAssessment<T extends RawAssessment> = T & {
 	effectiveStatus: ComplianceStatus | null
+	coveringRoutines: Array<{ id: string; name: string }>
 	comment: string | null
 	commentUpdatedBy: string | null
 	commentUpdatedAt: string | null
@@ -42,10 +43,10 @@ async function safe<T>(fn: () => Promise<T>, fallback: T, label: string): Promis
 }
 
 /**
- * Enrich raw assessments with effective compliance status and persisted comments.
+ * Enrich raw assessments with effective compliance status, covering routines, and persisted comments.
  *
- * Returns the input rows with four added fields: `effectiveStatus`, `comment`,
- * `commentUpdatedBy`, and `commentUpdatedAt`.
+ * Returns the input rows with five added fields: `effectiveStatus`, `coveringRoutines`,
+ * `comment`, `commentUpdatedBy`, and `commentUpdatedAt`.
  */
 export async function enrichAppAssessments<T extends RawAssessment>(
 	appId: string,
@@ -72,13 +73,21 @@ export async function enrichAppAssessments<T extends RawAssessment>(
 	)
 	const persistedMap = new Map(persistedControls.map((c) => [`${c.controlId}:${c.technologyElementId ?? "null"}`, c]))
 
+	const routineNameById = new Map(
+		deadlinesWithControls
+			.filter((d): d is typeof d & { routine: NonNullable<typeof d.routine> } => d.routine != null)
+			.map((d) => [d.routine.id, d.routine.name]),
+	)
+
 	return rawAssessments.map((a) => {
 		const key = `${a.controlUuid}:${a.technologyElementId ?? "null"}`
 		const auto = autoMap.get(key)
 		const persisted = persistedMap.get(key)
+		const coveringRoutines = (auto?.matchingRoutineIds ?? []).map((id) => ({ id, name: routineNameById.get(id) ?? id }))
 		return {
 			...a,
 			effectiveStatus: auto?.autoStatus ?? null,
+			coveringRoutines,
 			comment: persisted?.comment ?? null,
 			commentUpdatedBy: persisted?.commentUpdatedBy ?? null,
 			commentUpdatedAt: persisted?.commentUpdatedAt?.toISOString() ?? null,

@@ -86,6 +86,41 @@ describe("enrichAppAssessments", () => {
 		expect(result[1].comment).toBeNull()
 	})
 
+	it("populates coveringRoutines from matching routine deadlines", async () => {
+		const deadline = {
+			routine: {
+				id: "routine-1",
+				name: "Tilgangskontroll-rutine",
+				controls: [{ id: "ctrl-1", controlId: "K-ST.01", shortTitle: null }],
+				technologyElementIds: [],
+			},
+			applicationId: "app-1",
+			applicationName: "Test",
+			lastReviewDate: null,
+			deadline: null,
+			overdue: false,
+			matchSource: "screening" as const,
+		} as unknown as Awaited<ReturnType<typeof getRoutineDeadlinesWithControls>>[number]
+
+		mockDeadlines.mockResolvedValue([deadline])
+		mockScreening.mockResolvedValue(new Map())
+		mockControls.mockResolvedValue([])
+
+		const result = await enrichAppAssessments("app-1", [{ controlUuid: "ctrl-1", technologyElementId: null }])
+
+		expect(result[0].coveringRoutines).toEqual([{ id: "routine-1", name: "Tilgangskontroll-rutine" }])
+	})
+
+	it("returns empty coveringRoutines when no matching routines", async () => {
+		mockDeadlines.mockResolvedValue([])
+		mockScreening.mockResolvedValue(new Map())
+		mockControls.mockResolvedValue([])
+
+		const result = await enrichAppAssessments("app-1", [{ controlUuid: "ctrl-1", technologyElementId: null }])
+
+		expect(result[0].coveringRoutines).toEqual([])
+	})
+
 	it("returns null effectiveStatus and null comment fields when supporting tables fail", async () => {
 		mockDeadlines.mockRejectedValue(new Error("relation does not exist"))
 		mockScreening.mockRejectedValue(new Error("relation does not exist"))

@@ -36,6 +36,7 @@ type Assessment = {
 	effectiveStatus: string | null
 	autoReason: string | null
 	screeningDetails: Array<{ questionId: string; questionTitle: string; answer: string; effect: string }>
+	coveringRoutines: Array<{ id: string; name: string }>
 	establishment: string
 	routineCompliance: string
 	applicationControlId: string | null
@@ -350,13 +351,14 @@ export function KontrollerTab({
 									<Table.ColumnHeader scope="col">Navn</Table.ColumnHeader>
 									<Table.ColumnHeader scope="col">Teknologielement</Table.ColumnHeader>
 									<Table.ColumnHeader scope="col">Status</Table.ColumnHeader>
+									<Table.ColumnHeader scope="col">Årsak</Table.ColumnHeader>
 									<Table.ColumnHeader scope="col">Kommentar</Table.ColumnHeader>
 									<Table.HeaderCell />
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
 								{notRelevantAssessments.map((a) => (
-									<ControlRow key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`} item={a} colSpan={7}>
+									<ControlRow key={`${a.controlUuid}:${a.technologyElementId ?? "null"}`} item={a} colSpan={8}>
 										<Table.DataCell>{a.domainName}</Table.DataCell>
 										<Table.DataCell>
 											<Link to={createControlLink(sectionSlug, a.domainCode, a.controlId)}>{a.controlId}</Link>
@@ -373,6 +375,13 @@ export function KontrollerTab({
 											<Tag variant="neutral" size="xsmall">
 												Ikke relevant
 											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											{a.autoReason ? (
+												<BodyShort size="small" textColor="subtle">
+													{a.autoReason}
+												</BodyShort>
+											) : null}
 										</Table.DataCell>
 									</ControlRow>
 								))}
