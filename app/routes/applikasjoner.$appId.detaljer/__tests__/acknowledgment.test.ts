@@ -10,6 +10,7 @@ vi.mock("~/lib/auth.server", () => ({
 vi.mock("~/lib/authorization.server", () => ({
 	requireAdmin: vi.fn(),
 	isAdmin: vi.fn(() => true),
+	requireAppMembership: vi.fn(),
 }))
 
 const mockAcknowledgeUnknownApp = vi.fn()

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { UserRole } from "~/db/schema/organization"
 import type { NavUser } from "../auth.server"
 import { isAdminSuppressed } from "../auth.server"
@@ -7,11 +7,19 @@ import {
 	canApproveRoutine,
 	canManageTeam,
 	hasAnySectionRole,
+	hasAnyTeamRole,
 	hasRole,
 	hasRoleForSection,
 	isActualAdmin,
 	isAdmin,
+	requireAppMembership,
+	requireReviewAccess,
 } from "../authorization.server"
+
+const mockGetAppScopeIds = vi.fn()
+vi.mock("~/db/queries/applications.server", () => ({
+	getAppScopeIds: (...args: unknown[]) => mockGetAppScopeIds(...args),
+}))
 
 function makeUser(overrides: Partial<NavUser> = {}): NavUser {
 	const dbRoles = overrides.dbRoles ?? []
@@ -462,5 +470,162 @@ describe("canAccessAppReports", () => {
 			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
 		})
 		expect(canAccessAppReports(user, [], [])).toBe(false)
+	})
+})
+
+describe("hasAnyTeamRole", () => {
+	const devTeamId = "team-abc"
+
+	it("returns true for admin regardless of devTeamId", () => {
+		const user = makeUser({ roles: new Set(["admin"]) })
+		expect(hasAnyTeamRole(user, devTeamId)).toBe(true)
+	})
+
+	it("returns true for developer with matching devTeamId", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		expect(hasAnyTeamRole(user, devTeamId)).toBe(true)
+	})
+
+	it("returns true for tech_lead with matching devTeamId", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "tech_lead", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		expect(hasAnyTeamRole(user, devTeamId)).toBe(true)
+	})
+
+	it("returns true for product_owner with matching devTeamId", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "product_owner", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		expect(hasAnyTeamRole(user, devTeamId)).toBe(true)
+	})
+
+	it("returns false for developer with wrong devTeamId", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "other-team", devTeamSectionId: null }],
+		})
+		expect(hasAnyTeamRole(user, devTeamId)).toBe(false)
+	})
+
+	it("returns false for auditor with matching devTeamId (not a team role)", () => {
+		// auditor is not in TEAM_MEMBER_ROLES — role filtering must be explicit
+		const user = makeUser({
+			dbRoles: [{ role: "auditor", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		expect(hasAnyTeamRole(user, devTeamId)).toBe(false)
+	})
+
+	it("returns false for user with no roles", () => {
+		const user = makeUser()
+		expect(hasAnyTeamRole(user, devTeamId)).toBe(false)
+	})
+
+	it("returns false for suppressed admin (admin stripped at auth time)", () => {
+		const user = makeUser({ isActualAdmin: true })
+		expect(hasAnyTeamRole(user, devTeamId)).toBe(false)
+	})
+})
+
+describe("requireAppMembership", () => {
+	const appId = "app-123"
+	const devTeamId = "team-abc"
+
+	beforeEach(() => mockGetAppScopeIds.mockReset())
+
+	it("passes for admin without DB lookup", async () => {
+		const user = makeUser({ roles: new Set(["admin"]) })
+		await expect(requireAppMembership(user, appId)).resolves.toBeUndefined()
+		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
+	})
+
+	it("passes for user with matching devTeamId", async () => {
+		mockGetAppScopeIds.mockResolvedValueOnce({ devTeamIds: [devTeamId], sectionIds: [] })
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		await expect(requireAppMembership(user, appId)).resolves.toBeUndefined()
+	})
+
+	it("passes when user is in one of multiple devTeamIds", async () => {
+		mockGetAppScopeIds.mockResolvedValueOnce({ devTeamIds: ["other-team", devTeamId, "yet-another"], sectionIds: [] })
+		const user = makeUser({
+			dbRoles: [{ role: "tech_lead", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		await expect(requireAppMembership(user, appId)).resolves.toBeUndefined()
+	})
+
+	it("throws 403 for user not in any app team", async () => {
+		mockGetAppScopeIds.mockResolvedValue({ devTeamIds: ["other-team"], sectionIds: [] })
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		await expect(requireAppMembership(user, appId)).rejects.toMatchObject({ status: 403 })
+	})
+
+	it("throws 403 for auditor (not a team role)", async () => {
+		mockGetAppScopeIds.mockResolvedValue({ devTeamIds: [devTeamId], sectionIds: [] })
+		const user = makeUser({
+			dbRoles: [{ role: "auditor", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		await expect(requireAppMembership(user, appId)).rejects.toMatchObject({ status: 403 })
+	})
+})
+
+describe("requireReviewAccess", () => {
+	const appId = "app-123"
+	const sectionId = "section-1"
+	const devTeamId = "team-abc"
+
+	beforeEach(() => mockGetAppScopeIds.mockReset())
+
+	it("passes for admin (app-scoped scope)", async () => {
+		const user = makeUser({ roles: new Set(["admin"]) })
+		await expect(requireReviewAccess(user, { applicationId: appId, sectionId })).resolves.toBeUndefined()
+		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
+	})
+
+	it("passes for admin (section-scoped scope)", async () => {
+		const user = makeUser({ roles: new Set(["admin"]) })
+		await expect(requireReviewAccess(user, { applicationId: null, sectionId })).resolves.toBeUndefined()
+	})
+
+	it("passes for app member when scope is app-scoped", async () => {
+		mockGetAppScopeIds.mockResolvedValueOnce({ devTeamIds: [devTeamId], sectionIds: [] })
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		await expect(requireReviewAccess(user, { applicationId: appId, sectionId })).resolves.toBeUndefined()
+	})
+
+	it("throws 403 for user without app membership when scope is app-scoped", async () => {
+		mockGetAppScopeIds.mockResolvedValueOnce({ devTeamIds: ["other-team"], sectionIds: [] })
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		await expect(requireReviewAccess(user, { applicationId: appId, sectionId })).rejects.toMatchObject({ status: 403 })
+	})
+
+	it("passes for section member when scope is section-scoped", async () => {
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		await expect(requireReviewAccess(user, { applicationId: null, sectionId })).resolves.toBeUndefined()
+	})
+
+	it("throws 403 for user without section role when scope is section-scoped", async () => {
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId: "other-section", devTeamId: null, devTeamSectionId: null }],
+		})
+		await expect(requireReviewAccess(user, { applicationId: null, sectionId })).rejects.toMatchObject({ status: 403 })
+	})
+
+	it("uses section-scope (not app lookup) when applicationId is null", async () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId, devTeamSectionId: sectionId }],
+		})
+		await expect(requireReviewAccess(user, { applicationId: null, sectionId })).resolves.toBeUndefined()
+		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
 	})
 })

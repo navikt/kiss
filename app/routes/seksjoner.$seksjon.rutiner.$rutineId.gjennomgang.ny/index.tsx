@@ -18,6 +18,7 @@ import type { ReviewActivityProviderConfig } from "~/db/schema/routines"
 import type { RoutineActivityType } from "~/lib/activity-types"
 import { activityTypeLabels, getProviderTypeForActivity } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { requireReviewAccess } from "~/lib/authorization.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
 
 function isUniqueViolation(err: unknown): boolean {
@@ -136,6 +137,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		throw data({ message: "Rutinen tilhører ikke denne seksjonen" }, { status: 403 })
 	}
 	const effectiveAppId = routine.isSectionRoutine === 1 ? null : applicationId
+	await requireReviewAccess(authedUser, { applicationId: effectiveAppId, sectionId: section.id })
 	const activityLinks = await getRoutineActivityLinks(rutineId)
 	const activityTypes = activityLinks.map((l) => l.activityType)
 	const hasOracleActivity = activityTypes.some((t) => getProviderTypeForActivity(t) === "oracle")

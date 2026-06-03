@@ -5,6 +5,11 @@ vi.mock("~/lib/auth.server", () => ({
 	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
+vi.mock("~/lib/authorization.server", () => ({
+	requireAnySectionRole: vi.fn(),
+	requireReviewAccess: vi.fn(),
+}))
+
 const mockGetSectionBySlug = vi.fn()
 vi.mock("~/db/queries/sections.server", () => ({
 	getSectionBySlug: mockGetSectionBySlug,
