@@ -2,7 +2,8 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getAvailableTeamsForApp } from "~/db/queries/applications.server"
 import { getOracleInstancesForApp } from "~/db/queries/audit-evidence.server"
-import { findLinkCandidates, getApplicationDetail } from "~/db/queries/nais.server"
+import { findLinkCandidates, getApplicationDetail, getLinkCandidatesForSection } from "~/db/queries/nais.server"
+import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAllTechnologyElements, getApplicationElements } from "~/db/queries/technology-elements.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
@@ -31,7 +32,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const [detail, candidates, appElements, allElements, availableTeams, oracleInstances, allOracleInstances] =
 		await Promise.all([
 			getApplicationDetail(appId),
-			findLinkCandidates(),
+			params.seksjon
+				? getSectionBySlug(params.seksjon).then((section) => {
+						if (!section) throw new Response("Seksjonen ble ikke funnet", { status: 404 })
+						return getLinkCandidatesForSection(section.id)
+					})
+				: findLinkCandidates(),
 			getApplicationElements(appId),
 			getAllTechnologyElements(),
 			getAvailableTeamsForApp(appId),
