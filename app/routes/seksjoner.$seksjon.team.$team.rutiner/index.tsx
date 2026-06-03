@@ -1,12 +1,13 @@
-import { BodyShort, Box, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyShort, Box, Button, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
-import type { LoaderFunctionArgs } from "react-router"
-import { data, Link, useLoaderData } from "react-router"
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
+import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getSectionBySlug, getSections, getTeamIncompleteRoutines } from "~/db/queries/sections.server"
-import { getAuthenticatedUser } from "~/lib/auth.server"
+import { getSectionBySlug, getSections, getTeamBySlug, getTeamIncompleteRoutines } from "~/db/queries/sections.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { createDraftReview } from "~/lib/create-draft-review.server"
 
 export { RouteErrorBoundary as ErrorBoundary }
 
@@ -16,7 +17,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 	if (!teamSlug) throw new Response("Mangler team", { status: 400 })
 
-	await getAuthenticatedUser(request)
+	await requireAuthenticatedUser(request)
 
 	const [result, section, allSections] = await Promise.all([
 		getTeamIncompleteRoutines(teamSlug),
@@ -57,6 +58,39 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 }
 
+export async function action({ request, params }: ActionFunctionArgs) {
+	const seksjon = params.seksjon
+	const teamSlug = params.team
+	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
+	if (!teamSlug) throw new Response("Mangler team", { status: 400 })
+
+	const authedUser = await requireAuthenticatedUser(request)
+
+	// Validate team exists and belongs to the section — same guard as loader.
+	const [section, team] = await Promise.all([getSectionBySlug(seksjon), getTeamBySlug(teamSlug)])
+	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+	if (!team) throw new Response("Team ikke funnet", { status: 404 })
+	if (team.sectionId !== section.id) throw new Response("Team tilhører ikke denne seksjonen", { status: 404 })
+
+	const formData = await request.formData()
+	const intent = formData.get("intent")
+
+	if (intent === "create-draft") {
+		const result = await createDraftReview({
+			routineId: formData.get("routineId") as string | null,
+			sectionSlug: seksjon,
+			applicationId: (formData.get("applicationId") as string | null) || null,
+			navIdent: authedUser.navIdent,
+		})
+		if (!result.ok) {
+			return data({ success: false, error: result.error, intent: "create-draft" }, { status: result.status })
+		}
+		return redirect(`/seksjoner/${result.sectionSlug}/rutiner/${result.routineId}/gjennomgang/${result.reviewId}`)
+	}
+
+	return data({ success: false, error: "Ukjent handling" }, { status: 400 })
+}
+
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 type AppSortKey = "priority" | "name" | "app" | "lastReview" | "deadline" | "status"
@@ -72,6 +106,11 @@ function routineStatusKey(dl: { overdue: boolean; lastReviewDate: Date | string 
 export default function TeamUgjennomforteRutiner() {
 	const { seksjon, seksjonName, team, teamName, sectionRoutines, appRoutines, sectionSlugMap } =
 		useLoaderData<typeof loader>()
+	const actionData = useActionData<typeof action>()
+	const createDraftError =
+		actionData && "error" in actionData && "intent" in actionData && actionData.intent === "create-draft"
+			? actionData.error
+			: null
 
 	const [appSort, setAppSort] = useState<{ orderBy: AppSortKey; direction: SortDirection }>({
 		orderBy: "priority",
@@ -184,6 +223,41 @@ export default function TeamUgjennomforteRutiner() {
 	const currentAppPage = Math.min(appPage, totalAppPages)
 	const pagedAppRoutines = sortedAppRoutines.slice((currentAppPage - 1) * appPageSize, currentAppPage * appPageSize)
 
+	function renderRoutineAction(dl: (typeof appRoutines)[number]) {
+		if (!dl.routine?.sectionId || !sectionSlugMap[dl.routine.sectionId]) return null
+		const sectionSlug = sectionSlugMap[dl.routine.sectionId]
+		const routineName = dl.routine.name
+		const appContext = !dl.isSectionRoutine && dl.applicationName ? ` for ${dl.applicationName}` : ""
+		if (dl.draftReviewId) {
+			return (
+				<Button
+					as={Link}
+					to={`/seksjoner/${sectionSlug}/rutiner/${dl.routine.id}/gjennomgang/${dl.draftReviewId}`}
+					variant="tertiary"
+					size="xsmall"
+					aria-label={`Fortsett gjennomgang av «${routineName}»${appContext}`}
+				>
+					Fortsett gjennomgang
+				</Button>
+			)
+		}
+		return (
+			<form method="post" style={{ display: "inline" }}>
+				<input type="hidden" name="intent" value="create-draft" />
+				<input type="hidden" name="routineId" value={dl.routine.id} />
+				{!dl.isSectionRoutine && <input type="hidden" name="applicationId" value={dl.applicationId} />}
+				<Button
+					type="submit"
+					variant="tertiary"
+					size="xsmall"
+					aria-label={`Ny gjennomgang av «${routineName}»${appContext}`}
+				>
+					Ny gjennomgang
+				</Button>
+			</form>
+		)
+	}
+
 	function routineRow(dl: (typeof appRoutines)[number], key: string, opts: { showApp: boolean }) {
 		const routineLink =
 			dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId]
@@ -201,6 +275,7 @@ export default function TeamUgjennomforteRutiner() {
 						<Link to={appLink}>{dl.applicationName}</Link>
 					</Table.DataCell>
 				)}
+				<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
 				<Table.DataCell>
 					<PriorityTag priority={dl.routine?.priority ?? 3} />
 				</Table.DataCell>
@@ -251,6 +326,12 @@ export default function TeamUgjennomforteRutiner() {
 				<BodyShort textColor="subtle">{totalCount} rutiner ikke gjennomført</BodyShort>
 			</VStack>
 
+			{createDraftError && (
+				<Alert variant="error" size="small">
+					{createDraftError}
+				</Alert>
+			)}
+
 			{totalCount === 0 ? (
 				<Box padding="space-16" borderRadius="8" background="sunken">
 					<BodyShort>Alle rutiner er gjennomført. Bra jobbet! 🎉</BodyShort>
@@ -296,6 +377,7 @@ export default function TeamUgjennomforteRutiner() {
 											<Table.ColumnHeader sortKey="app" sortable scope="col">
 												Applikasjon
 											</Table.ColumnHeader>
+											<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
 											<Table.ColumnHeader sortKey="priority" sortable scope="col">
 												Prioritet
 											</Table.ColumnHeader>
@@ -398,6 +480,7 @@ export default function TeamUgjennomforteRutiner() {
 											<Table.ColumnHeader sortKey="ownerRole" sortable scope="col">
 												Ansvarlig rolle
 											</Table.ColumnHeader>
+											<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
 											<Table.ColumnHeader sortKey="priority" sortable scope="col">
 												Prioritet
 											</Table.ColumnHeader>
@@ -430,6 +513,7 @@ export default function TeamUgjennomforteRutiner() {
 														)}
 													</Table.DataCell>
 													<Table.DataCell>{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}</Table.DataCell>
+													<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
 													<Table.DataCell>
 														<PriorityTag priority={dl.routine.priority ?? 3} />
 													</Table.DataCell>

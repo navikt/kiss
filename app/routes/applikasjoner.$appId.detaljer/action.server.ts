@@ -12,21 +12,14 @@ import {
 import { isInstanceLinkedToApp, upsertOracleRoleCriticality } from "~/db/queries/oracle-roles.server"
 import { generateAppComplianceReport } from "~/db/queries/reports.server"
 import {
-	createReview,
-	findActiveReviewConflict,
-	getRoutine,
-	getRoutineActivityLinks,
-} from "~/db/queries/routines.server"
-import { getSectionBySlug, isAppEffectiveInSection } from "~/db/queries/sections.server"
-import {
 	type DataClassification,
 	type GroupCriticality,
 	groupCriticalityEnum,
 	persistenceTypeEnum,
 } from "~/db/schema/applications"
-import { activityTypeLabels } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canAccessAppReports, isAdmin } from "~/lib/authorization.server"
+import { createDraftReview } from "~/lib/create-draft-review.server"
 import { logger } from "~/lib/logger.server"
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -39,85 +32,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const intent = formData.get("intent")
 
 	if (intent === "create-draft") {
-		const routineId = formData.get("routineId") as string
-		const sectionSlug = formData.get("sectionSlug") as string
-		if (!routineId) {
-			return data({ success: false, message: null, error: "Mangler rutine-ID" })
-		}
-		if (!sectionSlug) {
-			return data({ success: false, message: null, error: "Mangler seksjons-slug" })
-		}
-		const routine = await getRoutine(routineId)
-		if (!routine) {
-			return data({ success: false, message: null, error: "Fant ikke rutine" })
-		}
-		// Validate that the routine's section matches the submitted slug
-		const section = await getSectionBySlug(sectionSlug)
-		if (!section || routine.sectionId !== section.id) {
-			return data({ success: false, message: null, error: "Rutinen tilhører ikke denne seksjonen" })
-		}
-		// For section routines, verify the app is effectively in this section
-		if (routine.isSectionRoutine === 1) {
-			const isMember = await isAppEffectiveInSection(appId, section.id)
-			if (!isMember) {
-				return data({ success: false, message: null, error: "Applikasjonen tilhører ikke denne seksjonen" })
-			}
-		}
-		const now = new Date()
-		const activityLinks = await getRoutineActivityLinks(routineId)
-		const activityTypes = activityLinks.map((l) => l.activityType)
-		const effectiveAppId = routine.isSectionRoutine === 1 ? null : appId
-		const conflict = await findActiveReviewConflict(routineId, effectiveAppId, activityTypes)
-		if (conflict) {
-			let conflictMessage: string
-			if (conflict.activityType) {
-				const label = activityTypeLabels[conflict.activityType] ?? conflict.activityType
-				conflictMessage = `Det finnes allerede en aktiv gjennomgang for «${label}». Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`
-			} else {
-				conflictMessage =
-					"Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."
-			}
+		const routineId = formData.get("routineId") as string | null
+		const sectionSlug = formData.get("sectionSlug") as string | null
+		const result = await createDraftReview({
+			routineId,
+			sectionSlug,
+			applicationId: appId,
+			navIdent: authedUser.navIdent,
+		})
+		if (!result.ok) {
 			return data(
-				{
-					success: false,
-					message: null,
-					error: conflictMessage,
-					intent: "create-draft",
-				},
-				{ status: 409 },
+				{ success: false, message: null, error: result.error, intent: "create-draft" },
+				{ status: result.status },
 			)
 		}
-		const title = `${routine.name} — ${now.toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}`
-		let review: Awaited<ReturnType<typeof createReview>>
-		try {
-			review = await createReview({
-				routineId,
-				applicationId: routine.isSectionRoutine === 1 ? null : appId,
-				title,
-				summary: null,
-				routineSnapshotPath: null,
-				reviewedAt: now,
-				createdBy: authedUser.navIdent,
-				participants: [],
-			})
-		} catch (err) {
-			const isUniqueViolation =
-				typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "23505"
-			if (isUniqueViolation) {
-				return data(
-					{
-						success: false,
-						message: null,
-						error:
-							"Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.",
-						intent: "create-draft",
-					},
-					{ status: 409 },
-				)
-			}
-			throw err
-		}
-		return redirect(`/seksjoner/${sectionSlug}/rutiner/${routineId}/gjennomgang/${review.id}`)
+		return redirect(`/seksjoner/${result.sectionSlug}/rutiner/${result.routineId}/gjennomgang/${result.reviewId}`)
 	}
 
 	if (intent === "discard-review") {
