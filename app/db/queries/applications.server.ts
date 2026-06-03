@@ -3,6 +3,7 @@ import { db } from "../connection.server"
 import {
 	applicationEnvironments,
 	applicationTeamMappings,
+	devTeamNaisTeamMappings,
 	monitoredApplications,
 	naisTeams,
 } from "../schema/applications"
@@ -690,24 +691,56 @@ export async function getApplicationsForSection(sectionId: string) {
 
 /** Fetch all active team members for an app, deduplicated by nav_ident, grouped by team. */
 export async function getTeamMembersForApp(appId: string) {
-	const rows = await db
-		.selectDistinct({
-			navIdent: users.navIdent,
-			name: users.name,
-			teamId: devTeams.id,
-			teamName: devTeams.name,
-		})
-		.from(applicationTeamMappings)
-		.innerJoin(devTeams, and(eq(applicationTeamMappings.devTeamId, devTeams.id), isNull(devTeams.archivedAt)))
-		.innerJoin(userRoles, and(eq(userRoles.devTeamId, devTeams.id), isNull(userRoles.archivedAt)))
-		.innerJoin(users, eq(users.id, userRoles.userId))
-		.where(and(eq(applicationTeamMappings.applicationId, appId), isNull(applicationTeamMappings.archivedAt)))
-		.orderBy(devTeams.name, users.name)
+	// Path 1: app → application_team_mappings → dev_teams → user_roles → users
+	// Path 2: app → application_environments → dev_team_nais_team_mappings → dev_teams → user_roles → users
+	const [directRows, naisRows] = await Promise.all([
+		db
+			.selectDistinct({
+				navIdent: users.navIdent,
+				name: users.name,
+				teamId: devTeams.id,
+				teamName: devTeams.name,
+			})
+			.from(applicationTeamMappings)
+			.innerJoin(devTeams, and(eq(applicationTeamMappings.devTeamId, devTeams.id), isNull(devTeams.archivedAt)))
+			.innerJoin(userRoles, and(eq(userRoles.devTeamId, devTeams.id), isNull(userRoles.archivedAt)))
+			.innerJoin(users, eq(users.id, userRoles.userId))
+			.where(and(eq(applicationTeamMappings.applicationId, appId), isNull(applicationTeamMappings.archivedAt)))
+			.orderBy(devTeams.name, users.name),
+		db
+			.selectDistinct({
+				navIdent: users.navIdent,
+				name: users.name,
+				teamId: devTeams.id,
+				teamName: devTeams.name,
+			})
+			.from(applicationEnvironments)
+			.innerJoin(
+				devTeamNaisTeamMappings,
+				and(
+					eq(devTeamNaisTeamMappings.naisTeamId, applicationEnvironments.naisTeamId),
+					isNull(devTeamNaisTeamMappings.archivedAt),
+				),
+			)
+			.innerJoin(devTeams, and(eq(devTeams.id, devTeamNaisTeamMappings.devTeamId), isNull(devTeams.archivedAt)))
+			.innerJoin(userRoles, and(eq(userRoles.devTeamId, devTeams.id), isNull(userRoles.archivedAt)))
+			.innerJoin(users, eq(users.id, userRoles.userId))
+			.where(eq(applicationEnvironments.applicationId, appId))
+			.orderBy(devTeams.name, users.name),
+	])
 
-	// Group by team, deduplicating members globally across teams so each person appears only once
+	// Sort combined rows alphabetically by (teamName, name, navIdent) for fully deterministic ordering
+	const allRows = [...directRows, ...naisRows].sort((a, b) => {
+		const teamCmp = a.teamName.localeCompare(b.teamName, "nb")
+		if (teamCmp !== 0) return teamCmp
+		const nameCmp = a.name.localeCompare(b.name, "nb")
+		return nameCmp !== 0 ? nameCmp : a.navIdent.localeCompare(b.navIdent)
+	})
+
+	// Group by team, deduplicating members globally across both paths so each person appears only once
 	const teamMap = new Map<string, { teamName: string; members: Array<{ navIdent: string; name: string }> }>()
 	const seenNavIdents = new Set<string>()
-	for (const row of rows) {
+	for (const row of allRows) {
 		const ident = row.navIdent.trim().toUpperCase()
 		if (!seenNavIdents.has(ident)) {
 			seenNavIdents.add(ident)
