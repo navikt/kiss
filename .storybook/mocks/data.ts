@@ -1664,8 +1664,8 @@ export function mockGjennomgangDetaljData(overrides?: {
 		routineDescriptionHtml:
 			"<h2>Formål</h2><p>Sikre at alle produksjonsapplikasjoner gjennomgår jevnlig sikkerhetstesting.</p><h2>Fremgangsmåte</h2><ol><li>Kjør automatiserte sikkerhetstester</li><li>Gjennomgå rapporter fra verktøy</li><li>Verifiser at funn er adressert</li><li>Dokumenter resultater</li></ol>",
 		linkedRulesets: mockLinkedRulesets,
+		teamMembers: [],
 		activities: [],
-		activityLinks: [],
 		review: {
 			id: "rev-1",
 			routineId: "routine-1",

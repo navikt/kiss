@@ -21,6 +21,9 @@ type ActionResult = {
 	intent?: string
 }
 
+type TeamMember = { navIdent: string; name: string }
+type TeamGroup = { teamName: string; members: TeamMember[] }
+
 type Props = {
 	review: {
 		id: string
@@ -34,9 +37,10 @@ type Props = {
 		participants: Array<{ id: string; userIdent: string; userName: string | null; confirmedAt: string | null }>
 	}
 	isDraft: boolean
+	teamMembers?: TeamGroup[]
 }
 
-export function StepIntroduction({ review, isDraft }: Props) {
+export function StepIntroduction({ review, isDraft, teamMembers = [] }: Props) {
 	const actionData = useActionData<ActionResult>()
 	const navigation = useNavigation()
 	const isSubmitting = navigation.state === "submitting"
@@ -211,6 +215,9 @@ export function StepIntroduction({ review, isDraft }: Props) {
 							navIdent: p.userIdent,
 							displayName: p.userName,
 						}))}
+						quickAddOptions={teamMembers.flatMap((t) =>
+							t.members.map((m) => ({ navIdent: m.navIdent, displayName: m.name })),
+						)}
 					/>
 
 					{actionData?.intent === "update-review" && actionData.error && (
