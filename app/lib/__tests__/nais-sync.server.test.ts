@@ -180,3 +180,58 @@ describe("nais sync summary audit", () => {
 		expect(mockWriteAuditLog).not.toHaveBeenCalled()
 	})
 })
+
+describe("per-cluster auth integration syncing", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+		mockGetMonitoredAppsForNaisTeam.mockResolvedValue([])
+		mockUpsertMonitoredApp.mockImplementation(async (name: string) => ({ id: `${name}-id`, isNew: false }))
+		mockUpsertAppEnvironment.mockImplementation(async (appId: string, cluster: string) => ({
+			id: `${appId}-${cluster}-env`,
+			isNew: false,
+		}))
+		mockUpsertAppPersistence.mockResolvedValue(false)
+		mockUpsertAppAuthIntegration.mockResolvedValue(false)
+		mockArchiveMissingEnvironmentAccessPolicyRules.mockResolvedValue(undefined)
+		mockUpsertAccessPolicyRulesForEnvironment.mockResolvedValue(undefined)
+	})
+
+	it("upserts auth integrations separately per cluster", async () => {
+		mockFetchNaisApps.mockResolvedValue([
+			{
+				name: "myapp",
+				cluster: "prod-gcp",
+				namespace: "team",
+				image: "img",
+				persistence: [],
+				authIntegrations: [{ type: "entra_id", enabled: true, groups: ["prod-group-1"] }],
+				accessPolicyInbound: [],
+			},
+			{
+				name: "myapp",
+				cluster: "dev-gcp",
+				namespace: "team",
+				image: "img",
+				persistence: [],
+				authIntegrations: [{ type: "entra_id", enabled: true, groups: ["dev-group-1"] }],
+				accessPolicyInbound: [],
+			},
+		])
+
+		await syncNaisAppsForTeam("token", "teampensjon", "team-id")
+
+		expect(mockUpsertAppAuthIntegration).toHaveBeenCalledTimes(2)
+		expect(mockUpsertAppAuthIntegration).toHaveBeenCalledWith(
+			"myapp-id",
+			"entra_id",
+			"prod-gcp",
+			expect.objectContaining({ groups: ["prod-group-1"] }),
+		)
+		expect(mockUpsertAppAuthIntegration).toHaveBeenCalledWith(
+			"myapp-id",
+			"entra_id",
+			"dev-gcp",
+			expect.objectContaining({ groups: ["dev-group-1"] }),
+		)
+	})
+})

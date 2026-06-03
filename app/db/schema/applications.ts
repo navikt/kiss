@@ -232,21 +232,32 @@ export const linkSuggestions = pgTable(
 export const authIntegrationTypeEnum = ["entra_id", "token_x", "id_porten", "maskinporten"] as const
 export type AuthIntegrationType = (typeof authIntegrationTypeEnum)[number]
 
-export const applicationAuthIntegrations = pgTable("application_auth_integrations", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	applicationId: uuid("application_id")
-		.notNull()
-		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
-	type: text("type", { enum: authIntegrationTypeEnum }).notNull(),
-	enabled: boolean("enabled").notNull().default(true),
-	allowAllUsers: boolean("allow_all_users"),
-	claimsExtra: text("claims_extra"),
-	groups: text("groups"),
-	sidecarEnabled: boolean("sidecar_enabled"),
-	inboundRules: text("inbound_rules"),
-	discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
-	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-})
+export const applicationAuthIntegrations = pgTable(
+	"application_auth_integrations",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		applicationId: uuid("application_id")
+			.notNull()
+			.references(() => monitoredApplications.id, { onDelete: "restrict" }),
+		type: text("type", { enum: authIntegrationTypeEnum }).notNull(),
+		cluster: text("cluster").notNull(),
+		enabled: boolean("enabled").notNull().default(true),
+		allowAllUsers: boolean("allow_all_users"),
+		claimsExtra: text("claims_extra"),
+		groups: text("groups"),
+		sidecarEnabled: boolean("sidecar_enabled"),
+		inboundRules: text("inbound_rules"),
+		discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		uniqueIndex("application_auth_integrations_app_type_cluster_key").on(
+			table.applicationId,
+			table.type,
+			table.cluster,
+		),
+	],
+)
 
 export const accessPolicyDirectionEnum = ["inbound", "outbound"] as const
 export type AccessPolicyDirection = (typeof accessPolicyDirectionEnum)[number]

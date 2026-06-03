@@ -42,10 +42,10 @@ async function getPersistenceId(applicationId: string, type: string, name: strin
 	return (r.rows[0] as { id: string }).id
 }
 
-async function getAuthIntegrationId(applicationId: string, type: string): Promise<string> {
+async function getAuthIntegrationId(applicationId: string, type: string, cluster = "prod-gcp"): Promise<string> {
 	const db = getTestDb()
 	const r = await db.execute(
-		/* sql */ `SELECT id FROM application_auth_integrations WHERE application_id = '${applicationId}' AND type = '${type}' LIMIT 1`,
+		/* sql */ `SELECT id FROM application_auth_integrations WHERE application_id = '${applicationId}' AND type = '${type}' AND cluster = '${cluster}' LIMIT 1`,
 	)
 	return (r.rows[0] as { id: string }).id
 }
@@ -166,7 +166,7 @@ describe("Nais-sync upsert audit logging (K3)", () => {
 	describe("upsertAppAuthIntegration", () => {
 		it("logger auth_integration_added ved første INSERT", async () => {
 			const appId = await createTestApp("kiss-test-app-4")
-			const isNew = await upsertAppAuthIntegration(appId, "entra_id", {
+			const isNew = await upsertAppAuthIntegration(appId, "entra_id", "prod-gcp", {
 				allowAllUsers: false,
 				groups: ["group-b", "group-a"],
 				claimsExtra: ["NAVident"],
@@ -187,7 +187,7 @@ describe("Nais-sync upsert audit logging (K3)", () => {
 
 		it("logger ingen auth_integration_updated på no-op resync med samme arrays i ulik rekkefølge", async () => {
 			const appId = await createTestApp("kiss-test-app-5")
-			await upsertAppAuthIntegration(appId, "entra_id", {
+			await upsertAppAuthIntegration(appId, "entra_id", "prod-gcp", {
 				allowAllUsers: false,
 				groups: ["group-a", "group-b"],
 				claimsExtra: ["NAVident", "azp_name"],
@@ -201,7 +201,7 @@ describe("Nais-sync upsert audit logging (K3)", () => {
 			).rows[0] as { updated_at: string }
 
 			// Resync med arrays i annen rekkefølge — skal være no-op
-			await upsertAppAuthIntegration(appId, "entra_id", {
+			await upsertAppAuthIntegration(appId, "entra_id", "prod-gcp", {
 				allowAllUsers: false,
 				groups: ["group-b", "group-a"],
 				claimsExtra: ["azp_name", "NAVident"],
@@ -220,10 +220,13 @@ describe("Nais-sync upsert audit logging (K3)", () => {
 
 		it("logger auth_integration_updated ved faktisk feltendring", async () => {
 			const appId = await createTestApp("kiss-test-app-6")
-			await upsertAppAuthIntegration(appId, "entra_id", { allowAllUsers: false, groups: ["group-a"] })
+			await upsertAppAuthIntegration(appId, "entra_id", "prod-gcp", { allowAllUsers: false, groups: ["group-a"] })
 			const id = await getAuthIntegrationId(appId, "entra_id")
 
-			await upsertAppAuthIntegration(appId, "entra_id", { allowAllUsers: true, groups: ["group-a", "group-c"] })
+			await upsertAppAuthIntegration(appId, "entra_id", "prod-gcp", {
+				allowAllUsers: true,
+				groups: ["group-a", "group-c"],
+			})
 			const audits = await getAuditByEntity("application_auth_integration", id)
 			expect(audits).toHaveLength(2)
 			expect(audits[1].action).toBe("auth_integration_updated")
@@ -236,13 +239,13 @@ describe("Nais-sync upsert audit logging (K3)", () => {
 
 		it("logger auth_integration_updated når enabled går fra false til true (reaktivering)", async () => {
 			const appId = await createTestApp("kiss-test-app-7")
-			await upsertAppAuthIntegration(appId, "token_x", {})
+			await upsertAppAuthIntegration(appId, "token_x", "prod-gcp", {})
 			const id = await getAuthIntegrationId(appId, "token_x")
 
 			const db = getTestDb()
 			await db.execute(/* sql */ `UPDATE application_auth_integrations SET enabled = false WHERE id = '${id}'`)
 
-			await upsertAppAuthIntegration(appId, "token_x", {})
+			await upsertAppAuthIntegration(appId, "token_x", "prod-gcp", {})
 			const audits = await getAuditByEntity("application_auth_integration", id)
 			const updates = audits.filter((a) => a.action === "auth_integration_updated")
 			expect(updates).toHaveLength(1)
@@ -254,7 +257,7 @@ describe("Nais-sync upsert audit logging (K3)", () => {
 
 		it("kanoniserer inboundRules deterministisk", async () => {
 			const appId = await createTestApp("kiss-test-app-8")
-			await upsertAppAuthIntegration(appId, "entra_id", {
+			await upsertAppAuthIntegration(appId, "entra_id", "prod-gcp", {
 				inboundRules: [
 					{ application: "app-b", namespace: "ns-1" },
 					{ application: "app-a", namespace: "ns-2" },
@@ -263,7 +266,7 @@ describe("Nais-sync upsert audit logging (K3)", () => {
 			const id = await getAuthIntegrationId(appId, "entra_id")
 
 			// Samme regler i annen rekkefølge skal være no-op
-			await upsertAppAuthIntegration(appId, "entra_id", {
+			await upsertAppAuthIntegration(appId, "entra_id", "prod-gcp", {
 				inboundRules: [
 					{ application: "app-a", namespace: "ns-2" },
 					{ application: "app-b", namespace: "ns-1" },
@@ -280,14 +283,14 @@ describe("Nais-sync upsert audit logging (K3)", () => {
 			// JSON i DB. Bypasser upsert og inserter direkte med usortert data.
 			const db = getTestDb()
 			await db.execute(
-				/* sql */ `INSERT INTO application_auth_integrations (application_id, type, enabled, allow_all_users, groups, claims_extra, inbound_rules)
-					VALUES ('${appId}', 'entra_id', true, false, '["group-z","group-a","group-m"]', '["c-z","c-a"]', '[{"application":"app-z","namespace":null,"cluster":null},{"application":"app-a","namespace":null,"cluster":null}]')`,
+				/* sql */ `INSERT INTO application_auth_integrations (application_id, type, cluster, enabled, allow_all_users, groups, claims_extra, inbound_rules)
+					VALUES ('${appId}', 'entra_id', 'prod-gcp', true, false, '["group-z","group-a","group-m"]', '["c-z","c-a"]', '[{"application":"app-z","namespace":null,"cluster":null},{"application":"app-a","namespace":null,"cluster":null}]')`,
 			)
 			const id = await getAuthIntegrationId(appId, "entra_id")
 
 			// Sync samme data (men i annen rekkefølge). Skal være no-op fordi
 			// re-kanoniseringen normaliserer eksisterende verdier først.
-			await upsertAppAuthIntegration(appId, "entra_id", {
+			await upsertAppAuthIntegration(appId, "entra_id", "prod-gcp", {
 				allowAllUsers: false,
 				groups: ["group-a", "group-m", "group-z"],
 				claimsExtra: ["c-a", "c-z"],

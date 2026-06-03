@@ -1190,8 +1190,8 @@ describe("Routines integration tests", () => {
 
 			// App uses this group via auth integration
 			await db.execute(
-				/* sql */ `INSERT INTO application_auth_integrations (application_id, type, groups)
-				VALUES ('${appId}', 'entra_id', '["${groupId}"]')`,
+				/* sql */ `INSERT INTO application_auth_integrations (application_id, type, cluster, groups)
+				VALUES ('${appId}', 'entra_id', 'prod-gcp', '["${groupId}"]')`,
 			)
 
 			// Routine linked to 'mine_tilganger' classification

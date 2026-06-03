@@ -68,10 +68,8 @@ export async function syncNaisAppsForTeam(
 		let newPersistence = 0
 		const accessPolicySummary = createAccessPolicySyncSummaryCollector()
 
-		// Accumulate auth integrations across all environments per (appId, type)
-		// so we call upsertAppAuthIntegration once per unique integration.
-		// Different environments can have different inboundRules/groups/claimsExtra,
-		// causing constant flip-flop updates if called per environment.
+		// Accumulate auth integrations per (appId, cluster) and merge duplicate
+		// auth types within the same cluster before persisting.
 		const appAuthIntegrations = new Map<string, Map<AuthIntegrationType, NaisAuthIntegration>>()
 		const appSeenEnvironmentIds = new Map<string, string[]>()
 		const appNames = new Map<string, string>()
@@ -107,12 +105,13 @@ export async function syncNaisAppsForTeam(
 				if (isNewRes) newPersistence++
 			}
 
-			// Collect auth integrations per (appId, type) across environments
+			// Collect auth integrations per (appId, cluster, type)
 			for (const auth of app.authIntegrations) {
-				if (!appAuthIntegrations.has(appId)) {
-					appAuthIntegrations.set(appId, new Map())
+				const key = `${appId}:${app.cluster}`
+				const byType = appAuthIntegrations.get(key) ?? new Map<AuthIntegrationType, NaisAuthIntegration>()
+				if (!appAuthIntegrations.has(key)) {
+					appAuthIntegrations.set(key, byType)
 				}
-				const byType = appAuthIntegrations.get(appId) ?? new Map()
 				const existing = byType.get(auth.type)
 				if (!existing) {
 					byType.set(auth.type, auth)
@@ -166,10 +165,11 @@ export async function syncNaisAppsForTeam(
 			)
 		}
 
-		// Upsert auth integrations once per (app, type) with merged data.
-		for (const [appId, byType] of appAuthIntegrations) {
+		// Upsert auth integrations once per (app, cluster, type) with merged data.
+		for (const [appClusterKey, byType] of appAuthIntegrations) {
+			const [appId, cluster] = appClusterKey.split(":") as [string, string]
 			for (const [, auth] of byType) {
-				await upsertAppAuthIntegration(appId, auth.type, {
+				await upsertAppAuthIntegration(appId, auth.type, cluster, {
 					allowAllUsers: auth.allowAllUsers,
 					claimsExtra: auth.claimsExtra,
 					groups: auth.groups,

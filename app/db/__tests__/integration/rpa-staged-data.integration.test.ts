@@ -321,8 +321,8 @@ describe("RPA staged data integration tests", () => {
 
 		// Link the app to the access group via auth integration
 		await db.execute(
-			/* sql */ `INSERT INTO application_auth_integrations (application_id, type, groups, allow_all_users) 
-			VALUES ('${appId}', 'entra_id', '["app-access-group-123"]', false)`,
+			/* sql */ `INSERT INTO application_auth_integrations (application_id, type, cluster, groups, allow_all_users)
+			VALUES ('${appId}', 'entra_id', 'prod-gcp', '["app-access-group-123"]', false)`,
 		)
 
 		// Seed the activity — active-rpa-user should be isGone=false (active)

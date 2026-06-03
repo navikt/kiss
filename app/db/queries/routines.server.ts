@@ -72,7 +72,12 @@ import {
 } from "../schema/screening"
 import { syncApplicationControls } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
-import { getAppAuthIntegrations, getGroupAssessmentsForApp, getManualGroupsForApp } from "./nais.server"
+import {
+	getAppAuthIntegrations,
+	getExcludedEnvironments,
+	getGroupAssessmentsForApp,
+	getManualGroupsForApp,
+} from "./nais.server"
 import { completeRpaReviewActivity } from "./rpa.server"
 import { getEffectiveAppIdsInSection } from "./sections.server"
 
@@ -4984,9 +4989,11 @@ async function waitForEntraSeed(activityId: string): Promise<EntraStagedData | n
 
 async function buildEntraSeedResult(
 	applicationId: string,
+	sectionId?: string | null,
 ): Promise<{ stagedData: EntraStagedData; snapshot: EntraGroupSnapshot }> {
+	const excludedClusters = sectionId ? await getExcludedEnvironments(sectionId) : new Set<string>()
 	const [authIntegrations, manualGroups, groupAssessments] = await Promise.all([
-		getAppAuthIntegrations(applicationId),
+		getAppAuthIntegrations(applicationId, { excludedClusters }),
 		getManualGroupsForApp(applicationId),
 		getGroupAssessmentsForApp(applicationId),
 	])
@@ -5118,8 +5125,17 @@ export async function seedEntraActivity(
 		return parseEntraStagedData(precheck.stagedData)
 	}
 
+	const [reviewRoutine] = await db
+		.select({ sectionId: routines.sectionId })
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviews.id, routineReviewActivities.reviewId))
+		.innerJoin(routines, eq(routines.id, routineReviews.routineId))
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+	const sectionId = reviewRoutine?.sectionId ?? null
+
 	// Build seed result OUTSIDE lock — includes Graph HTTP calls (resolveGroupNames)
-	const seeded = await buildEntraSeedResult(applicationId)
+	const seeded = await buildEntraSeedResult(applicationId, sectionId)
 
 	const lockName = `entra_id_group_maintenance-activity-${activityId}`
 	const result = await withAdvisoryLock(lockName, async () => {
@@ -5204,9 +5220,11 @@ export async function patchEntraActivity(
 			status: routineReviewActivities.status,
 			stagedData: routineReviewActivities.stagedData,
 			applicationId: routineReviews.applicationId,
+			sectionId: routines.sectionId,
 		})
 		.from(routineReviewActivities)
 		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 		.where(eq(routineReviewActivities.id, activityId))
 		.limit(1)
 
@@ -5223,7 +5241,7 @@ export async function patchEntraActivity(
 	// Build seed result OUTSIDE lock — includes Graph HTTP calls (resolveGroupNames)
 	const seedResult =
 		!precheck.stagedData && precheck.applicationId
-			? await buildEntraSeedResult(precheck.applicationId)
+			? await buildEntraSeedResult(precheck.applicationId, precheck.sectionId)
 			: !precheck.stagedData
 				? (() => {
 						throw new Error("Entra-aktiviteten mangler applikasjon")
