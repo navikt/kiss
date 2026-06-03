@@ -1,9 +1,11 @@
 import {
 	Alert,
 	BodyShort,
+	Box,
 	Button,
 	Checkbox,
 	CheckboxGroup,
+	Detail,
 	Heading,
 	HStack,
 	Search,
@@ -385,6 +387,7 @@ export function RutinerTab({
 									>
 										<Table.Header>
 											<Table.Row>
+												<Table.HeaderCell />
 												<Table.ColumnHeader sortKey="name" sortable>
 													Rutine
 												</Table.ColumnHeader>
@@ -392,13 +395,9 @@ export function RutinerTab({
 												<Table.ColumnHeader sortKey="priority" sortable>
 													Prioritet
 												</Table.ColumnHeader>
-												<Table.ColumnHeader sortKey="matchSource" sortable>
-													Kobling
-												</Table.ColumnHeader>
 												<Table.ColumnHeader sortKey="technologyElement" sortable>
 													Teknologielement
 												</Table.ColumnHeader>
-												<Table.HeaderCell>Kontroller</Table.HeaderCell>
 												<Table.ColumnHeader sortKey="frequency" sortable>
 													Frekvens
 												</Table.ColumnHeader>
@@ -415,7 +414,30 @@ export function RutinerTab({
 										</Table.Header>
 										<Table.Body>
 											{sortedRoutines.map((dl, index) => (
-												<Table.Row key={dl.routine?.id ?? `${dl.matchSource}-${String(dl.deadline)}-${index}`}>
+												<Table.ExpandableRow
+													key={dl.routine?.id ?? `${dl.matchSource}-${String(dl.deadline)}-${index}`}
+													colSpan={9}
+													content={
+														<Box padding="space-4">
+															<HStack gap="space-8" wrap>
+																<VStack gap="space-1">
+																	<Detail weight="semibold" textColor="subtle">
+																		Kobling
+																	</Detail>
+																	{renderMatchSource(dl)}
+																</VStack>
+																{dl.routine?.controls && dl.routine.controls.length > 0 && (
+																	<VStack gap="space-1">
+																		<Detail weight="semibold" textColor="subtle">
+																			Kontroller
+																		</Detail>
+																		{renderControlTags(dl.routine.controls)}
+																	</VStack>
+																)}
+															</HStack>
+														</Box>
+													}
+												>
 													<Table.DataCell>
 														{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
 															<Link to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}>
@@ -429,7 +451,6 @@ export function RutinerTab({
 													<Table.DataCell>
 														<PriorityTag priority={dl.routine?.priority ?? 3} />
 													</Table.DataCell>
-													<Table.DataCell>{renderMatchSource(dl)}</Table.DataCell>
 													<Table.DataCell>
 														{dl.routine?.technologyElements && dl.routine.technologyElements.length > 0 && (
 															<HStack gap="space-2" wrap>
@@ -441,7 +462,6 @@ export function RutinerTab({
 															</HStack>
 														)}
 													</Table.DataCell>
-													<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
 													<Table.DataCell>
 														<FrequencyDisplay frequency={dl.routine?.frequency} />
 													</Table.DataCell>
@@ -473,7 +493,7 @@ export function RutinerTab({
 															)}
 														</HStack>
 													</Table.DataCell>
-												</Table.Row>
+												</Table.ExpandableRow>
 											))}
 										</Table.Body>
 									</Table>
@@ -489,17 +509,39 @@ export function RutinerTab({
 										<Table size="small">
 											<Table.Header>
 												<Table.Row>
+													<Table.HeaderCell />
 													<Table.HeaderCell>Rutine</Table.HeaderCell>
 													<Table.HeaderCell>Handlinger</Table.HeaderCell>
-													<Table.HeaderCell>Kobling</Table.HeaderCell>
-													<Table.HeaderCell>Kontroller</Table.HeaderCell>
 													<Table.HeaderCell>Hendelsesfrekvens</Table.HeaderCell>
 													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
 												</Table.Row>
 											</Table.Header>
 											<Table.Body>
 												{filteredEventRoutines.map((dl, index) => (
-													<Table.Row key={dl.routine?.id ?? `event-${index}`}>
+													<Table.ExpandableRow
+														key={dl.routine?.id ?? `event-${index}`}
+														colSpan={5}
+														content={
+															<Box padding="space-4">
+																<HStack gap="space-8" wrap>
+																	<VStack gap="space-1">
+																		<Detail weight="semibold" textColor="subtle">
+																			Kobling
+																		</Detail>
+																		{renderMatchSource(dl)}
+																	</VStack>
+																	{dl.routine?.controls && dl.routine.controls.length > 0 && (
+																		<VStack gap="space-1">
+																			<Detail weight="semibold" textColor="subtle">
+																				Kontroller
+																			</Detail>
+																			{renderControlTags(dl.routine.controls)}
+																		</VStack>
+																	)}
+																</HStack>
+															</Box>
+														}
+													>
 														<Table.DataCell>
 															{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
 																<Link
@@ -512,13 +554,11 @@ export function RutinerTab({
 															)}
 														</Table.DataCell>
 														<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
-														<Table.DataCell>{renderMatchSource(dl)}</Table.DataCell>
-														<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
 														<Table.DataCell>{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>
 														<Table.DataCell>
 															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
 														</Table.DataCell>
-													</Table.Row>
+													</Table.ExpandableRow>
 												))}
 											</Table.Body>
 										</Table>
@@ -535,10 +575,9 @@ export function RutinerTab({
 										<Table size="small">
 											<Table.Header>
 												<Table.Row>
+													<Table.HeaderCell />
 													<Table.HeaderCell>Rutine</Table.HeaderCell>
 													<Table.HeaderCell>Eierrolle</Table.HeaderCell>
-													<Table.HeaderCell>Kobling</Table.HeaderCell>
-													<Table.HeaderCell>Kontroller</Table.HeaderCell>
 													<Table.HeaderCell>Frekvens</Table.HeaderCell>
 													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
 													<Table.HeaderCell>Frist</Table.HeaderCell>
@@ -546,59 +585,92 @@ export function RutinerTab({
 												</Table.Row>
 											</Table.Header>
 											<Table.Body>
-												{filteredSectionRoutines.map((dl, index) => (
-													<Table.Row key={dl.routine?.id ?? `section-${index}`}>
-														<Table.DataCell>
-															{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
-																<Link
-																	to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}
-																>
-																	{dl.routine?.name ?? "—"}
-																</Link>
-															) : (
-																(dl.routine?.name ?? "—")
-															)}
-														</Table.DataCell>
-														<Table.DataCell>
-															<BodyShort size="small" textColor="subtle">
-																{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}
-															</BodyShort>
-														</Table.DataCell>
-														<Table.DataCell>{renderSectionMatchReason(dl)}</Table.DataCell>
-														<Table.DataCell>{renderControlTags(dl.routine?.controls)}</Table.DataCell>
-														<Table.DataCell>
-															<FrequencyDisplay frequency={dl.routine?.frequency} />
-														</Table.DataCell>
-														<Table.DataCell>
-															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
-														</Table.DataCell>
-														<Table.DataCell>
-															{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
-														</Table.DataCell>
-														<Table.DataCell>
-															<HStack gap="space-2" align="center" wrap>
-																{dl.overdue ? (
-																	<Tag variant="error" size="small">
-																		Over frist
-																	</Tag>
-																) : dl.lastReviewDate ? (
-																	<Tag variant="success" size="small">
-																		OK
-																	</Tag>
+												{filteredSectionRoutines.map((dl, index) => {
+													const sectionMatchReason = renderSectionMatchReason(dl)
+													const hasControls = (dl.routine?.controls?.length ?? 0) > 0
+													return (
+														<Table.ExpandableRow
+															key={dl.routine?.id ?? `section-${index}`}
+															colSpan={7}
+															content={
+																<Box padding="space-4">
+																	{sectionMatchReason === null && !hasControls ? (
+																		<BodyShort size="small" textColor="subtle">
+																			Ingen kobling eller kontroller registrert
+																		</BodyShort>
+																	) : (
+																		<HStack gap="space-8" wrap>
+																			{sectionMatchReason !== null && (
+																				<VStack gap="space-1">
+																					<Detail weight="semibold" textColor="subtle">
+																						Kobling
+																					</Detail>
+																					{sectionMatchReason}
+																				</VStack>
+																			)}
+																			{hasControls && (
+																				<VStack gap="space-1">
+																					<Detail weight="semibold" textColor="subtle">
+																						Kontroller
+																					</Detail>
+																					{renderControlTags(dl.routine?.controls)}
+																				</VStack>
+																			)}
+																		</HStack>
+																	)}
+																</Box>
+															}
+														>
+															<Table.DataCell>
+																{dl.routine?.sectionId && sectionSlugMap[dl.routine.sectionId] ? (
+																	<Link
+																		to={`/seksjoner/${sectionSlugMap[dl.routine.sectionId]}/rutiner/${dl.routine.id}`}
+																	>
+																		{dl.routine?.name ?? "—"}
+																	</Link>
 																) : (
-																	<Tag variant="warning" size="small">
-																		Ikke gjennomført
-																	</Tag>
+																	(dl.routine?.name ?? "—")
 																)}
-																{dl.needsFollowUp && (
-																	<Tag variant="warning" size="small">
-																		Må følges opp
-																	</Tag>
-																)}
-															</HStack>
-														</Table.DataCell>
-													</Table.Row>
-												))}
+															</Table.DataCell>
+															<Table.DataCell>
+																<BodyShort size="small" textColor="subtle">
+																	{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}
+																</BodyShort>
+															</Table.DataCell>
+															<Table.DataCell>
+																<FrequencyDisplay frequency={dl.routine?.frequency} />
+															</Table.DataCell>
+															<Table.DataCell>
+																{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
+															</Table.DataCell>
+															<Table.DataCell>
+																{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
+															</Table.DataCell>
+															<Table.DataCell>
+																<HStack gap="space-2" align="center" wrap>
+																	{dl.overdue ? (
+																		<Tag variant="error" size="small">
+																			Over frist
+																		</Tag>
+																	) : dl.lastReviewDate ? (
+																		<Tag variant="success" size="small">
+																			OK
+																		</Tag>
+																	) : (
+																		<Tag variant="warning" size="small">
+																			Ikke gjennomført
+																		</Tag>
+																	)}
+																	{dl.needsFollowUp && (
+																		<Tag variant="warning" size="small">
+																			Må følges opp
+																		</Tag>
+																	)}
+																</HStack>
+															</Table.DataCell>
+														</Table.ExpandableRow>
+													)
+												})}
 											</Table.Body>
 										</Table>
 									</section>
