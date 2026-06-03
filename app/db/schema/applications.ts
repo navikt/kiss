@@ -238,6 +238,7 @@ export const applicationAuthIntegrations = pgTable("application_auth_integration
 		.notNull()
 		.references(() => monitoredApplications.id, { onDelete: "restrict" }),
 	type: text("type", { enum: authIntegrationTypeEnum }).notNull(),
+	cluster: text("cluster").notNull(),
 	enabled: boolean("enabled").notNull().default(true),
 	allowAllUsers: boolean("allow_all_users"),
 	claimsExtra: text("claims_extra"),

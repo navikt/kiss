@@ -316,6 +316,7 @@ async function seed() {
 		{
 			applicationId: appFrontend.id,
 			type: "entra_id",
+			cluster: "prod-gcp",
 			enabled: true,
 			allowAllUsers: false,
 			groups: JSON.stringify(["00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"]),
@@ -324,11 +325,13 @@ async function seed() {
 		{
 			applicationId: appRegler.id,
 			type: "token_x",
+			cluster: "prod-gcp",
 			enabled: true,
 		},
 		{
 			applicationId: appArbeid.id,
 			type: "maskinporten",
+			cluster: "prod-gcp",
 			enabled: true,
 			claimsExtra: "scope:nav:arbeid:read",
 		},

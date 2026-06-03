@@ -48,10 +48,10 @@ async function markRoutineApproved(routineId: string) {
 	await db.execute(/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'test' WHERE id = '${routineId}'`)
 }
 
-async function insertAuthIntegration(applicationId: string, groups: string[]) {
+async function insertAuthIntegration(applicationId: string, groups: string[], cluster = "prod-gcp") {
 	const db = getTestDb()
 	await db.execute(
-		/* sql */ `INSERT INTO application_auth_integrations (application_id, type, groups) VALUES ('${applicationId}', 'entra_id', '${JSON.stringify(groups)}')`,
+		/* sql */ `INSERT INTO application_auth_integrations (application_id, type, cluster, groups) VALUES ('${applicationId}', 'entra_id', '${cluster}', '${JSON.stringify(groups)}')`,
 	)
 }
 
@@ -107,7 +107,7 @@ async function createEntraReview() {
 		throw new Error("Fant ikke Entra-aktivitet")
 	}
 
-	return { appId, reviewId: review.id, activityId: activity.id }
+	return { appId, sectionId, reviewId: review.id, activityId: activity.id }
 }
 
 describe("Entra staged data integration tests", () => {
@@ -188,6 +188,22 @@ describe("Entra staged data integration tests", () => {
 				expect.objectContaining({ groupId: "group-ghost", source: "ghost" }),
 			]),
 		})
+	})
+
+	it("filters out auth groups from excluded clusters when seeding", async () => {
+		const { appId, sectionId, activityId } = await createEntraReview()
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO section_environments (section_id, cluster, included, created_by, updated_by)
+			VALUES ('${sectionId}', 'dev-gcp', false, 'test', 'test')`,
+		)
+		await insertAuthIntegration(appId, ["group-prod"], "prod-gcp")
+		await insertAuthIntegration(appId, ["group-dev"], "dev-gcp")
+
+		const seeded = await seedEntraActivity(activityId, appId, "Z990001")
+
+		expect(seeded.groups.map((group) => group.groupId)).toContain("group-prod")
+		expect(seeded.groups.map((group) => group.groupId)).not.toContain("group-dev")
 	})
 
 	it("patches staged data without touching primary tables", async () => {

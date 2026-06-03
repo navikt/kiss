@@ -1085,16 +1085,13 @@ function recanonicalizeStoredInboundRules(stored: string | null): string | null 
  * samtidige fulle syncs som rører samme app) tas en `SELECT ... FOR UPDATE`
  * på parent `monitored_applications`-raden FØR vi sjekker eksisterende
  * integrasjon. Det serialiserer alle upsert-kall for samme application,
- * så to samtidige INSERT-er ikke kan begge se «ingen rad» og lage duplikater.
- *
- * NB: `application_auth_integrations` mangler fortsatt en DB-håndhevd
- * unique-constraint på `(application_id, type)`. Egen oppfølgings-PR vil
- * legge til constraint + dedup-migrasjon. Inntil da er parent-row-låsen
- * forsvarslaget.
+ * slik at samtidige syncer for samme app oppdaterer auth-integrasjoner i en
+ * stabil rekkefølge per kluster.
  */
 export async function upsertAppAuthIntegration(
 	applicationId: string,
 	type: AuthIntegrationType,
+	cluster: string,
 	opts?: {
 		allowAllUsers?: boolean | null
 		claimsExtra?: string[] | null
@@ -1109,8 +1106,8 @@ export async function upsertAppAuthIntegration(
 
 	return db.transaction(async (tx) => {
 		// Lås parent-app-raden for å serialisere samtidige upserts mot samme app.
-		// Beskytter mot duplikat-INSERT-race siden auth_integrations ikke har
-		// (application_id, type) unique constraint ennå.
+		// Beskytter mot race mellom samtidige fulle syncer som rører flere
+		// auth-integrasjoner for samme applikasjon på tvers av klustre.
 		await tx
 			.select({ id: monitoredApplications.id })
 			.from(monitoredApplications)
@@ -1122,7 +1119,11 @@ export async function upsertAppAuthIntegration(
 			.select()
 			.from(applicationAuthIntegrations)
 			.where(
-				and(eq(applicationAuthIntegrations.applicationId, applicationId), eq(applicationAuthIntegrations.type, type)),
+				and(
+					eq(applicationAuthIntegrations.applicationId, applicationId),
+					eq(applicationAuthIntegrations.type, type),
+					eq(applicationAuthIntegrations.cluster, cluster),
+				),
 			)
 			.for("update")
 			.limit(1)
@@ -1138,7 +1139,7 @@ export async function upsertAppAuthIntegration(
 				enabled: true,
 				allowAllUsers: opts?.allowAllUsers ?? existing.allowAllUsers,
 				claimsExtra: claimsExtraStr ?? existingClaimsExtra,
-				groups: groupsStr ?? existingGroups,
+				groups: opts?.groups !== undefined ? groupsStr : existingGroups,
 				sidecarEnabled: opts?.sidecarEnabled ?? existing.sidecarEnabled,
 				inboundRules: inboundRulesStr ?? existingInboundRules,
 			}
@@ -1175,7 +1176,7 @@ export async function upsertAppAuthIntegration(
 						entityId: existing.id,
 						previousValue: JSON.stringify(previousFields),
 						newValue: JSON.stringify(nextState),
-						metadata: { applicationId, type, source: "nais-sync" },
+						metadata: { applicationId, type, cluster, source: "nais-sync" },
 						performedBy: "nais-sync",
 					},
 					tx,
@@ -1189,6 +1190,7 @@ export async function upsertAppAuthIntegration(
 			.values({
 				applicationId,
 				type,
+				cluster,
 				allowAllUsers: opts?.allowAllUsers ?? null,
 				claimsExtra: claimsExtraStr,
 				groups: groupsStr,
@@ -1204,6 +1206,7 @@ export async function upsertAppAuthIntegration(
 				entityId: inserted.id,
 				newValue: JSON.stringify({
 					type,
+					cluster,
 					enabled: inserted.enabled,
 					allowAllUsers: inserted.allowAllUsers,
 					claimsExtra: inserted.claimsExtra,
@@ -1211,7 +1214,7 @@ export async function upsertAppAuthIntegration(
 					sidecarEnabled: inserted.sidecarEnabled,
 					inboundRules: inserted.inboundRules,
 				}),
-				metadata: { applicationId, source: "nais-sync" },
+				metadata: { applicationId, cluster, source: "nais-sync" },
 				performedBy: "nais-sync",
 			},
 			tx,
@@ -1221,12 +1224,16 @@ export async function upsertAppAuthIntegration(
 }
 
 /** Get auth integrations for an application. */
-export async function getAppAuthIntegrations(applicationId: string) {
+export async function getAppAuthIntegrations(applicationId: string, opts?: { excludedClusters?: Set<string> }) {
+	const conditions = [eq(applicationAuthIntegrations.applicationId, applicationId)]
+	if (opts?.excludedClusters && opts.excludedClusters.size > 0) {
+		conditions.push(notInArray(applicationAuthIntegrations.cluster, [...opts.excludedClusters]))
+	}
 	return db
 		.select()
 		.from(applicationAuthIntegrations)
-		.where(eq(applicationAuthIntegrations.applicationId, applicationId))
-		.orderBy(applicationAuthIntegrations.type)
+		.where(and(...conditions))
+		.orderBy(applicationAuthIntegrations.type, applicationAuthIntegrations.cluster)
 }
 /**
  * Henter persistens-ressurser for en applikasjon. Filtrerer bort arkiverte
