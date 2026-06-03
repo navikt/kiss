@@ -2337,6 +2337,7 @@ function mockDeadline(overrides: {
 	overdue?: boolean
 	needsFollowUp?: boolean
 	sectionId?: string
+	draftReviewId?: string
 }) {
 	return {
 		routine: {
@@ -2364,6 +2365,7 @@ function mockDeadline(overrides: {
 		matchSource: "screening" as const,
 		isSectionRoutine: false,
 		sectionRoutineOwnerRole: null,
+		draftReviewId: overrides.draftReviewId,
 	}
 }
 
@@ -2389,6 +2391,7 @@ export function mockTeamRutinerData() {
 			overdue: true,
 			deadline: "2025-01-15T00:00:00.000Z",
 			needsFollowUp: true,
+			draftReviewId: "draft-review-42",
 		}),
 		mockDeadline({
 			routineId: "r-3",
@@ -2446,6 +2449,7 @@ export function mockTeamRutinerData() {
 				frequency: "semi_annually",
 				overdue: true,
 				deadline: "2025-06-01T00:00:00.000Z",
+				draftReviewId: "draft-review-sr-1",
 			}),
 			routine: {
 				id: "sr-1",
