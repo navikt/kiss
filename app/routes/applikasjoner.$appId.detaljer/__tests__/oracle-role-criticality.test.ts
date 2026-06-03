@@ -11,6 +11,7 @@ const mockIsAdmin = vi.fn(() => true)
 vi.mock("~/lib/authorization.server", () => ({
 	requireAdmin: vi.fn(),
 	isAdmin: mockIsAdmin,
+	requireAppMembership: vi.fn(),
 }))
 
 const mockUpsertOracleRoleCriticality = vi.fn()

@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "react-router"
 import { getFollowUpPointAttachmentContext } from "~/db/queries/routines.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { requireReviewAccess } from "~/lib/authorization.server"
 import {
 	FOLLOW_UP_POINT_ATTACHMENT_MAX_SIZE_BYTES,
 	storeFollowUpPointAttachment,
@@ -22,6 +23,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (!ctx) {
 		return Response.json({ success: false, error: "Fant ikke oppfølgingspunkt" }, { status: 404 })
 	}
+
+	await requireReviewAccess(authedUser, { applicationId: ctx.applicationId, sectionId: ctx.sectionId })
 
 	if (ctx.reviewStatus === "discarded") {
 		return Response.json(

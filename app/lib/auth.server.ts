@@ -116,6 +116,13 @@ function buildEffectiveAuth(
 	if (effectiveGroups.some((g) => auditorGroupIds.includes(g))) roles.add("auditor")
 	for (const r of effectiveDbRoles) roles.add(r.role)
 
+	// Auditor-suppression: when a user has the auditor role but is NOT an effective admin,
+	// strip all other DB roles so auditor mode cannot be bypassed via team/section roles.
+	if (roles.has("auditor") && !roles.has("admin")) {
+		const auditorOnlyRoles = effectiveDbRoles.filter((r) => r.role === "auditor")
+		return { groups: effectiveGroups, dbRoles: auditorOnlyRoles, roles: new Set<UserRole>(["auditor"]), isActualAdmin }
+	}
+
 	return { groups: effectiveGroups, dbRoles: effectiveDbRoles, roles, isActualAdmin }
 }
 

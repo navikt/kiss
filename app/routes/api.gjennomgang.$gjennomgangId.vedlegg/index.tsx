@@ -1,7 +1,8 @@
 import type { ActionFunctionArgs } from "react-router"
 import { saveBucketObject } from "~/db/queries/buckets.server"
-import { addReviewAttachment, getReview } from "~/db/queries/routines.server"
+import { addReviewAttachment, getReview, getReviewScope } from "~/db/queries/routines.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { requireReviewAccess } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 const MAX_SIZE_BYTES = 50 * 1024 * 1024
@@ -22,6 +23,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (!review) {
 		return Response.json({ success: false, error: "Fant ikke gjennomgang" }, { status: 404 })
 	}
+
+	const scope = await getReviewScope(gjennomgangId)
+	if (!scope) {
+		return Response.json({ success: false, error: "Fant ikke gjennomgang" }, { status: 404 })
+	}
+	await requireReviewAccess(authedUser, scope)
+
 	if (review.status !== "draft") {
 		return Response.json(
 			{ success: false, error: "Kan ikke laste opp vedlegg til en gjennomgang som ikke er utkast." },

@@ -279,7 +279,7 @@ export async function getAvailableAppsForTeam(devTeamId: string) {
 /** Get dev team IDs and section IDs for an application — used for authorization checks.
  * Section IDs are derived from both dev-team mappings and NAIS-team environments. */
 export async function getAppScopeIds(appId: string): Promise<{ devTeamIds: string[]; sectionIds: string[] }> {
-	const [devTeamRows, naisTeamRows] = await Promise.all([
+	const [devTeamRows, naisTeamRows, naisLinkedDevTeamRows, naisDirectDevTeamRows] = await Promise.all([
 		db
 			.select({ devTeamId: devTeams.id, sectionId: devTeams.sectionId })
 			.from(applicationTeamMappings)
@@ -307,10 +307,40 @@ export async function getAppScopeIds(appId: string): Promise<{ devTeamIds: strin
 					),
 				),
 			),
+		// Dev teams linked via NAIS team mappings many-to-many (app_env → dev_team_nais_team_mappings → dev_teams)
+		db
+			.selectDistinct({ devTeamId: devTeams.id, sectionId: devTeams.sectionId })
+			.from(applicationEnvironments)
+			.innerJoin(
+				devTeamNaisTeamMappings,
+				and(
+					eq(devTeamNaisTeamMappings.naisTeamId, applicationEnvironments.naisTeamId),
+					isNull(devTeamNaisTeamMappings.archivedAt),
+				),
+			)
+			.innerJoin(devTeams, and(eq(devTeams.id, devTeamNaisTeamMappings.devTeamId), isNull(devTeams.archivedAt)))
+			.where(eq(applicationEnvironments.applicationId, appId)),
+		// Dev teams linked directly on the NAIS team (nais_teams.dev_team_id)
+		db
+			.selectDistinct({ devTeamId: devTeams.id, sectionId: devTeams.sectionId })
+			.from(applicationEnvironments)
+			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+			.innerJoin(devTeams, and(eq(devTeams.id, naisTeams.devTeamId), isNull(devTeams.archivedAt)))
+			.where(and(eq(applicationEnvironments.applicationId, appId), isNotNull(naisTeams.devTeamId))),
 	])
 
-	const devTeamIds = devTeamRows.map((r) => r.devTeamId)
-	const allSectionIds = [...devTeamRows.map((r) => r.sectionId), ...naisTeamRows.map((r) => r.sectionId)]
+	const allDevTeamIds = [
+		...devTeamRows.map((r) => r.devTeamId),
+		...naisLinkedDevTeamRows.map((r) => r.devTeamId),
+		...naisDirectDevTeamRows.map((r) => r.devTeamId),
+	]
+	const devTeamIds = [...new Set(allDevTeamIds)]
+	const allSectionIds = [
+		...devTeamRows.map((r) => r.sectionId),
+		...naisTeamRows.map((r) => r.sectionId),
+		...naisLinkedDevTeamRows.map((r) => r.sectionId),
+		...naisDirectDevTeamRows.map((r) => r.sectionId),
+	]
 	const sectionIds = [...new Set(allSectionIds.filter((s): s is string => s !== null))]
 	return { devTeamIds, sectionIds }
 }

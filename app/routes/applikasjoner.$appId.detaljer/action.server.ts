@@ -18,7 +18,7 @@ import {
 	persistenceTypeEnum,
 } from "~/db/schema/applications"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { canAccessAppReports, isAdmin } from "~/lib/authorization.server"
+import { canAccessAppReports, isAdmin, requireAppMembership } from "~/lib/authorization.server"
 import { createDraftReview } from "~/lib/create-draft-review.server"
 import { logger } from "~/lib/logger.server"
 
@@ -32,6 +32,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	const intent = formData.get("intent")
 
 	if (intent === "create-draft") {
+		await requireAppMembership(authedUser, appId)
 		const routineId = formData.get("routineId") as string | null
 		const sectionSlug = formData.get("sectionSlug") as string | null
 		const result = await createDraftReview({
@@ -50,6 +51,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "discard-review") {
+		await requireAppMembership(authedUser, appId)
 		const reviewId = formData.get("reviewId") as string
 		if (!reviewId) {
 			return data({ success: false, message: null, error: "Mangler gjennomgang-ID" })
@@ -92,6 +94,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "acknowledge-app") {
+		await requireAppMembership(authedUser, appId)
 		const ruleApplication = formData.get("ruleApplication") as string
 		const comment = (formData.get("comment") as string)?.trim()
 		if (!ruleApplication) throw new Response("Mangler applikasjonsnavn", { status: 400 })
@@ -101,6 +104,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "revoke-acknowledgment") {
+		await requireAppMembership(authedUser, appId)
 		const ruleApplication = formData.get("ruleApplication") as string
 		if (!ruleApplication) throw new Response("Mangler applikasjonsnavn", { status: 400 })
 		await revokeAcknowledgment(appId, ruleApplication, authedUser.navIdent)
@@ -108,6 +112,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "add-persistence") {
+		await requireAppMembership(authedUser, appId)
 		const type = formData.get("persistenceType") as string
 		const name = (formData.get("persistenceName") as string)?.trim()
 		const classification = (formData.get("dataClassification") as string) || null
@@ -145,6 +150,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "update-classification") {
+		await requireAppMembership(authedUser, appId)
 		const persistenceId = formData.get("persistenceId") as string
 		const classification = (formData.get("dataClassification") as string) || null
 		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
@@ -161,6 +167,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "archive-persistence") {
+		await requireAppMembership(authedUser, appId)
 		const persistenceId = (formData.get("persistenceId") as string)?.trim()
 		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
 		await archiveManualPersistence(persistenceId, authedUser.navIdent)
@@ -170,6 +177,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "unarchive-persistence") {
+		await requireAppMembership(authedUser, appId)
 		const persistenceId = (formData.get("persistenceId") as string)?.trim()
 		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
 		await unarchiveManualPersistence(persistenceId, authedUser.navIdent)
@@ -209,6 +217,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "save-control-comment") {
+		await requireAppMembership(authedUser, appId)
 		const applicationControlId = formData.get("applicationControlId") as string
 		if (!applicationControlId) return data({ success: false, message: null, error: "Mangler kontroll-ID" })
 		const comment = (formData.get("comment") as string)?.trim() || null
@@ -218,6 +227,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (intent === "create-screening-session") {
+		await requireAppMembership(authedUser, appId)
 		const { createScreeningSession, captureStateSnapshot, getScreeningSessionsForApp } = await import(
 			"~/db/queries/screening-sessions.server"
 		)

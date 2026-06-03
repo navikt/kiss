@@ -2462,6 +2462,20 @@ export async function addReviewAttachment(params: {
 	return attachment
 }
 
+/** Lightweight scope lookup for a review — used to determine access control without loading the full enriched review. */
+export async function getReviewScope(id: string): Promise<{
+	applicationId: string | null
+	sectionId: string
+} | null> {
+	const [row] = await db
+		.select({ applicationId: routineReviews.applicationId, sectionId: routines.sectionId })
+		.from(routineReviews)
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+		.where(eq(routineReviews.id, id))
+		.limit(1)
+	return row ?? null
+}
+
 /**
  * Henter et oppfølgingspunkt-vedlegg med arkivert-status for foreldre-rutinen
  * og status for gjennomgangen. Brukes som soft-delete-/access-guard ved
@@ -2473,6 +2487,8 @@ export async function getFollowUpPointAttachmentContext(pointId: string): Promis
 	routineId: string
 	reviewStatus: ReviewStatus
 	routineArchivedAt: Date | null
+	applicationId: string | null
+	sectionId: string
 } | null> {
 	const [row] = await db
 		.select({
@@ -2481,6 +2497,8 @@ export async function getFollowUpPointAttachmentContext(pointId: string): Promis
 			routineId: routines.id,
 			reviewStatus: routineReviews.status,
 			routineArchivedAt: routines.archivedAt,
+			applicationId: routineReviews.applicationId,
+			sectionId: routines.sectionId,
 		})
 		.from(routineReviewFollowUpPoints)
 		.innerJoin(routineReviews, eq(routineReviewFollowUpPoints.reviewId, routineReviews.id))

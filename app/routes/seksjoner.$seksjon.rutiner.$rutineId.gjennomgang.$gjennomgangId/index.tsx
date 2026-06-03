@@ -15,6 +15,7 @@ import {
 	getReviewActivities,
 	getReviewActivityByType,
 	getReviewActivityIdByType,
+	getReviewScope,
 	getRoutine,
 	getRoutineActivityLinks,
 	getRoutineNamesByIds,
@@ -30,6 +31,7 @@ import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applica
 import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus, RPA_DECISION_VALUES } from "~/db/schema/routines"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { requireReviewAccess } from "~/lib/authorization.server"
 import {
 	type EntraCriticality,
 	entraCriticalityValues,
@@ -190,11 +192,13 @@ function getCompletedEntraGroupsData(snapshot: unknown): EntraStagedGroupsProp |
 	}
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
 	const { seksjon, rutineId, gjennomgangId } = params
 	if (!seksjon || !rutineId || !gjennomgangId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
 	}
+
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) {
@@ -210,6 +214,15 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	if (!review) {
 		throw data({ message: "Fant ikke gjennomgang" }, { status: 404 })
 	}
+	// Consistency checks: ensure URL params are self-consistent before running access control.
+	// Without these, a crafted URL could escalate access by mixing IDs from different sections.
+	if (routine.sectionId !== section.id) {
+		throw data({ message: "Rutinen tilhører ikke seksjonen" }, { status: 404 })
+	}
+	if (review.routineId !== rutineId) {
+		throw data({ message: "Gjennomgangen tilhører ikke rutinen" }, { status: 404 })
+	}
+	await requireReviewAccess(authedUser, { applicationId: review.applicationId, sectionId: routine.sectionId })
 
 	let applicationName: string | null = null
 	let teamMembers: Array<{ teamName: string; members: Array<{ navIdent: string; name: string }> }> = []
@@ -628,6 +641,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
+
+	const scope = await getReviewScope(gjennomgangId)
+	if (!scope) {
+		throw data({ message: "Fant ikke gjennomgang" }, { status: 404 })
+	}
+	await requireReviewAccess(authedUser, scope)
 
 	if (intent === "update-review") {
 		// Only update fields that are actually present in the form submission.

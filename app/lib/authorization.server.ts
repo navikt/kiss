@@ -1,3 +1,4 @@
+import { getAppScopeIds } from "~/db/queries/applications.server"
 import { roleScopeMap, type UserRole } from "~/db/schema/organization"
 import type { NavUser } from "./auth.server"
 
@@ -145,4 +146,32 @@ export function requireAnySectionRole(user: NavUser, sectionId: string): void {
 	if (!hasAnySectionRole(user, sectionId)) {
 		throw new Response("Ikke autorisert", { status: 403 })
 	}
+}
+
+const TEAM_MEMBER_ROLES: ReadonlySet<UserRole> = new Set(["developer", "tech_lead", "product_owner"])
+
+/** Sjekk om bruker har en vilkårlig team-rolle (developer, tech_lead, product_owner) i et gitt team. Admin har alltid tilgang. */
+export function hasAnyTeamRole(user: NavUser, devTeamId: string): boolean {
+	if (isAdmin(user)) return true
+	return (user.dbRoles ?? []).some((r) => r.devTeamId === devTeamId && TEAM_MEMBER_ROLES.has(r.role))
+}
+
+/** Krev at bruker er tilknyttet minst ett team som er koblet til applikasjonen (direkte eller via NAIS). */
+export async function requireAppMembership(user: NavUser, appId: string): Promise<void> {
+	if (isAdmin(user)) return
+	const { devTeamIds } = await getAppScopeIds(appId)
+	if (devTeamIds.some((id) => hasAnyTeamRole(user, id))) return
+	throw new Response("Ikke autorisert", { status: 403 })
+}
+
+/** Krev tilgang til en gjennomgang basert på scope: applikasjons-tilhørighet eller seksjons-tilhørighet. */
+export async function requireReviewAccess(
+	user: NavUser,
+	scope: { applicationId: string | null; sectionId: string },
+): Promise<void> {
+	if (isAdmin(user)) return
+	if (scope.applicationId) {
+		return requireAppMembership(user, scope.applicationId)
+	}
+	requireAnySectionRole(user, scope.sectionId)
 }
