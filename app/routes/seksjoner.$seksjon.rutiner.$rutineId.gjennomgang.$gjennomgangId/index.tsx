@@ -212,10 +212,16 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	}
 
 	let applicationName: string | null = null
+	let teamMembers: Array<{ teamName: string; members: Array<{ navIdent: string; name: string }> }> = []
 	if (review.applicationId) {
-		const { getApplicationDetail } = await import("~/db/queries/nais.server")
-		const appDetail = await getApplicationDetail(review.applicationId)
+		const [appDetail, teamMembersResult] = await Promise.all([
+			import("~/db/queries/nais.server").then((m) => m.getApplicationDetail(review.applicationId!)),
+			review.status === "draft"
+				? import("~/db/queries/applications.server").then((m) => m.getTeamMembersForApp(review.applicationId!))
+				: Promise.resolve([]),
+		])
 		applicationName = appDetail?.app.name ?? null
+		teamMembers = teamMembersResult
 	}
 
 	// Load activity data — auto-create activities for any draft review that is missing them.
@@ -579,6 +585,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		routineDescriptionHtml,
 		linkedRulesets: linkedRulesetsWithHtml,
 		activities: activitiesWithEvidence,
+		teamMembers,
 		review: {
 			...review,
 			applicationName,
@@ -1139,6 +1146,7 @@ export default function GjennomgangDetalj() {
 		routineArchivedAt,
 		replacedByRoutineId,
 		replacedByRoutineName,
+		teamMembers,
 	} = useLoaderData<typeof loader>()
 	const isDraft = review.status === "draft"
 
@@ -1233,7 +1241,7 @@ export default function GjennomgangDetalj() {
 
 		switch (currentStepId) {
 			case "innledning":
-				return <StepIntroduction review={review} isDraft={isDraft} />
+				return <StepIntroduction review={review} isDraft={isDraft} teamMembers={teamMembers} />
 			case "krav":
 				return <StepControls controls={routine.controls} />
 			case "regelsett":

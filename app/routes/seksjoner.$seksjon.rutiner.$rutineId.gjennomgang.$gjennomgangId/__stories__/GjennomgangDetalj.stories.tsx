@@ -84,6 +84,33 @@ export const Innledning: Story = {
 	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft" }), "innledning"),
 }
 
+export const InnledningMedTeammedlemmer: Story = {
+	name: "Steg 1 – Innledning med teammedlemmer (hurtigvalg)",
+	render: () => {
+		const data = {
+			...mockGjennomgangDetaljData({ status: "draft" }),
+			teamMembers: [
+				{
+					teamName: "Starte pensjon",
+					members: [
+						{ navIdent: "Z990001", name: "Glad Fjord" },
+						{ navIdent: "Z990002", name: "Modig Bjørk" },
+						{ navIdent: "Z990003", name: "Rask Elv" },
+					],
+				},
+				{
+					teamName: "Beregning",
+					members: [
+						{ navIdent: "Z990004", name: "Stille Skog" },
+						{ navIdent: "Z990005", name: "Varm Solstråle" },
+					],
+				},
+			],
+		}
+		return renderWizard(GjennomgangDetalj, data, "innledning")
+	},
+}
+
 export const Krav: Story = {
 	name: "Steg 2 – Krav",
 	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljData({ status: "draft" }), "krav"),

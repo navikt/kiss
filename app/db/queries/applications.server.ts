@@ -16,7 +16,7 @@ import {
 	frameworkRisks,
 	technologyElements,
 } from "../schema/framework"
-import { devTeams, sectionEnvironments } from "../schema/organization"
+import { devTeams, sectionEnvironments, userRoles, users } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 import { getScreeningDerivedControlIds } from "./screening.server"
 
@@ -686,4 +686,37 @@ export async function getApplicationsForSection(sectionId: string) {
 			linkedApps: childrenByParent.get(app.id) ?? [],
 		}
 	})
+}
+
+/** Fetch all active team members for an app, deduplicated by nav_ident, grouped by team. */
+export async function getTeamMembersForApp(appId: string) {
+	const rows = await db
+		.selectDistinct({
+			navIdent: users.navIdent,
+			name: users.name,
+			teamId: devTeams.id,
+			teamName: devTeams.name,
+		})
+		.from(applicationTeamMappings)
+		.innerJoin(devTeams, and(eq(applicationTeamMappings.devTeamId, devTeams.id), isNull(devTeams.archivedAt)))
+		.innerJoin(userRoles, and(eq(userRoles.devTeamId, devTeams.id), isNull(userRoles.archivedAt)))
+		.innerJoin(users, eq(users.id, userRoles.userId))
+		.where(and(eq(applicationTeamMappings.applicationId, appId), isNull(applicationTeamMappings.archivedAt)))
+		.orderBy(devTeams.name, users.name)
+
+	// Group by team, deduplicating members globally across teams so each person appears only once
+	const teamMap = new Map<string, { teamName: string; members: Array<{ navIdent: string; name: string }> }>()
+	const seenNavIdents = new Set<string>()
+	for (const row of rows) {
+		const ident = row.navIdent.trim().toUpperCase()
+		if (!seenNavIdents.has(ident)) {
+			seenNavIdents.add(ident)
+			if (!teamMap.has(row.teamId)) {
+				teamMap.set(row.teamId, { teamName: row.teamName, members: [] })
+			}
+			teamMap.get(row.teamId)!.members.push({ navIdent: ident, name: row.name })
+		}
+	}
+
+	return [...teamMap.values()]
 }

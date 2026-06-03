@@ -12,10 +12,17 @@ vi.mock("~/db/connection.server", () => ({
 }))
 
 const { stageFrameworkImport, applyFrameworkImport } = await import("~/db/queries/framework.server")
-const { getApplications, getApplicationsForSection, linkAppToTeam, searchApplications, unlinkAppFromTeam } =
-	await import("~/db/queries/applications.server")
+const {
+	getApplications,
+	getApplicationsForSection,
+	getTeamMembersForApp,
+	linkAppToTeam,
+	searchApplications,
+	unlinkAppFromTeam,
+} = await import("~/db/queries/applications.server")
 const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
 const { archiveTeam } = await import("~/db/queries/sections.server")
+const { assignRole } = await import("~/db/queries/users.server")
 
 function makeParsedFramework(): ParsedFramework {
 	return {
@@ -318,5 +325,95 @@ describe("Applications integration tests", () => {
 		expect(ids).toContain(activeAppId)
 		expect(ids).toContain(manualAppId)
 		expect(ids).not.toContain(excludedAppId)
+	})
+
+	describe("getTeamMembersForApp", () => {
+		it("returns members from teams linked to the app", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const teamId = await createTestDevTeam("Starte pensjon", "starte-pensjon", sectionId)
+			const appId = await createTestApp("pensjon-sak")
+			await linkAppToTeam(appId, teamId, "test")
+			await assignRole("Z990001", "Glad Fjord", "developer", "test", undefined, teamId)
+			await assignRole("Z990002", "Modig Bjørk", "tech_lead", "test", undefined, teamId)
+
+			const result = await getTeamMembersForApp(appId)
+
+			expect(result).toHaveLength(1)
+			expect(result[0].teamName).toBe("Starte pensjon")
+			const idents = result[0].members.map((m) => m.navIdent)
+			expect(idents).toContain("Z990001")
+			expect(idents).toContain("Z990002")
+		})
+
+		it("deduplicates members that appear in multiple teams — member only counted in first team", async () => {
+			const sectionId = await createTestSection("Pensjon Dedup", "pensjon-dedup")
+			const team1Id = await createTestDevTeam("Team A", "team-a", sectionId)
+			const team2Id = await createTestDevTeam("Team B", "team-b", sectionId)
+			const appId = await createTestApp("pensjon-dedup-app")
+			await linkAppToTeam(appId, team1Id, "test")
+			await linkAppToTeam(appId, team2Id, "test")
+			// Same user in both teams
+			await assignRole("Z990010", "Rask Elv", "developer", "test", undefined, team1Id)
+			await assignRole("Z990010", "Rask Elv", "developer", "test", undefined, team2Id)
+			await assignRole("Z990011", "Stille Skog", "developer", "test", undefined, team2Id)
+
+			const result = await getTeamMembersForApp(appId)
+
+			const allMembers = result.flatMap((t) => t.members)
+			const z990010Entries = allMembers.filter((m) => m.navIdent === "Z990010")
+			expect(z990010Entries).toHaveLength(1)
+
+			// Team with only Z990010 (already deduped) must not appear as empty group
+			const emptyTeams = result.filter((t) => t.members.length === 0)
+			expect(emptyTeams).toHaveLength(0)
+
+			expect(allMembers).toHaveLength(2)
+		})
+
+		it("excludes members from archived teams", async () => {
+			const sectionId = await createTestSection("Pensjon Arkiv", "pensjon-arkiv")
+			const activeTeamId = await createTestDevTeam("Aktiv team", "aktiv-team", sectionId)
+			const archivedTeamId = await createTestDevTeam("Arkivert team", "arkivert-team", sectionId)
+			const appId = await createTestApp("pensjon-arkiv-app")
+			await linkAppToTeam(appId, activeTeamId, "test")
+			await linkAppToTeam(appId, archivedTeamId, "test")
+			await assignRole("Z990020", "Varm Solstråle", "developer", "test", undefined, activeTeamId)
+			await assignRole("Z990021", "Klok Ugle", "developer", "test", undefined, archivedTeamId)
+			await archiveTeam(archivedTeamId, "test")
+
+			const result = await getTeamMembersForApp(appId)
+
+			const allIdents = result.flatMap((t) => t.members.map((m) => m.navIdent))
+			expect(allIdents).toContain("Z990020")
+			expect(allIdents).not.toContain("Z990021")
+		})
+
+		it("excludes members with archived roles", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Pensjon Roller", "pensjon-roller")
+			const teamId = await createTestDevTeam("Rolle team", "rolle-team", sectionId)
+			const appId = await createTestApp("pensjon-roller-app")
+			await linkAppToTeam(appId, teamId, "test")
+			const roleId = await assignRole("Z990030", "Frisk Bekk", "developer", "test", undefined, teamId)
+			await assignRole("Z990031", "Rolig Dal", "developer", "test", undefined, teamId)
+			// Archive one role directly
+			await db.execute(
+				/* sql */ `UPDATE user_roles SET archived_at = NOW(), archived_by = 'test' WHERE id = '${roleId}'`,
+			)
+
+			const result = await getTeamMembersForApp(appId)
+
+			const allIdents = result.flatMap((t) => t.members.map((m) => m.navIdent))
+			expect(allIdents).not.toContain("Z990030")
+			expect(allIdents).toContain("Z990031")
+		})
+
+		it("returns empty array when app has no team mappings", async () => {
+			const appId = await createTestApp("app-uten-team")
+
+			const result = await getTeamMembersForApp(appId)
+
+			expect(result).toHaveLength(0)
+		})
 	})
 })
