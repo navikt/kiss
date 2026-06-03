@@ -96,6 +96,7 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 type AppSortKey = "priority" | "name" | "app" | "lastReview" | "deadline" | "status"
 type SectionSortKey = "priority" | "name" | "ownerRole" | "lastReview" | "deadline" | "status"
 type SortDirection = "ascending" | "descending"
+type ActionFilter = "alle" | "ny" | "fortsett"
 
 function routineStatusKey(dl: { overdue: boolean; lastReviewDate: Date | string | null }) {
 	if (dl.overdue) return "overdue"
@@ -122,6 +123,8 @@ export default function TeamUgjennomforteRutiner() {
 	})
 	const [appPage, setAppPage] = useState(1)
 	const [appPageSize, setAppPageSize] = useState(25)
+	const [appActionFilter, setAppActionFilter] = useState<ActionFilter>("alle")
+	const [sectionActionFilter, setSectionActionFilter] = useState<ActionFilter>("alle")
 
 	const handleAppSort = (sortKey: string | undefined) => {
 		if (!sortKey) return
@@ -219,9 +222,23 @@ export default function TeamUgjennomforteRutiner() {
 		})
 	}, [appRoutines, appSort])
 
-	const totalAppPages = Math.max(1, Math.ceil(sortedAppRoutines.length / appPageSize))
-	const currentAppPage = Math.min(appPage, totalAppPages)
-	const pagedAppRoutines = sortedAppRoutines.slice((currentAppPage - 1) * appPageSize, currentAppPage * appPageSize)
+	function matchesActionFilter(filter: ActionFilter, draftReviewId: string | null | undefined) {
+		if (filter === "ny") return !draftReviewId
+		if (filter === "fortsett") return !!draftReviewId
+		return true
+	}
+
+	const filteredAppRoutines = sortedAppRoutines.filter((dl) => matchesActionFilter(appActionFilter, dl.draftReviewId))
+	const filteredSectionRoutines = sortedSectionRoutines.filter((dl) =>
+		matchesActionFilter(sectionActionFilter, dl.draftReviewId),
+	)
+
+	const totalFilteredAppPages = Math.max(1, Math.ceil(filteredAppRoutines.length / appPageSize))
+	const currentFilteredAppPage = Math.min(appPage, totalFilteredAppPages)
+	const pagedFilteredAppRoutines = filteredAppRoutines.slice(
+		(currentFilteredAppPage - 1) * appPageSize,
+		currentFilteredAppPage * appPageSize,
+	)
 
 	function renderRoutineAction(dl: (typeof appRoutines)[number]) {
 		if (!dl.routine?.sectionId || !sectionSlugMap[dl.routine.sectionId]) return null
@@ -345,25 +362,43 @@ export default function TeamUgjennomforteRutiner() {
 							</Heading>
 							<HStack justify="space-between" align="end" wrap>
 								<BodyShort size="small" textColor="subtle">
-									Viser {(currentAppPage - 1) * appPageSize + 1}–
-									{Math.min(currentAppPage * appPageSize, sortedAppRoutines.length)} av {sortedAppRoutines.length}
+									Viser {filteredAppRoutines.length === 0 ? 0 : (currentFilteredAppPage - 1) * appPageSize + 1}–
+									{Math.min(currentFilteredAppPage * appPageSize, filteredAppRoutines.length)} av{" "}
+									{filteredAppRoutines.length}
+									{appActionFilter !== "alle" ? ` (filtrert fra ${sortedAppRoutines.length})` : ""}
 								</BodyShort>
-								<Select
-									label="Rader per side"
-									size="small"
-									value={appPageSize}
-									onChange={(e) => {
-										setAppPageSize(Number(e.target.value))
-										setAppPage(1)
-									}}
-									style={{ width: "auto" }}
-								>
-									{PAGE_SIZE_OPTIONS.map((n) => (
-										<option key={n} value={n}>
-											{n}
-										</option>
-									))}
-								</Select>
+								<HStack gap="space-4" align="end">
+									<Select
+										label="Handlinger"
+										size="small"
+										value={appActionFilter}
+										onChange={(e) => {
+											setAppActionFilter(e.target.value as ActionFilter)
+											setAppPage(1)
+										}}
+										style={{ width: "auto" }}
+									>
+										<option value="alle">Alle</option>
+										<option value="ny">Ny gjennomgang</option>
+										<option value="fortsett">Fortsett gjennomgang</option>
+									</Select>
+									<Select
+										label="Rader per side"
+										size="small"
+										value={appPageSize}
+										onChange={(e) => {
+											setAppPageSize(Number(e.target.value))
+											setAppPage(1)
+										}}
+										style={{ width: "auto" }}
+									>
+										{PAGE_SIZE_OPTIONS.map((n) => (
+											<option key={n} value={n}>
+												{n}
+											</option>
+										))}
+									</Select>
+								</HStack>
 							</HStack>
 
 							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
@@ -394,7 +429,7 @@ export default function TeamUgjennomforteRutiner() {
 										</Table.Row>
 									</Table.Header>
 									<Table.Body>
-										{pagedAppRoutines.map((dl, index) =>
+										{pagedFilteredAppRoutines.map((dl, index) =>
 											routineRow(dl, `${dl.applicationId}:${dl.routine?.id ?? index}:${dl.matchSource}`, {
 												showApp: true,
 											}),
@@ -403,21 +438,21 @@ export default function TeamUgjennomforteRutiner() {
 								</Table>
 							</section>
 
-							{totalAppPages > 1 && (
+							{totalFilteredAppPages > 1 && (
 								<HStack justify="center" gap="space-2" wrap>
 									<button
 										type="button"
 										onClick={() => setAppPage((p) => Math.max(1, p - 1))}
-										disabled={currentAppPage === 1}
+										disabled={currentFilteredAppPage === 1}
 										style={{
 											padding: "var(--ax-space-4) var(--ax-space-8)",
-											cursor: currentAppPage === 1 ? "default" : "pointer",
+											cursor: currentFilteredAppPage === 1 ? "default" : "pointer",
 										}}
 									>
 										Forrige
 									</button>
-									{Array.from({ length: totalAppPages }, (_, i) => i + 1)
-										.filter((p) => p === 1 || p === totalAppPages || Math.abs(p - currentAppPage) <= 2)
+									{Array.from({ length: totalFilteredAppPages }, (_, i) => i + 1)
+										.filter((p) => p === 1 || p === totalFilteredAppPages || Math.abs(p - currentFilteredAppPage) <= 2)
 										.reduce<(number | "…")[]>((acc, p, i, arr) => {
 											if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push("…")
 											acc.push(p)
@@ -434,11 +469,11 @@ export default function TeamUgjennomforteRutiner() {
 													key={p}
 													type="button"
 													onClick={() => setAppPage(p)}
-													aria-current={p === currentAppPage ? "page" : undefined}
+													aria-current={p === currentFilteredAppPage ? "page" : undefined}
 													style={{
 														padding: "var(--ax-space-4) var(--ax-space-8)",
-														fontWeight: p === currentAppPage ? "bold" : undefined,
-														cursor: p === currentAppPage ? "default" : "pointer",
+														fontWeight: p === currentFilteredAppPage ? "bold" : undefined,
+														cursor: p === currentFilteredAppPage ? "default" : "pointer",
 													}}
 												>
 													{p}
@@ -447,11 +482,11 @@ export default function TeamUgjennomforteRutiner() {
 										)}
 									<button
 										type="button"
-										onClick={() => setAppPage((p) => Math.min(totalAppPages, p + 1))}
-										disabled={currentAppPage === totalAppPages}
+										onClick={() => setAppPage((p) => Math.min(totalFilteredAppPages, p + 1))}
+										disabled={currentFilteredAppPage === totalFilteredAppPages}
 										style={{
 											padding: "var(--ax-space-4) var(--ax-space-8)",
-											cursor: currentAppPage === totalAppPages ? "default" : "pointer",
+											cursor: currentFilteredAppPage === totalFilteredAppPages ? "default" : "pointer",
 										}}
 									>
 										Neste
@@ -466,9 +501,24 @@ export default function TeamUgjennomforteRutiner() {
 							<Heading size="medium" level="3">
 								Seksjonsrutiner
 							</Heading>
-							<BodyShort size="small" textColor="subtle">
-								{sectionRoutines.length} seksjonsrutine{sectionRoutines.length !== 1 ? "r" : ""} ikke gjennomført
-							</BodyShort>
+							<HStack justify="space-between" align="end" wrap>
+								<BodyShort size="small" textColor="subtle">
+									{filteredSectionRoutines.length} seksjonsrutine
+									{filteredSectionRoutines.length !== 1 ? "r" : ""} ikke gjennomført
+									{sectionActionFilter !== "alle" ? ` (filtrert fra ${sortedSectionRoutines.length})` : ""}
+								</BodyShort>
+								<Select
+									label="Handlinger"
+									size="small"
+									value={sectionActionFilter}
+									onChange={(e) => setSectionActionFilter(e.target.value as ActionFilter)}
+									style={{ width: "auto" }}
+								>
+									<option value="alle">Alle</option>
+									<option value="ny">Ny gjennomgang</option>
+									<option value="fortsett">Fortsett gjennomgang</option>
+								</Select>
+							</HStack>
 							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 							<section className="table-scroll" tabIndex={0} aria-label="Ikke-gjennomførte seksjonsrutiner">
 								<Table sort={sectionSort} onSortChange={handleSectionSort}>
@@ -497,7 +547,7 @@ export default function TeamUgjennomforteRutiner() {
 										</Table.Row>
 									</Table.Header>
 									<Table.Body>
-										{sortedSectionRoutines.map((dl) => {
+										{filteredSectionRoutines.map((dl) => {
 											const key = `${dl.routine.id}-section`
 											const routineLink =
 												dl.routine.sectionId && sectionSlugMap[dl.routine.sectionId]
