@@ -209,8 +209,8 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 
 			<AutoUploadDropzone
 				label="Dra og slipp fil, eller klikk for å velge"
-				description={`Maks ${MAX_SIZE_MB} MB. Støttede formater: PDF, DOCX, XLSX, PPTX, PNG, JPG, TXT, MD`}
-				accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.txt,.md"
+				description={`Maks ${MAX_SIZE_MB} MB. Støttede formater: PDF, DOCX, XLSX, PPTX, PNG, JPG, TXT, MD, CSV`}
+				accept=".pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.txt,.md,.csv"
 				maxSizeInBytes={MAX_SIZE_BYTES}
 				files={files}
 				onFilesChange={handleFileSelect}
