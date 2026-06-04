@@ -289,43 +289,39 @@ function DiscardSection() {
 	const isSubmitting = navigation.state === "submitting"
 
 	return (
-		<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-			<VStack gap="space-4">
-				<Heading size="small" level="4">
-					Forkast gjennomgang
-				</Heading>
-				<BodyShort>
-					Forkaster du gjennomgangen vil den fjernes fra alle oversikter. Dataene beholdes for sporbarhet.
-				</BodyShort>
-				<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-					<Dialog.Trigger>
-						<Button type="button" variant="danger" size="small">
-							Forkast gjennomgang
-						</Button>
-					</Dialog.Trigger>
-					<Dialog.Popup width="small" position="center" closeOnOutsideClick aria-label="Bekreft forkasting">
-						<Dialog.Header>Forkast gjennomgang?</Dialog.Header>
-						<Dialog.Body>
-							<VStack gap="space-6">
-								<BodyShort>
-									Er du sikker på at du vil forkaste denne gjennomgangen? Handlingen kan ikke angres.
-								</BodyShort>
-								<Form method="post">
-									<input type="hidden" name="intent" value="discard-review" />
-									<HStack gap="space-4">
-										<Button type="submit" variant="danger" size="small" disabled={isSubmitting} loading={isSubmitting}>
-											Ja, forkast
-										</Button>
-										<Button type="button" variant="secondary" size="small" onClick={() => setDialogOpen(false)}>
-											Avbryt
-										</Button>
-									</HStack>
-								</Form>
-							</VStack>
-						</Dialog.Body>
-					</Dialog.Popup>
-				</Dialog>
-			</VStack>
-		</Box>
+		<HStack gap="space-2" align="center">
+			<BodyShort size="small" textColor="subtle">
+				Vil du avbryte og forkaste gjennomgangen?
+			</BodyShort>
+			<Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+				<Dialog.Trigger>
+					<Button type="button" variant="tertiary-neutral" size="xsmall">
+						Forkast gjennomgang
+					</Button>
+				</Dialog.Trigger>
+				<Dialog.Popup width="small" position="center" closeOnOutsideClick aria-label="Bekreft forkasting">
+					<Dialog.Header>Forkast gjennomgang?</Dialog.Header>
+					<Dialog.Body>
+						<VStack gap="space-6">
+							<BodyShort>
+								Er du sikker på at du vil forkaste denne gjennomgangen? Handlingen kan ikke angres. Dataene beholdes for
+								sporbarhet.
+							</BodyShort>
+							<Form method="post">
+								<input type="hidden" name="intent" value="discard-review" />
+								<HStack gap="space-4">
+									<Button type="submit" variant="danger" size="small" disabled={isSubmitting} loading={isSubmitting}>
+										Ja, forkast
+									</Button>
+									<Button type="button" variant="secondary" size="small" onClick={() => setDialogOpen(false)}>
+										Avbryt
+									</Button>
+								</HStack>
+							</Form>
+						</VStack>
+					</Dialog.Body>
+				</Dialog.Popup>
+			</Dialog>
+		</HStack>
 	)
 }
