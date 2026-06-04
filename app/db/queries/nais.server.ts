@@ -2017,7 +2017,7 @@ export async function getFilteredSectionAppIds(sectionId: string): Promise<strin
 		const appEnvMap = new Map<string, Set<string>>()
 		for (const row of appEnvRows) {
 			if (!appEnvMap.has(row.appId)) appEnvMap.set(row.appId, new Set())
-			appEnvMap.get(row.appId)!.add(row.cluster)
+			appEnvMap.get(row.appId)?.add(row.cluster)
 		}
 		filteredIds = filteredIds.filter((id) => {
 			const clusters = appEnvMap.get(id)

@@ -227,10 +227,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	let applicationName: string | null = null
 	let teamMembers: Array<{ teamName: string; members: Array<{ navIdent: string; name: string }> }> = []
 	if (review.applicationId) {
+		const applicationId = review.applicationId
 		const [appDetail, teamMembersResult] = await Promise.all([
-			import("~/db/queries/nais.server").then((m) => m.getApplicationDetail(review.applicationId!)),
+			import("~/db/queries/nais.server").then((m) => m.getApplicationDetail(applicationId)),
 			review.status === "draft"
-				? import("~/db/queries/applications.server").then((m) => m.getTeamMembersForApp(review.applicationId!))
+				? import("~/db/queries/applications.server").then((m) => m.getTeamMembersForApp(applicationId))
 				: Promise.resolve([]),
 		])
 		applicationName = appDetail?.app.name ?? null

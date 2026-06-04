@@ -8,11 +8,13 @@ export interface Crumb {
 }
 
 type LabelFn = (data: Record<string, unknown>, params: Record<string, string>) => string
-type PathFn = (params: Record<string, string>) => string
+type PathFn = (params: Record<string, string>, data: Record<string, unknown>) => string
 
 interface BreadcrumbSegment {
 	label: string | LabelFn
 	to?: string | PathFn // omit for last segment (current page)
+	/** If provided, segment is excluded when this returns false */
+	condition?: (data: Record<string, unknown>, params: Record<string, string>) => boolean
 }
 
 interface BreadcrumbRule {
@@ -138,6 +140,21 @@ function reviewLabel(data: Record<string, unknown>): string {
 	return "Gjennomgang"
 }
 
+function reviewAppId(data: Record<string, unknown>): string | null {
+	const review = data.review as { applicationId?: string | null } | undefined
+	return review?.applicationId ?? null
+}
+
+function reviewAppLabel(data: Record<string, unknown>): string {
+	const review = data.review as { applicationName?: string | null; applicationId?: string | null } | undefined
+	return review?.applicationName ?? review?.applicationId ?? ""
+}
+
+function reviewAppPath(params: Record<string, string>, data: Record<string, unknown>): string {
+	const appId = reviewAppId(data)
+	return appId ? `/seksjoner/${params.seksjon}/applikasjoner/${appId}/detaljer` : `/seksjoner/${params.seksjon}`
+}
+
 // ─── Breadcrumb Segments ────────────────────────────────────────────────────
 
 const SEKSJONER: BreadcrumbSegment = { label: "Seksjoner", to: "/seksjoner" }
@@ -149,16 +166,7 @@ const ADMIN: BreadcrumbSegment = { label: "Admin", to: "/admin" }
 
 const rules: BreadcrumbRule[] = [
 	// ── Seksjoner: Gjennomganger ──
-	{
-		pattern: "seksjoner/:seksjon/rutiner/:rutineId/gjennomgang/:gjennomgangId",
-		segments: [
-			SEKSJONER,
-			{ label: sectionName, to: sectionPath },
-			{ label: "Rutiner", to: routinePath },
-			{ label: routineName, to: routineDetailPath },
-			{ label: reviewLabel },
-		],
-	},
+	// NOTE: static "ny" rule must come before the dynamic ":gjennomgangId" rule
 	{
 		pattern: "seksjoner/:seksjon/rutiner/:rutineId/gjennomgang/ny",
 		segments: [
@@ -167,6 +175,21 @@ const rules: BreadcrumbRule[] = [
 			{ label: "Rutiner", to: routinePath },
 			{ label: routineName, to: routineDetailPath },
 			{ label: "Ny gjennomgang" },
+		],
+	},
+	{
+		pattern: "seksjoner/:seksjon/rutiner/:rutineId/gjennomgang/:gjennomgangId",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: "Rutiner", to: routinePath },
+			{ label: routineName, to: routineDetailPath },
+			{
+				label: (data) => reviewAppLabel(data),
+				to: reviewAppPath,
+				condition: (data) => reviewAppId(data) !== null,
+			},
+			{ label: reviewLabel },
 		],
 	},
 
@@ -462,15 +485,17 @@ export function buildBreadcrumbs(
 
 		const crumbs: Crumb[] = []
 
-		for (let i = 0; i < rule.segments.length; i++) {
-			const seg = rule.segments[i]
+		const activeSegments = rule.segments.filter((seg) => !seg.condition || seg.condition(loaderData, merged))
+
+		for (let i = 0; i < activeSegments.length; i++) {
+			const seg = activeSegments[i]
 			const label = typeof seg.label === "function" ? seg.label(loaderData, merged) : seg.label
-			const isLast = i === rule.segments.length - 1
+			const isLast = i === activeSegments.length - 1
 
 			if (isLast) {
 				crumbs.push({ label, to: null })
 			} else {
-				const to = seg.to ? (typeof seg.to === "function" ? seg.to(merged) : seg.to) : null
+				const to = seg.to ? (typeof seg.to === "function" ? seg.to(merged, loaderData) : seg.to) : null
 				crumbs.push({ label, to })
 			}
 		}
