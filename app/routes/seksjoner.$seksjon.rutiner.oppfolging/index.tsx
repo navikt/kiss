@@ -88,7 +88,18 @@ export default function RutinerOppfolging() {
 												)}
 											</VStack>
 										</Table.DataCell>
-										<Table.DataCell>{review.createdByName ?? review.createdBy}</Table.DataCell>
+										<Table.DataCell>
+											{review.createdByName ? (
+												<>
+													<BodyShort size="small">{review.createdByName}</BodyShort>
+													<BodyShort size="small" textColor="subtle">
+														{review.createdBy}
+													</BodyShort>
+												</>
+											) : (
+												review.createdBy
+											)}
+										</Table.DataCell>
 									</Table.Row>
 								))}
 							</Table.Body>
