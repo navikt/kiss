@@ -67,10 +67,12 @@ export function RutinerTab({
 	routineDeadlines,
 	completedReviews,
 	sectionSlugMap,
+	canManageReviews,
 }: {
 	routineDeadlines: RoutineDeadline[]
 	completedReviews: CompletedReview[]
 	sectionSlugMap: Record<string, string>
+	canManageReviews: boolean
 }) {
 	const [routineSort, setRoutineSort] = useState<{ orderBy: string; direction: "ascending" | "descending" }>({
 		orderBy: "priority",
@@ -238,6 +240,7 @@ export function RutinerTab({
 	}
 
 	const renderRoutineAction = (dl: RoutineDeadline) => {
+		if (!canManageReviews) return null
 		if (!dl.routine?.sectionId || !sectionSlugMap[dl.routine.sectionId]) return null
 		const sectionSlug = sectionSlugMap[dl.routine.sectionId]
 		if (dl.draftReviewId) {
