@@ -4,7 +4,7 @@ import { db } from "~/db/connection.server"
 import { getReviewScope } from "~/db/queries/routines.server"
 import { routineReviewAttachments } from "~/db/schema"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireReviewAccess } from "~/lib/authorization.server"
+import { requireReviewReadAccess } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
@@ -23,7 +23,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
 	const scope = await getReviewScope(attachment.reviewId)
 	if (!scope) throw new Response("Vedlegg ikke funnet", { status: 404 })
-	await requireReviewAccess(authedUser, scope)
+	await requireReviewReadAccess(authedUser, scope)
 
 	const storage = getStorageProvider()
 	const fileBuffer = await storage.download(attachment.bucketPath)

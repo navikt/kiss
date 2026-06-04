@@ -4,7 +4,7 @@ import { db } from "~/db/connection.server"
 import { getFollowUpPointAttachmentContext } from "~/db/queries/routines.server"
 import { routineReviewFollowUpPointAttachments } from "~/db/schema"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireReviewAccess } from "~/lib/authorization.server"
+import { requireReviewReadAccess } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
@@ -23,7 +23,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
 	const ctx = await getFollowUpPointAttachmentContext(attachment.pointId)
 	if (!ctx) throw new Response("Vedlegg ikke funnet", { status: 404 })
-	await requireReviewAccess(user, { applicationId: ctx.applicationId, sectionId: ctx.sectionId })
+	await requireReviewReadAccess(user, { applicationId: ctx.applicationId, sectionId: ctx.sectionId })
 
 	const storage = getStorageProvider()
 	const fileBuffer = await storage.download(attachment.bucketPath)
