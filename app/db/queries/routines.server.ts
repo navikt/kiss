@@ -6475,7 +6475,7 @@ export async function replaceRoutine(
 		// the replacement routine immediately inherits the review date without requiring chain-walking.
 		if (deadlinePolicy === "continue") {
 			const latestReviews = await tx.execute(sql`
-				SELECT DISTINCT ON (application_id) id, application_id, reviewed_at
+				SELECT DISTINCT ON (application_id) id, application_id, reviewed_at, title
 				FROM routine_reviews
 				WHERE routine_id = ${oldRoutineId}
 				  AND status IN ('completed', 'needs_follow_up')
@@ -6495,7 +6495,12 @@ export async function replaceRoutine(
 				)
 			const existingAppIds = new Set(existingNewReviews.map((r) => r.applicationId ?? "__null__"))
 
-			for (const row of latestReviews.rows as { id: string; application_id: string | null; reviewed_at: string }[]) {
+			for (const row of latestReviews.rows as {
+				id: string
+				application_id: string | null
+				reviewed_at: string
+				title: string
+			}[]) {
 				const appKey = row.application_id ?? "__null__"
 				if (existingAppIds.has(appKey)) continue
 
@@ -6504,7 +6509,7 @@ export async function replaceRoutine(
 					.values({
 						routineId: newRoutineId,
 						applicationId: row.application_id,
-						title: `Arvet gjennomgang (rutine erstattet av ${performedBy})`,
+						title: row.title,
 						status: "completed",
 						reviewedAt: new Date(row.reviewed_at),
 						inheritedFromReviewId: row.id,
@@ -6521,6 +6526,8 @@ export async function replaceRoutine(
 							newValue: JSON.stringify({
 								routineId: newRoutineId,
 								applicationId: row.application_id,
+								title: row.title,
+								status: "completed",
 								reviewedAt: row.reviewed_at,
 								inheritedFromReviewId: row.id,
 							}),
@@ -6643,18 +6650,85 @@ export async function migrateExistingReplacementChains(performedBy = "system-mig
 		LEFT JOIN hop_policies hp ON hp.new_routine_id = c.next_id
 	`)
 
-		if (chains.rows.length === 0) return { presets: 0, selections: 0, arrayReplacements: 0, reviewsInherited: 0 }
+		const result = { presets: 0, selections: 0, arrayReplacements: 0, reviewsInherited: 0, titlesBackfilled: 0 }
 
-		const result = { presets: 0, selections: 0, arrayReplacements: 0, reviewsInherited: 0 }
+		// Backfill runs unconditionally — independent of whether there are replacement chains.
+		// Uses a recursive CTE to walk the full inheritance chain and always copy the title from
+		// the root (original, non-inherited) review — correctly handles A→B→C in one pass.
+		await db.transaction(async (tx) => {
+			const rowsToBackfill = await tx.execute<{ target_id: string; old_title: string; new_title: string }>(sql`
+				WITH RECURSIVE chain AS (
+				  SELECT
+				    id AS target_id,
+				    title AS old_title,
+				    id AS current_id,
+				    inherited_from_review_id AS parent_id
+				  FROM routine_reviews
+				  WHERE inherited_from_review_id IS NOT NULL
+				    AND (
+				      title = 'Arvet gjennomgang (retroaktiv migrering av rutinekjede)'
+				      OR title LIKE 'Arvet gjennomgang (rutine erstattet av %)'
+				    )
+				  UNION ALL
+				  SELECT
+				    c.target_id,
+				    c.old_title,
+				    parent.id AS current_id,
+				    parent.inherited_from_review_id AS parent_id
+				  FROM chain c
+				  JOIN routine_reviews parent ON c.parent_id = parent.id
+				)
+				SELECT chain.target_id, chain.old_title, root.title AS new_title
+				FROM chain
+				JOIN routine_reviews root ON root.id = chain.current_id
+				WHERE chain.parent_id IS NULL
+				  AND chain.old_title <> root.title
+			`)
+			if (rowsToBackfill.rows.length > 0) {
+				await tx.execute(sql`
+					WITH RECURSIVE chain AS (
+					  SELECT id AS target_id, id AS current_id, inherited_from_review_id AS parent_id
+					  FROM routine_reviews
+					  WHERE inherited_from_review_id IS NOT NULL
+					    AND (
+					      title = 'Arvet gjennomgang (retroaktiv migrering av rutinekjede)'
+					      OR title LIKE 'Arvet gjennomgang (rutine erstattet av %)'
+					    )
+					  UNION ALL
+					  SELECT c.target_id, parent.id AS current_id, parent.inherited_from_review_id AS parent_id
+					  FROM chain c
+					  JOIN routine_reviews parent ON c.parent_id = parent.id
+					)
+					UPDATE routine_reviews AS target
+					SET title = root.title
+					FROM chain
+					JOIN routine_reviews root ON root.id = chain.current_id AND chain.parent_id IS NULL
+					WHERE target.id = chain.target_id
+				`)
+				for (const row of rowsToBackfill.rows) {
+					await writeAuditLog(
+						{
+							action: "routine_review_updated",
+							entityType: "routine_review",
+							entityId: row.target_id,
+							previousValue: JSON.stringify({ title: row.old_title }),
+							newValue: JSON.stringify({ title: row.new_title }),
+							performedBy,
+						},
+						tx,
+					)
+				}
+			}
+			result.titlesBackfilled = rowsToBackfill.rows.length
+		})
+
+		if (chains.rows.length === 0) return result
+
 		// Deduplicate application_controls rows across all member iterations to avoid double-counting
 		// when a row contains multiple chain members (e.g. [A,B] gets updated twice in the loop).
 		const updatedControlIds = new Set<string>()
 
 		return db.transaction(async (tx) => {
-			// Group by head: Map<headId, Map<memberId, {nextId, hopPolicy}>>
-			// next_id is the routine that directly follows this member in the chain (towards HEAD).
-			// Duplicate CTE rows (B appearing under both root=A and root=B) are deduplicated
-			// by the inner Map.set() — same member, same values, safe to overwrite.
 			const headToChain = new Map<string, Map<string, { nextId: string; hopPolicy: string | null }>>()
 			// Per-hop "continue" edges for review inheritance: memberId → direct nextId.
 			// Review inheritance is per-hop (not per-path-to-HEAD) so that a "continue" hop
@@ -6806,8 +6880,9 @@ export async function migrateExistingReplacementChains(performedBy = "system-mig
 					source_review_id: string
 					application_id: string | null
 					reviewed_at: string
+					title: string
 				}>(sql`
-				SELECT DISTINCT ON (application_id) id AS source_review_id, application_id, reviewed_at
+				SELECT DISTINCT ON (application_id) id AS source_review_id, application_id, reviewed_at, title
 				FROM routine_reviews
 				WHERE routine_id = ${memberId}::uuid
 				  AND status IN ('completed', 'needs_follow_up')
@@ -6833,7 +6908,7 @@ export async function migrateExistingReplacementChains(performedBy = "system-mig
 						.values({
 							routineId: nextId,
 							applicationId: row.application_id,
-							title: "Arvet gjennomgang (retroaktiv migrering av rutinekjede)",
+							title: row.title,
 							status: "completed",
 							reviewedAt: new Date(row.reviewed_at),
 							inheritedFromReviewId: row.source_review_id,
@@ -6852,6 +6927,8 @@ export async function migrateExistingReplacementChains(performedBy = "system-mig
 								newValue: JSON.stringify({
 									routineId: nextId,
 									applicationId: row.application_id,
+									title: row.title,
+									status: "completed",
 									reviewedAt: row.reviewed_at,
 									inheritedFromReviewId: row.source_review_id,
 								}),

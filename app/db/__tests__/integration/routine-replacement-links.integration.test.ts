@@ -77,6 +77,22 @@ async function insertCompletedReview(routineId: string, applicationId: string | 
 	return (r.rows[0] as { id: string }).id
 }
 
+async function insertInheritedReviewWithOldTitle(
+	routineId: string,
+	applicationId: string | null,
+	inheritedFromReviewId: string,
+	oldTitle: string,
+) {
+	const db = getTestDb()
+	const appVal = applicationId ? `'${applicationId}'` : "NULL"
+	const r = await db.execute(
+		/* sql */ `INSERT INTO routine_reviews (routine_id, application_id, title, status, created_by, inherited_from_review_id, reviewed_at)
+		VALUES ('${routineId}', ${appVal}, '${oldTitle}', 'completed', 'Z990001', '${inheritedFromReviewId}', NOW())
+		RETURNING id`,
+	)
+	return (r.rows[0] as { id: string }).id
+}
+
 async function insertNeedsFollowUpReview(routineId: string, applicationId: string | null, reviewedAt: Date) {
 	const db = getTestDb()
 	const appVal = applicationId ? `'${applicationId}'` : "NULL"
@@ -433,6 +449,7 @@ describe("routine replacement link propagation", () => {
 			expect(reviewB?.reviewedAt.toISOString()).toBe(reviewDate.toISOString())
 			expect(reviewB?.status).toBe("completed")
 			expect(reviewB?.inheritedFromReviewId).not.toBeNull()
+			expect(reviewB?.title).toBe("Test Review")
 		})
 
 		it("copies needs_follow_up review as completed (never as needs_follow_up)", async () => {
@@ -820,6 +837,7 @@ describe("routine replacement link propagation", () => {
 			const reviewB = await getLatestReviewForApp(routineB.id, appId)
 			expect(reviewB).not.toBeNull()
 			expect(reviewB?.status).toBe("completed")
+			expect(reviewB?.title).toBe("Test Review")
 		})
 
 		it("does NOT inherit review for reset chain", async () => {
@@ -1051,6 +1069,112 @@ describe("routine replacement link propagation", () => {
 			expect(reviewB?.reviewedAt.toISOString()).toBe(reviewDate.toISOString())
 			expect(reviewB?.inheritedFromReviewId).not.toBeNull()
 			expect(result?.reviewsInherited).toBeGreaterThanOrEqual(1)
+		})
+
+		it("backfills titles for existing inherited reviews with old hardcoded titles (direct A→B)", async () => {
+			const db = getTestDb()
+
+			// Create two routines
+			const routineA = await createRoutine({
+				sectionId,
+				name: "Backfill Source Routine A",
+				description: "Source",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: "tech_manager",
+				isSectionRoutine: false,
+				sectionRoutineOwnerRole: null,
+				persistenceLinks: [],
+				technologyElementIds: [],
+				controlIds: [],
+				groupClassifications: [],
+				oracleRoleCriticalities: [],
+				createdBy: "Z990001",
+			})
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
+
+			// Insert source review on A with a meaningful title
+			const sourceReviewId = await insertCompletedReview(routineA.id, null, new Date("2025-01-01"))
+
+			// Simulate an already-existing inherited review with the old hardcoded title
+			const inheritedReviewId = await insertInheritedReviewWithOldTitle(
+				routineB.id,
+				null,
+				sourceReviewId,
+				"Arvet gjennomgang (rutine erstattet av Z990001)",
+			)
+
+			const result = await migrateExistingReplacementChains("test-backfill")
+			expect(result).not.toBeNull()
+			expect(result?.titlesBackfilled).toBeGreaterThanOrEqual(1)
+
+			// Inherited review must now have the source review's title
+			const [updated] = await db
+				.execute<{ title: string }>(/* sql */ `SELECT title FROM routine_reviews WHERE id = '${inheritedReviewId}'`)
+				.then((r) => r.rows)
+			expect(updated.title).toBe("Test Review")
+		})
+
+		it("backfills titles for transitive chains (A→B→C) in a single pass", async () => {
+			const db = getTestDb()
+
+			// Create three routines in a chain
+			const routineA = await createRoutine({
+				sectionId,
+				name: "Backfill Transitive A",
+				description: "Root",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: "tech_manager",
+				isSectionRoutine: false,
+				sectionRoutineOwnerRole: null,
+				persistenceLinks: [],
+				technologyElementIds: [],
+				controlIds: [],
+				groupClassifications: [],
+				oracleRoleCriticalities: [],
+				createdBy: "Z990001",
+			})
+			const routineB = await copyRoutineOrThrow(routineA.id, "Z990001")
+			const routineC = await copyRoutineOrThrow(routineB.id, "Z990001")
+
+			// Source review on A
+			const sourceReviewId = await insertCompletedReview(routineA.id, null, new Date("2025-03-01"))
+
+			// B's review has old hardcoded title pointing to A's review
+			const reviewBId = await insertInheritedReviewWithOldTitle(
+				routineB.id,
+				null,
+				sourceReviewId,
+				"Arvet gjennomgang (retroaktiv migrering av rutinekjede)",
+			)
+
+			// C's review has old hardcoded title pointing to B's review (transitive)
+			const reviewCId = await insertInheritedReviewWithOldTitle(
+				routineC.id,
+				null,
+				reviewBId,
+				"Arvet gjennomgang (retroaktiv migrering av rutinekjede)",
+			)
+
+			const result = await migrateExistingReplacementChains("test-backfill-transitive")
+			expect(result).not.toBeNull()
+			expect(result?.titlesBackfilled).toBeGreaterThanOrEqual(2)
+
+			const rows = await db
+				.execute<{ id: string; title: string }>(
+					/* sql */ `SELECT id, title FROM routine_reviews WHERE id IN ('${reviewBId}', '${reviewCId}')`,
+				)
+				.then((r) => r.rows)
+
+			// Both B and C must have the root source title — not B's old hardcoded title
+			for (const row of rows) {
+				expect(row.title).toBe("Test Review")
+			}
 		})
 	})
 })
