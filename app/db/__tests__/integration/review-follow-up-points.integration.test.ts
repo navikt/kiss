@@ -156,14 +156,39 @@ describe("Review follow-up points integration tests", () => {
 		expect(fullyDone?.status).toBe("completed")
 	})
 
-	it("transitions completed review back to 'needs_follow_up' when a new point is added", async () => {
+	it("blocks adding a follow-up point to a completed review", async () => {
 		const { review } = await newDraftReview()
 		const completed = await completeReview(review.id, "Z990001")
 		expect(completed?.status).toBe("completed")
 
-		await addFollowUpPoint({ reviewId: review.id, text: "Nytt funn", performedBy: "Z990001" })
-		const reopened = await getReview(review.id)
-		expect(reopened?.status).toBe("needs_follow_up")
+		await expect(
+			addFollowUpPoint({ reviewId: review.id, text: "Nytt funn", performedBy: "Z990001" }),
+		).rejects.toSatisfy((e: unknown) => e instanceof Response && e.status === 409)
+	})
+
+	it("blocks adding a follow-up point to a needs_follow_up review", async () => {
+		const { review } = await newDraftReview()
+		await addFollowUpPoint({
+			reviewId: review.id,
+			text: "Åpent punkt",
+			description: "Beskrivelse",
+			performedBy: "Z990001",
+		})
+		const completed = await completeReview(review.id, "Z990001")
+		expect(completed?.status).toBe("needs_follow_up")
+
+		await expect(
+			addFollowUpPoint({ reviewId: review.id, text: "Nytt funn", performedBy: "Z990001" }),
+		).rejects.toSatisfy((e: unknown) => e instanceof Response && e.status === 409)
+	})
+
+	it("blocks adding a follow-up point to a discarded review", async () => {
+		const { review } = await newDraftReview()
+		await discardReview(review.id, "Z990001")
+
+		await expect(
+			addFollowUpPoint({ reviewId: review.id, text: "Nytt funn", performedBy: "Z990001" }),
+		).rejects.toSatisfy((e: unknown) => e instanceof Response && e.status === 409)
 	})
 
 	it("re-opens needs_follow_up by reverting a resolved point back to needs_follow_up", async () => {

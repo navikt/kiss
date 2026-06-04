@@ -941,7 +941,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!text) {
 			return data<ActionResult>({ success: false, error: "Tittel er påkrevd", intent: "add-follow-up" })
 		}
-		await addFollowUpPoint({ reviewId: gjennomgangId, text, description, performedBy: authedUser.navIdent })
+		try {
+			await addFollowUpPoint({ reviewId: gjennomgangId, text, description, performedBy: authedUser.navIdent })
+		} catch (e) {
+			if (e instanceof Response) {
+				return data<ActionResult>(
+					{ success: false, error: await e.text(), intent: "add-follow-up" },
+					{ status: e.status },
+				)
+			}
+			throw e
+		}
 		return data<ActionResult>({ success: true, intent: "add-follow-up" })
 	}
 
