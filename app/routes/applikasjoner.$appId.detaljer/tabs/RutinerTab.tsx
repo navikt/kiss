@@ -394,7 +394,7 @@ export function RutinerTab({
 												<Table.ColumnHeader sortKey="name" sortable>
 													Rutine
 												</Table.ColumnHeader>
-												<Table.HeaderCell>Handlinger</Table.HeaderCell>
+												<Table.HeaderCell align="left">Handlinger</Table.HeaderCell>
 												<Table.ColumnHeader sortKey="priority" sortable>
 													Prioritet
 												</Table.ColumnHeader>
@@ -514,7 +514,7 @@ export function RutinerTab({
 												<Table.Row>
 													<Table.HeaderCell />
 													<Table.HeaderCell>Rutine</Table.HeaderCell>
-													<Table.HeaderCell>Handlinger</Table.HeaderCell>
+													<Table.HeaderCell align="left">Handlinger</Table.HeaderCell>
 													<Table.HeaderCell>Hendelsesfrekvens</Table.HeaderCell>
 													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
 												</Table.Row>

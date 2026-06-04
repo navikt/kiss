@@ -412,7 +412,9 @@ export default function TeamUgjennomforteRutiner() {
 											<Table.ColumnHeader sortKey="app" sortable scope="col">
 												Applikasjon
 											</Table.ColumnHeader>
-											<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
+											<Table.HeaderCell scope="col" align="left">
+												Handlinger
+											</Table.HeaderCell>
 											<Table.ColumnHeader sortKey="priority" sortable scope="col">
 												Prioritet
 											</Table.ColumnHeader>
@@ -530,7 +532,9 @@ export default function TeamUgjennomforteRutiner() {
 											<Table.ColumnHeader sortKey="ownerRole" sortable scope="col">
 												Ansvarlig rolle
 											</Table.ColumnHeader>
-											<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
+											<Table.HeaderCell scope="col" align="left">
+												Handlinger
+											</Table.HeaderCell>
 											<Table.ColumnHeader sortKey="priority" sortable scope="col">
 												Prioritet
 											</Table.ColumnHeader>

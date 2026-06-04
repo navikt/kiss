@@ -306,7 +306,9 @@ export default function AdminTeknologielementer() {
 									<Table.HeaderCell scope="col" align="right">
 										Applikasjoner
 									</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Handlinger</Table.HeaderCell>
+									<Table.HeaderCell scope="col" align="left">
+										Handlinger
+									</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
 							<Table.Body>
