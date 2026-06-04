@@ -2689,7 +2689,7 @@ export async function getAppsRequiringRoutine(
 	const selectionRows = await db
 		.select({ applicationId: screeningRoutineSelections.applicationId })
 		.from(screeningRoutineSelections)
-		.where(eq(screeningRoutineSelections.routineId, routineId))
+		.where(and(eq(screeningRoutineSelections.routineId, routineId), isNull(screeningRoutineSelections.archivedAt)))
 	for (const row of selectionRows) allMatchedAppIds.add(row.applicationId)
 
 	// Path 6: Section-wide (appliesToAllInSection but NOT isSectionRoutine)
@@ -4307,7 +4307,11 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		.select({ routineId: screeningRoutineSelections.routineId })
 		.from(screeningRoutineSelections)
 		.where(
-			and(eq(screeningRoutineSelections.applicationId, applicationId), isNotNull(screeningRoutineSelections.routineId)),
+			and(
+				eq(screeningRoutineSelections.applicationId, applicationId),
+				isNotNull(screeningRoutineSelections.routineId),
+				isNull(screeningRoutineSelections.archivedAt),
+			),
 		)
 
 	const selectedRoutineIds = selections

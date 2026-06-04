@@ -2482,6 +2482,136 @@ describe("Routines integration tests", () => {
 		})
 	})
 
+	describe("getRoutineDeadlinesWithControls — screening_selection unlinking", () => {
+		async function setupScreeningSelectionFixture(label: string) {
+			const db = getTestDb()
+			const sectionId = await createTestSection(`Seksjon ${label}`, `seksjon-${label}`)
+			const appId = await createTestApp(`Stille Fjord ${label}`)
+			const questionId = await createTestScreeningQuestion(sectionId, `Har du Oracle ${label}?`)
+			const choiceId = await createTestChoice(questionId, "Ja")
+			const controlResult = await db.execute(
+				/* sql */ `INSERT INTO framework_controls (control_id) VALUES ('K-TEST.SRS.${label}') RETURNING id`,
+			)
+			const controlId = (controlResult.rows[0] as { id: string }).id
+			const effectResult = await db.execute(
+				/* sql */ `INSERT INTO screening_choice_effects (choice_id, control_id, effect, preset_routine_id)
+				VALUES ('${choiceId}', '${controlId}', 'preset_routine', NULL) RETURNING id`,
+			)
+			const effectId = (effectResult.rows[0] as { id: string }).id
+
+			const routine = await createRoutine({
+				sectionId,
+				name: `Rutine ${label}`,
+				description: null,
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			return { appId, effectId, routine }
+		}
+
+		it("viser ikke rutinen når screening_routine_selections-raden er arkivert", async () => {
+			const db = getTestDb()
+			const { appId, effectId, routine } = await setupScreeningSelectionFixture("1")
+
+			// Legg til aktiv seleksjon
+			await db.execute(
+				/* sql */ `INSERT INTO screening_routine_selections (application_id, choice_effect_id, routine_id, selected_by)
+				VALUES ('${appId}', '${effectId}', '${routine.id}', 'Z990001')`,
+			)
+
+			// Rutinen skal vises
+			const before = await getRoutineDeadlinesWithControls(appId)
+			expect(before.some((d) => d.routine?.id === routine.id)).toBe(true)
+			expect(before.find((d) => d.routine?.id === routine.id)?.matchSource).toBe("screening_selection")
+
+			// Arkiver seleksjonen (simulerer at ny screening gir annet svar)
+			await db.execute(
+				/* sql */ `UPDATE screening_routine_selections
+				SET archived_at = NOW(), archived_by = 'Z990001'
+				WHERE application_id = '${appId}' AND choice_effect_id = '${effectId}'`,
+			)
+
+			// Rutinen skal ikke lenger vises
+			const after = await getRoutineDeadlinesWithControls(appId)
+			expect(after.some((d) => d.routine?.id === routine.id)).toBe(false)
+		})
+
+		it("viser rutinen fra aktiv seleksjon men ikke fra arkivert seleksjon for samme rutine", async () => {
+			const db = getTestDb()
+			const { appId, effectId, routine } = await setupScreeningSelectionFixture("2")
+
+			// Opprett en arkivert og en aktiv seleksjon for samme rutine
+			await db.execute(
+				/* sql */ `INSERT INTO screening_routine_selections (application_id, choice_effect_id, routine_id, selected_by, archived_at, archived_by)
+				VALUES ('${appId}', '${effectId}', '${routine.id}', 'Z990001', NOW(), 'Z990001')`,
+			)
+
+			// Arkivert seleksjon alene skal ikke gi rutinen
+			const onlyArchived = await getRoutineDeadlinesWithControls(appId)
+			expect(onlyArchived.some((d) => d.routine?.id === routine.id)).toBe(false)
+		})
+	})
+
+	describe("getAppsRequiringRoutine — screening_selection unlinking", () => {
+		it("teller ikke med apper som bare har arkiverte screening_routine_selections", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Apps-seksjon", "apps-seksjon")
+			const appId = await createTestApp("Modig Bjørk")
+			const questionId = await createTestScreeningQuestion(sectionId, "Bruker dere Oracle?")
+			const choiceId = await createTestChoice(questionId, "Ja")
+			const controlResult = await db.execute(
+				/* sql */ `INSERT INTO framework_controls (control_id) VALUES ('K-TEST.GAR.01') RETURNING id`,
+			)
+			const controlId = (controlResult.rows[0] as { id: string }).id
+			const effectResult = await db.execute(
+				/* sql */ `INSERT INTO screening_choice_effects (choice_id, control_id) VALUES ('${choiceId}', '${controlId}') RETURNING id`,
+			)
+			const effectId = (effectResult.rows[0] as { id: string }).id
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "GAR Rutine",
+				description: null,
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			// Aktiv seleksjon — appen skal inkluderes
+			await db.execute(
+				/* sql */ `INSERT INTO screening_routine_selections (application_id, choice_effect_id, routine_id, selected_by)
+				VALUES ('${appId}', '${effectId}', '${routine.id}', 'Z990001')`,
+			)
+			const withActive = await getAppsRequiringRoutine(routine.id)
+			expect(withActive.some((a) => a.id === appId)).toBe(true)
+
+			// Arkiver seleksjonen — appen skal ikke lenger inkluderes
+			await db.execute(
+				/* sql */ `UPDATE screening_routine_selections
+				SET archived_at = NOW(), archived_by = 'Z990001'
+				WHERE application_id = '${appId}' AND choice_effect_id = '${effectId}'`,
+			)
+			const withArchived = await getAppsRequiringRoutine(routine.id)
+			expect(withArchived.some((a) => a.id === appId)).toBe(false)
+		})
+	})
+
 	describe("getRoutineDeadlinesWithControls — draftReviewId", () => {
 		it("setter draftReviewId på deadline når det finnes en aktiv draft-gjennomgang for appen", async () => {
 			const sectionId = await createTestSection("Draft-seksjon", "draft-seksjon")
