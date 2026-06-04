@@ -544,7 +544,7 @@ function GroupTable({ groups }: { groups: GroupWithStats[] }) {
 							<Table.HeaderCell>Medlemmer</Table.HeaderCell>
 							<Table.HeaderCell>Sist synkronisert</Table.HeaderCell>
 							<Table.HeaderCell>Lagt til av</Table.HeaderCell>
-							<Table.HeaderCell>Handlinger</Table.HeaderCell>
+							<Table.HeaderCell align="left">Handlinger</Table.HeaderCell>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>

@@ -20,7 +20,7 @@ export function EvidenceStatusTable({ evidenceTypes, showActions, isDownloading,
 						<Table.HeaderCell>Bevistype</Table.HeaderCell>
 						<Table.HeaderCell>Status</Table.HeaderCell>
 						<Table.HeaderCell>Tilgjengelig</Table.HeaderCell>
-						{showActions && <Table.HeaderCell>Handlinger</Table.HeaderCell>}
+						{showActions && <Table.HeaderCell align="left">Handlinger</Table.HeaderCell>}
 					</Table.Row>
 				</Table.Header>
 				<Table.Body>
