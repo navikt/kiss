@@ -3106,14 +3106,21 @@ export async function getSectionGroups(sectionId: string): Promise<SectionGroupR
 		.where(inArray(monitoredApplications.id, appIds))
 	const appNameMap = new Map(apps.map((a) => [a.id, a.name]))
 
-	// Get groups from auth integrations (Nais)
+	// Get groups from auth integrations (Nais) — only entra_id type, exclude excluded clusters
+	const authIntegrationConditions: Parameters<typeof and>[0][] = [
+		inArray(applicationAuthIntegrations.applicationId, appIds),
+		eq(applicationAuthIntegrations.type, "entra_id"),
+	]
+	if (excludedEnvs.size > 0) {
+		authIntegrationConditions.push(notInArray(applicationAuthIntegrations.cluster, [...excludedEnvs]))
+	}
 	const authIntegrations = await db
 		.select({
 			applicationId: applicationAuthIntegrations.applicationId,
 			groups: applicationAuthIntegrations.groups,
 		})
 		.from(applicationAuthIntegrations)
-		.where(inArray(applicationAuthIntegrations.applicationId, appIds))
+		.where(and(...authIntegrationConditions))
 
 	// Get manual groups
 	const manualGroupRows = await db
