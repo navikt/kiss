@@ -131,7 +131,7 @@ export default function IkkeGjennomforteRutiner() {
 
 			{rows.length === 0 ? (
 				<Box padding="space-6" borderRadius="8" background="sunken">
-					<BodyShort>Ingen rutiner ikke gjennomført. Bra jobbet!</BodyShort>
+					<BodyShort>Alle rutiner er gjennomført. Bra jobbet!</BodyShort>
 				</Box>
 			) : (
 				<VStack gap="space-4">
