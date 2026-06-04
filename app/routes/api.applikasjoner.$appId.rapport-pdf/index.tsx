@@ -29,6 +29,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		domainCode: a.domainCode,
 		domainName: a.domainName,
 		effectiveStatus: a.effectiveStatus,
+		coveringRoutines: a.coveringRoutines,
 		comment: a.comment,
 		commentUpdatedBy: a.commentUpdatedBy,
 		commentUpdatedAt: a.commentUpdatedAt,
@@ -169,6 +170,7 @@ interface Assessment {
 	domainCode: string
 	domainName: string
 	effectiveStatus: string | null
+	coveringRoutines: Array<{ id: string; name: string }>
 	comment: string | null
 	commentUpdatedBy: string | null
 	commentUpdatedAt: string | null
@@ -399,17 +401,18 @@ function buildAssessmentDetails(doc: PDFKit.PDFDocument, assessments: Assessment
 	doc.fontSize(14).fillColor(blue).text("Kontrollvurderinger")
 	doc.moveDown(0.3)
 
-	const colWidths = [55, 150, 80, 95, 115]
-	drawTableRow(doc, 50, colWidths, ["Kontroll", "Kontrollnavn", "Domene", "Status", "Kommentar"], true)
+	const colWidths = [55, 145, 75, 95, 125]
+	drawTableRow(doc, 50, colWidths, ["Kontroll", "Kontrollnavn", "Domene", "Status", "Dekkes av rutiner"], true)
 
 	for (const a of assessments) {
 		ensureSpace(doc, 18)
+		const routineNames = a.coveringRoutines.length > 0 ? a.coveringRoutines.map((r) => r.name).join(", ") : ""
 		drawTableRow(doc, 50, colWidths, [
 			a.controlId,
-			a.controlName.slice(0, 35),
+			a.controlName.slice(0, 34),
 			a.domainName.slice(0, 18),
 			getStatusLabel(a.effectiveStatus),
-			(a.comment ?? "").slice(0, 30),
+			routineNames.slice(0, 35),
 		])
 	}
 	doc.moveDown(1)

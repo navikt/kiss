@@ -174,9 +174,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const sectionSlugMap = Object.fromEntries(allSections.map((s) => [s.id, s.slug]))
 
+	const routineNameById = new Map(
+		deadlinesWithControls
+			.filter((d): d is typeof d & { routine: NonNullable<typeof d.routine> } => d.routine != null)
+			.map((d) => [d.routine.id, d.routine.name]),
+	)
+
 	const assessmentsBase = (assessmentsResult?.assessments ?? []).map((a) => {
 		const key = `${a.controlUuid}:${a.technologyElementId ?? "null"}`
 		const auto = autoComplianceMap.get(key)
+		const coveringRoutines = (auto?.matchingRoutineIds ?? []).map((id) => ({ id, name: routineNameById.get(id) ?? id }))
 		return {
 			...a,
 			autoStatus: auto?.autoStatus ?? null,
@@ -188,6 +195,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			routinesCompleted: auto?.routinesCompleted ?? 0,
 			routinesOverdue: auto?.routinesOverdue ?? 0,
 			screeningDetails: auto?.screeningDetails ?? [],
+			coveringRoutines,
 		}
 	})
 
