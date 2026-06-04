@@ -1,5 +1,5 @@
-import { BodyShort, Box, Heading, HStack, Select, Table, VStack } from "@navikt/ds-react"
-import { useMemo, useState } from "react"
+import { BodyShort, Box, Heading, HStack, Select, Switch, Table, VStack } from "@navikt/ds-react"
+import { Fragment, useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
@@ -181,6 +181,7 @@ export default function IkkeGjennomforteRutiner() {
 	})
 	const [appPage, setAppPage] = useState(1)
 	const [appPageSize, setAppPageSize] = useState(25)
+	const [groupByTeam, setGroupByTeam] = useState(false)
 
 	const [sectionSort, setSectionSort] = useState<{ orderBy: SectionSortKey; direction: SortDirection }>({
 		orderBy: "priority",
@@ -247,6 +248,25 @@ export default function IkkeGjennomforteRutiner() {
 			}
 		})
 	}, [appRows, appSort])
+
+	const groupedAppRows = useMemo(() => {
+		if (!groupByTeam) return null
+		const NO_TEAM = "\0NO_TEAM"
+		const groups = new Map<string, typeof sortedAppRows>()
+		for (const row of sortedAppRows) {
+			const key = row.teamNames.length > 0 ? row.teamNames.join(", ") : NO_TEAM
+			if (!groups.has(key)) groups.set(key, [])
+			const group = groups.get(key)
+			if (group) group.push(row)
+		}
+		return [...groups.entries()]
+			.sort(([a], [b]) => {
+				if (a === NO_TEAM) return 1
+				if (b === NO_TEAM) return -1
+				return a.localeCompare(b, "nb")
+			})
+			.map(([key, rows]) => ({ key, displayName: key === NO_TEAM ? "Ingen team" : key, rows }))
+	}, [groupByTeam, sortedAppRows])
 
 	const sortedSectionRows = useMemo(() => {
 		const dir = sectionSort.direction === "ascending" ? 1 : -1
@@ -318,22 +338,38 @@ export default function IkkeGjennomforteRutiner() {
 									<BodyShort size="small" textColor="subtle">
 										{sortedAppRows.length} rutiner ikke gjennomført
 									</BodyShort>
-									<Select
-										label="Rader per side"
+									<Switch
 										size="small"
-										hideLabel
-										value={String(appPageSize)}
+										checked={groupByTeam}
 										onChange={(e) => {
-											setAppPageSize(Number(e.target.value))
+											const enabling = e.target.checked
+											setGroupByTeam(enabling)
 											setAppPage(1)
+											if (enabling && appSort.orderBy === "team") {
+												setAppSort({ orderBy: "priority", direction: "ascending" })
+											}
 										}}
 									>
-										{PAGE_SIZE_OPTIONS.map((n) => (
-											<option key={n} value={n}>
-												{n} per side
-											</option>
-										))}
-									</Select>
+										Grupper på team
+									</Switch>
+									{!groupByTeam && (
+										<Select
+											label="Rader per side"
+											size="small"
+											hideLabel
+											value={String(appPageSize)}
+											onChange={(e) => {
+												setAppPageSize(Number(e.target.value))
+												setAppPage(1)
+											}}
+										>
+											{PAGE_SIZE_OPTIONS.map((n) => (
+												<option key={n} value={n}>
+													{n} per side
+												</option>
+											))}
+										</Select>
+									)}
 								</HStack>
 							</HStack>
 
@@ -351,9 +387,11 @@ export default function IkkeGjennomforteRutiner() {
 											<Table.ColumnHeader sortKey="app" sortable scope="col">
 												Applikasjon
 											</Table.ColumnHeader>
-											<Table.ColumnHeader sortKey="team" sortable scope="col">
-												Team
-											</Table.ColumnHeader>
+											{!groupByTeam && (
+												<Table.ColumnHeader sortKey="team" sortable scope="col">
+													Team
+												</Table.ColumnHeader>
+											)}
 											<Table.ColumnHeader sortKey="frequency" sortable scope="col">
 												Frekvens
 											</Table.ColumnHeader>
@@ -369,44 +407,98 @@ export default function IkkeGjennomforteRutiner() {
 										</Table.Row>
 									</Table.Header>
 									<Table.Body>
-										{pagedAppRows.map((row) => (
-											<Table.Row key={`${row.routineId ?? "x"}-${row.applicationId}`}>
-												<Table.DataCell>
-													{row.routineId ? (
-														<Link to={`/seksjoner/${seksjon}/rutiner/${row.routineId}`}>{row.routineName}</Link>
-													) : (
-														(row.routineName ?? "—")
-													)}
-												</Table.DataCell>
-												<Table.DataCell>
-													<PriorityTag priority={row.priority} />
-												</Table.DataCell>
-												<Table.DataCell>
-													<Link to={`/seksjoner/${seksjon}/applikasjoner/${row.applicationId}/detaljer?fane=rutiner`}>
-														{row.applicationName}
-													</Link>
-												</Table.DataCell>
-												<Table.DataCell>{row.teamNames.length > 0 ? row.teamNames.join(", ") : "—"}</Table.DataCell>
-												<Table.DataCell>
-													<FrequencyDisplay frequency={row.frequency} eventFrequency={row.eventFrequency} />
-												</Table.DataCell>
-												<Table.DataCell>{formatDate(row.lastReviewDate)}</Table.DataCell>
-												<Table.DataCell>{formatDate(row.deadline)}</Table.DataCell>
-												<Table.DataCell>
-													<RoutineStatusTag
-														overdue={row.overdue}
-														lastReviewDate={row.lastReviewDate}
-														needsFollowUp={row.needsFollowUp}
-														draftReviewId={row.draftReviewId}
-													/>
-												</Table.DataCell>
-											</Table.Row>
-										))}
+										{groupByTeam && groupedAppRows
+											? groupedAppRows.map(({ key, displayName, rows }) => (
+													<Fragment key={key}>
+														<Table.Row>
+															<Table.DataCell
+																colSpan={7}
+																style={{ background: "var(--ax-bg-sunken)", fontWeight: 600 }}
+															>
+																{displayName}{" "}
+																<BodyShort as="span" size="small" textColor="subtle">
+																	({rows.length})
+																</BodyShort>
+															</Table.DataCell>
+														</Table.Row>
+														{rows.map((row) => (
+															<Table.Row key={`${row.routineId ?? "x"}-${row.applicationId}`}>
+																<Table.DataCell>
+																	{row.routineId ? (
+																		<Link to={`/seksjoner/${seksjon}/rutiner/${row.routineId}`}>{row.routineName}</Link>
+																	) : (
+																		(row.routineName ?? "—")
+																	)}
+																</Table.DataCell>
+																<Table.DataCell>
+																	<PriorityTag priority={row.priority} />
+																</Table.DataCell>
+																<Table.DataCell>
+																	<Link
+																		to={`/seksjoner/${seksjon}/applikasjoner/${row.applicationId}/detaljer?fane=rutiner`}
+																	>
+																		{row.applicationName}
+																	</Link>
+																</Table.DataCell>
+																<Table.DataCell>
+																	<FrequencyDisplay frequency={row.frequency} eventFrequency={row.eventFrequency} />
+																</Table.DataCell>
+																<Table.DataCell>{formatDate(row.lastReviewDate)}</Table.DataCell>
+																<Table.DataCell>{formatDate(row.deadline)}</Table.DataCell>
+																<Table.DataCell>
+																	<RoutineStatusTag
+																		overdue={row.overdue}
+																		lastReviewDate={row.lastReviewDate}
+																		needsFollowUp={row.needsFollowUp}
+																		draftReviewId={row.draftReviewId}
+																	/>
+																</Table.DataCell>
+															</Table.Row>
+														))}
+													</Fragment>
+												))
+											: pagedAppRows.map((row) => (
+													<Table.Row key={`${row.routineId ?? "x"}-${row.applicationId}`}>
+														<Table.DataCell>
+															{row.routineId ? (
+																<Link to={`/seksjoner/${seksjon}/rutiner/${row.routineId}`}>{row.routineName}</Link>
+															) : (
+																(row.routineName ?? "—")
+															)}
+														</Table.DataCell>
+														<Table.DataCell>
+															<PriorityTag priority={row.priority} />
+														</Table.DataCell>
+														<Table.DataCell>
+															<Link
+																to={`/seksjoner/${seksjon}/applikasjoner/${row.applicationId}/detaljer?fane=rutiner`}
+															>
+																{row.applicationName}
+															</Link>
+														</Table.DataCell>
+														<Table.DataCell>{row.teamNames.length > 0 ? row.teamNames.join(", ") : "—"}</Table.DataCell>
+														<Table.DataCell>
+															<FrequencyDisplay frequency={row.frequency} eventFrequency={row.eventFrequency} />
+														</Table.DataCell>
+														<Table.DataCell>{formatDate(row.lastReviewDate)}</Table.DataCell>
+														<Table.DataCell>{formatDate(row.deadline)}</Table.DataCell>
+														<Table.DataCell>
+															<RoutineStatusTag
+																overdue={row.overdue}
+																lastReviewDate={row.lastReviewDate}
+																needsFollowUp={row.needsFollowUp}
+																draftReviewId={row.draftReviewId}
+															/>
+														</Table.DataCell>
+													</Table.Row>
+												))}
 									</Table.Body>
 								</Table>
 							</section>
 
-							<Pagination totalPages={appTotalPages} currentPage={appCurrentPage} setPage={setAppPage} />
+							{!groupByTeam && (
+								<Pagination totalPages={appTotalPages} currentPage={appCurrentPage} setPage={setAppPage} />
+							)}
 						</VStack>
 					)}
 
