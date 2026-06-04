@@ -164,12 +164,13 @@ export async function requireAppMembership(user: NavUser, appId: string): Promis
 	throw new Response("Ikke autorisert", { status: 403 })
 }
 
-/** Krev tilgang til en gjennomgang basert på scope: applikasjons-tilhørighet eller seksjons-tilhørighet. */
+/** Krev tilgang til en gjennomgang basert på scope: applikasjons-tilhørighet, seksjons-tilhørighet, eller revisor-rolle. */
 export async function requireReviewAccess(
 	user: NavUser,
 	scope: { applicationId: string | null; sectionId: string },
 ): Promise<void> {
 	if (isAdmin(user)) return
+	if (isAuditor(user)) return
 	if (scope.applicationId) {
 		return requireAppMembership(user, scope.applicationId)
 	}
