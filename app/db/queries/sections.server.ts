@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
+import { applicationControls } from "../schema/application-controls"
 import {
 	applicationEnvironments,
 	applicationTeamMappings,
@@ -9,6 +10,7 @@ import {
 	sectionIgnoredApplications,
 } from "../schema/applications"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
+import { routineReviews, routines } from "../schema/routines"
 import { getComplianceSummaries, getRoutineComplianceSummaries } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
 import { getEconomyClassifications } from "./economy-classification.server"
@@ -1307,31 +1309,154 @@ export async function getTeamIncompleteRoutines(teamSlug: string) {
 	return { team, deadlines: allDeadlines }
 }
 
+export interface SectionIncompleteRoutineRow {
+	routineId: string
+	routineName: string | null
+	priority: number
+	applicationId: string
+	applicationName: string
+	frequency: string | null
+	eventFrequency: string | null
+	isSectionRoutine: boolean
+	lastReviewDate: Date | null
+	deadline: Date | null
+}
+
 /**
  * Get all incomplete (ikke-gjennomførte) routine deadlines across all apps in a section.
- * A routine is incomplete if it is periodic (frequency !== null) and either overdue or never reviewed.
- * Uses getEffectiveAppIdsInSection for proper filtering, then runs getRoutineDeadlinesWithControls
- * in bounded parallel batches (4 at a time) — same pattern as getTeamIncompleteRoutines.
+ * Uses the application_controls compliance cache to fetch all (app, routine) pairs in bulk —
+ * this runs ~3 SQL queries regardless of section size, versus the old per-app approach
+ * that ran ~48 queries × number of apps.
+ *
+ * Trade-off: source_routine_id replacement chains are not traversed — review dates are
+ * looked up directly on the current routine without following predecessor chains. This is
+ * an acceptable approximation for the overview/reporting use-case of this page.
  */
-export async function getSectionIncompleteRoutines(sectionId: string) {
+export async function getSectionIncompleteRoutines(sectionId: string): Promise<SectionIncompleteRoutineRow[]> {
 	const appIds = await getEffectiveAppIdsInSection(sectionId)
+	if (appIds.length === 0) return []
 
-	const BATCH_SIZE = 4
-	const allDeadlines: Awaited<ReturnType<typeof getRoutineDeadlinesWithControls>> = []
+	const appIdsIn = sql.join(
+		appIds.map((id) => sql`${id}::uuid`),
+		sql`, `,
+	)
 
-	for (let i = 0; i < appIds.length; i += BATCH_SIZE) {
-		const batch = appIds.slice(i, i + BATCH_SIZE)
-		const results = await Promise.all(batch.map((appId) => getRoutineDeadlinesWithControls(appId)))
-		for (const deadlines of results) {
-			for (const d of deadlines) {
-				if (d.routine != null && d.routine.frequency !== null && (d.overdue || d.lastReviewDate === null)) {
-					allDeadlines.push(d)
-				}
-			}
-		}
+	type RawRow = {
+		application_id: string
+		application_name: string
+		routine_id: string
+		routine_name: string | null
+		priority: number
+		frequency: string | null
+		event_frequency: string | null
+		is_section_routine: number
+		last_review_date: Date | null
+		deadline: Date | null
 	}
 
-	return allDeadlines
+	const result = await db.execute<RawRow>(sql`
+		WITH app_routines AS (
+			SELECT DISTINCT
+				ac.application_id,
+				ma.name AS application_name,
+				t.routine_id
+			FROM ${applicationControls} ac
+			CROSS JOIN UNNEST(ac.matching_routine_ids) AS t(routine_id)
+			JOIN ${monitoredApplications} ma
+				ON ma.id = ac.application_id
+				AND ma.archived_at IS NULL
+			WHERE ac.application_id IN (${appIdsIn})
+				AND ac.is_active = true
+		),
+		routine_details AS (
+			SELECT
+				r.id,
+				r.name,
+				COALESCE(r.priority, 3) AS priority,
+				r.frequency,
+				r.event_frequency,
+				r.is_section_routine,
+				COALESCE(r.approved_at, r.created_at) AS base_date
+			FROM ${routines} r
+			WHERE r.id IN (SELECT DISTINCT routine_id FROM app_routines)
+				AND r.frequency IS NOT NULL
+				AND r.archived_at IS NULL
+		),
+		app_last_review AS (
+			SELECT DISTINCT ON (rr.application_id, rr.routine_id)
+				rr.application_id,
+				rr.routine_id,
+				rr.reviewed_at
+			FROM ${routineReviews} rr
+			WHERE rr.application_id IN (${appIdsIn})
+				AND rr.status IN ('completed', 'needs_follow_up')
+			ORDER BY rr.application_id, rr.routine_id, rr.reviewed_at DESC NULLS LAST
+		),
+		section_last_review AS (
+			SELECT DISTINCT ON (rr.routine_id)
+				rr.routine_id,
+				rr.reviewed_at
+			FROM ${routineReviews} rr
+			WHERE rr.application_id IS NULL
+				AND rr.status IN ('completed', 'needs_follow_up')
+			ORDER BY rr.routine_id, rr.reviewed_at DESC NULLS LAST
+		),
+		enriched AS (
+			SELECT
+				ar.application_id,
+				ar.application_name,
+				rd.id AS routine_id,
+				rd.name AS routine_name,
+				rd.priority,
+				rd.frequency,
+				rd.event_frequency,
+				rd.is_section_routine,
+				CASE
+					WHEN rd.is_section_routine = 1 THEN slr.reviewed_at
+					ELSE alr.reviewed_at
+				END AS last_review_date,
+				COALESCE(
+					CASE
+						WHEN rd.is_section_routine = 1 THEN slr.reviewed_at
+						ELSE alr.reviewed_at
+					END,
+					rd.base_date
+				) + CASE rd.frequency
+					WHEN 'weekly'        THEN INTERVAL '7 days'
+					WHEN 'monthly'       THEN INTERVAL '30 days'
+					WHEN 'quarterly'     THEN INTERVAL '91 days'
+					WHEN 'tertially'     THEN INTERVAL '122 days'
+					WHEN 'semi_annually' THEN INTERVAL '182 days'
+					WHEN 'annually'      THEN INTERVAL '365 days'
+					ELSE NULL
+				END AS deadline
+			FROM app_routines ar
+			JOIN routine_details rd ON rd.id = ar.routine_id
+			LEFT JOIN app_last_review alr
+				ON alr.application_id = ar.application_id
+				AND alr.routine_id = ar.routine_id
+				AND rd.is_section_routine = 0
+			LEFT JOIN section_last_review slr
+				ON slr.routine_id = ar.routine_id
+				AND rd.is_section_routine = 1
+		)
+		SELECT *
+		FROM enriched
+		WHERE last_review_date IS NULL OR deadline IS NULL OR deadline < NOW()
+	`)
+
+	return result.rows.map((row) => ({
+		routineId: row.routine_id,
+		routineName: row.routine_name,
+		priority: Number(row.priority),
+		applicationId: row.application_id,
+		applicationName: row.application_name,
+		frequency: row.frequency,
+		eventFrequency: row.event_frequency,
+		isSectionRoutine: row.is_section_routine === 1,
+		lastReviewDate: row.last_review_date ? new Date(row.last_review_date) : null,
+		deadline: row.deadline ? new Date(row.deadline) : null,
+	}))
 }
 
 /**

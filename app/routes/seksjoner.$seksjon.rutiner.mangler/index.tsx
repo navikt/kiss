@@ -31,7 +31,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const deadlines = await getSectionIncompleteRoutines(section.id)
 
-	// Split into app routines and section routines using the derived boolean on the deadline object
+	// Split into app routines and section routines
 	const appDeadlines = deadlines.filter((d) => !d.isSectionRoutine)
 	const sectionDeadlines = deadlines.filter((d) => d.isSectionRoutine)
 
@@ -50,7 +50,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		}
 	>()
 	for (const d of sectionDeadlines) {
-		const id = d.routine?.id
+		const id = d.routineId
 		if (!id) continue
 		const existing = sectionRoutineMap.get(id)
 		if (existing) {
@@ -58,10 +58,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		} else {
 			sectionRoutineMap.set(id, {
 				routineId: id,
-				routineName: d.routine?.name ?? null,
-				priority: d.routine?.priority ?? 3,
-				frequency: d.routine?.frequency ?? null,
-				eventFrequency: d.routine?.eventFrequency ?? null,
+				routineName: d.routineName,
+				priority: d.priority,
+				frequency: d.frequency,
+				eventFrequency: d.eventFrequency,
 				lastReviewDate: d.lastReviewDate ? d.lastReviewDate.toISOString() : null,
 				deadline: d.deadline ? d.deadline.toISOString() : null,
 				appCount: 1,
@@ -75,13 +75,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const teamNamesByApp = await getTeamNamesForApps(uniqueAppIds, section.id)
 
 	const appRows = appDeadlines.map((d) => ({
-		routineId: d.routine?.id ?? null,
-		routineName: d.routine?.name ?? null,
-		priority: d.routine?.priority ?? 3,
+		routineId: d.routineId,
+		routineName: d.routineName,
+		priority: d.priority,
 		applicationId: d.applicationId,
 		applicationName: d.applicationName,
-		frequency: d.routine?.frequency ?? null,
-		eventFrequency: d.routine?.eventFrequency ?? null,
+		frequency: d.frequency,
+		eventFrequency: d.eventFrequency,
 		lastReviewDate: d.lastReviewDate ? d.lastReviewDate.toISOString() : null,
 		deadline: d.deadline ? d.deadline.toISOString() : null,
 		teamNames: teamNamesByApp.get(d.applicationId) ?? [],
