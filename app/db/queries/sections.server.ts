@@ -1320,6 +1320,9 @@ export interface SectionIncompleteRoutineRow {
 	isSectionRoutine: boolean
 	lastReviewDate: Date | null
 	deadline: Date | null
+	overdue: boolean
+	needsFollowUp: boolean
+	draftReviewId: string | null
 }
 
 /**
@@ -1352,6 +1355,8 @@ export async function getSectionIncompleteRoutines(sectionId: string): Promise<S
 		is_section_routine: number
 		last_review_date: Date | null
 		deadline: Date | null
+		draft_review_id: string | null
+		needs_follow_up: boolean
 	}
 
 	const result = await db.execute<RawRow>(sql`
@@ -1401,6 +1406,24 @@ export async function getSectionIncompleteRoutines(sectionId: string): Promise<S
 				AND rr.status IN ('completed', 'needs_follow_up')
 			ORDER BY rr.routine_id, rr.reviewed_at DESC NULLS LAST
 		),
+		draft_reviews AS (
+			SELECT DISTINCT ON (rr.routine_id, rr.application_id)
+				rr.routine_id,
+				rr.application_id,
+				rr.id AS draft_id
+			FROM ${routineReviews} rr
+			WHERE rr.status = 'draft'
+				AND (rr.application_id IN (${appIdsIn}) OR rr.application_id IS NULL)
+			ORDER BY rr.routine_id, rr.application_id, rr.created_at DESC
+		),
+		follow_up_reviews AS (
+			SELECT DISTINCT
+				rr.routine_id,
+				rr.application_id
+			FROM ${routineReviews} rr
+			WHERE rr.status = 'needs_follow_up'
+				AND (rr.application_id IN (${appIdsIn}) OR rr.application_id IS NULL)
+		),
 		enriched AS (
 			SELECT
 				ar.application_id,
@@ -1429,7 +1452,15 @@ export async function getSectionIncompleteRoutines(sectionId: string): Promise<S
 					WHEN 'semi_annually' THEN INTERVAL '182 days'
 					WHEN 'annually'      THEN INTERVAL '365 days'
 					ELSE NULL
-				END AS deadline
+				END AS deadline,
+				CASE
+					WHEN rd.is_section_routine = 1 THEN (SELECT dr.draft_id FROM draft_reviews dr WHERE dr.routine_id = rd.id AND dr.application_id IS NULL LIMIT 1)
+					ELSE (SELECT dr.draft_id FROM draft_reviews dr WHERE dr.routine_id = rd.id AND dr.application_id = ar.application_id LIMIT 1)
+				END AS draft_review_id,
+				CASE
+					WHEN rd.is_section_routine = 1 THEN EXISTS (SELECT 1 FROM follow_up_reviews fur WHERE fur.routine_id = rd.id AND fur.application_id IS NULL)
+					ELSE EXISTS (SELECT 1 FROM follow_up_reviews fur WHERE fur.routine_id = rd.id AND fur.application_id = ar.application_id)
+				END AS needs_follow_up
 			FROM app_routines ar
 			JOIN routine_details rd ON rd.id = ar.routine_id
 			LEFT JOIN app_last_review alr
@@ -1456,6 +1487,9 @@ export async function getSectionIncompleteRoutines(sectionId: string): Promise<S
 		isSectionRoutine: row.is_section_routine === 1,
 		lastReviewDate: row.last_review_date ? new Date(row.last_review_date) : null,
 		deadline: row.deadline ? new Date(row.deadline) : null,
+		overdue: row.deadline != null && new Date(row.deadline) < new Date(),
+		needsFollowUp: Boolean(row.needs_follow_up),
+		draftReviewId: row.draft_review_id ?? null,
 	}))
 }
 
