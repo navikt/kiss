@@ -42,7 +42,10 @@ export function UserMenu({
 	return (
 		<ActionMenu>
 			<ActionMenu.Trigger>
-				<InternalHeader.UserButton name={name} description={isActualAdmin && !adminSuppressed ? "Admin" : undefined} />
+				<InternalHeader.UserButton
+					name={name}
+					description={isActualAdmin && !adminSuppressed ? "Admin" : isAuditor ? "Revisor" : undefined}
+				/>
 			</ActionMenu.Trigger>
 
 			<ActionMenu.Content align="end">
