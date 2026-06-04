@@ -44,9 +44,9 @@ export function isActualAdmin(user: NavUser): boolean {
 	return user.isActualAdmin
 }
 
-/** Revisor: egen rolle eller admin */
+/** Revisor: kun revisor-rollen (admin undertrykker revisor-rollen i buildEffectiveAuth) */
 export function isAuditor(user: NavUser): boolean {
-	return hasRole(user, "auditor") || isAdmin(user)
+	return hasRole(user, "auditor")
 }
 
 /** Kan administrere en seksjon (admin, seksjonsleder, teknologileder for seksjonen) */
@@ -125,7 +125,7 @@ export function requireAdmin(user: NavUser): void {
 }
 
 export function requireAuditor(user: NavUser): void {
-	if (!isAuditor(user)) {
+	if (!isAuditor(user) && !isAdmin(user)) {
 		throw new Response("Ikke autorisert", { status: 403 })
 	}
 }

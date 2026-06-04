@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { UserRole } from "~/db/schema/organization"
 import type { NavUser } from "../auth.server"
-import { isAdminSuppressed } from "../auth.server"
+import { buildEffectiveAuth, isAdminSuppressed } from "../auth.server"
 import {
 	canAccessAppReports,
 	canApproveRoutine,
@@ -287,6 +287,51 @@ describe("adminSuppressed — admin strips at auth time", () => {
 		// AD-gruppe → admin mappes i buildEffectiveAuth (auth.server.ts).
 		const user = makeUser({ roles: new Set(["admin"]), isActualAdmin: true })
 		expect(isAdmin(user)).toBe(true)
+	})
+})
+
+describe("buildEffectiveAuth — admin undertrykker revisor", () => {
+	const ADMIN_GROUP = "admin-group"
+	const AUDITOR_GROUP = "auditor-group"
+
+	function build(groups: string[], dbRoles: NavUser["dbRoles"], adminSuppressed = false) {
+		return buildEffectiveAuth(groups, dbRoles ?? [], [ADMIN_GROUP], [AUDITOR_GROUP], adminSuppressed)
+	}
+
+	it("admin som også er i revisor-gruppe: revisor fjernes fra roles og dbRoles", () => {
+		const result = build(
+			[ADMIN_GROUP, AUDITOR_GROUP],
+			[{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+		)
+		expect(result.roles.has("admin")).toBe(true)
+		expect(result.roles.has("auditor")).toBe(false)
+		expect(result.dbRoles.some((r) => r.role === "auditor")).toBe(false)
+	})
+
+	it("admin uten revisor-gruppe: normal admin-bruker", () => {
+		const result = build([ADMIN_GROUP], [])
+		expect(result.roles.has("admin")).toBe(true)
+		expect(result.roles.has("auditor")).toBe(false)
+	})
+
+	it("ren revisor (ikke admin): revisorrollen beholdes, andre dbRoles fjernes", () => {
+		const result = build(
+			[AUDITOR_GROUP],
+			[
+				{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null },
+				{ role: "tech_manager", sectionId: "s1", devTeamId: null, devTeamSectionId: null },
+			],
+		)
+		expect(result.roles.has("auditor")).toBe(true)
+		expect(result.roles.has("admin")).toBe(false)
+		expect(result.dbRoles.every((r) => r.role === "auditor")).toBe(true)
+	})
+
+	it("admin med suppressert admin-modus: revisor-rolle er aktiv (admin ikke effektiv)", () => {
+		const result = build([ADMIN_GROUP, AUDITOR_GROUP], [], /* adminSuppressed */ true)
+		expect(result.roles.has("auditor")).toBe(true)
+		expect(result.roles.has("admin")).toBe(false)
+		expect(result.isActualAdmin).toBe(true)
 	})
 })
 
