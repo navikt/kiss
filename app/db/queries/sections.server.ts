@@ -1308,7 +1308,33 @@ export async function getTeamIncompleteRoutines(teamSlug: string) {
 }
 
 /**
- * For a list of application IDs, returns a map from appId to the names of dev teams
+ * Get all incomplete (ikke-gjennomførte) routine deadlines across all apps in a section.
+ * A routine is incomplete if it is periodic (frequency !== null) and either overdue or never reviewed.
+ * Uses getEffectiveAppIdsInSection for proper filtering, then runs getRoutineDeadlinesWithControls
+ * in bounded parallel batches (4 at a time) — same pattern as getTeamIncompleteRoutines.
+ */
+export async function getSectionIncompleteRoutines(sectionId: string) {
+	const appIds = await getEffectiveAppIdsInSection(sectionId)
+
+	const BATCH_SIZE = 4
+	const allDeadlines: Awaited<ReturnType<typeof getRoutineDeadlinesWithControls>> = []
+
+	for (let i = 0; i < appIds.length; i += BATCH_SIZE) {
+		const batch = appIds.slice(i, i + BATCH_SIZE)
+		const results = await Promise.all(batch.map((appId) => getRoutineDeadlinesWithControls(appId)))
+		for (const deadlines of results) {
+			for (const d of deadlines) {
+				if (d.routine != null && d.routine.frequency !== null && (d.overdue || d.lastReviewDate === null)) {
+					allDeadlines.push(d)
+				}
+			}
+		}
+	}
+
+	return allDeadlines
+}
+
+/**
  * in the given section that are responsible for each app. Covers all three mapping paths:
  * 1. Direct applicationTeamMappings (appId → devTeamId)
  * 2. Via devTeamNaisTeamMappings join table (appId → naisTeamId → devTeamId)
