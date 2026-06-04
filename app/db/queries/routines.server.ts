@@ -6931,3 +6931,61 @@ export async function findActiveReviewConflict(
 
 	return conflict ?? null
 }
+
+// ─── Follow-up Reviews for Section ───────────────────────────────────────────
+
+/**
+ * Henter alle gjennomganger med status `needs_follow_up` for en seksjon,
+ * inkludert uløste oppfølgingspunkter per gjennomgang.
+ */
+export async function getFollowUpReviewsForSection(sectionId: string) {
+	const sectionRoutines = await db
+		.select({ id: routines.id })
+		.from(routines)
+		.where(and(eq(routines.sectionId, sectionId), isNull(routines.archivedAt)))
+
+	if (sectionRoutines.length === 0) return []
+
+	const routineIds = sectionRoutines.map((r) => r.id)
+
+	const reviews = await db
+		.select({
+			review: routineReviews,
+			routineName: routines.name,
+			appName: monitoredApplications.name,
+		})
+		.from(routineReviews)
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+		.leftJoin(monitoredApplications, eq(routineReviews.applicationId, monitoredApplications.id))
+		.where(and(inArray(routineReviews.routineId, routineIds), eq(routineReviews.status, "needs_follow_up")))
+		.orderBy(desc(routineReviews.reviewedAt))
+
+	if (reviews.length === 0) return []
+
+	const reviewIds = reviews.map((r) => r.review.id)
+
+	const openFollowUpPoints = await db
+		.select()
+		.from(routineReviewFollowUpPoints)
+		.where(
+			and(
+				inArray(routineReviewFollowUpPoints.reviewId, reviewIds),
+				eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
+			),
+		)
+		.orderBy(routineReviewFollowUpPoints.createdAt)
+
+	const pointsByReview = new Map<string, (typeof openFollowUpPoints)[number][]>()
+	for (const p of openFollowUpPoints) {
+		const arr = pointsByReview.get(p.reviewId) ?? []
+		arr.push(p)
+		pointsByReview.set(p.reviewId, arr)
+	}
+
+	return reviews.map((r) => ({
+		...r.review,
+		routineName: r.routineName,
+		applicationName: r.appName,
+		openFollowUpPoints: pointsByReview.get(r.review.id) ?? [],
+	}))
+}

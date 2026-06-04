@@ -70,6 +70,7 @@ export default [
 	route("seksjoner/:seksjon/rutiner/ny", "routes/seksjoner.$seksjon.rutiner.ny/index.tsx"),
 	route("seksjoner/:seksjon/rutiner/mangler", "routes/seksjoner.$seksjon.rutiner.mangler/index.tsx"),
 	route("seksjoner/:seksjon/rutiner/gjennomfort", "routes/seksjoner.$seksjon.rutiner.gjennomfort/index.tsx"),
+	route("seksjoner/:seksjon/rutiner/oppfolging", "routes/seksjoner.$seksjon.rutiner.oppfolging/index.tsx"),
 	route("seksjoner/:seksjon/rutiner/:rutineId", "routes/seksjoner.$seksjon.rutiner.$rutineId/index.tsx"),
 	route(
 		"seksjoner/:seksjon/rutiner/:rutineId/rediger",

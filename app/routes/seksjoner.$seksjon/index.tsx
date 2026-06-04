@@ -318,14 +318,16 @@ export default function SeksjonDashboard() {
 					</Link>
 				</Tooltip>
 				<Tooltip content="Antall applikasjoner der minst én rutinegjennomgang er fullført, men der det ble oppdaget forhold som må følges opp videre.">
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<VStack align="center">
-							<Heading size="xlarge" level="3">
-								{needsFollowUpApps}
-							</Heading>
-							<Detail>Krever oppfølging</Detail>
-						</VStack>
-					</Box>
+					<Link to="rutiner/oppfolging" style={{ textDecoration: "none", color: "inherit" }}>
+						<Box padding="space-6" borderRadius="8" background="sunken">
+							<VStack align="center">
+								<Heading size="xlarge" level="3">
+									{needsFollowUpApps}
+								</Heading>
+								<Detail>Krever oppfølging</Detail>
+							</VStack>
+						</Box>
+					</Link>
 				</Tooltip>
 			</HGrid>
 
