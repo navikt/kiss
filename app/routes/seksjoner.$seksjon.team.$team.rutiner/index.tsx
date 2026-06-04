@@ -258,6 +258,7 @@ export default function TeamUgjennomforteRutiner() {
 					to={`/seksjoner/${sectionSlug}/rutiner/${dl.routine.id}/gjennomgang/${dl.draftReviewId}`}
 					variant="tertiary"
 					size="xsmall"
+					style={{ whiteSpace: "nowrap" }}
 					aria-label={`Fortsett gjennomgang av «${routineName}»${appContext}`}
 				>
 					Fortsett gjennomgang
@@ -273,6 +274,7 @@ export default function TeamUgjennomforteRutiner() {
 					type="submit"
 					variant="tertiary"
 					size="xsmall"
+					style={{ whiteSpace: "nowrap" }}
 					aria-label={`Ny gjennomgang av «${routineName}»${appContext}`}
 				>
 					Ny gjennomgang

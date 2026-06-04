@@ -252,6 +252,7 @@ export function RutinerTab({
 					to={`/seksjoner/${sectionSlug}/rutiner/${dl.routine.id}/gjennomgang/${dl.draftReviewId}`}
 					variant="tertiary"
 					size="xsmall"
+					style={{ whiteSpace: "nowrap" }}
 				>
 					Fortsett gjennomgang
 				</Button>
@@ -262,7 +263,7 @@ export function RutinerTab({
 				<input type="hidden" name="intent" value="create-draft" />
 				<input type="hidden" name="routineId" value={dl.routine.id} />
 				<input type="hidden" name="sectionSlug" value={sectionSlug} />
-				<Button type="submit" variant="tertiary" size="xsmall">
+				<Button type="submit" variant="tertiary" size="xsmall" style={{ whiteSpace: "nowrap" }}>
 					Ny gjennomgang
 				</Button>
 			</form>

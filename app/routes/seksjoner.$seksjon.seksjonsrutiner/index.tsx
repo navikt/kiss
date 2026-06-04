@@ -226,6 +226,7 @@ export default function Seksjonsrutiner() {
 															to={`/seksjoner/${seksjon}/rutiner/${sr.routine.id}/gjennomgang/ny`}
 															variant="tertiary"
 															size="xsmall"
+															style={{ whiteSpace: "nowrap" }}
 														>
 															Ny gjennomgang
 														</Button>
