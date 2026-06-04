@@ -100,7 +100,7 @@ function getGroupIds(envVar: string): string[] {
  * Computes isActualAdmin, strips admin from groups/dbRoles when not elevated,
  * and pre-computes the full global role set for the request.
  */
-function buildEffectiveAuth(
+export function buildEffectiveAuth(
 	groups: string[],
 	dbRoles: UserRoleEntry[],
 	adminGroupIds: string[],
@@ -116,9 +116,19 @@ function buildEffectiveAuth(
 	if (effectiveGroups.some((g) => auditorGroupIds.includes(g))) roles.add("auditor")
 	for (const r of effectiveDbRoles) roles.add(r.role)
 
+	// Admin supersedes auditor: remove the auditor role when the user is an effective admin.
+	// Both roles and dbRoles are filtered so that no code path can reach auditor via dbRoles.
+	// This means hasRole(user, "auditor") reliably returns false for admins, removing
+	// the need for "!isAdmin()" workarounds at call sites.
+	if (roles.has("admin")) {
+		roles.delete("auditor")
+		const adminDbRoles = effectiveDbRoles.filter((r) => r.role !== "auditor")
+		return { groups: effectiveGroups, dbRoles: adminDbRoles, roles, isActualAdmin }
+	}
+
 	// Auditor-suppression: when a user has the auditor role but is NOT an effective admin,
 	// strip all other DB roles so auditor mode cannot be bypassed via team/section roles.
-	if (roles.has("auditor") && !roles.has("admin")) {
+	if (roles.has("auditor")) {
 		const auditorOnlyRoles = effectiveDbRoles.filter((r) => r.role === "auditor")
 		return { groups: effectiveGroups, dbRoles: auditorOnlyRoles, roles: new Set<UserRole>(["auditor"]), isActualAdmin }
 	}

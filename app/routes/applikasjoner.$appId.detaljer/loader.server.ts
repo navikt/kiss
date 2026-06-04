@@ -404,12 +404,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
-		// Positivt tilgangsflagg: admin og teammedlemmer med direkte eller nais-koblet
-		// ansvar for applikasjonen kan opprette/fortsette gjennomganger.
-		// Rene revisorer og brukere uten teamtilknytning til appen har kun lesetilgang.
-		// TODO: forenkles etter at buildEffectiveAuth undertrykker revisor-rollen for admins.
+		// Positivt tilgangsflagg: admin og teammedlemmer uten revisor-rolle kan starte/fortsette gjennomganger.
+		// buildEffectiveAuth undertrykker revisor-rollen for effektive admins (admin-modus aktiv),
+		// så !hasRole(user, "auditor") er false kun for rene revisorer — ikke for admins med admin-modus på.
 		canManageReviews: user
-			? isAdmin(user) || (!hasRole(user, "auditor") && appScopeIds.devTeamIds.some((id) => hasAnyTeamRole(user, id)))
+			? !hasRole(user, "auditor") && (isAdmin(user) || appScopeIds.devTeamIds.some((id) => hasAnyTeamRole(user, id)))
 			: false,
 		canAccessReports,
 		knownApps,
