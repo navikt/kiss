@@ -673,4 +673,15 @@ describe("requireReviewAccess", () => {
 		await expect(requireReviewAccess(user, { applicationId: null, sectionId })).resolves.toBeUndefined()
 		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
 	})
+
+	it("passes for auditor (app-scoped scope)", async () => {
+		const user = makeUser({ roles: new Set(["auditor"]) })
+		await expect(requireReviewAccess(user, { applicationId: appId, sectionId })).resolves.toBeUndefined()
+		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
+	})
+
+	it("passes for auditor (section-scoped scope)", async () => {
+		const user = makeUser({ roles: new Set(["auditor"]) })
+		await expect(requireReviewAccess(user, { applicationId: null, sectionId })).resolves.toBeUndefined()
+	})
 })
