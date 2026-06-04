@@ -14,6 +14,7 @@ import {
 	isAdmin,
 	requireAppMembership,
 	requireReviewAccess,
+	requireReviewReadAccess,
 } from "../authorization.server"
 
 const mockGetAppScopeIds = vi.fn()
@@ -674,14 +675,69 @@ describe("requireReviewAccess", () => {
 		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
 	})
 
+	it("rejects auditor without app membership", async () => {
+		const user = makeUser({ roles: new Set(["auditor"]) })
+		await expect(requireReviewAccess(user, { applicationId: appId, sectionId })).rejects.toMatchObject({ status: 403 })
+		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
+	})
+
+	it("rejects auditor even with app membership (explicit deny before membership check)", async () => {
+		mockGetAppScopeIds.mockResolvedValueOnce({ devTeamIds: [devTeamId], sectionIds: [] })
+		const user = makeUser({
+			roles: new Set(["auditor"]),
+			dbRoles: [{ role: "auditor", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		await expect(requireReviewAccess(user, { applicationId: appId, sectionId })).rejects.toMatchObject({ status: 403 })
+		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
+	})
+})
+
+describe("requireReviewReadAccess", () => {
+	const appId = "app-1"
+	const sectionId = "sec-1"
+	const devTeamId = "team-1"
+
+	beforeEach(() => mockGetAppScopeIds.mockReset())
+
+	it("passes for admin", async () => {
+		const user = makeUser({ roles: new Set(["admin"]) })
+		await expect(requireReviewReadAccess(user, { applicationId: appId, sectionId })).resolves.toBeUndefined()
+	})
+
 	it("passes for auditor (app-scoped scope)", async () => {
 		const user = makeUser({ roles: new Set(["auditor"]) })
-		await expect(requireReviewAccess(user, { applicationId: appId, sectionId })).resolves.toBeUndefined()
+		await expect(requireReviewReadAccess(user, { applicationId: appId, sectionId })).resolves.toBeUndefined()
 		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
 	})
 
 	it("passes for auditor (section-scoped scope)", async () => {
 		const user = makeUser({ roles: new Set(["auditor"]) })
-		await expect(requireReviewAccess(user, { applicationId: null, sectionId })).resolves.toBeUndefined()
+		await expect(requireReviewReadAccess(user, { applicationId: null, sectionId })).resolves.toBeUndefined()
+	})
+
+	it("rejects user with no relevant role", async () => {
+		mockGetAppScopeIds.mockResolvedValueOnce({ devTeamIds: ["other-team"], sectionIds: [] })
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		await expect(requireReviewReadAccess(user, { applicationId: appId, sectionId })).rejects.toMatchObject({
+			status: 403,
+		})
+	})
+
+	it("passes for app member when scope is app-scoped", async () => {
+		mockGetAppScopeIds.mockResolvedValueOnce({ devTeamIds: [devTeamId], sectionIds: [] })
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		await expect(requireReviewReadAccess(user, { applicationId: appId, sectionId })).resolves.toBeUndefined()
+	})
+
+	it("passes for section member when scope is section-scoped", async () => {
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		await expect(requireReviewReadAccess(user, { applicationId: null, sectionId })).resolves.toBeUndefined()
+		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
 	})
 })

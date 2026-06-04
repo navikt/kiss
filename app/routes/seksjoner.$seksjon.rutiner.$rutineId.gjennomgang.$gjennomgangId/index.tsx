@@ -31,7 +31,7 @@ import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applica
 import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus, RPA_DECISION_VALUES } from "~/db/schema/routines"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireReviewAccess } from "~/lib/authorization.server"
+import { requireReviewAccess, requireReviewReadAccess } from "~/lib/authorization.server"
 import {
 	type EntraCriticality,
 	entraCriticalityValues,
@@ -222,7 +222,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	if (review.routineId !== rutineId) {
 		throw data({ message: "Gjennomgangen tilhører ikke rutinen" }, { status: 404 })
 	}
-	await requireReviewAccess(authedUser, { applicationId: review.applicationId, sectionId: routine.sectionId })
+	await requireReviewReadAccess(authedUser, { applicationId: review.applicationId, sectionId: routine.sectionId })
 
 	let applicationName: string | null = null
 	let teamMembers: Array<{ teamName: string; members: Array<{ navIdent: string; name: string }> }> = []

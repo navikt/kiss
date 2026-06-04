@@ -164,13 +164,26 @@ export async function requireAppMembership(user: NavUser, appId: string): Promis
 	throw new Response("Ikke autorisert", { status: 403 })
 }
 
-/** Krev tilgang til en gjennomgang basert på scope: applikasjons-tilhørighet, seksjons-tilhørighet, eller revisor-rolle. */
-export async function requireReviewAccess(
+/** Krev lesetilgang til en gjennomgang: admin, revisor, app-tilhørighet eller seksjons-tilhørighet. */
+export async function requireReviewReadAccess(
 	user: NavUser,
 	scope: { applicationId: string | null; sectionId: string },
 ): Promise<void> {
 	if (isAdmin(user)) return
 	if (isAuditor(user)) return
+	if (scope.applicationId) {
+		return requireAppMembership(user, scope.applicationId)
+	}
+	requireAnySectionRole(user, scope.sectionId)
+}
+
+/** Krev skrivetilgang til en gjennomgang: admin, app-tilhørighet eller seksjons-tilhørighet. Revisorer nektes eksplisitt. */
+export async function requireReviewAccess(
+	user: NavUser,
+	scope: { applicationId: string | null; sectionId: string },
+): Promise<void> {
+	if (isAdmin(user)) return
+	if (isAuditor(user)) throw new Response("Ikke autorisert", { status: 403 })
 	if (scope.applicationId) {
 		return requireAppMembership(user, scope.applicationId)
 	}
