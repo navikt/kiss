@@ -777,7 +777,7 @@ export async function getTeamMembersForApp(appId: string) {
 			if (!teamMap.has(row.teamId)) {
 				teamMap.set(row.teamId, { teamName: row.teamName, members: [] })
 			}
-			teamMap.get(row.teamId)!.members.push({ navIdent: ident, name: row.name })
+			teamMap.get(row.teamId)?.members.push({ navIdent: ident, name: row.name })
 		}
 	}
 
