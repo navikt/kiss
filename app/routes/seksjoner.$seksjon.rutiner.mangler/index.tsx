@@ -3,6 +3,7 @@ import { useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
+import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionBySlug, getSectionIncompleteRoutines, getTeamNamesForApps } from "~/db/queries/sections.server"
 
@@ -11,8 +12,8 @@ function formatDate(date: string | Date | null): string {
 	return new Date(date).toLocaleDateString("nb-NO")
 }
 
-type SortKey = "name" | "app" | "team" | "frequency" | "lastReview" | "deadline" | "status"
-type SectionSortKey = "name" | "frequency" | "lastReview" | "deadline" | "status" | "appCount"
+type SortKey = "priority" | "name" | "app" | "team" | "frequency" | "lastReview" | "deadline" | "status"
+type SectionSortKey = "priority" | "name" | "frequency" | "lastReview" | "deadline" | "status" | "appCount"
 type SortDirection = "ascending" | "descending"
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
@@ -40,6 +41,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		{
 			routineId: string
 			routineName: string | null
+			priority: number
 			frequency: string | null
 			eventFrequency: string | null
 			lastReviewDate: string | null
@@ -57,6 +59,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			sectionRoutineMap.set(id, {
 				routineId: id,
 				routineName: d.routine?.name ?? null,
+				priority: d.routine?.priority ?? 3,
 				frequency: d.routine?.frequency ?? null,
 				eventFrequency: d.routine?.eventFrequency ?? null,
 				lastReviewDate: d.lastReviewDate ? d.lastReviewDate.toISOString() : null,
@@ -74,6 +77,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	const appRows = appDeadlines.map((d) => ({
 		routineId: d.routine?.id ?? null,
 		routineName: d.routine?.name ?? null,
+		priority: d.routine?.priority ?? 3,
 		applicationId: d.applicationId,
 		applicationName: d.applicationName,
 		frequency: d.routine?.frequency ?? null,
@@ -158,14 +162,14 @@ export default function IkkeGjennomforteRutiner() {
 	const { seksjon, sectionName, appRows, sectionRows } = useLoaderData<typeof loader>()
 
 	const [appSort, setAppSort] = useState<{ orderBy: SortKey; direction: SortDirection }>({
-		orderBy: "deadline",
+		orderBy: "priority",
 		direction: "ascending",
 	})
 	const [appPage, setAppPage] = useState(1)
 	const [appPageSize, setAppPageSize] = useState(25)
 
 	const [sectionSort, setSectionSort] = useState<{ orderBy: SectionSortKey; direction: SortDirection }>({
-		orderBy: "deadline",
+		orderBy: "priority",
 		direction: "ascending",
 	})
 	const [sectionPage, setSectionPage] = useState(1)
@@ -198,6 +202,8 @@ export default function IkkeGjennomforteRutiner() {
 		const dir = appSort.direction === "ascending" ? 1 : -1
 		return [...appRows].sort((a, b) => {
 			switch (appSort.orderBy) {
+				case "priority":
+					return ((a.priority ?? 3) - (b.priority ?? 3)) * dir
 				case "name":
 					return (a.routineName ?? "").localeCompare(b.routineName ?? "", "nb") * dir
 				case "app":
@@ -232,6 +238,8 @@ export default function IkkeGjennomforteRutiner() {
 		const dir = sectionSort.direction === "ascending" ? 1 : -1
 		return [...sectionRows].sort((a, b) => {
 			switch (sectionSort.orderBy) {
+				case "priority":
+					return ((a.priority ?? 3) - (b.priority ?? 3)) * dir
 				case "name":
 					return (a.routineName ?? "").localeCompare(b.routineName ?? "", "nb") * dir
 				case "frequency":
@@ -323,6 +331,9 @@ export default function IkkeGjennomforteRutiner() {
 											<Table.ColumnHeader sortKey="name" sortable scope="col">
 												Rutine
 											</Table.ColumnHeader>
+											<Table.ColumnHeader sortKey="priority" sortable scope="col">
+												Kritikalitet
+											</Table.ColumnHeader>
 											<Table.ColumnHeader sortKey="app" sortable scope="col">
 												Applikasjon
 											</Table.ColumnHeader>
@@ -352,6 +363,9 @@ export default function IkkeGjennomforteRutiner() {
 													) : (
 														(row.routineName ?? "—")
 													)}
+												</Table.DataCell>
+												<Table.DataCell>
+													<PriorityTag priority={row.priority} />
 												</Table.DataCell>
 												<Table.DataCell>
 													<Link to={`/seksjoner/${seksjon}/applikasjoner/${row.applicationId}/detaljer?fane=rutiner`}>
@@ -422,6 +436,9 @@ export default function IkkeGjennomforteRutiner() {
 											<Table.ColumnHeader sortKey="name" sortable scope="col">
 												Rutine
 											</Table.ColumnHeader>
+											<Table.ColumnHeader sortKey="priority" sortable scope="col">
+												Kritikalitet
+											</Table.ColumnHeader>
 											<Table.ColumnHeader sortKey="frequency" sortable scope="col">
 												Frekvens
 											</Table.ColumnHeader>
@@ -444,6 +461,9 @@ export default function IkkeGjennomforteRutiner() {
 											<Table.Row key={row.routineId}>
 												<Table.DataCell>
 													<Link to={`/seksjoner/${seksjon}/rutiner/${row.routineId}`}>{row.routineName}</Link>
+												</Table.DataCell>
+												<Table.DataCell>
+													<PriorityTag priority={row.priority} />
 												</Table.DataCell>
 												<Table.DataCell>
 													<FrequencyDisplay frequency={row.frequency} eventFrequency={row.eventFrequency} />
