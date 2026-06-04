@@ -196,7 +196,7 @@ const rules: BreadcrumbRule[] = [
 			SEKSJONER,
 			{ label: sectionName, to: sectionPath },
 			{ label: "Rutiner", to: routinePath },
-			{ label: "Mangler" },
+			{ label: "Rutiner ikke gjennomført" },
 		],
 	},
 	{

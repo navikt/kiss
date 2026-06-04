@@ -1306,3 +1306,66 @@ export async function getTeamIncompleteRoutines(teamSlug: string) {
 
 	return { team, deadlines: allDeadlines }
 }
+
+/**
+ * For a list of application IDs, returns a map from appId to the names of dev teams
+ * in the given section that are responsible for each app. Covers all three mapping paths:
+ * 1. Direct applicationTeamMappings (appId → devTeamId)
+ * 2. Via devTeamNaisTeamMappings join table (appId → naisTeamId → devTeamId)
+ * 3. Via naisTeams.devTeamId direct FK (appId → naisTeamId → devTeams)
+ */
+export async function getTeamNamesForApps(appIds: string[], sectionId: string): Promise<Map<string, string[]>> {
+	if (appIds.length === 0) return new Map()
+
+	const [directRows, naisMappingRows, naisDirectRows] = await Promise.all([
+		// Path 1: application → applicationTeamMappings → devTeam (filtered to section)
+		db
+			.selectDistinct({ appId: applicationTeamMappings.applicationId, teamName: devTeams.name })
+			.from(applicationTeamMappings)
+			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
+			.where(
+				and(
+					inArray(applicationTeamMappings.applicationId, appIds),
+					eq(devTeams.sectionId, sectionId),
+					isNull(applicationTeamMappings.archivedAt),
+					isNull(devTeams.archivedAt),
+				),
+			),
+		// Path 2: application → applicationEnvironments → devTeamNaisTeamMappings join table → devTeam
+		db
+			.selectDistinct({ appId: applicationEnvironments.applicationId, teamName: devTeams.name })
+			.from(applicationEnvironments)
+			.innerJoin(devTeamNaisTeamMappings, eq(applicationEnvironments.naisTeamId, devTeamNaisTeamMappings.naisTeamId))
+			.innerJoin(devTeams, eq(devTeamNaisTeamMappings.devTeamId, devTeams.id))
+			.where(
+				and(
+					inArray(applicationEnvironments.applicationId, appIds),
+					eq(devTeams.sectionId, sectionId),
+					isNull(devTeamNaisTeamMappings.archivedAt),
+					isNull(devTeams.archivedAt),
+				),
+			),
+		// Path 3: application → applicationEnvironments → naisTeams.devTeamId direct FK → devTeam
+		db
+			.selectDistinct({ appId: applicationEnvironments.applicationId, teamName: devTeams.name })
+			.from(applicationEnvironments)
+			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+			.innerJoin(devTeams, eq(naisTeams.devTeamId, devTeams.id))
+			.where(
+				and(
+					inArray(applicationEnvironments.applicationId, appIds),
+					eq(devTeams.sectionId, sectionId),
+					isNull(devTeams.archivedAt),
+				),
+			),
+	])
+
+	const result = new Map<string, Set<string>>()
+	for (const appId of appIds) result.set(appId, new Set())
+
+	for (const row of [...directRows, ...naisMappingRows, ...naisDirectRows]) {
+		result.get(row.appId)?.add(row.teamName)
+	}
+
+	return new Map([...result.entries()].map(([k, v]) => [k, [...v].sort((a, b) => a.localeCompare(b, "nb"))]))
+}
