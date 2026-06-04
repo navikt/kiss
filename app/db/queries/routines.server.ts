@@ -36,6 +36,7 @@ import {
 	frameworkRisks,
 	technologyElements,
 } from "../schema/framework"
+import { users } from "../schema/organization"
 import {
 	type EntraChangeType,
 	FOLLOW_UP_POINT_STATUSES,
@@ -6953,10 +6954,12 @@ export async function getFollowUpReviewsForSection(sectionId: string) {
 			review: routineReviews,
 			routineName: routines.name,
 			appName: monitoredApplications.name,
+			createdByName: users.name,
 		})
 		.from(routineReviews)
 		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 		.leftJoin(monitoredApplications, eq(routineReviews.applicationId, monitoredApplications.id))
+		.leftJoin(users, eq(routineReviews.createdBy, users.navIdent))
 		.where(and(inArray(routineReviews.routineId, routineIds), eq(routineReviews.status, "needs_follow_up")))
 		.orderBy(desc(routineReviews.reviewedAt))
 
@@ -6986,6 +6989,7 @@ export async function getFollowUpReviewsForSection(sectionId: string) {
 		...r.review,
 		routineName: r.routineName,
 		applicationName: r.appName,
+		createdByName: r.createdByName,
 		openFollowUpPoints: pointsByReview.get(r.review.id) ?? [],
 	}))
 }

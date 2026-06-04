@@ -38,6 +38,7 @@ const {
 } = await import("~/db/queries/routines.server")
 
 const { getRoutineDeadlinesWithControls } = await import("~/db/queries/routine-deadlines.server")
+const { upsertUser } = await import("~/db/queries/users.server")
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -2717,6 +2718,34 @@ describe("Routines integration tests", () => {
 			expect(results[0].id).toBe(review.id)
 			expect(results[0].routineName).toBe("Tilgangskontroll")
 			expect(results[0].applicationName).toBe("Glad Fjord")
+		})
+		it("returnerer createdByName når brukeren finnes i users-tabellen", async () => {
+			const sectionId = await createTestSection("Bruker-seksjon", "bruker-seksjon")
+			const appId = await createTestApp("Bruker-app")
+			const routine = await createApprovedRoutine(sectionId, "Navne-rutine")
+			await upsertUser("Z990042", "Modig Fjord", "modig.fjord@nav.no")
+			const review = await createReviewWithStatus(routine.id, appId, "needs_follow_up")
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routine_reviews SET created_by = 'Z990042' WHERE id = '${review.id}'`)
+
+			const results = await getFollowUpReviewsForSection(sectionId)
+
+			expect(results).toHaveLength(1)
+			expect(results[0].createdByName).toBe("Modig Fjord")
+		})
+
+		it("returnerer null for createdByName når brukeren ikke finnes i users-tabellen", async () => {
+			const sectionId = await createTestSection("Ukjent-seksjon", "ukjent-seksjon")
+			const appId = await createTestApp("Ukjent-app")
+			const routine = await createApprovedRoutine(sectionId, "Ukjent-rutine")
+			const review = await createReviewWithStatus(routine.id, appId, "needs_follow_up")
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE routine_reviews SET created_by = 'Z999999' WHERE id = '${review.id}'`)
+
+			const results = await getFollowUpReviewsForSection(sectionId)
+
+			expect(results).toHaveLength(1)
+			expect(results[0].createdByName).toBeNull()
 		})
 	})
 })
