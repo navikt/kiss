@@ -19,6 +19,7 @@ import { useState } from "react"
 import { Link, useActionData } from "react-router"
 import { FrequencyDisplay, frequencyDisplayText } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
+import { RoutineStatusTag } from "~/components/RoutineStatusTag"
 import type { DataClassification, GroupCriticality, PersistenceType } from "~/db/schema/applications"
 import { dataClassificationLabels, groupCriticalityLabels } from "~/db/schema/applications"
 import type { action } from "../action.server"
@@ -106,6 +107,7 @@ export function RutinerTab({
 	)
 
 	const routineStatusKey = (dl: RoutineDeadline): string => {
+		if (dl.draftReviewId) return "draft"
 		if (dl.overdue) return "overdue"
 		if (dl.lastReviewDate) return "ok"
 		return "never"
@@ -316,7 +318,7 @@ export function RutinerTab({
 			aVal = frequencyDisplayText(a.routine?.frequency, null)
 			bVal = frequencyDisplayText(b.routine?.frequency, null)
 		} else if (orderBy === "status") {
-			const order = { overdue: "0", never: "1", ok: "2" }
+			const order = { draft: "0", overdue: "1", never: "2", ok: "3" }
 			aVal = order[routineStatusKey(a) as keyof typeof order] ?? "9"
 			bVal = order[routineStatusKey(b) as keyof typeof order] ?? "9"
 		} else {
@@ -360,6 +362,7 @@ export function RutinerTab({
 						hideLegend
 					>
 						<HStack gap="space-4" wrap>
+							<Checkbox value="draft">Pågående</Checkbox>
 							<Checkbox value="ok">OK</Checkbox>
 							<Checkbox value="overdue">Over frist</Checkbox>
 							<Checkbox value="never">Ikke gjennomført</Checkbox>
@@ -475,26 +478,12 @@ export function RutinerTab({
 														{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
 													</Table.DataCell>
 													<Table.DataCell>
-														<HStack gap="space-2" align="center" wrap>
-															{dl.overdue ? (
-																<Tag variant="error" size="small">
-																	Over frist
-																</Tag>
-															) : dl.lastReviewDate ? (
-																<Tag variant="success" size="small">
-																	OK
-																</Tag>
-															) : (
-																<Tag variant="warning" size="small">
-																	Ikke gjennomført
-																</Tag>
-															)}
-															{dl.needsFollowUp && (
-																<Tag variant="warning" size="small">
-																	Må følges opp
-																</Tag>
-															)}
-														</HStack>
+														<RoutineStatusTag
+															overdue={dl.overdue}
+															lastReviewDate={dl.lastReviewDate}
+															needsFollowUp={dl.needsFollowUp}
+															draftReviewId={dl.draftReviewId}
+														/>
 													</Table.DataCell>
 												</Table.ExpandableRow>
 											))}
@@ -650,26 +639,12 @@ export function RutinerTab({
 																{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
 															</Table.DataCell>
 															<Table.DataCell>
-																<HStack gap="space-2" align="center" wrap>
-																	{dl.overdue ? (
-																		<Tag variant="error" size="small">
-																			Over frist
-																		</Tag>
-																	) : dl.lastReviewDate ? (
-																		<Tag variant="success" size="small">
-																			OK
-																		</Tag>
-																	) : (
-																		<Tag variant="warning" size="small">
-																			Ikke gjennomført
-																		</Tag>
-																	)}
-																	{dl.needsFollowUp && (
-																		<Tag variant="warning" size="small">
-																			Må følges opp
-																		</Tag>
-																	)}
-																</HStack>
+																<RoutineStatusTag
+																	overdue={dl.overdue}
+																	lastReviewDate={dl.lastReviewDate}
+																	needsFollowUp={dl.needsFollowUp}
+																	draftReviewId={dl.draftReviewId}
+																/>
 															</Table.DataCell>
 														</Table.ExpandableRow>
 													)

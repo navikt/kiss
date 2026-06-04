@@ -1,10 +1,11 @@
-import { BodyShort, Box, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyShort, Box, Heading, HStack, Select, Table, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
 import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { RoutineStatusTag } from "~/components/RoutineStatusTag"
 import { getSectionBySlug, getSectionIncompleteRoutines, getTeamNamesForApps } from "~/db/queries/sections.server"
 
 function formatDate(date: string | Date | null): string {
@@ -47,6 +48,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			lastReviewDate: string | null
 			deadline: string | null
 			appCount: number
+			draftReviewId: string | null
+			overdue: boolean
 		}
 	>()
 	for (const d of sectionDeadlines) {
@@ -55,6 +58,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		const existing = sectionRoutineMap.get(id)
 		if (existing) {
 			existing.appCount++
+			// Keep draftReviewId if any row for this routine has one
+			if (d.draftReviewId) existing.draftReviewId = d.draftReviewId
+			// OR overdue: if any app row is overdue, the section routine is overdue
+			if (d.overdue) existing.overdue = true
 		} else {
 			sectionRoutineMap.set(id, {
 				routineId: id,
@@ -65,6 +72,8 @@ export async function loader({ params }: LoaderFunctionArgs) {
 				lastReviewDate: d.lastReviewDate ? d.lastReviewDate.toISOString() : null,
 				deadline: d.deadline ? d.deadline.toISOString() : null,
 				appCount: 1,
+				draftReviewId: d.draftReviewId ?? null,
+				overdue: d.overdue,
 			})
 		}
 	}
@@ -85,13 +94,18 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		lastReviewDate: d.lastReviewDate ? d.lastReviewDate.toISOString() : null,
 		deadline: d.deadline ? d.deadline.toISOString() : null,
 		teamNames: teamNamesByApp.get(d.applicationId) ?? [],
+		draftReviewId: d.draftReviewId ?? null,
+		overdue: d.overdue,
+		needsFollowUp: d.needsFollowUp ?? false,
 	}))
 
 	return data({ seksjon, sectionName: section.name, appRows, sectionRows })
 }
 
-function statusKey(row: { lastReviewDate: string | null }) {
-	return !row.lastReviewDate ? "never" : "overdue"
+function statusKey(row: { lastReviewDate: string | null; overdue: boolean; draftReviewId?: string | null }) {
+	if (row.draftReviewId) return "draft"
+	if (row.overdue) return "overdue"
+	return "never"
 }
 
 function Pagination({
@@ -223,7 +237,7 @@ export default function IkkeGjennomforteRutiner() {
 					return (aTime - bTime) * dir
 				}
 				case "status": {
-					const order = { overdue: 0, never: 1 }
+					const order = { draft: 0, overdue: 1, never: 2 }
 					return (
 						((order[statusKey(a) as keyof typeof order] ?? 9) - (order[statusKey(b) as keyof typeof order] ?? 9)) * dir
 					)
@@ -255,7 +269,7 @@ export default function IkkeGjennomforteRutiner() {
 					return (aTime - bTime) * dir
 				}
 				case "status": {
-					const order = { overdue: 0, never: 1 }
+					const order = { draft: 0, overdue: 1, never: 2 }
 					return (
 						((order[statusKey(a) as keyof typeof order] ?? 9) - (order[statusKey(b) as keyof typeof order] ?? 9)) * dir
 					)
@@ -379,15 +393,12 @@ export default function IkkeGjennomforteRutiner() {
 												<Table.DataCell>{formatDate(row.lastReviewDate)}</Table.DataCell>
 												<Table.DataCell>{formatDate(row.deadline)}</Table.DataCell>
 												<Table.DataCell>
-													{!row.lastReviewDate ? (
-														<Tag variant="neutral" size="small">
-															Ikke gjennomført
-														</Tag>
-													) : (
-														<Tag variant="error" size="small">
-															Over frist
-														</Tag>
-													)}
+													<RoutineStatusTag
+														overdue={row.overdue}
+														lastReviewDate={row.lastReviewDate}
+														needsFollowUp={row.needsFollowUp}
+														draftReviewId={row.draftReviewId}
+													/>
 												</Table.DataCell>
 											</Table.Row>
 										))}
@@ -471,15 +482,11 @@ export default function IkkeGjennomforteRutiner() {
 												<Table.DataCell>{formatDate(row.lastReviewDate)}</Table.DataCell>
 												<Table.DataCell>{formatDate(row.deadline)}</Table.DataCell>
 												<Table.DataCell>
-													{!row.lastReviewDate ? (
-														<Tag variant="neutral" size="small">
-															Ikke gjennomført
-														</Tag>
-													) : (
-														<Tag variant="error" size="small">
-															Over frist
-														</Tag>
-													)}
+													<RoutineStatusTag
+														overdue={row.overdue}
+														lastReviewDate={row.lastReviewDate}
+														draftReviewId={row.draftReviewId}
+													/>
 												</Table.DataCell>
 												<Table.DataCell>{row.appCount}</Table.DataCell>
 											</Table.Row>

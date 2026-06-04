@@ -1,10 +1,11 @@
-import { Alert, BodyShort, Box, Button, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
+import { Alert, BodyShort, Box, Button, Heading, HStack, Select, Table, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { RoutineStatusTag } from "~/components/RoutineStatusTag"
 import { getSectionBySlug, getSections, getTeamBySlug, getTeamIncompleteRoutines } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { createDraftReview } from "~/lib/create-draft-review.server"
@@ -98,7 +99,12 @@ type SectionSortKey = "priority" | "name" | "ownerRole" | "lastReview" | "deadli
 type SortDirection = "ascending" | "descending"
 type ActionFilter = "alle" | "ny" | "fortsett"
 
-function routineStatusKey(dl: { overdue: boolean; lastReviewDate: Date | string | null }) {
+function routineStatusKey(dl: {
+	overdue: boolean
+	lastReviewDate: Date | string | null
+	draftReviewId?: string | null
+}) {
+	if (dl.draftReviewId) return "draft"
 	if (dl.overdue) return "overdue"
 	if (dl.lastReviewDate) return "ok"
 	return "never"
@@ -175,7 +181,7 @@ export default function TeamUgjennomforteRutiner() {
 					return (aTime - bTime) * dir
 				}
 				case "status": {
-					const order = { overdue: 0, never: 1, ok: 2 }
+					const order = { draft: 0, overdue: 1, never: 2, ok: 3 }
 					return (
 						((order[routineStatusKey(a) as keyof typeof order] ?? 9) -
 							(order[routineStatusKey(b) as keyof typeof order] ?? 9)) *
@@ -209,7 +215,7 @@ export default function TeamUgjennomforteRutiner() {
 					return (aTime - bTime) * dir
 				}
 				case "status": {
-					const order = { overdue: 0, never: 1, ok: 2 }
+					const order = { draft: 0, overdue: 1, never: 2, ok: 3 }
 					return (
 						((order[routineStatusKey(a) as keyof typeof order] ?? 9) -
 							(order[routineStatusKey(b) as keyof typeof order] ?? 9)) *
@@ -306,22 +312,12 @@ export default function TeamUgjennomforteRutiner() {
 					{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
 				</Table.DataCell>
 				<Table.DataCell>
-					<HStack gap="space-2" align="center" wrap>
-						{dl.overdue ? (
-							<Tag variant="error" size="small">
-								Over frist
-							</Tag>
-						) : (
-							<Tag variant="warning" size="small">
-								Ikke gjennomført
-							</Tag>
-						)}
-						{dl.needsFollowUp && (
-							<Tag variant="warning" size="small">
-								Må følges opp
-							</Tag>
-						)}
-					</HStack>
+					<RoutineStatusTag
+						overdue={dl.overdue}
+						lastReviewDate={dl.lastReviewDate}
+						needsFollowUp={dl.needsFollowUp}
+						draftReviewId={dl.draftReviewId}
+					/>
 				</Table.DataCell>
 			</Table.Row>
 		)
@@ -584,22 +580,12 @@ export default function TeamUgjennomforteRutiner() {
 														{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
 													</Table.DataCell>
 													<Table.DataCell>
-														<HStack gap="space-2" align="center" wrap>
-															{dl.overdue ? (
-																<Tag variant="error" size="small">
-																	Over frist
-																</Tag>
-															) : (
-																<Tag variant="warning" size="small">
-																	Ikke gjennomført
-																</Tag>
-															)}
-															{dl.needsFollowUp && (
-																<Tag variant="warning" size="small">
-																	Må følges opp
-																</Tag>
-															)}
-														</HStack>
+														<RoutineStatusTag
+															overdue={dl.overdue}
+															lastReviewDate={dl.lastReviewDate}
+															needsFollowUp={dl.needsFollowUp}
+															draftReviewId={dl.draftReviewId}
+														/>
 													</Table.DataCell>
 												</Table.Row>
 											)
