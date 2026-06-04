@@ -61,6 +61,7 @@ export default function ApplikasjonDetalj() {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin,
+		canManageReviews,
 		canAccessReports,
 		knownApps,
 		acknowledgments,
@@ -318,6 +319,7 @@ export default function ApplikasjonDetalj() {
 						routineDeadlines={routineDeadlines}
 						completedReviews={completedReviews}
 						sectionSlugMap={sectionSlugMap}
+						canManageReviews={canManageReviews}
 					/>
 				</Tabs.Panel>
 

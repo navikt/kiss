@@ -26,7 +26,7 @@ import { getScreeningSessionsForApp } from "~/db/queries/screening-sessions.serv
 import { getSections } from "~/db/queries/sections.server"
 import type { GroupCriticality } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { canAccessAppReports, isAdmin } from "~/lib/authorization.server"
+import { canAccessAppReports, hasAnyTeamRole, hasRole, isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { logger } from "~/lib/logger.server"
@@ -404,6 +404,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		completedReviews,
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
+		// Positivt tilgangsflagg: admin og teammedlemmer med direkte eller nais-koblet
+		// ansvar for applikasjonen kan opprette/fortsette gjennomganger.
+		// Rene revisorer og brukere uten teamtilknytning til appen har kun lesetilgang.
+		// TODO: forenkles etter at buildEffectiveAuth undertrykker revisor-rollen for admins.
+		canManageReviews: user
+			? isAdmin(user) || (!hasRole(user, "auditor") && appScopeIds.devTeamIds.some((id) => hasAnyTeamRole(user, id)))
+			: false,
 		canAccessReports,
 		knownApps,
 		acknowledgments,
