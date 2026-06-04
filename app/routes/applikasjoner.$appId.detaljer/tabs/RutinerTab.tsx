@@ -453,7 +453,7 @@ export function RutinerTab({
 															(dl.routine?.name ?? "—")
 														)}
 													</Table.DataCell>
-													<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
+													<Table.DataCell align="left">{renderRoutineAction(dl)}</Table.DataCell>
 													<Table.DataCell>
 														<PriorityTag priority={dl.routine?.priority ?? 3} />
 													</Table.DataCell>
@@ -545,7 +545,7 @@ export function RutinerTab({
 																(dl.routine?.name ?? "—")
 															)}
 														</Table.DataCell>
-														<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
+														<Table.DataCell align="left">{renderRoutineAction(dl)}</Table.DataCell>
 														<Table.DataCell>{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>
 														<Table.DataCell>
 															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}

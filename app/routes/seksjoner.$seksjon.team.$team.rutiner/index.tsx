@@ -298,7 +298,7 @@ export default function TeamUgjennomforteRutiner() {
 						<Link to={appLink}>{dl.applicationName}</Link>
 					</Table.DataCell>
 				)}
-				<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
+				<Table.DataCell align="left">{renderRoutineAction(dl)}</Table.DataCell>
 				<Table.DataCell>
 					<PriorityTag priority={dl.routine?.priority ?? 3} />
 				</Table.DataCell>
@@ -563,7 +563,7 @@ export default function TeamUgjennomforteRutiner() {
 														)}
 													</Table.DataCell>
 													<Table.DataCell>{dl.sectionRoutineOwnerRole ?? "Seksjonsleder"}</Table.DataCell>
-													<Table.DataCell>{renderRoutineAction(dl)}</Table.DataCell>
+													<Table.DataCell align="left">{renderRoutineAction(dl)}</Table.DataCell>
 													<Table.DataCell>
 														<PriorityTag priority={dl.routine.priority ?? 3} />
 													</Table.DataCell>
