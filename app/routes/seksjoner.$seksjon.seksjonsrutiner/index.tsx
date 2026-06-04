@@ -6,9 +6,11 @@ import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getSectionRoutinesForSection } from "~/db/queries/routines.server"
+import { RoutineStatusTag } from "~/components/RoutineStatusTag"
+import { getReviewsForSection, getSectionRoutinesForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
+import { hasAnySectionRole, isAdmin, isAuditor } from "~/lib/authorization.server"
 import { getCompositeFrequencyLabel } from "~/lib/routine-frequencies"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -17,24 +19,32 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 	}
 
-	await getAuthenticatedUser(request)
+	const user = await getAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) {
 		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 	}
 
-	const sectionRoutines = await getSectionRoutinesForSection(section.id)
+	const canReadReviews = user !== null && (isAdmin(user) || isAuditor(user) || hasAnySectionRole(user, section.id))
+	const canManageReviews = user !== null && !isAuditor(user) && (isAdmin(user) || hasAnySectionRole(user, section.id))
+
+	const [sectionRoutines, reviews] = await Promise.all([
+		getSectionRoutinesForSection(section.id),
+		canReadReviews ? getReviewsForSection(section.id) : Promise.resolve([]),
+	])
 
 	return data({
 		section,
 		seksjon,
 		sectionRoutines,
+		reviews,
+		canManageReviews,
 	})
 }
 
 export default function Seksjonsrutiner() {
-	const { sectionRoutines, seksjon } = useLoaderData<typeof loader>()
+	const { sectionRoutines, seksjon, reviews, canManageReviews } = useLoaderData<typeof loader>()
 	const [search, setSearch] = useState("")
 	const [sort, setSort] = useState<SortState>({ orderBy: "priority", direction: "ascending" })
 
@@ -163,7 +173,6 @@ export default function Seksjonsrutiner() {
 								</Table.Header>
 								<Table.Body>
 									{sorted.map((sr) => {
-										const statusKey = sr.overdue ? "overdue" : sr.lastReviewDate ? "ok" : "never"
 										return (
 											<Table.Row key={sr.routine.id}>
 												<Table.DataCell>
@@ -195,32 +204,25 @@ export default function Seksjonsrutiner() {
 													)}
 												</Table.DataCell>
 												<Table.DataCell>
-													{!sr.routine.frequency ? (
-														sr.lastReviewDate ? (
-															<Tag variant="success" size="xsmall">
-																OK
-															</Tag>
-														) : (
-															<Tag variant="warning" size="xsmall">
-																Ikke gjennomført
-															</Tag>
-														)
-													) : statusKey === "overdue" ? (
-														<Tag variant="error" size="xsmall">
-															Over frist
-														</Tag>
-													) : statusKey === "ok" ? (
-														<Tag variant="success" size="xsmall">
-															OK
-														</Tag>
-													) : statusKey === "never" ? (
-														<Tag variant="warning" size="xsmall">
-															Ikke gjennomført
-														</Tag>
-													) : null}
+													<RoutineStatusTag
+														overdue={sr.overdue}
+														lastReviewDate={sr.lastReviewDate}
+														needsFollowUp={sr.needsFollowUp}
+														draftReviewId={sr.activeReview?.status === "draft" ? sr.activeReview.id : undefined}
+													/>
 												</Table.DataCell>
 												<Table.DataCell>
-													{sr.routine.status === "approved" && (
+													{canManageReviews && sr.activeReview ? (
+														<Button
+															as={Link}
+															to={`/seksjoner/${seksjon}/rutiner/${sr.routine.id}/gjennomgang/${sr.activeReview.id}`}
+															variant="tertiary"
+															size="xsmall"
+															style={{ whiteSpace: "nowrap" }}
+														>
+															Fortsett gjennomgang
+														</Button>
+													) : canManageReviews && sr.routine.status === "approved" ? (
 														<Button
 															as={Link}
 															to={`/seksjoner/${seksjon}/rutiner/${sr.routine.id}/gjennomgang/ny`}
@@ -230,7 +232,7 @@ export default function Seksjonsrutiner() {
 														>
 															Ny gjennomgang
 														</Button>
-													)}
+													) : null}
 												</Table.DataCell>
 											</Table.Row>
 										)
@@ -240,6 +242,61 @@ export default function Seksjonsrutiner() {
 						</section>
 					)}
 				</VStack>
+			)}
+
+			{reviews.length > 0 && (
+				<>
+					<Heading size="medium" level="3">
+						Gjennomganger
+					</Heading>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table */}
+					<section className="table-scroll" aria-label="Gjennomganger av seksjonsrutiner" tabIndex={0}>
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell>Dato</Table.HeaderCell>
+									<Table.HeaderCell>Rutine</Table.HeaderCell>
+									<Table.HeaderCell>Tittel</Table.HeaderCell>
+									<Table.HeaderCell>Status</Table.HeaderCell>
+									<Table.HeaderCell>Opprettet av</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{reviews.map((review) => (
+									<Table.Row key={review.id}>
+										<Table.DataCell>
+											{review.reviewedAt ? new Date(review.reviewedAt).toLocaleDateString("nb-NO") : "–"}
+										</Table.DataCell>
+										<Table.DataCell>{review.routineName}</Table.DataCell>
+										<Table.DataCell>
+											<Link to={`/seksjoner/${seksjon}/rutiner/${review.routineId}/gjennomgang/${review.id}`}>
+												{review.title}
+											</Link>
+										</Table.DataCell>
+										<Table.DataCell>
+											{review.status === "completed" && (
+												<Tag variant="success" size="xsmall">
+													Fullført
+												</Tag>
+											)}
+											{review.status === "needs_follow_up" && (
+												<Tag variant="warning" size="xsmall">
+													Må følges opp
+												</Tag>
+											)}
+											{review.status === "draft" && (
+												<Tag variant="info" size="xsmall">
+													Pågående
+												</Tag>
+											)}
+										</Table.DataCell>
+										<Table.DataCell>{review.createdBy}</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				</>
 			)}
 		</VStack>
 	)

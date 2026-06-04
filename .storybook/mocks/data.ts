@@ -1294,6 +1294,27 @@ export function mockSeksjonsrutinerData() {
 	return {
 		section: mockSection,
 		seksjon: "pensjon-og-ufore",
+		canManageReviews: true,
+		reviews: [
+			{
+				id: "rev-sec-1",
+				routineId: "routine-2",
+				routineName: "Tilgangskontroll – gjennomgang",
+				title: "Tilgangskontroll H1 2026",
+				reviewedAt: threeMonthsAgo,
+				status: "completed",
+				createdBy: "Z990001",
+			},
+			{
+				id: "rev-sec-draft",
+				routineId: "routine-7",
+				routineName: "Revisjon av tilgangsrettigheter",
+				title: "Pågående revisjon Q2 2026",
+				reviewedAt: null,
+				status: "draft",
+				createdBy: "Z990002",
+			},
+		],
 		sectionRoutines: [
 			{
 				routine: mockRoutineBase({
@@ -1316,6 +1337,8 @@ export function mockSeksjonsrutinerData() {
 				lastReviewDate: threeMonthsAgo,
 				deadline: sixMonthsFromNow,
 				overdue: false,
+				activeReview: null,
+				needsFollowUp: false,
 			},
 			{
 				routine: mockRoutineBase({
@@ -1331,6 +1354,8 @@ export function mockSeksjonsrutinerData() {
 				lastReviewDate: null,
 				deadline: twoMonthsAgo,
 				overdue: true,
+				activeReview: null,
+				needsFollowUp: false,
 			},
 			{
 				routine: mockRoutineBase({
@@ -1347,12 +1372,14 @@ export function mockSeksjonsrutinerData() {
 					reviewedAt: twoMonthsAgo,
 					reviewId: "rev-sec-2",
 					title: "Beredskapsøvelse 2026",
-					status: "completed",
+					status: "needs_follow_up",
 					createdBy: "Z990002",
 				},
 				lastReviewDate: twoMonthsAgo,
 				deadline: new Date(now.getFullYear() + 1, now.getMonth() - 2, now.getDate()).toISOString(),
 				overdue: false,
+				activeReview: { id: "rev-sec-2", status: "needs_follow_up" },
+				needsFollowUp: true,
 			},
 			{
 				routine: mockRoutineBase({
@@ -1369,6 +1396,8 @@ export function mockSeksjonsrutinerData() {
 				lastReviewDate: null,
 				deadline: null,
 				overdue: false,
+				activeReview: null,
+				needsFollowUp: false,
 			},
 			{
 				routine: mockRoutineBase({
@@ -1381,17 +1410,12 @@ export function mockSeksjonsrutinerData() {
 					sectionRoutineOwnerRole: "Teknologileder",
 					appliesToAllInSection: 1,
 				}),
-				lastReview: {
-					routineId: "routine-7",
-					reviewedAt: twoMonthsAgo,
-					reviewId: "rev-sec-3",
-					title: "Tilgangsrevisjon Q1 2026",
-					status: "completed",
-					createdBy: "Z990001",
-				},
-				lastReviewDate: twoMonthsAgo,
+				lastReview: null,
+				lastReviewDate: null,
 				deadline: new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString(),
 				overdue: false,
+				activeReview: { id: "rev-sec-draft", status: "draft" },
+				needsFollowUp: false,
 			},
 		],
 	}

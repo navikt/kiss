@@ -4914,6 +4914,30 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 
 	const reviewByRoutine = new Map(latestReviews.map((r) => [r.routineId, r]))
 
+	// Fetch active reviews (draft + needs_follow_up) for section routines
+	const activeReviewRows = await db
+		.select({ routineId: routineReviews.routineId, id: routineReviews.id, status: routineReviews.status })
+		.from(routineReviews)
+		.where(
+			and(
+				inArray(routineReviews.routineId, routineIds),
+				isNull(routineReviews.applicationId),
+				inArray(routineReviews.status, ["draft", "needs_follow_up"]),
+			),
+		)
+		.orderBy(desc(routineReviews.createdAt))
+
+	const activeReviewMap = new Map<string, { id: string; status: ReviewStatus }>()
+	const needsFollowUpSet = new Set<string>()
+	for (const r of activeReviewRows) {
+		if (!activeReviewMap.has(r.routineId)) {
+			activeReviewMap.set(r.routineId, { id: r.id, status: r.status })
+		}
+		if (r.status === "needs_follow_up") {
+			needsFollowUpSet.add(r.routineId)
+		}
+	}
+
 	// Build result - determine effectiveRoutineId using chain walking with policyMap
 	return sectionRoutineRows.map((routine) => {
 		// Find which routine's review we should return by walking the chain
@@ -4963,8 +4987,36 @@ export async function getSectionRoutinesForSection(sectionId: string) {
 			// "reset" means this routine replaced another but the review history was NOT inherited.
 			// null means the routine was not created by replacing another.
 			deadlinePolicy: policyMap.get(routine.id) ?? null,
+			activeReview: activeReviewMap.get(routine.id) ?? null,
+			needsFollowUp: needsFollowUpSet.has(routine.id),
 		}
 	})
+}
+
+/** Henter alle ikke-forkastede gjennomganger for seksjonsrutiner i en seksjon. */
+export async function getReviewsForSection(sectionId: string) {
+	return db
+		.select({
+			id: routineReviews.id,
+			routineId: routineReviews.routineId,
+			title: routineReviews.title,
+			reviewedAt: routineReviews.reviewedAt,
+			status: routineReviews.status,
+			createdBy: routineReviews.createdBy,
+			routineName: routines.name,
+		})
+		.from(routineReviews)
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+		.where(
+			and(
+				eq(routines.sectionId, sectionId),
+				eq(routines.isSectionRoutine, 1),
+				isNull(routines.archivedAt),
+				isNull(routineReviews.applicationId),
+				sql`${routineReviews.status} != 'discarded'`,
+			),
+		)
+		.orderBy(desc(routineReviews.reviewedAt))
 }
 
 // ─── Review Activities ───────────────────────────────────────────────────
