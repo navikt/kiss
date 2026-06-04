@@ -4,8 +4,7 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getRoutineDeadlinesForSection } from "~/db/queries/routines.server"
-import { getSectionBySlug, getTeamNamesForApps } from "~/db/queries/sections.server"
+import { getSectionBySlug, getSectionIncompleteRoutines, getTeamNamesForApps } from "~/db/queries/sections.server"
 
 function formatDate(date: string | Date | null): string {
 	if (!date) return "—"
@@ -28,14 +27,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 	}
 
-	const deadlines = await getRoutineDeadlinesForSection(section.id)
-
-	// Only periodic routines can be overdue
-	const overdue = deadlines.filter((d) => d.routine?.frequency && d.overdue)
+	const deadlines = await getSectionIncompleteRoutines(section.id)
 
 	// Deduplicate section routines — same routine can match multiple apps but deadline is section-level
 	const seenSectionRoutineIds = new Set<string>()
-	const deduplicated = overdue.filter((d) => {
+	const deduplicated = deadlines.filter((d) => {
 		if (!d.routine?.isSectionRoutine) return true
 		if (seenSectionRoutineIds.has(d.routine.id)) return false
 		seenSectionRoutineIds.add(d.routine.id)
