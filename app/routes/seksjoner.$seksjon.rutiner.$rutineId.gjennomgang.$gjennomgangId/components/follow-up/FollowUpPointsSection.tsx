@@ -65,7 +65,7 @@ export function FollowUpPointsSection({
 	const [newText, setNewText] = useState("")
 	const formRef = useRef<HTMLFormElement>(null)
 
-	const canAdd = status === "draft" || status === "needs_follow_up"
+	const canAdd = status === "draft"
 	const canEditText = status === "draft"
 	// Beskrivelse på oppfølgingspunkter kan kun redigeres mens gjennomgangen
 	// fortsatt er i utkast — etter fullføring (også «må følges opp») er

@@ -1924,8 +1924,8 @@ export async function addFollowUpPoint(params: {
 		if (!snapshot) {
 			throw new Response("Gjennomgang ikke funnet", { status: 404 })
 		}
-		if (snapshot.reviewStatus === "discarded") {
-			throw new Response("Kan ikke legge til oppfølgingspunkt på en kassert gjennomgang.", { status: 409 })
+		if (snapshot.reviewStatus !== "draft") {
+			throw new Response("Oppfølgingspunkter kan bare legges til mens gjennomgangen er i utkast.", { status: 409 })
 		}
 
 		const [row] = await tx
@@ -1940,12 +1940,6 @@ export async function addFollowUpPoint(params: {
 			})
 			.returning()
 
-		// Hvis review allerede var completed (alle tidligere punkter løst),
-		// flytt den tilbake til needs_follow_up siden vi nå har et åpent punkt.
-		if (snapshot.reviewStatus === "completed") {
-			await tx.update(routineReviews).set({ status: "needs_follow_up" }).where(eq(routineReviews.id, reviewId))
-		}
-
 		await writeAuditLog(
 			{
 				action: "review_follow_up_added",
@@ -1958,16 +1952,10 @@ export async function addFollowUpPoint(params: {
 			tx,
 		)
 
-		return { row, prevReviewStatus: snapshot.reviewStatus }
+		return row
 	})
 
-	// Hvis review gikk fra completed → needs_follow_up må compliance-status
-	// re-synkroniseres (review teller ikke lenger som fullført).
-	if (inserted.prevReviewStatus === "completed") {
-		await syncComplianceForReview(reviewId, performedBy)
-	}
-
-	return inserted.row
+	return inserted
 }
 
 /**
