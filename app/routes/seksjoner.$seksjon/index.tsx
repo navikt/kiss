@@ -306,14 +306,16 @@ export default function SeksjonDashboard() {
 					</Box>
 				</Tooltip>
 				<Tooltip content="Antall periodiske rutiner der fristen er overskredet, summert for alle applikasjoner i seksjonen.">
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<VStack align="center">
-							<Heading size="xlarge" level="3">
-								{routinesIkkeGjennomfort}
-							</Heading>
-							<Detail>Rutiner ikke gjennomført</Detail>
-						</VStack>
-					</Box>
+					<Link to="rutiner/mangler" style={{ textDecoration: "none", color: "inherit" }}>
+						<Box padding="space-6" borderRadius="8" background="sunken">
+							<VStack align="center">
+								<Heading size="xlarge" level="3">
+									{routinesIkkeGjennomfort}
+								</Heading>
+								<Detail>Rutiner ikke gjennomført</Detail>
+							</VStack>
+						</Box>
+					</Link>
 				</Tooltip>
 				<Tooltip content="Antall applikasjoner der minst én rutinegjennomgang er fullført, men der det ble oppdaget forhold som må følges opp videre.">
 					<Box padding="space-6" borderRadius="8" background="sunken">
