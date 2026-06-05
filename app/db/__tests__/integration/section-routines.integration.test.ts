@@ -333,6 +333,55 @@ describe("Section routines integration tests", () => {
 		expect(sectionDeadline?.overdue).toBe(false)
 	})
 
+	it("section routine review with applicationId set should NOT count as lastReviewDate (section reviews require applicationId = null)", async () => {
+		const sectionId = await createTestSection("Test Seksjon", `test-${Date.now()}-${Math.random()}`)
+		const appId = await createTestApp("TestApp", sectionId)
+
+		const routine = await createRoutine({
+			sectionId,
+			name: "Seksjonsrutine med app-kontekst-gjennomgang",
+			description: null,
+			frequency: "annually",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: true,
+			responsibleRole: null,
+			isSectionRoutine: true,
+			sectionRoutineOwnerRole: "Teknologileder",
+			persistenceLinks: [],
+			technologyElementIds: [],
+			controlIds: [],
+			groupClassifications: [],
+			oracleRoleCriticalities: [],
+			createdBy: "Z990001",
+		})
+
+		const db = getTestDb()
+		await db.execute(/* sql */ `UPDATE routines SET status = 'approved' WHERE id = '${routine.id}'`)
+
+		// A review created with applicationId set (app-context) should not count for section routines
+		const review = await createReview({
+			routineId: routine.id,
+			applicationId: appId,
+			title: "Gjennomgang fra app-kontekst",
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: new Date(),
+			createdBy: "Z990001",
+			participants: [],
+		})
+		await completeReview(review.id, "Z990001")
+
+		const results = await getSectionRoutinesForSection(sectionId)
+		const result = results.find((r) => r.routine.id === routine.id)
+
+		expect(result).toBeDefined()
+		// Section-level reviews require applicationId = null — app-context review should not count
+		expect(result?.lastReviewDate).toBeNull()
+		// Deadline is ~1 year from now (approvedAt ?? createdAt + annually), so not overdue yet
+		expect(result?.overdue).toBe(false)
+	})
+
 	it("sets needsFollowUp on app-level deadline when latest review for app has needs_follow_up status", async () => {
 		const sectionId = await createTestSection("Test Seksjon", `test-${Date.now()}-${Math.random()}`)
 		const appId = await createTestApp("AppNF", sectionId)
