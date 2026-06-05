@@ -40,11 +40,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		sectionRoutines,
 		reviews,
 		canManageReviews,
+		canReadReviews,
 	})
 }
 
 export default function Seksjonsrutiner() {
-	const { sectionRoutines, seksjon, reviews, canManageReviews } = useLoaderData<typeof loader>()
+	const { sectionRoutines, seksjon, reviews, canManageReviews, canReadReviews } = useLoaderData<typeof loader>()
 	const [search, setSearch] = useState("")
 	const [sort, setSort] = useState<SortState>({ orderBy: "priority", direction: "ascending" })
 
@@ -232,6 +233,10 @@ export default function Seksjonsrutiner() {
 														>
 															Ny gjennomgang
 														</Button>
+													) : canManageReviews ? (
+														<BodyShort size="small" textColor="subtle">
+															Ikke godkjent
+														</BodyShort>
 													) : null}
 												</Table.DataCell>
 											</Table.Row>
@@ -244,58 +249,64 @@ export default function Seksjonsrutiner() {
 				</VStack>
 			)}
 
-			{reviews.length > 0 && (
+			{canReadReviews && (
 				<>
 					<Heading size="medium" level="3">
 						Gjennomganger
 					</Heading>
-					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table */}
-					<section className="table-scroll" aria-label="Gjennomganger av seksjonsrutiner" tabIndex={0}>
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell>Dato</Table.HeaderCell>
-									<Table.HeaderCell>Rutine</Table.HeaderCell>
-									<Table.HeaderCell>Tittel</Table.HeaderCell>
-									<Table.HeaderCell>Status</Table.HeaderCell>
-									<Table.HeaderCell>Opprettet av</Table.HeaderCell>
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{reviews.map((review) => (
-									<Table.Row key={review.id}>
-										<Table.DataCell>
-											{review.reviewedAt ? new Date(review.reviewedAt).toLocaleDateString("nb-NO") : "–"}
-										</Table.DataCell>
-										<Table.DataCell>{review.routineName}</Table.DataCell>
-										<Table.DataCell>
-											<Link to={`/seksjoner/${seksjon}/rutiner/${review.routineId}/gjennomgang/${review.id}`}>
-												{review.title}
-											</Link>
-										</Table.DataCell>
-										<Table.DataCell>
-											{review.status === "completed" && (
-												<Tag variant="success" size="xsmall">
-													Fullført
-												</Tag>
-											)}
-											{review.status === "needs_follow_up" && (
-												<Tag variant="warning" size="xsmall">
-													Må følges opp
-												</Tag>
-											)}
-											{review.status === "draft" && (
-												<Tag variant="info" size="xsmall">
-													Pågående
-												</Tag>
-											)}
-										</Table.DataCell>
-										<Table.DataCell>{review.createdBy}</Table.DataCell>
-									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
-					</section>
+					{reviews.length === 0 ? (
+						<BodyShort textColor="subtle">Ingen gjennomganger er registrert for seksjonsrutinene.</BodyShort>
+					) : (
+						<>
+							{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable table */}
+							<section className="table-scroll" aria-label="Gjennomganger av seksjonsrutiner" tabIndex={0}>
+								<Table size="small">
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell>Dato</Table.HeaderCell>
+											<Table.HeaderCell>Rutine</Table.HeaderCell>
+											<Table.HeaderCell>Tittel</Table.HeaderCell>
+											<Table.HeaderCell>Status</Table.HeaderCell>
+											<Table.HeaderCell>Opprettet av</Table.HeaderCell>
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{reviews.map((review) => (
+											<Table.Row key={review.id}>
+												<Table.DataCell>
+													{review.reviewedAt ? new Date(review.reviewedAt).toLocaleDateString("nb-NO") : "–"}
+												</Table.DataCell>
+												<Table.DataCell>{review.routineName}</Table.DataCell>
+												<Table.DataCell>
+													<Link to={`/seksjoner/${seksjon}/rutiner/${review.routineId}/gjennomgang/${review.id}`}>
+														{review.title}
+													</Link>
+												</Table.DataCell>
+												<Table.DataCell>
+													{review.status === "completed" && (
+														<Tag variant="success" size="xsmall">
+															Fullført
+														</Tag>
+													)}
+													{review.status === "needs_follow_up" && (
+														<Tag variant="warning" size="xsmall">
+															Må følges opp
+														</Tag>
+													)}
+													{review.status === "draft" && (
+														<Tag variant="info" size="xsmall">
+															Pågående
+														</Tag>
+													)}
+												</Table.DataCell>
+												<Table.DataCell>{review.createdBy}</Table.DataCell>
+											</Table.Row>
+										))}
+									</Table.Body>
+								</Table>
+							</section>
+						</>
+					)}
 				</>
 			)}
 		</VStack>
