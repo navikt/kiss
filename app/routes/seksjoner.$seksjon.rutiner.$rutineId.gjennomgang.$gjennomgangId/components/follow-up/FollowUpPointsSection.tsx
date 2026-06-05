@@ -341,7 +341,7 @@ function FollowUpPointRow({
 						</>
 					)}
 
-					{canChangeStatus && p.description ? (
+					{canChangeStatus ? (
 						<Box borderWidth="1 0 0 0" borderColor="neutral-subtle" paddingBlock="space-16 space-0">
 							<Form method="post">
 								<input type="hidden" name="intent" value="update-follow-up-status" />
@@ -411,14 +411,12 @@ function FollowUpPointRow({
 										{p.resolution}
 									</BodyShort>
 								</VStack>
-								{p.description && (
-									<FollowUpPointAttachments
-										point={p}
-										kind="resolution"
-										title="Vedlegg til oppfølging"
-										canUpload={canChangeStatus}
-									/>
-								)}
+								<FollowUpPointAttachments
+									point={p}
+									kind="resolution"
+									title="Vedlegg til oppfølging"
+									canUpload={canChangeStatus}
+								/>
 							</VStack>
 						</Box>
 					) : p.description ? (
