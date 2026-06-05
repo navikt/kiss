@@ -76,6 +76,7 @@ export async function action({ request }: ActionFunctionArgs) {
 			selections: result.selections,
 			arrayReplacements: result.arrayReplacements,
 			reviewsInherited: result.reviewsInherited,
+			titlesBackfilled: result.titlesBackfilled,
 			elapsed,
 		})
 	}
@@ -179,8 +180,8 @@ function MigrateRoutineLinksCard() {
 				{result?.success && "presets" in result && (
 					<Alert variant="success" size="small">
 						Migrering fullført på {formatElapsed(result.elapsed)}. {result.presets} forvalgte rutiner,{" "}
-						{result.selections} rutinevalg, {result.arrayReplacements} kontrollcache-rader og {result.reviewsInherited}{" "}
-						arvede gjennomganger oppdatert.
+						{result.selections} rutinevalg, {result.arrayReplacements} kontrollcache-rader, {result.reviewsInherited}{" "}
+						arvede gjennomganger og {result.titlesBackfilled} titler oppdatert.
 					</Alert>
 				)}
 				{result?.success === false && "message" in result && (
