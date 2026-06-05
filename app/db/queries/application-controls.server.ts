@@ -592,6 +592,7 @@ export async function getRoutineComplianceSummaries(appIds: string[]): Promise<M
 				WHERE ac.application_id IN (${appIdsIn})
 					AND ac.is_active = true
 					AND r.archived_at IS NULL
+					AND r.is_section_routine = 0
 			),
 			last_review AS (
 				SELECT DISTINCT ON (application_id, routine_id)
