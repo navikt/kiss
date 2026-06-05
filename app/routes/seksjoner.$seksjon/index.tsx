@@ -21,7 +21,7 @@ import { getRoutineComplianceSummaries } from "~/db/queries/application-controls
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { countSectionEconomySystems } from "~/db/queries/economy-classification.server"
 import { getScreeningProgressForApps } from "~/db/queries/screening.server"
-import { getSectionDetail } from "~/db/queries/sections.server"
+import { countSectionRoutinesIncomplete, getSectionDetail } from "~/db/queries/sections.server"
 import { useFeatureFlags } from "~/hooks/useFeatureFlags"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { canViewSectionReports, isAdmin } from "~/lib/authorization.server"
@@ -36,12 +36,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const result = await getSectionDetail(seksjon)
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
 
-	const [deploymentStats, economyStats, screeningProgress, routineSummaries] = await Promise.all([
-		getDeploymentVerificationAggregate(result.allAppIds),
-		countSectionEconomySystems(result.section.id),
-		getScreeningProgressForApps(result.allAppIds),
-		getRoutineComplianceSummaries(result.allAppIds),
-	])
+	const [deploymentStats, economyStats, screeningProgress, routineSummaries, sectionRoutinesIkkeGjennomfort] =
+		await Promise.all([
+			getDeploymentVerificationAggregate(result.allAppIds),
+			countSectionEconomySystems(result.section.id),
+			getScreeningProgressForApps(result.allAppIds),
+			getRoutineComplianceSummaries(result.allAppIds),
+			countSectionRoutinesIncomplete(result.allAppIds),
+		])
 
 	// Aggregate screening: count apps where all relevant questions are answered
 	const screenedCount = [...screeningProgress.values()].filter((p) => p.total > 0 && p.answered === p.total).length
@@ -89,6 +91,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		screenedCount,
 		routinesGjennomfort,
 		routinesIkkeGjennomfort,
+		sectionRoutinesIkkeGjennomfort,
 		needsFollowUpApps,
 	})
 }
@@ -112,6 +115,7 @@ export default function SeksjonDashboard() {
 		screenedCount,
 		routinesGjennomfort,
 		routinesIkkeGjennomfort,
+		sectionRoutinesIkkeGjennomfort,
 		needsFollowUpApps,
 	} = useLoaderData<typeof loader>()
 	const { showComplianceStats } = useFeatureFlags()
@@ -284,7 +288,7 @@ export default function SeksjonDashboard() {
 				</>
 			)}
 
-			<HGrid gap="space-6" columns={{ xs: 2, sm: 4 }}>
+			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, lg: 5 }}>
 				<Tooltip content="Antall applikasjoner der alle screening-spørsmål er besvart.">
 					<Box padding="space-6" borderRadius="8" background="sunken">
 						<VStack align="center">
@@ -305,14 +309,26 @@ export default function SeksjonDashboard() {
 						</VStack>
 					</Box>
 				</Tooltip>
-				<Tooltip content="Antall periodiske rutiner der fristen er overskredet, summert for alle applikasjoner i seksjonen.">
+				<Tooltip content="Antall periodiske applikasjonsrutiner som mangler gjennomgang i frekvensperioden eller aldri er gjennomført, summert for alle applikasjoner i seksjonen. Seksjonsrutiner er ikke inkludert her.">
 					<Link to="rutiner/mangler" style={{ textDecoration: "none", color: "inherit" }}>
 						<Box padding="space-6" borderRadius="8" background="sunken">
 							<VStack align="center">
 								<Heading size="xlarge" level="3">
 									{routinesIkkeGjennomfort}
 								</Heading>
-								<Detail>Rutiner ikke gjennomført</Detail>
+								<Detail>Apprutiner ikke gjennomført</Detail>
+							</VStack>
+						</Box>
+					</Link>
+				</Tooltip>
+				<Tooltip content="Antall distinkte seksjonsrutiner som mangler gjennomgang i frekvensperioden eller aldri er gjennomført. Seksjonsrutiner gjelder for hele seksjonen og telles én gang, ikke per applikasjon.">
+					<Link to="rutiner/mangler" style={{ textDecoration: "none", color: "inherit" }}>
+						<Box padding="space-6" borderRadius="8" background="sunken">
+							<VStack align="center">
+								<Heading size="xlarge" level="3">
+									{sectionRoutinesIkkeGjennomfort}
+								</Heading>
+								<Detail>Seksjonsrutiner ikke gjennomført</Detail>
 							</VStack>
 						</Box>
 					</Link>
@@ -355,8 +371,14 @@ export default function SeksjonDashboard() {
 						kvartalsvis tilgangskontroll.
 					</BodyLong>
 					<BodyLong>
-						<strong>Rutiner ikke gjennomført</strong> viser totalt antall periodiske rutiner der fristen er overskredet.
-						Disse bør prioriteres av teamet.
+						<strong>Apprutiner ikke gjennomført</strong> viser totalt antall periodiske applikasjonsrutiner som mangler
+						gjennomgang i frekvensperioden, eller som aldri er gjennomført. Seksjonsrutiner er ikke inkludert i dette
+						tallet.
+					</BodyLong>
+					<BodyLong>
+						<strong>Seksjonsrutiner ikke gjennomført</strong> viser antall distinkte seksjonsrutiner som mangler
+						gjennomgang i frekvensperioden eller aldri er gjennomført. Seksjonsrutiner gjelder for hele seksjonen og
+						telles én gang — ikke per applikasjon.
 					</BodyLong>
 					<BodyLong>
 						<strong>Krever oppfølging</strong> viser antall applikasjoner der minst én rutinegjennomgang er fullført,

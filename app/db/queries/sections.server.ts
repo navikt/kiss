@@ -1494,6 +1494,74 @@ export async function getSectionIncompleteRoutines(sectionId: string): Promise<S
 }
 
 /**
+ * Counts distinct section routines (is_section_routine = 1) that are not completed
+ * within their frequency period, given a list of application IDs in the section.
+ * Section routines are reviewed once per section (application_id IS NULL),
+ * not per-app — so this returns a distinct routine count, not a per-app count.
+ *
+ * Accepts appIds to avoid redundant DB queries (callers typically pass
+ * getSectionDetail().allAppIds directly). Archived apps are filtered out
+ * inside the query via a join on monitored_applications.archived_at IS NULL.
+ */
+export async function countSectionRoutinesIncomplete(appIds: string[]): Promise<number> {
+	if (appIds.length === 0) return 0
+
+	const appIdsIn = sql.join(
+		appIds.map((id) => sql`${id}::uuid`),
+		sql`, `,
+	)
+
+	const result = await db.execute<{ count: number }>(sql`
+		WITH section_routines AS (
+			SELECT DISTINCT t.routine_id
+			FROM ${applicationControls} ac
+			JOIN ${monitoredApplications} ma
+				ON ma.id = ac.application_id
+				AND ma.archived_at IS NULL
+			CROSS JOIN UNNEST(ac.matching_routine_ids) AS t(routine_id)
+			JOIN ${routines} r
+				ON r.id = t.routine_id
+				AND r.is_section_routine = 1
+				AND r.frequency IS NOT NULL
+				AND r.archived_at IS NULL
+			WHERE ac.application_id IN (${appIdsIn})
+				AND ac.is_active = true
+		),
+		last_review AS (
+			SELECT DISTINCT ON (rr.routine_id)
+				rr.routine_id,
+				rr.reviewed_at
+			FROM ${routineReviews} rr
+			WHERE rr.application_id IS NULL
+				AND rr.status IN ('completed', 'needs_follow_up')
+			ORDER BY rr.routine_id, rr.reviewed_at DESC NULLS LAST
+		),
+		routine_status AS (
+			SELECT
+				sr.routine_id,
+				lr.reviewed_at AS last_review_date,
+				COALESCE(lr.reviewed_at, COALESCE(r.approved_at, r.created_at)) + CASE r.frequency
+					WHEN 'weekly'        THEN INTERVAL '7 days'
+					WHEN 'monthly'       THEN INTERVAL '30 days'
+					WHEN 'quarterly'     THEN INTERVAL '91 days'
+					WHEN 'tertially'     THEN INTERVAL '122 days'
+					WHEN 'semi_annually' THEN INTERVAL '182 days'
+					WHEN 'annually'      THEN INTERVAL '365 days'
+					ELSE NULL
+				END AS deadline
+			FROM section_routines sr
+			JOIN ${routines} r ON r.id = sr.routine_id
+			LEFT JOIN last_review lr ON lr.routine_id = sr.routine_id
+		)
+		SELECT COUNT(*)::int AS count
+		FROM routine_status
+		WHERE last_review_date IS NULL OR deadline IS NULL OR deadline < NOW()
+	`)
+
+	return result.rows[0]?.count ?? 0
+}
+
+/**
  * in the given section that are responsible for each app. Covers all three mapping paths:
  * 1. Direct applicationTeamMappings (appId → devTeamId)
  * 2. Via devTeamNaisTeamMappings join table (appId → naisTeamId → devTeamId)
