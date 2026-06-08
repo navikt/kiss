@@ -296,23 +296,26 @@ export async function searchUsers(query: string): Promise<UserSearchResult[]> {
 	}
 
 	try {
-		const token = await getClientCredentialToken(GRAPH_SCOPE)
-		const escaped = trimmed.replace(/'/g, "''")
-		const filterParts = [
-			`startswith(displayName,'${escaped}')`,
-			`startswith(givenName,'${escaped}')`,
-			`startswith(surname,'${escaped}')`,
-			`startswith(mail,'${escaped}')`,
-			`startswith(userPrincipalName,'${escaped}')`,
-		]
-		const filter = filterParts.join(" or ")
 		const url = new URL("https://graph.microsoft.com/v1.0/users")
-		url.searchParams.set("$filter", filter)
 		url.searchParams.set("$select", "id,displayName,mail,onPremisesSamAccountName,mailNickname")
 		url.searchParams.set("$top", "10")
-		url.searchParams.set("$orderby", "displayName")
 		url.searchParams.set("$count", "true")
 
+		if (/^[A-Za-z]\d{6}$/.test(trimmed)) {
+			const identUpper = trimmed.toUpperCase().replace(/'/g, "''")
+			const identLower = trimmed.toLowerCase().replace(/'/g, "''")
+			url.searchParams.set("$filter", `onPremisesSamAccountName eq '${identUpper}' or mailNickname eq '${identLower}'`)
+		} else {
+			const words = trimmed
+				.replace(/[^a-zA-Z0-9æøåÆØÅ]/g, " ")
+				.split(/\s+/)
+				.filter(Boolean)
+			if (words.length === 0) return []
+			const search = words.map((w) => `"displayName:${w}"`).join(" ")
+			url.searchParams.set("$search", search)
+		}
+
+		const token = await getClientCredentialToken(GRAPH_SCOPE)
 		const response = await loggedFetch(
 			url.toString(),
 			{ headers: { Authorization: `Bearer ${token}`, ConsistencyLevel: "eventual" } },
