@@ -276,6 +276,7 @@ export const auditLog = pgTable(
 	(table) => [
 		index("idx_audit_log_action_performed_at").on(table.action, table.performedAt.desc()),
 		index("idx_audit_log_entity_performed_at").on(table.entityType, table.entityId, table.performedAt.desc()),
+		index("idx_audit_log_entity_type_performed_at").on(table.entityType, table.performedAt.desc()),
 		index("idx_audit_log_sync_job_id").on(table.syncJobId, table.performedAt.desc()),
 		index("idx_audit_log_performed_at").on(table.performedAt.desc()),
 		foreignKey({
