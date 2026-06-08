@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import pg from "pg"
 import { inject } from "vitest"
@@ -79,4 +80,30 @@ export async function truncateWithRetry(tables: string[], maxRetries = 3): Promi
 			throw err
 		}
 	}
+}
+
+/**
+ * Setter inn en seksjon direkte i databasen uten å gå via createSection-forretningslogikken.
+ * Brukes i testoppsett der man trenger en seksjon uten å teste selve opprettingslogikken.
+ * Slug-algoritmen matcher generateSlug i sections.server.ts.
+ */
+export async function insertTestSection(
+	name: string,
+	description: string | null = null,
+	createdBy = "test",
+): Promise<{ id: string; name: string; slug: string }> {
+	const db = getTestDb()
+	const slug = name
+		.toLowerCase()
+		.replace(/[^a-z0-9\s-æøå]/g, "")
+		.replace(/æ/g, "ae")
+		.replace(/ø/g, "o")
+		.replace(/å/g, "a")
+		.replace(/\s+/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-|-$/g, "")
+	const r = await db.execute(
+		sql`INSERT INTO sections (name, slug, description, created_by, updated_by) VALUES (${name}, ${slug}, ${description}, ${createdBy}, ${createdBy}) RETURNING id, name, slug`,
+	)
+	return r.rows[0] as { id: string; name: string; slug: string }
 }

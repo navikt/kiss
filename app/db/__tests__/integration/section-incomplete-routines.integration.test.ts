@@ -20,7 +20,7 @@
  * - App routine (not section routine) → not counted
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, insertTestSection, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
 	get db() {
@@ -31,9 +31,10 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { createSection, createTeam, getSectionIncompleteRoutines, countSectionRoutinesIncomplete } = await import(
+const { createTeam, getSectionIncompleteRoutines, countSectionRoutinesIncomplete } = await import(
 	"~/db/queries/sections.server"
 )
+
 const { createRoutine } = await import("~/db/queries/routines.server")
 
 async function insertApp(name: string): Promise<string> {
@@ -132,7 +133,7 @@ beforeEach(async () => {
 
 describe("getSectionIncompleteRoutines", () => {
 	it("returns empty list when section has no apps", async () => {
-		const section = await createSection("Tom seksjon", null, "Z990001")
+		const section = await insertTestSection("Tom seksjon", null, "Z990001")
 
 		const result = await getSectionIncompleteRoutines(section.id)
 
@@ -140,7 +141,7 @@ describe("getSectionIncompleteRoutines", () => {
 	})
 
 	it("includes a periodic app routine that has never been reviewed", async () => {
-		const section = await createSection("Seksjon med rutine", null, "Z990001")
+		const section = await insertTestSection("Seksjon med rutine", null, "Z990001")
 		const team = await createTeam(section.id, "Team Elv", null, "Z990001")
 		const appId = await insertApp("Rask Elv App")
 		await linkAppToTeam(appId, team.id)
@@ -179,7 +180,7 @@ describe("getSectionIncompleteRoutines", () => {
 	})
 
 	it("excludes routines with frequency=null (event-only routines)", async () => {
-		const section = await createSection("Seksjon hendelse", null, "Z990001")
+		const section = await insertTestSection("Seksjon hendelse", null, "Z990001")
 		const team = await createTeam(section.id, "Team Fjord", null, "Z990001")
 		const appId = await insertApp("Stille Fjord App")
 		await linkAppToTeam(appId, team.id)
@@ -215,7 +216,7 @@ describe("getSectionIncompleteRoutines", () => {
 	})
 
 	it("excludes routines reviewed within the frequency period", async () => {
-		const section = await createSection("Seksjon nylig gjennomgått", null, "Z990001")
+		const section = await insertTestSection("Seksjon nylig gjennomgått", null, "Z990001")
 		const team = await createTeam(section.id, "Team Skog", null, "Z990001")
 		const appId = await insertApp("Glad Skog App")
 		await linkAppToTeam(appId, team.id)
@@ -255,7 +256,7 @@ describe("getSectionIncompleteRoutines", () => {
 	})
 
 	it("includes routines reviewed outside the frequency period (overdue)", async () => {
-		const section = await createSection("Seksjon forfalt", null, "Z990001")
+		const section = await insertTestSection("Seksjon forfalt", null, "Z990001")
 		const team = await createTeam(section.id, "Team Bjørk", null, "Z990001")
 		const appId = await insertApp("Modig Bjørk App")
 		await linkAppToTeam(appId, team.id)
@@ -297,7 +298,7 @@ describe("getSectionIncompleteRoutines", () => {
 	})
 
 	it("includes section routine never reviewed and marks isSectionRoutine=true", async () => {
-		const section = await createSection("Seksjon seksjonsrutine", null, "Z990001")
+		const section = await insertTestSection("Seksjon seksjonsrutine", null, "Z990001")
 		const team = await createTeam(section.id, "Team Vind", null, "Z990001")
 		const appId = await insertApp("Frisk Vind App")
 		await linkAppToTeam(appId, team.id)
@@ -335,7 +336,7 @@ describe("getSectionIncompleteRoutines", () => {
 	})
 
 	it("excludes routines not in application_controls cache", async () => {
-		const section = await createSection("Seksjon ikke i cache", null, "Z990001")
+		const section = await insertTestSection("Seksjon ikke i cache", null, "Z990001")
 		const team = await createTeam(section.id, "Team Sol", null, "Z990001")
 		const appId = await insertApp("Sterk Sol App")
 		await linkAppToTeam(appId, team.id)
@@ -376,7 +377,7 @@ describe("countSectionRoutinesIncomplete", () => {
 	})
 
 	it("counts a section routine that has never been reviewed", async () => {
-		const section = await createSection("Tyst Fjord Seksjon", null, "Z990001")
+		const section = await insertTestSection("Tyst Fjord Seksjon", null, "Z990001")
 		const team = await createTeam(section.id, "Team Fjord", null, "Z990001")
 		const appId = await insertApp("Stille Fjord App")
 		await linkAppToTeam(appId, team.id)
@@ -409,7 +410,7 @@ describe("countSectionRoutinesIncomplete", () => {
 	})
 
 	it("counts the same section routine only once when it matches via multiple apps", async () => {
-		const section = await createSection("Grønn Dal Seksjon", null, "Z990001")
+		const section = await insertTestSection("Grønn Dal Seksjon", null, "Z990001")
 		const team = await createTeam(section.id, "Team Dal", null, "Z990001")
 		const appId1 = await insertApp("Grønn Dal App 1")
 		const appId2 = await insertApp("Grønn Dal App 2")
@@ -448,7 +449,7 @@ describe("countSectionRoutinesIncomplete", () => {
 	})
 
 	it("excludes a section routine reviewed within the frequency period", async () => {
-		const section = await createSection("Blå Topp Seksjon", null, "Z990001")
+		const section = await insertTestSection("Blå Topp Seksjon", null, "Z990001")
 		const team = await createTeam(section.id, "Team Topp", null, "Z990001")
 		const appId = await insertApp("Blå Topp App")
 		await linkAppToTeam(appId, team.id)
@@ -486,7 +487,7 @@ describe("countSectionRoutinesIncomplete", () => {
 	})
 
 	it("does not count app routines (only section routines)", async () => {
-		const section = await createSection("Rask Skog Seksjon", null, "Z990001")
+		const section = await insertTestSection("Rask Skog Seksjon", null, "Z990001")
 		const team = await createTeam(section.id, "Team Skog", null, "Z990001")
 		const appId = await insertApp("Rask Skog App")
 		await linkAppToTeam(appId, team.id)

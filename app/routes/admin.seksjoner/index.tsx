@@ -1,19 +1,8 @@
-import {
-	Alert,
-	BodyLong,
-	Button,
-	Heading,
-	HStack,
-	Modal,
-	Table,
-	Tag,
-	Textarea,
-	TextField,
-	VStack,
-} from "@navikt/ds-react"
-import { useRef, useState } from "react"
+import { Alert, BodyLong, Button, Heading, HStack, Modal, Table, Tag, VStack } from "@navikt/ds-react"
+import { useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
+import { OpprettSeksjonModal } from "~/components/OpprettSeksjonModal"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRecentAuditLog } from "~/db/queries/audit.server"
 import {
@@ -22,7 +11,6 @@ import {
 	getSections,
 	getTeamsForSection,
 	unarchiveSection,
-	updateSection,
 } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
@@ -84,25 +72,72 @@ export async function action({ request }: ActionFunctionArgs) {
 	const intent = formData.get("intent")
 
 	switch (intent) {
-		case "create-section": {
+		case "create-section-with-leaders": {
 			const name = formData.get("name")
 			const description = formData.get("description")
+			const sectionLeaderRaw = formData.get("sectionLeader")
+			const techLeadRaw = formData.get("techLead")
+
 			if (typeof name !== "string" || !name.trim()) {
 				return data<ActionResult>({ success: false, error: "Navn er påkrevd." })
 			}
-			await createSection(name.trim(), typeof description === "string" ? description.trim() || null : null, userId)
-			return data<ActionResult>({ success: true, message: `Seksjon «${name.trim()}» opprettet.` })
-		}
-
-		case "update-section": {
-			const id = formData.get("id")
-			const name = formData.get("name")
-			const description = formData.get("description")
-			if (typeof id !== "string" || typeof name !== "string" || !name.trim()) {
-				return data<ActionResult>({ success: false, error: "Mangler påkrevde felt." })
+			if (typeof sectionLeaderRaw !== "string" || !sectionLeaderRaw.trim()) {
+				return data<ActionResult>({ success: false, error: "Seksjonsleder er påkrevd." })
 			}
-			await updateSection(id, name.trim(), typeof description === "string" ? description.trim() || null : null, userId)
-			return data<ActionResult>({ success: true, message: `Seksjon «${name.trim()}» oppdatert.` })
+			if (typeof techLeadRaw !== "string" || !techLeadRaw.trim()) {
+				return data<ActionResult>({ success: false, error: "Teknologileder er påkrevd." })
+			}
+
+			const isPersonRef = (v: unknown): v is { navIdent: string; displayName: string } =>
+				typeof v === "object" &&
+				v !== null &&
+				!Array.isArray(v) &&
+				typeof (v as Record<string, unknown>).navIdent === "string" &&
+				typeof (v as Record<string, unknown>).displayName === "string" &&
+				((v as Record<string, unknown>).navIdent as string).trim().length > 0 &&
+				((v as Record<string, unknown>).displayName as string).trim().length > 0
+
+			let sectionLeaderParsed: unknown
+			let techLeadParsed: unknown
+			try {
+				sectionLeaderParsed = JSON.parse(sectionLeaderRaw)
+				techLeadParsed = JSON.parse(techLeadRaw)
+			} catch {
+				return data<ActionResult>({ success: false, error: "Ugyldig persondata. Last siden på nytt og prøv igjen." })
+			}
+
+			if (!isPersonRef(sectionLeaderParsed)) {
+				return data<ActionResult>({ success: false, error: "Seksjonsleder er påkrevd." })
+			}
+			if (!isPersonRef(techLeadParsed)) {
+				return data<ActionResult>({ success: false, error: "Teknologileder er påkrevd." })
+			}
+
+			const sectionLeader = {
+				navIdent: sectionLeaderParsed.navIdent.trim().toUpperCase(),
+				displayName: sectionLeaderParsed.displayName.trim(),
+			}
+			const techLead = {
+				navIdent: techLeadParsed.navIdent.trim().toUpperCase(),
+				displayName: techLeadParsed.displayName.trim(),
+			}
+
+			const result = await createSection({
+				name: name.trim(),
+				description: typeof description === "string" ? description.trim() || null : null,
+				sectionLeader,
+				techLead,
+				createdBy: userId,
+			})
+
+			if (result.conflict) {
+				return data<ActionResult>({
+					success: false,
+					error: `En seksjon med identisk navn eller URL-segment finnes allerede. Velg et annet navn.`,
+				})
+			}
+
+			return data<ActionResult>({ success: true, message: `Seksjon «${name.trim()}» opprettet.` })
 		}
 
 		case "archive-section": {
@@ -126,39 +161,6 @@ export async function action({ request }: ActionFunctionArgs) {
 		default:
 			return data<ActionResult>({ success: false, error: "Ugyldig handling." })
 	}
-}
-
-function EditSectionModal({
-	section,
-	open,
-	onClose,
-}: {
-	section: SectionWithTeams
-	open: boolean
-	onClose: () => void
-}) {
-	return (
-		<Modal open={open} onClose={onClose} header={{ heading: `Rediger seksjon: ${section.name}` }}>
-			<Modal.Body>
-				<Form method="post" onSubmit={onClose}>
-					<input type="hidden" name="intent" value="update-section" />
-					<input type="hidden" name="id" value={section.id} />
-					<VStack gap="space-6">
-						<TextField label="Navn" name="name" defaultValue={section.name} />
-						<Textarea label="Beskrivelse" name="description" defaultValue={section.description ?? ""} />
-						<HStack gap="space-4">
-							<Button type="submit" variant="primary">
-								Lagre
-							</Button>
-							<Button type="button" variant="tertiary" onClick={onClose}>
-								Avbryt
-							</Button>
-						</HStack>
-					</VStack>
-				</Form>
-			</Modal.Body>
-		</Modal>
-	)
 }
 
 function ConfirmModal({
@@ -203,7 +205,6 @@ function ConfirmModal({
 }
 
 function SectionCard({ section }: { section: SectionWithTeams }) {
-	const [editSectionOpen, setEditSectionOpen] = useState(false)
 	const [archiveOpen, setArchiveOpen] = useState(false)
 	const isArchived = section.archivedAt !== null
 
@@ -242,8 +243,6 @@ function SectionCard({ section }: { section: SectionWithTeams }) {
 				</HStack>
 			</HStack>
 
-			<EditSectionModal section={section} open={editSectionOpen} onClose={() => setEditSectionOpen(false)} />
-
 			<ConfirmModal
 				open={archiveOpen}
 				onClose={() => setArchiveOpen(false)}
@@ -277,14 +276,21 @@ const actionLabels: Record<string, string> = {
 export default function AdminSeksjoner() {
 	const { sections, auditEntries } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
-	const sectionFormRef = useRef<HTMLFormElement>(null)
+	const [opprettOpen, setOpprettOpen] = useState(false)
 
 	return (
 		<VStack gap="space-6">
-			<Heading size="xlarge" level="2">
-				Administrer seksjoner
-			</Heading>
-			<BodyLong>Opprett, rediger og arkiver seksjoner og utviklingsteam.</BodyLong>
+			<HStack justify="space-between" align="center">
+				<Heading size="xlarge" level="2">
+					Administrer seksjoner
+				</Heading>
+				<Button variant="primary" onClick={() => setOpprettOpen(true)}>
+					Opprett seksjon
+				</Button>
+			</HStack>
+			<BodyLong>Rediger og arkiver seksjoner og utviklingsteam.</BodyLong>
+
+			{opprettOpen && <OpprettSeksjonModal open onClose={() => setOpprettOpen(false)} />}
 
 			{actionData && "success" in actionData && actionData.success && (
 				<Alert variant="success">{actionData.message}</Alert>
@@ -292,30 +298,6 @@ export default function AdminSeksjoner() {
 			{actionData && "success" in actionData && !actionData.success && (
 				<Alert variant="error">{actionData.error}</Alert>
 			)}
-
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Opprett ny seksjon
-				</Heading>
-				<Form
-					method="post"
-					ref={sectionFormRef}
-					onSubmit={() => {
-						setTimeout(() => sectionFormRef.current?.reset(), 0)
-					}}
-				>
-					<input type="hidden" name="intent" value="create-section" />
-					<VStack gap="space-4">
-						<TextField label="Seksjonsnavn" name="name" />
-						<Textarea label="Beskrivelse" name="description" />
-						<div>
-							<Button type="submit" variant="primary">
-								Opprett seksjon
-							</Button>
-						</div>
-					</VStack>
-				</Form>
-			</VStack>
 
 			{sections.length > 0 && (
 				<VStack gap="space-6">
@@ -328,7 +310,7 @@ export default function AdminSeksjoner() {
 				</VStack>
 			)}
 
-			{sections.length === 0 && <BodyLong>Ingen seksjoner funnet. Opprett en ny seksjon ovenfor.</BodyLong>}
+			{sections.length === 0 && <BodyLong>Ingen seksjoner funnet.</BodyLong>}
 
 			{auditEntries.length > 0 && (
 				<VStack gap="space-4">

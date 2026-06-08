@@ -1,22 +1,38 @@
-import { BodyLong, Heading, HGrid, VStack } from "@navikt/ds-react"
+import { BodyLong, Button, Heading, HGrid, HStack, VStack } from "@navikt/ds-react"
+import { useState } from "react"
+import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
+import { OpprettSeksjonModal } from "~/components/OpprettSeksjonModal"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSections } from "~/db/queries/sections.server"
+import { getAuthenticatedUser } from "~/lib/auth.server"
+import { isAdmin } from "~/lib/authorization.server"
 
-export async function loader() {
+export async function loader({ request }: LoaderFunctionArgs) {
+	const user = await getAuthenticatedUser(request)
 	const sections = await getSections()
-	return data({ sections })
+	return data({ sections, canCreateSection: user !== null && isAdmin(user) })
 }
 
 export default function Seksjoner() {
-	const { sections } = useLoaderData<typeof loader>()
+	const { sections, canCreateSection } = useLoaderData<typeof loader>()
+	const [opprettOpen, setOpprettOpen] = useState(false)
 
 	return (
 		<VStack gap="space-6">
-			<Heading size="xlarge" level="2">
-				Seksjoner
-			</Heading>
+			<HStack justify="space-between" align="center">
+				<Heading size="xlarge" level="2">
+					Seksjoner
+				</Heading>
+				{canCreateSection && (
+					<Button variant="primary" onClick={() => setOpprettOpen(true)}>
+						Opprett seksjon
+					</Button>
+				)}
+			</HStack>
 			<BodyLong>Oversikt over seksjoner, klynger og utviklingsteam.</BodyLong>
+
+			{canCreateSection && opprettOpen && <OpprettSeksjonModal open onClose={() => setOpprettOpen(false)} />}
 
 			{sections.length > 0 ? (
 				<HGrid gap="space-6" columns={{ xs: 1, sm: 2, md: 3 }}>
