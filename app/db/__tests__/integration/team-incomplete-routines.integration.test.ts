@@ -8,7 +8,7 @@
  * - Non-periodic (frequency = null) routine → excluded from deadlines
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, insertTestSection, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
 	get db() {
@@ -19,7 +19,8 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { createSection, createTeam, getTeamIncompleteRoutines } = await import("~/db/queries/sections.server")
+const { createTeam, getTeamIncompleteRoutines } = await import("~/db/queries/sections.server")
+
 const { createRoutine } = await import("~/db/queries/routines.server")
 
 describe("getTeamIncompleteRoutines", () => {
@@ -65,7 +66,7 @@ describe("getTeamIncompleteRoutines", () => {
 	})
 
 	it("returns empty deadlines for a team with no apps", async () => {
-		const section = await createSection("Tom team-seksjon", null, "test")
+		const section = await insertTestSection("Tom team-seksjon", null, "test")
 		const team = await createTeam(section.id, "Tom team", null, "test")
 
 		const result = await getTeamIncompleteRoutines(team.slug)
@@ -76,7 +77,7 @@ describe("getTeamIncompleteRoutines", () => {
 	})
 
 	it("includes a periodic section routine never reviewed in deadlines", async () => {
-		const section = await createSection("Seksjon med rutine", null, "test")
+		const section = await insertTestSection("Seksjon med rutine", null, "test")
 		const team = await createTeam(section.id, "Team med app", null, "test")
 
 		const db = getTestDb()
@@ -118,7 +119,7 @@ describe("getTeamIncompleteRoutines", () => {
 	})
 
 	it("excludes routines with no frequency (event-only routines)", async () => {
-		const section = await createSection("Seksjon hendelsesrutine", null, "test")
+		const section = await insertTestSection("Seksjon hendelsesrutine", null, "test")
 		const team = await createTeam(section.id, "Team hendelse", null, "test")
 
 		const db = getTestDb()

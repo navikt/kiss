@@ -1,6 +1,6 @@
 import assert from "node:assert"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, insertTestSection, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
 	get db() {
@@ -64,23 +64,8 @@ describe("sections.server integration tests", () => {
 	})
 
 	describe("Section CRUD", () => {
-		it("creates a section with a generated slug and audit log entry", async () => {
-			const section = await createSection("Plattform & Sikkerhet", "Beskrivelse", "admin")
-			expect(section.name).toBe("Plattform & Sikkerhet")
-			expect(section.slug).toBeDefined()
-			expect(section.slug.length).toBeGreaterThan(0)
-
-			const audit = await getAuditByEntity("section", section.id)
-			expect(audit).toHaveLength(1)
-			expect(audit[0]).toMatchObject({
-				action: "section_created",
-				new_value: "Plattform & Sikkerhet",
-				performed_by: "admin",
-			})
-		})
-
 		it("updates a section name and description with audit log", async () => {
-			const section = await createSection("Original", "Old desc", "admin")
+			const section = await insertTestSection("Original", "Old desc", "admin")
 			const updated = await updateSection(section.id, "Renamed", "New desc", "editor")
 
 			expect(updated.name).toBe("Renamed")
@@ -93,7 +78,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("archives a section instead of deleting it (soft-delete)", async () => {
-			const section = await createSection("To Archive", null, "admin")
+			const section = await insertTestSection("To Archive", null, "admin")
 			await createTeam(section.id, "Team A", null, "admin")
 			await createTeam(section.id, "Team B", null, "admin")
 
@@ -116,8 +101,8 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("excludes archived sections from getSections() by default", async () => {
-			const active = await createSection("Active Section", null, "admin")
-			const toArchive = await createSection("Archived Section", null, "admin")
+			const active = await insertTestSection("Active Section", null, "admin")
+			const toArchive = await insertTestSection("Archived Section", null, "admin")
 			await archiveSection(toArchive.id, "admin")
 
 			const visible = await getSections()
@@ -129,7 +114,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("reactivates an archived section", async () => {
-			const section = await createSection("Will return", null, "admin")
+			const section = await insertTestSection("Will return", null, "admin")
 			await archiveSection(section.id, "admin")
 			const reactivated = await unarchiveSection(section.id, "reactivator")
 
@@ -141,7 +126,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("rejects raw deletion of a section that has dev teams (FK RESTRICT)", async () => {
-			const section = await createSection("Protected", null, "admin")
+			const section = await insertTestSection("Protected", null, "admin")
 			await createTeam(section.id, "Has team", null, "admin")
 
 			const db = getTestDb()
@@ -153,7 +138,7 @@ describe("sections.server integration tests", () => {
 
 		it("avviser kobling av nais-team til arkivert seksjon (linkNaisTeamToSection)", async () => {
 			const { linkNaisTeamToSection } = await import("~/db/queries/nais.server")
-			const section = await createSection("Arkivert link", null, "admin")
+			const section = await insertTestSection("Arkivert link", null, "admin")
 			await archiveSection(section.id, "admin")
 
 			const db = getTestDb()
@@ -169,7 +154,7 @@ describe("sections.server integration tests", () => {
 
 		it("kaster og logger ikke audit hvis nais-team-slug ikke finnes", async () => {
 			const { linkNaisTeamToSection } = await import("~/db/queries/nais.server")
-			const section = await createSection("Aktiv", null, "admin")
+			const section = await insertTestSection("Aktiv", null, "admin")
 			const db = getTestDb()
 
 			await expect(linkNaisTeamToSection("does-not-exist", section.id, "admin")).rejects.toThrow(/finnes ikke/)
@@ -183,7 +168,7 @@ describe("sections.server integration tests", () => {
 
 	describe("Team CRUD", () => {
 		it("creates a team in a section with audit log", async () => {
-			const section = await createSection("Sec", null, "admin")
+			const section = await insertTestSection("Sec", null, "admin")
 			const team = await createTeam(section.id, "Team Alfa", "Beskrivelse", "admin")
 
 			expect(team.name).toBe("Team Alfa")
@@ -195,7 +180,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("updates a team and writes audit log", async () => {
-			const section = await createSection("Sec", null, "admin")
+			const section = await insertTestSection("Sec", null, "admin")
 			const team = await createTeam(section.id, "Old name", null, "admin")
 			const updated = await updateTeam(team.id, "New name", "Beskr", "editor")
 
@@ -207,7 +192,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("archives a team and reactivates it (idempotent + atomic + audit-in-tx)", async () => {
-			const section = await createSection("Sec", null, "admin")
+			const section = await insertTestSection("Sec", null, "admin")
 			const team = await createTeam(section.id, "Doomed", null, "admin")
 			const archived = await archiveTeam(team.id, "archiver")
 			expect(archived.archivedAt).toBeInstanceOf(Date)
@@ -243,7 +228,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("rejects updateTeam on an archived team", async () => {
-			const section = await createSection("Sec", null, "admin")
+			const section = await insertTestSection("Sec", null, "admin")
 			const team = await createTeam(section.id, "Frozen", null, "admin")
 			await archiveTeam(team.id, "admin")
 			await expect(updateTeam(team.id, "Tine", null, "admin")).rejects.toThrow(/arkivert/i)
@@ -256,7 +241,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("hard delete on dev_teams is blocked by FK RESTRICT (cannot remove team with mappings)", async () => {
-			const section = await createSection("Sec", null, "admin")
+			const section = await insertTestSection("Sec", null, "admin")
 			const team = await createTeam(section.id, "Linked", null, "admin")
 			const db = getTestDb()
 			// Insert a nais_team that references the dev_team to force FK RESTRICT
@@ -267,7 +252,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("returns teams for a section ordered by name", async () => {
-			const section = await createSection("Sec", null, "admin")
+			const section = await insertTestSection("Sec", null, "admin")
 			await createTeam(section.id, "Zulu", null, "admin")
 			await createTeam(section.id, "Alpha", null, "admin")
 
@@ -278,7 +263,7 @@ describe("sections.server integration tests", () => {
 
 		it("returns linkedNaisTeams for teams with active mappings and filters archived", async () => {
 			const db = getTestDb()
-			const section = await createSection("Sec", null, "admin")
+			const section = await insertTestSection("Sec", null, "admin")
 			const teamA = await createTeam(section.id, "TeamA", null, "admin")
 			const teamB = await createTeam(section.id, "TeamB", null, "admin")
 
@@ -378,7 +363,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("returns section with 0 dev teams but includes unassigned NAIS team apps", async () => {
-			const section = await createSection("Empty Section", "No teams", "admin")
+			const section = await insertTestSection("Empty Section", "No teams", "admin")
 			const naisTeam = await createNaisTeam("nais-team-1", section.id)
 			const app = await createApp("nais-app-1")
 			await createEnv(app.id, "prod-gcp", "team1", naisTeam.id)
@@ -391,7 +376,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("includes apps from direct team mappings", async () => {
-			const section = await createSection("Direct Section", "Desc", "admin")
+			const section = await insertTestSection("Direct Section", "Desc", "admin")
 			const team = await createTeam(section.id, "Team Alpha", "team-alpha", "admin")
 			const app = await createApp("direct-app")
 			await createEnv(app.id, "prod-gcp", "ns", undefined)
@@ -405,7 +390,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("includes apps from linked NAIS teams", async () => {
-			const section = await createSection("Nais Section", "Desc", "admin")
+			const section = await insertTestSection("Nais Section", "Desc", "admin")
 			const team = await createTeam(section.id, "Team Beta", "team-beta", "admin")
 			const naisTeam = await createNaisTeam("nais-linked", section.id)
 			await createNaisTeamMapping(team.id, naisTeam.id)
@@ -420,7 +405,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("filters out ignored apps from NAIS-derived sets and unassigned", async () => {
-			const section = await createSection("Ignored Section", "Desc", "admin")
+			const section = await insertTestSection("Ignored Section", "Desc", "admin")
 			const naisTeam = await createNaisTeam("nais-ignored", section.id)
 			const team = await createTeam(section.id, "Team Gamma", "team-gamma", "admin")
 			await createNaisTeamMapping(team.id, naisTeam.id)
@@ -439,7 +424,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("excludes apps whose only environments are in excluded clusters", async () => {
-			const section = await createSection("Excluded Env Section", "Desc", "admin")
+			const section = await insertTestSection("Excluded Env Section", "Desc", "admin")
 			const team = await createTeam(section.id, "Team Delta", "team-delta", "admin")
 			await excludeEnv(section.id, "dev-gcp")
 
@@ -460,7 +445,7 @@ describe("sections.server integration tests", () => {
 		})
 
 		it("does not double-count apps shared across multiple teams", async () => {
-			const section = await createSection("Shared Section", "Desc", "admin")
+			const section = await insertTestSection("Shared Section", "Desc", "admin")
 			const teamA = await createTeam(section.id, "Team A", "team-a", "admin")
 			const teamB = await createTeam(section.id, "Team B", "team-b", "admin")
 			const app = await createApp("shared-app")
@@ -478,5 +463,139 @@ describe("sections.server integration tests", () => {
 			// sectionTotals counts per unique app, not per team assignment
 			expect(result.sectionTotals.apps).toBe(1)
 		})
+	})
+})
+
+// ─── createSection ───────────────────────────────────────────────────────────────
+
+describe("createSection integration tests", () => {
+	beforeAll(async () => {
+		await setupTestDatabase()
+	}, 120_000)
+
+	afterAll(async () => {
+		await teardownTestDatabase()
+	})
+
+	beforeEach(async () => {
+		const db = getTestDb()
+		await db.execute(/* sql */ `
+			DELETE FROM section_ignored_applications;
+			DELETE FROM section_environments;
+			DELETE FROM application_team_mappings;
+			DELETE FROM application_environments;
+			DELETE FROM dev_team_nais_team_mappings;
+			DELETE FROM monitored_applications;
+			DELETE FROM nais_teams;
+			DELETE FROM dev_teams;
+			DELETE FROM user_roles;
+			DELETE FROM users;
+			DELETE FROM sections;
+			DELETE FROM audit_log;
+		`)
+	})
+
+	it("oppretter seksjon med seksjonsleder, teknologileder og audit-logg i én transaksjon", async () => {
+		const result = await createSection({
+			name: "Plattform og Sikkerhet",
+			description: "En testseksjon",
+			sectionLeader: { navIdent: "Z990001", displayName: "Glad Fjord" },
+			techLead: { navIdent: "Z990002", displayName: "Rask Elv" },
+			createdBy: "Z990099",
+		})
+
+		assert(!result.conflict, "Forventet ingen slug-konflikt")
+		expect(result.section.name).toBe("Plattform og Sikkerhet")
+		expect(result.section.slug).toBe("plattform-og-sikkerhet")
+		expect(result.section.description).toBe("En testseksjon")
+		expect(result.section.createdBy).toBe("Z990099")
+
+		const db = getTestDb()
+
+		// Verifiser roller
+		const roles = await db.execute(/* sql */ `
+			SELECT u.nav_ident, ur.role, ur.section_id
+			FROM user_roles ur
+			JOIN users u ON ur.user_id = u.id
+			WHERE ur.section_id = '${result.section.id}'
+			ORDER BY ur.role
+		`)
+		type RoleRow = { nav_ident: string; role: string; section_id: string }
+		const roleRows = roles.rows as RoleRow[]
+		expect(roleRows).toHaveLength(2)
+		const manager = roleRows.find((r) => r.role === "section_manager")
+		const tech = roleRows.find((r) => r.role === "tech_manager")
+		expect(manager?.nav_ident).toBe("Z990001")
+		expect(tech?.nav_ident).toBe("Z990002")
+
+		// Verifiser audit-logg: section_created + 2x user_role_granted
+		const audit = await db.execute(/* sql */ `
+			SELECT action FROM audit_log ORDER BY performed_at
+		`)
+		const actions = (audit.rows as { action: string }[]).map((r) => r.action)
+		expect(actions).toContain("section_created")
+		expect(actions.filter((a) => a === "user_role_granted")).toHaveLength(2)
+	})
+
+	it("returnerer conflict: true ved slug-kollisjon", async () => {
+		// Opprett første seksjon
+		const first = await createSection({
+			name: "Samme Navn",
+			description: null,
+			sectionLeader: { navIdent: "Z990001", displayName: "Glad Fjord" },
+			techLead: { navIdent: "Z990002", displayName: "Rask Elv" },
+			createdBy: "Z990099",
+		})
+		assert(!first.conflict)
+
+		// Forsøk å opprette seksjon med identisk slug
+		const second = await createSection({
+			name: "Samme Navn",
+			description: null,
+			sectionLeader: { navIdent: "Z990003", displayName: "Stille Skog" },
+			techLead: { navIdent: "Z990004", displayName: "Modig Bjørk" },
+			createdBy: "Z990099",
+		})
+
+		expect(second.conflict).toBe(true)
+		if (second.conflict) {
+			expect(second.field).toBe("slug")
+		}
+
+		// Ingen halvferdige roller eller seksjoner skal ha blitt opprettet
+		const db = getTestDb()
+		const sections = await db.execute(/* sql */ `SELECT count(*) as n FROM sections`)
+		expect(Number((sections.rows[0] as { n: string }).n)).toBe(1)
+	})
+
+	it("ruller tilbake hele transaksjonen ved slug-konflikt — ingen halvferdig seksjon, roller eller audit", async () => {
+		// Verifiserer at en slug-konflikt ikke etterlater halvferdig data:
+		// seksjonen fra det feilende kallet skal ikke finnes, og heller
+		// ingen roller eller audit-rader fra det kallet skal opprettes.
+		const result = await createSection({
+			name: "Atomisk Test",
+			description: null,
+			sectionLeader: { navIdent: "Z990001", displayName: "Glad Fjord" },
+			techLead: { navIdent: "Z990002", displayName: "Rask Elv" },
+			createdBy: "Z990099",
+		})
+		assert(!result.conflict)
+
+		const conflict = await createSection({
+			name: "Atomisk Test",
+			description: null,
+			sectionLeader: { navIdent: "Z990003", displayName: "Stille Skog" },
+			techLead: { navIdent: "Z990004", displayName: "Modig Bjørk" },
+			createdBy: "Z990099",
+		})
+		expect(conflict.conflict).toBe(true)
+
+		const db = getTestDb()
+		const roles = await db.execute(/* sql */ `SELECT count(*) as n FROM user_roles`)
+		// Kun rollene fra første suksessfulle opprettelse (2 stk)
+		expect(Number((roles.rows[0] as { n: string }).n)).toBe(2)
+
+		const auditRows = await db.execute(/* sql */ `SELECT count(*) as n FROM audit_log WHERE action = 'section_created'`)
+		expect(Number((auditRows.rows[0] as { n: string }).n)).toBe(1)
 	})
 })

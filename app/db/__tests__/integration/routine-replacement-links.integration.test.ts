@@ -14,7 +14,7 @@
  * - Is idempotent (safe to call multiple times)
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, insertTestSection, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
 	get db() {
@@ -34,7 +34,7 @@ const {
 	getLatestReviewForApp,
 	getLatestSectionReview,
 } = await import("~/db/queries/routines.server")
-const { createSection } = await import("~/db/queries/sections.server")
+
 const applicationControlsModule = await import("~/db/queries/application-controls.server")
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -225,7 +225,7 @@ describe("routine replacement link propagation", () => {
 			DELETE FROM sections;
 			DELETE FROM audit_log;
 		`)
-		sectionId = (await createSection("Test Section", null, "Z990001")).id
+		sectionId = (await insertTestSection("Test Section", null, "Z990001")).id
 		appId = await createTestApp("Test App")
 		controlId = await createFrameworkControl()
 	})

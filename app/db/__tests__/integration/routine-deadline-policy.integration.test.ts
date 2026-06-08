@@ -5,7 +5,7 @@
  * when a routine replaces an existing routine (has sourceRoutineId).
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
+import { getTestDb, getTestPool, insertTestSection, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
 	get db() {
@@ -19,7 +19,6 @@ vi.mock("~/db/connection.server", () => ({
 // Import AFTER mocking
 const { createRoutine, copyRoutine, replaceRoutine, getEffectiveLastReviewDate, getSectionRoutinesForSection } =
 	await import("~/db/queries/routines.server")
-const { createSection } = await import("~/db/queries/sections.server")
 
 async function createTestApp(name: string, sectionId: string) {
 	const db = getTestDb()
@@ -86,7 +85,7 @@ DELETE FROM sections;
 	})
 
 	it("should return null for routine without sourceRoutineId", async () => {
-		const section = await createSection("Test Section", null, "Z990001")
+		const section = await insertTestSection("Test Section", null, "Z990001")
 		const appId = await createTestApp("Test App", section.id)
 		const routine = await createRoutine({
 			sectionId: section.id,
@@ -113,7 +112,7 @@ DELETE FROM sections;
 	})
 
 	it('should inherit old routine review when deadlinePolicy is "continue"', async () => {
-		const section = await createSection("Test Section", null, "Z990001")
+		const section = await insertTestSection("Test Section", null, "Z990001")
 		const appId = await createTestApp("Test App", section.id)
 
 		// Create old routine with a review
@@ -167,7 +166,7 @@ DELETE FROM sections;
 	})
 
 	it('should NOT inherit old routine review when deadlinePolicy is "reset"', async () => {
-		const section = await createSection("Test Section", null, "Z990001")
+		const section = await insertTestSection("Test Section", null, "Z990001")
 		const appId = await createTestApp("Test App", section.id)
 
 		// Create old routine with a review
@@ -223,7 +222,7 @@ DELETE FROM sections;
 	})
 
 	it("should handle transitive chain V3→V2→V1 with continue policy", async () => {
-		const section = await createSection("Test Section", null, "Z990001")
+		const section = await insertTestSection("Test Section", null, "Z990001")
 		const appId = await createTestApp("Test App", section.id)
 
 		// Create V1 with a review
@@ -272,7 +271,7 @@ DELETE FROM sections;
 	})
 
 	it('should stop at "reset" in transitive chain V3→V2→V1', async () => {
-		const section = await createSection("Test Section", null, "Z990001")
+		const section = await insertTestSection("Test Section", null, "Z990001")
 		const appId = await createTestApp("Test App", section.id)
 
 		// Create V1 with a review
@@ -325,7 +324,7 @@ DELETE FROM sections;
 	})
 
 	it('getSectionRoutinesForSection: section routine with "continue" inherits archived source review', async () => {
-		const section = await createSection("Test Section", null, "Z990001")
+		const section = await insertTestSection("Test Section", null, "Z990001")
 
 		const oldRoutine = await createRoutine({
 			sectionId: section.id,
@@ -371,7 +370,7 @@ VALUES ('${oldRoutine.id}', NULL, 'Section Review', '${oldReviewDate.toISOString
 	})
 
 	it("getSectionRoutinesForSection: uses own review after new routine is reviewed (not locked to old)", async () => {
-		const section = await createSection("Test Section", null, "Z990001")
+		const section = await insertTestSection("Test Section", null, "Z990001")
 
 		const oldRoutine = await createRoutine({
 			sectionId: section.id,
@@ -422,7 +421,7 @@ VALUES ('${newRoutine.id}', NULL, 'New Review', '${newReviewDate.toISOString()}'
 	})
 
 	it('getSectionRoutinesForSection: "reset" policy stops chain, uses own review only', async () => {
-		const section = await createSection("Test Section", null, "Z990001")
+		const section = await insertTestSection("Test Section", null, "Z990001")
 
 		const oldRoutine = await createRoutine({
 			sectionId: section.id,
