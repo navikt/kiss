@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { auditLog } from "~/db/schema/audit"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
@@ -10,9 +11,8 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { writeAuditLog, getAuditLogForEntity, getRecentAuditLog, getAuditLogByAction } = await import(
-	"~/db/queries/audit.server"
-)
+const { writeAuditLog, getAuditLogForEntity, getRecentAuditLog, getAuditLogByAction, getRecentAuditLogByEntityTypes } =
+	await import("~/db/queries/audit.server")
 
 describe("Audit log integration tests", () => {
 	beforeAll(async () => {
@@ -143,6 +143,77 @@ describe("Audit log integration tests", () => {
 		const teamLogs = await getAuditLogByAction("team_created")
 		expect(teamLogs).toHaveLength(2)
 		expect(teamLogs.every((l) => l.action === "team_created")).toBe(true)
+	})
+
+	describe("getRecentAuditLogByEntityTypes", () => {
+		it("should return only entries matching the given entity types", async () => {
+			await writeAuditLog({ action: "section_created", entityType: "section", entityId: "s1", performedBy: "Z990001" })
+			await writeAuditLog({ action: "team_created", entityType: "team", entityId: "t1", performedBy: "Z990001" })
+			await writeAuditLog({
+				action: "framework_imported",
+				entityType: "framework_version",
+				entityId: "v1",
+				performedBy: "Z990001",
+			})
+
+			const results = await getRecentAuditLogByEntityTypes(["section", "team"])
+			expect(results).toHaveLength(2)
+			expect(results.every((r) => r.entityType === "section" || r.entityType === "team")).toBe(true)
+		})
+
+		it("should return entries ordered by performed_at descending", async () => {
+			const db = getTestDb()
+			const older = new Date("2024-01-01T10:00:00Z")
+			const newer = new Date("2024-01-01T11:00:00Z")
+			await db.insert(auditLog).values({
+				action: "section_created",
+				entityType: "section",
+				entityId: "s1",
+				performedBy: "Z990001",
+				performedAt: older,
+			})
+			await db.insert(auditLog).values({
+				action: "team_created",
+				entityType: "team",
+				entityId: "t1",
+				performedBy: "Z990001",
+				performedAt: newer,
+			})
+
+			const results = await getRecentAuditLogByEntityTypes(["section", "team"])
+			expect(results).toHaveLength(2)
+			expect(new Date(results[0].performedAt) >= new Date(results[1].performedAt)).toBe(true)
+			expect(results[0].action).toBe("team_created")
+			expect(results[1].action).toBe("section_created")
+		})
+
+		it("should respect the limit parameter", async () => {
+			await writeAuditLog({ action: "section_created", entityType: "section", entityId: "s1", performedBy: "Z990001" })
+			await writeAuditLog({ action: "section_created", entityType: "section", entityId: "s2", performedBy: "Z990001" })
+			await writeAuditLog({ action: "section_created", entityType: "section", entityId: "s3", performedBy: "Z990001" })
+
+			const results = await getRecentAuditLogByEntityTypes(["section"], 2)
+			expect(results).toHaveLength(2)
+		})
+
+		it("should return empty array when entityTypes is empty", async () => {
+			await writeAuditLog({ action: "section_created", entityType: "section", entityId: "s1", performedBy: "Z990001" })
+
+			const results = await getRecentAuditLogByEntityTypes([])
+			expect(results).toHaveLength(0)
+		})
+
+		it("should return empty array when no entries match", async () => {
+			await writeAuditLog({
+				action: "framework_imported",
+				entityType: "framework_version",
+				entityId: "v1",
+				performedBy: "Z990001",
+			})
+
+			const results = await getRecentAuditLogByEntityTypes(["section", "team"])
+			expect(results).toHaveLength(0)
+		})
 	})
 
 	it("should store previous and new values", async () => {

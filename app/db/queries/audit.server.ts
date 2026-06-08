@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type AuditLogAction, auditLog } from "../schema/audit"
 
@@ -47,12 +47,28 @@ export async function getAuditLogForEntity(entityType: string, entityId: string,
 
 /** Get recent audit log entries across all entities. */
 export async function getRecentAuditLog(limit = 100) {
-	return db.select().from(auditLog).orderBy(desc(auditLog.performedAt)).limit(limit)
+	return db.select().from(auditLog).orderBy(desc(auditLog.performedAt), desc(auditLog.id)).limit(limit)
+}
+
+/** Get recent audit log entries filtered by entity types. */
+export async function getRecentAuditLogByEntityTypes(entityTypes: string[], limit = 100) {
+	if (entityTypes.length === 0) return []
+	return db
+		.select()
+		.from(auditLog)
+		.where(inArray(auditLog.entityType, entityTypes))
+		.orderBy(desc(auditLog.performedAt), desc(auditLog.id))
+		.limit(limit)
 }
 
 /** Get audit log entries by action type. */
 export async function getAuditLogByAction(action: AuditLogAction, limit = 50) {
-	return db.select().from(auditLog).where(eq(auditLog.action, action)).orderBy(desc(auditLog.performedAt)).limit(limit)
+	return db
+		.select()
+		.from(auditLog)
+		.where(eq(auditLog.action, action))
+		.orderBy(desc(auditLog.performedAt), desc(auditLog.id))
+		.limit(limit)
 }
 
 /** Get audit log entries for a specific sync job. */

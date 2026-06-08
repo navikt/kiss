@@ -15,7 +15,7 @@ import { useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getRecentAuditLog } from "~/db/queries/audit.server"
+import { getRecentAuditLogByEntityTypes } from "~/db/queries/audit.server"
 import {
 	archiveSection,
 	createSection,
@@ -67,8 +67,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		}),
 	)
 
-	const allAuditEntries = await getRecentAuditLog(100)
-	const auditEntries = allAuditEntries.filter((e) => e.entityType === "section" || e.entityType === "team")
+	const auditEntries = await getRecentAuditLogByEntityTypes(["section", "team"], 100)
 
 	return data({ sections: sectionsWithTeams, auditEntries })
 }
