@@ -189,8 +189,9 @@ skal utledes fra `screeningAnswers`, `rulesetControls` og `routineControls`.
 
 ## Vedlikeholdsaktiviteter (staged_data-mønsteret)
 
-Nye vedlikeholdsaktivitetstyper (`oracle_role_criticality`, fremtidige typer) **SKAL** følge
-seed → patch → commit-mønsteret. Sjekk at en ny aktivitetstype:
+> Fullstendig dokumentasjon: [`docs/activity-types.md`](../docs/activity-types.md) og [`docs/staged-data-pattern.md`](../docs/staged-data-pattern.md)
+
+Nye vedlikeholdsaktivitetstyper **SKAL** følge seed → patch → commit-mønsteret. Sjekk at en ny aktivitetstype:
 
 - [ ] Bruker `staged_data JSONB` på `routine_review_activities` — ikke en ny tabell per aktivitetstype
 - [ ] Har `activityType` og `schemaVersion` som toppnivå-felt i `staged_data`-dokumentet
@@ -217,6 +218,8 @@ seed → patch → commit-mønsteret. Sjekk at en ny aktivitetstype:
 ---
 
 ## Nye ruter
+
+> Fullstendig dokumentasjon: [`docs/routing.md`](../docs/routing.md)
 
 - [ ] Ruten er lagt til i `app/routes.ts` FØR rutefilen opprettes
 - [ ] Alle `redirect()`-kall bruker absolutte stier (f.eks. `/seksjoner/${id}/rutiner`)
