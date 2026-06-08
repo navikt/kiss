@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import type { ComponentProps } from "react"
 import { createRoutesStub } from "react-router"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { PersonSingleCombobox } from "../PersonSingleCombobox"
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -14,8 +15,14 @@ const graphApiRoute = {
 			{ navIdent: "Z990002", displayName: "Rask Elv", mail: "rask.elv@nav.no" },
 			{ navIdent: "Z990003", displayName: "Stille Skog", mail: "stille.skog@nav.no" },
 			{ navIdent: "Z990004", displayName: "Modig Bjørk", mail: null },
+			{ navIdent: "Z990005", displayName: null, mail: null },
 		]
-		return { results: all.filter((u) => u.displayName.toLowerCase().includes(q.toLowerCase())) }
+		return {
+			results: all.filter((u) => {
+				if (!u.displayName) return u.navIdent.toLowerCase().includes(q.toLowerCase())
+				return u.displayName.toLowerCase().includes(q.toLowerCase())
+			}),
+		}
 	},
 }
 
@@ -74,5 +81,54 @@ export const Valgfri: Story = {
 		label: "Teknologileder",
 		description: "Søk på navn eller NAV-ident (valgfritt)",
 		required: false,
+	},
+}
+
+export const ValgtPersonVises: Story = {
+	name: "Viser valgt persons navn i inputfeltet etter valg",
+	args: {
+		name: "person",
+		label: "Seksjonsleder",
+		description: "Søk på navn eller NAV-ident",
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement)
+		const input = canvas.getByRole("combobox")
+
+		await userEvent.type(input, "Glad")
+		await waitFor(() => canvas.getByRole("option", { name: /Glad Fjord/i }))
+		await userEvent.click(canvas.getByRole("option", { name: /Glad Fjord/i }))
+
+		await waitFor(() => {
+			const hidden = canvasElement.querySelector('input[type="hidden"][name="person"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value || "{}")
+			expect(parsed.navIdent).toBe("Z990001")
+			expect(parsed.displayName).toBe("Glad Fjord")
+		})
+	},
+}
+
+export const IdentUtenDuplikatVedManglendeVisningsnavn: Story = {
+	name: "Viser kun ident (uten dobbel parentes) når visningsnavn mangler",
+	args: {
+		name: "person",
+		label: "Seksjonsleder",
+		description: "Søk på navn eller NAV-ident",
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement)
+		const input = canvas.getByRole("combobox")
+
+		await userEvent.type(input, "Z990005")
+		await waitFor(() => canvas.getByRole("option", { name: /Z990005/i }))
+		await userEvent.click(canvas.getByRole("option", { name: /Z990005/i }))
+
+		await waitFor(() => {
+			const hidden = canvasElement.querySelector('input[type="hidden"][name="person"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value || "{}")
+			expect(parsed.navIdent).toBe("Z990005")
+			// displayName skal falle tilbake til ident — ikke dobbel parentes i UI
+			expect(parsed.displayName).toBe("Z990005")
+		})
 	},
 }

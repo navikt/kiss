@@ -37,6 +37,9 @@ export function PersonSingleCombobox({
 	const searchFetcher = useFetcher<{ results: UserSearchResult[] }>()
 	const [query, setQuery] = useState("")
 	const [selected, setSelected] = useState<PersonRef | null>(defaultValue ?? null)
+	// selectedRef mirrors selected state so handleChange can read the latest value
+	// synchronously within the same React event batch as handleToggleSelected.
+	const selectedRef = useRef<PersonRef | null>(defaultValue ?? null)
 	const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const lastFetchedQueryRef = useRef("")
 
@@ -61,12 +64,11 @@ export function PersonSingleCombobox({
 		})
 	}, [searchFetcher.data, query])
 
-	// Build a display name map from search results so we can store it on select
 	const displayNameMap = useMemo(() => {
-		const map = new Map<string, string>()
+		const map = new Map<string, string | null>()
 		for (const r of searchFetcher.data?.results ?? []) {
 			const ident = r.navIdent.trim().toUpperCase()
-			map.set(ident, r.displayName?.trim() || ident)
+			map.set(ident, r.displayName?.trim() || null)
 		}
 		if (defaultValue) {
 			map.set(defaultValue.navIdent.trim().toUpperCase(), defaultValue.displayName)
@@ -86,11 +88,15 @@ export function PersonSingleCombobox({
 			const ident = option.trim().toUpperCase()
 			if (!ident) return
 			if (isSelected) {
-				const displayName = displayNameMap.get(ident) ?? ident
-				setSelected({ navIdent: ident, displayName })
-				setQuery("")
+				const displayName = displayNameMap.get(ident) ?? null
+				const person = { navIdent: ident, displayName: displayName ?? ident }
+				selectedRef.current = person
+				setSelected(person)
+				setQuery(displayName ? `${displayName} (${ident})` : ident)
 			} else {
+				selectedRef.current = null
 				setSelected(null)
+				setQuery("")
 			}
 		},
 		[displayNameMap],
@@ -98,8 +104,19 @@ export function PersonSingleCombobox({
 
 	const handleChange = useCallback(
 		(value: string) => {
+			if (selectedRef.current !== null) {
+				// UNSAFE_Combobox fires onChange("") and onChange(currentLabel) after onToggleSelected —
+				// both synchronously (same event batch) and after re-render. Ignore both.
+				// Use selectedRef so this works even within the same React event batch as handleToggleSelected.
+				const { navIdent, displayName } = selectedRef.current
+				const selectedLabel = displayName !== navIdent ? `${displayName} (${navIdent})` : navIdent
+				if (value === "" || value === selectedLabel) return
+				// User has started typing a new query — clear the selection first.
+				if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+				selectedRef.current = null
+				setSelected(null)
+			}
 			setQuery(value)
-			if (selected) setSelected(null)
 			if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
 			if (value.trim().length < 2) return
 			searchTimeoutRef.current = setTimeout(() => {
@@ -108,7 +125,7 @@ export function PersonSingleCombobox({
 				searchFetcher.load(`/api/graph/users?q=${encodeURIComponent(q)}`)
 			}, 300)
 		},
-		[searchFetcher, selected],
+		[searchFetcher],
 	)
 
 	const handleClear = useCallback(() => {
@@ -117,6 +134,7 @@ export function PersonSingleCombobox({
 			searchTimeoutRef.current = null
 		}
 		setQuery("")
+		selectedRef.current = null
 		setSelected(null)
 	}, [])
 
