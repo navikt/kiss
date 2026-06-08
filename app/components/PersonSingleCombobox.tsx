@@ -42,6 +42,17 @@ export function PersonSingleCombobox({
 	const selectedRef = useRef<PersonRef | null>(defaultValue ?? null)
 	const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const lastFetchedQueryRef = useRef("")
+	// queryRef tracks the current input text so handleToggleSelected can read it synchronously
+	// (query state is stale inside memoized callbacks).
+	const queryRef = useRef("")
+	// Saved search query at the moment of selection. UNSAFE_Combobox (Chromium) fires onChange
+	// with the old search text after onToggleSelected — we must ignore it once to avoid clearing
+	// the selection immediately.
+	const preSelectionQueryRef = useRef("")
+	// UNSAFE_Combobox calls clearInput (→ onClear) right after onToggleSelected in toggleOption.
+	// We use this flag to distinguish that internal clear-after-selection from a user-initiated
+	// clear (clicking the X button), so we don't accidentally reset the just-made selection.
+	const justSelectedRef = useRef(false)
 
 	useEffect(() => {
 		return () => {
@@ -90,10 +101,16 @@ export function PersonSingleCombobox({
 			if (isSelected) {
 				const displayName = displayNameMap.get(ident) ?? null
 				const person = { navIdent: ident, displayName: displayName ?? ident }
+				// Save the current search query so handleChange can ignore any onChange event
+				// UNSAFE_Combobox fires with the old search text immediately after selection.
+				preSelectionQueryRef.current = queryRef.current
+				// Signal handleClear to ignore the upcoming clearInput call from toggleOption.
+				justSelectedRef.current = true
 				selectedRef.current = person
 				setSelected(person)
 				setQuery(displayName ? `${displayName} (${ident})` : ident)
 			} else {
+				preSelectionQueryRef.current = ""
 				selectedRef.current = null
 				setSelected(null)
 				setQuery("")
@@ -104,6 +121,7 @@ export function PersonSingleCombobox({
 
 	const handleChange = useCallback(
 		(value: string) => {
+			queryRef.current = value
 			if (selectedRef.current !== null) {
 				// UNSAFE_Combobox fires onChange("") and onChange(currentLabel) after onToggleSelected —
 				// both synchronously (same event batch) and after re-render. Ignore both.
@@ -111,6 +129,12 @@ export function PersonSingleCombobox({
 				const { navIdent, displayName } = selectedRef.current
 				const selectedLabel = displayName !== navIdent ? `${displayName} (${navIdent})` : navIdent
 				if (value === "" || value === selectedLabel) return
+				// In real browsers (Chromium) UNSAFE_Combobox also fires onChange with the old search
+				// query text right after onToggleSelected. Allow this once, then clear the guard.
+				if (preSelectionQueryRef.current !== "" && value === preSelectionQueryRef.current) {
+					preSelectionQueryRef.current = ""
+					return
+				}
 				// User has started typing a new query — clear the selection first.
 				if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
 				selectedRef.current = null
@@ -132,6 +156,13 @@ export function PersonSingleCombobox({
 		if (searchTimeoutRef.current) {
 			clearTimeout(searchTimeoutRef.current)
 			searchTimeoutRef.current = null
+		}
+		// UNSAFE_Combobox calls onClear (via clearInput) immediately after onToggleSelected in
+		// toggleOption. When justSelectedRef is true, this is an internal clear triggered by
+		// the selection mechanism — not a user-initiated clear. Preserve the selection.
+		if (justSelectedRef.current) {
+			justSelectedRef.current = false
+			return
 		}
 		setQuery("")
 		selectedRef.current = null
