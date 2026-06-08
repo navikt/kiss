@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, notExists, sql } from "drizzle-orm"
 import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
 import { db } from "../connection.server"
+import { isUniqueViolation } from "../pg-errors.server"
 import {
 	applicationEnvironments,
 	applicationPersistence,
@@ -185,10 +186,6 @@ async function ensureOneOraclePersistenceEntry(
 		if (isUniqueViolation(err)) return null
 		throw err
 	}
-}
-
-function isUniqueViolation(err: unknown): boolean {
-	return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "23505"
 }
 
 // ─── Cached Oracle audit summaries for app detail page ──────────────────────
