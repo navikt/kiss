@@ -96,64 +96,81 @@ export async function assignRole(
 	devTeamId?: string,
 ): Promise<string> {
 	return db.transaction(async (tx) => {
-		const userId = await upsertUser(navIdent, name, undefined, tx)
-		if (sectionId) {
-			const [section] = await tx
-				.select({ archivedAt: sections.archivedAt })
-				.from(sections)
-				.where(eq(sections.id, sectionId))
-				.limit(1)
-				.for("share")
-			if (!section) throw new Error(`Seksjon med id ${sectionId} finnes ikke`)
-			if (section.archivedAt) throw new Error(`Seksjon med id ${sectionId} er arkivert`)
+		return assignRoleInTx(tx, navIdent, name, role, createdBy, sectionId, devTeamId)
+	})
+}
+
+/**
+ * Intern helper som utfører rolle-tildeling innenfor en eksisterende transaksjon.
+ * Brukes av createSectionWithLeaders og andre funksjoner som trenger atomisitet
+ * på tvers av flere operasjoner. Har samme guards og audit-logging som assignRole.
+ */
+export async function assignRoleInTx(
+	tx: DbExecutor,
+	navIdent: string,
+	name: string,
+	role: UserRole,
+	createdBy: string,
+	sectionId?: string,
+	devTeamId?: string,
+): Promise<string> {
+	const userId = await upsertUser(navIdent, name, undefined, tx)
+	if (sectionId) {
+		const [section] = await tx
+			.select({ archivedAt: sections.archivedAt })
+			.from(sections)
+			.where(eq(sections.id, sectionId))
+			.limit(1)
+			.for("share")
+		if (!section) throw new Error(`Seksjon med id ${sectionId} finnes ikke`)
+		if (section.archivedAt) throw new Error(`Seksjon med id ${sectionId} er arkivert`)
+	}
+	if (devTeamId) {
+		const [teamSection] = await tx
+			.select({
+				teamId: devTeams.id,
+				teamArchivedAt: devTeams.archivedAt,
+				sectionArchivedAt: sections.archivedAt,
+			})
+			.from(devTeams)
+			.innerJoin(sections, eq(devTeams.sectionId, sections.id))
+			.where(eq(devTeams.id, devTeamId))
+			.limit(1)
+			.for("share", { of: [devTeams, sections] })
+		if (!teamSection) throw new Error(`Dev-team med id ${devTeamId} finnes ikke`)
+		if (teamSection.teamArchivedAt) throw new Error(`Dev-team med id ${devTeamId} er arkivert`)
+		if (teamSection.sectionArchivedAt) {
+			throw new Error(`Dev-team med id ${devTeamId} tilhører en arkivert seksjon`)
 		}
-		if (devTeamId) {
-			const [teamSection] = await tx
-				.select({
-					teamId: devTeams.id,
-					teamArchivedAt: devTeams.archivedAt,
-					sectionArchivedAt: sections.archivedAt,
-				})
-				.from(devTeams)
-				.innerJoin(sections, eq(devTeams.sectionId, sections.id))
-				.where(eq(devTeams.id, devTeamId))
-				.limit(1)
-				.for("share", { of: [devTeams, sections] })
-			if (!teamSection) throw new Error(`Dev-team med id ${devTeamId} finnes ikke`)
-			if (teamSection.teamArchivedAt) throw new Error(`Dev-team med id ${devTeamId} er arkivert`)
-			if (teamSection.sectionArchivedAt) {
-				throw new Error(`Dev-team med id ${devTeamId} tilhører en arkivert seksjon`)
-			}
-		}
-		const [row] = await tx
-			.insert(userRoles)
-			.values({
-				userId,
+	}
+	const [row] = await tx
+		.insert(userRoles)
+		.values({
+			userId,
+			role,
+			sectionId: sectionId ?? null,
+			devTeamId: devTeamId ?? null,
+			createdBy,
+		})
+		.returning({ id: userRoles.id })
+
+	await writeAuditLog(
+		{
+			action: "user_role_granted",
+			entityType: "user_role",
+			entityId: row.id,
+			newValue: JSON.stringify({
+				navIdent,
 				role,
 				sectionId: sectionId ?? null,
 				devTeamId: devTeamId ?? null,
-				createdBy,
-			})
-			.returning({ id: userRoles.id })
+			}),
+			performedBy: createdBy,
+		},
+		tx,
+	)
 
-		await writeAuditLog(
-			{
-				action: "user_role_granted",
-				entityType: "user_role",
-				entityId: row.id,
-				newValue: JSON.stringify({
-					navIdent,
-					role,
-					sectionId: sectionId ?? null,
-					devTeamId: devTeamId ?? null,
-				}),
-				performedBy: createdBy,
-			},
-			tx,
-		)
-
-		return row.id
-	})
+	return row.id
 }
 
 /**

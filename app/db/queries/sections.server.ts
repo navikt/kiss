@@ -15,6 +15,7 @@ import { getComplianceSummaries, getRoutineComplianceSummaries } from "./applica
 import { writeAuditLog } from "./audit.server"
 import { getEconomyClassifications } from "./economy-classification.server"
 import { getRoutineDeadlinesWithControls } from "./routine-deadlines.server"
+import { assignRoleInTx } from "./users.server"
 
 /** Get sections. By default only active (non-archived) sections are returned. */
 export async function getSections(options: { includeArchived?: boolean } = {}) {
@@ -478,6 +479,86 @@ export async function createSection(name: string, description: string | null, cr
 		performedBy: createdBy,
 	})
 	return section
+}
+
+export interface PersonRef {
+	navIdent: string
+	displayName: string
+}
+
+export type CreateSectionWithLeadersResult =
+	| { conflict: false; section: typeof sections.$inferSelect }
+	| { conflict: true; field: "slug" }
+
+/**
+ * Oppretter en seksjon med seksjonsleder og teknologileder i én atomisk
+ * transaksjon. Graph API-oppslag skal gjøres FØR kallet — navIdent og
+ * displayName sendes inn ferdig resolved.
+ *
+ * Slug-kollisjon (postgres unique violation 23505) fanges og returneres som
+ * { conflict: true } slik at action kan gi brukervennlig feilmelding uten
+ * at transaksjonen bobler opp som en ukategorisert 500-feil.
+ */
+export async function createSectionWithLeaders(params: {
+	name: string
+	description: string | null
+	sectionLeader: PersonRef
+	techLead: PersonRef
+	createdBy: string
+}): Promise<CreateSectionWithLeadersResult> {
+	const { name, description, sectionLeader, techLead, createdBy } = params
+	const slug = generateSlug(name)
+
+	try {
+		const section = await db.transaction(async (tx) => {
+			const [section] = await tx
+				.insert(sections)
+				.values({ name, slug, description, createdBy, updatedBy: createdBy })
+				.returning()
+
+			await writeAuditLog(
+				{
+					action: "section_created",
+					entityType: "section",
+					entityId: section.id,
+					newValue: name,
+					metadata: { slug, description },
+					performedBy: createdBy,
+				},
+				tx,
+			)
+
+			await assignRoleInTx(
+				tx,
+				sectionLeader.navIdent,
+				sectionLeader.displayName,
+				"section_manager",
+				createdBy,
+				section.id,
+			)
+			await assignRoleInTx(tx, techLead.navIdent, techLead.displayName, "tech_manager", createdBy, section.id)
+
+			return section
+		})
+
+		return { conflict: false, section }
+	} catch (err) {
+		// Postgres unique_violation on sections.slug
+		if (isPostgresUniqueViolation(err)) {
+			return { conflict: true, field: "slug" }
+		}
+		throw err
+	}
+}
+
+function isPostgresUniqueViolation(err: unknown): boolean {
+	if (typeof err !== "object" || err === null) return false
+	const e = err as Record<string, unknown>
+	// Direct PG error
+	if (e.code === "23505") return true
+	// Drizzle wraps PG errors in DrizzleQueryError with { cause: pgError }
+	const cause = e.cause
+	return typeof cause === "object" && cause !== null && (cause as Record<string, unknown>).code === "23505"
 }
 
 /** Update an existing section. */

@@ -13,6 +13,7 @@ vi.mock("~/db/connection.server", () => ({
 
 const {
 	createSection,
+	createSectionWithLeaders,
 	updateSection,
 	archiveSection,
 	unarchiveSection,
@@ -478,5 +479,131 @@ describe("sections.server integration tests", () => {
 			// sectionTotals counts per unique app, not per team assignment
 			expect(result.sectionTotals.apps).toBe(1)
 		})
+	})
+})
+
+// ─── createSectionWithLeaders ─────────────────────────────────────────────────
+
+describe("createSectionWithLeaders integration tests", () => {
+	beforeAll(async () => {
+		await setupTestDatabase()
+	}, 120_000)
+
+	afterAll(async () => {
+		await teardownTestDatabase()
+	})
+
+	beforeEach(async () => {
+		const db = getTestDb()
+		await db.execute(/* sql */ `
+			DELETE FROM user_roles;
+			DELETE FROM users;
+			DELETE FROM sections;
+			DELETE FROM audit_log;
+		`)
+	})
+
+	it("oppretter seksjon med seksjonsleder, teknologileder og audit-logg i én transaksjon", async () => {
+		const result = await createSectionWithLeaders({
+			name: "Plattform og Sikkerhet",
+			description: "En testseksjon",
+			sectionLeader: { navIdent: "Z990001", displayName: "Glad Fjord" },
+			techLead: { navIdent: "Z990002", displayName: "Rask Elv" },
+			createdBy: "Z990099",
+		})
+
+		assert(!result.conflict, "Forventet ingen slug-konflikt")
+		expect(result.section.name).toBe("Plattform og Sikkerhet")
+		expect(result.section.slug).toBe("plattform-og-sikkerhet")
+		expect(result.section.description).toBe("En testseksjon")
+		expect(result.section.createdBy).toBe("Z990099")
+
+		const db = getTestDb()
+
+		// Verifiser roller
+		const roles = await db.execute(/* sql */ `
+			SELECT u.nav_ident, ur.role, ur.section_id
+			FROM user_roles ur
+			JOIN users u ON ur.user_id = u.id
+			WHERE ur.section_id = '${result.section.id}'
+			ORDER BY ur.role
+		`)
+		type RoleRow = { nav_ident: string; role: string; section_id: string }
+		const roleRows = roles.rows as RoleRow[]
+		expect(roleRows).toHaveLength(2)
+		const manager = roleRows.find((r) => r.role === "section_manager")
+		const tech = roleRows.find((r) => r.role === "tech_manager")
+		expect(manager?.nav_ident).toBe("Z990001")
+		expect(tech?.nav_ident).toBe("Z990002")
+
+		// Verifiser audit-logg: section_created + 2x user_role_granted
+		const audit = await db.execute(/* sql */ `
+			SELECT action FROM audit_log ORDER BY performed_at
+		`)
+		const actions = (audit.rows as { action: string }[]).map((r) => r.action)
+		expect(actions).toContain("section_created")
+		expect(actions.filter((a) => a === "user_role_granted")).toHaveLength(2)
+	})
+
+	it("returnerer conflict: true ved slug-kollisjon", async () => {
+		// Opprett første seksjon
+		const first = await createSectionWithLeaders({
+			name: "Samme Navn",
+			description: null,
+			sectionLeader: { navIdent: "Z990001", displayName: "Glad Fjord" },
+			techLead: { navIdent: "Z990002", displayName: "Rask Elv" },
+			createdBy: "Z990099",
+		})
+		assert(!first.conflict)
+
+		// Forsøk å opprette seksjon med identisk slug
+		const second = await createSectionWithLeaders({
+			name: "Samme Navn",
+			description: null,
+			sectionLeader: { navIdent: "Z990003", displayName: "Stille Skog" },
+			techLead: { navIdent: "Z990004", displayName: "Modig Bjørk" },
+			createdBy: "Z990099",
+		})
+
+		expect(second.conflict).toBe(true)
+		if (second.conflict) {
+			expect(second.field).toBe("slug")
+		}
+
+		// Ingen halvferdige roller eller seksjoner skal ha blitt opprettet
+		const db = getTestDb()
+		const sections = await db.execute(/* sql */ `SELECT count(*) as n FROM sections`)
+		expect(Number((sections.rows[0] as { n: string }).n)).toBe(1)
+	})
+
+	it("ruller tilbake hele transaksjonen ved slug-konflikt — ingen halvferdig seksjon, roller eller audit", async () => {
+		// Verifiserer at en slug-konflikt ikke etterlater halvferdig data:
+		// seksjonen fra det feilende kallet skal ikke finnes, og heller
+		// ingen roller eller audit-rader fra det kallet skal opprettes.
+		const result = await createSectionWithLeaders({
+			name: "Atomisk Test",
+			description: null,
+			sectionLeader: { navIdent: "Z990001", displayName: "Glad Fjord" },
+			techLead: { navIdent: "Z990002", displayName: "Rask Elv" },
+			createdBy: "Z990099",
+		})
+		assert(!result.conflict)
+
+		const conflict = await createSectionWithLeaders({
+			name: "Atomisk Test",
+			description: null,
+			sectionLeader: { navIdent: "Z990003", displayName: "Stille Skog" },
+			techLead: { navIdent: "Z990004", displayName: "Modig Bjørk" },
+			createdBy: "Z990099",
+		})
+		expect(conflict.conflict).toBe(true)
+
+		const db = getTestDb()
+		const roles = await db.execute(/* sql */ `SELECT count(*) as n FROM user_roles`)
+		// Kun rollene fra første suksessfulle opprettelse (2 stk)
+		expect(Number((roles.rows[0] as { n: string }).n)).toBe(2)
+
+		const auditRows = await db.execute(/* sql */ `SELECT count(*) as n FROM audit_log WHERE action = 'section_created'`)
+		expect(Number((auditRows.rows[0] as { n: string }).n)).toBe(1)
 	})
 })
