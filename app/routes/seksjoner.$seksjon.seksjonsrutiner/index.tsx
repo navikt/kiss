@@ -160,10 +160,10 @@ export default function Seksjonsrutiner() {
 										<Table.ColumnHeader sortKey="frequency" sortable>
 											Frekvens
 										</Table.ColumnHeader>
-										<Table.ColumnHeader sortKey="lastReview" sortable>
+										<Table.ColumnHeader sortKey="lastReview" sortable align="left">
 											Siste gjennomgang
 										</Table.ColumnHeader>
-										<Table.ColumnHeader sortKey="deadline" sortable>
+										<Table.ColumnHeader sortKey="deadline" sortable align="left">
 											Frist
 										</Table.ColumnHeader>
 										<Table.ColumnHeader sortKey="status" sortable>
@@ -189,8 +189,8 @@ export default function Seksjonsrutiner() {
 														eventFrequency={sr.routine.eventFrequency}
 													/>
 												</Table.DataCell>
-												<Table.DataCell>{formatDate(sr.lastReviewDate)}</Table.DataCell>
-												<Table.DataCell>
+												<Table.DataCell align="left">{formatDate(sr.lastReviewDate)}</Table.DataCell>
+												<Table.DataCell align="left">
 													{sr.deadline ? (
 														<VStack gap="space-0">
 															<span>{formatDate(sr.deadline)}</span>

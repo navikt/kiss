@@ -408,10 +408,10 @@ export function RutinerTab({
 												<Table.ColumnHeader sortKey="frequency" sortable>
 													Frekvens
 												</Table.ColumnHeader>
-												<Table.ColumnHeader sortKey="lastReview" sortable>
+												<Table.ColumnHeader sortKey="lastReview" sortable align="left">
 													Siste gjennomgang
 												</Table.ColumnHeader>
-												<Table.ColumnHeader sortKey="deadline" sortable>
+												<Table.ColumnHeader sortKey="deadline" sortable align="left">
 													Frist
 												</Table.ColumnHeader>
 												<Table.ColumnHeader sortKey="status" sortable>
@@ -472,10 +472,10 @@ export function RutinerTab({
 													<Table.DataCell>
 														<FrequencyDisplay frequency={dl.routine?.frequency} />
 													</Table.DataCell>
-													<Table.DataCell>
+													<Table.DataCell align="left">
 														{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
 													</Table.DataCell>
-													<Table.DataCell>
+													<Table.DataCell align="left">
 														{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
 													</Table.DataCell>
 													<Table.DataCell>
@@ -505,8 +505,8 @@ export function RutinerTab({
 													<Table.HeaderCell />
 													<Table.HeaderCell>Rutine</Table.HeaderCell>
 													<Table.HeaderCell align="left">Handlinger</Table.HeaderCell>
-													<Table.HeaderCell>Hendelsesfrekvens</Table.HeaderCell>
-													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
+													<Table.HeaderCell align="left">Hendelsesfrekvens</Table.HeaderCell>
+													<Table.HeaderCell align="left">Siste gjennomgang</Table.HeaderCell>
 												</Table.Row>
 											</Table.Header>
 											<Table.Body>
@@ -547,8 +547,8 @@ export function RutinerTab({
 															)}
 														</Table.DataCell>
 														<Table.DataCell align="left">{renderRoutineAction(dl)}</Table.DataCell>
-														<Table.DataCell>{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>
-														<Table.DataCell>
+														<Table.DataCell align="left">{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>
+														<Table.DataCell align="left">
 															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
 														</Table.DataCell>
 													</Table.ExpandableRow>
@@ -572,8 +572,8 @@ export function RutinerTab({
 													<Table.HeaderCell>Rutine</Table.HeaderCell>
 													<Table.HeaderCell>Eierrolle</Table.HeaderCell>
 													<Table.HeaderCell>Frekvens</Table.HeaderCell>
-													<Table.HeaderCell>Siste gjennomgang</Table.HeaderCell>
-													<Table.HeaderCell>Frist</Table.HeaderCell>
+													<Table.HeaderCell align="left">Siste gjennomgang</Table.HeaderCell>
+													<Table.HeaderCell align="left">Frist</Table.HeaderCell>
 													<Table.HeaderCell>Status</Table.HeaderCell>
 												</Table.Row>
 											</Table.Header>
@@ -633,10 +633,10 @@ export function RutinerTab({
 															<Table.DataCell>
 																<FrequencyDisplay frequency={dl.routine?.frequency} />
 															</Table.DataCell>
-															<Table.DataCell>
+															<Table.DataCell align="left">
 																{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
 															</Table.DataCell>
-															<Table.DataCell>
+															<Table.DataCell align="left">
 																{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
 															</Table.DataCell>
 															<Table.DataCell>
