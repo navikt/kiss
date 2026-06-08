@@ -6,6 +6,7 @@ import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
+import { getEconomyClassifications } from "~/db/queries/economy-classification.server"
 import { getSectionBySlug, getSectionIncompleteRoutines, getTeamNamesForApps } from "~/db/queries/sections.server"
 
 function formatDate(date: string | Date | null): string {
@@ -79,9 +80,12 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	}
 	const sectionRows = [...sectionRoutineMap.values()]
 
-	// Batch-fetch team names for all app routines
+	// Batch-fetch team names and economy classifications for all app routines
 	const uniqueAppIds = [...new Set(appDeadlines.map((d) => d.applicationId))]
-	const teamNamesByApp = await getTeamNamesForApps(uniqueAppIds, section.id)
+	const [teamNamesByApp, economyMap] = await Promise.all([
+		getTeamNamesForApps(uniqueAppIds, section.id),
+		getEconomyClassifications(uniqueAppIds),
+	])
 
 	const appRows = appDeadlines.map((d) => ({
 		routineId: d.routineId,
@@ -94,6 +98,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 		lastReviewDate: d.lastReviewDate ? d.lastReviewDate.toISOString() : null,
 		deadline: d.deadline ? d.deadline.toISOString() : null,
 		teamNames: teamNamesByApp.get(d.applicationId) ?? [],
+		isEconomySystem: economyMap.get(d.applicationId)?.isEconomySystem ?? null,
 		draftReviewId: d.draftReviewId ?? null,
 		overdue: d.overdue,
 		needsFollowUp: d.needsFollowUp ?? false,
@@ -182,6 +187,7 @@ export default function IkkeGjennomforteRutiner() {
 	const [appPage, setAppPage] = useState(1)
 	const [appPageSize, setAppPageSize] = useState(25)
 	const [groupByTeam, setGroupByTeam] = useState(false)
+	const [onlyEconomy, setOnlyEconomy] = useState(false)
 
 	const [sectionSort, setSectionSort] = useState<{ orderBy: SectionSortKey; direction: SortDirection }>({
 		orderBy: "priority",
@@ -214,8 +220,9 @@ export default function IkkeGjennomforteRutiner() {
 	}
 
 	const sortedAppRows = useMemo(() => {
+		const filtered = onlyEconomy ? appRows.filter((r) => r.isEconomySystem === true) : appRows
 		const dir = appSort.direction === "ascending" ? 1 : -1
-		return [...appRows].sort((a, b) => {
+		return [...filtered].sort((a, b) => {
 			switch (appSort.orderBy) {
 				case "priority":
 					return ((a.priority ?? 3) - (b.priority ?? 3)) * dir
@@ -247,7 +254,7 @@ export default function IkkeGjennomforteRutiner() {
 					return 0
 			}
 		})
-	}, [appRows, appSort])
+	}, [appRows, appSort, onlyEconomy])
 
 	const groupedAppRows = useMemo(() => {
 		if (!groupByTeam) return null
@@ -338,6 +345,16 @@ export default function IkkeGjennomforteRutiner() {
 									<BodyShort size="small" textColor="subtle">
 										{sortedAppRows.length} rutiner ikke gjennomført
 									</BodyShort>
+									<Switch
+										size="small"
+										checked={onlyEconomy}
+										onChange={(e) => {
+											setOnlyEconomy(e.target.checked)
+											setAppPage(1)
+										}}
+									>
+										Vis kun økonomisystemer
+									</Switch>
 									<Switch
 										size="small"
 										checked={groupByTeam}
