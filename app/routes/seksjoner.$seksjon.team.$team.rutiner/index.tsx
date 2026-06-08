@@ -307,10 +307,10 @@ export default function TeamUgjennomforteRutiner() {
 				<Table.DataCell>
 					<FrequencyDisplay frequency={dl.routine?.frequency} eventFrequency={dl.routine?.eventFrequency} />
 				</Table.DataCell>
-				<Table.DataCell>
+				<Table.DataCell align="left">
 					{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
 				</Table.DataCell>
-				<Table.DataCell>
+				<Table.DataCell align="left">
 					{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
 				</Table.DataCell>
 				<Table.DataCell>
@@ -417,10 +417,10 @@ export default function TeamUgjennomforteRutiner() {
 												Prioritet
 											</Table.ColumnHeader>
 											<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
-											<Table.ColumnHeader sortKey="lastReview" sortable scope="col">
+											<Table.ColumnHeader sortKey="lastReview" sortable scope="col" align="left">
 												Siste gjennomgang
 											</Table.ColumnHeader>
-											<Table.ColumnHeader sortKey="deadline" sortable scope="col">
+											<Table.ColumnHeader sortKey="deadline" sortable scope="col" align="left">
 												Frist
 											</Table.ColumnHeader>
 											<Table.ColumnHeader sortKey="status" sortable scope="col">
@@ -537,10 +537,10 @@ export default function TeamUgjennomforteRutiner() {
 												Prioritet
 											</Table.ColumnHeader>
 											<Table.HeaderCell scope="col">Frekvens</Table.HeaderCell>
-											<Table.ColumnHeader sortKey="lastReview" sortable scope="col">
+											<Table.ColumnHeader sortKey="lastReview" sortable scope="col" align="left">
 												Siste gjennomgang
 											</Table.ColumnHeader>
-											<Table.ColumnHeader sortKey="deadline" sortable scope="col">
+											<Table.ColumnHeader sortKey="deadline" sortable scope="col" align="left">
 												Frist
 											</Table.ColumnHeader>
 											<Table.ColumnHeader sortKey="status" sortable scope="col">
@@ -575,10 +575,10 @@ export default function TeamUgjennomforteRutiner() {
 															eventFrequency={dl.routine.eventFrequency}
 														/>
 													</Table.DataCell>
-													<Table.DataCell>
+													<Table.DataCell align="left">
 														{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
 													</Table.DataCell>
-													<Table.DataCell>
+													<Table.DataCell align="left">
 														{dl.deadline ? new Date(dl.deadline).toLocaleDateString("nb-NO") : "Ingen frist"}
 													</Table.DataCell>
 													<Table.DataCell>
