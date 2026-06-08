@@ -3,6 +3,8 @@
  * Returns a plain result object — callers construct the final Response/redirect
  * so TypeScript can infer action return types correctly.
  */
+
+import { isUniqueViolation } from "~/db/pg-errors.server"
 import {
 	createReview,
 	findActiveReviewConflict,
@@ -107,9 +109,7 @@ export async function createDraftReview(params: {
 		})
 		return { ok: true, reviewId: review.id, routineId, sectionSlug }
 	} catch (err) {
-		const isUniqueViolation =
-			typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "23505"
-		if (isUniqueViolation) {
+		if (isUniqueViolation(err)) {
 			return {
 				ok: false,
 				error:

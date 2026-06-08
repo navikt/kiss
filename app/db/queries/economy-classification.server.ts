@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, lt } from "drizzle-orm"
 import { db } from "../connection.server"
+import { hasPostgresCode, PgErrorCode } from "../pg-errors.server"
 import { applicationEconomyClassifications, type EconomySystemType } from "../schema/applications"
 import { screeningAnswers } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
@@ -220,18 +221,10 @@ export async function saveEconomyClassification(
 	} catch (error: unknown) {
 		// Handle unique constraint violation from concurrent first-time inserts:
 		// retry once — the winner's row now exists and will be locked by FOR UPDATE
-		const isUniqueViolation = hasPostgresCode(error, "23505")
+		const isUniqueViolation = hasPostgresCode(error, PgErrorCode.UNIQUE_VIOLATION)
 		if (isUniqueViolation && retryCount < 1) {
 			return saveEconomyClassification(params, retryCount + 1)
 		}
 		throw error
 	}
-}
-
-function hasPostgresCode(error: unknown, code: string): boolean {
-	if (typeof error !== "object" || error === null) {
-		return false
-	}
-	const err = error as { code?: unknown; cause?: { code?: unknown } }
-	return err.code === code || err.cause?.code === code
 }

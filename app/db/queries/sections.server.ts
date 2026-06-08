@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { db } from "../connection.server"
+import { isUniqueViolation } from "../pg-errors.server"
 import { applicationControls } from "../schema/application-controls"
 import {
 	applicationEnvironments,
@@ -527,21 +528,11 @@ export async function createSection(params: {
 		return { conflict: false, section }
 	} catch (err) {
 		// Postgres unique_violation on sections.slug
-		if (isPostgresUniqueViolation(err)) {
+		if (isUniqueViolation(err)) {
 			return { conflict: true, field: "slug" }
 		}
 		throw err
 	}
-}
-
-function isPostgresUniqueViolation(err: unknown): boolean {
-	if (typeof err !== "object" || err === null) return false
-	const e = err as Record<string, unknown>
-	// Direct PG error
-	if (e.code === "23505") return true
-	// Drizzle wraps PG errors in DrizzleQueryError with { cause: pgError }
-	const cause = e.cause
-	return typeof cause === "object" && cause !== null && (cause as Record<string, unknown>).code === "23505"
 }
 
 /** Update an existing section. */
