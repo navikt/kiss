@@ -33,6 +33,7 @@ import { RegelsettTab } from "./tabs/RegelsettTab"
 import { RevisjonsbevisTab } from "./tabs/RevisjonsbevisTab"
 import { RutinerTab } from "./tabs/RutinerTab"
 import { ScreeningerTab } from "./tabs/ScreeningerTab"
+import { SporsmalTab } from "./tabs/SporsmalTab"
 
 export { action } from "./action.server"
 export { loader } from "./loader.server"
@@ -78,6 +79,7 @@ export default function ApplikasjonDetalj() {
 		effectiveGitRepository,
 		appRulesets,
 		economyClassification,
+		screeningQuestionsWithAnswers,
 	} = useLoaderData<typeof loader>()
 
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -90,6 +92,12 @@ export default function ApplikasjonDetalj() {
 	})()
 	const appBase = useAppBasePath()
 	const sectionSlug = useSectionSlug()
+	const fallbackSectionSlug =
+		sectionSlug ??
+		teams
+			.map((t: { sectionId: string | null }) => (t.sectionId ? sectionSlugMap[t.sectionId] : null))
+			.find((s: string | null): s is string => s !== null) ??
+		null
 
 	const isOnPrem = environments.some((e: { cluster: string | null }) => e.cluster?.includes("-fss"))
 	const gitHubUrl = effectiveGitRepository
@@ -183,18 +191,40 @@ export default function ApplikasjonDetalj() {
 							{compliance.percent} % compliance
 						</Tag>
 						{compliance.screeningProgress.total > 0 && (
-							<Tag
-								variant={
-									compliance.screeningProgress.answered === compliance.screeningProgress.total
-										? "success"
-										: compliance.screeningProgress.answered > 0
-											? "warning"
-											: "error"
+							<button
+								type="button"
+								style={{
+									background: "none",
+									border: "none",
+									padding: 0,
+									cursor: "pointer",
+									font: "inherit",
+									color: "inherit",
+								}}
+								onClick={() =>
+									setSearchParams(
+										(prev) => {
+											const next = new URLSearchParams(prev)
+											next.set("fane", "sporsmal")
+											return next
+										},
+										{ replace: true },
+									)
 								}
-								size="medium"
 							>
-								{compliance.screeningProgress.answered} / {compliance.screeningProgress.total} spørsmål besvart
-							</Tag>
+								<Tag
+									variant={
+										compliance.screeningProgress.answered === compliance.screeningProgress.total
+											? "success"
+											: compliance.screeningProgress.answered > 0
+												? "warning"
+												: "error"
+									}
+									size="medium"
+								>
+									{compliance.screeningProgress.answered} / {compliance.screeningProgress.total} spørsmål besvart
+								</Tag>
+							</button>
 						)}
 					</HStack>
 
@@ -297,6 +327,7 @@ export default function ApplikasjonDetalj() {
 				<Tabs.List>
 					<Tabs.Tab value="rutiner" label="Rutiner" />
 					<Tabs.Tab value="screeninger" label="Screeninger" />
+					<Tabs.Tab value="sporsmal" label="Spørsmål" />
 					<Tabs.Tab value="regelsett" label="Regelsett" />
 					<Tabs.Tab value="kontroller" label="Kontroller" />
 					<Tabs.Tab value="autentisering" label="Autentisering" />
@@ -325,6 +356,14 @@ export default function ApplikasjonDetalj() {
 
 				<Tabs.Panel value="screeninger" style={{ paddingTop: "var(--ax-space-6)" }}>
 					<ScreeningerTab screeningSessions={screeningSessions} appBasePath={appBase} canAdmin={canAdmin} />
+				</Tabs.Panel>
+
+				<Tabs.Panel value="sporsmal" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<SporsmalTab
+						questions={screeningQuestionsWithAnswers}
+						sectionSlugMap={sectionSlugMap}
+						currentSectionSlug={fallbackSectionSlug}
+					/>
 				</Tabs.Panel>
 
 				<Tabs.Panel value="regelsett" style={{ paddingTop: "var(--ax-space-6)" }}>

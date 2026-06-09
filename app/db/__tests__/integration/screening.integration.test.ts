@@ -35,6 +35,7 @@ const {
 	getScreeningDataForApp,
 	isEffectOwnedByQuestion,
 	getRoutinesForAllControlsAndTechElements,
+	getScreeningQuestionsWithAnswersForApp,
 } = await import("~/db/queries/screening.server")
 
 async function createApp(name: string) {
@@ -718,6 +719,84 @@ describe("screening.server integration tests", () => {
 					presetRoutineId: routineAId,
 				}),
 			).rejects.toThrow(/erstattet av en nyere versjon/)
+		})
+	})
+
+	describe("getScreeningQuestionsWithAnswersForApp", () => {
+		it("returnerer kun approved og ikke-arkiverte spørsmål", async () => {
+			const appId = await createApp("Glad Fjord")
+
+			const approved = await createScreeningQuestion("Godkjent spørsmål?", null, "Z990001")
+			await changeScreeningQuestionStatus(approved.id, "ready", "Z990001")
+			await changeScreeningQuestionStatus(approved.id, "approved", "Z990001")
+
+			const draft = await createScreeningQuestion("Utkast-spørsmål?", null, "Z990001")
+			// draft forblir i "draft"-status
+
+			const archived = await createScreeningQuestion("Arkivert spørsmål?", null, "Z990001")
+			await changeScreeningQuestionStatus(archived.id, "ready", "Z990001")
+			await changeScreeningQuestionStatus(archived.id, "approved", "Z990001")
+			await archiveScreeningQuestion(archived.id, "Z990001")
+
+			const result = await getScreeningQuestionsWithAnswersForApp(appId)
+			const ids = result.map((q) => q.id)
+
+			expect(ids).toContain(approved.id)
+			expect(ids).not.toContain(draft.id)
+			expect(ids).not.toContain(archived.id)
+		})
+
+		it("returnerer answer=null for ubesvarte spørsmål og riktig svar for besvarte", async () => {
+			const appId = await createApp("Rask Elv")
+
+			const q1 = await createScreeningQuestion("Har dere logging?", null, "Z990001")
+			await changeScreeningQuestionStatus(q1.id, "ready", "Z990001")
+			await changeScreeningQuestionStatus(q1.id, "approved", "Z990001")
+
+			const q2 = await createScreeningQuestion("Har dere tester?", null, "Z990001")
+			await changeScreeningQuestionStatus(q2.id, "ready", "Z990001")
+			await changeScreeningQuestionStatus(q2.id, "approved", "Z990001")
+
+			await saveScreeningAnswer(appId, q1.id, "Ja", "Z990001")
+
+			const result = await getScreeningQuestionsWithAnswersForApp(appId)
+			const byId = Object.fromEntries(result.map((q) => [q.id, q]))
+
+			expect(byId[q1.id]?.answer).toBe("Ja")
+			expect(byId[q1.id]?.answeredBy).toBe("Z990001")
+			expect(byId[q1.id]?.answeredAt).not.toBeNull()
+
+			expect(byId[q2.id]?.answer).toBeNull()
+			expect(byId[q2.id]?.answeredBy).toBeNull()
+			expect(byId[q2.id]?.answeredAt).toBeNull()
+		})
+
+		it("inkluderer globale og appens seksjonsspørsmål, ekskluderer andre seksjonsspørsmål", async () => {
+			const ownSectionId = await createSectionRow("rask-bekk")
+			const otherSectionId = await createSectionRow("stille-fjord")
+
+			const appId = await createApp("Stødig Stein")
+			const teamId = await createNaisTeam("rask-bekk-team", ownSectionId)
+			await createAppEnvironment(appId, teamId)
+
+			const globalQ = await createScreeningQuestion("Globalt spørsmål?", null, "Z990001")
+			await changeScreeningQuestionStatus(globalQ.id, "ready", "Z990001")
+			await changeScreeningQuestionStatus(globalQ.id, "approved", "Z990001")
+
+			const ownSectionQ = await createScreeningQuestion("Seksjonsspørsmål?", null, "Z990001", ownSectionId)
+			await changeScreeningQuestionStatus(ownSectionQ.id, "ready", "Z990001")
+			await changeScreeningQuestionStatus(ownSectionQ.id, "approved", "Z990001")
+
+			const otherSectionQ = await createScreeningQuestion("Annet seksjonsspørsmål?", null, "Z990001", otherSectionId)
+			await changeScreeningQuestionStatus(otherSectionQ.id, "ready", "Z990001")
+			await changeScreeningQuestionStatus(otherSectionQ.id, "approved", "Z990001")
+
+			const result = await getScreeningQuestionsWithAnswersForApp(appId)
+			const ids = result.map((q) => q.id)
+
+			expect(ids).toContain(globalQ.id)
+			expect(ids).toContain(ownSectionQ.id)
+			expect(ids).not.toContain(otherSectionQ.id)
 		})
 	})
 })
