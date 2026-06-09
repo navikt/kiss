@@ -531,8 +531,12 @@ body {
 }
 
 /* Table scroll wrapper for mobile */
+.table-scroll-modal {
+	max-height: 400px;
+	overflow-y: auto;
+}
+
 .table-scroll {
-	overflow-x: auto;
 	-webkit-overflow-scrolling: touch;
 }
 
