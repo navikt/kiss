@@ -96,6 +96,7 @@ export default [
 	route("seksjoner/:seksjon/rapporter", "routes/seksjoner.$seksjon.rapporter/index.tsx"),
 	route("seksjoner/:seksjon/koblingsforslag", "routes/seksjoner.$seksjon.koblingsforslag/index.tsx"),
 	route("seksjoner/:seksjon/screening", "routes/seksjoner.$seksjon.screening/index.tsx"),
+	route("seksjoner/:seksjon/screening/:questionId", "routes/seksjoner.$seksjon.screening.$questionId/index.tsx"),
 	route(
 		"seksjoner/:seksjon/screening/:questionId/rediger",
 		"routes/seksjoner.$seksjon.screening.$questionId.rediger/index.tsx",

@@ -22,6 +22,7 @@ import { PriorityTag } from "~/components/PriorityTag"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
 import type { DataClassification, GroupCriticality, PersistenceType } from "~/db/schema/applications"
 import { dataClassificationLabels, groupCriticalityLabels } from "~/db/schema/applications"
+import { screeningQuestionStatusConfig } from "~/db/schema/screening"
 import type { action } from "../action.server"
 import { persistenceLabels } from "../shared"
 
@@ -50,7 +51,7 @@ type RoutineDeadline = {
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
 	draftReviewId?: string
-	screeningSelectionQuestion?: { id: string; questionText: string; sectionId: string | null } | null
+	screeningSelectionQuestion?: { id: string; questionText: string; sectionId: string | null; status: string } | null
 }
 
 type CompletedReview = {
@@ -207,11 +208,19 @@ export function RutinerTab({
 		if (dl.matchSource !== "screening_selection" || !dl.screeningSelectionQuestion) return null
 		const question = dl.screeningSelectionQuestion
 		const sectionSlug = question.sectionId ? sectionSlugMap[question.sectionId] : undefined
-		const questionLink = sectionSlug ? `/seksjoner/${sectionSlug}/screening/${question.id}/rediger` : undefined
+		const questionLink = sectionSlug ? `/seksjoner/${sectionSlug}/screening/${question.id}` : undefined
+		const statusCfg = screeningQuestionStatusConfig[question.status as keyof typeof screeningQuestionStatusConfig]
 		return (
-			<BodyShort size="small">
-				{questionLink ? <Link to={questionLink}>{question.questionText}</Link> : question.questionText}
-			</BodyShort>
+			<HStack gap="space-2" align="center">
+				<BodyShort size="small">
+					{questionLink ? <Link to={questionLink}>{question.questionText}</Link> : question.questionText}
+				</BodyShort>
+				{statusCfg && (
+					<Tag variant={statusCfg.variant} size="xsmall">
+						{statusCfg.label}
+					</Tag>
+				)}
+			</HStack>
 		)
 	}
 
