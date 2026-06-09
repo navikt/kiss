@@ -107,20 +107,23 @@ export function SortableQuestionCard({
 							)
 						})()}
 					</HStack>
-					{canEdit && (
-						<HStack gap="space-2">
-							{!isArchived && (
-								<Button
-									as={Link}
-									to={`${editPath}/${q.id}/rediger`}
-									size="xsmall"
-									variant="tertiary-neutral"
-									icon={<PencilIcon aria-hidden />}
-								>
-									Rediger
-								</Button>
-							)}
-							{isArchived ? (
+					<HStack gap="space-2">
+						<Button as={Link} to={`${editPath}/${q.id}`} size="xsmall" variant="tertiary-neutral">
+							Se detaljer
+						</Button>
+						{canEdit && !isArchived && (
+							<Button
+								as={Link}
+								to={`${editPath}/${q.id}/rediger`}
+								size="xsmall"
+								variant="tertiary-neutral"
+								icon={<PencilIcon aria-hidden />}
+							>
+								Rediger
+							</Button>
+						)}
+						{canEdit &&
+							(isArchived ? (
 								<Form method="post">
 									<input type="hidden" name="intent" value="unarchiveQuestion" />
 									<input type="hidden" name="questionId" value={q.id} />
@@ -137,9 +140,8 @@ export function SortableQuestionCard({
 								<Button size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />} onClick={onDelete}>
 									Arkiver
 								</Button>
-							)}
-						</HStack>
-					)}
+							))}
+					</HStack>
 				</HStack>
 
 				{/* Description */}

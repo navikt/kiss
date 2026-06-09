@@ -58,7 +58,7 @@ export interface DeadlineWithControls {
 	matchSource: MatchSource
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
-	screeningSelectionQuestion?: { id: string; questionText: string; sectionId: string | null } | null
+	screeningSelectionQuestion?: { id: string; questionText: string; sectionId: string | null; status: string } | null
 }
 
 /**
@@ -134,6 +134,7 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 						questionId: screeningQuestions.id,
 						questionText: screeningQuestions.questionText,
 						sectionId: screeningQuestions.sectionId,
+						status: screeningQuestions.status,
 					})
 					.from(screeningRoutineSelections)
 					.innerJoin(screeningChoiceEffects, eq(screeningRoutineSelections.choiceEffectId, screeningChoiceEffects.id))
@@ -145,7 +146,7 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 			: []
 	const screeningSelectionQuestionMap = new Map<
 		string,
-		{ id: string; questionText: string; sectionId: string | null }
+		{ id: string; questionText: string; sectionId: string | null; status: string }
 	>()
 	for (const row of screeningSelectionQuestionRows) {
 		if (row.routineId && !screeningSelectionQuestionMap.has(row.routineId)) {
@@ -153,6 +154,7 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 				id: row.questionId,
 				questionText: row.questionText,
 				sectionId: row.sectionId,
+				status: row.status,
 			})
 		}
 	}
