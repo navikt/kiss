@@ -1,4 +1,3 @@
-import { DownloadIcon } from "@navikt/aksel-icons"
 import { BodyShort, Button, Heading, HStack, Modal, Tabs, VStack } from "@navikt/ds-react"
 import { useRef, useState } from "react"
 import { Form, useLoaderData, useSearchParams } from "react-router"
@@ -6,6 +5,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import type { loader } from "./loader.server"
 import type { LinkedNaisTeam } from "./shared"
 import { AlleApplikasjonerTab } from "./tabs/AlleApplikasjonerTab"
+import { DataTab } from "./tabs/DataTab"
 import { NaisTab } from "./tabs/NaisTab"
 import { SeksjonTab } from "./tabs/SeksjonTab"
 import { UtviklingsteamTab } from "./tabs/UtviklingsteamTab"
@@ -34,20 +34,9 @@ export default function RedigerSeksjon() {
 
 	return (
 		<VStack gap="space-6">
-			<HStack align="center" justify="space-between" wrap>
-				<Heading size="xlarge" level="2" spacing>
-					Rediger seksjon: {section.name}
-				</Heading>
-				<Button
-					as="a"
-					href={`/api/seksjoner/${seksjon}/eksport`}
-					variant="tertiary"
-					size="small"
-					icon={<DownloadIcon aria-hidden />}
-				>
-					Eksporter alt
-				</Button>
-			</HStack>
+			<Heading size="xlarge" level="2" spacing>
+				Rediger seksjon: {section.name}
+			</Heading>
 
 			<Tabs value={activeTab} onChange={(tab) => setSearchParams({ fane: tab }, { replace: true })}>
 				<Tabs.List>
@@ -55,6 +44,7 @@ export default function RedigerSeksjon() {
 					<Tabs.Tab value="team" label={`Utviklingsteam (${teams.filter((t) => !t.archivedAt).length})`} />
 					<Tabs.Tab value="nais" label={`Nais-team (${linkedNaisTeams.length})`} />
 					<Tabs.Tab value="alle-applikasjoner" label={`Alle applikasjoner (${sectionApps.length})`} />
+					<Tabs.Tab value="data" label="Data" />
 				</Tabs.List>
 
 				<Tabs.Panel value="seksjon" style={{ paddingTop: "var(--ax-space-6)" }}>
@@ -84,6 +74,10 @@ export default function RedigerSeksjon() {
 						persistenceMap={persistenceMap}
 						ignoredApps={ignoredApps}
 					/>
+				</Tabs.Panel>
+
+				<Tabs.Panel value="data" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<DataTab seksjon={seksjon} />
 				</Tabs.Panel>
 			</Tabs>
 
