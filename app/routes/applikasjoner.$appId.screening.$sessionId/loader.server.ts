@@ -42,6 +42,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		id: string
 		questionText: string
 		description: string | null
+		sectionId: string | null
 		displayOrder: number
 		answerType: string
 		choices: Array<{
@@ -384,6 +385,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			id: q.id,
 			questionText: q.questionText,
 			description: q.description,
+			sectionId: q.sectionId ?? null,
 			displayOrder: q.displayOrder,
 			answerType: q.answerType,
 			rulesetCategoryFilter: q.rulesetCategoryFilter ?? null,

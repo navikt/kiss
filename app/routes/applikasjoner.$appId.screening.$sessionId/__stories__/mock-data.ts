@@ -23,6 +23,7 @@ export const mockScreening = [
 		answeredAt: null as string | null,
 		choices: [],
 		affectedControls: ["K-ØS.01", "K-ØS.02", "K-ØS.03"],
+		sectionId: null,
 		rulesetCategoryFilter: null,
 	},
 	{
@@ -42,6 +43,7 @@ export const mockScreening = [
 			{ id: "c-nei", label: "Nei", requiresComment: false, requiresLink: false, routineSelections: [] },
 		],
 		affectedControls: ["K-PD.01", "K-PD.02"],
+		sectionId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
 		rulesetCategoryFilter: null,
 	},
 	{
@@ -81,6 +83,7 @@ export const mockScreening = [
 			},
 		],
 		affectedControls: ["K-ST.01", "K-ST.03"],
+		sectionId: null,
 		rulesetCategoryFilter: null,
 	},
 	{
@@ -97,6 +100,7 @@ export const mockScreening = [
 		answeredAt: null as string | null,
 		choices: [],
 		affectedControls: ["K-TS.02", "K-TS.04"],
+		sectionId: null,
 		rulesetCategoryFilter: null,
 	},
 	{
@@ -113,6 +117,7 @@ export const mockScreening = [
 		answeredAt: null as string | null,
 		choices: [],
 		affectedControls: ["K-TS.01"],
+		sectionId: null,
 		rulesetCategoryFilter: null,
 	},
 	{
@@ -129,6 +134,7 @@ export const mockScreening = [
 		answeredAt: null as string | null,
 		choices: [],
 		affectedControls: ["K-TS.01", "K-TS.02"],
+		sectionId: null,
 		rulesetCategoryFilter: null,
 	},
 	{
@@ -146,6 +152,7 @@ export const mockScreening = [
 		answeredAt: null as string | null,
 		choices: [],
 		affectedControls: ["K-ST.01", "K-ST.02"],
+		sectionId: null,
 		rulesetCategoryFilter: null,
 	},
 	{
@@ -187,6 +194,7 @@ export const mockScreening = [
 			},
 		],
 		affectedControls: ["K-TS.01"],
+		sectionId: null,
 		rulesetCategoryFilter: null,
 	},
 ]
