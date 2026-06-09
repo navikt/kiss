@@ -55,8 +55,8 @@ const baseLoaderData = {
 	ignoredApps: [] as never[],
 	persistenceMap: {} as Record<string, never>,
 	sectionEnvironments: [
-		{ cluster: "dev-gcp", included: true },
-		{ cluster: "prod-gcp", included: true },
+		{ cluster: "dev-gcp", included: false },
+		{ cluster: "prod-gcp", included: false },
 		{ cluster: "dev-fss", included: false },
 		{ cluster: "prod-fss", included: false },
 	],
@@ -97,6 +97,33 @@ export const NaisFane: Story = {
 	name: "Fane: Nais-team",
 	render: () =>
 		renderWithLoader(RedigerSeksjon, mockLoaderData(), "/seksjoner/seksjon-for-arbeidsytelser-say/rediger?fane=nais"),
+}
+
+export const NaisFaneMedAktiveMiljoer: Story = {
+	name: "Fane: Nais-team – aktive produksjonsmiljøer",
+	render: () =>
+		renderWithLoader(
+			RedigerSeksjon,
+			mockLoaderData({
+				sectionEnvironments: [
+					{ cluster: "dev-gcp", included: false },
+					{ cluster: "prod-gcp", included: true },
+					{ cluster: "dev-fss", included: false },
+					{ cluster: "prod-fss", included: true },
+				],
+			}),
+			"/seksjoner/seksjon-for-arbeidsytelser-say/rediger?fane=nais",
+		),
+}
+
+export const AlleApplikasjonerFaneIngenMiljoer: Story = {
+	name: "Fane: Alle applikasjoner – ingen aktive miljøer",
+	render: () =>
+		renderWithLoader(
+			RedigerSeksjon,
+			mockLoaderData(),
+			"/seksjoner/seksjon-for-arbeidsytelser-say/rediger?fane=alle-applikasjoner",
+		),
 }
 
 export const NaisFaneMangeTilgjengeligeTeam: Story = {
