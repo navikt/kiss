@@ -38,12 +38,15 @@ export function SortableQuestionCard({
 	question: q,
 	index,
 	editPath,
+	detailBasePath,
 	canEdit = true,
 	onDelete,
 }: {
 	question: QuestionItem
 	index: number
 	editPath: string
+	/** If provided, renders a "Se detaljer" link to `${detailBasePath}/${question.id}`. Omit to hide the link. */
+	detailBasePath?: string
 	canEdit?: boolean
 	onDelete: () => void
 }) {
@@ -108,9 +111,11 @@ export function SortableQuestionCard({
 						})()}
 					</HStack>
 					<HStack gap="space-2">
-						<Button as={Link} to={`${editPath}/${q.id}`} size="xsmall" variant="tertiary-neutral">
-							Se detaljer
-						</Button>
+						{detailBasePath && (
+							<Button as={Link} to={`${detailBasePath}/${q.id}`} size="xsmall" variant="tertiary-neutral">
+								Se detaljer
+							</Button>
+						)}
 						{canEdit && !isArchived && (
 							<Button
 								as={Link}

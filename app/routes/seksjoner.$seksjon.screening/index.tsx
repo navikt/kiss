@@ -252,6 +252,7 @@ export default function SectionScreening() {
 									question={q}
 									index={index}
 									editPath={screeningBasePath}
+									detailBasePath={screeningBasePath}
 									canEdit={canEdit}
 									onDelete={() => {
 										setDeleteTarget({ id: q.id, text: q.questionText })

@@ -456,14 +456,17 @@ export function RutinerTab({
 																	</Detail>
 																	{renderMatchSource(dl)}
 																</VStack>
-																{renderScreeningQuestion(dl) && (
-																	<VStack gap="space-1">
-																		<Detail weight="semibold" textColor="subtle">
-																			Spørsmål
-																		</Detail>
-																		{renderScreeningQuestion(dl)}
-																	</VStack>
-																)}
+																{(() => {
+																	const screeningQuestion = renderScreeningQuestion(dl)
+																	return screeningQuestion ? (
+																		<VStack gap="space-1">
+																			<Detail weight="semibold" textColor="subtle">
+																				Spørsmål
+																			</Detail>
+																			{screeningQuestion}
+																		</VStack>
+																	) : null
+																})()}
 																{dl.routine?.controls && dl.routine.controls.length > 0 && (
 																	<VStack gap="space-1">
 																		<Detail weight="semibold" textColor="subtle">
@@ -554,14 +557,17 @@ export function RutinerTab({
 																		</Detail>
 																		{renderMatchSource(dl)}
 																	</VStack>
-																	{renderScreeningQuestion(dl) && (
-																		<VStack gap="space-1">
-																			<Detail weight="semibold" textColor="subtle">
-																				Spørsmål
-																			</Detail>
-																			{renderScreeningQuestion(dl)}
-																		</VStack>
-																	)}
+																	{(() => {
+																		const screeningQuestion = renderScreeningQuestion(dl)
+																		return screeningQuestion ? (
+																			<VStack gap="space-1">
+																				<Detail weight="semibold" textColor="subtle">
+																					Spørsmål
+																				</Detail>
+																				{screeningQuestion}
+																			</VStack>
+																		) : null
+																	})()}
 																	{dl.routine?.controls && dl.routine.controls.length > 0 && (
 																		<VStack gap="space-1">
 																			<Detail weight="semibold" textColor="subtle">
