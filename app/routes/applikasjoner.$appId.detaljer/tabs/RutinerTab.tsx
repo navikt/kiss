@@ -50,6 +50,7 @@ type RoutineDeadline = {
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
 	draftReviewId?: string
+	screeningSelectionQuestion?: { id: string; questionText: string; sectionId: string | null } | null
 }
 
 type CompletedReview = {
@@ -164,12 +165,13 @@ export function RutinerTab({
 				</HStack>
 			)
 		}
-		if (dl.matchSource === "screening_selection")
+		if (dl.matchSource === "screening_selection") {
 			return (
 				<Tag variant="alt1" size="xsmall">
 					Valgt via spørsmål
 				</Tag>
 			)
+		}
 		if (dl.matchSource === "section")
 			return (
 				<Tag variant="alt3" size="xsmall">
@@ -198,6 +200,18 @@ export function RutinerTab({
 			<Tag variant="neutral" size="xsmall">
 				Screening
 			</Tag>
+		)
+	}
+
+	const renderScreeningQuestion = (dl: RoutineDeadline) => {
+		if (dl.matchSource !== "screening_selection" || !dl.screeningSelectionQuestion) return null
+		const question = dl.screeningSelectionQuestion
+		const sectionSlug = question.sectionId ? sectionSlugMap[question.sectionId] : undefined
+		const questionLink = sectionSlug ? `/seksjoner/${sectionSlug}/screening/${question.id}/rediger` : undefined
+		return (
+			<BodyShort size="small">
+				{questionLink ? <Link to={questionLink}>{question.questionText}</Link> : question.questionText}
+			</BodyShort>
 		)
 	}
 
@@ -433,6 +447,14 @@ export function RutinerTab({
 																	</Detail>
 																	{renderMatchSource(dl)}
 																</VStack>
+																{renderScreeningQuestion(dl) && (
+																	<VStack gap="space-1">
+																		<Detail weight="semibold" textColor="subtle">
+																			Spørsmål
+																		</Detail>
+																		{renderScreeningQuestion(dl)}
+																	</VStack>
+																)}
 																{dl.routine?.controls && dl.routine.controls.length > 0 && (
 																	<VStack gap="space-1">
 																		<Detail weight="semibold" textColor="subtle">
@@ -523,6 +545,14 @@ export function RutinerTab({
 																		</Detail>
 																		{renderMatchSource(dl)}
 																	</VStack>
+																	{renderScreeningQuestion(dl) && (
+																		<VStack gap="space-1">
+																			<Detail weight="semibold" textColor="subtle">
+																				Spørsmål
+																			</Detail>
+																			{renderScreeningQuestion(dl)}
+																		</VStack>
+																	)}
 																	{dl.routine?.controls && dl.routine.controls.length > 0 && (
 																		<VStack gap="space-1">
 																			<Detail weight="semibold" textColor="subtle">

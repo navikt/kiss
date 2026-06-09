@@ -16,6 +16,12 @@ import { frameworkControls } from "../schema/framework"
 import type { ReviewStatus } from "../schema/routines"
 import { routineControls, routineReviews, routineTechnologyElements } from "../schema/routines"
 import {
+	screeningChoiceEffects,
+	screeningQuestionChoices,
+	screeningQuestions,
+	screeningRoutineSelections,
+} from "../schema/screening"
+import {
 	calculateDeadline,
 	getEffectiveLastReviewDatesBatch,
 	isOverdue,
@@ -52,6 +58,7 @@ export interface DeadlineWithControls {
 	matchSource: MatchSource
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
+	screeningSelectionQuestion?: { id: string; questionText: string; sectionId: string | null } | null
 }
 
 /**
@@ -118,6 +125,38 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 		...(screeningSelectionRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 
+	// Fetch the screening question that triggered each screening_selection routine for this app
+	const screeningSelectionQuestionRows =
+		screeningSelectionRoutines.length > 0
+			? await db
+					.select({
+						routineId: screeningRoutineSelections.routineId,
+						questionId: screeningQuestions.id,
+						questionText: screeningQuestions.questionText,
+						sectionId: screeningQuestions.sectionId,
+					})
+					.from(screeningRoutineSelections)
+					.innerJoin(screeningChoiceEffects, eq(screeningRoutineSelections.choiceEffectId, screeningChoiceEffects.id))
+					.innerJoin(screeningQuestionChoices, eq(screeningChoiceEffects.choiceId, screeningQuestionChoices.id))
+					.innerJoin(screeningQuestions, eq(screeningQuestionChoices.questionId, screeningQuestions.id))
+					.where(
+						and(eq(screeningRoutineSelections.applicationId, appId), isNull(screeningRoutineSelections.archivedAt)),
+					)
+			: []
+	const screeningSelectionQuestionMap = new Map<
+		string,
+		{ id: string; questionText: string; sectionId: string | null }
+	>()
+	for (const row of screeningSelectionQuestionRows) {
+		if (row.routineId && !screeningSelectionQuestionMap.has(row.routineId)) {
+			screeningSelectionQuestionMap.set(row.routineId, {
+				id: row.questionId,
+				questionText: row.questionText,
+				sectionId: row.sectionId,
+			})
+		}
+	}
+
 	const sectionWideRoutines = await getRoutineDeadlinesForAppBySection(appId, allMatchedIds, resolverOpts)
 	const allMatchedBeforeRuleset = new Set([
 		...allMatchedIds,
@@ -132,7 +171,11 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 		...persistenceRoutines.map((d) => ({ ...d, matchSource: "persistence" as const })),
 		...groupClassificationRoutines.map((d) => ({ ...d, matchSource: "group_classification" as const })),
 		...oracleRoleCriticalityRoutines.map((d) => ({ ...d, matchSource: "oracle_role_criticality" as const })),
-		...screeningSelectionRoutines.map((d) => ({ ...d, matchSource: "screening_selection" as const })),
+		...screeningSelectionRoutines.map((d) => ({
+			...d,
+			matchSource: "screening_selection" as const,
+			screeningSelectionQuestion: d.routine ? (screeningSelectionQuestionMap.get(d.routine.id) ?? null) : null,
+		})),
 		...sectionWideRoutines.map((d) => ({ ...d, matchSource: "section" as const })),
 		...rulesetRoutines.map((d) => ({ ...d, matchSource: "ruleset" as const })),
 	]

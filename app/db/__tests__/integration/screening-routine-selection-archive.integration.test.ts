@@ -4,6 +4,9 @@
  *
  * 1. getAppsRequiringRoutine – Path 5 (explicit per-app screening selections)
  * 2. getRoutineDeadlinesForAppByScreeningSelection
+ *
+ * Also verifies that getRoutineDeadlinesWithControls attaches screeningSelectionQuestion
+ * for routines matched via screening_selection.
  */
 import { sql } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
@@ -23,6 +26,7 @@ const { getAppsRequiringRoutine, getRoutineDeadlinesForAppByScreeningSelection, 
 	"~/db/queries/routines.server"
 )
 const { saveRoutineSelection } = await import("~/db/queries/screening.server")
+const { getRoutineDeadlinesWithControls } = await import("~/db/queries/routine-deadlines.server")
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -55,11 +59,15 @@ async function createControl(controlId: string) {
 	return (r.rows[0] as { id: string }).id
 }
 
-async function createQuestion(text: string) {
+async function createQuestion(text: string, sectionId?: string) {
 	const db = getTestDb()
-	const r = await db.execute(
-		sql`INSERT INTO screening_questions (question_text, created_by, updated_by) VALUES (${text}, 'Z990001', 'Z990001') RETURNING id`,
-	)
+	const r = sectionId
+		? await db.execute(
+				sql`INSERT INTO screening_questions (section_id, question_text, created_by, updated_by) VALUES (${sectionId}, ${text}, 'Z990001', 'Z990001') RETURNING id`,
+			)
+		: await db.execute(
+				sql`INSERT INTO screening_questions (question_text, created_by, updated_by) VALUES (${text}, 'Z990001', 'Z990001') RETURNING id`,
+			)
 	const questionId = (r.rows[0] as { id: string }).id
 	// Create a "Ja" choice
 	const cr = await db.execute(
@@ -116,6 +124,8 @@ describe("archived screening_routine_selections are excluded", () => {
 			DELETE FROM routine_persistence_links;
 			DELETE FROM routines;
 			DELETE FROM framework_controls;
+			DELETE FROM application_team_mappings;
+			DELETE FROM dev_teams;
 			DELETE FROM monitored_applications;
 			DELETE FROM sections;
 			DELETE FROM audit_log;
@@ -278,6 +288,148 @@ describe("archived screening_routine_selections are excluded", () => {
 
 			const deadlines = await getRoutineDeadlinesForAppByScreeningSelection(appId)
 			expect(deadlines.map((d) => d.routine?.id)).not.toContain(routine.id)
+		})
+	})
+
+	describe("getRoutineDeadlinesWithControls — screeningSelectionQuestion", () => {
+		it("attaches question id and text to a screening_selection routine", async () => {
+			const sectionId = await createSection("Seksjon Grønn Dal")
+			const appId = await createApp("Blå Bekk")
+			const controlId = await createControl(`K-SSQ.01-${uid()}`)
+			const { questionId, choiceId } = await createQuestion("Håndterer systemet sensitive data?", sectionId)
+			const choiceEffectId = await createChoiceEffect(choiceId, controlId)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Rutine Hvit Sky",
+				description: "Testrutine",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: "tech_manager",
+				isSectionRoutine: false,
+				persistenceLinks: [],
+				technologyElementIds: [],
+				controlIds: [],
+				createdBy: "Z990001",
+			})
+			await setRoutineApproved(routine.id)
+			await saveRoutineSelection(appId, choiceEffectId, routine.id, "Z990001")
+
+			const deadlines = await getRoutineDeadlinesWithControls(appId)
+			const match = deadlines.find((d) => d.routine?.id === routine.id)
+
+			expect(match).toBeDefined()
+			expect(match?.matchSource).toBe("screening_selection")
+			expect(match?.screeningSelectionQuestion).toMatchObject({
+				id: questionId,
+				questionText: "Håndterer systemet sensitive data?",
+				sectionId,
+			})
+		})
+
+		it("does not attach screeningSelectionQuestion for routines matched by other sources", async () => {
+			const sectionId = await createSection("Seksjon Sterk Vind")
+			const appId = await createApp("Rolig Hav")
+			const controlId = await createControl(`K-SSQ.02-${uid()}`)
+			const { choiceId } = await createQuestion("Har systemet ekstern pålogging?")
+			const choiceEffectId = await createChoiceEffect(choiceId, controlId)
+
+			// Link the app to the section via dev_team + application_team_mapping
+			const db = getTestDb()
+			const teamSlug = `team-${uid()}`
+			const teamResult = await db.execute(
+				sql`INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by) VALUES (${teamSlug}, ${teamSlug}, ${sectionId}, 'Z990001', 'Z990001') RETURNING id`,
+			)
+			const teamId = (teamResult.rows[0] as { id: string }).id
+			await db.execute(
+				sql`INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES (${appId}, ${teamId}, 'Z990001')`,
+			)
+
+			// Create a section-wide routine (matched via "section", not "screening_selection")
+			const sectionRoutine = await createRoutine({
+				sectionId,
+				name: "Rutine Klar Dag",
+				description: "Seksjonsrutine",
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: true,
+				responsibleRole: "tech_manager",
+				isSectionRoutine: true,
+				sectionRoutineOwnerRole: "tech_manager",
+				persistenceLinks: [],
+				technologyElementIds: [],
+				controlIds: [],
+				createdBy: "Z990001",
+			})
+			await setRoutineApproved(sectionRoutine.id)
+
+			// Also create a screening_selection routine to confirm the section one is distinct
+			const selectionRoutine = await createRoutine({
+				sectionId,
+				name: "Rutine Sterk Strøm",
+				description: "Valgt via spørsmål",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: "tech_manager",
+				isSectionRoutine: false,
+				persistenceLinks: [],
+				technologyElementIds: [],
+				controlIds: [],
+				createdBy: "Z990001",
+			})
+			await setRoutineApproved(selectionRoutine.id)
+			await saveRoutineSelection(appId, choiceEffectId, selectionRoutine.id, "Z990001")
+
+			const deadlines = await getRoutineDeadlinesWithControls(appId)
+
+			const sectionMatch = deadlines.find((d) => d.routine?.id === sectionRoutine.id)
+			expect(sectionMatch).toBeDefined()
+			expect(sectionMatch?.matchSource).toBe("section")
+			expect(sectionMatch?.screeningSelectionQuestion).toBeUndefined()
+
+			const selectionMatch = deadlines.find((d) => d.routine?.id === selectionRoutine.id)
+			expect(selectionMatch).toBeDefined()
+			expect(selectionMatch?.matchSource).toBe("screening_selection")
+			expect(selectionMatch?.screeningSelectionQuestion).toBeDefined()
+		})
+
+		it("returns null for screeningSelectionQuestion when the archived selection is restored without a question", async () => {
+			const sectionId = await createSection("Seksjon Mørk Natt")
+			const appId = await createApp("Dyp Fjord")
+			const controlId = await createControl(`K-SSQ.03-${uid()}`)
+			const { questionId, choiceId } = await createQuestion("Behandles betalingsdata?")
+			const choiceEffectId = await createChoiceEffect(choiceId, controlId)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Rutine Grå Stein",
+				description: "Testrutine",
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: "tech_manager",
+				isSectionRoutine: false,
+				persistenceLinks: [],
+				technologyElementIds: [],
+				controlIds: [],
+				createdBy: "Z990001",
+			})
+			await setRoutineApproved(routine.id)
+			await saveRoutineSelection(appId, choiceEffectId, routine.id, "Z990001")
+
+			const deadlines = await getRoutineDeadlinesWithControls(appId)
+			const match = deadlines.find((d) => d.routine?.id === routine.id)
+
+			expect(match?.screeningSelectionQuestion).toMatchObject({
+				id: questionId,
+				questionText: "Behandles betalingsdata?",
+			})
 		})
 	})
 })
