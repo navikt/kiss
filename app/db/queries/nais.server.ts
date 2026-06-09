@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm"
 import { logger } from "~/lib/logger.server"
 import { db } from "../connection.server"
 import {
@@ -539,10 +539,16 @@ export async function linkNaisTeamToSection(naisTeamSlug: string, sectionId: str
 		const updated = await tx
 			.update(naisTeams)
 			.set({ sectionId })
-			.where(eq(naisTeams.slug, naisTeamSlug))
+			.where(and(eq(naisTeams.slug, naisTeamSlug), or(isNull(naisTeams.sectionId), eq(naisTeams.sectionId, sectionId))))
 			.returning({ slug: naisTeams.slug })
 		if (updated.length === 0) {
-			throw new Error(`Nais-team med slug «${naisTeamSlug}» finnes ikke`)
+			const [existing] = await tx
+				.select({ sectionId: naisTeams.sectionId })
+				.from(naisTeams)
+				.where(eq(naisTeams.slug, naisTeamSlug))
+				.limit(1)
+			if (!existing) throw new Error(`Nais-team med slug «${naisTeamSlug}» finnes ikke`)
+			throw new Error(`Nais-team «${naisTeamSlug}» er allerede koblet til en annen seksjon`)
 		}
 		await writeAuditLog(
 			{
@@ -557,9 +563,12 @@ export async function linkNaisTeamToSection(naisTeamSlug: string, sectionId: str
 	})
 }
 
-/** Unlink a Nais team from a section. */
-export async function unlinkNaisTeamFromSection(naisTeamSlug: string, performedBy: string) {
+/** Unlink a Nais team from a section. If sectionId is provided, verifies the team belongs to that section first. */
+export async function unlinkNaisTeamFromSection(naisTeamSlug: string, performedBy: string, sectionId?: string) {
 	const [team] = await db.select().from(naisTeams).where(eq(naisTeams.slug, naisTeamSlug)).limit(1)
+	if (sectionId && team?.sectionId !== sectionId) {
+		throw new Response("Nais-team tilhører ikke denne seksjonen", { status: 403 })
+	}
 	const [prevSection] = team?.sectionId
 		? await db.select().from(sections).where(eq(sections.id, team.sectionId)).limit(1)
 		: [null]

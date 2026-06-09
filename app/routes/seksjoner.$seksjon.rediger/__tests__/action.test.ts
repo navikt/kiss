@@ -7,17 +7,17 @@ vi.mock("~/lib/auth.server", () => ({
 	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
-const mockRequireAdmin = vi.fn()
+const mockRequireSectionAccess = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
-	requireAdmin: mockRequireAdmin,
+	requireSectionAccess: mockRequireSectionAccess,
 }))
 
-const mockGetSectionDetail = vi.fn()
+const mockGetSectionBySlug = vi.fn()
 const mockUpdateSection = vi.fn()
 const mockGetTeamsForSection = vi.fn()
 const mockCreateTeam = vi.fn()
 vi.mock("~/db/queries/sections.server", () => ({
-	getSectionDetail: mockGetSectionDetail,
+	getSectionBySlug: mockGetSectionBySlug,
 	updateSection: mockUpdateSection,
 	getTeamsForSection: mockGetTeamsForSection,
 	createTeam: mockCreateTeam,
@@ -70,10 +70,7 @@ const regularUser = {
 	token: "test-token",
 }
 
-const mockSection = {
-	section: { id: "sec-1", name: "Test Seksjon", slug: "test-seksjon", description: "Beskrivelse" },
-	teams: [],
-}
+const mockSection = { id: "sec-1", name: "Test Seksjon", slug: "test-seksjon", description: "Beskrivelse" }
 
 // --- Tests -----------------------------------------------------------
 
@@ -83,9 +80,10 @@ describe("seksjoner.$seksjon.rediger action", () => {
 	})
 
 	describe("authorization", () => {
-		it("rejects non-admin users with 403", async () => {
+		it("rejects users without section access with 403", async () => {
 			mockRequireAuthenticatedUser.mockResolvedValue(regularUser)
-			mockRequireAdmin.mockImplementation(() => {
+			mockGetSectionBySlug.mockResolvedValue(mockSection)
+			mockRequireSectionAccess.mockImplementation(() => {
 				throw new Response("Ikke autorisert", { status: 403 })
 			})
 
@@ -108,8 +106,8 @@ describe("seksjoner.$seksjon.rediger action", () => {
 	describe("update-section", () => {
 		beforeEach(() => {
 			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireAdmin.mockImplementation(() => {})
-			mockGetSectionDetail.mockResolvedValue(mockSection)
+			mockRequireSectionAccess.mockImplementation(() => {})
+			mockGetSectionBySlug.mockResolvedValue(mockSection)
 		})
 
 		it("updates section and redirects to edit page", async () => {
@@ -148,7 +146,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 		})
 
 		it("returns 404 when section not found", async () => {
-			mockGetSectionDetail.mockResolvedValue(null)
+			mockGetSectionBySlug.mockResolvedValue(null)
 
 			const formData = new FormData()
 			formData.set("intent", "update-section")
@@ -167,8 +165,8 @@ describe("seksjoner.$seksjon.rediger action", () => {
 	describe("create-team", () => {
 		beforeEach(() => {
 			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireAdmin.mockImplementation(() => {})
-			mockGetSectionDetail.mockResolvedValue(mockSection)
+			mockRequireSectionAccess.mockImplementation(() => {})
+			mockGetSectionBySlug.mockResolvedValue(mockSection)
 		})
 
 		it("creates team and redirects", async () => {
@@ -210,8 +208,8 @@ describe("seksjoner.$seksjon.rediger action", () => {
 	describe("link-nais-team", () => {
 		beforeEach(() => {
 			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireAdmin.mockImplementation(() => {})
-			mockGetSectionDetail.mockResolvedValue(mockSection)
+			mockRequireSectionAccess.mockImplementation(() => {})
+			mockGetSectionBySlug.mockResolvedValue(mockSection)
 		})
 
 		it("links Nais-team and redirects", async () => {
@@ -251,8 +249,8 @@ describe("seksjoner.$seksjon.rediger action", () => {
 	describe("unlink-nais-team", () => {
 		beforeEach(() => {
 			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireAdmin.mockImplementation(() => {})
-			mockGetSectionDetail.mockResolvedValue(mockSection)
+			mockRequireSectionAccess.mockImplementation(() => {})
+			mockGetSectionBySlug.mockResolvedValue(mockSection)
 		})
 
 		it("unlinks Nais-team and redirects", async () => {
@@ -270,7 +268,7 @@ describe("seksjoner.$seksjon.rediger action", () => {
 				expect((thrown as Response).headers.get("Location")).toBe("/seksjoner/test-seksjon/rediger?fane=nais")
 			}
 
-			expect(mockUnlinkNaisTeamFromSection).toHaveBeenCalledWith("pensjon-person", "Z999999")
+			expect(mockUnlinkNaisTeamFromSection).toHaveBeenCalledWith("pensjon-person", "Z999999", "sec-1")
 		})
 
 		it("returns 400 when naisTeamSlug is missing", async () => {
@@ -292,8 +290,8 @@ describe("seksjoner.$seksjon.rediger action", () => {
 	describe("link-team", () => {
 		beforeEach(() => {
 			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireAdmin.mockImplementation(() => {})
-			mockGetSectionDetail.mockResolvedValue(mockSection)
+			mockRequireSectionAccess.mockImplementation(() => {})
+			mockGetSectionBySlug.mockResolvedValue(mockSection)
 		})
 
 		it("links app to team and redirects to alle-applikasjoner", async () => {
@@ -342,8 +340,8 @@ describe("seksjoner.$seksjon.rediger action", () => {
 	describe("unignore-app", () => {
 		beforeEach(() => {
 			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireAdmin.mockImplementation(() => {})
-			mockGetSectionDetail.mockResolvedValue(mockSection)
+			mockRequireSectionAccess.mockImplementation(() => {})
+			mockGetSectionBySlug.mockResolvedValue(mockSection)
 		})
 
 		it("unignores app and redirects to alle-applikasjoner", async () => {
@@ -376,8 +374,8 @@ describe("seksjoner.$seksjon.rediger action", () => {
 	describe("unknown intent", () => {
 		beforeEach(() => {
 			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireAdmin.mockImplementation(() => {})
-			mockGetSectionDetail.mockResolvedValue(mockSection)
+			mockRequireSectionAccess.mockImplementation(() => {})
+			mockGetSectionBySlug.mockResolvedValue(mockSection)
 		})
 
 		it("returns 400 for unknown intent", async () => {

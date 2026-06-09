@@ -8,9 +8,9 @@ import {
 	unignoreAppForSection,
 	unlinkNaisTeamFromSection,
 } from "~/db/queries/nais.server"
-import { createTeam, getSectionDetail, updateSection } from "~/db/queries/sections.server"
+import { createTeam, getSectionBySlug, updateSection } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
+import { requireSectionAccess } from "~/lib/authorization.server"
 
 function redirectToTab(seksjon: string, tab: string) {
 	return redirect(`/seksjoner/${seksjon}/rediger?fane=${tab}`)
@@ -18,13 +18,14 @@ function redirectToTab(seksjon: string, tab: string) {
 
 export async function action({ request, params }: ActionFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
-	requireAdmin(authedUser)
 
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 
-	const result = await getSectionDetail(seksjon)
-	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
+	const section = await getSectionBySlug(seksjon)
+	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
+
+	requireSectionAccess(authedUser, section.id)
 
 	const formData = await request.formData()
 	const intent = formData.get("intent") as string
@@ -34,7 +35,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const name = (formData.get("name") as string)?.trim()
 		const description = (formData.get("description") as string)?.trim() || null
 		if (!name) throw new Response("Navn er påkrevd", { status: 400 })
-		const updated = await updateSection(result.section.id, name, description, userId)
+		const updated = await updateSection(section.id, name, description, userId)
 		return redirectToTab(updated.slug, "seksjon")
 	}
 
@@ -42,21 +43,21 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const name = (formData.get("name") as string)?.trim()
 		const description = (formData.get("description") as string)?.trim() || null
 		if (!name) throw new Response("Teamnavn er påkrevd", { status: 400 })
-		await createTeam(result.section.id, name, description, userId)
+		await createTeam(section.id, name, description, userId)
 		return redirectToTab(seksjon, "team")
 	}
 
 	if (intent === "link-nais-team") {
 		const naisTeamSlug = formData.get("naisTeamSlug") as string
 		if (!naisTeamSlug) throw new Response("Mangler Nais-team", { status: 400 })
-		await linkNaisTeamToSection(naisTeamSlug, result.section.id, userId)
+		await linkNaisTeamToSection(naisTeamSlug, section.id, userId)
 		return redirectToTab(seksjon, "nais")
 	}
 
 	if (intent === "unlink-nais-team") {
 		const naisTeamSlug = formData.get("naisTeamSlug") as string
 		if (!naisTeamSlug) throw new Response("Mangler Nais-team", { status: 400 })
-		await unlinkNaisTeamFromSection(naisTeamSlug, userId)
+		await unlinkNaisTeamFromSection(naisTeamSlug, userId, section.id)
 		return redirectToTab(seksjon, "nais")
 	}
 
@@ -71,7 +72,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "unignore-app") {
 		const applicationId = formData.get("applicationId") as string
 		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
-		await unignoreAppForSection(result.section.id, applicationId, userId)
+		await unignoreAppForSection(section.id, applicationId, userId)
 		return redirectToTab(seksjon, "alle-applikasjoner")
 	}
 
@@ -80,9 +81,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const enabled = formData.get("enabled") === "true"
 		if (!cluster) throw new Response("Mangler cluster", { status: 400 })
 		if (enabled) {
-			await includeEnvironment(result.section.id, cluster, userId)
+			await includeEnvironment(section.id, cluster, userId)
 		} else {
-			await excludeEnvironment(result.section.id, cluster, userId)
+			await excludeEnvironment(section.id, cluster, userId)
 		}
 		return redirectToTab(seksjon, "nais")
 	}

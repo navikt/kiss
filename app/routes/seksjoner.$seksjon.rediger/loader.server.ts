@@ -8,21 +8,21 @@ import {
 	getSectionEnvironments,
 	getUnlinkedNaisTeams,
 } from "~/db/queries/nais.server"
-import { getSectionDetail, getTeamsForSection } from "~/db/queries/sections.server"
+import { getSectionBySlug, getTeamsForSection } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireAdmin } from "~/lib/authorization.server"
+import { requireSectionAccess } from "~/lib/authorization.server"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
-	requireAdmin(authedUser)
 
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 
-	const result = await getSectionDetail(seksjon)
+	const result = await getSectionBySlug(seksjon)
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
 
-	const sectionId = result.section.id
+	const sectionId = result.id
+	requireSectionAccess(authedUser, sectionId)
 
 	const [teams, linkedNaisTeams, unlinkedNaisTeams, sectionApps, sectionEnvironmentsList, ignoredApps] =
 		await Promise.all([
@@ -40,9 +40,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return data({
 		section: {
 			id: sectionId,
-			name: result.section.name,
-			slug: result.section.slug,
-			description: result.section.description,
+			name: result.name,
+			slug: result.slug,
+			description: result.description,
 		},
 		teams: teams.map((t) => ({
 			id: t.id,
