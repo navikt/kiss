@@ -241,6 +241,19 @@ export async function getDeploymentVerificationsForApps(applicationIds: string[]
 
 /** Aggregate deployment verification stats across all synced summaries. */
 export async function getDeploymentVerificationAggregate(applicationIds?: string[]) {
+	// An explicitly provided empty list means no apps in scope → return zero stats
+	if (applicationIds && applicationIds.length === 0) {
+		return {
+			appsWithData: 0,
+			fourEyesPercent: null,
+			fourEyesTotal: 0,
+			fourEyesApproved: 0,
+			changeOriginPercent: null,
+			changeOriginTotal: 0,
+			changeOriginLinked: 0,
+		}
+	}
+
 	const conditions = [eq(deploymentVerificationSummaries.status, "synced")]
 	if (applicationIds && applicationIds.length > 0) {
 		conditions.push(inArray(deploymentVerificationSummaries.applicationId, applicationIds))
