@@ -5,6 +5,7 @@ import { getAppAssessments, getAppScopeIds } from "~/db/queries/applications.ser
 import { getOracleInstancesForApp, getSnapshotHistory } from "~/db/queries/audit-evidence.server"
 import { getOracleAuditSummariesForApp } from "~/db/queries/audit-logging.server"
 import { getScreeningEffectsByControlForApp } from "~/db/queries/compliance-auto.server"
+import { getDeploymentVerificationForAppWithFetch } from "~/db/queries/deployment-audit.server"
 import { getEconomyClassification } from "~/db/queries/economy-classification.server"
 import {
 	getGitHubAccessChangeLog,
@@ -18,12 +19,16 @@ import {
 	getManualGroupsForApp,
 	resolveAppNames,
 } from "~/db/queries/nais.server"
+import { getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
 import { getReportsForApp } from "~/db/queries/reports.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
 import { getReviewsForApp } from "~/db/queries/routines.server"
 import { getRpaUsersForApp } from "~/db/queries/rpa.server"
+import { getRulesetsSelectedByApp } from "~/db/queries/rulesets.server"
+import { getScreeningProgressForApps, getScreeningQuestionsWithAnswersForApp } from "~/db/queries/screening.server"
 import { getScreeningSessionsForApp } from "~/db/queries/screening-sessions.server"
 import { getSections } from "~/db/queries/sections.server"
+import { getApplicationElements } from "~/db/queries/technology-elements.server"
 import type { GroupCriticality } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { canAccessAppReports, hasAnyTeamRole, hasRole, isAdmin } from "~/lib/authorization.server"
@@ -91,19 +96,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		referencedAppNames.add(rule.ruleApplication)
 	}
 
-	// Dynamic imports in parallel (avoids sequential awaits on cold starts)
-	const [
-		{ getApplicationElements },
-		{ getScreeningProgressForApps },
-		{ getDeploymentVerificationForAppWithFetch },
-		{ getOracleRoleAssessments },
-	] = await Promise.all([
-		import("~/db/queries/technology-elements.server"),
-		import("~/db/queries/screening.server"),
-		import("~/db/queries/deployment-audit.server"),
-		import("~/db/queries/oracle-roles.server"),
-	])
-
 	// Batch 1: Core queries for compliance computation (pool max=10, keep batches ≤10)
 	const [
 		appElements,
@@ -117,6 +109,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		persistedControls,
 		appRulesets,
 		economyClassification,
+		screeningQuestionsWithAnswers,
 	] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesWithControls(appId),
@@ -127,11 +120,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getScreeningSessionsForApp(appId, user ? isAdmin(user) : false),
 		getScreeningEffectsByControlForApp(appId),
 		getActiveApplicationControls(appId),
-		(async () => {
-			const { getRulesetsSelectedByApp } = await import("~/db/queries/rulesets.server")
-			return getRulesetsSelectedByApp(appId)
-		})(),
+		getRulesetsSelectedByApp(appId),
 		getEconomyClassification(appId),
+		getScreeningQuestionsWithAnswersForApp(appId),
 	])
 
 	// Batch 2: Supporting queries (independent of batch 1 results)
@@ -506,5 +497,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 					validUntil: economyClassification.validUntil.toISOString(),
 				}
 			: null,
+		screeningQuestionsWithAnswers: screeningQuestionsWithAnswers.map((q) => ({
+			id: q.id,
+			questionText: q.questionText,
+			description: q.description,
+			sectionId: q.sectionId,
+			displayOrder: q.displayOrder,
+			answerType: q.answerType,
+			answer: q.answer,
+			answeredBy: q.answeredBy,
+			answeredAt: q.answeredAt?.toISOString() ?? null,
+		})),
 	})
 }

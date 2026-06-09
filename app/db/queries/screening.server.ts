@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm"
 import { ScreeningValidationError } from "../../lib/screening-types"
 import { isValidUuid } from "../../lib/utils"
 import { db } from "../connection.server"
@@ -809,6 +809,66 @@ export async function unarchiveChoiceEffect(effectId: string, performedBy: strin
 
 export async function getScreeningAnswersForApp(applicationId: string) {
 	return db.select().from(screeningAnswers).where(eq(screeningAnswers.applicationId, applicationId))
+}
+
+/**
+ * Get all approved, non-archived screening questions with their answer status for a specific app.
+ * Scope mirrors getScreeningDataForApp: global questions (sectionId IS NULL) + section questions
+ * only for the sections the app actually belongs to (via NAIS team environments).
+ */
+export async function getScreeningQuestionsWithAnswersForApp(appId: string) {
+	// Resolve section IDs for this app via NAIS environments (same logic as getScreeningDataForApp)
+	const sectionRows = await db
+		.selectDistinct({ sectionId: naisTeams.sectionId })
+		.from(applicationEnvironments)
+		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+		.where(
+			and(
+				eq(applicationEnvironments.applicationId, appId),
+				isNotNull(naisTeams.sectionId),
+				notExists(
+					db
+						.select({ cluster: sectionEnvironments.cluster })
+						.from(sectionEnvironments)
+						.where(
+							and(
+								eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+								eq(sectionEnvironments.sectionId, naisTeams.sectionId),
+								eq(sectionEnvironments.included, false),
+							),
+						),
+				),
+			),
+		)
+
+	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+
+	const scopeFilter =
+		sectionIds.length > 0
+			? or(isNull(screeningQuestions.sectionId), inArray(screeningQuestions.sectionId, sectionIds))
+			: isNull(screeningQuestions.sectionId)
+
+	const rows = await db
+		.select({
+			id: screeningQuestions.id,
+			questionText: screeningQuestions.questionText,
+			description: screeningQuestions.description,
+			sectionId: screeningQuestions.sectionId,
+			displayOrder: screeningQuestions.displayOrder,
+			answerType: screeningQuestions.answerType,
+			answer: screeningAnswers.answer,
+			answeredBy: screeningAnswers.answeredBy,
+			answeredAt: screeningAnswers.answeredAt,
+		})
+		.from(screeningQuestions)
+		.leftJoin(
+			screeningAnswers,
+			and(eq(screeningAnswers.questionId, screeningQuestions.id), eq(screeningAnswers.applicationId, appId)),
+		)
+		.where(and(isNull(screeningQuestions.archivedAt), eq(screeningQuestions.status, "approved"), scopeFilter))
+		.orderBy(screeningQuestions.displayOrder)
+
+	return rows
 }
 
 /** Lightweight batch query: get screening progress (answered/total) for multiple apps. */
