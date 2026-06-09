@@ -57,3 +57,4 @@ worktrees/
 # Generated screenshots
 screenshots/
 mockups/
+copilot-session-*.html

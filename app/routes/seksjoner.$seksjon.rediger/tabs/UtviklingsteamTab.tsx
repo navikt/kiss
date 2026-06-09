@@ -4,14 +4,14 @@ import {
 	BodyLong,
 	BodyShort,
 	Button,
-	Heading,
 	HStack,
+	Modal,
 	Table,
 	Tag,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
-import { useRef } from "react"
+import { useRef, useState } from "react"
 import { Form, Link } from "react-router"
 import type { TeamItem } from "../shared"
 
@@ -24,6 +24,7 @@ export function UtviklingsteamTab({
 	seksjon: string
 	sectionName: string
 }) {
+	const [modalOpen, setModalOpen] = useState(false)
 	const teamFormRef = useRef<HTMLFormElement>(null)
 
 	return (
@@ -91,27 +92,39 @@ export function UtviklingsteamTab({
 
 			{teams.length === 0 && <BodyLong>Ingen team er opprettet i denne seksjonen.</BodyLong>}
 
-			<Form
-				method="post"
-				ref={teamFormRef}
-				onSubmit={() => {
-					setTimeout(() => teamFormRef.current?.reset(), 0)
-				}}
-			>
-				<input type="hidden" name="intent" value="create-team" />
-				<VStack gap="space-4">
-					<Heading size="small" level="4">
-						Legg til team
-					</Heading>
-					<HStack gap="space-4" align="end">
-						<TextField label="Teamnavn" name="name" size="small" autoComplete="off" />
-						<TextField label="Beskrivelse" name="description" size="small" autoComplete="off" />
-						<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
-							Legg til
-						</Button>
-					</HStack>
-				</VStack>
-			</Form>
+			<div>
+				<Button variant="secondary" size="small" icon={<PlusIcon aria-hidden />} onClick={() => setModalOpen(true)}>
+					Legg til team
+				</Button>
+			</div>
+
+			<Modal open={modalOpen} onClose={() => setModalOpen(false)} header={{ heading: "Legg til team" }}>
+				<Modal.Body>
+					<Form
+						id="create-team-form"
+						method="post"
+						ref={teamFormRef}
+						onSubmit={() => {
+							setModalOpen(false)
+							setTimeout(() => teamFormRef.current?.reset(), 0)
+						}}
+					>
+						<input type="hidden" name="intent" value="create-team" />
+						<VStack gap="space-4">
+							<TextField label="Teamnavn" name="name" size="medium" autoComplete="off" autoFocus />
+							<TextField label="Beskrivelse" name="description" size="medium" autoComplete="off" />
+						</VStack>
+					</Form>
+				</Modal.Body>
+				<Modal.Footer>
+					<Button type="submit" form="create-team-form" variant="primary">
+						Legg til
+					</Button>
+					<Button type="button" variant="tertiary" onClick={() => setModalOpen(false)}>
+						Avbryt
+					</Button>
+				</Modal.Footer>
+			</Modal>
 		</VStack>
 	)
 }
