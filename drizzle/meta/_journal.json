@@ -757,6 +757,13 @@
       "when": 1781918380000,
       "tag": "0107_section_environments_default_excluded",
       "breakpoints": false
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1781918440000,
+      "tag": "0108_oracle_role_assessments_archive_support",
+      "breakpoints": true
     }
   ]
 }

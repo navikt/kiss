@@ -11,6 +11,16 @@ import {
 } from "../../lib/entra-staged-data"
 import { resolveGroupNames } from "../../lib/graph.server"
 import { withAdvisoryLock } from "../../lib/lock.server"
+import { getOracleRoles, shouldAssessRole } from "../../lib/oracle-revisjon.server"
+import {
+	applyOracleRoleCriticalityPatch,
+	ORACLE_ROLE_CRITICALITY_ACTIVITY_TYPE,
+	ORACLE_ROLE_CRITICALITY_SCHEMA_VERSION,
+	type OracleRoleCriticalityStagedData,
+	type OracleRoleCriticalityStagedDataPatch,
+	parseOracleRoleCriticalityStagedData,
+	toOracleRoleCriticalitySnapshot,
+} from "../../lib/oracle-role-staged-data"
 import { frequencyDays, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { db } from "../connection.server"
 import { applicationControls } from "../schema/application-controls"
@@ -73,6 +83,7 @@ import {
 } from "../schema/screening"
 import { syncApplicationControls } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
+import { getOracleInstancesForApp } from "./audit-evidence.server"
 import {
 	getAppAuthIntegrations,
 	getExcludedEnvironments,
@@ -1749,6 +1760,14 @@ export async function completeReview(reviewId: string, performedBy: string) {
 			!activity.stagedData
 		) {
 			await seedEntraActivity(activity.id, existing.applicationId, performedBy)
+		}
+		if (
+			activity.status === "pending" &&
+			activity.type === "oracle_role_criticality" &&
+			existing.applicationId &&
+			!activity.stagedData
+		) {
+			await seedOracleRoleCriticalityActivity(activity.id, existing.applicationId, performedBy)
 		}
 	}
 
@@ -6000,6 +6019,51 @@ export async function completeReviewActivity(
 		return result
 	}
 
+	// Use the oracle_role_criticality commit path for oracle_role_criticality activities with an application.
+	if (activity.type === "oracle_role_criticality" && activity.applicationId !== null) {
+		const lockName = `oracle_role_criticality-activity-${activityId}`
+		const result = await withAdvisoryLock(lockName, async () => {
+			const run = async (exec: DbExecutor) => {
+				const snapshot = await completeOracleRoleCriticalityActivity(
+					activityId,
+					activity.applicationId as string,
+					performedBy,
+					exec,
+				)
+
+				const [updated] = await exec
+					.update(routineReviewActivities)
+					.set({ status: "completed", snapshotAfter: snapshot, completedAt: new Date() })
+					.where(and(eq(routineReviewActivities.id, activityId), eq(routineReviewActivities.status, "pending")))
+					.returning()
+
+				if (!updated) {
+					throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+				}
+
+				await writeAuditLog(
+					{
+						action: "review_activity_completed",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						performedBy,
+					},
+					exec,
+				)
+
+				return updated
+			}
+
+			return tx ? run(tx) : db.transaction(run)
+		})
+
+		if (result === null) {
+			throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+		}
+
+		return result
+	}
+
 	const runGeneric = async (exec: DbExecutor) => {
 		const [updated] = await exec
 			.update(routineReviewActivities)
@@ -7122,4 +7186,513 @@ export async function getFollowUpReviewsForSection(sectionId: string) {
 		createdByName: r.createdByName,
 		openFollowUpPoints: pointsByReview.get(r.review.id) ?? [],
 	}))
+}
+
+// ─── Oracle Role Criticality Activity ────────────────────────────────────
+
+async function buildOracleRoleCriticalitySeedResult(applicationId: string): Promise<{
+	stagedData: OracleRoleCriticalityStagedData
+	snapshot: ReturnType<typeof toOracleRoleCriticalitySnapshot>
+}> {
+	// 1. Fetch active oracle instances linked to this app
+	const instanceLinks = await getOracleInstancesForApp(applicationId)
+
+	// 2. Fetch existing assessments from KISS primary storage (before merge)
+	const existingAssessments = await db
+		.select()
+		.from(oracleRoleAssessments)
+		.where(and(eq(oracleRoleAssessments.applicationId, applicationId), isNull(oracleRoleAssessments.archivedAt)))
+
+	const assessmentMap = new Map<string, (typeof existingAssessments)[number]>()
+	for (const row of existingAssessments) {
+		const key = `${row.instanceId}:${row.roleName}`
+		assessmentMap.set(key, row)
+	}
+
+	const snapshotBeforeRoles = existingAssessments.map((row) => ({
+		instanceId: row.instanceId,
+		roleName: row.roleName,
+		oracleMaintained: null as boolean | null,
+		common: null as boolean | null,
+		isGone: false,
+		criticality: row.criticality as GroupCriticality,
+	}))
+
+	// 3. Fetch API roles for each instance and merge
+	let apiUnavailable = false
+	const allRoles: OracleRoleCriticalityStagedData["roles"] = []
+	const seenKeys = new Set<string>()
+
+	for (const link of instanceLinks) {
+		let apiResult: Awaited<ReturnType<typeof getOracleRoles>> = null
+		try {
+			apiResult = await getOracleRoles(link.instanceId)
+		} catch {
+			// Log is handled inside getOracleRoles
+		}
+
+		if (!apiResult) {
+			apiUnavailable = true
+			// Add all known assessments for this instance as non-gone (API unavailable)
+			for (const row of existingAssessments.filter((r) => r.instanceId === link.instanceId)) {
+				const key = `${row.instanceId}:${row.roleName}`
+				if (seenKeys.has(key)) continue
+				seenKeys.add(key)
+				allRoles.push({
+					instanceId: row.instanceId,
+					roleName: row.roleName,
+					oracleMaintained: null,
+					common: null,
+					isNew: false,
+					isGone: false,
+					criticality: row.criticality as GroupCriticality,
+					criticalitySetBy: row.assessedBy,
+					criticalitySetAt: row.assessedAt.toISOString(),
+				})
+			}
+			continue
+		}
+
+		const rolesToAssess = apiResult.roles.filter(shouldAssessRole)
+		for (const role of rolesToAssess) {
+			const canonical = role.name.toUpperCase().trim()
+			if (!canonical) continue
+			const key = `${link.instanceId}:${canonical}`
+			if (seenKeys.has(key)) continue
+			seenKeys.add(key)
+
+			const existing = assessmentMap.get(key) ?? null
+			allRoles.push({
+				instanceId: link.instanceId,
+				roleName: canonical,
+				oracleMaintained: role.oracleMaintained ?? null,
+				common: role.common ?? null,
+				isNew: existing === null,
+				isGone: false,
+				criticality: existing ? (existing.criticality as GroupCriticality) : null,
+				criticalitySetBy: existing?.assessedBy ?? null,
+				criticalitySetAt: existing?.assessedAt?.toISOString() ?? null,
+			})
+		}
+	}
+
+	// Add KISS-only roles (isGone = true). Rows for instances where the API was unavailable
+	// were already added to seenKeys in the loop above, so any row that reaches here was
+	// genuinely not returned by the API and should be marked as gone.
+	// Guard: if there are no instance links at all, we cannot determine which roles are gone —
+	// skip this block to avoid archiving all existing assessments just because no instances
+	// are currently configured (e.g. temporarily removed).
+	if (instanceLinks.length > 0) {
+		for (const row of existingAssessments) {
+			const key = `${row.instanceId}:${row.roleName}`
+			if (seenKeys.has(key)) continue
+			seenKeys.add(key)
+
+			allRoles.push({
+				instanceId: row.instanceId,
+				roleName: row.roleName,
+				oracleMaintained: null,
+				common: null,
+				isNew: false,
+				isGone: true,
+				criticality: row.criticality as import("../schema/applications").GroupCriticality,
+				criticalitySetBy: row.assessedBy,
+				criticalitySetAt: row.assessedAt.toISOString(),
+			})
+		}
+	}
+
+	// Sort deterministically: instanceId ASC, roleName ASC
+	allRoles.sort((a, b) => a.instanceId.localeCompare(b.instanceId) || a.roleName.localeCompare(b.roleName))
+
+	const stagedData = parseOracleRoleCriticalityStagedData({
+		activityType: ORACLE_ROLE_CRITICALITY_ACTIVITY_TYPE,
+		schemaVersion: ORACLE_ROLE_CRITICALITY_SCHEMA_VERSION,
+		seededAt: new Date().toISOString(),
+		apiUnavailable,
+		roles: allRoles,
+	})
+
+	const snapshot = {
+		type: ORACLE_ROLE_CRITICALITY_ACTIVITY_TYPE,
+		schemaVersion: ORACLE_ROLE_CRITICALITY_SCHEMA_VERSION,
+		...(apiUnavailable ? { apiUnavailable: true as const } : {}),
+		roles: snapshotBeforeRoles,
+	}
+
+	return { stagedData, snapshot }
+}
+
+async function waitForOracleRoleCriticalitySeed(activityId: string): Promise<OracleRoleCriticalityStagedData | null> {
+	const maxAttempts = 10
+	const delayMs = 500
+	for (let i = 0; i < maxAttempts; i++) {
+		await new Promise((resolve) => setTimeout(resolve, delayMs))
+		const [row] = await db
+			.select({ stagedData: routineReviewActivities.stagedData })
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activityId))
+			.limit(1)
+		if (row?.stagedData) {
+			try {
+				return parseOracleRoleCriticalityStagedData(row.stagedData)
+			} catch {
+				return null
+			}
+		}
+	}
+	return null
+}
+
+export async function seedOracleRoleCriticalityActivity(
+	activityId: string,
+	applicationId: string,
+	performedBy: string,
+): Promise<OracleRoleCriticalityStagedData> {
+	if (!applicationId) {
+		throw new Error("Kan ikke seed'e Oracle-rollekritikalitet-aktivitet uten applikasjon")
+	}
+
+	// Quick precheck without lock — avoids API call if already seeded
+	const [precheck] = await db
+		.select({
+			type: routineReviewActivities.type,
+			status: routineReviewActivities.status,
+			stagedData: routineReviewActivities.stagedData,
+		})
+		.from(routineReviewActivities)
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+
+	if (!precheck) {
+		throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+	}
+	if (precheck.type !== ORACLE_ROLE_CRITICALITY_ACTIVITY_TYPE) {
+		throw new Error(`Aktivitet ${activityId} er ikke Oracle-rollekritikalitet-vedlikehold`)
+	}
+	if (precheck.status !== "pending") {
+		throw new Response("Kan ikke seed'e en fullført aktivitet", { status: 409 })
+	}
+	if (precheck.stagedData) {
+		return parseOracleRoleCriticalityStagedData(precheck.stagedData)
+	}
+
+	// Build seed result OUTSIDE lock — includes Oracle API calls
+	const seeded = await buildOracleRoleCriticalitySeedResult(applicationId)
+
+	const lockName = `oracle_role_criticality-activity-${activityId}`
+	const result = await withAdvisoryLock(lockName, async () => {
+		// Re-check under lock — another request may have seeded while we were fetching
+		const [current] = await db
+			.select({
+				status: routineReviewActivities.status,
+				stagedData: routineReviewActivities.stagedData,
+			})
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activityId))
+			.limit(1)
+
+		if (!current) {
+			throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+		}
+		if (current.status !== "pending") {
+			throw new Response("Kan ikke seed'e en fullført aktivitet", { status: 409 })
+		}
+		if (current.stagedData) {
+			return parseOracleRoleCriticalityStagedData(current.stagedData)
+		}
+
+		return db.transaction(async (tx) => {
+			const [updated] = await tx
+				.update(routineReviewActivities)
+				.set({
+					stagedData: seeded.stagedData,
+					snapshotBefore: sql`COALESCE(${routineReviewActivities.snapshotBefore}, ${JSON.stringify(seeded.snapshot)}::jsonb)`,
+				})
+				.where(and(eq(routineReviewActivities.id, activityId), isNull(routineReviewActivities.stagedData)))
+				.returning({ stagedData: routineReviewActivities.stagedData })
+
+			if (updated?.stagedData) {
+				await writeAuditLog(
+					{
+						action: "review_activity_seeded",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						performedBy,
+					},
+					tx,
+				)
+				return parseOracleRoleCriticalityStagedData(updated.stagedData)
+			}
+
+			// Another pod won the race — read what they wrote
+			const [current2] = await tx
+				.select({ stagedData: routineReviewActivities.stagedData })
+				.from(routineReviewActivities)
+				.where(eq(routineReviewActivities.id, activityId))
+				.limit(1)
+
+			if (!current2?.stagedData) {
+				throw new Error(`Kunne ikke seed'e Oracle-rollekritikalitet-aktivitet ${activityId}`)
+			}
+
+			return parseOracleRoleCriticalityStagedData(current2.stagedData)
+		})
+	})
+
+	if (result !== null) {
+		return result
+	}
+
+	const polled = await waitForOracleRoleCriticalitySeed(activityId)
+	if (polled) {
+		return polled
+	}
+
+	throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+}
+
+export async function patchOracleRoleCriticalityActivity(
+	activityId: string,
+	patch: OracleRoleCriticalityStagedDataPatch,
+	performedBy: string,
+): Promise<void> {
+	const [precheck] = await db
+		.select({
+			type: routineReviewActivities.type,
+			status: routineReviewActivities.status,
+			stagedData: routineReviewActivities.stagedData,
+			applicationId: routineReviews.applicationId,
+		})
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+
+	if (!precheck) {
+		throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+	}
+	if (precheck.type !== ORACLE_ROLE_CRITICALITY_ACTIVITY_TYPE) {
+		throw new Error(`Aktivitet ${activityId} er ikke Oracle-rollekritikalitet-vedlikehold`)
+	}
+	if (precheck.status !== "pending") {
+		throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
+	}
+	if (!precheck.applicationId) {
+		throw new Response("Oracle-rollekritikalitet-aktiviteten mangler applikasjon", { status: 400 })
+	}
+
+	// Seed if not already done (handles first patch after activity creation)
+	if (!precheck.stagedData) {
+		await seedOracleRoleCriticalityActivity(activityId, precheck.applicationId, performedBy)
+	}
+
+	const lockName = `oracle_role_criticality-activity-${activityId}`
+	const lockResult = await withAdvisoryLock(lockName, async () => {
+		const [current] = await db
+			.select({
+				status: routineReviewActivities.status,
+				stagedData: routineReviewActivities.stagedData,
+			})
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activityId))
+			.limit(1)
+
+		if (!current) {
+			throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+		}
+		if (current.status !== "pending") {
+			throw new Response("Kan ikke endre en fullført aktivitet", { status: 409 })
+		}
+		if (!current.stagedData) {
+			throw new Response("Oracle-aktiviteten er ikke initialisert. Last gjennomgangssiden på nytt.", { status: 409 })
+		}
+
+		return db.transaction(async (tx) => {
+			const existing = parseOracleRoleCriticalityStagedData(current.stagedData)
+			const updated = applyOracleRoleCriticalityPatch(existing, patch)
+
+			const wasNoOp = JSON.stringify(existing.roles) === JSON.stringify(updated.roles)
+
+			await tx
+				.update(routineReviewActivities)
+				.set({ stagedData: updated })
+				.where(eq(routineReviewActivities.id, activityId))
+
+			if (!wasNoOp) {
+				await writeAuditLog(
+					{
+						action: "review_activity_oracle_role_criticality_patched",
+						entityType: "routine_review_activity",
+						entityId: activityId,
+						newValue: JSON.stringify(patch),
+						performedBy,
+					},
+					tx,
+				)
+			}
+		})
+	})
+
+	if (lockResult === null) {
+		throw new Response("Gjennomgangen er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+	}
+}
+
+async function completeOracleRoleCriticalityActivity(
+	activityId: string,
+	applicationId: string,
+	performedBy: string,
+	executor: DbExecutor,
+): Promise<ReturnType<typeof toOracleRoleCriticalitySnapshot>> {
+	const [activity] = await executor
+		.select({
+			id: routineReviewActivities.id,
+			status: routineReviewActivities.status,
+			stagedData: routineReviewActivities.stagedData,
+		})
+		.from(routineReviewActivities)
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+
+	if (!activity) {
+		throw new Error(`Fant ikke review-aktivitet ${activityId}`)
+	}
+	if (activity.status !== "pending") {
+		throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+	}
+
+	const stagedData = activity.stagedData ? parseOracleRoleCriticalityStagedData(activity.stagedData) : null
+	if (!stagedData) {
+		throw new Response(
+			"Oracle-rollekritikalitet-aktiviteten er ikke initialisert. Last gjennomgangssiden på nytt og prøv igjen.",
+			{ status: 409 },
+		)
+	}
+
+	const activeRoles = stagedData.roles.filter((role) => !role.isGone)
+	const rolesMissingCriticality = activeRoles.filter((role) => role.criticality === null)
+	if (rolesMissingCriticality.length > 0) {
+		throw new Response(
+			`Alle aktive Oracle-roller må ha kritikalitet før fullføring: ${rolesMissingCriticality
+				.map((role) => `${role.instanceId}:${role.roleName}`)
+				.join(", ")}`,
+			{ status: 400 },
+		)
+	}
+
+	// Fetch existing active assessments in one query to avoid N+1
+	const existingRows = await executor
+		.select()
+		.from(oracleRoleAssessments)
+		.where(and(eq(oracleRoleAssessments.applicationId, applicationId), isNull(oracleRoleAssessments.archivedAt)))
+
+	const existingByKey = new Map<string, (typeof existingRows)[number]>()
+	for (const row of existingRows) {
+		existingByKey.set(`${row.instanceId}:${row.roleName}`, row)
+	}
+
+	const now = new Date()
+
+	// Upsert active roles (isGone = false)
+	for (const role of activeRoles) {
+		if (role.criticality === null) continue
+		const key = `${role.instanceId}:${role.roleName}`
+		const existingRow = existingByKey.get(key) ?? null
+		const performedAt = role.criticalitySetAt ? new Date(role.criticalitySetAt) : now
+		const performedByForRole = role.criticalitySetBy ?? performedBy
+
+		if (existingRow) {
+			if (existingRow.criticality !== role.criticality) {
+				await executor
+					.update(oracleRoleAssessments)
+					.set({
+						criticality: role.criticality,
+						assessedBy: performedByForRole,
+						assessedAt: performedAt,
+						updatedBy: performedByForRole,
+						updatedAt: performedAt,
+					})
+					.where(eq(oracleRoleAssessments.id, existingRow.id))
+
+				await writeAuditLog(
+					{
+						action: "oracle_role_criticality_updated",
+						entityType: "application",
+						entityId: applicationId,
+						previousValue: JSON.stringify({
+							instanceId: role.instanceId,
+							roleName: role.roleName,
+							criticality: existingRow.criticality,
+						}),
+						newValue: JSON.stringify({
+							instanceId: role.instanceId,
+							roleName: role.roleName,
+							criticality: role.criticality,
+						}),
+						performedBy: performedByForRole,
+					},
+					executor,
+				)
+			}
+		} else {
+			await executor.insert(oracleRoleAssessments).values({
+				applicationId,
+				instanceId: role.instanceId,
+				roleName: role.roleName,
+				criticality: role.criticality,
+				assessedBy: performedByForRole,
+				assessedAt: performedAt,
+				updatedBy: performedByForRole,
+				updatedAt: performedAt,
+				createdBy: performedByForRole,
+				createdAt: performedAt,
+			})
+
+			await writeAuditLog(
+				{
+					action: "oracle_role_criticality_updated",
+					entityType: "application",
+					entityId: applicationId,
+					newValue: JSON.stringify({
+						instanceId: role.instanceId,
+						roleName: role.roleName,
+						criticality: role.criticality,
+					}),
+					performedBy: performedByForRole,
+				},
+				executor,
+			)
+		}
+	}
+
+	// Soft-delete gone roles
+	for (const role of stagedData.roles.filter((r) => r.isGone)) {
+		const key = `${role.instanceId}:${role.roleName}`
+		const existingRow = existingByKey.get(key) ?? null
+		if (!existingRow) continue
+
+		await executor
+			.update(oracleRoleAssessments)
+			.set({ archivedAt: now, archivedBy: performedBy, updatedAt: now, updatedBy: performedBy })
+			.where(eq(oracleRoleAssessments.id, existingRow.id))
+
+		await writeAuditLog(
+			{
+				action: "oracle_role_criticality_updated",
+				entityType: "application",
+				entityId: applicationId,
+				previousValue: JSON.stringify({
+					instanceId: role.instanceId,
+					roleName: role.roleName,
+					criticality: existingRow.criticality,
+					archivedAt: now.toISOString(),
+				}),
+				performedBy,
+			},
+			executor,
+		)
+	}
+
+	return toOracleRoleCriticalitySnapshot(stagedData)
 }

@@ -20,7 +20,9 @@ import {
 	getRoutineActivityLinks,
 	getRoutineNamesByIds,
 	patchEntraActivity,
+	patchOracleRoleCriticalityActivity,
 	seedEntraActivity,
+	seedOracleRoleCriticalityActivity,
 	updateFollowUpPointDescription,
 	updateFollowUpPointStatus,
 	updateFollowUpPointText,
@@ -40,8 +42,13 @@ import {
 } from "~/lib/entra-staged-data"
 import { logger } from "~/lib/logger.server"
 import { renderMarkdown } from "~/lib/markdown.server"
+import { parseOracleRoleCriticalitySnapshot, parseOracleRoleCriticalityStagedData } from "~/lib/oracle-role-staged-data"
 import { parseParticipantsFormValue } from "~/lib/participants"
 import { EntraMaintenanceSection, type EntraStagedGroupsProp } from "./components/activities/EntraMaintenanceSection"
+import {
+	type OracleRoleCriticalityData,
+	OracleRoleCriticalityMaintenanceSection,
+} from "./components/activities/OracleRoleCriticalityMaintenanceSection"
 import { type RpaMaintenanceData, RpaUserMaintenanceSection } from "./components/activities/RpaUserMaintenanceSection"
 import { FollowUpPointsSection } from "./components/follow-up/FollowUpPointsSection"
 import { ReviewWizard } from "./components/ReviewWizard"
@@ -311,6 +318,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		oracleEvidenceData: OracleEvidenceData | null
 		ndaEvidenceData: NdaEvidenceData | null
 		rpaMaintenanceData: RpaMaintenanceData | null
+		oracleRoleCriticalityData: OracleRoleCriticalityData | null
 		evidenceProviderType: string | null
 		evidenceLoadError?: string
 	}
@@ -325,6 +333,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		let actOracleEvidenceData: OracleEvidenceData | null = null
 		let actNdaEvidenceData: NdaEvidenceData | null = null
 		let actRpaMaintenanceData: RpaMaintenanceData | null = null
+		let actOracleRoleCriticalityData: OracleRoleCriticalityData | null = null
 		const evidenceProviderType = getProviderTypeForActivity(activity.type)
 
 		try {
@@ -336,6 +345,41 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 						? parseEntraStagedData(activity.stagedData)
 						: await seedEntraActivity(activity.id, review.applicationId, "system")
 					actEntraGroupsData = toEntraGroupsData(stagedData.groups)
+				}
+			}
+
+			if (activity.type === "oracle_role_criticality" && review.applicationId) {
+				if (activity.status === "completed" && activity.snapshotAfter) {
+					try {
+						const snapshot = parseOracleRoleCriticalitySnapshot(activity.snapshotAfter)
+						actOracleRoleCriticalityData = {
+							activityId: activity.id,
+							apiUnavailable: snapshot.apiUnavailable === true,
+							roles: snapshot.roles.map((r) => ({
+								instanceId: r.instanceId,
+								roleName: r.roleName,
+								oracleMaintained: r.oracleMaintained,
+								common: r.common,
+								isNew: false,
+								isGone: r.isGone,
+								criticality: r.criticality,
+								criticalitySetBy: null,
+								criticalitySetAt: null,
+							})),
+						}
+					} catch {
+						// Legacy or unparsable snapshot — show empty
+						actOracleRoleCriticalityData = { activityId: activity.id, apiUnavailable: false, roles: [] }
+					}
+				} else if (activity.status === "pending") {
+					const stagedData = activity.stagedData
+						? parseOracleRoleCriticalityStagedData(activity.stagedData)
+						: await seedOracleRoleCriticalityActivity(activity.id, review.applicationId, "system")
+					actOracleRoleCriticalityData = {
+						activityId: activity.id,
+						apiUnavailable: stagedData.apiUnavailable,
+						roles: stagedData.roles,
+					}
 				}
 			}
 
@@ -519,6 +563,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 				oracleEvidenceData: null,
 				ndaEvidenceData: null,
 				rpaMaintenanceData: null,
+				oracleRoleCriticalityData: null,
 				evidenceProviderType,
 				evidenceLoadError,
 			})
@@ -541,6 +586,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			oracleEvidenceData: actOracleEvidenceData,
 			ndaEvidenceData: actNdaEvidenceData,
 			rpaMaintenanceData: actRpaMaintenanceData,
+			oracleRoleCriticalityData: actOracleRoleCriticalityData,
 			evidenceProviderType,
 		})
 	}
@@ -1161,6 +1207,52 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return data<ActionResult>({ success: true, intent: "save-rpa-user-assessment" })
 	}
 
+	if (intent === "set-oracle-role-criticality") {
+		const activityId = (formData.get("activityId") as string)?.trim()
+		const instanceId = (formData.get("instanceId") as string)?.trim()
+		const roleName = (formData.get("roleName") as string)?.trim()
+		const criticality = (formData.get("criticality") as string)?.trim()
+
+		if (!activityId || !instanceId || !roleName || !criticality) {
+			return data<ActionResult>(
+				{ success: false, error: "Mangler data", intent: "set-oracle-role-criticality" },
+				{ status: 400 },
+			)
+		}
+		if (!groupCriticalityEnum.includes(criticality as GroupCriticality)) {
+			return data<ActionResult>(
+				{ success: false, error: "Ugyldig kritikalitetsverdi", intent: "set-oracle-role-criticality" },
+				{ status: 400 },
+			)
+		}
+
+		try {
+			await patchOracleRoleCriticalityActivity(
+				activityId,
+				{
+					op: "set-criticality",
+					instanceId,
+					roleName,
+					criticality: criticality as GroupCriticality,
+					setBy: authedUser.navIdent,
+					setAt: new Date().toISOString(),
+				},
+				authedUser.navIdent,
+			)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = e.status === 409 ? "Gjennomgangen er låst av en annen operasjon. Prøv igjen." : await e.text()
+				return data<ActionResult>(
+					{ success: false, error, intent: "set-oracle-role-criticality" },
+					{ status: e.status },
+				)
+			}
+			throw e
+		}
+
+		return data<ActionResult>({ success: true, intent: "set-oracle-role-criticality" })
+	}
+
 	return data<ActionResult>({ success: false, error: "Ukjent handling" })
 }
 
@@ -1255,6 +1347,9 @@ export default function GjennomgangDetalj() {
 						isDraft={isDraft}
 					/>
 				)
+			}
+			if (activity?.type === "oracle_role_criticality" && activity.oracleRoleCriticalityData) {
+				return <OracleRoleCriticalityMaintenanceSection data={activity.oracleRoleCriticalityData} isDraft={isDraft} />
 			}
 			return (
 				<StepActivity

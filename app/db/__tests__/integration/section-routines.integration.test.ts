@@ -602,8 +602,8 @@ describe("Section routine constraint filtering", () => {
 	async function addOracleAssessment(appId: string, criticality: GroupCriticality) {
 		const db = getTestDb()
 		await db.execute(
-			/* sql */ `INSERT INTO oracle_role_assessments (application_id, instance_id, role_name, criticality, assessed_by, updated_by)
-				VALUES ('${appId}', 'TEST_INST', 'TEST_ROLE', '${criticality}', 'test', 'test')`,
+			/* sql */ `INSERT INTO oracle_role_assessments (application_id, instance_id, role_name, criticality, assessed_by, updated_by, created_by)
+				VALUES ('${appId}', 'TEST_INST', 'TEST_ROLE', '${criticality}', 'test', 'test', 'test')`,
 		)
 	}
 

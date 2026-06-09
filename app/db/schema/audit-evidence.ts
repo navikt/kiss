@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm"
-import { boolean, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core"
+import { boolean, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 import { groupCriticalityEnum, monitoredApplications } from "./applications"
 
 // ─── Oracle Instances ────────────────────────────────────────────────────
@@ -64,6 +64,16 @@ export const oracleRoleAssessments = pgTable(
 		assessedAt: timestamp("assessed_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedBy: text("updated_by").notNull(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
 	},
-	(t) => [unique("uq_oracle_role_assessment").on(t.applicationId, t.instanceId, t.roleName)],
+	(t) => [
+		// Partial unique: only one active (non-archived) row per (application, instance, role).
+		// Archived rows are kept for audit history.
+		uniqueIndex("oracle_role_assessments_active_uniq_idx")
+			.on(t.applicationId, t.instanceId, t.roleName)
+			.where(sql`archived_at IS NULL`),
+	],
 )
