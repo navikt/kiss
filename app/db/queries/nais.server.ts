@@ -587,12 +587,12 @@ export async function getNaisTeamsForSection(sectionId: string) {
 	return db.select().from(naisTeams).where(eq(naisTeams.sectionId, sectionId)).orderBy(naisTeams.slug)
 }
 
-/** Get unlinked Nais teams (no sectionId, status=monitored). */
+/** Get unlinked Nais teams (no sectionId, status=pending or monitored). */
 export async function getUnlinkedNaisTeams() {
 	return db
 		.select()
 		.from(naisTeams)
-		.where(and(isNull(naisTeams.sectionId), eq(naisTeams.status, "monitored")))
+		.where(and(isNull(naisTeams.sectionId), inArray(naisTeams.status, ["pending", "monitored"])))
 		.orderBy(naisTeams.slug)
 }
 

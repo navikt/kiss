@@ -98,3 +98,41 @@ export const NaisFane: Story = {
 	render: () =>
 		renderWithLoader(RedigerSeksjon, mockLoaderData(), "/seksjoner/seksjon-for-arbeidsytelser-say/rediger?fane=nais"),
 }
+
+export const NaisFaneMangeTilgjengeligeTeam: Story = {
+	name: "Fane: Nais-team – mange tilgjengelige team (søk)",
+	render: () =>
+		renderWithLoader(
+			RedigerSeksjon,
+			mockLoaderData({
+				unlinkedNaisTeams: [
+					{ slug: "aap", displayName: "Team AAP (Arbeidsavklaringspenger)" },
+					{ slug: "aap-arena-migrering-team", displayName: "Migrere app saker fra Arena til Kelvin" },
+					{ slug: "amt", displayName: "Arbeidsmarkedstiltak underlagt Produktområde Arbeidsoppfølging" },
+					{ slug: "ao-ki-taskforce", displayName: "Experiment with KI i arbeidsoppfølging" },
+					{ slug: "dagpenger", displayName: "Dagpenger" },
+					{ slug: "dp-iverksett", displayName: "DP Iverksett" },
+					{ slug: "dp-rapportering", displayName: "Dagpenger rapportering" },
+					{ slug: "helsearbeidsgiver", displayName: "Helse arbeidsgiver" },
+					{ slug: "modia-frontend", displayName: "Modia frontend" },
+					{ slug: "pensjon-alder", displayName: "Har ansvar for alderspensjon og tilhørende ytelser" },
+					{ slug: "pensjon-q0", displayName: "Access to pensjon-q0" },
+					{ slug: "sykepenger", displayName: "Sykepenger" },
+					{ slug: "team-foreldrepenger", displayName: "Team foreldrepenger" },
+					{ slug: "tilleggsstonader", displayName: "Tilleggsstønader" },
+					{ slug: "tiltakspenger-vedtak", displayName: "Tiltakspenger vedtak" },
+				],
+			}),
+			"/seksjoner/seksjon-for-arbeidsytelser-say/rediger?fane=nais",
+		),
+}
+
+export const NaisFaneIngenKoblet: Story = {
+	name: "Fane: Nais-team – ingen koblet",
+	render: () =>
+		renderWithLoader(
+			RedigerSeksjon,
+			mockLoaderData({ linkedNaisTeams: [], unlinkedNaisTeams: [{ slug: "aap", displayName: "Team AAP" }] }),
+			"/seksjoner/seksjon-for-arbeidsytelser-say/rediger?fane=nais",
+		),
+}
