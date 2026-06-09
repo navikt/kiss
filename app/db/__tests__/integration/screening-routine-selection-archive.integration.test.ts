@@ -431,5 +431,99 @@ describe("archived screening_routine_selections are excluded", () => {
 				questionText: "Behandles betalingsdata?",
 			})
 		})
+
+		it("attaches the most recently selected question when two choice effects from different questions both select the same routine", async () => {
+			// This test verifies the orderBy(desc(selectedAt)) fix: when a routine
+			// is reached via two different choice effects (from two different questions),
+			// the Map deduplication picks the FIRST row returned — which must be the
+			// most recently selected one.
+			const db = getTestDb()
+			const sectionId = await createSection("Seksjon Lys Vinter")
+			const appId = await createApp("Frisk Bris")
+
+			const controlIdA = await createControl(`K-SSQ.04A-${uid()}`)
+			const controlIdB = await createControl(`K-SSQ.04B-${uid()}`)
+			const { questionId: questionIdA, choiceId: choiceIdA } = await createQuestion(
+				"Eldre spørsmål om lagringstype?",
+				sectionId,
+			)
+			const { questionId: questionIdB, choiceId: choiceIdB } = await createQuestion(
+				"Nyere spørsmål om tilgangskontroll?",
+				sectionId,
+			)
+			const choiceEffectIdA = await createChoiceEffect(choiceIdA, controlIdA)
+			const choiceEffectIdB = await createChoiceEffect(choiceIdB, controlIdB)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Rutine Skarp Kant",
+				description: "Valgt via to ulike spørsmål",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: "tech_manager",
+				isSectionRoutine: false,
+				persistenceLinks: [],
+				technologyElementIds: [],
+				controlIds: [],
+				createdBy: "Z990001",
+			})
+			await setRoutineApproved(routine.id)
+
+			// Select via question A (older) — backdate its selectedAt so B is clearly newer
+			await saveRoutineSelection(appId, choiceEffectIdA, routine.id, "Z990001")
+			await db.execute(
+				sql`UPDATE screening_routine_selections SET selected_at = NOW() - INTERVAL '1 hour' WHERE application_id = ${appId} AND choice_effect_id = ${choiceEffectIdA} AND archived_at IS NULL`,
+			)
+
+			// Select via question B (newer)
+			await saveRoutineSelection(appId, choiceEffectIdB, routine.id, "Z990002")
+
+			const deadlines = await getRoutineDeadlinesWithControls(appId)
+			const match = deadlines.find((d) => d.routine?.id === routine.id)
+
+			expect(match).toBeDefined()
+			expect(match?.matchSource).toBe("screening_selection")
+
+			// The most recent selection (via question B) must win
+			expect(match?.screeningSelectionQuestion?.id).toBe(questionIdB)
+			expect(match?.screeningSelectionQuestion?.questionText).toBe("Nyere spørsmål om tilgangskontroll?")
+			// The older question A must NOT be returned
+			expect(match?.screeningSelectionQuestion?.id).not.toBe(questionIdA)
+		})
+
+		it("returns null screeningSelectionQuestion when the routine selection is archived", async () => {
+			const sectionId = await createSection("Seksjon Blå Himmel")
+			const appId = await createApp("Stille Strand")
+			const controlId = await createControl(`K-SSQ.05-${uid()}`)
+			const { choiceId } = await createQuestion("Er systemet offentlig tilgjengelig?", sectionId)
+			const choiceEffectId = await createChoiceEffect(choiceId, controlId)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Rutine Gul Sand",
+				description: "Testrutine",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: "tech_manager",
+				isSectionRoutine: false,
+				persistenceLinks: [],
+				technologyElementIds: [],
+				controlIds: [],
+				createdBy: "Z990001",
+			})
+			await setRoutineApproved(routine.id)
+			await saveRoutineSelection(appId, choiceEffectId, routine.id, "Z990001")
+			await archiveSelection(appId, choiceEffectId)
+
+			const deadlines = await getRoutineDeadlinesWithControls(appId)
+
+			// The routine itself should no longer appear via screening_selection
+			const match = deadlines.find((d) => d.routine?.id === routine.id)
+			expect(match).toBeUndefined()
+		})
 	})
 })

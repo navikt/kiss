@@ -83,6 +83,21 @@ async function createChoice(questionId: string, label: string) {
 	return (r.rows[0] as { id: string }).id
 }
 
+async function createNaisTeam(slug: string, sectionId: string) {
+	const db = getTestDb()
+	const r = await db.execute(
+		/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('${slug}', '${sectionId}') RETURNING id`,
+	)
+	return (r.rows[0] as { id: string }).id
+}
+
+async function createAppEnvironment(appId: string, naisTeamId: string, cluster = "prod-gcp") {
+	const db = getTestDb()
+	await db.execute(
+		/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', '${cluster}', 'team-ns', '${naisTeamId}')`,
+	)
+}
+
 describe("screening-sessions", () => {
 	beforeAll(async () => {
 		await setupTestDatabase()
@@ -104,6 +119,8 @@ describe("screening-sessions", () => {
 		await db.execute(/* sql */ `DELETE FROM screening_questions`)
 		await db.execute(/* sql */ `DELETE FROM routine_controls`)
 		await db.execute(/* sql */ `DELETE FROM routines`)
+		await db.execute(/* sql */ `DELETE FROM application_environments`)
+		await db.execute(/* sql */ `DELETE FROM nais_teams`)
 		await db.execute(/* sql */ `DELETE FROM sections`)
 		await db.execute(/* sql */ `DELETE FROM framework_controls`)
 		await db.execute(/* sql */ `DELETE FROM monitored_applications`)
@@ -450,6 +467,133 @@ describe("screening-sessions", () => {
 			)
 			expect(auditRows.rows.length).toBeGreaterThan(0)
 		})
+		it("archives a selection when the question is archived outside the current session", async () => {
+			const db = getTestDb()
+			const sectionId = await createSection("test-seksjon-archive-question")
+			const appId = await createApp("test-app-archive-question")
+			const questionId = await createQuestion("Har systemet ekstern eksponering?")
+			const choiceId = await createChoice(questionId, "Ja")
+			const controlId = await createControl("K-TS.99")
+			const routineId = await createRoutine("Eksponeringsgjennomgang", sectionId)
+			await db.execute(sql`INSERT INTO routine_controls (routine_id, control_id) VALUES (${routineId}, ${controlId})`)
+
+			const { addChoiceEffect } = await import("~/db/queries/screening.server")
+			const effect = await addChoiceEffect({
+				choiceId,
+				controlTextId: "K-TS.99",
+				effect: "preset_routine",
+				comment: null,
+				presetRoutineId: routineId,
+			})
+
+			// Session 1: answer "Ja" → preset routine gets selected
+			const session1 = await createScreeningSession({
+				applicationId: appId,
+				title: "Session 1",
+				participants: [],
+				performedBy: "Z990001",
+			})
+			await saveScreeningSessionAnswer({
+				sessionId: session1.id,
+				questionId,
+				answer: "Ja",
+				comment: null,
+				link: null,
+				performedBy: "Z990001",
+			})
+			await completeScreeningSession(session1.id, testUser)
+
+			// Archive the question outside any session (simulates de-scoping or admin action)
+			await db.execute(
+				sql`UPDATE screening_questions SET archived_at = NOW(), updated_by = 'Z990001' WHERE id = ${questionId}`,
+			)
+
+			// Session 2: unrelated — no answers change for this question
+			const session2 = await createScreeningSession({
+				applicationId: appId,
+				title: "Session 2 urelatert",
+				participants: [],
+				performedBy: "Z990001",
+			})
+			await completeScreeningSession(session2.id, testUser)
+
+			// The stale selection (question now archived) must be soft-deleted
+			const active = await db.execute(
+				sql`SELECT id FROM screening_routine_selections WHERE application_id = ${appId} AND archived_at IS NULL`,
+			)
+			expect(active.rows).toHaveLength(0)
+
+			// Audit log must record the clearing
+			const audit = await db.execute(
+				sql`SELECT action FROM audit_log WHERE action = 'screening_routine_cleared' AND entity_id = ${`${appId}/${effect.id}`}`,
+			)
+			expect(audit.rows.length).toBeGreaterThan(0)
+		})
+
+		it("archives a selection when the question is approved but outside the app's section scope", async () => {
+			const db = getTestDb()
+
+			// Two sections: app belongs to sectionA, question is in sectionB
+			const sectionA = await createSection("Seksjon Varm Sol")
+			const sectionB = await createSection("Seksjon Kald Vind")
+
+			const naisTeamId = await createNaisTeam(`team-varm-sol-${Date.now()}`, sectionA)
+			const appId = await createApp("app-scope-cleanup-test")
+			await createAppEnvironment(appId, naisTeamId)
+
+			// Question scoped to sectionB (out of scope for appId)
+			const questionId = await createQuestion("Spørsmål i feil seksjon?")
+			await db.execute(
+				sql`UPDATE screening_questions SET section_id = ${sectionB}, status = 'approved' WHERE id = ${questionId}`,
+			)
+			const choiceId = await createChoice(questionId, "Ja")
+			const controlTextId = `K-OOS.01-${Date.now()}`
+			const controlUuid = await createControl(controlTextId)
+			const routineId = await createRoutine("Rutine Utenfor Scope", sectionB)
+			await db.execute(sql`INSERT INTO routine_controls (routine_id, control_id) VALUES (${routineId}, ${controlUuid})`)
+
+			const { addChoiceEffect } = await import("~/db/queries/screening.server")
+			const effect = await addChoiceEffect({
+				choiceId,
+				controlTextId,
+				effect: "select_routine",
+				comment: null,
+			})
+
+			// Insert a selection directly (bypassing session logic, simulating a past session)
+			await db.execute(
+				sql`INSERT INTO screening_routine_selections (application_id, choice_effect_id, routine_id, selected_by)
+				    VALUES (${appId}, ${effect.id}, ${routineId}, 'Z990001')`,
+			)
+
+			// Verify the selection exists before the session
+			const before = await db.execute(
+				sql`SELECT id FROM screening_routine_selections WHERE application_id = ${appId} AND archived_at IS NULL`,
+			)
+			expect(before.rows).toHaveLength(1)
+
+			// Complete a session for the app (unrelated to the out-of-scope question)
+			const session = await createScreeningSession({
+				applicationId: appId,
+				title: "Sesjon for opprydding",
+				participants: [],
+				performedBy: "Z990001",
+			})
+			await completeScreeningSession(session.id, testUser)
+
+			// Selection for out-of-scope question must be archived
+			const after = await db.execute(
+				sql`SELECT id FROM screening_routine_selections WHERE application_id = ${appId} AND archived_at IS NULL`,
+			)
+			expect(after.rows).toHaveLength(0)
+
+			// Audit log must record the clearing
+			const audit = await db.execute(
+				sql`SELECT action FROM audit_log WHERE action = 'screening_routine_cleared' AND entity_id = ${`${appId}/${effect.id}`}`,
+			)
+			expect(audit.rows.length).toBeGreaterThan(0)
+		})
+
 		it("soft-deletes a session", async () => {
 			const appId = await createApp("test-app")
 			const session = await createScreeningSession({

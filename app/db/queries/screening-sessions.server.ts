@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm"
 import type { NavUser } from "~/lib/auth.server"
 import {
 	ScreeningAlreadyCompletedError,
@@ -9,10 +9,13 @@ import {
 } from "~/lib/screening-errors"
 import { logger } from "../../lib/logger.server"
 import { db } from "../connection.server"
+import { applicationEnvironments, naisTeams } from "../schema/applications"
+import { sectionEnvironments } from "../schema/organization"
 import {
 	screeningAnswers,
 	screeningChoiceEffects,
 	screeningQuestionChoices,
+	screeningQuestions,
 	screeningRoutineSelections,
 	screeningSessionAnswers,
 	screeningSessionOperations,
@@ -648,79 +651,128 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 								answeredAt: sql`excluded.answered_at`,
 							},
 						})
+				}
 
-					// Remove routine selections for choice effects that are no longer active.
-					// When the answer changes (or is cleared), old choices' effects still have
-					// selections in screeningRoutineSelections — clean them up so routines from
-					// previous answers don't bleed into the current state.
-					const allQuestionIds = sessionAnswers.map((a) => a.questionId)
-					const allChoicesForQuestions = await tx
-						.select({
-							id: screeningQuestionChoices.id,
-							questionId: screeningQuestionChoices.questionId,
-							label: screeningQuestionChoices.label,
-						})
-						.from(screeningQuestionChoices)
-						.where(
-							and(
-								inArray(screeningQuestionChoices.questionId, allQuestionIds),
-								isNull(screeningQuestionChoices.archivedAt),
-							),
-						)
+				// App-scoped cleanup: archive any screeningRoutineSelections for this app
+				// where the full chain is broken or the current answer no longer matches.
+				// This covers all cases: answer changed, choice archived, question archived,
+				// question de-approved, or question removed from scope — regardless of whether
+				// those questions were part of this session.
+				//
+				// Strategy: find all VALID selections (intact chain + matching current answer
+				// + question in scope for this app), then archive everything else.
 
-					// Map questionId → current choice ID (undefined when answer is null/unmatched)
-					const currentChoiceIdByQuestion = new Map<string, string>()
-					for (const a of sessionAnswers) {
-						if (a.answer !== null) {
-							const match = allChoicesForQuestions.find((c) => c.questionId === a.questionId && c.label === a.answer)
-							if (match) currentChoiceIdByQuestion.set(a.questionId, match.id)
-						}
-					}
-
-					const staleChoiceIds = allChoicesForQuestions
-						.filter((c) => currentChoiceIdByQuestion.get(c.questionId) !== c.id)
-						.map((c) => c.id)
-
-					if (staleChoiceIds.length > 0) {
-						const staleEffects = await tx
-							.select({ id: screeningChoiceEffects.id })
-							.from(screeningChoiceEffects)
-							.where(
-								and(
-									inArray(screeningChoiceEffects.choiceId, staleChoiceIds),
-									isNull(screeningChoiceEffects.archivedAt),
-								),
-							)
-
-						const staleEffectIds = staleEffects.map((e) => e.id)
-
-						if (staleEffectIds.length > 0) {
-							const archivedSelections = await tx
-								.update(screeningRoutineSelections)
-								.set({ archivedAt: new Date(), archivedBy: performedBy })
-								.where(
-									and(
-										eq(screeningRoutineSelections.applicationId, frozen.applicationId),
-										inArray(screeningRoutineSelections.choiceEffectId, staleEffectIds),
-										isNull(screeningRoutineSelections.archivedAt),
+				// Resolve the app's section IDs so we can scope questions correctly.
+				// Global questions (sectionId IS NULL) are always in scope; section-scoped
+				// questions are only valid when the section belongs to the app.
+				const appSectionRows = await tx
+					.selectDistinct({ sectionId: naisTeams.sectionId })
+					.from(applicationEnvironments)
+					.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+					.where(
+						and(
+							eq(applicationEnvironments.applicationId, frozen.applicationId),
+							isNotNull(naisTeams.sectionId),
+							notExists(
+								tx
+									.select({ cluster: sectionEnvironments.cluster })
+									.from(sectionEnvironments)
+									.where(
+										and(
+											eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+											eq(sectionEnvironments.sectionId, naisTeams.sectionId),
+											eq(sectionEnvironments.included, false),
+										),
 									),
-								)
-								.returning()
+							),
+						),
+					)
 
-							for (const archived of archivedSelections) {
-								await writeAuditLog(
-									{
-										action: "screening_routine_cleared",
-										entityType: "screening_routine_selection",
-										entityId: `${frozen.applicationId}/${archived.choiceEffectId}`,
-										previousValue: archived.routineId ?? "null",
-										metadata: { reason: "answer_changed", sessionId },
-										performedBy,
-									},
-									tx,
-								)
-							}
-						}
+				const appSectionIds = appSectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+
+				const questionScopeFilter =
+					appSectionIds.length > 0
+						? or(isNull(screeningQuestions.sectionId), inArray(screeningQuestions.sectionId, appSectionIds))
+						: isNull(screeningQuestions.sectionId)
+
+				const validSelections = await tx
+					.select({ id: screeningRoutineSelections.id })
+					.from(screeningRoutineSelections)
+					.innerJoin(
+						screeningChoiceEffects,
+						and(
+							eq(screeningChoiceEffects.id, screeningRoutineSelections.choiceEffectId),
+							isNull(screeningChoiceEffects.archivedAt),
+						),
+					)
+					.innerJoin(
+						screeningQuestionChoices,
+						and(
+							eq(screeningQuestionChoices.id, screeningChoiceEffects.choiceId),
+							isNull(screeningQuestionChoices.archivedAt),
+						),
+					)
+					.innerJoin(
+						screeningQuestions,
+						and(
+							eq(screeningQuestions.id, screeningQuestionChoices.questionId),
+							isNull(screeningQuestions.archivedAt),
+							eq(screeningQuestions.status, "approved"),
+							questionScopeFilter,
+						),
+					)
+					.innerJoin(
+						screeningAnswers,
+						and(
+							eq(screeningAnswers.applicationId, frozen.applicationId),
+							eq(screeningAnswers.questionId, screeningQuestions.id),
+							eq(screeningAnswers.answer, screeningQuestionChoices.label),
+						),
+					)
+					.where(
+						and(
+							eq(screeningRoutineSelections.applicationId, frozen.applicationId),
+							isNull(screeningRoutineSelections.archivedAt),
+						),
+					)
+
+				const validSelectionIdSet = new Set(validSelections.map((s) => s.id))
+
+				const allActiveSelections = await tx
+					.select({
+						id: screeningRoutineSelections.id,
+						choiceEffectId: screeningRoutineSelections.choiceEffectId,
+						routineId: screeningRoutineSelections.routineId,
+					})
+					.from(screeningRoutineSelections)
+					.where(
+						and(
+							eq(screeningRoutineSelections.applicationId, frozen.applicationId),
+							isNull(screeningRoutineSelections.archivedAt),
+						),
+					)
+
+				const staleSelections = allActiveSelections.filter((s) => !validSelectionIdSet.has(s.id))
+
+				if (staleSelections.length > 0) {
+					const staleIds = staleSelections.map((s) => s.id)
+					await tx
+						.update(screeningRoutineSelections)
+						.set({ archivedAt: new Date(), archivedBy: performedBy })
+						.where(inArray(screeningRoutineSelections.id, staleIds))
+
+					for (const stale of staleSelections) {
+						await writeAuditLog(
+							{
+								action: "screening_routine_cleared",
+								entityType: "screening_routine_selection",
+								entityId: `${frozen.applicationId}/${stale.choiceEffectId}`,
+								previousValue: stale.routineId ?? "null",
+								metadata: { reason: "stale_at_session_completion", sessionId },
+								performedBy,
+							},
+							tx,
+						)
 					}
 				}
 
