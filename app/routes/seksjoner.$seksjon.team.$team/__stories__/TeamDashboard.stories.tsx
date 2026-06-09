@@ -88,14 +88,29 @@ export const IngenApplikasjoner: Story = {
 		),
 }
 
-export const IngenIkkeGjennomforteRutiner: Story = {
-	name: "Ingen ikke-gjennomførte rutiner (card skjult)",
+export const StorTeam: Story = {
+	name: "Stort team (14 medlemmer)",
 	render: () =>
 		renderWithLoader(
 			TeamDashboard,
 			{
 				...mockTeamDetailData(),
-				totalRoutinesIkkeGjennomfort: 0,
+				teamUsers: [
+					{ navIdent: "Z990003", name: "Glad Fjord", roles: ["tech_lead"] as const },
+					{ navIdent: "Z990004", name: "Rask Elv", roles: ["product_owner"] as const },
+					{ navIdent: "Z990005", name: "Stille Skog", roles: ["developer"] as const },
+					{ navIdent: "Z990006", name: "Blå Himmel", roles: ["developer"] as const },
+					{ navIdent: "Z990007", name: "Grønn Dal", roles: ["developer"] as const },
+					{ navIdent: "Z990008", name: "Høy Fjell", roles: ["developer"] as const },
+					{ navIdent: "Z990009", name: "Dyp Sjø", roles: ["developer"] as const },
+					{ navIdent: "Z990010", name: "Mild Vind", roles: ["developer"] as const },
+					{ navIdent: "Z990011", name: "Sterk Stein", roles: ["developer"] as const },
+					{ navIdent: "Z990012", name: "Lys Morgen", roles: ["developer"] as const },
+					{ navIdent: "Z990013", name: "Rolig Bekk", roles: ["developer"] as const },
+					{ navIdent: "Z990014", name: "Frisk Luft", roles: ["developer"] as const },
+					{ navIdent: "Z990015", name: "Tung Sky", roles: ["developer"] as const },
+					{ navIdent: "Z990016", name: "Klar Natt", roles: ["developer"] as const },
+				],
 			},
 			"/seksjoner/pensjon-og-ufore/team/starte-pensjon",
 		),
@@ -109,6 +124,19 @@ export const MedIkkeGjennomforteRutiner: Story = {
 			{
 				...mockTeamDetailData(),
 				totalRoutinesIkkeGjennomfort: 12,
+			},
+			"/seksjoner/pensjon-og-ufore/team/starte-pensjon",
+		),
+}
+
+export const IngenIkkeGjennomforteRutiner: Story = {
+	name: "Ingen ikke-gjennomførte rutiner (card skjult)",
+	render: () =>
+		renderWithLoader(
+			TeamDashboard,
+			{
+				...mockTeamDetailData(),
+				totalRoutinesIkkeGjennomfort: 0,
 			},
 			"/seksjoner/pensjon-og-ufore/team/starte-pensjon",
 		),
