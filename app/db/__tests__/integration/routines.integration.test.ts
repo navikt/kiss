@@ -1308,8 +1308,8 @@ describe("Routines integration tests", () => {
 
 			// App has an Oracle role assessment with high criticality
 			await db.execute(
-				/* sql */ `INSERT INTO oracle_role_assessments (application_id, instance_id, role_name, criticality, assessed_by, updated_by)
-				VALUES ('${appId}', 'INST1', 'DBA_ROLE', 'high', 'test', 'test')`,
+				/* sql */ `INSERT INTO oracle_role_assessments (application_id, instance_id, role_name, criticality, assessed_by, updated_by, created_by)
+				VALUES ('${appId}', 'INST1', 'DBA_ROLE', 'high', 'test', 'test', 'test')`,
 			)
 
 			const routine = await createRoutine({

@@ -16,57 +16,101 @@ export async function upsertOracleRoleCriticality(
 ) {
 	const canonical = roleName.toUpperCase().trim()
 
-	// Capture previous value for audit log
-	const existing = await db
-		.select({ criticality: oracleRoleAssessments.criticality })
-		.from(oracleRoleAssessments)
-		.where(
-			and(
-				eq(oracleRoleAssessments.applicationId, applicationId),
-				eq(oracleRoleAssessments.instanceId, instanceId),
-				eq(oracleRoleAssessments.roleName, canonical),
-			),
+	return db.transaction(async (tx) => {
+		const now = new Date()
+
+		// Attempt INSERT first. The partial unique index (archived_at IS NULL) prevents duplicate active rows
+		// atomically, avoiding a TOCTOU race if two concurrent calls both see existing = null.
+		const [inserted] = await tx
+			.insert(oracleRoleAssessments)
+			.values({
+				applicationId,
+				instanceId,
+				roleName: canonical,
+				criticality,
+				assessedBy: performedBy,
+				assessedAt: now,
+				updatedBy: performedBy,
+				updatedAt: now,
+				createdBy: performedBy,
+				createdAt: now,
+			})
+			.onConflictDoNothing({
+				target: [oracleRoleAssessments.applicationId, oracleRoleAssessments.instanceId, oracleRoleAssessments.roleName],
+				where: isNull(oracleRoleAssessments.archivedAt),
+			})
+			.returning()
+
+		if (inserted) {
+			await writeAuditLog(
+				{
+					action: "oracle_role_criticality_updated",
+					entityType: "application",
+					entityId: applicationId,
+					newValue: JSON.stringify({ instanceId, roleName: canonical, criticality }),
+					performedBy,
+				},
+				tx,
+			)
+			return inserted
+		}
+
+		// Conflict: an active row already exists — fetch it and update
+		const existing = await tx
+			.select({ id: oracleRoleAssessments.id, criticality: oracleRoleAssessments.criticality })
+			.from(oracleRoleAssessments)
+			.where(
+				and(
+					eq(oracleRoleAssessments.applicationId, applicationId),
+					eq(oracleRoleAssessments.instanceId, instanceId),
+					eq(oracleRoleAssessments.roleName, canonical),
+					isNull(oracleRoleAssessments.archivedAt),
+				),
+			)
+			.then((rows) => rows[0])
+
+		if (!existing) {
+			// The active row was archived between the INSERT conflict and this SELECT (race condition).
+			// Throw a controlled error so the caller can retry instead of crashing with a TypeError.
+			throw new Error("Oracle-rollevurdering finnes ikke lenger (mulig race condition). Prøv igjen.")
+		}
+
+		const [updated] = await tx
+			.update(oracleRoleAssessments)
+			.set({
+				criticality,
+				assessedBy: performedBy,
+				assessedAt: now,
+				updatedBy: performedBy,
+				updatedAt: now,
+			})
+			.where(eq(oracleRoleAssessments.id, existing.id))
+			.returning()
+
+		await writeAuditLog(
+			{
+				action: "oracle_role_criticality_updated",
+				entityType: "application",
+				entityId: applicationId,
+				previousValue: JSON.stringify({ instanceId, roleName: canonical, criticality: existing.criticality }),
+				newValue: JSON.stringify({ instanceId, roleName: canonical, criticality }),
+				performedBy,
+			},
+			tx,
 		)
-		.then((rows) => rows[0] ?? null)
 
-	const [result] = await db
-		.insert(oracleRoleAssessments)
-		.values({
-			applicationId,
-			instanceId,
-			roleName: canonical,
-			criticality,
-			assessedBy: performedBy,
-			updatedBy: performedBy,
-		})
-		.onConflictDoUpdate({
-			target: [oracleRoleAssessments.applicationId, oracleRoleAssessments.instanceId, oracleRoleAssessments.roleName],
-			set: { criticality, updatedBy: performedBy, updatedAt: new Date() },
-		})
-		.returning()
-
-	await writeAuditLog({
-		action: "oracle_role_criticality_updated",
-		entityType: "application",
-		entityId: applicationId,
-		previousValue: existing
-			? JSON.stringify({ instanceId, roleName: canonical, criticality: existing.criticality })
-			: undefined,
-		newValue: JSON.stringify({ instanceId, roleName: canonical, criticality }),
-		performedBy,
+		return updated
 	})
-
-	return result
 }
 
-/** Get all role assessments for an application, keyed by "instanceId:roleName". */
+/** Get all active (non-archived) role assessments for an application, keyed by "instanceId:roleName". */
 export async function getOracleRoleAssessments(
 	applicationId: string,
 ): Promise<Record<string, { criticality: GroupCriticality; updatedBy: string; updatedAt: string }>> {
 	const rows = await db
 		.select()
 		.from(oracleRoleAssessments)
-		.where(eq(oracleRoleAssessments.applicationId, applicationId))
+		.where(and(eq(oracleRoleAssessments.applicationId, applicationId), isNull(oracleRoleAssessments.archivedAt)))
 
 	const result: Record<string, { criticality: GroupCriticality; updatedBy: string; updatedAt: string }> = {}
 	for (const row of rows) {
@@ -133,7 +177,7 @@ export async function getSectionOracleRoles(sectionId: string): Promise<SectionO
 	const assessments = await db
 		.select()
 		.from(oracleRoleAssessments)
-		.where(inArray(oracleRoleAssessments.applicationId, appIds))
+		.where(and(inArray(oracleRoleAssessments.applicationId, appIds), isNull(oracleRoleAssessments.archivedAt)))
 
 	// Build map: "instanceId:roleName" → { applications, criticality }
 	const roleMap = new Map<

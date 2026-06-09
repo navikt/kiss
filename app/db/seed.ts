@@ -295,11 +295,11 @@ async function seed() {
 			{
 				applicationId: appArbeid.id,
 				type: "oracle",
-				name: "ARBEID_PROD",
-				oracleInstanceId: "arbeid-prod-1",
+				name: "PEN_Q0",
+				oracleInstanceId: "pen_q0",
 				dataClassification: "financial_regulation",
 				auditLogging: true,
-				auditLogUrl: "https://oracle-revisjon.example/arbeid-prod-1",
+				auditLogUrl: "https://oracle-revisjon.example/pen_q0",
 			},
 			{
 				applicationId: appHelse.id,
@@ -1274,7 +1274,7 @@ async function seed() {
 	// ─── 13. Oracle instances + role assessments + audit evidence ──────────
 	await db.insert(schema.applicationOracleInstances).values({
 		applicationId: appArbeid.id,
-		instanceId: "arbeid-prod-1",
+		instanceId: "pen_q0",
 		includeInReport: true,
 		configuredBy: "seed",
 	})
@@ -1282,29 +1282,31 @@ async function seed() {
 	await db.insert(schema.oracleRoleAssessments).values([
 		{
 			applicationId: appArbeid.id,
-			instanceId: "arbeid-prod-1",
-			roleName: "ARBEID_DBA",
+			instanceId: "pen_q0",
+			roleName: "APP_USER",
 			criticality: "very_high",
 			assessedBy: "seed",
 			updatedBy: "seed",
+			createdBy: "seed",
 		},
 		{
 			applicationId: appArbeid.id,
-			instanceId: "arbeid-prod-1",
-			roleName: "ARBEID_READONLY",
+			instanceId: "pen_q0",
+			roleName: "BATCH_ROLE",
 			criticality: "low",
 			assessedBy: "seed",
 			updatedBy: "seed",
+			createdBy: "seed",
 		},
 	])
 
 	await db.insert(schema.auditEvidenceSnapshots).values({
 		applicationId: appArbeid.id,
-		instanceId: "arbeid-prod-1",
+		instanceId: "pen_q0",
 		overallStatus: "OK",
 		collectedAt: new Date("2026-04-01"),
 		fetchedBy: "seed",
-		bucketPath: "audit-evidence/arbeid-prod-1/2026-04-01.json",
+		bucketPath: "audit-evidence/pen_q0/2026-04-01.json",
 	})
 
 	const oraclePersistence = persistenceRows.find((p) => p.type === "oracle")

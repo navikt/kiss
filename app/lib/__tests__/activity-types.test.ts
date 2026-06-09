@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+	activityTypeLabels,
 	DEPLOYMENT_EVIDENCE_ACTIVITY_TYPES,
 	deploymentEvidenceTypesForActivity,
 	getEvidenceTypesForActivity,
@@ -49,6 +50,10 @@ describe("getProviderTypeForActivity", () => {
 		expect(getProviderTypeForActivity("rpa_user_maintenance")).toBeNull()
 	})
 
+	it("returns null for oracle_role_criticality (maintenance type, not evidence)", () => {
+		expect(getProviderTypeForActivity("oracle_role_criticality")).toBeNull()
+	})
+
 	it("returns null for unknown activity types", () => {
 		expect(getProviderTypeForActivity("unknown_type")).toBeNull()
 	})
@@ -78,6 +83,10 @@ describe("getEvidenceTypesForActivity", () => {
 		expect(getEvidenceTypesForActivity("rpa_user_maintenance")).toBeNull()
 	})
 
+	it("returns null for oracle_role_criticality (maintenance type, not evidence)", () => {
+		expect(getEvidenceTypesForActivity("oracle_role_criticality")).toBeNull()
+	})
+
 	it("returns null for unknown types", () => {
 		expect(getEvidenceTypesForActivity("unknown")).toBeNull()
 	})
@@ -103,6 +112,10 @@ describe("ROUTINE_ACTIVITY_TYPES", () => {
 	it("includes rpa_user_maintenance", () => {
 		expect(ROUTINE_ACTIVITY_TYPES).toContain("rpa_user_maintenance")
 	})
+
+	it("includes oracle_role_criticality", () => {
+		expect(ROUTINE_ACTIVITY_TYPES).toContain("oracle_role_criticality")
+	})
 })
 
 describe("deploymentEvidenceTypesForActivity", () => {
@@ -127,5 +140,17 @@ describe("consistency between type guards and provider mapping", () => {
 			expect(isDeploymentEvidenceActivityType(type)).toBe(true)
 			expect(getProviderTypeForActivity(type)).toBe("deployments")
 		}
+	})
+})
+
+describe("activityTypeLabels", () => {
+	it("has a label for every ROUTINE_ACTIVITY_TYPE", () => {
+		for (const type of ROUTINE_ACTIVITY_TYPES) {
+			expect(activityTypeLabels[type], `Missing label for ${type}`).toBeTruthy()
+		}
+	})
+
+	it("has a Norwegian label for oracle_role_criticality", () => {
+		expect(activityTypeLabels.oracle_role_criticality).toBe("Oracle-rollekritikalitet")
 	})
 })
