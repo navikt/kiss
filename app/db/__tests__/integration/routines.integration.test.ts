@@ -96,6 +96,13 @@ async function confirmAppTechElement(appId: string, elementId: string) {
 	)
 }
 
+async function addManualAppTechElement(appId: string, elementId: string) {
+	const db = getTestDb()
+	await db.execute(
+		/* sql */ `INSERT INTO application_technology_elements (application_id, element_id, source) VALUES ('${appId}', '${elementId}', 'manual')`,
+	)
+}
+
 async function markRoutineApproved(routineId: string) {
 	const db = getTestDb()
 	await db.execute(/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'test' WHERE id = '${routineId}'`)
@@ -1086,6 +1093,38 @@ describe("Routines integration tests", () => {
 
 			expect(apps).toHaveLength(1)
 			expect(apps[0].name).toBe("Docker App")
+		})
+
+		it("should include apps with manually added (unconfirmed) technology elements", async () => {
+			const sectionId = await createTestSection("Security", "security")
+			const questionId = await createTestScreeningQuestion(sectionId, "Uses Oracle?")
+			await createTestChoice(questionId, "Yes")
+			const elemId = await createTestTechElement("Oracle")
+
+			const appId = await createTestApp("Oracle App")
+			await createTestScreeningAnswer(appId, questionId, "Yes")
+			// Manually added — no confirmed_at, mirrors what addApplicationElement() inserts
+			await addManualAppTechElement(appId, elemId)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Oracle Security Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: questionId,
+				screeningChoiceValue: "Yes",
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [elemId],
+				createdBy: "Z990001",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+
+			expect(apps).toHaveLength(1)
+			expect(apps[0].name).toBe("Oracle App")
 		})
 
 		it("should return no apps when screening answer doesn't match", async () => {
