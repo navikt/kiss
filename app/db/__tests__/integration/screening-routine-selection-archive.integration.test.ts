@@ -398,7 +398,7 @@ describe("archived screening_routine_selections are excluded", () => {
 			expect(selectionMatch?.screeningSelectionQuestion).toBeDefined()
 		})
 
-		it("returns null for screeningSelectionQuestion when the archived selection is restored without a question", async () => {
+		it("returns screeningSelectionQuestion with question details when a routine selection links to a question", async () => {
 			const sectionId = await createSection("Seksjon Mørk Natt")
 			const appId = await createApp("Dyp Fjord")
 			const controlId = await createControl(`K-SSQ.03-${uid()}`)

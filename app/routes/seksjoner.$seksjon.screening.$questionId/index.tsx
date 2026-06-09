@@ -4,7 +4,7 @@ import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getChoiceEffects, getChoicesForQuestion, getScreeningQuestion } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
-import { screeningQuestionStatusConfig } from "~/db/schema/screening"
+import { screeningEffectLabels, screeningQuestionStatusConfig } from "~/db/schema/screening"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { hasAnySectionRole } from "~/lib/authorization.server"
 import { getStatusLabel } from "~/lib/compliance-status"
@@ -176,7 +176,7 @@ export default function ScreeningQuestionView() {
 												<Table.DataCell>
 													{e.effect ? (
 														<Tag variant="neutral" size="xsmall">
-															{getStatusLabel(e.effect)}
+															{screeningEffectLabels[e.effect] ?? getStatusLabel(e.effect)}
 														</Tag>
 													) : (
 														<BodyShort size="small" textColor="subtle">
