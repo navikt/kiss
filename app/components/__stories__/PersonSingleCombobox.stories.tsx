@@ -109,6 +109,34 @@ export const ValgtPersonVises: Story = {
 	},
 }
 
+export const ValgtPersonOverleverBlur: Story = {
+	name: "Valgt person beholdes når fokus flyttes vekk fra feltet",
+	args: {
+		name: "person",
+		label: "Seksjonsleder",
+		description: "Søk på navn eller NAV-ident",
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement)
+		const input = canvas.getByRole("combobox")
+
+		await userEvent.type(input, "Glad")
+		await waitFor(() => canvas.getByRole("option", { name: /Glad Fjord/i }))
+		await userEvent.click(canvas.getByRole("option", { name: /Glad Fjord/i }))
+		await waitFor(() => expect(canvas.getByRole("combobox")).toHaveValue("Glad Fjord (Z990001)"))
+
+		// Tab away to simulate blur (focus leaves the combobox wrapper)
+		await userEvent.tab()
+
+		await waitFor(() => {
+			const hidden = canvasElement.querySelector('input[type="hidden"][name="person"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value || "{}")
+			expect(parsed.navIdent).toBe("Z990001")
+			expect(canvas.getByRole("combobox")).toHaveValue("Glad Fjord (Z990001)")
+		})
+	},
+}
+
 export const IdentUtenDuplikatVedManglendeVisningsnavn: Story = {
 	name: "Viser kun ident (uten dobbel parentes) når visningsnavn mangler",
 	args: {
