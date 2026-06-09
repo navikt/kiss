@@ -2551,7 +2551,7 @@ async function applyRoutineConstraintFilters(
 ): Promise<string[]> {
 	let filtered = candidateIds
 
-	// Technology elements: app must have ≥1 confirmed, non-rejected element from the routine's list
+	// Technology elements: app must have ≥1 active (auto-detected, manually added, or confirmed), non-rejected element from the routine's list
 	if (constraints.technologyElements.length > 0) {
 		const elementIds = constraints.technologyElements.map((e) => e.id)
 		const rows = await db

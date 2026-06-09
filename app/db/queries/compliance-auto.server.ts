@@ -33,7 +33,7 @@ export const TECH_ELEMENT_ALL = "all" as const
  * or "controlId:all" (for global questions without tech element constraints).
  */
 export async function getScreeningEffectsByControlForApp(applicationId: string) {
-	// 1. Get app's auto-detected or confirmed tech elements (rejected are excluded)
+	// 1. Get app's active tech elements: auto-detected, manually added (confirmed or not), or confirmed (rejected and archived are excluded)
 	const appTechRows = await db
 		.select({ elementId: applicationTechnologyElements.elementId })
 		.from(applicationTechnologyElements)
@@ -41,7 +41,10 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 			and(
 				eq(applicationTechnologyElements.applicationId, applicationId),
 				isNull(applicationTechnologyElements.archivedAt),
-				or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
+				or(
+					inArray(applicationTechnologyElements.source, ["auto", "manual"]),
+					isNotNull(applicationTechnologyElements.confirmedAt),
+				),
 				isNull(applicationTechnologyElements.rejectedAt),
 			),
 		)

@@ -2336,6 +2336,38 @@ describe("Routines integration tests", () => {
 			expect(results[0].routine?.name).toBe("Legacy Routine")
 		})
 
+		it("includes routines when app has manually added (unconfirmed) tech element matching routine constraint", async () => {
+			const sectionId = await createTestSection("Tech Section", "tech-deadline-section")
+			const appId = await createTestApp("Tech Deadline App")
+			const elemId = await createTestTechElement("Kafka")
+			const questionId = await createTestScreeningQuestion(sectionId, "Uses Kafka?")
+			const choiceLabel = "yes"
+			await createTestChoice(questionId, choiceLabel)
+			// Manually added — no confirmed_at, mirrors what addApplicationElement() inserts
+			await addManualAppTechElement(appId, elemId)
+			// App answers the screening question so the routine enters the candidate set
+			await createTestScreeningAnswer(appId, questionId, choiceLabel)
+
+			const routine = await createRoutine({
+				name: "Kafka Security Review",
+				description: null,
+				sectionId,
+				frequency: "annually",
+				screeningQuestionId: questionId,
+				screeningChoiceValue: choiceLabel,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [elemId],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const results = await getRoutineDeadlinesForApp(appId)
+			expect(results.some((r) => r.routine?.id === routine.id)).toBe(true)
+		})
+
 		it("does not match non-approved or archived routines", async () => {
 			const sectionId = await createTestSection("Filter Section", "filter-section")
 			const appId = await createTestApp("Filter App")

@@ -377,7 +377,10 @@ export function triggerSyncForElement(elementId: string, performer: string): voi
 		.where(
 			and(
 				eq(applicationTechnologyElements.elementId, elementId),
-				or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
+				or(
+					inArray(applicationTechnologyElements.source, ["auto", "manual"]),
+					isNotNull(applicationTechnologyElements.confirmedAt),
+				),
 				isNull(applicationTechnologyElements.rejectedAt),
 				isNull(applicationTechnologyElements.archivedAt),
 			),
