@@ -23,7 +23,7 @@ import { resolveRoleHolder } from "~/db/queries/rulesets.server"
 import { getScreeningProgressForApps } from "~/db/queries/screening.server"
 import { countSectionRoutinesIncomplete, getSectionDetail } from "~/db/queries/sections.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { canViewSectionReports, isAdmin } from "~/lib/authorization.server"
+import { canManageSection, canViewSectionReports, isAdmin } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -91,7 +91,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		totalMangler,
 		totalControls,
 		overallPercent,
-		canAdmin: user ? isAdmin(user) : false,
+		canAdmin: user ? canManageSection(user, result.section.id) : false,
+		isGlobalAdmin: user ? isAdmin(user) : false,
 		canViewReports: user ? canViewSectionReports(user, result.section.id) : false,
 		deploymentStats,
 		economySystemCount: economyStats.totalCount,
@@ -118,6 +119,7 @@ export default function SeksjonDashboard() {
 		totalMangler,
 		overallPercent,
 		canAdmin,
+		isGlobalAdmin,
 		canViewReports,
 		deploymentStats,
 		economySystemCount,
@@ -192,7 +194,7 @@ export default function SeksjonDashboard() {
 						Rapporter
 					</Button>
 				)}
-				{canAdmin && (
+				{isGlobalAdmin && (
 					<Button as={Link} to={`/seksjoner/${seksjon}/koblingsforslag`} variant="secondary" size="small">
 						Koblingsforslag
 					</Button>
