@@ -750,6 +750,13 @@
       "when": 1781918320000,
       "tag": "0106_audit_log_entity_type_performed_at_index",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1781918380000,
+      "tag": "0107_section_environments_default_excluded",
+      "breakpoints": false
     }
   ]
 }

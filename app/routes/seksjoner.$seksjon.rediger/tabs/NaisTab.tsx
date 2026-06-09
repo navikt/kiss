@@ -36,6 +36,9 @@ export function NaisTab({
 		return t.slug.toLowerCase().includes(q) || t.displayName?.toLowerCase().includes(q)
 	})
 
+	const hasActiveEnvironments = sectionEnvironments.some((e) => e.included)
+	const hasAnyEnvironments = sectionEnvironments.length > 0
+
 	function openAddModal() {
 		setSearch("")
 		setSelectedSlug(null)
@@ -44,6 +47,74 @@ export function NaisTab({
 
 	return (
 		<VStack gap="space-8">
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Miljøfilter
+				</Heading>
+				<Alert variant="warning" size="small">
+					Krav i KISS er foreløpig kun knyttet til produksjonsmiljøer. Vi anbefaler at du kun aktiverer{" "}
+					<strong>prod-gcp</strong> og eventuelt <strong>prod-fss</strong>.
+				</Alert>
+				<BodyShort>
+					Velg hvilke Nais-miljøer som skal inkluderes. Applikasjoner som kun finnes i deaktiverte miljøer vil ikke
+					telle med i team, compliance-oppsummering eller applikasjonslister.
+				</BodyShort>
+				{hasAnyEnvironments && !hasActiveEnvironments && (
+					<Alert variant="info" size="small">
+						Ingen miljøer er aktive. Aktiver minst ett produksjonsmiljø for at applikasjoner skal vises og telles med i
+						compliance og rapporter.
+					</Alert>
+				)}
+				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+				<section className="table-scroll" tabIndex={0} aria-label="Miljøfilter">
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
+								<Table.HeaderCell scope="col" />
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{sectionEnvironments.length === 0 ? (
+								<Table.Row>
+									<Table.DataCell colSpan={3}>
+										Ingen miljøer registrert ennå. Koble til Nais-team og kjør Nais-sync for å oppdage miljøer.
+									</Table.DataCell>
+								</Table.Row>
+							) : (
+								sectionEnvironments.map(({ cluster, included }) => (
+									<Table.Row key={cluster}>
+										<Table.DataCell>{cluster}</Table.DataCell>
+										<Table.DataCell>
+											{included ? (
+												<Tag variant="success" size="small">
+													Aktiv
+												</Tag>
+											) : (
+												<Tag variant="neutral" size="small">
+													Deaktivert
+												</Tag>
+											)}
+										</Table.DataCell>
+										<Table.DataCell align="right">
+											<Form method="post">
+												<input type="hidden" name="intent" value="toggle-environment" />
+												<input type="hidden" name="cluster" value={cluster} />
+												<input type="hidden" name="enabled" value={included ? "false" : "true"} />
+												<Button type="submit" variant="tertiary-neutral" size="xsmall">
+													{included ? "Deaktiver" : "Aktiver"}
+												</Button>
+											</Form>
+										</Table.DataCell>
+									</Table.Row>
+								))
+							)}
+						</Table.Body>
+					</Table>
+				</section>
+			</VStack>
+
 			<VStack gap="space-4">
 				<HStack justify="space-between" align="center">
 					<Heading size="medium" level="3">
@@ -185,64 +256,6 @@ export function NaisTab({
 					</Form>
 				</Modal.Footer>
 			</Modal>
-
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Miljøfilter
-				</Heading>
-				<BodyShort>
-					Velg hvilke Nais-miljøer som skal inkluderes. Applikasjoner som kun finnes i deaktiverte miljøer vil ikke
-					telle med i team, compliance-oppsummering eller applikasjonslister.
-				</BodyShort>
-				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-				<section className="table-scroll" tabIndex={0} aria-label="Miljøfilter">
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-								<Table.HeaderCell scope="col" />
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{sectionEnvironments.length === 0 ? (
-								<Table.Row>
-									<Table.DataCell colSpan={3}>
-										Ingen miljøer registrert ennå. Kjør Nais-sync for å oppdage miljøer.
-									</Table.DataCell>
-								</Table.Row>
-							) : (
-								sectionEnvironments.map(({ cluster, included }) => (
-									<Table.Row key={cluster}>
-										<Table.DataCell>{cluster}</Table.DataCell>
-										<Table.DataCell>
-											{included ? (
-												<Tag variant="success" size="small">
-													Aktiv
-												</Tag>
-											) : (
-												<Tag variant="neutral" size="small">
-													Deaktivert
-												</Tag>
-											)}
-										</Table.DataCell>
-										<Table.DataCell align="right">
-											<Form method="post">
-												<input type="hidden" name="intent" value="toggle-environment" />
-												<input type="hidden" name="cluster" value={cluster} />
-												<input type="hidden" name="enabled" value={included ? "false" : "true"} />
-												<Button type="submit" variant="tertiary-neutral" size="xsmall">
-													{included ? "Deaktiver" : "Aktiver"}
-												</Button>
-											</Form>
-										</Table.DataCell>
-									</Table.Row>
-								))
-							)}
-						</Table.Body>
-					</Table>
-				</section>
-			</VStack>
 		</VStack>
 	)
 }

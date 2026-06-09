@@ -473,7 +473,7 @@ export async function upsertAppEnvironment(
 	const registerSectionEnvironmentCluster = async (teamId: string) => {
 		await db.execute(
 			sql`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
-				SELECT section_id, ${cluster}, true, 'nais-sync', 'nais-sync'
+				SELECT section_id, ${cluster}, false, 'nais-sync', 'nais-sync'
 				FROM nais_teams WHERE id = ${teamId} AND section_id IS NOT NULL
 				ON CONFLICT DO NOTHING`,
 		)

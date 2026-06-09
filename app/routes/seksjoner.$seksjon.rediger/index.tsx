@@ -73,6 +73,7 @@ export default function RedigerSeksjon() {
 						teams={teams}
 						persistenceMap={persistenceMap}
 						ignoredApps={ignoredApps}
+						hasActiveEnvironments={sectionEnvironments.some((e) => e.included)}
 					/>
 				</Tabs.Panel>
 

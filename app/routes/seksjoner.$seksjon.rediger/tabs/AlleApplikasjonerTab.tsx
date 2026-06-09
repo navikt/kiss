@@ -36,11 +36,13 @@ export function AlleApplikasjonerTab({
 	teams,
 	persistenceMap,
 	ignoredApps,
+	hasActiveEnvironments,
 }: {
 	sectionApps: SectionApp[]
 	teams: TeamItem[]
 	persistenceMap: Record<string, Array<{ type: string }>>
 	ignoredApps: IgnoredApp[]
+	hasActiveEnvironments: boolean
 }) {
 	return (
 		<VStack gap="space-6">
@@ -50,6 +52,15 @@ export function AlleApplikasjonerTab({
 			<BodyLong>
 				Oversikt over alle overvåkede applikasjoner i seksjonens Nais-team og deres compliance-status.
 			</BodyLong>
+			{!hasActiveEnvironments && (
+				<Alert variant="warning">
+					Ingen miljøer er aktivert for denne seksjonen. Gå til{" "}
+					<AkselLink as={Link} to="?fane=nais">
+						Nais-team-fanen
+					</AkselLink>{" "}
+					og aktiver minst ett produksjonsmiljø. Applikasjoner som kun finnes i deaktiverte miljøer vil ikke vises her.
+				</Alert>
+			)}
 
 			{sectionApps.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */

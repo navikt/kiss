@@ -133,7 +133,7 @@ export const sectionEnvironments = pgTable(
 			.notNull()
 			.references(() => sections.id, { onDelete: "restrict" }),
 		cluster: text("cluster").notNull(),
-		included: boolean("included").notNull().default(true),
+		included: boolean("included").notNull().default(false),
 		addedBy: text("added_by").notNull(),
 		addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedBy: text("updated_by").notNull(),

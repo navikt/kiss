@@ -155,7 +155,7 @@ describe("section_environments integration tests", () => {
 			const envs = await getSectionEnvironments(sectionId)
 			expect(envs).toHaveLength(1)
 			expect(envs[0].cluster).toBe("prod-gcp")
-			expect(envs[0].included).toBe(true)
+			expect(envs[0].included).toBe(false)
 		})
 
 		it("does NOT overwrite existing included=false when syncing same cluster again", async () => {
@@ -223,6 +223,8 @@ describe("section_environments integration tests", () => {
 			await upsertAppEnvironment(devOnlyApp, "dev-gcp", "team-filter", naisTeamId)
 			await upsertAppEnvironment(prodApp, "prod-gcp", "team-filter", naisTeamId)
 
+			// Nye miljøer starter som deaktivert — aktiver prod-gcp eksplisitt
+			await includeEnvironment(sectionId, "prod-gcp", "test")
 			// Exclude dev-gcp
 			await excludeEnvironment(sectionId, "dev-gcp", "test")
 
@@ -262,6 +264,8 @@ describe("section_environments integration tests", () => {
 			await upsertAppEnvironment(prodAppId, "prod-gcp", naisTeamSlug, naisTeamId)
 			await upsertAppEnvironment(devOnlyAppId, "dev-fss", naisTeamSlug, naisTeamId)
 
+			// Nye miljøer starter som deaktivert — aktiver prod-gcp eksplisitt
+			await includeEnvironment(sectionId, "prod-gcp", "test")
 			await excludeEnvironment(sectionId, "dev-fss", "test")
 
 			const detail = await getNaisTeamDetail(naisTeamSlug)
@@ -284,6 +288,8 @@ describe("section_environments integration tests", () => {
 			await upsertAppEnvironment(prodAppId, "prod-gcp", naisTeamSlug, naisTeamId)
 			await upsertAppEnvironment(devOnlyAppId, "dev-fss", naisTeamSlug, naisTeamId)
 
+			// Nye miljøer starter som deaktivert — aktiver prod-gcp eksplisitt
+			await includeEnvironment(sectionId, "prod-gcp", "test")
 			await excludeEnvironment(sectionId, "dev-fss", "test")
 
 			const counts = await getNaisTeamAppCounts()
