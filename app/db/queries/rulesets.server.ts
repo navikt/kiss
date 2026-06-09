@@ -111,6 +111,7 @@ export async function resolveRoleHolder(
 		.from(userRoles)
 		.innerJoin(users, eq(userRoles.userId, users.id))
 		.where(and(eq(userRoles.role, role as UserRole), eq(userRoles.sectionId, sectionId), isNull(userRoles.archivedAt)))
+		.orderBy(desc(userRoles.createdAt))
 		.limit(1)
 	return row ?? null
 }
