@@ -220,7 +220,10 @@ export function mockSeksjonDetailData() {
 		screenedCount: 8,
 		routinesGjennomfort: 12,
 		routinesIkkeGjennomfort: 4,
+		sectionRoutinesIkkeGjennomfort: 2,
 		needsFollowUpApps: 2,
+		seksjonsleder: { navIdent: "Z990001", name: "Glad Fjord" },
+		teknologileder: { navIdent: "Z990002", name: "Rask Elv" },
 	}
 }
 

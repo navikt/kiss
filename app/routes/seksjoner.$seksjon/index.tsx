@@ -20,6 +20,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRoutineComplianceSummaries } from "~/db/queries/application-controls.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { countSectionEconomySystems } from "~/db/queries/economy-classification.server"
+import { resolveRoleHolder } from "~/db/queries/rulesets.server"
 import { getScreeningProgressForApps } from "~/db/queries/screening.server"
 import { countSectionRoutinesIncomplete, getSectionDetail } from "~/db/queries/sections.server"
 import { useFeatureFlags } from "~/hooks/useFeatureFlags"
@@ -36,14 +37,23 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const result = await getSectionDetail(seksjon)
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
 
-	const [deploymentStats, economyStats, screeningProgress, routineSummaries, sectionRoutinesIkkeGjennomfort] =
-		await Promise.all([
-			getDeploymentVerificationAggregate(result.allAppIds),
-			countSectionEconomySystems(result.section.id),
-			getScreeningProgressForApps(result.allAppIds),
-			getRoutineComplianceSummaries(result.allAppIds),
-			countSectionRoutinesIncomplete(result.allAppIds),
-		])
+	const [
+		deploymentStats,
+		economyStats,
+		screeningProgress,
+		routineSummaries,
+		sectionRoutinesIkkeGjennomfort,
+		seksjonsleder,
+		teknologileder,
+	] = await Promise.all([
+		getDeploymentVerificationAggregate(result.allAppIds),
+		countSectionEconomySystems(result.section.id),
+		getScreeningProgressForApps(result.allAppIds),
+		getRoutineComplianceSummaries(result.allAppIds),
+		countSectionRoutinesIncomplete(result.allAppIds),
+		resolveRoleHolder("section_manager", result.section.id),
+		resolveRoleHolder("tech_manager", result.section.id),
+	])
 
 	// Aggregate screening: count apps where all relevant questions are answered
 	const screenedCount = [...screeningProgress.values()].filter((p) => p.total > 0 && p.answered === p.total).length
@@ -93,6 +103,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		routinesIkkeGjennomfort,
 		sectionRoutinesIkkeGjennomfort,
 		needsFollowUpApps,
+		seksjonsleder,
+		teknologileder,
 	})
 }
 
@@ -117,15 +129,33 @@ export default function SeksjonDashboard() {
 		routinesIkkeGjennomfort,
 		sectionRoutinesIkkeGjennomfort,
 		needsFollowUpApps,
+		seksjonsleder,
+		teknologileder,
 	} = useLoaderData<typeof loader>()
 	const { showComplianceStats } = useFeatureFlags()
 
 	return (
 		<VStack gap="space-8">
 			<HStack align="center" justify="space-between" wrap>
-				<Heading size="xlarge" level="2">
-					Seksjon: {seksjonName}
-				</Heading>
+				<VStack gap="space-1">
+					<Heading size="xlarge" level="2">
+						Seksjon: {seksjonName}
+					</Heading>
+					{(seksjonsleder || teknologileder) && (
+						<HStack gap="space-6" wrap>
+							{seksjonsleder && (
+								<Detail>
+									<strong>Seksjonsleder:</strong> {seksjonsleder.name}
+								</Detail>
+							)}
+							{teknologileder && (
+								<Detail>
+									<strong>Teknologileder:</strong> {teknologileder.name}
+								</Detail>
+							)}
+						</HStack>
+					)}
+				</VStack>
 				{canAdmin && (
 					<Button as={Link} to={`/seksjoner/${seksjon}/rediger`} variant="tertiary" size="small">
 						Administrer
