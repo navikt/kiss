@@ -122,12 +122,22 @@ function SessionPage({
 	)
 }
 
-function DataRouterWrapper({ children, initialStep }: { children: React.ReactNode; initialStep?: string }) {
-	const initialEntry = initialStep ? `/?step=${initialStep}` : "/"
+function DataRouterWrapper({
+	children,
+	initialStep,
+	seksjon,
+}: {
+	children: React.ReactNode
+	initialStep?: string
+	seksjon?: string
+}) {
+	const basePath = seksjon ? `/seksjoner/${seksjon}/applikasjoner/mock-app/screening/mock-session` : "/"
+	const initialEntry = initialStep ? `${basePath}?step=${initialStep}` : basePath
+	const routePath = seksjon ? "/seksjoner/:seksjon/applikasjoner/:appId/screening/:sessionId" : "/"
 	const router = createMemoryRouter(
 		[
 			{
-				path: "/",
+				path: routePath,
 				element: children,
 				loader: () => null,
 				action: async () => ({ ok: true }),
@@ -222,6 +232,22 @@ export const StegBoolean: Story = {
 	name: "Steg 3 – Personopplysninger (boolean)",
 	render: () => (
 		<DataRouterWrapper initialStep="q-boolean">
+			<SessionPage
+				title="Compliance-screening Q2 2026"
+				appName="pensjon-sak"
+				participants={mockParticipants}
+				isCompleted={false}
+				screening={answered(mockScreening, 0)}
+				wizardArgs={defaultWizardArgs}
+			/>
+		</DataRouterWrapper>
+	),
+}
+
+export const StegMedSporsmallenke: Story = {
+	name: "Steg 3 – Personopplysninger (med spørsmålslenke)",
+	render: () => (
+		<DataRouterWrapper initialStep="q-boolean" seksjon="pensjon-og-ufore">
 			<SessionPage
 				title="Compliance-screening Q2 2026"
 				appName="pensjon-sak"

@@ -1,6 +1,7 @@
+import { ExternalLinkIcon } from "@navikt/aksel-icons"
 import { Alert, BodyShort, Button, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
 import { useCallback, useRef } from "react"
-import { Form, useFetcher, useSearchParams } from "react-router"
+import { Form, Link, useFetcher, useParams, useSearchParams } from "react-router"
 import type {
 	EconomyClassificationData,
 	EntraGroupsData,
@@ -67,6 +68,7 @@ export function ScreeningWizard({
 	autoSave,
 }: Props) {
 	const [searchParams, setSearchParams] = useSearchParams()
+	const { seksjon } = useParams<{ seksjon?: string }>()
 
 	const stepParam = searchParams.get("step")
 	const isComplete = stepParam === "complete"
@@ -337,9 +339,22 @@ export function ScreeningWizard({
 
 					<div id={`q-${slugify(currentQuestion.questionText)}`}>
 						<VStack gap="space-4">
-							<Heading size="small" level="3">
-								{currentQuestion.questionText}
-							</Heading>
+							<HStack align="center" gap="space-2">
+								<Heading size="small" level="3">
+									{currentQuestion.questionText}
+								</Heading>
+								{seksjon && currentQuestion.sectionId && (
+									<Link
+										to={`/seksjoner/${seksjon}/screening/${currentQuestion.id}`}
+										target="_blank"
+										rel="noopener noreferrer"
+										title="Vis spørsmålsdetaljer"
+										style={{ color: "var(--ax-text-subtle)", display: "flex", alignItems: "center" }}
+									>
+										<ExternalLinkIcon aria-hidden fontSize="1rem" />
+									</Link>
+								)}
+							</HStack>
 							{currentQuestion.descriptionHtml && (
 								<div
 									className="markdown-content"
