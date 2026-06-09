@@ -254,8 +254,14 @@ export function mockTeamDetailData() {
 		totalRoutinesIkkeGjennomfort: 7,
 		deploymentStats: mockDeploymentStats(),
 		teamUsers: [
-			{ navIdent: "Z990003", name: "Glad Fjord", roles: ["developer", "tech_lead"] as const },
+			{ navIdent: "Z990003", name: "Glad Fjord", roles: ["tech_lead"] as const },
 			{ navIdent: "Z990004", name: "Rask Elv", roles: ["product_owner"] as const },
+			{ navIdent: "Z990005", name: "Stille Skog", roles: ["developer"] as const },
+			{ navIdent: "Z990006", name: "Blå Himmel", roles: ["developer"] as const },
+			{ navIdent: "Z990007", name: "Grønn Dal", roles: ["developer"] as const },
+			{ navIdent: "Z990008", name: "Høy Fjell", roles: ["developer"] as const },
+			{ navIdent: "Z990009", name: "Dyp Sjø", roles: ["developer"] as const },
+			{ navIdent: "Z990010", name: "Mild Vind", roles: ["developer"] as const },
 		],
 	}
 }

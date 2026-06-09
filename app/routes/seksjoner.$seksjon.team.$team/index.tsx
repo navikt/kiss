@@ -123,6 +123,39 @@ function economyTypeLabel(type: EconomySystemType | null): string {
 	return economySystemTypeLabels[type]
 }
 
+function isUserRole(r: string): r is keyof typeof userRoleLabels {
+	return r in userRoleLabels
+}
+
+function roleLabel(r: string): string {
+	return isUserRole(r) ? userRoleLabels[r] : r
+}
+
+type TeamUser = { navIdent: string; name: string; roles: readonly string[] }
+
+function TeamMedlemmer({ teamUsers }: { teamUsers: TeamUser[] }) {
+	const utviklere = teamUsers.filter((u) => !u.roles.some((r) => r === "tech_lead" || r === "product_owner"))
+
+	if (utviklere.length === 0) return null
+
+	return (
+		<VStack gap="space-4">
+			<Heading size="large" level="3">
+				Teammedlemmer
+			</Heading>
+			<div style={{ columns: "3 200px", columnGap: "var(--a-spacing-8)" }}>
+				{utviklere.map((u) => (
+					<Detail key={u.navIdent} style={{ breakInside: "avoid", paddingBottom: "var(--a-spacing-1)" }}>
+						{u.name}
+						{" – "}
+						{u.roles.map(roleLabel).join(", ")}
+					</Detail>
+				))}
+			</div>
+		</VStack>
+	)
+}
+
 export default function TeamDashboard() {
 	const {
 		seksjon,
@@ -147,9 +180,22 @@ export default function TeamDashboard() {
 	return (
 		<VStack gap="space-8">
 			<HStack align="center" justify="space-between" wrap>
-				<Heading size="xlarge" level="2">
-					{teamName}
-				</Heading>
+				<VStack gap="space-1">
+					<Heading size="xlarge" level="2">
+						{teamName}
+					</Heading>
+					{teamUsers.some((u) => u.roles.some((r) => r === "tech_lead" || r === "product_owner")) && (
+						<HStack gap="space-6" wrap>
+							{teamUsers
+								.filter((u) => u.roles.some((r) => r === "tech_lead" || r === "product_owner"))
+								.map((u) => (
+									<Detail key={u.navIdent}>
+										<strong>{u.roles.map(roleLabel).join(", ")}:</strong> {u.name}
+									</Detail>
+								))}
+						</HStack>
+					)}
+				</VStack>
 				{canManage && (
 					<Button as={Link} to={`/seksjoner/${seksjon}/team/${team}/rediger`} variant="tertiary" size="small">
 						Administrer
@@ -313,34 +359,7 @@ export default function TeamDashboard() {
 			)}
 
 			{/* Teammedlemmer */}
-			{teamUsers.length > 0 && (
-				<VStack gap="space-4">
-					<Heading size="large" level="3">
-						Teammedlemmer
-					</Heading>
-					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-					<section className="table-scroll" tabIndex={0} aria-label="Brukere tilknyttet teamet">
-						<Table>
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
-									<Table.HeaderCell scope="col">NAV-ident</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Rolle</Table.HeaderCell>
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{teamUsers.map((u) => (
-									<Table.Row key={u.navIdent}>
-										<Table.DataCell>{u.name}</Table.DataCell>
-										<Table.DataCell>{u.navIdent}</Table.DataCell>
-										<Table.DataCell>{u.roles.map((r) => userRoleLabels[r] ?? r).join(", ")}</Table.DataCell>
-									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
-					</section>
-				</VStack>
-			)}
+			{teamUsers.length > 0 && <TeamMedlemmer teamUsers={teamUsers} />}
 		</VStack>
 	)
 }
