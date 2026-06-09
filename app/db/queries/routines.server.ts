@@ -2562,7 +2562,10 @@ async function applyRoutineConstraintFilters(
 					inArray(applicationTechnologyElements.applicationId, filtered),
 					inArray(applicationTechnologyElements.elementId, elementIds),
 					isNull(applicationTechnologyElements.archivedAt),
-					or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
+					or(
+						inArray(applicationTechnologyElements.source, ["auto", "manual"]),
+						isNotNull(applicationTechnologyElements.confirmedAt),
+					),
 					isNull(applicationTechnologyElements.rejectedAt),
 				),
 			)
@@ -3787,7 +3790,10 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 				and(
 					eq(applicationTechnologyElements.applicationId, applicationId),
 					isNull(applicationTechnologyElements.archivedAt),
-					or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
+					or(
+						inArray(applicationTechnologyElements.source, ["auto", "manual"]),
+						isNotNull(applicationTechnologyElements.confirmedAt),
+					),
 					isNull(applicationTechnologyElements.rejectedAt),
 				),
 			)
@@ -4469,7 +4475,7 @@ export async function getRoutineDeadlinesForAppBySection(
 					isNull(routineOracleRoleCriticalityLinks.archivedAt),
 				),
 			),
-		// App's auto-detected or confirmed, non-rejected technology elements
+		// App's auto-detected, manually-added, or confirmed (non-rejected) technology elements
 		db
 			.select({ elementId: applicationTechnologyElements.elementId })
 			.from(applicationTechnologyElements)
@@ -4477,7 +4483,10 @@ export async function getRoutineDeadlinesForAppBySection(
 				and(
 					eq(applicationTechnologyElements.applicationId, applicationId),
 					isNull(applicationTechnologyElements.archivedAt),
-					or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
+					or(
+						inArray(applicationTechnologyElements.source, ["auto", "manual"]),
+						isNotNull(applicationTechnologyElements.confirmedAt),
+					),
 					isNull(applicationTechnologyElements.rejectedAt),
 				),
 			),
