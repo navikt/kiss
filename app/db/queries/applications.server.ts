@@ -393,7 +393,7 @@ export async function getAppAssessments(appId: string) {
 	const screeningControlIds = await getScreeningDerivedControlIds(assessmentAppId)
 	const hasScreeningAnswers = screeningControlIds.size > 0
 
-	// Get app's auto-detected or confirmed technology elements (consistent with routine matching)
+	// Get app's active technology elements: auto-detected, manually added (confirmed or not), or confirmed (consistent with routine matching)
 	const appElements = await db
 		.select({ elementId: applicationTechnologyElements.elementId })
 		.from(applicationTechnologyElements)
@@ -401,7 +401,10 @@ export async function getAppAssessments(appId: string) {
 			and(
 				eq(applicationTechnologyElements.applicationId, assessmentAppId),
 				isNull(applicationTechnologyElements.archivedAt),
-				or(eq(applicationTechnologyElements.source, "auto"), isNotNull(applicationTechnologyElements.confirmedAt)),
+				or(
+					inArray(applicationTechnologyElements.source, ["auto", "manual"]),
+					isNotNull(applicationTechnologyElements.confirmedAt),
+				),
 				isNull(applicationTechnologyElements.rejectedAt),
 			),
 		)
