@@ -376,6 +376,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	// Map session answers by questionId
 	const sessionAnswersMap = new Map(session.answers.map((a) => [a.questionId, a]))
 
+	// Fallback map for sectionId: old snapshots were stored before sectionId was added to the snapshot schema.
+	// We look up the current sectionId from live data so the question detail link still works.
+	const liveSectionIdByQuestionId = new Map(screeningData.questions.map((q) => [q.id, q.sectionId ?? null]))
+
 	// Build the screening list from the chosen questions (snapshot or live), overlaying session answers.
 	// Explicit field mapping avoids type confusion between snapshot questions (no answer fields)
 	// and live questions (which include app-level answers that must be replaced with session answers).
@@ -385,7 +389,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			id: q.id,
 			questionText: q.questionText,
 			description: q.description,
-			sectionId: q.sectionId ?? null,
+			sectionId: q.sectionId ?? liveSectionIdByQuestionId.get(q.id) ?? null,
 			displayOrder: q.displayOrder,
 			answerType: q.answerType,
 			rulesetCategoryFilter: q.rulesetCategoryFilter ?? null,
