@@ -1,4 +1,5 @@
 import { UNSAFE_Combobox } from "@navikt/ds-react"
+import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useFetcher } from "react-router"
 
@@ -157,7 +158,7 @@ export function PersonSingleCombobox({
 		[searchFetcher],
 	)
 
-	const handleClear = useCallback(() => {
+	const handleClear = useCallback((event?: React.PointerEvent | React.KeyboardEvent | React.FocusEvent) => {
 		if (searchTimeoutRef.current) {
 			clearTimeout(searchTimeoutRef.current)
 			searchTimeoutRef.current = null
@@ -169,6 +170,10 @@ export function PersonSingleCombobox({
 			justSelectedRef.current = false
 			return
 		}
+		// ComboboxWrapper.onBlur calls clearInput (→ onClear) when focus leaves the wrapper.
+		// This is a FocusEvent — we must NOT clear the selection when the user merely tabs away.
+		// Only clear on pointer (X-button click) or keyboard events (Escape).
+		if (event?.type === "blur") return
 		setQuery("")
 		selectedRef.current = null
 		setSelected(null)
