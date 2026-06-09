@@ -96,7 +96,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		referencedAppNames.add(rule.ruleApplication)
 	}
 
-	// Batch 1: Core queries for compliance computation (pool max=10, keep batches ≤10)
 	const [
 		appElements,
 		deadlinesWithControls,
@@ -110,6 +109,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		appRulesets,
 		economyClassification,
 		screeningQuestionsWithAnswers,
+		knownApps,
+		acknowledgmentsRaw,
+		allOracleInstances,
+		oracleInstances,
+		roleAssessments,
+		deploymentVerifications,
+		manualGroups,
+		groupAssessments,
+		githubTeams,
+		githubCollaborators,
+		githubChangeLog,
 	] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesWithControls(appId),
@@ -123,22 +133,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getRulesetsSelectedByApp(appId),
 		getEconomyClassification(appId),
 		getScreeningQuestionsWithAnswersForApp(appId),
-	])
-
-	// Batch 2: Supporting queries (independent of batch 1 results)
-	const [
-		knownApps,
-		acknowledgmentsRaw,
-		allOracleInstances,
-		oracleInstances,
-		roleAssessments,
-		deploymentVerifications,
-		manualGroups,
-		groupAssessments,
-		githubTeams,
-		githubCollaborators,
-		githubChangeLog,
-	] = await Promise.all([
 		resolveAppNames([...referencedAppNames]),
 		getActiveAcknowledgments(appId),
 		getOracleInstances(),
