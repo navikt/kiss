@@ -21,7 +21,6 @@ import { userRoleLabels } from "./db/schema/organization"
 import { ThemeProvider, useTheme } from "./hooks/useTheme"
 import { ADMIN_ELEVATED_COOKIE, getAuthenticatedUser } from "./lib/auth.server"
 import { isAdmin, isAuditor } from "./lib/authorization.server"
-import { getFeatureFlags } from "./lib/feature-flags.server"
 
 import "@navikt/ds-css/dist/index.css"
 import "./styles/global.css"
@@ -83,7 +82,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 	return data({
 		theme,
-		featureFlags: getFeatureFlags(),
 		user: user
 			? {
 					navIdent: user.navIdent,

@@ -2,7 +2,6 @@ import { Alert, BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, Ta
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
-import { ComplianceStatsPlaceholder } from "~/components/ComplianceStatsPlaceholder"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam } from "~/db/queries/applications.server"
@@ -11,7 +10,6 @@ import { getSectionBySlug, getTeamApps, getTeamBySlug } from "~/db/queries/secti
 import { getUsersForTeam } from "~/db/queries/users.server"
 import { type EconomySystemType, economySystemTypeLabels } from "~/db/schema/applications"
 import { userRoleLabels } from "~/db/schema/organization"
-import { useFeatureFlags } from "~/hooks/useFeatureFlags"
 import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageTeam } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
@@ -175,8 +173,6 @@ export default function TeamDashboard() {
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 
-	const { showComplianceStats } = useFeatureFlags()
-
 	return (
 		<VStack gap="space-8">
 			<HStack align="center" justify="space-between" wrap>
@@ -203,52 +199,48 @@ export default function TeamDashboard() {
 				)}
 			</HStack>
 
-			{showComplianceStats ? (
-				<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 5 }}>
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<VStack align="center">
-							<Heading size="xlarge" level="3">
-								{overallPercent}%
-							</Heading>
-							<Detail>Total compliance</Detail>
-						</VStack>
-					</Box>
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<VStack align="center">
-							<Heading size="xlarge" level="3">
-								{apps.length}
-							</Heading>
-							<Detail>Applikasjoner</Detail>
-						</VStack>
-					</Box>
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<VStack align="center">
-							<Heading size="xlarge" level="3">
-								{totalImplemented}
-							</Heading>
-							<Detail>Implementert</Detail>
-						</VStack>
-					</Box>
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<VStack align="center">
-							<Heading size="xlarge" level="3">
-								{totalPartial}
-							</Heading>
-							<Detail>Delvis</Detail>
-						</VStack>
-					</Box>
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<VStack align="center">
-							<Heading size="xlarge" level="3">
-								{totalMangler}
-							</Heading>
-							<Detail>Mangler</Detail>
-						</VStack>
-					</Box>
-				</HGrid>
-			) : (
-				<ComplianceStatsPlaceholder />
-			)}
+			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 5 }}>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{overallPercent}%
+						</Heading>
+						<Detail>Total compliance</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{apps.length}
+						</Heading>
+						<Detail>Applikasjoner</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalImplemented}
+						</Heading>
+						<Detail>Implementert</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalPartial}
+						</Heading>
+						<Detail>Delvis</Detail>
+					</VStack>
+				</Box>
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<VStack align="center">
+						<Heading size="xlarge" level="3">
+							{totalMangler}
+						</Heading>
+						<Detail>Mangler</Detail>
+					</VStack>
+				</Box>
+			</HGrid>
 
 			<DeploymentSummaryCards stats={deploymentStats} />
 
