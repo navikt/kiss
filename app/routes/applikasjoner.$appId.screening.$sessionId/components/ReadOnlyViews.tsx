@@ -10,7 +10,6 @@ import {
 import type {
 	EconomyClassificationData,
 	EntraGroupsData,
-	OracleRolesData,
 	PersistenceEntry,
 	RulesetOption,
 	ScreeningQuestion,
@@ -200,77 +199,6 @@ export function ReadOnlyEntraGroups({ entraGroupsData }: { entraGroupsData: Entr
 												Borte fra manifest
 											</Tag>
 										)}
-									</Table.DataCell>
-									<Table.DataCell>
-										{assessment?.criticality ? (
-											<Tag variant="neutral" size="xsmall">
-												{groupCriticalityLabels[assessment.criticality as GroupCriticality]}
-											</Tag>
-										) : (
-											<BodyShort size="small" textColor="subtle">
-												Ikke vurdert
-											</BodyShort>
-										)}
-									</Table.DataCell>
-								</Table.Row>
-							)
-						})}
-					</Table.Body>
-				</Table>
-			</section>
-		</VStack>
-	)
-}
-
-export function ReadOnlyOracleRoles({ oracleRolesData }: { oracleRolesData: OracleRolesData }) {
-	const { roles, assessments } = oracleRolesData
-
-	if (roles.length === 0) {
-		return <BodyShort textColor="subtle">Ingen Oracle-roller funnet.</BodyShort>
-	}
-
-	return (
-		<VStack gap="space-4">
-			{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-			<section className="table-scroll" tabIndex={0} aria-label="Oracle-roller">
-				<Table size="small">
-					<Table.Header>
-						<Table.Row>
-							<Table.HeaderCell>Rolle</Table.HeaderCell>
-							<Table.HeaderCell>Instans</Table.HeaderCell>
-							<Table.HeaderCell>Type</Table.HeaderCell>
-							<Table.HeaderCell>Kritikalitet</Table.HeaderCell>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{roles.map((role) => {
-							const key = `${role.instanceId}:${role.roleName.toUpperCase().trim()}`
-							const assessment = assessments[key]
-							return (
-								<Table.Row key={key}>
-									<Table.DataCell>
-										<BodyShort size="small" style={{ fontFamily: "monospace" }}>
-											{role.roleName}
-										</BodyShort>
-									</Table.DataCell>
-									<Table.DataCell>
-										<BodyShort size="small" textColor="subtle">
-											{role.instanceId}
-										</BodyShort>
-									</Table.DataCell>
-									<Table.DataCell>
-										<HStack gap="space-1">
-											{role.common && (
-												<Tag variant="neutral" size="xsmall">
-													Common
-												</Tag>
-											)}
-											{role.authType && (
-												<Tag variant="info" size="xsmall">
-													{role.authType}
-												</Tag>
-											)}
-										</HStack>
 									</Table.DataCell>
 									<Table.DataCell>
 										{assessment?.criticality ? (

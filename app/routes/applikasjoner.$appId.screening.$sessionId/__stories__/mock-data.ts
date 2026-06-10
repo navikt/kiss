@@ -121,23 +121,6 @@ export const mockScreening = [
 		rulesetCategoryFilter: null,
 	},
 	{
-		id: "q-oracle",
-		questionText: "Hvilke Oracle-roller har applikasjonen?",
-		description: "Vurder kritikaliteten til hver Oracle-rolle som er tildelt applikasjonen.",
-		descriptionHtml: "<p>Vurder kritikaliteten til hver Oracle-rolle som er tildelt applikasjonen.</p>",
-		displayOrder: 5,
-		answerType: "oracle_roles" as const,
-		answer: null as string | null,
-		answerComment: null,
-		answerLink: null,
-		answeredBy: null as string | null,
-		answeredAt: null as string | null,
-		choices: [],
-		affectedControls: ["K-TS.01", "K-TS.02"],
-		sectionId: null,
-		rulesetCategoryFilter: null,
-	},
-	{
 		id: "q-ruleset",
 		questionText: "Hvilket regelsett gjelder for denne applikasjonen?",
 		description: "Velg det regelsettet som best beskriver de regulatoriske kravene applikasjonen må oppfylle.",
@@ -256,16 +239,6 @@ export const mockEntraGroupsData = {
 	assessmentsByGroupId: {} as Record<string, { criticality: string; updatedBy: string; updatedAt: string }>,
 }
 
-export const mockOracleRolesData = {
-	roles: [
-		{ instanceId: "pensjon-regnskap-01", roleName: "CONNECT", authType: "PASSWORD", common: true },
-		{ instanceId: "pensjon-regnskap-01", roleName: "DBA", authType: "PASSWORD", common: true },
-		{ instanceId: "pensjon-regnskap-01", roleName: "APP_READER", authType: null, common: false },
-		{ instanceId: "pensjon-regnskap-01", roleName: "APP_WRITER", authType: "PASSWORD", common: false },
-	],
-	assessments: {} as Record<string, { criticality: string; updatedBy: string; updatedAt: string }>,
-}
-
 export const mockEconomyClassification = {
 	id: "ec-1",
 	isEconomySystem: true,
@@ -281,16 +254,14 @@ export const defaultWizardArgs = {
 	persistence: mockPersistence,
 	rulesetOptions: mockRulesetOptions,
 	entraGroupsData: mockEntraGroupsData,
-	oracleRolesData: mockOracleRolesData,
 	economyClassification: mockEconomyClassification,
-	canAdmin: true,
 }
 
 /** Mark questions as answered up to (and including) the given index */
 export function answered(questions: typeof mockScreening, upToIndex: number) {
 	return questions.map((q, i) => {
 		if (i > upToIndex) return q
-		const isInventory = ["persistence", "entra_id_groups", "oracle_roles", "economy_system"].includes(q.answerType)
+		const isInventory = ["persistence", "entra_id_groups", "economy_system"].includes(q.answerType)
 		return {
 			...q,
 			answer: isInventory ? "confirmed" : (q.choices[0]?.label ?? "Ja"),
@@ -310,27 +281,6 @@ export const enrichedWizardArgs = {
 			"g-1": { criticality: "low", updatedBy: "Z990001", updatedAt: "2026-05-06T09:30:00Z" },
 			"g-2": { criticality: "high", updatedBy: "Z990002", updatedAt: "2026-05-06T09:35:00Z" },
 			"g-3": { criticality: "low", updatedBy: "Z990001", updatedAt: "2026-05-06T09:30:00Z" },
-		},
-	},
-	oracleRolesData: {
-		...mockOracleRolesData,
-		assessments: {
-			"pensjon-regnskap-01:CONNECT": { criticality: "low", updatedBy: "Z990001", updatedAt: "2026-05-06T09:30:00Z" },
-			"pensjon-regnskap-01:DBA": {
-				criticality: "very_high",
-				updatedBy: "Z990002",
-				updatedAt: "2026-05-06T09:35:00Z",
-			},
-			"pensjon-regnskap-01:APP_READER": {
-				criticality: "low",
-				updatedBy: "Z990001",
-				updatedAt: "2026-05-06T09:30:00Z",
-			},
-			"pensjon-regnskap-01:APP_WRITER": {
-				criticality: "high",
-				updatedBy: "C111222",
-				updatedAt: "2026-05-06T09:40:00Z",
-			},
 		},
 	},
 }

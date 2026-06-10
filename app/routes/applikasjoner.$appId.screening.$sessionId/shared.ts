@@ -8,7 +8,6 @@ export type ScreeningQuestion = LoaderData["screening"][number]
 export type RulesetOption = LoaderData["rulesetOptions"][number]
 export type PersistenceEntry = LoaderData["persistence"][number]
 export type EntraGroupsData = LoaderData["entraGroupsData"]
-export type OracleRolesData = LoaderData["oracleRolesData"]
 export type EconomyClassificationData = LoaderData["economyClassification"]
 
 export const persistenceVariants: Record<string, "info" | "warning" | "alt1" | "alt2" | "alt3" | "neutral"> = {
@@ -28,12 +27,7 @@ export const persistenceVariants: Record<string, "info" | "warning" | "alt1" | "
  * even if the answer is "confirmed".
  */
 export function isQuestionAnswered(q: ScreeningQuestion, economyClassification?: EconomyClassificationData): boolean {
-	if (
-		q.answerType === "persistence" ||
-		q.answerType === "entra_id_groups" ||
-		q.answerType === "oracle_roles" ||
-		q.answerType === "economy_system"
-	) {
+	if (q.answerType === "persistence" || q.answerType === "entra_id_groups" || q.answerType === "economy_system") {
 		if (q.answer !== "confirmed") return false
 		if (q.answerType === "economy_system") {
 			if (!economyClassification || economyClassification.isExpired) return false

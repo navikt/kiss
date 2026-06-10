@@ -35,10 +35,6 @@ vi.mock("~/db/queries/nais.server", () => ({
 	getAppPersistence: vi.fn(() => []),
 }))
 
-vi.mock("~/db/queries/oracle-roles.server", () => ({
-	getOracleRoleAssessments: vi.fn(() => []),
-}))
-
 vi.mock("~/lib/graph.server", () => ({
 	resolveGroupNames: vi.fn(() => ({})),
 }))
@@ -175,7 +171,6 @@ describe("screening session loader", () => {
 			const payload = "data" in result ? (result as { data: Record<string, unknown> }).data : result
 			expect(payload).toHaveProperty("session")
 			expect(payload).toHaveProperty("appName", "test-app")
-			expect(payload).toHaveProperty("canAdmin", false)
 		})
 
 		it("uses snapshot questions for completed sessions instead of live questions", async () => {
@@ -199,7 +194,6 @@ describe("screening session loader", () => {
 					capturedAt: "2024-01-01T00:00:00.000Z",
 					persistence: null,
 					entraGroupsData: null,
-					oracleRolesData: null,
 					economyClassification: null,
 					questions: [snapshotQuestion],
 					rulesetOptions: [],

@@ -96,7 +96,6 @@ function SessionPage({
 					<ScreeningWizard
 						{...wizardArgs}
 						screening={screening}
-						canAdmin={false}
 						participantsStep={{
 							isActive: false,
 							isDone: true,
@@ -302,22 +301,6 @@ export const StegEntraGrupper: Story = {
 				participants={mockParticipants}
 				isCompleted={false}
 				screening={answered(mockScreening, 3)}
-				wizardArgs={defaultWizardArgs}
-			/>
-		</DataRouterWrapper>
-	),
-}
-
-export const StegOracleRoller: Story = {
-	name: "Steg 7 – Oracle-roller",
-	render: () => (
-		<DataRouterWrapper initialStep="q-oracle">
-			<SessionPage
-				title="Compliance-screening Q2 2026"
-				appName="pensjon-sak"
-				participants={mockParticipants}
-				isCompleted={false}
-				screening={answered(mockScreening, 4)}
 				wizardArgs={defaultWizardArgs}
 			/>
 		</DataRouterWrapper>
