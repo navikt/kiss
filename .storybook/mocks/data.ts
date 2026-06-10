@@ -624,13 +624,6 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 		],
 		oracleInstances: [],
 		totalOracleInstanceCount: 0,
-		oracleRoles: [
-			{ instanceId: "pensjon-db-01", instanceName: "PENSJON_DB_01", roleName: "CONNECT", oracleMaintained: true, common: true, criticality: "low", updatedBy: "Z990001", updatedAt: "2026-04-15T10:30:00Z" },
-			{ instanceId: "pensjon-db-01", instanceName: "PENSJON_DB_01", roleName: "DBA", oracleMaintained: true, common: true, criticality: "very_high", updatedBy: "Z990001", updatedAt: "2026-04-15T10:31:00Z" },
-			{ instanceId: "pensjon-db-01", instanceName: "PENSJON_DB_01", roleName: "APP_USER", oracleMaintained: false, common: false, criticality: "high", updatedBy: "Z990001", updatedAt: "2026-04-15T10:32:00Z" },
-			{ instanceId: "pensjon-db-01", instanceName: "PENSJON_DB_01", roleName: "BATCH_ROLE", oracleMaintained: false, common: false, criticality: null, updatedBy: null, updatedAt: null },
-		],
-		inaccessibleOracleGroups: [],
 		instanceSnapshotHistories: [],
 		sectionSlugMap: { "s-01": "pensjon-og-ufore" },
 		canAdmin: true,

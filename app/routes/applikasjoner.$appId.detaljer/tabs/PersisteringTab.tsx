@@ -1,14 +1,14 @@
-import { Alert, BodyLong, List, Table, VStack } from "@navikt/ds-react"
+import { BodyLong, Table, VStack } from "@navikt/ds-react"
+import type { GroupCriticality } from "~/db/schema/applications"
 import { AddPersistenceForm } from "../components/AddPersistenceForm"
-import { type OracleRoleDisplay, OracleRolesSection } from "../components/OracleRolesSection"
+import { OracleRolesAssessmentView } from "../components/OracleRolesAssessmentView"
 import { PersistenceRow } from "../components/PersistenceRow"
 
 export function PersisteringTab({
 	persistence,
 	oracleAuditSummaries,
-	oracleRoles,
-	canAdmin,
-	inaccessibleOracleGroups,
+	oracleRoleAssessments,
+	latestOracleRoleCriticalityReview,
 }: {
 	persistence: Array<{
 		id: string
@@ -31,11 +31,14 @@ export function PersisteringTab({
 			findings: Array<{ severity: string; message: string }>
 		}
 	>
-	oracleRoles: OracleRoleDisplay[]
-	canAdmin: boolean
-	inaccessibleOracleGroups?: Array<{ id: string; name: string }>
+	oracleRoleAssessments: Record<string, { criticality: GroupCriticality; updatedBy: string; updatedAt: string }>
+	latestOracleRoleCriticalityReview: {
+		reviewId: string
+		title: string
+		reviewedAt: string
+		gjennomgangUrl: string | null
+	} | null
 }) {
-	const groups = inaccessibleOracleGroups ?? []
 	return (
 		<VStack gap="space-8">
 			<AddPersistenceForm />
@@ -67,19 +70,7 @@ export function PersisteringTab({
 				<BodyLong>Ingen kjent persistens. Legg til en database manuelt ovenfor.</BodyLong>
 			)}
 
-			<OracleRolesSection roles={oracleRoles} canAdmin={canAdmin} />
-
-			{groups.length > 0 && (
-				<Alert variant="info" size="small">
-					Du mangler tilgang til å se Oracle-roller for noen databaseinstanser. For å få tilgang, be om medlemskap i
-					følgende Entra ID-gruppe{groups.length > 1 ? "r" : ""}:
-					<List>
-						{groups.map((g) => (
-							<List.Item key={g.id}>{g.name}</List.Item>
-						))}
-					</List>
-				</Alert>
-			)}
+			<OracleRolesAssessmentView assessments={oracleRoleAssessments} sourceReview={latestOracleRoleCriticalityReview} />
 		</VStack>
 	)
 }

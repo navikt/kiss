@@ -45,6 +45,8 @@ export default function ApplikasjonDetalj() {
 		environments,
 		persistence,
 		oracleAuditSummaries,
+		oracleRoleAssessments,
+		latestOracleRoleCriticalityReview,
 		deploymentVerifications,
 		authIntegrations,
 		manualGroups,
@@ -72,8 +74,6 @@ export default function ApplikasjonDetalj() {
 		screeningSessions,
 		oracleInstances,
 		totalOracleInstanceCount,
-		inaccessibleOracleGroups,
-		oracleRoles,
 		instanceSnapshotHistories,
 		githubAccess,
 		effectiveGitRepository,
@@ -414,9 +414,8 @@ export default function ApplikasjonDetalj() {
 					<PersisteringTab
 						persistence={persistence}
 						oracleAuditSummaries={oracleAuditSummaries}
-						oracleRoles={oracleRoles}
-						canAdmin={canAdmin}
-						inaccessibleOracleGroups={inaccessibleOracleGroups}
+						oracleRoleAssessments={oracleRoleAssessments}
+						latestOracleRoleCriticalityReview={latestOracleRoleCriticalityReview}
 					/>
 				</Tabs.Panel>
 
