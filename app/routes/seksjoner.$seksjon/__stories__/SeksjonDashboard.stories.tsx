@@ -64,3 +64,72 @@ export const IngenTeam: Story = {
 			"/seksjoner/pensjon-og-ufore",
 		),
 }
+
+export const IkkeKonfigurert: Story = {
+	name: "Ikke konfigurert (veiledning)",
+	render: () =>
+		renderWithLoader(
+			SeksjonDashboard,
+			{
+				...mockSeksjonDetailData(),
+				hasUtviklerteam: false,
+				hasNaisTeam: false,
+				hasNaisMiljo: false,
+				teams: [],
+				unassigned: { apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 },
+				totalApps: 0,
+				totalImplemented: 0,
+				totalPartial: 0,
+				totalMangler: 0,
+				overallPercent: 0,
+				economySystemCount: 0,
+				economySystemExpiredCount: 0,
+				screenedCount: 0,
+				routinesGjennomfort: 0,
+				routinesIkkeGjennomfort: 0,
+				sectionRoutinesIkkeGjennomfort: 0,
+				needsFollowUpApps: 0,
+			},
+			"/seksjoner/pensjon-og-ufore",
+		),
+}
+
+export const IkkeKonfigurertIkkeAdmin: Story = {
+	name: "Ikke konfigurert (ikke admin)",
+	render: () =>
+		renderWithLoader(
+			SeksjonDashboard,
+			{
+				...mockSeksjonDetailData(),
+				canAdmin: false,
+				hasUtviklerteam: false,
+				hasNaisTeam: false,
+				hasNaisMiljo: false,
+				teams: [],
+				unassigned: { apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 },
+				totalApps: 0,
+				totalImplemented: 0,
+				totalPartial: 0,
+				totalMangler: 0,
+				overallPercent: 0,
+				economySystemCount: 0,
+				economySystemExpiredCount: 0,
+				screenedCount: 0,
+				routinesGjennomfort: 0,
+				routinesIkkeGjennomfort: 0,
+				sectionRoutinesIkkeGjennomfort: 0,
+				needsFollowUpApps: 0,
+			},
+			"/seksjoner/pensjon-og-ufore",
+		),
+}
+
+export const DelvisKonfigurert: Story = {
+	name: "Delvis konfigurert (mangler miljø)",
+	render: () =>
+		renderWithLoader(
+			SeksjonDashboard,
+			{ ...mockSeksjonDetailData(), hasNaisMiljo: false },
+			"/seksjoner/pensjon-og-ufore",
+		),
+}

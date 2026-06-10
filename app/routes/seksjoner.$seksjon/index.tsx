@@ -1,4 +1,6 @@
 import {
+	Link as AkselLink,
+	Alert,
 	BodyLong,
 	BodyShort,
 	Box,
@@ -79,6 +81,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const totalMangler = totalControls - totalImplemented - totalPartial - st.notImplemented - totalNotRelevant
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
+	const hasUtviklerteam = teams.length > 0
+	const hasNaisTeam = result.hasNaisTeam
+	const hasNaisMiljo = result.hasNaisMiljo
+
 	return data({
 		seksjon,
 		seksjonName,
@@ -104,6 +110,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		needsFollowUpApps,
 		seksjonsleder,
 		teknologileder,
+		hasUtviklerteam,
+		hasNaisTeam,
+		hasNaisMiljo,
 	})
 }
 
@@ -131,7 +140,12 @@ export default function SeksjonDashboard() {
 		needsFollowUpApps,
 		seksjonsleder,
 		teknologileder,
+		hasUtviklerteam,
+		hasNaisTeam,
+		hasNaisMiljo,
 	} = useLoaderData<typeof loader>()
+
+	const redigerBase = `/seksjoner/${seksjon}/rediger`
 
 	return (
 		<VStack gap="space-8">
@@ -200,6 +214,55 @@ export default function SeksjonDashboard() {
 					</Button>
 				)}
 			</HStack>
+			{(!hasUtviklerteam || !hasNaisTeam || !hasNaisMiljo) && (
+				<Alert variant="info">
+					<VStack gap="space-2">
+						<BodyLong weight="semibold">Seksjonen er ikke ferdig konfigurert</BodyLong>
+						<BodyLong>Følgende mangler før KISS kan vise compliance-data og applikasjoner for seksjonen:</BodyLong>
+						<ul style={{ margin: 0, paddingLeft: "var(--ax-space-5)" }}>
+							{!hasNaisMiljo && (
+								<li>
+									Ingen Nais-miljøer er aktivert for seksjonen.
+									{canAdmin && (
+										<>
+											{" "}
+											<AkselLink as={Link} to={`${redigerBase}?fane=nais`}>
+												Konfigurer Nais-miljøer
+											</AkselLink>
+										</>
+									)}
+								</li>
+							)}
+							{!hasNaisTeam && (
+								<li>
+									Ingen Nais-team er koblet til seksjonen.
+									{canAdmin && (
+										<>
+											{" "}
+											<AkselLink as={Link} to={`${redigerBase}?fane=nais`}>
+												Koble Nais-team
+											</AkselLink>
+										</>
+									)}
+								</li>
+							)}
+							{!hasUtviklerteam && (
+								<li>
+									Ingen utviklingsteam er registrert for seksjonen.
+									{canAdmin && (
+										<>
+											{" "}
+											<AkselLink as={Link} to={`${redigerBase}?fane=team`}>
+												Legg til utviklingsteam
+											</AkselLink>
+										</>
+									)}
+								</li>
+							)}
+						</ul>
+					</VStack>
+				</Alert>
+			)}
 			<BodyLong>Compliance-status for alle team i seksjonen.</BodyLong>
 
 			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, md: 6 }}>
