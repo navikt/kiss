@@ -25,16 +25,9 @@ vi.mock("~/db/queries/sections.server", () => ({
 
 const mockLinkNaisTeamToSection = vi.fn()
 const mockUnlinkNaisTeamFromSection = vi.fn()
-const mockUnignoreAppForSection = vi.fn()
 vi.mock("~/db/queries/nais.server", () => ({
 	linkNaisTeamToSection: mockLinkNaisTeamToSection,
 	unlinkNaisTeamFromSection: mockUnlinkNaisTeamFromSection,
-	unignoreAppForSection: mockUnignoreAppForSection,
-}))
-
-const mockLinkAppToTeam = vi.fn()
-vi.mock("~/db/queries/applications.server", () => ({
-	linkAppToTeam: mockLinkAppToTeam,
 }))
 
 const { action } = await import("../index")
@@ -284,90 +277,6 @@ describe("seksjoner.$seksjon.rediger action", () => {
 			}
 
 			expect(mockUnlinkNaisTeamFromSection).not.toHaveBeenCalled()
-		})
-	})
-
-	describe("link-team", () => {
-		beforeEach(() => {
-			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireSectionAccess.mockImplementation(() => {})
-			mockGetSectionBySlug.mockResolvedValue(mockSection)
-		})
-
-		it("links app to team and redirects to alle-applikasjoner", async () => {
-			mockLinkAppToTeam.mockResolvedValue(undefined)
-			const formData = new FormData()
-			formData.set("intent", "link-team")
-			formData.set("applicationId", "app-1")
-			formData.set("devTeamId", "team-1")
-
-			const response = await callAction(formData)
-			expect(response).toBeInstanceOf(Response)
-			expect((response as Response).status).toBe(302)
-			expect((response as Response).headers.get("Location")).toContain("fane=alle-applikasjoner")
-			expect(mockLinkAppToTeam).toHaveBeenCalledWith("app-1", "team-1", "Z999999")
-		})
-
-		it("returns 400 when applicationId is missing", async () => {
-			const formData = new FormData()
-			formData.set("intent", "link-team")
-			formData.set("devTeamId", "team-1")
-
-			try {
-				await callAction(formData)
-				expect.unreachable("Should have thrown 400")
-			} catch (thrown) {
-				expect(thrown).toBeInstanceOf(Response)
-				expect((thrown as Response).status).toBe(400)
-			}
-		})
-
-		it("returns 400 when devTeamId is missing", async () => {
-			const formData = new FormData()
-			formData.set("intent", "link-team")
-			formData.set("applicationId", "app-1")
-
-			try {
-				await callAction(formData)
-				expect.unreachable("Should have thrown 400")
-			} catch (thrown) {
-				expect(thrown).toBeInstanceOf(Response)
-				expect((thrown as Response).status).toBe(400)
-			}
-		})
-	})
-
-	describe("unignore-app", () => {
-		beforeEach(() => {
-			mockRequireAuthenticatedUser.mockResolvedValue(adminUser)
-			mockRequireSectionAccess.mockImplementation(() => {})
-			mockGetSectionBySlug.mockResolvedValue(mockSection)
-		})
-
-		it("unignores app and redirects to alle-applikasjoner", async () => {
-			mockUnignoreAppForSection.mockResolvedValue(undefined)
-			const formData = new FormData()
-			formData.set("intent", "unignore-app")
-			formData.set("applicationId", "app-1")
-
-			const response = await callAction(formData)
-			expect(response).toBeInstanceOf(Response)
-			expect((response as Response).status).toBe(302)
-			expect((response as Response).headers.get("Location")).toContain("fane=alle-applikasjoner")
-			expect(mockUnignoreAppForSection).toHaveBeenCalledWith("sec-1", "app-1", "Z999999")
-		})
-
-		it("returns 400 when applicationId is missing", async () => {
-			const formData = new FormData()
-			formData.set("intent", "unignore-app")
-
-			try {
-				await callAction(formData)
-				expect.unreachable("Should have thrown 400")
-			} catch (thrown) {
-				expect(thrown).toBeInstanceOf(Response)
-				expect((thrown as Response).status).toBe(400)
-			}
 		})
 	})
 

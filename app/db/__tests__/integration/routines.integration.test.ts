@@ -170,7 +170,6 @@ describe("Routines integration tests", () => {
 			const directNaisSectionId = await createTestSection("Direct nais", "direct-nais")
 			const indirectSectionId = await createTestSection("Indirect", "indirect")
 			const excludedSectionId = await createTestSection("Excluded", "excluded")
-			const ignoredSectionId = await createTestSection("Ignored", "ignored")
 			const appId = await createTestApp("Section app")
 
 			const directTeam = await db.execute(
@@ -185,15 +184,10 @@ describe("Routines integration tests", () => {
 				/* sql */ `INSERT INTO dev_teams (section_id, name, slug, created_by, updated_by)
 					VALUES ('${excludedSectionId}', 'Excluded team', 'excluded-team', 'test', 'test') RETURNING id`,
 			)
-			const ignoredTeam = await db.execute(
-				/* sql */ `INSERT INTO dev_teams (section_id, name, slug, created_by, updated_by)
-					VALUES ('${ignoredSectionId}', 'Ignored team', 'ignored-team', 'test', 'test') RETURNING id`,
-			)
 
 			const directTeamId = (directTeam.rows[0] as { id: string }).id
 			const indirectTeamId = (indirectTeam.rows[0] as { id: string }).id
 			const excludedTeamId = (excludedTeam.rows[0] as { id: string }).id
-			const ignoredTeamId = (ignoredTeam.rows[0] as { id: string }).id
 
 			await db.execute(/* sql */ `
 				INSERT INTO application_team_mappings (application_id, dev_team_id, created_by)
@@ -205,27 +199,23 @@ describe("Routines integration tests", () => {
 				VALUES
 					('direct-nais-team', '${directNaisSectionId}'),
 					('indirect-nais-team', NULL),
-					('excluded-nais-team', NULL),
-					('ignored-nais-team', NULL)
+					('excluded-nais-team', NULL)
 				RETURNING id, slug
 			`)
 			const naisTeams = naisRows.rows as Array<{ id: string; slug: string }>
 			const directNaisTeamId = naisTeams.find((row) => row.slug === "direct-nais-team")?.id
 			const indirectNaisTeamId = naisTeams.find((row) => row.slug === "indirect-nais-team")?.id
 			const excludedNaisTeamId = naisTeams.find((row) => row.slug === "excluded-nais-team")?.id
-			const ignoredNaisTeamId = naisTeams.find((row) => row.slug === "ignored-nais-team")?.id
 
 			expect(directNaisTeamId).toBeDefined()
 			expect(indirectNaisTeamId).toBeDefined()
 			expect(excludedNaisTeamId).toBeDefined()
-			expect(ignoredNaisTeamId).toBeDefined()
 
 			await db.execute(/* sql */ `
 				INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by)
 				VALUES
 					('${indirectTeamId}', '${indirectNaisTeamId}', 'test'),
-					('${excludedTeamId}', '${excludedNaisTeamId}', 'test'),
-					('${ignoredTeamId}', '${ignoredNaisTeamId}', 'test')
+					('${excludedTeamId}', '${excludedNaisTeamId}', 'test')
 			`)
 
 			await db.execute(/* sql */ `
@@ -233,17 +223,12 @@ describe("Routines integration tests", () => {
 				VALUES
 					('${appId}', 'prod-gcp', 'kiss', '${directNaisTeamId}'),
 					('${appId}', 'dev-gcp', 'kiss', '${indirectNaisTeamId}'),
-					('${appId}', 'excluded-cluster', 'kiss', '${excludedNaisTeamId}'),
-					('${appId}', 'ignored-cluster', 'kiss', '${ignoredNaisTeamId}')
+					('${appId}', 'excluded-cluster', 'kiss', '${excludedNaisTeamId}')
 			`)
 
 			await db.execute(/* sql */ `
 				INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
 				VALUES ('${excludedSectionId}', 'excluded-cluster', false, 'test', 'test')
-			`)
-			await db.execute(/* sql */ `
-				INSERT INTO section_ignored_applications (section_id, application_id, ignored_by)
-				VALUES ('${ignoredSectionId}', '${appId}', 'test')
 			`)
 
 			const sectionIds = await getSectionIdsForApp(appId)

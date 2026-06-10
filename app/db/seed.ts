@@ -39,17 +39,14 @@ async function seed() {
 		return
 	}
 
-	// Sekundær seksjon for variasjon (ignored apps, demo)
-	const [seksjonDrift] = await db
-		.insert(schema.sections)
-		.values({
-			name: "Drift",
-			slug: "drift",
-			description: "Seksjon for drift og infrastruktur",
-			createdBy: "seed",
-			updatedBy: "seed",
-		})
-		.returning()
+	// Sekundær seksjon for variasjon (demo)
+	await db.insert(schema.sections).values({
+		name: "Drift",
+		slug: "drift",
+		description: "Seksjon for drift og infrastruktur",
+		createdBy: "seed",
+		updatedBy: "seed",
+	})
 
 	console.log(`  ✓ 2 sections`)
 
@@ -392,14 +389,6 @@ async function seed() {
 			updatedBy: "seed",
 		},
 	])
-
-	// Section ignored applications
-	await db.insert(schema.sectionIgnoredApplications).values({
-		sectionId: seksjonDrift.id,
-		applicationId: appHelse.id,
-		reason: "Forvaltes av Helse-seksjonen",
-		ignoredBy: "seed",
-	})
 
 	// Link suggestions
 	await db.insert(schema.linkSuggestions).values({

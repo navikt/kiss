@@ -4,7 +4,6 @@ import { Form, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import type { loader } from "./loader.server"
 import type { LinkedNaisTeam } from "./shared"
-import { AlleApplikasjonerTab } from "./tabs/AlleApplikasjonerTab"
 import { DataTab } from "./tabs/DataTab"
 import { NaisTab } from "./tabs/NaisTab"
 import { SeksjonTab } from "./tabs/SeksjonTab"
@@ -15,20 +14,12 @@ export { loader } from "./loader.server"
 export { RouteErrorBoundary as ErrorBoundary }
 
 export default function RedigerSeksjon() {
-	const {
-		section,
-		teams,
-		linkedNaisTeams,
-		unlinkedNaisTeams,
-		sectionApps,
-		ignoredApps,
-		persistenceMap,
-		sectionEnvironments,
-		allKnownClusters,
-		seksjon,
-	} = useLoaderData<typeof loader>()
+	const { section, teams, linkedNaisTeams, unlinkedNaisTeams, sectionEnvironments, allKnownClusters, seksjon } =
+		useLoaderData<typeof loader>()
 	const [searchParams, setSearchParams] = useSearchParams()
-	const activeTab = searchParams.get("fane") ?? "seksjon"
+	const validTabs = ["seksjon", "team", "nais", "data"] as const
+	const rawTab = searchParams.get("fane") ?? "seksjon"
+	const activeTab = (validTabs as readonly string[]).includes(rawTab) ? rawTab : "seksjon"
 
 	const unlinkNaisModalRef = useRef<HTMLDialogElement>(null)
 	const [unlinkingNaisTeam, setUnlinkingNaisTeam] = useState<LinkedNaisTeam | null>(null)
@@ -44,7 +35,6 @@ export default function RedigerSeksjon() {
 					<Tabs.Tab value="seksjon" label="Seksjon" />
 					<Tabs.Tab value="team" label="Utviklingsteam" />
 					<Tabs.Tab value="nais" label="Nais-team" />
-					<Tabs.Tab value="alle-applikasjoner" label="Alle applikasjoner" />
 					<Tabs.Tab value="data" label="Data" />
 				</Tabs.List>
 
@@ -66,16 +56,6 @@ export default function RedigerSeksjon() {
 							setUnlinkingNaisTeam(team)
 							unlinkNaisModalRef.current?.showModal()
 						}}
-					/>
-				</Tabs.Panel>
-
-				<Tabs.Panel value="alle-applikasjoner" style={{ paddingTop: "var(--ax-space-6)" }}>
-					<AlleApplikasjonerTab
-						sectionApps={sectionApps}
-						teams={teams}
-						persistenceMap={persistenceMap}
-						ignoredApps={ignoredApps}
-						hasActiveEnvironments={sectionEnvironments.some((e) => e.included)}
 					/>
 				</Tabs.Panel>
 

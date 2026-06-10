@@ -1,10 +1,8 @@
 import type { ActionFunctionArgs } from "react-router"
 import { redirect } from "react-router"
-import { linkAppToTeam } from "~/db/queries/applications.server"
 import {
 	excludeEnvironment,
 	linkNaisTeamToSection,
-	unignoreAppForSection,
 	unlinkNaisTeamFromSection,
 	upsertAndIncludeEnvironment,
 } from "~/db/queries/nais.server"
@@ -59,21 +57,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (!naisTeamSlug) throw new Response("Mangler Nais-team", { status: 400 })
 		await unlinkNaisTeamFromSection(naisTeamSlug, userId, section.id)
 		return redirectToTab(seksjon, "nais")
-	}
-
-	if (intent === "link-team") {
-		const applicationId = formData.get("applicationId") as string
-		const devTeamId = formData.get("devTeamId") as string
-		if (!applicationId || !devTeamId) throw new Response("Velg et team.", { status: 400 })
-		await linkAppToTeam(applicationId, devTeamId, userId)
-		return redirectToTab(seksjon, "alle-applikasjoner")
-	}
-
-	if (intent === "unignore-app") {
-		const applicationId = formData.get("applicationId") as string
-		if (!applicationId) throw new Response("Mangler applikasjon", { status: 400 })
-		await unignoreAppForSection(section.id, applicationId, userId)
-		return redirectToTab(seksjon, "alle-applikasjoner")
 	}
 
 	if (intent === "toggle-environment") {
