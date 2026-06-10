@@ -3,7 +3,7 @@ import { data } from "react-router"
 import { getApplicationDetail, getGroupAssessmentsForApp, getManualGroupsForApp } from "~/db/queries/nais.server"
 import { getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
 import { getRulesetsForSection } from "~/db/queries/rulesets.server"
-import { getScreeningDataForApp } from "~/db/queries/screening.server"
+import { getScreeningDataForApp, getScreeningQuestionsByIds } from "~/db/queries/screening.server"
 import { getScreeningSession, getStagedOperations } from "~/db/queries/screening-sessions.server"
 import type { DataClassification, PersistenceType } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
@@ -376,9 +376,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	// Map session answers by questionId
 	const sessionAnswersMap = new Map(session.answers.map((a) => [a.questionId, a]))
 
-	// Fallback map for sectionId: old snapshots were stored before sectionId was added to the snapshot schema.
-	// We look up the current sectionId from live data so the question detail link still works.
+	// Fallback map for sectionId: old snapshots were stored before sectionId was added to the snapshot schema,
+	// and archived questions are not included in screeningData.questions. For any snapshot question missing
+	// from live data, do a single DB lookup (including archived) to retrieve sectionId.
 	const liveSectionIdByQuestionId = new Map(screeningData.questions.map((q) => [q.id, q.sectionId ?? null]))
+	const missingIds = questionsToUse.filter((q) => !q.sectionId && !liveSectionIdByQuestionId.has(q.id)).map((q) => q.id)
+	if (missingIds.length > 0) {
+		const foundQuestions = await getScreeningQuestionsByIds(missingIds)
+		for (const q of foundQuestions) {
+			liveSectionIdByQuestionId.set(q.id, q.sectionId ?? null)
+		}
+	}
 
 	// Build the screening list from the chosen questions (snapshot or live), overlaying session answers.
 	// Explicit field mapping avoids type confusion between snapshot questions (no answer fields)

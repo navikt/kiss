@@ -21,8 +21,10 @@ vi.mock("~/db/queries/screening-sessions.server", () => ({
 }))
 
 const mockGetScreeningDataForApp = vi.fn()
+const mockGetScreeningQuestionsByIds = vi.fn((_ids: string[]) => Promise.resolve([]))
 vi.mock("~/db/queries/screening.server", () => ({
-	getScreeningDataForApp: (...args: unknown[]) => mockGetScreeningDataForApp(...args),
+	getScreeningDataForApp: (appId: string) => mockGetScreeningDataForApp(appId),
+	getScreeningQuestionsByIds: (ids: string[]) => mockGetScreeningQuestionsByIds(ids),
 }))
 
 const mockGetApplicationDetail = vi.fn()
