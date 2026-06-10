@@ -1,7 +1,8 @@
-import { and, eq, inArray, isNull } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
 import { type GroupCriticality, groupCriticalityEnum, monitoredApplications } from "../schema/applications"
 import { applicationOracleInstances, oracleRoleAssessments } from "../schema/audit-evidence"
+import { routineReviewActivities, routineReviews, routines } from "../schema/routines"
 import { writeAuditLog } from "./audit.server"
 import { getSectionAppIds } from "./nais.server"
 
@@ -139,6 +140,40 @@ export async function isInstanceLinkedToApp(applicationId: string, instanceId: s
 		)
 		.then((rows) => rows[0] ?? null)
 	return row !== null
+}
+
+// ─── Latest Oracle Role Criticality Review ───────────────────────────────
+
+/**
+ * Returns the most recent completed review that contains an oracle_role_criticality
+ * activity for the given application, used to link back to the source gjennomgang.
+ */
+export async function getLatestOracleRoleCriticalityReview(applicationId: string): Promise<{
+	reviewId: string
+	routineId: string
+	sectionId: string | null
+	title: string
+	reviewedAt: Date
+} | null> {
+	const row = await db
+		.select({
+			reviewId: routineReviews.id,
+			routineId: routineReviews.routineId,
+			sectionId: routines.sectionId,
+			title: routineReviews.title,
+			reviewedAt: routineReviews.reviewedAt,
+		})
+		.from(routineReviewActivities)
+		.innerJoin(routineReviews, eq(routineReviewActivities.reviewId, routineReviews.id))
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+		.where(
+			and(eq(routineReviewActivities.type, "oracle_role_criticality"), eq(routineReviews.applicationId, applicationId)),
+		)
+		.orderBy(desc(routineReviews.reviewedAt))
+		.limit(1)
+		.then((rows) => rows[0] ?? null)
+
+	return row
 }
 
 // ─── Section-level Oracle Role Overview ──────────────────────────────────

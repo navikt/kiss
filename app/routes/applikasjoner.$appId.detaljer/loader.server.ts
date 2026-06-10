@@ -19,7 +19,7 @@ import {
 	getManualGroupsForApp,
 	resolveAppNames,
 } from "~/db/queries/nais.server"
-import { getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
+import { getLatestOracleRoleCriticalityReview, getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
 import { getReportsForApp } from "~/db/queries/reports.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
 import { getReviewsForApp } from "~/db/queries/routines.server"
@@ -34,9 +34,8 @@ import { getAuthenticatedUser } from "~/lib/auth.server"
 import { canAccessAppReports, hasAnyTeamRole, hasRole, isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
-import { logger } from "~/lib/logger.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
-import { getOracleInstances, getOracleRoles, shouldAssessRole } from "~/lib/oracle-revisjon.server"
+import { getOracleInstances } from "~/lib/oracle-revisjon.server"
 import { computeRoutineComplianceCounts } from "~/lib/routine-compliance"
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -113,13 +112,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		acknowledgmentsRaw,
 		allOracleInstances,
 		oracleInstances,
-		roleAssessments,
 		deploymentVerifications,
 		manualGroups,
 		groupAssessments,
 		githubTeams,
 		githubCollaborators,
 		githubChangeLog,
+		oracleRoleAssessmentsMap,
+		latestOracleRoleCriticalityReview,
 	] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesWithControls(appId),
@@ -137,13 +137,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getActiveAcknowledgments(appId),
 		getOracleInstances(),
 		canAccessReports ? getOracleInstancesForApp(appId) : Promise.resolve([]),
-		getOracleRoleAssessments(appId),
 		getDeploymentVerificationForAppWithFetch(appId),
 		getManualGroupsForApp(appId),
 		getGroupAssessmentsForApp(appId),
 		effectiveGitRepository ? getGitHubTeamsForApp(appId) : Promise.resolve([]),
 		effectiveGitRepository ? getGitHubCollaboratorsForApp(appId) : Promise.resolve([]),
 		effectiveGitRepository ? getGitHubAccessChangeLog(appId) : Promise.resolve([]),
+		getOracleRoleAssessments(appId),
+		getLatestOracleRoleCriticalityReview(appId),
 	])
 
 	// Compute auto-compliance from parallel results
@@ -217,29 +218,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const filteredOracleInstances = oracleInstances.filter((i) => accessibleInstanceIds.has(i.instanceId))
 	const totalOracleInstanceCount = oracleInstances.length
 
-	// Collect Entra ID group IDs required for inaccessible Oracle instances
-	const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
-
-	// Consider both applicationOracleInstances and persistence entries of type "oracle"
-	const allReferencedOracleInstanceIds = new Set([
-		...oracleInstances.map((i) => i.instanceId),
-		...detail.persistence
-			.filter((p) => p.type === "oracle" && p.oracleInstanceId)
-			.map((p) => p.oracleInstanceId as string),
-		// Also match by persistence name (same logic as resolveOracleInstanceId fallback)
-		...detail.persistence
-			.filter((p) => p.type === "oracle" && !p.oracleInstanceId && oracleInstanceMetaById.has(p.name))
-			.map((p) => p.name),
-	])
-	const inaccessibleOracleGroupIds = [
-		...new Set(
-			[...allReferencedOracleInstanceIds]
-				.filter((id) => !accessibleInstanceIds.has(id))
-				.map((id) => oracleInstanceMetaById.get(id)?.group)
-				.filter((g): g is NonNullable<typeof g> => g !== null && g !== undefined),
-		),
-	]
-
 	const oraclePersistenceInstanceIds = new Set(
 		detail.persistence.filter((p) => p.type === "oracle").map((p) => p.oracleInstanceId ?? p.name),
 	)
@@ -257,8 +235,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const knownOracleInstanceIds = new Set(allOracleInstances.map((i) => i.id))
 
-	// Parallelize oracle sub-queries: snapshot histories, audit summaries, and role lookups
-	const [instanceSnapshotHistories, oracleAuditSummaries, oracleRoleResults] = await Promise.all([
+	// Parallelize oracle sub-queries: snapshot histories and audit summaries
+	const [instanceSnapshotHistories, oracleAuditSummaries] = await Promise.all([
 		Promise.all(
 			filteredOracleInstances.map(async (inst) => {
 				const history = await getSnapshotHistory(appId, inst.instanceId)
@@ -266,36 +244,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			}),
 		),
 		getOracleAuditSummariesForApp(detail.persistence, knownOracleInstanceIds),
-		Promise.allSettled(
-			filteredOracleInstances.map(async (inst) => {
-				const roles = await getOracleRoles(inst.instanceId)
-				const meta = oracleInstanceMetaById.get(inst.instanceId)
-				const instanceName = meta?.name ?? inst.instanceId.toUpperCase()
-				return { instanceId: inst.instanceId, instanceName, roles: roles?.roles ?? [] }
-			}),
-		),
 	])
-	const oracleRoles = oracleRoleResults.flatMap((result) => {
-		if (result.status !== "fulfilled") {
-			logger.warn("Oracle role fetch failed", { reason: String(result.reason) })
-			return []
-		}
-		const { instanceId, instanceName, roles } = result.value
-		return roles.filter(shouldAssessRole).map((r) => {
-			const key = `${instanceId}:${r.name.toUpperCase().trim()}`
-			const assessment = roleAssessments[key]
-			return {
-				instanceId,
-				instanceName,
-				roleName: r.name.toUpperCase().trim(),
-				oracleMaintained: r.oracleMaintained,
-				common: r.common,
-				criticality: assessment?.criticality ?? null,
-				updatedBy: assessment?.updatedBy ?? null,
-				updatedAt: assessment?.updatedAt ?? null,
-			}
-		})
-	})
 
 	const naisGroupIds: string[] = []
 	for (const auth of detail.authIntegrations) {
@@ -317,13 +266,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		.map((i) => i.group as string)
 
 	const allGroupIds = [
-		...new Set([
-			...naisGroupIds,
-			...manualGroups.map((g) => g.groupId),
-			...ghostGroupIds,
-			...oracleGroupIds,
-			...inaccessibleOracleGroupIds,
-		]),
+		...new Set([...naisGroupIds, ...manualGroups.map((g) => g.groupId), ...ghostGroupIds, ...oracleGroupIds]),
 	]
 
 	// Check if app has allowAllUsers enabled (for RPA matching via manual groups)
@@ -340,11 +283,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 			hasAllowAllUsers,
 		),
 	])
-
-	const inaccessibleOracleGroups = inaccessibleOracleGroupIds.map((id) => ({
-		id,
-		name: groupNames[id] ?? id,
-	}))
 
 	const assessmentsByGroupId: Record<string, { criticality: GroupCriticality; updatedBy: string; updatedAt: string }> =
 		{}
@@ -363,6 +301,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		environments: detail.environments,
 		persistence: detail.persistence,
 		oracleAuditSummaries,
+		oracleRoleAssessments: oracleRoleAssessmentsMap,
+		latestOracleRoleCriticalityReview: (() => {
+			if (!latestOracleRoleCriticalityReview) return null
+			const { reviewId, routineId, sectionId, title, reviewedAt } = latestOracleRoleCriticalityReview
+			const sectionSlug = sectionId ? sectionSlugMap[sectionId] : null
+			const gjennomgangUrl = sectionSlug
+				? `/seksjoner/${sectionSlug}/rutiner/${routineId}/gjennomgang/${reviewId}`
+				: null
+			return { reviewId, title, reviewedAt: reviewedAt.toISOString(), gjennomgangUrl }
+		})(),
 		deploymentVerifications: deploymentVerifications.map((v) => ({
 			...v,
 			periodFrom: v.periodFrom.toISOString(),
@@ -445,8 +393,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				}))
 			: [],
 		totalOracleInstanceCount: canAccessReports ? totalOracleInstanceCount : 0,
-		inaccessibleOracleGroups,
-		oracleRoles,
 		instanceSnapshotHistories: canAccessReports
 			? (() => {
 					const oracleInstanceMetaById = new Map(allOracleInstances.map((i) => [i.id, i]))
