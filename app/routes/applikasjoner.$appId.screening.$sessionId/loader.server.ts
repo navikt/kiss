@@ -382,8 +382,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const liveSectionIdByQuestionId = new Map(screeningData.questions.map((q) => [q.id, q.sectionId ?? null]))
 	const missingIds = questionsToUse.filter((q) => !q.sectionId && !liveSectionIdByQuestionId.has(q.id)).map((q) => q.id)
 	if (missingIds.length > 0) {
-		const archived = await getScreeningQuestionsByIds(missingIds)
-		for (const q of archived) {
+		const foundQuestions = await getScreeningQuestionsByIds(missingIds)
+		for (const q of foundQuestions) {
 			liveSectionIdByQuestionId.set(q.id, q.sectionId ?? null)
 		}
 	}
