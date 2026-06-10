@@ -82,6 +82,8 @@ export const auditLogActionEnum = [
 	"application_unarchived",
 
 	// Seksjon ↔ applikasjon/miljø
+	// Deprecated: section_app_ignored og section_app_unignored skrives ikke lenger,
+	// men beholdes i enumen for å ikke bryte eksisterende rader i audit_log.
 	"section_app_ignored",
 	"section_app_unignored",
 	"section_environment_excluded",

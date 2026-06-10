@@ -1,13 +1,3 @@
-export const persistenceLabels: Record<string, string> = {
-	cloud_sql_postgres: "PostgreSQL",
-	nais_postgres: "Postgres",
-	opensearch: "OpenSearch",
-	bucket: "Bucket",
-	valkey: "Valkey",
-	oracle: "Oracle",
-	other: "Annet",
-}
-
 export type SectionData = {
 	id: string
 	name: string
@@ -38,12 +28,4 @@ export type UnlinkedNaisTeam = {
 export type SectionEnvironment = {
 	cluster: string
 	included: boolean
-}
-
-export type IgnoredApp = {
-	appId: string
-	appName: string
-	reason: string | null
-	ignoredBy: string
-	ignoredAt: string | null
 }

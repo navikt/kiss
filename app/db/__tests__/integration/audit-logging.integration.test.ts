@@ -111,13 +111,6 @@ describe("Audit logging integration tests", () => {
 		)
 	}
 
-	async function ignoreApp(sectionId: string, appId: string) {
-		const db = getTestDb()
-		await db.execute(
-			/* sql */ `INSERT INTO section_ignored_applications (section_id, application_id, ignored_by) VALUES ('${sectionId}', '${appId}', 'test')`,
-		)
-	}
-
 	async function insertSummary(persistenceId: string, conclusion: string) {
 		const db = getTestDb()
 		await db.execute(
@@ -222,23 +215,6 @@ describe("Audit logging integration tests", () => {
 			const result = await getSectionAuditOverview("pensjon")
 			expect(result).toHaveLength(1)
 			expect(result[0].appName).toBe("pen-backend")
-		})
-
-		it("excludes ignored apps", async () => {
-			const sectionId = await createTestSection("Pensjon", "pensjon")
-			const naisTeamId = await createNaisTeam("nais-pen", sectionId)
-			const app1Id = await createTestApp("visible-app")
-			await createAppEnvironment(app1Id, naisTeamId)
-			await createPersistence(app1Id, "db-1", "oracle")
-
-			const app2Id = await createTestApp("ignored-app")
-			await createAppEnvironment(app2Id, naisTeamId)
-			await createPersistence(app2Id, "db-2", "oracle")
-			await ignoreApp(sectionId, app2Id)
-
-			const result = await getSectionAuditOverview("pensjon")
-			expect(result).toHaveLength(1)
-			expect(result[0].appName).toBe("visible-app")
 		})
 
 		it("deduplicates apps discovered via both dev team and Nais team paths", async () => {

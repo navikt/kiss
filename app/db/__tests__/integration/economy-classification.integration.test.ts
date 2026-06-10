@@ -56,7 +56,6 @@ describe("Economy classification integration tests", () => {
 			DELETE FROM screening_answers;
 			DELETE FROM screening_questions;
 			DELETE FROM application_economy_classifications;
-			DELETE FROM section_ignored_applications;
 			DELETE FROM section_environments;
 			DELETE FROM application_team_mappings;
 			DELETE FROM application_environments;
@@ -508,7 +507,6 @@ describe("countSectionEconomySystems", () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
 			DELETE FROM application_economy_classifications;
-			DELETE FROM section_ignored_applications;
 			DELETE FROM section_environments;
 			DELETE FROM application_team_mappings;
 			DELETE FROM application_environments;
@@ -549,17 +547,6 @@ describe("countSectionEconomySystems", () => {
 		const result = await countSectionEconomySystems(sectionId)
 		expect(result.totalCount).toBe(0)
 		expect(result.expiredCount).toBe(0)
-	})
-
-	it("excludes ignored apps", async () => {
-		const { db, sectionId, createApp, classifyAsEconomy } = await setup()
-		const app = await createApp("ignored-app")
-		await classifyAsEconomy(app)
-		await db.execute(
-			/* sql */ `INSERT INTO section_ignored_applications (section_id, application_id, ignored_by) VALUES ('${sectionId}', '${app}', 'test')`,
-		)
-
-		expect((await countSectionEconomySystems(sectionId)).totalCount).toBe(0)
 	})
 
 	it("excludes archived apps", async () => {

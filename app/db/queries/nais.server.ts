@@ -23,7 +23,6 @@ import {
 	naisDiscoveredApps,
 	naisTeams,
 	type PersistenceType,
-	sectionIgnoredApplications,
 } from "../schema/applications"
 import { auditLog } from "../schema/audit"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
@@ -657,23 +656,12 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 	])
 	const linkedAppIds = new Set([...directLinkedRows.map((r) => r.appId), ...naisTeamLinkedRows.map((r) => r.appId)])
 
-	// Get apps ignored for this section
-	const ignoredAppIds = new Set(
-		(
-			await db
-				.select({ appId: sectionIgnoredApplications.applicationId })
-				.from(sectionIgnoredApplications)
-				.where(and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt)))
-		).map((r) => r.appId),
-	)
-
-	// Deduplicate by appId and filter out already-linked and ignored apps
+	// Deduplicate by appId and filter out already-linked apps
 	const seen = new Set<string>()
 	const unassigned: Array<{ appId: string; appName: string; naisTeamSlug: string; environments: string[] }> = []
 
 	for (const row of envApps) {
 		if (linkedAppIds.has(row.appId)) continue
-		if (ignoredAppIds.has(row.appId)) continue
 		if (seen.has(row.appId)) {
 			const existing = unassigned.find((a) => a.appId === row.appId)
 			if (existing && !existing.environments.includes(row.cluster)) {
@@ -691,23 +679,6 @@ export async function getUnassignedAppsForSection(sectionId: string) {
 	}
 
 	return unassigned.sort((a, b) => a.appName.localeCompare(b.appName))
-}
-
-/** Get ignored apps for a section. */
-export async function getIgnoredAppsForSection(sectionId: string) {
-	return db
-		.select({
-			id: sectionIgnoredApplications.id,
-			appId: sectionIgnoredApplications.applicationId,
-			appName: monitoredApplications.name,
-			reason: sectionIgnoredApplications.reason,
-			ignoredAt: sectionIgnoredApplications.ignoredAt,
-			ignoredBy: sectionIgnoredApplications.ignoredBy,
-		})
-		.from(sectionIgnoredApplications)
-		.innerJoin(monitoredApplications, eq(sectionIgnoredApplications.applicationId, monitoredApplications.id))
-		.where(and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt)))
-		.orderBy(monitoredApplications.name)
 }
 
 /** Get all environments for a section with included status. */
@@ -812,114 +783,6 @@ export async function includeEnvironment(sectionId: string, cluster: string, per
 		entityId: sectionId,
 		previousValue: JSON.stringify({ cluster }),
 		performedBy,
-	})
-}
-
-/** Ignore an app for a section.
- *
- * Wrappet i transaksjon med audit som del av samme tx for atomisitet. Hvis
- * det allerede finnes en aktiv ignorering er dette en idempotent no-op (ingen
- * audit). Race-håndtering: hvis raden ble arkivert mellom INSERT og SELECT
- * kastes concurrency-feil i stedet for stille `null`.
- */
-export async function ignoreAppForSection(
-	sectionId: string,
-	applicationId: string,
-	ignoredBy: string,
-	reason?: string,
-) {
-	return db.transaction(async (tx) => {
-		// Normaliser reason én gang: trim whitespace, tom streng → null. Brukes
-		// både i DB-raden og audit-loggen så de er konsistente.
-		const normalizedReason = reason?.trim() ? reason.trim() : null
-		const [inserted] = await tx
-			.insert(sectionIgnoredApplications)
-			.values({
-				sectionId,
-				applicationId,
-				reason: normalizedReason,
-				ignoredBy,
-			})
-			.onConflictDoNothing({
-				target: [sectionIgnoredApplications.sectionId, sectionIgnoredApplications.applicationId],
-				where: isNull(sectionIgnoredApplications.archivedAt),
-			})
-			.returning()
-
-		if (inserted) {
-			await writeAuditLog(
-				{
-					action: "section_app_ignored",
-					entityType: "section_ignored_application",
-					entityId: applicationId,
-					newValue: JSON.stringify({ sectionId, applicationId, reason: normalizedReason }),
-					metadata: { sectionId },
-					performedBy: ignoredBy,
-				},
-				tx,
-			)
-			return inserted
-		}
-
-		// Konflikt: enten finnes det en eksisterende aktiv rad (idempotent
-		// no-op), eller raden ble arkivert i et race. Sjekk eksplisitt.
-		const [existing] = await tx
-			.select()
-			.from(sectionIgnoredApplications)
-			.where(
-				and(
-					eq(sectionIgnoredApplications.sectionId, sectionId),
-					eq(sectionIgnoredApplications.applicationId, applicationId),
-					isNull(sectionIgnoredApplications.archivedAt),
-				),
-			)
-			.limit(1)
-
-		if (!existing) {
-			throw new Error("Kunne ikke ignorere applikasjon pga. samtidig endring. Prøv igjen.")
-		}
-
-		return existing
-	})
-}
-
-/** Unignore (arkiver) an app for a section.
- *
- * Tidligere ble raden hard-slettet. Nå arkiverer vi den slik at vi bevarer
- * sporbarhet på hvilke applikasjoner seksjonen har ignorert. Wrappet i
- * transaksjon med audit som del av samme tx — hvis audit-skriving feiler
- * rulles arkiveringen tilbake. Idempotent: returnerer `null` hvis det ikke
- * finnes noen aktiv rad å arkivere.
- */
-export async function unignoreAppForSection(sectionId: string, applicationId: string, performedBy: string) {
-	return db.transaction(async (tx) => {
-		const [archived] = await tx
-			.update(sectionIgnoredApplications)
-			.set({ archivedAt: new Date(), archivedBy: performedBy })
-			.where(
-				and(
-					eq(sectionIgnoredApplications.sectionId, sectionId),
-					eq(sectionIgnoredApplications.applicationId, applicationId),
-					isNull(sectionIgnoredApplications.archivedAt),
-				),
-			)
-			.returning()
-
-		if (!archived) return null
-
-		await writeAuditLog(
-			{
-				action: "section_app_unignored",
-				entityType: "section_ignored_application",
-				entityId: applicationId,
-				previousValue: JSON.stringify({ sectionId, applicationId }),
-				metadata: { sectionId },
-				performedBy,
-			},
-			tx,
-		)
-
-		return archived
 	})
 }
 
@@ -2041,7 +1904,6 @@ export async function getSectionAppIds(sectionId: string): Promise<Set<string>> 
  * Returns filtered effective app IDs for a section, using the same logic as
  * the /okonomisystemer page so no count/list mismatch is possible:
  * - Direct dev-team mappings + section-level NAIS team apps (via getSectionAppIds)
- * - Excludes ignored apps
  * - Excludes archived and secondary (child) apps
  * - Excludes apps whose only environments are in excluded clusters
  */
@@ -2049,15 +1911,11 @@ export async function getFilteredSectionAppIds(sectionId: string): Promise<strin
 	const allAppIds = [...(await getSectionAppIds(sectionId))]
 	if (allAppIds.length === 0) return []
 
-	const [excludedEnvRows, ignoredRows, eligibleApps] = await Promise.all([
+	const [excludedEnvRows, eligibleApps] = await Promise.all([
 		db
 			.select({ cluster: sectionEnvironments.cluster })
 			.from(sectionEnvironments)
 			.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false))),
-		db
-			.select({ appId: sectionIgnoredApplications.applicationId })
-			.from(sectionIgnoredApplications)
-			.where(and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt))),
 		db
 			.select({ id: monitoredApplications.id })
 			.from(monitoredApplications)
@@ -2071,8 +1929,7 @@ export async function getFilteredSectionAppIds(sectionId: string): Promise<strin
 	])
 
 	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
-	const ignoredIds = new Set(ignoredRows.map((r) => r.appId))
-	let filteredIds = eligibleApps.map((a) => a.id).filter((id) => !ignoredIds.has(id))
+	let filteredIds = eligibleApps.map((a) => a.id)
 
 	if (excludedEnvs.size > 0 && filteredIds.length > 0) {
 		const appEnvRows = await db

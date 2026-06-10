@@ -1249,14 +1249,7 @@ export async function getSectionIdsForApp(applicationId: string): Promise<string
 		SELECT DISTINCT cs.section_id AS "sectionId"
 		FROM candidate_sections cs
 		INNER JOIN valid_app app ON TRUE
-		WHERE NOT EXISTS (
-			SELECT 1
-			FROM section_ignored_applications sia
-			WHERE sia.section_id = cs.section_id
-				AND sia.application_id = app.id
-				AND sia.archived_at IS NULL
-		)
-		AND (
+		WHERE (
 			EXISTS (
 				SELECT 1
 				FROM application_environments ae

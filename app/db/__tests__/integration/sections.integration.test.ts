@@ -343,13 +343,6 @@ describe("sections.server integration tests", () => {
 			return team
 		}
 
-		async function ignoreApp(sectionId: string, appId: string) {
-			const db = getTestDb()
-			await db.execute(
-				/* sql */ `INSERT INTO section_ignored_applications (section_id, application_id, ignored_by) VALUES ('${sectionId}', '${appId}', 'test')`,
-			)
-		}
-
 		async function excludeEnv(sectionId: string, cluster: string) {
 			const db = getTestDb()
 			await db.execute(
@@ -402,25 +395,6 @@ describe("sections.server integration tests", () => {
 			expect(result.teams).toHaveLength(1)
 			expect(result.teams[0].apps).toBe(1)
 			expect(result.allAppIds).toContain(app.id)
-		})
-
-		it("filters out ignored apps from NAIS-derived sets and unassigned", async () => {
-			const section = await insertTestSection("Ignored Section", "Desc", "admin")
-			const naisTeam = await createNaisTeam("nais-ignored", section.id)
-			const team = await createTeam(section.id, "Team Gamma", "team-gamma", "admin")
-			await createNaisTeamMapping(team.id, naisTeam.id)
-
-			const appKept = await createApp("kept-app")
-			const appIgnored = await createApp("ignored-app")
-			await createEnv(appKept.id, "prod-gcp", "ns", naisTeam.id)
-			await createEnv(appIgnored.id, "prod-gcp", "ns", naisTeam.id)
-			await ignoreApp(section.id, appIgnored.id)
-
-			const result = await getSectionDetail(section.slug)
-			assert(result, "Expected result to not be null")
-			expect(result.teams[0].apps).toBe(1)
-			expect(result.allAppIds).toContain(appKept.id)
-			expect(result.allAppIds).not.toContain(appIgnored.id)
 		})
 
 		it("excludes apps whose only environments are in excluded clusters", async () => {

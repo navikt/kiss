@@ -51,9 +51,6 @@ const baseLoaderData = {
 		{ slug: "pensjon-team", displayName: "Pensjon Team" },
 		{ slug: "uforetrygd", displayName: "Uføretrygd" },
 	],
-	sectionApps: [] as never[],
-	ignoredApps: [] as never[],
-	persistenceMap: {} as Record<string, never>,
 	sectionEnvironments: [
 		{ cluster: "dev-gcp", included: false },
 		{ cluster: "prod-gcp", included: false },
@@ -114,16 +111,6 @@ export const NaisFaneMedAktiveMiljoer: Story = {
 				],
 			}),
 			"/seksjoner/seksjon-for-arbeidsytelser-say/rediger?fane=nais",
-		),
-}
-
-export const AlleApplikasjonerFaneIngenMiljoer: Story = {
-	name: "Fane: Alle applikasjoner – ingen aktive miljøer",
-	render: () =>
-		renderWithLoader(
-			RedigerSeksjon,
-			mockLoaderData(),
-			"/seksjoner/seksjon-for-arbeidsytelser-say/rediger?fane=alle-applikasjoner",
 		),
 }
 

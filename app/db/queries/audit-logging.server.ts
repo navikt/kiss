@@ -9,7 +9,6 @@ import {
 	devTeamNaisTeamMappings,
 	monitoredApplications,
 	naisTeams,
-	sectionIgnoredApplications,
 } from "../schema/applications"
 import { auditLog } from "../schema/audit"
 import { applicationOracleInstances } from "../schema/audit-evidence"
@@ -449,13 +448,6 @@ async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 			)
 		for (const row of naisAppRows) appIds.add(row.appId)
 	}
-
-	// Exclude ignored apps
-	const ignoredRows = await db
-		.select({ appId: sectionIgnoredApplications.applicationId })
-		.from(sectionIgnoredApplications)
-		.where(and(eq(sectionIgnoredApplications.sectionId, sectionId), isNull(sectionIgnoredApplications.archivedAt)))
-	for (const row of ignoredRows) appIds.delete(row.appId)
 
 	return appIds
 }
