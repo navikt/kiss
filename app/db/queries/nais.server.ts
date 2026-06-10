@@ -720,6 +720,62 @@ export async function getSectionEnvironments(sectionId: string): Promise<{ clust
 	return rows
 }
 
+/** Get all distinct clusters known to the system (from any Nais-sync run). */
+export async function getAllKnownClusters(): Promise<string[]> {
+	const rows = await db
+		.selectDistinct({ cluster: applicationEnvironments.cluster })
+		.from(applicationEnvironments)
+		.orderBy(applicationEnvironments.cluster)
+	return rows.map((r) => r.cluster)
+}
+
+/** Upsert a cluster for a section and set it as included (active).
+ *
+ * Truly idempotent: if the row already exists with included=true, the call is
+ * a no-op (no DB write, no audit entry). If the row is missing or has
+ * included=false, it is inserted/updated and an audit entry is written
+ * atomically in the same transaction.
+ *
+ * Rejects unknown clusters (i.e. clusters not present in application_environments)
+ * to prevent pollution of section_environments with arbitrary user-submitted values.
+ */
+export async function upsertAndIncludeEnvironment(sectionId: string, cluster: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		// Guard: only allow clusters known from Nais-sync
+		const [known] = await tx
+			.selectDistinct({ cluster: applicationEnvironments.cluster })
+			.from(applicationEnvironments)
+			.where(eq(applicationEnvironments.cluster, cluster))
+		if (!known) throw new Error(`Ukjent cluster: ${cluster}`)
+
+		const [existing] = await tx
+			.select({ included: sectionEnvironments.included })
+			.from(sectionEnvironments)
+			.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.cluster, cluster)))
+
+		// Already active — no-op, skip audit
+		if (existing?.included === true) return
+
+		await tx
+			.insert(sectionEnvironments)
+			.values({ sectionId, cluster, included: true, addedBy: performedBy, updatedBy: performedBy })
+			.onConflictDoUpdate({
+				target: [sectionEnvironments.sectionId, sectionEnvironments.cluster],
+				set: { included: true, updatedBy: performedBy, updatedAt: new Date() },
+			})
+		await writeAuditLog(
+			{
+				action: "section_environment_included",
+				entityType: "section",
+				entityId: sectionId,
+				newValue: JSON.stringify({ cluster }),
+				performedBy,
+			},
+			tx,
+		)
+	})
+}
+
 /** Get excluded environments for a section (clusters with included=false). */
 export async function getExcludedEnvironments(sectionId: string): Promise<Set<string>> {
 	const rows = await db

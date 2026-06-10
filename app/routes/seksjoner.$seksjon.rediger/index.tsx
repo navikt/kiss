@@ -24,6 +24,7 @@ export default function RedigerSeksjon() {
 		ignoredApps,
 		persistenceMap,
 		sectionEnvironments,
+		allKnownClusters,
 		seksjon,
 	} = useLoaderData<typeof loader>()
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -60,6 +61,7 @@ export default function RedigerSeksjon() {
 						linkedNaisTeams={linkedNaisTeams}
 						unlinkedNaisTeams={unlinkedNaisTeams}
 						sectionEnvironments={sectionEnvironments}
+						allKnownClusters={allKnownClusters}
 						onRequestUnlink={(team) => {
 							setUnlinkingNaisTeam(team)
 							unlinkNaisModalRef.current?.showModal()
