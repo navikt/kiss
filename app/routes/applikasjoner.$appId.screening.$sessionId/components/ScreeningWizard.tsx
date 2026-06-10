@@ -5,7 +5,6 @@ import { Form, Link, useFetcher, useParams, useSearchParams } from "react-router
 import type {
 	EconomyClassificationData,
 	EntraGroupsData,
-	OracleRolesData,
 	PersistenceEntry,
 	RulesetOption,
 	ScreeningQuestion,
@@ -13,13 +12,11 @@ import type {
 import { isQuestionAnswered, slugify } from "../shared"
 import { EconomySystemSection } from "./EconomySystemSection"
 import { EntraGroupsSection } from "./EntraGroupsSection"
-import { OracleRolesScreeningSection } from "./OracleRolesScreeningSection"
 import { PersistenceSection } from "./PersistenceSection"
 import {
 	ReadOnlyAnswer,
 	ReadOnlyEconomy,
 	ReadOnlyEntraGroups,
-	ReadOnlyOracleRoles,
 	ReadOnlyPersistence,
 	ReadOnlyRuleset,
 } from "./ReadOnlyViews"
@@ -30,7 +27,7 @@ import { WizardStepper } from "./WizardStepper"
 import styles from "./wizard.module.css"
 
 function isComplexQuestion(q: ScreeningQuestion) {
-	return ["persistence", "entra_id_groups", "oracle_roles"].includes(q.answerType)
+	return ["persistence", "entra_id_groups"].includes(q.answerType)
 }
 
 type Props = {
@@ -38,9 +35,7 @@ type Props = {
 	persistence: PersistenceEntry[]
 	rulesetOptions: RulesetOption[]
 	entraGroupsData: EntraGroupsData
-	oracleRolesData: OracleRolesData
 	economyClassification: EconomyClassificationData
-	canAdmin: boolean
 	readOnly?: boolean
 	participantsStep?: {
 		isActive: boolean
@@ -58,9 +53,7 @@ export function ScreeningWizard({
 	persistence,
 	rulesetOptions,
 	entraGroupsData,
-	oracleRolesData,
 	economyClassification,
-	canAdmin,
 	readOnly,
 	participantsStep,
 	participantsContent,
@@ -150,10 +143,10 @@ export function ScreeningWizard({
 					fetcher.submit(formData, { method: "post" })
 				}
 			} else if (currentQuestion && isComplexQuestion(currentQuestion) && currentQuestion.answer !== "confirmed") {
-				// Complex questions (persistence/entra/oracle) auto-confirm when the user
+				// Complex questions (persistence/entra) auto-confirm when the user
 				// navigates away, marking that the section has been reviewed. The actual
 				// compliance data lives in the inventory tables (persistence entries,
-				// groups, roles) — "confirmed" only signals the user visited the step.
+				// groups) — "confirmed" only signals the user visited the step.
 				const formData = new FormData()
 				formData.set("intent", "screening")
 				formData.set("questionId", currentQuestion.id)
@@ -186,7 +179,6 @@ export function ScreeningWizard({
 			if (q.answerType === "persistence") return <ReadOnlyPersistence key={q.id} entries={persistence} />
 			if (q.answerType === "entra_id_groups")
 				return <ReadOnlyEntraGroups key={q.id} entraGroupsData={entraGroupsData} />
-			if (q.answerType === "oracle_roles") return <ReadOnlyOracleRoles key={q.id} oracleRolesData={oracleRolesData} />
 			if (q.answerType === "ruleset") return <ReadOnlyRuleset key={q.id} question={q} rulesets={rulesetOptions} />
 			if (q.answerType === "economy_system")
 				return <ReadOnlyEconomy key={q.id} classification={economyClassification} />
@@ -197,9 +189,6 @@ export function ScreeningWizard({
 		}
 		if (q.answerType === "entra_id_groups") {
 			return <EntraGroupsSection key={q.id} entraGroupsData={entraGroupsData} />
-		}
-		if (q.answerType === "oracle_roles") {
-			return <OracleRolesScreeningSection key={q.id} oracleRolesData={oracleRolesData} canAdmin={canAdmin} />
 		}
 		if (q.answerType === "ruleset") {
 			const filteredRulesets = q.rulesetCategoryFilter

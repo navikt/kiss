@@ -23,12 +23,7 @@ function getAnswerLabel(
 	if (q.answerType === "single_choice") {
 		return q.answer ?? "Ikke besvart"
 	}
-	if (
-		q.answerType === "persistence" ||
-		q.answerType === "entra_id_groups" ||
-		q.answerType === "oracle_roles" ||
-		q.answerType === "economy_system"
-	) {
+	if (q.answerType === "persistence" || q.answerType === "entra_id_groups" || q.answerType === "economy_system") {
 		if (q.answer !== "confirmed") return "Ikke bekreftet"
 		if (q.answerType === "economy_system") {
 			if (!economyClassification || economyClassification.isExpired) return "Utløpt – trenger revisjon"

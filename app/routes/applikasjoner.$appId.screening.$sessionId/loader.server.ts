@@ -1,24 +1,18 @@
 import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getApplicationDetail, getGroupAssessmentsForApp, getManualGroupsForApp } from "~/db/queries/nais.server"
-import { getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
 import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import { getScreeningDataForApp, getScreeningQuestionsByIds } from "~/db/queries/screening.server"
 import { getScreeningSession, getStagedOperations } from "~/db/queries/screening-sessions.server"
 import type { DataClassification, PersistenceType } from "~/db/schema/applications"
-import { getAuthenticatedUser } from "~/lib/auth.server"
-import { isAdmin } from "~/lib/authorization.server"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ params }: LoaderFunctionArgs) {
 	const appId = params.appId
 	const sessionId = params.sessionId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 	if (!sessionId) throw new Response("Mangler sesjon-ID", { status: 400 })
-
-	const user = await getAuthenticatedUser(request)
-	const canAdmin = user ? isAdmin(user) : false
 
 	const [session, screeningData, appDetail, stagedOps] = await Promise.all([
 		getScreeningSession(sessionId),
@@ -172,63 +166,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		}
 	}
 
-	// Oracle roles data
-	const hasOracleRolesQuestion = questionsToUse.some((q) => q.answerType === "oracle_roles")
-	let oracleRolesData: {
-		roles: Array<{ instanceId: string; roleName: string; authType: string | null; common: boolean | null }>
-		assessments: Record<string, { criticality: string; updatedBy: string; updatedAt: string }>
-	} = { roles: [], assessments: {} }
-
-	if (hasOracleRolesQuestion) {
-		if (snapshot?.oracleRolesData) {
-			oracleRolesData = snapshot.oracleRolesData as typeof oracleRolesData
-		} else if (!useSnapshot) {
-			const { getOracleInstancesForApp } = await import("~/db/queries/audit-evidence.server")
-			const { getOracleRoles, getOracleInstances, shouldAssessRole } = await import("~/lib/oracle-revisjon.server")
-			const { filterInstancesByAccess } = await import("~/lib/oracle-access.server")
-
-			const allInstances = await getOracleInstances()
-			const instanceGroupMap = new Map(allInstances.map((i) => [i.id, i]))
-
-			const appInstances = await getOracleInstancesForApp(appId)
-			const filteredInstances = filterInstancesByAccess(
-				appInstances
-					.filter((inst) => instanceGroupMap.has(inst.instanceId))
-					.map((inst) => ({ ...inst, group: instanceGroupMap.get(inst.instanceId)?.group ?? null })),
-				user?.groups ?? [],
-			)
-
-			const roleResults = await Promise.allSettled(filteredInstances.map((inst) => getOracleRoles(inst.instanceId)))
-
-			const allRoles: typeof oracleRolesData.roles = []
-			for (let i = 0; i < filteredInstances.length; i++) {
-				const result = roleResults[i]
-				if (result.status === "fulfilled" && result.value) {
-					for (const role of result.value.roles) {
-						if (!shouldAssessRole(role)) continue
-						allRoles.push({
-							instanceId: filteredInstances[i].instanceId,
-							roleName: role.name,
-							authType: role.authType ?? null,
-							common: role.common ?? null,
-						})
-					}
-				}
-			}
-
-			const allAssessments = await getOracleRoleAssessments(appId)
-			const accessibleInstanceIds = new Set(filteredInstances.map((inst) => inst.instanceId))
-			const assessments: typeof allAssessments = {}
-			for (const [key, value] of Object.entries(allAssessments)) {
-				const instanceId = key.split(":")[0]
-				if (accessibleInstanceIds.has(instanceId)) {
-					assessments[key] = value
-				}
-			}
-			oracleRolesData = { roles: allRoles, assessments }
-		}
-	}
-
 	// Economy system classification
 	const hasEconomySystemQuestion = questionsToUse.some((q) => q.answerType === "economy_system")
 	let economyClassification: {
@@ -328,20 +265,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 				}
 				break
 			}
-			case "set-oracle-role-criticality": {
-				const instanceId = p.instanceId
-				const roleName = p.roleName
-				const criticality = p.criticality
-				if (instanceId && roleName && criticality) {
-					const key = `${instanceId}:${roleName.toUpperCase().trim()}`
-					oracleRolesData.assessments[key] = {
-						criticality,
-						updatedBy: op.performedBy,
-						updatedAt: op.createdAt.toISOString(),
-					}
-				}
-				break
-			}
 			case "save-economy-classification": {
 				const isEconomySystem = p.isEconomySystem === "ja"
 				economyClassification = {
@@ -430,8 +353,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		persistence,
 		rulesetOptions,
 		entraGroupsData,
-		oracleRolesData,
 		economyClassification,
-		canAdmin,
 	})
 }

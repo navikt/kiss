@@ -18,9 +18,7 @@ export default function ScreeningSession() {
 		persistence,
 		rulesetOptions,
 		entraGroupsData,
-		oracleRolesData,
 		economyClassification,
-		canAdmin,
 		hasQuestionSnapshot,
 	} = useLoaderData<typeof loader>()
 
@@ -59,9 +57,7 @@ export default function ScreeningSession() {
 					persistence={persistence}
 					rulesetOptions={rulesetOptions}
 					entraGroupsData={entraGroupsData}
-					oracleRolesData={oracleRolesData}
 					economyClassification={economyClassification}
-					canAdmin={canAdmin}
 					autoSave
 					participantsStep={participantsStepProps}
 					participantsContent={
@@ -109,9 +105,7 @@ export default function ScreeningSession() {
 						persistence={persistence}
 						rulesetOptions={rulesetOptions}
 						entraGroupsData={entraGroupsData}
-						oracleRolesData={oracleRolesData}
 						economyClassification={economyClassification}
-						canAdmin={false}
 						readOnly
 						participantsStep={{
 							isActive: isParticipantsStep,

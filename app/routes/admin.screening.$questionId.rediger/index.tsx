@@ -373,7 +373,6 @@ export default function EditScreeningQuestion() {
 						<option value="single_choice">Egendefinerte valg</option>
 						<option value="persistence">Persistens (databaser)</option>
 						<option value="entra_id_groups">Entra ID-grupper</option>
-						<option value="oracle_roles">Oracle-roller</option>
 						{((isNew && !hasExistingEconomyQuestion) || question.answerType === "economy_system") && (
 							<option value="economy_system">Økonomisystem</option>
 						)}
@@ -411,12 +410,6 @@ export default function EditScreeningQuestion() {
 								))}
 							</Select>
 						</>
-					)}
-					{answerType === "oracle_roles" && (
-						<BodyShort size="small" textColor="subtle">
-							Spørsmål av typen «Oracle-roller» lar brukeren vurdere kritikalitet for Oracle-roller knyttet til
-							applikasjonens databaser. Ingen valgmuligheter eller effekter trengs.
-						</BodyShort>
 					)}
 					{answerType === "economy_system" && (
 						<BodyShort size="small" textColor="subtle">
@@ -487,7 +480,6 @@ export default function EditScreeningQuestion() {
 			{answerType !== "" &&
 				answerType !== "persistence" &&
 				answerType !== "entra_id_groups" &&
-				answerType !== "oracle_roles" &&
 				answerType !== "ruleset" &&
 				answerType !== "economy_system" && (
 					<Box padding="space-12" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">

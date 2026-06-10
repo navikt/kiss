@@ -110,16 +110,4 @@ describe("isQuestionAnswered", () => {
 			expect(isQuestionAnswered(q)).toBe(false)
 		})
 	})
-
-	describe("oracle_roles questions", () => {
-		it("returns true when confirmed", () => {
-			const q = makeQuestion({ answerType: "oracle_roles", answer: "confirmed" })
-			expect(isQuestionAnswered(q)).toBe(true)
-		})
-
-		it("returns false when not confirmed", () => {
-			const q = makeQuestion({ answerType: "oracle_roles", answer: "some_value" })
-			expect(isQuestionAnswered(q)).toBe(false)
-		})
-	})
 })

@@ -51,7 +51,6 @@ const STAGED_INTENTS = new Set([
 	"add-manual-group",
 	"remove-manual-group",
 	"set-group-criticality",
-	"set-oracle-role-criticality",
 	"save-economy-classification",
 	"selectRoutine",
 ])
@@ -172,24 +171,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	}
 
 	if (STAGED_INTENTS.has(intent)) {
-		// Validate auth for privileged intents before staging
-		if (intent === "set-oracle-role-criticality") {
-			const { isAdmin } = await import("~/lib/authorization.server")
-			if (!isAdmin(authedUser)) {
-				throw new Response("Kun administratorer kan endre Oracle-rollekritikalitet", { status: 403 })
-			}
-			const instanceId = (formData.get("instanceId") as string)?.trim()
-			if (instanceId) {
-				const { getOracleInstances } = await import("~/lib/oracle-revisjon.server")
-				const { canUserSeeInstance } = await import("~/lib/oracle-access.server")
-				const allInstances = await getOracleInstances()
-				const instance = allInstances.find((i) => i.id === instanceId)
-				if (!instance || !canUserSeeInstance(instance, authedUser.groups)) {
-					throw new Response("Du har ikke tilgang til denne Oracle-instansen", { status: 403 })
-				}
-			}
-		}
-
 		// Validate required fields before staging
 		if (intent === "add-persistence") {
 			const type = formData.get("persistenceType") as string
