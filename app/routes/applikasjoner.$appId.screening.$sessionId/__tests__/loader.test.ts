@@ -21,8 +21,12 @@ vi.mock("~/db/queries/screening-sessions.server", () => ({
 }))
 
 const mockGetScreeningDataForApp = vi.fn()
+const mockGetScreeningQuestionsByIds = vi.fn(
+	(_ids: string[]): Promise<Array<{ id: string; sectionId: string | null }>> => Promise.resolve([]),
+)
 vi.mock("~/db/queries/screening.server", () => ({
-	getScreeningDataForApp: (...args: unknown[]) => mockGetScreeningDataForApp(...args),
+	getScreeningDataForApp: (appId: string) => mockGetScreeningDataForApp(appId),
+	getScreeningQuestionsByIds: (ids: string[]) => mockGetScreeningQuestionsByIds(ids),
 }))
 
 const mockGetApplicationDetail = vi.fn()
@@ -229,6 +233,55 @@ describe("screening session loader", () => {
 			// Should only contain the snapshot question, not the live question
 			expect(screening.map((q) => q.id)).toEqual(["q-snap-1"])
 			expect(screening.map((q) => q.id)).not.toContain("q-live-1")
+		})
+
+		it("looks up sectionId via DB for snapshot questions missing from live data", async () => {
+			// Simulates a question that was archived after session completion:
+			// it's in the snapshot but not returned by getScreeningDataForApp
+			const snapshotQuestion = {
+				id: "q-archived-1",
+				questionText: "Arkivert seksjonsspørsmål",
+				description: null,
+				displayOrder: 1,
+				answerType: "boolean",
+				choices: [],
+				affectedControls: [],
+				// sectionId absent — as in old snapshots stored before #432
+			}
+			mockGetScreeningSession.mockResolvedValue({
+				id: "session-1",
+				applicationId: "app-1",
+				status: "completed",
+				title: "Historical screening",
+				participants: [],
+				answers: [],
+				stateSnapshot: {
+					capturedAt: "2024-01-01T00:00:00.000Z",
+					persistence: null,
+					entraGroupsData: null,
+					oracleRolesData: null,
+					economyClassification: null,
+					questions: [snapshotQuestion],
+					rulesetOptions: [],
+				},
+			})
+			// Live data does not include the archived question
+			mockGetScreeningDataForApp.mockResolvedValue({ questions: [], sectionIds: [] })
+			mockGetApplicationDetail.mockResolvedValue({ app: { name: "test-app" }, authIntegrations: [] })
+
+			const sectionUuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+			mockGetScreeningQuestionsByIds.mockResolvedValue([{ id: "q-archived-1", sectionId: sectionUuid }])
+
+			const result = await callLoader()
+			const payload = "data" in result ? (result as { data: Record<string, unknown> }).data : result
+			const screening = payload.screening as Array<{ id: string; sectionId: string | null }>
+
+			// Loader must call getScreeningQuestionsByIds with the missing question id
+			expect(mockGetScreeningQuestionsByIds).toHaveBeenCalledWith(["q-archived-1"])
+
+			// sectionId must be populated in the returned payload so the detail link can be rendered
+			expect(screening).toHaveLength(1)
+			expect(screening[0].sectionId).toBe(sectionUuid)
 		})
 	})
 })
