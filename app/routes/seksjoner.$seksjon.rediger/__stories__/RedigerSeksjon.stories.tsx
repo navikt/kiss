@@ -60,6 +60,7 @@ const baseLoaderData = {
 		{ cluster: "dev-fss", included: false },
 		{ cluster: "prod-fss", included: false },
 	],
+	allKnownClusters: ["dev-fss", "dev-gcp", "prod-fss", "prod-gcp"],
 	seksjon: "seksjon-for-arbeidsytelser-say",
 }
 

@@ -3,10 +3,10 @@ import { redirect } from "react-router"
 import { linkAppToTeam } from "~/db/queries/applications.server"
 import {
 	excludeEnvironment,
-	includeEnvironment,
 	linkNaisTeamToSection,
 	unignoreAppForSection,
 	unlinkNaisTeamFromSection,
+	upsertAndIncludeEnvironment,
 } from "~/db/queries/nais.server"
 import { createTeam, getSectionBySlug, updateSection } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
@@ -81,7 +81,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const enabled = formData.get("enabled") === "true"
 		if (!cluster) throw new Response("Mangler cluster", { status: 400 })
 		if (enabled) {
-			await includeEnvironment(section.id, cluster, userId)
+			try {
+				await upsertAndIncludeEnvironment(section.id, cluster, userId)
+			} catch (err) {
+				if (err instanceof Error && err.message.startsWith("Ukjent cluster")) {
+					throw new Response(err.message, { status: 400 })
+				}
+				throw err
+			}
 		} else {
 			await excludeEnvironment(section.id, cluster, userId)
 		}

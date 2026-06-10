@@ -20,11 +20,13 @@ export function NaisTab({
 	linkedNaisTeams,
 	unlinkedNaisTeams,
 	sectionEnvironments,
+	allKnownClusters,
 	onRequestUnlink,
 }: {
 	linkedNaisTeams: LinkedNaisTeam[]
 	unlinkedNaisTeams: UnlinkedNaisTeam[]
 	sectionEnvironments: SectionEnvironment[]
+	allKnownClusters: string[]
 	onRequestUnlink: (team: LinkedNaisTeam) => void
 }) {
 	const addModalRef = useRef<HTMLDialogElement>(null)
@@ -36,8 +38,13 @@ export function NaisTab({
 		return t.slug.toLowerCase().includes(q) || t.displayName?.toLowerCase().includes(q)
 	})
 
+	const registeredClusters = new Map(sectionEnvironments.map((e) => [e.cluster, e.included]))
+
+	const allClusters = [...new Set([...allKnownClusters, ...sectionEnvironments.map((e) => e.cluster)])].sort((a, b) =>
+		a.localeCompare(b, "nb"),
+	)
+
 	const hasActiveEnvironments = sectionEnvironments.some((e) => e.included)
-	const hasAnyEnvironments = sectionEnvironments.length > 0
 
 	function openAddModal() {
 		setSearch("")
@@ -59,7 +66,7 @@ export function NaisTab({
 					Velg hvilke Nais-miljøer som skal inkluderes. Applikasjoner som kun finnes i deaktiverte miljøer vil ikke
 					telle med i team, compliance-oppsummering eller applikasjonslister.
 				</BodyShort>
-				{hasAnyEnvironments && !hasActiveEnvironments && (
+				{allClusters.length > 0 && !hasActiveEnvironments && (
 					<Alert variant="info" size="small">
 						Ingen miljøer er aktive. Aktiver minst ett produksjonsmiljø for at applikasjoner skal vises og telles med i
 						compliance og rapporter.
@@ -76,39 +83,47 @@ export function NaisTab({
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
-							{sectionEnvironments.length === 0 ? (
+							{allClusters.length === 0 ? (
 								<Table.Row>
 									<Table.DataCell colSpan={3}>
-										Ingen miljøer registrert ennå. Koble til Nais-team og kjør Nais-sync for å oppdage miljøer.
+										Ingen miljøer registrert i systemet ennå. Kjør Nais-sync for å oppdage miljøer.
 									</Table.DataCell>
 								</Table.Row>
 							) : (
-								sectionEnvironments.map(({ cluster, included }) => (
-									<Table.Row key={cluster}>
-										<Table.DataCell>{cluster}</Table.DataCell>
-										<Table.DataCell>
-											{included ? (
-												<Tag variant="success" size="small">
-													Aktiv
-												</Tag>
-											) : (
-												<Tag variant="neutral" size="small">
-													Deaktivert
-												</Tag>
-											)}
-										</Table.DataCell>
-										<Table.DataCell align="right">
-											<Form method="post">
-												<input type="hidden" name="intent" value="toggle-environment" />
-												<input type="hidden" name="cluster" value={cluster} />
-												<input type="hidden" name="enabled" value={included ? "false" : "true"} />
-												<Button type="submit" variant="tertiary-neutral" size="xsmall">
-													{included ? "Deaktiver" : "Aktiver"}
-												</Button>
-											</Form>
-										</Table.DataCell>
-									</Table.Row>
-								))
+								allClusters.map((cluster) => {
+									const included = registeredClusters.get(cluster)
+									const isRegistered = registeredClusters.has(cluster)
+									return (
+										<Table.Row key={cluster}>
+											<Table.DataCell>{cluster}</Table.DataCell>
+											<Table.DataCell>
+												{!isRegistered ? (
+													<Tag variant="neutral" size="small">
+														Ikke lagt til
+													</Tag>
+												) : included ? (
+													<Tag variant="success" size="small">
+														Aktiv
+													</Tag>
+												) : (
+													<Tag variant="neutral" size="small">
+														Deaktivert
+													</Tag>
+												)}
+											</Table.DataCell>
+											<Table.DataCell align="right">
+												<Form method="post">
+													<input type="hidden" name="intent" value="toggle-environment" />
+													<input type="hidden" name="cluster" value={cluster} />
+													<input type="hidden" name="enabled" value={included ? "false" : "true"} />
+													<Button type="submit" variant="tertiary-neutral" size="xsmall">
+														{included ? "Deaktiver" : "Aktiver"}
+													</Button>
+												</Form>
+											</Table.DataCell>
+										</Table.Row>
+									)
+								})
 							)}
 						</Table.Body>
 					</Table>

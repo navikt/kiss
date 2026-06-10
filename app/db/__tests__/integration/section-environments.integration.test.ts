@@ -15,6 +15,8 @@ const {
 	excludeEnvironment,
 	includeEnvironment,
 	upsertAppEnvironment,
+	getAllKnownClusters,
+	upsertAndIncludeEnvironment,
 	getUnassignedAppsForSection,
 	getNaisTeamAppCounts,
 	getNaisTeamDetail,
@@ -249,6 +251,146 @@ describe("section_environments integration tests", () => {
 			await includeEnvironment(sectionId, "dev-gcp", "test")
 			const candidatesAfter = await getUnassignedAppsForSection(sectionId)
 			expect(candidatesAfter.map((c) => c.appId)).toContain(devOnlyApp)
+		})
+	})
+
+	describe("getAllKnownClusters", () => {
+		it("returnerer tom liste når ingen applikasjoner er synkronisert", async () => {
+			const db = getTestDb()
+			// Rydd opp avhengige tabeller i riktig FK-rekkefølge
+			await db.execute(`DELETE FROM application_environment_access_policy_rules`)
+			await db.execute(`DELETE FROM application_environments`)
+
+			const clusters = await getAllKnownClusters()
+			expect(clusters).toEqual([])
+		})
+
+		it("returnerer distinkte clustere sortert alfabetisk", async () => {
+			const sectionId = await createSection("Test KnownClusters")
+			const naisTeamId = await createNaisTeam("team-knowncluster", sectionId)
+			const appId = await createApp("app-knowncluster")
+
+			await upsertAppEnvironment(appId, "prod-gcp", "team-knowncluster", naisTeamId)
+			await upsertAppEnvironment(appId, "dev-gcp", "team-knowncluster", naisTeamId)
+			// Duplicate — should not appear twice
+			await upsertAppEnvironment(appId, "prod-gcp", "team-knowncluster", naisTeamId)
+
+			const clusters = await getAllKnownClusters()
+
+			expect(clusters).toContain("prod-gcp")
+			expect(clusters).toContain("dev-gcp")
+			// No duplicates
+			expect(clusters.filter((c) => c === "prod-gcp")).toHaveLength(1)
+			// Sorted ascending
+			const sorted = [...clusters].sort()
+			expect(clusters).toEqual(sorted)
+		})
+	})
+
+	describe("upsertAndIncludeEnvironment", () => {
+		it("oppretter ny rad med included=true når clusteret ikke er registrert for seksjonen", async () => {
+			const sectionId = await createSection("Test Upsert New")
+			const naisTeamId = await createNaisTeam("team-upsert-new", sectionId)
+			const appId = await createApp("app-upsert-new")
+
+			// Register the cluster in application_environments via sync
+			await upsertAppEnvironment(appId, "prod-gcp", "team-upsert-new", naisTeamId)
+
+			// Remove the auto-registered section_environments row to simulate no prior registration
+			const db = getTestDb()
+			await db.execute(`DELETE FROM section_environments WHERE section_id = '${sectionId}'`)
+
+			await upsertAndIncludeEnvironment(sectionId, "prod-gcp", "Z990001")
+
+			const envs = await getSectionEnvironments(sectionId)
+			expect(envs).toHaveLength(1)
+			expect(envs[0].cluster).toBe("prod-gcp")
+			expect(envs[0].included).toBe(true)
+		})
+
+		it("setter included=true for eksisterende rad med included=false", async () => {
+			const db = getTestDb()
+			const sectionId = await createSection("Test Upsert Excluded")
+			const naisTeamId = await createNaisTeam("team-upsert-excluded", sectionId)
+			const appId = await createApp("app-upsert-excluded")
+
+			// Sørg for at clusteret er kjent i application_environments
+			await upsertAppEnvironment(appId, "dev-gcp", "team-upsert-excluded", naisTeamId)
+
+			// Override auto-registration to excluded
+			await db.execute(
+				`UPDATE section_environments SET included = false WHERE section_id = '${sectionId}' AND cluster = 'dev-gcp'`,
+			)
+
+			await upsertAndIncludeEnvironment(sectionId, "dev-gcp", "Z990001")
+
+			const envs = await getSectionEnvironments(sectionId)
+			expect(envs.find((e) => e.cluster === "dev-gcp")?.included).toBe(true)
+		})
+
+		it("er en no-op (ingen duplikat-rader) når clusteret allerede er included=true", async () => {
+			const db = getTestDb()
+			const sectionId = await createSection("Test Upsert Idempotent")
+			const naisTeamId = await createNaisTeam("team-upsert-idempotent", sectionId)
+			const appId = await createApp("app-upsert-idempotent")
+
+			// Sørg for at clusteret er kjent i application_environments
+			await upsertAppEnvironment(appId, "prod-gcp", "team-upsert-idempotent", naisTeamId)
+
+			// Override to included=true
+			await db.execute(
+				`UPDATE section_environments SET included = true WHERE section_id = '${sectionId}' AND cluster = 'prod-gcp'`,
+			)
+
+			// Kall to ganger — skal ikke kaste og ikke lage duplikater
+			await upsertAndIncludeEnvironment(sectionId, "prod-gcp", "Z990001")
+			await upsertAndIncludeEnvironment(sectionId, "prod-gcp", "Z990001")
+
+			const envs = await getSectionEnvironments(sectionId)
+			expect(envs.filter((e) => e.cluster === "prod-gcp")).toHaveLength(1)
+			expect(envs[0].included).toBe(true)
+
+			// Ingen ekstra audit-rad ved no-op
+			const auditRows = await db.execute(
+				`SELECT id FROM audit_log WHERE entity_type = 'section' AND entity_id = '${sectionId}' AND action = 'section_environment_included'`,
+			)
+			expect(auditRows.rows).toHaveLength(0)
+		})
+
+		it("skriver audit-log ved faktisk endring men ikke ved no-op", async () => {
+			const db = getTestDb()
+			const sectionId = await createSection("Test Upsert Audit")
+			const naisTeamId = await createNaisTeam("team-upsert-audit", sectionId)
+			const appId = await createApp("app-upsert-audit")
+
+			// Sørg for at clusteret er kjent i application_environments
+			await upsertAppEnvironment(appId, "prod-fss", "team-upsert-audit", naisTeamId)
+
+			// Override to excluded
+			await db.execute(
+				`UPDATE section_environments SET included = false WHERE section_id = '${sectionId}' AND cluster = 'prod-fss'`,
+			)
+
+			await upsertAndIncludeEnvironment(sectionId, "prod-fss", "Z990002")
+
+			const auditAfterChange = await db.execute(
+				`SELECT id FROM audit_log WHERE entity_type = 'section' AND entity_id = '${sectionId}' AND action = 'section_environment_included'`,
+			)
+			expect(auditAfterChange.rows).toHaveLength(1)
+
+			// Kall igjen — allerede included=true, ingen ny audit
+			await upsertAndIncludeEnvironment(sectionId, "prod-fss", "Z990002")
+			const auditAfterNoop = await db.execute(
+				`SELECT id FROM audit_log WHERE entity_type = 'section' AND entity_id = '${sectionId}' AND action = 'section_environment_included'`,
+			)
+			expect(auditAfterNoop.rows).toHaveLength(1)
+		})
+
+		it("kaster feil for ukjent cluster (ikke i application_environments)", async () => {
+			const sectionId = await createSection("Test Upsert Unknown")
+			await expect(upsertAndIncludeEnvironment(sectionId, "ukjent-cluster-xyz", "Z990001")).rejects.toThrow(
+				"Ukjent cluster",
+			)
 		})
 	})
 

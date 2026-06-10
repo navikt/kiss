@@ -2,6 +2,7 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getApplicationsForSection } from "~/db/queries/applications.server"
 import {
+	getAllKnownClusters,
 	getAppsPersistence,
 	getIgnoredAppsForSection,
 	getNaisTeamsForSection,
@@ -24,15 +25,23 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const sectionId = result.id
 	requireSectionAccess(authedUser, sectionId)
 
-	const [teams, linkedNaisTeams, unlinkedNaisTeams, sectionApps, sectionEnvironmentsList, ignoredApps] =
-		await Promise.all([
-			getTeamsForSection(sectionId, { includeArchived: true }),
-			getNaisTeamsForSection(sectionId),
-			getUnlinkedNaisTeams(),
-			getApplicationsForSection(sectionId),
-			getSectionEnvironments(sectionId),
-			getIgnoredAppsForSection(sectionId),
-		])
+	const [
+		teams,
+		linkedNaisTeams,
+		unlinkedNaisTeams,
+		sectionApps,
+		sectionEnvironmentsList,
+		ignoredApps,
+		allKnownClusters,
+	] = await Promise.all([
+		getTeamsForSection(sectionId, { includeArchived: true }),
+		getNaisTeamsForSection(sectionId),
+		getUnlinkedNaisTeams(),
+		getApplicationsForSection(sectionId),
+		getSectionEnvironments(sectionId),
+		getIgnoredAppsForSection(sectionId),
+		getAllKnownClusters(),
+	])
 
 	const sectionAppIds = sectionApps.map((a) => a.id)
 	const persistenceMap = await getAppsPersistence(sectionAppIds)
@@ -71,6 +80,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		})),
 		persistenceMap: Object.fromEntries(persistenceMap),
 		sectionEnvironments: sectionEnvironmentsList,
+		allKnownClusters,
 		seksjon,
 	})
 }
