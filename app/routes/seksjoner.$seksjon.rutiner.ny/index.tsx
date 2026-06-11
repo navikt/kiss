@@ -9,7 +9,6 @@ import {
 	HStack,
 	Label,
 	Select,
-	Textarea,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
@@ -17,17 +16,13 @@ import { useEffect, useRef, useState } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
+import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { PrioritySelect } from "~/components/PrioritySelect"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { SortableActivityList } from "~/components/SortableActivityList"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import { createRoutine } from "~/db/queries/routines.server"
-import {
-	getChoicesForQuestion,
-	getScreeningQuestions,
-	getSectionScreeningQuestions,
-} from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
 import {
@@ -65,12 +60,6 @@ const PREDEFINED_ROLES = [
 	"Testleder",
 ] as const
 
-interface QuestionLink {
-	key: string
-	questionId: string
-	choiceValue: string
-}
-
 interface PersistenceLinkItem {
 	key: string
 	persistenceType: string
@@ -94,25 +83,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	requireAnySectionRole(authedUser, section.id)
 
-	const [globalQuestions, sectionQuestions, technologyElements, controls] = await Promise.all([
-		getScreeningQuestions({ status: "approved" }),
-		getSectionScreeningQuestions(section.id, { status: "approved" }),
-		getAllTechnologyElements(),
-		getAllControlsForSelection(),
-	])
-
-	const allQuestions = [...globalQuestions, ...sectionQuestions]
-	const questionsWithChoices = await Promise.all(
-		allQuestions.map(async (q) => ({
-			...q,
-			isSection: q.sectionId !== null,
-			choices: await getChoicesForQuestion(q.id),
-		})),
-	)
+	const [technologyElements, controls] = await Promise.all([getAllTechnologyElements(), getAllControlsForSelection()])
 
 	return data({
 		section,
-		screeningQuestions: questionsWithChoices,
 		technologyElements,
 		controls,
 		userCanChangePriority: isAdmin(authedUser) || canManageSection(authedUser, section.id),
@@ -254,15 +228,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 	}
 
-	// Parse multiple question links
-	const questionIds = formData.getAll("questionId") as string[]
-	const choiceValues = formData.getAll("choiceValue") as string[]
-	const screeningQuestionLinks = questionIds
-		.map((qId, i) => ({ questionId: qId, choiceValue: choiceValues[i] ?? "" }))
-		.filter((l) => l.questionId)
-
-	const firstLink = screeningQuestionLinks[0]
-
 	const routine = await createRoutine({
 		sectionId: section.id,
 		name: name.trim(),
@@ -275,9 +240,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		sectionRoutineOwnerRole,
 		activityTypes,
 		persistenceLinks,
-		screeningQuestionId: firstLink?.questionId ?? null,
-		screeningChoiceValue: firstLink?.choiceValue ?? null,
-		screeningQuestionLinks,
+		screeningQuestionId: null,
+		screeningChoiceValue: null,
 		technologyElementIds: technologyElementIds.filter((id): id is string => typeof id === "string"),
 		controlIds: controlIds.filter(Boolean),
 		groupClassifications: groupClassifications.filter(Boolean) as GroupAccessClassification[],
@@ -292,8 +256,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function NyRutine() {
-	const { section, screeningQuestions, technologyElements, controls, userCanChangePriority } =
-		useLoaderData<typeof loader>()
+	const { section, technologyElements, controls, userCanChangePriority } = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const fieldErrors = actionData && "fieldErrors" in actionData ? (actionData.fieldErrors as FieldErrors) : undefined
 	const errorSummaryRef = useRef<HTMLDivElement>(null)
@@ -305,7 +268,6 @@ export default function NyRutine() {
 		}
 	}, [fieldErrors])
 
-	const [questionLinks, setQuestionLinks] = useState<QuestionLink[]>([])
 	const [selectedControlIds, setSelectedControlIds] = useState<string[]>([])
 	const [responsibleRole, setResponsibleRole] = useState("")
 	const [roleManuallySet, setRoleManuallySet] = useState(false)
@@ -353,24 +315,6 @@ export default function NyRutine() {
 		setRoleManuallySet(true)
 	}
 
-	const addQuestionLink = () => {
-		setQuestionLinks((prev) => [...prev, { key: crypto.randomUUID(), questionId: "", choiceValue: "" }])
-	}
-
-	const removeQuestionLink = (index: number) => {
-		setQuestionLinks((prev) => prev.filter((_, i) => i !== index))
-	}
-
-	const updateQuestionLink = (index: number, field: "questionId" | "choiceValue", value: string) => {
-		setQuestionLinks((prev) =>
-			prev.map((link, i) => {
-				if (i !== index) return link
-				if (field === "questionId") return { ...link, questionId: value, choiceValue: "" }
-				return { ...link, [field]: value }
-			}),
-		)
-	}
-
 	return (
 		<VStack gap="space-12">
 			<Heading size="xlarge" level="2">
@@ -396,180 +340,120 @@ export default function NyRutine() {
 						</ErrorSummary>
 					)}
 
-					<TextField label="Navn" name="name" id="name" error={fieldErrors?.name} />
+					<TextField label="Navn" name="name" id="name" size="small" error={fieldErrors?.name} />
 
-					<Textarea label="Beskrivelse" name="description" />
+					<MarkdownEditor label="Beskrivelse" name="description" minRows={12} />
 
-					<Heading size="small" level="3">
-						Frekvens
-					</Heading>
-					<HStack gap="space-6" wrap>
-						<Select
-							label="Kronologisk frekvens"
-							name="frequency"
-							id="frequency"
-							value={selectedFrequency}
-							onChange={(e) => setSelectedFrequency(e.target.value as RoutineFrequency | "")}
-							description={minimumFrequency ? `Krav krever minimum: ${frequencyLabels[minimumFrequency]}` : undefined}
-							error={fieldErrors?.frequency}
-						>
-							<option value="">Ingen</option>
-							{ROUTINE_FREQUENCIES.map((freq) => (
-								<option
-									key={freq}
-									value={freq}
-									disabled={minimumFrequency ? !isFrequencyAtLeastAsOften(freq, minimumFrequency) : false}
+					<HStack gap="space-8" align="start" wrap>
+						{technologyElements.length > 0 && (
+							<div style={{ flex: "1 1 0" }}>
+								<CheckboxGroup legend="Teknologielementer" size="small">
+									{technologyElements.map((el) => (
+										<Checkbox key={el.id} name="technologyElementIds" value={el.id}>
+											{el.name}
+										</Checkbox>
+									))}
+								</CheckboxGroup>
+							</div>
+						)}
+
+						<VStack gap="space-2" style={{ flex: "1 1 0" }}>
+							{isSectionRoutine && <input type="hidden" name="appliesToAllInSection" value="on" />}
+							<CheckboxGroup
+								legend="Scope"
+								description="Vanligvis tilknyttes rutiner applikasjoner basert på screeningssvar. Her kan du overstyre dette og gjøre rutinen gjeldende for alle applikasjoner i seksjonen uten at de har gjennomført en screening."
+								size="small"
+							>
+								<Checkbox
+									name={isSectionRoutine ? undefined : "appliesToAllInSection"}
+									size="small"
+									checked={isSectionRoutine ? true : appliesToAll}
+									onChange={(e) => !isSectionRoutine && setAppliesToAll(e.target.checked)}
+									disabled={isSectionRoutine}
 								>
-									{frequencyLabels[freq]}
-									{minimumFrequency === freq ? " (fra krav)" : ""}
-								</option>
-							))}
-						</Select>
+									Gjelder alle applikasjoner i seksjonen
+								</Checkbox>
+								<Checkbox
+									name="isSectionRoutine"
+									size="small"
+									checked={isSectionRoutine}
+									onChange={(e) => setIsSectionRoutine(e.target.checked)}
+								>
+									Seksjonsrutine (gjennomgås på seksjonsnivå, ikke per applikasjon)
+								</Checkbox>
+							</CheckboxGroup>
+							{isSectionRoutine && (
+								<Select
+									label="Eier / utførende rolle"
+									name="sectionRoutineOwnerRole"
+									id="sectionRoutineOwnerRole"
+									size="small"
+									error={fieldErrors?.sectionRoutineOwnerRole}
+								>
+									<option value="">Velg rolle</option>
+									{PREDEFINED_ROLES.map((role) => (
+										<option key={role} value={role}>
+											{role}
+										</option>
+									))}
+								</Select>
+							)}
+						</VStack>
+					</HStack>
+
+					<HStack gap="space-6" wrap align="end">
+						<div style={{ flex: "1 1 0" }}>
+							<Select
+								label="Kronologisk frekvens"
+								name="frequency"
+								id="frequency"
+								size="small"
+								value={selectedFrequency}
+								onChange={(e) => setSelectedFrequency(e.target.value as RoutineFrequency | "")}
+								description={minimumFrequency ? `Krav krever minimum: ${frequencyLabels[minimumFrequency]}` : undefined}
+								error={fieldErrors?.frequency}
+							>
+								<option value="">Ingen</option>
+								{ROUTINE_FREQUENCIES.map((freq) => (
+									<option
+										key={freq}
+										value={freq}
+										disabled={minimumFrequency ? !isFrequencyAtLeastAsOften(freq, minimumFrequency) : false}
+									>
+										{frequencyLabels[freq]}
+										{minimumFrequency === freq ? " (fra krav)" : ""}
+									</option>
+								))}
+							</Select>
+						</div>
 						<EventFrequencyCombobox value={eventFrequency} onChange={setEventFrequency} />
 					</HStack>
 
 					{userCanChangePriority ? (
-						<PrioritySelect name="priority" defaultValue={3} size="small" id="priority" error={fieldErrors?.priority} />
-					) : (
-						<PriorityTag priority={3} size="small" />
-					)}
-
-					{isSectionRoutine && <input type="hidden" name="appliesToAllInSection" value="on" />}
-					<Checkbox
-						name={isSectionRoutine ? undefined : "appliesToAllInSection"}
-						size="small"
-						checked={isSectionRoutine ? true : appliesToAll}
-						onChange={(e) => !isSectionRoutine && setAppliesToAll(e.target.checked)}
-						disabled={isSectionRoutine}
-					>
-						Gjelder alle applikasjoner i seksjonen
-					</Checkbox>
-
-					<Checkbox
-						name="isSectionRoutine"
-						size="small"
-						checked={isSectionRoutine}
-						onChange={(e) => setIsSectionRoutine(e.target.checked)}
-					>
-						Seksjonsrutine (gjennomgås på seksjonsnivå, ikke per applikasjon)
-					</Checkbox>
-
-					{isSectionRoutine && (
-						<Select
-							label="Eier / utførende rolle"
-							name="sectionRoutineOwnerRole"
-							id="sectionRoutineOwnerRole"
+						<PrioritySelect
+							name="priority"
+							defaultValue={3}
 							size="small"
-							error={fieldErrors?.sectionRoutineOwnerRole}
-						>
-							<option value="">Velg rolle</option>
-							{PREDEFINED_ROLES.map((role) => (
-								<option key={role} value={role}>
-									{role}
-								</option>
-							))}
-						</Select>
-					)}
-
-					<VStack gap="space-2">
-						<Label size="small">Innledende spørsmål</Label>
-						<BodyShort size="small" textColor="subtle">
-							Knytt rutinen til ett eller flere spørsmål. Apper som svarer med valgt svarverdi vil måtte gjennomføre
-							rutinen.
-						</BodyShort>
-						{questionLinks.map((link, index) => {
-							const question = screeningQuestions.find((q) => q.id === link.questionId)
-							return (
-								<HStack key={link.key} gap="space-2" align="end" style={{ flexWrap: "wrap" }}>
-									<div style={{ flex: 2, minWidth: "15rem" }}>
-										<Select
-											label={index === 0 ? "Spørsmål" : undefined}
-											hideLabel={index > 0}
-											aria-label="Spørsmål"
-											size="small"
-											value={link.questionId}
-											onChange={(e) => updateQuestionLink(index, "questionId", e.target.value)}
-										>
-											<option value="">Velg spørsmål …</option>
-											{screeningQuestions.filter((q) => q.isSection).length > 0 && (
-												<optgroup label="Seksjonens spørsmål">
-													{screeningQuestions
-														.filter((q) => q.isSection)
-														.map((q) => (
-															<option key={q.id} value={q.id}>
-																{q.questionText}
-															</option>
-														))}
-												</optgroup>
-											)}
-											<optgroup label="Globale spørsmål">
-												{screeningQuestions
-													.filter((q) => !q.isSection)
-													.map((q) => (
-														<option key={q.id} value={q.id}>
-															{q.questionText}
-														</option>
-													))}
-											</optgroup>
-										</Select>
-									</div>
-									<div style={{ flex: 1, minWidth: "10rem" }}>
-										<Select
-											label={index === 0 ? "Svarverdi" : undefined}
-											hideLabel={index > 0}
-											aria-label="Svarverdi"
-											size="small"
-											value={link.choiceValue}
-											onChange={(e) => updateQuestionLink(index, "choiceValue", e.target.value)}
-											disabled={!question || question.choices.length === 0}
-										>
-											<option value="">Velg …</option>
-											{question?.choices.map((c) => (
-												<option key={c.id} value={c.label}>
-													{c.label}
-												</option>
-											))}
-										</Select>
-									</div>
-									<input type="hidden" name="questionId" value={link.questionId} />
-									<input type="hidden" name="choiceValue" value={link.choiceValue} />
-									<Button
-										type="button"
-										variant="tertiary-neutral"
-										size="small"
-										icon={<TrashIcon aria-hidden />}
-										onClick={() => removeQuestionLink(index)}
-										aria-label="Fjern spørsmål"
-									/>
-								</HStack>
-							)
-						})}
-						<div>
-							<Button
-								type="button"
-								variant="secondary"
-								size="xsmall"
-								icon={<PlusIcon aria-hidden />}
-								onClick={addQuestionLink}
-							>
-								Legg til spørsmål
-							</Button>
-						</div>
-					</VStack>
-
-					{technologyElements.length > 0 && (
-						<CheckboxGroup legend="Teknologielementer">
-							{technologyElements.map((el) => (
-								<Checkbox key={el.id} name="technologyElementIds" value={el.id}>
-									{el.name}
-								</Checkbox>
-							))}
-						</CheckboxGroup>
+							id="priority"
+							error={fieldErrors?.priority}
+							description="Prioritet settes på seksjonsnivå og brukes til å hjelpe seksjonen med å prioritere hvilke rutiner som bør gjennomgås først."
+						/>
+					) : (
+						<VStack gap="space-1">
+							<Label size="small">Prioritet</Label>
+							<BodyShort size="small" textColor="subtle">
+								Prioritet settes på seksjonsnivå og brukes til å hjelpe seksjonen med å prioritere hvilke rutiner som
+								bør gjennomgås først.
+							</BodyShort>
+							<PriorityTag priority={3} size="small" />
+						</VStack>
 					)}
 
 					<Select
 						label="Ansvarlig rolle"
+						description="Rollen som er ansvarlig for å gjennomføre gjennomgangen av rutinen."
 						name="responsibleRole"
+						size="small"
 						value={responsibleRole}
 						onChange={(e) => handleRoleChange(e.target.value)}
 					>
@@ -584,10 +468,45 @@ export default function NyRutine() {
 						)}
 					</Select>
 
+					{controls.length > 0 && (
+						<CheckboxGroup
+							legend="Tilknyttede krav"
+							description="Kravene som dokumenteres og bekreftes gjennom gjennomgangen av denne rutinen."
+							size="small"
+							value={selectedControlIds}
+							onChange={handleControlChange}
+						>
+							{controls.map((ctrl) => (
+								<Checkbox key={ctrl.id} name="controlIds" value={ctrl.id}>
+									{ctrl.controlId} – {ctrl.name}
+									{ctrl.responsible && ` (${ctrl.responsible})`}
+								</Checkbox>
+							))}
+						</CheckboxGroup>
+					)}
+
+					<VStack gap="space-2">
+						<Label size="small">Vedlikeholdsaktiviteter</Label>
+						<BodyShort size="small" textColor="subtle">
+							Dersom rutinen har vedlikeholdsaktiviteter, vil gjennomgangen inkludere et eget steg for å dokumentere
+							oppfølging av et spesifikt krav.
+						</BodyShort>
+						<SortableActivityList disabled={isSectionRoutine} />
+					</VStack>
+
+					<Heading size="small" level="3">
+						Avanserte innstillinger
+					</Heading>
+
+					<Heading size="xsmall" level="4">
+						Database
+					</Heading>
+
 					<VStack gap="space-2">
 						<Label size="small">Database og klassifisering</Label>
 						<BodyShort size="small" textColor="subtle">
-							Knytt rutinen til én eller flere databasetyper og/eller dataklassifiseringer.
+							Rutinen legges automatisk til for alle applikasjoner som bruker valgte databasetyper og/eller
+							dataklassifiseringer.
 						</BodyShort>
 						{persistenceLinks.map((link, index) => (
 							<HStack key={link.key} gap="space-2" align="end" wrap>
@@ -643,7 +562,7 @@ export default function NyRutine() {
 							<Button
 								type="button"
 								variant="secondary"
-								size="xsmall"
+								size="small"
 								icon={<PlusIcon aria-hidden />}
 								onClick={addPersistenceLink}
 							>
@@ -653,19 +572,9 @@ export default function NyRutine() {
 					</VStack>
 
 					<CheckboxGroup
-						legend="Tilgangsklassifisering for Entra ID-grupper"
-						description="Rutinen gjelder for applikasjoner som har Entra ID-grupper med valgte tilgangsmetoder."
-					>
-						{Object.entries(groupAccessClassificationLabels).map(([key, label]) => (
-							<Checkbox key={key} name="groupClassifications" value={key}>
-								{label}
-							</Checkbox>
-						))}
-					</CheckboxGroup>
-
-					<CheckboxGroup
 						legend="Kritikalitet for Oracle-roller"
-						description="Rutinen gjelder for applikasjoner som har Oracle-roller med valgte kritikalitetsnivåer."
+						description="Rutinen legges automatisk til for alle applikasjoner som har Oracle-roller med valgte kritikalitetsnivåer."
+						size="small"
 					>
 						{Object.entries(groupCriticalityLabels).map(([key, label]) => (
 							<Checkbox key={key} name="oracleRoleCriticalities" value={key}>
@@ -674,24 +583,27 @@ export default function NyRutine() {
 						))}
 					</CheckboxGroup>
 
-					{controls.length > 0 && (
-						<CheckboxGroup legend="Tilknyttede krav" value={selectedControlIds} onChange={handleControlChange}>
-							{controls.map((ctrl) => (
-								<Checkbox key={ctrl.id} name="controlIds" value={ctrl.id}>
-									{ctrl.controlId} – {ctrl.name}
-									{ctrl.responsible && ` (${ctrl.responsible})`}
-								</Checkbox>
-							))}
-						</CheckboxGroup>
-					)}
+					<Heading size="xsmall" level="4">
+						Tilgangskontroll
+					</Heading>
 
-					<SortableActivityList disabled={isSectionRoutine} />
+					<CheckboxGroup
+						legend="Tilgangsklassifisering for Entra ID-grupper"
+						description="Rutinen legges automatisk til for alle applikasjoner som har Entra ID-grupper med valgte tilgangsmetoder."
+						size="small"
+					>
+						{Object.entries(groupAccessClassificationLabels).map(([key, label]) => (
+							<Checkbox key={key} name="groupClassifications" value={key}>
+								{label}
+							</Checkbox>
+						))}
+					</CheckboxGroup>
 
 					<HStack gap="space-4">
-						<Button type="submit" variant="primary">
+						<Button type="submit" variant="primary" size="small">
 							Opprett
 						</Button>
-						<Button as={Link} to=".." variant="secondary">
+						<Button as={Link} to=".." variant="secondary" size="small">
 							Avbryt
 						</Button>
 					</HStack>

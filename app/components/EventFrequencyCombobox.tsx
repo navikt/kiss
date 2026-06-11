@@ -47,7 +47,7 @@ export function EventFrequencyCombobox({ value, onChange }: { value: string; onC
 	const effectiveValue = selected === "custom" ? customText : selected
 
 	return (
-		<VStack gap="space-4" style={{ flexGrow: 1 }}>
+		<VStack gap="space-4" style={{ flex: "1 1 0" }}>
 			<input type="hidden" name="eventFrequency" value={effectiveValue} />
 			<Select
 				label="Hendelsesbasert frekvens"

@@ -41,7 +41,9 @@ import {
 	type DataClassification,
 	dataClassificationLabels,
 	type GroupAccessClassification,
+	type GroupCriticality,
 	groupAccessClassificationLabels,
+	groupCriticalityLabels,
 	type PersistenceType,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
@@ -269,7 +271,6 @@ export default function RutineDetaljer() {
 		routine,
 		reviews,
 		appsWithDeadlines,
-		screeningQuestion,
 		descriptionHtml,
 		userCanApprove,
 		userCanAdmin,
@@ -436,149 +437,172 @@ export default function RutineDetaljer() {
 						<div className="markdown-content" dangerouslySetInnerHTML={{ __html: descriptionHtml }} />
 					</VStack>
 				)}
+			</VStack>
 
-				<VStack gap="space-2">
-					<Label size="small">Frekvens</Label>
-					<HStack gap="space-2" align="center">
-						<FrequencyDisplay frequency={routine.frequency} eventFrequency={routine.eventFrequency} />
-					</HStack>
-				</VStack>
+			{/* Konfigurasjon */}
+			<VStack gap="space-4">
+				<Heading size="small" level="3">
+					Konfigurasjon
+				</Heading>
 
-				<VStack gap="space-2">
-					<Label size="small">Prioritet</Label>
-					{!routine.archivedAt && userCanChangePriority ? (
+				<VStack gap="space-4">
+					<VStack gap="space-2">
+						<Label size="small">Frekvens</Label>
 						<HStack gap="space-2" align="center">
-							<PrioritySelect
-								value={
-									fetcher.formData?.get("intent") === "update-priority"
-										? (Number(fetcher.formData.get("priority")) as 1 | 2 | 3)
-										: routine.priority
-								}
-								size="small"
-								hideLabel
-								onChange={(priority) => {
-									const formData = new FormData()
-									formData.append("intent", "update-priority")
-									formData.append("priority", priority.toString())
-									fetcher.submit(formData, { method: "post" })
-								}}
-							/>
-							{fetcher.state !== "idle" && fetcher.formData?.get("intent") === "update-priority" && (
-								<BodyShort size="small" textColor="subtle">
-									Lagrer...
-								</BodyShort>
-							)}
-						</HStack>
-					) : (
-						<PriorityTag priority={routine.priority} size="small" />
-					)}
-					{routine.priorityUpdatedAt && (
-						<BodyShort size="small" textColor="subtle">
-							Oppdatert {formatDateTime(routine.priorityUpdatedAt)}
-							{routine.priorityUpdatedBy ? ` av ${routine.priorityUpdatedBy}` : ""}
-						</BodyShort>
-					)}
-				</VStack>
-
-				{routine.technologyElements.length > 0 && (
-					<VStack gap="space-2">
-						<Label size="small">Teknologielementer</Label>
-						<HStack gap="space-2" wrap>
-							{routine.technologyElements.map((te) => (
-								<Tag key={te.id} variant="neutral" size="small">
-									{te.name}
-								</Tag>
-							))}
+							<FrequencyDisplay frequency={routine.frequency} eventFrequency={routine.eventFrequency} />
 						</HStack>
 					</VStack>
-				)}
 
-				{routine.persistenceLinks.length > 0 && (
 					<VStack gap="space-2">
-						<Label size="small">Database og klassifisering</Label>
-						{routine.persistenceLinks.map((pl) => (
-							<HStack key={pl.id} gap="space-2" wrap>
-								{pl.persistenceType && (
-									<Tag variant="info" size="small">
-										{persistenceTypeLabels[pl.persistenceType as PersistenceType] ?? pl.persistenceType}
-									</Tag>
-								)}
-								{pl.dataClassification && (
-									<Tag variant="warning" size="small">
-										{dataClassificationLabels[pl.dataClassification as DataClassification] ?? pl.dataClassification}
-									</Tag>
-								)}
-							</HStack>
-						))}
-					</VStack>
-				)}
-
-				{routine.groupClassifications.length > 0 && (
-					<VStack gap="space-2">
-						<Label size="small">Tilgangsklassifisering for Entra ID-grupper</Label>
-						<HStack gap="space-2" wrap>
-							{routine.groupClassifications.map((gc) => (
-								<Tag key={gc.id} variant="info" size="small">
-									{groupAccessClassificationLabels[gc.classification as GroupAccessClassification] ?? gc.classification}
-								</Tag>
-							))}
-						</HStack>
-					</VStack>
-				)}
-
-				{(() => {
-					const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible
-					if (!effectiveRole) return null
-					const isInherited = !routine.responsibleRole
-					return (
-						<VStack gap="space-2">
-							<Label size="small">Ansvarlig rolle</Label>
+						<Label size="small">Prioritet</Label>
+						{!routine.archivedAt && userCanChangePriority ? (
 							<HStack gap="space-2" align="center">
-								<Tag variant="alt1" size="small">
-									{effectiveRole}
-								</Tag>
-								{isInherited && (
+								<PrioritySelect
+									value={
+										fetcher.formData?.get("intent") === "update-priority"
+											? (Number(fetcher.formData.get("priority")) as 1 | 2 | 3)
+											: routine.priority
+									}
+									size="small"
+									hideLabel
+									onChange={(priority) => {
+										const formData = new FormData()
+										formData.append("intent", "update-priority")
+										formData.append("priority", priority.toString())
+										fetcher.submit(formData, { method: "post" })
+									}}
+								/>
+								{fetcher.state !== "idle" && fetcher.formData?.get("intent") === "update-priority" && (
 									<BodyShort size="small" textColor="subtle">
-										(arvet fra krav)
+										Lagrer...
 									</BodyShort>
 								)}
 							</HStack>
-						</VStack>
-					)
-				})()}
-
-				{routine.controls.length > 0 && (
-					<VStack gap="space-2">
-						<Label size="small">Tilknyttede krav</Label>
-						<HStack gap="space-2" wrap>
-							{routine.controls.map((ctrl) => (
-								<Tag key={ctrl.id} variant="info" size="small">
-									<Link to={`/kontrollrammeverk/${ctrl.domainSlug}/${ctrl.controlId}`}>
-										{ctrl.controlId} – {ctrl.name}
-									</Link>
-								</Tag>
-							))}
-						</HStack>
+						) : (
+							<PriorityTag priority={routine.priority} size="small" />
+						)}
+						{routine.priorityUpdatedAt && (
+							<BodyShort size="small" textColor="subtle">
+								Oppdatert {formatDateTime(routine.priorityUpdatedAt)}
+								{routine.priorityUpdatedBy ? ` av ${routine.priorityUpdatedBy}` : ""}
+							</BodyShort>
+						)}
 					</VStack>
-				)}
 
-				{screeningQuestion && (
-					<VStack gap="space-2">
-						<Label size="small">Innledende spørsmål</Label>
-						<BodyShort>
-							{screeningQuestion.questionText}
-							{routine.screeningChoiceValue && (
-								<>
-									{" "}
-									— påkrevd svar:{" "}
+					{(() => {
+						const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible
+						if (!effectiveRole) return null
+						const isInherited = !routine.responsibleRole
+						return (
+							<VStack gap="space-2">
+								<Label size="small">Ansvarlig rolle</Label>
+								<HStack gap="space-2" align="center">
 									<Tag variant="alt1" size="small">
-										{routine.screeningChoiceValue}
+										{effectiveRole}
 									</Tag>
-								</>
-							)}
-						</BodyShort>
-					</VStack>
-				)}
+									{isInherited && (
+										<BodyShort size="small" textColor="subtle">
+											(arvet fra krav)
+										</BodyShort>
+									)}
+								</HStack>
+							</VStack>
+						)
+					})()}
+
+					{(routine.appliesToAllInSection === 1 || routine.isSectionRoutine === 1) && (
+						<VStack gap="space-2">
+							<Label size="small">Scope</Label>
+							<HStack gap="space-2" wrap>
+								{routine.isSectionRoutine === 1 && (
+									<Tag variant="alt1" size="small">
+										Seksjonsrutine
+									</Tag>
+								)}
+								{routine.appliesToAllInSection === 1 && (
+									<Tag variant="alt1" size="small">
+										Gjelder alle applikasjoner i seksjonen
+									</Tag>
+								)}
+							</HStack>
+						</VStack>
+					)}
+
+					{routine.technologyElements.length > 0 && (
+						<VStack gap="space-2">
+							<Label size="small">Teknologielementer</Label>
+							<HStack gap="space-2" wrap>
+								{routine.technologyElements.map((te) => (
+									<Tag key={te.id} variant="neutral" size="small">
+										{te.name}
+									</Tag>
+								))}
+							</HStack>
+						</VStack>
+					)}
+
+					{routine.controls.length > 0 && (
+						<VStack gap="space-2">
+							<Label size="small">Tilknyttede krav</Label>
+							<HStack gap="space-2" wrap>
+								{routine.controls.map((ctrl) => (
+									<Tag key={ctrl.id} variant="info" size="small">
+										<Link to={`/kontrollrammeverk/${ctrl.domainSlug}/${ctrl.controlId}`}>
+											{ctrl.controlId} – {ctrl.name}
+										</Link>
+									</Tag>
+								))}
+							</HStack>
+						</VStack>
+					)}
+
+					{routine.persistenceLinks.length > 0 && (
+						<VStack gap="space-2">
+							<Label size="small">Database og klassifisering</Label>
+							{routine.persistenceLinks.map((pl) => (
+								<HStack key={pl.id} gap="space-2" wrap>
+									{pl.persistenceType && (
+										<Tag variant="info" size="small">
+											{persistenceTypeLabels[pl.persistenceType as PersistenceType] ?? pl.persistenceType}
+										</Tag>
+									)}
+									{pl.dataClassification && (
+										<Tag variant="warning" size="small">
+											{dataClassificationLabels[pl.dataClassification as DataClassification] ?? pl.dataClassification}
+										</Tag>
+									)}
+								</HStack>
+							))}
+						</VStack>
+					)}
+
+					{routine.oracleRoleCriticalities?.length > 0 && (
+						<VStack gap="space-2">
+							<Label size="small">Kritikalitet for Oracle-roller</Label>
+							<HStack gap="space-2" wrap>
+								{routine.oracleRoleCriticalities.map((orc) => (
+									<Tag key={orc.criticality} variant="neutral" size="small">
+										{groupCriticalityLabels[orc.criticality as GroupCriticality] ?? orc.criticality}
+									</Tag>
+								))}
+							</HStack>
+						</VStack>
+					)}
+
+					{routine.groupClassifications.length > 0 && (
+						<VStack gap="space-2">
+							<Label size="small">Tilgangsklassifisering for Entra ID-grupper</Label>
+							<HStack gap="space-2" wrap>
+								{routine.groupClassifications.map((gc) => (
+									<Tag key={gc.id} variant="info" size="small">
+										{groupAccessClassificationLabels[gc.classification as GroupAccessClassification] ??
+											gc.classification}
+									</Tag>
+								))}
+							</HStack>
+						</VStack>
+					)}
+				</VStack>
 			</VStack>
 
 			{/* Approval info */}
