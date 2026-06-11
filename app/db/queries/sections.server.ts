@@ -122,9 +122,9 @@ export async function getSectionDetail(seksjonSlug: string) {
 	// Bulk fetch shared data in parallel — queries that don't depend on teamIds are always needed
 	const sharedQueries = [
 		db
-			.select({ cluster: sectionEnvironments.cluster })
+			.select({ cluster: sectionEnvironments.cluster, included: sectionEnvironments.included })
 			.from(sectionEnvironments)
-			.where(and(eq(sectionEnvironments.sectionId, section.id), eq(sectionEnvironments.included, false))),
+			.where(eq(sectionEnvironments.sectionId, section.id)),
 		db.select().from(naisTeams).where(eq(naisTeams.sectionId, section.id)),
 	] as const
 
@@ -158,7 +158,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 				] as const)
 			: null
 
-	const [excludedEnvRows, sectionNaisTeamRows, ...teamResults] = await Promise.all([
+	const [sectionEnvRows, sectionNaisTeamRows, ...teamResults] = await Promise.all([
 		...sharedQueries,
 		...(teamQueries ?? []),
 	])
@@ -166,7 +166,9 @@ export async function getSectionDetail(seksjonSlug: string) {
 	const directMappingRows = teamQueries ? (teamResults[0] as Awaited<(typeof teamQueries)[0]>) : []
 	const naisTeamMappingRows = teamQueries ? (teamResults[1] as Awaited<(typeof teamQueries)[1]>) : []
 
-	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
+	const excludedEnvs = new Set(sectionEnvRows.filter((r) => !r.included).map((r) => r.cluster))
+	const hasNaisMiljo = sectionEnvRows.some((r) => r.included)
+	const hasNaisTeam = sectionNaisTeamRows.length > 0
 
 	// Group direct mappings by team
 	const directByTeam = new Map<string, Set<string>>()
@@ -419,7 +421,7 @@ export async function getSectionDetail(seksjonSlug: string) {
 		total: sectionTotal,
 	}
 
-	return { section, teams: teamStats, unassignedStats, allAppIds, sectionTotals }
+	return { section, teams: teamStats, unassignedStats, allAppIds, sectionTotals, hasNaisTeam, hasNaisMiljo }
 }
 
 /** Generate a URL-friendly slug from a name. */

@@ -224,6 +224,9 @@ export function mockSeksjonDetailData() {
 		needsFollowUpApps: 2,
 		seksjonsleder: { navIdent: "Z990001", name: "Glad Fjord" },
 		teknologileder: { navIdent: "Z990002", name: "Rask Elv" },
+		hasUtviklerteam: true,
+		hasNaisTeam: true,
+		hasNaisMiljo: true,
 	}
 }
 
