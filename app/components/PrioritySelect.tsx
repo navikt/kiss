@@ -8,6 +8,7 @@ type PrioritySelectCommonProps = {
 	hideLabel?: boolean
 	error?: string
 	id?: string
+	description?: string
 }
 
 // Controlled mode: value + onChange (used on detail page)
@@ -44,6 +45,7 @@ export function PrioritySelect({
 	hideLabel = false,
 	error,
 	id,
+	description,
 	...props
 }: PrioritySelectProps) {
 	const options = (
@@ -65,6 +67,7 @@ export function PrioritySelect({
 				defaultValue={String(props.defaultValue ?? ROUTINE_PRIORITIES.NORMAL)}
 				disabled={disabled}
 				error={error}
+				description={description}
 			>
 				{options}
 			</Select>
@@ -81,6 +84,7 @@ export function PrioritySelect({
 			onChange={(e) => props.onChange?.(Number(e.target.value))}
 			disabled={disabled}
 			error={error}
+			description={description}
 		>
 			{options}
 		</Select>

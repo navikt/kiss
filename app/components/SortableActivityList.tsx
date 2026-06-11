@@ -180,7 +180,7 @@ export function SortableActivityList({
 						size="small"
 						value={selectValue}
 						onChange={(e) => setSelectValue(e.target.value)}
-						hideLabel={activities.length > 0}
+						hideLabel
 					>
 						<option value="">Velg aktivitet…</option>
 						{availableGroups.map((group) => (
