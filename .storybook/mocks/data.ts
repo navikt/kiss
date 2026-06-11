@@ -1151,6 +1151,7 @@ export function mockRutineDetaljData(overrides?: {
 		technologyElements: isSec ? [] : [{ id: "te-1", name: "Applikasjon" }],
 		persistenceLinks: [],
 		groupClassifications: [],
+		activityTypes: [],
 	}
 
 	const reviews = isSec

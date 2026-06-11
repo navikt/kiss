@@ -209,7 +209,7 @@ export async function getRoutine(id: string) {
 	const [routine] = await db.select().from(routines).where(eq(routines.id, id)).limit(1)
 	if (!routine) return null
 
-	const [elements, screeningLinks, persLinks, controlRows, gcLinks, orcLinks] = await Promise.all([
+	const [elements, screeningLinks, persLinks, controlRows, gcLinks, orcLinks, activityLinkRows] = await Promise.all([
 		db
 			.select({
 				id: technologyElements.id,
@@ -258,6 +258,11 @@ export async function getRoutine(id: string) {
 			.where(
 				and(eq(routineOracleRoleCriticalityLinks.routineId, id), isNull(routineOracleRoleCriticalityLinks.archivedAt)),
 			),
+		db
+			.select({ activityType: routineActivityLinks.activityType })
+			.from(routineActivityLinks)
+			.where(and(eq(routineActivityLinks.routineId, id), isNull(routineActivityLinks.archivedAt)))
+			.orderBy(routineActivityLinks.sortOrder),
 	])
 
 	const controls = controlRows.map((c) => ({
@@ -276,6 +281,7 @@ export async function getRoutine(id: string) {
 		controls,
 		groupClassifications: gcLinks,
 		oracleRoleCriticalities: orcLinks,
+		activityTypes: activityLinkRows.map((r) => r.activityType as RoutineActivityType),
 	}
 }
 
@@ -3608,6 +3614,7 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 			controls: controlsByRoutine.get(routine.id) ?? [],
 			groupClassifications: gcLinksByRoutine.get(routine.id) ?? [],
 			oracleRoleCriticalities: orcLinksByRoutine.get(routine.id) ?? [],
+			activityTypes: [],
 		}
 
 		const apps = await getAppsRequiringRoutine(routine.id, {
@@ -3665,6 +3672,7 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 			controls: controlsByRoutine.get(routine.id) ?? [],
 			groupClassifications: gcLinksByRoutine.get(routine.id) ?? [],
 			oracleRoleCriticalities: orcLinksByRoutine.get(routine.id) ?? [],
+			activityTypes: [],
 		}
 
 		const lastReviewDate = reviewDateLookup.get(`${routine.id}:${appId}`) ?? null
@@ -3836,6 +3844,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 			controls: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
+			activityTypes: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -3972,6 +3981,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			controls: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
+			activityTypes: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -4145,6 +4155,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 			controls: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
+			activityTypes: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -4280,6 +4291,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 			controls: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
+			activityTypes: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -4395,6 +4407,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			controls: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
+			activityTypes: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -4599,6 +4612,7 @@ export async function getRoutineDeadlinesForAppBySection(
 			controls: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: routineOracle,
+			activityTypes: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -4739,6 +4753,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			controls: [],
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
+			activityTypes: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
