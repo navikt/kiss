@@ -41,7 +41,9 @@ export function NaisTab({
 
 	const registeredClusters = new Map(sectionEnvironments.map((e) => [e.cluster, e.included]))
 
-	const activeClusters = sectionEnvironments.filter((e) => e.included)
+	const activeClusters = sectionEnvironments
+		.filter((e) => e.included)
+		.sort((a, b) => a.cluster.localeCompare(b.cluster, "nb"))
 	const inactiveClusters = allKnownClusters
 		.filter((c) => !registeredClusters.get(c))
 		.sort((a, b) => a.localeCompare(b, "nb"))
