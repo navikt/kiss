@@ -476,7 +476,7 @@ export default function EditScreeningQuestion() {
 				</HStack>
 			)}
 
-			{/* Choices management — hidden for persistence/entra/oracle_roles/ruleset/economy_system/blank */}
+			{/* Choices management — hidden for persistence/entra/ruleset/economy_system/blank */}
 			{answerType !== "" &&
 				answerType !== "persistence" &&
 				answerType !== "entra_id_groups" &&

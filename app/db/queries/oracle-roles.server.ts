@@ -145,7 +145,7 @@ export async function isInstanceLinkedToApp(applicationId: string, instanceId: s
 // ─── Latest Oracle Role Criticality Review ───────────────────────────────
 
 /**
- * Returns the most recent completed review that contains an oracle_role_criticality
+ * Returns the most recent review (regardless of status) that contains an oracle_role_criticality
  * activity for the given application, used to link back to the source gjennomgang.
  */
 export async function getLatestOracleRoleCriticalityReview(applicationId: string): Promise<{

@@ -625,6 +625,8 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 		oracleInstances: [],
 		totalOracleInstanceCount: 0,
 		instanceSnapshotHistories: [],
+		oracleRoleAssessments: {} as Record<string, { criticality: string; updatedBy: string; updatedAt: string }>,
+		latestOracleRoleCriticalityReview: null,
 		sectionSlugMap: { "s-01": "pensjon-og-ufore" },
 		canAdmin: true,
 		knownApps: {
