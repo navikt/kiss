@@ -47,6 +47,7 @@ import {
 	type PersistenceType,
 	persistenceTypeLabels,
 } from "~/db/schema/applications"
+import { activityTypeLabels } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
 import { canApproveRoutine, hasAnySectionRole, isAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -597,6 +598,19 @@ export default function RutineDetaljer() {
 									<Tag key={gc.id} variant="info" size="small">
 										{groupAccessClassificationLabels[gc.classification as GroupAccessClassification] ??
 											gc.classification}
+									</Tag>
+								))}
+							</HStack>
+						</VStack>
+					)}
+
+					{routine.activityTypes.length > 0 && (
+						<VStack gap="space-2">
+							<Label size="small">Vedlikeholdsaktiviteter</Label>
+							<HStack gap="space-2" wrap>
+								{routine.activityTypes.map((type) => (
+									<Tag key={type} variant="neutral" size="small">
+										{activityTypeLabels[type] ?? type}
 									</Tag>
 								))}
 							</HStack>

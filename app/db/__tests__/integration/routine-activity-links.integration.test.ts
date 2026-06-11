@@ -17,6 +17,7 @@ const {
 	createReview,
 	copyRoutine,
 	autoCreateActivitiesForReview,
+	getRoutine,
 	getRoutineActivityLinks,
 	reorderRoutineActivities,
 	getReviewActivityByType,
@@ -222,6 +223,61 @@ describe("Routine Activity Links integration tests", () => {
 				"deployment_evidence_report",
 			])
 			expect(links.map((l) => l.sortOrder)).toEqual([0, 1, 2])
+		})
+
+		it("getRoutine returns activityTypes in sortOrder", async () => {
+			const sectionId = await createTestSection("Test", "test")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "getRoutine activity order",
+				description: null,
+				frequency: "quarterly",
+				activityTypes: ["entra_id_group_maintenance", "oracle_evidence_audit", "deployment_evidence_report"],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			const fetched = await getRoutine(routine.id)
+			expect(fetched).not.toBeNull()
+			expect(fetched?.activityTypes).toEqual([
+				"entra_id_group_maintenance",
+				"oracle_evidence_audit",
+				"deployment_evidence_report",
+			])
+		})
+
+		it("getRoutine reflects updated sortOrder after reorder", async () => {
+			const sectionId = await createTestSection("Test", "test")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "getRoutine reorder check",
+				description: null,
+				frequency: "quarterly",
+				activityTypes: ["oracle_evidence_audit", "entra_id_group_maintenance"],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			const links = await getRoutineActivityLinks(routine.id)
+			const reversedIds = [...links].reverse().map((l) => l.id)
+			await reorderRoutineActivities(routine.id, reversedIds, "Z990001")
+
+			const fetched = await getRoutine(routine.id)
+			expect(fetched?.activityTypes).toEqual(["entra_id_group_maintenance", "oracle_evidence_audit"])
 		})
 	})
 
