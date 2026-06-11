@@ -34,7 +34,7 @@ export default function RedigerSeksjon() {
 				<Tabs.List>
 					<Tabs.Tab value="seksjon" label="Seksjon" />
 					<Tabs.Tab value="team" label="Utviklingsteam" />
-					<Tabs.Tab value="nais" label="Nais-team" />
+					<Tabs.Tab value="nais" label="Nais-overvåking" />
 					<Tabs.Tab value="data" label="Data" />
 				</Tabs.List>
 
