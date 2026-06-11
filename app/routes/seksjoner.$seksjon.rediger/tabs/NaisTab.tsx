@@ -29,7 +29,8 @@ export function NaisTab({
 	allKnownClusters: string[]
 	onRequestUnlink: (team: LinkedNaisTeam) => void
 }) {
-	const addModalRef = useRef<HTMLDialogElement>(null)
+	const addTeamModalRef = useRef<HTMLDialogElement>(null)
+	const addEnvModalRef = useRef<HTMLDialogElement>(null)
 	const [search, setSearch] = useState("")
 	const [selectedSlug, setSelectedSlug] = useState<string | null>(null)
 
@@ -40,103 +41,88 @@ export function NaisTab({
 
 	const registeredClusters = new Map(sectionEnvironments.map((e) => [e.cluster, e.included]))
 
-	const allClusters = [...new Set([...allKnownClusters, ...sectionEnvironments.map((e) => e.cluster)])].sort((a, b) =>
-		a.localeCompare(b, "nb"),
-	)
+	const activeClusters = sectionEnvironments
+		.filter((e) => e.included)
+		.sort((a, b) => a.cluster.localeCompare(b.cluster, "nb"))
+	const inactiveClusters = allKnownClusters
+		.filter((c) => !registeredClusters.get(c))
+		.sort((a, b) => a.localeCompare(b, "nb"))
 
-	const hasActiveEnvironments = sectionEnvironments.some((e) => e.included)
-
-	function openAddModal() {
+	function openAddTeamModal() {
 		setSearch("")
 		setSelectedSlug(null)
-		addModalRef.current?.showModal()
+		addTeamModalRef.current?.showModal()
 	}
 
 	return (
 		<VStack gap="space-8">
 			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Miljøfilter
-				</Heading>
-				<Alert variant="warning" size="small">
-					Krav i KISS er foreløpig kun knyttet til produksjonsmiljøer. Vi anbefaler at du kun aktiverer{" "}
-					<strong>prod-gcp</strong> og eventuelt <strong>prod-fss</strong>.
-				</Alert>
-				<BodyShort>
-					Velg hvilke Nais-miljøer som skal inkluderes. Applikasjoner som kun finnes i deaktiverte miljøer vil ikke
-					telle med i team, compliance-oppsummering eller applikasjonslister.
-				</BodyShort>
-				{allClusters.length > 0 && !hasActiveEnvironments && (
-					<Alert variant="info" size="small">
-						Ingen miljøer er aktive. Aktiver minst ett produksjonsmiljø for at applikasjoner skal vises og telles med i
-						compliance og rapporter.
-					</Alert>
-				)}
-				{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-				<section className="table-scroll" tabIndex={0} aria-label="Miljøfilter">
-					<Table size="small">
-						<Table.Header>
-							<Table.Row>
-								<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Status</Table.HeaderCell>
-								<Table.HeaderCell scope="col" />
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{allClusters.length === 0 ? (
+				<HStack justify="space-between" align="center">
+					<Heading size="medium" level="3">
+						Nais-miljø
+					</Heading>
+					{inactiveClusters.length > 0 && (
+						<Button
+							variant="secondary"
+							size="small"
+							icon={<PlusIcon aria-hidden />}
+							onClick={() => addEnvModalRef.current?.showModal()}
+						>
+							Legg til Nais-miljø
+						</Button>
+					)}
+				</HStack>
+
+				{activeClusters.length === 0 ? (
+					allKnownClusters.length === 0 ? (
+						<Alert variant="info" size="small">
+							Ingen miljøer er registrert i systemet ennå. Kjør Nais-sync for å oppdage miljøer.
+						</Alert>
+					) : (
+						<Alert variant="info" size="small">
+							Ingen miljøer er aktive. Aktiver minst ett produksjonsmiljø for at applikasjoner skal vises og telles med
+							i compliance og rapporter.
+						</Alert>
+					)
+				) : (
+					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+					<section className="table-scroll" tabIndex={0} aria-label="Aktive Nais-miljøer">
+						<Table size="small">
+							<Table.Header>
 								<Table.Row>
-									<Table.DataCell colSpan={3}>
-										Ingen miljøer registrert i systemet ennå. Kjør Nais-sync for å oppdage miljøer.
-									</Table.DataCell>
+									<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+									<Table.HeaderCell scope="col" />
 								</Table.Row>
-							) : (
-								allClusters.map((cluster) => {
-									const included = registeredClusters.get(cluster)
-									const isRegistered = registeredClusters.has(cluster)
-									return (
-										<Table.Row key={cluster}>
-											<Table.DataCell>{cluster}</Table.DataCell>
-											<Table.DataCell>
-												{!isRegistered ? (
-													<Tag variant="neutral" size="small">
-														Ikke lagt til
-													</Tag>
-												) : included ? (
-													<Tag variant="success" size="small">
-														Aktiv
-													</Tag>
-												) : (
-													<Tag variant="neutral" size="small">
-														Deaktivert
-													</Tag>
-												)}
-											</Table.DataCell>
-											<Table.DataCell align="right">
-												<Form method="post">
-													<input type="hidden" name="intent" value="toggle-environment" />
-													<input type="hidden" name="cluster" value={cluster} />
-													<input type="hidden" name="enabled" value={included ? "false" : "true"} />
-													<Button type="submit" variant="tertiary-neutral" size="xsmall">
-														{included ? "Deaktiver" : "Aktiver"}
-													</Button>
-												</Form>
-											</Table.DataCell>
-										</Table.Row>
-									)
-								})
-							)}
-						</Table.Body>
-					</Table>
-				</section>
+							</Table.Header>
+							<Table.Body>
+								{activeClusters.map((env) => (
+									<Table.Row key={env.cluster}>
+										<Table.DataCell>{env.cluster}</Table.DataCell>
+										<Table.DataCell align="right">
+											<Form method="post">
+												<input type="hidden" name="intent" value="toggle-environment" />
+												<input type="hidden" name="cluster" value={env.cluster} />
+												<input type="hidden" name="enabled" value="false" />
+												<Button type="submit" variant="tertiary-neutral" size="xsmall">
+													Deaktiver
+												</Button>
+											</Form>
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				)}
 			</VStack>
 
 			<VStack gap="space-4">
 				<HStack justify="space-between" align="center">
 					<Heading size="medium" level="3">
-						Koblede Nais-team ({linkedNaisTeams.length})
+						Nais-team
 					</Heading>
 					{unlinkedNaisTeams.length > 0 && (
-						<Button variant="secondary" size="small" icon={<PlusIcon aria-hidden />} onClick={openAddModal}>
+						<Button variant="secondary" size="small" icon={<PlusIcon aria-hidden />} onClick={openAddTeamModal}>
 							Legg til Nais-team
 						</Button>
 					)}
@@ -190,7 +176,55 @@ export function NaisTab({
 				)}
 			</VStack>
 
-			<Modal ref={addModalRef} header={{ heading: "Legg til Nais-team" }} width="medium">
+			<Modal ref={addEnvModalRef} header={{ heading: "Legg til Nais-miljø" }} width="medium">
+				<Modal.Body>
+					<VStack gap="space-4">
+						<BodyShort>
+							Applikasjoner som kun finnes i deaktiverte miljøer vil ikke telle med i team, compliance-oppsummering
+							eller applikasjonslister.
+						</BodyShort>
+						<Alert variant="warning" size="small">
+							Krav i KISS er foreløpig kun knyttet til produksjonsmiljøer. Vi anbefaler at du kun aktiverer{" "}
+							<strong>prod-gcp</strong> og eventuelt <strong>prod-fss</strong>.
+						</Alert>
+						{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+						<section className="table-scroll table-scroll-modal" tabIndex={0} aria-label="Tilgjengelige Nais-miljøer">
+							<Table size="small">
+								<Table.Header>
+									<Table.Row>
+										<Table.HeaderCell scope="col">Miljø</Table.HeaderCell>
+										<Table.HeaderCell scope="col" />
+									</Table.Row>
+								</Table.Header>
+								<Table.Body>
+									{inactiveClusters.map((cluster) => (
+										<Table.Row key={cluster}>
+											<Table.DataCell>{cluster}</Table.DataCell>
+											<Table.DataCell align="right">
+												<Form method="post" onSubmit={() => addEnvModalRef.current?.close()}>
+													<input type="hidden" name="intent" value="toggle-environment" />
+													<input type="hidden" name="cluster" value={cluster} />
+													<input type="hidden" name="enabled" value="true" />
+													<Button type="submit" variant="primary" size="xsmall" icon={<PlusIcon aria-hidden />}>
+														Aktiver
+													</Button>
+												</Form>
+											</Table.DataCell>
+										</Table.Row>
+									))}
+								</Table.Body>
+							</Table>
+						</section>
+					</VStack>
+				</Modal.Body>
+				<Modal.Footer>
+					<Button type="button" variant="secondary" size="small" onClick={() => addEnvModalRef.current?.close()}>
+						Lukk
+					</Button>
+				</Modal.Footer>
+			</Modal>
+
+			<Modal ref={addTeamModalRef} header={{ heading: "Legg til Nais-team" }} width="medium">
 				<Modal.Body>
 					<VStack gap="space-4">
 						<Search
@@ -251,11 +285,11 @@ export function NaisTab({
 					</VStack>
 				</Modal.Body>
 				<Modal.Footer>
-					<Form method="post" onSubmit={() => addModalRef.current?.close()}>
+					<Form method="post" onSubmit={() => addTeamModalRef.current?.close()}>
 						<input type="hidden" name="intent" value="link-nais-team" />
 						<input type="hidden" name="naisTeamSlug" value={selectedSlug ?? ""} />
 						<HStack gap="space-4">
-							<Button type="button" variant="secondary" size="small" onClick={() => addModalRef.current?.close()}>
+							<Button type="button" variant="secondary" size="small" onClick={() => addTeamModalRef.current?.close()}>
 								Avbryt
 							</Button>
 							<Button
