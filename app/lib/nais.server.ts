@@ -66,8 +66,8 @@ interface GraphQLResponse<T> {
 	errors?: Array<{ message: string }>
 }
 
-/** Nais API token — lest fra fil ved oppstart og cachet for hele prosessens levetid. */
-function loadNaisToken(): string | undefined {
+/** Les Nais API-token fra fil ved hvert kall — innholdet kan roteres mens applikasjonen kjører. */
+export function getNaisToken(): string | undefined {
 	const tokenPath = process.env.NAIS_SERVICE_ACCOUNT_TOKEN_PATH
 	if (tokenPath) {
 		try {
@@ -79,13 +79,6 @@ function loadNaisToken(): string | undefined {
 		}
 	}
 	return undefined
-}
-
-const NAIS_TOKEN = loadNaisToken()
-
-/** Get the Nais API token loaded at startup from NAIS_SERVICE_ACCOUNT_TOKEN_PATH. */
-export function getNaisToken(): string | undefined {
-	return NAIS_TOKEN
 }
 
 async function naisGraphQL<T>(query: string, variables?: Record<string, unknown>, token?: string): Promise<T> {
