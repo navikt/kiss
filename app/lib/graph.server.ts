@@ -366,6 +366,7 @@ export async function getUserByNavIdent(navIdent: string): Promise<UserSearchRes
 	const url = new URL("https://graph.microsoft.com/v1.0/users")
 	url.searchParams.set("$select", "id,displayName,mail,onPremisesSamAccountName,mailNickname")
 	url.searchParams.set("$top", "1")
+	url.searchParams.set("$count", "true")
 	const identUpper = trimmed.toUpperCase().replace(/'/g, "''")
 	const identLower = trimmed.toLowerCase().replace(/'/g, "''")
 	url.searchParams.set("$filter", `onPremisesSamAccountName eq '${identUpper}' or mailNickname eq '${identLower}'`)
@@ -373,7 +374,7 @@ export async function getUserByNavIdent(navIdent: string): Promise<UserSearchRes
 	const token = await getClientCredentialToken(GRAPH_SCOPE)
 	const response = await loggedFetch(
 		url.toString(),
-		{ headers: { Authorization: `Bearer ${token}` } },
+		{ headers: { Authorization: `Bearer ${token}`, ConsistencyLevel: "eventual" } },
 		{ area: "microsoft-graph" },
 	)
 

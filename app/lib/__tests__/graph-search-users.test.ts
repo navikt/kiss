@@ -107,7 +107,7 @@ describe("getUserByNavIdent — kontrakt", () => {
 		vi.restoreAllMocks()
 	})
 
-	it("bruker $filter med onPremisesSamAccountName og mailNickname, og $top=1", async () => {
+	it("bruker $filter med onPremisesSamAccountName og mailNickname, $top=1, $count=true og ConsistencyLevel: eventual", async () => {
 		vi.stubEnv("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT", "https://example.test/token")
 		const fetchMock = mockFetchSuccess()
 		vi.stubGlobal("fetch", fetchMock)
@@ -119,7 +119,10 @@ describe("getUserByNavIdent — kontrakt", () => {
 			"onPremisesSamAccountName eq 'Z990042' or mailNickname eq 'z990042'",
 		)
 		expect(calledUrl.searchParams.get("$top")).toBe("1")
+		expect(calledUrl.searchParams.get("$count")).toBe("true")
 		expect(calledUrl.searchParams.get("$search")).toBeNull()
+		const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>
+		expect(headers.ConsistencyLevel).toBe("eventual")
 	})
 
 	it("returnerer null ved tomt treff (bruker finnes ikke i Graph)", async () => {
