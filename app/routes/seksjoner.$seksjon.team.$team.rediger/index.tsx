@@ -175,8 +175,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 		let navIdent: string
 		try {
-			const parsed = JSON.parse(rawPerson) as { navIdent: string; displayName: string }
-			navIdent = parsed.navIdent?.trim()?.toUpperCase()
+			const parsed = JSON.parse(rawPerson) as { navIdent?: unknown; displayName?: unknown }
+			const rawIdent = typeof parsed.navIdent === "string" ? parsed.navIdent : ""
+			navIdent = rawIdent.trim().toUpperCase()
 			if (!navIdent) throw new Error("Mangler navIdent")
 		} catch {
 			throw new Response("Ugyldig person-data", { status: 400 })
