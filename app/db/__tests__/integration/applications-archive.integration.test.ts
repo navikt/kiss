@@ -113,11 +113,26 @@ describe("Application archive (soft-delete) integration tests", () => {
 		)
 		const teamId = (teamRow.rows[0] as { id: string }).id
 
+		// Set up nais team linked to section with an active cluster
+		const naisTeamRow = await db.execute(
+			/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('test-nais-team', '${sectionId}') RETURNING id`,
+		)
+		const naisTeamId = (naisTeamRow.rows[0] as { id: string }).id
+		await db.execute(
+			/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${sectionId}', 'prod-gcp', true, 'test', 'test')`,
+		)
+
+		// Active app with an environment in the section's nais team and active cluster
 		const active = await createTestApp("Available App")
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${active}', 'prod-gcp', 'test-nais-team', '${naisTeamId}')`,
+		)
+
+		// Archived app (no environments, so archiveApplication succeeds)
 		const archived = await createTestApp("Archived App")
 		await archiveApplication(archived, "admin")
 
-		const apps = await getAvailableAppsForTeam(teamId)
+		const apps = await getAvailableAppsForTeam(teamId, sectionId)
 		const ids = apps.map((a) => a.id)
 		expect(ids).toContain(active)
 		expect(ids).not.toContain(archived)
