@@ -36,13 +36,13 @@ import { assignRole, getTeamMemberRoleById, getTeamMemberRoles, removeRole } fro
 import type { UserRole } from "~/db/schema/organization"
 import { userRoleLabels } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { canManageTeam, isAdmin } from "~/lib/authorization.server"
+import { canManageSection, canManageTeam } from "~/lib/authorization.server"
 import { requireUuid } from "~/lib/utils"
 
 /** Roller som teamledere (produktleder/tech lead) kan administrere på eget team. */
 const TEAM_MANAGEABLE_ROLES: UserRole[] = ["developer"]
-/** Roller som kun admin kan administrere. */
-const ADMIN_ONLY_ROLES: UserRole[] = ["product_owner", "tech_lead"]
+/** Roller som seksjonsledere, teknologiledere og admin kan administrere. */
+const ELEVATED_ROLES: UserRole[] = ["product_owner", "tech_lead"]
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
 	const seksjon = params.seksjon
@@ -72,7 +72,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
 
 	const availableNaisTeams = sectionNaisTeams.filter((nt) => !linkedNaisTeams.some((linked) => linked.slug === nt.slug))
-	const userIsAdmin = isAdmin(authedUser)
+	const userCanAssignElevatedRoles = canManageSection(authedUser, section.id)
 
 	return data({
 		seksjon,
@@ -87,7 +87,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		linkedNaisTeams,
 		availableNaisTeams: availableNaisTeams.map((nt) => ({ slug: nt.slug })),
 		teamMembers,
-		userIsAdmin,
+		userCanAssignElevatedRoles,
 	})
 }
 
@@ -175,14 +175,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const navIdent = rawNavIdent.trim().toUpperCase()
 		const name = rawName.trim()
 
-		const allTeamRoles: UserRole[] = [...TEAM_MANAGEABLE_ROLES, ...ADMIN_ONLY_ROLES]
+		const allTeamRoles: UserRole[] = [...TEAM_MANAGEABLE_ROLES, ...ELEVATED_ROLES]
 		if (typeof rawRole !== "string" || !allTeamRoles.includes(rawRole as UserRole)) {
 			throw new Response("Ugyldig rolle", { status: 400 })
 		}
 		const role = rawRole as UserRole
 
-		if (ADMIN_ONLY_ROLES.includes(role) && !isAdmin(authedUser)) {
-			throw new Response("Kun admin kan tildele denne rollen", { status: 403 })
+		const canAssignElevated = canManageSection(authedUser, teamRecord.sectionId)
+		if (ELEVATED_ROLES.includes(role) && !canAssignElevated) {
+			throw new Response("Kun seksjonsledere, teknologiledere og admin kan tildele denne rollen", { status: 403 })
 		}
 
 		await assignRole(navIdent, name, role, userId, undefined, teamRecord.id)
@@ -197,9 +198,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const target = await getTeamMemberRoleById(roleId, teamRecord.id)
 		if (!target) throw new Response("Rolle ikke funnet i dette teamet", { status: 404 })
 
-		// Ikke-admin kan kun fjerne roller i TEAM_MANAGEABLE_ROLES (positiv allowlist)
-		if (!isAdmin(authedUser) && !TEAM_MANAGEABLE_ROLES.includes(target.role)) {
-			throw new Response("Kun admin kan fjerne denne rollen", { status: 403 })
+		// Brukere uten seksjons-admin-tilgang kan kun fjerne roller i TEAM_MANAGEABLE_ROLES (positiv allowlist)
+		const canRemoveElevated = canManageSection(authedUser, teamRecord.sectionId)
+		if (!canRemoveElevated && !TEAM_MANAGEABLE_ROLES.includes(target.role)) {
+			throw new Response("Kun seksjonsledere, teknologiledere og admin kan fjerne denne rollen", { status: 403 })
 		}
 
 		await removeRole(roleId, userId)
@@ -220,14 +222,14 @@ export default function RedigerTeam() {
 		linkedNaisTeams,
 		availableNaisTeams,
 		teamMembers,
-		userIsAdmin,
+		userCanAssignElevatedRoles,
 	} = useLoaderData<typeof loader>()
 
 	const archiveModalRef = useRef<HTMLDialogElement>(null)
 	const isArchived = teamArchivedAt !== null
 
-	const assignableRoles: UserRole[] = userIsAdmin
-		? [...TEAM_MANAGEABLE_ROLES, ...ADMIN_ONLY_ROLES]
+	const assignableRoles: UserRole[] = userCanAssignElevatedRoles
+		? [...TEAM_MANAGEABLE_ROLES, ...ELEVATED_ROLES]
 		: TEAM_MANAGEABLE_ROLES
 
 	return (
@@ -325,7 +327,7 @@ export default function RedigerTeam() {
 										<Table.DataCell>{m.navIdent}</Table.DataCell>
 										<Table.DataCell>{userRoleLabels[m.role]}</Table.DataCell>
 										<Table.DataCell align="right">
-											{!isArchived && (userIsAdmin || TEAM_MANAGEABLE_ROLES.includes(m.role)) && (
+											{!isArchived && (userCanAssignElevatedRoles || TEAM_MANAGEABLE_ROLES.includes(m.role)) && (
 												<Form method="post">
 													<input type="hidden" name="intent" value="remove-member" />
 													<input type="hidden" name="roleId" value={m.roleId} />
