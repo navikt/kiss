@@ -34,7 +34,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getScreeningProgressForApps(appIds),
 	])
 
-	const canManage = user ? canManageTeam(user, result.team.id) : false
+	const canManage = user ? canManageTeam(user, result.team.id, section.id) : false
 	let canAddApp = canManage
 
 	if (!canAddApp && user) {
@@ -96,7 +96,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (!section || section.id !== teamRecord.sectionId) throw new Response("Seksjon/team mismatch", { status: 404 })
 
 	// Check authorization: team admin (admin/product_owner/tech_lead) or any team member
-	if (!canManageTeam(authedUser, teamRecord.id)) {
+	if (!canManageTeam(authedUser, teamRecord.id, section.id)) {
 		const isMember = authedUser.dbRoles.some((r) => r.devTeamId === teamRecord.id)
 		if (!isMember) throw new Response("Ikke tilgang", { status: 403 })
 	}

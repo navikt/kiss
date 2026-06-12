@@ -95,6 +95,52 @@ describe("canManageTeam", () => {
 		const user = makeUser({ isActualAdmin: true })
 		expect(canManageTeam(user, devTeamId)).toBe(false)
 	})
+
+	it("returns true for tech_manager with matching sectionId", () => {
+		const sectionId = "section-xyz"
+		const user = makeUser({
+			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId, sectionId)).toBe(true)
+	})
+
+	it("returns true for section_manager with matching sectionId", () => {
+		const sectionId = "section-xyz"
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId, sectionId)).toBe(true)
+	})
+
+	it("returns false for tech_manager when sectionId is not provided", () => {
+		const sectionId = "section-xyz"
+		const user = makeUser({
+			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId)).toBe(false)
+	})
+
+	it("returns false for tech_manager with wrong sectionId", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "tech_manager", sectionId: "other-section", devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId, "section-xyz")).toBe(false)
+	})
+
+	it("returns false for section_manager when sectionId is not provided", () => {
+		const sectionId = "section-xyz"
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId)).toBe(false)
+	})
+
+	it("returns false for section_manager with wrong sectionId", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId: "other-section", devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canManageTeam(user, devTeamId, "section-xyz")).toBe(false)
+	})
 })
 
 describe("canApproveRoutine", () => {

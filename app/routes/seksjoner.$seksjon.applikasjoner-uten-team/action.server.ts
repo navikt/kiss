@@ -25,7 +25,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		const appIds = [...new Set(formData.getAll("appId") as string[])]
 		if (!teamId) throw new Response("Mangler team", { status: 400 })
 		if (appIds.length === 0) throw new Response("Ingen applikasjoner valgt", { status: 400 })
-		if (!canManageTeam(authedUser, teamId)) throw new Response("Ikke autorisert", { status: 403 })
+		if (!canManageTeam(authedUser, teamId, sectionId)) throw new Response("Ikke autorisert", { status: 403 })
 
 		// Verify team belongs to this section
 		const sectionTeams = await getTeamsForSection(sectionId, { includeArchived: false })

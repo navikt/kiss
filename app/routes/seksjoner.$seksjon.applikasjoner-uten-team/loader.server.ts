@@ -21,7 +21,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getTeamsForSection(sectionId, { includeArchived: false }),
 	])
 
-	const manageableTeams = teams.filter((t) => canManageTeam(authedUser, t.id))
+	const manageableTeams = teams.filter((t) => canManageTeam(authedUser, t.id, sectionId))
 
 	return data({
 		sectionName: result.section.name,

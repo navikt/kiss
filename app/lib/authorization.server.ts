@@ -66,10 +66,15 @@ export function hasAnySectionRole(user: NavUser, sectionId: string): boolean {
 	)
 }
 
-/** Kan administrere et team (admin, produktleder, tech lead for teamet).
- * Krever eksakt devTeamId-match for team-roller – null-wildcard godtas ikke. */
-export function canManageTeam(user: NavUser, devTeamId: string): boolean {
+/** Kan administrere et team (admin, produktleder, tech lead for teamet, teknologileder eller seksjonsleder for seksjonen).
+ * Krever eksakt devTeamId-match for team-roller – null-wildcard godtas ikke.
+ * Hvis sectionId oppgis, gir teknologileder og seksjonsleder for den seksjonen også tilgang. */
+export function canManageTeam(user: NavUser, devTeamId: string, sectionId?: string): boolean {
 	if (isAdmin(user)) return true
+	if (sectionId) {
+		if (hasRoleForSection(user, "tech_manager", sectionId)) return true
+		if (hasRoleForSection(user, "section_manager", sectionId)) return true
+	}
 	return (user.dbRoles ?? []).some(
 		(r) => (r.role === "product_owner" || r.role === "tech_lead") && r.devTeamId === devTeamId,
 	)
