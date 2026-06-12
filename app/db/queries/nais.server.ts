@@ -537,7 +537,7 @@ export async function linkNaisTeamToSection(naisTeamSlug: string, sectionId: str
 		if (section.archivedAt) throw new Error(`Kan ikke koble til arkivert seksjon «${section.name}»`)
 		const updated = await tx
 			.update(naisTeams)
-			.set({ sectionId })
+			.set({ sectionId, status: "monitored" })
 			.where(and(eq(naisTeams.slug, naisTeamSlug), or(isNull(naisTeams.sectionId), eq(naisTeams.sectionId, sectionId))))
 			.returning({ slug: naisTeams.slug })
 		if (updated.length === 0) {
