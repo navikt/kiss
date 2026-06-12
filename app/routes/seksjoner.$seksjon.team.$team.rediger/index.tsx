@@ -66,7 +66,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	const [result, availableApps, linkedNaisTeams, sectionNaisTeams, teamMembers] = await Promise.all([
 		getTeamApps(team),
-		getAvailableAppsForTeam(teamRecord.id),
+		getAvailableAppsForTeam(teamRecord.id, section.id),
 		getNaisTeamsForDevTeam(teamRecord.id),
 		getNaisTeamsForSection(section.id),
 		getTeamMemberRoles(teamRecord.id),

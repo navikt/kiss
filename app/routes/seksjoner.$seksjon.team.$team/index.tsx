@@ -41,7 +41,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		canAddApp = user.dbRoles.some((r) => r.devTeamId === result.team.id)
 	}
 
-	const availableApps = canAddApp ? await getAvailableAppsForTeam(result.team.id) : []
+	const availableApps = canAddApp ? await getAvailableAppsForTeam(result.team.id, section.id) : []
 	const teamUsers = user ? await getUsersForTeam(result.team.id) : []
 
 	const totalControls = result.apps.reduce((sum, a) => sum + a.total, 0)

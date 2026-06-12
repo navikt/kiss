@@ -256,12 +256,24 @@ export async function unlinkAppFromTeam(applicationId: string, devTeamId: string
 	})
 }
 
-/** Get applications NOT yet linked to a specific team (excludes linked/child apps). */
-export async function getAvailableAppsForTeam(devTeamId: string) {
+/**
+ * Get applications NOT yet linked to a specific team (excludes linked/child apps).
+ * Only returns apps that have at least one environment in a Nais team linked to the section
+ * with an active (included) cluster configured for that section.
+ */
+export async function getAvailableAppsForTeam(devTeamId: string, sectionId: string) {
 	const linkedAppIds = db
 		.select({ applicationId: applicationTeamMappings.applicationId })
 		.from(applicationTeamMappings)
 		.where(and(eq(applicationTeamMappings.devTeamId, devTeamId), isNull(applicationTeamMappings.archivedAt)))
+
+	const belongsToSectionNaisTeamWithActiveEnv = sql`EXISTS (
+		SELECT 1 FROM ${applicationEnvironments} ae
+		INNER JOIN ${naisTeams} nt ON nt.id = ae.nais_team_id
+		INNER JOIN ${sectionEnvironments} se ON se.section_id = nt.section_id AND se.cluster = ae.cluster AND se.included = true
+		WHERE ae.application_id = ${monitoredApplications.id}
+		AND nt.section_id = ${sectionId}
+	)`
 
 	return db
 		.select({ id: monitoredApplications.id, name: monitoredApplications.name })
@@ -271,6 +283,7 @@ export async function getAvailableAppsForTeam(devTeamId: string) {
 				isNull(monitoredApplications.primaryApplicationId),
 				isNull(monitoredApplications.archivedAt),
 				sql`${monitoredApplications.id} NOT IN (${linkedAppIds})`,
+				belongsToSectionNaisTeamWithActiveEnv,
 			),
 		)
 		.orderBy(monitoredApplications.name)
