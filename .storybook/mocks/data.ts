@@ -326,7 +326,7 @@ export function mockTeamEditData() {
 			{ roleId: "00000000-0000-0000-0000-000000000002", navIdent: "Z990002", name: "Rask Elv", role: "tech_lead" as const },
 			{ roleId: "00000000-0000-0000-0000-000000000003", navIdent: "Z990003", name: "Stille Skog", role: "developer" as const },
 		],
-		userIsAdmin: false,
+		userCanAssignElevatedRoles: false,
 	}
 }
 

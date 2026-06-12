@@ -21,6 +21,7 @@ interface PersonSingleComboboxProps {
 	defaultValue?: PersonRef
 	required?: boolean
 	size?: "small" | "medium"
+	onSelectionChange?: (person: PersonRef | null) => void
 }
 
 /**
@@ -34,6 +35,7 @@ export function PersonSingleCombobox({
 	defaultValue,
 	required = false,
 	size = "small",
+	onSelectionChange,
 }: PersonSingleComboboxProps) {
 	const searchFetcher = useFetcher<{ results: UserSearchResult[] }>()
 	const [query, setQuery] = useState(() => {
@@ -115,14 +117,16 @@ export function PersonSingleCombobox({
 				selectedRef.current = person
 				setSelected(person)
 				setQuery(displayName ? `${displayName} (${ident})` : ident)
+				onSelectionChange?.(person)
 			} else {
 				preSelectionQueryRef.current = ""
 				selectedRef.current = null
 				setSelected(null)
 				setQuery("")
+				onSelectionChange?.(null)
 			}
 		},
-		[displayNameMap],
+		[displayNameMap, onSelectionChange],
 	)
 
 	const handleChange = useCallback(
@@ -145,6 +149,7 @@ export function PersonSingleCombobox({
 				if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
 				selectedRef.current = null
 				setSelected(null)
+				onSelectionChange?.(null)
 			}
 			setQuery(value)
 			if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
@@ -155,29 +160,33 @@ export function PersonSingleCombobox({
 				searchFetcher.load(`/api/graph/users?q=${encodeURIComponent(q)}`)
 			}, 300)
 		},
-		[searchFetcher],
+		[searchFetcher, onSelectionChange],
 	)
 
-	const handleClear = useCallback((event?: React.PointerEvent | React.KeyboardEvent | React.FocusEvent) => {
-		if (searchTimeoutRef.current) {
-			clearTimeout(searchTimeoutRef.current)
-			searchTimeoutRef.current = null
-		}
-		// UNSAFE_Combobox calls onClear (via clearInput) immediately after onToggleSelected in
-		// toggleOption. When justSelectedRef is true, this is an internal clear triggered by
-		// the selection mechanism — not a user-initiated clear. Preserve the selection.
-		if (justSelectedRef.current) {
-			justSelectedRef.current = false
-			return
-		}
-		// ComboboxWrapper.onBlur calls clearInput (→ onClear) when focus leaves the wrapper.
-		// This is a FocusEvent — we must NOT clear the selection when the user merely tabs away.
-		// Only clear on pointer (X-button click) or keyboard events (Escape).
-		if (event?.type === "blur") return
-		setQuery("")
-		selectedRef.current = null
-		setSelected(null)
-	}, [])
+	const handleClear = useCallback(
+		(event?: React.PointerEvent | React.KeyboardEvent | React.FocusEvent) => {
+			if (searchTimeoutRef.current) {
+				clearTimeout(searchTimeoutRef.current)
+				searchTimeoutRef.current = null
+			}
+			// UNSAFE_Combobox calls onClear (via clearInput) immediately after onToggleSelected in
+			// toggleOption. When justSelectedRef is true, this is an internal clear triggered by
+			// the selection mechanism — not a user-initiated clear. Preserve the selection.
+			if (justSelectedRef.current) {
+				justSelectedRef.current = false
+				return
+			}
+			// ComboboxWrapper.onBlur calls clearInput (→ onClear) when focus leaves the wrapper.
+			// This is a FocusEvent — we must NOT clear the selection when the user merely tabs away.
+			// Only clear on pointer (X-button click) or keyboard events (Escape).
+			if (event?.type === "blur") return
+			setQuery("")
+			selectedRef.current = null
+			setSelected(null)
+			onSelectionChange?.(null)
+		},
+		[onSelectionChange],
+	)
 
 	const hiddenValue = selected ? JSON.stringify({ navIdent: selected.navIdent, displayName: selected.displayName }) : ""
 

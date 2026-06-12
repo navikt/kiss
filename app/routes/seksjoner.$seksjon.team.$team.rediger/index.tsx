@@ -18,6 +18,7 @@ import { useRef } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
+import { LeggTilMedlemModal } from "~/components/LeggTilMedlemModal"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
 import { getNaisTeamsForSection } from "~/db/queries/nais.server"
@@ -37,6 +38,7 @@ import type { UserRole } from "~/db/schema/organization"
 import { userRoleLabels } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection, canManageTeam } from "~/lib/authorization.server"
+import { getUserByNavIdent } from "~/lib/graph.server"
 import { requireUuid } from "~/lib/utils"
 
 /** Roller som teamledere (produktleder/tech lead) kan administrere på eget team. */
@@ -164,17 +166,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "add-member") {
 		if (teamRecord.archivedAt) throw new Response("Teamet er arkivert", { status: 400 })
 
-		const rawNavIdent = formData.get("navIdent")
-		const rawName = formData.get("name")
+		const rawPerson = formData.get("person")
 		const rawRole = formData.get("role")
 
-		if (typeof rawNavIdent !== "string" || !rawNavIdent.trim() || typeof rawName !== "string" || !rawName.trim()) {
-			throw new Response("NAV-ident og navn er påkrevd", { status: 400 })
+		if (typeof rawPerson !== "string" || !rawPerson) {
+			throw new Response("Person er påkrevd", { status: 400 })
 		}
 
-		const navIdent = rawNavIdent.trim().toUpperCase()
-		const name = rawName.trim()
+		let navIdent: string
+		try {
+			const parsed = JSON.parse(rawPerson) as { navIdent: string; displayName: string }
+			navIdent = parsed.navIdent?.trim()?.toUpperCase()
+			if (!navIdent) throw new Error("Mangler navIdent")
+		} catch {
+			throw new Response("Ugyldig person-data", { status: 400 })
+		}
 
+		// Valider rolle og tilgang FØR eksternt kall mot Graph
 		const allTeamRoles: UserRole[] = [...TEAM_MANAGEABLE_ROLES, ...ELEVATED_ROLES]
 		if (typeof rawRole !== "string" || !allTeamRoles.includes(rawRole as UserRole)) {
 			throw new Response("Ugyldig rolle", { status: 400 })
@@ -185,6 +193,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		if (ELEVATED_ROLES.includes(role) && !canAssignElevated) {
 			throw new Response("Kun seksjonsledere, teknologiledere og admin kan tildele denne rollen", { status: 403 })
 		}
+
+		// Slå opp autoritativt navn fra Graph API — stol ikke på klientens displayName.
+		// getUserByNavIdent kaster ved Graph-feil slik at "ikke funnet" (null) skilles fra utilgjengelighet.
+		const graphUser = await getUserByNavIdent(navIdent)
+		if (!graphUser) throw new Response(`Fant ikke brukeren ${navIdent} i Microsoft Graph`, { status: 404 })
+		const name = graphUser.displayName.trim() || navIdent
 
 		await assignRole(navIdent, name, role, userId, undefined, teamRecord.id)
 		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
@@ -300,9 +314,12 @@ export default function RedigerTeam() {
 
 			{/* Team members */}
 			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Teammedlemmer ({teamMembers.length})
-				</Heading>
+				<HStack align="center" justify="space-between" wrap>
+					<Heading size="medium" level="3">
+						Teammedlemmer ({teamMembers.length})
+					</Heading>
+					{!isArchived && <LeggTilMedlemModal assignableRoles={assignableRoles} />}
+				</HStack>
 				<BodyLong size="small">
 					Teammedlemmer med roller i KISS. Produktledere og tech leads kan legge til utviklere. Kun admin kan tildele
 					produktleder- og tech lead-roller.
@@ -342,26 +359,6 @@ export default function RedigerTeam() {
 							</Table.Body>
 						</Table>
 					</section>
-				)}
-
-				{!isArchived && (
-					<Form method="post">
-						<input type="hidden" name="intent" value="add-member" />
-						<HStack gap="space-4" align="end" wrap>
-							<TextField label="NAV-ident" name="navIdent" size="small" placeholder="Z999999" />
-							<TextField label="Navn" name="name" size="small" placeholder="Fornavn Etternavn" />
-							<Select label="Rolle" name="role" size="small">
-								{assignableRoles.map((r) => (
-									<option key={r} value={r}>
-										{userRoleLabels[r]}
-									</option>
-								))}
-							</Select>
-							<Button type="submit" variant="secondary" size="small" icon={<PlusIcon aria-hidden />}>
-								Legg til
-							</Button>
-						</HStack>
-					</Form>
 				)}
 			</VStack>
 

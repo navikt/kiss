@@ -346,6 +346,48 @@ function mapGraphUsersToResults(users: GraphUserInfo[]): UserSearchResult[] {
 	return results
 }
 
+/**
+ * Look up a single user by NAV-ident in Microsoft Graph.
+ * Returns null if the user does not exist.
+ * Throws if the Graph API is unavailable or returns an error response.
+ */
+export async function getUserByNavIdent(navIdent: string): Promise<UserSearchResult | null> {
+	const trimmed = navIdent.trim()
+
+	if (!process.env.AZURE_OPENID_CONFIG_TOKEN_ENDPOINT) {
+		const nodeEnv = process.env.NODE_ENV
+		if (nodeEnv !== "development" && nodeEnv !== "test") {
+			throw new Error("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT is not configured")
+		}
+		const ident = trimmed.toUpperCase()
+		return { navIdent: ident, displayName: `${ident} Testbruker`, mail: `${ident.toLowerCase()}@nav.no` }
+	}
+
+	const url = new URL("https://graph.microsoft.com/v1.0/users")
+	url.searchParams.set("$select", "id,displayName,mail,onPremisesSamAccountName,mailNickname")
+	url.searchParams.set("$top", "1")
+	const identUpper = trimmed.toUpperCase().replace(/'/g, "''")
+	const identLower = trimmed.toLowerCase().replace(/'/g, "''")
+	url.searchParams.set("$filter", `onPremisesSamAccountName eq '${identUpper}' or mailNickname eq '${identLower}'`)
+
+	const token = await getClientCredentialToken(GRAPH_SCOPE)
+	const response = await loggedFetch(
+		url.toString(),
+		{ headers: { Authorization: `Bearer ${token}` } },
+		{ area: "microsoft-graph" },
+	)
+
+	if (!response.ok) {
+		const body = await response.text().catch(() => "")
+		logger.warn(`Graph getUserByNavIdent failed: ${response.status}`, { navIdent: trimmed, body })
+		throw new Error(`Microsoft Graph returnerte ${response.status} ved oppslag av bruker`)
+	}
+
+	const data = (await response.json()) as { value: GraphUserInfo[] }
+	const results = mapGraphUsersToResults(data.value)
+	return results.find((r) => r.navIdent.toUpperCase() === trimmed.toUpperCase()) ?? null
+}
+
 // ─── Group Member Listing ─────────────────────────────────────────────────────
 
 export interface GroupMember {
