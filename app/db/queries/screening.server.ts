@@ -874,14 +874,22 @@ export async function getScreeningQuestionsWithAnswersForApp(appId: string) {
 /** Lightweight batch query: get screening progress (answered/total) for multiple apps. */
 export async function getScreeningProgressForApps(
 	appIds: string[],
+	sectionIds?: string[],
 ): Promise<Map<string, { answered: number; total: number }>> {
 	if (appIds.length === 0) return new Map()
+
+	// Include global questions (section_id IS NULL) and, when section IDs are provided,
+	// questions scoped to any of those sections. Without section IDs only global questions count.
+	const sectionFilter =
+		sectionIds && sectionIds.length > 0
+			? or(isNull(screeningQuestions.sectionId), inArray(screeningQuestions.sectionId, sectionIds))
+			: isNull(screeningQuestions.sectionId)
 
 	// Get total approved, non-archived questions (global + section-scoped)
 	const totalApprovedQuestions = await db
 		.select({ count: sql<number>`count(*)` })
 		.from(screeningQuestions)
-		.where(and(isNull(screeningQuestions.archivedAt), eq(screeningQuestions.status, "approved")))
+		.where(and(isNull(screeningQuestions.archivedAt), eq(screeningQuestions.status, "approved"), sectionFilter))
 
 	const totalQuestions = Number(totalApprovedQuestions[0]?.count ?? 0)
 
@@ -898,6 +906,7 @@ export async function getScreeningProgressForApps(
 				inArray(screeningAnswers.applicationId, appIds),
 				isNull(screeningQuestions.archivedAt),
 				eq(screeningQuestions.status, "approved"),
+				sectionFilter,
 			),
 		)
 		.groupBy(screeningAnswers.applicationId)
@@ -922,6 +931,7 @@ export async function getScreeningProgressForApps(
 				eq(screeningQuestions.answerType, "economy_system"),
 				isNull(screeningQuestions.archivedAt),
 				eq(screeningQuestions.status, "approved"),
+				sectionFilter,
 			),
 		)
 

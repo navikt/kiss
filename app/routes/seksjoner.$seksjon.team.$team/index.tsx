@@ -31,7 +31,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
 	const [deploymentStats, screeningProgressMap] = await Promise.all([
 		getDeploymentVerificationAggregate(appIds),
-		getScreeningProgressForApps(appIds),
+		getScreeningProgressForApps(appIds, [section.id]),
 	])
 
 	const canManage = user ? canManageTeam(user, result.team.id, section.id) : false
