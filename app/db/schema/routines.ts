@@ -87,15 +87,20 @@ export const routineActivityLinks = pgTable(
 			.references(() => routines.id, { onDelete: "cascade" }),
 		activityType: text("activity_type", { enum: ROUTINE_ACTIVITY_TYPES }).notNull(),
 		sortOrder: integer("sort_order").notNull().default(0),
+		/** Title for manual_activity single-step activities */
+		stepTitle: text("step_title"),
+		/** Description for manual_activity single-step activities */
+		stepDescription: text("step_description"),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 		createdBy: text("created_by").notNull(),
 		archivedAt: timestamp("archived_at", { withTimezone: true }),
 		archivedBy: text("archived_by"),
 	},
 	(table) => [
+		// manual_activity can appear multiple times per routine; all other types are unique
 		uniqueIndex("routine_activity_links_active_unique_idx")
 			.on(table.routineId, table.activityType)
-			.where(sql`${table.archivedAt} IS NULL`),
+			.where(sql`${table.archivedAt} IS NULL AND ${table.activityType} != 'manual_activity'`),
 		index("routine_activity_links_routine_idx").on(table.routineId).where(sql`${table.archivedAt} IS NULL`),
 	],
 )
@@ -251,6 +256,7 @@ export const routineReviewAttachments = pgTable("routine_review_attachments", {
 	reviewId: uuid("review_id")
 		.notNull()
 		.references(() => routineReviews.id, { onDelete: "cascade" }),
+	activityStepId: text("activity_step_id"),
 	fileName: text("file_name").notNull(),
 	bucketPath: text("bucket_path").notNull(),
 	contentType: text("content_type").notNull(),
@@ -267,6 +273,7 @@ export const routineReviewLinks = pgTable("routine_review_links", {
 	reviewId: uuid("review_id")
 		.notNull()
 		.references(() => routineReviews.id, { onDelete: "restrict" }),
+	activityStepId: text("activity_step_id"),
 	url: text("url").notNull(),
 	title: text("title"),
 	addedBy: text("added_by").notNull(),
@@ -308,7 +315,12 @@ export const routineReviewActivities = pgTable(
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	},
-	(table) => [uniqueIndex("review_activities_review_type_unique_idx").on(table.reviewId, table.type)],
+	(table) => [
+		// manual_activity can appear multiple times per review; all other types are unique
+		uniqueIndex("review_activities_review_type_unique_idx")
+			.on(table.reviewId, table.type)
+			.where(sql`${table.type} != 'manual_activity'`),
+	],
 )
 
 export const routineReviewActivityEntraChanges = pgTable("routine_review_activity_entra_changes", {
@@ -425,4 +437,28 @@ export const routineRpaUserAssessments = pgTable(
 			sql`${table.decisionDeadline} IS NULL OR ${table.decision} IN ('avvikles', 'endres')`,
 		),
 	],
+)
+
+// ─── Manual Activity Steps ───────────────────────────────────────────────
+// Template steps configured per routine for the manual_activity activity type.
+// At gjennomgang-seed time, active steps are snapshotted into staged_data.
+
+export const routineActivitySteps = pgTable(
+	"routine_activity_steps",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		routineId: uuid("routine_id")
+			.notNull()
+			.references(() => routines.id, { onDelete: "cascade" }),
+		title: text("title").notNull(),
+		description: text("description"),
+		sortOrder: integer("sort_order").notNull().default(0),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+	},
+	(table) => [index("routine_activity_steps_routine_idx").on(table.routineId).where(sql`${table.archivedAt} IS NULL`)],
 )

@@ -1,4 +1,4 @@
-import { Alert, VStack } from "@navikt/ds-react"
+import { Alert, BodyLong, BodyShort, Box, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
 import { useCallback, useMemo } from "react"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useLoaderData, useSearchParams } from "react-router"
@@ -7,6 +7,7 @@ import {
 	addFollowUpPoint,
 	addReviewLink,
 	autoCreateActivitiesForReview,
+	completeManualActivity,
 	completeReview,
 	deleteFollowUpPoint,
 	deleteReviewLink,
@@ -20,8 +21,11 @@ import {
 	getRoutineActivityLinks,
 	getRoutineNamesByIds,
 	patchEntraActivity,
+	patchManualActivityStep,
+	patchManualActivityStepNotes,
 	patchOracleRoleCriticalityActivity,
 	seedEntraActivity,
+	seedManualActivity,
 	seedOracleRoleCriticalityActivity,
 	updateFollowUpPointDescription,
 	updateFollowUpPointStatus,
@@ -57,10 +61,17 @@ import { StepAttachments } from "./components/StepAttachments"
 import { StepComplete } from "./components/StepComplete"
 import { StepControls } from "./components/StepControls"
 import { StepIntroduction } from "./components/StepIntroduction"
+import { StepManualActivityItem } from "./components/StepManualActivityItem"
 import { StepRoutine } from "./components/StepRoutine"
 import { StepRulesets } from "./components/StepRulesets"
-import { StepSummary } from "./components/StepSummary"
-import { type ActionResult, type ActivityStepInfo, buildSteps, parseActivityStepIndex } from "./components/shared"
+import { ReviewLinksSection, StepSummary } from "./components/StepSummary"
+import {
+	type ActionResult,
+	type ActivityStepInfo,
+	buildSteps,
+	parseActivityStepId,
+	parseActivityStepIndex,
+} from "./components/shared"
 
 function getNullableString(value: unknown): string | null {
 	return typeof value === "string" ? value : null
@@ -319,6 +330,14 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		ndaEvidenceData: NdaEvidenceData | null
 		rpaMaintenanceData: RpaMaintenanceData | null
 		oracleRoleCriticalityData: OracleRoleCriticalityData | null
+		activityStepsData: Array<{
+			stepId: string
+			title: string
+			description: string | null
+			completedAt: string | null
+			completedBy: string | null
+			notes: string | null
+		}> | null
 		evidenceProviderType: string | null
 		evidenceLoadError?: string
 	}
@@ -334,6 +353,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		let actNdaEvidenceData: NdaEvidenceData | null = null
 		let actRpaMaintenanceData: RpaMaintenanceData | null = null
 		let actOracleRoleCriticalityData: OracleRoleCriticalityData | null = null
+		let actManualActivityData: ActivityWithEvidence["activityStepsData"] = null
 		const evidenceProviderType = getProviderTypeForActivity(activity.type)
 
 		try {
@@ -538,6 +558,28 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 					}
 				}
 			}
+
+			if (activity.type === "manual_activity") {
+				const { parseManualActivityStagedData } = await import("~/lib/manual-activity-staged-data")
+				if (activity.status === "pending") {
+					const stagedData = activity.stagedData
+						? parseManualActivityStagedData(activity.stagedData)
+						: await seedManualActivity(activity.id, rutineId, "system")
+					actManualActivityData = stagedData.steps
+				} else {
+					// For completed/other statuses: prefer snapshotAfter, fall back to stagedData
+					const source = activity.snapshotAfter ?? activity.stagedData
+					if (source) {
+						try {
+							actManualActivityData = parseManualActivityStagedData(source).steps
+						} catch {
+							actManualActivityData = []
+						}
+					} else {
+						actManualActivityData = []
+					}
+				}
+			}
 		} catch (err) {
 			logger.error(
 				`Failed to load evidence data for activity ${activity.id} (${activity.type})`,
@@ -564,6 +606,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 				ndaEvidenceData: null,
 				rpaMaintenanceData: null,
 				oracleRoleCriticalityData: null,
+				activityStepsData: null,
 				evidenceProviderType,
 				evidenceLoadError,
 			})
@@ -587,6 +630,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			ndaEvidenceData: actNdaEvidenceData,
 			rpaMaintenanceData: actRpaMaintenanceData,
 			oracleRoleCriticalityData: actOracleRoleCriticalityData,
+			activityStepsData: actManualActivityData,
 			evidenceProviderType,
 		})
 	}
@@ -784,6 +828,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 	if (intent === "add-link") {
 		const url = (formData.get("url") as string)?.trim()
 		const title = (formData.get("linkTitle") as string)?.trim() || null
+		const activityStepId = (formData.get("activityStepId") as string | null) || null
 		if (!url) {
 			return data<ActionResult>({ success: false, error: "URL er påkrevd", intent: "add-link" })
 		}
@@ -796,7 +841,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		} catch {
 			return data<ActionResult>({ success: false, error: "Ugyldig URL", intent: "add-link" })
 		}
-		await addReviewLink({ reviewId: gjennomgangId, url, title, addedBy: authedUser.navIdent })
+		await addReviewLink({ reviewId: gjennomgangId, url, title, addedBy: authedUser.navIdent, activityStepId })
 		return data<ActionResult>({ success: true, intent: "add-link" })
 	}
 
@@ -1253,6 +1298,58 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		return data<ActionResult>({ success: true, intent: "set-oracle-role-criticality" })
 	}
 
+	if (intent === "toggle-checklist-step") {
+		const activityId = (formData.get("activityId") as string)?.trim()
+		const stepId = (formData.get("stepId") as string)?.trim()
+		const completed = formData.get("completed") === "true"
+
+		if (!activityId || !stepId) {
+			return data<ActionResult>(
+				{ success: false, error: "Mangler data", intent: "toggle-checklist-step" },
+				{ status: 400 },
+			)
+		}
+
+		try {
+			const stagedData = await patchManualActivityStep(activityId, stepId, completed, authedUser.navIdent)
+			// Auto-complete the activity when all steps are done
+			const { isManualActivityComplete } = await import("~/lib/manual-activity-staged-data")
+			if (completed && isManualActivityComplete(stagedData)) {
+				await completeManualActivity(activityId, authedUser.navIdent)
+			}
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = e.status === 409 ? "Gjennomgangen er låst av en annen operasjon. Prøv igjen." : await e.text()
+				return data<ActionResult>({ success: false, error, intent: "toggle-checklist-step" }, { status: e.status })
+			}
+			throw e
+		}
+
+		return data<ActionResult>({ success: true, intent: "toggle-checklist-step" })
+	}
+
+	if (intent === "save-step-notes") {
+		const activityId = (formData.get("activityId") as string)?.trim()
+		const stepId = (formData.get("stepId") as string)?.trim()
+		const notes = (formData.get("notes") as string)?.trim() || null
+
+		if (!activityId || !stepId) {
+			return data<ActionResult>({ success: false, error: "Mangler data", intent: "save-step-notes" }, { status: 400 })
+		}
+
+		try {
+			await patchManualActivityStepNotes(activityId, stepId, notes, authedUser.navIdent)
+		} catch (e) {
+			if (e instanceof Response) {
+				const error = e.status === 409 ? "Gjennomgangen er låst av en annen operasjon. Prøv igjen." : await e.text()
+				return data<ActionResult>({ success: false, error, intent: "save-step-notes" }, { status: e.status })
+			}
+			throw e
+		}
+
+		return data<ActionResult>({ success: true, intent: "save-step-notes" })
+	}
+
 	return data<ActionResult>({ success: false, error: "Ukjent handling" })
 }
 
@@ -1279,6 +1376,10 @@ export default function GjennomgangDetalj() {
 	const activityStepInfos: ActivityStepInfo[] = activities.map((a) => ({
 		id: a.id,
 		activityType: a.type,
+		activitySteps:
+			a.type === "manual_activity" && a.activityStepsData
+				? a.activityStepsData.map((s) => ({ stepId: s.stepId, title: s.title }))
+				: undefined,
 	}))
 
 	const [searchParams, setSearchParams] = useSearchParams()
@@ -1311,11 +1412,24 @@ export default function GjennomgangDetalj() {
 		if (hasControls) completed.add("krav")
 		if (hasRulesets) completed.add("regelsett")
 		completed.add("rutine")
-		// Each activity step is completed if the corresponding review activity has status "completed"
-		for (let i = 0; i < activityStepInfos.length; i++) {
-			const reviewActivity = activities.find((a) => a.type === activityStepInfos[i].activityType)
-			if (reviewActivity?.status === "completed") {
-				completed.add(`aktivitet-${i}`)
+		// Each activity step is completed based on type
+		let nonChecklistIdx = 0
+		for (const info of activityStepInfos) {
+			if (info.activityType === "manual_activity" && info.activitySteps) {
+				// Each checklist item is individually tracked
+				const activity = activities.find((a) => a.id === info.id)
+				for (const step of info.activitySteps) {
+					const stepData = activity?.activityStepsData?.find((s) => s.stepId === step.stepId)
+					if (stepData?.completedAt) {
+						completed.add(`sjekkliste-steg-${step.stepId}`)
+					}
+				}
+			} else {
+				const reviewActivity = activities.find((a) => a.id === info.id)
+				if (reviewActivity?.status === "completed") {
+					completed.add(`aktivitet-${nonChecklistIdx}`)
+				}
+				nonChecklistIdx++
 			}
 		}
 		// Dokumentasjon is completed if there's summary text, attachments, or links
@@ -1328,6 +1442,39 @@ export default function GjennomgangDetalj() {
 	}, [hasControls, hasRulesets, activities, activityStepInfos, review])
 
 	function renderStep() {
+		// Check if current step is a checklist item step
+		const activityStepId = parseActivityStepId(currentStepId)
+		if (activityStepId !== null) {
+			let checklistActivity = null
+			let stepData = null
+			for (const a of activities) {
+				if (a.type === "manual_activity") {
+					const found = a.activityStepsData?.find((s) => s.stepId === activityStepId)
+					if (found) {
+						checklistActivity = a
+						stepData = found
+						break
+					}
+				}
+			}
+			if (!stepData || !checklistActivity) return null
+			return (
+				<StepManualActivityItem
+					stepId={activityStepId}
+					activityId={checklistActivity.id}
+					title={stepData.title}
+					description={stepData.description}
+					completedAt={stepData.completedAt}
+					completedBy={stepData.completedBy}
+					notes={stepData.notes}
+					isDraft={isDraft}
+					reviewId={review.id}
+					links={review.links}
+					attachments={review.attachments}
+				/>
+			)
+		}
+
 		// Check if current step is a dynamic activity step
 		const activityIndex = parseActivityStepIndex(currentStepId)
 		if (activityIndex !== null && activityIndex < activityStepInfos.length) {
@@ -1375,13 +1522,26 @@ export default function GjennomgangDetalj() {
 				return (
 					<StepRoutine routine={routine} routineDescriptionHtml={routineDescriptionHtml} sectionSlug={section.slug} />
 				)
-			case "dokumentasjon":
+			case "dokumentasjon": {
+				const allManualActivityData = activities
+					.filter((a) => a.type === "manual_activity")
+					.flatMap((a) => a.activityStepsData ?? [])
+				if (allManualActivityData.length > 0) {
+					return (
+						<ManualActivityAggregateDocumentation
+							activityStepsData={allManualActivityData}
+							links={review.links}
+							attachments={review.attachments}
+						/>
+					)
+				}
 				return (
 					<VStack gap="space-12">
 						<StepSummary review={review} isDraft={isDraft} />
 						<StepAttachments reviewId={review.id} attachments={review.attachments} isDraft={isDraft} />
 					</VStack>
 				)
+			}
 			case "oppfolging":
 				return <FollowUpPointsSection reviewId={review.id} status={review.status} points={review.followUpPoints} />
 			case "fullfor":
@@ -1426,3 +1586,113 @@ export default function GjennomgangDetalj() {
 }
 
 export { RouteErrorBoundary as ErrorBoundary }
+
+function ManualActivityAggregateDocumentation({
+	activityStepsData,
+	links,
+	attachments,
+}: {
+	activityStepsData: Array<{ stepId: string; title: string; notes: string | null; completedAt: string | null }>
+	links: Array<{
+		id: string
+		url: string
+		title: string | null
+		addedBy: string
+		addedAt: string
+		activityStepId: string | null
+	}>
+	attachments: Array<{
+		id: string
+		fileName: string
+		contentType: string
+		sizeBytes: number | null
+		sourceType: string
+		uploadedBy: string
+		uploadedAt: string
+		activityStepId: string | null
+	}>
+}) {
+	const unscopedLinks = links.filter((l) => l.activityStepId === null)
+	const unscopedAttachments = attachments.filter((a) => a.activityStepId === null)
+	const hasUnscopedContent = unscopedLinks.length > 0 || unscopedAttachments.length > 0
+
+	return (
+		<VStack gap="space-12">
+			<div>
+				<Heading size="medium" level="3" spacing>
+					Sammendrag
+				</Heading>
+				<BodyShort size="small" textColor="subtle">
+					Oversikt over notater, lenker og vedlegg fra hvert steg i gjennomgangen.
+				</BodyShort>
+			</div>
+
+			{hasUnscopedContent && (
+				<VStack gap="space-6">
+					<Heading size="small" level="4">
+						Dokumentasjon
+					</Heading>
+					{unscopedLinks.length > 0 && <ReviewLinksSection links={unscopedLinks} isDraft={false} />}
+					{unscopedAttachments.length > 0 && (
+						<StepAttachments reviewId="" attachments={unscopedAttachments} isDraft={false} />
+					)}
+				</VStack>
+			)}
+
+			{activityStepsData.map((step) => {
+				const stepLinks = links.filter((l) => l.activityStepId === step.stepId)
+				const stepAttachments = attachments.filter((a) => a.activityStepId === step.stepId)
+				const hasContent = step.notes || stepLinks.length > 0 || stepAttachments.length > 0
+
+				return (
+					<Box
+						key={step.stepId}
+						padding="space-8"
+						borderWidth="1"
+						borderColor="neutral-subtle"
+						borderRadius="8"
+						background="default"
+					>
+						<VStack gap="space-6">
+							<HStack gap="space-4" align="center">
+								<Heading size="small" level="4">
+									{step.title}
+								</Heading>
+								{step.completedAt && (
+									<Tag variant="success" size="xsmall">
+										Fullført
+									</Tag>
+								)}
+							</HStack>
+
+							{!hasContent && (
+								<Box padding="space-6" borderRadius="8" background="sunken">
+									<BodyShort size="small" textColor="subtle">
+										Ingen notater, lenker eller vedlegg for dette steget.
+									</BodyShort>
+								</Box>
+							)}
+
+							{step.notes && (
+								<Box padding="space-6" borderRadius="8" background="sunken">
+									<BodyLong size="small" style={{ whiteSpace: "pre-wrap" }}>
+										{step.notes}
+									</BodyLong>
+								</Box>
+							)}
+
+							{(stepLinks.length > 0 || stepAttachments.length > 0) && (
+								<VStack gap="space-12">
+									{stepLinks.length > 0 && <ReviewLinksSection links={stepLinks} isDraft={false} />}
+									{stepAttachments.length > 0 && (
+										<StepAttachments reviewId="" attachments={stepAttachments} isDraft={false} />
+									)}
+								</VStack>
+							)}
+						</VStack>
+					</Box>
+				)
+			})}
+		</VStack>
+	)
+}

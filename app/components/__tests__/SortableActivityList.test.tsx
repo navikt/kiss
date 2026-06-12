@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
-import type { RoutineActivityType } from "~/lib/activity-types"
 import { activityTypeLabels } from "~/lib/activity-types"
+import type { ActivityItem } from "../SortableActivityList"
 import { SortableActivityList } from "../SortableActivityList"
 
 afterEach(() => cleanup())
@@ -10,20 +10,25 @@ function getSelectElement(container: HTMLElement) {
 	return container.querySelector("select") as HTMLSelectElement
 }
 
+function toItems(...types: string[]): ActivityItem[] {
+	return types.map((t) => ({ id: t, type: t as ActivityItem["type"] }))
+}
+
 describe("SortableActivityList", () => {
 	describe("hidden input JSON output", () => {
 		it("outputs empty array when no activities selected", () => {
 			render(<SortableActivityList />)
-			const hidden = document.querySelector('input[name="activityTypes"]') as HTMLInputElement
+			const hidden = document.querySelector('input[name="activityItems"]') as HTMLInputElement
 			expect(hidden).not.toBeNull()
 			expect(JSON.parse(hidden.value)).toEqual([])
 		})
 
 		it("outputs initial activities as JSON array", () => {
-			const activities: RoutineActivityType[] = ["oracle_evidence_audit", "entra_id_group_maintenance"]
+			const activities = toItems("oracle_evidence_audit", "entra_id_group_maintenance")
 			render(<SortableActivityList initialActivities={activities} />)
-			const hidden = document.querySelector('input[name="activityTypes"]') as HTMLInputElement
-			expect(JSON.parse(hidden.value)).toEqual(activities)
+			const hidden = document.querySelector('input[name="activityItems"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value) as ActivityItem[]
+			expect(parsed.map((a) => a.type)).toEqual(["oracle_evidence_audit", "entra_id_group_maintenance"])
 		})
 
 		it("uses custom name for hidden input", () => {
@@ -33,20 +38,21 @@ describe("SortableActivityList", () => {
 		})
 
 		it("preserves order from initialActivities", () => {
-			const activities: RoutineActivityType[] = [
+			const activities = toItems("deployment_evidence_report", "oracle_evidence_audit", "entra_id_group_maintenance")
+			render(<SortableActivityList initialActivities={activities} />)
+			const hidden = document.querySelector('input[name="activityItems"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value) as ActivityItem[]
+			expect(parsed.map((a) => a.type)).toEqual([
 				"deployment_evidence_report",
 				"oracle_evidence_audit",
 				"entra_id_group_maintenance",
-			]
-			render(<SortableActivityList initialActivities={activities} />)
-			const hidden = document.querySelector('input[name="activityTypes"]') as HTMLInputElement
-			expect(JSON.parse(hidden.value)).toEqual(activities)
+			])
 		})
 	})
 
 	describe("rendering", () => {
 		it("renders activity labels for each initial activity", () => {
-			const activities: RoutineActivityType[] = ["oracle_evidence_audit", "entra_id_group_maintenance"]
+			const activities = toItems("oracle_evidence_audit", "entra_id_group_maintenance")
 			render(<SortableActivityList initialActivities={activities} />)
 
 			expect(screen.getByText(activityTypeLabels.oracle_evidence_audit)).toBeDefined()
@@ -54,7 +60,7 @@ describe("SortableActivityList", () => {
 		})
 
 		it("shows index tags starting from #1", () => {
-			const activities: RoutineActivityType[] = ["oracle_evidence_audit", "entra_id_group_maintenance"]
+			const activities = toItems("oracle_evidence_audit", "entra_id_group_maintenance")
 			render(<SortableActivityList initialActivities={activities} />)
 
 			expect(screen.getByText("#1")).toBeDefined()
@@ -88,12 +94,13 @@ describe("SortableActivityList", () => {
 			const addButton = screen.getByRole("button", { name: /Legg til/i })
 			fireEvent.click(addButton)
 
-			const hidden = container.querySelector('input[name="activityTypes"]') as HTMLInputElement
-			expect(JSON.parse(hidden.value)).toEqual(["oracle_evidence_audit"])
+			const hidden = container.querySelector('input[name="activityItems"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value) as ActivityItem[]
+			expect(parsed.map((a) => a.type)).toEqual(["oracle_evidence_audit"])
 		})
 
 		it("prevents adding duplicate activity", () => {
-			const activities: RoutineActivityType[] = ["oracle_evidence_audit"]
+			const activities = toItems("oracle_evidence_audit")
 			const { container } = render(<SortableActivityList initialActivities={activities} />)
 
 			// oracle_evidence_audit should not be in the select options
@@ -125,18 +132,19 @@ describe("SortableActivityList", () => {
 
 	describe("removing activities", () => {
 		it("removes an activity when clicking Fjern", () => {
-			const activities: RoutineActivityType[] = ["oracle_evidence_audit", "entra_id_group_maintenance"]
+			const activities = toItems("oracle_evidence_audit", "entra_id_group_maintenance")
 			const { container } = render(<SortableActivityList initialActivities={activities} />)
 
 			const removeButtons = screen.getAllByRole("button", { name: /Fjern/i })
 			fireEvent.click(removeButtons[0])
 
-			const hidden = container.querySelector('input[name="activityTypes"]') as HTMLInputElement
-			expect(JSON.parse(hidden.value)).toEqual(["entra_id_group_maintenance"])
+			const hidden = container.querySelector('input[name="activityItems"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value) as ActivityItem[]
+			expect(parsed.map((a) => a.type)).toEqual(["entra_id_group_maintenance"])
 		})
 
 		it("makes removed activity available in select again", () => {
-			const activities: RoutineActivityType[] = ["oracle_evidence_audit"]
+			const activities = toItems("oracle_evidence_audit")
 			const { container } = render(<SortableActivityList initialActivities={activities} />)
 
 			const removeButtons = screen.getAllByRole("button", { name: /Fjern/i })
@@ -151,7 +159,7 @@ describe("SortableActivityList", () => {
 
 	describe("disabled state", () => {
 		it("hides remove buttons when disabled", () => {
-			const activities: RoutineActivityType[] = ["oracle_evidence_audit"]
+			const activities = toItems("oracle_evidence_audit")
 			render(<SortableActivityList initialActivities={activities} disabled />)
 
 			const removeButtons = screen.queryAllByRole("button", { name: /Fjern/i })
@@ -159,7 +167,7 @@ describe("SortableActivityList", () => {
 		})
 
 		it("hides add controls when disabled", () => {
-			const activities: RoutineActivityType[] = ["oracle_evidence_audit"]
+			const activities = toItems("oracle_evidence_audit")
 			render(<SortableActivityList initialActivities={activities} disabled />)
 
 			expect(screen.queryByRole("combobox")).toBeNull()
@@ -167,7 +175,7 @@ describe("SortableActivityList", () => {
 		})
 
 		it("hides drag handles when disabled", () => {
-			const activities: RoutineActivityType[] = ["oracle_evidence_audit"]
+			const activities = toItems("oracle_evidence_audit")
 			render(<SortableActivityList initialActivities={activities} disabled />)
 
 			const dragHandles = screen.queryAllByRole("button", {

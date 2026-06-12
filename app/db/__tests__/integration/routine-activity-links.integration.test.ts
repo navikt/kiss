@@ -22,6 +22,7 @@ const {
 	reorderRoutineActivities,
 	getReviewActivityByType,
 	getReviewActivities,
+	seedManualActivity,
 } = await import("~/db/queries/routines.server")
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -953,6 +954,420 @@ describe("Routine Activity Links integration tests", () => {
 			const copyLinks = await getRoutineActivityLinks(copyId)
 			expect(copyLinks).toHaveLength(1)
 			expect(copyLinks[0].activityType).toBe("entra_id_group_maintenance")
+		})
+
+		it("copies manual_activity stepTitle and stepDescription", async () => {
+			const sectionId = await createTestSection("Test", "copy-checklist-step")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Kopier sjekkliste-steg",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [
+					{ type: "manual_activity", stepTitle: "Steg A", stepDescription: "Beskrivelse A" },
+					{ type: "manual_activity", stepTitle: "Steg B", stepDescription: null },
+				],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const copy = await copyRoutine(routine.id, "Z990001")
+			expect(copy).not.toBeNull()
+			const copyId = copy?.id as string
+
+			const copyLinks = await getRoutineActivityLinks(copyId)
+			expect(copyLinks).toHaveLength(2)
+			expect(copyLinks[0].stepTitle).toBe("Steg A")
+			expect(copyLinks[0].stepDescription).toBe("Beskrivelse A")
+			expect(copyLinks[1].stepTitle).toBe("Steg B")
+			expect(copyLinks[1].stepDescription).toBeNull()
+		})
+	})
+
+	// ─── createRoutine with activityItems (manual_activity) ─────────────
+
+	describe("createRoutine with activityItems (manual_activity)", () => {
+		it("stores stepTitle and stepDescription for manual_activity items", async () => {
+			const sectionId = await createTestSection("Test", "checklist-create")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Rutine med sjekkliste-steg",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [
+					{
+						type: "manual_activity",
+						stepTitle: "Verifiser tilgang",
+						stepDescription: "Sjekk at alle brukere har rett tilgang",
+					},
+					{ type: "manual_activity", stepTitle: "Oppdater dokumentasjon", stepDescription: null },
+				],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			const links = await getRoutineActivityLinks(routine.id)
+			expect(links).toHaveLength(2)
+			expect(links[0].activityType).toBe("manual_activity")
+			expect(links[0].stepTitle).toBe("Verifiser tilgang")
+			expect(links[0].stepDescription).toBe("Sjekk at alle brukere har rett tilgang")
+			expect(links[0].sortOrder).toBe(0)
+			expect(links[1].activityType).toBe("manual_activity")
+			expect(links[1].stepTitle).toBe("Oppdater dokumentasjon")
+			expect(links[1].stepDescription).toBeNull()
+			expect(links[1].sortOrder).toBe(1)
+		})
+
+		it("allows mixing manual_activity items with other activity types", async () => {
+			const sectionId = await createTestSection("Test", "checklist-mixed")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Blandet aktivitetsliste",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [
+					{ type: "entra_id_group_maintenance" },
+					{ type: "manual_activity", stepTitle: "Manuelt steg", stepDescription: null },
+					{ type: "oracle_evidence_audit" },
+				],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			const links = await getRoutineActivityLinks(routine.id)
+			expect(links).toHaveLength(3)
+			expect(links[0].activityType).toBe("entra_id_group_maintenance")
+			expect(links[0].stepTitle).toBeNull()
+			expect(links[1].activityType).toBe("manual_activity")
+			expect(links[1].stepTitle).toBe("Manuelt steg")
+			expect(links[2].activityType).toBe("oracle_evidence_audit")
+			expect(links[2].stepTitle).toBeNull()
+		})
+
+		it("getRoutine returns activityItems with stepTitle and stepDescription", async () => {
+			const sectionId = await createTestSection("Test", "checklist-get-routine")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "GetRoutine sjekk",
+				description: null,
+				frequency: "monthly",
+				activityItems: [{ type: "manual_activity", stepTitle: "Steg 1", stepDescription: "Detaljer" }],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			const fetched = await getRoutine(routine.id)
+			expect(fetched).not.toBeNull()
+			expect(fetched?.activityItems).toHaveLength(1)
+			expect(fetched?.activityItems[0].type).toBe("manual_activity")
+			expect(fetched?.activityItems[0].stepTitle).toBe("Steg 1")
+			expect(fetched?.activityItems[0].stepDescription).toBe("Detaljer")
+		})
+	})
+
+	// ─── updateRoutine with activityItems (manual_activity) ─────────────
+
+	describe("updateRoutine with activityItems (manual_activity)", () => {
+		it("replaces activity links when activityItems changes", async () => {
+			const sectionId = await createTestSection("Test", "checklist-update")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Oppdater sjekkliste",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [{ type: "manual_activity", stepTitle: "Gammelt steg", stepDescription: null }],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			await updateRoutine({
+				id: routine.id,
+				name: "Oppdater sjekkliste",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [
+					{ type: "manual_activity", stepTitle: "Nytt steg A", stepDescription: "Ny beskrivelse" },
+					{ type: "manual_activity", stepTitle: "Nytt steg B", stepDescription: null },
+				],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				updatedBy: "Z990001",
+			})
+
+			const links = await getRoutineActivityLinks(routine.id)
+			expect(links).toHaveLength(2)
+			expect(links[0].stepTitle).toBe("Nytt steg A")
+			expect(links[0].stepDescription).toBe("Ny beskrivelse")
+			expect(links[1].stepTitle).toBe("Nytt steg B")
+		})
+	})
+
+	// ─── autoCreateActivitiesForReview — manual_activity idempotency ────
+
+	describe("autoCreateActivitiesForReview — manual_activity", () => {
+		it("creates one review activity per manual_activity link", async () => {
+			const sectionId = await createTestSection("Test", "checklist-autocreate")
+			const appId = await createTestApp("Sjekkliste-app")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Sjekkliste-rutine",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [
+					{ type: "manual_activity", stepTitle: "Steg 1", stepDescription: null },
+					{ type: "manual_activity", stepTitle: "Steg 2", stepDescription: null },
+				],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Sjekkliste-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+
+			const activities = await getReviewActivities(review.id)
+			const checklistActivities = activities.filter((a) => a.type === "manual_activity")
+			expect(checklistActivities).toHaveLength(2)
+		})
+
+		it("is idempotent for manual_activity — repeated calls do not create duplicates", async () => {
+			const sectionId = await createTestSection("Test", "checklist-idempotent")
+			const appId = await createTestApp("Idem-app")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Idempotent sjekkliste",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [
+					{ type: "manual_activity", stepTitle: "Verifiser", stepDescription: null },
+					{ type: "manual_activity", stepTitle: "Bekreft", stepDescription: null },
+				],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Idem-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			// Call three times — should still yield exactly 2 activities
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+
+			const activities = await getReviewActivities(review.id)
+			const checklistActivities = activities.filter((a) => a.type === "manual_activity")
+			expect(checklistActivities).toHaveLength(2)
+		})
+
+		it("stores snapshotBefore with stepTitle/stepDescription for each checklist activity", async () => {
+			const sectionId = await createTestSection("Test", "checklist-snapshot")
+			const appId = await createTestApp("Snapshot-app")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Snapshot-sjekkliste",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [
+					{ type: "manual_activity", stepTitle: "Sjekk konfigurasjon", stepDescription: "Valider alle innstillinger" },
+				],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Snapshot-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+
+			const activities = await getReviewActivities(review.id)
+			const checklistActivity = activities.find((a) => a.type === "manual_activity")
+			expect(checklistActivity).not.toBeNull()
+			const snapshot = checklistActivity?.snapshotBefore as Record<string, unknown> | null
+			expect(snapshot?.stepTitle).toBe("Sjekk konfigurasjon")
+			expect(snapshot?.stepDescription).toBe("Valider alle innstillinger")
+		})
+	})
+
+	// ─── seedManualActivity — single-step path ─────────────────
+
+	describe("seedManualActivity", () => {
+		it("seeds staged_data from snapshotBefore (single-step model)", async () => {
+			const sectionId = await createTestSection("Test", "checklist-seed")
+			const appId = await createTestApp("Seed-app")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Seed-sjekkliste",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [{ type: "manual_activity", stepTitle: "Kontroller tilgang", stepDescription: "Detaljer her" }],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Seed-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+
+			const activities = await getReviewActivities(review.id)
+			const activity = activities.find((a) => a.type === "manual_activity")
+			if (!activity) throw new Error("Expected manual_activity activity to exist")
+
+			const stagedData = await seedManualActivity(activity.id, routine.id, "Z990001")
+			expect(stagedData.steps).toHaveLength(1)
+			expect(stagedData.steps[0].title).toBe("Kontroller tilgang")
+			expect(stagedData.steps[0].description).toBe("Detaljer her")
+			expect(stagedData.steps[0].completedAt).toBeNull()
+		})
+
+		it("is idempotent — repeated seed calls return the same staged_data", async () => {
+			const sectionId = await createTestSection("Test", "checklist-seed-idem")
+			const appId = await createTestApp("Seed-idem-app")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Seed-idem-sjekkliste",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [{ type: "manual_activity", stepTitle: "Idempotent steg", stepDescription: null }],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Seed-idem-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+			const activities = await getReviewActivities(review.id)
+			const activity = activities.find((a) => a.type === "manual_activity")
+			if (!activity) throw new Error("Expected manual_activity activity to exist")
+
+			const firstSeed = await seedManualActivity(activity.id, routine.id, "Z990001")
+			const secondSeed = await seedManualActivity(activity.id, routine.id, "Z990001")
+
+			expect(firstSeed.steps[0].stepId).toBe(secondSeed.steps[0].stepId)
+			expect(firstSeed.steps[0].title).toBe(secondSeed.steps[0].title)
 		})
 	})
 })

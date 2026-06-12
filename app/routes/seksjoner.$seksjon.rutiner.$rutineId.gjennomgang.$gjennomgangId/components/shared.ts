@@ -35,21 +35,30 @@ export type ReviewStep = {
 export type ActivityStepInfo = {
 	id: string
 	activityType: RoutineActivityType
+	/** For manual_activity: the ordered list of steps from staged_data */
+	activitySteps?: Array<{ stepId: string; title: string }>
 }
 
 /**
  * Builds the list of wizard steps, conditionally including/excluding
- * steps based on routine configuration. Generates one step per activity.
+ * steps based on routine configuration. Generates one step per activity,
+ * except for manual_activity which expands into one step per checklist item.
  */
 export function buildSteps(options: {
 	hasControls: boolean
 	hasRulesets: boolean
 	activities: ActivityStepInfo[]
 }): ReviewStep[] {
-	const activitySteps: ReviewStep[] = options.activities.map((activity, index) => ({
-		id: `aktivitet-${index}`,
-		label: activityTypeLabels[activity.activityType],
-	}))
+	const activitySteps: ReviewStep[] = []
+	for (const activity of options.activities) {
+		if (activity.activityType === "manual_activity" && activity.activitySteps?.length) {
+			for (const step of activity.activitySteps) {
+				activitySteps.push({ id: `sjekkliste-steg-${step.stepId}`, label: step.title })
+			}
+		} else {
+			activitySteps.push({ id: `aktivitet-${activitySteps.length}`, label: activityTypeLabels[activity.activityType] })
+		}
+	}
 
 	const steps: ReviewStep[] = [
 		{ id: "innledning", label: "Innledning" },
@@ -72,4 +81,10 @@ export function getStepIndex(steps: ReviewStep[], stepId: string): number {
 export function parseActivityStepIndex(stepId: string): number | null {
 	const match = stepId.match(/^aktivitet-(\d+)$/)
 	return match ? Number.parseInt(match[1], 10) : null
+}
+
+/** Parses a checklist step ID (e.g., "sjekkliste-steg-<uuid>") and returns the stepId, or null. */
+export function parseActivityStepId(stepId: string): string | null {
+	const match = stepId.match(/^sjekkliste-steg-([0-9a-f-]{36})$/i)
+	return match ? match[1] : null
 }

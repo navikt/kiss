@@ -135,13 +135,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			{ status: 400 },
 		)
 	}
-	const activityTypesField = formData.get("activityTypes") as string | null
-	let activityTypes: RoutineActivityType[] | undefined
-	if (activityTypesField !== null) {
-		const raw = activityTypesField.trim() || "[]"
+	const activityItemsField = formData.get("activityItems") as string | null
+	type RawActivityItem = { id?: string; type: string; stepTitle?: string; stepDescription?: string }
+	type ParsedActivityItem = { type: RoutineActivityType; stepTitle: string | null; stepDescription: string | null }
+	let activityItems: ParsedActivityItem[] | undefined
+	if (activityItemsField !== null) {
 		let parsed: unknown
 		try {
-			parsed = JSON.parse(raw)
+			parsed = JSON.parse(activityItemsField.trim() || "[]")
 		} catch {
 			return data(
 				{ fieldErrors: { activityTypes: "Ugyldig format for vedlikeholdsaktiviteter" } as FieldErrors },
@@ -155,17 +156,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			)
 		}
 		if (!isSectionRoutine) {
-			activityTypes = [
-				...new Set(
-					(parsed as string[]).filter((t): t is RoutineActivityType =>
-						ROUTINE_ACTIVITY_TYPES.includes(t as RoutineActivityType),
-					),
-				),
-			]
+			activityItems = (parsed as RawActivityItem[])
+				.filter((i) => ROUTINE_ACTIVITY_TYPES.includes(i.type as RoutineActivityType))
+				.map((i) => ({
+					type: i.type as RoutineActivityType,
+					stepTitle: i.type === "manual_activity" ? i.stepTitle?.trim() || null : null,
+					stepDescription: i.type === "manual_activity" ? i.stepDescription?.trim() || null : null,
+				}))
 		} else {
-			activityTypes = []
+			activityItems = []
 		}
 	}
+
 	const technologyElementIds = formData.getAll("technologyElementIds")
 	const controlIds = formData.getAll("controlIds") as string[]
 	const groupClassifications = formData.getAll("groupClassifications") as string[]
@@ -238,7 +240,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		appliesToAllInSection,
 		isSectionRoutine,
 		sectionRoutineOwnerRole,
-		activityTypes,
+		activityItems,
 		persistenceLinks,
 		screeningQuestionId: null,
 		screeningChoiceValue: null,

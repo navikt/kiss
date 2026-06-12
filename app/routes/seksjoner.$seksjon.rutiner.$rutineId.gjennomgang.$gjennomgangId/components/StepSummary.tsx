@@ -70,103 +70,118 @@ export function StepSummary({ review, isDraft }: Props) {
 				</BodyShort>
 			</div>
 
-			{isDraft ? (
-				<Form method="post" data-wizard-form>
-					<input type="hidden" name="intent" value="update-review" />
-					<VStack gap="space-6">
-						<MarkdownEditor label="Oppsummering / referat" name="summary" defaultValue={review.summary ?? ""} />
+			<ReviewSummarySection summary={review.summary} summaryHtml={review.summaryHtml} isDraft={isDraft} />
 
-						<HStack>
-							<Button type="submit" variant="primary" size="small">
-								Lagre sammendrag
-							</Button>
-						</HStack>
-					</VStack>
-				</Form>
-			) : review.summaryHtml ? (
-				<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
-					<div
-						className="markdown-content"
-						// biome-ignore lint/security/noDangerouslySetInnerHtml: server-sanitized
-						dangerouslySetInnerHTML={{ __html: review.summaryHtml }}
-					/>
-				</Box>
-			) : (
-				<Box padding="space-6" borderRadius="8" background="sunken">
-					<BodyShort>Ingen oppsummering er skrevet.</BodyShort>
-				</Box>
-			)}
-
-			{/* Links section */}
-			<VStack gap="space-4">
-				<Heading size="small" level="4">
-					Lenker
-				</Heading>
-				{review.links.length > 0 ? (
-					/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
-					<section className="table-scroll" tabIndex={0} aria-label="Lenker">
-						<Table size="small">
-							<Table.Header>
-								<Table.Row>
-									<Table.HeaderCell scope="col">Tittel</Table.HeaderCell>
-									<Table.HeaderCell scope="col">URL</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Lagt til av</Table.HeaderCell>
-									<Table.HeaderCell scope="col">Dato</Table.HeaderCell>
-									{isDraft && <Table.HeaderCell scope="col" />}
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{review.links.map((l) => (
-									<Table.Row key={l.id}>
-										<Table.DataCell>{l.title || "—"}</Table.DataCell>
-										<Table.DataCell>
-											{isSafeUrl(l.url) ? (
-												<AkselLink href={l.url} target="_blank" rel="noopener noreferrer">
-													{l.url.length > 60 ? `${l.url.slice(0, 60)}…` : l.url}
-													<ExternalLinkIcon aria-hidden style={{ marginLeft: "0.25rem" }} />
-												</AkselLink>
-											) : (
-												<BodyShort size="small" textColor="subtle">
-													{l.url.length > 60 ? `${l.url.slice(0, 60)}…` : l.url}
-												</BodyShort>
-											)}
-										</Table.DataCell>
-										<Table.DataCell>{l.addedBy}</Table.DataCell>
-										<Table.DataCell>{formatDate(l.addedAt)}</Table.DataCell>
-										{isDraft && (
-											<Table.DataCell>
-												<Form method="post">
-													<input type="hidden" name="intent" value="delete-link" />
-													<input type="hidden" name="linkId" value={l.id} />
-													<Button
-														type="submit"
-														variant="tertiary-neutral"
-														size="xsmall"
-														icon={<TrashIcon aria-hidden />}
-													>
-														Fjern
-													</Button>
-												</Form>
-											</Table.DataCell>
-										)}
-									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
-					</section>
-				) : (
-					<Box padding="space-6" borderRadius="8" background="sunken">
-						<BodyShort>Ingen lenker er lagt til.</BodyShort>
-					</Box>
-				)}
-			</VStack>
-
-			{isDraft && <AddLinkSection />}
+			<ReviewLinksSection links={review.links} isDraft={isDraft} />
 		</VStack>
 	)
 }
 
-function AddLinkSection() {
+type ReviewSummarySectionProps = {
+	summary: string | null
+	summaryHtml: string | null
+	isDraft: boolean
+}
+
+export function ReviewSummarySection({ summary, summaryHtml, isDraft }: ReviewSummarySectionProps) {
+	return isDraft ? (
+		<Form method="post" data-wizard-form>
+			<input type="hidden" name="intent" value="update-review" />
+			<VStack gap="space-6">
+				<MarkdownEditor label="Oppsummering / referat" name="summary" defaultValue={summary ?? ""} />
+				<HStack>
+					<Button type="submit" variant="primary" size="small">
+						Lagre sammendrag
+					</Button>
+				</HStack>
+			</VStack>
+		</Form>
+	) : summaryHtml ? (
+		<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+			<div
+				className="markdown-content"
+				// biome-ignore lint/security/noDangerouslySetInnerHtml: server-sanitized
+				dangerouslySetInnerHTML={{ __html: summaryHtml }}
+			/>
+		</Box>
+	) : (
+		<Box padding="space-6" borderRadius="8" background="sunken">
+			<BodyShort>Ingen oppsummering er skrevet.</BodyShort>
+		</Box>
+	)
+}
+
+type ReviewLinksSectionProps = {
+	links: LinkItem[]
+	isDraft: boolean
+	activityStepId?: string
+}
+
+export function ReviewLinksSection({ links, isDraft, activityStepId }: ReviewLinksSectionProps) {
+	return (
+		<VStack gap="space-4">
+			<Heading size="small" level="4">
+				Lenker
+			</Heading>
+			{links.length > 0 ? (
+				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+				<section className="table-scroll" tabIndex={0} aria-label="Lenker">
+					<Table size="small">
+						<Table.Header>
+							<Table.Row>
+								<Table.HeaderCell scope="col">Tittel</Table.HeaderCell>
+								<Table.HeaderCell scope="col">URL</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Lagt til av</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Dato</Table.HeaderCell>
+								{isDraft && <Table.HeaderCell scope="col" />}
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{links.map((l) => (
+								<Table.Row key={l.id}>
+									<Table.DataCell>{l.title || "—"}</Table.DataCell>
+									<Table.DataCell>
+										{isSafeUrl(l.url) ? (
+											<AkselLink href={l.url} target="_blank" rel="noopener noreferrer">
+												{l.url.length > 60 ? `${l.url.slice(0, 60)}…` : l.url}
+												<ExternalLinkIcon aria-hidden style={{ marginLeft: "0.25rem" }} />
+											</AkselLink>
+										) : (
+											<BodyShort size="small" textColor="subtle">
+												{l.url.length > 60 ? `${l.url.slice(0, 60)}…` : l.url}
+											</BodyShort>
+										)}
+									</Table.DataCell>
+									<Table.DataCell>{l.addedBy}</Table.DataCell>
+									<Table.DataCell>{formatDate(l.addedAt)}</Table.DataCell>
+									{isDraft && (
+										<Table.DataCell>
+											<Form method="post">
+												<input type="hidden" name="intent" value="delete-link" />
+												<input type="hidden" name="linkId" value={l.id} />
+												<Button type="submit" variant="tertiary-neutral" size="xsmall" icon={<TrashIcon aria-hidden />}>
+													Fjern
+												</Button>
+											</Form>
+										</Table.DataCell>
+									)}
+								</Table.Row>
+							))}
+						</Table.Body>
+					</Table>
+				</section>
+			) : (
+				<Box padding="space-6" borderRadius="8" background="sunken">
+					<BodyShort>Ingen lenker er lagt til.</BodyShort>
+				</Box>
+			)}
+
+			{isDraft && <AddLinkSection activityStepId={activityStepId} />}
+		</VStack>
+	)
+}
+
+function AddLinkSection({ activityStepId }: { activityStepId?: string }) {
 	const actionData = useActionData<ActionResult>()
 	const navigation = useNavigation()
 	const isSubmitting = navigation.state === "submitting"
@@ -188,6 +203,7 @@ function AddLinkSection() {
 				}}
 			>
 				<input type="hidden" name="intent" value="add-link" />
+				{activityStepId && <input type="hidden" name="activityStepId" value={activityStepId} />}
 				<VStack gap="space-4">
 					<HStack gap="space-4" align="end" style={{ flexWrap: "wrap" }}>
 						<TextField

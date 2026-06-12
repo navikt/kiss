@@ -11,6 +11,13 @@ import {
 } from "../../lib/entra-staged-data"
 import { resolveGroupNames } from "../../lib/graph.server"
 import { withAdvisoryLock } from "../../lib/lock.server"
+import {
+	isManualActivityComplete,
+	MANUAL_ACTIVITY_SCHEMA_VERSION,
+	MANUAL_ACTIVITY_TYPE,
+	type ManualActivityStagedData,
+	parseManualActivityStagedData,
+} from "../../lib/manual-activity-staged-data"
 import { getOracleRoles, shouldAssessRole } from "../../lib/oracle-revisjon.server"
 import {
 	applyOracleRoleCriticalityPatch,
@@ -58,6 +65,7 @@ import {
 	type RoutineActivityType,
 	type RoutineStatus,
 	routineActivityLinks,
+	routineActivitySteps,
 	routineControls,
 	routineGroupClassificationLinks,
 	routineOracleRoleCriticalityLinks,
@@ -259,7 +267,12 @@ export async function getRoutine(id: string) {
 				and(eq(routineOracleRoleCriticalityLinks.routineId, id), isNull(routineOracleRoleCriticalityLinks.archivedAt)),
 			),
 		db
-			.select({ activityType: routineActivityLinks.activityType })
+			.select({
+				activityType: routineActivityLinks.activityType,
+				stepTitle: routineActivityLinks.stepTitle,
+				stepDescription: routineActivityLinks.stepDescription,
+				id: routineActivityLinks.id,
+			})
 			.from(routineActivityLinks)
 			.where(and(eq(routineActivityLinks.routineId, id), isNull(routineActivityLinks.archivedAt)))
 			.orderBy(routineActivityLinks.sortOrder),
@@ -282,6 +295,12 @@ export async function getRoutine(id: string) {
 		groupClassifications: gcLinks,
 		oracleRoleCriticalities: orcLinks,
 		activityTypes: activityLinkRows.map((r) => r.activityType as RoutineActivityType),
+		activityItems: activityLinkRows.map((r) => ({
+			id: r.id,
+			type: r.activityType as RoutineActivityType,
+			stepTitle: r.stepTitle ?? undefined,
+			stepDescription: r.stepDescription ?? undefined,
+		})),
 	}
 }
 
@@ -300,6 +319,8 @@ export async function createRoutine(params: {
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
 	activityTypes?: RoutineActivityType[]
+	/** Richer activity items with per-item step config (supersedes activityTypes when provided) */
+	activityItems?: Array<{ type: RoutineActivityType; stepTitle?: string | null; stepDescription?: string | null }>
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
 		dataClassification: DataClassification | null
@@ -412,14 +433,20 @@ export async function createRoutine(params: {
 			)
 		}
 
-		// Insert activity links (new multi-activity support)
-		const activityTypes = [...new Set(params.isSectionRoutine ? [] : (params.activityTypes ?? []))]
-		if (activityTypes.length > 0) {
+		// Insert activity links (supports both legacy activityTypes and new activityItems)
+		const rawItems = params.isSectionRoutine
+			? []
+			: (params.activityItems ??
+				params.activityTypes?.map((t) => ({ type: t, stepTitle: null, stepDescription: null })) ??
+				[])
+		if (rawItems.length > 0) {
 			await tx.insert(routineActivityLinks).values(
-				activityTypes.map((activityType, index) => ({
+				rawItems.map((item, index) => ({
 					routineId: routine.id,
-					activityType,
+					activityType: item.type,
 					sortOrder: index,
+					stepTitle: item.type === MANUAL_ACTIVITY_TYPE ? (item.stepTitle ?? null) : null,
+					stepDescription: item.type === MANUAL_ACTIVITY_TYPE ? (item.stepDescription ?? null) : null,
 					createdBy: params.createdBy,
 				})),
 			)
@@ -443,7 +470,7 @@ export async function createRoutine(params: {
 					screeningQuestionLinks: links,
 					technologyElementIds: params.technologyElementIds,
 					controlIds: params.controlIds,
-					activityTypes,
+					activityTypes: rawItems.map((i) => i.type),
 				},
 				performedBy: params.createdBy,
 			},
@@ -484,6 +511,8 @@ export async function updateRoutine(params: {
 	isSectionRoutine?: boolean
 	sectionRoutineOwnerRole?: string | null
 	activityTypes?: RoutineActivityType[]
+	/** Richer activity items with per-item step config (supersedes activityTypes when provided) */
+	activityItems?: Array<{ type: RoutineActivityType; stepTitle?: string | null; stepDescription?: string | null }>
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
 		dataClassification: DataClassification | null
@@ -519,14 +548,33 @@ export async function updateRoutine(params: {
 		// Use explicit param if provided, otherwise fall back to current DB value
 		const effectiveIsSectionRoutine = params.isSectionRoutine ?? locked.isSectionRoutine === 1
 
-		// Compute effective activity types before UPDATE (for link table sync)
-		// When neither activityTypes nor isSectionRoutine:true is provided, preserve existing state.
-		// isSectionRoutine:false alone does NOT clear links — only explicit activityTypes or switching
-		// to section routine (isSectionRoutine:true) triggers a link sync.
-		const hasActivityInput = params.activityTypes !== undefined || params.isSectionRoutine === true
-		const effectiveActivityTypes = hasActivityInput
-			? [...new Set(effectiveIsSectionRoutine ? [] : (params.activityTypes ?? []))]
-			: null
+		// Compute effective activity items before UPDATE (for link table sync)
+		// activityItems supersedes activityTypes when provided.
+		// When neither activityItems/activityTypes nor isSectionRoutine:true is provided, preserve existing state.
+		const hasActivityInput =
+			params.activityItems !== undefined || params.activityTypes !== undefined || params.isSectionRoutine === true
+		type EffectiveItem = { type: RoutineActivityType; stepTitle?: string | null; stepDescription?: string | null }
+		let effectiveActivityItems: EffectiveItem[] | null = null
+		if (hasActivityInput) {
+			if (effectiveIsSectionRoutine) {
+				effectiveActivityItems = []
+			} else if (params.activityItems !== undefined) {
+				effectiveActivityItems = params.activityItems
+			} else {
+				// Deduplicate non-checklist types from legacy activityTypes array
+				const seen = new Set<string>()
+				effectiveActivityItems = (params.activityTypes ?? [])
+					.filter((t) => {
+						if (t === MANUAL_ACTIVITY_TYPE) return true
+						if (seen.has(t)) return false
+						seen.add(t)
+						return true
+					})
+					.map((t) => ({ type: t }))
+			}
+		}
+		// For audit log compatibility
+		const effectiveActivityTypes = effectiveActivityItems ? effectiveActivityItems.map((i) => i.type) : null
 
 		// Validate owner role for section routines
 		if (effectiveIsSectionRoutine && params.isSectionRoutine !== undefined && !params.sectionRoutineOwnerRole) {
@@ -808,31 +856,38 @@ export async function updateRoutine(params: {
 			}
 		}
 
-		// ── Activity links (new multi-activity) — skip when no activity input provided
-		if (effectiveActivityTypes !== null) {
+		// ── Activity links — skip when no activity input provided
+		if (effectiveActivityItems !== null) {
 			const existingActivityLinks = await tx
-				.select({ activityType: routineActivityLinks.activityType })
+				.select({
+					activityType: routineActivityLinks.activityType,
+					stepTitle: routineActivityLinks.stepTitle,
+					stepDescription: routineActivityLinks.stepDescription,
+				})
 				.from(routineActivityLinks)
 				.where(and(eq(routineActivityLinks.routineId, params.id), isNull(routineActivityLinks.archivedAt)))
 				.orderBy(routineActivityLinks.sortOrder)
-			const prevActivityTypes = existingActivityLinks.map((a) => a.activityType)
-			const activityChanged =
-				effectiveActivityTypes.length !== prevActivityTypes.length ||
-				effectiveActivityTypes.some((t, i) => t !== prevActivityTypes[i])
+			const prevSerialized = JSON.stringify(
+				existingActivityLinks.map((a) => ({ t: a.activityType, st: a.stepTitle, sd: a.stepDescription })),
+			)
+			const nextSerialized = JSON.stringify(
+				effectiveActivityItems.map((a) => ({ t: a.type, st: a.stepTitle ?? null, sd: a.stepDescription ?? null })),
+			)
+			const activityChanged = prevSerialized !== nextSerialized
 
 			if (activityChanged) {
-				// Archive existing
 				await tx
 					.update(routineActivityLinks)
 					.set({ archivedAt: new Date(), archivedBy: params.updatedBy })
 					.where(and(eq(routineActivityLinks.routineId, params.id), isNull(routineActivityLinks.archivedAt)))
-				// Insert new
-				if (effectiveActivityTypes.length > 0) {
+				if (effectiveActivityItems.length > 0) {
 					await tx.insert(routineActivityLinks).values(
-						effectiveActivityTypes.map((activityType, index) => ({
+						effectiveActivityItems.map((item, index) => ({
 							routineId: params.id,
-							activityType,
+							activityType: item.type,
 							sortOrder: index,
+							stepTitle: item.type === MANUAL_ACTIVITY_TYPE ? (item.stepTitle ?? null) : null,
+							stepDescription: item.type === MANUAL_ACTIVITY_TYPE ? (item.stepDescription ?? null) : null,
 							createdBy: params.updatedBy,
 						})),
 					)
@@ -2313,7 +2368,13 @@ async function syncComplianceForReview(reviewId: string, performedBy: string) {
 
 // ─── Review Links ────────────────────────────────────────────────────────
 
-export async function addReviewLink(params: { reviewId: string; url: string; title: string | null; addedBy: string }) {
+export async function addReviewLink(params: {
+	reviewId: string
+	url: string
+	title: string | null
+	addedBy: string
+	activityStepId?: string | null
+}) {
 	// Atomisk: INSERT i tx med FOR SHARE-lås på foreldre-rutinen og
 	// routine_reviews så statusguarden mot discarded er atomisk.
 	return db.transaction(async (tx) => {
@@ -2338,6 +2399,7 @@ export async function addReviewLink(params: { reviewId: string; url: string; tit
 				url: params.url,
 				title: params.title,
 				addedBy: params.addedBy,
+				activityStepId: params.activityStepId ?? null,
 			})
 			.returning()
 
@@ -2444,6 +2506,7 @@ export async function addReviewAttachment(params: {
 	contentType: string
 	sizeBytes: number | null
 	uploadedBy: string
+	activityStepId?: string | null
 }) {
 	const [attachment] = await db
 		.insert(routineReviewAttachments)
@@ -2454,6 +2517,7 @@ export async function addReviewAttachment(params: {
 			contentType: params.contentType,
 			sizeBytes: params.sizeBytes,
 			uploadedBy: params.uploadedBy,
+			activityStepId: params.activityStepId ?? null,
 		})
 		.returning()
 
@@ -3615,6 +3679,7 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 			groupClassifications: gcLinksByRoutine.get(routine.id) ?? [],
 			oracleRoleCriticalities: orcLinksByRoutine.get(routine.id) ?? [],
 			activityTypes: [],
+			activityItems: [],
 		}
 
 		const apps = await getAppsRequiringRoutine(routine.id, {
@@ -3673,6 +3738,7 @@ export async function getRoutineDeadlinesForSection(sectionId: string): Promise<
 			groupClassifications: gcLinksByRoutine.get(routine.id) ?? [],
 			oracleRoleCriticalities: orcLinksByRoutine.get(routine.id) ?? [],
 			activityTypes: [],
+			activityItems: [],
 		}
 
 		const lastReviewDate = reviewDateLookup.get(`${routine.id}:${appId}`) ?? null
@@ -3845,6 +3911,7 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
 			activityTypes: [],
+			activityItems: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -3982,6 +4049,7 @@ export async function getRoutineDeadlinesForAppByPersistence(
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
 			activityTypes: [],
+			activityItems: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -4156,6 +4224,7 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
 			activityTypes: [],
+			activityItems: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -4292,6 +4361,7 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
 			activityTypes: [],
+			activityItems: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -4408,6 +4478,7 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
 			activityTypes: [],
+			activityItems: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -4613,6 +4684,7 @@ export async function getRoutineDeadlinesForAppBySection(
 			groupClassifications: [],
 			oracleRoleCriticalities: routineOracle,
 			activityTypes: [],
+			activityItems: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -4754,6 +4826,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 			groupClassifications: [],
 			oracleRoleCriticalities: [],
 			activityTypes: [],
+			activityItems: [],
 		}
 
 		const lastReviewDate = reviewDateMap.get(routine.id) ?? null
@@ -5577,27 +5650,71 @@ export async function autoCreateActivitiesForReview(
 	providerConfigs?: Record<string, ReviewActivityProviderConfig>,
 ) {
 	const activityLinks = await db
-		.select({ activityType: routineActivityLinks.activityType })
+		.select({
+			activityType: routineActivityLinks.activityType,
+			stepTitle: routineActivityLinks.stepTitle,
+			stepDescription: routineActivityLinks.stepDescription,
+		})
 		.from(routineActivityLinks)
 		.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
 		.orderBy(routineActivityLinks.sortOrder)
+
+	// Fetch existing manual activity rows for this review to ensure idempotency.
+	// Non-manual-activity types are guarded by onConflictDoNothing; manual activity rows have no unique
+	// constraint so we must check manually before inserting.
+	const existingManualActivityActivities = await db
+		.select({ sortOrder: routineReviewActivities.sortOrder, snapshotBefore: routineReviewActivities.snapshotBefore })
+		.from(routineReviewActivities)
+		.where(and(eq(routineReviewActivities.reviewId, reviewId), eq(routineReviewActivities.type, MANUAL_ACTIVITY_TYPE)))
+
+	// Build a set of already-inserted manual activity slots: keyed by "sortOrder:stepTitle"
+	const existingManualActivityKeys = new Set(
+		existingManualActivityActivities.map((a) => {
+			const sb = a.snapshotBefore as { stepTitle?: string } | null
+			return `${a.sortOrder}:${sb?.stepTitle ?? ""}`
+		}),
+	)
 
 	await db.transaction(async (tx) => {
 		for (let i = 0; i < activityLinks.length; i++) {
 			const link = activityLinks[i]
 			const config = providerConfigs?.[link.activityType] ?? null
-			// onConflictDoNothing: unique constraint on (review_id, type) handles race conditions
-			const [inserted] = await tx
-				.insert(routineReviewActivities)
-				.values({
-					reviewId,
-					type: link.activityType as RoutineActivityType,
-					sortOrder: i,
-					snapshotBefore: null,
-					providerConfig: config,
-				})
-				.onConflictDoNothing({ target: [routineReviewActivities.reviewId, routineReviewActivities.type] })
-				.returning()
+			const isManualActivity = link.activityType === MANUAL_ACTIVITY_TYPE
+
+			// For non-manual-activity types: use onConflictDoNothing (unique constraint prevents duplicates).
+			// Manual activity has no unique constraint so every link gets its own activity row.
+			let inserted: (typeof routineReviewActivities.$inferInsert & { id: string }) | undefined
+
+			if (isManualActivity) {
+				// Skip if this manual activity slot was already created (idempotency guard)
+				const key = `${i}:${link.stepTitle ?? ""}`
+				if (existingManualActivityKeys.has(key)) continue
+
+				;[inserted] = await tx
+					.insert(routineReviewActivities)
+					.values({
+						reviewId,
+						type: link.activityType as RoutineActivityType,
+						sortOrder: i,
+						snapshotBefore: link.stepTitle
+							? { stepTitle: link.stepTitle, stepDescription: link.stepDescription ?? null }
+							: null,
+						providerConfig: config,
+					})
+					.returning()
+			} else {
+				;[inserted] = await tx
+					.insert(routineReviewActivities)
+					.values({
+						reviewId,
+						type: link.activityType as RoutineActivityType,
+						sortOrder: i,
+						snapshotBefore: null,
+						providerConfig: config,
+					})
+					.onConflictDoNothing()
+					.returning()
+			}
 
 			if (inserted) {
 				await writeAuditLog(
@@ -6290,6 +6407,8 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 					routineId: copy.id,
 					activityType: link.activityType,
 					sortOrder: link.sortOrder,
+					stepTitle: link.stepTitle,
+					stepDescription: link.stepDescription,
 					createdBy: performedBy,
 				})),
 			)
@@ -7026,6 +7145,8 @@ export async function getRoutineActivityLinks(routineId: string) {
 			id: routineActivityLinks.id,
 			activityType: routineActivityLinks.activityType,
 			sortOrder: routineActivityLinks.sortOrder,
+			stepTitle: routineActivityLinks.stepTitle,
+			stepDescription: routineActivityLinks.stepDescription,
 		})
 		.from(routineActivityLinks)
 		.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
@@ -7703,4 +7824,351 @@ async function completeOracleRoleCriticalityActivity(
 	}
 
 	return toOracleRoleCriticalitySnapshot(stagedData)
+}
+
+// ─── Manual Activity ────────────────────────────────────────────────
+
+export async function getActivityStepsForRoutine(routineId: string) {
+	return db
+		.select({
+			id: routineActivitySteps.id,
+			title: routineActivitySteps.title,
+			description: routineActivitySteps.description,
+			sortOrder: routineActivitySteps.sortOrder,
+		})
+		.from(routineActivitySteps)
+		.where(and(eq(routineActivitySteps.routineId, routineId), isNull(routineActivitySteps.archivedAt)))
+		.orderBy(routineActivitySteps.sortOrder)
+}
+
+export async function createActivityStep(
+	routineId: string,
+	params: { title: string; description: string | null; sortOrder: number },
+	performedBy: string,
+) {
+	return db.transaction(async (tx) => {
+		const [inserted] = await tx
+			.insert(routineActivitySteps)
+			.values({
+				routineId,
+				title: params.title.trim(),
+				description: params.description?.trim() || null,
+				sortOrder: params.sortOrder,
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
+			.returning()
+
+		if (!inserted) throw new Error("Failed to create checklist step")
+
+		await writeAuditLog(
+			{
+				action: "routine_checklist_step_created",
+				entityType: "routine_checklist_step",
+				entityId: inserted.id,
+				newValue: JSON.stringify({ routineId, title: inserted.title, sortOrder: inserted.sortOrder }),
+				performedBy,
+			},
+			tx,
+		)
+
+		return inserted
+	})
+}
+
+export async function updateActivityStep(
+	stepId: string,
+	params: { title?: string; description?: string | null; sortOrder?: number },
+	performedBy: string,
+) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(routineActivitySteps)
+			.where(and(eq(routineActivitySteps.id, stepId), isNull(routineActivitySteps.archivedAt)))
+			.limit(1)
+		if (!existing) throw new Error(`Checklist step ${stepId} not found`)
+
+		const [updated] = await tx
+			.update(routineActivitySteps)
+			.set({
+				...(params.title !== undefined && { title: params.title.trim() }),
+				...(params.description !== undefined && { description: params.description?.trim() || null }),
+				...(params.sortOrder !== undefined && { sortOrder: params.sortOrder }),
+				updatedAt: new Date(),
+				updatedBy: performedBy,
+			})
+			.where(eq(routineActivitySteps.id, stepId))
+			.returning()
+
+		if (!updated) throw new Error("Failed to update checklist step")
+
+		await writeAuditLog(
+			{
+				action: "routine_checklist_step_updated",
+				entityType: "routine_checklist_step",
+				entityId: stepId,
+				previousValue: JSON.stringify({ title: existing.title, sortOrder: existing.sortOrder }),
+				newValue: JSON.stringify({ title: updated.title, sortOrder: updated.sortOrder }),
+				performedBy,
+			},
+			tx,
+		)
+
+		return updated
+	})
+}
+
+export async function archiveActivityStep(stepId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select({ id: routineActivitySteps.id, title: routineActivitySteps.title })
+			.from(routineActivitySteps)
+			.where(and(eq(routineActivitySteps.id, stepId), isNull(routineActivitySteps.archivedAt)))
+			.limit(1)
+		if (!existing) throw new Error(`Checklist step ${stepId} not found`)
+
+		await tx
+			.update(routineActivitySteps)
+			.set({ archivedAt: new Date(), archivedBy: performedBy, updatedAt: new Date(), updatedBy: performedBy })
+			.where(eq(routineActivitySteps.id, stepId))
+
+		await writeAuditLog(
+			{
+				action: "routine_checklist_step_archived",
+				entityType: "routine_checklist_step",
+				entityId: stepId,
+				previousValue: JSON.stringify({ title: existing.title }),
+				performedBy,
+			},
+			tx,
+		)
+	})
+}
+
+export async function seedManualActivity(activityId: string, routineId: string, performedBy: string) {
+	// Idempotent: return existing staged_data if already seeded
+	const [activity] = await db
+		.select({
+			stagedData: routineReviewActivities.stagedData,
+			status: routineReviewActivities.status,
+			snapshotBefore: routineReviewActivities.snapshotBefore,
+		})
+		.from(routineReviewActivities)
+		.where(eq(routineReviewActivities.id, activityId))
+		.limit(1)
+
+	if (!activity) throw new Error(`Activity ${activityId} not found`)
+	if (activity.stagedData) return parseManualActivityStagedData(activity.stagedData)
+
+	let stagedData: ManualActivityStagedData
+
+	// New single-step model: snapshotBefore contains stepTitle/stepDescription from the activity link
+	const snap = activity.snapshotBefore as Record<string, unknown> | null
+	if (snap && typeof snap.stepTitle === "string") {
+		stagedData = {
+			activityType: MANUAL_ACTIVITY_TYPE,
+			schemaVersion: MANUAL_ACTIVITY_SCHEMA_VERSION,
+			steps: [
+				{
+					stepId: activityId,
+					title: snap.stepTitle,
+					description: typeof snap.stepDescription === "string" ? snap.stepDescription : null,
+					completedAt: null,
+					completedBy: null,
+					notes: null,
+				},
+			],
+		}
+	} else {
+		// Legacy multi-step model: read steps from routine_checklist_steps
+		const steps = await getActivityStepsForRoutine(routineId)
+		stagedData = {
+			activityType: MANUAL_ACTIVITY_TYPE,
+			schemaVersion: MANUAL_ACTIVITY_SCHEMA_VERSION,
+			steps: steps.map((s) => ({
+				stepId: s.id,
+				title: s.title,
+				description: s.description,
+				completedAt: null,
+				completedBy: null,
+				notes: null,
+			})),
+		}
+	}
+
+	await db.transaction(async (tx) => {
+		await tx
+			.update(routineReviewActivities)
+			.set({ stagedData, snapshotBefore: stagedData })
+			.where(eq(routineReviewActivities.id, activityId))
+
+		await writeAuditLog(
+			{
+				action: "review_activity_seeded",
+				entityType: "routine_review_activity",
+				entityId: activityId,
+				newValue: JSON.stringify({ activityType: MANUAL_ACTIVITY_TYPE, stepCount: stagedData.steps.length }),
+				performedBy,
+			},
+			tx,
+		)
+	})
+
+	return stagedData
+}
+
+export async function patchManualActivityStep(
+	activityId: string,
+	stepId: string,
+	completed: boolean,
+	performedBy: string,
+): Promise<ManualActivityStagedData> {
+	const lockName = `${MANUAL_ACTIVITY_TYPE}-activity-${activityId}`
+
+	const result = await withAdvisoryLock(lockName, async () => {
+		const [activity] = await db
+			.select({ stagedData: routineReviewActivities.stagedData, status: routineReviewActivities.status })
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activityId))
+			.limit(1)
+
+		if (!activity) throw new Error(`Activity ${activityId} not found`)
+		if (activity.status === "completed") throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+		if (!activity.stagedData) throw new Error("Activity not seeded yet")
+
+		const stagedData = parseManualActivityStagedData(activity.stagedData)
+		const stepIndex = stagedData.steps.findIndex((s) => s.stepId === stepId)
+		if (stepIndex === -1) throw new Error(`Step ${stepId} not found in staged data`)
+
+		const now = new Date().toISOString()
+		stagedData.steps[stepIndex] = {
+			...stagedData.steps[stepIndex],
+			completedAt: completed ? now : null,
+			completedBy: completed ? performedBy : null,
+		}
+
+		await db.transaction(async (tx) => {
+			await tx.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
+
+			await writeAuditLog(
+				{
+					action: "review_activity_checklist_step_toggled",
+					entityType: "routine_review_activity",
+					entityId: activityId,
+					newValue: JSON.stringify({ stepId, completed }),
+					performedBy,
+				},
+				tx,
+			)
+		})
+
+		return stagedData
+	})
+
+	if (result === null) {
+		throw new Response("Aktiviteten er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+	}
+
+	return result
+}
+
+export async function patchManualActivityStepNotes(
+	activityId: string,
+	stepId: string,
+	notes: string | null,
+	performedBy: string,
+): Promise<ManualActivityStagedData> {
+	const lockName = `${MANUAL_ACTIVITY_TYPE}-activity-${activityId}`
+
+	const result = await withAdvisoryLock(lockName, async () => {
+		const [activity] = await db
+			.select({ stagedData: routineReviewActivities.stagedData, status: routineReviewActivities.status })
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activityId))
+			.limit(1)
+
+		if (!activity) throw new Error(`Activity ${activityId} not found`)
+		if (activity.status === "completed") throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+		if (!activity.stagedData) throw new Error("Activity not seeded yet")
+
+		const stagedData = parseManualActivityStagedData(activity.stagedData)
+		const stepIndex = stagedData.steps.findIndex((s) => s.stepId === stepId)
+		if (stepIndex === -1) throw new Error(`Step ${stepId} not found in staged data`)
+
+		stagedData.steps[stepIndex] = {
+			...stagedData.steps[stepIndex],
+			notes: notes?.trim() || null,
+		}
+
+		await db.transaction(async (tx) => {
+			await tx.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
+
+			await writeAuditLog(
+				{
+					action: "review_activity_checklist_step_toggled",
+					entityType: "routine_review_activity",
+					entityId: activityId,
+					newValue: JSON.stringify({ stepId, notesUpdated: true }),
+					performedBy,
+				},
+				tx,
+			)
+		})
+
+		return stagedData
+	})
+
+	if (result === null) {
+		throw new Response("Aktiviteten er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+	}
+
+	return result
+}
+
+export async function completeManualActivity(activityId: string, performedBy: string) {
+	const lockName = `${MANUAL_ACTIVITY_TYPE}-activity-${activityId}`
+
+	const result = await withAdvisoryLock(lockName, async () => {
+		const [activity] = await db
+			.select({ stagedData: routineReviewActivities.stagedData, status: routineReviewActivities.status })
+			.from(routineReviewActivities)
+			.where(eq(routineReviewActivities.id, activityId))
+			.limit(1)
+
+		if (!activity) throw new Error(`Activity ${activityId} not found`)
+		// Idempotent: already completed
+		if (activity.status === "completed") return { alreadyCompleted: true }
+		if (!activity.stagedData) throw new Error("Activity not seeded yet")
+
+		const stagedData = parseManualActivityStagedData(activity.stagedData)
+
+		if (!isManualActivityComplete(stagedData)) {
+			throw new Response("Ikke alle steg er fullført", { status: 400 })
+		}
+
+		await db.transaction(async (tx) => {
+			await tx
+				.update(routineReviewActivities)
+				.set({ status: "completed", completedAt: new Date(), snapshotAfter: stagedData })
+				.where(eq(routineReviewActivities.id, activityId))
+
+			await writeAuditLog(
+				{
+					action: "review_activity_completed",
+					entityType: "routine_review_activity",
+					entityId: activityId,
+					newValue: JSON.stringify({ activityType: MANUAL_ACTIVITY_TYPE }),
+					performedBy,
+				},
+				tx,
+			)
+		})
+
+		return { alreadyCompleted: false }
+	})
+
+	if (result === null) {
+		throw new Response("Aktiviteten er låst av en annen operasjon. Prøv igjen.", { status: 409 })
+	}
 }
