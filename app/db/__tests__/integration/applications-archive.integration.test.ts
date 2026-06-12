@@ -138,6 +138,99 @@ describe("Application archive (soft-delete) integration tests", () => {
 		expect(ids).not.toContain(archived)
 	})
 
+	it("excludes apps whose only environment is in a non-included cluster from getAvailableAppsForTeam()", async () => {
+		const db = getTestDb()
+		const sectionRow = await db.execute(
+			/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('Sec2', 'sec2', 'test', 'test') RETURNING id`,
+		)
+		const sectionId = (sectionRow.rows[0] as { id: string }).id
+		const teamRow = await db.execute(
+			/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by) VALUES ('Team2', 'team2', '${sectionId}', 'test', 'test') RETURNING id`,
+		)
+		const teamId = (teamRow.rows[0] as { id: string }).id
+
+		const naisTeamRow = await db.execute(
+			/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('nais-team-2', '${sectionId}') RETURNING id`,
+		)
+		const naisTeamId = (naisTeamRow.rows[0] as { id: string }).id
+
+		// prod-gcp is active, dev-gcp is NOT included — ensures the filter is tested against
+		// the actual cluster match, not an empty section_environments table (which would be a false positive)
+		await db.execute(/* sql */ `
+			INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES
+				('${sectionId}', 'prod-gcp', true, 'test', 'test'),
+				('${sectionId}', 'dev-gcp', false, 'test', 'test')
+		`)
+
+		// App only in the non-included cluster (dev-gcp) — should be excluded
+		const excludedEnvApp = await createTestApp("Excluded Cluster App")
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${excludedEnvApp}', 'dev-gcp', 'nais-team-2', '${naisTeamId}')`,
+		)
+
+		// App in the active cluster (prod-gcp) — should appear to confirm the filter works selectively
+		const activeEnvApp = await createTestApp("Active Cluster App")
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${activeEnvApp}', 'prod-gcp', 'nais-team-2', '${naisTeamId}')`,
+		)
+
+		const apps = await getAvailableAppsForTeam(teamId, sectionId)
+		const ids = apps.map((a) => a.id)
+		expect(ids).toContain(activeEnvApp)
+		expect(ids).not.toContain(excludedEnvApp)
+	})
+
+	it("excludes apps belonging to a nais team in a different section from getAvailableAppsForTeam()", async () => {
+		const db = getTestDb()
+
+		// Section A — the section we're querying for
+		const secARow = await db.execute(
+			/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('SecA', 'sec-a', 'test', 'test') RETURNING id`,
+		)
+		const sectionAId = (secARow.rows[0] as { id: string }).id
+		const teamRow = await db.execute(
+			/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by) VALUES ('TeamA', 'team-a', '${sectionAId}', 'test', 'test') RETURNING id`,
+		)
+		const teamId = (teamRow.rows[0] as { id: string }).id
+		const naisTeamARow = await db.execute(
+			/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('nais-team-a', '${sectionAId}') RETURNING id`,
+		)
+		const naisTeamAId = (naisTeamARow.rows[0] as { id: string }).id
+		await db.execute(
+			/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${sectionAId}', 'prod-gcp', true, 'test', 'test')`,
+		)
+
+		// Section B — a separate section with its own nais team
+		const secBRow = await db.execute(
+			/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('SecB', 'sec-b', 'test', 'test') RETURNING id`,
+		)
+		const sectionBId = (secBRow.rows[0] as { id: string }).id
+		const naisTeamBRow = await db.execute(
+			/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('nais-team-b', '${sectionBId}') RETURNING id`,
+		)
+		const naisTeamBId = (naisTeamBRow.rows[0] as { id: string }).id
+		await db.execute(
+			/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${sectionBId}', 'prod-gcp', true, 'test', 'test')`,
+		)
+
+		// App in section A's nais team → should appear
+		const appInSectionA = await createTestApp("App in Section A")
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appInSectionA}', 'prod-gcp', 'nais-team-a', '${naisTeamAId}')`,
+		)
+
+		// App only in section B's nais team → should NOT appear when querying for section A
+		const appInSectionB = await createTestApp("App in Section B")
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appInSectionB}', 'prod-gcp', 'nais-team-b', '${naisTeamBId}')`,
+		)
+
+		const apps = await getAvailableAppsForTeam(teamId, sectionAId)
+		const ids = apps.map((a) => a.id)
+		expect(ids).toContain(appInSectionA)
+		expect(ids).not.toContain(appInSectionB)
+	})
+
 	it("reactivates an archived application", async () => {
 		const appId = await createTestApp("Returning App")
 		await archiveApplication(appId, "admin")
