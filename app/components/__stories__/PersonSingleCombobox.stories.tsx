@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import type { ComponentProps } from "react"
 import { createRoutesStub } from "react-router"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { PersonSingleCombobox } from "../PersonSingleCombobox"
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -160,5 +160,34 @@ export const IdentUtenDuplikatVedManglendeVisningsnavn: Story = {
 			expect(parsed.displayName).toBe("Z990005")
 			expect(canvas.getByRole("combobox")).toHaveValue("Z990005")
 		})
+	},
+}
+
+export const OnSelectionChangeCallback: Story = {
+	name: "onSelectionChange kalles ved valg og ved nullstilling",
+	args: {
+		name: "person",
+		label: "Seksjonsleder",
+		description: "Søk på navn eller NAV-ident",
+		onSelectionChange: fn(),
+	},
+	play: async ({ args, canvasElement }) => {
+		const canvas = within(canvasElement)
+		const input = canvas.getByRole("combobox")
+
+		// 1. Velg bruker → callback kalles med brukerdata
+		await userEvent.type(input, "Glad")
+		await waitFor(() => canvas.getByRole("option", { name: /Glad Fjord/i }))
+		await userEvent.click(canvas.getByRole("option", { name: /Glad Fjord/i }))
+		await waitFor(() =>
+			expect(args.onSelectionChange).toHaveBeenCalledWith({
+				navIdent: "Z990001",
+				displayName: "Glad Fjord",
+			}),
+		)
+
+		// 2. Start å skrive ny søketekst → callback kalles med null (valget nullstilles)
+		await userEvent.type(input, "x")
+		await waitFor(() => expect(args.onSelectionChange).toHaveBeenCalledWith(null))
 	},
 }
