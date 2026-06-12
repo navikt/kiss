@@ -7,34 +7,54 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { DragVerticalIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
-import { BodyShort, Box, Button, HStack, Select, Tag, VStack } from "@navikt/ds-react"
-import { useCallback, useEffect, useState } from "react"
+import { BodyShort, Box, Button, HStack, Select, Tag, TextField, VStack } from "@navikt/ds-react"
+import { useCallback, useEffect, useId, useState } from "react"
 import { ACTIVITY_TYPE_GROUPS, activityTypeLabels, type RoutineActivityType } from "~/lib/activity-types"
+import { MarkdownEditor } from "./MarkdownEditor"
+
+export type ActivityItem = {
+	/** Stable client-side key for React reconciliation */
+	id: string
+	type: RoutineActivityType
+	/** Title — only used for manual_activity items */
+	stepTitle?: string
+	/** Description — only used for manual_activity items */
+	stepDescription?: string
+}
 
 type Props = {
-	/** Currently selected activity types (ordered) */
-	initialActivities?: RoutineActivityType[]
+	/** Currently selected activity items (ordered) */
+	initialActivities?: ActivityItem[]
 	/** Form field name for hidden input containing JSON array */
 	name?: string
 	/** Whether editing is disabled */
 	disabled?: boolean
 	/** Id used by ErrorSummary anchor links */
 	id?: string
+	/** Callback fired when the activities list changes */
+	onActivitiesChange?: (activities: ActivityItem[]) => void
+}
+
+let nextKey = 0
+function genKey() {
+	return `item-${++nextKey}`
 }
 
 function SortableActivityItem({
-	activityType,
+	item,
 	index,
 	onRemove,
+	onChange,
 	disabled,
 }: {
-	activityType: RoutineActivityType
+	item: ActivityItem
 	index: number
 	onRemove: () => void
+	onChange: (updated: Partial<ActivityItem>) => void
 	disabled?: boolean
 }) {
 	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-		id: activityType,
+		id: item.id,
 		disabled,
 	})
 
@@ -43,6 +63,8 @@ function SortableActivityItem({
 		transition,
 		opacity: isDragging ? 0.5 : 1,
 	}
+
+	const isManualActivity = item.type === "manual_activity"
 
 	return (
 		<Box
@@ -53,62 +75,93 @@ function SortableActivityItem({
 			borderColor={isDragging ? "brand-blue-strong" : "neutral-subtle"}
 			borderRadius="8"
 		>
-			<HStack justify="space-between" align="center" gap="space-4">
-				<HStack gap="space-4" align="center">
+			<VStack gap="space-4">
+				<HStack justify="space-between" align="center" gap="space-4">
+					<HStack gap="space-4" align="center">
+						{!disabled && (
+							<button
+								type="button"
+								{...attributes}
+								{...listeners}
+								style={{
+									cursor: isDragging ? "grabbing" : "grab",
+									background: "none",
+									border: "none",
+									padding: "4px",
+									display: "flex",
+									alignItems: "center",
+									color: "var(--ax-text-subtle)",
+								}}
+								aria-label={`Dra for å endre rekkefølge: ${activityTypeLabels[item.type]}`}
+							>
+								<DragVerticalIcon aria-hidden fontSize="1.25rem" />
+							</button>
+						)}
+						<Tag variant="neutral" size="small">
+							#{index + 1}
+						</Tag>
+						<BodyShort size="small">{activityTypeLabels[item.type]}</BodyShort>
+					</HStack>
 					{!disabled && (
-						<button
+						<Button
 							type="button"
-							{...attributes}
-							{...listeners}
-							style={{
-								cursor: isDragging ? "grabbing" : "grab",
-								background: "none",
-								border: "none",
-								padding: "4px",
-								display: "flex",
-								alignItems: "center",
-								color: "var(--ax-text-subtle)",
-							}}
-							aria-label={`Dra for å endre rekkefølge: ${activityTypeLabels[activityType]}`}
+							size="xsmall"
+							variant="tertiary-neutral"
+							icon={<TrashIcon aria-hidden />}
+							onClick={onRemove}
 						>
-							<DragVerticalIcon aria-hidden fontSize="1.25rem" />
-						</button>
+							Fjern
+						</Button>
 					)}
-					<Tag variant="neutral" size="small">
-						#{index + 1}
-					</Tag>
-					<BodyShort size="small">{activityTypeLabels[activityType]}</BodyShort>
 				</HStack>
-				{!disabled && (
-					<Button
-						type="button"
-						size="xsmall"
-						variant="tertiary-neutral"
-						icon={<TrashIcon aria-hidden />}
-						onClick={onRemove}
-					>
-						Fjern
-					</Button>
+
+				{isManualActivity && (
+					<VStack gap="space-4">
+						<TextField
+							label="Tittel på steg"
+							size="small"
+							value={item.stepTitle ?? ""}
+							onChange={(e) => onChange({ stepTitle: e.target.value })}
+							disabled={disabled}
+						/>
+						<MarkdownEditor
+							label="Beskrivelse (valgfri)"
+							name={`stepDescription-${item.id}`}
+							value={item.stepDescription ?? ""}
+							onChange={(val) => onChange({ stepDescription: val })}
+							size="small"
+							minRows={2}
+						/>
+					</VStack>
 				)}
-			</HStack>
+			</VStack>
 		</Box>
 	)
 }
 
 export function SortableActivityList({
 	initialActivities = [],
-	name = "activityTypes",
+	name = "activityItems",
 	disabled = false,
-	id = "activityTypes",
+	id,
+	onActivitiesChange,
 }: Props) {
-	const [activities, setActivities] = useState<RoutineActivityType[]>(initialActivities)
+	const fallbackId = useId()
+	const listId = id ?? fallbackId
+	const [activities, setActivities] = useState<ActivityItem[]>(initialActivities)
 	const [selectValue, setSelectValue] = useState("")
 
-	// Sync state when initialActivities changes (e.g. React Router reuses component for different route)
-	// biome-ignore lint/correctness/useExhaustiveDependencies: using JSON serialization as stable dependency
+	// biome-ignore lint/correctness/useExhaustiveDependencies: JSON serialization as stable dep
 	useEffect(() => {
 		setActivities(initialActivities)
 	}, [JSON.stringify(initialActivities)])
+
+	const notifyChange = useCallback(
+		(updated: ActivityItem[]) => {
+			onActivitiesChange?.(updated)
+		},
+		[onActivitiesChange],
+	)
 
 	const sensors = useSensors(
 		useSensor(PointerSensor),
@@ -117,53 +170,86 @@ export function SortableActivityList({
 
 	const handleAdd = useCallback(() => {
 		if (!selectValue) return
-		const activityType = selectValue as RoutineActivityType
-		if (activities.includes(activityType)) return
-		setActivities((prev) => [...prev, activityType])
+		const type = selectValue as RoutineActivityType
+		const newItem: ActivityItem =
+			type === "manual_activity" ? { id: genKey(), type, stepTitle: "", stepDescription: "" } : { id: type, type }
+		const updated = [...activities, newItem]
+		setActivities(updated)
+		notifyChange(updated)
 		setSelectValue("")
-	}, [selectValue, activities])
+	}, [selectValue, activities, notifyChange])
 
-	const handleRemove = useCallback((activityType: RoutineActivityType) => {
-		setActivities((prev) => prev.filter((a) => a !== activityType))
-	}, [])
+	const handleRemove = useCallback(
+		(itemId: string) => {
+			const updated = activities.filter((a) => a.id !== itemId)
+			setActivities(updated)
+			notifyChange(updated)
+		},
+		[activities, notifyChange],
+	)
+
+	const handleChange = useCallback(
+		(itemId: string, patch: Partial<ActivityItem>) => {
+			const updated = activities.map((a) => (a.id === itemId ? { ...a, ...patch } : a))
+			setActivities(updated)
+			notifyChange(updated)
+		},
+		[activities, notifyChange],
+	)
 
 	function handleDragEnd(event: { active: { id: string | number }; over: { id: string | number } | null }) {
 		const { active, over } = event
 		if (!over || active.id === over.id) return
 
 		setActivities((prev) => {
-			const oldIndex = prev.indexOf(active.id as RoutineActivityType)
-			const newIndex = prev.indexOf(over.id as RoutineActivityType)
+			const oldIndex = prev.findIndex((a) => a.id === active.id)
+			const newIndex = prev.findIndex((a) => a.id === over.id)
 			if (oldIndex === -1 || newIndex === -1) return prev
 			const next = [...prev]
 			next.splice(oldIndex, 1)
-			next.splice(newIndex, 0, active.id as RoutineActivityType)
+			next.splice(newIndex, 0, prev[oldIndex])
+			notifyChange(next)
 			return next
 		})
 	}
 
-	// Available options: filter out already selected
+	// For non-checklist types: filter out already selected. manual_activity can always be added again.
+	const selectedNonManualActivity = new Set(activities.filter((a) => a.type !== "manual_activity").map((a) => a.type))
 	const availableGroups = ACTIVITY_TYPE_GROUPS.map((group) => ({
 		...group,
-		types: group.types.filter((t) => !activities.includes(t as RoutineActivityType)),
+		types: group.types.filter(
+			(t) => t === "manual_activity" || !selectedNonManualActivity.has(t as RoutineActivityType),
+		),
 	})).filter((g) => g.types.length > 0)
 
 	return (
-		<VStack gap="space-8" id={id}>
-			{/* Hidden input for form submission */}
-			<input type="hidden" name={name} value={JSON.stringify(activities)} />
+		<VStack gap="space-8" id={listId}>
+			<input
+				type="hidden"
+				name={name}
+				value={JSON.stringify(
+					activities.map((a) => ({
+						id: a.id,
+						type: a.type,
+						...(a.type === "manual_activity" && {
+							stepTitle: a.stepTitle ?? "",
+							stepDescription: a.stepDescription ?? null,
+						}),
+					})),
+				)}
+			/>
 
-			{/* Sortable list */}
 			{activities.length > 0 && (
 				<DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-					<SortableContext items={activities} strategy={verticalListSortingStrategy}>
+					<SortableContext items={activities.map((a) => a.id)} strategy={verticalListSortingStrategy}>
 						<VStack gap="space-4">
-							{activities.map((activityType, index) => (
+							{activities.map((item, index) => (
 								<SortableActivityItem
-									key={activityType}
-									activityType={activityType}
+									key={item.id}
+									item={item}
 									index={index}
-									onRemove={() => handleRemove(activityType)}
+									onRemove={() => handleRemove(item.id)}
+									onChange={(patch) => handleChange(item.id, patch)}
 									disabled={disabled}
 								/>
 							))}
@@ -172,7 +258,6 @@ export function SortableActivityList({
 				</DndContext>
 			)}
 
-			{/* Add new activity */}
 			{!disabled && availableGroups.length > 0 && (
 				<HStack gap="space-4" align="end">
 					<Select

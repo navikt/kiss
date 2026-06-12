@@ -35,6 +35,7 @@ export const ROUTINE_ACTIVITY_TYPES = [
 	"entra_id_group_maintenance",
 	"rpa_user_maintenance",
 	"oracle_role_criticality",
+	"manual_activity",
 	...ORACLE_EVIDENCE_ACTIVITY_TYPES,
 	...DEPLOYMENT_EVIDENCE_ACTIVITY_TYPES,
 ] as const
@@ -46,6 +47,7 @@ export const activityTypeLabels: Record<RoutineActivityType, string> = {
 	entra_id_group_maintenance: "Entra ID-gruppevedlikehold",
 	rpa_user_maintenance: "RPA-brukervedlikehold",
 	oracle_role_criticality: "Oracle-rollekritikalitet",
+	manual_activity: "Manuell aktivitet",
 	oracle_evidence_audit: "Oracle Unified Audit-konfigurasjon",
 	oracle_evidence_profiles: "Oracle-profiler",
 	oracle_evidence_roles: "Oracle-roller",
@@ -60,6 +62,7 @@ export const ACTIVITY_TYPE_GROUPS = [
 	{ label: "Entra ID", types: ["entra_id_group_maintenance"] as const },
 	{ label: "RPA", types: ["rpa_user_maintenance"] as const },
 	{ label: "Oracle", types: ["oracle_role_criticality"] as const },
+	{ label: "Manuell aktivitet", types: ["manual_activity"] as const },
 	{
 		label: "Oracle revisjonsbevis",
 		types: [

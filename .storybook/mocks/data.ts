@@ -2326,6 +2326,85 @@ export function mockGjennomgangDetaljRpaMaintenanceData() {
 	}
 }
 
+export function mockGjennomgangDetaljManualActivityData(overrides?: { status?: GjennomgangDetaljStatus }) {
+	const status = overrides?.status ?? "draft"
+	const isCompleted = status === "completed"
+	const base = mockGjennomgangDetaljData({ status })
+	const stepId1 = "a1b2c3d4-e5f6-7890-abcd-ef1234567801"
+	const stepId2 = "a1b2c3d4-e5f6-7890-abcd-ef1234567802"
+	const stepId3 = "a1b2c3d4-e5f6-7890-abcd-ef1234567803"
+	return {
+		...base,
+		review: {
+			...base.review,
+			links: isCompleted
+				? [
+						{
+							id: "link-step-1",
+							url: "https://confluence.nav.no/tilgangsliste",
+							title: "Tilgangsliste confluence",
+							addedBy: "Z990001",
+							addedAt: "2026-06-01T10:30:00Z",
+							activityStepId: stepId1,
+						},
+					]
+				: [],
+			attachments: [],
+		},
+		activities: [
+			{
+				id: "activity-checklist-1",
+				type: "manual_activity" as const,
+				status: isCompleted ? "completed" : "pending",
+				completedAt: isCompleted ? "2026-06-01T12:00:00Z" : null,
+				createdAt: "2026-05-01T08:00:00Z",
+				changes: [],
+				providerConfig: null,
+				periodConfig: null,
+				entraGroupsData: null,
+				oracleEvidenceData: null,
+				ndaEvidenceData: null,
+				rpaMaintenanceData: null,
+				evidenceProviderType: null,
+				activityStepsData: [
+					{
+						stepId: stepId1,
+						title: "Verifiser tilgangsliste",
+						description:
+							"Gå gjennom listen over brukere med tilgang til systemet og bekreft at alle tilganger er gyldige og i henhold til tjenstlig behov.",
+						completedAt: isCompleted ? "2026-06-01T10:00:00Z" : null,
+						completedBy: isCompleted ? "Glad Fjord" : null,
+						notes: isCompleted ? "Alle tilganger er gjennomgått. Fant ingen avvik." : null,
+					},
+					{
+						stepId: stepId2,
+						title: "Sjekk loggfiler",
+						description: "Kontroller at audit-logging er aktiv og at loggene ikke viser uventede hendelser.",
+						completedAt: isCompleted ? "2026-06-01T11:00:00Z" : null,
+						completedBy: isCompleted ? "Glad Fjord" : null,
+						notes: isCompleted ? "Logging aktiv. To uventede innloggingsforsøk fra testmiljø – ikke kritisk." : null,
+					},
+					{
+						stepId: stepId3,
+						title: "Bekreft sikkerhetskopiering",
+						description: "Kontroller at siste sikkerhetskopiering ble gjennomført uten feil.",
+						completedAt: null,
+						completedBy: null,
+						notes: null,
+					},
+				],
+			},
+		],
+		activityLinks: [{ id: "link-checklist-1", activityType: "manual_activity" }],
+	}
+}
+
+export const MOCK_MANUAL_ACTIVITY_STEP_IDS = {
+	step1: "a1b2c3d4-e5f6-7890-abcd-ef1234567801",
+	step2: "a1b2c3d4-e5f6-7890-abcd-ef1234567802",
+	step3: "a1b2c3d4-e5f6-7890-abcd-ef1234567803",
+}
+
 export function mockRapporterData(overrides?: {
 	apps?: Array<{ id: string; name: string; isEconomySystem: boolean | null; economySystemType: string | null }>
 	existingReports?: Array<{

@@ -24,11 +24,12 @@ import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { PrioritySelect } from "~/components/PrioritySelect"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { SortableActivityList } from "~/components/SortableActivityList"
+import { type ActivityItem, SortableActivityList } from "~/components/SortableActivityList"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import {
 	approveRoutine,
 	deleteDraftRoutine,
+	getActivityStepsForRoutine,
 	getRoutine,
 	getRoutineActivityLinks,
 	replaceRoutine,
@@ -106,13 +107,50 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		throw new Response("Erstattede rutiner kan ikke redigeres eller reaktiveres.", { status: 403 })
 	}
 
-	const [globalQuestions, sectionQuestions, technologyElements, controls, activityLinks] = await Promise.all([
-		getScreeningQuestions({ status: "approved" }),
-		getSectionScreeningQuestions(section.id, { status: "approved" }),
-		getAllTechnologyElements(),
-		getAllControlsForSelection(),
-		getRoutineActivityLinks(rutineId),
-	])
+	const [globalQuestions, sectionQuestions, technologyElements, controls, activityLinks, activitySteps] =
+		await Promise.all([
+			getScreeningQuestions({ status: "approved" }),
+			getSectionScreeningQuestions(section.id, { status: "approved" }),
+			getAllTechnologyElements(),
+			getAllControlsForSelection(),
+			getRoutineActivityLinks(rutineId),
+			getActivityStepsForRoutine(rutineId),
+		])
+
+	// Build unified ActivityItem[] for SortableActivityList.
+	// For new-model links (manual_activity with stepTitle): one item per link.
+	// For legacy links (manual_activity without stepTitle): expand using routine_checklist_steps at that position.
+	const activityItems: ActivityItem[] = []
+	let legacyManualActivityInserted = false
+	for (const link of activityLinks) {
+		if (link.activityType === "manual_activity") {
+			if (link.stepTitle !== null && link.stepTitle !== undefined) {
+				// New single-step model
+				activityItems.push({
+					id: link.id,
+					type: "manual_activity",
+					stepTitle: link.stepTitle,
+					stepDescription: link.stepDescription ?? "",
+				})
+			} else if (!legacyManualActivityInserted) {
+				// Legacy: expand all checklist steps at this position
+				for (const step of activitySteps) {
+					activityItems.push({
+						id: step.id,
+						type: "manual_activity",
+						stepTitle: step.title,
+						stepDescription: step.description ?? "",
+					})
+				}
+				legacyManualActivityInserted = true
+			}
+		} else {
+			activityItems.push({
+				id: link.activityType,
+				type: link.activityType as import("~/lib/activity-types").RoutineActivityType,
+			})
+		}
+	}
 
 	const allQuestions = [...globalQuestions, ...sectionQuestions]
 	const questionsWithChoices = await Promise.all(
@@ -131,7 +169,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		seksjon,
 		section,
 		routine,
-		activityLinks: activityLinks.map((l) => l.activityType) as RoutineActivityType[],
+		activityItems,
 		questionsWithChoices,
 		technologyElements,
 		controls,
@@ -209,13 +247,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				{ status: 400 },
 			)
 		}
-		const activityTypesField = formData.get("activityTypes") as string | null
-		let activityTypes: RoutineActivityType[] | undefined
-		if (activityTypesField !== null) {
-			const raw = activityTypesField.trim() || "[]"
+		const activityItemsField = formData.get("activityItems") as string | null
+		type RawActivityItem = { id?: string; type: string; stepTitle?: string; stepDescription?: string }
+		type ParsedActivityItem = { type: RoutineActivityType; stepTitle: string | null; stepDescription: string | null }
+		let activityItems: ParsedActivityItem[] | undefined
+		if (activityItemsField !== null) {
 			let parsed: unknown
 			try {
-				parsed = JSON.parse(raw)
+				parsed = JSON.parse(activityItemsField.trim() || "[]")
 			} catch {
 				return data(
 					{ fieldErrors: { activityTypes: "Ugyldig format for vedlikeholdsaktiviteter" } as FieldErrors },
@@ -229,15 +268,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				)
 			}
 			if (!isSectionRoutine) {
-				activityTypes = [
-					...new Set(
-						(parsed as string[]).filter((t): t is RoutineActivityType =>
-							ROUTINE_ACTIVITY_TYPES.includes(t as RoutineActivityType),
-						),
-					),
-				]
+				activityItems = (parsed as RawActivityItem[])
+					.filter((i) => ROUTINE_ACTIVITY_TYPES.includes(i.type as RoutineActivityType))
+					.map((i) => ({
+						type: i.type as RoutineActivityType,
+						stepTitle: i.type === "manual_activity" ? i.stepTitle?.trim() || null : null,
+						stepDescription: i.type === "manual_activity" ? i.stepDescription?.trim() || null : null,
+					}))
 			} else {
-				activityTypes = []
+				activityItems = []
 			}
 		}
 		const technologyElementIds = formData.getAll("technologyElementIds") as string[]
@@ -318,7 +357,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			appliesToAllInSection,
 			isSectionRoutine,
 			sectionRoutineOwnerRole,
-			activityTypes,
+			activityItems,
 			persistenceLinks,
 			screeningQuestionId: null,
 			screeningChoiceValue: null,
@@ -388,7 +427,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function RedigerRutine() {
-	const { routine, activityLinks, technologyElements, controls, userCanApprove, userCanChangePriority } =
+	const { routine, activityItems, technologyElements, controls, userCanApprove, userCanChangePriority } =
 		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const fieldErrors =
@@ -705,7 +744,7 @@ export default function RedigerRutine() {
 							Dersom rutinen har vedlikeholdsaktiviteter, vil gjennomgangen inkludere et eget steg for å dokumentere
 							oppfølging av et spesifikt krav.
 						</BodyShort>
-						<SortableActivityList initialActivities={activityLinks} disabled={isSectionRoutine} />
+						<SortableActivityList initialActivities={activityItems} disabled={isSectionRoutine} />
 					</VStack>
 
 					<Heading size="small" level="3">

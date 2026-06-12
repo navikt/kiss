@@ -19,21 +19,28 @@ export const Tom: Story = {
 export const EnAktivitet: Story = {
 	name: "Én aktivitet",
 	args: {
-		initialActivities: ["oracle_evidence_audit"],
+		initialActivities: [{ id: "oracle_evidence_audit", type: "oracle_evidence_audit" }],
 	},
 }
 
 export const ToAktiviteter: Story = {
 	name: "To aktiviteter",
 	args: {
-		initialActivities: ["oracle_evidence_audit", "entra_id_group_maintenance"],
+		initialActivities: [
+			{ id: "oracle_evidence_audit", type: "oracle_evidence_audit" },
+			{ id: "entra_id_group_maintenance", type: "entra_id_group_maintenance" },
+		],
 	},
 }
 
 export const FlereAktiviteter: Story = {
 	name: "Tre aktiviteter (full rekkefølge)",
 	args: {
-		initialActivities: ["entra_id_group_maintenance", "oracle_evidence_audit", "deployment_evidence_report"],
+		initialActivities: [
+			{ id: "entra_id_group_maintenance", type: "entra_id_group_maintenance" },
+			{ id: "oracle_evidence_audit", type: "oracle_evidence_audit" },
+			{ id: "deployment_evidence_report", type: "deployment_evidence_report" },
+		],
 	},
 }
 
@@ -41,10 +48,26 @@ export const AlleAktiviteter: Story = {
 	name: "Alle tilgjengelige aktiviteter",
 	args: {
 		initialActivities: [
-			"oracle_evidence_audit",
-			"entra_id_group_maintenance",
-			"deployment_evidence_report",
-			"oracle_evidence_roles",
+			{ id: "oracle_evidence_audit", type: "oracle_evidence_audit" },
+			{ id: "entra_id_group_maintenance", type: "entra_id_group_maintenance" },
+			{ id: "deployment_evidence_report", type: "deployment_evidence_report" },
+			{ id: "oracle_evidence_roles", type: "oracle_evidence_roles" },
+		],
+	},
+}
+
+export const MedManuelleSteg: Story = {
+	name: "Med manuelle sjekkliste-steg",
+	args: {
+		initialActivities: [
+			{ id: "oracle_evidence_audit", type: "oracle_evidence_audit" },
+			{
+				id: "step-1",
+				type: "manual_activity",
+				stepTitle: "Bekreft tilgang",
+				stepDescription: "Sjekk at alle har riktig tilgang",
+			},
+			{ id: "step-2", type: "manual_activity", stepTitle: "Arkiver dokumentasjon", stepDescription: "" },
 		],
 	},
 }
@@ -52,7 +75,11 @@ export const AlleAktiviteter: Story = {
 export const Deaktivert: Story = {
 	name: "Deaktivert (read-only)",
 	args: {
-		initialActivities: ["oracle_evidence_audit", "entra_id_group_maintenance", "deployment_evidence_report"],
+		initialActivities: [
+			{ id: "oracle_evidence_audit", type: "oracle_evidence_audit" },
+			{ id: "entra_id_group_maintenance", type: "entra_id_group_maintenance" },
+			{ id: "deployment_evidence_report", type: "deployment_evidence_report" },
+		],
 		disabled: true,
 	},
 }

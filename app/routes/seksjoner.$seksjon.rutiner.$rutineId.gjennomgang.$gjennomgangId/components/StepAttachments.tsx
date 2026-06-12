@@ -59,19 +59,15 @@ type Props = {
 	reviewId: string
 	attachments: Attachment[]
 	isDraft: boolean
+	activityStepId?: string
 }
 
-export function StepAttachments({ reviewId, attachments, isDraft }: Props) {
+export function StepAttachments({ reviewId, attachments, isDraft, activityStepId }: Props) {
 	return (
-		<VStack gap="space-6">
-			<div>
-				<Heading size="medium" level="3" spacing>
-					Vedlegg
-				</Heading>
-				<BodyShort size="small" textColor="subtle">
-					Last opp filer som dokumentasjon for gjennomgangen.
-				</BodyShort>
-			</div>
+		<VStack gap="space-4">
+			<Heading size="small" level="4">
+				Vedlegg
+			</Heading>
 
 			{attachments.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
@@ -135,12 +131,12 @@ export function StepAttachments({ reviewId, attachments, isDraft }: Props) {
 				</Box>
 			)}
 
-			{isDraft && <UploadSection reviewId={reviewId} />}
+			{isDraft && <UploadSection reviewId={reviewId} activityStepId={activityStepId} />}
 		</VStack>
 	)
 }
 
-function UploadSection({ reviewId }: { reviewId: string }) {
+function UploadSection({ reviewId, activityStepId }: { reviewId: string; activityStepId?: string }) {
 	const revalidator = useRevalidator()
 	const [files, setFiles] = useState<FileObject[]>([])
 	const [uploading, setUploading] = useState(false)
@@ -153,6 +149,7 @@ function UploadSection({ reviewId }: { reviewId: string }) {
 		try {
 			const formData = new FormData()
 			formData.append("file", file)
+			if (activityStepId) formData.append("activityStepId", activityStepId)
 
 			const response = await fetch(`/api/gjennomgang/${reviewId}/vedlegg`, {
 				method: "POST",

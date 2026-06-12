@@ -39,6 +39,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const formData = await request.formData()
 	const file = formData.get("file")
+	const activityStepId = (formData.get("activityStepId") as string | null) || null
 
 	if (!file || !(file instanceof File) || file.size === 0) {
 		return Response.json({ success: false, error: "Ingen fil mottatt." }, { status: 400 })
@@ -77,6 +78,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			contentType: uploadResult.contentType,
 			sizeBytes: uploadResult.sizeBytes,
 			uploadedBy: authedUser.navIdent,
+			activityStepId,
 		})
 
 		return Response.json({

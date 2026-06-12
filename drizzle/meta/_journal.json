@@ -764,6 +764,27 @@
       "when": 1781918440000,
       "tag": "0108_oracle_role_assessments_archive_support",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1781918500000,
+      "tag": "0109_manuell_aktivitet_steg",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1781918560000,
+      "tag": "0110_activity_step_id_on_links_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1781918620000,
+      "tag": "0111_manual_activity_multi_step",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import {
+	MOCK_MANUAL_ACTIVITY_STEP_IDS,
 	mockGjennomgangDetaljData,
+	mockGjennomgangDetaljManualActivityData,
 	mockGjennomgangDetaljOracleEvidenceData,
 	mockGjennomgangDetaljRpaMaintenanceData,
 	mockGjennomgangMultiActivityData,
@@ -298,4 +300,57 @@ export const AktivitetRpaVedlikeholdFullført: Story = {
 			"aktivitet-0",
 		)
 	},
+}
+
+// ─── Manuell aktivitet ─────────────────────────────────────────────
+
+export const AktivitetManualActivitySteg1: Story = {
+	name: "Aktivitet – Manuell aktivitet: steg 1 (utkast)",
+	render: () =>
+		renderWizard(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljManualActivityData(),
+			`sjekkliste-steg-${MOCK_MANUAL_ACTIVITY_STEP_IDS.step1}`,
+		),
+}
+
+export const AktivitetManualActivitySteg2: Story = {
+	name: "Aktivitet – Manuell aktivitet: steg 2 (utkast)",
+	render: () =>
+		renderWizard(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljManualActivityData(),
+			`sjekkliste-steg-${MOCK_MANUAL_ACTIVITY_STEP_IDS.step2}`,
+		),
+}
+
+export const AktivitetManualActivitySteg3: Story = {
+	name: "Aktivitet – Manuell aktivitet: steg 3 (utkast)",
+	render: () =>
+		renderWizard(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljManualActivityData(),
+			`sjekkliste-steg-${MOCK_MANUAL_ACTIVITY_STEP_IDS.step3}`,
+		),
+}
+
+export const AktivitetManualActivityDokumentasjon: Story = {
+	name: "Aktivitet – Manuell aktivitet: dokumentasjon-sammendrag (utkast)",
+	render: () => renderWizard(GjennomgangDetalj, mockGjennomgangDetaljManualActivityData(), "dokumentasjon"),
+}
+
+export const AktivitetManualActivityFullført: Story = {
+	name: "Aktivitet – Manuell aktivitet: steg 1 (fullført, read-only)",
+	render: () =>
+		renderWizard(
+			GjennomgangDetalj,
+			mockGjennomgangDetaljManualActivityData({ status: "completed" }),
+			`sjekkliste-steg-${MOCK_MANUAL_ACTIVITY_STEP_IDS.step1}`,
+		),
+}
+
+export const AktivitetManualActivityFullførtDokumentasjon: Story = {
+	name: "Aktivitet – Manuell aktivitet: dokumentasjon-sammendrag (fullført, read-only)",
+	render: () =>
+		renderWizard(GjennomgangDetalj, mockGjennomgangDetaljManualActivityData({ status: "completed" }), "dokumentasjon"),
 }
