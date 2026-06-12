@@ -126,7 +126,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 		getReviewsForApp(appId),
 		getSections({ includeArchived: true }),
 		canAccessReports ? getReportsForApp(appId) : Promise.resolve([]),
-		getScreeningProgressForApps([appId]),
+		getScreeningProgressForApps([appId], appScopeIds.sectionIds),
 		getScreeningSessionsForApp(appId, user ? isAdmin(user) : false),
 		getScreeningEffectsByControlForApp(appId),
 		getActiveApplicationControls(appId),

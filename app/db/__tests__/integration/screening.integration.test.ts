@@ -36,6 +36,7 @@ const {
 	isEffectOwnedByQuestion,
 	getRoutinesForAllControlsAndTechElements,
 	getScreeningQuestionsWithAnswersForApp,
+	getScreeningProgressForApps,
 } = await import("~/db/queries/screening.server")
 
 async function createApp(name: string) {
@@ -797,6 +798,94 @@ describe("screening.server integration tests", () => {
 			expect(ids).toContain(globalQ.id)
 			expect(ids).toContain(ownSectionQ.id)
 			expect(ids).not.toContain(otherSectionQ.id)
+		})
+	})
+
+	describe("getScreeningProgressForApps", () => {
+		async function approveQuestion(id: string) {
+			await changeScreeningQuestionStatus(id, "ready", "Z990001")
+			await changeScreeningQuestionStatus(id, "approved", "Z990001")
+		}
+
+		it("teller globale spørsmål når ingen seksjons-ID er oppgitt", async () => {
+			const appId = await createApp("Rask Elv")
+			const globalQ = await createScreeningQuestion("Globalt spørsmål?", null, "Z990001")
+			await approveQuestion(globalQ.id)
+
+			const progress = await getScreeningProgressForApps([appId])
+			expect(progress.get(appId)?.total).toBe(1)
+		})
+
+		it("inkluderer globale og seksjonsspesifikke spørsmål for angitt seksjon", async () => {
+			const appId = await createApp("Stille Skog")
+			const sectionId = await createSectionRow("seksjon-a")
+
+			const globalQ = await createScreeningQuestion("Globalt spørsmål?", null, "Z990001")
+			await approveQuestion(globalQ.id)
+
+			const sectionQ = await createScreeningQuestion("Seksjonsspørsmål?", null, "Z990001", sectionId)
+			await approveQuestion(sectionQ.id)
+
+			const progress = await getScreeningProgressForApps([appId], [sectionId])
+			expect(progress.get(appId)?.total).toBe(2)
+		})
+
+		it("ekskluderer spørsmål fra andre seksjoner", async () => {
+			const appId = await createApp("Høy Fjell")
+			const ownSectionId = await createSectionRow("seksjon-b")
+			const otherSectionId = await createSectionRow("seksjon-c")
+
+			const globalQ = await createScreeningQuestion("Globalt?", null, "Z990001")
+			await approveQuestion(globalQ.id)
+
+			const ownQ = await createScreeningQuestion("Eget seksjonsspørsmål?", null, "Z990001", ownSectionId)
+			await approveQuestion(ownQ.id)
+
+			const otherQ = await createScreeningQuestion("Annet seksjonsspørsmål?", null, "Z990001", otherSectionId)
+			await approveQuestion(otherQ.id)
+
+			const progress = await getScreeningProgressForApps([appId], [ownSectionId])
+			// Skal telle globalt + eget seksjonsspørsmål, men ikke det fra annen seksjon
+			expect(progress.get(appId)?.total).toBe(2)
+		})
+
+		it("teller besvarte spørsmål korrekt innenfor seksjonsfilter", async () => {
+			const appId = await createApp("Dyp Dal")
+			const sectionId = await createSectionRow("seksjon-d")
+
+			const globalQ = await createScreeningQuestion("Globalt?", null, "Z990001")
+			await approveQuestion(globalQ.id)
+			const sectionQ = await createScreeningQuestion("Seksjonsbasert?", null, "Z990001", sectionId)
+			await approveQuestion(sectionQ.id)
+			const otherSectionId = await createSectionRow("seksjon-e")
+			const otherQ = await createScreeningQuestion("Annen seksjon?", null, "Z990001", otherSectionId)
+			await approveQuestion(otherQ.id)
+
+			// Svar på alle tre
+			await saveScreeningAnswer(appId, globalQ.id, "true", "Z990001")
+			await saveScreeningAnswer(appId, sectionQ.id, "true", "Z990001")
+			await saveScreeningAnswer(appId, otherQ.id, "true", "Z990001")
+
+			const progress = await getScreeningProgressForApps([appId], [sectionId])
+			// Total = 2 (global + seksjon-d), answered = 2 (global + seksjon-d)
+			expect(progress.get(appId)?.total).toBe(2)
+			expect(progress.get(appId)?.answered).toBe(2)
+		})
+
+		it("støtter flere seksjons-IDer i én forespørsel", async () => {
+			const appId = await createApp("Bred Bekk")
+			const sectionAId = await createSectionRow("seksjon-f")
+			const sectionBId = await createSectionRow("seksjon-g")
+
+			const globalQ = await createScreeningQuestion("Globalt?", null, "Z990001")
+			await approveQuestion(globalQ.id)
+			const qA = await createScreeningQuestion("Seksjon F?", null, "Z990001", sectionAId)
+			await approveQuestion(qA.id)
+			const qB = await createScreeningQuestion("Seksjon G?", null, "Z990001", sectionBId)
+			await approveQuestion(qB.id)
+
+			const progress = await getScreeningProgressForApps([appId], [sectionAId, sectionBId])
+			expect(progress.get(appId)?.total).toBe(3)
 		})
 	})
 })

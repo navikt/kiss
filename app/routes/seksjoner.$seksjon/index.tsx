@@ -48,7 +48,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	] = await Promise.all([
 		getDeploymentVerificationAggregate(result.allAppIds),
 		countSectionEconomySystems(result.section.id),
-		getScreeningProgressForApps(result.allAppIds),
+		getScreeningProgressForApps(result.allAppIds, [result.section.id]),
 		getRoutineComplianceSummaries(result.allAppIds),
 		countSectionRoutinesIncomplete(result.allAppIds),
 		resolveRoleHolder("section_manager", result.section.id),
