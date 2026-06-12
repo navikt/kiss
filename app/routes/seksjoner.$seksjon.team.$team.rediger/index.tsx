@@ -55,7 +55,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	if (!teamRecord) throw new Response("Team ikke funnet", { status: 404 })
 
 	const authedUser = await requireAuthenticatedUser(request)
-	if (!canManageTeam(authedUser, teamRecord.id)) throw new Response("Ikke autorisert", { status: 403 })
+	if (!canManageTeam(authedUser, teamRecord.id, teamRecord.sectionId))
+		throw new Response("Ikke autorisert", { status: 403 })
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
@@ -99,7 +100,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	const teamRecord = await getTeamBySlug(teamSlug)
 	if (!teamRecord) throw new Response("Team ikke funnet", { status: 404 })
-	if (!canManageTeam(authedUser, teamRecord.id)) throw new Response("Ikke autorisert", { status: 403 })
+	if (!canManageTeam(authedUser, teamRecord.id, teamRecord.sectionId))
+		throw new Response("Ikke autorisert", { status: 403 })
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section || section.id !== teamRecord.sectionId) throw new Response("Seksjon/team mismatch", { status: 404 })
