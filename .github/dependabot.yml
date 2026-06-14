@@ -10,6 +10,26 @@ updates:
       semver-patch-days: 7
     open-pull-requests-limit: 10
     groups:
+      aksel:
+        applies-to: version-updates
+        patterns:
+          - "@navikt/aksel*"
+          - "@navikt/ds*"
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      react-router:
+        applies-to: version-updates
+        patterns:
+          - "@react-router*"
+          - "react-router"
+      storybook:
+        patterns:
+          - 'storybook'
+          - '@storybook/*'
       non-critical:
         applies-to: version-updates
         patterns:
@@ -29,6 +49,15 @@ updates:
       - dependencies
     commit-message:
       prefix: "chore(deps):"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    labels:
+      - dependencies
 
   - package-ecosystem: github-actions
     directory: /
