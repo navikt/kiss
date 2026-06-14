@@ -101,7 +101,7 @@
 		"storybook": "^10.4.2",
 		"testcontainers": "^11.13.0",
 		"tsx": "^4.22.4",
-		"typescript": "^6.0.2",
+		"typescript": "^6.0.3",
 		"vite": "^8.0.7",
 		"vitest": "^4.1.4"
 	}
