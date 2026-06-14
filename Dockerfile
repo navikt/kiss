@@ -1,4 +1,4 @@
-FROM node:26-alpine AS builder
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:22-dev AS builder
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile --prod
 
-FROM gcr.io/distroless/nodejs22-debian12:nonroot
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:22-slim
 
 WORKDIR /app
 
