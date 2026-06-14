@@ -81,7 +81,7 @@
 		"@storybook/react-vite": "^10.4.2",
 		"@testcontainers/postgresql": "^11.13.0",
 		"@testing-library/react": "^16.3.2",
-		"@types/archiver": "^7.0.0",
+		"@types/archiver": "^8.0.0",
 		"@types/compression": "^1.8.1",
 		"@types/express": "^5.0.6",
 		"@types/jszip": "^3.4.1",
