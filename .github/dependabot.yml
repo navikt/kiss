@@ -30,21 +30,6 @@ updates:
         patterns:
           - 'storybook'
           - '@storybook/*'
-      non-critical:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-      critical-security:
-        applies-to: security-updates
-        patterns:
-          - "*"
-    ignore:
-      - dependency-name: "*"
-        update-types:
-          - version-update:semver-major
     labels:
       - dependencies
     commit-message:
