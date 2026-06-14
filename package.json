@@ -74,7 +74,7 @@
 	"devDependencies": {
 		"@axe-core/playwright": "^4.11.1",
 		"@biomejs/biome": "^2.4.9",
-		"@playwright/test": "^1.59.1",
+		"@playwright/test": "^1.60.0",
 		"@react-router/dev": "^7.17.0",
 		"@storybook/addon-vitest": "^10.4.2",
 		"@storybook/react": "^10.4.2",
