@@ -69,8 +69,8 @@ importers:
         specifier: ^3.10.1
         version: 3.10.1
       marked:
-        specifier: ^17.0.5
-        version: 17.0.5
+        specifier: ^18.0.5
+        version: 18.0.5
       mime-types:
         specifier: ^3.0.2
         version: 3.0.2
@@ -3572,8 +3572,8 @@ packages:
     resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
     engines: {node: '>=10'}
 
-  marked@17.0.5:
-    resolution: {integrity: sha512-6hLvc0/JEbRjRgzI6wnT2P1XuM1/RrrDEX0kPt0N7jGm1133g6X7DlxFasUIx+72aKAr904GTxhSLDrd5DIlZg==}
+  marked@18.0.5:
+    resolution: {integrity: sha512-S6GcvALHg6K4ohtu4E7x0a1AqhAjp6cV8KhLSyN9qVapnzJkusVBxZRcIU9AeYsbe6P1hKDusSbEOzGyyuce6w==}
     engines: {node: '>= 20'}
     hasBin: true
 
@@ -7845,7 +7845,7 @@ snapshots:
     dependencies:
       semver: 7.8.4
 
-  marked@17.0.5: {}
+  marked@18.0.5: {}
 
   math-intrinsics@1.1.0: {}
 
