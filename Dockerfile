@@ -6,7 +6,7 @@ ARG GITHUB_SHA
 ENV GITHUB_SHA=${GITHUB_SHA}
 
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+RUN npm install -g pnpm@10.33.0 && pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm build
@@ -17,7 +17,7 @@ FROM node:26-alpine AS prod-deps
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile --prod
+RUN npm install -g pnpm@10.33.0 && pnpm install --frozen-lockfile --prod
 
 FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:22-slim
 
