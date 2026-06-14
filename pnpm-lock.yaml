@@ -6534,7 +6534,7 @@ snapshots:
 
   '@types/archiver@8.0.0':
     dependencies:
-      '@types/node': 25.5.0
+      '@types/node': 25.9.2
       '@types/readdir-glob': 1.1.5
 
   '@types/aria-query@5.0.4': {}
