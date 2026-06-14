@@ -41,5 +41,5 @@ declare module "archiver" {
 		constructor(options?: TransformOptions)
 	}
 
-	export { Archiver, ZipArchive, TarArchive, JsonArchive }
+	export { Archiver, JsonArchive, TarArchive, ZipArchive }
 }
