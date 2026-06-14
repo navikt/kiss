@@ -72,7 +72,7 @@
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
-		"@axe-core/playwright": "^4.11.1",
+		"@axe-core/playwright": "^4.11.3",
 		"@biomejs/biome": "^2.4.9",
 		"@playwright/test": "^1.60.0",
 		"@react-router/dev": "^7.17.0",
