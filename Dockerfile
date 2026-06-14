@@ -1,4 +1,4 @@
-FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:22-dev AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ COPY . .
 RUN pnpm build
 RUN pnpm exec tsc server.ts --outDir . --module nodenext --moduleResolution nodenext --target es2022 --esModuleInterop --skipLibCheck --ignoreConfig
 
-FROM node:26-alpine AS prod-deps
+FROM node:22-alpine AS prod-deps
 
 WORKDIR /app
 
