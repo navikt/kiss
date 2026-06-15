@@ -6,6 +6,7 @@ import {
 	Box,
 	Button,
 	Detail,
+	Dialog,
 	Heading,
 	HStack,
 	ReadMore,
@@ -215,6 +216,8 @@ function FollowUpPointRow({
 	const [descriptionValue, setDescriptionValue] = useState(p.description ?? "")
 	const [statusValue, setStatusValue] = useState<"needs_follow_up" | "completed" | "not_relevant">(p.status)
 	const [resolutionValue, setResolutionValue] = useState(p.resolution ?? "")
+	const [confirmOpen, setConfirmOpen] = useState(false)
+	const statusFormRef = useRef<HTMLFormElement>(null)
 
 	useEffect(() => {
 		setDescriptionValue(p.description ?? "")
@@ -343,7 +346,7 @@ function FollowUpPointRow({
 
 					{canChangeStatus ? (
 						<Box borderWidth="1 0 0 0" borderColor="neutral-subtle" paddingBlock="space-16 space-0">
-							<Form method="post">
+							<Form method="post" ref={statusFormRef}>
 								<input type="hidden" name="intent" value="update-follow-up-status" />
 								<input type="hidden" name="pointId" value={p.id} />
 								<VStack gap="space-2">
@@ -384,12 +387,22 @@ function FollowUpPointRow({
 									)}
 									<HStack gap="space-2" align="center">
 										<Button
-											type="submit"
+											type="button"
 											variant="secondary"
 											size="xsmall"
 											disabled={!statusDirty || resolutionValue.trim().length === 0}
+											onClick={() => {
+												const isClosingPoint = p.status === "needs_follow_up" && statusValue !== "needs_follow_up"
+												if (isClosingPoint) {
+													setConfirmOpen(true)
+												} else {
+													statusFormRef.current?.requestSubmit()
+												}
+											}}
 										>
-											Lagre status
+											{p.status === "needs_follow_up" && statusValue !== "needs_follow_up"
+												? "Lukk oppfølgingspunkt"
+												: "Lagre status"}
 										</Button>
 										{statusSavedNow && (
 											<BodyShort size="small" textColor="subtle">
@@ -399,6 +412,42 @@ function FollowUpPointRow({
 									</HStack>
 								</VStack>
 							</Form>
+							<Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+								<Dialog.Popup
+									width="small"
+									position="center"
+									closeOnOutsideClick
+									aria-label="Bekreft lagring av status"
+								>
+									<Dialog.Header>Lagre status?</Dialog.Header>
+									<Dialog.Body>
+										<VStack gap="space-6">
+											<BodyShort>
+												Du er i ferd med å lukke dette oppfølgingspunktet. Hvis dette er det siste åpne punktet,
+												fullføres gjennomgangen automatisk og det vil ikke lenger være mulig å legge til eller endre
+												vedlegg og oppfølgingstekst.
+											</BodyShort>
+											<BodyShort>Er all dokumentasjon og alle vedlegg lagt til?</BodyShort>
+											<HStack gap="space-4">
+												<Button
+													type="button"
+													variant="primary"
+													size="small"
+													onClick={() => {
+														setConfirmOpen(false)
+														statusFormRef.current?.requestSubmit()
+													}}
+												>
+													Ja, lagre status
+												</Button>
+												<Button type="button" variant="secondary" size="small" onClick={() => setConfirmOpen(false)}>
+													Avbryt
+												</Button>
+											</HStack>
+										</VStack>
+									</Dialog.Body>
+								</Dialog.Popup>
+							</Dialog>
 						</Box>
 					) : p.resolution ? (
 						<Box borderWidth="1 0 0 0" borderColor="neutral-subtle" paddingBlock="space-16 space-0">
