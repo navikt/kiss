@@ -21,7 +21,7 @@ export type ComponentConfig = {
 }
 
 export type ManualActivityStep = {
-	/** References routine_checklist_steps.id at seed time */
+	/** References routine_activity_steps.id at seed time */
 	stepId: string
 	title: string
 	description: string | null

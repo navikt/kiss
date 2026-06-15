@@ -441,11 +441,19 @@ export async function createRoutine(params: {
 		}
 
 		// Insert activity links (supports both legacy activityTypes and new activityItems)
-		const rawItems = params.isSectionRoutine
+		const rawItemsUnfiltered = params.isSectionRoutine
 			? []
 			: (params.activityItems ??
 				params.activityTypes?.map((t) => ({ type: t, stepTitle: null, stepDescription: null, stepComponents: null })) ??
 				[])
+		// Deduplicate non-manual_activity types to avoid violating the unique active index
+		const seenCreate = new Set<string>()
+		const rawItems = rawItemsUnfiltered.filter((item) => {
+			if (item.type === MANUAL_ACTIVITY_TYPE) return true
+			if (seenCreate.has(item.type)) return false
+			seenCreate.add(item.type)
+			return true
+		})
 		if (rawItems.length > 0) {
 			await tx.insert(routineActivityLinks).values(
 				rawItems.map((item, index) => ({
@@ -580,7 +588,14 @@ export async function updateRoutine(params: {
 			if (effectiveIsSectionRoutine) {
 				effectiveActivityItems = []
 			} else if (params.activityItems !== undefined) {
-				effectiveActivityItems = params.activityItems
+				// Deduplicate non-manual_activity types to avoid violating the unique active index
+				const seenUpdate = new Set<string>()
+				effectiveActivityItems = params.activityItems.filter((item) => {
+					if (item.type === MANUAL_ACTIVITY_TYPE) return true
+					if (seenUpdate.has(item.type)) return false
+					seenUpdate.add(item.type)
+					return true
+				})
 			} else {
 				// Deduplicate non-checklist types from legacy activityTypes array
 				const seen = new Set<string>()
@@ -8032,7 +8047,7 @@ export async function seedManualActivity(activityId: string, routineId: string, 
 			],
 		}
 	} else {
-		// Legacy multi-step model: read steps from routine_checklist_steps
+		// Legacy multi-step model: read steps from routine_activity_steps
 		const steps = await getActivityStepsForRoutine(routineId)
 		stagedData = {
 			activityType: MANUAL_ACTIVITY_TYPE,
@@ -8049,10 +8064,7 @@ export async function seedManualActivity(activityId: string, routineId: string, 
 	}
 
 	await db.transaction(async (tx) => {
-		await tx
-			.update(routineReviewActivities)
-			.set({ stagedData, snapshotBefore: stagedData })
-			.where(eq(routineReviewActivities.id, activityId))
+		await tx.update(routineReviewActivities).set({ stagedData }).where(eq(routineReviewActivities.id, activityId))
 
 		await writeAuditLog(
 			{
