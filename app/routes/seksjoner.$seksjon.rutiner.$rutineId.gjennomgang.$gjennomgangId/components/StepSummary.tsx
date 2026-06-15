@@ -8,6 +8,7 @@ import {
 	Heading,
 	HStack,
 	Table,
+	Tag,
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
@@ -115,14 +116,23 @@ type ReviewLinksSectionProps = {
 	links: LinkItem[]
 	isDraft: boolean
 	activityStepId?: string
+	/** Whether this component is required (shows indicator in heading) */
+	required?: boolean
 }
 
-export function ReviewLinksSection({ links, isDraft, activityStepId }: ReviewLinksSectionProps) {
+export function ReviewLinksSection({ links, isDraft, activityStepId, required }: ReviewLinksSectionProps) {
 	return (
 		<VStack gap="space-4">
-			<Heading size="small" level="4">
-				Lenker
-			</Heading>
+			<HStack gap="space-2" align="center">
+				<Heading size="small" level="4">
+					Lenker
+				</Heading>
+				{required && (
+					<Tag variant="warning" size="xsmall">
+						Påkrevd
+					</Tag>
+				)}
+			</HStack>
 			{links.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
 				<section className="table-scroll" tabIndex={0} aria-label="Lenker">

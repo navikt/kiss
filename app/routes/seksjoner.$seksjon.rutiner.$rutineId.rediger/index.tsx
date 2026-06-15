@@ -131,6 +131,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 					type: "manual_activity",
 					stepTitle: link.stepTitle,
 					stepDescription: link.stepDescription ?? "",
+					stepComponents:
+						(link.stepComponents as import("~/lib/manual-activity-staged-data").StepComponent[] | null) ?? [],
 				})
 			} else if (!legacyManualActivityInserted) {
 				// Legacy: expand all checklist steps at this position
@@ -248,8 +250,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			)
 		}
 		const activityItemsField = formData.get("activityItems") as string | null
-		type RawActivityItem = { id?: string; type: string; stepTitle?: string; stepDescription?: string }
-		type ParsedActivityItem = { type: RoutineActivityType; stepTitle: string | null; stepDescription: string | null }
+		type RawActivityItem = {
+			id?: string
+			type: string
+			stepTitle?: string
+			stepDescription?: string
+			stepComponents?: Array<{ type: string; required: boolean }>
+		}
+		type ParsedActivityItem = {
+			type: RoutineActivityType
+			stepTitle: string | null
+			stepDescription: string | null
+			stepComponents: Array<{ type: string; required: boolean }> | null
+		}
 		let activityItems: ParsedActivityItem[] | undefined
 		if (activityItemsField !== null) {
 			let parsed: unknown
@@ -274,6 +287,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
 						type: i.type as RoutineActivityType,
 						stepTitle: i.type === "manual_activity" ? i.stepTitle?.trim() || null : null,
 						stepDescription: i.type === "manual_activity" ? i.stepDescription?.trim() || null : null,
+						stepComponents:
+							i.type === "manual_activity" && Array.isArray(i.stepComponents)
+								? i.stepComponents.filter(
+										(c): c is { type: string; required: boolean } =>
+											typeof c === "object" &&
+											c !== null &&
+											typeof c.type === "string" &&
+											typeof c.required === "boolean",
+									)
+								: null,
 					}))
 			} else {
 				activityItems = []

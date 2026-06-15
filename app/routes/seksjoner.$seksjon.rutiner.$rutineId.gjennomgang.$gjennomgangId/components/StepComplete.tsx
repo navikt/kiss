@@ -38,9 +38,11 @@ type Props = {
 		followUpPoints: Array<{ id: string; text: string; description: string | null; status: string }>
 	}
 	isDraft: boolean
+	requiredViolations?: Array<{ stepTitle: string; componentLabel: string; stepId: string }>
+	onNavigateToStep?: (stepId: string) => void
 }
 
-export function StepComplete({ review, isDraft }: Props) {
+export function StepComplete({ review, isDraft, requiredViolations = [], onNavigateToStep }: Props) {
 	if (review.status === "completed" || review.status === "needs_follow_up") {
 		return <CompletedView status={review.status} />
 	}
@@ -52,7 +54,13 @@ export function StepComplete({ review, isDraft }: Props) {
 	return (
 		<VStack gap="space-8">
 			{isDraft && <ReviewOverview review={review} />}
-			{isDraft && <CompleteSection followUpPoints={review.followUpPoints} />}
+			{isDraft && (
+				<CompleteSection
+					followUpPoints={review.followUpPoints}
+					requiredViolations={requiredViolations}
+					onNavigateToStep={onNavigateToStep}
+				/>
+			)}
 			{isDraft && <DiscardSection />}
 		</VStack>
 	)
@@ -208,8 +216,12 @@ function DiscardedView() {
 
 function CompleteSection({
 	followUpPoints,
+	requiredViolations,
+	onNavigateToStep,
 }: {
 	followUpPoints: Array<{ id: string; text: string; description: string | null }>
+	requiredViolations: Array<{ stepTitle: string; componentLabel: string; stepId: string }>
+	onNavigateToStep?: (stepId: string) => void
 }) {
 	const submit = useSubmit()
 	const navigation = useNavigation()
@@ -219,9 +231,11 @@ function CompleteSection({
 
 	const pointsMissingDescription = followUpPoints.filter((p) => !p.description || p.description.trim().length === 0)
 	const hasMissingDescriptions = pointsMissingDescription.length > 0
+	const hasRequiredViolations = requiredViolations.length > 0
+	const cannotComplete = hasMissingDescriptions || hasRequiredViolations
 
 	function handleComplete() {
-		if (!confirmed || hasMissingDescriptions) return
+		if (!confirmed || cannotComplete) return
 		const formData = new FormData()
 		formData.set("intent", "complete")
 		submit(formData, { method: "post" })
@@ -239,6 +253,40 @@ function CompleteSection({
 					status og oppfølging på punktene inntil alle er adressert.
 				</BodyShort>
 
+				{hasRequiredViolations && (
+					<Alert variant="warning" size="small">
+						<BodyShort spacing>Følgende påkrevde komponenter mangler utfylling:</BodyShort>
+						<ul style={{ margin: 0, paddingLeft: "1.25rem" }}>
+							{requiredViolations.map((v, i) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: static violation list
+								<li key={i}>
+									{onNavigateToStep ? (
+										<button
+											type="button"
+											onClick={() => onNavigateToStep(`sjekkliste-steg-${v.stepId}`)}
+											style={{
+												background: "none",
+												border: "none",
+												padding: 0,
+												cursor: "pointer",
+												textDecoration: "underline",
+												color: "inherit",
+												font: "inherit",
+											}}
+										>
+											«{v.stepTitle}»
+										</button>
+									) : (
+										<>«{v.stepTitle}»</>
+									)}
+									{": "}
+									{v.componentLabel}
+								</li>
+							))}
+						</ul>
+					</Alert>
+				)}
+
 				{hasMissingDescriptions && (
 					<Alert variant="warning" size="small">
 						<BodyShort spacing>
@@ -254,7 +302,7 @@ function CompleteSection({
 
 				{actionData?.intent === "complete" && actionData.error && (
 					<Alert variant="error" size="small">
-						{actionData.error}
+						<span style={{ whiteSpace: "pre-wrap" }}>{actionData.error}</span>
 					</Alert>
 				)}
 
@@ -263,7 +311,7 @@ function CompleteSection({
 					onChange={() => setConfirmed(!confirmed)}
 					label="Jeg bekrefter at gjennomgangen er komplett"
 					size="small"
-					disabled={hasMissingDescriptions}
+					disabled={cannotComplete}
 				/>
 
 				<HStack>
@@ -272,7 +320,7 @@ function CompleteSection({
 						variant="primary"
 						size="small"
 						onClick={handleComplete}
-						disabled={!confirmed || isSubmitting || hasMissingDescriptions}
+						disabled={!confirmed || isSubmitting || cannotComplete}
 						loading={isSubmitting}
 					>
 						Fullfør gjennomgang

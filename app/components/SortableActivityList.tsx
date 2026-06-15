@@ -7,10 +7,28 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { DragVerticalIcon, PlusIcon, TrashIcon } from "@navikt/aksel-icons"
-import { BodyShort, Box, Button, HStack, Select, Tag, TextField, VStack } from "@navikt/ds-react"
+import {
+	BodyShort,
+	Box,
+	Button,
+	Checkbox,
+	CheckboxGroup,
+	HStack,
+	Select,
+	Tag,
+	TextField,
+	VStack,
+} from "@navikt/ds-react"
 import { useCallback, useEffect, useId, useState } from "react"
 import { ACTIVITY_TYPE_GROUPS, activityTypeLabels, type RoutineActivityType } from "~/lib/activity-types"
+import { STEP_COMPONENT_TYPES, type StepComponent } from "~/lib/manual-activity-staged-data"
 import { MarkdownEditor } from "./MarkdownEditor"
+
+const stepComponentLabels: Record<string, string> = {
+	notater: "Notater",
+	lenker: "Lenker",
+	vedlegg: "Vedlegg",
+}
 
 export type ActivityItem = {
 	/** Stable client-side key for React reconciliation */
@@ -20,6 +38,8 @@ export type ActivityItem = {
 	stepTitle?: string
 	/** Description — only used for manual_activity items */
 	stepDescription?: string
+	/** Configured UI components for this step — only used for manual_activity items */
+	stepComponents?: StepComponent[]
 }
 
 type Props = {
@@ -65,6 +85,22 @@ function SortableActivityItem({
 	}
 
 	const isManualActivity = item.type === "manual_activity"
+
+	const selectedComponentTypes = new Set((item.stepComponents ?? []).map((c) => c.type))
+
+	function handleComponentToggle(type: string, checked: boolean) {
+		const current = item.stepComponents ?? []
+		if (checked) {
+			onChange({ stepComponents: [...current, { type: type as StepComponent["type"], required: false }] })
+		} else {
+			onChange({ stepComponents: current.filter((c) => c.type !== type) })
+		}
+	}
+
+	function handleComponentRequiredToggle(type: string, required: boolean) {
+		const current = item.stepComponents ?? []
+		onChange({ stepComponents: current.map((c) => (c.type === type ? { ...c, required } : c)) })
+	}
 
 	return (
 		<Box
@@ -132,6 +168,36 @@ function SortableActivityItem({
 							size="small"
 							minRows={2}
 						/>
+						<VStack gap="space-2">
+							<CheckboxGroup legend="Komponenter som vises i gjennomgangen" size="small" disabled={disabled}>
+								{STEP_COMPONENT_TYPES.map((type) => {
+									const isSelected = selectedComponentTypes.has(type)
+									const comp = (item.stepComponents ?? []).find((c) => c.type === type)
+									return (
+										<VStack key={type} gap="space-1">
+											<Checkbox
+												value={type}
+												checked={isSelected}
+												onChange={(e) => handleComponentToggle(type, e.target.checked)}
+											>
+												{stepComponentLabels[type] ?? type}
+											</Checkbox>
+											{isSelected && (
+												<Box paddingInline="space-8">
+													<Checkbox
+														size="small"
+														checked={comp?.required ?? false}
+														onChange={(e) => handleComponentRequiredToggle(type, e.target.checked)}
+													>
+														Påkrevd
+													</Checkbox>
+												</Box>
+											)}
+										</VStack>
+									)
+								})}
+							</CheckboxGroup>
+						</VStack>
 					</VStack>
 				)}
 			</VStack>
@@ -172,7 +238,9 @@ export function SortableActivityList({
 		if (!selectValue) return
 		const type = selectValue as RoutineActivityType
 		const newItem: ActivityItem =
-			type === "manual_activity" ? { id: genKey(), type, stepTitle: "", stepDescription: "" } : { id: type, type }
+			type === "manual_activity"
+				? { id: genKey(), type, stepTitle: "", stepDescription: "", stepComponents: [] }
+				: { id: type, type }
 		const updated = [...activities, newItem]
 		setActivities(updated)
 		notifyChange(updated)
@@ -234,6 +302,8 @@ export function SortableActivityList({
 						...(a.type === "manual_activity" && {
 							stepTitle: a.stepTitle ?? "",
 							stepDescription: a.stepDescription ?? null,
+							// undefined → omitted from JSON (legacy, no config) vs [] → explicit zero
+							stepComponents: a.stepComponents,
 						}),
 					})),
 				)}

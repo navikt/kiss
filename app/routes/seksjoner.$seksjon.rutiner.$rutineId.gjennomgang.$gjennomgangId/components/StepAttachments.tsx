@@ -60,14 +60,23 @@ type Props = {
 	attachments: Attachment[]
 	isDraft: boolean
 	activityStepId?: string
+	/** Whether this component is required (shows indicator in heading) */
+	required?: boolean
 }
 
-export function StepAttachments({ reviewId, attachments, isDraft, activityStepId }: Props) {
+export function StepAttachments({ reviewId, attachments, isDraft, activityStepId, required }: Props) {
 	return (
 		<VStack gap="space-4">
-			<Heading size="small" level="4">
-				Vedlegg
-			</Heading>
+			<HStack gap="space-2" align="center">
+				<Heading size="small" level="4">
+					Vedlegg
+				</Heading>
+				{required && (
+					<Tag variant="warning" size="xsmall">
+						Påkrevd
+					</Tag>
+				)}
+			</HStack>
 
 			{attachments.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
