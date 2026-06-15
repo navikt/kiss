@@ -119,7 +119,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 	// Build unified ActivityItem[] for SortableActivityList.
 	// For new-model links (manual_activity with stepTitle): one item per link.
-	// For legacy links (manual_activity without stepTitle): expand using routine_checklist_steps at that position.
+	// For legacy links (manual_activity without stepTitle): expand using routine_activity_steps at that position.
 	const activityItems: ActivityItem[] = []
 	let legacyManualActivityInserted = false
 	for (const link of activityLinks) {
@@ -767,7 +767,7 @@ export default function RedigerRutine() {
 							Dersom rutinen har vedlikeholdsaktiviteter, vil gjennomgangen inkludere et eget steg for å dokumentere
 							oppfølging av et spesifikt krav.
 						</BodyShort>
-						<SortableActivityList initialActivities={activityItems} disabled={isSectionRoutine} />
+						<SortableActivityList id="activityTypes" initialActivities={activityItems} disabled={isSectionRoutine} />
 					</VStack>
 
 					<Heading size="small" level="3">
