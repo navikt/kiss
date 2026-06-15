@@ -610,11 +610,11 @@ export default function RutineDetaljer() {
 						</VStack>
 					)}
 
-					{routine.activityTypes.length > 0 && (
+					{[...new Set(routine.activityTypes)].length > 0 && (
 						<VStack gap="space-2">
 							<Label size="small">Vedlikeholdsaktiviteter</Label>
 							<HStack gap="space-2" wrap>
-								{routine.activityTypes.map((type) => (
+								{[...new Set(routine.activityTypes)].map((type) => (
 									<Tag key={type} variant="neutral" size="small">
 										{activityTypeLabels[type] ?? type}
 									</Tag>
@@ -623,27 +623,36 @@ export default function RutineDetaljer() {
 						</VStack>
 					)}
 
-					{routine.activityItems.some((i) => i.type === "manual_activity" && i.stepComponents !== undefined) && (
-						<VStack gap="space-2">
-							<Label size="small">Komponenter for manuell aktivitet</Label>
-							{routine.activityItems
-								.filter((i) => i.type === "manual_activity")
-								.map((item) =>
-									item.stepComponents && item.stepComponents.length > 0 ? (
-										<HStack key={item.id} gap="space-2" wrap>
-											{item.stepComponents.map((c) => (
-												<Tag key={c.type} variant="neutral" size="small">
-													{stepComponentLabels[c.type] ?? c.type}
-													{c.required && " (påkrevd)"}
-												</Tag>
-											))}
-										</HStack>
-									) : (
-										<BodyShort key={item.id} size="small" textColor="subtle">
-											Ingen komponenter konfigurert
-										</BodyShort>
-									),
-								)}
+					{routine.activityItems.filter((i) => i.type === "manual_activity").length > 0 && (
+						<VStack gap="space-4">
+							<Label size="small">Manuelle aktiviteter</Label>
+							<VStack gap="space-4">
+								{routine.activityItems
+									.filter((i) => i.type === "manual_activity")
+									.map((item, idx) => (
+										<VStack key={item.id} gap="space-2">
+											<Label size="small">{item.stepTitle ?? `Manuell aktivitet ${idx + 1}`}</Label>
+											{item.stepDescription && (
+												<BodyShort size="small" textColor="subtle">
+													{item.stepDescription}
+												</BodyShort>
+											)}
+											{item.stepComponents && item.stepComponents.length > 0 ? (
+												<HStack gap="space-2" wrap>
+													{item.stepComponents.map((c) => (
+														<Tag key={c.type} variant="neutral" size="small">
+															{stepComponentLabels[c.type] ?? c.type}
+														</Tag>
+													))}
+												</HStack>
+											) : (
+												<BodyShort size="small" textColor="subtle">
+													Ingen komponenter konfigurert
+												</BodyShort>
+											)}
+										</VStack>
+									))}
+							</VStack>
 						</VStack>
 					)}
 				</VStack>

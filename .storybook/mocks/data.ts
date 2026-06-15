@@ -1102,6 +1102,13 @@ export function mockRutineDetaljData(overrides?: {
 	withFollowUp?: boolean
 	replaced?: boolean
 	isReplacement?: boolean
+	activityItems?: Array<{
+		id: string
+		type: string
+		stepTitle?: string
+		stepDescription?: string | null
+		stepComponents?: Array<{ type: string; required: boolean }>
+	}>
 }) {
 	const isSec = overrides?.isSectionRoutine ?? false
 	const eventOnly = overrides?.eventOnly ?? false
@@ -1151,7 +1158,8 @@ export function mockRutineDetaljData(overrides?: {
 		technologyElements: isSec ? [] : [{ id: "te-1", name: "Applikasjon" }],
 		persistenceLinks: [],
 		groupClassifications: [],
-		activityTypes: [],
+		activityTypes: (overrides?.activityItems ?? []).map((i) => i.type),
+		activityItems: overrides?.activityItems ?? [],
 	}
 
 	const reviews = isSec
@@ -2375,6 +2383,12 @@ export function mockGjennomgangDetaljManualActivityData(overrides?: { status?: G
 						completedAt: isCompleted ? "2026-06-01T10:00:00Z" : null,
 						completedBy: isCompleted ? "Glad Fjord" : null,
 						notes: isCompleted ? "Alle tilganger er gjennomgått. Fant ingen avvik." : null,
+						componentConfig: {
+							items: [
+								{ type: "notater" as const, required: true },
+								{ type: "lenker" as const, required: false },
+							],
+						},
 					},
 					{
 						stepId: stepId2,
@@ -2383,6 +2397,7 @@ export function mockGjennomgangDetaljManualActivityData(overrides?: { status?: G
 						completedAt: isCompleted ? "2026-06-01T11:00:00Z" : null,
 						completedBy: isCompleted ? "Glad Fjord" : null,
 						notes: isCompleted ? "Logging aktiv. To uventede innloggingsforsøk fra testmiljø – ikke kritisk." : null,
+						componentConfig: { items: [{ type: "notater" as const, required: false }] },
 					},
 					{
 						stepId: stepId3,
@@ -2391,6 +2406,7 @@ export function mockGjennomgangDetaljManualActivityData(overrides?: { status?: G
 						completedAt: null,
 						completedBy: null,
 						notes: null,
+						// No componentConfig → fallback show-all (backward compat)
 					},
 				],
 			},

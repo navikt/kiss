@@ -1370,4 +1370,216 @@ describe("Routine Activity Links integration tests", () => {
 			expect(firstSeed.steps[0].title).toBe(secondSeed.steps[0].title)
 		})
 	})
+
+	// ─── stepComponents on manual_activity links ──────────────────────
+
+	describe("createRoutine with stepComponents on manual_activity", () => {
+		it("stores stepComponents for manual_activity items", async () => {
+			const sectionId = await createTestSection("Test", "step-comp-create")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Rutine med komponentkonfig",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [
+					{
+						type: "manual_activity",
+						stepTitle: "Kontroller tilgang",
+						stepDescription: null,
+						stepComponents: [
+							{ type: "notater", required: true },
+							{ type: "lenker", required: false },
+						],
+					},
+				],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			const fetched = await getRoutine(routine.id)
+			const item = fetched?.activityItems[0]
+			expect(item?.stepComponents).toEqual([
+				{ type: "notater", required: true },
+				{ type: "lenker", required: false },
+			])
+		})
+
+		it("stores null stepComponents when not provided", async () => {
+			const sectionId = await createTestSection("Test", "step-comp-null")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Rutine uten komponentkonfig",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [{ type: "manual_activity", stepTitle: "Enkelt steg", stepDescription: null }],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			const fetched = await getRoutine(routine.id)
+			const item = fetched?.activityItems[0]
+			// No stepComponents provided → undefined (not set) in activityItems
+			expect(item?.stepComponents).toBeUndefined()
+		})
+	})
+
+	describe("updateRoutine with stepComponents on manual_activity", () => {
+		it("updates stepComponents when activityItems change", async () => {
+			const sectionId = await createTestSection("Test", "step-comp-update")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Oppdaterbar komponentkonfig",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [{ type: "manual_activity", stepTitle: "Steg 1", stepDescription: null }],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			// Update with stepComponents
+			await updateRoutine({
+				id: routine.id,
+				name: "Oppdaterbar komponentkonfig",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [
+					{
+						type: "manual_activity",
+						stepTitle: "Steg 1",
+						stepDescription: null,
+						stepComponents: [{ type: "vedlegg", required: true }],
+					},
+				],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				updatedBy: "Z990001",
+			})
+
+			const fetched = await getRoutine(routine.id)
+			expect(fetched?.activityItems[0]?.stepComponents).toEqual([{ type: "vedlegg", required: true }])
+		})
+	})
+
+	describe("seedManualActivity propagates componentConfig from stepComponents", () => {
+		it("includes componentConfig in seeded staged_data when stepComponents is set", async () => {
+			const sectionId = await createTestSection("Test", "step-comp-seed")
+			const appId = await createTestApp("Komponent-seed-app")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Sjekkliste med komponentkonfig",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [
+					{
+						type: "manual_activity",
+						stepTitle: "Verifiser tilgang",
+						stepDescription: "Detaljer",
+						stepComponents: [
+							{ type: "notater", required: true },
+							{ type: "vedlegg", required: false },
+						],
+					},
+				],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Komponent-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+			const activities = await getReviewActivities(review.id)
+			const activity = activities.find((a) => a.type === "manual_activity")
+			if (!activity) throw new Error("Expected manual_activity activity to exist")
+
+			const stagedData = await seedManualActivity(activity.id, routine.id, "Z990001")
+			expect(stagedData.steps).toHaveLength(1)
+			expect(stagedData.steps[0].componentConfig).toEqual({
+				items: [
+					{ type: "notater", required: true },
+					{ type: "vedlegg", required: false },
+				],
+			})
+		})
+
+		it("leaves componentConfig undefined when stepComponents is not set", async () => {
+			const sectionId = await createTestSection("Test", "step-comp-seed-no-config")
+			const appId = await createTestApp("No-config-seed-app")
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Sjekkliste uten komponentkonfig",
+				description: null,
+				frequency: "quarterly",
+				activityItems: [{ type: "manual_activity", stepTitle: "Enkelt steg", stepDescription: null }],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "No-config-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			await autoCreateActivitiesForReview(review.id, routine.id, appId, "Z990001")
+			const activities = await getReviewActivities(review.id)
+			const activity = activities.find((a) => a.type === "manual_activity")
+			if (!activity) throw new Error("Expected manual_activity activity to exist")
+
+			const stagedData = await seedManualActivity(activity.id, routine.id, "Z990001")
+			expect(stagedData.steps[0].componentConfig).toBeUndefined()
+		})
+	})
 })

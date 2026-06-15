@@ -66,8 +66,33 @@ export const MedManuelleSteg: Story = {
 				type: "manual_activity",
 				stepTitle: "Bekreft tilgang",
 				stepDescription: "Sjekk at alle har riktig tilgang",
+				stepComponents: [
+					{ type: "notater", required: true },
+					{ type: "lenker", required: false },
+				],
 			},
-			{ id: "step-2", type: "manual_activity", stepTitle: "Arkiver dokumentasjon", stepDescription: "" },
+			{
+				id: "step-2",
+				type: "manual_activity",
+				stepTitle: "Arkiver dokumentasjon",
+				stepDescription: "",
+				stepComponents: [{ type: "vedlegg", required: true }],
+			},
+		],
+	},
+}
+
+export const ManuelleStegUtenKomponenter: Story = {
+	name: "Manuelt steg uten eksplisitte komponenter (vis alle)",
+	args: {
+		initialActivities: [
+			{
+				id: "step-1",
+				type: "manual_activity",
+				stepTitle: "Kontroller konfigurasjon",
+				stepDescription: "Validerer at alle innstillinger er korrekte.",
+				// stepComponents omitted → fallback show-all
+			},
 		],
 	},
 }
