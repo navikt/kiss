@@ -21,6 +21,7 @@ interface ActivityProp {
 interface BaseProps {
 	activity: ActivityProp
 	isDraft: boolean
+	preview?: boolean
 }
 
 interface OracleProps extends BaseProps {
@@ -43,6 +44,7 @@ export function EvidenceSection(props: Props) {
 					activity={props.activity}
 					oracleEvidenceData={props.evidenceData}
 					isDraft={props.isDraft}
+					preview={props.preview}
 				/>
 			)
 		case "deployments":
@@ -51,6 +53,7 @@ export function EvidenceSection(props: Props) {
 					activity={props.activity}
 					evidenceData={props.evidenceData}
 					isDraft={props.isDraft}
+					preview={props.preview}
 				/>
 			)
 		default: {
