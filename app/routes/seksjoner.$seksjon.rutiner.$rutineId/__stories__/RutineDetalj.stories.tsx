@@ -75,3 +75,33 @@ export const NyRutineMedOpphav: Story = {
 			"/seksjoner/pensjon-og-ufore/rutiner/routine-new",
 		),
 }
+
+export const MedManuelleAktivitetssteg: Story = {
+	name: "Med manuelle aktivitetssteg og komponentkonfigurasjon",
+	render: () =>
+		renderWithLoader(
+			RutineDetaljer,
+			mockRutineDetaljData({
+				activityItems: [
+					{
+						id: "step-1",
+						type: "manual_activity",
+						stepTitle: "Bekreft tilganger",
+						stepDescription: "Sjekk at alle medarbeidere har riktig tilgangsnivå.",
+						stepComponents: [
+							{ type: "notater", required: true },
+							{ type: "lenker", required: false },
+						],
+					},
+					{
+						id: "step-2",
+						type: "manual_activity",
+						stepTitle: "Arkiver dokumentasjon",
+						stepDescription: null,
+						stepComponents: [],
+					},
+				],
+			}),
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-manual",
+		),
+}

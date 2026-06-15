@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { createRoutesStub } from "react-router"
 import { afterEach, describe, expect, it } from "vitest"
 import { activityTypeLabels } from "~/lib/activity-types"
 import type { ActivityItem } from "../SortableActivityList"
@@ -12,6 +13,12 @@ function getSelectElement(container: HTMLElement) {
 
 function toItems(...types: string[]): ActivityItem[] {
 	return types.map((t) => ({ id: t, type: t as ActivityItem["type"] }))
+}
+
+/** Wraps SortableActivityList in a minimal router context (required by MarkdownEditor). */
+function renderWithRouter(props: Parameters<typeof SortableActivityList>[0] = {}) {
+	const Stub = createRoutesStub([{ path: "/", Component: () => <SortableActivityList {...props} /> }])
+	return render(<Stub initialEntries={["/"]} />)
 }
 
 describe("SortableActivityList", () => {
@@ -182,6 +189,122 @@ describe("SortableActivityList", () => {
 				name: /Dra for å endre rekkefølge/i,
 			})
 			expect(dragHandles).toHaveLength(0)
+		})
+	})
+
+	describe("manual_activity items", () => {
+		it("allows adding manual_activity multiple times", () => {
+			const { container } = renderWithRouter()
+			const select = getSelectElement(container)
+
+			// Add first manual_activity step
+			select.value = "manual_activity"
+			select.dispatchEvent(new Event("change", { bubbles: true }))
+			fireEvent.click(screen.getByRole("button", { name: /Legg til/i }))
+
+			// Add second manual_activity step
+			select.value = "manual_activity"
+			select.dispatchEvent(new Event("change", { bubbles: true }))
+			fireEvent.click(screen.getByRole("button", { name: /Legg til/i }))
+
+			const hidden = container.querySelector('input[name="activityItems"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value) as ActivityItem[]
+			expect(parsed.filter((a) => a.type === "manual_activity")).toHaveLength(2)
+		})
+
+		it("renders title and description fields for manual_activity", () => {
+			const activities: ActivityItem[] = [
+				{ id: "step-1", type: "manual_activity", stepTitle: "Bekreft tilgang", stepDescription: "Beskrivelse" },
+			]
+			renderWithRouter({ initialActivities: activities })
+
+			expect(screen.getByLabelText(/Tittel på steg/i)).toBeDefined()
+			expect(screen.getByLabelText(/Beskrivelse/i)).toBeDefined()
+		})
+
+		it("includes stepTitle and stepDescription in JSON output", () => {
+			const activities: ActivityItem[] = [
+				{
+					id: "step-1",
+					type: "manual_activity",
+					stepTitle: "Bekreft tilgang",
+					stepDescription: "Sjekk rettigheter",
+				},
+			]
+			const { container } = renderWithRouter({ initialActivities: activities })
+			const hidden = container.querySelector('input[name="activityItems"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value) as ActivityItem[]
+
+			expect(parsed[0].stepTitle).toBe("Bekreft tilgang")
+			expect(parsed[0].stepDescription).toBe("Sjekk rettigheter")
+		})
+
+		it("outputs stepComponents in JSON for manual_activity items", () => {
+			const activities: ActivityItem[] = [
+				{
+					id: "step-1",
+					type: "manual_activity",
+					stepTitle: "Steg",
+					stepDescription: undefined,
+					stepComponents: [
+						{ type: "notater", required: true },
+						{ type: "lenker", required: false },
+					],
+				},
+			]
+			const { container } = renderWithRouter({ initialActivities: activities })
+			const hidden = container.querySelector('input[name="activityItems"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value) as ActivityItem[]
+
+			expect(parsed[0].stepComponents).toEqual([
+				{ type: "notater", required: true },
+				{ type: "lenker", required: false },
+			])
+		})
+
+		it("omits stepComponents from JSON for non-manual activities", () => {
+			const activities = toItems("oracle_evidence_audit")
+			const { container } = render(<SortableActivityList initialActivities={activities} />)
+			const hidden = container.querySelector('input[name="activityItems"]') as HTMLInputElement
+			const parsed = JSON.parse(hidden.value) as ActivityItem[]
+
+			expect(Object.keys(parsed[0])).not.toContain("stepComponents")
+		})
+
+		it("renders component checkboxes for manual_activity", () => {
+			const activities: ActivityItem[] = [
+				{
+					id: "step-1",
+					type: "manual_activity",
+					stepTitle: "Steg",
+					stepDescription: undefined,
+					stepComponents: [],
+				},
+			]
+			renderWithRouter({ initialActivities: activities })
+
+			expect(screen.getByLabelText(/Notater/i)).toBeDefined()
+			expect(screen.getByLabelText(/Lenker/i)).toBeDefined()
+			expect(screen.getByLabelText(/Vedlegg/i)).toBeDefined()
+		})
+
+		it("reflects pre-selected stepComponents as checked checkboxes", () => {
+			const activities: ActivityItem[] = [
+				{
+					id: "step-1",
+					type: "manual_activity",
+					stepTitle: "Steg",
+					stepDescription: undefined,
+					stepComponents: [{ type: "notater", required: false }],
+				},
+			]
+			renderWithRouter({ initialActivities: activities })
+
+			const notaterCheckbox = screen.getByLabelText(/^Notater/i) as HTMLInputElement
+			expect(notaterCheckbox.checked).toBe(true)
+
+			const lenkerCheckbox = screen.getByLabelText(/^Lenker/i) as HTMLInputElement
+			expect(lenkerCheckbox.checked).toBe(false)
 		})
 	})
 })
