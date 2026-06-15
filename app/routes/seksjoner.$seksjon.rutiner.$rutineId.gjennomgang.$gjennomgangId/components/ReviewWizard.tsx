@@ -1,5 +1,5 @@
 import { ArrowLeftIcon, ArrowRightIcon } from "@navikt/aksel-icons"
-import { Button, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
+import { Alert, Button, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
 import { useCallback, useMemo, useRef } from "react"
 import { useActionData, useNavigation, useSubmit } from "react-router"
 import { ReviewWizardStepper } from "./ReviewWizardStepper"
@@ -25,6 +25,8 @@ type Props = {
 	completedSteps: Set<string>
 	/** Called when the step changes */
 	onStepChange: (stepId: string) => void
+	/** When true, disables all form submissions and shows a preview banner */
+	preview?: boolean
 }
 
 const statusLabels: Record<string, string> = {
@@ -54,6 +56,7 @@ export function ReviewWizard({
 	currentStepId,
 	completedSteps,
 	onStepChange,
+	preview = false,
 }: Props) {
 	const steps = useMemo(
 		() => buildSteps({ hasControls, hasRulesets, activities }),
@@ -79,6 +82,10 @@ export function ReviewWizard({
 
 	const navigateToStep = useCallback(
 		(targetStepId: string) => {
+			if (preview) {
+				onStepChange(targetStepId)
+				return
+			}
 			const form = document.querySelector(`[${WIZARD_FORM_ATTR}]`) as HTMLFormElement | null
 			if (form) {
 				submit(form, { method: "post" })
@@ -87,7 +94,7 @@ export function ReviewWizard({
 				onStepChange(targetStepId)
 			}
 		},
-		[submit, onStepChange],
+		[submit, onStepChange, preview],
 	)
 
 	const currentIndex = getStepIndex(steps, currentStepId)
@@ -108,6 +115,12 @@ export function ReviewWizard({
 
 	return (
 		<VStack gap="space-8">
+			{preview && (
+				<Alert variant="info">
+					Dette er en forhåndsvisning av gjennomgangen. Ingen endringer lagres. Dynamiske aktiviteter (Entra-grupper,
+					Oracle-roller, RPA-brukere) vises med eksempeldata.
+				</Alert>
+			)}
 			<HStack gap="space-4" align="center">
 				<Heading size="xlarge" level="2">
 					{title}

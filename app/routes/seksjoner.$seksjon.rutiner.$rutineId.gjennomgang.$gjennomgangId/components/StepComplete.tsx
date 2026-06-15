@@ -38,17 +38,22 @@ type Props = {
 		followUpPoints: Array<{ id: string; text: string; description: string | null; status: string }>
 	}
 	isDraft: boolean
+	preview?: boolean
 	requiredViolations?: Array<{ stepTitle: string; componentLabel: string; stepId: string }>
 	onNavigateToStep?: (stepId: string) => void
 }
 
-export function StepComplete({ review, isDraft, requiredViolations = [], onNavigateToStep }: Props) {
+export function StepComplete({ review, isDraft, preview, requiredViolations = [], onNavigateToStep }: Props) {
 	if (review.status === "completed" || review.status === "needs_follow_up") {
 		return <CompletedView status={review.status} />
 	}
 
 	if (review.status === "discarded") {
 		return <DiscardedView />
+	}
+
+	if (preview) {
+		return <ReviewOverview review={review} />
 	}
 
 	return (

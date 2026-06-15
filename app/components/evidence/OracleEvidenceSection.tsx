@@ -53,6 +53,7 @@ interface Props {
 	activity: ActivityProp
 	oracleEvidenceData: OracleEvidenceDataProp
 	isDraft: boolean
+	preview?: boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -71,7 +72,7 @@ const config = getProviderUiConfig("oracle")
 
 // ─── Component ────────────────────────────────────────────────────────────
 
-export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }: Props) {
+export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft, preview = false }: Props) {
 	const { configuredInstances, selectedInstanceId, downloads, evidenceTypes } = oracleEvidenceData
 	const [selectedInstance, setSelectedInstance] = useState<string>(
 		selectedInstanceId ?? configuredInstances[0]?.instanceId ?? "",
@@ -106,10 +107,11 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 	}, [selectedInstance, fromDate, toDate, activity.id])
 
 	useEffect(() => {
+		if (preview) return
 		if (selectedInstance) {
 			fetchStatus()
 		}
-	}, [selectedInstance, fetchStatus])
+	}, [selectedInstance, fetchStatus, preview])
 
 	const statusFetcherData = statusFetcher.data
 	const evidenceStatus =
@@ -263,7 +265,7 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 							</>
 						)}
 
-						<Button variant="secondary" size="small" onClick={fetchStatus} loading={isLoadingStatus}>
+						<Button variant="secondary" size="small" onClick={fetchStatus} loading={isLoadingStatus} disabled={preview}>
 							Oppdater status
 						</Button>
 					</HStack>
@@ -308,7 +310,7 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 							<BodyShort size="small">{config.statusTableDescription}</BodyShort>
 							<EvidenceStatusTable
 								evidenceTypes={filteredEvidenceTypes}
-								showActions={isDraft && isPending}
+								showActions={!preview && isDraft && isPending}
 								isDownloading={isDownloading}
 								onDownload={handleDownloadAttempt}
 							/>
@@ -336,6 +338,7 @@ export function OracleEvidenceSection({ activity, oracleEvidenceData, isDraft }:
 				downloads={downloads}
 				evidenceTypeLabels={config.evidenceTypeLabels}
 				formatInstanceId={config.formatInstanceId}
+				preview={preview}
 			/>
 
 			<ForceFetchModal

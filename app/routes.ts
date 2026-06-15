@@ -77,6 +77,10 @@ export default [
 		"routes/seksjoner.$seksjon.rutiner.$rutineId.rediger/index.tsx",
 	),
 	route(
+		"seksjoner/:seksjon/rutiner/:rutineId/forhåndsvisning",
+		"routes/seksjoner.$seksjon.rutiner.$rutineId.forhåndsvisning/index.tsx",
+	),
+	route(
 		"seksjoner/:seksjon/rutiner/:rutineId/gjennomgang/ny",
 		"routes/seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.ny/index.tsx",
 	),

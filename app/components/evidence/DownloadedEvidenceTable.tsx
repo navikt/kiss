@@ -21,6 +21,7 @@ interface Props {
 	evidenceTypeLabels: Record<string, string>
 	/** Format an instance id for display */
 	formatInstanceId: (instanceId: string) => string
+	preview?: boolean
 }
 
 function formatFileSize(bytes: number | null): string {
@@ -40,7 +41,7 @@ function formatDate(dateStr: string): string {
 	})
 }
 
-export function DownloadedEvidenceTable({ downloads, evidenceTypeLabels, formatInstanceId }: Props) {
+export function DownloadedEvidenceTable({ downloads, evidenceTypeLabels, formatInstanceId, preview = false }: Props) {
 	return (
 		<VStack gap="space-2">
 			<Heading size="small" level="4">
@@ -90,15 +91,21 @@ export function DownloadedEvidenceTable({ downloads, evidenceTypeLabels, formatI
 									<Table.DataCell>{d.performedBy}</Table.DataCell>
 									<Table.DataCell>{formatDate(d.performedAt)}</Table.DataCell>
 									<Table.DataCell>
-										<Button
-											as="a"
-											href={`/api/evidence-file/${d.id}`}
-											variant="tertiary"
-											size="xsmall"
-											icon={<DownloadIcon aria-hidden />}
-										>
-											Last ned
-										</Button>
+										{preview ? (
+											<Button variant="tertiary" size="xsmall" icon={<DownloadIcon aria-hidden />} disabled>
+												Last ned
+											</Button>
+										) : (
+											<Button
+												as="a"
+												href={`/api/evidence-file/${d.id}`}
+												variant="tertiary"
+												size="xsmall"
+												icon={<DownloadIcon aria-hidden />}
+											>
+												Last ned
+											</Button>
+										)}
 									</Table.DataCell>
 								</Table.Row>
 							))}

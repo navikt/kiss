@@ -55,9 +55,10 @@ interface Props {
 	activity: ActivityProp
 	evidenceData: NdaEvidenceDataProp
 	isDraft: boolean
+	preview?: boolean
 }
 
-export function DeploymentEvidenceSection({ activity, evidenceData, isDraft }: Props) {
+export function DeploymentEvidenceSection({ activity, evidenceData, isDraft, preview = false }: Props) {
 	const config = getProviderUiConfig("deployments")
 	const revalidator = useRevalidator()
 	const { appParams, periodConfig, downloads } = evidenceData
@@ -69,7 +70,7 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft }: P
 					{config.heading}
 				</Heading>
 				<Alert variant="warning">{config.noInstancesWarning}</Alert>
-				{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} />}
+				{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} preview={preview} />}
 			</VStack>
 		)
 	}
@@ -82,8 +83,12 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft }: P
 
 			{!periodConfig ? (
 				<>
-					<PeriodSelector activityId={activity.id} onSaved={() => revalidator.revalidate()} />
-					{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} />}
+					{preview ? (
+						<BodyShort>Ingen periode er valgt for denne aktiviteten.</BodyShort>
+					) : (
+						<PeriodSelector activityId={activity.id} onSaved={() => revalidator.revalidate()} />
+					)}
+					{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} preview={preview} />}
 				</>
 			) : (
 				<DeploymentStatusPanel
@@ -92,6 +97,7 @@ export function DeploymentEvidenceSection({ activity, evidenceData, isDraft }: P
 					periodConfig={periodConfig}
 					downloads={downloads}
 					isDraft={isDraft}
+					preview={preview}
 					config={config}
 				/>
 			)}
@@ -107,10 +113,19 @@ interface StatusPanelProps {
 	periodConfig: { periodType: string; periodStart: string }
 	downloads: NdaEvidenceDataProp["downloads"]
 	isDraft: boolean
+	preview?: boolean
 	config: ReturnType<typeof getProviderUiConfig>
 }
 
-function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, isDraft, config }: StatusPanelProps) {
+function DeploymentStatusPanel({
+	activity,
+	appParams,
+	periodConfig,
+	downloads,
+	isDraft,
+	preview = false,
+	config,
+}: StatusPanelProps) {
 	const statusFetcher = useFetcher<EvidenceStatusResponse | { error: string }>()
 	const generateFetcher = useFetcher()
 	const downloadFetcher = useFetcher()
@@ -127,6 +142,7 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 	// Fetch status on mount
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally mount-only
 	useEffect(() => {
+		if (preview) return
 		if (statusFetcher.state === "idle" && !statusFetcher.data) {
 			const params = new URLSearchParams({
 				providerType: "deployments",
@@ -279,7 +295,7 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 					{" — "}
 					{periodConfig.periodStart}
 				</Tag>
-				<Button variant="tertiary" size="xsmall" onClick={refreshStatus} loading={isLoadingStatus}>
+				<Button variant="tertiary" size="xsmall" onClick={refreshStatus} loading={isLoadingStatus} disabled={preview}>
 					Oppdater status
 				</Button>
 			</HStack>
@@ -326,7 +342,7 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 										</Table.DataCell>
 										<Table.DataCell>{(item.formats ?? []).join(", ").toUpperCase()}</Table.DataCell>
 										<Table.DataCell>
-											{item.canDownload && isDraft && (
+											{item.canDownload && isDraft && !preview && (
 												<ExistingReportActions
 													metadata={validStatus.metadata}
 													downloadFetcher={downloadFetcher}
@@ -342,7 +358,7 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 						</Table>
 					)}
 
-					{isDraft && !validStatus.metadata?.error && (
+					{isDraft && !preview && !validStatus.metadata?.error && (
 						<HStack gap="space-2">
 							<Button
 								size="small"
@@ -394,7 +410,7 @@ function DeploymentStatusPanel({ activity, appParams, periodConfig, downloads, i
 				</>
 			)}
 
-			{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} />}
+			{downloads.length > 0 && <NdaDownloadsTable downloads={downloads} preview={preview} />}
 		</VStack>
 	)
 }
@@ -530,7 +546,13 @@ function formatDate(dateStr: string): string {
 	})
 }
 
-function NdaDownloadsTable({ downloads }: { downloads: NdaEvidenceDataProp["downloads"] }) {
+function NdaDownloadsTable({
+	downloads,
+	preview = false,
+}: {
+	downloads: NdaEvidenceDataProp["downloads"]
+	preview?: boolean
+}) {
 	return (
 		<VStack gap="space-2">
 			<Heading size="small" level="4">
@@ -572,9 +594,15 @@ function NdaDownloadsTable({ downloads }: { downloads: NdaEvidenceDataProp["down
 									<Detail>{formatDate(d.performedAt)}</Detail>
 								</Table.DataCell>
 								<Table.DataCell>
-									<a href={`/api/evidence-file/${d.id}`} download>
-										Last ned
-									</a>
+									{preview ? (
+										<span aria-disabled="true" style={{ color: "var(--a-text-subtle)", cursor: "not-allowed" }}>
+											Last ned
+										</span>
+									) : (
+										<a href={`/api/evidence-file/${d.id}`} download>
+											Last ned
+										</a>
+									)}
 								</Table.DataCell>
 							</Table.Row>
 						))}

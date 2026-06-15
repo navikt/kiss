@@ -342,6 +342,11 @@ export default function RutineDetaljer() {
 								Rediger
 							</Button>
 						)}
+						{!routine.archivedAt && userCanEdit && (
+							<Button as={Link} to="./forhåndsvisning" variant="secondary" size="small">
+								Forhåndsvisning av gjennomgang
+							</Button>
+						)}
 						{!routine.replacedByRoutineId && !routine.archivedAt && routine.status === "approved" && userCanEdit && (
 							<fetcher.Form method="post">
 								<input type="hidden" name="intent" value="copy" />
