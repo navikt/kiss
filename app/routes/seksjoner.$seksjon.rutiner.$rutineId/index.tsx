@@ -53,6 +53,12 @@ import { canApproveRoutine, hasAnySectionRole, isAdmin } from "~/lib/authorizati
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
 
+const stepComponentLabels: Record<string, string> = {
+	notater: "Notater",
+	lenker: "Lenker",
+	vedlegg: "Vedlegg",
+}
+
 function formatDate(date: string | Date | null): string {
 	if (!date) return "—"
 	return new Date(date).toLocaleDateString("nb-NO")
@@ -614,6 +620,30 @@ export default function RutineDetaljer() {
 									</Tag>
 								))}
 							</HStack>
+						</VStack>
+					)}
+
+					{routine.activityItems.some((i) => i.type === "manual_activity" && i.stepComponents !== undefined) && (
+						<VStack gap="space-2">
+							<Label size="small">Komponenter for manuell aktivitet</Label>
+							{routine.activityItems
+								.filter((i) => i.type === "manual_activity")
+								.map((item) =>
+									item.stepComponents && item.stepComponents.length > 0 ? (
+										<HStack key={item.id} gap="space-2" wrap>
+											{item.stepComponents.map((c) => (
+												<Tag key={c.type} variant="neutral" size="small">
+													{stepComponentLabels[c.type] ?? c.type}
+													{c.required && " (påkrevd)"}
+												</Tag>
+											))}
+										</HStack>
+									) : (
+										<BodyShort key={item.id} size="small" textColor="subtle">
+											Ingen komponenter konfigurert
+										</BodyShort>
+									),
+								)}
 						</VStack>
 					)}
 				</VStack>

@@ -45,6 +45,7 @@ import {
 	parseEntraStagedData,
 } from "~/lib/entra-staged-data"
 import { logger } from "~/lib/logger.server"
+import type { ComponentConfig } from "~/lib/manual-activity-staged-data"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { parseOracleRoleCriticalitySnapshot, parseOracleRoleCriticalityStagedData } from "~/lib/oracle-role-staged-data"
 import { parseParticipantsFormValue } from "~/lib/participants"
@@ -337,6 +338,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 			completedAt: string | null
 			completedBy: string | null
 			notes: string | null
+			componentConfig?: ComponentConfig
 		}> | null
 		evidenceProviderType: string | null
 		evidenceLoadError?: string
@@ -791,6 +793,51 @@ export async function action({ request, params }: ActionFunctionArgs) {
 				intent: "complete",
 			})
 		}
+
+		// ── Validate required components on manual activity steps ────────────────
+		const { parseManualActivityStagedData, isManualActivity } = await import("~/lib/manual-activity-staged-data")
+		const activities = await getReviewActivities(gjennomgangId)
+		const manualActivities = activities.filter((a) => a.type === "manual_activity" && a.stagedData)
+		const validationErrors: string[] = []
+
+		for (const activity of manualActivities) {
+			let stagedData: ReturnType<typeof parseManualActivityStagedData> | undefined
+			try {
+				stagedData = parseManualActivityStagedData(activity.stagedData)
+			} catch {
+				continue
+			}
+			if (!isManualActivity(stagedData)) continue
+
+			for (const step of stagedData.steps) {
+				if (!step.componentConfig) continue
+
+				for (const comp of step.componentConfig.items) {
+					if (!comp.required) continue
+
+					if (comp.type === "notater" && !step.notes?.trim()) {
+						validationErrors.push(`«${step.title}»: Notater er påkrevd.`)
+					}
+					if (comp.type === "lenker") {
+						const hasLink = review.links.some((l) => l.activityStepId === step.stepId)
+						if (!hasLink) validationErrors.push(`«${step.title}»: Minst én lenke er påkrevd.`)
+					}
+					if (comp.type === "vedlegg") {
+						const hasAttachment = review.attachments.some((a) => a.activityStepId === step.stepId)
+						if (!hasAttachment) validationErrors.push(`«${step.title}»: Minst ett vedlegg er påkrevd.`)
+					}
+				}
+			}
+		}
+
+		if (validationErrors.length > 0) {
+			return data<ActionResult>({
+				success: false,
+				error: `Gjennomgangen kan ikke fullføres. Følgende er påkrevd:\n${validationErrors.map((e) => `• ${e}`).join("\n")}`,
+				intent: "complete",
+			})
+		}
+		// ── End validation ───────────────────────────────────────────────────────
 
 		const updated = await completeReview(gjennomgangId, authedUser.navIdent).catch((err) => {
 			if (err instanceof Response) return err
@@ -1403,6 +1450,33 @@ export default function GjennomgangDetalj() {
 		[setSearchParams],
 	)
 
+	// Compute required-component violations for all manual activity steps.
+	// Always computed so the "Fullfør"-step shows violations reactively on first render.
+	type RequiredViolation = { stepTitle: string; componentLabel: string; stepId: string }
+	const requiredViolations = useMemo<RequiredViolation[]>(() => {
+		if (!isDraft) return []
+		const violations: RequiredViolation[] = []
+		for (const activity of activities) {
+			if (activity.type !== "manual_activity" || !activity.activityStepsData) continue
+			for (const step of activity.activityStepsData) {
+				if (!step.componentConfig) continue
+				for (const comp of step.componentConfig.items) {
+					if (!comp.required) continue
+					if (comp.type === "notater" && !step.notes?.trim()) {
+						violations.push({ stepTitle: step.title, componentLabel: "Notater", stepId: step.stepId })
+					}
+					if (comp.type === "lenker" && !review.links.some((l) => l.activityStepId === step.stepId)) {
+						violations.push({ stepTitle: step.title, componentLabel: "Lenker", stepId: step.stepId })
+					}
+					if (comp.type === "vedlegg" && !review.attachments.some((a) => a.activityStepId === step.stepId)) {
+						violations.push({ stepTitle: step.title, componentLabel: "Vedlegg", stepId: step.stepId })
+					}
+				}
+			}
+		}
+		return violations
+	}, [isDraft, activities, review.links, review.attachments])
+
 	// Determine which steps are "completed" (have data)
 	const completedSteps = useMemo(() => {
 		const completed = new Set<string>()
@@ -1471,6 +1545,7 @@ export default function GjennomgangDetalj() {
 					reviewId={review.id}
 					links={review.links}
 					attachments={review.attachments}
+					componentConfig={stepData.componentConfig}
 				/>
 			)
 		}
@@ -1544,8 +1619,16 @@ export default function GjennomgangDetalj() {
 			}
 			case "oppfolging":
 				return <FollowUpPointsSection reviewId={review.id} status={review.status} points={review.followUpPoints} />
-			case "fullfor":
-				return <StepComplete review={review} isDraft={isDraft} />
+			case "fullfor": {
+				return (
+					<StepComplete
+						review={review}
+						isDraft={isDraft}
+						requiredViolations={requiredViolations}
+						onNavigateToStep={handleStepChange}
+					/>
+				)
+			}
 			default:
 				return null
 		}

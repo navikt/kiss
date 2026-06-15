@@ -785,6 +785,13 @@
       "when": 1781918620000,
       "tag": "0111_manual_activity_multi_step",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1781918680000,
+      "tag": "0112_manual_activity_step_components",
+      "breakpoints": true
     }
   ]
 }

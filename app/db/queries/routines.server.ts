@@ -271,6 +271,7 @@ export async function getRoutine(id: string) {
 				activityType: routineActivityLinks.activityType,
 				stepTitle: routineActivityLinks.stepTitle,
 				stepDescription: routineActivityLinks.stepDescription,
+				stepComponents: routineActivityLinks.stepComponents,
 				id: routineActivityLinks.id,
 			})
 			.from(routineActivityLinks)
@@ -300,6 +301,7 @@ export async function getRoutine(id: string) {
 			type: r.activityType as RoutineActivityType,
 			stepTitle: r.stepTitle ?? undefined,
 			stepDescription: r.stepDescription ?? undefined,
+			stepComponents: (r.stepComponents as Array<{ type: string; required: boolean }> | null) ?? undefined,
 		})),
 	}
 }
@@ -320,7 +322,12 @@ export async function createRoutine(params: {
 	sectionRoutineOwnerRole?: string | null
 	activityTypes?: RoutineActivityType[]
 	/** Richer activity items with per-item step config (supersedes activityTypes when provided) */
-	activityItems?: Array<{ type: RoutineActivityType; stepTitle?: string | null; stepDescription?: string | null }>
+	activityItems?: Array<{
+		type: RoutineActivityType
+		stepTitle?: string | null
+		stepDescription?: string | null
+		stepComponents?: Array<{ type: string; required: boolean }> | null
+	}>
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
 		dataClassification: DataClassification | null
@@ -437,7 +444,7 @@ export async function createRoutine(params: {
 		const rawItems = params.isSectionRoutine
 			? []
 			: (params.activityItems ??
-				params.activityTypes?.map((t) => ({ type: t, stepTitle: null, stepDescription: null })) ??
+				params.activityTypes?.map((t) => ({ type: t, stepTitle: null, stepDescription: null, stepComponents: null })) ??
 				[])
 		if (rawItems.length > 0) {
 			await tx.insert(routineActivityLinks).values(
@@ -447,6 +454,10 @@ export async function createRoutine(params: {
 					sortOrder: index,
 					stepTitle: item.type === MANUAL_ACTIVITY_TYPE ? (item.stepTitle ?? null) : null,
 					stepDescription: item.type === MANUAL_ACTIVITY_TYPE ? (item.stepDescription ?? null) : null,
+					stepComponents:
+						item.type === MANUAL_ACTIVITY_TYPE
+							? ((item.stepComponents ?? null) as (typeof routineActivityLinks.$inferInsert)["stepComponents"])
+							: null,
 					createdBy: params.createdBy,
 				})),
 			)
@@ -512,7 +523,12 @@ export async function updateRoutine(params: {
 	sectionRoutineOwnerRole?: string | null
 	activityTypes?: RoutineActivityType[]
 	/** Richer activity items with per-item step config (supersedes activityTypes when provided) */
-	activityItems?: Array<{ type: RoutineActivityType; stepTitle?: string | null; stepDescription?: string | null }>
+	activityItems?: Array<{
+		type: RoutineActivityType
+		stepTitle?: string | null
+		stepDescription?: string | null
+		stepComponents?: Array<{ type: string; required: boolean }> | null
+	}>
 	persistenceLinks: Array<{
 		persistenceType: PersistenceType | null
 		dataClassification: DataClassification | null
@@ -553,7 +569,12 @@ export async function updateRoutine(params: {
 		// When neither activityItems/activityTypes nor isSectionRoutine:true is provided, preserve existing state.
 		const hasActivityInput =
 			params.activityItems !== undefined || params.activityTypes !== undefined || params.isSectionRoutine === true
-		type EffectiveItem = { type: RoutineActivityType; stepTitle?: string | null; stepDescription?: string | null }
+		type EffectiveItem = {
+			type: RoutineActivityType
+			stepTitle?: string | null
+			stepDescription?: string | null
+			stepComponents?: Array<{ type: string; required: boolean }> | null
+		}
 		let effectiveActivityItems: EffectiveItem[] | null = null
 		if (hasActivityInput) {
 			if (effectiveIsSectionRoutine) {
@@ -863,15 +884,26 @@ export async function updateRoutine(params: {
 					activityType: routineActivityLinks.activityType,
 					stepTitle: routineActivityLinks.stepTitle,
 					stepDescription: routineActivityLinks.stepDescription,
+					stepComponents: routineActivityLinks.stepComponents,
 				})
 				.from(routineActivityLinks)
 				.where(and(eq(routineActivityLinks.routineId, params.id), isNull(routineActivityLinks.archivedAt)))
 				.orderBy(routineActivityLinks.sortOrder)
 			const prevSerialized = JSON.stringify(
-				existingActivityLinks.map((a) => ({ t: a.activityType, st: a.stepTitle, sd: a.stepDescription })),
+				existingActivityLinks.map((a) => ({
+					t: a.activityType,
+					st: a.stepTitle,
+					sd: a.stepDescription,
+					sc: a.stepComponents,
+				})),
 			)
 			const nextSerialized = JSON.stringify(
-				effectiveActivityItems.map((a) => ({ t: a.type, st: a.stepTitle ?? null, sd: a.stepDescription ?? null })),
+				effectiveActivityItems.map((a) => ({
+					t: a.type,
+					st: a.stepTitle ?? null,
+					sd: a.stepDescription ?? null,
+					sc: a.stepComponents ?? null,
+				})),
 			)
 			const activityChanged = prevSerialized !== nextSerialized
 
@@ -888,6 +920,10 @@ export async function updateRoutine(params: {
 							sortOrder: index,
 							stepTitle: item.type === MANUAL_ACTIVITY_TYPE ? (item.stepTitle ?? null) : null,
 							stepDescription: item.type === MANUAL_ACTIVITY_TYPE ? (item.stepDescription ?? null) : null,
+							stepComponents:
+								item.type === MANUAL_ACTIVITY_TYPE
+									? ((item.stepComponents ?? null) as (typeof routineActivityLinks.$inferInsert)["stepComponents"])
+									: null,
 							createdBy: params.updatedBy,
 						})),
 					)
@@ -5654,6 +5690,7 @@ export async function autoCreateActivitiesForReview(
 			activityType: routineActivityLinks.activityType,
 			stepTitle: routineActivityLinks.stepTitle,
 			stepDescription: routineActivityLinks.stepDescription,
+			stepComponents: routineActivityLinks.stepComponents,
 		})
 		.from(routineActivityLinks)
 		.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
@@ -5697,7 +5734,11 @@ export async function autoCreateActivitiesForReview(
 						type: link.activityType as RoutineActivityType,
 						sortOrder: i,
 						snapshotBefore: link.stepTitle
-							? { stepTitle: link.stepTitle, stepDescription: link.stepDescription ?? null }
+							? {
+									stepTitle: link.stepTitle,
+									stepDescription: link.stepDescription ?? null,
+									stepComponents: (link.stepComponents as Array<{ type: string; required: boolean }> | null) ?? null,
+								}
 							: null,
 						providerConfig: config,
 					})
@@ -6409,6 +6450,7 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 					sortOrder: link.sortOrder,
 					stepTitle: link.stepTitle,
 					stepDescription: link.stepDescription,
+					stepComponents: link.stepComponents,
 					createdBy: performedBy,
 				})),
 			)
@@ -7147,6 +7189,7 @@ export async function getRoutineActivityLinks(routineId: string) {
 			sortOrder: routineActivityLinks.sortOrder,
 			stepTitle: routineActivityLinks.stepTitle,
 			stepDescription: routineActivityLinks.stepDescription,
+			stepComponents: routineActivityLinks.stepComponents,
 		})
 		.from(routineActivityLinks)
 		.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
@@ -7243,10 +7286,8 @@ export async function findActiveReviewConflict(
 		.innerJoin(routineReviewActivities, eq(routineReviewActivities.reviewId, routineReviews.id))
 		.where(
 			and(
+				eq(routineReviews.routineId, routineId),
 				appFilter,
-				// For section routines (applicationId = null) the appFilter matches all section reviews
-				// globally. Scope to this routine to avoid cross-section false conflicts.
-				applicationId === null ? eq(routineReviews.routineId, routineId) : undefined,
 				inArray(routineReviews.status, ["draft", "needs_follow_up"] as ReviewStatus[]),
 				inArray(routineReviewActivities.type, activityTypes),
 			),
@@ -7966,6 +8007,9 @@ export async function seedManualActivity(activityId: string, routineId: string, 
 	// New single-step model: snapshotBefore contains stepTitle/stepDescription from the activity link
 	const snap = activity.snapshotBefore as Record<string, unknown> | null
 	if (snap && typeof snap.stepTitle === "string") {
+		const snapComponents = Array.isArray(snap.stepComponents)
+			? (snap.stepComponents as Array<{ type: string; required: boolean }>)
+			: null
 		stagedData = {
 			activityType: MANUAL_ACTIVITY_TYPE,
 			schemaVersion: MANUAL_ACTIVITY_SCHEMA_VERSION,
@@ -7977,6 +8021,13 @@ export async function seedManualActivity(activityId: string, routineId: string, 
 					completedAt: null,
 					completedBy: null,
 					notes: null,
+					// null = stepComponents not in snapshot (legacy) → omit (backward compat: show all)
+					// [] = explicitly configured with no components → store { items: [] } (show nothing)
+					...(snapComponents !== null && {
+						componentConfig: {
+							items: snapComponents as import("../../lib/manual-activity-staged-data").StepComponent[],
+						},
+					}),
 				},
 			],
 		}

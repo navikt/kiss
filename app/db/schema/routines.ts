@@ -91,6 +91,8 @@ export const routineActivityLinks = pgTable(
 		stepTitle: text("step_title"),
 		/** Description for manual_activity single-step activities */
 		stepDescription: text("step_description"),
+		/** Configured UI components for this step (lenker, vedlegg) with required flag */
+		stepComponents: jsonb("step_components").$type<Array<{ type: string; required: boolean }>>(),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 		createdBy: text("created_by").notNull(),
 		archivedAt: timestamp("archived_at", { withTimezone: true }),
