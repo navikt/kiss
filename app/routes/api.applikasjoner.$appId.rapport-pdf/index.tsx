@@ -181,6 +181,10 @@ interface FollowUpPoint {
 	description: string | null
 	resolution: string | null
 	status: "needs_follow_up" | "completed" | "not_relevant"
+	createdBy: string
+	createdAt: Date
+	resolvedBy: string | null
+	resolvedAt: Date | null
 	attachments: Array<{
 		fileName: string
 		contentType: string
@@ -190,16 +194,23 @@ interface FollowUpPoint {
 
 interface Review {
 	id: string
+	routineId: string
 	title: string
 	summary: string | null
 	reviewedAt: Date
+	createdAt: Date
 	createdBy: string
 	status: string
 	routineName: string
+	routineDescription: string | null
 	routineFrequency: string | null
 	routineEventFrequency?: string | null
+	routineApprovedAt?: Date | null
+	routineArchivedAt?: Date | null
+	routineReplacedAt?: Date | null
 	participants: Array<{ userIdent: string; userName: string | null; confirmedAt: Date | null }>
 	attachments: Array<{ fileName: string; contentType: string; sizeBytes: number | null }>
+	links: Array<{ url: string; title: string | null }>
 	followUpPoints: FollowUpPoint[]
 }
 
@@ -425,6 +436,7 @@ function buildReviewsSection(doc: PDFKit.PDFDocument, reviews: Review[]) {
 	doc.fontSize(14).fillColor(blue).text("Rutinegjennomganger")
 	doc.moveDown(0.3)
 
+	// Summary table
 	const colWidths = [160, 120, 80, 60, 75]
 	drawTableRow(doc, 50, colWidths, ["Tittel", "Rutine", "Dato", "Status", "Opprettet av"], true)
 
@@ -439,82 +451,206 @@ function buildReviewsSection(doc: PDFKit.PDFDocument, reviews: Review[]) {
 		])
 	}
 
-	// Detail per review
+	// Group reviews by routineId to render them together with their routine documentation
+	const routineOrder: string[] = []
+	const reviewsByRoutine = new Map<
+		string,
+		{
+			routineName: string
+			routineDescription: string | null
+			routineApprovedAt?: Date | null
+			routineArchivedAt?: Date | null
+			routineReplacedAt?: Date | null
+			reviews: Review[]
+		}
+	>()
 	for (const r of reviews) {
-		doc.moveDown(1)
-		ensureSpace(doc, 80)
+		if (!reviewsByRoutine.has(r.routineId)) {
+			routineOrder.push(r.routineId)
+			reviewsByRoutine.set(r.routineId, {
+				routineName: r.routineName,
+				routineDescription: r.routineDescription,
+				routineApprovedAt: r.routineApprovedAt,
+				routineArchivedAt: r.routineArchivedAt,
+				routineReplacedAt: r.routineReplacedAt,
+				reviews: [],
+			})
+		}
+		reviewsByRoutine.get(r.routineId)!.reviews.push(r)
+	}
 
-		doc.fontSize(11).fillColor(blue).text(r.title)
+	for (const routineId of routineOrder) {
+		const group = reviewsByRoutine.get(routineId)!
+
+		// ─── Rutine header ────────────────────────────────────────────
+		doc.moveDown(1.5)
+		ensureSpace(doc, 100)
+		doc.fontSize(13).fillColor(blue).text(group.routineName)
 		doc.moveDown(0.2)
-
-		doc.fontSize(8).fillColor(subtle)
-		const freqLabel = getCompositeFrequencyLabel(r.routineFrequency, r.routineEventFrequency)
-		doc.text(`Rutine: ${r.routineName} (${freqLabel})`)
-		doc.text(`Dato: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
-		doc.text(`Opprettet av: ${r.createdBy}`)
-
-		if (r.participants.length > 0) {
-			const names = r.participants.map((p) => p.userName || p.userIdent).join(", ")
-			doc.text(`Deltakere: ${names}`)
+		if (group.routineApprovedAt) {
+			doc.fontSize(8).fillColor(subtle).text(`Godkjent: ${new Date(group.routineApprovedAt).toLocaleDateString("nb-NO")}`)
+		}
+		if (group.routineArchivedAt) {
+			doc.fontSize(8).fillColor(subtle).text(`Arkivert: ${new Date(group.routineArchivedAt).toLocaleDateString("nb-NO")}`)
+		}
+		if (group.routineReplacedAt) {
+			doc.fontSize(8).fillColor(subtle).text(`Erstattet: ${new Date(group.routineReplacedAt).toLocaleDateString("nb-NO")}`)
+		}
+		if (group.routineDescription) {
+			const descText =
+				group.routineDescription.length > 2000
+					? `${group.routineDescription.slice(0, 2000)}…`
+					: group.routineDescription
+			doc.fontSize(9).fillColor(subtle).text(descText, { width: 495 })
 		}
 
-		if (r.attachments.length > 0) {
-			const fileNames = r.attachments.map((a) => a.fileName).join(", ")
-			doc.text(`Vedlegg: ${fileNames}`)
-		}
+		// ─── Gjennomganger for this rutine ────────────────────────────
+		for (const r of group.reviews) {
+			doc.moveDown(0.8)
+			ensureSpace(doc, 80)
 
-		if (r.summary) {
-			doc.moveDown(0.3)
-			doc.fontSize(8).fillColor(darkText)
-			// Truncate very long summaries
-			const summaryText = r.summary.length > 2000 ? `${r.summary.slice(0, 2000)}…` : r.summary
-			doc.text(summaryText, { width: 495 })
-		}
+			doc.fontSize(11).fillColor(darkText).text(r.title)
+			doc.moveDown(0.2)
 
-		if (r.followUpPoints.length > 0) {
-			doc.moveDown(0.6)
-			ensureSpace(doc, 60)
-			doc.fontSize(11).fillColor(blue).text(`Oppfølgingspunkter (${r.followUpPoints.length})`)
-			doc.moveDown(0.3)
+			doc.fontSize(8).fillColor(subtle)
+			const freqLabel = getCompositeFrequencyLabel(r.routineFrequency, r.routineEventFrequency)
+			doc.text(`Frekvens: ${freqLabel}`)
+			doc.text(`Dato for gjennomgang: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
+			doc.text(`Registrert av: ${r.createdBy} — ${new Date(r.createdAt).toLocaleString("nb-NO")}`)
 
-			for (const [idx, p] of r.followUpPoints.entries()) {
-				ensureSpace(doc, 80)
+			if (r.participants.length > 0) {
+				const names = r.participants.map((p) => p.userName || p.userIdent).join(", ")
+				doc.text(`Deltakere: ${names}`)
+			}
 
-				doc
-					.fontSize(10)
-					.fillColor(darkText)
-					.text(`${idx + 1}. ${p.text}`, { width: 495 })
-				doc.moveDown(0.15)
+			if (r.summary) {
+				doc.moveDown(0.3)
+				doc.fontSize(8).fillColor(darkText)
+				const summaryText = r.summary.length > 2000 ? `${r.summary.slice(0, 2000)}…` : r.summary
+				doc.text(summaryText, { width: 495 })
+			}
 
-				doc
-					.fontSize(8)
-					.fillColor(subtle)
-					.text(`Status: ${followUpStatusLabel(p.status)}`, { width: 495 })
-
-				if (p.description) {
-					doc.moveDown(0.15)
-					doc.fontSize(8).fillColor(subtle).text("Beskrivelse:", { width: 495 })
-					const descText = p.description.length > 1500 ? `${p.description.slice(0, 1500)}…` : p.description
-					doc.fontSize(8).fillColor(darkText).text(descText, { width: 495 })
+			// ─── Lenker ───────────────────────────────────────────────
+			if (r.links.length > 0) {
+				doc.moveDown(0.5)
+				ensureSpace(doc, 40)
+				doc.fontSize(9).fillColor(blue).text("Lenker")
+				doc.moveDown(0.2)
+				for (const link of r.links) {
+					ensureSpace(doc, 16)
+					const label = link.title ? `${link.title} — ` : ""
+					doc.fontSize(8).fillColor(darkText).text(`• ${label}${link.url}`, { width: 495 })
 				}
+			}
 
-				if (p.resolution) {
+			// ─── Vedlegg (review-level) ───────────────────────────────
+			if (r.attachments.length > 0) {
+				doc.moveDown(0.5)
+				ensureSpace(doc, 40)
+				doc.fontSize(9).fillColor(blue).text("Vedlegg")
+				doc.moveDown(0.2)
+				for (const att of r.attachments) {
+					ensureSpace(doc, 16)
+					const sizeLabel = att.sizeBytes != null ? ` — ${formatFileSize(att.sizeBytes)}` : ""
+					if (att.contentType === "application/pdf") {
+						doc.fontSize(8).fillColor(darkText).text(`• ${att.fileName} (PDF${sizeLabel})`, { width: 495 })
+						doc
+							.fontSize(7)
+							.fillColor(subtle)
+							.text("  Dokumentet er vedlagt på neste sider i denne rapporten.", { width: 495 })
+					} else {
+						doc
+							.fontSize(8)
+							.fillColor(darkText)
+							.text(`• ${att.fileName} (${att.contentType}${sizeLabel})`, { width: 495 })
+						doc
+							.fontSize(7)
+							.fillColor(subtle)
+							.text("  Filen er inkludert i vedlegg/-mappen i den nedlastede zip-filen.", { width: 495 })
+					}
+				}
+			}
+
+			// ─── Oppfølgingspunkter ───────────────────────────────────
+			if (r.followUpPoints.length > 0) {
+				doc.moveDown(0.6)
+				ensureSpace(doc, 60)
+				doc.fontSize(9).fillColor(blue).text(`Oppfølgingspunkter (${r.followUpPoints.length})`)
+				doc.moveDown(0.3)
+
+				for (const [idx, p] of r.followUpPoints.entries()) {
+					ensureSpace(doc, 80)
+
+					doc
+						.fontSize(10)
+						.fillColor(darkText)
+						.text(`${idx + 1}. ${p.text}`, { width: 495 })
+					doc.moveDown(0.15)
+
+					doc.fontSize(8).fillColor(subtle).text("Beskrivelse:", { width: 495 })
+					doc
+						.fontSize(7)
+						.fillColor(subtle)
+						.text(`Opprettet av: ${p.createdBy} — ${new Date(p.createdAt).toLocaleString("nb-NO")}`, { width: 495 })
+					if (p.description) {
+						const descText = p.description.length > 1500 ? `${p.description.slice(0, 1500)}…` : p.description
+						doc.fontSize(8).fillColor(darkText).text(descText, { width: 495 })
+					}
+
 					doc.moveDown(0.15)
 					doc.fontSize(8).fillColor(subtle).text("Oppfølging:", { width: 495 })
-					const resText = p.resolution.length > 1500 ? `${p.resolution.slice(0, 1500)}…` : p.resolution
-					doc.fontSize(8).fillColor(darkText).text(resText, { width: 495 })
-				}
+					doc
+						.fontSize(8)
+						.fillColor(subtle)
+						.text(`Status: ${followUpStatusLabel(p.status)}`, { width: 495 })
+					if (p.resolvedBy && p.resolvedAt) {
+						doc
+							.fontSize(7)
+							.fillColor(subtle)
+							.text(
+								`Løst av: ${p.resolvedBy} — ${new Date(p.resolvedAt).toLocaleString("nb-NO")}`,
+								{ width: 495 },
+							)
+					}
+					if (p.resolution) {
+						const resText = p.resolution.length > 1500 ? `${p.resolution.slice(0, 1500)}…` : p.resolution
+						doc.moveDown(0.1)
+						doc.fontSize(8).fillColor(darkText).text(resText, { width: 495 })
+					}
 
-				if (p.attachments.length > 0) {
-					const descAtts = p.attachments.filter((a) => a.kind === "description").map((a) => a.fileName)
-					const resAtts = p.attachments.filter((a) => a.kind === "resolution").map((a) => a.fileName)
-					doc.moveDown(0.15)
-					doc.fontSize(8).fillColor(subtle)
-					if (descAtts.length > 0) doc.text(`Vedlegg til beskrivelse: ${descAtts.join(", ")}`, { width: 495 })
-					if (resAtts.length > 0) doc.text(`Vedlegg til oppfølging: ${resAtts.join(", ")}`, { width: 495 })
-				}
+					// ─── Vedlegg for oppfølgingspunkt ─────────────────────
+					if (p.attachments.length > 0) {
+						doc.moveDown(0.3)
+						ensureSpace(doc, 40)
+						doc.fontSize(8).fillColor(blue).text("Vedlegg", { width: 495 })
+						doc.moveDown(0.15)
+						for (const att of p.attachments) {
+							ensureSpace(doc, 16)
+							const kindLabel = att.kind === "description" ? "beskrivelse" : "oppfølging"
+							if (att.contentType === "application/pdf") {
+								doc
+									.fontSize(8)
+									.fillColor(darkText)
+									.text(`• ${att.fileName} (${kindLabel}, PDF)`, { width: 495 })
+								doc
+									.fontSize(7)
+									.fillColor(subtle)
+									.text("  Dokumentet er vedlagt på neste sider i denne rapporten.", { width: 495 })
+							} else {
+								doc
+									.fontSize(8)
+									.fillColor(darkText)
+									.text(`• ${att.fileName} (${kindLabel})`, { width: 495 })
+								doc
+									.fontSize(7)
+									.fillColor(subtle)
+									.text("  Filen er inkludert i vedlegg/-mappen i den nedlastede zip-filen.", { width: 495 })
+							}
+						}
+					}
 
-				doc.moveDown(0.5)
+					doc.moveDown(0.5)
+				}
 			}
 		}
 	}
