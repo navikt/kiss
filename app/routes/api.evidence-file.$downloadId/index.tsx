@@ -2,7 +2,7 @@ import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { downloadEvidenceFileFromStorage, getSectionIdForDownload } from "~/db/queries/evidence-downloads.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireAnySectionRole } from "~/lib/authorization.server"
+import { requireReviewReadAccess } from "~/lib/authorization.server"
 import { requireUuid } from "~/lib/utils"
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
@@ -14,7 +14,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	if (!sectionId) {
 		throw data({ error: "Fant ikke nedlastet fil" }, { status: 404 })
 	}
-	requireAnySectionRole(authedUser, sectionId)
+	await requireReviewReadAccess(authedUser, { applicationId: null, sectionId })
 
 	const result = await downloadEvidenceFileFromStorage(downloadId)
 	if (!result) {
