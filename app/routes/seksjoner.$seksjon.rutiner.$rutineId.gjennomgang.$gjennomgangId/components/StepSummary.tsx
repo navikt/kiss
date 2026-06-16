@@ -12,6 +12,7 @@ import {
 	TextField,
 	VStack,
 } from "@navikt/ds-react"
+import type { ReactNode } from "react"
 import { useState } from "react"
 import { Form, useActionData, useNavigation } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
@@ -39,6 +40,7 @@ type LinkItem = {
 	title: string | null
 	addedBy: string
 	addedAt: string
+	activityStepId?: string | null
 }
 
 type Props = {
@@ -188,6 +190,63 @@ export function ReviewLinksSection({ links, isDraft, activityStepId, required }:
 
 			{isDraft && <AddLinkSection activityStepId={activityStepId} />}
 		</VStack>
+	)
+}
+
+type GenerellDokumentasjonCardProps = {
+	summary: string | null
+	summaryHtml: string | null
+	links: LinkItem[]
+	attachmentsSlot?: ReactNode
+}
+
+/**
+ * Read-only card showing the unscoped (non-step) summary, links and attachments.
+ * Used in the "Fullfør"-step for all gjennomganger, regardless of activity type.
+ */
+export function GenerellDokumentasjonCard({
+	summary,
+	summaryHtml,
+	links,
+	attachmentsSlot,
+}: GenerellDokumentasjonCardProps) {
+	const unscopedLinks = links.filter((l) => l.activityStepId == null)
+	const hasContent = !!summary?.trim() || unscopedLinks.length > 0 || !!attachmentsSlot
+
+	return (
+		<Box padding="space-8" borderWidth="1" borderColor="neutral-subtle" borderRadius="8">
+			<VStack gap="space-6">
+				<Heading size="small" level="4">
+					Generell dokumentasjon
+				</Heading>
+
+				{!hasContent && (
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<BodyShort size="small" textColor="subtle">
+							Ingen generelle notater, lenker eller vedlegg lagt til.
+						</BodyShort>
+					</Box>
+				)}
+
+				{summaryHtml && (
+					<VStack gap="space-2">
+						<Heading size="xsmall" level="5">
+							Oppsummering / referat
+						</Heading>
+						<Box padding="space-6" borderRadius="8" background="sunken">
+							<div
+								className="markdown-content"
+								// biome-ignore lint/security/noDangerouslySetInnerHtml: server-sanitized
+								dangerouslySetInnerHTML={{ __html: summaryHtml }}
+							/>
+						</Box>
+					</VStack>
+				)}
+
+				{unscopedLinks.length > 0 && <ReviewLinksSection links={unscopedLinks} isDraft={false} />}
+				{attachmentsSlot}
+			</VStack>
+		</Box>
 	)
 }
 

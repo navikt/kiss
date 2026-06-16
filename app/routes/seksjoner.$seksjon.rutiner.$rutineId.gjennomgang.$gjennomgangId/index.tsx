@@ -65,7 +65,7 @@ import { StepIntroduction } from "./components/StepIntroduction"
 import { StepManualActivityItem } from "./components/StepManualActivityItem"
 import { StepRoutine } from "./components/StepRoutine"
 import { StepRulesets } from "./components/StepRulesets"
-import { ReviewLinksSection, StepSummary } from "./components/StepSummary"
+import { GenerellDokumentasjonCard, ReviewLinksSection, StepSummary } from "./components/StepSummary"
 import {
 	type ActionResult,
 	type ActivityStepInfo,
@@ -1598,18 +1598,6 @@ export default function GjennomgangDetalj() {
 					<StepRoutine routine={routine} routineDescriptionHtml={routineDescriptionHtml} sectionSlug={section.slug} />
 				)
 			case "dokumentasjon": {
-				const allManualActivityData = activities
-					.filter((a) => a.type === "manual_activity")
-					.flatMap((a) => a.activityStepsData ?? [])
-				if (allManualActivityData.length > 0) {
-					return (
-						<ManualActivityAggregateDocumentation
-							activityStepsData={allManualActivityData}
-							links={review.links}
-							attachments={review.attachments}
-						/>
-					)
-				}
 				return (
 					<VStack gap="space-12">
 						<StepSummary review={review} isDraft={isDraft} />
@@ -1620,13 +1608,43 @@ export default function GjennomgangDetalj() {
 			case "oppfolging":
 				return <FollowUpPointsSection reviewId={review.id} status={review.status} points={review.followUpPoints} />
 			case "fullfor": {
+				const allManualActivityData = activities
+					.filter((a) => a.type === "manual_activity")
+					.flatMap((a) => a.activityStepsData ?? [])
 				return (
-					<StepComplete
-						review={review}
-						isDraft={isDraft}
-						requiredViolations={requiredViolations}
-						onNavigateToStep={handleStepChange}
-					/>
+					<VStack gap="space-12">
+						{allManualActivityData.length > 0 && (
+							<ManualActivityAggregateDocumentation
+								activityStepsData={allManualActivityData}
+								links={review.links}
+								attachments={review.attachments}
+								summary={review.summary}
+								summaryHtml={review.summaryHtml}
+							/>
+						)}
+						{allManualActivityData.length === 0 && (
+							<GenerellDokumentasjonCard
+								summary={review.summary}
+								summaryHtml={review.summaryHtml}
+								links={review.links}
+								attachmentsSlot={
+									review.attachments.filter((a) => a.activityStepId === null).length > 0 ? (
+										<StepAttachments
+											reviewId=""
+											attachments={review.attachments.filter((a) => a.activityStepId === null)}
+											isDraft={false}
+										/>
+									) : undefined
+								}
+							/>
+						)}
+						<StepComplete
+							review={review}
+							isDraft={isDraft}
+							requiredViolations={requiredViolations}
+							onNavigateToStep={handleStepChange}
+						/>
+					</VStack>
 				)
 			}
 			default:
@@ -1674,6 +1692,8 @@ function ManualActivityAggregateDocumentation({
 	activityStepsData,
 	links,
 	attachments,
+	summary,
+	summaryHtml,
 }: {
 	activityStepsData: Array<{ stepId: string; title: string; notes: string | null; completedAt: string | null }>
 	links: Array<{
@@ -1694,10 +1714,18 @@ function ManualActivityAggregateDocumentation({
 		uploadedAt: string
 		activityStepId: string | null
 	}>
+	summary: string | null
+	summaryHtml: string | null
 }) {
-	const unscopedLinks = links.filter((l) => l.activityStepId === null)
 	const unscopedAttachments = attachments.filter((a) => a.activityStepId === null)
-	const hasUnscopedContent = unscopedLinks.length > 0 || unscopedAttachments.length > 0
+
+	const cardStyle = {
+		padding: "space-8" as const,
+		borderWidth: "1" as const,
+		borderColor: "neutral-subtle" as const,
+		borderRadius: "8" as const,
+		background: "default" as const,
+	}
 
 	return (
 		<VStack gap="space-12">
@@ -1710,32 +1738,13 @@ function ManualActivityAggregateDocumentation({
 				</BodyShort>
 			</div>
 
-			{hasUnscopedContent && (
-				<VStack gap="space-6">
-					<Heading size="small" level="4">
-						Dokumentasjon
-					</Heading>
-					{unscopedLinks.length > 0 && <ReviewLinksSection links={unscopedLinks} isDraft={false} />}
-					{unscopedAttachments.length > 0 && (
-						<StepAttachments reviewId="" attachments={unscopedAttachments} isDraft={false} />
-					)}
-				</VStack>
-			)}
-
 			{activityStepsData.map((step) => {
 				const stepLinks = links.filter((l) => l.activityStepId === step.stepId)
 				const stepAttachments = attachments.filter((a) => a.activityStepId === step.stepId)
 				const hasContent = step.notes || stepLinks.length > 0 || stepAttachments.length > 0
 
 				return (
-					<Box
-						key={step.stepId}
-						padding="space-8"
-						borderWidth="1"
-						borderColor="neutral-subtle"
-						borderRadius="8"
-						background="default"
-					>
+					<Box key={step.stepId} {...cardStyle}>
 						<VStack gap="space-6">
 							<HStack gap="space-4" align="center">
 								<Heading size="small" level="4">
@@ -1776,6 +1785,17 @@ function ManualActivityAggregateDocumentation({
 					</Box>
 				)
 			})}
+
+			<GenerellDokumentasjonCard
+				summary={summary}
+				summaryHtml={summaryHtml}
+				links={links}
+				attachmentsSlot={
+					unscopedAttachments.length > 0 ? (
+						<StepAttachments reviewId="" attachments={unscopedAttachments} isDraft={false} />
+					) : undefined
+				}
+			/>
 		</VStack>
 	)
 }
