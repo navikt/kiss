@@ -1448,6 +1448,10 @@ export async function getReviewsForApp(applicationId: string) {
 			routineDescription: routines.description,
 			routineFrequency: routines.frequency,
 			routineEventFrequency: routines.eventFrequency,
+			routineResponsibleRole: routines.responsibleRole,
+			routineApprovedAt: routines.approvedAt,
+			routineArchivedAt: routines.archivedAt,
+			routineReplacedAt: routines.replacedAt,
 			sectionId: routines.sectionId,
 		})
 		.from(routineReviews)
@@ -1472,6 +1476,47 @@ export async function getReviewsForApp(applicationId: string) {
 		)
 		.orderBy(desc(routineReviews.reviewedAt))
 
+	const routineIds = [...new Set(reviews.map((r) => r.review.routineId))]
+	const [allElements, allControls] =
+		routineIds.length > 0
+			? await Promise.all([
+					db
+						.select({
+							routineId: routineTechnologyElements.routineId,
+							id: technologyElements.id,
+							name: technologyElements.name,
+						})
+						.from(routineTechnologyElements)
+						.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
+						.where(
+							and(inArray(routineTechnologyElements.routineId, routineIds), isNull(routineTechnologyElements.archivedAt)),
+						),
+					db
+						.selectDistinct({
+							routineId: routineControls.routineId,
+							controlId: frameworkControls.controlId,
+							shortTitle: frameworkControls.shortTitle,
+						})
+						.from(routineControls)
+						.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
+						.where(and(inArray(routineControls.routineId, routineIds), isNull(routineControls.archivedAt))),
+				])
+			: [[], []]
+
+	const elementsByRoutine = new Map<string, { id: string; name: string }[]>()
+	for (const el of allElements) {
+		const arr = elementsByRoutine.get(el.routineId) ?? []
+		arr.push({ id: el.id, name: el.name })
+		elementsByRoutine.set(el.routineId, arr)
+	}
+
+	const controlsByRoutine = new Map<string, { controlId: string; shortTitle: string | null }[]>()
+	for (const c of allControls) {
+		const arr = controlsByRoutine.get(c.routineId) ?? []
+		arr.push({ controlId: c.controlId, shortTitle: c.shortTitle })
+		controlsByRoutine.set(c.routineId, arr)
+	}
+
 	const enrichedReviews = await enrichReviewsBatch(reviews.map((r) => r.review))
 	return enrichedReviews.map((enriched, i) => ({
 		...enriched,
@@ -1479,6 +1524,12 @@ export async function getReviewsForApp(applicationId: string) {
 		routineDescription: reviews[i].routineDescription,
 		routineFrequency: reviews[i].routineFrequency,
 		routineEventFrequency: reviews[i].routineEventFrequency,
+		routineResponsibleRole: reviews[i].routineResponsibleRole,
+		routineApprovedAt: reviews[i].routineApprovedAt,
+		routineArchivedAt: reviews[i].routineArchivedAt,
+		routineReplacedAt: reviews[i].routineReplacedAt,
+		routineTechnologyElements: elementsByRoutine.get(enriched.routineId) ?? [],
+		routineControls: controlsByRoutine.get(enriched.routineId) ?? [],
 		sectionId: reviews[i].sectionId,
 	}))
 }

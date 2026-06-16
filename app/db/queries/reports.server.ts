@@ -561,7 +561,14 @@ export async function generateAppComplianceReport(params: {
 				routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
 				routineFrequency: r.routineFrequency,
 				routineEventFrequency: r.routineEventFrequency,
+				routineResponsibleRole: r.routineResponsibleRole ?? null,
+				routineApprovedAt: r.routineApprovedAt?.toISOString() ?? null,
+				routineArchivedAt: r.routineArchivedAt?.toISOString() ?? null,
+				routineReplacedAt: r.routineReplacedAt?.toISOString() ?? null,
+				routineTechnologyElements: r.routineTechnologyElements,
+				routineControls: r.routineControls,
 				reviewedAt: r.reviewedAt.toISOString(),
+				createdAt: r.createdAt.toISOString(),
 				createdBy: r.createdBy,
 				summary: r.summary,
 				participants: r.participants.map((p) => ({ userIdent: p.userIdent, userName: p.userName })),
@@ -580,6 +587,10 @@ export async function generateAppComplianceReport(params: {
 					description: p.description,
 					resolution: p.resolution,
 					status: p.status,
+					createdBy: p.createdBy,
+					createdAt: p.createdAt.toISOString(),
+					resolvedBy: p.resolvedBy ?? null,
+					resolvedAt: p.resolvedAt?.toISOString() ?? null,
 					attachments: p.attachments.map((a) => ({
 						fileName: a.fileName,
 						contentType: a.contentType,
@@ -1011,22 +1022,33 @@ function buildAppPdf(
 		title: string
 		summary: string | null
 		status: string
-		reviewedAt: Date
+		reviewedAt: Date | string
+		createdAt: Date | string
 		createdBy: string
 		routineId: string
 		routineName: string
 		routineDescription: string | null
 		routineFrequency: string | null
 		routineEventFrequency?: string | null
+		routineResponsibleRole?: string | null
+		routineApprovedAt?: Date | string | null
+		routineArchivedAt?: Date | string | null
+		routineReplacedAt?: Date | string | null
+		routineTechnologyElements?: Array<{ id: string; name: string }>
+		routineControls?: Array<{ controlId: string; shortTitle: string | null }>
 		participants: Array<{ userIdent: string; userName: string | null }>
-		attachments: Array<{ fileName: string }>
+		attachments: Array<{ fileName: string; contentType: string }>
 		links: Array<{ url: string; title: string | null }>
 		followUpPoints: Array<{
 			text: string
 			description: string | null
 			resolution: string | null
 			status: "needs_follow_up" | "completed" | "not_relevant"
-			attachments: Array<{ fileName: string; kind: "description" | "resolution" }>
+			createdBy: string
+			createdAt: Date | string
+			resolvedBy: string | null
+			resolvedAt: Date | string | null
+			attachments: Array<{ fileName: string; contentType: string; kind: "description" | "resolution" }>
 		}>
 	}>,
 	pdfAttachments: Array<{ fileName: string; contentType: string; data: Buffer }>,
@@ -1143,6 +1165,12 @@ function buildAppPdf(
 					routineDescription: string | null
 					routineFrequency: string | null
 					routineEventFrequency?: string | null
+					routineResponsibleRole?: string | null
+					routineApprovedAt?: Date | string | null
+					routineArchivedAt?: Date | string | null
+					routineReplacedAt?: Date | string | null
+					routineTechnologyElements?: Array<{ id: string; name: string }>
+					routineControls?: Array<{ controlId: string; shortTitle: string | null }>
 					reviews: typeof reviews
 				}
 			>()
@@ -1154,6 +1182,12 @@ function buildAppPdf(
 						routineDescription: r.routineDescription,
 						routineFrequency: r.routineFrequency,
 						routineEventFrequency: r.routineEventFrequency,
+						routineResponsibleRole: r.routineResponsibleRole,
+						routineApprovedAt: r.routineApprovedAt,
+						routineArchivedAt: r.routineArchivedAt,
+						routineReplacedAt: r.routineReplacedAt,
+						routineTechnologyElements: r.routineTechnologyElements,
+						routineControls: r.routineControls,
 						reviews: [],
 					})
 				}
@@ -1169,6 +1203,31 @@ function buildAppPdf(
 				doc.moveDown(0.3)
 				const groupFreqLabel = getCompositeFrequencyLabel(group.routineFrequency, group.routineEventFrequency)
 				doc.fontSize(9).fillColor(gray).text(`Frekvens: ${groupFreqLabel}`)
+				if (group.routineResponsibleRole) {
+					doc.fontSize(9).fillColor(gray).text(`Ansvarlig rolle: ${group.routineResponsibleRole}`)
+				}
+				if (group.routineApprovedAt) {
+					doc.fontSize(9).fillColor(gray).text(`Godkjent: ${new Date(group.routineApprovedAt).toLocaleDateString("nb-NO")}`)
+				}
+				if (group.routineArchivedAt) {
+					doc.fontSize(9).fillColor(gray).text(`Arkivert: ${new Date(group.routineArchivedAt).toLocaleDateString("nb-NO")}`)
+				}
+				if (group.routineReplacedAt) {
+					doc.fontSize(9).fillColor(gray).text(`Erstattet: ${new Date(group.routineReplacedAt).toLocaleDateString("nb-NO")}`)
+				}
+				if (group.routineTechnologyElements && group.routineTechnologyElements.length > 0) {
+					doc.fontSize(9).fillColor(gray).text("Teknologielementer:")
+					for (const e of group.routineTechnologyElements) {
+						doc.fontSize(9).fillColor(gray).text(`• ${e.name}`, { indent: 10 })
+					}
+				}
+				if (group.routineControls && group.routineControls.length > 0) {
+					doc.fontSize(9).fillColor(gray).text("Tilknyttede krav:")
+					for (const c of group.routineControls) {
+						const label = c.shortTitle ? `${c.controlId} – ${c.shortTitle}` : c.controlId
+						doc.fontSize(9).fillColor(gray).text(`• ${label}`, { indent: 10 })
+					}
+				}
 				doc.moveDown(0.5)
 
 				if (group.routineDescription) {
@@ -1188,13 +1247,10 @@ function buildAppPdf(
 					doc.fontSize(12).fillColor(dark).text(r.title)
 					doc.moveDown(0.3)
 					doc.fontSize(9).fillColor(gray)
-					doc.text(`Dato: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
-					doc.text(`Opprettet av: ${r.createdBy}`)
+					doc.text(`Dato for gjennomgang: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
+					doc.text(`Registrert av: ${r.createdBy} — ${new Date(r.createdAt).toLocaleString("nb-NO")}`)
 					if (r.participants.length > 0) {
 						doc.text(`Deltakere: ${r.participants.map((p) => p.userName || p.userIdent).join(", ")}`)
-					}
-					if (r.attachments.length > 0) {
-						doc.text(`Vedlegg: ${r.attachments.map((a) => a.fileName).join(", ")}`)
 					}
 
 					if (r.summary) {
@@ -1204,6 +1260,45 @@ function buildAppPdf(
 						renderMarkdownToPdf(doc, r.summary, { width: 495 })
 					}
 
+					// ─── Lenker ────────────────────────────────────────────
+					if (r.links.length > 0) {
+						doc.moveDown(0.5)
+						doc.fontSize(10).fillColor(blue).text("Lenker")
+						doc.moveDown(0.2)
+						for (const link of r.links) {
+							const label = link.title || link.url
+							doc.fontSize(9).fillColor(blue).text(label, { link: link.url, underline: true, width: 495 })
+							if (link.title) {
+								doc.fontSize(8).fillColor(gray).text(link.url, { width: 495 })
+							}
+							doc.moveDown(0.2)
+						}
+					}
+
+					// ─── Vedlegg (review-level) ────────────────────────────
+					if (r.attachments.length > 0) {
+						doc.moveDown(0.5)
+						doc.fontSize(10).fillColor(blue).text("Vedlegg")
+						doc.moveDown(0.2)
+						for (const att of r.attachments) {
+							if (doc.y > 700) doc.addPage()
+							if (att.contentType === "application/pdf") {
+								doc.fontSize(9).fillColor(dark).text(`• ${att.fileName} (PDF)`, { width: 495 })
+								doc
+									.fontSize(8)
+									.fillColor(gray)
+									.text("  Dokumentet er vedlagt på neste sider i denne rapporten.", { width: 495 })
+							} else {
+								doc.fontSize(9).fillColor(dark).text(`• ${att.fileName}`, { width: 495 })
+								doc
+									.fontSize(8)
+									.fillColor(gray)
+									.text("  Filen er inkludert i vedlegg/-mappen i den nedlastede zip-filen.", { width: 495 })
+							}
+						}
+					}
+
+					// ─── Oppfølgingspunkter ────────────────────────────────
 					if (r.followUpPoints.length > 0) {
 						doc.moveDown(0.6)
 						doc.fontSize(11).fillColor(blue).text(`Oppfølgingspunkter (${r.followUpPoints.length})`)
@@ -1218,49 +1313,66 @@ function buildAppPdf(
 								.text(`${idx + 1}. ${p.text}`, { width: 495 })
 							doc.moveDown(0.15)
 
+							doc.moveDown(0.15)
+							doc.fontSize(8).fillColor(gray).text("Beskrivelse:", { width: 495 })
 							doc
-								.fontSize(8)
+								.fontSize(7)
 								.fillColor(gray)
-								.text(`Status: ${followUpPointStatusLabel(p.status)}`, { width: 495 })
-
+								.text(`Opprettet av: ${p.createdBy} — ${new Date(p.createdAt).toLocaleString("nb-NO")}`, { width: 495 })
 							if (p.description) {
-								doc.moveDown(0.15)
-								doc.fontSize(8).fillColor(gray).text("Beskrivelse:", { width: 495 })
 								doc.fontSize(8).fillColor(dark)
 								renderMarkdownToPdf(doc, p.description, { width: 495 })
 							}
 
+							doc.moveDown(0.15)
+							doc.fontSize(8).fillColor(gray).text("Oppfølging:", { width: 495 })
+							doc
+								.fontSize(8)
+								.fillColor(gray)
+								.text(`Status: ${followUpPointStatusLabel(p.status)}`, { width: 495 })
+							if (p.resolvedBy && p.resolvedAt) {
+								doc
+									.fontSize(7)
+									.fillColor(gray)
+									.text(`Løst av: ${p.resolvedBy} — ${new Date(p.resolvedAt).toLocaleString("nb-NO")}`, { width: 495 })
+							}
 							if (p.resolution) {
-								doc.moveDown(0.15)
-								doc.fontSize(8).fillColor(gray).text("Oppfølging:", { width: 495 })
+								doc.moveDown(0.1)
 								doc.fontSize(8).fillColor(dark)
 								renderMarkdownToPdf(doc, p.resolution, { width: 495 })
 							}
 
+							// ─── Vedlegg for oppfølgingspunkt ──────────────────
 							if (p.attachments.length > 0) {
-								const descAtts = p.attachments.filter((a) => a.kind === "description").map((a) => a.fileName)
-								const resAtts = p.attachments.filter((a) => a.kind === "resolution").map((a) => a.fileName)
+								doc.moveDown(0.3)
+								doc.fontSize(8).fillColor(blue).text("Vedlegg", { width: 495 })
 								doc.moveDown(0.15)
-								doc.fontSize(8).fillColor(gray)
-								if (descAtts.length > 0) doc.text(`Vedlegg til beskrivelse: ${descAtts.join(", ")}`, { width: 495 })
-								if (resAtts.length > 0) doc.text(`Vedlegg til oppfølging: ${resAtts.join(", ")}`, { width: 495 })
+								for (const att of p.attachments) {
+									if (doc.y > 700) doc.addPage()
+									const kindLabel = att.kind === "description" ? "beskrivelse" : "oppfølging"
+									if (att.contentType === "application/pdf") {
+										doc
+											.fontSize(9)
+											.fillColor(dark)
+											.text(`• ${att.fileName} (${kindLabel}, PDF)`, { width: 495 })
+										doc
+											.fontSize(8)
+											.fillColor(gray)
+											.text("  Dokumentet er vedlagt på neste sider i denne rapporten.", { width: 495 })
+									} else {
+										doc
+											.fontSize(9)
+											.fillColor(dark)
+											.text(`• ${att.fileName} (${kindLabel})`, { width: 495 })
+										doc
+											.fontSize(8)
+											.fillColor(gray)
+											.text("  Filen er inkludert i vedlegg/-mappen i den nedlastede zip-filen.", { width: 495 })
+									}
+								}
 							}
 
 							doc.moveDown(0.5)
-						}
-					}
-
-					if (r.links.length > 0) {
-						doc.moveDown(0.5)
-						doc.fontSize(10).fillColor(blue).text("Lenker")
-						doc.moveDown(0.2)
-						for (const link of r.links) {
-							const label = link.title || link.url
-							doc.fontSize(9).fillColor(blue).text(label, { link: link.url, underline: true, width: 495 })
-							if (link.title) {
-								doc.fontSize(8).fillColor(gray).text(link.url, { width: 495 })
-							}
-							doc.moveDown(0.2)
 						}
 					}
 
