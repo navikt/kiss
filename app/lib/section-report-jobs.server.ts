@@ -154,9 +154,9 @@ async function runSectionBatchReportGeneration(
 
 			archive.append(artifact.pdf, { name: `${appPrefix}/rapport.pdf` })
 
-			if (artifact.nonPdfAttachments.length > 0) {
+			if (artifact.allAttachments.length > 0) {
 				const usedNames = new Set<string>()
-				for (const att of artifact.nonPdfAttachments) {
+				for (const att of artifact.allAttachments) {
 					// Sanitize the filename to prevent Zip-Slip path traversal
 					const safeFileName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
 					const safeReview = att.reviewTitle.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)

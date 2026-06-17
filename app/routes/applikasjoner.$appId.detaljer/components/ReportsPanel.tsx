@@ -81,7 +81,7 @@ export function ReportsPanel({
 					>
 						<Checkbox value="includeReviews">Rutinegjennomganger</Checkbox>
 						<Checkbox value="includeRoutineDescription">Rutinebeskrivelse (vises på gjennomgangssider)</Checkbox>
-						<Checkbox value="includeAttachments">Vedlegg fra gjennomganger (flettes som sider i PDF)</Checkbox>
+						<Checkbox value="includeAttachments">Vedlegg fra gjennomganger (legges i vedleggspakken)</Checkbox>
 					</CheckboxGroup>
 
 					{/* Review selection */}

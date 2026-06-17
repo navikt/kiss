@@ -1,9 +1,8 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import JSZip from "jszip"
-import { PDFDocument as PDFLibDocument } from "pdf-lib"
 import PDFDocument from "pdfkit"
-import { getStatusLabel } from "../../lib/compliance-status"
 import { isOracleEvidenceActivityType } from "../../lib/activity-types"
+import { getStatusLabel } from "../../lib/compliance-status"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getCompositeFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { getStorageProvider } from "../../lib/storage/index.server"
@@ -692,10 +691,7 @@ export async function generateAppComplianceReport(params: {
 		}
 	}
 
-	const pdfAttachments = attachmentBuffers.filter((a) => a.contentType === "application/pdf")
-	const nonPdfAttachments = attachmentBuffers.filter((a) => a.contentType !== "application/pdf")
-
-	// Download oracle evidence Excel files and add to non-PDF attachments
+	// Download oracle evidence Excel files and add to attachments
 	// 1. Activity-based oracle evidence (OracleEvidenceSection — routineReviewEvidenceDownloads)
 	const oracleEvidenceByReviewId = new Map<
 		string,
@@ -714,7 +710,7 @@ export async function generateAppComplianceReport(params: {
 			try {
 				const buf = await storage.download(dl.bucketPath)
 				const safeFileName = dl.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
-				nonPdfAttachments.push({
+				attachmentBuffers.push({
 					fileName: safeFileName,
 					contentType: dl.contentType,
 					data: buf,
@@ -742,7 +738,7 @@ export async function generateAppComplianceReport(params: {
 			const fileName = `oracle-snapshot-${evidence.instanceId}-${date}.xlsx`
 			try {
 				const buf = await storage.download(evidence.bucketPath)
-				nonPdfAttachments.push({
+				attachmentBuffers.push({
 					fileName,
 					contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 					data: buf,
@@ -756,7 +752,7 @@ export async function generateAppComplianceReport(params: {
 		}),
 	)
 
-	// Generate main PDF — non-PDF attachments are referenced, not embedded
+	// Generate main PDF — all attachments are referenced, included in zip
 	const mainPdfBuffer = await buildAppPdf(
 		PDFDocument,
 		{
@@ -766,41 +762,14 @@ export async function generateAppComplianceReport(params: {
 		},
 		assessments,
 		completedReviews,
-		pdfAttachments,
 		oracleEvidenceWithFileName,
 		activitiesByReviewId,
 		oracleEvidenceByReviewId,
-		nonPdfAttachments,
+		attachmentBuffers,
 		failedAttachments,
 	)
 
-	// Merge PDF attachments as pages
-	let finalPdf: Buffer
-	if (pdfAttachments.length > 0) {
-		const merged = await PDFLibDocument.load(mainPdfBuffer)
-		const totalMainPages = merged.getPageCount()
-		const firstCoverPageIndex = totalMainPages - pdfAttachments.length
-
-		let insertOffset = 0
-		for (let i = pdfAttachments.length - 1; i >= 0; i--) {
-			const att = pdfAttachments[i]
-			const coverIndex = firstCoverPageIndex + i + insertOffset
-			try {
-				const attachedPdf = await PDFLibDocument.load(att.data)
-				const pageIndices = attachedPdf.getPageIndices()
-				const copiedPages = await merged.copyPages(attachedPdf, pageIndices)
-				for (let j = copiedPages.length - 1; j >= 0; j--) {
-					merged.insertPage(coverIndex + 1, copiedPages[j])
-				}
-				insertOffset += copiedPages.length
-			} catch {
-				// Skip corrupt PDFs
-			}
-		}
-		finalPdf = Buffer.from(await merged.save())
-	} else {
-		finalPdf = mainPdfBuffer
-	}
+	const finalPdf = mainPdfBuffer
 
 	// Upload PDF to bucket
 	const pdfPath = `reports/app/${datePrefix}/${fileId}/rapport.pdf`
@@ -814,16 +783,16 @@ export async function generateAppComplianceReport(params: {
 		uploadedBy: createdBy,
 	})
 
-	// Build zip if there are non-PDF attachments
+	// Build zip if there are any attachments
 	let reportBucketPath = pdfPath
-	if (nonPdfAttachments.length > 0) {
+	if (attachmentBuffers.length > 0) {
 		const zip = new JSZip()
 		zip.file("rapport.pdf", finalPdf)
 
 		const vedleggFolder = zip.folder("vedlegg")
 		if (!vedleggFolder) throw new Error("Could not create vedlegg folder in zip")
 		const usedNames = new Set<string>()
-		for (const att of nonPdfAttachments) {
+		for (const att of attachmentBuffers) {
 			// Use unique subfolder per review to avoid filename collisions
 			const safeReviewTitle = att.reviewTitle.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
 			const folderName = `${att.reviewDate}-${safeReviewTitle}`
@@ -890,10 +859,10 @@ export async function generateAppComplianceReport(params: {
 
 export interface AppComplianceArtifact {
 	appName: string
-	/** Final merged PDF buffer (with PDF attachments embedded as pages) */
+	/** Final PDF buffer */
 	pdf: Buffer
-	/** Non-PDF attachments to be included separately in a zip */
-	nonPdfAttachments: Array<{
+	/** All attachments to be included in a zip alongside the PDF */
+	allAttachments: Array<{
 		fileName: string
 		contentType: string
 		data: Buffer
@@ -1015,10 +984,7 @@ export async function buildAppComplianceArtifact(params: {
 		}
 	}
 
-	const pdfAttachments = attachmentBuffers.filter((a) => a.contentType === "application/pdf")
-	const nonPdfAttachments = attachmentBuffers.filter((a) => a.contentType !== "application/pdf")
-
-	// Download oracle evidence Excel files and add to non-PDF attachments
+	// Download oracle evidence Excel files and add to attachments
 	// 1. Activity-based oracle evidence (OracleEvidenceSection — routineReviewEvidenceDownloads)
 	const oracleEvidenceByReviewId = new Map<
 		string,
@@ -1037,7 +1003,7 @@ export async function buildAppComplianceArtifact(params: {
 			try {
 				const buf = await storage.download(dl.bucketPath)
 				const safeFileName = dl.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
-				nonPdfAttachments.push({
+				attachmentBuffers.push({
 					fileName: safeFileName,
 					contentType: dl.contentType,
 					data: buf,
@@ -1065,7 +1031,7 @@ export async function buildAppComplianceArtifact(params: {
 			const fileName = `oracle-snapshot-${evidence.instanceId}-${date}.xlsx`
 			try {
 				const buf = await storage.download(evidence.bucketPath)
-				nonPdfAttachments.push({
+				attachmentBuffers.push({
 					fileName,
 					contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 					data: buf,
@@ -1093,42 +1059,14 @@ export async function buildAppComplianceArtifact(params: {
 		},
 		assessments,
 		mappedReviews,
-		pdfAttachments,
 		oracleEvidenceWithFileName,
 		activitiesByReviewId,
 		oracleEvidenceByReviewId,
-		nonPdfAttachments,
+		attachmentBuffers,
 		failedAttachments,
 	)
 
-	let finalPdf: Buffer
-	if (pdfAttachments.length > 0) {
-		const merged = await PDFLibDocument.load(mainPdfBuffer)
-		const totalMainPages = merged.getPageCount()
-		const firstCoverPageIndex = totalMainPages - pdfAttachments.length
-
-		let insertOffset = 0
-		for (let i = pdfAttachments.length - 1; i >= 0; i--) {
-			const att = pdfAttachments[i]
-			const coverIndex = firstCoverPageIndex + i + insertOffset
-			try {
-				const attachedPdf = await PDFLibDocument.load(att.data)
-				const pageIndices = attachedPdf.getPageIndices()
-				const copiedPages = await merged.copyPages(attachedPdf, pageIndices)
-				for (let j = copiedPages.length - 1; j >= 0; j--) {
-					merged.insertPage(coverIndex + 1, copiedPages[j])
-				}
-				insertOffset += copiedPages.length
-			} catch {
-				// Skip corrupt PDFs
-			}
-		}
-		finalPdf = Buffer.from(await merged.save())
-	} else {
-		finalPdf = mainPdfBuffer
-	}
-
-	return { appName: detail.app.name, pdf: finalPdf, nonPdfAttachments }
+	return { appName: detail.app.name, pdf: mainPdfBuffer, allAttachments: attachmentBuffers }
 }
 
 function buildAppPdf(
@@ -1183,7 +1121,6 @@ function buildAppPdf(
 			}>
 		}>
 	}>,
-	pdfAttachments: Array<{ fileName: string; contentType: string; data: Buffer }>,
 	auditEvidence: Array<{
 		instanceId: string
 		overallStatus: string
@@ -1213,11 +1150,12 @@ function buildAppPdf(
 		string,
 		Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
 	>,
-	nonPdfAttachments: Array<{
+	allAttachments: Array<{
 		fileName: string
 		contentType: string
 		data: Buffer
 		reviewTitle: string
+		reviewDate: string
 		followUpPointText?: string
 		followUpKind?: "description" | "resolution"
 	}>,
@@ -1424,13 +1362,12 @@ function buildAppPdf(
 					// ─── Vedlegg (review-level) ────────────────────────────
 					const reviewOracleEvidence = oracleEvidenceByReviewId.get(r.id) ?? []
 					if (r.attachments.length > 0 || reviewOracleEvidence.length > 0) {
-						const hasNonPdfAtt = r.attachments.some((a) => a.contentType !== "application/pdf")
 						const hasOracleAtt = reviewOracleEvidence.length > 0
 						const reviewFolderName = `${new Date(r.reviewedAt).toISOString().slice(0, 10)}-${r.title.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}`
 						doc.moveDown(0.5)
 						doc.fontSize(10).fillColor(blue).text("Vedlegg")
 						doc.moveDown(0.2)
-						if (hasNonPdfAtt || hasOracleAtt) {
+						if (r.attachments.length > 0 || hasOracleAtt) {
 							doc
 								.fontSize(8)
 								.fillColor(gray)
@@ -1441,21 +1378,13 @@ function buildAppPdf(
 						}
 						for (const att of r.attachments) {
 							if (doc.y > 700) doc.addPage()
-							if (att.contentType === "application/pdf") {
-								doc.fontSize(9).fillColor(dark).text(`• ${att.fileName} (PDF)`, { width: 495 })
-								doc
-									.fontSize(8)
-									.fillColor(gray)
-									.text("  Dokumentet er vedlagt på neste sider i denne rapporten.", { width: 495 })
-							} else {
-								doc.fontSize(9).fillColor(dark).text(`• ${att.fileName}`, { width: 495 })
-								doc
-									.fontSize(8)
-									.fillColor(gray)
-									.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
-										width: 495,
-									})
-							}
+							doc.fontSize(9).fillColor(dark).text(`• ${att.fileName}`, { width: 495 })
+							doc
+								.fontSize(8)
+								.fillColor(gray)
+								.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
+									width: 495,
+								})
 						}
 						for (const oe of reviewOracleEvidence) {
 							if (doc.y > 700) doc.addPage()
@@ -1515,42 +1444,30 @@ function buildAppPdf(
 
 							// ─── Vedlegg for oppfølgingspunkt ──────────────────
 							if (p.attachments.length > 0) {
-								const hasNonPdfFpAtt = p.attachments.some((a) => a.contentType !== "application/pdf")
 								const reviewFolderName = `${new Date(r.reviewedAt).toISOString().slice(0, 10)}-${r.title.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}`
 								doc.moveDown(0.3)
 								doc.fontSize(8).fillColor(blue).text("Vedlegg", { width: 495 })
 								doc.moveDown(0.15)
-								if (hasNonPdfFpAtt) {
-									doc
-										.fontSize(7)
-										.fillColor(gray)
-										.text(
-											`Vedlegg er tilgjengelig i vedlegg/${reviewFolderName}/oppfolgingspunkter/ i den nedlastede zip-filen.`,
-											{
-												width: 495,
-											},
-										)
-									doc.moveDown(0.2)
-								}
+								doc
+									.fontSize(7)
+									.fillColor(gray)
+									.text(
+										`Vedlegg er tilgjengelig i vedlegg/${reviewFolderName}/oppfolgingspunkter/ i den nedlastede zip-filen.`,
+										{
+											width: 495,
+										},
+									)
+								doc.moveDown(0.2)
 								for (const att of p.attachments) {
 									if (doc.y > 700) doc.addPage()
 									const kindLabel = att.kind === "description" ? "beskrivelse" : "oppfølging"
-									if (att.contentType === "application/pdf") {
-										doc.fontSize(9).fillColor(dark).text(`• ${att.fileName} (${kindLabel}, PDF)`, { width: 495 })
-										doc
-											.fontSize(8)
-											.fillColor(gray)
-											.text("  Dokumentet er vedlagt på neste sider i denne rapporten.", { width: 495 })
-									} else {
-										doc.fontSize(9).fillColor(dark).text(`• ${att.fileName} (${kindLabel})`, { width: 495 })
-										doc
-											.fontSize(8)
-											.fillColor(gray)
-											.text(
-												`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`,
-												{ width: 495 },
-											)
-									}
+									doc.fontSize(9).fillColor(dark).text(`• ${att.fileName} (${kindLabel})`, { width: 495 })
+									doc
+										.fontSize(8)
+										.fillColor(gray)
+										.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
+											width: 495,
+										})
 								}
 							}
 
@@ -1631,41 +1548,15 @@ function buildAppPdf(
 			}
 		}
 
-		// PDF attachment cover pages (these get merged as pages afterward)
-		if (pdfAttachments.length > 0) {
-			for (const att of pdfAttachments) {
-				doc.addPage()
-				doc.fontSize(14).fillColor(blue).text("Vedlegg (PDF)")
-				doc.moveDown(0.5)
-				doc.fontSize(16).fillColor(dark).text(att.fileName)
-				doc.moveDown(0.5)
-				doc.fontSize(10).fillColor(gray)
-				doc.text(`Filtype: ${att.contentType}`)
-				doc.text(`Størrelse: ${fmtSize(att.data.length)}`)
-				doc.moveDown(1)
-
-				const parentReview = reviews.find((r) => r.attachments.some((a) => a.fileName === att.fileName))
-				if (parentReview) {
-					doc.fontSize(10).fillColor(dark)
-					doc.text(`Tilhører gjennomgang: ${parentReview.title}`)
-					doc.text(`Rutine: ${parentReview.routineName}`)
-					doc.text(`Gjennomgangsdato: ${new Date(parentReview.reviewedAt).toLocaleString("nb-NO")}`)
-				}
-
-				doc.moveDown(1)
-				doc.fontSize(10).fillColor(gray).text("Dokumentet følger på neste side(r).")
-			}
-		}
-
-		// Non-PDF attachments — referenced, included in zip
-		if (nonPdfAttachments.length > 0 || failedAttachments.length > 0) {
+		// Attachments — referenced, included in zip
+		if (allAttachments.length > 0 || failedAttachments.length > 0) {
 			doc.addPage()
 			doc.fontSize(14).fillColor(blue).text("Vedlegg (i vedleggspakken)")
 			doc.moveDown(0.5)
 			doc.fontSize(9).fillColor(gray).text("Filene nedenfor er inkludert i vedlegg/-mappen i den nedlastede zip-filen.")
 			doc.moveDown(0.5)
 
-			for (const att of nonPdfAttachments) {
+			for (const att of allAttachments) {
 				if (doc.y > 700) doc.addPage()
 				doc.fontSize(10).fillColor(dark).text(`• ${att.fileName}`)
 				const fpSuffix = att.followUpPointText
