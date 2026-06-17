@@ -31,6 +31,8 @@ vi.mock("~/lib/storage/index.server", () => ({
 }))
 
 // Archiver mock — auto-finalizes the passThrough stream so uploadPromise resolves
+// Also exposes the last created archive instance for assertion
+let lastArchiverInstance: { append: ReturnType<typeof vi.fn>; finalize: ReturnType<typeof vi.fn> } | null = null
 vi.mock("archiver", () => {
 	function makeSink() {
 		const sink = new PassThrough() as PassThrough & {
@@ -48,6 +50,7 @@ vi.mock("archiver", () => {
 		sink.finalize = vi.fn()
 		sink.abort = vi.fn()
 		sink.on = vi.fn()
+		lastArchiverInstance = sink
 		return sink
 	}
 	return {
@@ -206,5 +209,73 @@ describe("startSectionBatchReport", () => {
 			"failed",
 			"Rapportgenerering feilet. Kontakt administrator.",
 		)
+	})
+
+	it("appends allAttachments entries to the archive under the correct path", async () => {
+		const attachmentData = Buffer.from("excel-content")
+		const artifactWithAttachments = {
+			appName: "Min App",
+			pdf: Buffer.from("fake-pdf"),
+			allAttachments: [
+				{
+					fileName: "oracle-snapshot.xlsx",
+					contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+					data: attachmentData,
+					reviewTitle: "Rutinegjennomgang Q1",
+					reviewDate: "2026-01-15",
+					followUpPointText: null,
+					followUpKind: null,
+				},
+			],
+		}
+		mockBuildAppComplianceArtifact.mockResolvedValue(artifactWithAttachments)
+
+		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
+		await startSectionBatchReport({ ...baseParams, selectedAppIds: ["app-1"] })
+		await vi.waitFor(() => expect(mockMarkSyncJobCompleted).toHaveBeenCalled())
+
+		// The archive should have been called with the PDF and the attachment
+		expect(lastArchiverInstance?.append).toHaveBeenCalledWith(
+			artifactWithAttachments.pdf,
+			expect.objectContaining({ name: expect.stringContaining("rapport.pdf") }),
+		)
+		expect(lastArchiverInstance?.append).toHaveBeenCalledWith(
+			attachmentData,
+			expect.objectContaining({ name: expect.stringContaining("oracle-snapshot.xlsx") }),
+		)
+	})
+
+	it("sanitizes filenames and folders when adding allAttachments to the archive", async () => {
+		const artifactWithUnsafeName = {
+			appName: "Min App",
+			pdf: Buffer.from("fake-pdf"),
+			allAttachments: [
+				{
+					fileName: "../../../etc/passwd",
+					contentType: "text/plain",
+					data: Buffer.from("data"),
+					reviewTitle: "Review/with<special>chars",
+					reviewDate: "2026-01-15",
+					followUpPointText: null,
+					followUpKind: null,
+				},
+			],
+		}
+		mockBuildAppComplianceArtifact.mockResolvedValue(artifactWithUnsafeName)
+
+		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
+		await startSectionBatchReport({ ...baseParams, selectedAppIds: ["app-1"] })
+		await vi.waitFor(() => expect(mockMarkSyncJobCompleted).toHaveBeenCalled())
+
+		const appendCall = lastArchiverInstance?.append.mock.calls.find((c: unknown[]) =>
+			String((c[1] as { name?: string })?.name).includes("passwd"),
+		)
+		expect(appendCall).toBeDefined()
+		const entryName = String((appendCall?.[1] as { name?: string })?.name)
+		// Must not contain path traversal sequences
+		expect(entryName).not.toContain("../")
+		expect(entryName).not.toContain("..\\")
+		// Leading dots should be replaced
+		expect(entryName).not.toMatch(/\/\.\./)
 	})
 })
