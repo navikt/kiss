@@ -78,7 +78,7 @@ const baseParams = {
 const fakeArtifact = {
 	appName: "Min App",
 	pdf: Buffer.from("fake-pdf"),
-	nonPdfAttachments: [],
+	allAttachments: [],
 }
 
 describe("startSectionBatchReport", () => {
