@@ -3,7 +3,7 @@ import { ZipArchive } from "archiver"
 import { eq } from "drizzle-orm"
 import { db } from "~/db/connection.server"
 import { writeAuditLog } from "~/db/queries/audit.server"
-import { buildAppComplianceArtifact, createSectionBatchReport, updateReportStatus } from "~/db/queries/reports.server"
+import { createSectionBatchReport, generateAppComplianceReport, updateReportStatus } from "~/db/queries/reports.server"
 import {
 	createSyncJob,
 	markSyncJobCompleted,
@@ -128,58 +128,46 @@ async function runSectionBatchReportGeneration(
 		// (UI polls every 3 s — per-app updates add unnecessary load for large sections)
 		const shouldUpdateStatus = (idx: number) => idx === 0 || idx === totalApps - 1 || (idx + 1) % 5 === 0
 
-		// Generate each app's artifact sequentially — only one PDF in memory at a time
+		// Generate each app's report sequentially — uploads individually to bucket, then added to section zip
 		for (const appId of selectedAppIds) {
 			if (shouldUpdateStatus(processedApps)) {
 				await updateReportStatus(reportId, "running", `Genererer rapport ${processedApps + 1} av ${totalApps}…`)
 			}
 
-			let artifact: Awaited<ReturnType<typeof buildAppComplianceArtifact>>
+			let appReport: Awaited<ReturnType<typeof generateAppComplianceReport>>
 			try {
-				artifact = await buildAppComplianceArtifact({
+				appReport = await generateAppComplianceReport({
 					applicationId: appId,
+					createdBy,
 					includeReviews,
 					includeAttachments,
 					includeRoutineDescription,
 				})
 			} catch (err) {
-				logger.warn("Failed to build artifact for app in section batch report", { reportId, appId, error: err })
+				logger.warn("Failed to generate app report in section batch report", { reportId, appId, error: err })
 				processedApps++
 				continue
 			}
 
-			const safeAppName = artifact.appName.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 60)
+			let fileBuffer: Buffer
+			try {
+				fileBuffer = await storage.download(appReport.reportBucketPath)
+			} catch (err) {
+				logger.warn("Failed to download app report from storage in section batch report", {
+					reportId,
+					appId,
+					bucketPath: appReport.reportBucketPath,
+					error: err,
+				})
+				processedApps++
+				continue
+			}
+
+			const safeAppName = appReport.appName.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 60)
 			// Include a stable unique suffix to avoid collisions when two apps share the same sanitised name
 			const appPrefix = `${safeAppName}-${appId.slice(-8)}`
-
-			archive.append(artifact.pdf, { name: `${appPrefix}/rapport.pdf` })
-
-			if (artifact.allAttachments.length > 0) {
-				const usedNames = new Set<string>()
-				for (const att of artifact.allAttachments) {
-					// Sanitize the filename to prevent Zip-Slip path traversal
-					const safeFileName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
-					const safeReview = att.reviewTitle.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
-					const folder = `${att.reviewDate}-${safeReview}`
-					const subFolder = att.followUpPointText
-						? `/oppfolgingspunkter/${att.followUpPointText.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
-						: ""
-					let entryName = `${appPrefix}/vedlegg/${folder}${subFolder}/${safeFileName}`
-					if (usedNames.has(entryName)) {
-						const ext = safeFileName.includes(".") ? `.${safeFileName.split(".").pop()}` : ""
-						const base = safeFileName.includes(".")
-							? safeFileName.slice(0, safeFileName.lastIndexOf("."))
-							: safeFileName
-						let counter = 2
-						do {
-							entryName = `${appPrefix}/vedlegg/${folder}${subFolder}/${base} (${counter})${ext}`
-							counter++
-						} while (usedNames.has(entryName))
-					}
-					usedNames.add(entryName)
-					archive.append(att.data, { name: entryName })
-				}
-			}
+			const ext = appReport.reportBucketPath.endsWith(".zip") ? ".zip" : ".pdf"
+			archive.append(fileBuffer, { name: `${appPrefix}${ext}` })
 
 			includedApps++
 			processedApps++

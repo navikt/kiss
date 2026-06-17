@@ -459,18 +459,15 @@ export async function generateComplianceReport(params: {
 	return report.id
 }
 
-/** Generate a per-application compliance report: snapshot JSON + PDF stored in bucket. */
-export async function generateAppComplianceReport(params: {
+async function prepareAppComplianceArtifact(params: {
 	applicationId: string
-	createdBy: string
 	includeReviews?: boolean
 	includeAttachments?: boolean
 	includeRoutineDescription?: boolean
 	reviewIds?: string[]
-}): Promise<string> {
+}) {
 	const {
 		applicationId,
-		createdBy,
 		includeReviews = true,
 		includeAttachments = true,
 		includeRoutineDescription = false,
@@ -482,7 +479,6 @@ export async function generateAppComplianceReport(params: {
 		getAppAssessments(applicationId),
 	])
 
-	// Reviews may fail if routine tables don't exist yet
 	let reviews: Awaited<ReturnType<typeof getReviewsForApp>> = []
 	if (includeReviews) {
 		try {
@@ -501,22 +497,193 @@ export async function generateAppComplianceReport(params: {
 		assessedBy: a.commentUpdatedBy,
 		assessedAt: a.commentUpdatedAt,
 	}))
+
 	let completedReviews = reviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up")
 	if (reviewIds) {
 		completedReviews = completedReviews.filter((r) => reviewIds.includes(r.id))
 	}
 
-	const auditEvidence = await getAuditEvidenceForReport(applicationId)
+	const [auditEvidence, reviewActivitiesRaw] = await Promise.all([
+		getAuditEvidenceForReport(applicationId),
+		completedReviews.length > 0 ? getActivitiesForReviews(completedReviews.map((r) => r.id)) : Promise.resolve([]),
+	])
 
-	// Fetch review activities (Entra ID maintenance etc.)
-	const reviewActivities =
-		completedReviews.length > 0 ? await getActivitiesForReviews(completedReviews.map((r) => r.id)) : []
-	const activitiesByReviewId = new Map<string, typeof reviewActivities>()
-	for (const a of reviewActivities) {
+	const activitiesByReviewId = new Map<string, typeof reviewActivitiesRaw>()
+	for (const a of reviewActivitiesRaw) {
 		const list = activitiesByReviewId.get(a.reviewId) ?? []
 		list.push(a)
 		activitiesByReviewId.set(a.reviewId, list)
 	}
+
+	const storage = getStorageProvider()
+	const attachmentBuffers: Array<{
+		fileName: string
+		contentType: string
+		data: Buffer
+		reviewTitle: string
+		reviewDate: string
+		followUpPointText?: string
+		followUpKind?: "description" | "resolution"
+	}> = []
+	const failedAttachments: Array<{ fileName: string; reviewTitle: string; followUpPointText?: string }> = []
+
+	if (includeAttachments) {
+		for (const review of completedReviews) {
+			const reviewDate = new Date(review.reviewedAt).toISOString().slice(0, 10)
+			for (const att of review.attachments) {
+				try {
+					const buf = await storage.download(att.bucketPath)
+					attachmentBuffers.push({
+						fileName: att.fileName,
+						contentType: att.contentType,
+						data: buf,
+						reviewTitle: review.title,
+						reviewDate,
+					})
+				} catch {
+					failedAttachments.push({ fileName: att.fileName, reviewTitle: review.title })
+				}
+			}
+			for (const point of review.followUpPoints) {
+				for (const att of point.attachments) {
+					try {
+						const buf = await storage.download(att.bucketPath)
+						attachmentBuffers.push({
+							fileName: att.fileName,
+							contentType: att.contentType,
+							data: buf,
+							reviewTitle: review.title,
+							reviewDate,
+							followUpPointText: point.text,
+							followUpKind: att.kind,
+						})
+					} catch {
+						failedAttachments.push({
+							fileName: att.fileName,
+							reviewTitle: review.title,
+							followUpPointText: point.text,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	const oracleEvidenceByReviewId = new Map<
+		string,
+		Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
+	>()
+	const reviewById = new Map(completedReviews.map((r) => [r.id, r]))
+	for (const act of reviewActivitiesRaw) {
+		if (!isOracleEvidenceActivityType(act.type)) continue
+		const review = reviewById.get(act.reviewId)
+		const reviewTitle = review?.title ?? "oracle-revisjonsbevis"
+		const reviewDate = review
+			? new Date(review.reviewedAt).toISOString().slice(0, 10)
+			: new Date().toISOString().slice(0, 10)
+		const evidenceDownloads = await getEvidenceDownloadsForActivityWithBucketDetails(act.id)
+		for (const dl of evidenceDownloads) {
+			try {
+				const buf = await storage.download(dl.bucketPath)
+				const safeFileName = dl.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
+				attachmentBuffers.push({
+					fileName: safeFileName,
+					contentType: dl.contentType,
+					data: buf,
+					reviewTitle,
+					reviewDate,
+				})
+				const entry = oracleEvidenceByReviewId.get(act.reviewId) ?? []
+				entry.push({
+					fileName: safeFileName,
+					contentType: dl.contentType,
+					performedBy: dl.performedBy,
+					performedAt: dl.performedAt,
+				})
+				oracleEvidenceByReviewId.set(act.reviewId, entry)
+			} catch {
+				// Skip files that can't be downloaded
+			}
+		}
+	}
+
+	const oracleEvidenceWithFileName = await Promise.all(
+		auditEvidence.map(async (evidence) => {
+			const date = evidence.collectedAt.toISOString().slice(0, 10)
+			const fileName = `oracle-snapshot-${evidence.instanceId}-${date}.xlsx`
+			try {
+				const buf = await storage.download(evidence.bucketPath)
+				attachmentBuffers.push({
+					fileName,
+					contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+					data: buf,
+					reviewTitle: "oracle-revisjonsbevis",
+					reviewDate: date,
+				})
+				return { ...evidence, fileName }
+			} catch {
+				return { ...evidence, fileName: undefined }
+			}
+		}),
+	)
+
+	const reviewsForPdf = completedReviews.map((r) => ({
+		...r,
+		routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
+	}))
+
+	const pdf = await buildAppPdf(
+		PDFDocument,
+		{
+			name: detail.app.name,
+			namespace: detail.environments[0]?.namespace ?? null,
+			cluster: detail.environments[0]?.cluster ?? null,
+		},
+		assessments,
+		reviewsForPdf,
+		oracleEvidenceWithFileName,
+		activitiesByReviewId,
+		oracleEvidenceByReviewId,
+		attachmentBuffers,
+		failedAttachments,
+	)
+
+	return {
+		artifact: { appName: detail.app.name, pdf, allAttachments: attachmentBuffers } satisfies AppComplianceArtifact,
+		detail,
+		assessments,
+		completedReviews,
+		auditEvidence,
+		activitiesByReviewId,
+	}
+}
+
+/** Generate a per-application compliance report: snapshot JSON + PDF stored in bucket. */
+export async function generateAppComplianceReport(params: {
+	applicationId: string
+	createdBy: string
+	includeReviews?: boolean
+	includeAttachments?: boolean
+	includeRoutineDescription?: boolean
+	reviewIds?: string[]
+}): Promise<{ reportId: string; reportBucketPath: string; appName: string }> {
+	const {
+		applicationId,
+		createdBy,
+		includeReviews = true,
+		includeAttachments = true,
+		includeRoutineDescription = false,
+		reviewIds,
+	} = params
+
+	const { artifact, detail, assessments, completedReviews, auditEvidence, activitiesByReviewId } =
+		await prepareAppComplianceArtifact({
+			applicationId,
+			includeReviews,
+			includeAttachments,
+			includeRoutineDescription,
+			reviewIds,
+		})
 
 	const now = new Date()
 	const datePrefix = now.toISOString().slice(0, 10)
@@ -525,7 +692,6 @@ export async function generateAppComplianceReport(params: {
 	const storage = getStorageProvider()
 	const bucketName = "kiss-reports"
 
-	// Build snapshot
 	const total = assessments.length
 	const implemented = assessments.filter((a) => a.status === "implemented").length
 	const partial = assessments.filter((a) => a.status === "partially_implemented").length
@@ -625,7 +791,6 @@ export async function generateAppComplianceReport(params: {
 		})),
 	}
 
-	// Upload snapshot JSON
 	const snapshotPath = `reports/app/${datePrefix}/${fileId}/snapshot.json`
 	const snapshotBuffer = Buffer.from(JSON.stringify(snapshot, null, 2), "utf-8")
 	const snapshotResult = await storage.upload(snapshotPath, snapshotBuffer, { contentType: "application/json" })
@@ -638,142 +803,8 @@ export async function generateAppComplianceReport(params: {
 		uploadedBy: createdBy,
 	})
 
-	// Download attachment files
-	const attachmentBuffers: Array<{
-		fileName: string
-		contentType: string
-		data: Buffer
-		reviewTitle: string
-		reviewDate: string
-		followUpPointText?: string
-		followUpKind?: "description" | "resolution"
-	}> = []
-	const failedAttachments: Array<{ fileName: string; reviewTitle: string; followUpPointText?: string }> = []
-	if (includeAttachments) {
-		for (const review of completedReviews) {
-			const reviewDate = new Date(review.reviewedAt).toISOString().slice(0, 10)
-			for (const att of review.attachments) {
-				try {
-					const buf = await storage.download(att.bucketPath)
-					attachmentBuffers.push({
-						fileName: att.fileName,
-						contentType: att.contentType,
-						data: buf,
-						reviewTitle: review.title,
-						reviewDate,
-					})
-				} catch {
-					failedAttachments.push({ fileName: att.fileName, reviewTitle: review.title })
-				}
-			}
-			for (const point of review.followUpPoints) {
-				for (const att of point.attachments) {
-					try {
-						const buf = await storage.download(att.bucketPath)
-						attachmentBuffers.push({
-							fileName: att.fileName,
-							contentType: att.contentType,
-							data: buf,
-							reviewTitle: review.title,
-							reviewDate,
-							followUpPointText: point.text,
-							followUpKind: att.kind,
-						})
-					} catch {
-						failedAttachments.push({
-							fileName: att.fileName,
-							reviewTitle: review.title,
-							followUpPointText: point.text,
-						})
-					}
-				}
-			}
-		}
-	}
-
-	// Download oracle evidence Excel files and add to attachments
-	// 1. Activity-based oracle evidence (OracleEvidenceSection — routineReviewEvidenceDownloads)
-	const oracleEvidenceByReviewId = new Map<
-		string,
-		Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
-	>()
-	const reviewById = new Map(completedReviews.map((r) => [r.id, r]))
-	for (const act of reviewActivities) {
-		if (!isOracleEvidenceActivityType(act.type)) continue
-		const review = reviewById.get(act.reviewId)
-		const reviewTitle = review?.title ?? "oracle-revisjonsbevis"
-		const reviewDate = review
-			? new Date(review.reviewedAt).toISOString().slice(0, 10)
-			: new Date().toISOString().slice(0, 10)
-		const evidenceDownloads = await getEvidenceDownloadsForActivityWithBucketDetails(act.id)
-		for (const dl of evidenceDownloads) {
-			try {
-				const buf = await storage.download(dl.bucketPath)
-				const safeFileName = dl.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
-				attachmentBuffers.push({
-					fileName: safeFileName,
-					contentType: dl.contentType,
-					data: buf,
-					reviewTitle,
-					reviewDate,
-				})
-				const entry = oracleEvidenceByReviewId.get(act.reviewId) ?? []
-				entry.push({
-					fileName: safeFileName,
-					contentType: dl.contentType,
-					performedBy: dl.performedBy,
-					performedAt: dl.performedAt,
-				})
-				oracleEvidenceByReviewId.set(act.reviewId, entry)
-			} catch {
-				// Skip files that can't be downloaded
-			}
-		}
-	}
-
-	// 2. Legacy app-level oracle snapshots (auditEvidenceSnapshots)
-	const oracleEvidenceWithFileName = await Promise.all(
-		auditEvidence.map(async (evidence) => {
-			const date = evidence.collectedAt.toISOString().slice(0, 10)
-			const fileName = `oracle-snapshot-${evidence.instanceId}-${date}.xlsx`
-			try {
-				const buf = await storage.download(evidence.bucketPath)
-				attachmentBuffers.push({
-					fileName,
-					contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-					data: buf,
-					reviewTitle: "oracle-revisjonsbevis",
-					reviewDate: date,
-				})
-				return { ...evidence, fileName }
-			} catch {
-				return { ...evidence, fileName: undefined }
-			}
-		}),
-	)
-
-	// Generate main PDF — all attachments are referenced, included in zip
-	const mainPdfBuffer = await buildAppPdf(
-		PDFDocument,
-		{
-			name: detail.app.name,
-			namespace: detail.environments[0]?.namespace ?? null,
-			cluster: detail.environments[0]?.cluster ?? null,
-		},
-		assessments,
-		completedReviews,
-		oracleEvidenceWithFileName,
-		activitiesByReviewId,
-		oracleEvidenceByReviewId,
-		attachmentBuffers,
-		failedAttachments,
-	)
-
-	const finalPdf = mainPdfBuffer
-
-	// Upload PDF to bucket
 	const pdfPath = `reports/app/${datePrefix}/${fileId}/rapport.pdf`
-	const pdfResult = await storage.upload(pdfPath, finalPdf, { contentType: "application/pdf" })
+	const pdfResult = await storage.upload(pdfPath, artifact.pdf, { contentType: "application/pdf" })
 	await saveBucketObject({
 		bucketName,
 		objectPath: pdfPath,
@@ -783,26 +814,22 @@ export async function generateAppComplianceReport(params: {
 		uploadedBy: createdBy,
 	})
 
-	// Build zip if there are any attachments
 	let reportBucketPath = pdfPath
-	if (attachmentBuffers.length > 0) {
+	if (artifact.allAttachments.length > 0) {
 		const zip = new JSZip()
-		zip.file("rapport.pdf", finalPdf)
+		zip.file("rapport.pdf", artifact.pdf)
 
 		const vedleggFolder = zip.folder("vedlegg")
 		if (!vedleggFolder) throw new Error("Could not create vedlegg folder in zip")
 		const usedNames = new Set<string>()
-		for (const att of attachmentBuffers) {
-			// Use unique subfolder per review to avoid filename collisions
+		for (const att of artifact.allAttachments) {
 			const safeReviewTitle = att.reviewTitle.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
 			const folderName = `${att.reviewDate}-${safeReviewTitle}`
 			const subFolder = att.followUpPointText
 				? `/oppfolgingspunkter/${att.followUpPointText.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
 				: ""
-			// Sanitise filename to prevent Zip-Slip: strip path separators and leading dots
 			const safeFileName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
 			let entryName = `${folderName}${subFolder}/${safeFileName}`
-			// Handle duplicates within same review
 			if (usedNames.has(entryName)) {
 				const ext = safeFileName.includes(".") ? `.${safeFileName.split(".").pop()}` : ""
 				const base = safeFileName.includes(".") ? safeFileName.slice(0, safeFileName.lastIndexOf(".")) : safeFileName
@@ -830,7 +857,6 @@ export async function generateAppComplianceReport(params: {
 		reportBucketPath = zipPath
 	}
 
-	// Insert report record
 	const [report] = await db
 		.insert(reports)
 		.values({
@@ -854,7 +880,7 @@ export async function generateAppComplianceReport(params: {
 		performedBy: createdBy,
 	})
 
-	return report.id
+	return { reportId: report.id, reportBucketPath, appName: artifact.appName }
 }
 
 export interface AppComplianceArtifact {
@@ -875,7 +901,7 @@ export interface AppComplianceArtifact {
 
 /**
  * Build the PDF artifact for a single application without any storage uploads or DB inserts.
- * Used by the section batch report generator to build per-app PDFs before streaming them into a zip.
+ * Returns the PDF buffer and all attachment buffers for use outside the standard report pipeline.
  */
 export async function buildAppComplianceArtifact(params: {
 	applicationId: string
@@ -884,189 +910,8 @@ export async function buildAppComplianceArtifact(params: {
 	includeRoutineDescription?: boolean
 	reviewIds?: string[]
 }): Promise<AppComplianceArtifact> {
-	const {
-		applicationId,
-		includeReviews = true,
-		includeAttachments = true,
-		includeRoutineDescription = false,
-		reviewIds,
-	} = params
-
-	const [detail, assessmentsResult] = await Promise.all([
-		getApplicationDetail(applicationId),
-		getAppAssessments(applicationId),
-	])
-
-	let reviews: Awaited<ReturnType<typeof getReviewsForApp>> = []
-	if (includeReviews) {
-		try {
-			reviews = await getReviewsForApp(applicationId)
-		} catch {
-			// Routine tables may not exist
-		}
-	}
-
-	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
-
-	const enriched = await enrichAppAssessments(applicationId, assessmentsResult?.assessments ?? [])
-	const assessments = enriched.map((a) => ({
-		...a,
-		status: a.effectiveStatus,
-		assessedBy: a.commentUpdatedBy,
-		assessedAt: a.commentUpdatedAt,
-	}))
-
-	let completedReviews = reviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up")
-	if (reviewIds) {
-		completedReviews = completedReviews.filter((r) => reviewIds.includes(r.id))
-	}
-
-	const [auditEvidence, reviewActivitiesRaw] = await Promise.all([
-		getAuditEvidenceForReport(applicationId),
-		completedReviews.length > 0 ? getActivitiesForReviews(completedReviews.map((r) => r.id)) : Promise.resolve([]),
-	])
-
-	const activitiesByReviewId = new Map<string, typeof reviewActivitiesRaw>()
-	for (const a of reviewActivitiesRaw) {
-		const list = activitiesByReviewId.get(a.reviewId) ?? []
-		list.push(a)
-		activitiesByReviewId.set(a.reviewId, list)
-	}
-
-	const storage = getStorageProvider()
-
-	const attachmentBuffers: Array<{
-		fileName: string
-		contentType: string
-		data: Buffer
-		reviewTitle: string
-		reviewDate: string
-		followUpPointText?: string
-		followUpKind?: "description" | "resolution"
-	}> = []
-	const failedAttachments: Array<{ fileName: string; reviewTitle: string; followUpPointText?: string }> = []
-
-	if (includeAttachments) {
-		for (const review of completedReviews) {
-			const reviewDate = new Date(review.reviewedAt).toISOString().slice(0, 10)
-			for (const att of review.attachments) {
-				try {
-					const buf = await storage.download(att.bucketPath)
-					attachmentBuffers.push({
-						fileName: att.fileName,
-						contentType: att.contentType,
-						data: buf,
-						reviewTitle: review.title,
-						reviewDate,
-					})
-				} catch {
-					failedAttachments.push({ fileName: att.fileName, reviewTitle: review.title })
-				}
-			}
-			for (const point of review.followUpPoints) {
-				for (const att of point.attachments) {
-					try {
-						const buf = await storage.download(att.bucketPath)
-						attachmentBuffers.push({
-							fileName: att.fileName,
-							contentType: att.contentType,
-							data: buf,
-							reviewTitle: review.title,
-							reviewDate,
-							followUpPointText: point.text,
-							followUpKind: att.kind,
-						})
-					} catch {
-						failedAttachments.push({ fileName: att.fileName, reviewTitle: review.title, followUpPointText: point.text })
-					}
-				}
-			}
-		}
-	}
-
-	// Download oracle evidence Excel files and add to attachments
-	// 1. Activity-based oracle evidence (OracleEvidenceSection — routineReviewEvidenceDownloads)
-	const oracleEvidenceByReviewId = new Map<
-		string,
-		Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
-	>()
-	const reviewById = new Map(completedReviews.map((r) => [r.id, r]))
-	for (const act of reviewActivitiesRaw) {
-		if (!isOracleEvidenceActivityType(act.type)) continue
-		const review = reviewById.get(act.reviewId)
-		const reviewTitle = review?.title ?? "oracle-revisjonsbevis"
-		const reviewDate = review
-			? new Date(review.reviewedAt).toISOString().slice(0, 10)
-			: new Date().toISOString().slice(0, 10)
-		const evidenceDownloads = await getEvidenceDownloadsForActivityWithBucketDetails(act.id)
-		for (const dl of evidenceDownloads) {
-			try {
-				const buf = await storage.download(dl.bucketPath)
-				const safeFileName = dl.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
-				attachmentBuffers.push({
-					fileName: safeFileName,
-					contentType: dl.contentType,
-					data: buf,
-					reviewTitle,
-					reviewDate,
-				})
-				const entry = oracleEvidenceByReviewId.get(act.reviewId) ?? []
-				entry.push({
-					fileName: safeFileName,
-					contentType: dl.contentType,
-					performedBy: dl.performedBy,
-					performedAt: dl.performedAt,
-				})
-				oracleEvidenceByReviewId.set(act.reviewId, entry)
-			} catch {
-				// Skip files that can't be downloaded
-			}
-		}
-	}
-
-	// 2. Legacy app-level oracle snapshots (auditEvidenceSnapshots)
-	const oracleEvidenceWithFileName = await Promise.all(
-		auditEvidence.map(async (evidence) => {
-			const date = evidence.collectedAt.toISOString().slice(0, 10)
-			const fileName = `oracle-snapshot-${evidence.instanceId}-${date}.xlsx`
-			try {
-				const buf = await storage.download(evidence.bucketPath)
-				attachmentBuffers.push({
-					fileName,
-					contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-					data: buf,
-					reviewTitle: "oracle-revisjonsbevis",
-					reviewDate: date,
-				})
-				return { ...evidence, fileName }
-			} catch {
-				return { ...evidence, fileName: undefined }
-			}
-		}),
-	)
-
-	const mappedReviews = completedReviews.map((r) => ({
-		...r,
-		routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
-	}))
-
-	const mainPdfBuffer = await buildAppPdf(
-		PDFDocument,
-		{
-			name: detail.app.name,
-			namespace: detail.environments[0]?.namespace ?? null,
-			cluster: detail.environments[0]?.cluster ?? null,
-		},
-		assessments,
-		mappedReviews,
-		oracleEvidenceWithFileName,
-		activitiesByReviewId,
-		oracleEvidenceByReviewId,
-		attachmentBuffers,
-		failedAttachments,
-	)
-
-	return { appName: detail.app.name, pdf: mainPdfBuffer, allAttachments: attachmentBuffers }
+	const { artifact } = await prepareAppComplianceArtifact(params)
+	return artifact
 }
 
 function buildAppPdf(
