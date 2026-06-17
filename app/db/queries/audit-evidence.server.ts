@@ -39,6 +39,7 @@ export interface ReportEvidence {
 	instanceId: string
 	overallStatus: string
 	collectedAt: Date
+	bucketPath: string
 }
 
 // ─── Oracle Instance Configuration ───────────────────────────────────────
@@ -359,5 +360,6 @@ export async function getAuditEvidenceForReport(appId: string): Promise<ReportEv
 		instanceId: snap.instanceId,
 		overallStatus: snap.overallStatus,
 		collectedAt: snap.collectedAt,
+		bucketPath: snap.bucketPath,
 	}))
 }
