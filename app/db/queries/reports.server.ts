@@ -3,6 +3,7 @@ import JSZip from "jszip"
 import { PDFDocument as PDFLibDocument } from "pdf-lib"
 import PDFDocument from "pdfkit"
 import { getStatusLabel } from "../../lib/compliance-status"
+import { isOracleEvidenceActivityType } from "../../lib/activity-types"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getCompositeFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { getStorageProvider } from "../../lib/storage/index.server"
@@ -18,6 +19,7 @@ import { getAppAssessments } from "./applications.server"
 import { writeAuditLog } from "./audit.server"
 import { getAuditEvidenceForReport } from "./audit-evidence.server"
 import { saveBucketObject } from "./buckets.server"
+import { getEvidenceDownloadsForActivityWithBucketDetails } from "./evidence-downloads.server"
 import { getActiveFrameworkVersion } from "./framework.server"
 import { getApplicationDetail } from "./nais.server"
 import {
@@ -693,6 +695,67 @@ export async function generateAppComplianceReport(params: {
 	const pdfAttachments = attachmentBuffers.filter((a) => a.contentType === "application/pdf")
 	const nonPdfAttachments = attachmentBuffers.filter((a) => a.contentType !== "application/pdf")
 
+	// Download oracle evidence Excel files and add to non-PDF attachments
+	// 1. Activity-based oracle evidence (OracleEvidenceSection — routineReviewEvidenceDownloads)
+	const oracleEvidenceByReviewId = new Map<
+		string,
+		Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
+	>()
+	const reviewById = new Map(completedReviews.map((r) => [r.id, r]))
+	for (const act of reviewActivities) {
+		if (!isOracleEvidenceActivityType(act.type)) continue
+		const review = reviewById.get(act.reviewId)
+		const reviewTitle = review?.title ?? "oracle-revisjonsbevis"
+		const reviewDate = review
+			? new Date(review.reviewedAt).toISOString().slice(0, 10)
+			: new Date().toISOString().slice(0, 10)
+		const evidenceDownloads = await getEvidenceDownloadsForActivityWithBucketDetails(act.id)
+		for (const dl of evidenceDownloads) {
+			try {
+				const buf = await storage.download(dl.bucketPath)
+				const safeFileName = dl.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
+				nonPdfAttachments.push({
+					fileName: safeFileName,
+					contentType: dl.contentType,
+					data: buf,
+					reviewTitle,
+					reviewDate,
+				})
+				const entry = oracleEvidenceByReviewId.get(act.reviewId) ?? []
+				entry.push({
+					fileName: safeFileName,
+					contentType: dl.contentType,
+					performedBy: dl.performedBy,
+					performedAt: dl.performedAt,
+				})
+				oracleEvidenceByReviewId.set(act.reviewId, entry)
+			} catch {
+				// Skip files that can't be downloaded
+			}
+		}
+	}
+
+	// 2. Legacy app-level oracle snapshots (auditEvidenceSnapshots)
+	const oracleEvidenceWithFileName = await Promise.all(
+		auditEvidence.map(async (evidence) => {
+			const date = evidence.collectedAt.toISOString().slice(0, 10)
+			const fileName = `oracle-snapshot-${evidence.instanceId}-${date}.xlsx`
+			try {
+				const buf = await storage.download(evidence.bucketPath)
+				nonPdfAttachments.push({
+					fileName,
+					contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+					data: buf,
+					reviewTitle: "oracle-revisjonsbevis",
+					reviewDate: date,
+				})
+				return { ...evidence, fileName }
+			} catch {
+				return { ...evidence, fileName: undefined }
+			}
+		}),
+	)
+
 	// Generate main PDF — non-PDF attachments are referenced, not embedded
 	const mainPdfBuffer = await buildAppPdf(
 		PDFDocument,
@@ -704,8 +767,9 @@ export async function generateAppComplianceReport(params: {
 		assessments,
 		completedReviews,
 		pdfAttachments,
-		auditEvidence,
+		oracleEvidenceWithFileName,
 		activitiesByReviewId,
+		oracleEvidenceByReviewId,
 		nonPdfAttachments,
 		failedAttachments,
 	)
@@ -954,6 +1018,67 @@ export async function buildAppComplianceArtifact(params: {
 	const pdfAttachments = attachmentBuffers.filter((a) => a.contentType === "application/pdf")
 	const nonPdfAttachments = attachmentBuffers.filter((a) => a.contentType !== "application/pdf")
 
+	// Download oracle evidence Excel files and add to non-PDF attachments
+	// 1. Activity-based oracle evidence (OracleEvidenceSection — routineReviewEvidenceDownloads)
+	const oracleEvidenceByReviewId = new Map<
+		string,
+		Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
+	>()
+	const reviewById = new Map(completedReviews.map((r) => [r.id, r]))
+	for (const act of reviewActivitiesRaw) {
+		if (!isOracleEvidenceActivityType(act.type)) continue
+		const review = reviewById.get(act.reviewId)
+		const reviewTitle = review?.title ?? "oracle-revisjonsbevis"
+		const reviewDate = review
+			? new Date(review.reviewedAt).toISOString().slice(0, 10)
+			: new Date().toISOString().slice(0, 10)
+		const evidenceDownloads = await getEvidenceDownloadsForActivityWithBucketDetails(act.id)
+		for (const dl of evidenceDownloads) {
+			try {
+				const buf = await storage.download(dl.bucketPath)
+				const safeFileName = dl.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
+				nonPdfAttachments.push({
+					fileName: safeFileName,
+					contentType: dl.contentType,
+					data: buf,
+					reviewTitle,
+					reviewDate,
+				})
+				const entry = oracleEvidenceByReviewId.get(act.reviewId) ?? []
+				entry.push({
+					fileName: safeFileName,
+					contentType: dl.contentType,
+					performedBy: dl.performedBy,
+					performedAt: dl.performedAt,
+				})
+				oracleEvidenceByReviewId.set(act.reviewId, entry)
+			} catch {
+				// Skip files that can't be downloaded
+			}
+		}
+	}
+
+	// 2. Legacy app-level oracle snapshots (auditEvidenceSnapshots)
+	const oracleEvidenceWithFileName = await Promise.all(
+		auditEvidence.map(async (evidence) => {
+			const date = evidence.collectedAt.toISOString().slice(0, 10)
+			const fileName = `oracle-snapshot-${evidence.instanceId}-${date}.xlsx`
+			try {
+				const buf = await storage.download(evidence.bucketPath)
+				nonPdfAttachments.push({
+					fileName,
+					contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+					data: buf,
+					reviewTitle: "oracle-revisjonsbevis",
+					reviewDate: date,
+				})
+				return { ...evidence, fileName }
+			} catch {
+				return { ...evidence, fileName: undefined }
+			}
+		}),
+	)
+
 	const mappedReviews = completedReviews.map((r) => ({
 		...r,
 		routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
@@ -969,8 +1094,9 @@ export async function buildAppComplianceArtifact(params: {
 		assessments,
 		mappedReviews,
 		pdfAttachments,
-		auditEvidence,
+		oracleEvidenceWithFileName,
 		activitiesByReviewId,
+		oracleEvidenceByReviewId,
 		nonPdfAttachments,
 		failedAttachments,
 	)
@@ -1037,7 +1163,7 @@ function buildAppPdf(
 		routineTechnologyElements?: Array<{ id: string; name: string }>
 		routineControls?: Array<{ controlId: string; shortTitle: string | null }>
 		participants: Array<{ userIdent: string; userName: string | null }>
-		attachments: Array<{ fileName: string; contentType: string }>
+		attachments: Array<{ fileName: string; contentType: string; uploadedBy: string; uploadedAt: Date | string }>
 		links: Array<{ url: string; title: string | null }>
 		followUpPoints: Array<{
 			text: string
@@ -1048,7 +1174,13 @@ function buildAppPdf(
 			createdAt: Date | string
 			resolvedBy: string | null
 			resolvedAt: Date | string | null
-			attachments: Array<{ fileName: string; contentType: string; kind: "description" | "resolution" }>
+			attachments: Array<{
+				fileName: string
+				contentType: string
+				kind: "description" | "resolution"
+				uploadedBy: string
+				uploadedAt: Date | string
+			}>
 		}>
 	}>,
 	pdfAttachments: Array<{ fileName: string; contentType: string; data: Buffer }>,
@@ -1056,6 +1188,7 @@ function buildAppPdf(
 		instanceId: string
 		overallStatus: string
 		collectedAt: Date
+		fileName?: string
 	}>,
 	activitiesByReviewId: Map<
 		string,
@@ -1075,6 +1208,10 @@ function buildAppPdf(
 				performedAt: Date
 			}>
 		}>
+	>,
+	oracleEvidenceByReviewId: Map<
+		string,
+		Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
 	>,
 	nonPdfAttachments: Array<{
 		fileName: string
@@ -1207,13 +1344,22 @@ function buildAppPdf(
 					doc.fontSize(9).fillColor(gray).text(`Ansvarlig rolle: ${group.routineResponsibleRole}`)
 				}
 				if (group.routineApprovedAt) {
-					doc.fontSize(9).fillColor(gray).text(`Godkjent: ${new Date(group.routineApprovedAt).toLocaleDateString("nb-NO")}`)
+					doc
+						.fontSize(9)
+						.fillColor(gray)
+						.text(`Godkjent: ${new Date(group.routineApprovedAt).toLocaleDateString("nb-NO")}`)
 				}
 				if (group.routineArchivedAt) {
-					doc.fontSize(9).fillColor(gray).text(`Arkivert: ${new Date(group.routineArchivedAt).toLocaleDateString("nb-NO")}`)
+					doc
+						.fontSize(9)
+						.fillColor(gray)
+						.text(`Arkivert: ${new Date(group.routineArchivedAt).toLocaleDateString("nb-NO")}`)
 				}
 				if (group.routineReplacedAt) {
-					doc.fontSize(9).fillColor(gray).text(`Erstattet: ${new Date(group.routineReplacedAt).toLocaleDateString("nb-NO")}`)
+					doc
+						.fontSize(9)
+						.fillColor(gray)
+						.text(`Erstattet: ${new Date(group.routineReplacedAt).toLocaleDateString("nb-NO")}`)
 				}
 				if (group.routineTechnologyElements && group.routineTechnologyElements.length > 0) {
 					doc.fontSize(9).fillColor(gray).text("Teknologielementer:")
@@ -1276,10 +1422,23 @@ function buildAppPdf(
 					}
 
 					// ─── Vedlegg (review-level) ────────────────────────────
-					if (r.attachments.length > 0) {
+					const reviewOracleEvidence = oracleEvidenceByReviewId.get(r.id) ?? []
+					if (r.attachments.length > 0 || reviewOracleEvidence.length > 0) {
+						const hasNonPdfAtt = r.attachments.some((a) => a.contentType !== "application/pdf")
+						const hasOracleAtt = reviewOracleEvidence.length > 0
+						const reviewFolderName = `${new Date(r.reviewedAt).toISOString().slice(0, 10)}-${r.title.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}`
 						doc.moveDown(0.5)
 						doc.fontSize(10).fillColor(blue).text("Vedlegg")
 						doc.moveDown(0.2)
+						if (hasNonPdfAtt || hasOracleAtt) {
+							doc
+								.fontSize(8)
+								.fillColor(gray)
+								.text(`Vedlegg er tilgjengelig i vedlegg/${reviewFolderName}/ i den nedlastede zip-filen.`, {
+									width: 495,
+								})
+							doc.moveDown(0.3)
+						}
 						for (const att of r.attachments) {
 							if (doc.y > 700) doc.addPage()
 							if (att.contentType === "application/pdf") {
@@ -1293,8 +1452,20 @@ function buildAppPdf(
 								doc
 									.fontSize(8)
 									.fillColor(gray)
-									.text("  Filen er inkludert i vedlegg/-mappen i den nedlastede zip-filen.", { width: 495 })
+									.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
+										width: 495,
+									})
 							}
+						}
+						for (const oe of reviewOracleEvidence) {
+							if (doc.y > 700) doc.addPage()
+							doc.fontSize(9).fillColor(dark).text(`• ${oe.fileName}`, { width: 495 })
+							doc
+								.fontSize(8)
+								.fillColor(gray)
+								.text(`  Lastet ned av: ${oe.performedBy} — ${new Date(oe.performedAt).toLocaleString("nb-NO")}`, {
+									width: 495,
+								})
 						}
 					}
 
@@ -1344,30 +1515,41 @@ function buildAppPdf(
 
 							// ─── Vedlegg for oppfølgingspunkt ──────────────────
 							if (p.attachments.length > 0) {
+								const hasNonPdfFpAtt = p.attachments.some((a) => a.contentType !== "application/pdf")
+								const reviewFolderName = `${new Date(r.reviewedAt).toISOString().slice(0, 10)}-${r.title.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}`
 								doc.moveDown(0.3)
 								doc.fontSize(8).fillColor(blue).text("Vedlegg", { width: 495 })
 								doc.moveDown(0.15)
+								if (hasNonPdfFpAtt) {
+									doc
+										.fontSize(7)
+										.fillColor(gray)
+										.text(
+											`Vedlegg er tilgjengelig i vedlegg/${reviewFolderName}/oppfolgingspunkter/ i den nedlastede zip-filen.`,
+											{
+												width: 495,
+											},
+										)
+									doc.moveDown(0.2)
+								}
 								for (const att of p.attachments) {
 									if (doc.y > 700) doc.addPage()
 									const kindLabel = att.kind === "description" ? "beskrivelse" : "oppfølging"
 									if (att.contentType === "application/pdf") {
-										doc
-											.fontSize(9)
-											.fillColor(dark)
-											.text(`• ${att.fileName} (${kindLabel}, PDF)`, { width: 495 })
+										doc.fontSize(9).fillColor(dark).text(`• ${att.fileName} (${kindLabel}, PDF)`, { width: 495 })
 										doc
 											.fontSize(8)
 											.fillColor(gray)
 											.text("  Dokumentet er vedlagt på neste sider i denne rapporten.", { width: 495 })
 									} else {
-										doc
-											.fontSize(9)
-											.fillColor(dark)
-											.text(`• ${att.fileName} (${kindLabel})`, { width: 495 })
+										doc.fontSize(9).fillColor(dark).text(`• ${att.fileName} (${kindLabel})`, { width: 495 })
 										doc
 											.fontSize(8)
 											.fillColor(gray)
-											.text("  Filen er inkludert i vedlegg/-mappen i den nedlastede zip-filen.", { width: 495 })
+											.text(
+												`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`,
+												{ width: 495 },
+											)
 									}
 								}
 							}
@@ -1438,6 +1620,13 @@ function buildAppPdf(
 					.fontSize(9)
 					.fillColor(gray)
 					.text(`Hentet: ${evidence.collectedAt.toLocaleDateString("nb-NO")}`)
+				if (evidence.fileName) {
+					doc.moveDown(0.3)
+					doc
+						.fontSize(9)
+						.fillColor(gray)
+						.text(`Bevisfilene er inkludert i vedlegg/-mappen i den nedlastede zip-filen: ${evidence.fileName}`)
+				}
 				doc.moveDown()
 			}
 		}
