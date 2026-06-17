@@ -1489,7 +1489,10 @@ export async function getReviewsForApp(applicationId: string) {
 						.from(routineTechnologyElements)
 						.innerJoin(technologyElements, eq(routineTechnologyElements.elementId, technologyElements.id))
 						.where(
-							and(inArray(routineTechnologyElements.routineId, routineIds), isNull(routineTechnologyElements.archivedAt)),
+							and(
+								inArray(routineTechnologyElements.routineId, routineIds),
+								isNull(routineTechnologyElements.archivedAt),
+							),
 						),
 					db
 						.selectDistinct({

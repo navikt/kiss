@@ -566,11 +566,12 @@ function buildReviewsSection(
 				reviews: [],
 			})
 		}
-		reviewsByRoutine.get(r.routineId)!.reviews.push(r)
+		reviewsByRoutine.get(r.routineId)?.reviews.push(r)
 	}
 
 	for (const routineId of routineOrder) {
-		const group = reviewsByRoutine.get(routineId)!
+		const group = reviewsByRoutine.get(routineId)
+		if (!group) continue
 
 		// ─── Rutine header ────────────────────────────────────────────
 		doc.moveDown(1.5)
