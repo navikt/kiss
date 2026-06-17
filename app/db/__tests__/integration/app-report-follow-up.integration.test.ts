@@ -324,4 +324,60 @@ describe("App compliance report — follow-up points", () => {
 		expect(snap.reviews[0].title).toBe("Open follow-up")
 		expect(snap.reviews[0].status).toBe("needs_follow_up")
 	})
+
+	it("returns reportId, reportBucketPath and appName", async () => {
+		const _sectionId = await createTestSection(`s4-${Date.now()}`)
+		const appId = await createTestApp("Test App 4")
+
+		const result = await generateAppComplianceReport({ applicationId: appId, createdBy: "Z990001" })
+
+		expect(result.reportId).toMatch(/^[0-9a-f-]{36}$/)
+		expect(result.appName).toBe("Test App 4")
+		expect(result.reportBucketPath).toMatch(/^reports\/app\//)
+		expect(result.reportBucketPath).toMatch(/\.(pdf|zip)$/)
+	})
+
+	it("omits routineDescription from PDF-mapped reviews when includeRoutineDescription is false", async () => {
+		const sectionId = await createTestSection(`s5-${Date.now()}`)
+		const appId = await createTestApp("Test App 5")
+		const routine = await createRoutine({
+			sectionId,
+			name: "R5",
+			description: "Hemmelig rutinebeskrivelse",
+			frequency: "monthly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: false,
+			responsibleRole: null,
+			persistenceLinks: [],
+			controlIds: [],
+			technologyElementIds: [],
+			createdBy: "Z990001",
+		})
+		await approveRoutine(routine.id)
+
+		const review = await createReview({
+			routineId: routine.id,
+			applicationId: appId,
+			title: "Gjennomgang med beskrivelse",
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: new Date(),
+			createdBy: "Z990001",
+			participants: [],
+		})
+		await completeReview(review.id, "Z990001")
+
+		// With includeRoutineDescription = false (default): snapshot should omit description
+		await generateAppComplianceReport({ applicationId: appId, createdBy: "Z990001", includeRoutineDescription: false })
+		const snapWithout = readSnapshot() as Snapshot & { reviews: Array<{ routineDescription: string | null }> }
+		expect(snapWithout.reviews[0].routineDescription).toBeNull()
+
+		uploaded.clear()
+
+		// With includeRoutineDescription = true: snapshot should include description
+		await generateAppComplianceReport({ applicationId: appId, createdBy: "Z990001", includeRoutineDescription: true })
+		const snapWith = readSnapshot() as Snapshot & { reviews: Array<{ routineDescription: string | null }> }
+		expect(snapWith.reviews[0].routineDescription).toBe("Hemmelig rutinebeskrivelse")
+	})
 })
