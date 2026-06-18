@@ -17,11 +17,13 @@ vi.mock("~/db/queries/sync-jobs.server", () => ({
 // Report query mocks
 const mockCreateSectionBatchReport = vi.fn()
 const mockUpdateReportStatus = vi.fn()
-const mockGenerateAppComplianceReport = vi.fn()
+const mockBuildAppComplianceArtifact = vi.fn()
+const mockBuildArtifactBuffer = vi.fn()
 vi.mock("~/db/queries/reports.server", () => ({
 	createSectionBatchReport: mockCreateSectionBatchReport,
 	updateReportStatus: mockUpdateReportStatus,
-	generateAppComplianceReport: mockGenerateAppComplianceReport,
+	buildAppComplianceArtifact: mockBuildAppComplianceArtifact,
+	buildArtifactBuffer: mockBuildArtifactBuffer,
 }))
 
 // Storage mock — uploadStream and download
@@ -76,13 +78,21 @@ const baseParams = {
 	includeReviews: false,
 	includeAttachments: false,
 	includeRoutineDescription: false,
-	createdBy: "Z123456",
+	createdBy: "Z990001",
 }
 
-const fakeAppReport = {
-	reportId: "app-report-1",
-	reportBucketPath: "reports/app/2026-01-15/uuid/rapport.zip",
+const fakeArtifact = {
 	appName: "Min App",
+	pdf: Buffer.from("pdf-content"),
+	allAttachments: [] as Array<{
+		fileName: string
+		contentType: string
+		data: Buffer
+		reviewTitle: string
+		reviewDate: string
+		followUpPointText?: string
+		followUpKind?: "description" | "resolution"
+	}>,
 }
 
 describe("startSectionBatchReport", () => {
@@ -96,7 +106,8 @@ describe("startSectionBatchReport", () => {
 		mockUpdateReportStatus.mockResolvedValue(undefined)
 		mockUploadStream.mockResolvedValue({ sizeBytes: 1024 })
 		mockDownload.mockResolvedValue(Buffer.from("fake-report-content"))
-		mockGenerateAppComplianceReport.mockResolvedValue(fakeAppReport)
+		mockBuildAppComplianceArtifact.mockResolvedValue(fakeArtifact)
+		mockBuildArtifactBuffer.mockResolvedValue({ buffer: Buffer.from("pdf-content"), ext: ".pdf" })
 		mockWriteAuditLog.mockResolvedValue(undefined)
 		mockDbTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<void>) => fn({ update: mockTxUpdate }))
 	})
@@ -114,12 +125,12 @@ describe("startSectionBatchReport", () => {
 		expect(mockCreateSectionBatchReport).toHaveBeenCalledWith({
 			sectionId: "section-1",
 			sectionName: "Seksjon A",
-			createdBy: "Z123456",
+			createdBy: "Z990001",
 		})
 		expect(mockCreateSyncJob).toHaveBeenCalledWith(
 			expect.objectContaining({
 				jobType: SYNC_JOB_TYPES.SECTION_BATCH_REPORT,
-				performedBy: "Z123456",
+				performedBy: "Z990001",
 				scopeType: "section",
 				scopeId: "section-1",
 			}),
@@ -132,7 +143,7 @@ describe("startSectionBatchReport", () => {
 		// Wait for fire-and-forget background generation to complete
 		await vi.waitFor(() => expect(mockMarkSyncJobCompleted).toHaveBeenCalled())
 
-		expect(mockMarkSyncJobRunning).toHaveBeenCalledWith("job-1", "Z123456", expect.any(String))
+		expect(mockMarkSyncJobRunning).toHaveBeenCalledWith("job-1", "Z990001", expect.any(String))
 		expect(mockMarkSyncJobFailed).not.toHaveBeenCalled()
 	})
 
@@ -145,8 +156,8 @@ describe("startSectionBatchReport", () => {
 		// Final update is done directly via db.update (not via updateReportStatus)
 	})
 
-	it("completes with 0 included apps when generateAppComplianceReport throws for all apps", async () => {
-		mockGenerateAppComplianceReport.mockRejectedValue(new Error("PDF generation failed"))
+	it("completes with 0 included apps when buildAppComplianceArtifact throws for all apps", async () => {
+		mockBuildAppComplianceArtifact.mockRejectedValue(new Error("PDF generation failed"))
 
 		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
 		await startSectionBatchReport({ ...baseParams, selectedAppIds: ["app-1"] })
@@ -157,8 +168,13 @@ describe("startSectionBatchReport", () => {
 		expect(mockDbTransaction).toHaveBeenCalled()
 	})
 
-	it("skips app when storage download fails after report generation", async () => {
-		mockDownload.mockRejectedValue(new Error("GCS download failed"))
+	it("includes app as PDF when artifact has no attachments", async () => {
+		const pdfContent = Buffer.from("pdf-only-content")
+		mockBuildAppComplianceArtifact.mockResolvedValue({
+			...fakeArtifact,
+			pdf: pdfContent,
+			allAttachments: [],
+		})
 
 		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
 		await startSectionBatchReport({ ...baseParams, selectedAppIds: ["app-1"] })
@@ -178,7 +194,7 @@ describe("startSectionBatchReport", () => {
 		expect(mockMarkSyncJobFailed).toHaveBeenCalledWith(
 			"job-1",
 			expect.stringContaining("GCS unavailable"),
-			"Z123456",
+			"Z990001",
 			expect.any(String),
 		)
 		expect(mockUpdateReportStatus).toHaveBeenCalledWith(
@@ -224,53 +240,42 @@ describe("startSectionBatchReport", () => {
 		)
 	})
 
-	it("appends the downloaded report file to the archive with correct name", async () => {
-		const fileContent = Buffer.from("zip-content")
-		mockDownload.mockResolvedValue(fileContent)
-		mockGenerateAppComplianceReport.mockResolvedValue({
-			reportId: "app-report-1",
-			reportBucketPath: "reports/app/2026-01-15/uuid/rapport.zip",
-			appName: "Min App",
-		})
+	it("appends a zip file to the archive when artifact has attachments", async () => {
+		const zipBuffer = Buffer.from("zip-content")
+		mockBuildArtifactBuffer.mockResolvedValue({ buffer: zipBuffer, ext: ".zip" })
 
 		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
 		await startSectionBatchReport({ ...baseParams, selectedAppIds: ["app-1"] })
 		await vi.waitFor(() => expect(mockMarkSyncJobCompleted).toHaveBeenCalled())
 
 		expect(lastArchiverInstance?.append).toHaveBeenCalledWith(
-			fileContent,
+			zipBuffer,
 			expect.objectContaining({ name: expect.stringMatching(/Min App.*\.zip$/) }),
 		)
 	})
 
-	it("uses .pdf extension for apps whose report has no attachments", async () => {
-		const fileContent = Buffer.from("pdf-content")
-		mockDownload.mockResolvedValue(fileContent)
-		mockGenerateAppComplianceReport.mockResolvedValue({
-			reportId: "app-report-1",
-			reportBucketPath: "reports/app/2026-01-15/uuid/rapport.pdf",
-			appName: "Min App",
-		})
+	it("appends a pdf file directly to the archive when artifact has no attachments", async () => {
+		const pdfContent = Buffer.from("pdf-content")
+		mockBuildArtifactBuffer.mockResolvedValue({ buffer: pdfContent, ext: ".pdf" })
 
 		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
 		await startSectionBatchReport({ ...baseParams, selectedAppIds: ["app-1"] })
 		await vi.waitFor(() => expect(mockMarkSyncJobCompleted).toHaveBeenCalled())
 
 		expect(lastArchiverInstance?.append).toHaveBeenCalledWith(
-			fileContent,
+			pdfContent,
 			expect.objectContaining({ name: expect.stringMatching(/Min App.*\.pdf$/) }),
 		)
 	})
 
-	it("calls generateAppComplianceReport with createdBy and includeReviews params", async () => {
+	it("calls buildAppComplianceArtifact with correct applicationId and includeReviews params", async () => {
 		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
 		await startSectionBatchReport({ ...baseParams, selectedAppIds: ["app-1"], includeReviews: true })
 		await vi.waitFor(() => expect(mockMarkSyncJobCompleted).toHaveBeenCalled())
 
-		expect(mockGenerateAppComplianceReport).toHaveBeenCalledWith(
+		expect(mockBuildAppComplianceArtifact).toHaveBeenCalledWith(
 			expect.objectContaining({
 				applicationId: "app-1",
-				createdBy: "Z123456",
 				includeReviews: true,
 			}),
 		)

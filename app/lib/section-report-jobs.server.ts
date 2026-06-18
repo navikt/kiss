@@ -3,7 +3,12 @@ import { ZipArchive } from "archiver"
 import { eq } from "drizzle-orm"
 import { db } from "~/db/connection.server"
 import { writeAuditLog } from "~/db/queries/audit.server"
-import { createSectionBatchReport, generateAppComplianceReport, updateReportStatus } from "~/db/queries/reports.server"
+import {
+	buildAppComplianceArtifact,
+	buildArtifactBuffer,
+	createSectionBatchReport,
+	updateReportStatus,
+} from "~/db/queries/reports.server"
 import {
 	createSyncJob,
 	markSyncJobCompleted,
@@ -128,46 +133,32 @@ async function runSectionBatchReportGeneration(
 		// (UI polls every 3 s — per-app updates add unnecessary load for large sections)
 		const shouldUpdateStatus = (idx: number) => idx === 0 || idx === totalApps - 1 || (idx + 1) % 5 === 0
 
-		// Generate each app's report sequentially — uploads individually to bucket, then added to section zip
+		// Generate each app's artifact directly — no DB inserts or bucket uploads per app
 		for (const appId of selectedAppIds) {
 			if (shouldUpdateStatus(processedApps)) {
 				await updateReportStatus(reportId, "running", `Genererer rapport ${processedApps + 1} av ${totalApps}…`)
 			}
 
-			let appReport: Awaited<ReturnType<typeof generateAppComplianceReport>>
+			let artifact: Awaited<ReturnType<typeof buildAppComplianceArtifact>>
 			try {
-				appReport = await generateAppComplianceReport({
+				artifact = await buildAppComplianceArtifact({
 					applicationId: appId,
-					createdBy,
 					includeReviews,
 					includeAttachments,
 					includeRoutineDescription,
 				})
 			} catch (err) {
-				logger.warn("Failed to generate app report in section batch report", { reportId, appId, error: err })
+				logger.warn("Failed to build app artifact in section batch report", { reportId, appId, error: err })
 				processedApps++
 				continue
 			}
 
-			let fileBuffer: Buffer
-			try {
-				fileBuffer = await storage.download(appReport.reportBucketPath)
-			} catch (err) {
-				logger.warn("Failed to download app report from storage in section batch report", {
-					reportId,
-					appId,
-					bucketPath: appReport.reportBucketPath,
-					error: err,
-				})
-				processedApps++
-				continue
-			}
-
-			const safeAppName = appReport.appName.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 60)
+			const safeAppName = artifact.appName.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 60)
 			// Include a stable unique suffix to avoid collisions when two apps share the same sanitised name
 			const appPrefix = `${safeAppName}-${appId.slice(-8)}`
-			const ext = appReport.reportBucketPath.endsWith(".zip") ? ".zip" : ".pdf"
-			archive.append(fileBuffer, { name: `${appPrefix}${ext}` })
+
+			const { buffer, ext } = await buildArtifactBuffer(artifact)
+			archive.append(buffer, { name: `${appPrefix}${ext}` })
 
 			includedApps++
 			processedApps++
