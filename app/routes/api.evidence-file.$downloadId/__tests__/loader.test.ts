@@ -6,10 +6,10 @@ vi.mock("~/lib/auth.server", () => ({
 	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
-// Authorization mock — requireAnySectionRole is synchronous, throws on failure
-const mockRequireAnySectionRole = vi.fn()
+// Authorization mock — requireReviewReadAccess is async, throws on failure
+const mockRequireReviewReadAccess = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
-	requireAnySectionRole: mockRequireAnySectionRole,
+	requireReviewReadAccess: mockRequireReviewReadAccess,
 }))
 
 // Evidence-downloads mocks
@@ -41,7 +41,7 @@ describe("api.evidence-file.$downloadId loader", () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		mockRequireAuthenticatedUser.mockResolvedValue(fakeUser())
-		mockRequireAnySectionRole.mockImplementation(() => {})
+		mockRequireReviewReadAccess.mockResolvedValue(undefined)
 		mockGetSectionIdForDownload.mockResolvedValue(SECTION_ID)
 		mockDownloadEvidenceFileFromStorage.mockResolvedValue({
 			buffer: Buffer.from("fake-file-content"),
@@ -60,18 +60,18 @@ describe("api.evidence-file.$downloadId loader", () => {
 		expect(res.headers.get("Content-Disposition")).toContain("oracle-snapshot.xlsx")
 	})
 
-	it("calls requireAnySectionRole with the resolved sectionId", async () => {
+	it("calls requireReviewReadAccess with the resolved sectionId", async () => {
 		await loader(makeRequest(VALID_UUID))
 
 		expect(mockGetSectionIdForDownload).toHaveBeenCalledWith(VALID_UUID)
-		expect(mockRequireAnySectionRole).toHaveBeenCalledWith(fakeUser(), SECTION_ID)
+		expect(mockRequireReviewReadAccess).toHaveBeenCalledWith(fakeUser(), { applicationId: null, sectionId: SECTION_ID })
 	})
 
 	it("returns 404 when sectionId cannot be resolved", async () => {
 		mockGetSectionIdForDownload.mockResolvedValue(null)
 
 		await expect(loader(makeRequest(VALID_UUID))).rejects.toMatchObject({ init: { status: 404 } })
-		expect(mockRequireAnySectionRole).not.toHaveBeenCalled()
+		expect(mockRequireReviewReadAccess).not.toHaveBeenCalled()
 	})
 
 	it("returns 404 when file cannot be downloaded from storage", async () => {
@@ -80,17 +80,15 @@ describe("api.evidence-file.$downloadId loader", () => {
 		await expect(loader(makeRequest(VALID_UUID))).rejects.toMatchObject({ init: { status: 404 } })
 	})
 
-	it("throws 403 when requireAnySectionRole throws", async () => {
-		mockRequireAnySectionRole.mockImplementation(() => {
-			throw new Response("Ikke autorisert", { status: 403 })
-		})
+	it("throws 403 when requireReviewReadAccess throws", async () => {
+		mockRequireReviewReadAccess.mockRejectedValue(new Response("Ikke autorisert", { status: 403 }))
 
 		await expect(loader(makeRequest(VALID_UUID))).rejects.toMatchObject({ status: 403 })
 	})
 
 	it("returns 400 for invalid UUID format in params", async () => {
 		await expect(loader(makeRequest("not-a-uuid"))).rejects.toMatchObject({ status: 400 })
-		expect(mockRequireAnySectionRole).not.toHaveBeenCalled()
+		expect(mockRequireReviewReadAccess).not.toHaveBeenCalled()
 	})
 
 	it("encodes UTF-8 filenames safely in Content-Disposition header", async () => {

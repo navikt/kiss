@@ -914,6 +914,48 @@ export async function buildAppComplianceArtifact(params: {
 	return artifact
 }
 
+/**
+ * Pack a PDF + optional attachments into a zip Buffer, following the standard vedlegg folder layout.
+ * Returns a zip Buffer if attachments are present, otherwise returns the raw PDF Buffer.
+ */
+export async function buildArtifactBuffer(
+	artifact: AppComplianceArtifact,
+): Promise<{ buffer: Buffer; ext: ".zip" | ".pdf" }> {
+	if (artifact.allAttachments.length === 0) {
+		return { buffer: artifact.pdf, ext: ".pdf" }
+	}
+
+	const zip = new JSZip()
+	zip.file("rapport.pdf", artifact.pdf)
+	const vedleggFolder = zip.folder("vedlegg")
+	if (!vedleggFolder) throw new Error("Could not create vedlegg folder in zip")
+	const usedNames = new Set<string>()
+	for (const att of artifact.allAttachments) {
+		const safeReviewTitle = att.reviewTitle.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
+		const folderName = `${att.reviewDate}-${safeReviewTitle}`
+		const subFolder = att.followUpPointText
+			? `/oppfolgingspunkter/${att.followUpPointText.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
+			: ""
+		const safeFileName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
+		let entryName = `${folderName}${subFolder}/${safeFileName}`
+		if (usedNames.has(entryName)) {
+			const dotExt = safeFileName.includes(".") ? `.${safeFileName.split(".").pop()}` : ""
+			const base = safeFileName.includes(".") ? safeFileName.slice(0, safeFileName.lastIndexOf(".")) : safeFileName
+			let counter = 2
+			do {
+				entryName = `${folderName}${subFolder}/${base} (${counter})${dotExt}`
+				counter++
+			} while (usedNames.has(entryName))
+		}
+		usedNames.add(entryName)
+		vedleggFolder.file(entryName, att.data)
+	}
+	return {
+		buffer: Buffer.from(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })),
+		ext: ".zip",
+	}
+}
+
 function buildAppPdf(
 	PDFDocCtor: typeof PDFDocument,
 	app: { name: string; namespace: string | null; cluster: string | null },

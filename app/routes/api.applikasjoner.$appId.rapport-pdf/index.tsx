@@ -192,10 +192,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			const subFolder = att.followUpPointText
 				? `/oppfolgingspunkter/${att.followUpPointText.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
 				: ""
-			let entryName = `${folderName}${subFolder}/${att.fileName}`
+			const safeFileName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
+			let entryName = `${folderName}${subFolder}/${safeFileName}`
 			if (usedNames.has(entryName)) {
-				const ext = att.fileName.includes(".") ? `.${att.fileName.split(".").pop()}` : ""
-				const base = att.fileName.includes(".") ? att.fileName.slice(0, att.fileName.lastIndexOf(".")) : att.fileName
+				const ext = safeFileName.includes(".") ? `.${safeFileName.split(".").pop()}` : ""
+				const base = safeFileName.includes(".") ? safeFileName.slice(0, safeFileName.lastIndexOf(".")) : safeFileName
 				let counter = 2
 				do {
 					entryName = `${folderName}${subFolder}/${base} (${counter})${ext}`
