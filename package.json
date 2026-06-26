@@ -86,7 +86,7 @@
 		"@types/express": "^5.0.6",
 		"@types/jszip": "^3.4.1",
 		"@types/mime-types": "^3.0.1",
-		"@types/node": "^25.9.2",
+		"@types/node": "^26.0.0",
 		"@types/pdfkit": "^0.17.6",
 		"@types/pg": "^8.20.0",
 		"@types/react": "^19.2.17",
