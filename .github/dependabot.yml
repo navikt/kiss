@@ -30,6 +30,10 @@ updates:
         patterns:
           - 'storybook'
           - '@storybook/*'
+      testcontainers:
+        patterns:
+          - "@testcontainers/postgresql"
+          - 'testcontainers'
     labels:
       - dependencies
     commit-message:
