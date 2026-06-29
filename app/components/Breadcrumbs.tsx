@@ -11,7 +11,7 @@ export function Breadcrumbs() {
 	if (location.pathname === "/") return null
 
 	const leafMatch = matches[matches.length - 1]
-	const loaderData = (leafMatch?.data as Record<string, unknown>) ?? {}
+	const loaderData = (leafMatch?.loaderData as Record<string, unknown>) ?? {}
 	const crumbs = buildBreadcrumbs(location.pathname, loaderData, params)
 
 	if (crumbs.length === 0) return null
