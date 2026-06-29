@@ -80,6 +80,8 @@ export const auditLogActionEnum = [
 	"application_deleted",
 	"application_archived",
 	"application_unarchived",
+	"app_environment_archived",
+	"app_environment_reactivated",
 
 	// Seksjon ↔ applikasjon/miljø
 	// Deprecated: section_app_ignored og section_app_unignored skrives ikke lenger,

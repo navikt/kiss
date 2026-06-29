@@ -29,6 +29,7 @@ vi.mock("~/db/queries/audit.server", () => ({
 
 vi.mock("~/db/queries/nais.server", () => ({
 	archiveMissingEnvironmentAccessPolicyRules: mockArchiveMissingEnvironmentAccessPolicyRules,
+	archiveStaleAppEnvironments: vi.fn(),
 	createAccessPolicySyncSummaryCollector: () => ({
 		applicationIds: new Set<string>(),
 		applicationEnvironmentIds: new Set<string>(),

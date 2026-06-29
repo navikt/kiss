@@ -59,6 +59,8 @@ export const applicationEnvironments = pgTable(
 		gitRepository: text("git_repository"),
 		naisTeamId: uuid("nais_team_id").references(() => naisTeams.id),
 		discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
 	},
 	(t) => [
 		index("idx_application_environments_app_team").on(t.applicationId, t.naisTeamId),
