@@ -488,11 +488,28 @@ export async function upsertAppEnvironment(
 		)
 		.limit(1)
 	if (existing) {
-		const updates: Record<string, string | null> = {}
+		const updates: Record<string, string | Date | null> = {}
 		if (imageName && imageName !== existing.imageName) updates.imageName = imageName
 		if (gitRepository && gitRepository !== existing.gitRepository) updates.gitRepository = gitRepository
 		if (naisTeamId && naisTeamId !== existing.naisTeamId) updates.naisTeamId = naisTeamId
-		if (Object.keys(updates).length > 0) {
+		// Reaktiver arkivert miljø når det dukker opp i Nais-sync igjen
+		if (existing.archivedAt) {
+			updates.archivedAt = null
+			updates.archivedBy = null
+			await db.transaction(async (tx) => {
+				await tx.update(applicationEnvironments).set(updates).where(eq(applicationEnvironments.id, existing.id))
+				await writeAuditLog(
+					{
+						action: "app_environment_reactivated",
+						entityType: "application_environment",
+						entityId: existing.id,
+						newValue: JSON.stringify({ applicationId, cluster, namespace }),
+						performedBy: SYNC_PERFORMER,
+					},
+					tx,
+				)
+			})
+		} else if (Object.keys(updates).length > 0) {
 			await db.update(applicationEnvironments).set(updates).where(eq(applicationEnvironments.id, existing.id))
 		}
 		if (naisTeamId) {
@@ -511,6 +528,55 @@ export async function upsertAppEnvironment(
 		await registerSectionEnvironmentCluster(naisTeamId)
 	}
 	return { id: inserted.id, isNew: true }
+}
+
+/**
+ * Arkiverer miljørader for en (applicationId, naisTeamId)-kombinasjon som ikke ble sett i siste sync.
+ * Kalles etter at alle environments for en app/team er upsert-et i synken.
+ */
+export async function archiveStaleAppEnvironments(
+	applicationId: string,
+	naisTeamId: string,
+	seenEnvironmentIds: string[],
+	performedBy = SYNC_PERFORMER,
+): Promise<void> {
+	const stale = await db
+		.select({
+			id: applicationEnvironments.id,
+			cluster: applicationEnvironments.cluster,
+			namespace: applicationEnvironments.namespace,
+		})
+		.from(applicationEnvironments)
+		.where(
+			and(
+				eq(applicationEnvironments.applicationId, applicationId),
+				eq(applicationEnvironments.naisTeamId, naisTeamId),
+				isNull(applicationEnvironments.archivedAt),
+				seenEnvironmentIds.length > 0 ? notInArray(applicationEnvironments.id, seenEnvironmentIds) : sql`true`,
+			),
+		)
+
+	if (stale.length === 0) return
+
+	const now = new Date()
+	await db.transaction(async (tx) => {
+		for (const env of stale) {
+			await tx
+				.update(applicationEnvironments)
+				.set({ archivedAt: now, archivedBy: performedBy })
+				.where(eq(applicationEnvironments.id, env.id))
+			await writeAuditLog(
+				{
+					action: "app_environment_archived",
+					entityType: "application_environment",
+					entityId: env.id,
+					previousValue: JSON.stringify({ applicationId, cluster: env.cluster, namespace: env.namespace }),
+					performedBy,
+				},
+				tx,
+			)
+		}
+	})
 }
 
 /** Get the last sync timestamp from audit log. */
@@ -1256,7 +1322,7 @@ export async function getApplicationDetail(applicationId: string) {
 		})
 		.from(applicationEnvironments)
 		.leftJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(eq(applicationEnvironments.applicationId, applicationId))
+		.where(and(eq(applicationEnvironments.applicationId, applicationId), isNull(applicationEnvironments.archivedAt)))
 		.orderBy(applicationEnvironments.cluster)
 
 	// Filter out environments in clusters that are excluded (included=false) in the Nais team's section
@@ -1483,6 +1549,7 @@ export async function archiveApplication(appId: string, performedBy: string) {
 			SELECT 1 FROM ${applicationEnvironments} ae
 			LEFT JOIN ${naisTeams} nt ON nt.id = ae.nais_team_id
 			WHERE ae.application_id = ${appId}
+			AND ae.archived_at IS NULL
 			AND NOT EXISTS (
 				SELECT 1 FROM ${sectionEnvironments} se
 				WHERE se.section_id = nt.section_id

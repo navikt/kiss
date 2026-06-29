@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { writeAuditLog } from "~/db/queries/audit.server"
 import {
 	archiveMissingEnvironmentAccessPolicyRules,
+	archiveStaleAppEnvironments,
 	createAccessPolicySyncSummaryCollector,
 	getMonitoredAppsForNaisTeam,
 	syncDiscoveredApps,
@@ -149,6 +150,7 @@ export async function syncNaisAppsForTeam(
 
 		for (const [appId, appName] of appsToCleanup) {
 			const seenEnvironmentIds = appSeenEnvironmentIds.get(appId) ?? []
+			await archiveStaleAppEnvironments(appId, naisTeamId, seenEnvironmentIds)
 			await archiveMissingEnvironmentAccessPolicyRules(
 				appId,
 				naisTeamId,
