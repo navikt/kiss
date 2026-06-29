@@ -1,4 +1,6 @@
-FROM node:24-bookworm-slim AS builder
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:24-dev AS builder
+
+USER root
 
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
@@ -17,7 +19,9 @@ RUN pnpm exec tsc server.ts --outDir . --module nodenext --moduleResolution node
 
 
 
-FROM node:24-bookworm-slim AS prod-deps
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:24-dev AS prod-deps
+
+USER root
 
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
