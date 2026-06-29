@@ -1,4 +1,4 @@
-FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:24-dev AS builder
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:26-dev AS builder
 
 USER root
 
@@ -19,7 +19,7 @@ RUN pnpm exec tsc server.ts --outDir . --module nodenext --moduleResolution node
 
 
 
-FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:24-dev AS prod-deps
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:26-dev AS prod-deps
 
 USER root
 
@@ -33,7 +33,7 @@ RUN pnpm install --frozen-lockfile --prod
 
 
 
-FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:24-slim
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:26-slim
 
 WORKDIR /app
 
