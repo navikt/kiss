@@ -3,7 +3,7 @@ import { createReadableStreamFromReadable } from "@react-router/node"
 import { isbot } from "isbot"
 import type { RenderToPipeableStreamOptions } from "react-dom/server"
 import { renderToPipeableStream } from "react-dom/server"
-import type { AppLoadContext, EntryContext } from "react-router"
+import type { EntryContext, RouterContextProvider } from "react-router"
 import { ServerRouter } from "react-router"
 import { runMigrations } from "~/db/migrate.server"
 import { logger } from "~/lib/logger.server"
@@ -53,7 +53,7 @@ export default async function handleRequest(
 	responseStatusCode: number,
 	responseHeaders: Headers,
 	routerContext: EntryContext,
-	_loadContext: AppLoadContext,
+	_loadContext: RouterContextProvider,
 ) {
 	// Block until migrations complete. If they already finished, this resolves immediately.
 	await migrationPromise
