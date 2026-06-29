@@ -40,7 +40,7 @@ Internkontroll-applikasjon for å vise at Nav har kontroll på Software Developm
 
 | Komponent | Valg |
 |-----------|------|
-| Runtime | Node.js 22 LTS |
+| Runtime | Node.js 24 LTS |
 | Framework | React Router 7 (Framework Mode, SSR) |
 | UI | React 19, Aksel designsystem |
 | Språk | TypeScript |
@@ -59,7 +59,7 @@ Internkontroll-applikasjon for å vise at Nav har kontroll på Software Developm
 
 ### Forutsetninger
 
-- Node.js >= 22
+- Node.js >= 24
 - PNPM >= 10
 - PostgreSQL 18 via **én** av:
   - [Docker](https://www.docker.com/) (Docker Compose)

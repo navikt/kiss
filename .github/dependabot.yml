@@ -9,6 +9,10 @@ updates:
       semver-minor-days: 7
       semver-patch-days: 7
     open-pull-requests-limit: 10
+    ignore:
+      # Ikke bump major på Node-avhengigheter, ønsker å manuelt bytte til ny major-versjon når den er i LTS-stadiet
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       aksel:
         applies-to: version-updates
@@ -47,6 +51,13 @@ updates:
       default-days: 7
     labels:
       - dependencies
+    ignore:
+      # Ikke bump major på Node-avhengigheter, ønsker å manuelt bytte til ny major-versjon når den er i LTS-stadiet
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
+      # Ikke bump major på Node-avhengigheter, ønsker å manuelt bytte til ny major-versjon når den er i LTS-stadiet
+      - dependency-name: "europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

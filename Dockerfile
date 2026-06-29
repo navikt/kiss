@@ -1,4 +1,7 @@
-FROM node:22-alpine AS builder
+FROM node:24-bookworm-slim AS builder
+
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
 
 WORKDIR /app
 
@@ -6,20 +9,27 @@ ARG GITHUB_SHA
 ENV GITHUB_SHA=${GITHUB_SHA}
 
 COPY package.json pnpm-lock.yaml ./
-RUN npm install -g pnpm@10.33.0 && pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm build
 RUN pnpm exec tsc server.ts --outDir . --module nodenext --moduleResolution nodenext --target es2022 --esModuleInterop --skipLibCheck --ignoreConfig
 
-FROM node:22-alpine AS prod-deps
+
+
+FROM node:24-bookworm-slim AS prod-deps
+
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
 
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml ./
-RUN npm install -g pnpm@10.33.0 && pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile --prod
 
-FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:22-slim
+
+
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/node:24-slim
 
 WORKDIR /app
 
