@@ -35,7 +35,7 @@
 		}
 	},
 	"files": {
-		"includes": ["app/**", "*.ts", "*.tsx", "*.json", "*.css", "drizzle/meta/_journal.json"]
+		"includes": ["app/**", "*.ts", "*.tsx", "*.json", "*.css", "drizzle/meta/_journal.json", "!landing"]
 	},
 	"overrides": [
 		{
