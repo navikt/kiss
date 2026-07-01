@@ -38,6 +38,10 @@ updates:
         patterns:
           - "@testcontainers/postgresql"
           - 'testcontainers'
+      playwright:
+        patterns:
+          - "playwright"
+          - "@playwright/*"
     labels:
       - dependencies
     commit-message:
