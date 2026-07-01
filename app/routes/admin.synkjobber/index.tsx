@@ -17,11 +17,10 @@ const SYNC_JOB_STATES: Array<{ value: SyncJobState; label: string }> = SYNC_JOB_
 	label: getSyncJobStateLabel(value),
 }))
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request, url }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
-	const url = new URL(request.url)
 	const stateParam = url.searchParams.get("state") || ""
 	const jobTypeParam = url.searchParams.get("jobType") || ""
 	const requestedPage = parsePositiveInt(url.searchParams.get("page"))

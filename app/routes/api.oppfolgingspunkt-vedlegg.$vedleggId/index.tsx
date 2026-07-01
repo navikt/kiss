@@ -7,7 +7,7 @@ import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireReviewReadAccess } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, request, url }: LoaderFunctionArgs) {
 	const user = await requireAuthenticatedUser(request)
 
 	const vedleggId = params.vedleggId
@@ -28,7 +28,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	const storage = getStorageProvider()
 	const fileBuffer = await storage.download(attachment.bucketPath)
 
-	const url = new URL(request.url)
 	const forceDownload = url.searchParams.get("download") === "true"
 	const disposition = forceDownload ? "attachment" : "inline"
 

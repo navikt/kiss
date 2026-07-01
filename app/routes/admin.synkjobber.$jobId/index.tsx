@@ -20,7 +20,7 @@ import { requireAdmin } from "~/lib/authorization.server"
 import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
 import { formatDateTimeOslo, isValidUuid, safeJsonParse } from "~/lib/utils"
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, request, url }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
@@ -33,7 +33,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		throw new Response("Job not found", { status: 404 })
 	}
 
-	const url = new URL(request.url)
 	const actionFilter = parseAuditLogAction(url.searchParams.get("action"))
 	const entityTypeFilter = url.searchParams.get("entityType") || ""
 	const pageSize = 25

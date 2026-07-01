@@ -20,8 +20,7 @@ function groupByDomain<T extends { domainCode: string; domainName: string }>(
 	return [...groups.values()]
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-	const url = new URL(request.url)
+export async function loader({ url }: LoaderFunctionArgs) {
 	const ansvarlig = url.searchParams.get("ansvarlig") ?? ""
 	const teknologielement = url.searchParams.get("teknologielement") ?? ""
 	const frekvens = url.searchParams.get("frekvens") ?? ""
