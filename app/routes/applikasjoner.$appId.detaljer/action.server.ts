@@ -16,7 +16,7 @@ import { canAccessAppReports, isAdmin, requireAppMembership } from "~/lib/author
 import { createDraftReview } from "~/lib/create-draft-review.server"
 import { logger } from "~/lib/logger.server"
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params, url }: ActionFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
@@ -221,7 +221,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			performedBy: authedUser.navIdent,
 		})
 
-		const pathname = new URL(request.url).pathname
+		const pathname = url.pathname
 		const basePath = pathname.replace(/\/detaljer.*$/, "")
 		return redirect(`${basePath}/screening/${session.id}`)
 	}
