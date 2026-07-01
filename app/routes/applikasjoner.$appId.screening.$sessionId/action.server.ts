@@ -55,7 +55,7 @@ const STAGED_INTENTS = new Set([
 	"selectRoutine",
 ])
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params, url }: ActionFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	const appId = params.appId
 	const sessionId = params.sessionId
@@ -146,7 +146,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
 		}
 
 		// Redirect to detaljer page with screeninger tab
-		const url = new URL(request.url)
 		const screeningSegment = `/screening/${sessionId}`
 		const idx = url.pathname.indexOf(screeningSegment)
 		const appBasePath = idx !== -1 ? url.pathname.slice(0, idx) : `/applikasjoner/${appId}`

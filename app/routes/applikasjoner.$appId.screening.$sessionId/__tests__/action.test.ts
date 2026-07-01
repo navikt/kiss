@@ -45,10 +45,23 @@ function makeRequest(formData: FormData, url = "http://localhost/applikasjoner/a
 	return new Request(url, { method: "POST", body: formData })
 }
 
+// React Router v8 leverer en normalisert `url` som søsken-argument til `request`, der
+// .data-suffiks og index/_routes-søkeparametre allerede er fjernet. Simuler det her slik at
+// testene reflekterer den faktiske v8-kontrakten, i stedet for å sende rå request-URL som url.
+function normalizeUrl(rawUrl: string): URL {
+	const normalized = new URL(rawUrl)
+	normalized.pathname = normalized.pathname.replace(/\.data$/, "")
+	normalized.searchParams.delete("index")
+	normalized.searchParams.delete("_routes")
+	return normalized
+}
+
 async function callAction(formData: FormData, params = { appId: "app-1", sessionId: "session-1" }, url?: string) {
+	const rawUrl = url ?? "http://localhost/applikasjoner/app-1/screening/session-1"
 	return action({
-		request: makeRequest(formData, url),
+		request: makeRequest(formData, rawUrl),
 		params,
+		url: normalizeUrl(rawUrl),
 		context: {},
 	} as unknown as Parameters<typeof action>[0])
 }
@@ -251,6 +264,20 @@ describe("screening session action", () => {
 				"http://localhost/mine-team/applikasjoner/app-1/screening/session-1",
 			)) as Response
 			expect(result.headers.get("Location")).toBe("/mine-team/applikasjoner/app-1/detaljer?fane=screeninger")
+		})
+
+		it("redirects without leaking the .data single-fetch suffix", async () => {
+			const fd = new FormData()
+			fd.set("intent", "complete")
+			mockCompleteScreeningSession.mockResolvedValue(undefined)
+			mockSyncApplicationControls.mockResolvedValue(undefined)
+
+			const result = (await callAction(
+				fd,
+				{ appId: "app-1", sessionId: "session-1" },
+				"http://localhost/applikasjoner/app-1/screening/session-1.data",
+			)) as Response
+			expect(result.headers.get("Location")).toBe("/applikasjoner/app-1/detaljer?fane=screeninger")
 		})
 
 		it("returns 400 when completeScreeningSession throws a replay validation error", async () => {

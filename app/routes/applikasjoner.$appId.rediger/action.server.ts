@@ -25,11 +25,10 @@ import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getAuditEvidence, getAuditEvidenceExcel } from "~/lib/oracle-revisjon.server"
 
-export async function action({ params, request }: ActionFunctionArgs) {
+export async function action({ params, request, url }: ActionFunctionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
-	const url = new URL(request.url)
 	const marker = `/applikasjoner/${appId}`
 	const idx = url.pathname.indexOf(marker)
 	const appBase = idx !== -1 ? url.pathname.slice(0, idx + marker.length) : `/applikasjoner/${appId}`
