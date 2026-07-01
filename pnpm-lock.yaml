@@ -57,8 +57,8 @@ importers:
         specifier: ^5.2.1
         version: 5.2.1
       isbot:
-        specifier: ^5.1.43
-        version: 5.1.43
+        specifier: ^5.1.44
+        version: 5.1.44
       isomorphic-dompurify:
         specifier: ^3.18.0
         version: 3.18.0(@noble/hashes@1.8.0)
@@ -3121,8 +3121,8 @@ packages:
   isarray@1.0.0:
     resolution: {integrity: sha512-VLghIWNM6ELQzo7zwmcg0NmTVyWKYjvIeM83yjp0wRDTmUnrM678fQbcKBo6n2CJEF0szoG//ytg+TKla89ALQ==}
 
-  isbot@5.1.43:
-    resolution: {integrity: sha512-drJhFmibra4LO6Wd7D3Oi6UICRK9244vSZkmxzhlZP0TTdwCA2ueK4PEkUkzPYeuqug9+cqqdWPgihjk5+83Cg==}
+  isbot@5.1.44:
+    resolution: {integrity: sha512-PGEHtwMnKbZpeSEXW2Utx+/JWed7dp6DiH0WWg33vGSDA7RUvpUeJSVlLrVkQ1RCpvDOUc/eH9ql7VsdbBZ8pA==}
     engines: {node: '>=18'}
 
   isexe@2.0.0:
@@ -5501,7 +5501,7 @@ snapshots:
       dedent: 1.7.2
       es-module-lexer: 2.2.0
       exit-hook: 5.1.0
-      isbot: 5.1.43
+      isbot: 5.1.44
       jsesc: 3.1.0
       lodash: 4.18.1
       p-map: 7.0.4
@@ -7079,7 +7079,7 @@ snapshots:
 
   isarray@1.0.0: {}
 
-  isbot@5.1.43: {}
+  isbot@5.1.44: {}
 
   isexe@2.0.0: {}
 
