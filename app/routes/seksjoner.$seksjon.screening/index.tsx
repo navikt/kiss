@@ -4,7 +4,6 @@ import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrate
 import { DownloadIcon, PlusIcon } from "@navikt/aksel-icons"
 import { Alert, BodyLong, Button, Chips, Heading, HStack, Modal, VStack } from "@navikt/ds-react"
 import { useEffect, useRef, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useFetcher, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { SortableQuestionCard } from "~/components/screening/SortableQuestionCard"
@@ -24,8 +23,9 @@ import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.serve
 import { hasAnySectionRole, requireAnySectionRole } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { requireUuid } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const user = await getAuthenticatedUser(request)
 
 	const seksjon = params.seksjon
@@ -60,7 +60,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return data({ questions: questionsWithEffects, seksjon, sectionName: section.name, screeningBasePath, canEdit })
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const seksjon = params.seksjon

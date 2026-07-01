@@ -13,7 +13,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useEffect, useRef, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
@@ -49,6 +48,7 @@ import {
 	type RoutineFrequency,
 } from "~/lib/routine-frequencies"
 import type { RoutineFieldErrors } from "~/lib/routine-validation"
+import type { Route } from "./+types/index"
 
 const PREDEFINED_ROLES = [
 	"Seksjonsleder",
@@ -68,7 +68,7 @@ interface PersistenceLinkItem {
 
 type FieldErrors = RoutineFieldErrors
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const { seksjon } = params
@@ -93,7 +93,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const { seksjon } = params

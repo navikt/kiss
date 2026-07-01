@@ -1,6 +1,5 @@
 import { Alert, BodyShort, Button, Detail, Heading, HStack, Label, Select, TextField, VStack } from "@navikt/ds-react"
 import { useEffect, useMemo, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useActionData, useLoaderData, useSearchParams } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
@@ -20,6 +19,7 @@ import { activityTypeLabels, getProviderTypeForActivity } from "~/lib/activity-t
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireReviewAccess } from "~/lib/authorization.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
+import type { Route } from "./+types/index"
 
 function isUniqueViolation(err: unknown): boolean {
 	return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "23505"
@@ -38,7 +38,7 @@ function buildConflictMessage(
 	return "Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."
 }
 
-export async function loader({ params, url }: LoaderFunctionArgs) {
+export async function loader({ params, url }: Route.LoaderArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
@@ -100,7 +100,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
 	return data({ section, routine, apps, oracleInstancesByAppId, hasOracleActivity, loaderConflictError })
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })

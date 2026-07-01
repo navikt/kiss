@@ -13,7 +13,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useRef } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useFetcher, useLoaderData } from "react-router"
 import { ApproveReplaceModal } from "~/components/ApproveReplaceModal"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
@@ -52,6 +51,7 @@ import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.serve
 import { canApproveRoutine, hasAnySectionRole, isAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
+import type { Route } from "./+types/index"
 
 const stepComponentLabels: Record<string, string> = {
 	notater: "Notater",
@@ -75,7 +75,7 @@ function formatDateTime(date: string | Date | null): string {
 	})
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
@@ -168,7 +168,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) throw data({ message: "Mangler parametere" }, { status: 400 })
 

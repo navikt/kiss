@@ -1,5 +1,4 @@
 import { BodyShort, Box, Button, Heading, HStack, ReadMore, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getChoiceEffects, getChoicesForQuestion, getScreeningQuestion } from "~/db/queries/screening.server"
@@ -10,6 +9,7 @@ import { hasAnySectionRole } from "~/lib/authorization.server"
 import { getStatusLabel } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { requireUuid } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
 const answerTypeLabels: Record<string, string> = {
 	boolean: "Ja/Nei",
@@ -20,7 +20,7 @@ const answerTypeLabels: Record<string, string> = {
 	economy_system: "Økonomisystem",
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const user = await getAuthenticatedUser(request)
 
 	const seksjon = params.seksjon

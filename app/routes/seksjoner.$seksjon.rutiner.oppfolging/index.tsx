@@ -1,16 +1,16 @@
 import { BodyShort, Box, Heading, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getFollowUpReviewsForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import type { Route } from "./+types/index"
 
 function formatDate(date: string | Date | null): string {
 	if (!date) return "—"
 	return new Date(date).toLocaleDateString("nb-NO")
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) {
 		throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })

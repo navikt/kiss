@@ -16,7 +16,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useEffect, useRef, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useActionData, useLoaderData } from "react-router"
 import { ApproveReplaceModal } from "~/components/ApproveReplaceModal"
 import { EventFrequencyCombobox } from "~/components/EventFrequencyCombobox"
@@ -68,6 +67,7 @@ import {
 	type RoutineFrequency,
 } from "~/lib/routine-frequencies"
 import type { RoutineFieldErrors } from "~/lib/routine-validation"
+import type { Route } from "./+types/index"
 
 const EDITABLE_STATUSES: RoutineStatus[] = ["draft", "ready"]
 
@@ -89,7 +89,7 @@ interface PersistenceLinkItem {
 
 type FieldErrors = RoutineFieldErrors
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const { seksjon, rutineId } = params
@@ -180,7 +180,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const { seksjon, rutineId } = params

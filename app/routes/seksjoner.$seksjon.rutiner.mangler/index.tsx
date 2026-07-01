@@ -1,6 +1,5 @@
 import { BodyShort, Box, Heading, HStack, Select, Switch, Table, VStack } from "@navikt/ds-react"
 import { Fragment, useMemo, useState } from "react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
@@ -8,6 +7,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
 import { getEconomyClassifications } from "~/db/queries/economy-classification.server"
 import { getSectionBySlug, getSectionIncompleteRoutines, getTeamNamesForApps } from "~/db/queries/sections.server"
+import type { Route } from "./+types/index"
 
 function formatDate(date: string | Date | null): string {
 	if (!date) return "—"
@@ -20,7 +20,7 @@ type SortDirection = "ascending" | "descending"
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) {
 		throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
