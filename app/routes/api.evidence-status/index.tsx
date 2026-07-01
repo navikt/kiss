@@ -1,4 +1,3 @@
-import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getActivityContext } from "~/db/queries/evidence-downloads.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
@@ -7,8 +6,9 @@ import { getEvidenceProvider, isEvidenceProviderType } from "~/lib/evidence-prov
 import { extractProviderParams, validateProviderAccess } from "~/lib/evidence-providers/validation.server"
 import { logger } from "~/lib/logger.server"
 import { isValidUuid } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, url }: LoaderFunctionArgs) {
+export async function loader({ request, url }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const providerType = url.searchParams.get("providerType")

@@ -1,8 +1,8 @@
-import type { LoaderFunctionArgs } from "react-router"
 import { getDocumentById } from "~/db/queries/documents.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const dokumentId = params.dokumentId
 	if (!dokumentId) throw new Response("Mangler dokumentId", { status: 400 })
 

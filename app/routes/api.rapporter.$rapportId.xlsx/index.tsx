@@ -1,5 +1,4 @@
 import { eq } from "drizzle-orm"
-import type { LoaderFunctionArgs } from "react-router"
 import * as XLSX from "xlsx"
 import { db } from "~/db/connection.server"
 import { getReport } from "~/db/queries/reports.server"
@@ -7,6 +6,7 @@ import { sections } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection, isAuditor } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
+import type { Route } from "./+types/index"
 
 interface ReportSnapshot {
 	generatedAt: string
@@ -36,7 +36,7 @@ interface ReportSnapshot {
 
 import { getStatusLabel } from "~/lib/compliance-status"
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, request }: Route.LoaderArgs) {
 	const rapportId = params.rapportId
 	if (!rapportId) throw new Response("Mangler rapport-ID", { status: 400 })
 

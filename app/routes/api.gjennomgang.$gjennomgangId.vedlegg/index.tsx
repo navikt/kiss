@@ -1,13 +1,13 @@
-import type { ActionFunctionArgs } from "react-router"
 import { saveBucketObject } from "~/db/queries/buckets.server"
 import { addReviewAttachment, getReview, getReviewScope } from "~/db/queries/routines.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireReviewAccess } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
+import type { Route } from "./+types/index"
 
 const MAX_SIZE_BYTES = 50 * 1024 * 1024
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const { gjennomgangId } = params
 	if (!gjennomgangId) {
 		return Response.json({ success: false, error: "Mangler gjennomgang-ID" }, { status: 400 })

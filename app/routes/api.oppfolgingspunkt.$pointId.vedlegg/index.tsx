@@ -1,4 +1,3 @@
-import type { ActionFunctionArgs } from "react-router"
 import { getFollowUpPointAttachmentContext } from "~/db/queries/routines.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireReviewAccess } from "~/lib/authorization.server"
@@ -6,8 +5,9 @@ import {
 	FOLLOW_UP_POINT_ATTACHMENT_MAX_SIZE_BYTES,
 	storeFollowUpPointAttachment,
 } from "~/lib/follow-up-point-attachments.server"
+import type { Route } from "./+types/index"
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const { pointId } = params
 	if (!pointId) {
 		return Response.json({ success: false, error: "Mangler oppfølgingspunkt-ID" }, { status: 400 })

@@ -1,12 +1,12 @@
-import type { LoaderFunctionArgs } from "react-router"
 import { getRoutine, getRoutinesForSection } from "~/db/queries/routines.server"
 import { getRulesetDetail, getRulesetsForSection } from "~/db/queries/rulesets.server"
 import { getChoiceEffects, getChoicesForQuestion, getSectionScreeningQuestions } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { getCompositeFrequencyLabel, getFrequencyLabel } from "~/lib/routine-frequencies"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params, url }: LoaderFunctionArgs) {
+export async function loader({ request, params, url }: Route.LoaderArgs) {
 	const user = await getAuthenticatedUser(request)
 	requireUser(user)
 

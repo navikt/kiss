@@ -1,4 +1,3 @@
-import type { LoaderFunctionArgs } from "react-router"
 import { getAppScopeIds } from "~/db/queries/applications.server"
 import { getLatestSnapshot } from "~/db/queries/audit-evidence.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
@@ -6,8 +5,9 @@ import { canAccessAppReports } from "~/lib/authorization.server"
 import { canUserSeeInstance } from "~/lib/oracle-access.server"
 import { getOracleInstances } from "~/lib/oracle-revisjon.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const appId = params.appId

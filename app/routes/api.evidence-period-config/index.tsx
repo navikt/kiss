@@ -7,7 +7,7 @@
  * (periodType + periodStart) on the review activity.
  */
 
-import { type ActionFunctionArgs, data } from "react-router"
+import { data } from "react-router"
 import { getActivityContext } from "~/db/queries/evidence-downloads.server"
 import { savePeriodConfig } from "~/db/queries/routines.server"
 import { isDeploymentEvidenceActivityType } from "~/lib/activity-types"
@@ -15,10 +15,11 @@ import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAnySectionRole } from "~/lib/authorization.server"
 import { isPeriodEnded, isValidPeriodStart, isValidPeriodType, PERIOD_TYPES } from "~/lib/period-validation"
 import { isValidUuid } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
 // ─── Action ─────────────────────────────────────────────────────────────────
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	if (request.method !== "POST") {
 		throw data({ error: "Method not allowed" }, { status: 405 })
 	}

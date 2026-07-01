@@ -1,4 +1,3 @@
-import type { ActionFunctionArgs } from "react-router"
 import { data } from "react-router"
 import {
 	type ActivityContext,
@@ -21,6 +20,7 @@ import {
 } from "~/lib/evidence-providers/validation.server"
 import { logger } from "~/lib/logger.server"
 import { isValidUuid } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
 const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024 // 50 MB
 const VALID_UPLOAD_EXTENSIONS = [".pdf", ".xlsx", ".xls"]
@@ -41,7 +41,7 @@ async function requireWritableActivity(
 	return ctx
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const formData = await request.formData()

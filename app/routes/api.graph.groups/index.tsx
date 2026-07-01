@@ -1,8 +1,8 @@
-import type { LoaderFunctionArgs } from "react-router"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { searchGroups } from "~/lib/graph.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, url }: LoaderFunctionArgs) {
+export async function loader({ request, url }: Route.LoaderArgs) {
 	const user = await getAuthenticatedUser(request)
 	requireUser(user)
 
