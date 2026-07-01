@@ -50,11 +50,10 @@ import { renderMarkdown } from "~/lib/markdown.server"
 import { applyPendingChoices, parsePendingChoices, validateAndAddChoiceEffect } from "~/lib/screening-actions.server"
 import type { PendingChoice, PendingEffectItem } from "~/lib/screening-types"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params, url }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
-	const url = new URL(request.url)
 	const seksjonSlug = url.searchParams.get("seksjon")
 
 	let sectionId: string | null = null

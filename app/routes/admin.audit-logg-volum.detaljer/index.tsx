@@ -27,11 +27,10 @@ interface LoaderData {
 	totalCount: number
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request, url }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
-	const url = new URL(request.url)
 	const action = url.searchParams.get("action")
 	if (!action) throw data({ message: "Mangler action-parameter" }, { status: 400 })
 

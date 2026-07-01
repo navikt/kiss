@@ -8,10 +8,9 @@ import { extractProviderParams, validateProviderAccess } from "~/lib/evidence-pr
 import { logger } from "~/lib/logger.server"
 import { isValidUuid } from "~/lib/utils"
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request, url }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
-	const url = new URL(request.url)
 	const providerType = url.searchParams.get("providerType")
 	const activityId = url.searchParams.get("activityId")
 

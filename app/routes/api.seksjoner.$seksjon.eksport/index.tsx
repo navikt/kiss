@@ -6,7 +6,7 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { getCompositeFrequencyLabel, getFrequencyLabel } from "~/lib/routine-frequencies"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params, url }: LoaderFunctionArgs) {
 	const user = await getAuthenticatedUser(request)
 	requireUser(user)
 
@@ -16,7 +16,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	const section = await getSectionBySlug(seksjon)
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
 
-	const url = new URL(request.url)
 	const type = url.searchParams.get("type")
 
 	if (type === "screening") {

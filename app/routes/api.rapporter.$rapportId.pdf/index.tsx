@@ -40,7 +40,7 @@ interface ReportSnapshot {
 
 import { getStatusLabel } from "~/lib/compliance-status"
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, request, url }: LoaderFunctionArgs) {
 	const rapportId = params.rapportId
 	if (!rapportId) throw new Response("Mangler rapport-ID", { status: 400 })
 
@@ -80,7 +80,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		}
 	}
 
-	const url = new URL(request.url)
 	const forceDownload = url.searchParams.get("download") === "true"
 	const storage = getStorageProvider()
 	const safeName = report.name.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_")

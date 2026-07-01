@@ -39,8 +39,7 @@ function searchScore(name: string, query: string): number {
 	return 100
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-	const url = new URL(request.url)
+export async function loader({ url }: LoaderFunctionArgs) {
 	const query = url.searchParams.get("q")?.trim()
 
 	if (!query || query.length < 2) {

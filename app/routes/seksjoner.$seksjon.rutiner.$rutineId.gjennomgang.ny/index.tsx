@@ -38,7 +38,7 @@ function buildConflictMessage(
 	return "Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."
 }
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, url }: LoaderFunctionArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
@@ -88,7 +88,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	// For seksjonsrutiner er scope alltid null.
 	// For applikasjonsrutiner sjekker vi kun når ?appId= er i URL (preselektert).
 	let loaderConflictError: string | null = null
-	const url = new URL(request.url)
 	const preselectedAppId = url.searchParams.get("appId") ?? null
 	const effectiveAppIdForConflict = routine.isSectionRoutine === 1 ? null : preselectedAppId
 	if (routine.isSectionRoutine === 1 || preselectedAppId) {

@@ -25,11 +25,10 @@ interface LoaderData {
 	period: string
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request, url }: LoaderFunctionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
-	const url = new URL(request.url)
 	const rawPeriod = url.searchParams.get("period") ?? "6h"
 	const period = normalizePeriod(rawPeriod)
 	const interval = periodToInterval(period)

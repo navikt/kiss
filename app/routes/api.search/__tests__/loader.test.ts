@@ -47,9 +47,11 @@ describe("api.search loader", () => {
 	it("delegates application lookups to searchApplications", async () => {
 		mockSearchApplications.mockResolvedValue([])
 
+		const rawUrl = "http://localhost/api/search?q=pensjon"
 		const response = await loader({
-			request: new Request("http://localhost/api/search?q=pensjon"),
+			request: new Request(rawUrl),
 			params: {},
+			url: new URL(rawUrl),
 			context: {},
 		} as unknown as Parameters<typeof loader>[0])
 
