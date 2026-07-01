@@ -12,7 +12,6 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
@@ -29,8 +28,9 @@ import {
 import { getSectionDetail } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
@@ -111,7 +111,7 @@ const matchTypeLabels: Record<string, { label: string; variant: "info" | "succes
 	name_pattern: { label: "Navnemønster", variant: "warning" },
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 

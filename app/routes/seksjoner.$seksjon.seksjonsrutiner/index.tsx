@@ -1,7 +1,6 @@
 import type { SortState } from "@navikt/ds-react"
 import { BodyShort, Button, Heading, HStack, Search, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
@@ -12,8 +11,9 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { hasAnySectionRole, isAdmin, isAuditor } from "~/lib/authorization.server"
 import { getCompositeFrequencyLabel } from "~/lib/routine-frequencies"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) {
 		throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })

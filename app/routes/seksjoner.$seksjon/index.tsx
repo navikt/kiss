@@ -14,7 +14,6 @@ import {
 	Tooltip,
 	VStack,
 } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -27,8 +26,9 @@ import { countSectionRoutinesIncomplete, getSectionDetail } from "~/db/queries/s
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection, canViewSectionReports, isAdmin } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 

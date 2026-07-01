@@ -1,6 +1,5 @@
 import { DownloadIcon } from "@navikt/aksel-icons"
 import { BodyLong, Button, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRulesetsForSection } from "~/db/queries/rulesets.server"
@@ -10,8 +9,9 @@ import { approvalStatusConfig } from "~/lib/approval-status"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { hasAnySectionRole } from "~/lib/authorization.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 

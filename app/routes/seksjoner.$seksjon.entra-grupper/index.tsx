@@ -11,7 +11,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, useFetcher, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { deleteGroupClassification, getSectionGroups, upsertGroupClassification } from "~/db/queries/nais.server"
@@ -25,6 +24,7 @@ import {
 import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection } from "~/lib/authorization.server"
 import { resolveGroupNames } from "~/lib/graph.server"
+import type { Route } from "./+types/index"
 
 const criticalityTagVariant: Record<string, "success" | "warning" | "error" | "neutral"> = {
 	low: "success",
@@ -40,7 +40,7 @@ const classificationTagVariant: Record<string, "info" | "neutral" | "success" | 
 	annet: "warning",
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 
@@ -60,7 +60,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	return data({ section, seksjon, groups, groupNames, notAssessedCount, notClassifiedCount, canEdit })
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const { seksjon } = params
 	if (!seksjon) throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 

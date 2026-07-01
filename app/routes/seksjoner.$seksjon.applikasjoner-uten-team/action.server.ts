@@ -1,12 +1,12 @@
-import type { ActionFunctionArgs } from "react-router"
 import { redirect } from "react-router"
 import { linkAppToTeam } from "~/db/queries/applications.server"
 import { getUnassignedAppsForSection } from "~/db/queries/nais.server"
 import { getSectionDetail, getTeamsForSection } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageTeam } from "~/lib/authorization.server"
+import type { Route } from "./+types/index"
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const seksjon = params.seksjon

@@ -1,12 +1,12 @@
 import type { SortState } from "@navikt/ds-react"
 import { BodyShort, Heading, HStack, Search, Select, Table, Tag, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { economySystemTypeEnum, economySystemTypeLabels } from "~/db/schema/applications"
+import type { Route } from "./+types/index"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const seksjonSlug = params.seksjon
 	if (!seksjonSlug) throw new Response("Mangler seksjon", { status: 400 })
 

@@ -15,7 +15,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useRef } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
 import { LeggTilMedlemModal } from "~/components/LeggTilMedlemModal"
@@ -40,13 +39,14 @@ import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection, canManageTeam } from "~/lib/authorization.server"
 import { getUserByNavIdent } from "~/lib/graph.server"
 import { requireUuid } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
 /** Roller som teamledere (produktleder/tech lead) kan administrere på eget team. */
 const TEAM_MANAGEABLE_ROLES: UserRole[] = ["developer"]
 /** Roller som seksjonsledere, teknologiledere og admin kan administrere. */
 const ELEVATED_ROLES: UserRole[] = ["product_owner", "tech_lead"]
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const seksjon = params.seksjon
 	const team = params.team
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
@@ -93,7 +93,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const seksjon = params.seksjon
