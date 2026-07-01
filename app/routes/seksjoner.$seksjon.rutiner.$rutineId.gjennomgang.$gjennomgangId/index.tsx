@@ -1,6 +1,5 @@
 import { Alert, BodyLong, BodyShort, Box, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
 import { useCallback, useMemo } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
@@ -49,6 +48,7 @@ import type { ComponentConfig } from "~/lib/manual-activity-staged-data"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { parseOracleRoleCriticalitySnapshot, parseOracleRoleCriticalityStagedData } from "~/lib/oracle-role-staged-data"
 import { parseParticipantsFormValue } from "~/lib/participants"
+import type { Route } from "./+types/index"
 import { EntraMaintenanceSection, type EntraStagedGroupsProp } from "./components/activities/EntraMaintenanceSection"
 import {
 	type OracleRoleCriticalityData,
@@ -211,7 +211,7 @@ function getCompletedEntraGroupsData(snapshot: unknown): EntraStagedGroupsProp |
 	}
 }
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, request }: Route.LoaderArgs) {
 	const { seksjon, rutineId, gjennomgangId } = params
 	if (!seksjon || !rutineId || !gjennomgangId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
@@ -724,7 +724,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const { gjennomgangId } = params
 	if (!gjennomgangId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })

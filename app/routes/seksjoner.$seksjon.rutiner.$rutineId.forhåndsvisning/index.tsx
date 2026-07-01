@@ -1,6 +1,5 @@
 import { BodyShort, VStack } from "@navikt/ds-react"
 import { useCallback, useMemo } from "react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData, useSearchParams } from "react-router"
 import type { NdaEvidenceDataProp } from "~/components/evidence/DeploymentEvidenceSection"
 import { EvidenceSection } from "~/components/evidence/EvidenceSection"
@@ -44,6 +43,7 @@ import {
 	parseActivityStepId,
 	parseActivityStepIndex,
 } from "../seksjoner.$seksjon.rutiner.$rutineId.gjennomgang.$gjennomgangId/components/shared"
+import type { Route } from "./+types/index"
 
 // ─── Mock data for dynamic activity types ─────────────────────────────────────
 
@@ -267,7 +267,7 @@ const MOCK_FOLLOW_UP_POINTS = [
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })

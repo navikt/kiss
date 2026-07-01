@@ -1,4 +1,3 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, redirect } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls } from "~/db/queries/framework.server"
@@ -29,8 +28,9 @@ import { requireAnySectionRole } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { applyPendingChoices, parsePendingChoices, validateAndAddChoiceEffect } from "~/lib/screening-actions.server"
 import { requireUuid } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const seksjon = params.seksjon
@@ -131,7 +131,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const seksjon = params.seksjon

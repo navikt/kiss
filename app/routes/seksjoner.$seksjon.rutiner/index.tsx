@@ -15,7 +15,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
@@ -32,8 +31,9 @@ import {
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { hasAnySectionRole } from "~/lib/authorization.server"
 import { frequencyLabels, getCompositeFrequencyLabel, type RoutineFrequency } from "~/lib/routine-frequencies"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) {
 		throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
