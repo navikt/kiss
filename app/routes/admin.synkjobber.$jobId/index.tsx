@@ -1,5 +1,4 @@
 import { BodyLong, Button, Heading, HGrid, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import {
 	getAuditLogCountForSyncJob,
@@ -19,8 +18,9 @@ import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getSyncJobStateLabel, getSyncJobStateTagVariant } from "~/lib/sync-job-state-tags"
 import { formatDateTimeOslo, isValidUuid, safeJsonParse } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
-export async function loader({ params, request, url }: LoaderFunctionArgs) {
+export async function loader({ params, request, url }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 

@@ -1,6 +1,5 @@
 import { Alert, BodyLong, Button, Heading, HStack, Modal, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { OpprettSeksjonModal } from "~/components/OpprettSeksjonModal"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -14,6 +13,7 @@ import {
 } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import type { Route } from "./+types/index"
 
 interface SectionWithTeams {
 	id: string
@@ -30,7 +30,7 @@ interface SectionWithTeams {
 	}[]
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
@@ -62,7 +62,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 	const userId = authedUser.navIdent

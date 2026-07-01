@@ -1,4 +1,3 @@
-import type { ActionFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { saveBucketObject } from "~/db/queries/buckets.server"
 import {
@@ -18,6 +17,7 @@ import {
 	summarizeFramework,
 } from "~/lib/excel-parser.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
+import type { Route } from "./+types/index"
 import { type ActionResult, MAX_SIZE, MAX_SIZE_MB, type SerializedControl } from "./shared"
 
 function serializeControls(rows: Iterable<ParsedFrameworkRow>): SerializedControl[] {
@@ -60,7 +60,7 @@ async function loadPreviousParsed(): Promise<ParsedFramework | undefined> {
 
 const TOO_LARGE_ERROR = `Lagret fil er større enn ${MAX_SIZE_MB} MB. Kontakt en administrator.`
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 	const userName = authedUser.navIdent

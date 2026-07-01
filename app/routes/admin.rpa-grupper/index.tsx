@@ -16,15 +16,7 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useCallback, useEffect, useRef, useState } from "react"
-import {
-	type ActionFunctionArgs,
-	data,
-	Link,
-	type LoaderFunctionArgs,
-	useFetcher,
-	useLoaderData,
-	useRevalidator,
-} from "react-router"
+import { data, Link, useFetcher, useLoaderData, useRevalidator } from "react-router"
 import { getAuditLogByAction } from "~/db/queries/audit.server"
 import {
 	addRpaGroup,
@@ -45,8 +37,9 @@ import {
 	markRpaSyncJobSkipped,
 } from "~/lib/rpa-sync-jobs.server"
 import { formatDateTimeOslo } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
@@ -76,7 +69,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	return { groups: groupsWithStats, auditLog, members }
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
