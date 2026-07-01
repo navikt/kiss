@@ -1,13 +1,13 @@
 import { Alert, BodyLong, Button, Heading, HStack, Tag, VStack } from "@navikt/ds-react"
 import { sql } from "drizzle-orm"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, useFetcher, useLoaderData } from "react-router"
 import { db } from "~/db/connection.server"
 import { syncAllApplicationControls } from "~/db/queries/application-controls.server"
 import { migrateExistingReplacementChains } from "~/db/queries/routines.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
-export async function loader({ request }: LoaderFunctionArgs) {
+import type { Route } from "./+types/index"
+export async function loader({ request }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
@@ -36,7 +36,7 @@ async function getApplicationControlStats() {
 	}
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 

@@ -15,7 +15,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useLoaderData } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -49,8 +48,9 @@ import { getStatusLabel } from "~/lib/compliance-status"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { applyPendingChoices, parsePendingChoices, validateAndAddChoiceEffect } from "~/lib/screening-actions.server"
 import type { PendingChoice, PendingEffectItem } from "~/lib/screening-types"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params, url }: LoaderFunctionArgs) {
+export async function loader({ request, params, url }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
@@ -154,7 +154,7 @@ export async function loader({ request, params, url }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 

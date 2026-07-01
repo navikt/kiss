@@ -12,7 +12,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
@@ -25,6 +24,7 @@ import {
 } from "~/db/queries/technology-elements.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
+import type { Route } from "./+types/index"
 
 interface ElementRow {
 	id: string
@@ -37,7 +37,7 @@ interface ElementRow {
 	archivedAt: string | null
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	if (!isAdmin(authedUser)) {
 		throw new Response("Ikke tilgang", { status: 403 })
@@ -65,7 +65,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	if (!isAdmin(authedUser)) return data<ActionResult>({ success: false, error: "Ikke tilgang" }, { status: 403 })
 	const userId = authedUser.navIdent

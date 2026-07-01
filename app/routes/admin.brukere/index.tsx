@@ -15,7 +15,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllTeams } from "~/db/queries/applications.server"
@@ -24,8 +23,9 @@ import { assignRole, listUsersWithRoles, removeRole, type UserWithRoles } from "
 import { roleScopeMap, type UserRole, userRoleEnum, userRoleLabels } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
@@ -40,7 +40,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 

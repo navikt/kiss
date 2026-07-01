@@ -1,5 +1,4 @@
 import { BodyLong, Button, Detail, Heading, HStack, Select, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import { countSyncJobSummaries, listSyncJobSummaries } from "~/db/queries/sync-jobs.server"
 import type { SyncJobState } from "~/db/schema/sync-jobs"
@@ -9,6 +8,7 @@ import { getSyncJobStateLabel, getSyncJobStateTagVariant, SYNC_JOB_STATE_VALUES 
 import { ALL_SYNC_JOB_TYPES } from "~/lib/sync-job-types"
 import { CYCLE_INTERVAL_MS } from "~/lib/unified-scheduler.server"
 import { formatDateTimeOslo } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
 const PAGE_SIZE = 25
 
@@ -17,7 +17,7 @@ const SYNC_JOB_STATES: Array<{ value: SyncJobState; label: string }> = SYNC_JOB_
 	label: getSyncJobStateLabel(value),
 }))
 
-export async function loader({ request, url }: LoaderFunctionArgs) {
+export async function loader({ request, url }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 

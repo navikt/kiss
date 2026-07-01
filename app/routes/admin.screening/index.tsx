@@ -4,7 +4,6 @@ import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrate
 import { DownloadIcon, PlusIcon } from "@navikt/aksel-icons"
 import { Alert, BodyLong, Button, Heading, HStack, Modal, VStack } from "@navikt/ds-react"
 import { useEffect, useRef, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useFetcher, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { SortableQuestionCard } from "~/components/screening/SortableQuestionCard"
@@ -21,8 +20,9 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, url }: LoaderFunctionArgs) {
+export async function loader({ request, url }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
@@ -68,7 +68,7 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 

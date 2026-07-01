@@ -1,11 +1,11 @@
 import { BodyLong, Link as DsLink, Heading, Select, Table, Tag, VStack } from "@navikt/ds-react"
 import { sql } from "drizzle-orm"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData, useSearchParams } from "react-router"
 import { db } from "~/db/connection.server"
 import { normalizePeriod, periodToInterval } from "~/lib/audit-log-periods"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import type { Route } from "./+types/index"
 
 interface VolumeByAction {
 	action: string
@@ -25,7 +25,7 @@ interface LoaderData {
 	period: string
 }
 
-export async function loader({ request, url }: LoaderFunctionArgs) {
+export async function loader({ request, url }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 

@@ -1,10 +1,10 @@
 import { BodyLong, Heading, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { Link } from "react-router"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 	return null
