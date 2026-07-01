@@ -1,13 +1,13 @@
 import { BodyLong, Detail, Heading, HStack, Search, type SortState, Table, Tag, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRpaUsersForSection, type RpaUserForSection } from "~/db/queries/rpa.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { formatDateTimeOslo } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 

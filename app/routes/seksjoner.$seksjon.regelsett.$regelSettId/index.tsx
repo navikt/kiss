@@ -13,7 +13,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { Fragment, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
@@ -31,8 +30,9 @@ import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.serve
 import { hasAnySectionRole, hasExactRoleForSection, isAdmin, requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon, regelSettId } = params
 	if (!seksjon || !regelSettId) throw data({ message: "Mangler parametere" }, { status: 400 })
 
@@ -88,7 +88,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const { seksjon, regelSettId } = params
 	if (!seksjon || !regelSettId) throw data({ message: "Mangler parametere" }, { status: 400 })
 

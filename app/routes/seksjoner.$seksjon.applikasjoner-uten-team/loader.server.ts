@@ -1,11 +1,11 @@
-import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getUnassignedAppsForSection } from "~/db/queries/nais.server"
 import { getSectionDetail, getTeamsForSection } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageTeam } from "~/lib/authorization.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 
 	const seksjon = params.seksjon

@@ -1,5 +1,4 @@
 import { Alert, BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, Tag, VStack } from "@navikt/ds-react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
@@ -13,8 +12,9 @@ import { userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageTeam } from "~/lib/authorization.server"
 import { compliancePercent } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const seksjon = params.seksjon
 	const teamSlug = params.team
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
@@ -83,7 +83,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	const teamSlug = params.team
 	const seksjon = params.seksjon

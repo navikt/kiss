@@ -1,11 +1,11 @@
 import { BodyShort, Heading, type SortState, Table, Tag, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionOracleRoles } from "~/db/queries/oracle-roles.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { type GroupCriticality, groupCriticalityLabels } from "~/db/schema/applications"
+import type { Route } from "./+types/index"
 
 const criticalityTagVariant: Record<string, "success" | "warning" | "error" | "neutral"> = {
 	low: "success",
@@ -16,7 +16,7 @@ const criticalityTagVariant: Record<string, "success" | "warning" | "error" | "n
 
 const criticalityOrder: Record<string, number> = { very_high: 0, high: 1, medium: 2, low: 3 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 

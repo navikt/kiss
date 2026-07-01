@@ -16,7 +16,6 @@ import {
 } from "@navikt/ds-react"
 import { and, inArray, isNull } from "drizzle-orm"
 import { useEffect, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, useActionData, useLoaderData, useNavigation, useRevalidator, useSubmit } from "react-router"
 import { db } from "~/db/connection.server"
 import { getEconomyClassifications } from "~/db/queries/economy-classification.server"
@@ -26,8 +25,9 @@ import { type EconomySystemType, economySystemTypeLabels, monitoredApplications 
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection, requireSectionReportAccess } from "~/lib/authorization.server"
 import { startSectionBatchReport } from "~/lib/section-report-jobs.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params, request }: Route.LoaderArgs) {
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 
@@ -78,7 +78,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ params, request }: ActionFunctionArgs) {
+export async function action({ params, request }: Route.ActionArgs) {
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 

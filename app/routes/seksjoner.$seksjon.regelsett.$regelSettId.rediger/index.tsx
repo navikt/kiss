@@ -13,7 +13,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { Fragment, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useActionData, useLoaderData } from "react-router"
 import { MarkdownEditor } from "~/components/MarkdownEditor"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -38,6 +37,7 @@ import {
 	ROUTINE_FREQUENCIES,
 	type RoutineFrequency,
 } from "~/lib/routine-frequencies"
+import type { Route } from "./+types/index"
 
 const assignableRoles: UserRole[] = [
 	"section_manager",
@@ -48,7 +48,7 @@ const assignableRoles: UserRole[] = [
 	"system_owner",
 ]
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon, regelSettId } = params
 	if (!seksjon || !regelSettId) throw data({ message: "Mangler parametere" }, { status: 400 })
 
@@ -80,7 +80,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const { seksjon, regelSettId } = params
 	if (!seksjon || !regelSettId) throw data({ message: "Mangler parametere" }, { status: 400 })
 

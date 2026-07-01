@@ -1,6 +1,5 @@
 import { Alert, BodyShort, Box, Button, Heading, HStack, Select, Table, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
@@ -9,10 +8,11 @@ import { RoutineStatusTag } from "~/components/RoutineStatusTag"
 import { getSectionBySlug, getSections, getTeamBySlug, getTeamIncompleteRoutines } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { createDraftReview } from "~/lib/create-draft-review.server"
+import type { Route } from "./+types/index"
 
 export { RouteErrorBoundary as ErrorBoundary }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const seksjon = params.seksjon
 	const teamSlug = params.team
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
@@ -59,7 +59,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const seksjon = params.seksjon
 	const teamSlug = params.team
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })

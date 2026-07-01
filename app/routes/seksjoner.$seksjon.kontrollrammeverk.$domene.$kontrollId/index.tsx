@@ -1,6 +1,5 @@
 import { PencilIcon } from "@navikt/aksel-icons"
 import { Button, Detail, Heading, HStack, Label, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -16,6 +15,7 @@ import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
 import { cronFrequencyLabels } from "~/lib/frequency-mapping"
 import { renderMarkdown } from "~/lib/markdown.server"
+import type { Route } from "./+types/index"
 
 const fieldConfig = [
 	{ key: "requirement", label: "Krav" },
@@ -34,7 +34,7 @@ const routineStatusConfig: Record<string, { label: string; variant: "success" | 
 	archived: { label: "Arkivert", variant: "warning" },
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const seksjon = params.seksjon
 	const domene = params.domene?.toUpperCase()
 	const kontrollId = params.kontrollId?.toUpperCase()

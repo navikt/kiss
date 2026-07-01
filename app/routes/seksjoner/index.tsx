@@ -1,14 +1,14 @@
 import { BodyLong, Button, Heading, HGrid, HStack, VStack } from "@navikt/ds-react"
 import { useState } from "react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { OpprettSeksjonModal } from "~/components/OpprettSeksjonModal"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSections } from "~/db/queries/sections.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { isAdmin } from "~/lib/authorization.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	const user = await getAuthenticatedUser(request)
 	const sections = await getSections()
 	return data({ sections, canCreateSection: user !== null && isAdmin(user) })
