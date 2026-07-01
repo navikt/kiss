@@ -104,7 +104,7 @@ describe("applikasjoner.$appId.detaljer action – team linking", () => {
 
 		const rawUrl = "http://localhost/applikasjoner/app-1/rediger.data"
 		const result = (await action({
-			request: new Request(rawUrl, { method: "POST", body: formData }),
+			request: makeRequest(formData, rawUrl),
 			params: { appId: "app-1" },
 			url: normalizeUrl(rawUrl),
 			context: {},
