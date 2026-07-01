@@ -1,4 +1,3 @@
-import type { ActionFunctionArgs } from "react-router"
 import { data, redirect } from "react-router"
 import { getRulesetById } from "~/db/queries/rulesets.server"
 import {
@@ -18,6 +17,7 @@ import {
 	ScreeningReplayError,
 	ScreeningValidationError,
 } from "~/lib/screening-errors"
+import type { Route } from "./+types/index"
 
 /**
  * Registry of staged intents that map to a screening question step.
@@ -55,7 +55,7 @@ const STAGED_INTENTS = new Set([
 	"selectRoutine",
 ])
 
-export async function action({ request, params, url }: ActionFunctionArgs) {
+export async function action({ request, params, url }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	const appId = params.appId
 	const sessionId = params.sessionId

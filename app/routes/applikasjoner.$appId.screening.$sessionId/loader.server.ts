@@ -1,4 +1,3 @@
-import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getApplicationDetail, getGroupAssessmentsForApp, getManualGroupsForApp } from "~/db/queries/nais.server"
 import { getRulesetsForSection } from "~/db/queries/rulesets.server"
@@ -7,8 +6,9 @@ import { getScreeningSession, getStagedOperations } from "~/db/queries/screening
 import type { DataClassification, PersistenceType } from "~/db/schema/applications"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { renderMarkdown } from "~/lib/markdown.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const appId = params.appId
 	const sessionId = params.sessionId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })

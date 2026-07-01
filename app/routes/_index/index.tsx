@@ -1,9 +1,9 @@
-import type { LoaderFunctionArgs } from "react-router"
 import { redirect } from "react-router"
 import { getUserLandingPage, getUserRoles } from "~/db/queries/users.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	const user = await getAuthenticatedUser(request)
 	if (!user) return redirect("/dashboard")
 

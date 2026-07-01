@@ -13,7 +13,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useEffect, useRef, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router"
 import { AutoUploadDropzone } from "~/components/AutoUploadDropzone"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -21,6 +20,7 @@ import { saveBucketObject } from "~/db/queries/buckets.server"
 import { archiveDocument, createDocument, getAllDocuments, unarchiveDocument } from "~/db/queries/documents.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
+import type { Route } from "./+types/index"
 
 export { RouteErrorBoundary as ErrorBoundary }
 
@@ -38,7 +38,7 @@ interface DocumentRow {
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	await requireAuthenticatedUser(request)
 	const docs = await getAllDocuments({ includeArchived: true })
 
@@ -54,7 +54,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 const MAX_SIZE_MB = 50
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const user = await requireAuthenticatedUser(request)
 	const formData = await request.formData()
 	const intent = formData.get("intent")

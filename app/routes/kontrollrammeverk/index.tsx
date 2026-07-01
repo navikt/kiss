@@ -1,8 +1,8 @@
 import { BodyLong, BodyShort, Heading, HStack, Select, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControls, getAllRisks } from "~/db/queries/framework.server"
+import type { Route } from "./+types/index"
 
 /** Group items by their domainName, merging domains with same name. */
 function groupByDomain<T extends { domainCode: string; domainName: string }>(
@@ -20,7 +20,7 @@ function groupByDomain<T extends { domainCode: string; domainName: string }>(
 	return [...groups.values()]
 }
 
-export async function loader({ url }: LoaderFunctionArgs) {
+export async function loader({ url }: Route.LoaderArgs) {
 	const ansvarlig = url.searchParams.get("ansvarlig") ?? ""
 	const teknologielement = url.searchParams.get("teknologielement") ?? ""
 	const frekvens = url.searchParams.get("frekvens") ?? ""

@@ -1,5 +1,4 @@
 import { BodyLong, BodyShort, Box, Detail, Heading, HGrid, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, redirect, useLoaderData } from "react-router"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -8,8 +7,9 @@ import { getAppsForMultipleTeams } from "~/db/queries/sections.server"
 import { getUserRoles } from "~/db/queries/users.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { compliancePercent } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	const user = await getAuthenticatedUser(request)
 	if (!user) throw redirect("/dashboard")
 

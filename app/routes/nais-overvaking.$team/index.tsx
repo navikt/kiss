@@ -1,9 +1,9 @@
 import { Alert, BodyLong, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getNaisTeamDetail } from "~/db/queries/nais.server"
 import { fetchNaisApps, getNaisToken } from "~/lib/nais.server"
+import type { Route } from "./+types/index"
 
 const persistenceLabels: Record<string, string> = {
 	cloud_sql_postgres: "PostgreSQL",
@@ -27,7 +27,7 @@ const statusVariant: Record<string, "success" | "warning" | "neutral"> = {
 	ignored: "neutral",
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const teamSlug = params.team
 	if (!teamSlug) throw new Response("Mangler team-slug", { status: 400 })
 

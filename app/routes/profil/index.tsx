@@ -12,15 +12,15 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getUserLandingPage, getUserRoles, setUserLandingPage } from "~/db/queries/users.server"
 import type { LandingPage } from "~/db/schema/organization"
 import { landingPageEnum, landingPageLabels, userRoleLabels } from "~/db/schema/organization"
 import { getAuthenticatedUser } from "~/lib/auth.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	const user = await getAuthenticatedUser(request)
 	if (!user) throw redirect("/dashboard")
 
@@ -41,7 +41,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const user = await getAuthenticatedUser(request)
 	if (!user) throw redirect("/dashboard")
 

@@ -1,7 +1,6 @@
 import { PencilIcon } from "@navikt/aksel-icons"
 import { BodyShort, Button, Detail, Heading, HStack, Select, TextField, VStack } from "@navikt/ds-react"
 import { useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
@@ -12,8 +11,9 @@ import {
 } from "~/db/queries/framework.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { renderMarkdown } from "~/lib/markdown.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const risikoId = params.risikoId?.toUpperCase()
 	if (!risikoId) throw new Response("Mangler risiko-ID", { status: 400 })
 
@@ -27,7 +27,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const userName = user?.navIdent ?? "system"
 	const risikoId = params.risikoId?.toUpperCase()

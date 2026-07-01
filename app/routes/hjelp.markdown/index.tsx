@@ -1,8 +1,8 @@
 import { BodyLong, Box, Heading, Table, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { renderMarkdown } from "~/lib/markdown.server"
+import type { Route } from "./+types/index"
 
 const examples = [
 	{ markdown: "**Fet tekst**", description: "Fet skrift" },
@@ -24,7 +24,7 @@ const examples = [
 	{ markdown: "> Et sitat", description: "Blokkitat" },
 ]
 
-export async function loader(_args: LoaderFunctionArgs) {
+export async function loader(_args: Route.LoaderArgs) {
 	const rendered = examples.map((e) => ({
 		...e,
 		html: renderMarkdown(e.markdown),

@@ -14,7 +14,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useActionData, useLoaderData, useNavigation } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
@@ -29,8 +28,9 @@ import { getSections } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { getNaisToken } from "~/lib/nais.server"
 import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
+import type { Route } from "./+types/index"
 
-export async function loader(_args: LoaderFunctionArgs) {
+export async function loader(_args: Route.LoaderArgs) {
 	const [teams, appCounts, lastSync, allSectionsIncludingArchived] = await Promise.all([
 		getNaisTeams(),
 		getNaisTeamAppCounts(),
@@ -60,7 +60,7 @@ export async function loader(_args: LoaderFunctionArgs) {
 	})
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	const formData = await request.formData()
 	const intent = formData.get("intent")

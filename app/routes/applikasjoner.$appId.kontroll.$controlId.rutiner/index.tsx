@@ -1,11 +1,11 @@
 import { BodyShort, Box, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getApplicationDetail } from "~/db/queries/nais.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
 import { useAppBasePath } from "~/hooks/useAppBasePath"
+import type { Route } from "./+types/index"
 
 function formatDate(date: string | Date | null): string {
 	if (!date) return "—"
@@ -22,7 +22,7 @@ const matchSourceLabels: Record<string, string> = {
 	ruleset: "Regelsett",
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const { appId, controlId } = params
 	if (!appId || !controlId) throw data({ message: "Mangler parametere" }, { status: 400 })
 

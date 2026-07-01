@@ -1,4 +1,3 @@
-import type { ActionFunctionArgs } from "react-router"
 import { data, redirect } from "react-router"
 import { getAppScopeIds } from "~/db/queries/applications.server"
 import {
@@ -15,8 +14,9 @@ import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canAccessAppReports, isAdmin, requireAppMembership } from "~/lib/authorization.server"
 import { createDraftReview } from "~/lib/create-draft-review.server"
 import { logger } from "~/lib/logger.server"
+import type { Route } from "./+types/index"
 
-export async function action({ request, params, url }: ActionFunctionArgs) {
+export async function action({ request, params, url }: Route.ActionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 

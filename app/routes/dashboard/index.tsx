@@ -1,11 +1,11 @@
 import { BodyLong, BodyShort, Box, Detail, Heading, HGrid, VStack } from "@navikt/ds-react"
-import type { LoaderFunctionArgs } from "react-router"
 import { data, Link, useLoaderData } from "react-router"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getDomainSummaries } from "~/db/queries/framework.server"
 import { compliancePercent } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
 interface DomainStatus {
 	code: string
@@ -19,7 +19,7 @@ interface DomainStatus {
 	controlsWithGaps: number
 }
 
-export async function loader(_args: LoaderFunctionArgs) {
+export async function loader(_args: Route.LoaderArgs) {
 	const [summaries, deploymentStats] = await Promise.all([getDomainSummaries(), getDeploymentVerificationAggregate()])
 
 	// Merge domains with the same name

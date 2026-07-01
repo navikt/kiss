@@ -14,7 +14,6 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, redirect, useActionData, useLoaderData, useNavigation } from "react-router"
 import { MarkdownHint } from "~/components/MarkdownHint"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -39,6 +38,7 @@ import {
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getStatusLabel, getStatusVariant, statusLabels } from "~/lib/compliance-status"
+import type { Route } from "./+types/index"
 
 const fieldConfig = [
 	{ key: "requirement", label: "Krav", multiline: true },
@@ -74,7 +74,7 @@ const textFrequencySuggestions = [
 	"Risikobasert",
 ] as const
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const domene = params.domene?.toUpperCase()
 	const kontrollId = params.kontrollId?.toUpperCase()
 
@@ -102,7 +102,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
 type ActionResult = { success: true; message: string } | { success: false; error: string }
 
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params }: Route.ActionArgs) {
 	const authedUser = await requireAuthenticatedUser(request)
 	requireAdmin(authedUser)
 
