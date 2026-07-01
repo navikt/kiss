@@ -12,14 +12,14 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { useState } from "react"
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 import { data, Form, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getDomainDetail, updateControlShortTitle, updateRiskShortTitle } from "~/db/queries/framework.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { compliancePercent } from "~/lib/utils"
+import type { Route } from "./+types/index"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const domainCode = params.domene?.toUpperCase()
 	if (!domainCode) throw new Response("Mangler domene", { status: 400 })
 
@@ -31,7 +31,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 	return data({ domain })
 }
 
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const user = await getAuthenticatedUser(request)
 	const userName = user?.navIdent ?? "system"
 	const formData = await request.formData()

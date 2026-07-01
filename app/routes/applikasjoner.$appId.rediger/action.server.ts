@@ -1,4 +1,3 @@
-import type { ActionFunctionArgs } from "react-router"
 import { redirect } from "react-router"
 import { linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
 import {
@@ -24,8 +23,9 @@ import {
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { getAuditEvidence, getAuditEvidenceExcel } from "~/lib/oracle-revisjon.server"
+import type { Route } from "./+types/index"
 
-export async function action({ params, request, url }: ActionFunctionArgs) {
+export async function action({ params, request, url }: Route.ActionArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 

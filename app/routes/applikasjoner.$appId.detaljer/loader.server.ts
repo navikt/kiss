@@ -1,4 +1,3 @@
-import type { LoaderFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getActiveApplicationControls } from "~/db/queries/application-controls.server"
 import { getAppAssessments, getAppScopeIds } from "~/db/queries/applications.server"
@@ -37,8 +36,16 @@ import { resolveGroupNames } from "~/lib/graph.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
 import { getOracleInstances } from "~/lib/oracle-revisjon.server"
 import { computeRoutineComplianceCounts } from "~/lib/routine-compliance"
+import type { Route } from "./+types/index"
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+type LoaderArgs = Route.LoaderArgs & {
+	params: Route.LoaderArgs["params"] & {
+		seksjon?: string
+		team?: string
+	}
+}
+
+export async function loader({ request, params }: LoaderArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 
