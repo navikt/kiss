@@ -1,13 +1,13 @@
 import { eq } from "drizzle-orm"
-import type { LoaderFunctionArgs } from "react-router"
 import { db } from "~/db/connection.server"
 import { getFollowUpPointAttachmentContext } from "~/db/queries/routines.server"
 import { routineReviewFollowUpPointAttachments } from "~/db/schema"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireReviewReadAccess } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ params, request, url }: LoaderFunctionArgs) {
+export async function loader({ params, request, url }: Route.LoaderArgs) {
 	const user = await requireAuthenticatedUser(request)
 
 	const vedleggId = params.vedleggId

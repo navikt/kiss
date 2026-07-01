@@ -1,6 +1,5 @@
 import JSZip from "jszip"
 import PDFDocument from "pdfkit"
-import type { LoaderFunctionArgs } from "react-router"
 import { enrichAppAssessments } from "~/db/queries/app-assessment-enrichment.server"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getAuditEvidenceForReport } from "~/db/queries/audit-evidence.server"
@@ -11,8 +10,9 @@ import { isOracleEvidenceActivityType } from "~/lib/activity-types"
 import { getStatusLabel } from "~/lib/compliance-status"
 import { getCompositeFrequencyLabel } from "~/lib/routine-frequencies"
 import { getStorageProvider } from "~/lib/storage/index.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 

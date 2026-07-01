@@ -1,8 +1,8 @@
-import type { LoaderFunctionArgs } from "react-router"
 import { getChoiceEffects, getChoicesForQuestion, getScreeningQuestions } from "~/db/queries/screening.server"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
 	const user = await getAuthenticatedUser(request)
 	requireUser(user)
 

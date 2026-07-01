@@ -1,5 +1,4 @@
 import { and, eq, ilike, inArray, isNull, or } from "drizzle-orm"
-import type { LoaderFunctionArgs } from "react-router"
 import { db } from "~/db/connection.server"
 import { searchApplications } from "~/db/queries/applications.server"
 import { getControlDomainMap } from "~/db/queries/framework.server"
@@ -12,6 +11,7 @@ import {
 	naisTeams,
 	sections,
 } from "~/db/schema"
+import type { Route } from "./+types/index"
 
 interface SearchResult {
 	type: "application" | "team" | "section" | "risk" | "control"
@@ -39,7 +39,7 @@ function searchScore(name: string, query: string): number {
 	return 100
 }
 
-export async function loader({ url }: LoaderFunctionArgs) {
+export async function loader({ url }: Route.LoaderArgs) {
 	const query = url.searchParams.get("q")?.trim()
 
 	if (!query || query.length < 2) {

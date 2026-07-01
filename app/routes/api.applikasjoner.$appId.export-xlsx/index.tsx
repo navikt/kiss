@@ -1,11 +1,11 @@
-import type { LoaderFunctionArgs } from "react-router"
 import * as XLSX from "xlsx"
 import { getAppAssessments } from "~/db/queries/applications.server"
 import { getActiveFrameworkVersion } from "~/db/queries/framework.server"
 import { getStatusLabel } from "~/lib/compliance-status"
 import { getStorageProvider } from "~/lib/storage/index.server"
+import type { Route } from "./+types/index"
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params }: Route.LoaderArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
 

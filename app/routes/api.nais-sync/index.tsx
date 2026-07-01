@@ -1,11 +1,11 @@
-import type { ActionFunctionArgs } from "react-router"
 import { data } from "react-router"
 import { getAuthenticatedUser, requireUser } from "~/lib/auth.server"
 import { getNaisToken } from "~/lib/nais.server"
 import { runTrackedNaisSync } from "~/lib/nais-sync-jobs.server"
+import type { Route } from "./+types/index"
 
 /** POST /api/nais-sync — trigger a full Nais sync. Requires authentication. */
-export async function action({ request }: ActionFunctionArgs) {
+export async function action({ request }: Route.ActionArgs) {
 	const user = await getAuthenticatedUser(request)
 	if (!user) {
 		return data({ error: "Ikke autentisert" }, { status: 401 })
