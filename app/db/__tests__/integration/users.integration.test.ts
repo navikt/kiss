@@ -23,6 +23,7 @@ const {
 	getUserLandingPage,
 	setUserLandingPage,
 	getAllDevTeams,
+	getUserNamesByNavIdents,
 } = await import("~/db/queries/users.server")
 
 async function createSection(slug: string) {
@@ -322,6 +323,42 @@ describe("users.server integration tests", () => {
 
 			const result = await getTeamMemberRoleById(roles[0].id, teamId)
 			expect(result).toBeNull()
+		})
+	})
+
+	describe("getUserNamesByNavIdents", () => {
+		it("returns a map from navIdent to name for known idents", async () => {
+			await upsertUser("Z990030", "Glad Fjord", "glad.fjord@nav.no")
+			await upsertUser("Z990031", "Rask Elv", "rask.elv@nav.no")
+
+			const result = await getUserNamesByNavIdents(["Z990030", "Z990031"])
+			expect(result.get("Z990030")).toBe("Glad Fjord")
+			expect(result.get("Z990031")).toBe("Rask Elv")
+			expect(result.size).toBe(2)
+		})
+
+		it("dedupes input idents and skips idents that don't exist", async () => {
+			await upsertUser("Z990032", "Stille Skog", "stille.skog@nav.no")
+
+			const result = await getUserNamesByNavIdents(["Z990032", "Z990032", "Z990099"])
+			expect(result.size).toBe(1)
+			expect(result.get("Z990032")).toBe("Stille Skog")
+			expect(result.has("Z990099")).toBe(false)
+		})
+
+		it("matches case-insensitively and trims whitespace", async () => {
+			await upsertUser("Z990033", "Modig Bjørk", "modig.bjork@nav.no")
+
+			const result = await getUserNamesByNavIdents([" z990033 "])
+			expect(result.get("Z990033")).toBe("Modig Bjørk")
+		})
+
+		it("returns an empty map for an empty or blank input list", async () => {
+			const result = await getUserNamesByNavIdents([])
+			expect(result.size).toBe(0)
+
+			const blankResult = await getUserNamesByNavIdents(["", "  "])
+			expect(blankResult.size).toBe(0)
 		})
 	})
 })
