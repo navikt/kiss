@@ -20,6 +20,7 @@ import { Link, useActionData } from "react-router"
 import { FrequencyDisplay, frequencyDisplayText } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import type { DataClassification, GroupCriticality, PersistenceType } from "~/db/schema/applications"
 import { dataClassificationLabels, groupCriticalityLabels } from "~/db/schema/applications"
 import { screeningQuestionStatusConfig } from "~/db/schema/screening"
@@ -62,6 +63,7 @@ type CompletedReview = {
 	reviewedAt: Date | string
 	status: string
 	createdBy: string
+	createdByName: string | null
 	sectionId: string | null
 	participants: Array<{ confirmedAt: Date | string | null }>
 }
@@ -761,7 +763,9 @@ export function RutinerTab({
 												</Tag>
 											)}
 										</Table.DataCell>
-										<Table.DataCell>{review.createdBy}</Table.DataCell>
+										<Table.DataCell>
+											<UserDisplayName navIdent={review.createdBy} name={review.createdByName} />
+										</Table.DataCell>
 										<Table.DataCell>
 											{review.participants.length} ({confirmed} bekreftet)
 										</Table.DataCell>
