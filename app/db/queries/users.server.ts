@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
 import {
 	devTeams,
@@ -326,6 +326,18 @@ export async function getTeamMemberRoleById(roleId: string, teamId: string): Pro
 		.where(and(eq(userRoles.id, roleId), eq(userRoles.devTeamId, teamId), isNull(userRoles.archivedAt)))
 		.limit(1)
 	return row ? { role: row.role as UserRole } : null
+}
+
+export async function getUserNamesByNavIdents(navIdents: string[]): Promise<Map<string, string>> {
+	const unique = [...new Set(navIdents.filter(Boolean).map((i) => i.toUpperCase()))]
+	if (unique.length === 0) return new Map()
+
+	const rows = await db
+		.select({ navIdent: users.navIdent, name: users.name })
+		.from(users)
+		.where(inArray(users.navIdent, unique))
+
+	return new Map(rows.map((r) => [r.navIdent.toUpperCase(), r.name]))
 }
 
 // ─── User preferences ────────────────────────────────────────────────────
