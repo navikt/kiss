@@ -75,6 +75,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const availableNaisTeams = sectionNaisTeams.filter((nt) => !linkedNaisTeams.some((linked) => linked.slug === nt.slug))
 	const userCanAssignElevatedRoles = canManageSection(authedUser, section.id)
+	// Direkte team-rolle (tech lead/produktleder) gir kun rett til å fjerne elevated roller i eget team, ikke tildele dem.
+	const userCanRemoveElevatedRoles = userCanAssignElevatedRoles || canManageTeam(authedUser, teamRecord.id)
 
 	return data({
 		seksjon,
@@ -90,6 +92,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		availableNaisTeams: availableNaisTeams.map((nt) => ({ slug: nt.slug })),
 		teamMembers,
 		userCanAssignElevatedRoles,
+		userCanRemoveElevatedRoles,
 	})
 }
 
@@ -213,10 +216,15 @@ export async function action({ request, params }: Route.ActionArgs) {
 		const target = await getTeamMemberRoleById(roleId, teamRecord.id)
 		if (!target) throw new Response("Rolle ikke funnet i dette teamet", { status: 404 })
 
-		// Brukere uten seksjons-admin-tilgang kan kun fjerne roller i TEAM_MANAGEABLE_ROLES (positiv allowlist)
-		const canRemoveElevated = canManageSection(authedUser, teamRecord.sectionId)
+		// Brukere uten seksjons-admin-tilgang kan fjerne TEAM_MANAGEABLE_ROLES fritt, og ELEVATED_ROLES
+		// (tech lead/produktleder) dersom de selv har en team-rolle (tech lead/produktleder) i dette teamet.
+		const canRemoveElevated =
+			canManageSection(authedUser, teamRecord.sectionId) || canManageTeam(authedUser, teamRecord.id)
 		if (!canRemoveElevated && !TEAM_MANAGEABLE_ROLES.includes(target.role)) {
-			throw new Response("Kun seksjonsledere, teknologiledere og admin kan fjerne denne rollen", { status: 403 })
+			throw new Response(
+				"Kun seksjonsledere, teknologiledere, admin eller tech lead/produktleder i teamet kan fjerne denne rollen",
+				{ status: 403 },
+			)
 		}
 
 		await removeRole(roleId, userId)
@@ -238,6 +246,7 @@ export default function RedigerTeam() {
 		availableNaisTeams,
 		teamMembers,
 		userCanAssignElevatedRoles,
+		userCanRemoveElevatedRoles,
 	} = useLoaderData<typeof loader>()
 
 	const archiveModalRef = useRef<HTMLDialogElement>(null)
@@ -345,7 +354,7 @@ export default function RedigerTeam() {
 										<Table.DataCell>{m.navIdent}</Table.DataCell>
 										<Table.DataCell>{userRoleLabels[m.role]}</Table.DataCell>
 										<Table.DataCell align="right">
-											{!isArchived && (userCanAssignElevatedRoles || TEAM_MANAGEABLE_ROLES.includes(m.role)) && (
+											{!isArchived && (userCanRemoveElevatedRoles || TEAM_MANAGEABLE_ROLES.includes(m.role)) && (
 												<Form method="post">
 													<input type="hidden" name="intent" value="remove-member" />
 													<input type="hidden" name="roleId" value={m.roleId} />
