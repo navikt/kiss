@@ -1499,9 +1499,20 @@ export async function getReviewsForApp(applicationId: string) {
 							routineId: routineControls.routineId,
 							controlId: frameworkControls.controlId,
 							shortTitle: frameworkControls.shortTitle,
+							responsible: frameworkControls.responsible,
+							domainSlug: frameworkDomains.code,
 						})
 						.from(routineControls)
 						.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
+						.innerJoin(
+							frameworkRiskControlMappings,
+							and(
+								eq(frameworkControls.id, frameworkRiskControlMappings.controlId),
+								isNull(frameworkRiskControlMappings.archivedAt),
+							),
+						)
+						.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+						.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
 						.where(and(inArray(routineControls.routineId, routineIds), isNull(routineControls.archivedAt))),
 				])
 			: [[], []]
@@ -1513,10 +1524,13 @@ export async function getReviewsForApp(applicationId: string) {
 		elementsByRoutine.set(el.routineId, arr)
 	}
 
-	const controlsByRoutine = new Map<string, { controlId: string; shortTitle: string | null }[]>()
+	const controlsByRoutine = new Map<
+		string,
+		{ controlId: string; shortTitle: string | null; domainSlug: string | null; responsible: string | null }[]
+	>()
 	for (const c of allControls) {
 		const arr = controlsByRoutine.get(c.routineId) ?? []
-		arr.push({ controlId: c.controlId, shortTitle: c.shortTitle })
+		arr.push({ controlId: c.controlId, shortTitle: c.shortTitle, domainSlug: c.domainSlug, responsible: c.responsible })
 		controlsByRoutine.set(c.routineId, arr)
 	}
 
