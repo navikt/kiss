@@ -33,6 +33,7 @@ const {
 	recordEvidenceDownload,
 	recordManualEvidenceUpload,
 	getEvidenceDownloadsForActivity,
+	getEvidenceDownloadsForActivities,
 	getEvidenceDownload,
 	downloadEvidenceFileFromStorage,
 } = await import("~/db/queries/evidence-downloads.server")
@@ -301,6 +302,63 @@ describe("Evidence downloads integration tests", () => {
 		expect(downloads[0].fileName).toBe("second.xlsx")
 		expect(downloads[0].providerType).toBe("oracle")
 		expect(downloads[1].fileName).toBe("first.pdf")
+	})
+
+	it("should list evidence downloads across multiple activities ordered by date desc", async () => {
+		const sectionId = await createTestSection()
+		const appId = await createTestApp()
+		const { activityId: activityIdA } = await createTestRoutineAndReview(sectionId, appId)
+		const { activityId: activityIdB } = await createTestRoutineAndReview(sectionId, appId)
+
+		await recordManualEvidenceUpload({
+			activityId: activityIdA,
+			providerType: "oracle",
+			providerMetadata: {
+				instanceId: "PENSJON_PROD",
+				evidenceType: "audit",
+				apiInstanceName: null,
+				reviewProgressSnapshot: null,
+			},
+			sourceId: "PENSJON_PROD",
+			evidenceType: "audit",
+			format: "PDF",
+			buffer: Buffer.from("first"),
+			fileName: "first.pdf",
+			contentType: "application/pdf",
+			performedBy: "test",
+		})
+
+		await recordEvidenceDownload({
+			activityId: activityIdB,
+			providerType: "oracle",
+			providerMetadata: {
+				instanceId: "PENSJON_PROD",
+				evidenceType: "audit",
+				apiInstanceName: "PENSJON_PROD",
+				reviewProgressSnapshot: null,
+			},
+			sourceId: "PENSJON_PROD",
+			evidenceType: "audit",
+			format: "EXCEL",
+			buffer: Buffer.from("second"),
+			fileName: "second.xlsx",
+			contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			collectedAt: new Date("2026-03-02T10:00:00Z"),
+			performedBy: "test",
+		})
+
+		const downloads = await getEvidenceDownloadsForActivities([activityIdA, activityIdB])
+		expect(downloads).toHaveLength(2)
+		// Most recent first, across both activities
+		expect(downloads[0].fileName).toBe("second.xlsx")
+		expect(downloads[0].bucketPath).toBeTruthy()
+		expect(downloads[0].sizeBytes).toBeGreaterThan(0)
+		expect(downloads[1].fileName).toBe("first.pdf")
+	})
+
+	it("should return an empty list when no activity IDs are given", async () => {
+		const downloads = await getEvidenceDownloadsForActivities([])
+		expect(downloads).toEqual([])
 	})
 
 	it("should get a single evidence download by ID", async () => {

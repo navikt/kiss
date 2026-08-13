@@ -92,6 +92,7 @@ import {
 import { syncApplicationControls } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
+import { getEvidenceDownloadsForActivities } from "./evidence-downloads.server"
 import {
 	getAppAuthIntegrations,
 	getExcludedEnvironments,
@@ -1549,6 +1550,117 @@ export async function getReviewsForApp(applicationId: string) {
 		routineControls: controlsByRoutine.get(enriched.routineId) ?? [],
 		sectionId: reviews[i].sectionId,
 	}))
+}
+
+export interface ApplicationDocument {
+	id: string
+	kind: "review_attachment" | "follow_up_attachment" | "evidence_download"
+	fileName: string
+	sizeBytes: number | null
+	contentType: string | null
+	uploadedBy: string
+	uploadedAt: Date
+	reviewId: string
+	routineId: string
+	routineName: string
+	sectionId: string | null
+	reviewTitle: string
+	activityType: RoutineActivityType | null
+	followUpPointText: string | null
+	downloadUrl: string
+}
+
+export async function getApplicationDocumentsForReviews(
+	reviews: Awaited<ReturnType<typeof getReviewsForApp>>,
+): Promise<ApplicationDocument[]> {
+	if (reviews.length === 0) return []
+
+	const reviewIds = reviews.map((r) => r.id)
+	const activities = await getActivitiesForReviews(reviewIds)
+	const evidenceDownloads =
+		activities.length > 0 ? await getEvidenceDownloadsForActivities(activities.map((a) => a.id)) : []
+
+	const activityById = new Map(activities.map((a) => [a.id, a]))
+	const reviewById = new Map(reviews.map((r) => [r.id, r]))
+
+	const documents: ApplicationDocument[] = []
+
+	for (const review of reviews) {
+		for (const attachment of review.attachments) {
+			documents.push({
+				id: attachment.id,
+				kind: "review_attachment",
+				fileName: attachment.fileName,
+				sizeBytes: attachment.sizeBytes,
+				contentType: attachment.contentType,
+				uploadedBy: attachment.uploadedBy,
+				uploadedAt: attachment.uploadedAt,
+				reviewId: review.id,
+				routineId: review.routineId,
+				routineName: review.routineName,
+				sectionId: review.sectionId,
+				reviewTitle: review.title,
+				activityType: null,
+				followUpPointText: null,
+				downloadUrl: `/api/rutine-vedlegg/${attachment.id}?download=true`,
+			})
+		}
+
+		for (const point of review.followUpPoints) {
+			for (const attachment of point.attachments) {
+				documents.push({
+					id: attachment.id,
+					kind: "follow_up_attachment",
+					fileName: attachment.fileName,
+					sizeBytes: attachment.sizeBytes,
+					contentType: attachment.contentType,
+					uploadedBy: attachment.uploadedBy,
+					uploadedAt: attachment.uploadedAt,
+					reviewId: review.id,
+					routineId: review.routineId,
+					routineName: review.routineName,
+					sectionId: review.sectionId,
+					reviewTitle: review.title,
+					activityType: null,
+					followUpPointText: point.text,
+					downloadUrl: `/api/oppfolgingspunkt-vedlegg/${attachment.id}?download=true`,
+				})
+			}
+		}
+	}
+
+	for (const download of evidenceDownloads) {
+		const activity = activityById.get(download.activityId)
+		if (!activity) continue
+		const review = reviewById.get(activity.reviewId)
+		if (!review) continue
+
+		documents.push({
+			id: download.id,
+			kind: "evidence_download",
+			fileName: download.fileName,
+			sizeBytes: download.sizeBytes,
+			contentType: download.contentType,
+			uploadedBy: download.performedBy,
+			uploadedAt: download.performedAt,
+			reviewId: review.id,
+			routineId: review.routineId,
+			routineName: review.routineName,
+			sectionId: review.sectionId,
+			reviewTitle: review.title,
+			activityType: activity.type,
+			followUpPointText: null,
+			downloadUrl: `/api/evidence-file/${download.id}`,
+		})
+	}
+
+	documents.sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime())
+	return documents
+}
+
+export async function getApplicationDocuments(applicationId: string): Promise<ApplicationDocument[]> {
+	const reviews = await getReviewsForApp(applicationId)
+	return getApplicationDocumentsForReviews(reviews)
 }
 
 export async function getReview(id: string) {

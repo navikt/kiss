@@ -1,4 +1,4 @@
-import { desc, eq, getTableColumns, sql } from "drizzle-orm"
+import { desc, eq, getTableColumns, inArray, sql } from "drizzle-orm"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { db } from "../connection.server"
 import { bucketObjects } from "../schema/buckets"
@@ -420,6 +420,26 @@ export async function getEvidenceDownloadsForActivityWithBucketDetails(
 		.from(routineReviewEvidenceDownloads)
 		.innerJoin(bucketObjects, eq(routineReviewEvidenceDownloads.bucketObjectId, bucketObjects.id))
 		.where(eq(routineReviewEvidenceDownloads.activityId, activityId))
+		.orderBy(desc(routineReviewEvidenceDownloads.performedAt))
+
+	return rows.map(mapEvidenceDownloadWithBucketDetailsRow)
+}
+
+export async function getEvidenceDownloadsForActivities(
+	activityIds: string[],
+): Promise<EvidenceDownloadWithBucketDetails[]> {
+	if (activityIds.length === 0) return []
+
+	const rows = await db
+		.select({
+			...getTableColumns(routineReviewEvidenceDownloads),
+			bucketPath: bucketObjects.objectPath,
+			sizeBytes: bucketObjects.sizeBytes,
+			contentType: bucketObjects.contentType,
+		})
+		.from(routineReviewEvidenceDownloads)
+		.innerJoin(bucketObjects, eq(routineReviewEvidenceDownloads.bucketObjectId, bucketObjects.id))
+		.where(inArray(routineReviewEvidenceDownloads.activityId, activityIds))
 		.orderBy(desc(routineReviewEvidenceDownloads.performedAt))
 
 	return rows.map(mapEvidenceDownloadWithBucketDetailsRow)

@@ -22,6 +22,7 @@ import type { loader } from "./loader.server"
 import { AutentiseringTab } from "./tabs/AutentiseringTab"
 import { AutoriserteAppsTab } from "./tabs/AutoriserteAppsTab"
 import { DeploymentsTab } from "./tabs/DeploymentsTab"
+import { DokumenterTab } from "./tabs/DokumenterTab"
 import { GitHubTilgangerTab } from "./tabs/GitHubTilgangerTab"
 import { KontrollerTab } from "./tabs/KontrollerTab"
 import { LenkedeAppsTab } from "./tabs/LenkedeAppsTab"
@@ -62,6 +63,7 @@ export default function ApplikasjonDetalj() {
 		appElements,
 		routineDeadlines,
 		completedReviews,
+		applicationDocuments,
 		sectionSlugMap,
 		canAdmin,
 		canManageReviews,
@@ -343,6 +345,10 @@ export default function ApplikasjonDetalj() {
 						value="oppfolgingspunkter"
 						label={openFollowUpCount > 0 ? `Oppfølgingspunkter (${openFollowUpCount})` : "Oppfølgingspunkter"}
 					/>
+					<Tabs.Tab
+						value="dokumenter"
+						label={applicationDocuments.length > 0 ? `Dokumenter (${applicationDocuments.length})` : "Dokumenter"}
+					/>
 					{canAccessReports && <Tabs.Tab value="rapporter" label="Rapporter" />}
 				</Tabs.List>
 
@@ -449,6 +455,10 @@ export default function ApplikasjonDetalj() {
 
 				<Tabs.Panel value="oppfolgingspunkter" style={{ paddingTop: "var(--ax-space-6)" }}>
 					<OppfolgingspunkterTab followUpPoints={followUpPoints} sectionSlugMap={sectionSlugMap} />
+				</Tabs.Panel>
+
+				<Tabs.Panel value="dokumenter" style={{ paddingTop: "var(--ax-space-6)" }}>
+					<DokumenterTab documents={applicationDocuments} sectionSlugMap={sectionSlugMap} />
 				</Tabs.Panel>
 
 				{canAccessReports && (
