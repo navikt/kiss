@@ -69,7 +69,9 @@ vi.mock("~/db/queries/audit.server", async () => {
 })
 
 const { generateRoutineReviewReport } = await import("~/db/queries/reports.server")
-const { createRoutine, createReview, completeReview } = await import("~/db/queries/routines.server")
+const { createRoutine, createReview, completeReview, copyRoutine, replaceRoutine } = await import(
+	"~/db/queries/routines.server"
+)
 
 async function createTestSection(slug: string) {
 	const db = getTestDb()
@@ -90,6 +92,11 @@ async function createTestApp(name: string) {
 async function approveRoutine(routineId: string) {
 	const db = getTestDb()
 	await db.execute(/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'test' WHERE id = '${routineId}'`)
+}
+
+async function markRoutineReady(routineId: string) {
+	const db = getTestDb()
+	await db.execute(/* sql */ `UPDATE routines SET status = 'ready', updated_by = 'test' WHERE id = '${routineId}'`)
 }
 
 async function getReportRow(reportId: string) {
@@ -266,5 +273,56 @@ describe("generateRoutineReviewReport", () => {
 
 		expect(deleted).toHaveLength(1)
 		expect(uploaded.has(deleted[0])).toBe(false)
+	})
+
+	it("includes reviews from archived/replaced predecessor routines in the report", async () => {
+		const sectionId = await createTestSection(`s4-${Date.now()}`)
+		const appId = await createTestApp("App med erstattet rutine")
+
+		const oldRoutine = await createRoutine({
+			sectionId,
+			name: "Gammel rutine",
+			description: null,
+			frequency: "monthly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: false,
+			responsibleRole: null,
+			persistenceLinks: [],
+			controlIds: [],
+			technologyElementIds: [],
+			createdBy: "Z990001",
+		})
+		await approveRoutine(oldRoutine.id)
+
+		const oldReview = await createReview({
+			routineId: oldRoutine.id,
+			applicationId: appId,
+			title: "Gjennomgang på gammel rutine",
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: new Date("2024-01-15"),
+			createdBy: "Z990001",
+			participants: [],
+		})
+		await completeReview(oldReview.id, "Z990001")
+
+		const newRoutine = await copyRoutine(oldRoutine.id, "Z990001")
+		if (!newRoutine) throw new Error("copyRoutine returnerte null")
+		await markRoutineReady(newRoutine.id)
+		await replaceRoutine(newRoutine.id, oldRoutine.id, "continue", "Z990001")
+
+		const result = await generateRoutineReviewReport({
+			routineId: newRoutine.id,
+			applicationId: appId,
+			createdBy: "Z990001",
+		})
+
+		const zipBuffer = uploaded.get(result.reportBucketPath)
+		if (!zipBuffer) throw new Error("Zip-buffer mangler")
+		const zip = await JSZip.loadAsync(zipBuffer)
+		const entryNames = Object.keys(zip.files)
+
+		expect(entryNames.some((n) => n.endsWith("/gjennomgang - Gjennomgang på gammel rutine.pdf"))).toBe(true)
 	})
 })

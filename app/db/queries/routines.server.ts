@@ -1557,13 +1557,35 @@ export async function getReview(id: string) {
 	return enrichReview(review)
 }
 
+export async function getRoutineAncestorChain(routineId: string): Promise<string[]> {
+	const chain: string[] = []
+	// Besøkt-liste hindrer uendelig løkke ved eventuelle sirkulære sourceRoutineId-referanser.
+	const visited = new Set<string>()
+	let currentId: string | null = routineId
+
+	while (currentId && !visited.has(currentId) && chain.length < MAX_REPLACEMENT_CHAIN_DEPTH) {
+		visited.add(currentId)
+		chain.push(currentId)
+		const [current] = await db
+			.select({ sourceRoutineId: routines.sourceRoutineId })
+			.from(routines)
+			.where(eq(routines.id, currentId))
+			.limit(1)
+		currentId = current?.sourceRoutineId ?? null
+	}
+
+	return chain
+}
+
 export async function getReviewsForRoutineAndApp(routineId: string, applicationId: string) {
+	const routineIds = await getRoutineAncestorChain(routineId)
+
 	const reviews = await db
 		.select()
 		.from(routineReviews)
 		.where(
 			and(
-				eq(routineReviews.routineId, routineId),
+				inArray(routineReviews.routineId, routineIds),
 				eq(routineReviews.applicationId, applicationId),
 				sql`${routineReviews.status} != 'discarded'`,
 			),
