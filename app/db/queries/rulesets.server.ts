@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm"
 import type { RoutineFrequency } from "../../lib/routine-frequencies"
 import { frequencyDays } from "../../lib/routine-frequencies"
 import { isValidUuid } from "../../lib/utils"
@@ -458,15 +458,14 @@ export async function getRulesetsLinkedToRoutineAtDate(
 				inArray(auditLog.action, ["ruleset_routine_added", "ruleset_routine_removed"]),
 				eq(auditLog.entityType, "ruleset_routine"),
 				sql`${auditLog.metadata}::jsonb ->> 'routineId' = ${routineId}`,
+				lte(auditLog.performedAt, asOfDate),
 			),
 		)
 		.orderBy(auditLog.performedAt)
 
-	const hasHistoryBeforeDate = relevantEvents.some((e) => e.performedAt <= asOfDate)
-
 	let rulesetIds: string[]
 	let usedFallback: boolean
-	if (!hasHistoryBeforeDate) {
+	if (relevantEvents.length === 0) {
 		const currentRows = await db
 			.select({ rulesetId: rulesetRoutines.rulesetId })
 			.from(rulesetRoutines)
@@ -476,7 +475,6 @@ export async function getRulesetsLinkedToRoutineAtDate(
 	} else {
 		const linked = new Set<string>()
 		for (const event of relevantEvents) {
-			if (event.performedAt > asOfDate) break
 			// entityId på ruleset_routine_added/removed er rulesetId (se writeAuditLog-kallene i linkRoutineToRuleset/unlinkRoutineFromRuleset)
 			if (event.action === "ruleset_routine_added") {
 				linked.add(event.entityId)

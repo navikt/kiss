@@ -910,6 +910,9 @@ export async function generateRoutineReviewReport(params: {
 
 	if (!routine) throw new Error(`Fant ikke rutine: ${routineId}`)
 	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
+	if (reviews.length === 0) {
+		throw new Error("Ingen gjennomganger funnet for denne rutinen og applikasjonen")
+	}
 
 	const now = new Date()
 	const datePrefix = now.toISOString().slice(0, 10)
@@ -918,7 +921,7 @@ export async function generateRoutineReviewReport(params: {
 	const storage = getStorageProvider()
 	const zipPath = `reports/routine-review/${routineId}/${applicationId}/${datePrefix}/${fileId}/rapport.zip`
 
-	const activitiesRaw = reviews.length > 0 ? await getActivitiesForReviews(reviews.map((r) => r.id)) : []
+	const activitiesRaw = await getActivitiesForReviews(reviews.map((r) => r.id))
 	const activitiesByReviewId = new Map<string, typeof activitiesRaw>()
 	for (const act of activitiesRaw) {
 		const list = activitiesByReviewId.get(act.reviewId) ?? []
@@ -1077,6 +1080,9 @@ export async function generateRoutineReviewReport(params: {
 	} catch (err) {
 		archive.abort()
 		passThrough.destroy()
+		// Zip-en kan ha blitt lastet opp til storage før feilen oppstod (f.eks. hvis DB-transaksjonen
+		// feiler etter en vellykket opplasting) — rydd opp for å unngå foreldreløse objekter i bucketen.
+		await storage.delete(zipPath).catch(() => {})
 		throw err
 	}
 }
