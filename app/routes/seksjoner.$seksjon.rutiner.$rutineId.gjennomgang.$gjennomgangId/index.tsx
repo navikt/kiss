@@ -44,6 +44,7 @@ import {
 	parseEntraGroupSnapshot,
 	parseEntraStagedData,
 } from "~/lib/entra-staged-data"
+import { getProviderUiConfig } from "~/lib/evidence-providers/ui-config"
 import { logger } from "~/lib/logger.server"
 import type { ComponentConfig } from "~/lib/manual-activity-staged-data"
 import { renderMarkdown } from "~/lib/markdown.server"
@@ -1464,29 +1465,76 @@ export default function GjennomgangDetalj() {
 		[setSearchParams],
 	)
 
-	// Compute required-component violations for all manual activity steps.
-	// Always computed so the "Fullfør"-step shows violations reactively on first render.
+	// Compute required-component violations for manual activity steps og manglende bevis for
+	// bevis-baserte vedlikeholdsaktiviteter, slik at Fullfør-steget varsler proaktivt.
 	type RequiredViolation = { stepTitle: string; componentLabel: string; stepId: string }
 	const requiredViolations = useMemo<RequiredViolation[]>(() => {
 		if (!isDraft) return []
 		const violations: RequiredViolation[] = []
+		// Mirrors buildSteps' step-id numbering: activitySteps.length grows by one checklist step
+		// per manual_activity item, or by one per non-manual activity — so "aktivitet-N" must use
+		// the same running count, not a counter that skips manual_activity entries.
+		let stepIdx = 0
 		for (const activity of activities) {
-			if (activity.type !== "manual_activity" || !activity.activityStepsData) continue
-			for (const step of activity.activityStepsData) {
-				if (!step.componentConfig) continue
-				for (const comp of step.componentConfig.items) {
-					if (!comp.required) continue
-					if (comp.type === "notater" && !step.notes?.trim()) {
-						violations.push({ stepTitle: step.title, componentLabel: "Notater", stepId: step.stepId })
+			if (activity.type === "manual_activity" && activity.activityStepsData) {
+				for (const step of activity.activityStepsData) {
+					stepIdx++
+					if (!step.componentConfig) continue
+					for (const comp of step.componentConfig.items) {
+						if (!comp.required) continue
+						if (comp.type === "notater" && !step.notes?.trim()) {
+							violations.push({
+								stepTitle: step.title,
+								componentLabel: "Notater",
+								stepId: `sjekkliste-steg-${step.stepId}`,
+							})
+						}
+						if (comp.type === "lenker" && !review.links.some((l) => l.activityStepId === step.stepId)) {
+							violations.push({
+								stepTitle: step.title,
+								componentLabel: "Lenker",
+								stepId: `sjekkliste-steg-${step.stepId}`,
+							})
+						}
+						if (comp.type === "vedlegg" && !review.attachments.some((a) => a.activityStepId === step.stepId)) {
+							violations.push({
+								stepTitle: step.title,
+								componentLabel: "Vedlegg",
+								stepId: `sjekkliste-steg-${step.stepId}`,
+							})
+						}
 					}
-					if (comp.type === "lenker" && !review.links.some((l) => l.activityStepId === step.stepId)) {
-						violations.push({ stepTitle: step.title, componentLabel: "Lenker", stepId: step.stepId })
-					}
-					if (comp.type === "vedlegg" && !review.attachments.some((a) => a.activityStepId === step.stepId)) {
-						violations.push({ stepTitle: step.title, componentLabel: "Vedlegg", stepId: step.stepId })
+				}
+				continue
+			}
+
+			const evidenceProviderType = getProviderTypeForActivity(activity.type)
+			if (evidenceProviderType && activity.status === "pending") {
+				const requiredEvidenceTypes = getEvidenceTypesForActivity(activity.type) ?? []
+				const downloads =
+					evidenceProviderType === "oracle"
+						? (activity.oracleEvidenceData?.downloads ?? [])
+						: (activity.ndaEvidenceData?.downloads ?? [])
+				const collectedEvidenceTypes = new Set(
+					evidenceProviderType === "oracle"
+						? downloads.map((d) => ("evidenceType" in d ? d.evidenceType : undefined))
+						: downloads.length > 0
+							? requiredEvidenceTypes
+							: [],
+				)
+				const missingEvidenceTypes = requiredEvidenceTypes.filter((et) => !collectedEvidenceTypes.has(et))
+				if (missingEvidenceTypes.length > 0) {
+					const labels = getProviderUiConfig(evidenceProviderType).evidenceTypeLabels
+					for (const et of missingEvidenceTypes) {
+						violations.push({
+							stepTitle: labels[et] ?? et,
+							componentLabel: "Bevis",
+							stepId: `aktivitet-${stepIdx}`,
+						})
 					}
 				}
 			}
+			stepIdx++
 		}
 		return violations
 	}, [isDraft, activities, review.links, review.attachments])

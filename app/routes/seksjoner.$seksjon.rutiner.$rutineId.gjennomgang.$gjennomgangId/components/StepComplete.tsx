@@ -268,7 +268,7 @@ function CompleteSection({
 									{onNavigateToStep ? (
 										<button
 											type="button"
-											onClick={() => onNavigateToStep(`sjekkliste-steg-${v.stepId}`)}
+											onClick={() => onNavigateToStep(v.stepId)}
 											style={{
 												background: "none",
 												border: "none",
