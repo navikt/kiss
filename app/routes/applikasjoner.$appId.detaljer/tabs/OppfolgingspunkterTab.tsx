@@ -1,5 +1,6 @@
 import { BodyShort, Detail, HStack, Table, Tag, VStack } from "@navikt/ds-react"
 import { Link } from "react-router"
+import { UserDisplayName } from "~/components/UserDisplayName"
 
 type FollowUpPoint = {
 	id: string
@@ -14,6 +15,7 @@ type FollowUpPoint = {
 	resolution: string | null
 	status: "needs_follow_up" | "completed" | "not_relevant"
 	createdBy: string
+	createdByName: string | null
 	resolvedAt: Date | string | null
 	resolvedBy: string | null
 }
@@ -102,7 +104,9 @@ export function OppfolgingspunkterTab({
 										<Detail textColor="subtle">{new Date(point.reviewedAt).toLocaleDateString("nb-NO")}</Detail>
 									</HStack>
 								</Table.DataCell>
-								<Table.DataCell>{point.createdBy}</Table.DataCell>
+								<Table.DataCell>
+									<UserDisplayName navIdent={point.createdBy} name={point.createdByName} />
+								</Table.DataCell>
 							</Table.Row>
 						)
 					})}

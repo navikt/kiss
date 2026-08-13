@@ -13,6 +13,7 @@ import {
 } from "@navikt/ds-react"
 import { Form, Link, useActionData, useNavigation } from "react-router"
 import { ParticipantsCombobox } from "~/components/ParticipantsCombobox"
+import { UserDisplayName } from "~/components/UserDisplayName"
 
 type ActionResult = {
 	success: boolean
@@ -32,6 +33,7 @@ type Props = {
 		createdAt: string
 		summary: string | null
 		createdBy: string
+		createdByName: string | null
 		applicationId: string | null
 		applicationName: string | null
 		participants: Array<{ id: string; userIdent: string; userName: string | null; confirmedAt: string | null }>
@@ -85,7 +87,9 @@ export function StepIntroduction({ review, isDraft, teamMembers = [] }: Props) {
 					)}
 					<div>
 						<Label size="small">Opprettet av</Label>
-						<BodyShort>{review.createdBy}</BodyShort>
+						<BodyShort>
+							<UserDisplayName navIdent={review.createdBy} name={review.createdByName} />
+						</BodyShort>
 					</div>
 					<div>
 						<Label size="small">Opprettet</Label>
