@@ -104,11 +104,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		getRoutineFollowUpApplicationIds(rutineId),
 	])
 
-	const reviewerNames = await getUserNamesByNavIdents(reviews.map((r) => r.createdBy))
+	const reviewerNames = await getUserNamesByNavIdents([
+		...reviews.map((r) => r.createdBy),
+		...(routine.approvedBy ? [routine.approvedBy] : []),
+	])
 	const reviewsWithNames = reviews.map((r) => ({
 		...r,
 		createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
 	}))
+	const approvedByName = routine.approvedBy
+		? (reviewerNames.get(routine.approvedBy.trim().toUpperCase()) ?? null)
+		: null
 
 	// Fetch screening question text if linked
 	let screeningQuestion: { id: string; questionText: string } | null = null
@@ -162,6 +168,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	return data({
 		section,
 		routine,
+		approvedByName,
 		reviews: reviewsWithNames,
 		appsWithDeadlines,
 		screeningQuestion,
@@ -284,6 +291,7 @@ export default function RutineDetaljer() {
 	const {
 		section,
 		routine,
+		approvedByName,
 		reviews,
 		appsWithDeadlines,
 		descriptionHtml,
@@ -676,7 +684,7 @@ export default function RutineDetaljer() {
 				<VStack gap="space-2">
 					<Label size="small">Godkjenning</Label>
 					<BodyShort size="small">
-						Godkjent av {routine.approvedBy}
+						Godkjent av <UserDisplayName navIdent={routine.approvedBy} name={approvedByName} />
 						{routine.approvedAt && <> den {formatDateTime(routine.approvedAt)}</>}
 					</BodyShort>
 				</VStack>
