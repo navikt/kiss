@@ -1,4 +1,5 @@
 import { Readable } from "node:stream"
+import JSZip from "jszip"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
@@ -206,6 +207,17 @@ describe("generateRoutineReviewReport", () => {
 		expect(result.reportId).toMatch(/^[0-9a-f-]{36}$/)
 		expect(result.reportBucketPath).toMatch(/^reports\/routine-review\//)
 		expect(uploaded.has(result.reportBucketPath)).toBe(true)
+
+		const zipBuffer = uploaded.get(result.reportBucketPath)
+		if (!zipBuffer) throw new Error("Zip-buffer mangler")
+		const zip = await JSZip.loadAsync(zipBuffer)
+		const entryNames = Object.keys(zip.files)
+
+		expect(entryNames.some((n) => !n.includes("/") && n.endsWith(".pdf"))).toBe(false)
+		expect(entryNames.some((n) => n.startsWith("gjennomganger/") && n.endsWith("/rutine - Test rutine.pdf"))).toBe(true)
+		expect(
+			entryNames.some((n) => n.startsWith("gjennomganger/") && n.endsWith("/gjennomgang - Gjennomgang 1.pdf")),
+		).toBe(true)
 
 		const reportRow = await getReportRow(result.reportId)
 		expect(reportRow?.scope).toBe("routine_review")
