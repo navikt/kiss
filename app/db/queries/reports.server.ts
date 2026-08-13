@@ -628,10 +628,17 @@ async function prepareAppComplianceArtifact(params: {
 		}),
 	)
 
-	const reviewsForPdf = completedReviews.map((r) => ({
-		...r,
-		routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
-	}))
+	const reviewsForPdf = completedReviews.map((r) => {
+		const reviewDate = new Date(r.reviewedAt).toISOString().slice(0, 10)
+		const safeReviewTitle = r.title.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
+		const folderName = `${reviewDate}-${safeReviewTitle}`
+		return {
+			...r,
+			routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
+			attachmentsZipPath: `vedlegg/${folderName}`,
+			followUpAttachmentsZipPath: `vedlegg/${folderName}/oppfolgingspunkter`,
+		}
+	})
 
 	const pdf = await buildAppPdf(
 		PDFDocument,
@@ -941,56 +948,77 @@ export async function generateRoutineReviewReport(params: {
 	})
 
 	try {
-		const routineInfo = {
-			id: routine.id,
-			name: routine.name,
-			description: routine.description,
-			frequency: routine.frequency,
-			eventFrequency: routine.eventFrequency,
-			responsibleRole: routine.responsibleRole,
-			status: routine.status,
-			approvedAt: routine.approvedAt?.toISOString() ?? null,
-			archivedAt: routine.archivedAt?.toISOString() ?? null,
-			applicationId,
-			applicationName: detail.app.name,
-			generatedAt: now.toISOString(),
-			totalReviews: reviews.length,
+		const oracleEvidenceByReviewId = new Map<
+			string,
+			Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
+		>()
+		const evidenceDownloadsByActivityId = new Map<
+			string,
+			Awaited<ReturnType<typeof getEvidenceDownloadsForActivityWithBucketDetails>>
+		>()
+		for (const [reviewId, activities] of activitiesByReviewId) {
+			for (const act of activities) {
+				if (!isOracleEvidenceActivityType(act.type)) continue
+				const evidenceDownloads = await getEvidenceDownloadsForActivityWithBucketDetails(act.id)
+				evidenceDownloadsByActivityId.set(act.id, evidenceDownloads)
+				const entry = oracleEvidenceByReviewId.get(reviewId) ?? []
+				for (const dl of evidenceDownloads) {
+					entry.push({
+						fileName: dl.fileName,
+						contentType: dl.contentType,
+						performedBy: dl.performedBy,
+						performedAt: dl.performedAt,
+					})
+				}
+				oracleEvidenceByReviewId.set(reviewId, entry)
+			}
 		}
-		archive.append(Buffer.from(JSON.stringify(routineInfo, null, 2), "utf-8"), { name: "rutine-info.json" })
+
+		const reviewsForPdf: RoutineReviewPdfEntry[] = []
+		for (const review of reviews) {
+			const linkedRulesets = await getRulesetsLinkedToRoutineAtDate(routineId, review.reviewedAt)
+			const reviewDate = review.reviewedAt.toISOString().slice(0, 10)
+			const folder = `gjennomganger/${reviewDate}-${sanitizeZipSegment(review.title)}-${review.id.slice(-8)}`
+			reviewsForPdf.push({
+				id: review.id,
+				title: review.title,
+				summary: review.summary,
+				reviewedAt: review.reviewedAt,
+				createdAt: review.createdAt,
+				createdBy: review.createdBy,
+				participants: review.participants,
+				attachments: review.attachments,
+				links: review.links,
+				linkedRulesets,
+				attachmentsZipPath: `${folder}/vedlegg`,
+				followUpAttachmentsZipPath: `${folder}/oppfolgingspunkter`,
+				followUpPoints: review.followUpPoints,
+			})
+		}
+
+		const pdfBuffer = await buildRoutineReviewPdf(
+			PDFDocument,
+			{
+				name: routine.name,
+				description: routine.description,
+				frequency: routine.frequency,
+				eventFrequency: routine.eventFrequency,
+				responsibleRole: routine.responsibleRole,
+				approvedAt: routine.approvedAt,
+				archivedAt: routine.archivedAt,
+				technologyElements: routine.technologyElements,
+				controls: routine.controls,
+			},
+			detail.app.name,
+			reviewsForPdf,
+			activitiesByReviewId,
+			oracleEvidenceByReviewId,
+		)
+		archive.append(pdfBuffer, { name: "rapport.pdf" })
 
 		for (const review of reviews) {
 			const reviewDate = review.reviewedAt.toISOString().slice(0, 10)
 			const folder = `gjennomganger/${reviewDate}-${sanitizeZipSegment(review.title)}-${review.id.slice(-8)}`
-
-			const linkedRulesets = await getRulesetsLinkedToRoutineAtDate(routineId, review.reviewedAt)
-
-			const reviewInfo = {
-				id: review.id,
-				title: review.title,
-				summary: review.summary,
-				status: review.status,
-				reviewedAt: review.reviewedAt.toISOString(),
-				createdAt: review.createdAt.toISOString(),
-				createdBy: review.createdBy,
-				participants: review.participants.map((p) => ({
-					userIdent: p.userIdent,
-					userName: p.userName,
-					confirmedAt: p.confirmedAt?.toISOString() ?? null,
-				})),
-				linkedRulesets: linkedRulesets.map((r) => ({
-					id: r.id,
-					code: r.code,
-					name: r.name,
-					status: r.status,
-					isCurrentFallback: r.isCurrentFallback,
-				})),
-			}
-			archive.append(Buffer.from(JSON.stringify(reviewInfo, null, 2), "utf-8"), { name: `${folder}/gjennomgang.json` })
-
-			if (review.links.length > 0) {
-				const linksText = review.links.map((l) => `${l.title ? `${l.title}: ` : ""}${l.url}`).join("\n")
-				archive.append(Buffer.from(linksText, "utf-8"), { name: `${folder}/lenker.txt` })
-			}
 
 			const usedNames = new Set<string>()
 			for (const att of review.attachments) {
@@ -1024,7 +1052,7 @@ export async function generateRoutineReviewReport(params: {
 			const activities = activitiesByReviewId.get(review.id) ?? []
 			for (const act of activities) {
 				if (!isOracleEvidenceActivityType(act.type)) continue
-				const evidenceDownloads = await getEvidenceDownloadsForActivityWithBucketDetails(act.id)
+				const evidenceDownloads = evidenceDownloadsByActivityId.get(act.id) ?? []
 				for (const dl of evidenceDownloads) {
 					const safeName = dl.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
 					let entryName = `${folder}/bevis/${safeName}`
@@ -1178,6 +1206,415 @@ export async function buildArtifactBuffer(
 	}
 }
 
+/** Én gjennomgang slik den rendres i PDF-en — felles for app-compliance-rapporten og rutinegjennomgangsrapporten. */
+interface RoutineReviewPdfEntry {
+	id: string
+	title: string
+	summary: string | null
+	reviewedAt: Date | string
+	createdAt: Date | string
+	createdBy: string
+	participants: Array<{ userIdent: string; userName: string | null }>
+	attachments: Array<{ fileName: string; contentType: string; uploadedBy: string; uploadedAt: Date | string }>
+	links: Array<{ url: string; title: string | null }>
+	/** Regelsett koblet til rutinen på tidspunktet gjennomgangen ble utført (kun rutinegjennomgangsrapporten). */
+	linkedRulesets?: Array<{ id: string; code: string | null; name: string; status: string; isCurrentFallback: boolean }>
+	/**
+	 * Faktisk plassering (relativt til zip-roten) for hhv. vanlige vedlegg og
+	 * oppfølgingspunkt-vedlegg for denne gjennomgangen. Zip-layouten er ulik mellom
+	 * app-compliance-rapporten (`vedlegg/<mappe>/...`) og rutinegjennomgangsrapporten
+	 * (`gjennomganger/<mappe>/vedlegg/...`), så disse må beregnes av kallestedet.
+	 */
+	attachmentsZipPath: string
+	followUpAttachmentsZipPath: string
+	followUpPoints: Array<{
+		text: string
+		description: string | null
+		resolution: string | null
+		status: "needs_follow_up" | "completed" | "not_relevant"
+		createdBy: string
+		createdAt: Date | string
+		resolvedBy: string | null
+		resolvedAt: Date | string | null
+		attachments: Array<{
+			fileName: string
+			contentType: string
+			kind: "description" | "resolution"
+			uploadedBy: string
+			uploadedAt: Date | string
+		}>
+	}>
+}
+
+interface RoutineReviewPdfGroup {
+	routineName: string
+	routineDescription: string | null
+	routineFrequency: string | null
+	routineEventFrequency?: string | null
+	routineResponsibleRole?: string | null
+	routineApprovedAt?: Date | string | null
+	routineArchivedAt?: Date | string | null
+	routineReplacedAt?: Date | string | null
+	routineTechnologyElements?: Array<{ id: string; name: string }>
+	routineControls?: Array<{ controlId: string; shortTitle: string | null }>
+	reviews: RoutineReviewPdfEntry[]
+}
+
+type RoutineReviewActivityMap = Map<
+	string,
+	Array<{
+		type: string
+		status: string
+		snapshotBefore: unknown
+		snapshotAfter: unknown
+		completedAt: Date | null
+		changes: Array<{
+			changeType: string
+			groupId: string
+			groupName: string | null
+			previousValue: string | null
+			newValue: string | null
+			performedBy: string
+			performedAt: Date
+		}>
+	}>
+>
+
+type RoutineReviewOracleEvidenceMap = Map<
+	string,
+	Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
+>
+
+/**
+ * Rendrer én rutine med sine gjennomganger (rutine-forside + per-gjennomgang-seksjoner:
+ * referat, lenker, vedleggshenvisninger, oppfølgingspunkter, Entra ID-vedlikeholdsendringer).
+ * Delt mellom app-compliance-rapporten (ett kall per rutine) og rutinegjennomgangsrapporten
+ * (ett kall for den ene rutinen rapporten gjelder).
+ */
+function renderRoutineGroupSection(
+	doc: InstanceType<typeof PDFDocument>,
+	colors: { blue: string; dark: string; gray: string },
+	group: RoutineReviewPdfGroup,
+	activitiesByReviewId: RoutineReviewActivityMap,
+	oracleEvidenceByReviewId: RoutineReviewOracleEvidenceMap,
+) {
+	const { blue, dark, gray } = colors
+
+	doc.addPage()
+	doc.fontSize(14).fillColor(blue).text("Rutine")
+	doc.moveDown(0.3)
+	doc.fontSize(16).fillColor(dark).text(group.routineName)
+	doc.moveDown(0.3)
+	const groupFreqLabel = getCompositeFrequencyLabel(group.routineFrequency, group.routineEventFrequency)
+	doc.fontSize(9).fillColor(gray).text(`Frekvens: ${groupFreqLabel}`)
+	if (group.routineResponsibleRole) {
+		doc.fontSize(9).fillColor(gray).text(`Ansvarlig rolle: ${group.routineResponsibleRole}`)
+	}
+	if (group.routineApprovedAt) {
+		doc
+			.fontSize(9)
+			.fillColor(gray)
+			.text(`Godkjent: ${new Date(group.routineApprovedAt).toLocaleDateString("nb-NO")}`)
+	}
+	if (group.routineArchivedAt) {
+		doc
+			.fontSize(9)
+			.fillColor(gray)
+			.text(`Arkivert: ${new Date(group.routineArchivedAt).toLocaleDateString("nb-NO")}`)
+	}
+	if (group.routineReplacedAt) {
+		doc
+			.fontSize(9)
+			.fillColor(gray)
+			.text(`Erstattet: ${new Date(group.routineReplacedAt).toLocaleDateString("nb-NO")}`)
+	}
+	if (group.routineTechnologyElements && group.routineTechnologyElements.length > 0) {
+		doc.fontSize(9).fillColor(gray).text("Teknologielementer:")
+		for (const e of group.routineTechnologyElements) {
+			doc.fontSize(9).fillColor(gray).text(`• ${e.name}`, { indent: 10 })
+		}
+	}
+	if (group.routineControls && group.routineControls.length > 0) {
+		doc.fontSize(9).fillColor(gray).text("Tilknyttede krav:")
+		for (const c of group.routineControls) {
+			const label = c.shortTitle ? `${c.controlId} – ${c.shortTitle}` : c.controlId
+			doc.fontSize(9).fillColor(gray).text(`• ${label}`, { indent: 10 })
+		}
+	}
+	doc.moveDown(0.5)
+
+	if (group.routineDescription) {
+		doc.fontSize(10).fillColor(dark).text("Beskrivelse", { underline: true })
+		doc.moveDown(0.2)
+		renderMarkdownToPdf(doc, group.routineDescription, { width: 495 })
+		doc.moveDown(0.5)
+	}
+
+	doc.fontSize(11).fillColor(blue).text(`Gjennomganger (${group.reviews.length})`)
+	doc.moveDown(0.5)
+
+	for (const r of group.reviews) {
+		doc.addPage()
+
+		doc.fontSize(12).fillColor(dark).text(r.title)
+		doc.moveDown(0.3)
+		doc.fontSize(9).fillColor(gray)
+		doc.text(`Dato for gjennomgang: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
+		doc.text(`Registrert av: ${r.createdBy} — ${new Date(r.createdAt).toLocaleString("nb-NO")}`)
+		if (r.participants.length > 0) {
+			doc.text(`Deltakere: ${r.participants.map((p) => p.userName || p.userIdent).join(", ")}`)
+		}
+
+		if (r.linkedRulesets && r.linkedRulesets.length > 0) {
+			doc.moveDown(0.5)
+			doc.fontSize(10).fillColor(blue).text("Koblede regelsett")
+			doc.moveDown(0.2)
+			for (const rs of r.linkedRulesets) {
+				const label = rs.code ? `${rs.code} – ${rs.name}` : rs.name
+				const fallbackNote = rs.isCurrentFallback ? " (gjeldende kobling, historikk mangler)" : ""
+				doc.fontSize(9).fillColor(dark).text(`• ${label}${fallbackNote}`, { width: 495 })
+			}
+		}
+
+		if (r.summary) {
+			doc.moveDown(0.5)
+			doc.fontSize(10).fillColor(blue).text("Oppsummering / referat")
+			doc.moveDown(0.2)
+			renderMarkdownToPdf(doc, r.summary, { width: 495 })
+		}
+
+		if (r.links.length > 0) {
+			doc.moveDown(0.5)
+			doc.fontSize(10).fillColor(blue).text("Lenker")
+			doc.moveDown(0.2)
+			for (const link of r.links) {
+				const label = link.title || link.url
+				doc.fontSize(9).fillColor(blue).text(label, { link: link.url, underline: true, width: 495 })
+				if (link.title) {
+					doc.fontSize(8).fillColor(gray).text(link.url, { width: 495 })
+				}
+				doc.moveDown(0.2)
+			}
+		}
+
+		const reviewOracleEvidence = oracleEvidenceByReviewId.get(r.id) ?? []
+		if (r.attachments.length > 0 || reviewOracleEvidence.length > 0) {
+			const hasOracleAtt = reviewOracleEvidence.length > 0
+			doc.moveDown(0.5)
+			doc.fontSize(10).fillColor(blue).text("Vedlegg")
+			doc.moveDown(0.2)
+			if (r.attachments.length > 0 || hasOracleAtt) {
+				doc
+					.fontSize(8)
+					.fillColor(gray)
+					.text(`Vedlegg er tilgjengelig i ${r.attachmentsZipPath}/ i den nedlastede zip-filen.`, {
+						width: 495,
+					})
+				doc.moveDown(0.3)
+			}
+			for (const att of r.attachments) {
+				if (doc.y > 700) doc.addPage()
+				doc.fontSize(9).fillColor(dark).text(`• ${att.fileName}`, { width: 495 })
+				doc
+					.fontSize(8)
+					.fillColor(gray)
+					.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
+						width: 495,
+					})
+			}
+			for (const oe of reviewOracleEvidence) {
+				if (doc.y > 700) doc.addPage()
+				doc.fontSize(9).fillColor(dark).text(`• ${oe.fileName}`, { width: 495 })
+				doc
+					.fontSize(8)
+					.fillColor(gray)
+					.text(`  Lastet ned av: ${oe.performedBy} — ${new Date(oe.performedAt).toLocaleString("nb-NO")}`, {
+						width: 495,
+					})
+			}
+		}
+
+		if (r.followUpPoints.length > 0) {
+			doc.moveDown(0.6)
+			doc.fontSize(11).fillColor(blue).text(`Oppfølgingspunkter (${r.followUpPoints.length})`)
+			doc.moveDown(0.3)
+
+			for (const [idx, p] of r.followUpPoints.entries()) {
+				if (doc.y > 700) doc.addPage()
+
+				doc
+					.fontSize(10)
+					.fillColor(dark)
+					.text(`${idx + 1}. ${p.text}`, { width: 495 })
+				doc.moveDown(0.15)
+
+				doc.moveDown(0.15)
+				doc.fontSize(8).fillColor(gray).text("Beskrivelse:", { width: 495 })
+				doc
+					.fontSize(7)
+					.fillColor(gray)
+					.text(`Opprettet av: ${p.createdBy} — ${new Date(p.createdAt).toLocaleString("nb-NO")}`, { width: 495 })
+				if (p.description) {
+					doc.fontSize(8).fillColor(dark)
+					renderMarkdownToPdf(doc, p.description, { width: 495 })
+				}
+
+				doc.moveDown(0.15)
+				doc.fontSize(8).fillColor(gray).text("Oppfølging:", { width: 495 })
+				doc
+					.fontSize(8)
+					.fillColor(gray)
+					.text(`Status: ${followUpPointStatusLabel(p.status)}`, { width: 495 })
+				if (p.resolvedBy && p.resolvedAt) {
+					doc
+						.fontSize(7)
+						.fillColor(gray)
+						.text(`Løst av: ${p.resolvedBy} — ${new Date(p.resolvedAt).toLocaleString("nb-NO")}`, { width: 495 })
+				}
+				if (p.resolution) {
+					doc.moveDown(0.1)
+					doc.fontSize(8).fillColor(dark)
+					renderMarkdownToPdf(doc, p.resolution, { width: 495 })
+				}
+
+				if (p.attachments.length > 0) {
+					doc.moveDown(0.3)
+					doc.fontSize(8).fillColor(blue).text("Vedlegg", { width: 495 })
+					doc.moveDown(0.15)
+					doc
+						.fontSize(7)
+						.fillColor(gray)
+						.text(`Vedlegg er tilgjengelig i ${r.followUpAttachmentsZipPath}/ i den nedlastede zip-filen.`, {
+							width: 495,
+						})
+					doc.moveDown(0.2)
+					for (const att of p.attachments) {
+						if (doc.y > 700) doc.addPage()
+						const kindLabel = att.kind === "description" ? "beskrivelse" : "oppfølging"
+						doc.fontSize(9).fillColor(dark).text(`• ${att.fileName} (${kindLabel})`, { width: 495 })
+						doc
+							.fontSize(8)
+							.fillColor(gray)
+							.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
+								width: 495,
+							})
+					}
+				}
+
+				doc.moveDown(0.5)
+			}
+		}
+
+		const reviewActs = activitiesByReviewId.get(r.id) ?? []
+		for (const act of reviewActs) {
+			if (act.type === "entra_id_group_maintenance" && act.changes.length > 0) {
+				doc.moveDown(0.5)
+				doc.fontSize(10).fillColor(blue).text("Vedlikeholdsaktivitet — Entra ID-grupper")
+				doc.moveDown(0.2)
+				doc
+					.fontSize(9)
+					.fillColor(gray)
+					.text(`Status: ${act.status === "completed" ? "Fullført" : "Pågår"}`)
+				if (act.completedAt) {
+					doc.text(`Fullført: ${new Date(act.completedAt).toLocaleString("nb-NO")}`)
+				}
+				doc.moveDown(0.3)
+
+				doc.fontSize(9).fillColor(dark).text("Endringer:", { underline: true })
+				doc.moveDown(0.2)
+				const changeCw = [100, 140, 120, 120]
+				drawRow(doc, 50, changeCw, ["Type", "Gruppe", "Fra", "Til"], true, blue, dark)
+				for (const c of act.changes) {
+					if (doc.y > 760) doc.addPage()
+					const changeLabel =
+						c.changeType === "added" ? "Lagt til" : c.changeType === "removed" ? "Fjernet" : "Kritikalitet endret"
+					drawRow(
+						doc,
+						50,
+						changeCw,
+						[
+							changeLabel,
+							(c.groupName ?? c.groupId).slice(0, 30),
+							(c.previousValue ?? "–").slice(0, 25),
+							(c.newValue ?? "–").slice(0, 25),
+						],
+						false,
+						blue,
+						dark,
+					)
+				}
+			}
+		}
+	}
+}
+
+/**
+ * Bygger PDF-en for rutinegjennomgangsrapporten (rutine + regelsett-koblinger + gjennomganger
+ * for én applikasjon). Gjenbruker `renderRoutineGroupSection()` — samme rendering som brukes
+ * per rutine i app-compliance-rapporten (`buildAppPdf`), uten kompliance-tabellen og den
+ * app-globale Oracle-bevis-seksjonen som ikke er relevante for en enkelt rutine.
+ */
+function buildRoutineReviewPdf(
+	PDFDocCtor: typeof PDFDocument,
+	routine: {
+		name: string
+		description: string | null
+		frequency: string | null
+		eventFrequency: string | null
+		responsibleRole: string | null
+		approvedAt: Date | null
+		archivedAt: Date | null
+		technologyElements: Array<{ id: string; name: string }>
+		controls: Array<{ controlId: string; name: string | null }>
+	},
+	appName: string,
+	reviews: RoutineReviewPdfEntry[],
+	activitiesByReviewId: RoutineReviewActivityMap,
+	oracleEvidenceByReviewId: RoutineReviewOracleEvidenceMap,
+): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		const doc = new PDFDocCtor({ size: "A4", margin: 50, bufferPages: true })
+		const chunks: Buffer[] = []
+		doc.on("data", (chunk: Buffer) => chunks.push(chunk))
+		doc.on("end", () => resolve(Buffer.concat(chunks)))
+		doc.on("error", reject)
+
+		const blue = "#0067c5"
+		const dark = "#222222"
+		const gray = "#666666"
+
+		doc.fontSize(22).fillColor(blue).text("Rutinerapport")
+		doc.fontSize(16).fillColor(dark).text(routine.name)
+		doc.moveDown(0.3)
+		doc.fontSize(11).fillColor(dark).text(appName)
+		doc.moveDown(0.5)
+		doc.fontSize(9).fillColor(gray)
+		doc.text(`Generert: ${new Date().toLocaleString("nb-NO")}`)
+		doc.text(`Antall gjennomganger: ${reviews.length}`)
+
+		renderRoutineGroupSection(
+			doc,
+			{ blue, dark, gray },
+			{
+				routineName: routine.name,
+				routineDescription: routine.description,
+				routineFrequency: routine.frequency,
+				routineEventFrequency: routine.eventFrequency,
+				routineResponsibleRole: routine.responsibleRole,
+				routineApprovedAt: routine.approvedAt,
+				routineArchivedAt: routine.archivedAt,
+				routineTechnologyElements: routine.technologyElements,
+				routineControls: routine.controls.map((c) => ({ controlId: c.controlId, shortTitle: c.name })),
+				reviews,
+			},
+			activitiesByReviewId,
+			oracleEvidenceByReviewId,
+		)
+
+		doc.end()
+	})
+}
+
 function buildAppPdf(
 	PDFDocCtor: typeof PDFDocument,
 	app: { name: string; namespace: string | null; cluster: string | null },
@@ -1212,6 +1649,8 @@ function buildAppPdf(
 		participants: Array<{ userIdent: string; userName: string | null }>
 		attachments: Array<{ fileName: string; contentType: string; uploadedBy: string; uploadedAt: Date | string }>
 		links: Array<{ url: string; title: string | null }>
+		attachmentsZipPath: string
+		followUpAttachmentsZipPath: string
 		followUpPoints: Array<{
 			text: string
 			description: string | null
@@ -1379,254 +1818,7 @@ function buildAppPdf(
 			}
 
 			for (const [, group] of routineGroups) {
-				// Routine cover page
-				doc.addPage()
-				doc.fontSize(14).fillColor(blue).text("Rutine")
-				doc.moveDown(0.3)
-				doc.fontSize(16).fillColor(dark).text(group.routineName)
-				doc.moveDown(0.3)
-				const groupFreqLabel = getCompositeFrequencyLabel(group.routineFrequency, group.routineEventFrequency)
-				doc.fontSize(9).fillColor(gray).text(`Frekvens: ${groupFreqLabel}`)
-				if (group.routineResponsibleRole) {
-					doc.fontSize(9).fillColor(gray).text(`Ansvarlig rolle: ${group.routineResponsibleRole}`)
-				}
-				if (group.routineApprovedAt) {
-					doc
-						.fontSize(9)
-						.fillColor(gray)
-						.text(`Godkjent: ${new Date(group.routineApprovedAt).toLocaleDateString("nb-NO")}`)
-				}
-				if (group.routineArchivedAt) {
-					doc
-						.fontSize(9)
-						.fillColor(gray)
-						.text(`Arkivert: ${new Date(group.routineArchivedAt).toLocaleDateString("nb-NO")}`)
-				}
-				if (group.routineReplacedAt) {
-					doc
-						.fontSize(9)
-						.fillColor(gray)
-						.text(`Erstattet: ${new Date(group.routineReplacedAt).toLocaleDateString("nb-NO")}`)
-				}
-				if (group.routineTechnologyElements && group.routineTechnologyElements.length > 0) {
-					doc.fontSize(9).fillColor(gray).text("Teknologielementer:")
-					for (const e of group.routineTechnologyElements) {
-						doc.fontSize(9).fillColor(gray).text(`• ${e.name}`, { indent: 10 })
-					}
-				}
-				if (group.routineControls && group.routineControls.length > 0) {
-					doc.fontSize(9).fillColor(gray).text("Tilknyttede krav:")
-					for (const c of group.routineControls) {
-						const label = c.shortTitle ? `${c.controlId} – ${c.shortTitle}` : c.controlId
-						doc.fontSize(9).fillColor(gray).text(`• ${label}`, { indent: 10 })
-					}
-				}
-				doc.moveDown(0.5)
-
-				if (group.routineDescription) {
-					doc.fontSize(10).fillColor(dark).text("Beskrivelse", { underline: true })
-					doc.moveDown(0.2)
-					renderMarkdownToPdf(doc, group.routineDescription, { width: 495 })
-					doc.moveDown(0.5)
-				}
-
-				doc.fontSize(11).fillColor(blue).text(`Gjennomganger (${group.reviews.length})`)
-				doc.moveDown(0.5)
-
-				// Each review
-				for (const r of group.reviews) {
-					doc.addPage()
-
-					doc.fontSize(12).fillColor(dark).text(r.title)
-					doc.moveDown(0.3)
-					doc.fontSize(9).fillColor(gray)
-					doc.text(`Dato for gjennomgang: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
-					doc.text(`Registrert av: ${r.createdBy} — ${new Date(r.createdAt).toLocaleString("nb-NO")}`)
-					if (r.participants.length > 0) {
-						doc.text(`Deltakere: ${r.participants.map((p) => p.userName || p.userIdent).join(", ")}`)
-					}
-
-					if (r.summary) {
-						doc.moveDown(0.5)
-						doc.fontSize(10).fillColor(blue).text("Oppsummering / referat")
-						doc.moveDown(0.2)
-						renderMarkdownToPdf(doc, r.summary, { width: 495 })
-					}
-
-					// ─── Lenker ────────────────────────────────────────────
-					if (r.links.length > 0) {
-						doc.moveDown(0.5)
-						doc.fontSize(10).fillColor(blue).text("Lenker")
-						doc.moveDown(0.2)
-						for (const link of r.links) {
-							const label = link.title || link.url
-							doc.fontSize(9).fillColor(blue).text(label, { link: link.url, underline: true, width: 495 })
-							if (link.title) {
-								doc.fontSize(8).fillColor(gray).text(link.url, { width: 495 })
-							}
-							doc.moveDown(0.2)
-						}
-					}
-
-					// ─── Vedlegg (review-level) ────────────────────────────
-					const reviewOracleEvidence = oracleEvidenceByReviewId.get(r.id) ?? []
-					if (r.attachments.length > 0 || reviewOracleEvidence.length > 0) {
-						const hasOracleAtt = reviewOracleEvidence.length > 0
-						const reviewFolderName = `${new Date(r.reviewedAt).toISOString().slice(0, 10)}-${r.title.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}`
-						doc.moveDown(0.5)
-						doc.fontSize(10).fillColor(blue).text("Vedlegg")
-						doc.moveDown(0.2)
-						if (r.attachments.length > 0 || hasOracleAtt) {
-							doc
-								.fontSize(8)
-								.fillColor(gray)
-								.text(`Vedlegg er tilgjengelig i vedlegg/${reviewFolderName}/ i den nedlastede zip-filen.`, {
-									width: 495,
-								})
-							doc.moveDown(0.3)
-						}
-						for (const att of r.attachments) {
-							if (doc.y > 700) doc.addPage()
-							doc.fontSize(9).fillColor(dark).text(`• ${att.fileName}`, { width: 495 })
-							doc
-								.fontSize(8)
-								.fillColor(gray)
-								.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
-									width: 495,
-								})
-						}
-						for (const oe of reviewOracleEvidence) {
-							if (doc.y > 700) doc.addPage()
-							doc.fontSize(9).fillColor(dark).text(`• ${oe.fileName}`, { width: 495 })
-							doc
-								.fontSize(8)
-								.fillColor(gray)
-								.text(`  Lastet ned av: ${oe.performedBy} — ${new Date(oe.performedAt).toLocaleString("nb-NO")}`, {
-									width: 495,
-								})
-						}
-					}
-
-					// ─── Oppfølgingspunkter ────────────────────────────────
-					if (r.followUpPoints.length > 0) {
-						doc.moveDown(0.6)
-						doc.fontSize(11).fillColor(blue).text(`Oppfølgingspunkter (${r.followUpPoints.length})`)
-						doc.moveDown(0.3)
-
-						for (const [idx, p] of r.followUpPoints.entries()) {
-							if (doc.y > 700) doc.addPage()
-
-							doc
-								.fontSize(10)
-								.fillColor(dark)
-								.text(`${idx + 1}. ${p.text}`, { width: 495 })
-							doc.moveDown(0.15)
-
-							doc.moveDown(0.15)
-							doc.fontSize(8).fillColor(gray).text("Beskrivelse:", { width: 495 })
-							doc
-								.fontSize(7)
-								.fillColor(gray)
-								.text(`Opprettet av: ${p.createdBy} — ${new Date(p.createdAt).toLocaleString("nb-NO")}`, { width: 495 })
-							if (p.description) {
-								doc.fontSize(8).fillColor(dark)
-								renderMarkdownToPdf(doc, p.description, { width: 495 })
-							}
-
-							doc.moveDown(0.15)
-							doc.fontSize(8).fillColor(gray).text("Oppfølging:", { width: 495 })
-							doc
-								.fontSize(8)
-								.fillColor(gray)
-								.text(`Status: ${followUpPointStatusLabel(p.status)}`, { width: 495 })
-							if (p.resolvedBy && p.resolvedAt) {
-								doc
-									.fontSize(7)
-									.fillColor(gray)
-									.text(`Løst av: ${p.resolvedBy} — ${new Date(p.resolvedAt).toLocaleString("nb-NO")}`, { width: 495 })
-							}
-							if (p.resolution) {
-								doc.moveDown(0.1)
-								doc.fontSize(8).fillColor(dark)
-								renderMarkdownToPdf(doc, p.resolution, { width: 495 })
-							}
-
-							// ─── Vedlegg for oppfølgingspunkt ──────────────────
-							if (p.attachments.length > 0) {
-								const reviewFolderName = `${new Date(r.reviewedAt).toISOString().slice(0, 10)}-${r.title.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}`
-								doc.moveDown(0.3)
-								doc.fontSize(8).fillColor(blue).text("Vedlegg", { width: 495 })
-								doc.moveDown(0.15)
-								doc
-									.fontSize(7)
-									.fillColor(gray)
-									.text(
-										`Vedlegg er tilgjengelig i vedlegg/${reviewFolderName}/oppfolgingspunkter/ i den nedlastede zip-filen.`,
-										{
-											width: 495,
-										},
-									)
-								doc.moveDown(0.2)
-								for (const att of p.attachments) {
-									if (doc.y > 700) doc.addPage()
-									const kindLabel = att.kind === "description" ? "beskrivelse" : "oppfølging"
-									doc.fontSize(9).fillColor(dark).text(`• ${att.fileName} (${kindLabel})`, { width: 495 })
-									doc
-										.fontSize(8)
-										.fillColor(gray)
-										.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
-											width: 495,
-										})
-								}
-							}
-
-							doc.moveDown(0.5)
-						}
-					}
-
-					// Entra ID maintenance activities
-					const reviewActs = activitiesByReviewId.get(r.id) ?? []
-					for (const act of reviewActs) {
-						if (act.type === "entra_id_group_maintenance" && act.changes.length > 0) {
-							doc.moveDown(0.5)
-							doc.fontSize(10).fillColor(blue).text("Vedlikeholdsaktivitet — Entra ID-grupper")
-							doc.moveDown(0.2)
-							doc
-								.fontSize(9)
-								.fillColor(gray)
-								.text(`Status: ${act.status === "completed" ? "Fullført" : "Pågår"}`)
-							if (act.completedAt) {
-								doc.text(`Fullført: ${new Date(act.completedAt).toLocaleString("nb-NO")}`)
-							}
-							doc.moveDown(0.3)
-
-							// Changes table
-							doc.fontSize(9).fillColor(dark).text("Endringer:", { underline: true })
-							doc.moveDown(0.2)
-							const changeCw = [100, 140, 120, 120]
-							drawRow(doc, 50, changeCw, ["Type", "Gruppe", "Fra", "Til"], true, blue, dark)
-							for (const c of act.changes) {
-								if (doc.y > 760) doc.addPage()
-								const changeLabel =
-									c.changeType === "added" ? "Lagt til" : c.changeType === "removed" ? "Fjernet" : "Kritikalitet endret"
-								drawRow(
-									doc,
-									50,
-									changeCw,
-									[
-										changeLabel,
-										(c.groupName ?? c.groupId).slice(0, 30),
-										(c.previousValue ?? "–").slice(0, 25),
-										(c.newValue ?? "–").slice(0, 25),
-									],
-									false,
-									blue,
-									dark,
-								)
-							}
-						}
-					}
-				}
+				renderRoutineGroupSection(doc, { blue, dark, gray }, group, activitiesByReviewId, oracleEvidenceByReviewId)
 			}
 		}
 
