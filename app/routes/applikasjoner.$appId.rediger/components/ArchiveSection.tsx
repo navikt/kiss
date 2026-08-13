@@ -1,13 +1,15 @@
 import { Alert, BodyLong, Box, Button, Heading, VStack } from "@navikt/ds-react"
 import { Form } from "react-router"
+import { UserDisplayName } from "~/components/UserDisplayName"
 
 interface ArchiveSectionProps {
 	appName: string
 	archivedAt: Date | string | null
 	archivedBy: string | null
+	archivedByName: string | null
 }
 
-export function ArchiveSection({ appName, archivedAt, archivedBy }: ArchiveSectionProps) {
+export function ArchiveSection({ appName, archivedAt, archivedBy, archivedByName }: ArchiveSectionProps) {
 	if (archivedAt) {
 		const archivedAtDate = archivedAt instanceof Date ? archivedAt : new Date(archivedAt)
 		return (
@@ -18,8 +20,15 @@ export function ArchiveSection({ appName, archivedAt, archivedBy }: ArchiveSecti
 					</Heading>
 					<Alert variant="warning" inline>
 						Arkivert {archivedAtDate.toLocaleString("nb-NO")}
-						{archivedBy ? ` av ${archivedBy}` : ""}. Den er skjult fra brukervendte lister, men all data,
-						compliance-historikk og audit-logg er bevart.
+						{archivedBy ? (
+							<>
+								{" "}
+								av <UserDisplayName navIdent={archivedBy} name={archivedByName} />
+							</>
+						) : (
+							""
+						)}
+						. Den er skjult fra brukervendte lister, men all data, compliance-historikk og audit-logg er bevart.
 					</Alert>
 					<Form method="post">
 						<input type="hidden" name="intent" value="unarchive" />

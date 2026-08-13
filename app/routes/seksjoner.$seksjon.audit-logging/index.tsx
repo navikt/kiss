@@ -19,6 +19,7 @@ import {
 import { useState } from "react"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import {
 	type AuditLoggingStatus,
 	type AuditOverviewRow,
@@ -29,6 +30,7 @@ import {
 	updateAuditConfirmation,
 } from "~/db/queries/audit-logging.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection } from "~/lib/authorization.server"
 import type { Route } from "./+types/index"
@@ -81,10 +83,23 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		confirmed: overview.filter((r) => r.status === "confirmed").length,
 	}
 
+	const confirmerNames = await getUserNamesByNavIdents(
+		overview.filter((r) => r.confirmation).map((r) => r.confirmation?.confirmedBy as string),
+	)
+	const overviewWithNames = overview.map((r) => ({
+		...r,
+		confirmation: r.confirmation
+			? {
+					...r.confirmation,
+					confirmedByName: confirmerNames.get(r.confirmation.confirmedBy.trim().toUpperCase()) ?? null,
+				}
+			: null,
+	}))
+
 	return data({
 		section,
 		seksjon,
-		overview,
+		overview: overviewWithNames,
 		stats,
 		auditLog,
 		canManage: user ? canManageSection(user, section.id) : false,
@@ -178,6 +193,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 	}
 
 	return redirect(`/seksjoner/${seksjon}/audit-logging`)
+}
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+type AuditOverviewRowWithNames = Omit<AuditOverviewRow, "confirmation"> & {
+	confirmation: (AuditOverviewRow["confirmation"] & { confirmedByName: string | null }) | null
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -404,7 +425,14 @@ export default function SeksjonAuditLogging() {
 								{revokingRow.appName})?
 							</BodyShort>
 							<BodyShort size="small">
-								Bekreftet av {revokingRow.confirmation?.confirmedBy},{" "}
+								Bekreftet av{" "}
+								{revokingRow.confirmation && (
+									<UserDisplayName
+										navIdent={revokingRow.confirmation.confirmedBy}
+										name={revokingRow.confirmation.confirmedByName}
+									/>
+								)}
+								,{" "}
 								{revokingRow.confirmation?.confirmedAt
 									? new Date(revokingRow.confirmation.confirmedAt).toLocaleDateString("nb-NO")
 									: ""}
@@ -440,9 +468,9 @@ const statusSortOrder: Record<string, number> = {
 }
 
 function sortRows(
-	rows: AuditOverviewRow[],
+	rows: AuditOverviewRowWithNames[],
 	sort: { orderBy: string; direction: "ascending" | "descending" } | undefined,
-): AuditOverviewRow[] {
+): AuditOverviewRowWithNames[] {
 	if (!sort) return rows
 	return [...rows].sort((a, b) => {
 		const dir = sort.direction === "ascending" ? 1 : -1
@@ -502,7 +530,7 @@ function AuditRow({
 	onConfirm,
 	onRevoke,
 }: {
-	row: AuditOverviewRow
+	row: AuditOverviewRowWithNames
 	canManage: boolean
 	onConfirm: () => void
 	onRevoke: () => void
@@ -533,7 +561,7 @@ function AuditRow({
 				{row.confirmation && (
 					<BodyShort size="small">
 						Bekreftet {new Date(row.confirmation.confirmedAt).toLocaleDateString("nb-NO")} av{" "}
-						{row.confirmation.confirmedBy}
+						<UserDisplayName navIdent={row.confirmation.confirmedBy} name={row.confirmation.confirmedByName} />
 					</BodyShort>
 				)}
 			</Table.DataCell>

@@ -159,6 +159,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		...completedReviews.map((r) => r.createdBy),
 		...completedReviews.flatMap((r) => r.followUpPoints.map((p) => p.createdBy)),
 		...appReports.map((r) => r.createdBy),
+		...screeningSessions.filter((s) => s.archivedBy).map((s) => s.archivedBy as string),
 	])
 
 	// Compute auto-compliance from parallel results
@@ -397,6 +398,7 @@ export async function loader({ request, params }: LoaderArgs) {
 			createdBy: s.createdBy,
 			archivedAt: s.archivedAt?.toISOString() ?? null,
 			archivedBy: s.archivedBy ?? null,
+			archivedByName: s.archivedBy ? (reviewerNames.get(s.archivedBy.trim().toUpperCase()) ?? null) : null,
 			archiveReason: s.archiveReason ?? null,
 			participants: s.participants.map((p) => ({
 				userIdent: p.userIdent,

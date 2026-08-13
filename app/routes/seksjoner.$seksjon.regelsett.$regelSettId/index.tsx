@@ -15,6 +15,7 @@ import {
 import { Fragment, useState } from "react"
 import { data, Form, Link, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
 import {
 	approveRuleset,
@@ -24,6 +25,7 @@ import {
 	unlinkRoutineFromRuleset,
 } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { approvalStatusConfig } from "~/lib/approval-status"
 import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
@@ -74,9 +76,29 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	const linkedRoutineIds = new Set(ruleset.linkedRoutines.map((r) => r.routineId))
 	const availableRoutines = sectionRoutines.filter((r) => !linkedRoutineIds.has(r.id))
 
+	const userNames = await getUserNamesByNavIdents([
+		ruleset.createdBy,
+		ruleset.updatedBy,
+		...ruleset.linkedRoutines.map((r) => r.createdBy),
+		...ruleset.attachments.map((a) => a.uploadedBy),
+	])
+	const nameFor = (navIdent: string) => userNames.get(navIdent.trim().toUpperCase()) ?? null
+
 	return data({
 		section,
-		ruleset,
+		ruleset: {
+			...ruleset,
+			createdByName: nameFor(ruleset.createdBy),
+			updatedByName: nameFor(ruleset.updatedBy),
+			linkedRoutines: ruleset.linkedRoutines.map((r) => ({
+				...r,
+				createdByName: nameFor(r.createdBy),
+			})),
+			attachments: ruleset.attachments.map((a) => ({
+				...a,
+				uploadedByName: nameFor(a.uploadedBy),
+			})),
+		},
 		canApprove,
 		canEditDraft,
 		canMutate,
@@ -327,7 +349,9 @@ export default function RegelsettDetalj() {
 										<Table.DataCell>
 											<Link to={`/seksjoner/${section.slug}/rutiner/${r.routineId}`}>{r.routineName}</Link>
 										</Table.DataCell>
-										<Table.DataCell>{r.createdBy}</Table.DataCell>
+										<Table.DataCell>
+											<UserDisplayName navIdent={r.createdBy} name={r.createdByName} />
+										</Table.DataCell>
 										<Table.DataCell>{new Date(r.createdAt).toLocaleDateString("nb-NO")}</Table.DataCell>
 										{canMutate && (
 											<Table.DataCell>
@@ -417,7 +441,9 @@ export default function RegelsettDetalj() {
 								{ruleset.attachments.map((a) => (
 									<Table.Row key={a.id}>
 										<Table.DataCell>{a.fileName}</Table.DataCell>
-										<Table.DataCell>{a.uploadedBy}</Table.DataCell>
+										<Table.DataCell>
+											<UserDisplayName navIdent={a.uploadedBy} name={a.uploadedByName} />
+										</Table.DataCell>
 										<Table.DataCell>{new Date(a.uploadedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
 									</Table.Row>
 								))}
@@ -428,8 +454,10 @@ export default function RegelsettDetalj() {
 			)}
 
 			<Detail textColor="subtle">
-				Opprettet {new Date(ruleset.createdAt).toLocaleDateString("nb-NO")} av {ruleset.createdBy}. Sist endret{" "}
-				{new Date(ruleset.updatedAt).toLocaleDateString("nb-NO")} av {ruleset.updatedBy}.
+				Opprettet {new Date(ruleset.createdAt).toLocaleDateString("nb-NO")} av{" "}
+				<UserDisplayName navIdent={ruleset.createdBy} name={ruleset.createdByName} />. Sist endret{" "}
+				{new Date(ruleset.updatedAt).toLocaleDateString("nb-NO")} av{" "}
+				<UserDisplayName navIdent={ruleset.updatedBy} name={ruleset.updatedByName} />.
 			</Detail>
 
 			<Modal open={approveOpen} onClose={() => setApproveOpen(false)} header={{ heading: "Godkjenn regelsett" }}>

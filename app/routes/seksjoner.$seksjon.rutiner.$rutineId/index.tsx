@@ -107,6 +107,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	const reviewerNames = await getUserNamesByNavIdents([
 		...reviews.map((r) => r.createdBy),
 		...(routine.approvedBy ? [routine.approvedBy] : []),
+		...(routine.archivedBy ? [routine.archivedBy] : []),
 	])
 	const reviewsWithNames = reviews.map((r) => ({
 		...r,
@@ -114,6 +115,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	}))
 	const approvedByName = routine.approvedBy
 		? (reviewerNames.get(routine.approvedBy.trim().toUpperCase()) ?? null)
+		: null
+	const archivedByName = routine.archivedBy
+		? (reviewerNames.get(routine.archivedBy.trim().toUpperCase()) ?? null)
 		: null
 
 	// Fetch screening question text if linked
@@ -169,6 +173,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		section,
 		routine,
 		approvedByName,
+		archivedByName,
 		reviews: reviewsWithNames,
 		appsWithDeadlines,
 		screeningQuestion,
@@ -292,6 +297,7 @@ export default function RutineDetaljer() {
 		section,
 		routine,
 		approvedByName,
+		archivedByName,
 		reviews,
 		appsWithDeadlines,
 		descriptionHtml,
@@ -406,7 +412,15 @@ export default function RutineDetaljer() {
 						<LocalAlert.Content>
 							<BodyShort size="small">
 								Arkivert {new Date(routine.archivedAt).toLocaleString("nb-NO")}
-								{routine.archivedBy ? ` av ${routine.archivedBy}` : ""}. Godkjenning, kopiering og nye gjennomganger er
+								{routine.archivedBy ? (
+									<>
+										{" "}
+										av <UserDisplayName navIdent={routine.archivedBy} name={archivedByName} />
+									</>
+								) : (
+									""
+								)}
+								. Godkjenning, kopiering og nye gjennomganger er
 								{routine.replacedByRoutineId
 									? " deaktivert — rutinen er erstattet og kan ikke reaktiveres."
 									: " deaktivert. Bruk «Rediger» for å reaktivere."}

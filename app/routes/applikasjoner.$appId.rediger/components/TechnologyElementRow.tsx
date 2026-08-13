@@ -2,6 +2,7 @@ import { CheckmarkIcon, XMarkIcon } from "@navikt/aksel-icons"
 import { BodyShort, Box, Button, HStack, Tag, Textarea, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 import { Form } from "react-router"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import type { AppElement } from "../shared"
 
 export function TechnologyElementRow({ element: el }: { element: AppElement }) {
@@ -33,12 +34,28 @@ export function TechnologyElementRow({ element: el }: { element: AppElement }) {
 					)}
 					{isConfirmed && (
 						<Tag variant="success" size="xsmall">
-							Bekreftet{el.confirmedBy ? ` av ${el.confirmedBy}` : ""}
+							Bekreftet
+							{el.confirmedBy ? (
+								<>
+									{" "}
+									av <UserDisplayName navIdent={el.confirmedBy} name={el.confirmedByName} />
+								</>
+							) : (
+								""
+							)}
 						</Tag>
 					)}
 					{isRejected && (
 						<Tag variant="error" size="xsmall">
-							Avvist{el.rejectedBy ? ` av ${el.rejectedBy}` : ""}
+							Avvist
+							{el.rejectedBy ? (
+								<>
+									{" "}
+									av <UserDisplayName navIdent={el.rejectedBy} name={el.rejectedByName} />
+								</>
+							) : (
+								""
+							)}
 						</Tag>
 					)}
 					{!isAuto && (

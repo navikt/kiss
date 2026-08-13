@@ -1,4 +1,5 @@
 import { Heading, Table, Tag, VStack } from "@navikt/ds-react"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import type { loader } from "../loader.server"
 
 type LoaderData = Awaited<ReturnType<typeof loader>>["data"]
@@ -40,7 +41,9 @@ export function VersionHistory({ versions }: VersionHistoryProps) {
 									</Tag>
 								</Table.DataCell>
 								<Table.DataCell>{new Date(v.createdAt).toLocaleString("nb-NO")}</Table.DataCell>
-								<Table.DataCell>{v.createdBy}</Table.DataCell>
+								<Table.DataCell>
+									<UserDisplayName navIdent={v.createdBy} name={v.createdByName} />
+								</Table.DataCell>
 								<Table.DataCell>{v.activatedAt ? new Date(v.activatedAt).toLocaleString("nb-NO") : "–"}</Table.DataCell>
 							</Table.Row>
 						))}

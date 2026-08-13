@@ -17,10 +17,12 @@ import {
 import { and, inArray, isNull } from "drizzle-orm"
 import { useEffect, useState } from "react"
 import { data, useActionData, useLoaderData, useNavigation, useRevalidator, useSubmit } from "react-router"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import { db } from "~/db/connection.server"
 import { getEconomyClassifications } from "~/db/queries/economy-classification.server"
 import { getReportsForSection } from "~/db/queries/reports.server"
 import { getEffectiveAppIdsInSection, getSectionDetail } from "~/db/queries/sections.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { type EconomySystemType, economySystemTypeLabels, monitoredApplications } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection, requireSectionReportAccess } from "~/lib/authorization.server"
@@ -60,6 +62,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 		economySystemType: (economyMap.get(a.id)?.economySystemType ?? null) as EconomySystemType | null,
 	}))
 
+	const reporterNames = await getUserNamesByNavIdents(existingReports.map((r) => r.createdBy))
+
 	return data({
 		seksjon,
 		seksjonId: section.section.id,
@@ -73,6 +77,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			reportBucketPath: r.reportBucketPath,
 			createdAt: r.createdAt.toISOString(),
 			createdBy: r.createdBy,
+			createdByName: reporterNames.get(r.createdBy.trim().toUpperCase()) ?? null,
 		})),
 		canManage: canManageSection(user, section.section.id),
 	})
@@ -358,7 +363,9 @@ export default function SeksjonRapporter() {
 												minute: "2-digit",
 											})}
 										</Table.DataCell>
-										<Table.DataCell>{r.createdBy}</Table.DataCell>
+										<Table.DataCell>
+											<UserDisplayName navIdent={r.createdBy} name={r.createdByName} />
+										</Table.DataCell>
 										<Table.DataCell>
 											{r.status === "completed" && r.reportBucketPath ? (
 												<Button

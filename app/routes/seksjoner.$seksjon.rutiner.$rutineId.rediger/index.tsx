@@ -24,6 +24,7 @@ import { PrioritySelect } from "~/components/PrioritySelect"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { type ActivityItem, SortableActivityList } from "~/components/SortableActivityList"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import {
 	approveRoutine,
@@ -43,6 +44,7 @@ import {
 } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getAllTechnologyElements } from "~/db/queries/technology-elements.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import {
 	type DataClassification,
 	dataClassificationLabels,
@@ -167,10 +169,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	const userCanApprove = canApproveRoutine(authedUser, effectiveRole, section.id)
 	const userCanChangePriority = isAdmin(authedUser) || canApproveRoutine(authedUser, effectiveRole, section.id)
 
+	const archivedByName = routine.archivedBy
+		? ((await getUserNamesByNavIdents([routine.archivedBy])).get(routine.archivedBy.trim().toUpperCase()) ?? null)
+		: null
+
 	return data({
 		seksjon,
 		section,
 		routine,
+		archivedByName,
 		activityItems,
 		questionsWithChoices,
 		technologyElements,
@@ -450,8 +457,15 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function RedigerRutine() {
-	const { routine, activityItems, technologyElements, controls, userCanApprove, userCanChangePriority } =
-		useLoaderData<typeof loader>()
+	const {
+		routine,
+		archivedByName,
+		activityItems,
+		technologyElements,
+		controls,
+		userCanApprove,
+		userCanChangePriority,
+	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const fieldErrors =
 		actionData && typeof actionData === "object" && "fieldErrors" in actionData
@@ -542,8 +556,16 @@ export default function RedigerRutine() {
 						<VStack gap="space-8">
 							<BodyShort size="small">
 								Arkivert {new Date(routine.archivedAt).toLocaleString("nb-NO")}
-								{routine.archivedBy ? ` av ${routine.archivedBy}` : ""}. Den er skjult fra oversikter, men all
-								konfigurasjon, gjennomganger og audit-logg er bevart. Reaktiver rutinen for å redigere den.
+								{routine.archivedBy ? (
+									<>
+										{" "}
+										av <UserDisplayName navIdent={routine.archivedBy} name={archivedByName} />
+									</>
+								) : (
+									""
+								)}
+								. Den er skjult fra oversikter, men all konfigurasjon, gjennomganger og audit-logg er bevart. Reaktiver
+								rutinen for å redigere den.
 							</BodyShort>
 							<Form method="post">
 								<input type="hidden" name="intent" value="unarchive" />
