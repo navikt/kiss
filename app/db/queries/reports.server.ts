@@ -977,7 +977,9 @@ export async function generateRoutineReviewReport(params: {
 
 		const reviewsForPdf = new Map<string, RoutineReviewPdfEntry>()
 		for (const review of reviews) {
-			const linkedRulesets = await getRulesetsLinkedToRoutineAtDate(routineId, review.reviewedAt)
+			// review.routineId kan være en forgjenger-rutine (nå erstattet) — bruk den, ikke
+			// den valgte rutinen, så regelsettkoblingene stemmer med tidspunktet gjennomgangen gjaldt for.
+			const linkedRulesets = await getRulesetsLinkedToRoutineAtDate(review.routineId, review.reviewedAt)
 			const reviewDate = review.reviewedAt.toISOString().slice(0, 10)
 			const folder = `${reviewDate}-${sanitizeFilename(review.title)}-${review.id.slice(-8)}`
 			reviewsForPdf.set(review.id, {
