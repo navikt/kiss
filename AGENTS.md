@@ -82,6 +82,11 @@ pnpm check            # Biome + React Router typegen + tsc (kjør før commit)
 - All utvikling skjer i feature branches
 - Alle endringer skal sjekkes med AI-agenter (Opus, Sonnet, Codex)
 
+## PR-beskrivelser
+
+- Ingen «Testing»- eller «Merk»-seksjoner, og unngå generell AI-verbositet (unødvendige oppsummeringer, hedging, gjentakelser)
+- Hold beskrivelsen kort: hva som er endret og eventuelt hvorfor/hvordan, ikke mer
+
 ## Kontroll-ID-formater og compliance-statuser
 
 - Nav MKR: `K-XX.NN` (f.eks. `K-ST.01`) / Risiko: `R-XX.NN`
