@@ -6,10 +6,12 @@ import { getAuditEvidenceForReport } from "~/db/queries/audit-evidence.server"
 import { getEvidenceDownloadsForActivityWithBucketDetails } from "~/db/queries/evidence-downloads.server"
 import { getApplicationDetail } from "~/db/queries/nais.server"
 import { getActivitiesForReviews, getReviewsForApp } from "~/db/queries/routines.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { isOracleEvidenceActivityType } from "~/lib/activity-types"
 import { getStatusLabel } from "~/lib/compliance-status"
 import { getCompositeFrequencyLabel } from "~/lib/routine-frequencies"
 import { getStorageProvider } from "~/lib/storage/index.server"
+import { formatUserRef } from "~/lib/user-display"
 import type { Route } from "./+types/index"
 
 export async function loader({ params }: Route.LoaderArgs) {
@@ -174,6 +176,7 @@ export async function loader({ params }: Route.LoaderArgs) {
 		oracleEvidenceByReviewId,
 		attachmentBuffers,
 		failedAttachments,
+		await getUserNamesByNavIdents(collectReviewNavIdents(reportReviews, oracleEvidenceByReviewId)),
 	)
 
 	const safeName = detail.app.name.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_")
@@ -307,6 +310,27 @@ const blue = "#0067c5"
 const darkText = "#222222"
 const subtle = "#666666"
 
+function collectReviewNavIdents(
+	reviews: Review[],
+	oracleEvidenceByReviewId: Map<
+		string,
+		Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
+	>,
+): string[] {
+	const idents = new Set<string>()
+	for (const r of reviews) {
+		idents.add(r.createdBy)
+		for (const att of r.attachments) idents.add(att.uploadedBy)
+		for (const p of r.followUpPoints) {
+			idents.add(p.createdBy)
+			if (p.resolvedBy) idents.add(p.resolvedBy)
+			for (const att of p.attachments) idents.add(att.uploadedBy)
+		}
+		for (const oe of oracleEvidenceByReviewId.get(r.id) ?? []) idents.add(oe.performedBy)
+	}
+	return [...idents]
+}
+
 function buildPdf(
 	app: AppInfo,
 	assessments: Assessment[],
@@ -318,6 +342,7 @@ function buildPdf(
 	>,
 	allAttachments: AttachmentData[],
 	failedAttachments: FailedAttachment[],
+	nameByNavIdent: ReadonlyMap<string, string>,
 ): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true })
@@ -348,7 +373,7 @@ function buildPdf(
 		buildAssessmentDetails(doc, assessments)
 
 		// ─── Routine reviews ──────────────────────────────────────────
-		buildReviewsSection(doc, reviews, oracleEvidenceByReviewId)
+		buildReviewsSection(doc, reviews, oracleEvidenceByReviewId, nameByNavIdent)
 
 		// ─── Audit evidence — Oracle databases ────────────────────────
 		if (auditEvidence.length > 0) {
@@ -520,6 +545,7 @@ function buildReviewsSection(
 		string,
 		Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
 	>,
+	nameByNavIdent: ReadonlyMap<string, string>,
 ) {
 	if (reviews.length === 0) return
 
@@ -538,7 +564,7 @@ function buildReviewsSection(
 			r.routineName.slice(0, 28),
 			new Date(r.reviewedAt).toLocaleDateString("nb-NO"),
 			r.status === "completed" ? "Fullført" : r.status === "needs_follow_up" ? "Må følges opp" : "Utkast",
-			r.createdBy,
+			formatUserRef(r.createdBy, nameByNavIdent),
 		])
 	}
 
@@ -617,7 +643,9 @@ function buildReviewsSection(
 			const freqLabel = getCompositeFrequencyLabel(r.routineFrequency, r.routineEventFrequency)
 			doc.text(`Frekvens: ${freqLabel}`)
 			doc.text(`Dato for gjennomgang: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
-			doc.text(`Registrert av: ${r.createdBy} — ${new Date(r.createdAt).toLocaleString("nb-NO")}`)
+			doc.text(
+				`Registrert av: ${formatUserRef(r.createdBy, nameByNavIdent)} — ${new Date(r.createdAt).toLocaleString("nb-NO")}`,
+			)
 
 			if (r.participants.length > 0) {
 				const names = r.participants.map((p) => p.userName || p.userIdent).join(", ")
@@ -669,9 +697,12 @@ function buildReviewsSection(
 					doc
 						.fontSize(7)
 						.fillColor(subtle)
-						.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
-							width: 495,
-						})
+						.text(
+							`  Lastet opp av: ${formatUserRef(att.uploadedBy, nameByNavIdent)} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`,
+							{
+								width: 495,
+							},
+						)
 				}
 				for (const oe of reviewOracleEvidence) {
 					ensureSpace(doc, 16)
@@ -679,9 +710,12 @@ function buildReviewsSection(
 					doc
 						.fontSize(7)
 						.fillColor(subtle)
-						.text(`  Lastet ned av: ${oe.performedBy} — ${new Date(oe.performedAt).toLocaleString("nb-NO")}`, {
-							width: 495,
-						})
+						.text(
+							`  Lastet ned av: ${formatUserRef(oe.performedBy, nameByNavIdent)} — ${new Date(oe.performedAt).toLocaleString("nb-NO")}`,
+							{
+								width: 495,
+							},
+						)
 				}
 			}
 
@@ -705,7 +739,10 @@ function buildReviewsSection(
 					doc
 						.fontSize(7)
 						.fillColor(subtle)
-						.text(`Opprettet av: ${p.createdBy} — ${new Date(p.createdAt).toLocaleString("nb-NO")}`, { width: 495 })
+						.text(
+							`Opprettet av: ${formatUserRef(p.createdBy, nameByNavIdent)} — ${new Date(p.createdAt).toLocaleString("nb-NO")}`,
+							{ width: 495 },
+						)
 					if (p.description) {
 						const descText = p.description.length > 1500 ? `${p.description.slice(0, 1500)}…` : p.description
 						doc.fontSize(8).fillColor(darkText).text(descText, { width: 495 })
@@ -721,7 +758,10 @@ function buildReviewsSection(
 						doc
 							.fontSize(7)
 							.fillColor(subtle)
-							.text(`Løst av: ${p.resolvedBy} — ${new Date(p.resolvedAt).toLocaleString("nb-NO")}`, { width: 495 })
+							.text(
+								`Løst av: ${formatUserRef(p.resolvedBy, nameByNavIdent)} — ${new Date(p.resolvedAt).toLocaleString("nb-NO")}`,
+								{ width: 495 },
+							)
 					}
 					if (p.resolution) {
 						const resText = p.resolution.length > 1500 ? `${p.resolution.slice(0, 1500)}…` : p.resolution
@@ -753,9 +793,12 @@ function buildReviewsSection(
 							doc
 								.fontSize(7)
 								.fillColor(subtle)
-								.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
-									width: 495,
-								})
+								.text(
+									`  Lastet opp av: ${formatUserRef(att.uploadedBy, nameByNavIdent)} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`,
+									{
+										width: 495,
+									},
+								)
 						}
 					}
 
