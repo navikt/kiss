@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm"
+import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "../../lib/activity-types"
 import {
 	applyEntraStagedDataPatch,
 	ENTRA_STAGED_DATA_ACTIVITY_TYPE,
@@ -9,6 +10,7 @@ import {
 	type StagedDataPatch,
 	toEntraGroupSnapshot,
 } from "../../lib/entra-staged-data"
+import { getProviderUiConfig } from "../../lib/evidence-providers/ui-config"
 import { resolveGroupNames } from "../../lib/graph.server"
 import { withAdvisoryLock } from "../../lib/lock.server"
 import {
@@ -92,7 +94,7 @@ import {
 import { syncApplicationControls } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
 import { getOracleInstancesForApp } from "./audit-evidence.server"
-import { getEvidenceDownloadsForActivities } from "./evidence-downloads.server"
+import { getEvidenceDownloadsForActivities, getEvidenceDownloadsForActivity } from "./evidence-downloads.server"
 import {
 	getAppAuthIntegrations,
 	getExcludedEnvironments,
@@ -6355,6 +6357,28 @@ export async function completeReviewActivity(
 	}
 	if (activity.status !== "pending") {
 		throw new Response("Aktiviteten er allerede fullført", { status: 409 })
+	}
+
+	// Forretningsinvariant: bevis-baserte vedlikeholdsaktiviteter (Oracle-revisjonsbevis,
+	// leveranserapporter osv.) SKAL ha minst én nedlasting/opplasting per påkrevd bevistype
+	// før de kan markeres fullført. Håndheves her i query-laget (ikke bare i UI) slik at
+	// aktiviteten ikke kan fullføres uten at bevisinnhentingen faktisk er gjennomført.
+	const evidenceProviderType = getProviderTypeForActivity(activity.type)
+	if (evidenceProviderType) {
+		const requiredEvidenceTypes = getEvidenceTypesForActivity(activity.type) ?? []
+		const downloads = await getEvidenceDownloadsForActivity(activityId, tx ?? db)
+		const collectedEvidenceTypes = new Set(
+			downloads.map((d) => d.providerMetadata.evidenceType).filter((v): v is string => typeof v === "string"),
+		)
+		const missingEvidenceTypes = requiredEvidenceTypes.filter((et) => !collectedEvidenceTypes.has(et))
+		if (missingEvidenceTypes.length > 0) {
+			const labels = getProviderUiConfig(evidenceProviderType).evidenceTypeLabels
+			const missingLabels = missingEvidenceTypes.map((et) => labels[et] ?? et)
+			throw new Response(
+				`Vedlikeholdsaktiviteten kan ikke fullføres. Følgende bevis må lastes ned eller lastes opp: ${missingLabels.join(", ")}.`,
+				{ status: 400 },
+			)
+		}
 	}
 
 	// Use the Entra staged_data commit path for entra_id_group_maintenance activities that have an
