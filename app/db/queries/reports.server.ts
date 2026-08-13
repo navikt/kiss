@@ -41,6 +41,19 @@ import { getRulesetsLinkedToRoutineAtDate } from "./rulesets.server"
 import { getEffectiveAppIdsInSection } from "./sections.server"
 import { getUserNamesByNavIdents } from "./users.server"
 
+function formatReportTimestamp(date: Date): string {
+	return date
+		.toLocaleString("nb-NO", {
+			timeZone: "Europe/Oslo",
+			day: "2-digit",
+			month: "2-digit",
+			year: "numeric",
+			hour: "2-digit",
+			minute: "2-digit",
+		})
+		.replace(",", "")
+}
+
 /** Get all reports ordered by newest first. */
 export async function getReports() {
 	return db.select().from(reports).orderBy(desc(reports.createdAt))
@@ -706,7 +719,7 @@ export async function generateAppComplianceReport(params: {
 	const now = new Date()
 	const datePrefix = now.toISOString().slice(0, 10)
 	const fileId = crypto.randomUUID()
-	const reportName = `Compliance-rapport – ${detail.app.name} – ${now.toLocaleDateString("nb-NO")}`
+	const reportName = `${detail.app.name} – ${formatReportTimestamp(now)} – Compliance-rapport`
 	const storage = getStorageProvider()
 	const bucketName = "kiss-reports"
 
@@ -935,7 +948,7 @@ export async function generateRoutineReviewReport(params: {
 	const now = new Date()
 	const datePrefix = now.toISOString().slice(0, 10)
 	const fileId = crypto.randomUUID()
-	const reportName = `Rutinerapport – ${routine.name} – ${detail.app.name} – ${now.toLocaleDateString("nb-NO")}`
+	const reportName = `${detail.app.name} – ${formatReportTimestamp(now)} – Rutinerapport – ${routine.name}`
 	const storage = getStorageProvider()
 	const zipPath = `reports/routine-review/${routineId}/${applicationId}/${datePrefix}/${fileId}/rapport.zip`
 

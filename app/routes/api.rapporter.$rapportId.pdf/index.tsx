@@ -7,6 +7,7 @@ import { getReport } from "~/db/queries/reports.server"
 import { sections } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canAccessAppReports, canManageSection, isAuditor } from "~/lib/authorization.server"
+import { sanitizeFilename } from "~/lib/sanitize-filename"
 import { getStorageProvider } from "~/lib/storage/index.server"
 import type { Route } from "./+types/index"
 
@@ -91,7 +92,7 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 
 	const forceDownload = url.searchParams.get("download") === "true"
 	const storage = getStorageProvider()
-	const safeName = report.name.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_")
+	const safeName = sanitizeFilename(report.name, 150)
 
 	if (
 		(report.reportType === "app_compliance" ||
