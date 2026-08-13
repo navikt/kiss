@@ -975,12 +975,12 @@ export async function generateRoutineReviewReport(params: {
 			}
 		}
 
-		const reviewsForPdf: RoutineReviewPdfEntry[] = []
+		const reviewsForPdf = new Map<string, RoutineReviewPdfEntry>()
 		for (const review of reviews) {
 			const linkedRulesets = await getRulesetsLinkedToRoutineAtDate(routineId, review.reviewedAt)
 			const reviewDate = review.reviewedAt.toISOString().slice(0, 10)
 			const folder = `gjennomganger/${reviewDate}-${sanitizeFilename(review.title)}-${review.id.slice(-8)}`
-			reviewsForPdf.push({
+			reviewsForPdf.set(review.id, {
 				id: review.id,
 				title: review.title,
 				summary: review.summary,
@@ -997,7 +997,7 @@ export async function generateRoutineReviewReport(params: {
 			})
 		}
 
-		const pdfBuffer = await buildRoutineReviewPdf(
+		const routineInfoBuffer = await buildRoutineInfoPdf(
 			PDFDocument,
 			{
 				name: routine.name,
@@ -1011,17 +1011,44 @@ export async function generateRoutineReviewReport(params: {
 				controls: routine.controls,
 			},
 			detail.app.name,
-			reviewsForPdf,
-			activitiesByReviewId,
-			oracleEvidenceByReviewId,
 		)
-		archive.append(pdfBuffer, { name: `${sanitizeFilename(routine.name)}.pdf`, date: zipEntryDate() })
+		const rulesetPdfCache = new Map<string, Buffer>()
 
 		for (const review of reviews) {
 			const reviewDate = review.reviewedAt.toISOString().slice(0, 10)
 			const folder = `gjennomganger/${reviewDate}-${sanitizeFilename(review.title)}-${review.id.slice(-8)}`
+			const reviewForPdf = reviewsForPdf.get(review.id)
+			if (!reviewForPdf) continue
 
 			const usedNames = new Set<string>()
+
+			archive.append(routineInfoBuffer, {
+				name: `${folder}/rutine - ${sanitizeFilename(routine.name)}.pdf`,
+				date: zipEntryDate(),
+			})
+
+			for (const rs of reviewForPdf.linkedRulesets ?? []) {
+				// isCurrentFallback avhenger av asOfDate (gjennomgangens tidspunkt), så cache-nøkkelen må
+				// inkludere den for å unngå at PDF-en for én gjennomgang gjenbrukes feilaktig for en annen.
+				const cacheKey = `${rs.id}:${rs.isCurrentFallback}`
+				let rulesetBuffer = rulesetPdfCache.get(cacheKey)
+				if (!rulesetBuffer) {
+					rulesetBuffer = await buildRulesetPdf(PDFDocument, rs)
+					rulesetPdfCache.set(cacheKey, rulesetBuffer)
+				}
+				let entryName = `${folder}/regelsett - ${sanitizeFilename(rs.name)}.pdf`
+				entryName = dedupeZipEntryName(entryName, usedNames)
+				archive.append(rulesetBuffer, { name: entryName, date: zipEntryDate() })
+			}
+
+			const reviewActivities = activitiesByReviewId.get(review.id) ?? []
+			const reviewOracleEvidence = oracleEvidenceByReviewId.get(review.id) ?? []
+			const reviewBuffer = await buildReviewPdf(PDFDocument, reviewForPdf, reviewActivities, reviewOracleEvidence)
+			archive.append(reviewBuffer, {
+				name: `${folder}/gjennomgang - ${sanitizeFilename(review.title)}.pdf`,
+				date: zipEntryDate(),
+			})
+
 			for (const att of review.attachments) {
 				const safeName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
 				let entryName = `${folder}/vedlegg/${safeName}`
@@ -1050,8 +1077,7 @@ export async function generateRoutineReviewReport(params: {
 				}
 			}
 
-			const activities = activitiesByReviewId.get(review.id) ?? []
-			for (const act of activities) {
+			for (const act of reviewActivities) {
 				if (!isOracleEvidenceActivityType(act.type)) continue
 				const evidenceDownloads = evidenceDownloadsByActivityId.get(act.id) ?? []
 				for (const dl of evidenceDownloads) {
@@ -1308,22 +1334,14 @@ type RoutineReviewOracleEvidenceMap = Map<
 	Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
 >
 
-/**
- * Rendrer én rutine med sine gjennomganger (rutine-forside + per-gjennomgang-seksjoner:
- * referat, lenker, vedleggshenvisninger, oppfølgingspunkter, Entra ID-vedlikeholdsendringer).
- * Delt mellom app-compliance-rapporten (ett kall per rutine) og rutinegjennomgangsrapporten
- * (ett kall for den ene rutinen rapporten gjelder).
- */
-function renderRoutineGroupSection(
+/** Delt av app-compliance-rapporten og det frittstående "rutine - <navn>.pdf"-dokumentet i rutinegjennomgangsrapporten. */
+function renderRoutineInfoSection(
 	doc: InstanceType<typeof PDFDocument>,
 	colors: { blue: string; dark: string; gray: string },
 	group: RoutineReviewPdfGroup,
-	activitiesByReviewId: RoutineReviewActivityMap,
-	oracleEvidenceByReviewId: RoutineReviewOracleEvidenceMap,
 ) {
 	const { blue, dark, gray } = colors
 
-	doc.addPage()
 	doc.fontSize(14).fillColor(blue).text("Rutine")
 	doc.moveDown(0.3)
 	doc.fontSize(16).fillColor(dark).text(group.routineName)
@@ -1376,13 +1394,43 @@ function renderRoutineGroupSection(
 		renderMarkdownToPdf(doc, group.routineDescription, { width: 495 })
 		doc.moveDown(0.5)
 	}
+}
 
-	doc.fontSize(11).fillColor(blue).text(`Gjennomganger (${group.reviews.length})`)
+/**
+ * Kun brukt av app-compliance-rapporten (`buildAppPdf`), som fortsatt skal ha alt samlet i én
+ * PDF. Rutinegjennomgangsrapporten bruker `renderRoutineInfoSection`/`renderReviewSection`
+ * direkte for å produsere separate PDF-er per rutine/regelsett/gjennomgang.
+ */
+function renderRoutineGroupSection(
+	doc: InstanceType<typeof PDFDocument>,
+	colors: { blue: string; dark: string; gray: string },
+	group: RoutineReviewPdfGroup,
+	activitiesByReviewId: RoutineReviewActivityMap,
+	oracleEvidenceByReviewId: RoutineReviewOracleEvidenceMap,
+) {
+	doc.addPage()
+	renderRoutineInfoSection(doc, colors, group)
+
+	doc.fontSize(11).fillColor(colors.blue).text(`Gjennomganger (${group.reviews.length})`)
 	doc.moveDown(0.5)
 
 	for (const r of group.reviews) {
 		doc.addPage()
+		renderReviewSection(doc, colors, r, activitiesByReviewId.get(r.id) ?? [], oracleEvidenceByReviewId.get(r.id) ?? [])
+	}
+}
 
+/** Delt av den kombinerte rutine-seksjonen og det frittstående "gjennomgang - <tittel>.pdf"-dokumentet i rutinegjennomgangsrapporten. */
+function renderReviewSection(
+	doc: InstanceType<typeof PDFDocument>,
+	colors: { blue: string; dark: string; gray: string },
+	r: RoutineReviewPdfEntry,
+	activities: RoutineReviewActivityMap extends Map<string, infer V> ? V : never,
+	oracleEvidence: RoutineReviewOracleEvidenceMap extends Map<string, infer V> ? V : never,
+) {
+	const { blue, dark, gray } = colors
+
+	{
 		doc.fontSize(12).fillColor(dark).text(r.title)
 		doc.moveDown(0.3)
 		doc.fontSize(9).fillColor(gray)
@@ -1429,7 +1477,7 @@ function renderRoutineGroupSection(
 			}
 		}
 
-		const reviewOracleEvidence = oracleEvidenceByReviewId.get(r.id) ?? []
+		const reviewOracleEvidence = oracleEvidence
 		if (r.attachments.length > 0 || reviewOracleEvidence.length > 0) {
 			const hasOracleAtt = reviewOracleEvidence.length > 0
 			doc.moveDown(0.5)
@@ -1537,7 +1585,7 @@ function renderRoutineGroupSection(
 			}
 		}
 
-		const reviewActs = activitiesByReviewId.get(r.id) ?? []
+		const reviewActs = activities
 		for (const act of reviewActs) {
 			if (act.type === "entra_id_group_maintenance" && act.changes.length > 0) {
 				doc.moveDown(0.5)
@@ -1663,13 +1711,22 @@ function renderRoutineGroupSection(
 	}
 }
 
-/**
- * Bygger PDF-en for rutinegjennomgangsrapporten (rutine + regelsett-koblinger + gjennomganger
- * for én applikasjon). Gjenbruker `renderRoutineGroupSection()` — samme rendering som brukes
- * per rutine i app-compliance-rapporten (`buildAppPdf`), uten kompliance-tabellen og den
- * app-globale Oracle-bevis-seksjonen som ikke er relevante for en enkelt rutine.
- */
-function buildRoutineReviewPdf(
+function createBufferedPdf(PDFDocCtor: typeof PDFDocument): {
+	doc: InstanceType<typeof PDFDocument>
+	colors: { blue: string; dark: string; gray: string }
+	result: Promise<Buffer>
+} {
+	const doc = new PDFDocCtor({ size: "A4", margin: 50, bufferPages: true })
+	const chunks: Buffer[] = []
+	const result = new Promise<Buffer>((resolve, reject) => {
+		doc.on("data", (chunk: Buffer) => chunks.push(chunk))
+		doc.on("end", () => resolve(Buffer.concat(chunks)))
+		doc.on("error", reject)
+	})
+	return { doc, colors: { blue: "#0067c5", dark: "#222222", gray: "#666666" }, result }
+}
+
+function buildRoutineInfoPdf(
 	PDFDocCtor: typeof PDFDocument,
 	routine: {
 		name: string
@@ -1683,51 +1740,77 @@ function buildRoutineReviewPdf(
 		controls: Array<{ controlId: string; name: string | null }>
 	},
 	appName: string,
-	reviews: RoutineReviewPdfEntry[],
-	activitiesByReviewId: RoutineReviewActivityMap,
-	oracleEvidenceByReviewId: RoutineReviewOracleEvidenceMap,
 ): Promise<Buffer> {
-	return new Promise((resolve, reject) => {
-		const doc = new PDFDocCtor({ size: "A4", margin: 50, bufferPages: true })
-		const chunks: Buffer[] = []
-		doc.on("data", (chunk: Buffer) => chunks.push(chunk))
-		doc.on("end", () => resolve(Buffer.concat(chunks)))
-		doc.on("error", reject)
+	const { doc, colors, result } = createBufferedPdf(PDFDocCtor)
+	doc.fontSize(11).fillColor(colors.dark).text(appName)
+	doc.moveDown(0.5)
+	doc
+		.fontSize(9)
+		.fillColor(colors.gray)
+		.text(`Generert: ${new Date().toLocaleString("nb-NO")}`)
+	doc.moveDown(0.3)
 
-		const blue = "#0067c5"
-		const dark = "#222222"
-		const gray = "#666666"
-
-		doc.fontSize(22).fillColor(blue).text("Rutinerapport")
-		doc.fontSize(16).fillColor(dark).text(routine.name)
-		doc.moveDown(0.3)
-		doc.fontSize(11).fillColor(dark).text(appName)
-		doc.moveDown(0.5)
-		doc.fontSize(9).fillColor(gray)
-		doc.text(`Generert: ${new Date().toLocaleString("nb-NO")}`)
-		doc.text(`Antall gjennomganger: ${reviews.length}`)
-
-		renderRoutineGroupSection(
-			doc,
-			{ blue, dark, gray },
-			{
-				routineName: routine.name,
-				routineDescription: routine.description,
-				routineFrequency: routine.frequency,
-				routineEventFrequency: routine.eventFrequency,
-				routineResponsibleRole: routine.responsibleRole,
-				routineApprovedAt: routine.approvedAt,
-				routineArchivedAt: routine.archivedAt,
-				routineTechnologyElements: routine.technologyElements,
-				routineControls: routine.controls.map((c) => ({ controlId: c.controlId, shortTitle: c.name })),
-				reviews,
-			},
-			activitiesByReviewId,
-			oracleEvidenceByReviewId,
-		)
-
-		doc.end()
+	renderRoutineInfoSection(doc, colors, {
+		routineName: routine.name,
+		routineDescription: routine.description,
+		routineFrequency: routine.frequency,
+		routineEventFrequency: routine.eventFrequency,
+		routineResponsibleRole: routine.responsibleRole,
+		routineApprovedAt: routine.approvedAt,
+		routineArchivedAt: routine.archivedAt,
+		routineTechnologyElements: routine.technologyElements,
+		routineControls: routine.controls.map((c) => ({ controlId: c.controlId, shortTitle: c.name })),
+		reviews: [],
 	})
+
+	doc.end()
+	return result
+}
+
+function buildRulesetPdf(
+	PDFDocCtor: typeof PDFDocument,
+	ruleset: NonNullable<RoutineReviewPdfEntry["linkedRulesets"]>[number],
+): Promise<Buffer> {
+	const { doc, colors, result } = createBufferedPdf(PDFDocCtor)
+	const { blue, dark, gray } = colors
+
+	doc.fontSize(14).fillColor(blue).text("Regelsett")
+	doc.moveDown(0.3)
+	doc
+		.fontSize(16)
+		.fillColor(dark)
+		.text(ruleset.code ? `${ruleset.code} – ${ruleset.name}` : ruleset.name)
+	doc.moveDown(0.3)
+	doc.fontSize(9).fillColor(gray).text(`Status: ${ruleset.status}`)
+	if (ruleset.isCurrentFallback) {
+		doc.fontSize(9).fillColor(gray).text("Gjeldende kobling, historikk mangler")
+	}
+	doc.moveDown(0.5)
+
+	if (ruleset.description) {
+		doc.fontSize(10).fillColor(dark).text("Beskrivelse", { underline: true })
+		doc.moveDown(0.2)
+		renderMarkdownToPdf(doc, ruleset.description, { width: 495 })
+	}
+
+	doc.end()
+	return result
+}
+
+function buildReviewPdf(
+	PDFDocCtor: typeof PDFDocument,
+	review: RoutineReviewPdfEntry,
+	activities: RoutineReviewActivityMap extends Map<string, infer V> ? V : never,
+	oracleEvidence: RoutineReviewOracleEvidenceMap extends Map<string, infer V> ? V : never,
+): Promise<Buffer> {
+	const { doc, colors, result } = createBufferedPdf(PDFDocCtor)
+	doc.fontSize(14).fillColor(colors.blue).text("Gjennomgang")
+	doc.moveDown(0.3)
+
+	renderReviewSection(doc, colors, review, activities, oracleEvidence)
+
+	doc.end()
+	return result
 }
 
 function buildAppPdf(
