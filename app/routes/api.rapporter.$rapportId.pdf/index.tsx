@@ -80,12 +80,25 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 		}
 	}
 
+	// scopeId is the applicationId for routine review reports
+	if (report.reportType === "routine_review") {
+		if (!report.scopeId) throw new Response("Rapport mangler applikasjon-ID", { status: 500 })
+		const { devTeamIds, sectionIds } = await getAppScopeIds(report.scopeId)
+		if (!canAccessAppReports(user, sectionIds, devTeamIds)) {
+			throw new Response("Ikke autorisert", { status: 403 })
+		}
+	}
+
 	const forceDownload = url.searchParams.get("download") === "true"
 	const storage = getStorageProvider()
 	const safeName = report.name.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_")
 
-	// App compliance and section batch reports — serve PDF or zip from bucket
-	if ((report.reportType === "app_compliance" || report.reportType === "section_batch") && report.reportBucketPath) {
+	if (
+		(report.reportType === "app_compliance" ||
+			report.reportType === "section_batch" ||
+			report.reportType === "routine_review") &&
+		report.reportBucketPath
+	) {
 		try {
 			const isZip = report.reportBucketPath.endsWith(".zip")
 			const ext = isZip ? "zip" : "pdf"

@@ -4,6 +4,7 @@ import { frequencyDays } from "../../lib/routine-frequencies"
 import { isValidUuid } from "../../lib/utils"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
+import { auditLog } from "../schema/audit"
 import { frameworkControls } from "../schema/framework"
 import { sections, type UserRole, userRoles, users } from "../schema/organization"
 import { routines } from "../schema/routines"
@@ -413,6 +414,95 @@ export async function getRulesetsLinkedToControls(
 			controls: controlsByRuleset.get(r.id) ?? [],
 		}
 	})
+}
+
+export interface RulesetLinkedAtDate {
+	id: string
+	code: string | null
+	name: string
+	description: string | null
+	status: string
+	/** false when reconstructed from audit history for the given date, true when we had to fall back to the current linkage */
+	isCurrentFallback: boolean
+}
+
+/**
+ * Rekonstruerer hvilke regelsett som var koblet til en rutine på et gitt tidspunkt
+ * (typisk `review.reviewedAt`), basert på `audit_log`-hendelsene
+ * `ruleset_routine_added`/`ruleset_routine_removed` (skrevet med `metadata.routineId`).
+ *
+ * Koblinger mellom regelsett og rutine er IKKE låst etter at rutinen er godkjent —
+ * `linkRoutineToRuleset`/`unlinkRoutineFromRuleset` sjekker kun regelsettets status,
+ * ikke rutinens. Gjeldende kobling (`ruleset_routines`-tabellen) kan derfor avvike
+ * fra det som faktisk gjaldt da en eldre gjennomgang ble utført.
+ *
+ * Faller tilbake til gjeldende koblede regelsett (`isCurrentFallback: true`) hvis vi
+ * ikke finner NOEN `ruleset_routine_added`/`ruleset_routine_removed`-hendelse for
+ * rutinen før `asOfDate` — dette skjer typisk for de eldste gjennomgangene, fra før
+ * koblingen ble endret for første gang etter at audit-logging dekket denne handlingen.
+ */
+export async function getRulesetsLinkedToRoutineAtDate(
+	routineId: string,
+	asOfDate: Date,
+): Promise<RulesetLinkedAtDate[]> {
+	const relevantEvents = await db
+		.select({
+			action: auditLog.action,
+			entityId: auditLog.entityId,
+			metadata: auditLog.metadata,
+			performedAt: auditLog.performedAt,
+		})
+		.from(auditLog)
+		.where(
+			and(
+				inArray(auditLog.action, ["ruleset_routine_added", "ruleset_routine_removed"]),
+				eq(auditLog.entityType, "ruleset_routine"),
+				sql`${auditLog.metadata}::jsonb ->> 'routineId' = ${routineId}`,
+			),
+		)
+		.orderBy(auditLog.performedAt)
+
+	const hasHistoryBeforeDate = relevantEvents.some((e) => e.performedAt <= asOfDate)
+
+	let rulesetIds: string[]
+	let usedFallback: boolean
+	if (!hasHistoryBeforeDate) {
+		const currentRows = await db
+			.select({ rulesetId: rulesetRoutines.rulesetId })
+			.from(rulesetRoutines)
+			.where(and(eq(rulesetRoutines.routineId, routineId), isNull(rulesetRoutines.archivedAt)))
+		rulesetIds = [...new Set(currentRows.map((r) => r.rulesetId))]
+		usedFallback = true
+	} else {
+		const linked = new Set<string>()
+		for (const event of relevantEvents) {
+			if (event.performedAt > asOfDate) break
+			// entityId på ruleset_routine_added/removed er rulesetId (se writeAuditLog-kallene i linkRoutineToRuleset/unlinkRoutineFromRuleset)
+			if (event.action === "ruleset_routine_added") {
+				linked.add(event.entityId)
+			} else {
+				linked.delete(event.entityId)
+			}
+		}
+		rulesetIds = [...linked]
+		usedFallback = false
+	}
+
+	if (rulesetIds.length === 0) return []
+
+	const rows = await db
+		.select({
+			id: rulesets.id,
+			code: rulesets.code,
+			name: rulesets.name,
+			description: rulesets.description,
+			status: rulesets.status,
+		})
+		.from(rulesets)
+		.where(inArray(rulesets.id, rulesetIds))
+		.orderBy(rulesets.name)
+
+	return rows.map((r) => ({ ...r, isCurrentFallback: usedFallback }))
 }
 
 export interface RulesetMeta {

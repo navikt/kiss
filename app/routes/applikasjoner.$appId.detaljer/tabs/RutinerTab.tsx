@@ -25,6 +25,7 @@ import type { DataClassification, GroupCriticality, PersistenceType } from "~/db
 import { dataClassificationLabels, groupCriticalityLabels } from "~/db/schema/applications"
 import { screeningQuestionStatusConfig } from "~/db/schema/screening"
 import type { action } from "../action.server"
+import { RoutineReportButton } from "../components/RoutineReportButton"
 import { persistenceLabels } from "../shared"
 
 type RoutineDeadline = {
@@ -108,6 +109,10 @@ export function RutinerTab({
 	// - hybrid routines with both a periodic frequency AND an explicit event frequency
 	const eventBasedRoutines = routineDeadlines.filter(
 		(dl) => dl.routine?.frequency === null || dl.routine?.eventFrequency != null,
+	)
+
+	const routineIdsWithReviews = new Set(
+		completedReviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up").map((r) => r.routineId),
 	)
 
 	const routineStatusKey = (dl: RoutineDeadline): string => {
@@ -266,7 +271,7 @@ export function RutinerTab({
 		)
 	}
 
-	const renderRoutineAction = (dl: RoutineDeadline) => {
+	const renderReviewAction = (dl: RoutineDeadline) => {
 		if (!canManageReviews) return null
 		if (!dl.routine?.sectionId || !sectionSlugMap[dl.routine.sectionId]) return null
 		const sectionSlug = sectionSlugMap[dl.routine.sectionId]
@@ -292,6 +297,21 @@ export function RutinerTab({
 					Ny gjennomgang
 				</Button>
 			</form>
+		)
+	}
+
+	const renderRoutineAction = (dl: RoutineDeadline) => {
+		const reviewAction = renderReviewAction(dl)
+		const reportButton =
+			dl.routine?.id && routineIdsWithReviews.has(dl.routine.id) ? (
+				<RoutineReportButton routineId={dl.routine.id} />
+			) : null
+		if (!reviewAction && !reportButton) return null
+		return (
+			<HStack gap="space-2" wrap>
+				{reviewAction}
+				{reportButton}
+			</HStack>
 		)
 	}
 
