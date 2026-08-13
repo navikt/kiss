@@ -10,6 +10,22 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
+const mockStorage = {
+	upload: vi.fn(async (path: string, data: Buffer, options?: { contentType?: string }) => ({
+		path,
+		sizeBytes: data.length,
+		contentType: options?.contentType ?? "application/octet-stream",
+	})),
+	download: vi.fn().mockResolvedValue(Buffer.from("test-content")),
+	delete: vi.fn().mockResolvedValue(undefined),
+	exists: vi.fn().mockResolvedValue(true),
+	list: vi.fn().mockResolvedValue([]),
+}
+
+vi.mock("~/lib/storage/index.server", () => ({
+	getStorageProvider: () => mockStorage,
+}))
+
 // Import AFTER mocking
 const {
 	createRoutine,
@@ -21,6 +37,11 @@ const {
 	createReview,
 	getSectionIdsForApp,
 	getReviewsForRoutine,
+	getReviewsForApp,
+	getApplicationDocumentsForReviews,
+	addReviewAttachment,
+	addFollowUpPoint,
+	addFollowUpPointAttachment,
 	confirmParticipation,
 	getAppsRequiringRoutine,
 	getLatestReviewForApp,
@@ -36,6 +57,8 @@ const {
 	getRoutineActivityLinks,
 	getFollowUpReviewsForSection,
 } = await import("~/db/queries/routines.server")
+
+const { recordManualEvidenceUpload } = await import("~/db/queries/evidence-downloads.server")
 
 const { getRoutineDeadlinesWithControls } = await import("~/db/queries/routine-deadlines.server")
 const { upsertUser } = await import("~/db/queries/users.server")
@@ -2802,6 +2825,121 @@ describe("Routines integration tests", () => {
 
 			expect(results).toHaveLength(1)
 			expect(results[0].createdByName).toBeNull()
+		})
+	})
+
+	describe("getApplicationDocumentsForReviews", () => {
+		async function createApprovedRoutine(sectionId: string, name: string) {
+			const routine = await createRoutine({
+				name,
+				description: null,
+				sectionId,
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+			return routine
+		}
+
+		it("returnerer tom liste når applikasjonen ikke har noen gjennomganger", async () => {
+			const documents = await getApplicationDocumentsForReviews([])
+			expect(documents).toEqual([])
+		})
+
+		it("samler vedlegg, oppfølgingspunktvedlegg og vedlikeholdsbevis på tvers av gjennomganger, sortert etter tidspunkt", async () => {
+			const sectionId = await createTestSection("Dokumenter-seksjon", "dokumenter-seksjon")
+			const appId = await createTestApp("Dokumenter-app")
+			const routine = await createApprovedRoutine(sectionId, "Dokumenter-rutine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Dokumenter-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			const attachment = await addReviewAttachment({
+				reviewId: review.id,
+				fileName: "vedlegg.pdf",
+				bucketPath: "routines/test/vedlegg.pdf",
+				contentType: "application/pdf",
+				sizeBytes: 100,
+				uploadedBy: "Z990001",
+			})
+
+			const followUpPoint = await addFollowUpPoint({
+				reviewId: review.id,
+				text: "Følg opp tilgang",
+				performedBy: "Z990001",
+			})
+			const followUpAttachment = await addFollowUpPointAttachment({
+				pointId: followUpPoint.id,
+				kind: "resolution",
+				fileName: "oppfolging.pdf",
+				bucketPath: "routines/test/oppfolging.pdf",
+				contentType: "application/pdf",
+				sizeBytes: 50,
+				uploadedBy: "Z990002",
+			})
+
+			const activity = await createReviewActivity(review.id, "oracle_evidence_audit", null, "Z990001")
+			const evidenceDownload = await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "oracle",
+				providerMetadata: {
+					instanceId: "PENSJON_PROD",
+					evidenceType: "audit",
+					apiInstanceName: null,
+					reviewProgressSnapshot: null,
+				},
+				sourceId: "PENSJON_PROD",
+				evidenceType: "audit",
+				format: "PDF",
+				buffer: Buffer.from("bevis-innhold"),
+				fileName: "bevis.pdf",
+				contentType: "application/pdf",
+				performedBy: "Z990003",
+			})
+
+			const reviews = await getReviewsForApp(appId)
+			const documents = await getApplicationDocumentsForReviews(reviews)
+
+			expect(documents).toHaveLength(3)
+			expect(documents.map((d) => d.id).sort()).toEqual(
+				[attachment.id, followUpAttachment.id, evidenceDownload.id].sort(),
+			)
+
+			const reviewAttachmentDoc = documents.find((d) => d.id === attachment.id)
+			expect(reviewAttachmentDoc?.kind).toBe("review_attachment")
+			expect(reviewAttachmentDoc?.fileName).toBe("vedlegg.pdf")
+			expect(reviewAttachmentDoc?.routineId).toBe(routine.id)
+			expect(reviewAttachmentDoc?.downloadUrl).toBe(`/api/rutine-vedlegg/${attachment.id}?download=true`)
+
+			const followUpDoc = documents.find((d) => d.id === followUpAttachment.id)
+			expect(followUpDoc?.kind).toBe("follow_up_attachment")
+			expect(followUpDoc?.followUpPointText).toBe("Følg opp tilgang")
+			expect(followUpDoc?.downloadUrl).toBe(`/api/oppfolgingspunkt-vedlegg/${followUpAttachment.id}?download=true`)
+
+			const evidenceDoc = documents.find((d) => d.id === evidenceDownload.id)
+			expect(evidenceDoc?.kind).toBe("evidence_download")
+			expect(evidenceDoc?.activityType).toBe("oracle_evidence_audit")
+			expect(evidenceDoc?.downloadUrl).toBe(`/api/evidence-file/${evidenceDownload.id}`)
+
+			// Sortert nyeste først
+			for (let i = 0; i < documents.length - 1; i++) {
+				expect(documents[i].uploadedAt.getTime()).toBeGreaterThanOrEqual(documents[i + 1].uploadedAt.getTime())
+			}
 		})
 	})
 })

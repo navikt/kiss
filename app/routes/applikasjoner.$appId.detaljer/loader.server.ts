@@ -21,7 +21,7 @@ import {
 import { getLatestOracleRoleCriticalityReview, getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
 import { getReportsForApp } from "~/db/queries/reports.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
-import { getReviewsForApp } from "~/db/queries/routines.server"
+import { getApplicationDocumentsForReviews, getReviewsForApp } from "~/db/queries/routines.server"
 import { getRpaUsersForApp } from "~/db/queries/rpa.server"
 import { getRulesetsSelectedByApp } from "~/db/queries/rulesets.server"
 import { getScreeningProgressForApps, getScreeningQuestionsWithAnswersForApp } from "~/db/queries/screening.server"
@@ -155,11 +155,14 @@ export async function loader({ request, params }: LoaderArgs) {
 		getLatestOracleRoleCriticalityReview(appId),
 	])
 
+	const applicationDocuments = await getApplicationDocumentsForReviews(completedReviews)
+
 	const reviewerNamesPromise = getUserNamesByNavIdents([
 		...completedReviews.map((r) => r.createdBy),
 		...completedReviews.flatMap((r) => r.followUpPoints.map((p) => p.createdBy)),
 		...appReports.map((r) => r.createdBy),
 		...screeningSessions.filter((s) => s.archivedBy).map((s) => s.archivedBy as string),
+		...applicationDocuments.map((d) => d.uploadedBy),
 	])
 
 	// Compute auto-compliance from parallel results
@@ -357,6 +360,11 @@ export async function loader({ request, params }: LoaderArgs) {
 				...p,
 				createdByName: reviewerNames.get(p.createdBy.trim().toUpperCase()) ?? null,
 			})),
+		})),
+		applicationDocuments: applicationDocuments.map((d) => ({
+			...d,
+			uploadedAt: d.uploadedAt.toISOString(),
+			uploadedByName: reviewerNames.get(d.uploadedBy.trim().toUpperCase()) ?? null,
 		})),
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,

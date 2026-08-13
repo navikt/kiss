@@ -605,6 +605,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				followUpPoints: [],
 			},
 		],
+		applicationDocuments: [],
 		assessments: [
 			mockAssessment("K-ST.01", "Sikkerhetstesting", "implemented", "Rutiner dekker denne kontrollen"),
 			mockAssessment("K-ST.02", "Penetrasjonstesting", "partially_implemented", "Rutine forfalt"),
