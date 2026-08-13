@@ -145,6 +145,8 @@ describe("Routines integration tests", () => {
 	beforeEach(async () => {
 		const db = getTestDb()
 		await db.execute(/* sql */ `
+			DELETE FROM routine_review_evidence_downloads;
+			DELETE FROM bucket_objects;
 			DELETE FROM routine_review_attachments;
 			DELETE FROM routine_review_participants;
 			DELETE FROM routine_reviews;
@@ -2017,6 +2019,128 @@ describe("Routines integration tests", () => {
 					},
 				],
 			})
+		})
+
+		it("should reject completing an evidence-provider activity (oracle_evidence_audit) without any recorded evidence download", async () => {
+			const sectionId = await createTestSection("act-evidence-section", "act-evidence-section")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Oracle-revisjonsbevis-rutine",
+				description: "Rutine med Oracle Unified Audit-bevis",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["oracle_evidence_audit"],
+			})
+
+			await markRoutineApproved(routine.id)
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: null,
+				title: "Bevis-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+
+			const activity = await createReviewActivity(review.id, "oracle_evidence_audit", null, "test")
+
+			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(400)
+			expect(await (error as Response).text()).toMatch(/Følgende bevis må lastes ned eller lastes opp/)
+
+			// Etter at det påkrevde beviset er lastet opp, skal aktiviteten kunne fullføres.
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "oracle",
+				providerMetadata: {
+					instanceId: "PENSJON_PROD",
+					evidenceType: "audit",
+					apiInstanceName: null,
+					reviewProgressSnapshot: null,
+				},
+				sourceId: "PENSJON_PROD",
+				evidenceType: "audit",
+				format: "pdf",
+				buffer: Buffer.from("bevis-innhold"),
+				fileName: "bevis.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const completed = await completeReviewActivity(activity.id, null, "test")
+			expect(completed.status).toBe("completed")
+		})
+
+		it("should reject completing an evidence-provider activity (deployment_evidence_report) without any recorded evidence download", async () => {
+			const sectionId = await createTestSection("act-deployment-evidence-section", "act-deployment-evidence-section")
+			const routine = await createRoutine({
+				sectionId,
+				name: "Leveranserapport-rutine",
+				description: "Rutine med leveranserapport-bevis",
+				frequency: "monthly",
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+				activityTypes: ["deployment_evidence_report"],
+			})
+
+			await markRoutineApproved(routine.id)
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: null,
+				title: "Leveranserapport-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "test",
+				participants: [],
+			})
+
+			const activity = await createReviewActivity(review.id, "deployment_evidence_report", null, "test")
+
+			const error = await completeReviewActivity(activity.id, null, "test").catch((e) => e)
+			expect(error).toBeInstanceOf(Response)
+			expect((error as Response).status).toBe(400)
+			expect(await (error as Response).text()).toMatch(/Følgende bevis må lastes ned eller lastes opp/)
+
+			// Etter at det påkrevde beviset er lastet opp, skal aktiviteten kunne fullføres.
+			await recordManualEvidenceUpload({
+				activityId: activity.id,
+				providerType: "deployments",
+				providerMetadata: {
+					team: "test-team",
+					environment: "prod",
+					appName: "test-app",
+					periodType: "quarterly",
+					periodStart: "2026-01-01",
+					evidenceType: "deployment_evidence_report",
+				},
+				sourceId: "test-team",
+				evidenceType: "deployment_evidence_report",
+				format: "pdf",
+				buffer: Buffer.from("leveranserapport-innhold"),
+				fileName: "rapport.pdf",
+				contentType: "application/pdf",
+				performedBy: "test",
+			})
+
+			const completed = await completeReviewActivity(activity.id, null, "test")
+			expect(completed.status).toBe("completed")
 		})
 
 		it("should return empty for reviews with no activities", async () => {

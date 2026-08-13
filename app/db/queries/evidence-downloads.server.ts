@@ -9,6 +9,8 @@ import {
 } from "../schema/routines"
 import { writeAuditLog } from "./audit.server"
 
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]
+
 function sanitizePathSegment(value: string): string {
 	return value.replace(/[^a-zA-Z0-9_-]/g, "_")
 }
@@ -397,8 +399,11 @@ LIMIT 1
 	return result.rows.length > 0
 }
 
-export async function getEvidenceDownloadsForActivity(activityId: string): Promise<EvidenceDownloadRecord[]> {
-	const rows = await db
+export async function getEvidenceDownloadsForActivity(
+	activityId: string,
+	executor: DbExecutor = db,
+): Promise<EvidenceDownloadRecord[]> {
+	const rows = await executor
 		.select()
 		.from(routineReviewEvidenceDownloads)
 		.where(eq(routineReviewEvidenceDownloads.activityId, activityId))
