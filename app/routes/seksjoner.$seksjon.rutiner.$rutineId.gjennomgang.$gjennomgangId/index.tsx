@@ -1670,8 +1670,10 @@ export default function GjennomgangDetalj() {
 		<VStack gap="space-4">
 			{routineArchivedAt && (
 				<Alert variant="warning">
-					Rutinen er erstattet og arkivert. Gjennomgangen gjelder den tidligere versjonen av rutinen, men kan likevel
-					fullføres.
+					Rutinen er erstattet og arkivert.{" "}
+					{isDraft
+						? "Gjennomgangen gjelder den tidligere versjonen av rutinen, men kan likevel fullføres."
+						: "Gjennomgangen gjelder den tidligere versjonen av rutinen."}
 					{replacedByRoutineId && (
 						<>
 							{" "}
