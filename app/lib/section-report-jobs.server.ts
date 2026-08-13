@@ -17,8 +17,10 @@ import {
 } from "~/db/queries/sync-jobs.server"
 import { reports } from "~/db/schema/reports"
 import { logger } from "~/lib/logger.server"
+import { sanitizeFilename } from "~/lib/sanitize-filename"
 import { getStorageProvider } from "~/lib/storage/index.server"
 import { SYNC_JOB_TYPES } from "~/lib/sync-job-types"
+import { zipEntryDate } from "~/lib/zip-entry-date"
 
 export interface SectionBatchReportParams {
 	sectionId: string
@@ -102,7 +104,7 @@ async function runSectionBatchReportGeneration(
 		const datePrefix = now.toISOString().slice(0, 10)
 		const fileId = crypto.randomUUID()
 		// Sanitise slug to prevent path traversal in storage paths
-		const safeSectionSlug = sectionSlug.replace(/[^a-zA-Z0-9æøåÆØÅ_-]/g, "_")
+		const safeSectionSlug = sanitizeFilename(sectionSlug)
 		const zipPath = `reports/section/${safeSectionSlug}/${datePrefix}/${fileId}/rapport.zip`
 
 		// Set up streaming archiver → passthrough → storage upload (concurrent)
@@ -153,12 +155,12 @@ async function runSectionBatchReportGeneration(
 				continue
 			}
 
-			const safeAppName = artifact.appName.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 60)
+			const safeAppName = sanitizeFilename(artifact.appName)
 			// Include a stable unique suffix to avoid collisions when two apps share the same sanitised name
 			const appPrefix = `${safeAppName}-${appId.slice(-8)}`
 
 			const { buffer, ext } = await buildArtifactBuffer(artifact)
-			archive.append(buffer, { name: `${appPrefix}${ext}` })
+			archive.append(buffer, { name: `${appPrefix}${ext}`, date: zipEntryDate() })
 
 			includedApps++
 			processedApps++
