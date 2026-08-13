@@ -10,6 +10,7 @@ import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getCompositeFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { sanitizeFilename } from "../../lib/sanitize-filename"
 import { getStorageProvider } from "../../lib/storage/index.server"
+import { formatUserRef } from "../../lib/user-display"
 import { zipEntryDate } from "../../lib/zip-entry-date"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
@@ -38,6 +39,7 @@ import {
 } from "./routines.server"
 import { getRulesetsLinkedToRoutineAtDate } from "./rulesets.server"
 import { getEffectiveAppIdsInSection } from "./sections.server"
+import { getUserNamesByNavIdents } from "./users.server"
 
 /** Get all reports ordered by newest first. */
 export async function getReports() {
@@ -643,6 +645,10 @@ async function prepareAppComplianceArtifact(params: {
 		}
 	})
 
+	const nameByNavIdent = await getUserNamesByNavIdents(
+		collectReviewNavIdents(reviewsForPdf, activitiesByReviewId, oracleEvidenceByReviewId),
+	)
+
 	const pdf = await buildAppPdf(
 		PDFDocument,
 		{
@@ -657,6 +663,7 @@ async function prepareAppComplianceArtifact(params: {
 		oracleEvidenceByReviewId,
 		attachmentBuffers,
 		failedAttachments,
+		nameByNavIdent,
 	)
 
 	return {
@@ -999,6 +1006,10 @@ export async function generateRoutineReviewReport(params: {
 			})
 		}
 
+		const nameByNavIdent = await getUserNamesByNavIdents(
+			collectReviewNavIdents([...reviewsForPdf.values()], activitiesByReviewId, oracleEvidenceByReviewId),
+		)
+
 		const routineInfoBuffer = await buildRoutineInfoPdf(
 			PDFDocument,
 			{
@@ -1045,7 +1056,13 @@ export async function generateRoutineReviewReport(params: {
 
 			const reviewActivities = activitiesByReviewId.get(review.id) ?? []
 			const reviewOracleEvidence = oracleEvidenceByReviewId.get(review.id) ?? []
-			const reviewBuffer = await buildReviewPdf(PDFDocument, reviewForPdf, reviewActivities, reviewOracleEvidence)
+			const reviewBuffer = await buildReviewPdf(
+				PDFDocument,
+				reviewForPdf,
+				reviewActivities,
+				reviewOracleEvidence,
+				nameByNavIdent,
+			)
 			archive.append(reviewBuffer, {
 				name: `${folder}/gjennomgang - ${sanitizeFilename(review.title)}.pdf`,
 				date: zipEntryDate(),
@@ -1334,6 +1351,40 @@ type RoutineReviewOracleEvidenceMap = Map<
 	Array<{ fileName: string; contentType: string; performedBy: string; performedAt: Date }>
 >
 
+function collectReviewNavIdents(
+	reviews: RoutineReviewPdfEntry[],
+	activitiesByReviewId: RoutineReviewActivityMap,
+	oracleEvidenceByReviewId: RoutineReviewOracleEvidenceMap,
+): string[] {
+	const idents = new Set<string>()
+	for (const r of reviews) {
+		idents.add(r.createdBy)
+		for (const att of r.attachments) idents.add(att.uploadedBy)
+		for (const p of r.followUpPoints) {
+			idents.add(p.createdBy)
+			if (p.resolvedBy) idents.add(p.resolvedBy)
+			for (const att of p.attachments) idents.add(att.uploadedBy)
+		}
+		for (const act of activitiesByReviewId.get(r.id) ?? []) {
+			for (const c of act.changes) idents.add(c.performedBy)
+			if (act.type === "manual_activity") {
+				const source = act.snapshotAfter ?? act.stagedData
+				if (source) {
+					try {
+						for (const step of parseManualActivityStagedData(source).steps) {
+							if (step.completedBy) idents.add(step.completedBy)
+						}
+					} catch {
+						// Ugyldig staged data — hopp over, resten av rapporten genereres likevel
+					}
+				}
+			}
+		}
+		for (const oe of oracleEvidenceByReviewId.get(r.id) ?? []) idents.add(oe.performedBy)
+	}
+	return [...idents]
+}
+
 /** Delt av app-compliance-rapporten og det frittstående "rutine - <navn>.pdf"-dokumentet i rutinegjennomgangsrapporten. */
 function renderRoutineInfoSection(
 	doc: InstanceType<typeof PDFDocument>,
@@ -1407,6 +1458,7 @@ function renderRoutineGroupSection(
 	group: RoutineReviewPdfGroup,
 	activitiesByReviewId: RoutineReviewActivityMap,
 	oracleEvidenceByReviewId: RoutineReviewOracleEvidenceMap,
+	nameByNavIdent: ReadonlyMap<string, string>,
 ) {
 	doc.addPage()
 	renderRoutineInfoSection(doc, colors, group)
@@ -1416,7 +1468,14 @@ function renderRoutineGroupSection(
 
 	for (const r of group.reviews) {
 		doc.addPage()
-		renderReviewSection(doc, colors, r, activitiesByReviewId.get(r.id) ?? [], oracleEvidenceByReviewId.get(r.id) ?? [])
+		renderReviewSection(
+			doc,
+			colors,
+			r,
+			activitiesByReviewId.get(r.id) ?? [],
+			oracleEvidenceByReviewId.get(r.id) ?? [],
+			nameByNavIdent,
+		)
 	}
 }
 
@@ -1427,6 +1486,7 @@ function renderReviewSection(
 	r: RoutineReviewPdfEntry,
 	activities: RoutineReviewActivityMap extends Map<string, infer V> ? V : never,
 	oracleEvidence: RoutineReviewOracleEvidenceMap extends Map<string, infer V> ? V : never,
+	nameByNavIdent: ReadonlyMap<string, string>,
 ) {
 	const { blue, dark, gray } = colors
 
@@ -1435,7 +1495,9 @@ function renderReviewSection(
 		doc.moveDown(0.3)
 		doc.fontSize(9).fillColor(gray)
 		doc.text(`Dato for gjennomgang: ${new Date(r.reviewedAt).toLocaleString("nb-NO")}`)
-		doc.text(`Registrert av: ${r.createdBy} — ${new Date(r.createdAt).toLocaleString("nb-NO")}`)
+		doc.text(
+			`Registrert av: ${formatUserRef(r.createdBy, nameByNavIdent)} — ${new Date(r.createdAt).toLocaleString("nb-NO")}`,
+		)
 		if (r.participants.length > 0) {
 			doc.text(`Deltakere: ${r.participants.map((p) => p.userName || p.userIdent).join(", ")}`)
 		}
@@ -1498,9 +1560,12 @@ function renderReviewSection(
 				doc
 					.fontSize(8)
 					.fillColor(gray)
-					.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
-						width: 495,
-					})
+					.text(
+						`  Lastet opp av: ${formatUserRef(att.uploadedBy, nameByNavIdent)} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`,
+						{
+							width: 495,
+						},
+					)
 			}
 			for (const oe of reviewOracleEvidence) {
 				if (doc.y > 700) doc.addPage()
@@ -1508,9 +1573,12 @@ function renderReviewSection(
 				doc
 					.fontSize(8)
 					.fillColor(gray)
-					.text(`  Lastet ned av: ${oe.performedBy} — ${new Date(oe.performedAt).toLocaleString("nb-NO")}`, {
-						width: 495,
-					})
+					.text(
+						`  Lastet ned av: ${formatUserRef(oe.performedBy, nameByNavIdent)} — ${new Date(oe.performedAt).toLocaleString("nb-NO")}`,
+						{
+							width: 495,
+						},
+					)
 			}
 		}
 
@@ -1533,7 +1601,10 @@ function renderReviewSection(
 				doc
 					.fontSize(7)
 					.fillColor(gray)
-					.text(`Opprettet av: ${p.createdBy} — ${new Date(p.createdAt).toLocaleString("nb-NO")}`, { width: 495 })
+					.text(
+						`Opprettet av: ${formatUserRef(p.createdBy, nameByNavIdent)} — ${new Date(p.createdAt).toLocaleString("nb-NO")}`,
+						{ width: 495 },
+					)
 				if (p.description) {
 					doc.fontSize(8).fillColor(dark)
 					renderMarkdownToPdf(doc, p.description, { width: 495 })
@@ -1549,7 +1620,10 @@ function renderReviewSection(
 					doc
 						.fontSize(7)
 						.fillColor(gray)
-						.text(`Løst av: ${p.resolvedBy} — ${new Date(p.resolvedAt).toLocaleString("nb-NO")}`, { width: 495 })
+						.text(
+							`Løst av: ${formatUserRef(p.resolvedBy, nameByNavIdent)} — ${new Date(p.resolvedAt).toLocaleString("nb-NO")}`,
+							{ width: 495 },
+						)
 				}
 				if (p.resolution) {
 					doc.moveDown(0.1)
@@ -1575,9 +1649,12 @@ function renderReviewSection(
 						doc
 							.fontSize(8)
 							.fillColor(gray)
-							.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
-								width: 495,
-							})
+							.text(
+								`  Lastet opp av: ${formatUserRef(att.uploadedBy, nameByNavIdent)} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`,
+								{
+									width: 495,
+								},
+							)
 					}
 				}
 
@@ -1648,7 +1725,7 @@ function renderReviewSection(
 						.text(`${idx + 1}. ${step.title}`, { width: 495 })
 					doc.moveDown(0.15)
 					if (step.completedAt) {
-						const byWho = step.completedBy ? ` av ${step.completedBy}` : ""
+						const byWho = step.completedBy ? ` av ${formatUserRef(step.completedBy, nameByNavIdent)}` : ""
 						doc
 							.fontSize(8)
 							.fillColor(gray)
@@ -1698,9 +1775,12 @@ function renderReviewSection(
 							doc
 								.fontSize(8)
 								.fillColor(gray)
-								.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
-									width: 495,
-								})
+								.text(
+									`  Lastet opp av: ${formatUserRef(att.uploadedBy, nameByNavIdent)} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`,
+									{
+										width: 495,
+									},
+								)
 						}
 					}
 
@@ -1802,12 +1882,13 @@ function buildReviewPdf(
 	review: RoutineReviewPdfEntry,
 	activities: RoutineReviewActivityMap extends Map<string, infer V> ? V : never,
 	oracleEvidence: RoutineReviewOracleEvidenceMap extends Map<string, infer V> ? V : never,
+	nameByNavIdent: ReadonlyMap<string, string>,
 ): Promise<Buffer> {
 	const { doc, colors, result } = createBufferedPdf(PDFDocCtor)
 	doc.fontSize(14).fillColor(colors.blue).text("Gjennomgang")
 	doc.moveDown(0.3)
 
-	renderReviewSection(doc, colors, review, activities, oracleEvidence)
+	renderReviewSection(doc, colors, review, activities, oracleEvidence, nameByNavIdent)
 
 	doc.end()
 	return result
@@ -1911,6 +1992,7 @@ function buildAppPdf(
 		followUpKind?: "description" | "resolution"
 	}>,
 	failedAttachments: Array<{ fileName: string; reviewTitle: string; followUpPointText?: string }>,
+	nameByNavIdent: ReadonlyMap<string, string>,
 ): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const doc = new PDFDocCtor({ size: "A4", margin: 50, bufferPages: true })
@@ -2026,7 +2108,14 @@ function buildAppPdf(
 			}
 
 			for (const [, group] of routineGroups) {
-				renderRoutineGroupSection(doc, { blue, dark, gray }, group, activitiesByReviewId, oracleEvidenceByReviewId)
+				renderRoutineGroupSection(
+					doc,
+					{ blue, dark, gray },
+					group,
+					activitiesByReviewId,
+					oracleEvidenceByReviewId,
+					nameByNavIdent,
+				)
 			}
 		}
 
