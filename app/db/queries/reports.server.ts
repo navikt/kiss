@@ -8,7 +8,9 @@ import { getStatusLabel } from "../../lib/compliance-status"
 import { parseManualActivityStagedData } from "../../lib/manual-activity-staged-data"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getCompositeFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
+import { sanitizeFilename } from "../../lib/sanitize-filename"
 import { getStorageProvider } from "../../lib/storage/index.server"
+import { zipEntryDate } from "../../lib/zip-entry-date"
 import { db } from "../connection.server"
 import { monitoredApplications } from "../schema/applications"
 import { complianceAssessments } from "../schema/compliance"
@@ -631,7 +633,7 @@ async function prepareAppComplianceArtifact(params: {
 
 	const reviewsForPdf = completedReviews.map((r) => {
 		const reviewDate = new Date(r.reviewedAt).toISOString().slice(0, 10)
-		const safeReviewTitle = r.title.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
+		const safeReviewTitle = sanitizeFilename(r.title, 50)
 		const folderName = `${reviewDate}-${safeReviewTitle}`
 		return {
 			...r,
@@ -826,16 +828,18 @@ export async function generateAppComplianceReport(params: {
 	let reportBucketPath = pdfPath
 	if (artifact.allAttachments.length > 0) {
 		const zip = new JSZip()
-		zip.file("rapport.pdf", artifact.pdf)
+		zip.file(`${sanitizeFilename(`Compliance-rapport - ${detail.app.name}`)}.pdf`, artifact.pdf, {
+			date: zipEntryDate(),
+		})
 
 		const vedleggFolder = zip.folder("vedlegg")
 		if (!vedleggFolder) throw new Error("Could not create vedlegg folder in zip")
 		const usedNames = new Set<string>()
 		for (const att of artifact.allAttachments) {
-			const safeReviewTitle = att.reviewTitle.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
+			const safeReviewTitle = sanitizeFilename(att.reviewTitle, 50)
 			const folderName = `${att.reviewDate}-${safeReviewTitle}`
 			const subFolder = att.followUpPointText
-				? `/oppfolgingspunkter/${att.followUpPointText.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
+				? `/oppfolgingspunkter/${sanitizeFilename(att.followUpPointText, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
 				: ""
 			const safeFileName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
 			let entryName = `${folderName}${subFolder}/${safeFileName}`
@@ -849,7 +853,7 @@ export async function generateAppComplianceReport(params: {
 				} while (usedNames.has(entryName))
 			}
 			usedNames.add(entryName)
-			vedleggFolder.file(entryName, att.data)
+			vedleggFolder.file(entryName, att.data, { date: zipEntryDate() })
 		}
 
 		const zipBuffer = Buffer.from(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }))
@@ -893,10 +897,6 @@ export async function generateAppComplianceReport(params: {
 }
 
 // ─── Routine review reports ────────────────────────────────────────────────
-
-function sanitizeZipSegment(value: string, maxLength = 60): string {
-	return value.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, maxLength)
-}
 
 /**
  * Zip-en bygges strømmende (archiver → PassThrough → `storage.uploadStream`), samme
@@ -979,7 +979,7 @@ export async function generateRoutineReviewReport(params: {
 		for (const review of reviews) {
 			const linkedRulesets = await getRulesetsLinkedToRoutineAtDate(routineId, review.reviewedAt)
 			const reviewDate = review.reviewedAt.toISOString().slice(0, 10)
-			const folder = `gjennomganger/${reviewDate}-${sanitizeZipSegment(review.title)}-${review.id.slice(-8)}`
+			const folder = `gjennomganger/${reviewDate}-${sanitizeFilename(review.title)}-${review.id.slice(-8)}`
 			reviewsForPdf.push({
 				id: review.id,
 				title: review.title,
@@ -1015,11 +1015,11 @@ export async function generateRoutineReviewReport(params: {
 			activitiesByReviewId,
 			oracleEvidenceByReviewId,
 		)
-		archive.append(pdfBuffer, { name: "rapport.pdf" })
+		archive.append(pdfBuffer, { name: `${sanitizeFilename(routine.name)}.pdf`, date: zipEntryDate() })
 
 		for (const review of reviews) {
 			const reviewDate = review.reviewedAt.toISOString().slice(0, 10)
-			const folder = `gjennomganger/${reviewDate}-${sanitizeZipSegment(review.title)}-${review.id.slice(-8)}`
+			const folder = `gjennomganger/${reviewDate}-${sanitizeFilename(review.title)}-${review.id.slice(-8)}`
 
 			const usedNames = new Set<string>()
 			for (const att of review.attachments) {
@@ -1028,14 +1028,14 @@ export async function generateRoutineReviewReport(params: {
 				entryName = dedupeZipEntryName(entryName, usedNames)
 				try {
 					const buf = await storage.download(att.bucketPath)
-					archive.append(buf, { name: entryName })
+					archive.append(buf, { name: entryName, date: zipEntryDate() })
 				} catch {
 					// Vedlegget kunne ikke lastes ned — hopp over, resten av rapporten genereres likevel
 				}
 			}
 
 			for (const point of review.followUpPoints) {
-				const pointFolder = `${folder}/oppfolgingspunkter/${sanitizeZipSegment(point.text, 50)}`
+				const pointFolder = `${folder}/oppfolgingspunkter/${sanitizeFilename(point.text, 50)}`
 				for (const att of point.attachments) {
 					const safeName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
 					const kindFolder = att.kind === "description" ? "beskrivelse" : "oppfolging"
@@ -1043,7 +1043,7 @@ export async function generateRoutineReviewReport(params: {
 					entryName = dedupeZipEntryName(entryName, usedNames)
 					try {
 						const buf = await storage.download(att.bucketPath)
-						archive.append(buf, { name: entryName })
+						archive.append(buf, { name: entryName, date: zipEntryDate() })
 					} catch {
 						// Se over
 					}
@@ -1060,7 +1060,7 @@ export async function generateRoutineReviewReport(params: {
 					entryName = dedupeZipEntryName(entryName, usedNames)
 					try {
 						const buf = await storage.download(dl.bucketPath)
-						archive.append(buf, { name: entryName })
+						archive.append(buf, { name: entryName, date: zipEntryDate() })
 					} catch {
 						// Se over
 					}
@@ -1177,15 +1177,17 @@ export async function buildArtifactBuffer(
 	}
 
 	const zip = new JSZip()
-	zip.file("rapport.pdf", artifact.pdf)
+	zip.file(`${sanitizeFilename(`Compliance-rapport - ${artifact.appName}`)}.pdf`, artifact.pdf, {
+		date: zipEntryDate(),
+	})
 	const vedleggFolder = zip.folder("vedlegg")
 	if (!vedleggFolder) throw new Error("Could not create vedlegg folder in zip")
 	const usedNames = new Set<string>()
 	for (const att of artifact.allAttachments) {
-		const safeReviewTitle = att.reviewTitle.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)
+		const safeReviewTitle = sanitizeFilename(att.reviewTitle, 50)
 		const folderName = `${att.reviewDate}-${safeReviewTitle}`
 		const subFolder = att.followUpPointText
-			? `/oppfolgingspunkter/${att.followUpPointText.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
+			? `/oppfolgingspunkter/${sanitizeFilename(att.followUpPointText, 50)}${att.followUpKind === "description" ? " (beskrivelse)" : " (oppfølging)"}`
 			: ""
 		const safeFileName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
 		let entryName = `${folderName}${subFolder}/${safeFileName}`
@@ -1199,7 +1201,7 @@ export async function buildArtifactBuffer(
 			} while (usedNames.has(entryName))
 		}
 		usedNames.add(entryName)
-		vedleggFolder.file(entryName, att.data)
+		vedleggFolder.file(entryName, att.data, { date: zipEntryDate() })
 	}
 	return {
 		buffer: Buffer.from(await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })),
