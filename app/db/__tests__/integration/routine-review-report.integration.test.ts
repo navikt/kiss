@@ -214,10 +214,9 @@ describe("generateRoutineReviewReport", () => {
 		const entryNames = Object.keys(zip.files)
 
 		expect(entryNames.some((n) => !n.includes("/") && n.endsWith(".pdf"))).toBe(false)
-		expect(entryNames.some((n) => n.startsWith("gjennomganger/") && n.endsWith("/rutine - Test rutine.pdf"))).toBe(true)
-		expect(
-			entryNames.some((n) => n.startsWith("gjennomganger/") && n.endsWith("/gjennomgang - Gjennomgang 1.pdf")),
-		).toBe(true)
+		expect(entryNames.some((n) => !n.startsWith("gjennomganger/"))).toBe(true)
+		expect(entryNames.some((n) => n.endsWith("/rutine - Test rutine.pdf"))).toBe(true)
+		expect(entryNames.some((n) => n.endsWith("/gjennomgang - Gjennomgang 1.pdf"))).toBe(true)
 
 		const reportRow = await getReportRow(result.reportId)
 		expect(reportRow?.scope).toBe("routine_review")

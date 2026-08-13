@@ -979,7 +979,7 @@ export async function generateRoutineReviewReport(params: {
 		for (const review of reviews) {
 			const linkedRulesets = await getRulesetsLinkedToRoutineAtDate(routineId, review.reviewedAt)
 			const reviewDate = review.reviewedAt.toISOString().slice(0, 10)
-			const folder = `gjennomganger/${reviewDate}-${sanitizeFilename(review.title)}-${review.id.slice(-8)}`
+			const folder = `${reviewDate}-${sanitizeFilename(review.title)}-${review.id.slice(-8)}`
 			reviewsForPdf.set(review.id, {
 				id: review.id,
 				title: review.title,
@@ -1016,7 +1016,7 @@ export async function generateRoutineReviewReport(params: {
 
 		for (const review of reviews) {
 			const reviewDate = review.reviewedAt.toISOString().slice(0, 10)
-			const folder = `gjennomganger/${reviewDate}-${sanitizeFilename(review.title)}-${review.id.slice(-8)}`
+			const folder = `${reviewDate}-${sanitizeFilename(review.title)}-${review.id.slice(-8)}`
 			const reviewForPdf = reviewsForPdf.get(review.id)
 			if (!reviewForPdf) continue
 
@@ -1262,10 +1262,8 @@ interface RoutineReviewPdfEntry {
 		isCurrentFallback: boolean
 	}>
 	/**
-	 * Faktisk plassering (relativt til zip-roten) for hhv. vanlige vedlegg og
-	 * oppfølgingspunkt-vedlegg for denne gjennomgangen. Zip-layouten er ulik mellom
-	 * app-compliance-rapporten (`vedlegg/<mappe>/...`) og rutinegjennomgangsrapporten
-	 * (`gjennomganger/<mappe>/vedlegg/...`), så disse må beregnes av kallestedet.
+	 * Zip-layouten er ulik mellom app-compliance-rapporten (`vedlegg/<mappe>/...`) og
+	 * rutinegjennomgangsrapporten (`<mappe>/vedlegg/...`), så disse må beregnes av kallestedet.
 	 */
 	attachmentsZipPath: string
 	followUpAttachmentsZipPath: string
