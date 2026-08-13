@@ -1707,6 +1707,28 @@ export async function getReviewsForRoutineAndApp(routineId: string, applicationI
 	return enrichReviewsBatch(reviews)
 }
 
+/**
+ * Kun rapporterbare gjennomganger (fullført eller med åpne oppfølgingspunkter) — brukes av
+ * rutinerapport-generering for å unngå å berike utkast som uansett filtreres bort.
+ */
+export async function getReportableReviewsForRoutineAndApp(routineId: string, applicationId: string) {
+	const routineIds = await getRoutineAncestorChain(routineId)
+
+	const reviews = await db
+		.select()
+		.from(routineReviews)
+		.where(
+			and(
+				inArray(routineReviews.routineId, routineIds),
+				eq(routineReviews.applicationId, applicationId),
+				inArray(routineReviews.status, ["completed", "needs_follow_up"]),
+			),
+		)
+		.orderBy(desc(routineReviews.reviewedAt))
+
+	return enrichReviewsBatch(reviews)
+}
+
 async function enrichReview(review: typeof routineReviews.$inferSelect) {
 	const enriched = await enrichReviewsBatch([review])
 	return enriched[0]
