@@ -19,6 +19,7 @@ import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PrioritySelect } from "~/components/PrioritySelect"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import {
 	approveRoutine,
 	archiveRoutine,
@@ -36,6 +37,7 @@ import {
 } from "~/db/queries/routines.server"
 import { getScreeningQuestion } from "~/db/queries/screening.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import {
 	type DataClassification,
 	dataClassificationLabels,
@@ -102,6 +104,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		getRoutineFollowUpApplicationIds(rutineId),
 	])
 
+	const reviewerNames = await getUserNamesByNavIdents(reviews.map((r) => r.createdBy))
+	const reviewsWithNames = reviews.map((r) => ({
+		...r,
+		createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
+	}))
+
 	// Fetch screening question text if linked
 	let screeningQuestion: { id: string; questionText: string } | null = null
 	if (routine.screeningQuestionId) {
@@ -154,7 +162,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	return data({
 		section,
 		routine,
-		reviews,
+		reviews: reviewsWithNames,
 		appsWithDeadlines,
 		screeningQuestion,
 		descriptionHtml: renderMarkdown(routine.description),
@@ -820,7 +828,9 @@ export default function RutineDetaljer() {
 												</Tag>
 											)}
 										</Table.DataCell>
-										<Table.DataCell>{review.createdBy}</Table.DataCell>
+										<Table.DataCell>
+											<UserDisplayName navIdent={review.createdBy} name={review.createdByName} />
+										</Table.DataCell>
 										<Table.DataCell>
 											{review.participants.length > 0
 												? `${confirmedCount}/${review.participants.length} bekreftet`

@@ -123,6 +123,7 @@ export default function ApplikasjonDetalj() {
 				resolution: p.resolution,
 				status: p.status as "needs_follow_up" | "completed" | "not_relevant",
 				createdBy: p.createdBy,
+				createdByName: p.createdByName,
 				resolvedAt: p.resolvedAt,
 				resolvedBy: p.resolvedBy,
 			})),

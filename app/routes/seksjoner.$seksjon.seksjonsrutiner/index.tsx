@@ -6,8 +6,10 @@ import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import { getReviewsForSection, getSectionRoutinesForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { hasAnySectionRole, isAdmin, isAuditor } from "~/lib/authorization.server"
 import { getCompositeFrequencyLabel } from "~/lib/routine-frequencies"
@@ -34,11 +36,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		canReadReviews ? getReviewsForSection(section.id) : Promise.resolve([]),
 	])
 
+	const reviewerNames = await getUserNamesByNavIdents(reviews.map((r) => r.createdBy))
+	const reviewsWithNames = reviews.map((r) => ({
+		...r,
+		createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
+	}))
+
 	return data({
 		section,
 		seksjon,
 		sectionRoutines,
-		reviews,
+		reviews: reviewsWithNames,
 		canManageReviews,
 		canReadReviews,
 	})
@@ -299,7 +307,9 @@ export default function Seksjonsrutiner() {
 														</Tag>
 													)}
 												</Table.DataCell>
-												<Table.DataCell>{review.createdBy}</Table.DataCell>
+												<Table.DataCell>
+													<UserDisplayName navIdent={review.createdBy} name={review.createdByName} />
+												</Table.DataCell>
 											</Table.Row>
 										))}
 									</Table.Body>

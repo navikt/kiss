@@ -155,7 +155,10 @@ export async function loader({ request, params }: LoaderArgs) {
 		getLatestOracleRoleCriticalityReview(appId),
 	])
 
-	const reviewerNamesPromise = getUserNamesByNavIdents(completedReviews.map((r) => r.createdBy))
+	const reviewerNamesPromise = getUserNamesByNavIdents([
+		...completedReviews.map((r) => r.createdBy),
+		...completedReviews.flatMap((r) => r.followUpPoints.map((p) => p.createdBy)),
+	])
 
 	// Compute auto-compliance from parallel results
 	const autoComplianceMap = computeAutoCompliance(
@@ -348,6 +351,10 @@ export async function loader({ request, params }: LoaderArgs) {
 		completedReviews: completedReviews.map((r) => ({
 			...r,
 			createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
+			followUpPoints: r.followUpPoints.map((p) => ({
+				...p,
+				createdByName: reviewerNames.get(p.createdBy.trim().toUpperCase()) ?? null,
+			})),
 		})),
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,

@@ -1,8 +1,10 @@
 import { BodyShort, Box, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import { getCompletedReviewsForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import type { Route } from "./+types/index"
 
 function formatDate(date: string | Date | null): string {
@@ -22,10 +24,15 @@ export async function loader({ params }: Route.LoaderArgs) {
 	}
 
 	const reviews = await getCompletedReviewsForSection(section.id)
+	const reviewerNames = await getUserNamesByNavIdents(reviews.map((r) => r.createdBy))
+	const reviewsWithNames = reviews.map((r) => ({
+		...r,
+		createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
+	}))
 
 	return data({
 		section,
-		reviews,
+		reviews: reviewsWithNames,
 	})
 }
 
@@ -72,7 +79,9 @@ export default function GjennomforteRutiner() {
 										)}
 									</Table.DataCell>
 									<Table.DataCell>{review.title}</Table.DataCell>
-									<Table.DataCell>{review.createdBy}</Table.DataCell>
+									<Table.DataCell>
+										<UserDisplayName navIdent={review.createdBy} name={review.createdByName} />
+									</Table.DataCell>
 									<Table.DataCell>
 										{review.participants.length > 0
 											? `${review.participants.length} (${confirmedCount} bekreftet)`

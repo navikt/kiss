@@ -32,6 +32,7 @@ import {
 	updateReview,
 } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applications"
 import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus, RPA_DECISION_VALUES } from "~/db/schema/routines"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
@@ -242,6 +243,9 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 		throw data({ message: "Gjennomgangen tilhører ikke rutinen" }, { status: 404 })
 	}
 	await requireReviewReadAccess(authedUser, { applicationId: review.applicationId, sectionId: routine.sectionId })
+
+	const creatorName =
+		(await getUserNamesByNavIdents([review.createdBy])).get(review.createdBy.trim().toUpperCase()) ?? null
 
 	let applicationName: string | null = null
 	let teamMembers: Array<{ teamName: string; members: Array<{ navIdent: string; name: string }> }> = []
@@ -694,6 +698,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 		teamMembers,
 		review: {
 			...review,
+			createdByName: creatorName,
 			applicationName,
 			reviewedAt: review.reviewedAt.toISOString(),
 			createdAt: review.createdAt.toISOString(),

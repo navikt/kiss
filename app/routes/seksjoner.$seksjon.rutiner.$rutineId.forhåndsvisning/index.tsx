@@ -387,6 +387,7 @@ export default function ForhåndsvisningGjennomgang() {
 			"Gjennomgangen ble gjennomført uten vesentlige avvik. Alle tilgangsgrupper er gjennomgått og dokumentert. To punkter er overført til oppfølging.",
 		summaryHtml: MOCK_SUMMARY_HTML,
 		createdBy: "Z990001",
+		createdByName: "Rask Elv",
 		applicationId: null,
 		applicationName: null,
 		participants: MOCK_PARTICIPANTS,
