@@ -14,6 +14,7 @@ import {
 } from "@navikt/ds-react"
 import { useState } from "react"
 import { useActionData, useNavigation, useSubmit } from "react-router"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import type { action } from "../action.server"
 
 export function ReportsPanel({
@@ -25,6 +26,7 @@ export function ReportsPanel({
 		name: string
 		createdAt: string
 		createdBy: string
+		createdByName: string | null
 		reportBucketPath: string | null
 	}>
 	completedReviews: Array<{
@@ -34,6 +36,7 @@ export function ReportsPanel({
 		reviewedAt: Date | string
 		status: string
 		createdBy: string
+		createdByName: string | null
 	}>
 }) {
 	const submit = useSubmit()
@@ -125,7 +128,9 @@ export function ReportsPanel({
 												<Table.DataCell>{review.routineName}</Table.DataCell>
 												<Table.DataCell>{new Date(review.reviewedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
 												<Table.DataCell>{review.status === "completed" ? "Fullført" : "Må følges opp"}</Table.DataCell>
-												<Table.DataCell>{review.createdBy}</Table.DataCell>
+												<Table.DataCell>
+													<UserDisplayName navIdent={review.createdBy} name={review.createdByName} />
+												</Table.DataCell>
 											</Table.Row>
 										))}
 									</Table.Body>
@@ -207,7 +212,9 @@ export function ReportsPanel({
 												minute: "2-digit",
 											})}
 										</Table.DataCell>
-										<Table.DataCell>{r.createdBy}</Table.DataCell>
+										<Table.DataCell>
+											<UserDisplayName navIdent={r.createdBy} name={r.createdByName} />
+										</Table.DataCell>
 										<Table.DataCell>
 											{r.reportBucketPath && !isZip && (
 												<Button

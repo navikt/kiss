@@ -9,6 +9,7 @@ export function RapporterTab({
 		name: string
 		createdAt: string
 		createdBy: string
+		createdByName: string | null
 		reportBucketPath: string | null
 	}>
 	completedReviews: Array<{
@@ -18,6 +19,7 @@ export function RapporterTab({
 		reviewedAt: Date | string
 		status: string
 		createdBy: string
+		createdByName: string | null
 	}>
 }) {
 	return <ReportsPanel appReports={appReports} completedReviews={completedReviews} />

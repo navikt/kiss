@@ -158,6 +158,7 @@ export async function loader({ request, params }: LoaderArgs) {
 	const reviewerNamesPromise = getUserNamesByNavIdents([
 		...completedReviews.map((r) => r.createdBy),
 		...completedReviews.flatMap((r) => r.followUpPoints.map((p) => p.createdBy)),
+		...appReports.map((r) => r.createdBy),
 	])
 
 	// Compute auto-compliance from parallel results
@@ -382,6 +383,7 @@ export async function loader({ request, params }: LoaderArgs) {
 					name: r.name,
 					createdAt: r.createdAt.toISOString(),
 					createdBy: r.createdBy,
+					createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
 					reportBucketPath: r.reportBucketPath,
 				}))
 			: [],
