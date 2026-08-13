@@ -20,6 +20,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Form, useActionData, useNavigation, useRevalidator } from "react-router"
 import { AutoUploadDropzone } from "~/components/AutoUploadDropzone"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import type { ActionResult } from "../shared"
 import { formatDate, formatFileSize } from "../utils"
 
@@ -33,6 +34,7 @@ type AttachmentEntry = {
 	contentType: string
 	sizeBytes: number | null
 	uploadedBy: string
+	uploadedByName: string | null
 	uploadedAt: string
 }
 
@@ -45,9 +47,11 @@ type FollowUpPoint = {
 	createdBy: string
 	createdAt: string
 	updatedBy: string
+	updatedByName: string | null
 	updatedAt: string
 	resolvedAt: string | null
 	resolvedBy: string | null
+	resolvedByName: string | null
 	attachments: AttachmentEntry[]
 }
 
@@ -202,7 +206,15 @@ function FollowUpPointRow({
 }: {
 	point: Pick<
 		FollowUpPoint,
-		"id" | "text" | "description" | "resolution" | "status" | "updatedBy" | "updatedAt" | "attachments"
+		| "id"
+		| "text"
+		| "description"
+		| "resolution"
+		| "status"
+		| "updatedBy"
+		| "updatedByName"
+		| "updatedAt"
+		| "attachments"
 	>
 	canEditText: boolean
 	canEditDescription: boolean
@@ -508,7 +520,9 @@ function FollowUpPointRow({
 			<Table.DataCell>
 				<VStack gap="space-1">
 					<Detail>{new Date(p.updatedAt).toLocaleString("nb-NO")}</Detail>
-					<Detail textColor="subtle">av {p.updatedBy}</Detail>
+					<Detail textColor="subtle">
+						av <UserDisplayName navIdent={p.updatedBy} name={p.updatedByName} />
+					</Detail>
 				</VStack>
 			</Table.DataCell>
 			{(canChangeStatus || canDelete) && (
@@ -620,7 +634,9 @@ function FollowUpPointAttachments({
 							<Table.Row key={a.id}>
 								<Table.DataCell>{a.fileName}</Table.DataCell>
 								<Table.DataCell>{formatFileSize(a.sizeBytes)}</Table.DataCell>
-								<Table.DataCell>{a.uploadedBy}</Table.DataCell>
+								<Table.DataCell>
+									<UserDisplayName navIdent={a.uploadedBy} name={a.uploadedByName} />
+								</Table.DataCell>
 								<Table.DataCell>{formatDate(a.uploadedAt)}</Table.DataCell>
 								<Table.DataCell>
 									<HStack gap="space-2">

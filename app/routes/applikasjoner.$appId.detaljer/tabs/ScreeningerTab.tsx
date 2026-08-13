@@ -13,6 +13,7 @@ import {
 } from "@navikt/ds-react"
 import { useRef, useState } from "react"
 import { Form, Link, useFetcher } from "react-router"
+import { UserDisplayName } from "~/components/UserDisplayName"
 
 interface ScreeningSession {
 	id: string
@@ -24,6 +25,7 @@ interface ScreeningSession {
 	createdBy: string
 	archivedAt: string | null
 	archivedBy: string | null
+	archivedByName: string | null
 	archiveReason: string | null
 	participants: Array<{ userIdent: string; userName: string | null }>
 }
@@ -278,7 +280,11 @@ function ArchivedSessionTable({ sessions }: { sessions: ScreeningSession[] }) {
 									<BodyShort size="small" textColor="subtle">
 										{session.archivedAt ? formatTimestamp(session.archivedAt) : "—"}
 									</BodyShort>
-									{session.archivedBy && <Detail textColor="subtle">{session.archivedBy}</Detail>}
+									{session.archivedBy && (
+										<Detail textColor="subtle">
+											<UserDisplayName navIdent={session.archivedBy} name={session.archivedByName} />
+										</Detail>
+									)}
 								</VStack>
 							</Table.DataCell>
 							<Table.DataCell>

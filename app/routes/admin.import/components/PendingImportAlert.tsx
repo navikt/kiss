@@ -1,10 +1,12 @@
 import { Alert, BodyLong, Button, Heading, HStack } from "@navikt/ds-react"
 import { Form } from "react-router"
+import { UserDisplayName } from "~/components/UserDisplayName"
 
 interface PendingImport {
 	sourceFileName: string
 	createdAt: Date | string
 	createdBy: string
+	createdByName: string | null
 }
 
 interface PendingImportAlertProps {
@@ -19,8 +21,9 @@ export function PendingImportAlert({ pendingImport, isSubmitting }: PendingImpor
 				Ventende import: {pendingImport.sourceFileName}
 			</Heading>
 			<BodyLong spacing>
-				Lastet opp {new Date(pendingImport.createdAt).toLocaleString("nb-NO")} av {pendingImport.createdBy}. Velg om du
-				vil fortsette med denne importen eller forkaste den.
+				Lastet opp {new Date(pendingImport.createdAt).toLocaleString("nb-NO")} av{" "}
+				<UserDisplayName navIdent={pendingImport.createdBy} name={pendingImport.createdByName} />. Velg om du vil
+				fortsette med denne importen eller forkaste den.
 			</BodyLong>
 			<HStack gap="space-4">
 				<Form method="post">

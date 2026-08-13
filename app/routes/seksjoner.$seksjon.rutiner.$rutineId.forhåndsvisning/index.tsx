@@ -244,9 +244,11 @@ const MOCK_FOLLOW_UP_POINTS = [
 		createdBy: "Z990001",
 		createdAt: "2025-06-10T10:00:00Z",
 		updatedBy: "Z990001",
+		updatedByName: null,
 		updatedAt: "2025-06-10T10:00:00Z",
 		resolvedAt: null,
 		resolvedBy: null,
+		resolvedByName: null,
 		attachments: [],
 	},
 	{
@@ -258,9 +260,11 @@ const MOCK_FOLLOW_UP_POINTS = [
 		createdBy: "Z990001",
 		createdAt: "2025-06-10T10:05:00Z",
 		updatedBy: "Z990002",
+		updatedByName: null,
 		updatedAt: "2025-06-12T14:00:00Z",
 		resolvedAt: "2025-06-12T14:00:00Z",
 		resolvedBy: "Z990002",
+		resolvedByName: null,
 		attachments: [],
 	},
 ]

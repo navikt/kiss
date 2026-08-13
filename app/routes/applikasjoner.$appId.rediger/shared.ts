@@ -6,8 +6,10 @@ export type AppElement = {
 	linkId: string
 	confirmedAt: Date | string | null
 	confirmedBy: string | null
+	confirmedByName: string | null
 	rejectedAt: Date | string | null
 	rejectedBy: string | null
+	rejectedByName: string | null
 	rejectionReason: string | null
 }
 

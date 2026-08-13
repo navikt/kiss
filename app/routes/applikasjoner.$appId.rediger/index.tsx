@@ -59,7 +59,12 @@ export default function ApplikasjonRediger() {
 			<ExportSection appId={app.id} />
 
 			{(canDelete || app.archivedAt) && (
-				<ArchiveSection appName={app.name} archivedAt={app.archivedAt} archivedBy={app.archivedBy} />
+				<ArchiveSection
+					appName={app.name}
+					archivedAt={app.archivedAt}
+					archivedBy={app.archivedBy}
+					archivedByName={app.archivedByName}
+				/>
 			)}
 		</VStack>
 	)

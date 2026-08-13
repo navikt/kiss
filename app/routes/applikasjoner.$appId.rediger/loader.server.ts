@@ -3,6 +3,7 @@ import { getAppScopeIds, getAvailableTeamsForApp } from "~/db/queries/applicatio
 import { getOracleInstancesForApp } from "~/db/queries/audit-evidence.server"
 import { findLinkCandidates, getApplicationDetail, getLinkCandidatesForSection } from "~/db/queries/nais.server"
 import { getAllTechnologyElements, getApplicationElements } from "~/db/queries/technology-elements.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
@@ -68,14 +69,28 @@ export async function loader({ request, params }: LoaderArgs) {
 
 	const canDelete = detail.linkedApps.length === 0 && detail.environments.length === 0
 
+	const userNames = await getUserNamesByNavIdents([
+		...(detail.app.archivedBy ? [detail.app.archivedBy] : []),
+		...appElements.flatMap((e) => [e.confirmedBy, e.rejectedBy].filter((x): x is string => !!x)),
+	])
+	const nameFor = (navIdent: string | null) =>
+		navIdent ? (userNames.get(navIdent.trim().toUpperCase()) ?? null) : null
+
 	return data({
 		...breadcrumbCtx,
-		app: detail.app,
+		app: {
+			...detail.app,
+			archivedByName: nameFor(detail.app.archivedBy),
+		},
 		teams: detail.teams,
 		primaryApp: detail.primaryApp,
 		linkedApps: detail.linkedApps,
 		linkSuggestions: relevantCandidates,
-		appElements,
+		appElements: appElements.map((e) => ({
+			...e,
+			confirmedByName: nameFor(e.confirmedBy),
+			rejectedByName: nameFor(e.rejectedBy),
+		})),
 		availableElements: allElements.filter((e) => !appElements.some((ae) => ae.id === e.id)),
 		availableTeams,
 		oracleInstances: filteredOracleInstances,

@@ -244,8 +244,14 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 	}
 	await requireReviewReadAccess(authedUser, { applicationId: review.applicationId, sectionId: routine.sectionId })
 
-	const creatorName =
-		(await getUserNamesByNavIdents([review.createdBy])).get(review.createdBy.trim().toUpperCase()) ?? null
+	const followUpNavIdents = review.followUpPoints.flatMap((p) => [
+		p.updatedBy,
+		...(p.resolvedBy ? [p.resolvedBy] : []),
+		...p.attachments.map((a) => a.uploadedBy),
+	])
+	const userNames = await getUserNamesByNavIdents([review.createdBy, ...followUpNavIdents])
+	const creatorName = userNames.get(review.createdBy.trim().toUpperCase()) ?? null
+	const nameFor = (navIdent: string) => userNames.get(navIdent.trim().toUpperCase()) ?? null
 
 	let applicationName: string | null = null
 	let teamMembers: Array<{ teamName: string; members: Array<{ navIdent: string; name: string }> }> = []
@@ -719,10 +725,13 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 				...p,
 				createdAt: p.createdAt.toISOString(),
 				updatedAt: p.updatedAt.toISOString(),
+				updatedByName: nameFor(p.updatedBy),
 				resolvedAt: p.resolvedAt?.toISOString() ?? null,
+				resolvedByName: p.resolvedBy ? nameFor(p.resolvedBy) : null,
 				attachments: p.attachments.map((a) => ({
 					...a,
 					uploadedAt: a.uploadedAt.toISOString(),
+					uploadedByName: nameFor(a.uploadedBy),
 				})),
 			})),
 		},

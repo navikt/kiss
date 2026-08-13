@@ -17,6 +17,7 @@ import {
 } from "@navikt/ds-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { data, Link, useFetcher, useLoaderData, useRevalidator } from "react-router"
+import { UserDisplayName } from "~/components/UserDisplayName"
 import { getAuditLogByAction } from "~/db/queries/audit.server"
 import {
 	addRpaGroup,
@@ -25,6 +26,7 @@ import {
 	getMemberCountPerRpaGroup,
 	removeRpaGroup,
 } from "~/db/queries/rpa.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
 import { logger } from "~/lib/logger.server"
@@ -52,10 +54,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 	const countMap = new Map(memberCounts.map((c) => [c.rpaGroupId, c]))
 
+	const creatorNames = await getUserNamesByNavIdents(groups.map((g) => g.createdBy))
+
 	const groupsWithStats = groups.map((g) => {
 		const stats = countMap.get(g.id)
 		return {
 			...g,
+			createdByName: creatorNames.get(g.createdBy.trim().toUpperCase()) ?? null,
 			memberCount: stats?.memberCount ?? 0,
 			lastSyncedAt: stats?.lastSyncedAt ?? null,
 		}
@@ -510,6 +515,7 @@ interface GroupWithStats {
 	groupId: string
 	groupName: string | null
 	createdBy: string
+	createdByName: string | null
 	createdAt: Date
 	memberCount: number
 	lastSyncedAt: string | null
@@ -585,7 +591,7 @@ function GroupRow({ group, onRemove }: { group: GroupWithStats; onRemove: () => 
 				)}
 			</Table.DataCell>
 			<Table.DataCell>
-				<Detail>{group.createdBy}</Detail>
+				<UserDisplayName navIdent={group.createdBy} name={group.createdByName} />
 			</Table.DataCell>
 			<Table.DataCell>
 				<HStack gap="space-2">
