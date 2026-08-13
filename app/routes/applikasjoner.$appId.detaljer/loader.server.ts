@@ -28,6 +28,7 @@ import { getScreeningProgressForApps, getScreeningQuestionsWithAnswersForApp } f
 import { getScreeningSessionsForApp } from "~/db/queries/screening-sessions.server"
 import { getSections } from "~/db/queries/sections.server"
 import { getApplicationElements } from "~/db/queries/technology-elements.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import type { GroupCriticality } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
 import { canAccessAppReports, hasAnyTeamRole, hasRole, isAdmin } from "~/lib/authorization.server"
@@ -153,6 +154,8 @@ export async function loader({ request, params }: LoaderArgs) {
 		getOracleRoleAssessments(appId),
 		getLatestOracleRoleCriticalityReview(appId),
 	])
+
+	const reviewerNamesPromise = getUserNamesByNavIdents(completedReviews.map((r) => r.createdBy))
 
 	// Compute auto-compliance from parallel results
 	const autoComplianceMap = computeAutoCompliance(
@@ -282,13 +285,14 @@ export async function loader({ request, params }: LoaderArgs) {
 	)
 
 	// resolveGroupNames (Graph API) and getRpaUsersForApp (DB query) are independent — run in parallel
-	const [groupNames, rpaUsers] = await Promise.all([
+	const [groupNames, rpaUsers, reviewerNames] = await Promise.all([
 		resolveGroupNames(allGroupIds),
 		getRpaUsersForApp(
 			[...naisGroupIdSet],
 			manualGroups.map((g) => g.groupId),
 			hasAllowAllUsers,
 		),
+		reviewerNamesPromise,
 	])
 
 	const assessmentsByGroupId: Record<string, { criticality: GroupCriticality; updatedBy: string; updatedAt: string }> =
@@ -341,7 +345,10 @@ export async function loader({ request, params }: LoaderArgs) {
 		linkedApps: detail.linkedApps,
 		appElements,
 		routineDeadlines: deadlinesWithControls,
-		completedReviews,
+		completedReviews: completedReviews.map((r) => ({
+			...r,
+			createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
+		})),
 		sectionSlugMap,
 		canAdmin: user ? isAdmin(user) : false,
 		// Positivt tilgangsflagg: admin og teammedlemmer uten revisor-rolle kan starte/fortsette gjennomganger.
