@@ -5,6 +5,7 @@ import JSZip from "jszip"
 import PDFDocument from "pdfkit"
 import { isOracleEvidenceActivityType } from "../../lib/activity-types"
 import { getStatusLabel } from "../../lib/compliance-status"
+import { parseManualActivityStagedData } from "../../lib/manual-activity-staged-data"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getCompositeFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
 import { getStorageProvider } from "../../lib/storage/index.server"
@@ -1215,10 +1216,23 @@ interface RoutineReviewPdfEntry {
 	createdAt: Date | string
 	createdBy: string
 	participants: Array<{ userIdent: string; userName: string | null }>
-	attachments: Array<{ fileName: string; contentType: string; uploadedBy: string; uploadedAt: Date | string }>
-	links: Array<{ url: string; title: string | null }>
+	attachments: Array<{
+		fileName: string
+		contentType: string
+		uploadedBy: string
+		uploadedAt: Date | string
+		activityStepId?: string | null
+	}>
+	links: Array<{ url: string; title: string | null; activityStepId?: string | null }>
 	/** Regelsett koblet til rutinen på tidspunktet gjennomgangen ble utført (kun rutinegjennomgangsrapporten). */
-	linkedRulesets?: Array<{ id: string; code: string | null; name: string; status: string; isCurrentFallback: boolean }>
+	linkedRulesets?: Array<{
+		id: string
+		code: string | null
+		name: string
+		description?: string | null
+		status: string
+		isCurrentFallback: boolean
+	}>
 	/**
 	 * Faktisk plassering (relativt til zip-roten) for hhv. vanlige vedlegg og
 	 * oppfølgingspunkt-vedlegg for denne gjennomgangen. Zip-layouten er ulik mellom
@@ -1256,7 +1270,12 @@ interface RoutineReviewPdfGroup {
 	routineArchivedAt?: Date | string | null
 	routineReplacedAt?: Date | string | null
 	routineTechnologyElements?: Array<{ id: string; name: string }>
-	routineControls?: Array<{ controlId: string; shortTitle: string | null }>
+	routineControls?: Array<{
+		controlId: string
+		shortTitle: string | null
+		domainSlug?: string | null
+		responsible?: string | null
+	}>
 	reviews: RoutineReviewPdfEntry[]
 }
 
@@ -1267,6 +1286,8 @@ type RoutineReviewActivityMap = Map<
 		status: string
 		snapshotBefore: unknown
 		snapshotAfter: unknown
+		/** Kilde for manuelle aktivitetssteg (`manual_activity`) når verken snapshotBefore/After er satt (kan skje for pending-aktiviteter). */
+		stagedData?: unknown
 		completedAt: Date | null
 		changes: Array<{
 			changeType: string
@@ -1338,7 +1359,11 @@ function renderRoutineGroupSection(
 		doc.fontSize(9).fillColor(gray).text("Tilknyttede krav:")
 		for (const c of group.routineControls) {
 			const label = c.shortTitle ? `${c.controlId} – ${c.shortTitle}` : c.controlId
-			doc.fontSize(9).fillColor(gray).text(`• ${label}`, { indent: 10 })
+			const details = [c.domainSlug, c.responsible].filter(Boolean).join(", ")
+			doc
+				.fontSize(9)
+				.fillColor(gray)
+				.text(`• ${label}${details ? ` (${details})` : ""}`, { indent: 10 })
 		}
 	}
 	doc.moveDown(0.5)
@@ -1373,6 +1398,11 @@ function renderRoutineGroupSection(
 				const label = rs.code ? `${rs.code} – ${rs.name}` : rs.name
 				const fallbackNote = rs.isCurrentFallback ? " (gjeldende kobling, historikk mangler)" : ""
 				doc.fontSize(9).fillColor(dark).text(`• ${label}${fallbackNote}`, { width: 495 })
+				if (rs.description) {
+					doc.moveDown(0.1)
+					renderMarkdownToPdf(doc, rs.description, { width: 480 })
+				}
+				doc.moveDown(0.1)
 			}
 		}
 
@@ -1544,6 +1574,89 @@ function renderRoutineGroupSection(
 					)
 				}
 			}
+
+			if (act.type === "manual_activity") {
+				const source = act.snapshotAfter ?? act.stagedData
+				if (!source) continue
+				let steps: ReturnType<typeof parseManualActivityStagedData>["steps"]
+				try {
+					steps = parseManualActivityStagedData(source).steps
+				} catch {
+					continue
+				}
+				if (steps.length === 0) continue
+
+				doc.moveDown(0.6)
+				doc.fontSize(11).fillColor(blue).text(`Manuelle aktiviteter (${steps.length})`)
+				doc.moveDown(0.3)
+
+				for (const [idx, step] of steps.entries()) {
+					if (doc.y > 700) doc.addPage()
+					doc
+						.fontSize(10)
+						.fillColor(dark)
+						.text(`${idx + 1}. ${step.title}`, { width: 495 })
+					doc.moveDown(0.15)
+					if (step.completedAt) {
+						const byWho = step.completedBy ? ` av ${step.completedBy}` : ""
+						doc
+							.fontSize(8)
+							.fillColor(gray)
+							.text(`Fullført: ${new Date(step.completedAt).toLocaleString("nb-NO")}${byWho}`, { width: 495 })
+					}
+					if (step.description) {
+						doc.moveDown(0.15)
+						doc.fontSize(9).fillColor(dark)
+						renderMarkdownToPdf(doc, step.description, { width: 495 })
+					}
+
+					// Notater/lenker/vedlegg vises kun når komponenten er slått på for steget, i tråd med StepManualActivityItem i veiviseren
+					const componentItems = step.componentConfig?.items
+					const showNotes = componentItems === undefined || componentItems.some((c) => c.type === "notater")
+					const showLinks = componentItems === undefined || componentItems.some((c) => c.type === "lenker")
+					const showVedlegg = componentItems === undefined || componentItems.some((c) => c.type === "vedlegg")
+
+					if (showNotes && step.notes) {
+						doc.moveDown(0.15)
+						doc.fontSize(8).fillColor(gray).text("Notater:", { width: 495 })
+						doc.fontSize(9).fillColor(dark).text(step.notes, { width: 495 })
+					}
+
+					const stepLinks = showLinks ? r.links.filter((l) => l.activityStepId === step.stepId) : []
+					if (stepLinks.length > 0) {
+						doc.moveDown(0.2)
+						doc.fontSize(8).fillColor(blue).text("Lenker", { width: 495 })
+						for (const link of stepLinks) {
+							const label = link.title || link.url
+							doc.fontSize(8).fillColor(blue).text(label, { link: link.url, underline: true, width: 495 })
+						}
+					}
+
+					const stepAttachments = showVedlegg ? r.attachments.filter((a) => a.activityStepId === step.stepId) : []
+					if (stepAttachments.length > 0) {
+						doc.moveDown(0.2)
+						doc.fontSize(8).fillColor(blue).text("Vedlegg", { width: 495 })
+						doc
+							.fontSize(7)
+							.fillColor(gray)
+							.text(`Vedlegg er tilgjengelig i ${r.attachmentsZipPath}/ i den nedlastede zip-filen.`, {
+								width: 495,
+							})
+						for (const att of stepAttachments) {
+							if (doc.y > 700) doc.addPage()
+							doc.fontSize(9).fillColor(dark).text(`• ${att.fileName}`, { width: 495 })
+							doc
+								.fontSize(8)
+								.fillColor(gray)
+								.text(`  Lastet opp av: ${att.uploadedBy} — ${new Date(att.uploadedAt).toLocaleString("nb-NO")}`, {
+									width: 495,
+								})
+						}
+					}
+
+					doc.moveDown(0.4)
+				}
+			}
 		}
 	}
 }
@@ -1645,7 +1758,12 @@ function buildAppPdf(
 		routineArchivedAt?: Date | string | null
 		routineReplacedAt?: Date | string | null
 		routineTechnologyElements?: Array<{ id: string; name: string }>
-		routineControls?: Array<{ controlId: string; shortTitle: string | null }>
+		routineControls?: Array<{
+			controlId: string
+			shortTitle: string | null
+			domainSlug?: string | null
+			responsible?: string | null
+		}>
 		participants: Array<{ userIdent: string; userName: string | null }>
 		attachments: Array<{ fileName: string; contentType: string; uploadedBy: string; uploadedAt: Date | string }>
 		links: Array<{ url: string; title: string | null }>
@@ -1793,7 +1911,12 @@ function buildAppPdf(
 					routineArchivedAt?: Date | string | null
 					routineReplacedAt?: Date | string | null
 					routineTechnologyElements?: Array<{ id: string; name: string }>
-					routineControls?: Array<{ controlId: string; shortTitle: string | null }>
+					routineControls?: Array<{
+						controlId: string
+						shortTitle: string | null
+						domainSlug?: string | null
+						responsible?: string | null
+					}>
 					reviews: typeof reviews
 				}
 			>()
