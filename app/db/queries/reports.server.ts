@@ -1,3 +1,5 @@
+import { PassThrough } from "node:stream"
+import { ZipArchive } from "archiver"
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 import JSZip from "jszip"
 import PDFDocument from "pdfkit"
@@ -27,8 +29,11 @@ import {
 	getAppsRequiringRoutine,
 	getEffectiveLastReviewDate,
 	getReviewsForApp,
+	getReviewsForRoutineAndApp,
+	getRoutine,
 	isOverdue,
 } from "./routines.server"
+import { getRulesetsLinkedToRoutineAtDate } from "./rulesets.server"
 import { getEffectiveAppIdsInSection } from "./sections.server"
 
 /** Get all reports ordered by newest first. */
@@ -38,11 +43,7 @@ export async function getReports() {
 
 /** Get reports scoped to a specific application. */
 export async function getReportsForApp(applicationId: string) {
-	return db
-		.select()
-		.from(reports)
-		.where(sql`${reports.scope} = 'application' AND ${reports.scopeId} = ${applicationId}`)
-		.orderBy(desc(reports.createdAt))
+	return db.select().from(reports).where(eq(reports.scopeId, applicationId)).orderBy(desc(reports.createdAt))
 }
 
 /** Get a report by ID. */
@@ -881,6 +882,227 @@ export async function generateAppComplianceReport(params: {
 	})
 
 	return { reportId: report.id, reportBucketPath, appName: artifact.appName }
+}
+
+// ─── Routine review reports ────────────────────────────────────────────────
+
+function sanitizeZipSegment(value: string, maxLength = 60): string {
+	return value.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "_").slice(0, maxLength)
+}
+
+/**
+ * Zip-en bygges strømmende (archiver → PassThrough → `storage.uploadStream`), samme
+ * mønster som `section-report-jobs.server.ts`, slik at store vedleggsmengder
+ * (excel-ark, bilder osv.) ikke må holdes samlet i minnet.
+ */
+export async function generateRoutineReviewReport(params: {
+	routineId: string
+	applicationId: string
+	createdBy: string
+}): Promise<{ reportId: string; reportBucketPath: string; reportName: string }> {
+	const { routineId, applicationId, createdBy } = params
+
+	const [routine, detail, reviews] = await Promise.all([
+		getRoutine(routineId),
+		getApplicationDetail(applicationId),
+		getReviewsForRoutineAndApp(routineId, applicationId),
+	])
+
+	if (!routine) throw new Error(`Fant ikke rutine: ${routineId}`)
+	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
+	if (reviews.length === 0) {
+		throw new Error("Ingen gjennomganger funnet for denne rutinen og applikasjonen")
+	}
+
+	const now = new Date()
+	const datePrefix = now.toISOString().slice(0, 10)
+	const fileId = crypto.randomUUID()
+	const reportName = `Rutinerapport – ${routine.name} – ${detail.app.name} – ${now.toLocaleDateString("nb-NO")}`
+	const storage = getStorageProvider()
+	const zipPath = `reports/routine-review/${routineId}/${applicationId}/${datePrefix}/${fileId}/rapport.zip`
+
+	const activitiesRaw = await getActivitiesForReviews(reviews.map((r) => r.id))
+	const activitiesByReviewId = new Map<string, typeof activitiesRaw>()
+	for (const act of activitiesRaw) {
+		const list = activitiesByReviewId.get(act.reviewId) ?? []
+		list.push(act)
+		activitiesByReviewId.set(act.reviewId, list)
+	}
+
+	const archive = new ZipArchive({ zlib: { level: 6 } })
+	const passThrough = new PassThrough()
+	archive.pipe(passThrough)
+	const uploadPromise = storage.uploadStream(zipPath, passThrough, { contentType: "application/zip" })
+	uploadPromise.catch(() => {
+		// Handled below via the outer try/catch — attach to avoid an unhandled rejection on early error paths.
+	})
+	archive.on("error", (err: Error) => {
+		passThrough.destroy(err)
+	})
+
+	try {
+		const routineInfo = {
+			id: routine.id,
+			name: routine.name,
+			description: routine.description,
+			frequency: routine.frequency,
+			eventFrequency: routine.eventFrequency,
+			responsibleRole: routine.responsibleRole,
+			status: routine.status,
+			approvedAt: routine.approvedAt?.toISOString() ?? null,
+			archivedAt: routine.archivedAt?.toISOString() ?? null,
+			applicationId,
+			applicationName: detail.app.name,
+			generatedAt: now.toISOString(),
+			totalReviews: reviews.length,
+		}
+		archive.append(Buffer.from(JSON.stringify(routineInfo, null, 2), "utf-8"), { name: "rutine-info.json" })
+
+		for (const review of reviews) {
+			const reviewDate = review.reviewedAt.toISOString().slice(0, 10)
+			const folder = `gjennomganger/${reviewDate}-${sanitizeZipSegment(review.title)}-${review.id.slice(-8)}`
+
+			const linkedRulesets = await getRulesetsLinkedToRoutineAtDate(routineId, review.reviewedAt)
+
+			const reviewInfo = {
+				id: review.id,
+				title: review.title,
+				summary: review.summary,
+				status: review.status,
+				reviewedAt: review.reviewedAt.toISOString(),
+				createdAt: review.createdAt.toISOString(),
+				createdBy: review.createdBy,
+				participants: review.participants.map((p) => ({
+					userIdent: p.userIdent,
+					userName: p.userName,
+					confirmedAt: p.confirmedAt?.toISOString() ?? null,
+				})),
+				linkedRulesets: linkedRulesets.map((r) => ({
+					id: r.id,
+					code: r.code,
+					name: r.name,
+					status: r.status,
+					isCurrentFallback: r.isCurrentFallback,
+				})),
+			}
+			archive.append(Buffer.from(JSON.stringify(reviewInfo, null, 2), "utf-8"), { name: `${folder}/gjennomgang.json` })
+
+			if (review.links.length > 0) {
+				const linksText = review.links.map((l) => `${l.title ? `${l.title}: ` : ""}${l.url}`).join("\n")
+				archive.append(Buffer.from(linksText, "utf-8"), { name: `${folder}/lenker.txt` })
+			}
+
+			const usedNames = new Set<string>()
+			for (const att of review.attachments) {
+				const safeName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
+				let entryName = `${folder}/vedlegg/${safeName}`
+				entryName = dedupeZipEntryName(entryName, usedNames)
+				try {
+					const buf = await storage.download(att.bucketPath)
+					archive.append(buf, { name: entryName })
+				} catch {
+					// Vedlegget kunne ikke lastes ned — hopp over, resten av rapporten genereres likevel
+				}
+			}
+
+			for (const point of review.followUpPoints) {
+				const pointFolder = `${folder}/oppfolgingspunkter/${sanitizeZipSegment(point.text, 50)}`
+				for (const att of point.attachments) {
+					const safeName = att.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
+					const kindFolder = att.kind === "description" ? "beskrivelse" : "oppfolging"
+					let entryName = `${pointFolder}/${kindFolder}/${safeName}`
+					entryName = dedupeZipEntryName(entryName, usedNames)
+					try {
+						const buf = await storage.download(att.bucketPath)
+						archive.append(buf, { name: entryName })
+					} catch {
+						// Se over
+					}
+				}
+			}
+
+			const activities = activitiesByReviewId.get(review.id) ?? []
+			for (const act of activities) {
+				if (!isOracleEvidenceActivityType(act.type)) continue
+				const evidenceDownloads = await getEvidenceDownloadsForActivityWithBucketDetails(act.id)
+				for (const dl of evidenceDownloads) {
+					const safeName = dl.fileName.replace(/[/\\]/g, "_").replace(/^\.+/, "_")
+					let entryName = `${folder}/bevis/${safeName}`
+					entryName = dedupeZipEntryName(entryName, usedNames)
+					try {
+						const buf = await storage.download(dl.bucketPath)
+						archive.append(buf, { name: entryName })
+					} catch {
+						// Se over
+					}
+				}
+			}
+		}
+
+		await archive.finalize()
+		const uploadResult = await uploadPromise
+
+		const [report] = await db.transaction(async (tx) => {
+			const inserted = await tx
+				.insert(reports)
+				.values({
+					name: reportName,
+					reportType: "routine_review",
+					scope: "routine_review",
+					scopeId: applicationId,
+					secondaryScopeId: routineId,
+					reportBucketPath: zipPath,
+					appVersion: "0.1.0",
+					createdBy,
+				})
+				.returning()
+			await writeAuditLog(
+				{
+					action: "report_generated",
+					entityType: "report",
+					entityId: inserted[0].id,
+					newValue: reportName,
+					metadata: {
+						scope: "routine_review",
+						routineId,
+						applicationId,
+						totalReviews: reviews.length,
+						sizeBytes: uploadResult.sizeBytes,
+					},
+					performedBy: createdBy,
+				},
+				tx,
+			)
+			return inserted
+		})
+
+		return { reportId: report.id, reportBucketPath: zipPath, reportName }
+	} catch (err) {
+		archive.abort()
+		passThrough.destroy()
+		// Zip-en kan ha blitt lastet opp til storage før feilen oppstod (f.eks. hvis DB-transaksjonen
+		// feiler etter en vellykket opplasting) — rydd opp for å unngå foreldreløse objekter i bucketen.
+		await storage.delete(zipPath).catch(() => {})
+		throw err
+	}
+}
+
+function dedupeZipEntryName(entryName: string, usedNames: Set<string>): string {
+	if (!usedNames.has(entryName)) {
+		usedNames.add(entryName)
+		return entryName
+	}
+	const dotIdx = entryName.lastIndexOf(".")
+	const ext = dotIdx > -1 ? entryName.slice(dotIdx) : ""
+	const base = dotIdx > -1 ? entryName.slice(0, dotIdx) : entryName
+	let counter = 2
+	let candidate = `${base} (${counter})${ext}`
+	while (usedNames.has(candidate)) {
+		counter++
+		candidate = `${base} (${counter})${ext}`
+	}
+	usedNames.add(candidate)
+	return candidate
 }
 
 export interface AppComplianceArtifact {

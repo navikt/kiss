@@ -8,7 +8,7 @@ import {
 	unarchiveManualPersistence,
 	updatePersistenceClassification,
 } from "~/db/queries/nais.server"
-import { generateAppComplianceReport } from "~/db/queries/reports.server"
+import { generateAppComplianceReport, generateRoutineReviewReport } from "~/db/queries/reports.server"
 import { type DataClassification, persistenceTypeEnum } from "~/db/schema/applications"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canAccessAppReports, isAdmin, requireAppMembership } from "~/lib/authorization.server"
@@ -83,6 +83,31 @@ export async function action({ request, params, url }: Route.ActionArgs) {
 				success: false,
 				message: null,
 				error: err instanceof Error ? err.message : "Feil ved generering av rapport.",
+			})
+		}
+	}
+
+	if (intent === "generate-routine-report") {
+		const { devTeamIds, sectionIds } = await getAppScopeIds(appId)
+		if (!canAccessAppReports(authedUser, sectionIds, devTeamIds)) {
+			return data({ success: false, message: null, error: "Ikke autorisert til å generere rapport." }, { status: 403 })
+		}
+		const routineId = formData.get("routineId") as string | null
+		if (!routineId) {
+			return data({ success: false, message: null, error: "Mangler rutine-ID" }, { status: 400 })
+		}
+		try {
+			const result = await generateRoutineReviewReport({
+				routineId,
+				applicationId: appId,
+				createdBy: authedUser.navIdent,
+			})
+			return data({ success: true, message: "Rapport generert.", error: null, reportId: result.reportId })
+		} catch (err) {
+			return data({
+				success: false,
+				message: null,
+				error: err instanceof Error ? err.message : "Feil ved generering av rutinerapport.",
 			})
 		}
 	}

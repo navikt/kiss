@@ -9,6 +9,8 @@ export const reports = pgTable("reports", {
 	reportType: text("report_type").notNull(),
 	scope: text("scope").notNull(),
 	scopeId: uuid("scope_id"),
+	/** Secondary scope dimension — e.g. routineId for reports scoped to both an application AND a routine. */
+	secondaryScopeId: uuid("secondary_scope_id"),
 	/** Nullable for batch reports that have no JSON snapshot */
 	snapshotBucketPath: text("snapshot_bucket_path"),
 	reportBucketPath: text("report_bucket_path"),

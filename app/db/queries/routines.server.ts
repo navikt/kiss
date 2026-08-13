@@ -1543,6 +1543,22 @@ export async function getReview(id: string) {
 	return enrichReview(review)
 }
 
+export async function getReviewsForRoutineAndApp(routineId: string, applicationId: string) {
+	const reviews = await db
+		.select()
+		.from(routineReviews)
+		.where(
+			and(
+				eq(routineReviews.routineId, routineId),
+				eq(routineReviews.applicationId, applicationId),
+				sql`${routineReviews.status} != 'discarded'`,
+			),
+		)
+		.orderBy(desc(routineReviews.reviewedAt))
+
+	return enrichReviewsBatch(reviews)
+}
+
 async function enrichReview(review: typeof routineReviews.$inferSelect) {
 	const enriched = await enrichReviewsBatch([review])
 	return enriched[0]

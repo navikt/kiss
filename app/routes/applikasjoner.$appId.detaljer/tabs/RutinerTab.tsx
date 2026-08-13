@@ -1,4 +1,6 @@
+import { MenuElipsisVerticalIcon } from "@navikt/aksel-icons"
 import {
+	ActionMenu,
 	Alert,
 	BodyShort,
 	Box,
@@ -15,8 +17,8 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import type React from "react"
-import { useState } from "react"
-import { Link, useActionData } from "react-router"
+import { useEffect, useRef, useState } from "react"
+import { Link, useActionData, useFetcher, useSubmit } from "react-router"
 import { FrequencyDisplay, frequencyDisplayText } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
@@ -108,6 +110,10 @@ export function RutinerTab({
 	// - hybrid routines with both a periodic frequency AND an explicit event frequency
 	const eventBasedRoutines = routineDeadlines.filter(
 		(dl) => dl.routine?.frequency === null || dl.routine?.eventFrequency != null,
+	)
+
+	const routineIdsWithReviews = new Set(
+		completedReviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up").map((r) => r.routineId),
 	)
 
 	const routineStatusKey = (dl: RoutineDeadline): string => {
@@ -267,31 +273,18 @@ export function RutinerTab({
 	}
 
 	const renderRoutineAction = (dl: RoutineDeadline) => {
-		if (!canManageReviews) return null
-		if (!dl.routine?.sectionId || !sectionSlugMap[dl.routine.sectionId]) return null
-		const sectionSlug = sectionSlugMap[dl.routine.sectionId]
-		if (dl.draftReviewId) {
-			return (
-				<Button
-					as={Link}
-					to={`/seksjoner/${sectionSlug}/rutiner/${dl.routine.id}/gjennomgang/${dl.draftReviewId}`}
-					variant="tertiary"
-					size="xsmall"
-					style={{ whiteSpace: "nowrap" }}
-				>
-					Fortsett gjennomgang
-				</Button>
-			)
-		}
+		const sectionSlug = dl.routine?.sectionId ? sectionSlugMap[dl.routine.sectionId] : undefined
+		const canReview = canManageReviews && !!dl.routine?.sectionId && !!sectionSlug
+		const hasReport = !!dl.routine?.id && routineIdsWithReviews.has(dl.routine.id)
+		if (!canReview && !hasReport) return null
 		return (
-			<form method="post" style={{ display: "inline" }}>
-				<input type="hidden" name="intent" value="create-draft" />
-				<input type="hidden" name="routineId" value={dl.routine.id} />
-				<input type="hidden" name="sectionSlug" value={sectionSlug} />
-				<Button type="submit" variant="tertiary" size="xsmall" style={{ whiteSpace: "nowrap" }}>
-					Ny gjennomgang
-				</Button>
-			</form>
+			<RoutineActionsMenu
+				routineId={dl.routine?.id ?? ""}
+				draftReviewId={dl.draftReviewId}
+				sectionSlug={sectionSlug}
+				canReview={canReview}
+				hasReport={hasReport}
+			/>
 		)
 	}
 
@@ -423,7 +416,6 @@ export function RutinerTab({
 												<Table.ColumnHeader sortKey="name" sortable>
 													Rutine
 												</Table.ColumnHeader>
-												<Table.HeaderCell align="left">Handlinger</Table.HeaderCell>
 												<Table.ColumnHeader sortKey="priority" sortable>
 													Prioritet
 												</Table.ColumnHeader>
@@ -442,6 +434,7 @@ export function RutinerTab({
 												<Table.ColumnHeader sortKey="status" sortable>
 													Status
 												</Table.ColumnHeader>
+												<Table.HeaderCell align="right">Handlinger</Table.HeaderCell>
 											</Table.Row>
 										</Table.Header>
 										<Table.Body>
@@ -490,7 +483,6 @@ export function RutinerTab({
 															(dl.routine?.name ?? "—")
 														)}
 													</Table.DataCell>
-													<Table.DataCell align="left">{renderRoutineAction(dl)}</Table.DataCell>
 													<Table.DataCell>
 														<PriorityTag priority={dl.routine?.priority ?? 3} />
 													</Table.DataCell>
@@ -522,6 +514,7 @@ export function RutinerTab({
 															draftReviewId={dl.draftReviewId}
 														/>
 													</Table.DataCell>
+													<Table.DataCell align="right">{renderRoutineAction(dl)}</Table.DataCell>
 												</Table.ExpandableRow>
 											))}
 										</Table.Body>
@@ -540,9 +533,9 @@ export function RutinerTab({
 												<Table.Row>
 													<Table.HeaderCell />
 													<Table.HeaderCell>Rutine</Table.HeaderCell>
-													<Table.HeaderCell align="left">Handlinger</Table.HeaderCell>
 													<Table.HeaderCell align="left">Hendelsesfrekvens</Table.HeaderCell>
 													<Table.HeaderCell align="left">Siste gjennomgang</Table.HeaderCell>
+													<Table.HeaderCell align="right">Handlinger</Table.HeaderCell>
 												</Table.Row>
 											</Table.Header>
 											<Table.Body>
@@ -593,11 +586,11 @@ export function RutinerTab({
 																(dl.routine?.name ?? "—")
 															)}
 														</Table.DataCell>
-														<Table.DataCell align="left">{renderRoutineAction(dl)}</Table.DataCell>
 														<Table.DataCell align="left">{dl.routine?.eventFrequency ?? "Ved behov"}</Table.DataCell>
 														<Table.DataCell align="left">
 															{dl.lastReviewDate ? new Date(dl.lastReviewDate).toLocaleDateString("nb-NO") : "Aldri"}
 														</Table.DataCell>
+														<Table.DataCell align="right">{renderRoutineAction(dl)}</Table.DataCell>
 													</Table.ExpandableRow>
 												))}
 											</Table.Body>
@@ -786,6 +779,103 @@ export function RutinerTab({
 						</Table.Body>
 					</Table>
 				</>
+			)}
+		</VStack>
+	)
+}
+
+function RoutineActionsMenu({
+	routineId,
+	draftReviewId,
+	sectionSlug,
+	canReview,
+	hasReport,
+}: {
+	routineId: string
+	draftReviewId?: string | null
+	sectionSlug?: string
+	canReview: boolean
+	hasReport: boolean
+}) {
+	const submit = useSubmit()
+	const reportFetcher = useFetcher<typeof action>()
+	const lastHandledReportId = useRef<string | null>(null)
+	const reportWindowRef = useRef<Window | null>(null)
+	const isGeneratingReport = reportFetcher.state !== "idle"
+	const reportResult = reportFetcher.data as { success?: boolean; error?: string; reportId?: string } | undefined
+
+	useEffect(() => {
+		if (!reportResult) return
+		if (reportResult.success && reportResult.reportId && reportResult.reportId !== lastHandledReportId.current) {
+			lastHandledReportId.current = reportResult.reportId
+			const url = `/api/rapporter/${reportResult.reportId}/pdf?download=true`
+			// Fanen ble allerede åpnet synkront i onSelect (for å unngå popup-blokkering av
+			// asynkrone window.open-kall) — sett bare URL-en når reportId er klart.
+			if (reportWindowRef.current && !reportWindowRef.current.closed) {
+				reportWindowRef.current.location.href = url
+			} else {
+				window.open(url, "_blank", "noopener")
+			}
+		} else if (!reportResult.success) {
+			reportWindowRef.current?.close()
+		}
+	}, [reportResult])
+
+	return (
+		<VStack gap="space-2" align="end">
+			<ActionMenu>
+				<ActionMenu.Trigger>
+					<Button
+						aria-label="Handlinger"
+						data-color="neutral"
+						icon={<MenuElipsisVerticalIcon aria-hidden />}
+						size="small"
+						variant="tertiary"
+					/>
+				</ActionMenu.Trigger>
+				<ActionMenu.Content>
+					{canReview && draftReviewId && (
+						<ActionMenu.Item
+							as={Link}
+							to={`/seksjoner/${sectionSlug}/rutiner/${routineId}/gjennomgang/${draftReviewId}`}
+						>
+							Fortsett gjennomgang
+						</ActionMenu.Item>
+					)}
+					{canReview && !draftReviewId && (
+						<ActionMenu.Item
+							onSelect={() => {
+								const fd = new FormData()
+								fd.set("intent", "create-draft")
+								fd.set("routineId", routineId)
+								fd.set("sectionSlug", sectionSlug ?? "")
+								submit(fd, { method: "post" })
+							}}
+						>
+							Ny gjennomgang
+						</ActionMenu.Item>
+					)}
+					{hasReport && (
+						<ActionMenu.Item
+							onSelect={() => {
+								// Åpne fanen synkront i klikke-handleren, ellers vil de fleste nettlesere
+								// blokkere window.open() når den skjer i en useEffect etter async submit.
+								reportWindowRef.current = window.open("", "_blank")
+								const fd = new FormData()
+								fd.set("intent", "generate-routine-report")
+								fd.set("routineId", routineId)
+								reportFetcher.submit(fd, { method: "post" })
+							}}
+						>
+							{isGeneratingReport ? "Genererer rapport…" : "Last ned rapport"}
+						</ActionMenu.Item>
+					)}
+				</ActionMenu.Content>
+			</ActionMenu>
+			{reportResult && !reportResult.success && reportResult.error && (
+				<span role="alert" style={{ fontSize: "0.75rem", color: "var(--ax-text-danger)" }}>
+					{reportResult.error}
+				</span>
 			)}
 		</VStack>
 	)
