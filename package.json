@@ -95,7 +95,7 @@
 		"@vitest/coverage-v8": "^4.1.4",
 		"drizzle-kit": "^0.31.10",
 		"jsdom": "^29.1.1",
-		"knip": "^6.25.0",
+		"knip": "^6.30.0",
 		"lefthook": "^2.1.10",
 		"playwright": "^1.61.1",
 		"storybook": "^10.5.3",
