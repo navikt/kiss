@@ -32,8 +32,8 @@ import {
 	getActivitiesForReviews,
 	getAppsRequiringRoutine,
 	getEffectiveLastReviewDate,
+	getReportableReviewsForRoutineAndApp,
 	getReviewsForApp,
-	getReviewsForRoutineAndApp,
 	getRoutine,
 	isOverdue,
 } from "./routines.server"
@@ -917,10 +917,13 @@ export async function generateRoutineReviewReport(params: {
 }): Promise<{ reportId: string; reportBucketPath: string; reportName: string }> {
 	const { routineId, applicationId, createdBy } = params
 
+	// Kun fullførte gjennomganger (eller de med åpne oppfølgingspunkter) skal med i rapporten —
+	// utkast er ikke ferdigstilt og skal ikke lekke ut i genererte rapporter. Filtreres i selve
+	// spørringen slik at utkast ikke berikes unødvendig.
 	const [routine, detail, reviews] = await Promise.all([
 		getRoutine(routineId),
 		getApplicationDetail(applicationId),
-		getReviewsForRoutineAndApp(routineId, applicationId),
+		getReportableReviewsForRoutineAndApp(routineId, applicationId),
 	])
 
 	if (!routine) throw new Error(`Fant ikke rutine: ${routineId}`)
