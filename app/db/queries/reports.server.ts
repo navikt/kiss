@@ -679,12 +679,14 @@ async function prepareAppComplianceArtifact(params: {
 		string,
 		{ predecessorInfo: RoutineLineageInfo | null; successorInfo: RoutineLineageInfo | null }
 	>()
-	for (const routineId of uniqueRoutineIds) {
-		const full = await getRoutine(routineId)
-		if (!full) continue
-		routineDataById.set(routineId, full)
-		routineLineageById.set(routineId, await getRoutineLineageInfo(full, getRoutineNamesByIds))
-	}
+	await Promise.all(
+		uniqueRoutineIds.map(async (routineId) => {
+			const full = await getRoutine(routineId)
+			if (!full) return
+			routineDataById.set(routineId, full)
+			routineLineageById.set(routineId, await getRoutineLineageInfo(full, getRoutineNamesByIds))
+		}),
+	)
 
 	const nameByNavIdent = await getUserNamesByNavIdents(
 		collectReviewNavIdents(reviewsForPdf, activitiesByReviewId, oracleEvidenceByReviewId),

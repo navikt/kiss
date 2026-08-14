@@ -939,11 +939,11 @@ export default function RutineDetaljer() {
 											</Tag>
 										</Table.DataCell>
 										<Table.DataCell>
-											{entry.previousValue && entry.newValue
+											{entry.previousValue != null && entry.newValue != null
 												? `«${entry.previousValue}» → «${entry.newValue}»`
-												: entry.newValue
+												: entry.newValue != null
 													? `«${entry.newValue}»`
-													: entry.previousValue
+													: entry.previousValue != null
 														? `«${entry.previousValue}»`
 														: "–"}
 										</Table.DataCell>
