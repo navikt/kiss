@@ -113,6 +113,7 @@ export default [
 		"routes/seksjoner.$seksjon.regelsett.$regelSettId.rediger/index.tsx",
 	),
 	route("api/rutine-vedlegg/:vedleggId", "routes/api.rutine-vedlegg.$vedleggId/index.tsx"),
+	route("api/rutiner/:rutineId/pdf", "routes/api.rutiner.$rutineId.pdf/index.tsx"),
 	route("api/gjennomgang/:gjennomgangId/vedlegg", "routes/api.gjennomgang.$gjennomgangId.vedlegg/index.tsx"),
 	route("api/oppfolgingspunkt/:pointId/vedlegg", "routes/api.oppfolgingspunkt.$pointId.vedlegg/index.tsx"),
 	route("api/oppfolgingspunkt-vedlegg/:vedleggId", "routes/api.oppfolgingspunkt-vedlegg.$vedleggId/index.tsx"),

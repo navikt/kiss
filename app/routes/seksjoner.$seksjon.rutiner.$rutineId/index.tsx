@@ -1,3 +1,4 @@
+import { DownloadIcon } from "@navikt/aksel-icons"
 import {
 	BodyShort,
 	Box,
@@ -402,6 +403,15 @@ export default function RutineDetaljer() {
 								Arkiver
 							</Button>
 						)}
+						<Button
+							as="a"
+							href={`/api/rutiner/${routine.id}/pdf?download=true`}
+							variant="tertiary"
+							size="small"
+							icon={<DownloadIcon aria-hidden />}
+						>
+							Last ned som PDF
+						</Button>
 					</HStack>
 				</HStack>
 				{routine.archivedAt && (
