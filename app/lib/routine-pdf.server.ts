@@ -57,14 +57,12 @@ export function renderRoutineSection(
 		predecessorInfo?: RoutineLineageInfo | null
 		successorInfo?: RoutineLineageInfo | null
 		effectiveRole?: string | null
-		/** Vis "Generert: <nå>"-linje. Slås av når rutine-seksjonen inngår i en større rapport. */
-		showGeneratedAt?: boolean
 		/** Vis beskrivelsen. Slås av når brukeren har valgt bort rutinebeskrivelse i rapportgenereringen. */
 		includeDescription?: boolean
 	} = {},
 ) {
 	const { blue, dark, gray } = colors
-	const { sectionName, predecessorInfo, successorInfo, showGeneratedAt = false, includeDescription = true } = options
+	const { sectionName, predecessorInfo, successorInfo, includeDescription = true } = options
 	const effectiveRole =
 		options.effectiveRole !== undefined
 			? options.effectiveRole
@@ -75,7 +73,6 @@ export function renderRoutineSection(
 	doc.text(`Status: ${routineStatusLabels[routine.status] ?? routine.status}`)
 	if (routine.archivedAt) doc.text(`Arkivert: ${new Date(routine.archivedAt).toLocaleString("nb-NO")}`)
 	if (routine.isSectionRoutine === 1) doc.text("Type: Seksjonsrutine")
-	if (showGeneratedAt) doc.text(`Generert: ${new Date().toLocaleString("nb-NO")}`)
 	doc.moveDown(1)
 
 	if (routine.isSectionRoutine === 1) {

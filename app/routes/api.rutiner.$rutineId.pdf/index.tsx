@@ -70,7 +70,6 @@ function buildPdf(
 			sectionName,
 			predecessorInfo,
 			successorInfo,
-			showGeneratedAt: true,
 		})
 
 		doc.end()
