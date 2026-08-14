@@ -646,17 +646,23 @@ async function prepareAppComplianceArtifact(params: {
 		}),
 	)
 
-	const reviewsForPdf = completedReviews.map((r) => {
-		const reviewDate = new Date(r.reviewedAt).toISOString().slice(0, 10)
-		const safeReviewTitle = sanitizeFilename(r.title, 50)
-		const folderName = `${reviewDate}-${safeReviewTitle}`
-		return {
-			...r,
-			routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
-			attachmentsZipPath: `vedlegg/${folderName}`,
-			followUpAttachmentsZipPath: `vedlegg/${folderName}/oppfolgingspunkter`,
-		}
-	})
+	const reviewsForPdf = await Promise.all(
+		completedReviews.map(async (r) => {
+			const reviewDate = new Date(r.reviewedAt).toISOString().slice(0, 10)
+			const safeReviewTitle = sanitizeFilename(r.title, 50)
+			const folderName = `${reviewDate}-${safeReviewTitle}`
+			// Samme rekonstruksjon som rutinegjennomgangsrapporten, slik at "Godkjent av"-info for
+			// koblede regelsett vises konsistent i begge rapporttyper.
+			const linkedRulesets = await getRulesetsLinkedToRoutineAtDate(r.routineId, new Date(r.reviewedAt))
+			return {
+				...r,
+				routineDescription: includeRoutineDescription ? (r.routineDescription ?? null) : null,
+				linkedRulesets,
+				attachmentsZipPath: `vedlegg/${folderName}`,
+				followUpAttachmentsZipPath: `vedlegg/${folderName}/oppfolgingspunkter`,
+			}
+		}),
+	)
 
 	const nameByNavIdent = await getUserNamesByNavIdents(
 		collectReviewNavIdents(reviewsForPdf, activitiesByReviewId, oracleEvidenceByReviewId),
@@ -761,6 +767,7 @@ export async function generateAppComplianceReport(params: {
 				routineEventFrequency: r.routineEventFrequency,
 				routineResponsibleRole: r.routineResponsibleRole ?? null,
 				routineApprovedAt: r.routineApprovedAt?.toISOString() ?? null,
+				routineApprovedBy: r.routineApprovedBy ?? null,
 				routineArchivedAt: r.routineArchivedAt?.toISOString() ?? null,
 				routineReplacedAt: r.routineReplacedAt?.toISOString() ?? null,
 				routineTechnologyElements: r.routineTechnologyElements,
@@ -1022,9 +1029,13 @@ export async function generateRoutineReviewReport(params: {
 			})
 		}
 
-		const nameByNavIdent = await getUserNamesByNavIdents(
-			collectReviewNavIdents([...reviewsForPdf.values()], activitiesByReviewId, oracleEvidenceByReviewId),
+		const navIdents = collectReviewNavIdents(
+			[...reviewsForPdf.values()],
+			activitiesByReviewId,
+			oracleEvidenceByReviewId,
 		)
+		if (routine.approvedBy) navIdents.push(routine.approvedBy)
+		const nameByNavIdent = await getUserNamesByNavIdents(navIdents)
 
 		const routineInfoBuffer = await buildRoutineInfoPdf(
 			PDFDocument,
@@ -1035,11 +1046,13 @@ export async function generateRoutineReviewReport(params: {
 				eventFrequency: routine.eventFrequency,
 				responsibleRole: routine.responsibleRole,
 				approvedAt: routine.approvedAt,
+				approvedBy: routine.approvedBy,
 				archivedAt: routine.archivedAt,
 				technologyElements: routine.technologyElements,
 				controls: routine.controls,
 			},
 			detail.app.name,
+			nameByNavIdent,
 		)
 		const rulesetPdfCache = new Map<string, Buffer>()
 
@@ -1062,7 +1075,7 @@ export async function generateRoutineReviewReport(params: {
 				const cacheKey = `${rs.id}:${rs.isCurrentFallback}`
 				let rulesetBuffer = rulesetPdfCache.get(cacheKey)
 				if (!rulesetBuffer) {
-					rulesetBuffer = await buildRulesetPdf(PDFDocument, rs)
+					rulesetBuffer = await buildRulesetPdf(PDFDocument, rs, nameByNavIdent)
 					rulesetPdfCache.set(cacheKey, rulesetBuffer)
 				}
 				let entryName = `${folder}/regelsett - ${sanitizeFilename(rs.name)}.pdf`
@@ -1295,7 +1308,10 @@ interface RoutineReviewPdfEntry {
 		description?: string | null
 		status: string
 		isCurrentFallback: boolean
+		approvedBy: string | null
 	}>
+	/** Rutinens godkjenner (kun app-compliance-rapporten, hentes per rutine i rutinegjennomgangsrapporten). */
+	routineApprovedBy?: string | null
 	/**
 	 * Zip-layouten er ulik mellom app-compliance-rapporten (`vedlegg/<mappe>/...`) og
 	 * rutinegjennomgangsrapporten (`<mappe>/vedlegg/...`), så disse må beregnes av kallestedet.
@@ -1328,6 +1344,7 @@ interface RoutineReviewPdfGroup {
 	routineEventFrequency?: string | null
 	routineResponsibleRole?: string | null
 	routineApprovedAt?: Date | string | null
+	routineApprovedBy?: string | null
 	routineArchivedAt?: Date | string | null
 	routineReplacedAt?: Date | string | null
 	routineTechnologyElements?: Array<{ id: string; name: string }>
@@ -1375,7 +1392,11 @@ function collectReviewNavIdents(
 	const idents = new Set<string>()
 	for (const r of reviews) {
 		idents.add(r.createdBy)
+		if (r.routineApprovedBy) idents.add(r.routineApprovedBy)
 		for (const att of r.attachments) idents.add(att.uploadedBy)
+		for (const rs of r.linkedRulesets ?? []) {
+			if (rs.approvedBy) idents.add(rs.approvedBy)
+		}
 		for (const p of r.followUpPoints) {
 			idents.add(p.createdBy)
 			if (p.resolvedBy) idents.add(p.resolvedBy)
@@ -1406,6 +1427,7 @@ function renderRoutineInfoSection(
 	doc: InstanceType<typeof PDFDocument>,
 	colors: { blue: string; dark: string; gray: string },
 	group: RoutineReviewPdfGroup,
+	nameByNavIdent: ReadonlyMap<string, string>,
 ) {
 	const { blue, dark, gray } = colors
 
@@ -1423,6 +1445,12 @@ function renderRoutineInfoSection(
 			.fontSize(9)
 			.fillColor(gray)
 			.text(`Godkjent: ${new Date(group.routineApprovedAt).toLocaleDateString("nb-NO")}`)
+	}
+	if (group.routineApprovedBy) {
+		doc
+			.fontSize(9)
+			.fillColor(gray)
+			.text(`Godkjent av: ${formatUserRef(group.routineApprovedBy, nameByNavIdent)}`)
 	}
 	if (group.routineArchivedAt) {
 		doc
@@ -1477,7 +1505,7 @@ function renderRoutineGroupSection(
 	nameByNavIdent: ReadonlyMap<string, string>,
 ) {
 	doc.addPage()
-	renderRoutineInfoSection(doc, colors, group)
+	renderRoutineInfoSection(doc, colors, group, nameByNavIdent)
 
 	doc.fontSize(11).fillColor(colors.blue).text(`Gjennomganger (${group.reviews.length})`)
 	doc.moveDown(0.5)
@@ -1526,6 +1554,12 @@ function renderReviewSection(
 				const label = rs.code ? `${rs.code} – ${rs.name}` : rs.name
 				const fallbackNote = rs.isCurrentFallback ? " (gjeldende kobling, historikk mangler)" : ""
 				doc.fontSize(9).fillColor(dark).text(`• ${label}${fallbackNote}`, { width: 495 })
+				if (rs.approvedBy) {
+					doc
+						.fontSize(8)
+						.fillColor(gray)
+						.text(`Godkjent av: ${formatUserRef(rs.approvedBy, nameByNavIdent)}`, { width: 480, indent: 10 })
+				}
 				if (rs.description) {
 					doc.moveDown(0.1)
 					renderMarkdownToPdf(doc, rs.description, { width: 480 })
@@ -1831,11 +1865,13 @@ function buildRoutineInfoPdf(
 		eventFrequency: string | null
 		responsibleRole: string | null
 		approvedAt: Date | null
+		approvedBy: string | null
 		archivedAt: Date | null
 		technologyElements: Array<{ id: string; name: string }>
 		controls: Array<{ controlId: string; name: string | null }>
 	},
 	appName: string,
+	nameByNavIdent: ReadonlyMap<string, string>,
 ): Promise<Buffer> {
 	const { doc, colors, result } = createBufferedPdf(PDFDocCtor)
 	doc.fontSize(11).fillColor(colors.dark).text(appName)
@@ -1846,18 +1882,24 @@ function buildRoutineInfoPdf(
 		.text(`Generert: ${new Date().toLocaleString("nb-NO")}`)
 	doc.moveDown(0.3)
 
-	renderRoutineInfoSection(doc, colors, {
-		routineName: routine.name,
-		routineDescription: routine.description,
-		routineFrequency: routine.frequency,
-		routineEventFrequency: routine.eventFrequency,
-		routineResponsibleRole: routine.responsibleRole,
-		routineApprovedAt: routine.approvedAt,
-		routineArchivedAt: routine.archivedAt,
-		routineTechnologyElements: routine.technologyElements,
-		routineControls: routine.controls.map((c) => ({ controlId: c.controlId, shortTitle: c.name })),
-		reviews: [],
-	})
+	renderRoutineInfoSection(
+		doc,
+		colors,
+		{
+			routineName: routine.name,
+			routineDescription: routine.description,
+			routineFrequency: routine.frequency,
+			routineEventFrequency: routine.eventFrequency,
+			routineResponsibleRole: routine.responsibleRole,
+			routineApprovedAt: routine.approvedAt,
+			routineApprovedBy: routine.approvedBy,
+			routineArchivedAt: routine.archivedAt,
+			routineTechnologyElements: routine.technologyElements,
+			routineControls: routine.controls.map((c) => ({ controlId: c.controlId, shortTitle: c.name })),
+			reviews: [],
+		},
+		nameByNavIdent,
+	)
 
 	doc.end()
 	return result
@@ -1866,6 +1908,7 @@ function buildRoutineInfoPdf(
 function buildRulesetPdf(
 	PDFDocCtor: typeof PDFDocument,
 	ruleset: NonNullable<RoutineReviewPdfEntry["linkedRulesets"]>[number],
+	nameByNavIdent: ReadonlyMap<string, string>,
 ): Promise<Buffer> {
 	const { doc, colors, result } = createBufferedPdf(PDFDocCtor)
 	const { blue, dark, gray } = colors
@@ -1878,6 +1921,12 @@ function buildRulesetPdf(
 		.text(ruleset.code ? `${ruleset.code} – ${ruleset.name}` : ruleset.name)
 	doc.moveDown(0.3)
 	doc.fontSize(9).fillColor(gray).text(`Status: ${ruleset.status}`)
+	if (ruleset.approvedBy) {
+		doc
+			.fontSize(9)
+			.fillColor(gray)
+			.text(`Godkjent av: ${formatUserRef(ruleset.approvedBy, nameByNavIdent)}`)
+	}
 	if (ruleset.isCurrentFallback) {
 		doc.fontSize(9).fillColor(gray).text("Gjeldende kobling, historikk mangler")
 	}
@@ -1937,6 +1986,7 @@ function buildAppPdf(
 		routineEventFrequency?: string | null
 		routineResponsibleRole?: string | null
 		routineApprovedAt?: Date | string | null
+		routineApprovedBy?: string | null
 		routineArchivedAt?: Date | string | null
 		routineReplacedAt?: Date | string | null
 		routineTechnologyElements?: Array<{ id: string; name: string }>
@@ -1945,6 +1995,15 @@ function buildAppPdf(
 			shortTitle: string | null
 			domainSlug?: string | null
 			responsible?: string | null
+		}>
+		linkedRulesets?: Array<{
+			id: string
+			code: string | null
+			name: string
+			description?: string | null
+			status: string
+			isCurrentFallback: boolean
+			approvedBy: string | null
 		}>
 		participants: Array<{ userIdent: string; userName: string | null }>
 		attachments: Array<{ fileName: string; contentType: string; uploadedBy: string; uploadedAt: Date | string }>
@@ -2091,6 +2150,7 @@ function buildAppPdf(
 					routineEventFrequency?: string | null
 					routineResponsibleRole?: string | null
 					routineApprovedAt?: Date | string | null
+					routineApprovedBy?: string | null
 					routineArchivedAt?: Date | string | null
 					routineReplacedAt?: Date | string | null
 					routineTechnologyElements?: Array<{ id: string; name: string }>
@@ -2113,6 +2173,7 @@ function buildAppPdf(
 						routineEventFrequency: r.routineEventFrequency,
 						routineResponsibleRole: r.routineResponsibleRole,
 						routineApprovedAt: r.routineApprovedAt,
+						routineApprovedBy: r.routineApprovedBy,
 						routineArchivedAt: r.routineArchivedAt,
 						routineReplacedAt: r.routineReplacedAt,
 						routineTechnologyElements: r.routineTechnologyElements,
