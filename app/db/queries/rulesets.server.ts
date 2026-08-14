@@ -424,6 +424,8 @@ export interface RulesetLinkedAtDate {
 	status: string
 	/** false when reconstructed from audit history for the given date, true when we had to fall back to the current linkage */
 	isCurrentFallback: boolean
+	/** nav-ident til den som sist godkjente regelsettet (nyeste `rulesetApprovals`-rad), eller null hvis ikke godkjent ennå */
+	approvedBy: string | null
 }
 
 /**
@@ -488,19 +490,35 @@ export async function getRulesetsLinkedToRoutineAtDate(
 
 	if (rulesetIds.length === 0) return []
 
-	const rows = await db
-		.select({
-			id: rulesets.id,
-			code: rulesets.code,
-			name: rulesets.name,
-			description: rulesets.description,
-			status: rulesets.status,
-		})
-		.from(rulesets)
-		.where(inArray(rulesets.id, rulesetIds))
-		.orderBy(rulesets.name)
+	const [rows, latestApprovals] = await Promise.all([
+		db
+			.select({
+				id: rulesets.id,
+				code: rulesets.code,
+				name: rulesets.name,
+				description: rulesets.description,
+				status: rulesets.status,
+			})
+			.from(rulesets)
+			.where(inArray(rulesets.id, rulesetIds))
+			.orderBy(rulesets.name),
+		db
+			.selectDistinctOn([rulesetApprovals.rulesetId], {
+				rulesetId: rulesetApprovals.rulesetId,
+				approvedBy: rulesetApprovals.approvedBy,
+			})
+			.from(rulesetApprovals)
+			.where(inArray(rulesetApprovals.rulesetId, rulesetIds))
+			.orderBy(rulesetApprovals.rulesetId, desc(rulesetApprovals.validFrom)),
+	])
 
-	return rows.map((r) => ({ ...r, isCurrentFallback: usedFallback }))
+	const approvedByRuleset = new Map(latestApprovals.map((a) => [a.rulesetId, a.approvedBy]))
+
+	return rows.map((r) => ({
+		...r,
+		isCurrentFallback: usedFallback,
+		approvedBy: approvedByRuleset.get(r.id) ?? null,
+	}))
 }
 
 export interface RulesetMeta {

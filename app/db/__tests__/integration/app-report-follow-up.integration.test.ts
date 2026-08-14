@@ -56,9 +56,15 @@ async function createTestApp(name: string) {
 	return (result.rows[0] as { id: string }).id
 }
 
-async function approveRoutine(routineId: string) {
+async function approveRoutine(routineId: string, approvedBy?: string) {
 	const db = getTestDb()
-	await db.execute(/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'test' WHERE id = '${routineId}'`)
+	if (approvedBy) {
+		await db.execute(
+			/* sql */ `UPDATE routines SET status = 'approved', approved_by = '${approvedBy}', approved_at = now(), updated_by = 'test' WHERE id = '${routineId}'`,
+		)
+	} else {
+		await db.execute(/* sql */ `UPDATE routines SET status = 'approved', updated_by = 'test' WHERE id = '${routineId}'`)
+	}
 }
 
 interface Snapshot {
@@ -66,6 +72,7 @@ interface Snapshot {
 		id: string
 		title: string
 		status: string
+		routineApprovedBy?: string | null
 		followUpPoints: Array<{
 			text: string
 			description: string | null
@@ -379,5 +386,42 @@ describe("App compliance report — follow-up points", () => {
 		await generateAppComplianceReport({ applicationId: appId, createdBy: "Z990001", includeRoutineDescription: true })
 		const snapWith = readSnapshot() as Snapshot & { reviews: Array<{ routineDescription: string | null }> }
 		expect(snapWith.reviews[0].routineDescription).toBe("Hemmelig rutinebeskrivelse")
+	})
+
+	it("includes routineApprovedBy (who approved the routine) in the snapshot", async () => {
+		const sectionId = await createTestSection(`s6-${Date.now()}`)
+		const appId = await createTestApp("Test App 6")
+		const routine = await createRoutine({
+			sectionId,
+			name: "R6",
+			description: null,
+			frequency: "monthly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: false,
+			responsibleRole: null,
+			persistenceLinks: [],
+			controlIds: [],
+			technologyElementIds: [],
+			createdBy: "Z990001",
+		})
+		await approveRoutine(routine.id, "Z990042")
+
+		const review = await createReview({
+			routineId: routine.id,
+			applicationId: appId,
+			title: "Gjennomgang med godkjenner",
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: new Date(),
+			createdBy: "Z990001",
+			participants: [],
+		})
+		await completeReview(review.id, "Z990001")
+
+		await generateAppComplianceReport({ applicationId: appId, createdBy: "Z990001" })
+
+		const snap = readSnapshot()
+		expect(snap.reviews[0].routineApprovedBy).toBe("Z990042")
 	})
 })
