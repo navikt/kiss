@@ -8,6 +8,12 @@ import { getStatusLabel } from "../../lib/compliance-status"
 import { parseManualActivityStagedData } from "../../lib/manual-activity-staged-data"
 import { renderMarkdownToPdf } from "../../lib/markdown-pdf.server"
 import { getCompositeFrequencyLabel, type RoutineFrequency } from "../../lib/routine-frequencies"
+import {
+	getRoutineLineageInfo,
+	type RoutineLineageInfo,
+	type RoutinePdfData,
+	renderRoutineSection,
+} from "../../lib/routine-pdf.server"
 import { sanitizeFilename } from "../../lib/sanitize-filename"
 import { getStorageProvider } from "../../lib/storage/index.server"
 import { formatUserRef } from "../../lib/user-display"
@@ -35,6 +41,7 @@ import {
 	getReportableReviewsForRoutineAndApp,
 	getReviewsForApp,
 	getRoutine,
+	getRoutineNamesByIds,
 	isOverdue,
 } from "./routines.server"
 import { getRulesetsLinkedToRoutineAtDate } from "./rulesets.server"
@@ -664,6 +671,21 @@ async function prepareAppComplianceArtifact(params: {
 		}),
 	)
 
+	// Hentes via getRoutine (ikke fra den flate review-joinen) for at rutine-seksjonen skal ha
+	// samme feltsett som den frittstående rutine-PDF-en.
+	const uniqueRoutineIds = [...new Set(completedReviews.map((r) => r.routineId))]
+	const routineDataById = new Map<string, RoutinePdfData>()
+	const routineLineageById = new Map<
+		string,
+		{ predecessorInfo: RoutineLineageInfo | null; successorInfo: RoutineLineageInfo | null }
+	>()
+	for (const routineId of uniqueRoutineIds) {
+		const full = await getRoutine(routineId)
+		if (!full) continue
+		routineDataById.set(routineId, full)
+		routineLineageById.set(routineId, await getRoutineLineageInfo(full, getRoutineNamesByIds))
+	}
+
 	const nameByNavIdent = await getUserNamesByNavIdents(
 		collectReviewNavIdents(reviewsForPdf, activitiesByReviewId, oracleEvidenceByReviewId),
 	)
@@ -683,6 +705,9 @@ async function prepareAppComplianceArtifact(params: {
 		attachmentBuffers,
 		failedAttachments,
 		nameByNavIdent,
+		routineDataById,
+		routineLineageById,
+		includeRoutineDescription,
 	)
 
 	return {
@@ -1036,23 +1061,14 @@ export async function generateRoutineReviewReport(params: {
 		)
 		if (routine.approvedBy) navIdents.push(routine.approvedBy)
 		const nameByNavIdent = await getUserNamesByNavIdents(navIdents)
+		const routineLineage = await getRoutineLineageInfo(routine, getRoutineNamesByIds)
 
 		const routineInfoBuffer = await buildRoutineInfoPdf(
 			PDFDocument,
-			{
-				name: routine.name,
-				description: routine.description,
-				frequency: routine.frequency,
-				eventFrequency: routine.eventFrequency,
-				responsibleRole: routine.responsibleRole,
-				approvedAt: routine.approvedAt,
-				approvedBy: routine.approvedBy,
-				archivedAt: routine.archivedAt,
-				technologyElements: routine.technologyElements,
-				controls: routine.controls,
-			},
+			routine,
 			detail.app.name,
 			nameByNavIdent,
+			routineLineage,
 		)
 		const rulesetPdfCache = new Map<string, Buffer>()
 
@@ -1337,26 +1353,6 @@ interface RoutineReviewPdfEntry {
 	}>
 }
 
-interface RoutineReviewPdfGroup {
-	routineName: string
-	routineDescription: string | null
-	routineFrequency: string | null
-	routineEventFrequency?: string | null
-	routineResponsibleRole?: string | null
-	routineApprovedAt?: Date | string | null
-	routineApprovedBy?: string | null
-	routineArchivedAt?: Date | string | null
-	routineReplacedAt?: Date | string | null
-	routineTechnologyElements?: Array<{ id: string; name: string }>
-	routineControls?: Array<{
-		controlId: string
-		shortTitle: string | null
-		domainSlug?: string | null
-		responsible?: string | null
-	}>
-	reviews: RoutineReviewPdfEntry[]
-}
-
 type RoutineReviewActivityMap = Map<
 	string,
 	Array<{
@@ -1422,95 +1418,39 @@ function collectReviewNavIdents(
 	return [...idents]
 }
 
-/** Delt av app-compliance-rapporten og det frittstående "rutine - <navn>.pdf"-dokumentet i rutinegjennomgangsrapporten. */
-function renderRoutineInfoSection(
-	doc: InstanceType<typeof PDFDocument>,
-	colors: { blue: string; dark: string; gray: string },
-	group: RoutineReviewPdfGroup,
-	nameByNavIdent: ReadonlyMap<string, string>,
-) {
-	const { blue, dark, gray } = colors
-
-	doc.fontSize(14).fillColor(blue).text("Rutine")
-	doc.moveDown(0.3)
-	doc.fontSize(16).fillColor(dark).text(group.routineName)
-	doc.moveDown(0.3)
-	const groupFreqLabel = getCompositeFrequencyLabel(group.routineFrequency, group.routineEventFrequency)
-	doc.fontSize(9).fillColor(gray).text(`Frekvens: ${groupFreqLabel}`)
-	if (group.routineResponsibleRole) {
-		doc.fontSize(9).fillColor(gray).text(`Ansvarlig rolle: ${group.routineResponsibleRole}`)
-	}
-	if (group.routineApprovedAt) {
-		doc
-			.fontSize(9)
-			.fillColor(gray)
-			.text(`Godkjent: ${new Date(group.routineApprovedAt).toLocaleDateString("nb-NO")}`)
-	}
-	if (group.routineApprovedBy) {
-		doc
-			.fontSize(9)
-			.fillColor(gray)
-			.text(`Godkjent av: ${formatUserRef(group.routineApprovedBy, nameByNavIdent)}`)
-	}
-	if (group.routineArchivedAt) {
-		doc
-			.fontSize(9)
-			.fillColor(gray)
-			.text(`Arkivert: ${new Date(group.routineArchivedAt).toLocaleDateString("nb-NO")}`)
-	}
-	if (group.routineReplacedAt) {
-		doc
-			.fontSize(9)
-			.fillColor(gray)
-			.text(`Erstattet: ${new Date(group.routineReplacedAt).toLocaleDateString("nb-NO")}`)
-	}
-	if (group.routineTechnologyElements && group.routineTechnologyElements.length > 0) {
-		doc.fontSize(9).fillColor(gray).text("Teknologielementer:")
-		for (const e of group.routineTechnologyElements) {
-			doc.fontSize(9).fillColor(gray).text(`• ${e.name}`, { indent: 10 })
-		}
-	}
-	if (group.routineControls && group.routineControls.length > 0) {
-		doc.fontSize(9).fillColor(gray).text("Tilknyttede krav:")
-		for (const c of group.routineControls) {
-			const label = c.shortTitle ? `${c.controlId} – ${c.shortTitle}` : c.controlId
-			const details = [c.domainSlug, c.responsible].filter(Boolean).join(", ")
-			doc
-				.fontSize(9)
-				.fillColor(gray)
-				.text(`• ${label}${details ? ` (${details})` : ""}`, { indent: 10 })
-		}
-	}
-	doc.moveDown(0.5)
-
-	if (group.routineDescription) {
-		doc.fontSize(10).fillColor(dark).text("Beskrivelse", { underline: true })
-		doc.moveDown(0.2)
-		renderMarkdownToPdf(doc, group.routineDescription, { width: 495 })
-		doc.moveDown(0.5)
-	}
-}
-
 /**
  * Kun brukt av app-compliance-rapporten (`buildAppPdf`), som fortsatt skal ha alt samlet i én
- * PDF. Rutinegjennomgangsrapporten bruker `renderRoutineInfoSection`/`renderReviewSection`
+ * PDF. Rutinegjennomgangsrapporten bruker `renderRoutineSection`/`renderReviewSection`
  * direkte for å produsere separate PDF-er per rutine/regelsett/gjennomgang.
  */
 function renderRoutineGroupSection(
 	doc: InstanceType<typeof PDFDocument>,
 	colors: { blue: string; dark: string; gray: string },
-	group: RoutineReviewPdfGroup,
+	routine: RoutinePdfData,
+	lineage: { predecessorInfo: RoutineLineageInfo | null; successorInfo: RoutineLineageInfo | null },
+	reviews: RoutineReviewPdfEntry[],
 	activitiesByReviewId: RoutineReviewActivityMap,
 	oracleEvidenceByReviewId: RoutineReviewOracleEvidenceMap,
 	nameByNavIdent: ReadonlyMap<string, string>,
+	includeDescription = true,
 ) {
 	doc.addPage()
-	renderRoutineInfoSection(doc, colors, group, nameByNavIdent)
+	doc.fontSize(14).fillColor(colors.blue).text("Rutine")
+	doc.moveDown(0.3)
+	doc.fontSize(16).fillColor(colors.dark).text(routine.name)
+	doc.moveDown(0.3)
 
-	doc.fontSize(11).fillColor(colors.blue).text(`Gjennomganger (${group.reviews.length})`)
+	renderRoutineSection(doc, colors, routine, nameByNavIdent, {
+		predecessorInfo: lineage.predecessorInfo,
+		successorInfo: lineage.successorInfo,
+		includeDescription,
+	})
+
+	doc.moveDown(0.5)
+	doc.fontSize(11).fillColor(colors.blue).text(`Gjennomganger (${reviews.length})`)
 	doc.moveDown(0.5)
 
-	for (const r of group.reviews) {
+	for (const r of reviews) {
 		doc.addPage()
 		renderReviewSection(
 			doc,
@@ -1856,50 +1796,26 @@ function createBufferedPdf(PDFDocCtor: typeof PDFDocument): {
 	return { doc, colors: { blue: "#0067c5", dark: "#222222", gray: "#666666" }, result }
 }
 
+/** Bygger det frittstående "rutine - <navn>.pdf"-dokumentet i rutinegjennomgangsrapportens zip-eksport. */
 function buildRoutineInfoPdf(
 	PDFDocCtor: typeof PDFDocument,
-	routine: {
-		name: string
-		description: string | null
-		frequency: string | null
-		eventFrequency: string | null
-		responsibleRole: string | null
-		approvedAt: Date | null
-		approvedBy: string | null
-		archivedAt: Date | null
-		technologyElements: Array<{ id: string; name: string }>
-		controls: Array<{ controlId: string; name: string | null }>
-	},
+	routine: RoutinePdfData,
 	appName: string,
 	nameByNavIdent: ReadonlyMap<string, string>,
+	lineage: { predecessorInfo: RoutineLineageInfo | null; successorInfo: RoutineLineageInfo | null },
 ): Promise<Buffer> {
 	const { doc, colors, result } = createBufferedPdf(PDFDocCtor)
 	doc.fontSize(11).fillColor(colors.dark).text(appName)
 	doc.moveDown(0.5)
-	doc
-		.fontSize(9)
-		.fillColor(colors.gray)
-		.text(`Generert: ${new Date().toLocaleString("nb-NO")}`)
+	doc.fontSize(14).fillColor(colors.blue).text("Rutine")
+	doc.moveDown(0.2)
+	doc.fontSize(16).fillColor(colors.dark).text(routine.name)
 	doc.moveDown(0.3)
 
-	renderRoutineInfoSection(
-		doc,
-		colors,
-		{
-			routineName: routine.name,
-			routineDescription: routine.description,
-			routineFrequency: routine.frequency,
-			routineEventFrequency: routine.eventFrequency,
-			routineResponsibleRole: routine.responsibleRole,
-			routineApprovedAt: routine.approvedAt,
-			routineApprovedBy: routine.approvedBy,
-			routineArchivedAt: routine.archivedAt,
-			routineTechnologyElements: routine.technologyElements,
-			routineControls: routine.controls.map((c) => ({ controlId: c.controlId, shortTitle: c.name })),
-			reviews: [],
-		},
-		nameByNavIdent,
-	)
+	renderRoutineSection(doc, colors, routine, nameByNavIdent, {
+		predecessorInfo: lineage.predecessorInfo,
+		successorInfo: lineage.successorInfo,
+	})
 
 	doc.end()
 	return result
@@ -2068,6 +1984,12 @@ function buildAppPdf(
 	}>,
 	failedAttachments: Array<{ fileName: string; reviewTitle: string; followUpPointText?: string }>,
 	nameByNavIdent: ReadonlyMap<string, string>,
+	routineDataById: Map<string, RoutinePdfData>,
+	routineLineageById: Map<
+		string,
+		{ predecessorInfo: RoutineLineageInfo | null; successorInfo: RoutineLineageInfo | null }
+	>,
+	includeRoutineDescription: boolean,
 ): Promise<Buffer> {
 	return new Promise((resolve, reject) => {
 		const doc = new PDFDocCtor({ size: "A4", margin: 50, bufferPages: true })
@@ -2141,57 +2063,27 @@ function buildAppPdf(
 		// Reviews — grouped by routine
 		if (reviews.length > 0) {
 			// Group reviews by routineId
-			const routineGroups = new Map<
-				string,
-				{
-					routineName: string
-					routineDescription: string | null
-					routineFrequency: string | null
-					routineEventFrequency?: string | null
-					routineResponsibleRole?: string | null
-					routineApprovedAt?: Date | string | null
-					routineApprovedBy?: string | null
-					routineArchivedAt?: Date | string | null
-					routineReplacedAt?: Date | string | null
-					routineTechnologyElements?: Array<{ id: string; name: string }>
-					routineControls?: Array<{
-						controlId: string
-						shortTitle: string | null
-						domainSlug?: string | null
-						responsible?: string | null
-					}>
-					reviews: typeof reviews
-				}
-			>()
+			const routineGroups = new Map<string, typeof reviews>()
 			for (const r of reviews) {
-				const key = r.routineId
-				if (!routineGroups.has(key)) {
-					routineGroups.set(key, {
-						routineName: r.routineName,
-						routineDescription: r.routineDescription,
-						routineFrequency: r.routineFrequency,
-						routineEventFrequency: r.routineEventFrequency,
-						routineResponsibleRole: r.routineResponsibleRole,
-						routineApprovedAt: r.routineApprovedAt,
-						routineApprovedBy: r.routineApprovedBy,
-						routineArchivedAt: r.routineArchivedAt,
-						routineReplacedAt: r.routineReplacedAt,
-						routineTechnologyElements: r.routineTechnologyElements,
-						routineControls: r.routineControls,
-						reviews: [],
-					})
-				}
-				routineGroups.get(key)?.reviews.push(r)
+				const list = routineGroups.get(r.routineId) ?? []
+				list.push(r)
+				routineGroups.set(r.routineId, list)
 			}
 
-			for (const [, group] of routineGroups) {
+			for (const [routineId, groupReviews] of routineGroups) {
+				const routine = routineDataById.get(routineId)
+				if (!routine) continue
+				const lineage = routineLineageById.get(routineId) ?? { predecessorInfo: null, successorInfo: null }
 				renderRoutineGroupSection(
 					doc,
 					{ blue, dark, gray },
-					group,
+					routine,
+					lineage,
+					groupReviews,
 					activitiesByReviewId,
 					oracleEvidenceByReviewId,
 					nameByNavIdent,
+					includeRoutineDescription,
 				)
 			}
 		}
