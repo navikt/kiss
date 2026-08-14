@@ -108,6 +108,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		...reviews.map((r) => r.createdBy),
 		...(routine.approvedBy ? [routine.approvedBy] : []),
 		...(routine.archivedBy ? [routine.archivedBy] : []),
+		...(routine.priorityUpdatedBy ? [routine.priorityUpdatedBy] : []),
 	])
 	const reviewsWithNames = reviews.map((r) => ({
 		...r,
@@ -118,6 +119,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		: null
 	const archivedByName = routine.archivedBy
 		? (reviewerNames.get(routine.archivedBy.trim().toUpperCase()) ?? null)
+		: null
+	const priorityUpdatedByName = routine.priorityUpdatedBy
+		? (reviewerNames.get(routine.priorityUpdatedBy.trim().toUpperCase()) ?? null)
 		: null
 
 	// Fetch screening question text if linked
@@ -174,6 +178,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		routine,
 		approvedByName,
 		archivedByName,
+		priorityUpdatedByName,
 		reviews: reviewsWithNames,
 		appsWithDeadlines,
 		screeningQuestion,
@@ -298,6 +303,7 @@ export default function RutineDetaljer() {
 		routine,
 		approvedByName,
 		archivedByName,
+		priorityUpdatedByName,
 		reviews,
 		appsWithDeadlines,
 		descriptionHtml,
@@ -526,7 +532,14 @@ export default function RutineDetaljer() {
 						{routine.priorityUpdatedAt && (
 							<BodyShort size="small" textColor="subtle">
 								Oppdatert {formatDateTime(routine.priorityUpdatedAt)}
-								{routine.priorityUpdatedBy ? ` av ${routine.priorityUpdatedBy}` : ""}
+								{routine.priorityUpdatedBy ? (
+									<>
+										{" av "}
+										<UserDisplayName navIdent={routine.priorityUpdatedBy} name={priorityUpdatedByName} />
+									</>
+								) : (
+									""
+								)}
 							</BodyShort>
 						)}
 					</VStack>
