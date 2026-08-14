@@ -1299,6 +1299,34 @@ export function mockRutineDetaljData(overrides?: {
 		effectiveRole: isSec ? "Seksjonsleder" : "Sikkerhetsansvarlig",
 		predecessorInfo: isReplacement ? { name: "Sikkerhetstesting av applikasjoner (gammel)", status: "archived" } : null,
 		successorInfo: replaced ? { name: "Sikkerhetstesting av applikasjoner v2", status: "approved" } : null,
+		auditLog: [
+			{
+				id: "audit-1",
+				action: "routine_created" as const,
+				entityType: "routine",
+				entityId: "routine-1",
+				previousValue: null,
+				newValue: null,
+				performedBy: "Z990001",
+				performedByName: "Glad Fjord",
+				performedAt: "2026-01-05T09:00:00Z",
+				syncJobId: null,
+				metadata: null,
+			},
+			{
+				id: "audit-2",
+				action: "routine_priority_changed" as const,
+				entityType: "routine",
+				entityId: "routine-1",
+				previousValue: "medium",
+				newValue: "high",
+				performedBy: "Z990002",
+				performedByName: "Rask Elv",
+				performedAt: "2026-02-10T13:30:00Z",
+				syncJobId: null,
+				metadata: null,
+			},
+		],
 	}
 }
 

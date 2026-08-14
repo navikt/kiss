@@ -149,7 +149,6 @@ export default [
 	route("api/github-access-sync", "routes/api.github-access-sync/index.tsx"),
 	route("api/search", "routes/api.search/index.tsx"),
 	route("api/applikasjoner/:appId/export-xlsx", "routes/api.applikasjoner.$appId.export-xlsx/index.tsx"),
-	route("api/applikasjoner/:appId/rapport-pdf", "routes/api.applikasjoner.$appId.rapport-pdf/index.tsx"),
 	route(
 		"api/applikasjoner/:appId/revisjonsbevis/:instanceId/excel",
 		"routes/api.applikasjoner.$appId.revisjonsbevis.$instanceId.excel/index.tsx",

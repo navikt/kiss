@@ -21,6 +21,7 @@ import { PrioritySelect } from "~/components/PrioritySelect"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { UserDisplayName } from "~/components/UserDisplayName"
+import { getAuditLogForEntity } from "~/db/queries/audit.server"
 import {
 	approveRoutine,
 	archiveRoutine,
@@ -62,6 +63,19 @@ const stepComponentLabels: Record<string, string> = {
 	vedlegg: "Vedlegg",
 }
 
+const auditActionLabels: Record<string, string> = {
+	routine_created: "Rutine opprettet",
+	routine_updated: "Rutine oppdatert",
+	routine_deleted: "Rutine slettet",
+	routine_archived: "Rutine arkivert",
+	routine_unarchived: "Rutine reaktivert",
+	routine_approved: "Rutine godkjent",
+	routine_copied: "Kopiert fra annen rutine",
+	routine_replaced: "Erstattet gammel rutine",
+	routine_priority_changed: "Prioritet endret",
+	routine_attachment_uploaded: "Vedlegg lastet opp",
+}
+
 function formatDate(date: string | Date | null): string {
 	if (!date) return "—"
 	return new Date(date).toLocaleDateString("nb-NO")
@@ -99,10 +113,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		throw data({ message: "Rutinen tilhører ikke denne seksjonen" }, { status: 403 })
 	}
 
-	const [reviews, apps, followUpAppIds] = await Promise.all([
+	const [reviews, apps, followUpAppIds, auditLog] = await Promise.all([
 		getReviewsForRoutine(rutineId),
 		getAppsRequiringRoutine(rutineId),
 		getRoutineFollowUpApplicationIds(rutineId),
+		getAuditLogForEntity("routine", rutineId),
 	])
 
 	const reviewerNames = await getUserNamesByNavIdents([
@@ -110,7 +125,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		...(routine.approvedBy ? [routine.approvedBy] : []),
 		...(routine.archivedBy ? [routine.archivedBy] : []),
 		...(routine.priorityUpdatedBy ? [routine.priorityUpdatedBy] : []),
+		...(routine.createdBy ? [routine.createdBy] : []),
+		...auditLog.map((entry) => entry.performedBy),
 	])
+	const auditLogWithNames = auditLog.map((entry) => ({
+		...entry,
+		performedByName: reviewerNames.get(entry.performedBy.trim().toUpperCase()) ?? null,
+	}))
 	const reviewsWithNames = reviews.map((r) => ({
 		...r,
 		createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
@@ -191,6 +212,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		effectiveRole,
 		predecessorInfo,
 		successorInfo,
+		auditLog: auditLogWithNames,
 	})
 }
 
@@ -315,6 +337,7 @@ export default function RutineDetaljer() {
 		effectiveRole,
 		predecessorInfo,
 		successorInfo,
+		auditLog,
 	} = useLoaderData<typeof loader>()
 	const fetcher = useFetcher()
 	const archiveFetcher = useFetcher()
@@ -889,6 +912,51 @@ export default function RutineDetaljer() {
 					</Table>
 				)}
 			</VStack>
+
+			{auditLog.length > 0 && (
+				<VStack gap="space-4">
+					<Heading size="medium" level="3">
+						Endringslogg
+					</Heading>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+					<section className="table-scroll" tabIndex={0} aria-label="Endringslogg for rutinen">
+						<Table size="small">
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Tidspunkt</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Utført av</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{auditLog.map((entry) => (
+									<Table.Row key={entry.id}>
+										<Table.DataCell>{formatDateTime(entry.performedAt)}</Table.DataCell>
+										<Table.DataCell>
+											<Tag variant={entry.action === "routine_archived" ? "warning" : "info"} size="xsmall">
+												{auditActionLabels[entry.action] ?? entry.action}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											{entry.previousValue != null && entry.newValue != null
+												? `«${entry.previousValue}» → «${entry.newValue}»`
+												: entry.newValue != null
+													? `«${entry.newValue}»`
+													: entry.previousValue != null
+														? `«${entry.previousValue}»`
+														: "–"}
+										</Table.DataCell>
+										<Table.DataCell>
+											<UserDisplayName navIdent={entry.performedBy} name={entry.performedByName} />
+										</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				</VStack>
+			)}
 
 			{routine.sourceRoutineId && (
 				<ApproveReplaceModal
