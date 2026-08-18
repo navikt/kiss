@@ -9,27 +9,32 @@ import {
 	updateRiskDomain,
 	updateRiskShortTitle,
 } from "~/db/queries/framework.server"
-import { getAuthenticatedUser } from "~/lib/auth.server"
+import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
+import { isAdmin, requireAdmin } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { Route } from "./+types/index"
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const risikoId = params.risikoId?.toUpperCase()
 	if (!risikoId) throw new Response("Mangler risiko-ID", { status: 400 })
+
+	const user = await getAuthenticatedUser(request)
 
 	const [risk, domains] = await Promise.all([getRiskDetail(risikoId), getAllActiveDomains()])
 	if (!risk) throw new Response("Risiko ikke funnet", { status: 404 })
 
 	return data({
 		risk,
+		canEdit: user ? isAdmin(user) : false,
 		descriptionHtml: renderMarkdown(risk.description),
 		domains: domains.map((d) => ({ id: d.id, code: d.code, name: d.name })),
 	})
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-	const user = await getAuthenticatedUser(request)
-	const userName = user?.navIdent ?? "system"
+	const user = await requireAuthenticatedUser(request)
+	requireAdmin(user)
+	const userName = user.navIdent
 	const risikoId = params.risikoId?.toUpperCase()
 	if (!risikoId) return data({ error: "Mangler risiko-ID" }, { status: 400 })
 
@@ -61,7 +66,7 @@ function controlColor(index: number, total: number): string {
 }
 
 export default function RiskDetailPage() {
-	const { risk, descriptionHtml, domains } = useLoaderData<typeof loader>()
+	const { risk, canEdit, descriptionHtml, domains } = useLoaderData<typeof loader>()
 	const [editing, setEditing] = useState(false)
 	const [titleValue, setTitleValue] = useState(risk.name)
 	const [changingDomain, setChangingDomain] = useState(false)
@@ -73,7 +78,7 @@ export default function RiskDetailPage() {
 					<Link to="/kontrollrammeverk">Kontrollrammeverk</Link> /{" "}
 					<Link to={`/kontrollrammeverk/${risk.domainCode}`}>{risk.domainName}</Link> / Risiko
 				</Detail>
-				{editing ? (
+				{editing && canEdit ? (
 					<Form method="post" onSubmit={() => setEditing(false)}>
 						<HStack gap="space-2" align="end" wrap={false}>
 							<TextField
@@ -106,21 +111,23 @@ export default function RiskDetailPage() {
 						<Heading size="xlarge" level="2">
 							{risk.riskId}: {risk.name}
 						</Heading>
-						<Button
-							type="button"
-							variant="tertiary-neutral"
-							size="small"
-							icon={<PencilIcon aria-hidden />}
-							onClick={() => setEditing(true)}
-							aria-label={`Rediger kort tittel for ${risk.riskId}`}
-						/>
+						{canEdit && (
+							<Button
+								type="button"
+								variant="tertiary-neutral"
+								size="small"
+								icon={<PencilIcon aria-hidden />}
+								onClick={() => setEditing(true)}
+								aria-label={`Rediger kort tittel for ${risk.riskId}`}
+							/>
+						)}
 					</HStack>
 				)}
 				<HStack gap="space-2" align="center">
 					<Detail>
 						Domene: <strong>{risk.domainName}</strong>
 					</Detail>
-					{!changingDomain && (
+					{canEdit && !changingDomain && (
 						<Button
 							type="button"
 							variant="tertiary-neutral"
@@ -131,7 +138,7 @@ export default function RiskDetailPage() {
 						/>
 					)}
 				</HStack>
-				{changingDomain && (
+				{canEdit && changingDomain && (
 					<Form method="post" onSubmit={() => setChangingDomain(false)}>
 						<input type="hidden" name="intent" value="change-domain" />
 						<HStack gap="space-2" align="end">
