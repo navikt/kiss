@@ -714,13 +714,14 @@ export function RutinerTab({
 								<Table.HeaderCell>Status</Table.HeaderCell>
 								<Table.HeaderCell>Opprettet av</Table.HeaderCell>
 								<Table.HeaderCell>Deltakere</Table.HeaderCell>
-								<Table.HeaderCell />
+								<Table.HeaderCell align="right">Handlinger</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
 							{completedReviews.map((review) => {
 								const confirmed = review.participants.filter((p) => p.confirmedAt).length
 								const slug = review.sectionId ? sectionSlugMap[review.sectionId] : null
+								const hasReport = review.status === "completed" || review.status === "needs_follow_up"
 								return (
 									<Table.Row key={review.id}>
 										<Table.DataCell>{new Date(review.reviewedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
@@ -762,16 +763,26 @@ export function RutinerTab({
 										<Table.DataCell>
 											{review.participants.length} ({confirmed} bekreftet)
 										</Table.DataCell>
-										<Table.DataCell>
-											{review.status === "draft" && (
-												<form method="post" style={{ display: "inline" }}>
-													<input type="hidden" name="intent" value="discard-review" />
-													<input type="hidden" name="reviewId" value={review.id} />
-													<Button type="submit" variant="tertiary-neutral" size="xsmall">
-														Forkast
-													</Button>
-												</form>
-											)}
+										<Table.DataCell align="right">
+											<HStack gap="space-2" justify="end" wrap={false}>
+												{review.status === "draft" && (
+													<form method="post" style={{ display: "inline" }}>
+														<input type="hidden" name="intent" value="discard-review" />
+														<input type="hidden" name="reviewId" value={review.id} />
+														<Button type="submit" variant="tertiary-neutral" size="xsmall">
+															Forkast
+														</Button>
+													</form>
+												)}
+												{hasReport && (
+													<RoutineActionsMenu
+														routineId={review.routineId}
+														reviewId={review.id}
+														canReview={false}
+														hasReport={hasReport}
+													/>
+												)}
+											</HStack>
 										</Table.DataCell>
 									</Table.Row>
 								)
@@ -790,12 +801,14 @@ function RoutineActionsMenu({
 	sectionSlug,
 	canReview,
 	hasReport,
+	reviewId,
 }: {
 	routineId: string
 	draftReviewId?: string | null
 	sectionSlug?: string
 	canReview: boolean
 	hasReport: boolean
+	reviewId?: string
 }) {
 	const submit = useSubmit()
 	const reportFetcher = useFetcher<typeof action>()
@@ -860,10 +873,11 @@ function RoutineActionsMenu({
 							onSelect={() => {
 								// Åpne fanen synkront i klikke-handleren, ellers vil de fleste nettlesere
 								// blokkere window.open() når den skjer i en useEffect etter async submit.
-								reportWindowRef.current = window.open("", "_blank")
+								reportWindowRef.current = window.open("", "_blank", "noopener")
 								const fd = new FormData()
 								fd.set("intent", "generate-routine-report")
 								fd.set("routineId", routineId)
+								if (reviewId) fd.set("reviewId", reviewId)
 								reportFetcher.submit(fd, { method: "post" })
 							}}
 						>

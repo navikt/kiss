@@ -1714,8 +1714,15 @@ export async function getReviewsForRoutineAndApp(routineId: string, applicationI
 /**
  * Kun rapporterbare gjennomganger (fullført eller med åpne oppfølgingspunkter) — brukes av
  * rutinerapport-generering for å unngå å berike utkast som uansett filtreres bort.
+ *
+ * Hvis `reviewId` er oppgitt, begrenses resultatet til kun den ene gjennomgangen (fortsatt
+ * krevd å tilhøre rutinen/applikasjonen og ha en rapporterbar status).
  */
-export async function getReportableReviewsForRoutineAndApp(routineId: string, applicationId: string) {
+export async function getReportableReviewsForRoutineAndApp(
+	routineId: string,
+	applicationId: string,
+	reviewId?: string,
+) {
 	const routineIds = await getRoutineAncestorChain(routineId)
 
 	const reviews = await db
@@ -1726,6 +1733,7 @@ export async function getReportableReviewsForRoutineAndApp(routineId: string, ap
 				inArray(routineReviews.routineId, routineIds),
 				eq(routineReviews.applicationId, applicationId),
 				inArray(routineReviews.status, ["completed", "needs_follow_up"]),
+				reviewId ? eq(routineReviews.id, reviewId) : undefined,
 			),
 		)
 		.orderBy(desc(routineReviews.reviewedAt))
