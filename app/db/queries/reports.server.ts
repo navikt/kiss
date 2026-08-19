@@ -961,22 +961,26 @@ export async function generateRoutineReviewReport(params: {
 	routineId: string
 	applicationId: string
 	createdBy: string
+	reviewId?: string
 }): Promise<{ reportId: string; reportBucketPath: string; reportName: string }> {
-	const { routineId, applicationId, createdBy } = params
+	const { routineId, applicationId, createdBy, reviewId } = params
 
 	// Kun fullførte gjennomganger (eller de med åpne oppfølgingspunkter) skal med i rapporten —
 	// utkast er ikke ferdigstilt og skal ikke lekke ut i genererte rapporter. Filtreres i selve
-	// spørringen slik at utkast ikke berikes unødvendig.
+	// spørringen slik at utkast ikke berikes unødvendig. Hvis `reviewId` er oppgitt, begrenses
+	// rapporten til kun den ene gjennomgangen.
 	const [routine, detail, reviews] = await Promise.all([
 		getRoutine(routineId),
 		getApplicationDetail(applicationId),
-		getReportableReviewsForRoutineAndApp(routineId, applicationId),
+		getReportableReviewsForRoutineAndApp(routineId, applicationId, reviewId),
 	])
 
 	if (!routine) throw new Error(`Fant ikke rutine: ${routineId}`)
 	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
 	if (reviews.length === 0) {
-		throw new Error("Ingen gjennomganger funnet for denne rutinen og applikasjonen")
+		throw new Error(
+			reviewId ? "Fant ikke gjennomgangen" : "Ingen gjennomganger funnet for denne rutinen og applikasjonen",
+		)
 	}
 
 	const now = new Date()
@@ -1187,6 +1191,7 @@ export async function generateRoutineReviewReport(params: {
 						scope: "routine_review",
 						routineId,
 						applicationId,
+						reviewId,
 						totalReviews: reviews.length,
 						sizeBytes: uploadResult.sizeBytes,
 					},

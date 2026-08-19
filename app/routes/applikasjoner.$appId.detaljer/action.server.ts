@@ -96,11 +96,13 @@ export async function action({ request, params, url }: Route.ActionArgs) {
 		if (!routineId) {
 			return data({ success: false, message: null, error: "Mangler rutine-ID" }, { status: 400 })
 		}
+		const reviewId = (formData.get("reviewId") as string | null) || undefined
 		try {
 			const result = await generateRoutineReviewReport({
 				routineId,
 				applicationId: appId,
 				createdBy: authedUser.navIdent,
+				reviewId,
 			})
 			return data({ success: true, message: "Rapport generert.", error: null, reportId: result.reportId })
 		} catch (err) {

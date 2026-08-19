@@ -774,7 +774,14 @@ export function RutinerTab({
 														</Button>
 													</form>
 												)}
-												{hasReport && <RoutineActionsMenu routineId={review.routineId} canReview={false} hasReport />}
+												{hasReport && (
+													<RoutineActionsMenu
+														routineId={review.routineId}
+														reviewId={review.id}
+														canReview={false}
+														hasReport
+													/>
+												)}
 											</HStack>
 										</Table.DataCell>
 									</Table.Row>
@@ -794,12 +801,14 @@ function RoutineActionsMenu({
 	sectionSlug,
 	canReview,
 	hasReport,
+	reviewId,
 }: {
 	routineId: string
 	draftReviewId?: string | null
 	sectionSlug?: string
 	canReview: boolean
 	hasReport: boolean
+	reviewId?: string
 }) {
 	const submit = useSubmit()
 	const reportFetcher = useFetcher<typeof action>()
@@ -868,6 +877,7 @@ function RoutineActionsMenu({
 								const fd = new FormData()
 								fd.set("intent", "generate-routine-report")
 								fd.set("routineId", routineId)
+								if (reviewId) fd.set("reviewId", reviewId)
 								reportFetcher.submit(fd, { method: "post" })
 							}}
 						>
