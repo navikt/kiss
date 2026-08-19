@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react"
 import { mockAppDetaljerData, mockRpaUsers } from "@storybook-mocks/data"
 import { renderWithLoader, renderWithLoaderAndAction } from "@storybook-mocks/router"
-import { data } from "react-router"
+import { createRoutesStub, data } from "react-router"
+import { expect, screen, userEvent, waitFor, within } from "storybook/test"
 import ApplikasjonDetalj from "../index"
 
 const meta = {
@@ -170,4 +171,39 @@ export const KonfliktNyGjennomgang: Story = {
 				),
 			"/applikasjoner/app-1/detaljer?fane=rutiner",
 		),
+}
+
+// Viser varselet som dukker opp når nettleseren blokkerer rapportfanen (window.open
+// returnerer null/lukket vindu) etter at rapporten er ferdig generert.
+export const RapportfaneBlokkert: Story = {
+	name: "Nettleseren blokkerte rapportfanen (RutinerTab)",
+	render: () => {
+		const Stub = createRoutesStub([
+			{
+				path: "/applikasjoner/:appId/detaljer",
+				Component: ApplikasjonDetalj,
+				loader: () => mockAppDetaljerData(),
+				action: () => data({ success: true, message: "Rapport generert.", error: null, reportId: "report-1" }),
+			},
+		])
+		return <Stub initialEntries={["/applikasjoner/app-1/detaljer"]} />
+	},
+	play: async ({ canvasElement }) => {
+		// Simuler at nettleserens popup-blokkering slår til ved å la window.open returnere null.
+		const originalOpen = window.open
+		window.open = () => null
+		try {
+			const canvas = within(canvasElement)
+			const row = (await canvas.findByText("Sikkerhetstesting Q1 2026")).closest("tr")
+			if (!row) throw new Error("Fant ikke raden for gjennomgangen i tabellen")
+			const rowCanvas = within(row)
+			await userEvent.click(rowCanvas.getByRole("button", { name: "Handlinger" }))
+			// ActionMenu-innholdet rendres i en portal utenfor canvasElement, så vi må søke i hele dokumentet.
+			await userEvent.click(await screen.findByText("Last ned rapport"))
+			await waitFor(() => expect(canvas.getByText("Nettleseren blokkerte rapportfanen.")).toBeInTheDocument())
+			await expect(canvas.getByRole("link", { name: "Åpne rapporten her" })).toBeInTheDocument()
+		} finally {
+			window.open = originalOpen
+		}
+	},
 }

@@ -1,6 +1,7 @@
 import { MenuElipsisVerticalIcon } from "@navikt/aksel-icons"
 import {
 	ActionMenu,
+	Link as AkselLink,
 	Alert,
 	BodyShort,
 	Box,
@@ -795,6 +796,11 @@ export function RutinerTab({
 	)
 }
 
+// Hvis rapporten er klar før denne terskelen, rekker vi å åpne fanen med den ferdige
+// nedlastings-URL-en direkte (ingen tom fane som blinker forbi). Er den tregere, faller vi
+// tilbake til å åpne en tom fane først og sette URL-en når rapporten er klar (se under).
+const FAST_REPORT_THRESHOLD_MS = 400
+
 function RoutineActionsMenu({
 	routineId,
 	draftReviewId,
@@ -814,25 +820,47 @@ function RoutineActionsMenu({
 	const reportFetcher = useFetcher<typeof action>()
 	const lastHandledReportId = useRef<string | null>(null)
 	const reportWindowRef = useRef<Window | null>(null)
+	const fallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const isGeneratingReport = reportFetcher.state !== "idle"
 	const reportResult = reportFetcher.data as { success?: boolean; error?: string; reportId?: string } | undefined
+	// Satt hvis nettleseren blokkerte popup-fanen, slik at vi kan vise en synlig lenke brukeren
+	// selv kan klikke (et ekte lenkeklikk blokkeres ikke av popup-blokkere).
+	const [blockedReportUrl, setBlockedReportUrl] = useState<string | null>(null)
 
 	useEffect(() => {
 		if (!reportResult) return
+		if (fallbackTimeoutRef.current) {
+			clearTimeout(fallbackTimeoutRef.current)
+			fallbackTimeoutRef.current = null
+		}
 		if (reportResult.success && reportResult.reportId && reportResult.reportId !== lastHandledReportId.current) {
 			lastHandledReportId.current = reportResult.reportId
 			const url = `/api/rapporter/${reportResult.reportId}/pdf?download=true`
-			// Fanen ble allerede åpnet synkront i onSelect (for å unngå popup-blokkering av
-			// asynkrone window.open-kall) — sett bare URL-en når reportId er klart.
 			if (reportWindowRef.current && !reportWindowRef.current.closed) {
+				// Fallback-fanen ble allerede åpnet tom (rapporten tok lenger enn terskelen) —
+				// sett bare URL-en når reportId er klart.
 				reportWindowRef.current.location.href = url
 			} else {
-				window.open(url, "_blank", "noopener")
+				// Rapporten ble klar før terskelen rakk å slå inn, så ingen tom fane er åpnet ennå.
+				// Åpningen skjer fortsatt innenfor nettleserens korte "user activation"-vindu etter
+				// klikket, så den blokkeres normalt ikke som popup — men sjekk uansett, siden
+				// enkelte nettlesere/innstillinger blokkerer likevel.
+				const win = window.open(url, "_blank", "noopener")
+				if (!win || win.closed) {
+					setBlockedReportUrl(url)
+				}
 			}
 		} else if (!reportResult.success) {
 			reportWindowRef.current?.close()
+			reportWindowRef.current = null
 		}
 	}, [reportResult])
+
+	useEffect(() => {
+		return () => {
+			if (fallbackTimeoutRef.current) clearTimeout(fallbackTimeoutRef.current)
+		}
+	}, [])
 
 	return (
 		<VStack gap="space-2" align="end">
@@ -870,15 +898,30 @@ function RoutineActionsMenu({
 					)}
 					{hasReport && (
 						<ActionMenu.Item
+							disabled={isGeneratingReport}
 							onSelect={() => {
-								// Åpne fanen synkront i klikke-handleren, ellers vil de fleste nettlesere
-								// blokkere window.open() når den skjer i en useEffect etter async submit.
-								reportWindowRef.current = window.open("", "_blank", "noopener")
+								// Unngå at gjentatte klikk mens forrige rapport fortsatt genereres kan
+								// starte flere parallelle nedlastinger/faner (se disabled-prop over også).
+								if (isGeneratingReport) return
+								if (fallbackTimeoutRef.current) {
+									clearTimeout(fallbackTimeoutRef.current)
+									fallbackTimeoutRef.current = null
+								}
+								setBlockedReportUrl(null)
 								const fd = new FormData()
 								fd.set("intent", "generate-routine-report")
 								fd.set("routineId", routineId)
 								if (reviewId) fd.set("reviewId", reviewId)
 								reportFetcher.submit(fd, { method: "post" })
+								// Gi rapporten en sjanse til å bli klar raskt før vi åpner en tom fane.
+								// Blir den ikke klar innen terskelen, åpner vi fanen tom nå (fortsatt
+								// innenfor "user activation"-vinduet) og fyller inn URL-en senere.
+								fallbackTimeoutRef.current = setTimeout(() => {
+									fallbackTimeoutRef.current = null
+									if (!reportWindowRef.current || reportWindowRef.current.closed) {
+										reportWindowRef.current = window.open("", "_blank", "noopener")
+									}
+								}, FAST_REPORT_THRESHOLD_MS)
 							}}
 						>
 							{isGeneratingReport ? "Genererer rapport…" : "Last ned rapport"}
@@ -890,6 +933,16 @@ function RoutineActionsMenu({
 				<span role="alert" style={{ fontSize: "0.75rem", color: "var(--ax-text-danger)" }}>
 					{reportResult.error}
 				</span>
+			)}
+			{blockedReportUrl && (
+				<div style={{ maxWidth: "16rem" }}>
+					<Alert variant="warning" size="small">
+						Nettleseren blokkerte rapportfanen.{" "}
+						<AkselLink href={blockedReportUrl} target="_blank" rel="noopener noreferrer">
+							Åpne rapporten her
+						</AkselLink>
+					</Alert>
+				</div>
 			)}
 		</VStack>
 	)
