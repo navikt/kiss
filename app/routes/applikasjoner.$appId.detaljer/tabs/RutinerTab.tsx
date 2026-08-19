@@ -779,7 +779,7 @@ export function RutinerTab({
 														routineId={review.routineId}
 														reviewId={review.id}
 														canReview={false}
-														hasReport
+														hasReport={hasReport}
 													/>
 												)}
 											</HStack>
