@@ -1,6 +1,7 @@
 import { MenuElipsisVerticalIcon } from "@navikt/aksel-icons"
 import {
 	ActionMenu,
+	Link as AkselLink,
 	Alert,
 	BodyShort,
 	Box,
@@ -10,7 +11,6 @@ import {
 	Detail,
 	Heading,
 	HStack,
-	Link as AkselLink,
 	Search,
 	Table,
 	Tag,
@@ -852,6 +852,7 @@ function RoutineActionsMenu({
 			}
 		} else if (!reportResult.success) {
 			reportWindowRef.current?.close()
+			reportWindowRef.current = null
 		}
 	}, [reportResult])
 
@@ -897,7 +898,15 @@ function RoutineActionsMenu({
 					)}
 					{hasReport && (
 						<ActionMenu.Item
+							disabled={isGeneratingReport}
 							onSelect={() => {
+								// Unngå at gjentatte klikk mens forrige rapport fortsatt genereres kan
+								// starte flere parallelle nedlastinger/faner (se disabled-prop over også).
+								if (isGeneratingReport) return
+								if (fallbackTimeoutRef.current) {
+									clearTimeout(fallbackTimeoutRef.current)
+									fallbackTimeoutRef.current = null
+								}
 								setBlockedReportUrl(null)
 								const fd = new FormData()
 								fd.set("intent", "generate-routine-report")
@@ -909,7 +918,7 @@ function RoutineActionsMenu({
 								// innenfor "user activation"-vinduet) og fyller inn URL-en senere.
 								fallbackTimeoutRef.current = setTimeout(() => {
 									fallbackTimeoutRef.current = null
-									if (!reportWindowRef.current) {
+									if (!reportWindowRef.current || reportWindowRef.current.closed) {
 										reportWindowRef.current = window.open("", "_blank", "noopener")
 									}
 								}, FAST_REPORT_THRESHOLD_MS)
