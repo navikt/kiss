@@ -936,10 +936,10 @@ function RoutineActionsMenu({
 			)}
 			{blockedReportUrl && (
 				<div style={{ maxWidth: "16rem" }}>
-					<Alert variant="warning" size="small">
-						Nettleseren blokkerte rapportfanen.{" "}
+					<Alert variant="info" size="small">
+						Hvis rapporten ikke ble lastet ned,{" "}
 						<AkselLink href={blockedReportUrl} target="_blank" rel="noopener noreferrer">
-							Åpne rapporten her
+							last ned her
 						</AkselLink>
 					</Alert>
 				</div>
