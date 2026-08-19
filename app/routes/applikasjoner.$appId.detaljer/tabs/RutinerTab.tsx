@@ -10,6 +10,7 @@ import {
 	Detail,
 	Heading,
 	HStack,
+	Link as AkselLink,
 	Search,
 	Table,
 	Tag,
@@ -822,6 +823,9 @@ function RoutineActionsMenu({
 	const fallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const isGeneratingReport = reportFetcher.state !== "idle"
 	const reportResult = reportFetcher.data as { success?: boolean; error?: string; reportId?: string } | undefined
+	// Satt hvis nettleseren blokkerte popup-fanen, slik at vi kan vise en synlig lenke brukeren
+	// selv kan klikke (et ekte lenkeklikk blokkeres ikke av popup-blokkere).
+	const [blockedReportUrl, setBlockedReportUrl] = useState<string | null>(null)
 
 	useEffect(() => {
 		if (!reportResult) return
@@ -839,8 +843,12 @@ function RoutineActionsMenu({
 			} else {
 				// Rapporten ble klar før terskelen rakk å slå inn, så ingen tom fane er åpnet ennå.
 				// Åpningen skjer fortsatt innenfor nettleserens korte "user activation"-vindu etter
-				// klikket, så den blokkeres normalt ikke som popup.
-				window.open(url, "_blank", "noopener")
+				// klikket, så den blokkeres normalt ikke som popup — men sjekk uansett, siden
+				// enkelte nettlesere/innstillinger blokkerer likevel.
+				const win = window.open(url, "_blank", "noopener")
+				if (!win || win.closed) {
+					setBlockedReportUrl(url)
+				}
 			}
 		} else if (!reportResult.success) {
 			reportWindowRef.current?.close()
@@ -890,6 +898,7 @@ function RoutineActionsMenu({
 					{hasReport && (
 						<ActionMenu.Item
 							onSelect={() => {
+								setBlockedReportUrl(null)
 								const fd = new FormData()
 								fd.set("intent", "generate-routine-report")
 								fd.set("routineId", routineId)
@@ -915,6 +924,16 @@ function RoutineActionsMenu({
 				<span role="alert" style={{ fontSize: "0.75rem", color: "var(--ax-text-danger)" }}>
 					{reportResult.error}
 				</span>
+			)}
+			{blockedReportUrl && (
+				<div style={{ maxWidth: "16rem" }}>
+					<Alert variant="warning" size="small">
+						Nettleseren blokkerte rapportfanen.{" "}
+						<AkselLink href={blockedReportUrl} target="_blank" rel="noopener noreferrer">
+							Åpne rapporten her
+						</AkselLink>
+					</Alert>
+				</div>
 			)}
 		</VStack>
 	)
