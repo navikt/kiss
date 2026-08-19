@@ -96,7 +96,8 @@ export async function action({ request, params, url }: Route.ActionArgs) {
 		if (!routineId) {
 			return data({ success: false, message: null, error: "Mangler rutine-ID" }, { status: 400 })
 		}
-		const reviewId = (formData.get("reviewId") as string | null) || undefined
+		const rawReviewId = formData.get("reviewId")
+		const reviewId = typeof rawReviewId === "string" && rawReviewId.length > 0 ? rawReviewId : undefined
 		try {
 			const result = await generateRoutineReviewReport({
 				routineId,

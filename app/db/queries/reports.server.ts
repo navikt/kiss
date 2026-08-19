@@ -979,7 +979,9 @@ export async function generateRoutineReviewReport(params: {
 	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
 	if (reviews.length === 0) {
 		throw new Error(
-			reviewId ? "Fant ikke gjennomgangen" : "Ingen gjennomganger funnet for denne rutinen og applikasjonen",
+			reviewId
+				? "Gjennomgangen finnes ikke, eller er ikke rapporterbar for denne rutinen/applikasjonen"
+				: "Ingen gjennomganger funnet for denne rutinen og applikasjonen",
 		)
 	}
 

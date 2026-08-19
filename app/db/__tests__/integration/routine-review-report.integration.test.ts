@@ -325,4 +325,108 @@ describe("generateRoutineReviewReport", () => {
 
 		expect(entryNames.some((n) => n.endsWith("/gjennomgang - Gjennomgang på gammel rutine.pdf"))).toBe(true)
 	})
+
+	it("only includes the selected review when reviewId is given, and records it in the audit metadata", async () => {
+		const sectionId = await createTestSection(`s5-${Date.now()}`)
+		const appId = await createTestApp("App med flere gjennomganger")
+		const routine = await createRoutine({
+			sectionId,
+			name: "Rutine med flere gjennomganger",
+			description: null,
+			frequency: "monthly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: false,
+			responsibleRole: null,
+			persistenceLinks: [],
+			controlIds: [],
+			technologyElementIds: [],
+			createdBy: "Z990001",
+		})
+		await approveRoutine(routine.id)
+
+		const reviewOne = await createReview({
+			routineId: routine.id,
+			applicationId: appId,
+			title: "Første gjennomgang",
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: new Date("2024-01-15"),
+			createdBy: "Z990001",
+			participants: [],
+		})
+		await completeReview(reviewOne.id, "Z990001")
+
+		const reviewTwo = await createReview({
+			routineId: routine.id,
+			applicationId: appId,
+			title: "Andre gjennomgang",
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: new Date("2024-06-15"),
+			createdBy: "Z990001",
+			participants: [],
+		})
+		await completeReview(reviewTwo.id, "Z990001")
+
+		const result = await generateRoutineReviewReport({
+			routineId: routine.id,
+			applicationId: appId,
+			createdBy: "Z990001",
+			reviewId: reviewTwo.id,
+		})
+
+		const zipBuffer = uploaded.get(result.reportBucketPath)
+		if (!zipBuffer) throw new Error("Zip-buffer mangler")
+		const zip = await JSZip.loadAsync(zipBuffer)
+		const entryNames = Object.keys(zip.files)
+
+		expect(entryNames.some((n) => n.endsWith("/gjennomgang - Andre gjennomgang.pdf"))).toBe(true)
+		expect(entryNames.some((n) => n.endsWith("/gjennomgang - Første gjennomgang.pdf"))).toBe(false)
+
+		const auditRows = await getAuditLogForReport(result.reportId)
+		expect(auditRows).toHaveLength(1)
+		const metadata = JSON.parse(auditRows[0].metadata as string) as { reviewId?: string }
+		expect(metadata.reviewId).toBe(reviewTwo.id)
+	})
+
+	it("throws when reviewId does not match an existing reportable review for the routine/application", async () => {
+		const sectionId = await createTestSection(`s6-${Date.now()}`)
+		const appId = await createTestApp("App med utkast-gjennomgang")
+		const routine = await createRoutine({
+			sectionId,
+			name: "Rutine med utkast",
+			description: null,
+			frequency: "monthly",
+			screeningQuestionId: null,
+			screeningChoiceValue: null,
+			appliesToAllInSection: false,
+			responsibleRole: null,
+			persistenceLinks: [],
+			controlIds: [],
+			technologyElementIds: [],
+			createdBy: "Z990001",
+		})
+		await approveRoutine(routine.id)
+
+		const draftReview = await createReview({
+			routineId: routine.id,
+			applicationId: appId,
+			title: "Utkast-gjennomgang",
+			summary: null,
+			routineSnapshotPath: null,
+			reviewedAt: new Date(),
+			createdBy: "Z990001",
+			participants: [],
+		})
+
+		await expect(
+			generateRoutineReviewReport({
+				routineId: routine.id,
+				applicationId: appId,
+				createdBy: "Z990001",
+				reviewId: draftReview.id,
+			}),
+		).rejects.toThrow("Gjennomgangen finnes ikke")
+	})
 })

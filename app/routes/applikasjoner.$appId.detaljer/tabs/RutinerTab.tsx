@@ -873,7 +873,7 @@ function RoutineActionsMenu({
 							onSelect={() => {
 								// Åpne fanen synkront i klikke-handleren, ellers vil de fleste nettlesere
 								// blokkere window.open() når den skjer i en useEffect etter async submit.
-								reportWindowRef.current = window.open("", "_blank")
+								reportWindowRef.current = window.open("", "_blank", "noopener")
 								const fd = new FormData()
 								fd.set("intent", "generate-routine-report")
 								fd.set("routineId", routineId)
