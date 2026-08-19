@@ -1718,7 +1718,11 @@ export async function getReviewsForRoutineAndApp(routineId: string, applicationI
  * Hvis `reviewId` er oppgitt, begrenses resultatet til kun den ene gjennomgangen (fortsatt
  * krevd å tilhøre rutinen/applikasjonen og ha en rapporterbar status).
  */
-export async function getReportableReviewsForRoutineAndApp(routineId: string, applicationId: string, reviewId?: string) {
+export async function getReportableReviewsForRoutineAndApp(
+	routineId: string,
+	applicationId: string,
+	reviewId?: string,
+) {
 	const routineIds = await getRoutineAncestorChain(routineId)
 
 	const reviews = await db
