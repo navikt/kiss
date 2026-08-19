@@ -176,7 +176,7 @@ export const KonfliktNyGjennomgang: Story = {
 // Viser varselet som dukker opp når nettleseren blokkerer rapportfanen (window.open
 // returnerer null/lukket vindu) etter at rapporten er ferdig generert.
 export const RapportfaneBlokkert: Story = {
-	name: "Nettleseren blokkerte rapportfanen (RutinerTab)",
+	name: "Rapportfane ble blokkert av popup-blokkering (RutinerTab)",
 	render: () => {
 		const Stub = createRoutesStub([
 			{
@@ -200,8 +200,8 @@ export const RapportfaneBlokkert: Story = {
 			await userEvent.click(rowCanvas.getByRole("button", { name: "Handlinger" }))
 			// ActionMenu-innholdet rendres i en portal utenfor canvasElement, så vi må søke i hele dokumentet.
 			await userEvent.click(await screen.findByText("Last ned rapport"))
-			await waitFor(() => expect(canvas.getByText("Nettleseren blokkerte rapportfanen.")).toBeInTheDocument())
-			await expect(canvas.getByRole("link", { name: "Åpne rapporten her" })).toBeInTheDocument()
+			await waitFor(() => expect(canvas.getByText(/Hvis rapporten ikke ble lastet ned/)).toBeInTheDocument())
+			await expect(canvas.getByRole("link", { name: "last ned her" })).toBeInTheDocument()
 		} finally {
 			window.open = originalOpen
 		}
