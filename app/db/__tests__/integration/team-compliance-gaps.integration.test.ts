@@ -8,6 +8,9 @@
  * - Control with a determined status (e.g. implemented) → excluded
  * - Inactive control (isActive=false) → excluded
  * - Economy classification is carried through onto each gap row
+ * - Technology element name comes from the row-specific relational join
+ *   (application_controls.technology_element_id), not the legacy framework text field
+ * - Technology element is null when the row has no relational technology element id
  */
 import { sql } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
@@ -42,29 +45,41 @@ async function linkAppToTeam(appId: string, teamId: string) {
 	)
 }
 
-async function insertFrameworkControl(controlId: string, shortTitle: string): Promise<string> {
+async function insertFrameworkControl(
+	controlId: string,
+	shortTitle: string,
+	options: { technologyElement?: string } = {},
+): Promise<string> {
 	const db = getTestDb()
 	const [ctrl] = (
 		await db.execute(
-			sql`INSERT INTO framework_controls (control_id, short_title, requirement)
-				VALUES (${controlId}, ${shortTitle}, 'req') RETURNING id`,
+			sql`INSERT INTO framework_controls (control_id, short_title, requirement, technology_element)
+				VALUES (${controlId}, ${shortTitle}, 'req', ${options.technologyElement ?? null}) RETURNING id`,
 		)
 	).rows as { id: string }[]
 	return ctrl.id
+}
+
+async function insertTechnologyElement(name: string, slug: string): Promise<string> {
+	const db = getTestDb()
+	const [element] = (
+		await db.execute(sql`INSERT INTO technology_elements (name, slug) VALUES (${name}, ${slug}) RETURNING id`)
+	).rows as { id: string }[]
+	return element.id
 }
 
 async function insertApplicationControl(
 	appId: string,
 	controlId: string,
 	status: string | null,
-	options: { isActive?: boolean } = {},
+	options: { isActive?: boolean; technologyElementId?: string | null } = {},
 ) {
-	const { isActive = true } = options
+	const { isActive = true, technologyElementId = null } = options
 	const db = getTestDb()
 	await db.execute(
 		sql`INSERT INTO application_controls
-			(application_id, control_id, status, is_active, activated_at, created_by, updated_by)
-			VALUES (${appId}, ${controlId}, ${status}, ${isActive}, NOW(), 'test', 'test')`,
+			(application_id, control_id, status, is_active, activated_at, technology_element_id, created_by, updated_by)
+			VALUES (${appId}, ${controlId}, ${status}, ${isActive}, NOW(), ${technologyElementId}, 'test', 'test')`,
 	)
 }
 
@@ -101,6 +116,7 @@ describe("getTeamComplianceGaps", () => {
 			DELETE FROM dev_teams;
 			DELETE FROM framework_risk_control_mappings;
 			DELETE FROM framework_controls;
+			DELETE FROM technology_elements;
 			DELETE FROM sections;
 		`)
 	})
@@ -168,5 +184,42 @@ describe("getTeamComplianceGaps", () => {
 		const nonEconomyGap = result?.gaps.find((g) => g.appId === nonEconomyAppId)
 		expect(economyGap?.isEconomySystem).toBe(true)
 		expect(nonEconomyGap?.isEconomySystem).toBe(false)
+	})
+
+	it("uses the row-specific relational technology element, not the legacy framework text", async () => {
+		const section = await insertTestSection("Seksjon med teknologielement", null, "test")
+		const team = await createTeam(section.id, "Team med teknologielement", null, "test")
+
+		const appId = await insertApp("app-med-teknologielement")
+		await linkAppToTeam(appId, team.id)
+
+		const relatedElementId = await insertTechnologyElement("PostgreSQL", "postgresql")
+		const gapControl = await insertFrameworkControl("K-GAP.20", "Kontroll med teknologielement", {
+			technologyElement: "Legacy tekst som ikke skal brukes",
+		})
+		await insertApplicationControl(appId, gapControl, null, { technologyElementId: relatedElementId })
+
+		const result = await getTeamComplianceGaps(team.slug)
+
+		expect(result?.gaps).toHaveLength(1)
+		expect(result?.gaps[0].technologyElement).toBe("PostgreSQL")
+	})
+
+	it("returns null technology element when the row has no relational technology element id", async () => {
+		const section = await insertTestSection("Seksjon uten teknologielement", null, "test")
+		const team = await createTeam(section.id, "Team uten teknologielement", null, "test")
+
+		const appId = await insertApp("app-uten-teknologielement")
+		await linkAppToTeam(appId, team.id)
+
+		const gapControl = await insertFrameworkControl("K-GAP.21", "Kontroll uten teknologielement", {
+			technologyElement: "Legacy tekst som ikke skal brukes",
+		})
+		await insertApplicationControl(appId, gapControl, null, { technologyElementId: null })
+
+		const result = await getTeamComplianceGaps(team.slug)
+
+		expect(result?.gaps).toHaveLength(1)
+		expect(result?.gaps[0].technologyElement).toBeNull()
 	})
 })
