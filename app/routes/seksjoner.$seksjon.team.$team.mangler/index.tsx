@@ -5,13 +5,6 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionBySlug, getTeamComplianceGaps } from "~/db/queries/sections.server"
 import { economySystemTypeLabels } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import {
-	complianceLabels,
-	complianceVariants,
-	establishmentLabels,
-	establishmentVariants,
-} from "~/lib/compliance-status"
-import { routinePriorityLabels, routinePriorityVariants } from "~/lib/routine-priorities"
 import type { Route } from "./+types/index"
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -80,9 +73,6 @@ export default function TeamComplianceGaps() {
 								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Kontroll</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Teknologielement</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Rutine</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Kritikalitet</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Rutinestatus</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Økonomisystem</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
@@ -98,46 +88,6 @@ export default function TeamComplianceGaps() {
 										{gap.controlCode} – {gap.controlName}
 									</Table.DataCell>
 									<Table.DataCell>{gap.technologyElement ?? "–"}</Table.DataCell>
-									<Table.DataCell>
-										{gap.establishment === "established" && gap.routines.length > 0 ? (
-											<HStack gap="space-2" wrap>
-												{gap.routines.map((routine) => (
-													<Link
-														key={routine.id}
-														to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${gap.appId}/kontroll/${gap.controlUuid}/rutiner`}
-													>
-														{routine.name}
-													</Link>
-												))}
-											</HStack>
-										) : (
-											<Tag variant={establishmentVariants[gap.establishment]} size="small">
-												{establishmentLabels[gap.establishment]}
-											</Tag>
-										)}
-									</Table.DataCell>
-									<Table.DataCell>
-										{gap.routines.length > 0 ? (
-											<HStack gap="space-2" wrap>
-												{gap.routines.map((routine) => (
-													<Tag key={routine.id} variant={routinePriorityVariants[routine.priority]} size="small">
-														{routinePriorityLabels[routine.priority]}
-													</Tag>
-												))}
-											</HStack>
-										) : (
-											"–"
-										)}
-									</Table.DataCell>
-									<Table.DataCell>
-										{gap.routineCompliance === "not_applicable" ? (
-											"–"
-										) : (
-											<Tag variant={complianceVariants[gap.routineCompliance]} size="small">
-												{complianceLabels[gap.routineCompliance]}
-											</Tag>
-										)}
-									</Table.DataCell>
 									<Table.DataCell>
 										{gap.isEconomySystem === null ? (
 											"–"

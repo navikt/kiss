@@ -1,6 +1,4 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
-import type { RoutineCompliance, RoutineEstablishment } from "~/lib/compliance-status"
-import { isValidRoutinePriority, type RoutinePriority } from "~/lib/routine-priorities"
 import { db } from "../connection.server"
 import { isUniqueViolation } from "../pg-errors.server"
 import { applicationControls } from "../schema/application-controls"
@@ -797,12 +795,6 @@ export async function getTeamApps(teamSlug: string) {
 	return { team, apps }
 }
 
-export interface TeamComplianceGapRoutine {
-	id: string
-	name: string
-	priority: RoutinePriority
-}
-
 export interface TeamComplianceGapRow {
 	id: string
 	appId: string
@@ -810,12 +802,8 @@ export interface TeamComplianceGapRow {
 	isEconomySystem: boolean | null
 	economySystemType: EconomySystemType | null
 	controlCode: string
-	controlUuid: string
 	controlName: string
 	technologyElement: string | null
-	establishment: RoutineEstablishment
-	routineCompliance: RoutineCompliance
-	routines: TeamComplianceGapRoutine[]
 }
 
 /**
@@ -854,14 +842,10 @@ export async function getTeamComplianceGaps(teamSlug: string) {
 					.select({
 						id: applicationControls.id,
 						appId: applicationControls.applicationId,
-						controlUuid: applicationControls.controlId,
 						controlCode: frameworkControls.controlId,
 						controlName: frameworkControls.shortTitle,
 						requirement: frameworkControls.requirement,
 						technologyElement: frameworkControls.technologyElement,
-						establishment: applicationControls.establishment,
-						routineCompliance: applicationControls.routineCompliance,
-						matchingRoutineIds: applicationControls.matchingRoutineIds,
 					})
 					.from(applicationControls)
 					.innerJoin(frameworkControls, eq(applicationControls.controlId, frameworkControls.id))
@@ -874,30 +858,12 @@ export async function getTeamComplianceGaps(teamSlug: string) {
 					)
 			: []
 
-	const allRoutineIds = [...new Set(gapRows.flatMap((row) => row.matchingRoutineIds ?? []))]
-	const routineRows =
-		allRoutineIds.length > 0
-			? await db
-					.select({ id: routines.id, name: routines.name, priority: routines.priority })
-					.from(routines)
-					.where(inArray(routines.id, allRoutineIds))
-			: []
-	const routineById = new Map(routineRows.map((r) => [r.id, r]))
-
 	const gaps: TeamComplianceGapRow[] = gapRows
 		.map((row) => {
 			const app = appById.get(row.appId)
 			if (!app) return null
 			const economy = economyMap.get(row.appId)
 			const firstRequirementLine = row.requirement?.split("\n")[0]?.trim()
-			const rowRoutines: TeamComplianceGapRoutine[] = (row.matchingRoutineIds ?? [])
-				.map((routineId) => {
-					const routine = routineById.get(routineId)
-					if (!routine) return null
-					const priority = isValidRoutinePriority(routine.priority) ? routine.priority : 3
-					return { id: routine.id, name: routine.name, priority }
-				})
-				.filter((r): r is TeamComplianceGapRoutine => r !== null)
 			return {
 				id: row.id,
 				appId: row.appId,
@@ -905,12 +871,8 @@ export async function getTeamComplianceGaps(teamSlug: string) {
 				isEconomySystem: economy?.isEconomySystem ?? null,
 				economySystemType: economy?.economySystemType ?? null,
 				controlCode: row.controlCode,
-				controlUuid: row.controlUuid,
 				controlName: row.controlName ?? firstRequirementLine ?? row.controlCode,
 				technologyElement: row.technologyElement,
-				establishment: row.establishment as RoutineEstablishment,
-				routineCompliance: row.routineCompliance as RoutineCompliance,
-				routines: rowRoutines,
 			}
 		})
 		.filter((g): g is TeamComplianceGapRow => g !== null)

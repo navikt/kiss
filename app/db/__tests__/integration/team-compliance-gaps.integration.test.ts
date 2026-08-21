@@ -8,9 +8,6 @@
  * - Control with a determined status (e.g. implemented) → excluded
  * - Inactive control (isActive=false) → excluded
  * - Economy classification is carried through onto each gap row
- * - Routine establishment state, matched routine name/priority and routine compliance are
- *   carried through
- * - A gap with no matching routine reports establishment "not_established" and no routines
  */
 import { sql } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
@@ -60,45 +57,15 @@ async function insertApplicationControl(
 	appId: string,
 	controlId: string,
 	status: string | null,
-	options: {
-		isActive?: boolean
-		establishment?: string
-		routineCompliance?: string
-		matchingRoutineIds?: string[]
-	} = {},
+	options: { isActive?: boolean } = {},
 ) {
-	const {
-		isActive = true,
-		establishment = "not_established",
-		routineCompliance = "not_applicable",
-		matchingRoutineIds = [],
-	} = options
+	const { isActive = true } = options
 	const db = getTestDb()
-	const routineIdsArray =
-		matchingRoutineIds.length > 0
-			? sql`ARRAY[${sql.join(
-					matchingRoutineIds.map((id) => sql`${id}`),
-					sql`, `,
-				)}]::uuid[]`
-			: sql`ARRAY[]::uuid[]`
 	await db.execute(
 		sql`INSERT INTO application_controls
-			(application_id, control_id, status, is_active, establishment, routine_compliance,
-			matching_routine_ids, activated_at, created_by, updated_by)
-			VALUES (${appId}, ${controlId}, ${status}, ${isActive}, ${establishment}, ${routineCompliance},
-			${routineIdsArray}, NOW(), 'test', 'test')`,
+			(application_id, control_id, status, is_active, activated_at, created_by, updated_by)
+			VALUES (${appId}, ${controlId}, ${status}, ${isActive}, NOW(), 'test', 'test')`,
 	)
-}
-
-async function insertRoutine(sectionId: string, name: string, priority: number): Promise<string> {
-	const db = getTestDb()
-	const [routine] = (
-		await db.execute(
-			sql`INSERT INTO routines (section_id, name, priority, status, created_by, updated_by)
-				VALUES (${sectionId}, ${name}, ${priority}, 'approved', 'test', 'test') RETURNING id`,
-		)
-	).rows as { id: string }[]
-	return routine.id
 }
 
 async function classifyEconomy(appId: string, isEconomySystem: boolean) {
@@ -134,7 +101,6 @@ describe("getTeamComplianceGaps", () => {
 			DELETE FROM dev_teams;
 			DELETE FROM framework_risk_control_mappings;
 			DELETE FROM framework_controls;
-			DELETE FROM routines;
 			DELETE FROM sections;
 		`)
 	})
@@ -202,40 +168,5 @@ describe("getTeamComplianceGaps", () => {
 		const nonEconomyGap = result?.gaps.find((g) => g.appId === nonEconomyAppId)
 		expect(economyGap?.isEconomySystem).toBe(true)
 		expect(nonEconomyGap?.isEconomySystem).toBe(false)
-	})
-
-	it("carries routine establishment, matched routine name/priority and routine compliance", async () => {
-		const section = await insertTestSection("Seksjon med rutine", null, "test")
-		const team = await createTeam(section.id, "Team med rutine", null, "test")
-
-		const appId = await insertApp("app-med-rutine")
-		await linkAppToTeam(appId, team.id)
-
-		const routineId = await insertRoutine(section.id, "Tilgangsgjennomgang", 1)
-
-		const establishedControl = await insertFrameworkControl("K-GAP.20", "Kontroll med rutine")
-		const unestablishedControl = await insertFrameworkControl("K-GAP.21", "Kontroll uten rutine")
-
-		await insertApplicationControl(appId, establishedControl, null, {
-			establishment: "established",
-			routineCompliance: "overdue",
-			matchingRoutineIds: [routineId],
-		})
-		await insertApplicationControl(appId, unestablishedControl, null, { establishment: "not_established" })
-
-		const result = await getTeamComplianceGaps(team.slug)
-
-		expect(result).not.toBeNull()
-		expect(result?.gaps).toHaveLength(2)
-
-		const establishedGap = result?.gaps.find((g) => g.controlCode === "K-GAP.20")
-		expect(establishedGap?.establishment).toBe("established")
-		expect(establishedGap?.routineCompliance).toBe("overdue")
-		expect(establishedGap?.routines).toEqual([{ id: routineId, name: "Tilgangsgjennomgang", priority: 1 }])
-
-		const unestablishedGap = result?.gaps.find((g) => g.controlCode === "K-GAP.21")
-		expect(unestablishedGap?.establishment).toBe("not_established")
-		expect(unestablishedGap?.routineCompliance).toBe("not_applicable")
-		expect(unestablishedGap?.routines).toEqual([])
 	})
 })
