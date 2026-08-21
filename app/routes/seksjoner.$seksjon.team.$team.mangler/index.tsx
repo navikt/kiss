@@ -57,6 +57,8 @@ export default function TeamComplianceGaps() {
 		})
 	}, [gaps, showEconomyOnly, appFilter, controlFilter])
 
+	const economyGapCount = useMemo(() => gaps.filter((gap) => gap.isEconomySystem === true).length, [gaps])
+
 	return (
 		<VStack gap="space-8">
 			<VStack gap="space-2">
@@ -69,6 +71,9 @@ export default function TeamComplianceGaps() {
 					Mangler
 				</Heading>
 				<BodyShort textColor="subtle">{gaps.length} kontroller mangler vurdering</BodyShort>
+				<BodyShort textColor="subtle">
+					{economyGapCount} kontroller mangler vurderinger på økonomisystemer
+				</BodyShort>
 			</VStack>
 
 			<HStack gap="space-4" wrap>
