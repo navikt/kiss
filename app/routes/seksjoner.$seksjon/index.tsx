@@ -10,12 +10,15 @@ import {
 	HGrid,
 	HStack,
 	ReadMore,
+	Switch,
 	Tag,
 	Tooltip,
 	VStack,
 } from "@navikt/ds-react"
+import { useState } from "react"
 import { data, Link, useLoaderData } from "react-router"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
+import { DomainStatusCard } from "~/components/DomainStatusCard"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRoutineComplianceSummaries } from "~/db/queries/application-controls.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
@@ -28,13 +31,27 @@ import { canManageSection, canViewSectionReports, isAdmin } from "~/lib/authoriz
 import { compliancePercent } from "~/lib/utils"
 import type { Route } from "./+types/index"
 
+/** Compute progress-bar percentage and remaining count for a compliance stats group. */
+function complianceFigures(stats: {
+	implemented: number
+	partial: number
+	notImplemented: number
+	notRelevant: number
+	total: number
+}) {
+	return {
+		pct: compliancePercent(stats.implemented, stats.partial, stats.total, stats.notRelevant),
+		mangler: stats.total - stats.implemented - stats.partial - stats.notImplemented - stats.notRelevant,
+	}
+}
+
 export async function loader({ request, params }: Route.LoaderArgs) {
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 
 	const user = await getAuthenticatedUser(request)
 
-	const result = await getSectionDetail(seksjon)
+	const result = await getSectionDetail(seksjon, { includeEconomyBreakdown: true })
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
 
 	const [
@@ -146,6 +163,12 @@ export default function SeksjonDashboard() {
 	} = useLoaderData<typeof loader>()
 
 	const redigerBase = `/seksjoner/${seksjon}/rediger`
+	const [showEconomyOnly, setShowEconomyOnly] = useState(false)
+
+	const hasAnyGroups = teams.length > 0 || unassigned.apps > 0
+	const visibleTeams = showEconomyOnly ? teams.filter((team) => team.economyOnly.apps > 0) : teams
+	const showUnassignedCard = unassigned.apps > 0 && (!showEconomyOnly || unassigned.economyOnly.apps > 0)
+	const noEconomyMatches = showEconomyOnly && hasAnyGroups && visibleTeams.length === 0 && !showUnassignedCard
 
 	return (
 		<VStack gap="space-8">
@@ -435,107 +458,57 @@ export default function SeksjonDashboard() {
 
 			<DeploymentSummaryCards stats={deploymentStats} />
 
-			<Heading size="large" level="3">
-				Team
-			</Heading>
+			<HStack justify="space-between" align="center" wrap>
+				<Heading size="large" level="3">
+					Team
+				</Heading>
+				<Switch size="small" checked={showEconomyOnly} onChange={(e) => setShowEconomyOnly(e.target.checked)}>
+					Vis kun økonomisystemer
+				</Switch>
+			</HStack>
 
-			<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
-				{teams.map((team) => {
-					const pct = compliancePercent(team.implemented, team.partial, team.total, team.notRelevant)
-					const mangler = team.total - team.implemented - team.partial - team.notImplemented - team.notRelevant
-					return (
-						<Link key={team.slug} to={`/seksjoner/${seksjon}/team/${team.slug}`} className="domain-status-card-link">
-							<div className="domain-status-header">
-								<Heading size="small" level="4">
-									{team.name}
-								</Heading>
-								<BodyShort weight="semibold">{pct}%</BodyShort>
-							</div>
-							<div
-								className="domain-status-bar"
-								role="progressbar"
-								aria-valuenow={pct}
-								aria-valuemin={0}
-								aria-valuemax={100}
-								aria-label={`${team.name} compliance ${pct}%`}
-							>
-								<div
-									className="domain-status-bar-implemented"
-									style={{
-										width: `${team.total - team.notRelevant > 0 ? (team.implemented / (team.total - team.notRelevant)) * 100 : 0}%`,
-									}}
-								/>
-								<div
-									className="domain-status-bar-partial"
-									style={{
-										width: `${team.total - team.notRelevant > 0 ? (team.partial / (team.total - team.notRelevant)) * 100 : 0}%`,
-									}}
-								/>
-							</div>
-							<div className="domain-status-details">
-								<BodyShort size="small">{team.implemented} implementert</BodyShort>
-								<BodyShort size="small">{team.partial} delvis</BodyShort>
-								<BodyShort size="small">{mangler} mangler</BodyShort>
-								<BodyShort size="small">{team.apps} applikasjoner</BodyShort>
-							</div>
-							<div className="domain-status-card-link-footer">Se detaljer →</div>
-						</Link>
-					)
-				})}
-				{unassigned.apps > 0 &&
-					(() => {
-						const pct = compliancePercent(
-							unassigned.implemented,
-							unassigned.partial,
-							unassigned.total,
-							unassigned.notRelevant,
-						)
-						const mangler =
-							unassigned.total -
-							unassigned.implemented -
-							unassigned.partial -
-							unassigned.notImplemented -
-							unassigned.notRelevant
+			{noEconomyMatches ? (
+				<BodyShort>Ingen applikasjoner er klassifisert som økonomisystem.</BodyShort>
+			) : (
+				<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
+					{visibleTeams.map((team) => {
+						const stats = showEconomyOnly ? team.economyOnly : team
+						const { pct, mangler } = complianceFigures(stats)
 						return (
-							<Link to={`/seksjoner/${seksjon}/applikasjoner-uten-team`} className="domain-status-card-link">
-								<div className="domain-status-header">
-									<Heading size="small" level="4">
-										Uten team
-									</Heading>
-									<BodyShort weight="semibold">{pct}%</BodyShort>
-								</div>
-								<div
-									className="domain-status-bar"
-									role="progressbar"
-									aria-valuenow={pct}
-									aria-valuemin={0}
-									aria-valuemax={100}
-									aria-label={`Uten team compliance ${pct}%`}
-								>
-									<div
-										className="domain-status-bar-implemented"
-										style={{
-											width: `${unassigned.total - unassigned.notRelevant > 0 ? (unassigned.implemented / (unassigned.total - unassigned.notRelevant)) * 100 : 0}%`,
-										}}
-									/>
-									<div
-										className="domain-status-bar-partial"
-										style={{
-											width: `${unassigned.total - unassigned.notRelevant > 0 ? (unassigned.partial / (unassigned.total - unassigned.notRelevant)) * 100 : 0}%`,
-										}}
-									/>
-								</div>
-								<div className="domain-status-details">
-									<BodyShort size="small">{unassigned.implemented} implementert</BodyShort>
-									<BodyShort size="small">{unassigned.partial} delvis</BodyShort>
-									<BodyShort size="small">{mangler} mangler</BodyShort>
-									<BodyShort size="small">{unassigned.apps} applikasjoner</BodyShort>
-								</div>
-								<div className="domain-status-card-link-footer">Administrer →</div>
-							</Link>
+							<DomainStatusCard
+								key={team.slug}
+								to={`/seksjoner/${seksjon}/team/${team.slug}`}
+								title={team.name}
+								pct={pct}
+								implemented={stats.implemented}
+								partial={stats.partial}
+								mangler={mangler}
+								barTotal={stats.total - stats.notRelevant}
+								extraDetails={<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>}
+								footer="Se detaljer →"
+							/>
 						)
-					})()}
-			</HGrid>
+					})}
+					{showUnassignedCard &&
+						(() => {
+							const stats = showEconomyOnly ? unassigned.economyOnly : unassigned
+							const { pct, mangler } = complianceFigures(stats)
+							return (
+								<DomainStatusCard
+									to={`/seksjoner/${seksjon}/applikasjoner-uten-team`}
+									title="Uten team"
+									pct={pct}
+									implemented={stats.implemented}
+									partial={stats.partial}
+									mangler={mangler}
+									barTotal={stats.total - stats.notRelevant}
+									extraDetails={<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>}
+									footer="Administrer →"
+								/>
+							)
+						})()}
+				</HGrid>
+			)}
 		</VStack>
 	)
 }

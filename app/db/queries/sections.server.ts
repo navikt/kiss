@@ -13,7 +13,7 @@ import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { routineReviews, routines } from "../schema/routines"
 import { getComplianceSummaries, getRoutineComplianceSummaries } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
-import { getEconomyClassifications } from "./economy-classification.server"
+import { type EconomyClassification, getEconomyClassifications } from "./economy-classification.server"
 import { getRoutineDeadlinesWithControls } from "./routine-deadlines.server"
 import { assignRole } from "./users.server"
 
@@ -107,7 +107,8 @@ async function getTeamAppIds(teamId: string, excludedEnvs?: Set<string>) {
 }
 
 /** Get section detail with team compliance stats. */
-export async function getSectionDetail(seksjonSlug: string) {
+export async function getSectionDetail(seksjonSlug: string, options: { includeEconomyBreakdown?: boolean } = {}) {
+	const { includeEconomyBreakdown = false } = options
 	const [section] = await db.select().from(sections).where(eq(sections.slug, seksjonSlug)).limit(1)
 	if (!section) return null
 
@@ -324,72 +325,52 @@ export async function getSectionDetail(seksjonSlug: string) {
 		unassignedAppIds = naisAppRows.map((r) => r.appId).filter((id) => !allAssignedAppIds.has(id))
 	}
 
-	// Batch-fetch compliance summaries for ALL apps in a single SQL query
+	// Batch-fetch compliance summaries for ALL apps in a single SQL query.
+	// Economy classifications are only fetched when a caller needs the economy-only breakdown,
+	// since several consumers (e.g. rapporter, koblingsforslag) don't use it and some already
+	// fetch classifications themselves.
 	const allAppIds = [...allAssignedAppIds, ...unassignedAppIds.filter((id) => !allAssignedAppIds.has(id))]
-	const summaryMap = await getComplianceSummaries(allAppIds)
+	const [summaryMap, economyMap] = await Promise.all([
+		getComplianceSummaries(allAppIds),
+		includeEconomyBreakdown
+			? getEconomyClassifications(allAppIds)
+			: Promise.resolve(new Map<string, EconomyClassification>()),
+	])
 
-	// Build team stats from the pre-fetched map
-	const teamStats = teamAppMaps.map(({ team, allIds }) => {
-		let implemented = 0
-		let partial = 0
-		let notImplemented = 0
-		let notRelevant = 0
-		let total = 0
+	const emptyStats = () => ({ apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 })
 
-		for (const appId of allIds) {
+	// Aggregate compliance for a set of app IDs, optionally restricted to economy-system apps
+	function aggregateStats(appIds: Iterable<string>, economyOnly: boolean) {
+		const stats = emptyStats()
+		for (const appId of appIds) {
+			if (economyOnly && !economyMap.get(appId)?.isEconomySystem) continue
 			const s = summaryMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 }
-			implemented += s.implemented
-			partial += s.partial
-			notImplemented += s.notImplemented
-			notRelevant += s.notRelevant
-			total += s.total
+			stats.apps += 1
+			stats.implemented += s.implemented
+			stats.partial += s.partial
+			stats.notImplemented += s.notImplemented
+			stats.notRelevant += s.notRelevant
+			stats.total += s.total
 		}
-
-		return {
-			slug: team.slug,
-			name: team.name,
-			apps: allIds.size,
-			implemented,
-			partial,
-			notImplemented,
-			notRelevant,
-			total,
-		}
-	})
-
-	// Build unassigned stats
-	let unassignedStats = {
-		apps: 0,
-		implemented: 0,
-		partial: 0,
-		notImplemented: 0,
-		notRelevant: 0,
-		total: 0,
+		return stats
 	}
 
+	// Build team stats from the pre-fetched map — both "all apps" and "economy systems only" variants.
+	// The economy-only pass is skipped entirely when it isn't requested, since economyMap is empty then anyway.
+	const teamStats = teamAppMaps.map(({ team, allIds }) => ({
+		slug: team.slug,
+		name: team.name,
+		...aggregateStats(allIds, false),
+		economyOnly: includeEconomyBreakdown ? aggregateStats(allIds, true) : emptyStats(),
+	}))
+
+	// Build unassigned stats — both "all apps" and "economy systems only" variants
+	let unassignedStats = { ...emptyStats(), economyOnly: emptyStats() }
+
 	if (unassignedAppIds.length > 0) {
-		let uImpl = 0
-		let uPartial = 0
-		let uNotImpl = 0
-		let uNotRel = 0
-		let uTotal = 0
-
-		for (const appId of unassignedAppIds) {
-			const s = summaryMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 }
-			uImpl += s.implemented
-			uPartial += s.partial
-			uNotImpl += s.notImplemented
-			uNotRel += s.notRelevant
-			uTotal += s.total
-		}
-
 		unassignedStats = {
-			apps: unassignedAppIds.length,
-			implemented: uImpl,
-			partial: uPartial,
-			notImplemented: uNotImpl,
-			notRelevant: uNotRel,
-			total: uTotal,
+			...aggregateStats(unassignedAppIds, false),
+			economyOnly: includeEconomyBreakdown ? aggregateStats(unassignedAppIds, true) : emptyStats(),
 		}
 
 		for (const id of unassignedAppIds) {

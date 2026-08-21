@@ -52,6 +52,7 @@ describe("sections.server integration tests", () => {
 		await db.execute(/* sql */ `
 			DELETE FROM section_ignored_applications;
 			DELETE FROM section_environments;
+			DELETE FROM application_economy_classifications;
 			DELETE FROM application_team_mappings;
 			DELETE FROM application_environments;
 			DELETE FROM dev_team_nais_team_mappings;
@@ -312,6 +313,15 @@ describe("sections.server integration tests", () => {
 			return app
 		}
 
+		async function classifyEconomy(appId: string, isEconomySystem: boolean) {
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO application_economy_classifications
+					(application_id, is_economy_system, justification, valid_until, created_by, updated_by)
+					VALUES ('${appId}', ${isEconomySystem}, 'test', now() + interval '1 year', 'test', 'test')`,
+			)
+		}
+
 		async function createEnv(appId: string, cluster: string, namespace: string, naisTeamId?: string) {
 			const db = getTestDb()
 			await db.execute(
@@ -436,6 +446,45 @@ describe("sections.server integration tests", () => {
 			expect(result.allAppIds.filter((id) => id === app.id)).toHaveLength(1)
 			// sectionTotals counts per unique app, not per team assignment
 			expect(result.sectionTotals.apps).toBe(1)
+		})
+
+		it("restricts team economyOnly stats to apps classified as economy systems", async () => {
+			const section = await insertTestSection("Economy Team Section", "Desc", "admin")
+			const team = await createTeam(section.id, "Team Economy", "team-economy", "admin")
+
+			const economyApp = await createApp("economy-app")
+			await createEnv(economyApp.id, "prod-gcp", "ns", undefined)
+			await createDirectMapping(economyApp.id, team.id)
+			await classifyEconomy(economyApp.id, true)
+
+			const nonEconomyApp = await createApp("non-economy-app")
+			await createEnv(nonEconomyApp.id, "prod-gcp", "ns", undefined)
+			await createDirectMapping(nonEconomyApp.id, team.id)
+			await classifyEconomy(nonEconomyApp.id, false)
+
+			const result = await getSectionDetail(section.slug, { includeEconomyBreakdown: true })
+			assert(result, "Expected result to not be null")
+			expect(result.teams).toHaveLength(1)
+			expect(result.teams[0].apps).toBe(2)
+			expect(result.teams[0].economyOnly.apps).toBe(1)
+		})
+
+		it("restricts unassigned economyOnly stats to apps classified as economy systems", async () => {
+			const section = await insertTestSection("Economy Unassigned Section", "Desc", "admin")
+			const naisTeam = await createNaisTeam("nais-economy", section.id)
+
+			const economyApp = await createApp("unassigned-economy-app")
+			await createEnv(economyApp.id, "prod-gcp", "team1", naisTeam.id)
+			await classifyEconomy(economyApp.id, true)
+
+			const nonEconomyApp = await createApp("unassigned-non-economy-app")
+			await createEnv(nonEconomyApp.id, "prod-gcp", "team1", naisTeam.id)
+			await classifyEconomy(nonEconomyApp.id, false)
+
+			const result = await getSectionDetail(section.slug, { includeEconomyBreakdown: true })
+			assert(result, "Expected result to not be null")
+			expect(result.unassignedStats.apps).toBe(2)
+			expect(result.unassignedStats.economyOnly.apps).toBe(1)
 		})
 	})
 })
