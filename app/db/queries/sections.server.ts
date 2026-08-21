@@ -10,7 +10,7 @@ import {
 	monitoredApplications,
 	naisTeams,
 } from "../schema/applications"
-import { frameworkControls } from "../schema/framework"
+import { frameworkControls, technologyElements } from "../schema/framework"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { routineReviews, routines } from "../schema/routines"
 import { getComplianceSummaries, getRoutineComplianceSummaries } from "./application-controls.server"
@@ -845,10 +845,11 @@ export async function getTeamComplianceGaps(teamSlug: string) {
 						controlCode: frameworkControls.controlId,
 						controlName: frameworkControls.shortTitle,
 						requirement: frameworkControls.requirement,
-						technologyElement: frameworkControls.technologyElement,
+						technologyElement: technologyElements.name,
 					})
 					.from(applicationControls)
 					.innerJoin(frameworkControls, eq(applicationControls.controlId, frameworkControls.id))
+					.leftJoin(technologyElements, eq(applicationControls.technologyElementId, technologyElements.id))
 					.where(
 						and(
 							inArray(applicationControls.applicationId, activeAppIds),
