@@ -13,11 +13,7 @@ type Story = StoryObj<typeof meta>
 export const MedMangler: Story = {
 	name: "Med mangler",
 	render: () =>
-		renderWithLoader(
-			TeamComplianceGaps,
-			mockTeamGapsData(),
-			"/seksjoner/pensjon-og-ufore/team/starte-pensjon/mangler",
-		),
+		renderWithLoader(TeamComplianceGaps, mockTeamGapsData(), "/seksjoner/pensjon-og-ufore/team/starte-pensjon/mangler"),
 }
 
 export const IngenMangler: Story = {

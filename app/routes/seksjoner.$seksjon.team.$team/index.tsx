@@ -232,10 +232,7 @@ export default function TeamDashboard() {
 						<Detail>Delvis</Detail>
 					</VStack>
 				</Box>
-				<Link
-					to={`/seksjoner/${seksjon}/team/${team}/mangler`}
-					style={{ textDecoration: "none", color: "inherit" }}
-				>
+				<Link to={`/seksjoner/${seksjon}/team/${team}/mangler`} style={{ textDecoration: "none", color: "inherit" }}>
 					<Box padding="space-6" borderRadius="8" background="sunken">
 						<VStack align="center">
 							<Heading size="xlarge" level="3">

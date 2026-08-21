@@ -101,9 +101,7 @@ export default function TeamComplianceGaps() {
 										)}
 									</Table.DataCell>
 									<Table.DataCell>
-										<Link
-											to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${gap.appId}/detaljer?fane=kontroller`}
-										>
+										<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${gap.appId}/detaljer?fane=kontroller`}>
 											Vurder
 										</Link>
 									</Table.DataCell>
