@@ -18,6 +18,7 @@ import {
 import { useState } from "react"
 import { data, Link, useLoaderData } from "react-router"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
+import { DomainStatusCard } from "~/components/DomainStatusCard"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRoutineComplianceSummaries } from "~/db/queries/application-controls.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
@@ -453,42 +454,18 @@ export default function SeksjonDashboard() {
 					const pct = compliancePercent(stats.implemented, stats.partial, stats.total, stats.notRelevant)
 					const mangler = stats.total - stats.implemented - stats.partial - stats.notImplemented - stats.notRelevant
 					return (
-						<Link key={team.slug} to={`/seksjoner/${seksjon}/team/${team.slug}`} className="domain-status-card-link">
-							<div className="domain-status-header">
-								<Heading size="small" level="4">
-									{team.name}
-								</Heading>
-								<BodyShort weight="semibold">{pct}%</BodyShort>
-							</div>
-							<div
-								className="domain-status-bar"
-								role="progressbar"
-								aria-valuenow={pct}
-								aria-valuemin={0}
-								aria-valuemax={100}
-								aria-label={`${team.name} compliance ${pct}%`}
-							>
-								<div
-									className="domain-status-bar-implemented"
-									style={{
-										width: `${stats.total - stats.notRelevant > 0 ? (stats.implemented / (stats.total - stats.notRelevant)) * 100 : 0}%`,
-									}}
-								/>
-								<div
-									className="domain-status-bar-partial"
-									style={{
-										width: `${stats.total - stats.notRelevant > 0 ? (stats.partial / (stats.total - stats.notRelevant)) * 100 : 0}%`,
-									}}
-								/>
-							</div>
-							<div className="domain-status-details">
-								<BodyShort size="small">{stats.implemented} implementert</BodyShort>
-								<BodyShort size="small">{stats.partial} delvis</BodyShort>
-								<BodyShort size="small">{mangler} mangler</BodyShort>
-								<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>
-							</div>
-							<div className="domain-status-card-link-footer">Se detaljer →</div>
-						</Link>
+						<DomainStatusCard
+							key={team.slug}
+							to={`/seksjoner/${seksjon}/team/${team.slug}`}
+							title={team.name}
+							pct={pct}
+							implemented={stats.implemented}
+							partial={stats.partial}
+							mangler={mangler}
+							barTotal={stats.total - stats.notRelevant}
+							extraDetails={<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>}
+							footer="Se detaljer →"
+						/>
 					)
 				})}
 				{unassigned.apps > 0 &&
@@ -497,42 +474,17 @@ export default function SeksjonDashboard() {
 						const pct = compliancePercent(stats.implemented, stats.partial, stats.total, stats.notRelevant)
 						const mangler = stats.total - stats.implemented - stats.partial - stats.notImplemented - stats.notRelevant
 						return (
-							<Link to={`/seksjoner/${seksjon}/applikasjoner-uten-team`} className="domain-status-card-link">
-								<div className="domain-status-header">
-									<Heading size="small" level="4">
-										Uten team
-									</Heading>
-									<BodyShort weight="semibold">{pct}%</BodyShort>
-								</div>
-								<div
-									className="domain-status-bar"
-									role="progressbar"
-									aria-valuenow={pct}
-									aria-valuemin={0}
-									aria-valuemax={100}
-									aria-label={`Uten team compliance ${pct}%`}
-								>
-									<div
-										className="domain-status-bar-implemented"
-										style={{
-											width: `${stats.total - stats.notRelevant > 0 ? (stats.implemented / (stats.total - stats.notRelevant)) * 100 : 0}%`,
-										}}
-									/>
-									<div
-										className="domain-status-bar-partial"
-										style={{
-											width: `${stats.total - stats.notRelevant > 0 ? (stats.partial / (stats.total - stats.notRelevant)) * 100 : 0}%`,
-										}}
-									/>
-								</div>
-								<div className="domain-status-details">
-									<BodyShort size="small">{stats.implemented} implementert</BodyShort>
-									<BodyShort size="small">{stats.partial} delvis</BodyShort>
-									<BodyShort size="small">{mangler} mangler</BodyShort>
-									<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>
-								</div>
-								<div className="domain-status-card-link-footer">Administrer →</div>
-							</Link>
+							<DomainStatusCard
+								to={`/seksjoner/${seksjon}/applikasjoner-uten-team`}
+								title="Uten team"
+								pct={pct}
+								implemented={stats.implemented}
+								partial={stats.partial}
+								mangler={mangler}
+								barTotal={stats.total - stats.notRelevant}
+								extraDetails={<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>}
+								footer="Administrer →"
+							/>
 						)
 					})()}
 			</HGrid>

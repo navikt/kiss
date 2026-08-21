@@ -1,6 +1,7 @@
-import { BodyLong, BodyShort, Box, Detail, Heading, HGrid, VStack } from "@navikt/ds-react"
-import { data, Link, useLoaderData } from "react-router"
+import { BodyLong, Box, Detail, Heading, HGrid, VStack } from "@navikt/ds-react"
+import { data, useLoaderData } from "react-router"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
+import { DomainStatusCard } from "~/components/DomainStatusCard"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getDomainSummaries } from "~/db/queries/framework.server"
@@ -125,47 +126,21 @@ export default function Dashboard() {
 					const pct = compliancePercent(domain.implemented, domain.partial, domain.total, domain.notRelevant)
 					const mangler = domain.total - domain.implemented - domain.partial - domain.notRelevant
 					return (
-						<Link key={domain.code} to={`/kontrollrammeverk/${domain.code}`} className="domain-status-card-link">
-							<div className="domain-status-header">
-								<Heading size="small" level="4">
-									{domain.name}
-								</Heading>
-								<BodyShort weight="semibold">{pct}%</BodyShort>
-							</div>
-							<div
-								className="domain-status-bar"
-								role="progressbar"
-								aria-valuenow={pct}
-								aria-valuemin={0}
-								aria-valuemax={100}
-								aria-label={`${domain.name} compliance ${pct}%`}
-							>
-								<div
-									className="domain-status-bar-implemented"
-									style={{
-										width: `${domain.total - domain.notRelevant > 0 ? (domain.implemented / (domain.total - domain.notRelevant)) * 100 : 0}%`,
-									}}
-								/>
-								<div
-									className="domain-status-bar-partial"
-									style={{
-										width: `${domain.total - domain.notRelevant > 0 ? (domain.partial / (domain.total - domain.notRelevant)) * 100 : 0}%`,
-									}}
-								/>
-							</div>
-							<div className="domain-status-details">
-								<BodyShort size="small">{domain.implemented} implementert</BodyShort>
-								<BodyShort size="small">{domain.partial} delvis</BodyShort>
-								<BodyShort size="small">{mangler} mangler</BodyShort>
-							</div>
-							{domain.controlsWithGaps > 0 ? (
-								<div className="domain-status-card-link-footer">
-									{domain.controlsWithGaps} av {domain.controlCount} kontroller har mangler →
-								</div>
-							) : (
-								<div className="domain-status-card-link-footer">Alle kontroller i orden →</div>
-							)}
-						</Link>
+						<DomainStatusCard
+							key={domain.code}
+							to={`/kontrollrammeverk/${domain.code}`}
+							title={domain.name}
+							pct={pct}
+							implemented={domain.implemented}
+							partial={domain.partial}
+							mangler={mangler}
+							barTotal={domain.total - domain.notRelevant}
+							footer={
+								domain.controlsWithGaps > 0
+									? `${domain.controlsWithGaps} av ${domain.controlCount} kontroller har mangler →`
+									: "Alle kontroller i orden →"
+							}
+						/>
 					)
 				})}
 			</HGrid>
