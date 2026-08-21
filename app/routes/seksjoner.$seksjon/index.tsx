@@ -37,7 +37,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const user = await getAuthenticatedUser(request)
 
-	const result = await getSectionDetail(seksjon)
+	const result = await getSectionDetail(seksjon, { includeEconomyBreakdown: true })
 	if (!result) throw new Response("Seksjon ikke funnet", { status: 404 })
 
 	const [

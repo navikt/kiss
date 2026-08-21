@@ -10,6 +10,16 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+const emptyUnassigned = {
+	apps: 0,
+	implemented: 0,
+	partial: 0,
+	notImplemented: 0,
+	notRelevant: 0,
+	total: 0,
+	economyOnly: { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0, apps: 0 },
+}
+
 export const Default: Story = {
 	render: () => renderWithLoader(SeksjonDashboard, mockSeksjonDetailData(), "/seksjoner/pensjon-og-ufore"),
 }
@@ -48,7 +58,7 @@ export const IngenTeam: Story = {
 			{
 				...mockSeksjonDetailData(),
 				teams: [],
-				unassigned: { apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 },
+				unassigned: emptyUnassigned,
 				totalApps: 0,
 				totalImplemented: 0,
 				totalPartial: 0,
@@ -76,7 +86,7 @@ export const IkkeKonfigurert: Story = {
 				hasNaisTeam: false,
 				hasNaisMiljo: false,
 				teams: [],
-				unassigned: { apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 },
+				unassigned: emptyUnassigned,
 				totalApps: 0,
 				totalImplemented: 0,
 				totalPartial: 0,
@@ -106,7 +116,7 @@ export const IkkeKonfigurertIkkeAdmin: Story = {
 				hasNaisTeam: false,
 				hasNaisMiljo: false,
 				teams: [],
-				unassigned: { apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 },
+				unassigned: emptyUnassigned,
 				totalApps: 0,
 				totalImplemented: 0,
 				totalPartial: 0,

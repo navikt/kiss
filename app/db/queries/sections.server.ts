@@ -13,7 +13,7 @@ import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { routineReviews, routines } from "../schema/routines"
 import { getComplianceSummaries, getRoutineComplianceSummaries } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
-import { getEconomyClassifications } from "./economy-classification.server"
+import { type EconomyClassification, getEconomyClassifications } from "./economy-classification.server"
 import { getRoutineDeadlinesWithControls } from "./routine-deadlines.server"
 import { assignRole } from "./users.server"
 
@@ -107,7 +107,8 @@ async function getTeamAppIds(teamId: string, excludedEnvs?: Set<string>) {
 }
 
 /** Get section detail with team compliance stats. */
-export async function getSectionDetail(seksjonSlug: string) {
+export async function getSectionDetail(seksjonSlug: string, options: { includeEconomyBreakdown?: boolean } = {}) {
+	const { includeEconomyBreakdown = false } = options
 	const [section] = await db.select().from(sections).where(eq(sections.slug, seksjonSlug)).limit(1)
 	if (!section) return null
 
@@ -324,11 +325,16 @@ export async function getSectionDetail(seksjonSlug: string) {
 		unassignedAppIds = naisAppRows.map((r) => r.appId).filter((id) => !allAssignedAppIds.has(id))
 	}
 
-	// Batch-fetch compliance summaries for ALL apps in a single SQL query
+	// Batch-fetch compliance summaries for ALL apps in a single SQL query.
+	// Economy classifications are only fetched when a caller needs the economy-only breakdown,
+	// since several consumers (e.g. rapporter, koblingsforslag) don't use it and some already
+	// fetch classifications themselves.
 	const allAppIds = [...allAssignedAppIds, ...unassignedAppIds.filter((id) => !allAssignedAppIds.has(id))]
 	const [summaryMap, economyMap] = await Promise.all([
 		getComplianceSummaries(allAppIds),
-		getEconomyClassifications(allAppIds),
+		includeEconomyBreakdown
+			? getEconomyClassifications(allAppIds)
+			: Promise.resolve(new Map<string, EconomyClassification>()),
 	])
 
 	const emptyStats = () => ({ apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 })
