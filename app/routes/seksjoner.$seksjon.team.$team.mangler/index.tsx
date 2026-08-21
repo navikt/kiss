@@ -1,6 +1,7 @@
 import { BodyShort, Box, Heading, HStack, Switch, Table, Tag, VStack } from "@navikt/ds-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { data, Link, useLoaderData } from "react-router"
+import { FilterSelect } from "~/components/FilterSelect"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionBySlug, getTeamComplianceGaps } from "~/db/queries/sections.server"
 import { economySystemTypeLabels } from "~/db/schema/applications"
@@ -32,8 +33,29 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 export default function TeamComplianceGaps() {
 	const { seksjon, seksjonName, team, teamName, gaps } = useLoaderData<typeof loader>()
 	const [showEconomyOnly, setShowEconomyOnly] = useState(false)
+	const [appFilter, setAppFilter] = useState("")
+	const [controlFilter, setControlFilter] = useState("")
 
-	const visibleGaps = showEconomyOnly ? gaps.filter((gap) => gap.isEconomySystem === true) : gaps
+	const appOptions = useMemo(() => {
+		const byId = new Map<string, string>()
+		for (const gap of gaps) byId.set(gap.appId, gap.appName)
+		return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1], "nb"))
+	}, [gaps])
+
+	const controlOptions = useMemo(() => {
+		const byCode = new Map<string, string>()
+		for (const gap of gaps) byCode.set(gap.controlCode, gap.controlName)
+		return [...byCode.entries()].sort((a, b) => a[0].localeCompare(b[0], "nb"))
+	}, [gaps])
+
+	const visibleGaps = useMemo(() => {
+		return gaps.filter((gap) => {
+			if (showEconomyOnly && gap.isEconomySystem !== true) return false
+			if (appFilter && gap.appId !== appFilter) return false
+			if (controlFilter && gap.controlCode !== controlFilter) return false
+			return true
+		})
+	}, [gaps, showEconomyOnly, appFilter, controlFilter])
 
 	return (
 		<VStack gap="space-8">
@@ -49,6 +71,25 @@ export default function TeamComplianceGaps() {
 				<BodyShort textColor="subtle">{gaps.length} kontroller mangler vurdering</BodyShort>
 			</VStack>
 
+			<HStack gap="space-4" wrap>
+				<FilterSelect
+					label="Applikasjon"
+					allLabel="Alle applikasjoner"
+					value={appFilter}
+					onChange={setAppFilter}
+					options={appOptions}
+					style={{ maxWidth: "20rem" }}
+				/>
+				<FilterSelect
+					label="Kontroll"
+					allLabel="Alle kontroller"
+					value={controlFilter}
+					onChange={setControlFilter}
+					options={controlOptions.map(([code, name]) => [code, `${code} – ${name}`] as const)}
+					style={{ maxWidth: "20rem" }}
+				/>
+			</HStack>
+
 			<HStack justify="space-between" align="center" wrap>
 				<Heading size="medium" level="3">
 					Kontroller
@@ -63,7 +104,7 @@ export default function TeamComplianceGaps() {
 					<BodyShort>Ingen mangler registrert for dette teamet. Bra jobbet! 🎉</BodyShort>
 				</Box>
 			) : visibleGaps.length === 0 ? (
-				<BodyShort>Ingen mangler er klassifisert som økonomisystem.</BodyShort>
+				<BodyShort>Ingen mangler matcher filteret.</BodyShort>
 			) : (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
 				<section className="table-scroll" tabIndex={0} aria-label="Mangler per applikasjon">
