@@ -10,10 +10,12 @@ import {
 	HGrid,
 	HStack,
 	ReadMore,
+	Switch,
 	Tag,
 	Tooltip,
 	VStack,
 } from "@navikt/ds-react"
+import { useState } from "react"
 import { data, Link, useLoaderData } from "react-router"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
@@ -146,6 +148,7 @@ export default function SeksjonDashboard() {
 	} = useLoaderData<typeof loader>()
 
 	const redigerBase = `/seksjoner/${seksjon}/rediger`
+	const [showEconomyOnly, setShowEconomyOnly] = useState(false)
 
 	return (
 		<VStack gap="space-8">
@@ -435,14 +438,20 @@ export default function SeksjonDashboard() {
 
 			<DeploymentSummaryCards stats={deploymentStats} />
 
-			<Heading size="large" level="3">
-				Team
-			</Heading>
+			<HStack justify="space-between" align="center" wrap>
+				<Heading size="large" level="3">
+					Team
+				</Heading>
+				<Switch size="small" checked={showEconomyOnly} onChange={(e) => setShowEconomyOnly(e.target.checked)}>
+					Vis kun økonomisystemer
+				</Switch>
+			</HStack>
 
 			<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
 				{teams.map((team) => {
-					const pct = compliancePercent(team.implemented, team.partial, team.total, team.notRelevant)
-					const mangler = team.total - team.implemented - team.partial - team.notImplemented - team.notRelevant
+					const stats = showEconomyOnly ? team.economyOnly : team
+					const pct = compliancePercent(stats.implemented, stats.partial, stats.total, stats.notRelevant)
+					const mangler = stats.total - stats.implemented - stats.partial - stats.notImplemented - stats.notRelevant
 					return (
 						<Link key={team.slug} to={`/seksjoner/${seksjon}/team/${team.slug}`} className="domain-status-card-link">
 							<div className="domain-status-header">
@@ -462,21 +471,21 @@ export default function SeksjonDashboard() {
 								<div
 									className="domain-status-bar-implemented"
 									style={{
-										width: `${team.total - team.notRelevant > 0 ? (team.implemented / (team.total - team.notRelevant)) * 100 : 0}%`,
+										width: `${stats.total - stats.notRelevant > 0 ? (stats.implemented / (stats.total - stats.notRelevant)) * 100 : 0}%`,
 									}}
 								/>
 								<div
 									className="domain-status-bar-partial"
 									style={{
-										width: `${team.total - team.notRelevant > 0 ? (team.partial / (team.total - team.notRelevant)) * 100 : 0}%`,
+										width: `${stats.total - stats.notRelevant > 0 ? (stats.partial / (stats.total - stats.notRelevant)) * 100 : 0}%`,
 									}}
 								/>
 							</div>
 							<div className="domain-status-details">
-								<BodyShort size="small">{team.implemented} implementert</BodyShort>
-								<BodyShort size="small">{team.partial} delvis</BodyShort>
+								<BodyShort size="small">{stats.implemented} implementert</BodyShort>
+								<BodyShort size="small">{stats.partial} delvis</BodyShort>
 								<BodyShort size="small">{mangler} mangler</BodyShort>
-								<BodyShort size="small">{team.apps} applikasjoner</BodyShort>
+								<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>
 							</div>
 							<div className="domain-status-card-link-footer">Se detaljer →</div>
 						</Link>
@@ -484,18 +493,9 @@ export default function SeksjonDashboard() {
 				})}
 				{unassigned.apps > 0 &&
 					(() => {
-						const pct = compliancePercent(
-							unassigned.implemented,
-							unassigned.partial,
-							unassigned.total,
-							unassigned.notRelevant,
-						)
-						const mangler =
-							unassigned.total -
-							unassigned.implemented -
-							unassigned.partial -
-							unassigned.notImplemented -
-							unassigned.notRelevant
+						const stats = showEconomyOnly ? unassigned.economyOnly : unassigned
+						const pct = compliancePercent(stats.implemented, stats.partial, stats.total, stats.notRelevant)
+						const mangler = stats.total - stats.implemented - stats.partial - stats.notImplemented - stats.notRelevant
 						return (
 							<Link to={`/seksjoner/${seksjon}/applikasjoner-uten-team`} className="domain-status-card-link">
 								<div className="domain-status-header">
@@ -515,21 +515,21 @@ export default function SeksjonDashboard() {
 									<div
 										className="domain-status-bar-implemented"
 										style={{
-											width: `${unassigned.total - unassigned.notRelevant > 0 ? (unassigned.implemented / (unassigned.total - unassigned.notRelevant)) * 100 : 0}%`,
+											width: `${stats.total - stats.notRelevant > 0 ? (stats.implemented / (stats.total - stats.notRelevant)) * 100 : 0}%`,
 										}}
 									/>
 									<div
 										className="domain-status-bar-partial"
 										style={{
-											width: `${unassigned.total - unassigned.notRelevant > 0 ? (unassigned.partial / (unassigned.total - unassigned.notRelevant)) * 100 : 0}%`,
+											width: `${stats.total - stats.notRelevant > 0 ? (stats.partial / (stats.total - stats.notRelevant)) * 100 : 0}%`,
 										}}
 									/>
 								</div>
 								<div className="domain-status-details">
-									<BodyShort size="small">{unassigned.implemented} implementert</BodyShort>
-									<BodyShort size="small">{unassigned.partial} delvis</BodyShort>
+									<BodyShort size="small">{stats.implemented} implementert</BodyShort>
+									<BodyShort size="small">{stats.partial} delvis</BodyShort>
 									<BodyShort size="small">{mangler} mangler</BodyShort>
-									<BodyShort size="small">{unassigned.apps} applikasjoner</BodyShort>
+									<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>
 								</div>
 								<div className="domain-status-card-link-footer">Administrer →</div>
 							</Link>

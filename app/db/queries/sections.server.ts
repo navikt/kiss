@@ -326,70 +326,44 @@ export async function getSectionDetail(seksjonSlug: string) {
 
 	// Batch-fetch compliance summaries for ALL apps in a single SQL query
 	const allAppIds = [...allAssignedAppIds, ...unassignedAppIds.filter((id) => !allAssignedAppIds.has(id))]
-	const summaryMap = await getComplianceSummaries(allAppIds)
+	const [summaryMap, economyMap] = await Promise.all([
+		getComplianceSummaries(allAppIds),
+		getEconomyClassifications(allAppIds),
+	])
 
-	// Build team stats from the pre-fetched map
-	const teamStats = teamAppMaps.map(({ team, allIds }) => {
-		let implemented = 0
-		let partial = 0
-		let notImplemented = 0
-		let notRelevant = 0
-		let total = 0
+	const emptyStats = () => ({ apps: 0, implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 })
 
-		for (const appId of allIds) {
+	// Aggregate compliance for a set of app IDs, optionally restricted to economy-system apps
+	function aggregateStats(appIds: Iterable<string>, economyOnly: boolean) {
+		const stats = emptyStats()
+		for (const appId of appIds) {
+			if (economyOnly && !economyMap.get(appId)?.isEconomySystem) continue
 			const s = summaryMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 }
-			implemented += s.implemented
-			partial += s.partial
-			notImplemented += s.notImplemented
-			notRelevant += s.notRelevant
-			total += s.total
+			stats.apps += 1
+			stats.implemented += s.implemented
+			stats.partial += s.partial
+			stats.notImplemented += s.notImplemented
+			stats.notRelevant += s.notRelevant
+			stats.total += s.total
 		}
-
-		return {
-			slug: team.slug,
-			name: team.name,
-			apps: allIds.size,
-			implemented,
-			partial,
-			notImplemented,
-			notRelevant,
-			total,
-		}
-	})
-
-	// Build unassigned stats
-	let unassignedStats = {
-		apps: 0,
-		implemented: 0,
-		partial: 0,
-		notImplemented: 0,
-		notRelevant: 0,
-		total: 0,
+		return stats
 	}
 
+	// Build team stats from the pre-fetched map — both "all apps" and "economy systems only" variants
+	const teamStats = teamAppMaps.map(({ team, allIds }) => ({
+		slug: team.slug,
+		name: team.name,
+		...aggregateStats(allIds, false),
+		economyOnly: aggregateStats(allIds, true),
+	}))
+
+	// Build unassigned stats — both "all apps" and "economy systems only" variants
+	let unassignedStats = { ...emptyStats(), economyOnly: emptyStats() }
+
 	if (unassignedAppIds.length > 0) {
-		let uImpl = 0
-		let uPartial = 0
-		let uNotImpl = 0
-		let uNotRel = 0
-		let uTotal = 0
-
-		for (const appId of unassignedAppIds) {
-			const s = summaryMap.get(appId) ?? { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0 }
-			uImpl += s.implemented
-			uPartial += s.partial
-			uNotImpl += s.notImplemented
-			uNotRel += s.notRelevant
-			uTotal += s.total
-		}
-
 		unassignedStats = {
-			apps: unassignedAppIds.length,
-			implemented: uImpl,
-			partial: uPartial,
-			notImplemented: uNotImpl,
-			notRelevant: uNotRel,
-			total: uTotal,
+			...aggregateStats(unassignedAppIds, false),
+			economyOnly: aggregateStats(unassignedAppIds, true),
 		}
 
 		for (const id of unassignedAppIds) {
