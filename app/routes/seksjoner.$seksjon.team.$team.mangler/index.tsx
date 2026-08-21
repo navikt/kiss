@@ -71,9 +71,7 @@ export default function TeamComplianceGaps() {
 					Mangler
 				</Heading>
 				<BodyShort textColor="subtle">{gaps.length} kontroller mangler vurdering</BodyShort>
-				<BodyShort textColor="subtle">
-					{economyGapCount} kontroller mangler vurderinger på økonomisystemer
-				</BodyShort>
+				<BodyShort textColor="subtle">{economyGapCount} kontroller mangler vurderinger på økonomisystemer</BodyShort>
 			</VStack>
 
 			<HStack gap="space-4" wrap>
