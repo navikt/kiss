@@ -2712,3 +2712,54 @@ export function mockTeamRutinerEmptyData() {
 		appRoutines: [],
 	}
 }
+
+export function mockTeamGapsData() {
+	return {
+		seksjon: "pensjon-og-ufore",
+		seksjonName: "Pensjon og uføre",
+		team: "starte-pensjon",
+		teamName: "Starte pensjon",
+		gaps: [
+			{
+				id: "gap-1",
+				appId: "app-1",
+				appName: "pensjon-sak",
+				isEconomySystem: true,
+				economySystemType: "lonnssystem" as const,
+				controlCode: "K-ST.01",
+				controlName: "Autentisering av brukere",
+				technologyElement: "Entra ID",
+			},
+			{
+				id: "gap-2",
+				appId: "app-1",
+				appName: "pensjon-sak",
+				isEconomySystem: true,
+				economySystemType: "regnskapssystem" as const,
+				controlCode: "K-ST.04",
+				controlName: "Sporbarhet for utbetalinger",
+				technologyElement: "Oracle",
+			},
+			{
+				id: "gap-3",
+				appId: "app-2",
+				appName: "psak-frontend",
+				isEconomySystem: false,
+				economySystemType: null,
+				controlCode: "K-ST.02",
+				controlName: "Tilgangsstyring",
+				technologyElement: null,
+			},
+		],
+	}
+}
+
+export function mockTeamGapsEmptyData() {
+	return {
+		seksjon: "pensjon-og-ufore",
+		seksjonName: "Pensjon og uføre",
+		team: "starte-pensjon",
+		teamName: "Starte pensjon",
+		gaps: [],
+	}
+}
