@@ -1,6 +1,7 @@
-import { BodyShort, Box, Heading, HStack, Select, Switch, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyShort, Box, Heading, HStack, Switch, Table, Tag, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
 import { data, Link, useLoaderData } from "react-router"
+import { FilterSelect } from "~/components/FilterSelect"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionBySlug, getTeamComplianceGaps } from "~/db/queries/sections.server"
 import { economySystemTypeLabels } from "~/db/schema/applications"
@@ -71,34 +72,22 @@ export default function TeamComplianceGaps() {
 			</VStack>
 
 			<HStack gap="space-4" wrap>
-				<Select
+				<FilterSelect
 					label="Applikasjon"
-					size="small"
+					allLabel="Alle applikasjoner"
 					value={appFilter}
-					onChange={(e) => setAppFilter(e.target.value)}
+					onChange={setAppFilter}
+					options={appOptions}
 					style={{ maxWidth: "20rem" }}
-				>
-					<option value="">Alle applikasjoner</option>
-					{appOptions.map(([appId, appName]) => (
-						<option key={appId} value={appId}>
-							{appName}
-						</option>
-					))}
-				</Select>
-				<Select
+				/>
+				<FilterSelect
 					label="Kontroll"
-					size="small"
+					allLabel="Alle kontroller"
 					value={controlFilter}
-					onChange={(e) => setControlFilter(e.target.value)}
+					onChange={setControlFilter}
+					options={controlOptions.map(([code, name]) => [code, `${code} – ${name}`] as const)}
 					style={{ maxWidth: "20rem" }}
-				>
-					<option value="">Alle kontroller</option>
-					{controlOptions.map(([controlCode, controlName]) => (
-						<option key={controlCode} value={controlCode}>
-							{controlCode} – {controlName}
-						</option>
-					))}
-				</Select>
+				/>
 			</HStack>
 
 			<HStack justify="space-between" align="center" wrap>
