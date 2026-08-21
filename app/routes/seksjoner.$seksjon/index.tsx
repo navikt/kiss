@@ -31,6 +31,20 @@ import { canManageSection, canViewSectionReports, isAdmin } from "~/lib/authoriz
 import { compliancePercent } from "~/lib/utils"
 import type { Route } from "./+types/index"
 
+/** Compute progress-bar percentage and remaining count for a compliance stats group. */
+function complianceFigures(stats: {
+	implemented: number
+	partial: number
+	notImplemented: number
+	notRelevant: number
+	total: number
+}) {
+	return {
+		pct: compliancePercent(stats.implemented, stats.partial, stats.total, stats.notRelevant),
+		mangler: stats.total - stats.implemented - stats.partial - stats.notImplemented - stats.notRelevant,
+	}
+}
+
 export async function loader({ request, params }: Route.LoaderArgs) {
 	const seksjon = params.seksjon
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
@@ -150,6 +164,11 @@ export default function SeksjonDashboard() {
 
 	const redigerBase = `/seksjoner/${seksjon}/rediger`
 	const [showEconomyOnly, setShowEconomyOnly] = useState(false)
+
+	const hasAnyGroups = teams.length > 0 || unassigned.apps > 0
+	const visibleTeams = showEconomyOnly ? teams.filter((team) => team.economyOnly.apps > 0) : teams
+	const showUnassignedCard = unassigned.apps > 0 && (!showEconomyOnly || unassigned.economyOnly.apps > 0)
+	const noEconomyMatches = showEconomyOnly && hasAnyGroups && visibleTeams.length === 0 && !showUnassignedCard
 
 	return (
 		<VStack gap="space-8">
@@ -448,46 +467,48 @@ export default function SeksjonDashboard() {
 				</Switch>
 			</HStack>
 
-			<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
-				{teams.map((team) => {
-					const stats = showEconomyOnly ? team.economyOnly : team
-					const pct = compliancePercent(stats.implemented, stats.partial, stats.total, stats.notRelevant)
-					const mangler = stats.total - stats.implemented - stats.partial - stats.notImplemented - stats.notRelevant
-					return (
-						<DomainStatusCard
-							key={team.slug}
-							to={`/seksjoner/${seksjon}/team/${team.slug}`}
-							title={team.name}
-							pct={pct}
-							implemented={stats.implemented}
-							partial={stats.partial}
-							mangler={mangler}
-							barTotal={stats.total - stats.notRelevant}
-							extraDetails={<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>}
-							footer="Se detaljer →"
-						/>
-					)
-				})}
-				{unassigned.apps > 0 &&
-					(() => {
-						const stats = showEconomyOnly ? unassigned.economyOnly : unassigned
-						const pct = compliancePercent(stats.implemented, stats.partial, stats.total, stats.notRelevant)
-						const mangler = stats.total - stats.implemented - stats.partial - stats.notImplemented - stats.notRelevant
+			{noEconomyMatches ? (
+				<BodyShort>Ingen applikasjoner er klassifisert som økonomisystem.</BodyShort>
+			) : (
+				<HGrid gap="space-6" columns={{ xs: 1, sm: 2 }}>
+					{visibleTeams.map((team) => {
+						const stats = showEconomyOnly ? team.economyOnly : team
+						const { pct, mangler } = complianceFigures(stats)
 						return (
 							<DomainStatusCard
-								to={`/seksjoner/${seksjon}/applikasjoner-uten-team`}
-								title="Uten team"
+								key={team.slug}
+								to={`/seksjoner/${seksjon}/team/${team.slug}`}
+								title={team.name}
 								pct={pct}
 								implemented={stats.implemented}
 								partial={stats.partial}
 								mangler={mangler}
 								barTotal={stats.total - stats.notRelevant}
 								extraDetails={<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>}
-								footer="Administrer →"
+								footer="Se detaljer →"
 							/>
 						)
-					})()}
-			</HGrid>
+					})}
+					{showUnassignedCard &&
+						(() => {
+							const stats = showEconomyOnly ? unassigned.economyOnly : unassigned
+							const { pct, mangler } = complianceFigures(stats)
+							return (
+								<DomainStatusCard
+									to={`/seksjoner/${seksjon}/applikasjoner-uten-team`}
+									title="Uten team"
+									pct={pct}
+									implemented={stats.implemented}
+									partial={stats.partial}
+									mangler={mangler}
+									barTotal={stats.total - stats.notRelevant}
+									extraDetails={<BodyShort size="small">{stats.apps} applikasjoner</BodyShort>}
+									footer="Administrer →"
+								/>
+							)
+						})()}
+				</HGrid>
+			)}
 		</VStack>
 	)
 }
