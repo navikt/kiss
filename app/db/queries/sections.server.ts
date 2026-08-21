@@ -355,12 +355,13 @@ export async function getSectionDetail(seksjonSlug: string, options: { includeEc
 		return stats
 	}
 
-	// Build team stats from the pre-fetched map — both "all apps" and "economy systems only" variants
+	// Build team stats from the pre-fetched map — both "all apps" and "economy systems only" variants.
+	// The economy-only pass is skipped entirely when it isn't requested, since economyMap is empty then anyway.
 	const teamStats = teamAppMaps.map(({ team, allIds }) => ({
 		slug: team.slug,
 		name: team.name,
 		...aggregateStats(allIds, false),
-		economyOnly: aggregateStats(allIds, true),
+		economyOnly: includeEconomyBreakdown ? aggregateStats(allIds, true) : emptyStats(),
 	}))
 
 	// Build unassigned stats — both "all apps" and "economy systems only" variants
@@ -369,7 +370,7 @@ export async function getSectionDetail(seksjonSlug: string, options: { includeEc
 	if (unassignedAppIds.length > 0) {
 		unassignedStats = {
 			...aggregateStats(unassignedAppIds, false),
-			economyOnly: aggregateStats(unassignedAppIds, true),
+			economyOnly: includeEconomyBreakdown ? aggregateStats(unassignedAppIds, true) : emptyStats(),
 		}
 
 		for (const id of unassignedAppIds) {

@@ -10,6 +10,8 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+const zeroEconomyStats = { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0, apps: 0 }
+
 const emptyUnassigned = {
 	apps: 0,
 	implemented: 0,
@@ -17,7 +19,7 @@ const emptyUnassigned = {
 	notImplemented: 0,
 	notRelevant: 0,
 	total: 0,
-	economyOnly: { implemented: 0, partial: 0, notImplemented: 0, notRelevant: 0, total: 0, apps: 0 },
+	economyOnly: zeroEconomyStats,
 }
 
 export const Default: Story = {
@@ -26,22 +28,41 @@ export const Default: Story = {
 
 export const IngenOkonomisystemer: Story = {
 	name: "Ingen økonomisystemer",
-	render: () =>
-		renderWithLoader(
+	render: () => {
+		const base = mockSeksjonDetailData()
+		return renderWithLoader(
 			SeksjonDashboard,
-			{ ...mockSeksjonDetailData(), economySystemCount: 0, economySystemExpiredCount: 0 },
+			{
+				...base,
+				economySystemCount: 0,
+				economySystemExpiredCount: 0,
+				// Ingen apper er klassifisert som økonomisystem i dette scenarioet, så «Vis kun
+				// økonomisystemer»-toggelen skal ikke vise noen data for team/uten-team heller.
+				teams: base.teams.map((team) => ({ ...team, economyOnly: zeroEconomyStats })),
+				unassigned: { ...base.unassigned, economyOnly: zeroEconomyStats },
+			},
 			"/seksjoner/pensjon-og-ufore",
-		),
+		)
+	},
 }
 
 export const MedUtlopteOkonomisystemer: Story = {
 	name: "Med utløpte økonomisystemer",
-	render: () =>
-		renderWithLoader(
+	render: () => {
+		const base = mockSeksjonDetailData()
+		return renderWithLoader(
 			SeksjonDashboard,
-			{ ...mockSeksjonDetailData(), economySystemCount: 5, economySystemExpiredCount: 3 },
+			{
+				...base,
+				economySystemCount: 5,
+				economySystemExpiredCount: 3,
+				// base.teams sin economyOnly summerer allerede til 5 apper (2+1+2), så bare
+				// nullstill "uten team" for å holde totalen konsistent med economySystemCount.
+				unassigned: { ...base.unassigned, economyOnly: zeroEconomyStats },
+			},
 			"/seksjoner/pensjon-og-ufore",
-		),
+		)
+	},
 }
 
 export const IkkeAdmin: Story = {
