@@ -5,7 +5,12 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionBySlug, getTeamComplianceGaps } from "~/db/queries/sections.server"
 import { economySystemTypeLabels } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { establishmentLabels, establishmentVariants } from "~/lib/compliance-status"
+import {
+	complianceLabels,
+	complianceVariants,
+	establishmentLabels,
+	establishmentVariants,
+} from "~/lib/compliance-status"
 import { routinePriorityLabels, routinePriorityVariants } from "~/lib/routine-priorities"
 import type { Route } from "./+types/index"
 
@@ -77,8 +82,8 @@ export default function TeamComplianceGaps() {
 								<Table.HeaderCell scope="col">Teknologielement</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Rutine</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Kritikalitet</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Rutinestatus</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Økonomisystem</Table.HeaderCell>
-								<Table.HeaderCell scope="col" />
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
@@ -125,6 +130,15 @@ export default function TeamComplianceGaps() {
 										)}
 									</Table.DataCell>
 									<Table.DataCell>
+										{gap.routineCompliance === "not_applicable" ? (
+											"–"
+										) : (
+											<Tag variant={complianceVariants[gap.routineCompliance]} size="small">
+												{complianceLabels[gap.routineCompliance]}
+											</Tag>
+										)}
+									</Table.DataCell>
+									<Table.DataCell>
 										{gap.isEconomySystem === null ? (
 											"–"
 										) : gap.isEconomySystem ? (
@@ -134,14 +148,6 @@ export default function TeamComplianceGaps() {
 										) : (
 											"Nei"
 										)}
-									</Table.DataCell>
-									<Table.DataCell>
-										<Link
-											to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${gap.appId}/detaljer?fane=kontroller`}
-											aria-label={`Vurder ${gap.controlCode} for ${gap.appName}`}
-										>
-											Vurder
-										</Link>
 									</Table.DataCell>
 								</Table.Row>
 							))}

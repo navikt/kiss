@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
-import type { RoutineEstablishment } from "~/lib/compliance-status"
+import type { RoutineCompliance, RoutineEstablishment } from "~/lib/compliance-status"
 import { isValidRoutinePriority, type RoutinePriority } from "~/lib/routine-priorities"
 import { db } from "../connection.server"
 import { isUniqueViolation } from "../pg-errors.server"
@@ -814,6 +814,7 @@ export interface TeamComplianceGapRow {
 	controlName: string
 	technologyElement: string | null
 	establishment: RoutineEstablishment
+	routineCompliance: RoutineCompliance
 	routines: TeamComplianceGapRoutine[]
 }
 
@@ -859,6 +860,7 @@ export async function getTeamComplianceGaps(teamSlug: string) {
 						requirement: frameworkControls.requirement,
 						technologyElement: frameworkControls.technologyElement,
 						establishment: applicationControls.establishment,
+						routineCompliance: applicationControls.routineCompliance,
 						matchingRoutineIds: applicationControls.matchingRoutineIds,
 					})
 					.from(applicationControls)
@@ -907,6 +909,7 @@ export async function getTeamComplianceGaps(teamSlug: string) {
 				controlName: row.controlName ?? firstRequirementLine ?? row.controlCode,
 				technologyElement: row.technologyElement,
 				establishment: row.establishment as RoutineEstablishment,
+				routineCompliance: row.routineCompliance as RoutineCompliance,
 				routines: rowRoutines,
 			}
 		})

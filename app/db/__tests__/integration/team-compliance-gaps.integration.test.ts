@@ -8,7 +8,8 @@
  * - Control with a determined status (e.g. implemented) → excluded
  * - Inactive control (isActive=false) → excluded
  * - Economy classification is carried through onto each gap row
- * - Routine establishment state and matched routine name/priority are carried through
+ * - Routine establishment state, matched routine name/priority and routine compliance are
+ *   carried through
  * - A gap with no matching routine reports establishment "not_established" and no routines
  */
 import { sql } from "drizzle-orm"
@@ -59,9 +60,19 @@ async function insertApplicationControl(
 	appId: string,
 	controlId: string,
 	status: string | null,
-	options: { isActive?: boolean; establishment?: string; matchingRoutineIds?: string[] } = {},
+	options: {
+		isActive?: boolean
+		establishment?: string
+		routineCompliance?: string
+		matchingRoutineIds?: string[]
+	} = {},
 ) {
-	const { isActive = true, establishment = "not_established", matchingRoutineIds = [] } = options
+	const {
+		isActive = true,
+		establishment = "not_established",
+		routineCompliance = "not_applicable",
+		matchingRoutineIds = [],
+	} = options
 	const db = getTestDb()
 	const routineIdsArray =
 		matchingRoutineIds.length > 0
@@ -72,10 +83,10 @@ async function insertApplicationControl(
 			: sql`ARRAY[]::uuid[]`
 	await db.execute(
 		sql`INSERT INTO application_controls
-			(application_id, control_id, status, is_active, establishment, matching_routine_ids,
-			activated_at, created_by, updated_by)
-			VALUES (${appId}, ${controlId}, ${status}, ${isActive}, ${establishment}, ${routineIdsArray},
-			NOW(), 'test', 'test')`,
+			(application_id, control_id, status, is_active, establishment, routine_compliance,
+			matching_routine_ids, activated_at, created_by, updated_by)
+			VALUES (${appId}, ${controlId}, ${status}, ${isActive}, ${establishment}, ${routineCompliance},
+			${routineIdsArray}, NOW(), 'test', 'test')`,
 	)
 }
 
@@ -193,7 +204,7 @@ describe("getTeamComplianceGaps", () => {
 		expect(nonEconomyGap?.isEconomySystem).toBe(false)
 	})
 
-	it("carries routine establishment state and matched routine name/priority onto the gap row", async () => {
+	it("carries routine establishment, matched routine name/priority and routine compliance", async () => {
 		const section = await insertTestSection("Seksjon med rutine", null, "test")
 		const team = await createTeam(section.id, "Team med rutine", null, "test")
 
@@ -207,6 +218,7 @@ describe("getTeamComplianceGaps", () => {
 
 		await insertApplicationControl(appId, establishedControl, null, {
 			establishment: "established",
+			routineCompliance: "overdue",
 			matchingRoutineIds: [routineId],
 		})
 		await insertApplicationControl(appId, unestablishedControl, null, { establishment: "not_established" })
@@ -218,10 +230,12 @@ describe("getTeamComplianceGaps", () => {
 
 		const establishedGap = result?.gaps.find((g) => g.controlCode === "K-GAP.20")
 		expect(establishedGap?.establishment).toBe("established")
+		expect(establishedGap?.routineCompliance).toBe("overdue")
 		expect(establishedGap?.routines).toEqual([{ id: routineId, name: "Tilgangsgjennomgang", priority: 1 }])
 
 		const unestablishedGap = result?.gaps.find((g) => g.controlCode === "K-GAP.21")
 		expect(unestablishedGap?.establishment).toBe("not_established")
+		expect(unestablishedGap?.routineCompliance).toBe("not_applicable")
 		expect(unestablishedGap?.routines).toEqual([])
 	})
 })

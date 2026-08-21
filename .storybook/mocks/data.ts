@@ -2731,6 +2731,7 @@ export function mockTeamGapsData() {
 				controlName: "Autentisering av brukere",
 				technologyElement: "Entra ID",
 				establishment: "established" as const,
+				routineCompliance: "overdue" as const,
 				routines: [{ id: "routine-1", name: "Autentiseringsrutine", priority: 1 as const }],
 			},
 			{
@@ -2744,6 +2745,7 @@ export function mockTeamGapsData() {
 				controlName: "Sporbarhet for utbetalinger",
 				technologyElement: "Oracle",
 				establishment: "not_established" as const,
+				routineCompliance: "not_applicable" as const,
 				routines: [],
 			},
 			{
@@ -2757,6 +2759,7 @@ export function mockTeamGapsData() {
 				controlName: "Tilgangsstyring",
 				technologyElement: null,
 				establishment: "not_relevant" as const,
+				routineCompliance: "not_applicable" as const,
 				routines: [],
 			},
 		],
