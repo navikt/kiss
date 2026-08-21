@@ -6,9 +6,11 @@ import {
 	applicationEnvironments,
 	applicationTeamMappings,
 	devTeamNaisTeamMappings,
+	type EconomySystemType,
 	monitoredApplications,
 	naisTeams,
 } from "../schema/applications"
+import { frameworkControls } from "../schema/framework"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { routineReviews, routines } from "../schema/routines"
 import { getComplianceSummaries, getRoutineComplianceSummaries } from "./application-controls.server"
@@ -791,6 +793,90 @@ export async function getTeamApps(teamSlug: string) {
 	apps.sort((a, b) => a.appName.localeCompare(b.appName, "nb"))
 
 	return { team, apps }
+}
+
+export interface TeamComplianceGapRow {
+	appId: string
+	appName: string
+	isEconomySystem: boolean | null
+	economySystemType: EconomySystemType | null
+	controlCode: string
+	controlName: string
+	technologyElement: string | null
+}
+
+/**
+ * Get the individual controls contributing to the "Mangler" count on the team dashboard —
+ * i.e. active application_controls rows with no computed status (not yet auto-assessed,
+ * typically because required screening questions haven't been answered).
+ */
+export async function getTeamComplianceGaps(teamSlug: string) {
+	const [team] = await db.select().from(devTeams).where(eq(devTeams.slug, teamSlug)).limit(1)
+	if (!team) return null
+
+	const excludedEnvRows = await db
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, team.sectionId), eq(sectionEnvironments.included, false)))
+	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
+
+	const { allIds } = await getTeamAppIds(team.id, excludedEnvs)
+	const appIdList = [...allIds]
+
+	const appRows =
+		appIdList.length > 0
+			? await db
+					.select()
+					.from(monitoredApplications)
+					.where(and(inArray(monitoredApplications.id, appIdList), isNull(monitoredApplications.archivedAt)))
+			: []
+	const appById = new Map(appRows.map((a) => [a.id, a]))
+	const activeAppIds = appRows.map((a) => a.id)
+
+	const economyMap = await getEconomyClassifications(activeAppIds)
+
+	const gapRows =
+		activeAppIds.length > 0
+			? await db
+					.select({
+						appId: applicationControls.applicationId,
+						controlCode: frameworkControls.controlId,
+						controlName: frameworkControls.shortTitle,
+						requirement: frameworkControls.requirement,
+						technologyElement: frameworkControls.technologyElement,
+					})
+					.from(applicationControls)
+					.innerJoin(frameworkControls, eq(applicationControls.controlId, frameworkControls.id))
+					.where(
+						and(
+							inArray(applicationControls.applicationId, activeAppIds),
+							eq(applicationControls.isActive, true),
+							isNull(applicationControls.status),
+						),
+					)
+			: []
+
+	const gaps: TeamComplianceGapRow[] = gapRows
+		.map((row) => {
+			const app = appById.get(row.appId)
+			if (!app) return null
+			const economy = economyMap.get(row.appId)
+			const firstRequirementLine = row.requirement?.split("\n")[0]?.trim()
+			return {
+				appId: row.appId,
+				appName: app.name,
+				isEconomySystem: economy?.isEconomySystem ?? null,
+				economySystemType: economy?.economySystemType ?? null,
+				controlCode: row.controlCode,
+				controlName: row.controlName ?? firstRequirementLine ?? row.controlCode,
+				technologyElement: row.technologyElement,
+			}
+		})
+		.filter((g): g is TeamComplianceGapRow => g !== null)
+
+	gaps.sort((a, b) => a.appName.localeCompare(b.appName, "nb") || a.controlCode.localeCompare(b.controlCode, "nb"))
+
+	return { team, gaps }
 }
 
 /** Get aggregated apps across multiple dev teams (by IDs). */
