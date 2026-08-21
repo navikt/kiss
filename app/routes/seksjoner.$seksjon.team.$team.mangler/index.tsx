@@ -4,7 +4,7 @@ import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getSectionBySlug, getTeamComplianceGaps } from "~/db/queries/sections.server"
 import { economySystemTypeLabels } from "~/db/schema/applications"
-import { getAuthenticatedUser } from "~/lib/auth.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import type { Route } from "./+types/index"
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -13,7 +13,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 	if (!teamSlug) throw new Response("Mangler team", { status: 400 })
 
-	await getAuthenticatedUser(request)
+	await requireAuthenticatedUser(request)
 
 	const [result, section] = await Promise.all([getTeamComplianceGaps(teamSlug), getSectionBySlug(seksjon)])
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
