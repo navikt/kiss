@@ -9,6 +9,7 @@
  * - Inactive control (isActive=false) → excluded
  * - Economy classification is carried through onto each gap row
  */
+import { sql } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { getTestDb, getTestPool, insertTestSection, setupTestDatabase, teardownTestDatabase } from "./setup"
 
@@ -27,7 +28,7 @@ async function insertApp(name: string): Promise<string> {
 	const db = getTestDb()
 	const [app] = (
 		await db.execute(
-			/* sql */ `INSERT INTO monitored_applications (name, created_by, updated_by) VALUES ('${name}', 'test', 'test') RETURNING id`,
+			sql`INSERT INTO monitored_applications (name, created_by, updated_by) VALUES (${name}, 'test', 'test') RETURNING id`,
 		)
 	).rows as { id: string }[]
 	return app.id
@@ -36,7 +37,8 @@ async function insertApp(name: string): Promise<string> {
 async function linkAppToTeam(appId: string, teamId: string) {
 	const db = getTestDb()
 	await db.execute(
-		/* sql */ `INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES ('${appId}', '${teamId}', 'test')`,
+		sql`INSERT INTO application_team_mappings (application_id, dev_team_id, created_by)
+			VALUES (${appId}, ${teamId}, 'test')`,
 	)
 }
 
@@ -44,7 +46,8 @@ async function insertFrameworkControl(controlId: string, shortTitle: string): Pr
 	const db = getTestDb()
 	const [ctrl] = (
 		await db.execute(
-			/* sql */ `INSERT INTO framework_controls (control_id, short_title, requirement) VALUES ('${controlId}', '${shortTitle}', 'req') RETURNING id`,
+			sql`INSERT INTO framework_controls (control_id, short_title, requirement)
+				VALUES (${controlId}, ${shortTitle}, 'req') RETURNING id`,
 		)
 	).rows as { id: string }[]
 	return ctrl.id
@@ -53,18 +56,18 @@ async function insertFrameworkControl(controlId: string, shortTitle: string): Pr
 async function insertApplicationControl(appId: string, controlId: string, status: string | null, isActive = true) {
 	const db = getTestDb()
 	await db.execute(
-		/* sql */ `INSERT INTO application_controls
+		sql`INSERT INTO application_controls
 			(application_id, control_id, status, is_active, activated_at, created_by, updated_by)
-			VALUES ('${appId}', '${controlId}', ${status ? `'${status}'` : "NULL"}, ${isActive}, NOW(), 'test', 'test')`,
+			VALUES (${appId}, ${controlId}, ${status}, ${isActive}, NOW(), 'test', 'test')`,
 	)
 }
 
 async function classifyEconomy(appId: string, isEconomySystem: boolean) {
 	const db = getTestDb()
 	await db.execute(
-		/* sql */ `INSERT INTO application_economy_classifications
+		sql`INSERT INTO application_economy_classifications
 			(application_id, is_economy_system, justification, valid_until, created_by, updated_by)
-			VALUES ('${appId}', ${isEconomySystem}, 'test', now() + interval '1 year', 'test', 'test')`,
+			VALUES (${appId}, ${isEconomySystem}, 'test', now() + interval '1 year', 'test', 'test')`,
 	)
 }
 

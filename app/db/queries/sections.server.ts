@@ -796,6 +796,7 @@ export async function getTeamApps(teamSlug: string) {
 }
 
 export interface TeamComplianceGapRow {
+	id: string
 	appId: string
 	appName: string
 	isEconomySystem: boolean | null
@@ -839,6 +840,7 @@ export async function getTeamComplianceGaps(teamSlug: string) {
 		activeAppIds.length > 0
 			? await db
 					.select({
+						id: applicationControls.id,
 						appId: applicationControls.applicationId,
 						controlCode: frameworkControls.controlId,
 						controlName: frameworkControls.shortTitle,
@@ -863,6 +865,7 @@ export async function getTeamComplianceGaps(teamSlug: string) {
 			const economy = economyMap.get(row.appId)
 			const firstRequirementLine = row.requirement?.split("\n")[0]?.trim()
 			return {
+				id: row.id,
 				appId: row.appId,
 				appName: app.name,
 				isEconomySystem: economy?.isEconomySystem ?? null,

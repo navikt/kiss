@@ -2721,6 +2721,7 @@ export function mockTeamGapsData() {
 		teamName: "Starte pensjon",
 		gaps: [
 			{
+				id: "gap-1",
 				appId: "app-1",
 				appName: "pensjon-sak",
 				isEconomySystem: true,
@@ -2730,6 +2731,7 @@ export function mockTeamGapsData() {
 				technologyElement: "Entra ID",
 			},
 			{
+				id: "gap-2",
 				appId: "app-1",
 				appName: "pensjon-sak",
 				isEconomySystem: true,
@@ -2739,6 +2741,7 @@ export function mockTeamGapsData() {
 				technologyElement: "Oracle",
 			},
 			{
+				id: "gap-3",
 				appId: "app-2",
 				appName: "psak-frontend",
 				isEconomySystem: false,

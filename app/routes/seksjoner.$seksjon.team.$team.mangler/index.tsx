@@ -79,7 +79,7 @@ export default function TeamComplianceGaps() {
 						</Table.Header>
 						<Table.Body>
 							{visibleGaps.map((gap) => (
-								<Table.Row key={`${gap.appId}-${gap.controlCode}`}>
+								<Table.Row key={gap.id}>
 									<Table.DataCell>
 										<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${gap.appId}/detaljer`}>
 											{gap.appName}
@@ -101,7 +101,10 @@ export default function TeamComplianceGaps() {
 										)}
 									</Table.DataCell>
 									<Table.DataCell>
-										<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${gap.appId}/detaljer?fane=kontroller`}>
+										<Link
+											to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${gap.appId}/detaljer?fane=kontroller`}
+											aria-label={`Vurder ${gap.controlCode} for ${gap.appName}`}
+										>
 											Vurder
 										</Link>
 									</Table.DataCell>
