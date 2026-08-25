@@ -52,7 +52,7 @@ importers:
         version: 9.0.0
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.21.0)(pg@8.23.0)
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(pg@8.23.0)
       express:
         specifier: ^5.2.1
         version: 5.2.1
@@ -151,8 +151,8 @@ importers:
         specifier: ^0.17.6
         version: 0.17.6
       '@types/pg':
-        specifier: ^8.21.0
-        version: 8.21.0
+        specifier: ^8.23.1
+        version: 8.23.1
       '@types/react':
         specifier: ^19.2.18
         version: 19.2.18
@@ -2034,8 +2034,8 @@ packages:
   '@types/pdfkit@0.17.6':
     resolution: {integrity: sha512-tIwzxk2uWKp0Cq9JIluQXJid77lYhF52EsIOwhsMF4iWLA6YneoBR1xVKYYdAysHuepUB0OX4tdwMiUDdGKmig==}
 
-  '@types/pg@8.21.0':
-    resolution: {integrity: sha512-AYdtudzabjLZgVgRZmAnU8bAnVUXzuJX2IYHeSIiIHm68olD+LgQYCGWdtcNYnP0uq9c4S4NibVG3Ni7VbKW7Q==}
+  '@types/pg@8.23.1':
+    resolution: {integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==}
 
   '@types/qs@6.15.0':
     resolution: {integrity: sha512-JawvT8iBVWpzTrz3EGw9BTQFg3BQNmwERdKE22vlTxawwtbyUSlMppvZYKLZzB5zgACXdXxbD3m1bXaMqP/9ow==}
@@ -6038,7 +6038,7 @@ snapshots:
     dependencies:
       '@types/node': 24.13.3
 
-  '@types/pg@8.21.0':
+  '@types/pg@8.23.1':
     dependencies:
       '@types/node': 24.13.3
       pg-protocol: 1.16.0
@@ -6765,10 +6765,10 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.12
 
-  drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.21.0)(pg@8.23.0):
+  drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(pg@8.23.0):
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
-      '@types/pg': 8.21.0
+      '@types/pg': 8.23.1
       pg: 8.23.0
 
   dunder-proto@1.0.1:
