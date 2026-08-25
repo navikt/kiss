@@ -42,7 +42,7 @@
 		"@dnd-kit/core": "^6.3.1",
 		"@dnd-kit/sortable": "^10.0.0",
 		"@dnd-kit/utilities": "^3.2.2",
-		"@google-cloud/storage": "^7.21.0",
+		"@google-cloud/storage": "^8.0.0",
 		"@navikt/aksel-icons": "^8.16.1",
 		"@navikt/ds-css": "^8.16.1",
 		"@navikt/ds-react": "^8.16.1",
