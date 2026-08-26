@@ -402,11 +402,23 @@ describe("Application controls integration tests", () => {
 		) {
 			const db = getTestDb()
 			const ids = matchingRoutineIds.map((id) => `'${id}'`).join(",")
+			// Upsert on the (application_id, control_id, technology_element_id) constraint:
+			// this is test-fixture setup, not the code under test, so we only care about the
+			// end state existing with the given values — not about a strict single-insert path.
+			// This makes the helper resilient to any leftover row from a previous run/retry
+			// instead of intermittently failing the whole suite with a unique-violation.
 			await db.execute(
 				/* sql */ `INSERT INTO application_controls
 				(application_id, control_id, routine_compliance, matching_routine_ids, is_active, activated_at, created_by, updated_by)
 				VALUES ('${appId}', '${controlId}', 'never_reviewed',
-					ARRAY[${ids.length > 0 ? ids : ""}]::uuid[], ${isActive}, NOW(), 'test', 'test')`,
+					ARRAY[${ids.length > 0 ? ids : ""}]::uuid[], ${isActive}, NOW(), 'test', 'test')
+				ON CONFLICT ON CONSTRAINT uq_app_control DO UPDATE SET
+					routine_compliance = EXCLUDED.routine_compliance,
+					matching_routine_ids = EXCLUDED.matching_routine_ids,
+					is_active = EXCLUDED.is_active,
+					activated_at = EXCLUDED.activated_at,
+					updated_at = NOW(),
+					updated_by = EXCLUDED.updated_by`,
 			)
 		}
 
