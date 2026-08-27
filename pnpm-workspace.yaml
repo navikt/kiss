@@ -1,0 +1,9 @@
+engineStrict: true
+autoInstallPeers: true
+minimumReleaseAge: 7
+allowBuilds:
+  cpu-features: true
+  esbuild: true
+  lefthook: true
+  protobufjs: true
+  ssh2: true
