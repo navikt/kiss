@@ -10,3 +10,5 @@ allowBuilds:
   lefthook: true
   protobufjs: true
   ssh2: true
+overrides:
+  uuid@<14.0.2: '>=14.0.2 <15.0.0'
