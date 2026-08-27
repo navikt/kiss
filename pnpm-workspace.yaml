@@ -1,6 +1,9 @@
 engineStrict: true
 autoInstallPeers: true
-minimumReleaseAge: 7
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - '@navikt/*'
+  - '@nais/*'
 allowBuilds:
   cpu-features: true
   esbuild: true
