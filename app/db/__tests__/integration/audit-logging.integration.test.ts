@@ -284,6 +284,48 @@ describe("Audit logging integration tests", () => {
 			expect(result[0].appName).toBe("multi-env-app")
 		})
 
+		it("excludes apps that only run in dev clusters, even when directly mapped to a dev team", async () => {
+			// Regression test: apps mapped directly to a dev team (Path 1) previously
+			// bypassed all cluster filtering. Dev-only apps should never show up here,
+			// regardless of discovery path or section_environments configuration.
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const teamId = await createTestTeam("Backend", "backend", sectionId)
+			const naisTeamId = await createNaisTeam("nais-team", sectionId)
+			const appId = await createTestApp("dev-only-app")
+			await linkAppToTeam(appId, teamId)
+			await createAppEnvironment(appId, naisTeamId, "dev-fss")
+			await createPersistence(appId, "my-db", "cloud_sql_postgres")
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(0)
+		})
+
+		it("includes apps with a prod environment even when directly mapped to a dev team", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const teamId = await createTestTeam("Backend", "backend", sectionId)
+			const naisTeamId = await createNaisTeam("nais-team", sectionId)
+			const appId = await createTestApp("prod-app")
+			await linkAppToTeam(appId, teamId)
+			await createAppEnvironment(appId, naisTeamId, "prod-fss")
+			await createPersistence(appId, "my-db", "cloud_sql_postgres")
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(1)
+			expect(result[0].appName).toBe("prod-app")
+		})
+
+		it("includes apps without any registered environments (e.g. Oracle-only apps)", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const teamId = await createTestTeam("Backend", "backend", sectionId)
+			const appId = await createTestApp("no-env-app")
+			await linkAppToTeam(appId, teamId)
+			await createPersistence(appId, "my-db", "oracle")
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(1)
+			expect(result[0].appName).toBe("no-env-app")
+		})
+
 		it("marks isEconomySystem true for apps classified as an economy system", async () => {
 			const sectionId = await createTestSection("Pensjon", "pensjon")
 			const teamId = await createTestTeam("Backend", "backend", sectionId)

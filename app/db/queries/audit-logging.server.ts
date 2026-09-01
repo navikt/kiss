@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNull, notExists, sql } from "drizzle-orm"
+import { PROD_CLUSTERS } from "~/lib/clusters.server"
 import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
 import { db } from "../connection.server"
 import { isUniqueViolation } from "../pg-errors.server"
@@ -452,7 +453,37 @@ async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 		for (const row of naisAppRows) appIds.add(row.appId)
 	}
 
-	return appIds
+	return filterOutDevOnlyApps(appIds)
+}
+
+/**
+ * Fjerner apper som kun kjører i dev-clustere (f.eks. dev-gcp, dev-fss) fra
+ * appId-settet. Apper uten noen registrerte miljøer (f.eks. Oracle-only apper
+ * uten Nais-tilstedeværelse) beholdes — de er ikke "dev-only", de mangler bare
+ * miljøinfo. Apper med minst ett prod-miljø beholdes også, selv om de i tillegg
+ * kjører i dev.
+ */
+async function filterOutDevOnlyApps(appIds: Set<string>): Promise<Set<string>> {
+	if (appIds.size === 0) return appIds
+
+	const envRows = await db
+		.select({ applicationId: applicationEnvironments.applicationId, cluster: applicationEnvironments.cluster })
+		.from(applicationEnvironments)
+		.where(and(inArray(applicationEnvironments.applicationId, [...appIds]), isNull(applicationEnvironments.archivedAt)))
+
+	const hasProdEnv = new Set<string>()
+	const hasAnyEnv = new Set<string>()
+	for (const row of envRows) {
+		hasAnyEnv.add(row.applicationId)
+		if (PROD_CLUSTERS.includes(row.cluster)) hasProdEnv.add(row.applicationId)
+	}
+
+	const filtered = new Set<string>()
+	for (const appId of appIds) {
+		// Behold appen hvis den ikke har noen registrerte miljøer, eller hvis den har minst ett prod-miljø
+		if (!hasAnyEnv.has(appId) || hasProdEnv.has(appId)) filtered.add(appId)
+	}
+	return filtered
 }
 
 // ─── Section audit overview query ───────────────────────────────────────────
