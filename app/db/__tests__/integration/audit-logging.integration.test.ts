@@ -119,10 +119,11 @@ describe("Audit logging integration tests", () => {
 		)
 	}
 
-	async function createEconomyClassification(appId: string, isEconomySystem: boolean) {
+	async function createEconomyClassification(appId: string, isEconomySystem: boolean, expired: boolean = false) {
 		const db = getTestDb()
+		const validUntilExpr = expired ? "NOW() - INTERVAL '1 day'" : "NOW() + INTERVAL '1 year'"
 		await db.execute(
-			/* sql */ `INSERT INTO application_economy_classifications (application_id, is_economy_system, justification, valid_until, created_by, updated_by) VALUES ('${appId}', ${isEconomySystem}, 'Test justification', NOW() + INTERVAL '1 year', 'test', 'test')`,
+			/* sql */ `INSERT INTO application_economy_classifications (application_id, is_economy_system, justification, valid_until, created_by, updated_by) VALUES ('${appId}', ${isEconomySystem}, 'Test justification', ${validUntilExpr}, 'test', 'test')`,
 		)
 	}
 
@@ -299,6 +300,27 @@ describe("Audit logging integration tests", () => {
 			expect(result).toHaveLength(2)
 			expect(result.find((r) => r.appName === "economy-app")?.isEconomySystem).toBe(true)
 			expect(result.find((r) => r.appName === "other-app")?.isEconomySystem).toBe(false)
+		})
+
+		it("marks isEconomySystemExpired true for economy systems past validUntil", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const teamId = await createTestTeam("Backend", "backend", sectionId)
+			const expiredAppId = await createTestApp("expired-economy-app")
+			const validAppId = await createTestApp("valid-economy-app")
+			await linkAppToTeam(expiredAppId, teamId)
+			await linkAppToTeam(validAppId, teamId)
+			await createPersistence(expiredAppId, "expired-db", "cloud_sql_postgres")
+			await createPersistence(validAppId, "valid-db", "cloud_sql_postgres")
+			await createEconomyClassification(expiredAppId, true, true)
+			await createEconomyClassification(validAppId, true, false)
+
+			const result = await getSectionAuditOverview("pensjon")
+			const expiredRow = result.find((r) => r.appName === "expired-economy-app")
+			const validRow = result.find((r) => r.appName === "valid-economy-app")
+			expect(expiredRow?.isEconomySystem).toBe(true)
+			expect(expiredRow?.isEconomySystemExpired).toBe(true)
+			expect(validRow?.isEconomySystem).toBe(true)
+			expect(validRow?.isEconomySystemExpired).toBe(false)
 		})
 
 		it("marks isEconomySystem false for apps without any classification", async () => {

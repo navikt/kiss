@@ -28,6 +28,7 @@ export interface AuditOverviewRow {
 	teamName: string | null
 	teamSlug: string | null
 	isEconomySystem: boolean
+	isEconomySystemExpired: boolean
 	persistenceType: string
 	persistenceName: string
 	auditLogging: boolean | null
@@ -582,16 +583,19 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 
 	// Look up economy-system classification for each app (best-effort, includes expired classifications)
 	const economyClassifications = await getEconomyClassifications([...sectionAppIds])
+	const now = new Date()
 
 	const rows: AuditOverviewRow[] = persistenceRows.map((row) => {
 		const team = appTeamMap.get(row.appId)
+		const economyClassification = economyClassifications.get(row.appId)
 		return {
 			persistenceId: row.persistenceId,
 			appId: row.appId,
 			appName: row.appName,
 			teamName: team?.teamName ?? null,
 			teamSlug: team?.teamSlug ?? null,
-			isEconomySystem: economyClassifications.get(row.appId)?.isEconomySystem ?? false,
+			isEconomySystem: economyClassification?.isEconomySystem ?? false,
+			isEconomySystemExpired: economyClassification ? economyClassification.validUntil < now : false,
 			persistenceType: row.persistenceType,
 			persistenceName: row.persistenceName,
 			auditLogging: row.auditLogging,
@@ -638,13 +642,15 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 		if (!newPersistence) continue
 
 		const team = appTeamMap.get(inst.appId)
+		const economyClassification = economyClassifications.get(inst.appId)
 		rows.push({
 			persistenceId: newPersistence.id,
 			appId: inst.appId,
 			appName: inst.appName,
 			teamName: team?.teamName ?? null,
 			teamSlug: team?.teamSlug ?? null,
-			isEconomySystem: economyClassifications.get(inst.appId)?.isEconomySystem ?? false,
+			isEconomySystem: economyClassification?.isEconomySystem ?? false,
+			isEconomySystemExpired: economyClassification ? economyClassification.validUntil < now : false,
 			persistenceType: "oracle",
 			persistenceName: inst.instanceId.toUpperCase(),
 			auditLogging: null,

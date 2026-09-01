@@ -549,7 +549,14 @@ function AuditRow({
 	return (
 		<Table.Row>
 			<Table.DataCell>
-				<Link to={`/applikasjoner/${row.appId}/detaljer`}>{row.appName}</Link>
+				<HStack gap="space-2" align="center">
+					<Link to={`/applikasjoner/${row.appId}/detaljer`}>{row.appName}</Link>
+					{row.isEconomySystem && row.isEconomySystemExpired && (
+						<Tag variant="error" size="xsmall">
+							Utløpt økonomisystem
+						</Tag>
+					)}
+				</HStack>
 			</Table.DataCell>
 			<Table.DataCell>{row.teamName ?? "–"}</Table.DataCell>
 			<Table.DataCell>{persistenceTypeLabels[row.persistenceType] ?? row.persistenceType}</Table.DataCell>
