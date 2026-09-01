@@ -2,6 +2,7 @@ import {
 	BodyShort,
 	Box,
 	Button,
+	Checkbox,
 	DatePicker,
 	Heading,
 	HGrid,
@@ -206,6 +207,7 @@ type AuditOverviewRowWithNames = Omit<AuditOverviewRow, "confirmation"> & {
 export default function SeksjonAuditLogging() {
 	const { section, overview, stats, auditLog, canManage } = useLoaderData<typeof loader>()
 	const [filter, setFilter] = useState<string>("alle")
+	const [onlyEconomySystems, setOnlyEconomySystems] = useState(false)
 	const [confirmingId, setConfirmingId] = useState<string | null>(null)
 	const [revokingId, setRevokingId] = useState<string | null>(null)
 	const [searchQuery, setSearchQuery] = useState("")
@@ -220,6 +222,7 @@ export default function SeksjonAuditLogging() {
 
 	const filteredOverview = sortRows(
 		overview.filter((row) => {
+			if (onlyEconomySystems && !row.isEconomySystem) return false
 			if (filter === "ikke-aktiv" && (row.status === "active" || row.status === "confirmed")) return false
 			if (filter !== "alle" && filter !== "ikke-aktiv" && row.status !== filter) return false
 			if (searchQuery) {
@@ -263,6 +266,10 @@ export default function SeksjonAuditLogging() {
 				<ToggleGroup.Item value="confirmed">Bekreftet ({stats.confirmed})</ToggleGroup.Item>
 				<ToggleGroup.Item value="unknown">Ukjent ({stats.unknown})</ToggleGroup.Item>
 			</ToggleGroup>
+
+			<Checkbox checked={onlyEconomySystems} onChange={(e) => setOnlyEconomySystems(e.target.checked)}>
+				Kun databaser for økonomisystemer
+			</Checkbox>
 
 			{/* Søk */}
 			<Search

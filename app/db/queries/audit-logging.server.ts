@@ -15,6 +15,7 @@ import { applicationOracleInstances } from "../schema/audit-evidence"
 import type { AuditConclusion } from "../schema/audit-logging"
 import { persistenceAuditConfirmations, persistenceAuditSummaries } from "../schema/audit-logging"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
+import { getEconomyClassifications } from "./economy-classification.server"
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ export interface AuditOverviewRow {
 	appName: string
 	teamName: string | null
 	teamSlug: string | null
+	isEconomySystem: boolean
 	persistenceType: string
 	persistenceName: string
 	auditLogging: boolean | null
@@ -578,6 +580,9 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 		}
 	}
 
+	// Look up economy-system classification for each app (best-effort, includes expired classifications)
+	const economyClassifications = await getEconomyClassifications([...sectionAppIds])
+
 	const rows: AuditOverviewRow[] = persistenceRows.map((row) => {
 		const team = appTeamMap.get(row.appId)
 		return {
@@ -586,6 +591,7 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 			appName: row.appName,
 			teamName: team?.teamName ?? null,
 			teamSlug: team?.teamSlug ?? null,
+			isEconomySystem: economyClassifications.get(row.appId)?.isEconomySystem ?? false,
 			persistenceType: row.persistenceType,
 			persistenceName: row.persistenceName,
 			auditLogging: row.auditLogging,
@@ -638,6 +644,7 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 			appName: inst.appName,
 			teamName: team?.teamName ?? null,
 			teamSlug: team?.teamSlug ?? null,
+			isEconomySystem: economyClassifications.get(inst.appId)?.isEconomySystem ?? false,
 			persistenceType: "oracle",
 			persistenceName: inst.instanceId.toUpperCase(),
 			auditLogging: null,
