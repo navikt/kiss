@@ -59,7 +59,7 @@
 		"isomorphic-dompurify": "^3.22.0",
 		"jose": "^6.2.10",
 		"jszip": "^3.10.1",
-		"marked": "^18.0.10",
+		"marked": "^18.0.11",
 		"mime-types": "^3.0.2",
 		"pdf-lib": "^1.17.1",
 		"pdfkit": "^0.20.1",
