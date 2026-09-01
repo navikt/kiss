@@ -1,13 +1,11 @@
 import { and, asc, eq, inArray, isNotNull } from "drizzle-orm"
+import { PROD_CLUSTERS } from "~/lib/clusters.server"
 import { getVerificationSummary } from "../../lib/deployment-audit.server"
 import { logger } from "../../lib/logger.server"
 import { db } from "../connection.server"
 import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
 import type { VerificationSummaryResponse } from "../schema/deployment-audit"
 import { deploymentVerificationSummaries } from "../schema/deployment-audit"
-
-// Production clusters that deployment-audit monitors
-const PROD_CLUSTERS = ["prod-gcp", "prod-fss"]
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
