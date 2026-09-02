@@ -13,10 +13,10 @@ vi.mock("~/db/connection.server", () => ({
 const {
 	addManualPersistence,
 	archiveManualPersistence,
-	countLegacyPersistenceRowsWithoutCluster,
 	deleteManualPersistence,
 	getAppPersistence,
 	getAppsPersistence,
+	getLegacyPersistenceRowsWithoutCluster,
 	linkPersistenceToOracleInstance,
 	unarchiveManualPersistence,
 	updatePersistenceClassification,
@@ -402,21 +402,23 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(metadata.reason).toBe("cluster_backfilled_by_nais_sync")
 	})
 
-	it("countLegacyPersistenceRowsWithoutCluster teller aktive rader uten cluster og går ned etter backfill", async () => {
+	it("getLegacyPersistenceRowsWithoutCluster returnerer appnavn/type/navn for rader uten cluster og fjerner dem etter backfill", async () => {
 		const appId = await createTestApp("App O4")
 		const db = getTestDb()
 
-		const before = await countLegacyPersistenceRowsWithoutCluster()
+		const before = await getLegacyPersistenceRowsWithoutCluster()
 
 		await db.execute(
 			/* sql */ `INSERT INTO application_persistence (application_id, type, name)
 				VALUES ('${appId}', 'oracle', 'no-cluster-yet')`,
 		)
 
-		expect(await countLegacyPersistenceRowsWithoutCluster()).toBe(before + 1)
+		const after = await getLegacyPersistenceRowsWithoutCluster()
+		expect(after).toHaveLength(before.length + 1)
+		expect(after).toContainEqual({ appName: "App O4", type: "oracle", name: "no-cluster-yet" })
 
 		await upsertAppPersistence(appId, "oracle", "no-cluster-yet", { cluster: "prod-gcp" })
 
-		expect(await countLegacyPersistenceRowsWithoutCluster()).toBe(before)
+		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
 	})
 })

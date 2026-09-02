@@ -1113,17 +1113,25 @@ export async function upsertAppPersistence(
 }
 
 /**
- * Teller aktive persistence-rader som fortsatt mangler `cluster` (legacy-rader
- * fra før commit adfb772c). Brukes som observabilitetssignal i nais-sync for å
- * følge med på om backfill-casen i `upsertAppPersistence` fortsatt trigges,
- * eller om alle legacy-rader er migrert og logikken kan vurderes fjernet.
+ * Henter appnavn/type/navn for aktive persistence-rader som fortsatt mangler
+ * `cluster` (legacy-rader fra før commit adfb772c). Brukes som observabilitets-
+ * signal i nais-sync for å følge med på om backfill-casen i `upsertAppPersistence`
+ * fortsatt trigges, eller om alle legacy-rader er migrert og logikken kan
+ * vurderes fjernet.
  */
-export async function countLegacyPersistenceRowsWithoutCluster(): Promise<number> {
-	const [row] = await db
-		.select({ count: sql<number>`count(*)` })
+export async function getLegacyPersistenceRowsWithoutCluster(): Promise<
+	{ appName: string; type: string; name: string }[]
+> {
+	return db
+		.select({
+			appName: monitoredApplications.name,
+			type: applicationPersistence.type,
+			name: applicationPersistence.name,
+		})
 		.from(applicationPersistence)
+		.innerJoin(monitoredApplications, eq(applicationPersistence.applicationId, monitoredApplications.id))
 		.where(and(isNull(applicationPersistence.cluster), isNull(applicationPersistence.archivedAt)))
-	return Number(row?.count ?? 0)
+		.orderBy(monitoredApplications.name, applicationPersistence.type, applicationPersistence.name)
 }
 
 // Kanonisk JSON-serialisering for arrays/objekter slik at sammenligning
