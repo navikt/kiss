@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
@@ -81,10 +82,10 @@ describe("Audit logging integration tests", () => {
 		)
 	}
 
-	async function createPersistence(appId: string, name: string, type: string) {
+	async function createPersistence(appId: string, name: string, type: string, cluster: string | null = null) {
 		const db = getTestDb()
 		const result = await db.execute(
-			/* sql */ `INSERT INTO application_persistence (application_id, name, type) VALUES ('${appId}', '${name}', '${type}') RETURNING id`,
+			sql`INSERT INTO application_persistence (application_id, name, type, cluster) VALUES (${appId}, ${name}, ${type}, ${cluster}) RETURNING id`,
 		)
 		return (result.rows[0] as Record<string, string>).id
 	}
@@ -324,6 +325,50 @@ describe("Audit logging integration tests", () => {
 			const result = await getSectionAuditOverview("pensjon")
 			expect(result).toHaveLength(1)
 			expect(result[0].appName).toBe("no-env-app")
+		})
+
+		it("excludes an individual database tagged with a cluster the section has excluded, even when the app also has an included database", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const teamId = await createTestTeam("Backend", "backend", sectionId)
+			const naisTeamId = await createNaisTeam("nais-team", sectionId)
+			const appId = await createTestApp("mixed-env-app")
+			await linkAppToTeam(appId, teamId)
+			await createAppEnvironment(appId, naisTeamId, "prod-fss")
+			await createPersistence(appId, "mixed-env-app", "cloud_sql_postgres", "prod-fss")
+			await createPersistence(appId, "mixed-env-app-dev", "cloud_sql_postgres", "dev-fss")
+			await db.execute(
+				sql`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
+				 VALUES (${sectionId}, 'dev-fss', false, 'test', 'test')`,
+			)
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(1)
+			expect(result[0].persistenceName).toBe("mixed-env-app")
+		})
+
+		it("includes a database tagged with a cluster the section has not excluded", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const teamId = await createTestTeam("Backend", "backend", sectionId)
+			const appId = await createTestApp("no-exclusion-app")
+			await linkAppToTeam(appId, teamId)
+			await createPersistence(appId, "my-db", "cloud_sql_postgres", "dev-fss")
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(1)
+			expect(result[0].persistenceName).toBe("my-db")
+		})
+
+		it("includes a database with no cluster tag (legacy/manually added data)", async () => {
+			const sectionId = await createTestSection("Pensjon", "pensjon")
+			const teamId = await createTestTeam("Backend", "backend", sectionId)
+			const appId = await createTestApp("legacy-app")
+			await linkAppToTeam(appId, teamId)
+			await createPersistence(appId, "legacy-db", "cloud_sql_postgres", null)
+
+			const result = await getSectionAuditOverview("pensjon")
+			expect(result).toHaveLength(1)
+			expect(result[0].persistenceName).toBe("legacy-db")
 		})
 
 		it("marks isEconomySystem true for apps classified as an economy system", async () => {
