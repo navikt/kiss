@@ -13,6 +13,7 @@ vi.mock("~/db/connection.server", () => ({
 const {
 	addManualPersistence,
 	archiveManualPersistence,
+	countRemainingLegacyPersistenceDuplicates,
 	deleteManualPersistence,
 	getAppPersistence,
 	getAppsPersistence,
@@ -371,5 +372,103 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 			/* sql */ `SELECT persistence_id FROM persistence_audit_summaries WHERE persistence_id = '${row.id}'`,
 		)
 		expect(summaryRow.rows).toHaveLength(1)
+	})
+
+	it("upsertAppPersistence backfiller cluster på en legacy-rad (cluster=NULL) i stedet for å opprette en ny rad", async () => {
+		const appId = await createTestApp("App O1")
+		await upsertAppPersistence(appId, "cloud_sql_postgres", "legacy-db")
+		const [legacyRow] = await getAppPersistence(appId)
+		expect(legacyRow.cluster).toBeNull()
+
+		const wasNew = await upsertAppPersistence(appId, "cloud_sql_postgres", "legacy-db", {
+			cluster: "prod-gcp",
+			tier: "premium",
+		})
+		expect(wasNew).toBe(false)
+
+		const rows = await getAppPersistence(appId)
+		expect(rows).toHaveLength(1)
+		expect(rows[0].id).toBe(legacyRow.id)
+		expect(rows[0].cluster).toBe("prod-gcp")
+		expect(rows[0].tier).toBe("premium")
+
+		const audit = await getAuditByEntity("application_persistence", legacyRow.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		expect(updated?.performed_by).toBe("nais-sync")
+		const newValue = JSON.parse((updated?.new_value as string | null) ?? "{}")
+		expect(newValue.cluster).toBe("prod-gcp")
+		expect(newValue.tier).toBe("premium")
+		const metadata = JSON.parse((updated?.metadata as string | null) ?? "{}")
+		expect(metadata.reason).toBe("cluster_backfilled_by_nais_sync")
+	})
+
+	it("upsertAppPersistence selvhelbreder allerede-dupliserte apper: arkiverer legacy-rad og flytter revisjonsdata til kanonisk rad", async () => {
+		const appId = await createTestApp("App O2")
+		const db = getTestDb()
+
+		const legacyResult = await db.execute(
+			/* sql */ `INSERT INTO application_persistence
+				(application_id, type, name, data_classification, oracle_instance_id)
+				VALUES ('${appId}', 'oracle', 'dup-ora', 'critical', 'ORA123') RETURNING id`,
+		)
+		const legacyId = (legacyResult.rows[0] as { id: string }).id
+		await db.execute(/* sql */ `INSERT INTO persistence_audit_summaries
+			(persistence_id, conclusion, fetched_at, created_by, updated_by)
+			VALUES ('${legacyId}', 'FULLSTENDIG', now(), 'sync', 'sync')`)
+
+		const canonicalResult = await db.execute(
+			/* sql */ `INSERT INTO application_persistence
+				(application_id, type, name, cluster)
+				VALUES ('${appId}', 'oracle', 'dup-ora', 'prod-gcp') RETURNING id`,
+		)
+		const canonicalId = (canonicalResult.rows[0] as { id: string }).id
+
+		const wasNew = await upsertAppPersistence(appId, "oracle", "dup-ora", { cluster: "prod-gcp", tier: "premium" })
+		expect(wasNew).toBe(false)
+
+		const active = await getAppPersistence(appId)
+		expect(active.map((p) => p.id)).toEqual([canonicalId])
+		expect(active[0].dataClassification).toBe("critical")
+		expect(active[0].oracleInstanceId).toBe("ORA123")
+		expect(active[0].tier).toBe("premium")
+
+		const all = await getAppPersistence(appId, { includeArchived: true })
+		const archivedLegacy = all.find((p) => p.id === legacyId)
+		expect(archivedLegacy?.archivedAt).not.toBeNull()
+		expect(archivedLegacy?.archivedBy).toBe("nais-sync")
+
+		const movedSummary = await db.execute(
+			/* sql */ `SELECT persistence_id FROM persistence_audit_summaries WHERE persistence_id = '${canonicalId}'`,
+		)
+		expect(movedSummary.rows).toHaveLength(1)
+
+		const audit = await getAuditByEntity("application_persistence", legacyId)
+		const archived = audit.find((a) => a.action === "persistence_archived")
+		expect(archived?.performed_by).toBe("nais-sync")
+		const metadata = JSON.parse((archived?.metadata as string | null) ?? "{}")
+		expect(metadata.reason).toBe("deduplicated_legacy_row")
+	})
+
+	it("countRemainingLegacyPersistenceDuplicates teller aktive legacy/kanonisk-par og går til 0 etter opprydding", async () => {
+		const appId = await createTestApp("App O3")
+		const db = getTestDb()
+
+		const before = await countRemainingLegacyPersistenceDuplicates()
+
+		await db.execute(
+			/* sql */ `INSERT INTO application_persistence (application_id, type, name)
+				VALUES ('${appId}', 'oracle', 'countable-dup')`,
+		)
+		await db.execute(
+			/* sql */ `INSERT INTO application_persistence (application_id, type, name, cluster)
+				VALUES ('${appId}', 'oracle', 'countable-dup', 'prod-gcp')`,
+		)
+
+		expect(await countRemainingLegacyPersistenceDuplicates()).toBe(before + 1)
+
+		// upsertAppPersistence trigger self-healing-mergen — paret skal ikke lenger telles.
+		await upsertAppPersistence(appId, "oracle", "countable-dup", { cluster: "prod-gcp" })
+
+		expect(await countRemainingLegacyPersistenceDuplicates()).toBe(before)
 	})
 })
