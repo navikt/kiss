@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, notExists, notInArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm"
 import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
 import { db } from "../connection.server"
 import { isUniqueViolation } from "../pg-errors.server"
@@ -432,6 +432,7 @@ async function getSectionAppIds(sectionId: string, excludedClustersParam?: strin
 	const allNaisTeamIds = [...new Set([...linkedNaisTeamIds, ...sectionNaisTeamIds])]
 
 	if (allNaisTeamIds.length > 0) {
+		const excludedClusters = await getExcludedClusters()
 		const naisAppRows = await db
 			.selectDistinct({ appId: applicationEnvironments.applicationId })
 			.from(applicationEnvironments)
@@ -440,18 +441,8 @@ async function getSectionAppIds(sectionId: string, excludedClustersParam?: strin
 				and(
 					inArray(applicationEnvironments.naisTeamId, allNaisTeamIds),
 					isNull(monitoredApplications.primaryApplicationId),
-					notExists(
-						db
-							.select({ cluster: sectionEnvironments.cluster })
-							.from(sectionEnvironments)
-							.where(
-								and(
-									eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
-									eq(sectionEnvironments.sectionId, sectionId),
-									eq(sectionEnvironments.included, false),
-								),
-							),
-					),
+					isNull(applicationEnvironments.archivedAt),
+					excludedClusters.length > 0 ? notInArray(applicationEnvironments.cluster, excludedClusters) : sql`TRUE`,
 				),
 			)
 		for (const row of naisAppRows) appIds.add(row.appId)
@@ -459,8 +450,8 @@ async function getSectionAppIds(sectionId: string, excludedClustersParam?: strin
 
 	if (appIds.size === 0) return appIds
 
-	// Path 3 already excludes ekskluderte clustere via SQL; kun Path 1 (direkte team-mapping)
-	// trenger etterfølgende filtrering siden den ikke tar hensyn til cluster-ekskludering i spørringen.
+	// Path 3 already excludes clusters excluded by the section via SQL; only Path 1 (direct team
+	// mapping) needs post-filtering, since it doesn't take cluster exclusion into account in the query.
 	if (directRows.length === 0) return appIds
 
 	return filterOutSectionExcludedOnlyApps(appIds, await getExcludedClusters())
