@@ -1,5 +1,4 @@
 import { and, desc, eq, inArray, isNull, notExists, notInArray, or, sql } from "drizzle-orm"
-import { PROD_CLUSTERS } from "~/lib/clusters.server"
 import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
 import { db } from "../connection.server"
 import { isUniqueViolation } from "../pg-errors.server"
@@ -388,8 +387,15 @@ async function getExcludedClustersForSection(sectionId: string): Promise<string[
 	return rows.map((r) => r.cluster)
 }
 
-async function getSectionAppIds(sectionId: string, excludedClusters?: string[]): Promise<Set<string>> {
+async function getSectionAppIds(sectionId: string, excludedClustersParam?: string[]): Promise<Set<string>> {
 	const appIds = new Set<string>()
+	let cachedExcludedClusters: string[] | undefined = excludedClustersParam
+	const getExcludedClusters = async (): Promise<string[]> => {
+		if (cachedExcludedClusters === undefined) {
+			cachedExcludedClusters = await getExcludedClustersForSection(sectionId)
+		}
+		return cachedExcludedClusters
+	}
 
 	// Path 1: Apps directly mapped to dev teams in this section
 	const directRows = await db
@@ -426,11 +432,6 @@ async function getSectionAppIds(sectionId: string, excludedClusters?: string[]):
 	const allNaisTeamIds = [...new Set([...linkedNaisTeamIds, ...sectionNaisTeamIds])]
 
 	if (allNaisTeamIds.length > 0) {
-		// Bruk ekskluderte clustere fra kalleren hvis oppgitt (unngår duplisert
-		// spørring når getSectionAuditOverview allerede har hentet dem), ellers
-		// hent selv.
-		const excludedClusterList = excludedClusters ?? (await getExcludedClustersForSection(sectionId))
-
 		const naisAppRows = await db
 			.selectDistinct({ appId: applicationEnvironments.applicationId })
 			.from(applicationEnvironments)
@@ -439,54 +440,60 @@ async function getSectionAppIds(sectionId: string, excludedClusters?: string[]):
 				and(
 					inArray(applicationEnvironments.naisTeamId, allNaisTeamIds),
 					isNull(monitoredApplications.primaryApplicationId),
-					excludedClusterList.length > 0
-						? notExists(
-								db
-									.select({ cluster: sectionEnvironments.cluster })
-									.from(sectionEnvironments)
-									.where(
-										and(
-											eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
-											eq(sectionEnvironments.sectionId, sectionId),
-											eq(sectionEnvironments.included, false),
-										),
-									),
-							)
-						: sql`TRUE`,
+					notExists(
+						db
+							.select({ cluster: sectionEnvironments.cluster })
+							.from(sectionEnvironments)
+							.where(
+								and(
+									eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+									eq(sectionEnvironments.sectionId, sectionId),
+									eq(sectionEnvironments.included, false),
+								),
+							),
+					),
 				),
 			)
 		for (const row of naisAppRows) appIds.add(row.appId)
 	}
 
-	return filterOutDevOnlyApps(appIds)
+	if (appIds.size === 0) return appIds
+
+	// Path 3 already excludes ekskluderte clustere via SQL; kun Path 1 (direkte team-mapping)
+	// trenger etterfølgende filtrering siden den ikke tar hensyn til cluster-ekskludering i spørringen.
+	if (directRows.length === 0) return appIds
+
+	return filterOutSectionExcludedOnlyApps(appIds, await getExcludedClusters())
 }
 
 /**
- * Fjerner apper som kun kjører i dev-clustere (f.eks. dev-gcp, dev-fss) fra
- * appId-settet. Apper uten noen registrerte miljøer (f.eks. Oracle-only apper
- * uten Nais-tilstedeværelse) beholdes — de er ikke "dev-only", de mangler bare
- * miljøinfo. Apper med minst ett prod-miljø beholdes også, selv om de i tillegg
- * kjører i dev.
+ * Fjerner apper som kun har miljøer seksjonen selv har ekskludert i Nais-fanen
+ * (`section_environments.included = false`) fra appId-settet. Apper uten noen
+ * registrerte miljøer (f.eks. Oracle-only apper uten Nais-tilstedeværelse)
+ * beholdes — de er ikke "dev-only", de mangler bare miljøinfo. Apper med
+ * minst ett ikke-ekskludert miljø beholdes også, selv om de i tillegg kjører
+ * i et ekskludert cluster.
  */
-async function filterOutDevOnlyApps(appIds: Set<string>): Promise<Set<string>> {
-	if (appIds.size === 0) return appIds
+async function filterOutSectionExcludedOnlyApps(appIds: Set<string>, excludedClusters: string[]): Promise<Set<string>> {
+	if (appIds.size === 0 || excludedClusters.length === 0) return appIds
 
+	const excludedClusterSet = new Set(excludedClusters)
 	const envRows = await db
 		.select({ applicationId: applicationEnvironments.applicationId, cluster: applicationEnvironments.cluster })
 		.from(applicationEnvironments)
 		.where(and(inArray(applicationEnvironments.applicationId, [...appIds]), isNull(applicationEnvironments.archivedAt)))
 
-	const hasProdEnv = new Set<string>()
+	const hasIncludedEnv = new Set<string>()
 	const hasAnyEnv = new Set<string>()
 	for (const row of envRows) {
 		hasAnyEnv.add(row.applicationId)
-		if (PROD_CLUSTERS.includes(row.cluster)) hasProdEnv.add(row.applicationId)
+		if (!excludedClusterSet.has(row.cluster)) hasIncludedEnv.add(row.applicationId)
 	}
 
 	const filtered = new Set<string>()
 	for (const appId of appIds) {
-		// Behold appen hvis den ikke har noen registrerte miljøer, eller hvis den har minst ett prod-miljø
-		if (!hasAnyEnv.has(appId) || hasProdEnv.has(appId)) filtered.add(appId)
+		// Behold appen hvis den ikke har noen registrerte miljøer, eller hvis den har minst ett ikke-ekskludert miljø
+		if (!hasAnyEnv.has(appId) || hasIncludedEnv.has(appId)) filtered.add(appId)
 	}
 	return filtered
 }

@@ -285,10 +285,11 @@ describe("Audit logging integration tests", () => {
 			expect(result[0].appName).toBe("multi-env-app")
 		})
 
-		it("excludes apps that only run in dev clusters, even when directly mapped to a dev team", async () => {
+		it("excludes apps that only run in clusters the section has excluded, even when directly mapped to a dev team", async () => {
 			// Regression test: apps mapped directly to a dev team (Path 1) previously
-			// bypassed all cluster filtering. Dev-only apps should never show up here,
-			// regardless of discovery path or section_environments configuration.
+			// bypassed all cluster filtering. Apps that only run in excluded clusters
+			// should never show up here, regardless of discovery path.
+			const db = getTestDb()
 			const sectionId = await createTestSection("Pensjon", "pensjon")
 			const teamId = await createTestTeam("Backend", "backend", sectionId)
 			const naisTeamId = await createNaisTeam("nais-team", sectionId)
@@ -296,12 +297,16 @@ describe("Audit logging integration tests", () => {
 			await linkAppToTeam(appId, teamId)
 			await createAppEnvironment(appId, naisTeamId, "dev-fss")
 			await createPersistence(appId, "my-db", "cloud_sql_postgres")
+			await db.execute(
+				sql`INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
+				 VALUES (${sectionId}, 'dev-fss', false, 'test', 'test')`,
+			)
 
 			const result = await getSectionAuditOverview("pensjon")
 			expect(result).toHaveLength(0)
 		})
 
-		it("includes apps with a prod environment even when directly mapped to a dev team", async () => {
+		it("includes apps with a non-excluded environment even when directly mapped to a dev team", async () => {
 			const sectionId = await createTestSection("Pensjon", "pensjon")
 			const teamId = await createTestTeam("Backend", "backend", sectionId)
 			const naisTeamId = await createNaisTeam("nais-team", sectionId)
