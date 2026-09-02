@@ -1,11 +1,31 @@
-import { and, asc, eq, inArray, isNotNull } from "drizzle-orm"
-import { PROD_CLUSTERS } from "~/lib/clusters.server"
+import { and, asc, eq, inArray, isNotNull, isNull, notExists } from "drizzle-orm"
 import { getVerificationSummary } from "../../lib/deployment-audit.server"
 import { logger } from "../../lib/logger.server"
 import { db } from "../connection.server"
 import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
 import type { VerificationSummaryResponse } from "../schema/deployment-audit"
 import { deploymentVerificationSummaries } from "../schema/deployment-audit"
+import { sectionEnvironments } from "../schema/organization"
+
+/**
+ * An environment counts as "production" here when `naisTeams.sectionId` is set and the section
+ * has not excluded the cluster (`section_environments.included = false`). Environments whose team
+ * has no resolvable section are filtered out, since there is no section config to check exclusions against.
+ */
+function notExcludedBySectionCondition() {
+	return notExists(
+		db
+			.select({ cluster: sectionEnvironments.cluster })
+			.from(sectionEnvironments)
+			.where(
+				and(
+					eq(sectionEnvironments.sectionId, naisTeams.sectionId),
+					eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+					eq(sectionEnvironments.included, false),
+				),
+			),
+	)
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -32,7 +52,9 @@ export async function getAppsWithProdEnvironments(): Promise<AppProdEnvironment[
 		.from(applicationEnvironments)
 		.innerJoin(monitoredApplications, eq(applicationEnvironments.applicationId, monitoredApplications.id))
 		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(and(isNotNull(applicationEnvironments.naisTeamId), inArray(applicationEnvironments.cluster, PROD_CLUSTERS)))
+		.where(
+			and(isNotNull(naisTeams.sectionId), isNull(applicationEnvironments.archivedAt), notExcludedBySectionCondition()),
+		)
 
 	return rows.map((r) => ({
 		applicationId: r.applicationId,
@@ -74,8 +96,9 @@ export async function getDeploymentVerificationForAppWithFetch(applicationId: st
 		.where(
 			and(
 				eq(applicationEnvironments.applicationId, applicationId),
-				inArray(applicationEnvironments.cluster, PROD_CLUSTERS),
-				isNotNull(applicationEnvironments.naisTeamId),
+				isNotNull(naisTeams.sectionId),
+				isNull(applicationEnvironments.archivedAt),
+				notExcludedBySectionCondition(),
 			),
 		)
 
@@ -90,9 +113,8 @@ export async function getDeploymentVerificationForAppWithFetch(applicationId: st
 			.from(applicationEnvironments)
 			.where(eq(applicationEnvironments.applicationId, applicationId))
 
-		logger.info("Deployment verification: no production environments with naisTeamId found", {
+		logger.info("Deployment verification: no eligible production environments found", {
 			applicationId,
-			prodClusters: PROD_CLUSTERS,
 			allEnvironments: allEnvs.map((e) => ({
 				cluster: e.cluster,
 				namespace: e.namespace,
@@ -302,9 +324,10 @@ export interface NdaAppParams {
 /**
  * Resolve NDA API parameters for a monitored application.
  *
- * Finds the application's primary production environment using alphabetical
- * ordering on cluster name (prod-fss before prod-gcp) and returns the
- * team/environment/appName needed by the NDA audit-reports API.
+ * Finds the application's primary production environment — an environment whose cluster
+ * has not been excluded by the application's section in `section_environments` — using
+ * alphabetical ordering on cluster name and returns the team/environment/appName needed
+ * by the NDA audit-reports API.
  *
  * @returns NdaAppParams or null if no production environment is found
  */
@@ -321,8 +344,9 @@ export async function getNdaAppParams(applicationId: string): Promise<NdaAppPara
 		.where(
 			and(
 				eq(applicationEnvironments.applicationId, applicationId),
-				isNotNull(applicationEnvironments.naisTeamId),
-				inArray(applicationEnvironments.cluster, PROD_CLUSTERS),
+				isNotNull(naisTeams.sectionId),
+				isNull(applicationEnvironments.archivedAt),
+				notExcludedBySectionCondition(),
 			),
 		)
 		.orderBy(asc(applicationEnvironments.cluster))
