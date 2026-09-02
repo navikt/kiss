@@ -3,7 +3,6 @@ import { writeAuditLog } from "~/db/queries/audit.server"
 import {
 	archiveMissingEnvironmentAccessPolicyRules,
 	archiveStaleAppEnvironments,
-	countRemainingLegacyPersistenceDuplicates,
 	createAccessPolicySyncSummaryCollector,
 	getMonitoredAppsForNaisTeam,
 	syncDiscoveredApps,
@@ -313,19 +312,6 @@ export async function runFullNaisSync(
 			const { syncAllApplicationControls } = await import("~/db/queries/application-controls.server")
 			const { synced, errors } = await syncAllApplicationControls(SYNC_PERFORMER)
 			logger.info(`[nais-sync] Compliance cache refreshed: ${synced} synced, ${errors} errors`)
-		}
-
-		// Signal for når self-healing-koden (PR #671) kan fjernes — se JSDoc på
-		// countRemainingLegacyPersistenceDuplicates.
-		const remainingLegacyDuplicates = await countRemainingLegacyPersistenceDuplicates()
-		if (remainingLegacyDuplicates > 0) {
-			logger.info(
-				`[nais-sync] ${remainingLegacyDuplicates} legacy persistence-duplikat(er) gjenstår å ryddes opp i ved neste sync`,
-			)
-		} else {
-			logger.info(
-				"[nais-sync] Ingen legacy persistence-duplikater gjenstår — self-healing-opprydningen kan fjernes (se PR #671)",
-			)
 		}
 
 		await writeAuditLog({
