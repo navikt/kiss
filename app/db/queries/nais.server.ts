@@ -1112,6 +1112,20 @@ export async function upsertAppPersistence(
 	})
 }
 
+/**
+ * Teller aktive persistence-rader som fortsatt mangler `cluster` (legacy-rader
+ * fra før commit adfb772c). Brukes som observabilitetssignal i nais-sync for å
+ * følge med på om backfill-casen i `upsertAppPersistence` fortsatt trigges,
+ * eller om alle legacy-rader er migrert og logikken kan vurderes fjernet.
+ */
+export async function countLegacyPersistenceRowsWithoutCluster(): Promise<number> {
+	const [row] = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(applicationPersistence)
+		.where(and(isNull(applicationPersistence.cluster), isNull(applicationPersistence.archivedAt)))
+	return Number(row?.count ?? 0)
+}
+
 // Kanonisk JSON-serialisering for arrays/objekter slik at sammenligning
 // (og lagret representasjon) ikke flagger reordrede elementer som endring.
 function canonicalizeStringArray(arr: string[] | null | undefined): string | null {

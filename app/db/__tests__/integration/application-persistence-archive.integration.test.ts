@@ -13,6 +13,7 @@ vi.mock("~/db/connection.server", () => ({
 const {
 	addManualPersistence,
 	archiveManualPersistence,
+	countLegacyPersistenceRowsWithoutCluster,
 	deleteManualPersistence,
 	getAppPersistence,
 	getAppsPersistence,
@@ -399,5 +400,23 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(newValue.tier).toBe("premium")
 		const metadata = JSON.parse((updated?.metadata as string | null) ?? "{}")
 		expect(metadata.reason).toBe("cluster_backfilled_by_nais_sync")
+	})
+
+	it("countLegacyPersistenceRowsWithoutCluster teller aktive rader uten cluster og går ned etter backfill", async () => {
+		const appId = await createTestApp("App O4")
+		const db = getTestDb()
+
+		const before = await countLegacyPersistenceRowsWithoutCluster()
+
+		await db.execute(
+			/* sql */ `INSERT INTO application_persistence (application_id, type, name)
+				VALUES ('${appId}', 'oracle', 'no-cluster-yet')`,
+		)
+
+		expect(await countLegacyPersistenceRowsWithoutCluster()).toBe(before + 1)
+
+		await upsertAppPersistence(appId, "oracle", "no-cluster-yet", { cluster: "prod-gcp" })
+
+		expect(await countLegacyPersistenceRowsWithoutCluster()).toBe(before)
 	})
 })

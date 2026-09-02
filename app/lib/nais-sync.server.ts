@@ -3,6 +3,7 @@ import { writeAuditLog } from "~/db/queries/audit.server"
 import {
 	archiveMissingEnvironmentAccessPolicyRules,
 	archiveStaleAppEnvironments,
+	countLegacyPersistenceRowsWithoutCluster,
 	createAccessPolicySyncSummaryCollector,
 	getMonitoredAppsForNaisTeam,
 	syncDiscoveredApps,
@@ -312,6 +313,15 @@ export async function runFullNaisSync(
 			const { syncAllApplicationControls } = await import("~/db/queries/application-controls.server")
 			const { synced, errors } = await syncAllApplicationControls(SYNC_PERFORMER)
 			logger.info(`[nais-sync] Compliance cache refreshed: ${synced} synced, ${errors} errors`)
+		}
+
+		// Observabilitetssignal for backfill-casen i upsertAppPersistence (legacy-rader
+		// uten cluster, se commit adfb772c) — følger med på om casen fortsatt trigges.
+		const legacyRowsWithoutCluster = await countLegacyPersistenceRowsWithoutCluster()
+		if (legacyRowsWithoutCluster > 0) {
+			logger.info(
+				`[nais-sync] ${legacyRowsWithoutCluster} persistence-rad(er) mangler fortsatt cluster (backfilles ved neste matchende sync)`,
+			)
 		}
 
 		await writeAuditLog({
