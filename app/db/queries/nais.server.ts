@@ -882,9 +882,45 @@ export async function upsertAppPersistence(
 		highAvailability?: boolean | null
 		auditLogging?: boolean | null
 		auditLogUrl?: string | null
+		cluster?: string | null
 	},
 ): Promise<boolean> {
 	return db.transaction(async (tx) => {
+		// `cluster` er `undefined` når kalleren ikke sender feltet i det hele tatt
+		// (eksisterende kall før denne endringen) — da skal matching ignorere
+		// cluster helt for bakoverkompatibilitet. Eksplisitt `null` betyr at
+		// kalleren har cluster-informasjon og vet at raden ikke hører til noe
+		// cluster (matcher kun legacy-rader med cluster = NULL).
+		const clusterCondition =
+			opts?.cluster === undefined
+				? undefined
+				: opts.cluster === null
+					? isNull(applicationPersistence.cluster)
+					: eq(applicationPersistence.cluster, opts.cluster)
+
+		if (opts?.cluster === undefined) {
+			// Uten cluster i kallet kan flere aktive rader matche (appId, type, name)
+			// på tvers av clustere siden unik-indeksen nå tillater én rad per cluster.
+			// Krev at kalleren disambiguerer i stedet for å risikere å oppdatere en
+			// vilkårlig rad.
+			const activeMatches = await tx
+				.select({ id: applicationPersistence.id })
+				.from(applicationPersistence)
+				.where(
+					and(
+						eq(applicationPersistence.applicationId, applicationId),
+						eq(applicationPersistence.type, type),
+						eq(applicationPersistence.name, name),
+						isNull(applicationPersistence.archivedAt),
+					),
+				)
+			if (activeMatches.length > 1) {
+				throw new Error(
+					`upsertAppPersistence: flertydig match for (applicationId=${applicationId}, type=${type}, name=${name}) — flere aktive rader finnes på tvers av clustere. Kalleren må sende cluster for å disambiguere.`,
+				)
+			}
+		}
+
 		const [existing] = await tx
 			.select()
 			.from(applicationPersistence)
@@ -893,6 +929,7 @@ export async function upsertAppPersistence(
 					eq(applicationPersistence.applicationId, applicationId),
 					eq(applicationPersistence.type, type),
 					eq(applicationPersistence.name, name),
+					clusterCondition,
 				),
 			)
 			.orderBy(sql`${applicationPersistence.archivedAt} NULLS FIRST`, applicationPersistence.discoveredAt)
@@ -908,6 +945,7 @@ export async function upsertAppPersistence(
 				highAvailability: opts?.highAvailability ?? existing.highAvailability,
 				auditLogging: opts?.auditLogging ?? existing.auditLogging,
 				auditLogUrl: opts?.auditLogUrl ?? existing.auditLogUrl,
+				cluster: opts?.cluster ?? existing.cluster,
 			}
 			const previousFields = {
 				version: existing.version,
@@ -915,13 +953,15 @@ export async function upsertAppPersistence(
 				highAvailability: existing.highAvailability,
 				auditLogging: existing.auditLogging,
 				auditLogUrl: existing.auditLogUrl,
+				cluster: existing.cluster,
 			}
 			const fieldsChanged =
 				nextState.version !== previousFields.version ||
 				nextState.tier !== previousFields.tier ||
 				nextState.highAvailability !== previousFields.highAvailability ||
 				nextState.auditLogging !== previousFields.auditLogging ||
-				nextState.auditLogUrl !== previousFields.auditLogUrl
+				nextState.auditLogUrl !== previousFields.auditLogUrl ||
+				nextState.cluster !== previousFields.cluster
 
 			// Hopp over UPDATE helt når det ikke er noe å endre (verken
 			// reaktivering eller feltendring). Ellers ville `updatedAt` blitt
@@ -988,6 +1028,7 @@ export async function upsertAppPersistence(
 				highAvailability: opts?.highAvailability ?? null,
 				auditLogging: opts?.auditLogging ?? null,
 				auditLogUrl: opts?.auditLogUrl ?? null,
+				cluster: opts?.cluster ?? null,
 			})
 			.returning()
 
@@ -1004,6 +1045,7 @@ export async function upsertAppPersistence(
 					highAvailability: inserted.highAvailability,
 					auditLogging: inserted.auditLogging,
 					auditLogUrl: inserted.auditLogUrl,
+					cluster: inserted.cluster,
 				}),
 				metadata: { applicationId, source: "nais-sync" },
 				performedBy: "nais-sync",

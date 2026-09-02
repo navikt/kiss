@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, notExists, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, notExists, notInArray, or, sql } from "drizzle-orm"
 import { PROD_CLUSTERS } from "~/lib/clusters.server"
 import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
 import { db } from "../connection.server"
@@ -380,7 +380,15 @@ function dbSummaryToApiSummary(row: typeof persistenceAuditSummaries.$inferSelec
 
 // ─── Section app discovery (matches getSectionDetail logic) ─────────────────
 
-async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
+async function getExcludedClustersForSection(sectionId: string): Promise<string[]> {
+	const rows = await db
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false)))
+	return rows.map((r) => r.cluster)
+}
+
+async function getSectionAppIds(sectionId: string, excludedClusters?: string[]): Promise<Set<string>> {
 	const appIds = new Set<string>()
 
 	// Path 1: Apps directly mapped to dev teams in this section
@@ -418,13 +426,10 @@ async function getSectionAppIds(sectionId: string): Promise<Set<string>> {
 	const allNaisTeamIds = [...new Set([...linkedNaisTeamIds, ...sectionNaisTeamIds])]
 
 	if (allNaisTeamIds.length > 0) {
-		// Get excluded clusters for this section
-		const excludedClusters = await db
-			.select({ cluster: sectionEnvironments.cluster })
-			.from(sectionEnvironments)
-			.where(and(eq(sectionEnvironments.sectionId, sectionId), eq(sectionEnvironments.included, false)))
-
-		const excludedClusterList = excludedClusters.map((r) => r.cluster)
+		// Bruk ekskluderte clustere fra kalleren hvis oppgitt (unngår duplisert
+		// spørring når getSectionAuditOverview allerede har hentet dem), ellers
+		// hent selv.
+		const excludedClusterList = excludedClusters ?? (await getExcludedClustersForSection(sectionId))
 
 		const naisAppRows = await db
 			.selectDistinct({ appId: applicationEnvironments.applicationId })
@@ -496,7 +501,8 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 	const [section] = await db.select({ id: sections.id }).from(sections).where(eq(sections.slug, sectionSlug)).limit(1)
 	if (!section) return []
 
-	const sectionAppIds = await getSectionAppIds(section.id)
+	const excludedClusters = await getExcludedClustersForSection(section.id)
+	const sectionAppIds = await getSectionAppIds(section.id, excludedClusters)
 	if (sectionAppIds.size === 0) return []
 
 	// Get all persistence entries with database types for section apps
@@ -536,6 +542,9 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 				inArray(applicationPersistence.applicationId, [...sectionAppIds]),
 				inArray(applicationPersistence.type, [...DATABASE_TYPES]),
 				isNull(applicationPersistence.archivedAt),
+				excludedClusters.length > 0
+					? or(isNull(applicationPersistence.cluster), notInArray(applicationPersistence.cluster, excludedClusters))
+					: sql`TRUE`,
 			),
 		)
 		.orderBy(monitoredApplications.name, applicationPersistence.type)

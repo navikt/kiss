@@ -102,6 +102,7 @@ export async function syncNaisAppsForTeam(
 					highAvailability: res.highAvailability,
 					auditLogging: res.auditLogging,
 					auditLogUrl: res.auditLogUrl,
+					cluster: app.cluster,
 				})
 				if (isNewRes) newPersistence++
 			}
