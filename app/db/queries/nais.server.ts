@@ -1,4 +1,5 @@
-import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm"
+import { alias } from "drizzle-orm/pg-core"
 import { logger } from "~/lib/logger.server"
 import { db } from "../connection.server"
 import {
@@ -25,6 +26,7 @@ import {
 	type PersistenceType,
 } from "../schema/applications"
 import { auditLog } from "../schema/audit"
+import { persistenceAuditConfirmations, persistenceAuditSummaries } from "../schema/audit-logging"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
 
@@ -1014,7 +1016,85 @@ export async function upsertAppPersistence(
 					tx,
 				)
 			}
+
+			// Appen kan allerede ha en duplikat-legacy-rad fra før denne fiksen —
+			// slå den sammen inn i `existing` og arkiver den.
+			if (opts?.cluster) {
+				const [legacy] = await tx
+					.select()
+					.from(applicationPersistence)
+					.where(
+						and(
+							eq(applicationPersistence.applicationId, applicationId),
+							eq(applicationPersistence.type, type),
+							eq(applicationPersistence.name, name),
+							isNull(applicationPersistence.cluster),
+							isNull(applicationPersistence.archivedAt),
+							ne(applicationPersistence.id, existing.id),
+						),
+					)
+					.for("update")
+					.limit(1)
+				if (legacy) {
+					await mergeLegacyPersistenceIntoCanonical(tx, legacy, existing.id, applicationId)
+				}
+			}
 			return false
+		}
+
+		// Historiske rader mangler cluster (se commit adfb772c). Backfiller i stedet
+		// for å arkivere+opprette ny rad, siden det ville mistet manuelt satte felter
+		// og FK-koblinger fra persistence_audit_confirmations/-summaries.
+		if (opts?.cluster) {
+			const [legacy] = await tx
+				.select()
+				.from(applicationPersistence)
+				.where(
+					and(
+						eq(applicationPersistence.applicationId, applicationId),
+						eq(applicationPersistence.type, type),
+						eq(applicationPersistence.name, name),
+						isNull(applicationPersistence.cluster),
+						isNull(applicationPersistence.archivedAt),
+					),
+				)
+				.for("update")
+				.limit(1)
+			if (legacy) {
+				const nextState = {
+					cluster: opts.cluster,
+					version: opts?.version ?? legacy.version,
+					tier: opts?.tier ?? legacy.tier,
+					highAvailability: opts?.highAvailability ?? legacy.highAvailability,
+					auditLogging: opts?.auditLogging ?? legacy.auditLogging,
+					auditLogUrl: opts?.auditLogUrl ?? legacy.auditLogUrl,
+				}
+				const previousFields = {
+					cluster: legacy.cluster,
+					version: legacy.version,
+					tier: legacy.tier,
+					highAvailability: legacy.highAvailability,
+					auditLogging: legacy.auditLogging,
+					auditLogUrl: legacy.auditLogUrl,
+				}
+				await tx
+					.update(applicationPersistence)
+					.set({ ...nextState, updatedAt: new Date() })
+					.where(eq(applicationPersistence.id, legacy.id))
+				await writeAuditLog(
+					{
+						action: "persistence_updated",
+						entityType: "application_persistence",
+						entityId: legacy.id,
+						previousValue: JSON.stringify(previousFields),
+						newValue: JSON.stringify(nextState),
+						metadata: { applicationId, type, name, reason: "cluster_backfilled_by_nais_sync", source: "nais-sync" },
+						performedBy: "nais-sync",
+					},
+					tx,
+				)
+				return false
+			}
 		}
 
 		const [inserted] = await tx
@@ -1054,6 +1134,155 @@ export async function upsertAppPersistence(
 		)
 		return true
 	})
+}
+
+/**
+ * Rydder opp i apper som fikk en duplikat rad før backfill-logikken ble innført
+ * (AGENTS.md regel 1 og 3 — audit atomisk i tx, ingen hard delete). Manuelt
+ * satte felter overskrives ikke dersom kanonisk rad allerede har egne verdier,
+ * og aktiv audit-bekreftelse flyttes kun hvis kanonisk rad mangler en (partiell
+ * unik-indeks tillater maks én aktiv bekreftelse per persistence-rad).
+ */
+async function mergeLegacyPersistenceIntoCanonical(
+	tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+	legacy: typeof applicationPersistence.$inferSelect,
+	canonicalId: string,
+	applicationId: string,
+) {
+	const [canonical] = await tx
+		.select()
+		.from(applicationPersistence)
+		.where(eq(applicationPersistence.id, canonicalId))
+		.limit(1)
+	if (!canonical) return
+
+	const fieldsToBackfill: Partial<typeof applicationPersistence.$inferInsert> = {}
+	if (canonical.dataClassification === null && legacy.dataClassification !== null) {
+		fieldsToBackfill.dataClassification = legacy.dataClassification
+	}
+	if (canonical.oracleInstanceId === null && legacy.oracleInstanceId !== null) {
+		fieldsToBackfill.oracleInstanceId = legacy.oracleInstanceId
+	}
+	if (Object.keys(fieldsToBackfill).length > 0) {
+		await tx
+			.update(applicationPersistence)
+			.set({ ...fieldsToBackfill, updatedAt: new Date() })
+			.where(eq(applicationPersistence.id, canonicalId))
+
+		await writeAuditLog(
+			{
+				action: "persistence_updated",
+				entityType: "application_persistence",
+				entityId: canonicalId,
+				previousValue: JSON.stringify({
+					dataClassification: canonical.dataClassification,
+					oracleInstanceId: canonical.oracleInstanceId,
+				}),
+				newValue: JSON.stringify({
+					dataClassification: fieldsToBackfill.dataClassification ?? canonical.dataClassification,
+					oracleInstanceId: fieldsToBackfill.oracleInstanceId ?? canonical.oracleInstanceId,
+				}),
+				metadata: { applicationId, reason: "backfilled_from_deduplicated_legacy_row", source: "nais-sync" },
+				performedBy: "nais-sync",
+			},
+			tx,
+		)
+	}
+
+	const [canonicalSummary] = await tx
+		.select({ id: persistenceAuditSummaries.id })
+		.from(persistenceAuditSummaries)
+		.where(eq(persistenceAuditSummaries.persistenceId, canonicalId))
+		.limit(1)
+	if (!canonicalSummary) {
+		await tx
+			.update(persistenceAuditSummaries)
+			.set({ persistenceId: canonicalId, updatedAt: new Date(), updatedBy: "nais-sync" })
+			.where(eq(persistenceAuditSummaries.persistenceId, legacy.id))
+	}
+
+	// Flytt alle tilbakekalte (historiske) bekreftelser uten videre — disse
+	// kolliderer aldri med den partielle unik-indeksen (kun aktive er unike).
+	await tx
+		.update(persistenceAuditConfirmations)
+		.set({ persistenceId: canonicalId, updatedAt: new Date(), updatedBy: "nais-sync" })
+		.where(
+			and(
+				eq(persistenceAuditConfirmations.persistenceId, legacy.id),
+				isNotNull(persistenceAuditConfirmations.revokedAt),
+			),
+		)
+
+	const [canonicalActiveConfirmation] = await tx
+		.select({ id: persistenceAuditConfirmations.id })
+		.from(persistenceAuditConfirmations)
+		.where(
+			and(
+				eq(persistenceAuditConfirmations.persistenceId, canonicalId),
+				isNull(persistenceAuditConfirmations.revokedAt),
+			),
+		)
+		.limit(1)
+	if (!canonicalActiveConfirmation) {
+		await tx
+			.update(persistenceAuditConfirmations)
+			.set({ persistenceId: canonicalId, updatedAt: new Date(), updatedBy: "nais-sync" })
+			.where(
+				and(
+					eq(persistenceAuditConfirmations.persistenceId, legacy.id),
+					isNull(persistenceAuditConfirmations.revokedAt),
+				),
+			)
+	}
+
+	await tx
+		.update(applicationPersistence)
+		.set({ archivedAt: new Date(), archivedBy: "nais-sync", updatedAt: new Date() })
+		.where(eq(applicationPersistence.id, legacy.id))
+
+	await writeAuditLog(
+		{
+			action: "persistence_archived",
+			entityType: "application_persistence",
+			entityId: legacy.id,
+			previousValue: JSON.stringify({
+				type: legacy.type,
+				name: legacy.name,
+				cluster: legacy.cluster,
+				dataClassification: legacy.dataClassification,
+			}),
+			newValue: JSON.stringify({ type: legacy.type, name: legacy.name, mergedIntoPersistenceId: canonicalId }),
+			metadata: { applicationId, reason: "deduplicated_legacy_row", source: "nais-sync" },
+			performedBy: "nais-sync",
+		},
+		tx,
+	)
+}
+
+/**
+ * Signal for når self-healing-koden i `mergeLegacyPersistenceIntoCanonical`
+ * kan fjernes (PR #671): når denne returnerer 0 over tid, har alle apper
+ * blitt syncet minst én gang siden fiksen ble deployet.
+ */
+export async function countRemainingLegacyPersistenceDuplicates(): Promise<number> {
+	const legacyAlias = alias(applicationPersistence, "legacy")
+	const canonicalAlias = alias(applicationPersistence, "canonical")
+	const [row] = await db
+		.select({ count: sql<number>`count(distinct ${legacyAlias.id})` })
+		.from(legacyAlias)
+		.innerJoin(
+			canonicalAlias,
+			and(
+				eq(canonicalAlias.applicationId, legacyAlias.applicationId),
+				eq(canonicalAlias.type, legacyAlias.type),
+				eq(canonicalAlias.name, legacyAlias.name),
+				isNull(legacyAlias.archivedAt),
+				isNull(canonicalAlias.archivedAt),
+				isNull(legacyAlias.cluster),
+				isNotNull(canonicalAlias.cluster),
+			),
+		)
+	return Number(row?.count ?? 0)
 }
 
 // Kanonisk JSON-serialisering for arrays/objekter slik at sammenligning
@@ -1274,10 +1503,29 @@ export async function getAppAuthIntegrations(applicationId: string, opts?: { exc
 /**
  * Henter persistens-ressurser for en applikasjon. Filtrerer bort arkiverte
  * rader. Sett `includeArchived: true` for admin-/historikk-visninger.
+ * Sett `activeClusters` for å filtrere bort rader knyttet til klustre som ikke
+ * lenger er aktivt overvåket for applikasjonen (f.eks. et Kubernetes-miljø som
+ * ikke lenger blir oppdaget av Nais-sync, eller et cluster som er ekskludert
+ * på seksjonsnivå). Rader uten cluster (legacy/manuelt lagt til) beholdes alltid.
  */
-export async function getAppPersistence(applicationId: string, opts?: { includeArchived?: boolean }) {
+export async function getAppPersistence(
+	applicationId: string,
+	opts?: { includeArchived?: boolean; activeClusters?: Set<string> },
+) {
 	const conditions = [eq(applicationPersistence.applicationId, applicationId)]
 	if (!opts?.includeArchived) conditions.push(isNull(applicationPersistence.archivedAt))
+	if (opts?.activeClusters) {
+		// Eksplisitt gren for tomt sett — legacy-rader skal fortsatt vises selv
+		// om appen ikke har aktive miljøer.
+		conditions.push(
+			opts.activeClusters.size === 0
+				? isNull(applicationPersistence.cluster)
+				: (or(
+						isNull(applicationPersistence.cluster),
+						inArray(applicationPersistence.cluster, [...opts.activeClusters]),
+					) ?? sql`FALSE`),
+		)
+	}
 	return db
 		.select()
 		.from(applicationPersistence)
@@ -1394,8 +1642,11 @@ export async function getApplicationDetail(applicationId: string) {
 	for (const clusters of excludedBySection.values()) {
 		for (const c of clusters) allExcludedClusters.add(c)
 	}
+	const activeAppClusters = new Set(
+		environmentsWithExcluded.map((env) => env.cluster).filter((c): c is string => Boolean(c)),
+	)
 
-	const persistence = await getAppPersistence(applicationId)
+	const persistence = await getAppPersistence(applicationId, { activeClusters: activeAppClusters })
 	const authIntegrations = await getAppAuthIntegrations(applicationId, {
 		excludedClusters: allExcludedClusters,
 	})
