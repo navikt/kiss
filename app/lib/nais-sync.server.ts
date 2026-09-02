@@ -3,7 +3,7 @@ import { writeAuditLog } from "~/db/queries/audit.server"
 import {
 	archiveMissingEnvironmentAccessPolicyRules,
 	archiveStaleAppEnvironments,
-	countRemainingLegacyPersistenceDuplicates,
+	countLegacyPersistenceRowsWithoutCluster,
 	createAccessPolicySyncSummaryCollector,
 	getMonitoredAppsForNaisTeam,
 	syncDiscoveredApps,
@@ -315,16 +315,12 @@ export async function runFullNaisSync(
 			logger.info(`[nais-sync] Compliance cache refreshed: ${synced} synced, ${errors} errors`)
 		}
 
-		// Signal for når self-healing-koden (PR #671) kan fjernes — se JSDoc på
-		// countRemainingLegacyPersistenceDuplicates.
-		const remainingLegacyDuplicates = await countRemainingLegacyPersistenceDuplicates()
-		if (remainingLegacyDuplicates > 0) {
+		// Observabilitetssignal for backfill-casen i upsertAppPersistence (legacy-rader
+		// uten cluster, se commit adfb772c) — følger med på om casen fortsatt trigges.
+		const legacyRowsWithoutCluster = await countLegacyPersistenceRowsWithoutCluster()
+		if (legacyRowsWithoutCluster > 0) {
 			logger.info(
-				`[nais-sync] ${remainingLegacyDuplicates} legacy persistence-duplikat(er) gjenstår å ryddes opp i ved neste sync`,
-			)
-		} else {
-			logger.info(
-				"[nais-sync] Ingen legacy persistence-duplikater gjenstår — self-healing-opprydningen kan fjernes (se PR #671)",
+				`[nais-sync] ${legacyRowsWithoutCluster} persistence-rad(er) mangler fortsatt cluster (backfilles ved neste matchende sync)`,
 			)
 		}
 
