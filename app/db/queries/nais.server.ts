@@ -1113,11 +1113,14 @@ export async function upsertAppPersistence(
 }
 
 /**
- * Henter appnavn/type/navn for aktive persistence-rader som fortsatt mangler
- * `cluster` (legacy-rader fra før commit adfb772c). Brukes som observabilitets-
- * signal i nais-sync for å følge med på om backfill-casen i `upsertAppPersistence`
- * fortsatt trigges, eller om alle legacy-rader er migrert og logikken kan
- * vurderes fjernet.
+ * Henter appnavn/type/navn for aktive Nais-synkede persistence-rader som
+ * fortsatt mangler `cluster` (legacy-rader fra før commit adfb772c). Ekskluderer
+ * manuelt lagt til rader (`manuallyAdded=true`) siden de aldri kommer fra
+ * Nais-sync og aldri får cluster satt — de ville ellers gjort signalet
+ * misvisende ved at det forblir > 0 selv når all ekte legacy er backfillet.
+ * Brukes som observabilitetssignal i nais-sync for å følge med på om
+ * backfill-casen i `upsertAppPersistence` fortsatt trigges, eller om all
+ * legacy er migrert og logikken kan vurderes fjernet.
  */
 export async function getLegacyPersistenceRowsWithoutCluster(): Promise<
 	{ appName: string; type: string; name: string }[]
@@ -1130,7 +1133,13 @@ export async function getLegacyPersistenceRowsWithoutCluster(): Promise<
 		})
 		.from(applicationPersistence)
 		.innerJoin(monitoredApplications, eq(applicationPersistence.applicationId, monitoredApplications.id))
-		.where(and(isNull(applicationPersistence.cluster), isNull(applicationPersistence.archivedAt)))
+		.where(
+			and(
+				isNull(applicationPersistence.cluster),
+				isNull(applicationPersistence.archivedAt),
+				eq(applicationPersistence.manuallyAdded, false),
+			),
+		)
 		.orderBy(monitoredApplications.name, applicationPersistence.type, applicationPersistence.name)
 }
 

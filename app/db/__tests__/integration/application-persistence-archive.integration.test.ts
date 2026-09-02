@@ -421,4 +421,14 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 
 		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
 	})
+
+	it("getLegacyPersistenceRowsWithoutCluster ekskluderer manuelt lagt til rader (manuallyAdded=true)", async () => {
+		const appId = await createTestApp("App O5")
+
+		const before = await getLegacyPersistenceRowsWithoutCluster()
+
+		await addManualPersistence(appId, "cloud_sql_postgres", "manuell-db", null, "u")
+
+		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
+	})
 })
