@@ -11,6 +11,23 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
+// applyFrameworkImport() fires off syncAllApplicationControls() in the background
+// (fire-and-forget, see framework.server.ts) to refresh the compliance cache for
+// every app. Left un-mocked, that background sync races with each test's own
+// manual application_controls/routine_reviews setup — since it isn't awaited by
+// applyFrameworkImport, it can still be running (or start) while a test asserts
+// on data it just inserted, overwriting it with freshly computed values and
+// causing intermittent "expected 1 to be 0" failures. Tests exercise
+// syncApplicationControls directly where that behavior matters, so it's safe to
+// no-op the fire-and-forget trigger here.
+vi.mock("~/db/queries/application-controls.server", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("~/db/queries/application-controls.server")>()
+	return {
+		...actual,
+		triggerSyncAll: vi.fn(),
+	}
+})
+
 const { stageFrameworkImport, applyFrameworkImport } = await import("~/db/queries/framework.server")
 const {
 	updateControlComment,
