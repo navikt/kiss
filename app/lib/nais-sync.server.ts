@@ -3,8 +3,8 @@ import { writeAuditLog } from "~/db/queries/audit.server"
 import {
 	archiveMissingEnvironmentAccessPolicyRules,
 	archiveStaleAppEnvironments,
-	countLegacyPersistenceRowsWithoutCluster,
 	createAccessPolicySyncSummaryCollector,
+	getLegacyPersistenceRowsWithoutCluster,
 	getMonitoredAppsForNaisTeam,
 	syncDiscoveredApps,
 	upsertAccessPolicyRulesForEnvironment,
@@ -317,10 +317,11 @@ export async function runFullNaisSync(
 
 		// Observabilitetssignal for backfill-casen i upsertAppPersistence (legacy-rader
 		// uten cluster, se commit adfb772c) — følger med på om casen fortsatt trigges.
-		const legacyRowsWithoutCluster = await countLegacyPersistenceRowsWithoutCluster()
-		if (legacyRowsWithoutCluster > 0) {
+		const legacyRowsWithoutCluster = await getLegacyPersistenceRowsWithoutCluster()
+		if (legacyRowsWithoutCluster.length > 0) {
+			const details = legacyRowsWithoutCluster.map((r) => `${r.appName}/${r.type}/${r.name}`).join(", ")
 			logger.info(
-				`[nais-sync] ${legacyRowsWithoutCluster} persistence-rad(er) mangler fortsatt cluster (backfilles ved neste matchende sync)`,
+				`[nais-sync] ${legacyRowsWithoutCluster.length} persistence-rad(er) mangler fortsatt cluster (backfilles ved neste matchende sync): ${details}`,
 			)
 		}
 
