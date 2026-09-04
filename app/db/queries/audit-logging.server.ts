@@ -32,6 +32,7 @@ export interface AuditOverviewRow {
 	persistenceType: string
 	persistenceName: string
 	auditLogging: boolean | null
+	missingAuditFlags: string[] | null
 	summary: {
 		conclusion: string
 		reason: string | null
@@ -64,6 +65,7 @@ export function computeAuditStatus(
 	auditLogging: boolean | null,
 	summaryConclusion: string | null,
 	hasActiveConfirmation: boolean,
+	missingAuditFlags?: string[] | null,
 ): AuditLoggingStatus {
 	// Oracle with summary data from oracle-revisjon
 	if (persistenceType === "oracle" && summaryConclusion) {
@@ -81,7 +83,12 @@ export function computeAuditStatus(
 
 	// Cloud SQL with auditLogging flag from Nais
 	if (persistenceType === "cloud_sql_postgres" && auditLogging !== null) {
-		return auditLogging ? "active" : "inactive"
+		if (!auditLogging) return "inactive"
+		// pgaudit er på, men mangler ett eller flere anbefalte flagg (f.eks.
+		// pgaudit.log_relation) — CTE-baserte oppdateringer kan da mangle
+		// audit-logging av substatements.
+		if (missingAuditFlags && missingAuditFlags.length > 0) return "partial"
+		return "active"
 	}
 
 	// Manual confirmation for any type
@@ -512,6 +519,7 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 			persistenceType: applicationPersistence.type,
 			persistenceName: applicationPersistence.name,
 			auditLogging: applicationPersistence.auditLogging,
+			missingAuditFlags: applicationPersistence.missingAuditFlags,
 			// Summary fields
 			summaryConclusion: persistenceAuditSummaries.conclusion,
 			summaryReason: persistenceAuditSummaries.reason,
@@ -637,6 +645,7 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 			persistenceType: row.persistenceType,
 			persistenceName: row.persistenceName,
 			auditLogging: row.auditLogging,
+			missingAuditFlags: row.missingAuditFlags,
 			summary: row.summaryConclusion
 				? {
 						conclusion: row.summaryConclusion,
@@ -660,6 +669,7 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 				row.auditLogging,
 				row.summaryConclusion,
 				row.confirmationId !== null,
+				row.missingAuditFlags,
 			),
 		}
 	})
@@ -692,6 +702,7 @@ export async function getSectionAuditOverview(sectionSlug: string): Promise<Audi
 			persistenceType: "oracle",
 			persistenceName: inst.instanceId.toUpperCase(),
 			auditLogging: null,
+			missingAuditFlags: null,
 			summary: null,
 			confirmation: null,
 			status: "unknown",

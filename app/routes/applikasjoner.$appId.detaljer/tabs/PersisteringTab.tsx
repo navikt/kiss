@@ -19,6 +19,7 @@ export function PersisteringTab({
 		highAvailability: boolean | null
 		auditLogging: boolean | null
 		auditLogUrl: string | null
+		missingAuditFlags: string[] | null
 		oracleInstanceId: string | null
 		dataClassification: string | null
 		manuallyAdded: boolean

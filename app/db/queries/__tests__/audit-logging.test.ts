@@ -52,6 +52,18 @@ describe("computeAuditStatus", () => {
 		it("returns 'confirmed' when auditLogging is null but has confirmation", () => {
 			expect(computeAuditStatus("cloud_sql_postgres", null, null, true)).toBe("confirmed")
 		})
+
+		it("returns 'partial' when auditLogging is true but recommended flags are missing", () => {
+			expect(computeAuditStatus("cloud_sql_postgres", true, null, false, ["pgaudit.log_relation"])).toBe("partial")
+		})
+
+		it("returns 'active' when auditLogging is true and no flags are missing", () => {
+			expect(computeAuditStatus("cloud_sql_postgres", true, null, false, [])).toBe("active")
+		})
+
+		it("returns 'inactive' when auditLogging is false regardless of missing flags", () => {
+			expect(computeAuditStatus("cloud_sql_postgres", false, null, false, ["pgaudit.log_relation"])).toBe("inactive")
+		})
 	})
 
 	describe("Other database types", () => {

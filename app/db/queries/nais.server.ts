@@ -882,6 +882,7 @@ export async function upsertAppPersistence(
 		highAvailability?: boolean | null
 		auditLogging?: boolean | null
 		auditLogUrl?: string | null
+		missingAuditFlags?: string[] | null
 		cluster?: string | null
 	},
 ): Promise<boolean> {
@@ -945,6 +946,7 @@ export async function upsertAppPersistence(
 				highAvailability: opts?.highAvailability ?? existing.highAvailability,
 				auditLogging: opts?.auditLogging ?? existing.auditLogging,
 				auditLogUrl: opts?.auditLogUrl ?? existing.auditLogUrl,
+				missingAuditFlags: opts?.missingAuditFlags ?? existing.missingAuditFlags,
 				cluster: opts?.cluster ?? existing.cluster,
 			}
 			const previousFields = {
@@ -953,6 +955,7 @@ export async function upsertAppPersistence(
 				highAvailability: existing.highAvailability,
 				auditLogging: existing.auditLogging,
 				auditLogUrl: existing.auditLogUrl,
+				missingAuditFlags: existing.missingAuditFlags,
 				cluster: existing.cluster,
 			}
 			const fieldsChanged =
@@ -961,6 +964,8 @@ export async function upsertAppPersistence(
 				nextState.highAvailability !== previousFields.highAvailability ||
 				nextState.auditLogging !== previousFields.auditLogging ||
 				nextState.auditLogUrl !== previousFields.auditLogUrl ||
+				canonicalizeStringArray(nextState.missingAuditFlags) !==
+					canonicalizeStringArray(previousFields.missingAuditFlags) ||
 				nextState.cluster !== previousFields.cluster
 
 			// Hopp over UPDATE helt når det ikke er noe å endre (verken
@@ -1044,6 +1049,7 @@ export async function upsertAppPersistence(
 					highAvailability: opts?.highAvailability ?? legacy.highAvailability,
 					auditLogging: opts?.auditLogging ?? legacy.auditLogging,
 					auditLogUrl: opts?.auditLogUrl ?? legacy.auditLogUrl,
+					missingAuditFlags: opts?.missingAuditFlags ?? legacy.missingAuditFlags,
 				}
 				const previousFields = {
 					cluster: legacy.cluster,
@@ -1052,6 +1058,7 @@ export async function upsertAppPersistence(
 					highAvailability: legacy.highAvailability,
 					auditLogging: legacy.auditLogging,
 					auditLogUrl: legacy.auditLogUrl,
+					missingAuditFlags: legacy.missingAuditFlags,
 				}
 				await tx
 					.update(applicationPersistence)
@@ -1084,6 +1091,7 @@ export async function upsertAppPersistence(
 				highAvailability: opts?.highAvailability ?? null,
 				auditLogging: opts?.auditLogging ?? null,
 				auditLogUrl: opts?.auditLogUrl ?? null,
+				missingAuditFlags: opts?.missingAuditFlags ?? null,
 				cluster: opts?.cluster ?? null,
 			})
 			.returning()
@@ -1101,6 +1109,7 @@ export async function upsertAppPersistence(
 					highAvailability: inserted.highAvailability,
 					auditLogging: inserted.auditLogging,
 					auditLogUrl: inserted.auditLogUrl,
+					missingAuditFlags: inserted.missingAuditFlags,
 					cluster: inserted.cluster,
 				}),
 				metadata: { applicationId, source: "nais-sync" },
