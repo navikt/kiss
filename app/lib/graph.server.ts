@@ -242,7 +242,7 @@ interface GraphUserInfo {
 	mailNickname: string | null
 }
 
-function pickNavIdent(u: GraphUserInfo): string | null {
+export function pickNavIdent(u: GraphUserInfo): string | null {
 	const candidate = u.onPremisesSamAccountName ?? u.mailNickname
 	if (!candidate) return null
 	const trimmed = candidate.trim()
@@ -475,6 +475,97 @@ export async function fetchGroupMembers(groupId: string): Promise<GroupMember[]>
 	}
 
 	return members
+}
+
+// ─── Dev Team Entra Members ──────────────────────────────────────────────────
+
+export interface TeamEntraMember {
+	navIdent: string
+	displayName: string | null
+	mail: string | null
+}
+
+interface GraphTransitiveMemberResponse {
+	value: Array<{
+		"@odata.type": string
+		accountEnabled?: boolean
+		displayName?: string
+		mail?: string
+		onPremisesSamAccountName?: string
+		mailNickname?: string
+	}>
+	"@odata.nextLink"?: string
+}
+
+/**
+ * Fetch all human members of an Entra ID group (transitively, so nested groups are
+ * expanded) via Microsoft Graph API, for use as automatic KISS team membership.
+ *
+ * Returns `null` only when the group itself no longer exists in Entra
+ * (Request_ResourceNotFound) — callers should treat that as "group deleted" and
+ * clear cached membership immediately. Any other failure throws, so callers can
+ * distinguish a transient error (keep existing cache) from a definitive one.
+ */
+export async function fetchTeamEntraMembers(groupId: string): Promise<TeamEntraMember[] | null> {
+	if (!process.env.AZURE_OPENID_CONFIG_TOKEN_ENDPOINT) {
+		const nodeEnv = process.env.NODE_ENV
+		if (nodeEnv !== "development" && nodeEnv !== "test") {
+			throw new Error("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT is not configured")
+		}
+		return [{ navIdent: "Z990001", displayName: "Glad Fjord", mail: "glad.fjord@nav.no" }]
+	}
+
+	const token = await getClientCredentialToken(GRAPH_SCOPE)
+	const members: TeamEntraMember[] = []
+	let url: string | null =
+		`https://graph.microsoft.com/v1.0/groups/${groupId}/transitiveMembers?$select=accountEnabled,displayName,mail,onPremisesSamAccountName,mailNickname&$top=100`
+
+	while (url) {
+		const response = await fetchWith429Retry(
+			url,
+			() => ({
+				headers: { Authorization: `Bearer ${token}` },
+				signal: AbortSignal.timeout(30_000),
+			}),
+			`transitive group members ${groupId}`,
+		)
+
+		if (!response.ok) {
+			if (response.status === 404) {
+				const body = await response.json().catch(() => null)
+				if (body?.error?.code === "Request_ResourceNotFound") return null
+			}
+			throw new Error(`Graph transitive members request failed for ${groupId}: ${response.status}`)
+		}
+
+		const data = (await response.json()) as GraphTransitiveMemberResponse
+		const memberList = data?.value
+		if (!Array.isArray(memberList)) {
+			throw new Error(`Unexpected Graph API response for group ${groupId}: missing value array`)
+		}
+
+		for (const member of memberList) {
+			if (member["@odata.type"] !== "#microsoft.graph.user") continue
+			if (member.accountEnabled === false) continue
+			const rawNavIdent = pickNavIdent({
+				id: "",
+				displayName: member.displayName ?? "",
+				mail: member.mail ?? null,
+				onPremisesSamAccountName: member.onPremisesSamAccountName ?? null,
+				mailNickname: member.mailNickname ?? null,
+			})
+			// mailNickname-fallback kan komme i lowercase fra Graph, mens navIdent
+			// ellers i KISS (JWT-claim, onPremisesSamAccountName) alltid er uppercase.
+			// Normaliser her så oppslag mot lagret navIdent ikke feiler på casing.
+			const navIdent = rawNavIdent?.toUpperCase() ?? null
+			if (!navIdent) continue
+			members.push({ navIdent, displayName: member.displayName ?? null, mail: member.mail ?? null })
+		}
+
+		url = data["@odata.nextLink"] ?? null
+	}
+
+	return [...new Map(members.map((m) => [m.navIdent, m])).values()]
 }
 
 // ─── User Group Memberships ──────────────────────────────────────────────────
