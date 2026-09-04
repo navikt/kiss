@@ -18,6 +18,7 @@ export function PersistenceRow({
 		highAvailability: boolean | null
 		auditLogging: boolean | null
 		auditLogUrl: string | null
+		missingAuditFlags: string[] | null
 		oracleInstanceId: string | null
 		dataClassification: string | null
 		manuallyAdded: boolean
@@ -117,17 +118,33 @@ export function PersistenceRow({
 						)}
 					</VStack>
 				) : p.auditLogging === true ? (
-					p.auditLogUrl ? (
-						<AkselLink href={p.auditLogUrl} target="_blank" rel="noopener noreferrer">
-							<Tag variant="success" size="xsmall">
-								Ja – se logg (åpnes i nytt vindu)
+					<VStack gap="space-1">
+						{p.auditLogUrl ? (
+							<AkselLink href={p.auditLogUrl} target="_blank" rel="noopener noreferrer">
+								<Tag
+									variant={p.missingAuditFlags && p.missingAuditFlags.length > 0 ? "warning" : "success"}
+									size="xsmall"
+								>
+									{p.missingAuditFlags && p.missingAuditFlags.length > 0
+										? "Ja, men mangler flagg – se logg (åpnes i nytt vindu)"
+										: "Ja – se logg (åpnes i nytt vindu)"}
+								</Tag>
+							</AkselLink>
+						) : (
+							<Tag
+								variant={p.missingAuditFlags && p.missingAuditFlags.length > 0 ? "warning" : "success"}
+								size="xsmall"
+							>
+								{p.missingAuditFlags && p.missingAuditFlags.length > 0 ? "Ja, men mangler flagg" : "Ja"}
 							</Tag>
-						</AkselLink>
-					) : (
-						<Tag variant="success" size="xsmall">
-							Ja
-						</Tag>
-					)
+						)}
+						{p.missingAuditFlags && p.missingAuditFlags.length > 0 && (
+							<Detail style={{ color: "var(--ax-text-subtle)" }}>
+								{p.missingAuditFlags.length > 1 ? "Mangler anbefalte flagg" : "Mangler anbefalt flagg"}:{" "}
+								{p.missingAuditFlags.join(", ")}
+							</Detail>
+						)}
+					</VStack>
 				) : p.auditLogging === false ? (
 					<Tag variant="error" size="xsmall">
 						Nei
