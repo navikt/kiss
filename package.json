@@ -80,7 +80,7 @@
 		"@storybook/react": "^10.5.10",
 		"@storybook/react-vite": "^10.5.10",
 		"@testcontainers/postgresql": "^12.1.0",
-		"@testing-library/react": "^16.3.2",
+		"@testing-library/react": "^16.3.3",
 		"@types/archiver": "^8.0.0",
 		"@types/compression": "^1.8.1",
 		"@types/express": "^5.0.6",
