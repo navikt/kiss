@@ -125,6 +125,26 @@ const jobs: JobConfig[] = [
 		},
 	},
 	{
+		name: "entra-team-member-sync",
+		everyCycles: 6, // every 30min
+		envVar: "ENABLE_ENTRA_TEAM_SYNC",
+		async run() {
+			const { runTrackedEntraTeamMemberSync } = await import("./entra-team-sync-jobs.server")
+			const tracked = await runTrackedEntraTeamMemberSync({
+				performedBy: "unified-scheduler",
+				scopeType: "scheduler",
+				scopeId: "unified-scheduler",
+			})
+			if (tracked.result) {
+				logger.info(
+					`[unified-scheduler] entra-team-sync complete: ${tracked.result.teamsSynced} teams, ${tracked.result.teamsGroupDeleted} group-deleted, +${tracked.result.totalAdded} added, -${tracked.result.totalArchived} archived`,
+				)
+			} else {
+				logger.info("[unified-scheduler] entra-team-sync skipped — another pod holds the lock")
+			}
+		},
+	},
+	{
 		name: "sync-job-retention-cleanup",
 		// Cycle 1 is startup run; cycle 289 gives 24h separation at 5m interval.
 		everyCycles: CYCLES_PER_24_HOURS + 1,

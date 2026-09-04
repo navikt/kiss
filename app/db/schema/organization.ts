@@ -1,4 +1,5 @@
-import { boolean, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
+import { boolean, index, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core"
 
 export const sections = pgTable("sections", {
 	id: uuid("id").primaryKey().defaultRandom(),
@@ -27,22 +28,62 @@ export const clusters = pgTable("clusters", {
 	updatedBy: text("updated_by").notNull(),
 })
 
-export const devTeams = pgTable("dev_teams", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	sectionId: uuid("section_id")
-		.notNull()
-		.references(() => sections.id, { onDelete: "restrict" }),
-	clusterId: uuid("cluster_id").references(() => clusters.id),
-	name: text("name").notNull(),
-	slug: text("slug").notNull(),
-	description: text("description"),
-	archivedAt: timestamp("archived_at", { withTimezone: true }),
-	archivedBy: text("archived_by"),
-	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-	createdBy: text("created_by").notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-	updatedBy: text("updated_by").notNull(),
-})
+export const devTeams = pgTable(
+	"dev_teams",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		sectionId: uuid("section_id")
+			.notNull()
+			.references(() => sections.id, { onDelete: "restrict" }),
+		clusterId: uuid("cluster_id").references(() => clusters.id),
+		name: text("name").notNull(),
+		slug: text("slug").notNull(),
+		description: text("description"),
+		entraGroupId: text("entra_group_id"),
+		entraGroupName: text("entra_group_name"),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+	},
+	(t) => [
+		// Én Entra-gruppe kan kun kobles til ett aktivt team (1:1)
+		uniqueIndex("dev_teams_entra_group_active_unique_idx")
+			.on(t.entraGroupId)
+			.where(sql`entra_group_id IS NOT NULL AND archived_at IS NULL`),
+	],
+)
+
+// ─── Dev Team Entra Members ───────────────────────────────────────────────────
+// Cachet medlemsliste for team koblet til en Entra ID-gruppe, syncet periodisk
+// fra Microsoft Graph. Nøklet på navIdent (ikke Entra objekt-ID) fordi
+// autorisasjon andre steder i KISS er navIdent-basert.
+
+export const devTeamEntraMembers = pgTable(
+	"dev_team_entra_members",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		devTeamId: uuid("dev_team_id")
+			.notNull()
+			.references(() => devTeams.id, { onDelete: "restrict" }),
+		navIdent: text("nav_ident").notNull(),
+		displayName: text("display_name"),
+		mail: text("mail"),
+		syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		createdBy: text("created_by").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedBy: text("updated_by").notNull(),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		archivedBy: text("archived_by"),
+	},
+	(t) => [
+		uniqueIndex("dev_team_entra_members_active_unique_idx").on(t.devTeamId, t.navIdent).where(sql`archived_at IS NULL`),
+		index("dev_team_entra_members_nav_ident_active_idx").on(t.navIdent).where(sql`archived_at IS NULL`),
+	],
+)
 
 export const userRoleEnum = [
 	"admin",
