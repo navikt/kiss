@@ -409,7 +409,7 @@ export default function SeksjonDashboard() {
 								<Heading size="xlarge" level="3">
 									{needsFollowUpPoints}
 								</Heading>
-								<Detail>Krever oppfølging</Detail>
+								<Detail>Åpne oppfølgingspunkter</Detail>
 							</VStack>
 						</Box>
 					</Link>
@@ -450,9 +450,9 @@ export default function SeksjonDashboard() {
 						telles én gang — ikke per applikasjon.
 					</BodyLong>
 					<BodyLong>
-						<strong>Krever oppfølging</strong> viser antall åpne oppfølgingspunkter fra rutinegjennomganger som er
-						fullført, men der det ble oppdaget noe som må følges opp – for eksempel en bruker med tilgang som ikke
-						lenger skal ha det. Selve rutinen er altså gjennomført, men det gjenstår konkrete oppfølgingsoppgaver.
+						<strong>Åpne oppfølgingspunkter</strong> viser antall punkter fra rutinegjennomganger som er fullført, men
+						der det ble oppdaget noe som må følges opp – for eksempel en bruker med tilgang som ikke lenger skal ha det.
+						Selve rutinen er altså gjennomført, men det gjenstår konkrete oppfølgingsoppgaver.
 					</BodyLong>
 				</VStack>
 			</ReadMore>

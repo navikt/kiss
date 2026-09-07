@@ -266,7 +266,7 @@ export default function TeamDashboard() {
 							<Heading size="xlarge" level="3">
 								{needsFollowUpPoints}
 							</Heading>
-							<Detail>Krever oppfølging</Detail>
+							<Detail>Åpne oppfølgingspunkter</Detail>
 						</VStack>
 					</Box>
 				</Link>
