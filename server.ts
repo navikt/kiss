@@ -74,6 +74,11 @@ function accessLogMiddleware(req: express.Request, res: express.Response, next: 
 
 const app = express()
 app.disable("x-powered-by")
+// Nais/nginx-ingress terminerer TLS og proxyer internt over HTTP. Uten dette leser
+// Express `req.protocol` som "http" (ikke X-Forwarded-Proto), noe som gjør at
+// React Routers CSRF-sjekk (Origin-header vs. request.url) alltid feiler med
+// "Bad Request" på POST-handlinger. Setter også riktig req.ip i access-loggen.
+app.set("trust proxy", true)
 app.use(compression())
 
 const buildPath = path.resolve("build/server/index.js")
