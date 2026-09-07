@@ -247,8 +247,6 @@ export default function TeamDashboard() {
 				</Link>
 			</HGrid>
 
-			<DeploymentSummaryCards stats={deploymentStats} />
-
 			{(totalRoutinesIkkeGjennomfort > 0 || needsFollowUpApps > 0) && (
 				<HStack gap="space-4" wrap>
 					{totalRoutinesIkkeGjennomfort > 0 && (
@@ -287,6 +285,8 @@ export default function TeamDashboard() {
 					)}
 				</HStack>
 			)}
+
+			<DeploymentSummaryCards stats={deploymentStats} />
 
 			<HStack align="center" justify="space-between" wrap>
 				<Heading size="large" level="3">
