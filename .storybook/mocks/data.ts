@@ -335,6 +335,9 @@ export function mockTeamEditData() {
 		teamName: "Starte pensjon",
 		teamDescription: "Team som jobber med oppstart av alderspensjon",
 		teamArchivedAt: null as string | null,
+		entraGroupId: null as string | null,
+		entraGroupName: null as string | null,
+		entraMembers: [] as { navIdent: string; displayName: string | null }[],
 		apps: [
 			mockAppSummary({ appId: "app-1", appName: "pensjon-sak", implemented: 18, partial: 4, notImplemented: 2, notRelevant: 3 }),
 			mockAppSummary({ appId: "app-2", appName: "psak-frontend", implemented: 15, partial: 6, notImplemented: 3, notRelevant: 3 }),
