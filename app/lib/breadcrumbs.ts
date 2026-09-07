@@ -316,7 +316,7 @@ const rules: BreadcrumbRule[] = [
 			SEKSJONER,
 			{ label: sectionName, to: sectionPath },
 			{ label: teamName, to: teamPath },
-			{ label: "Krever oppfølging" },
+			{ label: "Åpne oppfølgingspunkter" },
 		],
 	},
 	{
