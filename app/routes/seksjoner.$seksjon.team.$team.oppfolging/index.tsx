@@ -32,20 +32,13 @@ export async function loader({ params }: Route.LoaderArgs) {
 }
 
 export default function TeamRutinerOppfolging() {
-	const { seksjon, seksjonName, team, teamName, reviews } = useLoaderData<typeof loader>()
+	const { seksjon, team, reviews } = useLoaderData<typeof loader>()
 
 	return (
 		<VStack gap="space-8">
-			<VStack gap="space-2">
-				<BodyShort size="small">
-					<Link to={`/seksjoner/${seksjon}`}>{seksjonName}</Link>
-					{" / "}
-					<Link to={`/seksjoner/${seksjon}/team/${team}`}>{teamName}</Link>
-				</BodyShort>
-				<Heading size="xlarge" level="2">
-					Rutiner som krever oppfølging
-				</Heading>
-			</VStack>
+			<Heading size="xlarge" level="2">
+				Rutiner som krever oppfølging
+			</Heading>
 
 			{reviews.length === 0 ? (
 				<Box padding="space-6" borderRadius="8" background="sunken">
