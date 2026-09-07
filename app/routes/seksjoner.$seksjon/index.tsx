@@ -355,9 +355,7 @@ export default function SeksjonDashboard() {
 						<Detail>Mangler</Detail>
 					</VStack>
 				</Box>
-			</HGrid>
 
-			<HGrid gap="space-6" columns={{ xs: 2, sm: 3, lg: 5 }}>
 				<Tooltip content="Antall applikasjoner der alle screening-spørsmål er besvart.">
 					<Box padding="space-6" borderRadius="8" background="sunken">
 						<VStack align="center">
