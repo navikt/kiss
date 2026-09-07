@@ -83,7 +83,7 @@ describe("buildBreadcrumbs", () => {
 			{ seksjonName: "Utvikling", teamName: "Mitt team" },
 			{ seksjon: "utvikling", team: "mitt-team" },
 		)
-		expect(crumbLabels(crumbs)).toEqual(["Seksjoner", "Utvikling", "Mitt team", "Krever oppfølging"])
+		expect(crumbLabels(crumbs)).toEqual(["Seksjoner", "Utvikling", "Mitt team", "Åpne oppfølgingspunkter"])
 		expect(crumbs[2].to).toBe("/seksjoner/utvikling/team/mitt-team")
 		expect(crumbs[3].to).toBeNull()
 	})

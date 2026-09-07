@@ -36,17 +36,17 @@ export default function RutinerOppfolging() {
 	return (
 		<VStack gap="space-8">
 			<Heading size="xlarge" level="2" spacing>
-				Rutiner som krever oppfølging — {section.name}
+				Åpne oppfølgingspunkter — {section.name}
 			</Heading>
 
 			{reviews.length === 0 ? (
 				<Box padding="space-6" borderRadius="8" background="sunken">
-					<BodyShort>Ingen gjennomganger krever oppfølging for denne seksjonen.</BodyShort>
+					<BodyShort>Ingen åpne oppfølgingspunkter for denne seksjonen.</BodyShort>
 				</Box>
 			) : (
 				<>
 					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
-					<section className="table-scroll" tabIndex={0} aria-label="Rutiner som krever oppfølging">
+					<section className="table-scroll" tabIndex={0} aria-label="Åpne oppfølgingspunkter">
 						<Table>
 							<Table.Header>
 								<Table.Row>
