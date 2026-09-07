@@ -56,6 +56,7 @@ const {
 	findActiveReviewConflict,
 	getRoutineActivityLinks,
 	getFollowUpReviewsForSection,
+	getFollowUpReviewsForApps,
 } = await import("~/db/queries/routines.server")
 
 const { recordManualEvidenceUpload } = await import("~/db/queries/evidence-downloads.server")
@@ -2949,6 +2950,94 @@ describe("Routines integration tests", () => {
 
 			expect(results).toHaveLength(1)
 			expect(results[0].createdByName).toBeNull()
+		})
+	})
+
+	describe("getFollowUpReviewsForApps", () => {
+		async function createApprovedRoutine(sectionId: string, name: string) {
+			const routine = await createRoutine({
+				name,
+				description: null,
+				sectionId,
+				frequency: "annually",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+			return routine
+		}
+
+		async function createReviewWithStatus(
+			routineId: string,
+			appId: string | null,
+			status: "completed" | "needs_follow_up" | "discarded",
+		) {
+			const db = getTestDb()
+			const review = await createReview({
+				routineId,
+				applicationId: appId,
+				title: "Test gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+			await db.execute(/* sql */ `UPDATE routine_reviews SET status = '${status}' WHERE id = '${review.id}'`)
+			return review
+		}
+
+		it("returnerer kun needs_follow_up-gjennomganger for de forespurte applikasjonene", async () => {
+			const sectionId = await createTestSection("App-seksjon", "app-seksjon")
+			const appA = await createTestApp("App A")
+			const appB = await createTestApp("App B")
+			const routine = await createApprovedRoutine(sectionId, "App-rutine")
+
+			const followUpReviewA = await createReviewWithStatus(routine.id, appA, "needs_follow_up")
+			await createReviewWithStatus(routine.id, appB, "needs_follow_up")
+
+			const results = await getFollowUpReviewsForApps(sectionId, [appA])
+
+			expect(results).toHaveLength(1)
+			expect(results[0].id).toBe(followUpReviewA.id)
+		})
+
+		it("ekskluderer gjennomganger fra andre seksjoner selv om appen er i listen", async () => {
+			const sectionA = await createTestSection("App-seksjon-A", "app-seksjon-a")
+			const sectionB = await createTestSection("App-seksjon-B", "app-seksjon-b")
+			const appId = await createTestApp("Tverr-seksjon-app")
+			const routineB = await createApprovedRoutine(sectionB, "Seksjon-B-rutine")
+
+			await createReviewWithStatus(routineB.id, appId, "needs_follow_up")
+
+			const results = await getFollowUpReviewsForApps(sectionA, [appId])
+
+			expect(results).toHaveLength(0)
+		})
+
+		it("ekskluderer gjennomganger fra arkiverte rutiner", async () => {
+			const sectionId = await createTestSection("App-arkiv-seksjon", "app-arkiv-seksjon")
+			const appId = await createTestApp("App-arkiv-app")
+			const routine = await createApprovedRoutine(sectionId, "Arkivert app-rutine")
+
+			await createReviewWithStatus(routine.id, appId, "needs_follow_up")
+			await archiveRoutine(routine.id, "Z990001")
+
+			const results = await getFollowUpReviewsForApps(sectionId, [appId])
+
+			expect(results).toHaveLength(0)
+		})
+
+		it("returnerer tom liste når ingen app-IDer oppgis", async () => {
+			const sectionId = await createTestSection("App-tom-seksjon", "app-tom-seksjon")
+			const results = await getFollowUpReviewsForApps(sectionId, [])
+			expect(results).toHaveLength(0)
 		})
 	})
 

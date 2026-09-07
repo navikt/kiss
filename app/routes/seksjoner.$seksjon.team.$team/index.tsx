@@ -59,6 +59,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		(sum, a) => sum + a.routineCompliance.routinesIkkeGjennomfort,
 		0,
 	)
+	const needsFollowUpApps = result.apps.filter((a) => a.routineCompliance.routinesMaaFolgesOpp > 0).length
 
 	return data({
 		seksjon,
@@ -79,6 +80,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		totalMangler,
 		overallPercent,
 		totalRoutinesIkkeGjennomfort,
+		needsFollowUpApps,
 		deploymentStats,
 	})
 }
@@ -169,6 +171,7 @@ export default function TeamDashboard() {
 		totalMangler,
 		overallPercent,
 		totalRoutinesIkkeGjennomfort,
+		needsFollowUpApps,
 		deploymentStats,
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
@@ -246,19 +249,43 @@ export default function TeamDashboard() {
 
 			<DeploymentSummaryCards stats={deploymentStats} />
 
-			{totalRoutinesIkkeGjennomfort > 0 && (
-				<Link to={`/seksjoner/${seksjon}/team/${team}/rutiner`} style={{ textDecoration: "none", color: "inherit" }}>
-					<Box padding="space-12" borderRadius="8" background="warning-moderate">
-						<HStack align="center" gap="space-8">
-							<VStack gap="space-0">
-								<Heading size="medium" level="3">
-									{totalRoutinesIkkeGjennomfort}
-								</Heading>
-								<Detail>Ikke-gjennomførte rutiner</Detail>
-							</VStack>
-						</HStack>
-					</Box>
-				</Link>
+			{(totalRoutinesIkkeGjennomfort > 0 || needsFollowUpApps > 0) && (
+				<HStack gap="space-4" wrap>
+					{totalRoutinesIkkeGjennomfort > 0 && (
+						<Link
+							to={`/seksjoner/${seksjon}/team/${team}/rutiner`}
+							style={{ textDecoration: "none", color: "inherit" }}
+						>
+							<Box padding="space-12" borderRadius="8" background="warning-moderate">
+								<HStack align="center" gap="space-8">
+									<VStack gap="space-0">
+										<Heading size="medium" level="3">
+											{totalRoutinesIkkeGjennomfort}
+										</Heading>
+										<Detail>Ikke-gjennomførte rutiner</Detail>
+									</VStack>
+								</HStack>
+							</Box>
+						</Link>
+					)}
+					{needsFollowUpApps > 0 && (
+						<Link
+							to={`/seksjoner/${seksjon}/team/${team}/oppfolging`}
+							style={{ textDecoration: "none", color: "inherit" }}
+						>
+							<Box padding="space-12" borderRadius="8" background="warning-moderate">
+								<HStack align="center" gap="space-8">
+									<VStack gap="space-0">
+										<Heading size="medium" level="3">
+											{needsFollowUpApps}
+										</Heading>
+										<Detail>Krever oppfølging</Detail>
+									</VStack>
+								</HStack>
+							</Box>
+						</Link>
+					)}
+				</HStack>
 			)}
 
 			<HStack align="center" justify="space-between" wrap>

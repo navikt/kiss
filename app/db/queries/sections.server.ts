@@ -734,6 +734,31 @@ export async function getTeamBySlug(slug: string) {
 	return team ?? null
 }
 
+/** Lightweight variant of getTeamApps: returns team + active app IDs only, without compliance/economy lookups. */
+export async function getTeamActiveAppIds(teamSlug: string) {
+	const [team] = await db.select().from(devTeams).where(eq(devTeams.slug, teamSlug)).limit(1)
+	if (!team) return null
+
+	const excludedEnvRows = await db
+		.select({ cluster: sectionEnvironments.cluster })
+		.from(sectionEnvironments)
+		.where(and(eq(sectionEnvironments.sectionId, team.sectionId), eq(sectionEnvironments.included, false)))
+	const excludedEnvs = new Set(excludedEnvRows.map((r) => r.cluster))
+
+	const { allIds } = await getTeamAppIds(team.id, excludedEnvs)
+	const appIdList = [...allIds]
+
+	const appRows =
+		appIdList.length > 0
+			? await db
+					.select({ id: monitoredApplications.id })
+					.from(monitoredApplications)
+					.where(and(inArray(monitoredApplications.id, appIdList), isNull(monitoredApplications.archivedAt)))
+			: []
+
+	return { team, appIds: appRows.map((a) => a.id) }
+}
+
 /** Get apps for a specific dev team. */
 export async function getTeamApps(teamSlug: string) {
 	const [team] = await db.select().from(devTeams).where(eq(devTeams.slug, teamSlug)).limit(1)
