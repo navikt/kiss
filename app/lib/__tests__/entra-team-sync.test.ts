@@ -20,11 +20,13 @@ vi.mock("~/lib/lock.server", () => ({
 	withAdvisoryLock: (...args: unknown[]) => mockWithAdvisoryLock(...(args as [string, () => Promise<unknown>])),
 }))
 
+const mockLoggerInfo = vi.fn()
+const mockLoggerError = vi.fn()
 vi.mock("~/lib/logger.server", () => ({
-	logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+	logger: { debug: vi.fn(), info: mockLoggerInfo, warn: vi.fn(), error: mockLoggerError },
 }))
 
-const { runEntraTeamMemberSync } = await import("~/lib/entra-team-sync.server")
+const { runEntraTeamMemberSync, syncSingleDevTeamEntraGroup } = await import("~/lib/entra-team-sync.server")
 
 const TEAM_A = { devTeamId: "team-a", entraGroupId: "group-a", teamName: "Team A" }
 const TEAM_B = { devTeamId: "team-b", entraGroupId: "group-b", teamName: "Team B" }
@@ -114,5 +116,59 @@ describe("runEntraTeamMemberSync", () => {
 		const result = await runEntraTeamMemberSync()
 
 		expect(result).toBeNull()
+	})
+})
+
+describe("syncSingleDevTeamEntraGroup", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+		mockWithAdvisoryLock.mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn())
+	})
+
+	it("henter medlemmer fra Graph og skriver via syncDevTeamEntraMembers innenfor advisory-låsen", async () => {
+		mockFetchTeamEntraMembers.mockResolvedValue([{ navIdent: "Z990001", displayName: "Glad Fjord", mail: null }])
+
+		await syncSingleDevTeamEntraGroup("team-a", "group-a", "Z990009")
+
+		expect(mockFetchTeamEntraMembers).toHaveBeenCalledWith("group-a")
+		expect(mockWithAdvisoryLock).toHaveBeenCalledWith("entra-team-member-sync", expect.any(Function))
+		expect(mockSyncDevTeamEntraMembers).toHaveBeenCalledWith(
+			"team-a",
+			"group-a",
+			[{ navIdent: "Z990001", displayName: "Glad Fjord", mail: null }],
+			"Z990009",
+		)
+		expect(mockClearDevTeamEntraMembers).not.toHaveBeenCalled()
+	})
+
+	it("tømmer cachen når Graph returnerer null (gruppe slettet/utilgjengelig)", async () => {
+		mockFetchTeamEntraMembers.mockResolvedValue(null)
+
+		await syncSingleDevTeamEntraGroup("team-a", "group-a", "Z990009")
+
+		expect(mockClearDevTeamEntraMembers).toHaveBeenCalledWith("team-a", "group-a", "Z990009")
+		expect(mockSyncDevTeamEntraMembers).not.toHaveBeenCalled()
+	})
+
+	it("logger og skriver ingenting når advisory-låsen allerede holdes av en annen pod", async () => {
+		mockFetchTeamEntraMembers.mockResolvedValue([{ navIdent: "Z990001", displayName: "Glad Fjord", mail: null }])
+		mockWithAdvisoryLock.mockResolvedValue(null)
+
+		await syncSingleDevTeamEntraGroup("team-a", "group-a", "Z990009")
+
+		expect(mockSyncDevTeamEntraMembers).not.toHaveBeenCalled()
+		expect(mockClearDevTeamEntraMembers).not.toHaveBeenCalled()
+		expect(mockLoggerInfo).toHaveBeenCalled()
+	})
+
+	it("fanger og logger feil fra Graph-kallet uten å kaste videre", async () => {
+		const graphError = new Error("Graph API nede")
+		mockFetchTeamEntraMembers.mockRejectedValue(graphError)
+
+		await expect(syncSingleDevTeamEntraGroup("team-a", "group-a", "Z990009")).resolves.toBeUndefined()
+
+		expect(mockSyncDevTeamEntraMembers).not.toHaveBeenCalled()
+		expect(mockClearDevTeamEntraMembers).not.toHaveBeenCalled()
+		expect(mockLoggerError).toHaveBeenCalledWith(expect.stringMatching(/team-a.*group-a/), graphError)
 	})
 })

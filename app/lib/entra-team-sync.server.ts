@@ -119,3 +119,35 @@ export async function runEntraTeamMemberSync(options: { jobId?: string } = {}): 
 
 	return result
 }
+
+/**
+ * Synker ett enkelt team umiddelbart — brukes rett etter at et team kobles til
+ * en Entra ID-gruppe, slik at admin ikke må vente på neste planlagte kjøring
+ * (opptil 30 min) for å se medlemmene. Feil her er ikke blokkerende for selve
+ * koblingen; periodisk synk tar seg av det ved neste kjøring uansett.
+ */
+export async function syncSingleDevTeamEntraGroup(
+	devTeamId: string,
+	entraGroupId: string,
+	performedBy: string,
+): Promise<void> {
+	try {
+		const members = await fetchTeamEntraMembers(entraGroupId)
+		const result = await withAdvisoryLock("entra-team-member-sync", async () => {
+			if (members === null) {
+				await clearDevTeamEntraMembers(devTeamId, entraGroupId, performedBy)
+				return
+			}
+			await syncDevTeamEntraMembers(devTeamId, entraGroupId, members, performedBy)
+		})
+
+		if (result === null) {
+			logger.info(`[entra-team-sync] Hoppet over umiddelbar synk for team ${devTeamId} — annen pod holder låsen`)
+		}
+	} catch (error) {
+		logger.error(
+			`[entra-team-sync] Umiddelbar synk feilet for team ${devTeamId} (gruppe ${entraGroupId})`,
+			error instanceof Error ? error : new Error(String(error)),
+		)
+	}
+}

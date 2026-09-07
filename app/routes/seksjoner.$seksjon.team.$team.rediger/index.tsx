@@ -18,8 +18,14 @@ import { useRef } from "react"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
 import { LeggTilMedlemModal } from "~/components/LeggTilMedlemModal"
+import { LinkEntraGroupModal } from "~/components/LinkEntraGroupModal"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
+import {
+	getActiveDevTeamEntraMembers,
+	linkEntraGroupToTeam,
+	unlinkEntraGroupFromTeam,
+} from "~/db/queries/dev-team-entra.server"
 import { getNaisTeamsForSection } from "~/db/queries/nais.server"
 import {
 	archiveTeam,
@@ -37,6 +43,7 @@ import type { UserRole } from "~/db/schema/organization"
 import { userRoleLabels } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection, canManageTeam } from "~/lib/authorization.server"
+import { syncSingleDevTeamEntraGroup } from "~/lib/entra-team-sync.server"
 import { getUserByNavIdent } from "~/lib/graph.server"
 import { requireUuid } from "~/lib/utils"
 import type { Route } from "./+types/index"
@@ -64,12 +71,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
 	if (teamRecord.sectionId !== section.id) throw new Response("Team tilhører ikke denne seksjonen", { status: 404 })
 
-	const [result, availableApps, linkedNaisTeams, sectionNaisTeams, teamMembers] = await Promise.all([
+	const [result, availableApps, linkedNaisTeams, sectionNaisTeams, teamMembers, entraMembers] = await Promise.all([
 		getTeamApps(team),
 		getAvailableAppsForTeam(teamRecord.id, section.id),
 		getNaisTeamsForDevTeam(teamRecord.id),
 		getNaisTeamsForSection(section.id),
 		getTeamMemberRoles(teamRecord.id),
+		teamRecord.entraGroupId ? getActiveDevTeamEntraMembers(teamRecord.id) : Promise.resolve([]),
 	])
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
 
@@ -86,6 +94,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		teamName: result.team.name,
 		teamDescription: result.team.description,
 		teamArchivedAt: result.team.archivedAt,
+		entraGroupId: teamRecord.entraGroupId,
+		entraGroupName: teamRecord.entraGroupName,
+		// Kun feltene UI-et faktisk viser — ikke send e-post/synk-tidspunkt til klienten.
+		entraMembers: entraMembers.map((m) => ({ navIdent: m.navIdent, displayName: m.displayName })),
 		apps: result.apps,
 		availableApps,
 		linkedNaisTeams,
@@ -131,6 +143,35 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 	if (intent === "unarchive-team") {
 		await unarchiveTeam(teamRecord.id, userId)
+		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
+	}
+
+	if (intent === "link-entra-group") {
+		if (teamRecord.archivedAt) throw new Response("Teamet er arkivert", { status: 400 })
+
+		const groupId = (formData.get("groupId") as string)?.trim()
+		const groupName = (formData.get("groupName") as string)?.trim() || null
+		if (!groupId) throw new Response("Gruppe-ID er påkrevd", { status: 400 })
+
+		try {
+			await linkEntraGroupToTeam(teamRecord.id, groupId, groupName, userId)
+		} catch (err) {
+			const message = err instanceof Error ? err.message : ""
+			if (message === "Denne Entra ID-gruppen er allerede koblet til et annet team") {
+				throw new Response(message, { status: 409 })
+			}
+			throw err
+		}
+
+		// Best-effort umiddelbar synk — mislykkes den, tar periodisk synk seg av det senere.
+		// syncSingleDevTeamEntraGroup fanger og logger egne feil, kaster aldri.
+		await syncSingleDevTeamEntraGroup(teamRecord.id, groupId, userId)
+		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
+	}
+
+	if (intent === "unlink-entra-group") {
+		if (teamRecord.archivedAt) throw new Response("Teamet er arkivert", { status: 400 })
+		await unlinkEntraGroupFromTeam(teamRecord.id, userId)
 		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
 	}
 
@@ -240,6 +281,9 @@ export default function RedigerTeam() {
 		teamName,
 		teamDescription,
 		teamArchivedAt,
+		entraGroupId,
+		entraGroupName,
+		entraMembers,
 		apps,
 		availableApps,
 		linkedNaisTeams,
@@ -439,6 +483,63 @@ export default function RedigerTeam() {
 					<Alert variant="info" size="small">
 						Ingen Nais-team er koblet til seksjonen ennå. Koble Nais-team til seksjonen først.
 					</Alert>
+				)}
+			</VStack>
+
+			{/* Entra ID-gruppekobling */}
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Entra ID-gruppe
+				</Heading>
+				<BodyLong size="small">
+					Medlemmer av en koblet Entra ID-gruppe synkroniseres automatisk som teammedlemmer her. Automatisk tilgang
+					basert på medlemskapet kommer i en senere leveranse.
+				</BodyLong>
+
+				{entraGroupId ? (
+					<VStack gap="space-4">
+						<HStack gap="space-4" align="center" wrap>
+							<Tag variant="info" size="small">
+								{entraGroupName ?? entraGroupId}
+							</Tag>
+							{!isArchived && (
+								<Form method="post">
+									<input type="hidden" name="intent" value="unlink-entra-group" />
+									<Button type="submit" variant="tertiary-neutral" size="xsmall">
+										Fjern kobling
+									</Button>
+								</Form>
+							)}
+						</HStack>
+
+						{entraMembers.length > 0 ? (
+							/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+							<section className="table-scroll" tabIndex={0} aria-label="Medlemmer fra Entra ID-gruppe">
+								<Table size="small">
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+											<Table.HeaderCell scope="col">NAV-ident</Table.HeaderCell>
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{entraMembers.map((m) => (
+											<Table.Row key={m.navIdent}>
+												<Table.DataCell>{m.displayName ?? "Ukjent"}</Table.DataCell>
+												<Table.DataCell>{m.navIdent}</Table.DataCell>
+											</Table.Row>
+										))}
+									</Table.Body>
+								</Table>
+							</section>
+						) : (
+							<BodyLong size="small" textColor="subtle">
+								Ingen medlemmer synkronisert fra gruppen ennå.
+							</BodyLong>
+						)}
+					</VStack>
+				) : (
+					!isArchived && <LinkEntraGroupModal intent="link-entra-group" />
 				)}
 			</VStack>
 

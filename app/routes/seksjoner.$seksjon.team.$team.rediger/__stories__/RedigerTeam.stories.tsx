@@ -74,3 +74,21 @@ export const UtenApps: Story = {
 			"/seksjoner/pensjon-og-ufore/team/starte-pensjon/rediger",
 		),
 }
+
+export const MedEntraGruppe: Story = {
+	name: "Koblet til Entra-gruppe",
+	render: () =>
+		renderWithLoader(
+			RedigerTeam,
+			{
+				...mockTeamEditData(),
+				entraGroupId: "11111111-1111-1111-1111-111111111111",
+				entraGroupName: "team-starte-pensjon",
+				entraMembers: [
+					{ navIdent: "Z990001", displayName: "Glad Fjord" },
+					{ navIdent: "Z990004", displayName: "Snill Bre" },
+				],
+			},
+			"/seksjoner/pensjon-og-ufore/team/starte-pensjon/rediger",
+		),
+}
