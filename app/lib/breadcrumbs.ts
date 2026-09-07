@@ -311,6 +311,15 @@ const rules: BreadcrumbRule[] = [
 		],
 	},
 	{
+		pattern: "seksjoner/:seksjon/team/:team/oppfolging",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: teamName, to: teamPath },
+			{ label: "Krever oppfølging" },
+		],
+	},
+	{
 		pattern: "seksjoner/:seksjon/team/:team",
 		segments: [SEKSJONER, { label: sectionName, to: sectionPath }, { label: teamName }],
 	},
