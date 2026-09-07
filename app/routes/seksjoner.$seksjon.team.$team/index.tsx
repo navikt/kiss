@@ -245,33 +245,30 @@ export default function TeamDashboard() {
 						</VStack>
 					</Box>
 				</Link>
-				{totalRoutinesIkkeGjennomfort > 0 && (
-					<Link to={`/seksjoner/${seksjon}/team/${team}/rutiner`} style={{ textDecoration: "none", color: "inherit" }}>
-						<Box padding="space-6" borderRadius="8" background="warning-moderate">
-							<VStack align="center">
-								<Heading size="xlarge" level="3">
-									{totalRoutinesIkkeGjennomfort}
-								</Heading>
-								<Detail>Ikke-gjennomførte rutiner</Detail>
-							</VStack>
-						</Box>
-					</Link>
-				)}
-				{needsFollowUpApps > 0 && (
-					<Link
-						to={`/seksjoner/${seksjon}/team/${team}/oppfolging`}
-						style={{ textDecoration: "none", color: "inherit" }}
+				<Link to={`/seksjoner/${seksjon}/team/${team}/rutiner`} style={{ textDecoration: "none", color: "inherit" }}>
+					<Box
+						padding="space-6"
+						borderRadius="8"
+						background={totalRoutinesIkkeGjennomfort > 0 ? "warning-moderate" : "sunken"}
 					>
-						<Box padding="space-6" borderRadius="8" background="warning-moderate">
-							<VStack align="center">
-								<Heading size="xlarge" level="3">
-									{needsFollowUpApps}
-								</Heading>
-								<Detail>Krever oppfølging</Detail>
-							</VStack>
-						</Box>
-					</Link>
-				)}
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalRoutinesIkkeGjennomfort}
+							</Heading>
+							<Detail>Ikke-gjennomførte rutiner</Detail>
+						</VStack>
+					</Box>
+				</Link>
+				<Link to={`/seksjoner/${seksjon}/team/${team}/oppfolging`} style={{ textDecoration: "none", color: "inherit" }}>
+					<Box padding="space-6" borderRadius="8" background={needsFollowUpApps > 0 ? "warning-moderate" : "sunken"}>
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{needsFollowUpApps}
+							</Heading>
+							<Detail>Krever oppfølging</Detail>
+						</VStack>
+					</Box>
+				</Link>
 			</HGrid>
 
 			<DeploymentSummaryCards stats={deploymentStats} />
