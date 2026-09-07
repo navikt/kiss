@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, ne, or, type SQL, sql } from "drizzle-orm"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "../../lib/activity-types"
 import {
 	applyEntraStagedDataPatch,
@@ -7588,20 +7588,7 @@ export async function findActiveReviewConflict(
 
 // ─── Follow-up Reviews for Section ───────────────────────────────────────────
 
-/**
- * Henter alle gjennomganger med status `needs_follow_up` for en seksjon,
- * inkludert uløste oppfølgingspunkter per gjennomgang.
- */
-export async function getFollowUpReviewsForSection(sectionId: string) {
-	const sectionRoutines = await db
-		.select({ id: routines.id })
-		.from(routines)
-		.where(and(eq(routines.sectionId, sectionId), isNull(routines.archivedAt)))
-
-	if (sectionRoutines.length === 0) return []
-
-	const routineIds = sectionRoutines.map((r) => r.id)
-
+async function getFollowUpReviews(filter: SQL) {
 	const reviews = await db
 		.select({
 			review: routineReviews,
@@ -7613,7 +7600,7 @@ export async function getFollowUpReviewsForSection(sectionId: string) {
 		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
 		.leftJoin(monitoredApplications, eq(routineReviews.applicationId, monitoredApplications.id))
 		.leftJoin(users, eq(routineReviews.createdBy, users.navIdent))
-		.where(and(inArray(routineReviews.routineId, routineIds), eq(routineReviews.status, "needs_follow_up")))
+		.where(and(filter, eq(routineReviews.status, "needs_follow_up"), isNull(routines.archivedAt)))
 		.orderBy(desc(routineReviews.reviewedAt))
 
 	if (reviews.length === 0) return []
@@ -7645,6 +7632,18 @@ export async function getFollowUpReviewsForSection(sectionId: string) {
 		createdByName: r.createdByName,
 		openFollowUpPoints: pointsByReview.get(r.review.id) ?? [],
 	}))
+}
+
+export async function getFollowUpReviewsForSection(sectionId: string) {
+	return getFollowUpReviews(eq(routines.sectionId, sectionId))
+}
+
+export async function getFollowUpReviewsForApps(sectionId: string, appIds: string[]) {
+	if (appIds.length === 0) return []
+	return getFollowUpReviews(
+		// biome-ignore lint/style/noNonNullAssertion: `and` with two defined SQL args always returns a defined SQL
+		and(eq(routines.sectionId, sectionId), inArray(routineReviews.applicationId, appIds))!,
+	)
 }
 
 // ─── Oracle Role Criticality Activity ────────────────────────────────────

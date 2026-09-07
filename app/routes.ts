@@ -49,6 +49,7 @@ export default [
 	route("seksjoner/:seksjon/team/:team/rediger", "routes/seksjoner.$seksjon.team.$team.rediger/index.tsx"),
 	route("seksjoner/:seksjon/team/:team/rutiner", "routes/seksjoner.$seksjon.team.$team.rutiner/index.tsx"),
 	route("seksjoner/:seksjon/team/:team/mangler", "routes/seksjoner.$seksjon.team.$team.mangler/index.tsx"),
+	route("seksjoner/:seksjon/team/:team/oppfolging", "routes/seksjoner.$seksjon.team.$team.oppfolging/index.tsx"),
 	// Team-context app routes (breadcrumbs reflect team origin)
 	route(
 		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/detaljer",
