@@ -7646,6 +7646,27 @@ export async function getFollowUpReviewsForApps(sectionId: string, appIds: strin
 	)
 }
 
+/** Count-only variant of getFollowUpReviewsForApps, for dashboard cards that only need the
+ * total — avoids fetching review/routine/app rows and follow-up point text. */
+export async function countOpenFollowUpPointsForApps(sectionId: string, appIds: string[]): Promise<number> {
+	if (appIds.length === 0) return 0
+	const [row] = await db
+		.select({ count: sql<number>`count(*)::int` })
+		.from(routineReviewFollowUpPoints)
+		.innerJoin(routineReviews, eq(routineReviewFollowUpPoints.reviewId, routineReviews.id))
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+		.where(
+			and(
+				eq(routines.sectionId, sectionId),
+				inArray(routineReviews.applicationId, appIds),
+				eq(routineReviews.status, "needs_follow_up"),
+				isNull(routines.archivedAt),
+				eq(routineReviewFollowUpPoints.status, "needs_follow_up"),
+			),
+		)
+	return row?.count ?? 0
+}
+
 // ─── Oracle Role Criticality Activity ────────────────────────────────────
 
 async function buildOracleRoleCriticalitySeedResult(applicationId: string): Promise<{

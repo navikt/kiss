@@ -5,6 +5,7 @@ import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam } from "~/db/queries/applications.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
+import { countOpenFollowUpPointsForApps } from "~/db/queries/routines.server"
 import { getSectionBySlug, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
 import { getUsersForTeam } from "~/db/queries/users.server"
 import { type EconomySystemType, economySystemTypeLabels } from "~/db/schema/applications"
@@ -29,9 +30,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const appIds = result.apps.map((a) => a.appId)
 	const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
-	const [deploymentStats, screeningProgressMap] = await Promise.all([
+	const [deploymentStats, screeningProgressMap, needsFollowUpPoints] = await Promise.all([
 		getDeploymentVerificationAggregate(appIds),
 		getScreeningProgressForApps(appIds, [section.id]),
+		countOpenFollowUpPointsForApps(section.id, appIds),
 	])
 
 	const canManage = user ? canManageTeam(user, result.team.id, section.id) : false
@@ -59,7 +61,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		(sum, a) => sum + a.routineCompliance.routinesIkkeGjennomfort,
 		0,
 	)
-	const needsFollowUpApps = result.apps.filter((a) => a.routineCompliance.routinesMaaFolgesOpp > 0).length
 
 	return data({
 		seksjon,
@@ -80,7 +81,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		totalMangler,
 		overallPercent,
 		totalRoutinesIkkeGjennomfort,
-		needsFollowUpApps,
+		needsFollowUpPoints,
 		deploymentStats,
 	})
 }
@@ -171,7 +172,7 @@ export default function TeamDashboard() {
 		totalMangler,
 		overallPercent,
 		totalRoutinesIkkeGjennomfort,
-		needsFollowUpApps,
+		needsFollowUpPoints,
 		deploymentStats,
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
@@ -260,10 +261,10 @@ export default function TeamDashboard() {
 					</Box>
 				</Link>
 				<Link to={`/seksjoner/${seksjon}/team/${team}/oppfolging`} style={{ textDecoration: "none", color: "inherit" }}>
-					<Box padding="space-6" borderRadius="8" background={needsFollowUpApps > 0 ? "warning-moderate" : "sunken"}>
+					<Box padding="space-6" borderRadius="8" background={needsFollowUpPoints > 0 ? "warning-moderate" : "sunken"}>
 						<VStack align="center">
 							<Heading size="xlarge" level="3">
-								{needsFollowUpApps}
+								{needsFollowUpPoints}
 							</Heading>
 							<Detail>Krever oppfølging</Detail>
 						</VStack>
