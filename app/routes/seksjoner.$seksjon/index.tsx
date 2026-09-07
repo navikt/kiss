@@ -23,6 +23,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getRoutineComplianceSummaries } from "~/db/queries/application-controls.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { countSectionEconomySystems } from "~/db/queries/economy-classification.server"
+import { countOpenFollowUpPointsForApps } from "~/db/queries/routines.server"
 import { resolveRoleHolder } from "~/db/queries/rulesets.server"
 import { getScreeningProgressForApps } from "~/db/queries/screening.server"
 import { countSectionRoutinesIncomplete, getSectionDetail } from "~/db/queries/sections.server"
@@ -60,6 +61,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		screeningProgress,
 		routineSummaries,
 		sectionRoutinesIkkeGjennomfort,
+		needsFollowUpPoints,
 		seksjonsleder,
 		teknologileder,
 	] = await Promise.all([
@@ -68,6 +70,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		getScreeningProgressForApps(result.allAppIds, [result.section.id]),
 		getRoutineComplianceSummaries(result.allAppIds),
 		countSectionRoutinesIncomplete(result.allAppIds),
+		countOpenFollowUpPointsForApps(result.section.id, result.allAppIds),
 		resolveRoleHolder("section_manager", result.section.id),
 		resolveRoleHolder("tech_manager", result.section.id),
 	])
@@ -78,11 +81,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	// Aggregate routine compliance across all section apps
 	let routinesGjennomfort = 0
 	let routinesIkkeGjennomfort = 0
-	let needsFollowUpApps = 0
 	for (const s of routineSummaries.values()) {
 		routinesGjennomfort += s.routinesGjennomfort
 		routinesIkkeGjennomfort += s.routinesIkkeGjennomfort
-		if (s.routinesMaaFolgesOpp > 0) needsFollowUpApps++
 	}
 
 	const seksjonName = result.section.name
@@ -124,7 +125,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		routinesGjennomfort,
 		routinesIkkeGjennomfort,
 		sectionRoutinesIkkeGjennomfort,
-		needsFollowUpApps,
+		needsFollowUpPoints,
 		seksjonsleder,
 		teknologileder,
 		hasUtviklerteam,
@@ -154,7 +155,7 @@ export default function SeksjonDashboard() {
 		routinesGjennomfort,
 		routinesIkkeGjennomfort,
 		sectionRoutinesIkkeGjennomfort,
-		needsFollowUpApps,
+		needsFollowUpPoints,
 		seksjonsleder,
 		teknologileder,
 		hasUtviklerteam,
@@ -401,12 +402,12 @@ export default function SeksjonDashboard() {
 						</Box>
 					</Link>
 				</Tooltip>
-				<Tooltip content="Antall applikasjoner der minst én rutinegjennomgang er fullført, men der det ble oppdaget forhold som må følges opp videre.">
+				<Tooltip content="Antall åpne oppfølgingspunkter fra rutinegjennomganger som ble fullført, men der det ble oppdaget forhold som må følges opp videre.">
 					<Link to="rutiner/oppfolging" style={{ textDecoration: "none", color: "inherit" }}>
 						<Box padding="space-6" borderRadius="8" background="sunken">
 							<VStack align="center">
 								<Heading size="xlarge" level="3">
-									{needsFollowUpApps}
+									{needsFollowUpPoints}
 								</Heading>
 								<Detail>Krever oppfølging</Detail>
 							</VStack>
@@ -449,9 +450,9 @@ export default function SeksjonDashboard() {
 						telles én gang — ikke per applikasjon.
 					</BodyLong>
 					<BodyLong>
-						<strong>Krever oppfølging</strong> viser antall applikasjoner der minst én rutinegjennomgang er fullført,
-						men der det ble oppdaget noe som må følges opp – for eksempel en bruker med tilgang som ikke lenger skal ha
-						det. Selve rutinen er altså gjennomført, men det gjenstår en konkret oppfølgingsoppgave.
+						<strong>Krever oppfølging</strong> viser antall åpne oppfølgingspunkter fra rutinegjennomganger som er
+						fullført, men der det ble oppdaget noe som må følges opp – for eksempel en bruker med tilgang som ikke
+						lenger skal ha det. Selve rutinen er altså gjennomført, men det gjenstår konkrete oppfølgingsoppgaver.
 					</BodyLong>
 				</VStack>
 			</ReadMore>
