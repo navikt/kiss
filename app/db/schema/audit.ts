@@ -251,6 +251,11 @@ export const auditLogActionEnum = [
 	"rpa_group_removed",
 	"rpa_group_members_synced",
 
+	// Entra ID-koblede team
+	"entra_group_linked_to_team",
+	"entra_group_unlinked_from_team",
+	"entra_team_members_synced",
+
 	// GitHub-repo-tilganger
 	"github_access_team_added",
 	"github_access_team_removed",

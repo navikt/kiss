@@ -17,6 +17,7 @@
  */
 
 import { logPoolStats } from "~/db/connection.server"
+import { runTrackedEntraTeamMemberSync } from "./entra-team-sync-jobs.server"
 import { logger } from "./logger.server"
 
 export const CYCLE_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — base cycle
@@ -121,6 +122,25 @@ const jobs: JobConfig[] = [
 				)
 			} else {
 				logger.info("[unified-scheduler] rpa-sync skipped — another pod holds the lock")
+			}
+		},
+	},
+	{
+		name: "entra-team-member-sync",
+		everyCycles: 6, // every 30min
+		envVar: "ENABLE_ENTRA_TEAM_SYNC",
+		async run() {
+			const tracked = await runTrackedEntraTeamMemberSync({
+				performedBy: "unified-scheduler",
+				scopeType: "scheduler",
+				scopeId: "unified-scheduler",
+			})
+			if (tracked.result) {
+				logger.info(
+					`[unified-scheduler] entra-team-sync complete: ${tracked.result.teamsSynced} teams, ${tracked.result.teamsGroupDeleted} group-deleted, +${tracked.result.totalAdded} added, -${tracked.result.totalArchived} archived`,
+				)
+			} else {
+				logger.info("[unified-scheduler] entra-team-sync skipped — another pod holds the lock")
 			}
 		},
 	},
