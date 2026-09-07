@@ -1,4 +1,17 @@
-import { Alert, BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import {
+	Alert,
+	BodyLong,
+	Box,
+	Button,
+	Detail,
+	Heading,
+	HGrid,
+	HStack,
+	Table,
+	Tag,
+	Tooltip,
+	VStack,
+} from "@navikt/ds-react"
 import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
@@ -259,16 +272,21 @@ export default function TeamDashboard() {
 						</VStack>
 					</Box>
 				</Link>
-				<Link to={`/seksjoner/${seksjon}/team/${team}/oppfolging`} style={{ textDecoration: "none", color: "inherit" }}>
-					<Box padding="space-6" borderRadius="8" background={needsFollowUpApps > 0 ? "warning-moderate" : "sunken"}>
-						<VStack align="center">
-							<Heading size="xlarge" level="3">
-								{needsFollowUpApps}
-							</Heading>
-							<Detail>Krever oppfølging</Detail>
-						</VStack>
-					</Box>
-				</Link>
+				<Tooltip content="Antall applikasjoner der minst én rutinegjennomgang er fullført, men der det ble oppdaget forhold som må følges opp videre. Listen bak lenken viser hvert oppfølgingspunkt for seg, så den kan inneholde flere rader enn dette tallet.">
+					<Link
+						to={`/seksjoner/${seksjon}/team/${team}/oppfolging`}
+						style={{ textDecoration: "none", color: "inherit" }}
+					>
+						<Box padding="space-6" borderRadius="8" background={needsFollowUpApps > 0 ? "warning-moderate" : "sunken"}>
+							<VStack align="center">
+								<Heading size="xlarge" level="3">
+									{needsFollowUpApps}
+								</Heading>
+								<Detail>Krever oppfølging</Detail>
+							</VStack>
+						</Box>
+					</Link>
+				</Tooltip>
 			</HGrid>
 
 			<DeploymentSummaryCards stats={deploymentStats} />
