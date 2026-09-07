@@ -245,46 +245,34 @@ export default function TeamDashboard() {
 						</VStack>
 					</Box>
 				</Link>
+				{totalRoutinesIkkeGjennomfort > 0 && (
+					<Link to={`/seksjoner/${seksjon}/team/${team}/rutiner`} style={{ textDecoration: "none", color: "inherit" }}>
+						<Box padding="space-6" borderRadius="8" background="warning-moderate">
+							<VStack align="center">
+								<Heading size="xlarge" level="3">
+									{totalRoutinesIkkeGjennomfort}
+								</Heading>
+								<Detail>Ikke-gjennomførte rutiner</Detail>
+							</VStack>
+						</Box>
+					</Link>
+				)}
+				{needsFollowUpApps > 0 && (
+					<Link
+						to={`/seksjoner/${seksjon}/team/${team}/oppfolging`}
+						style={{ textDecoration: "none", color: "inherit" }}
+					>
+						<Box padding="space-6" borderRadius="8" background="warning-moderate">
+							<VStack align="center">
+								<Heading size="xlarge" level="3">
+									{needsFollowUpApps}
+								</Heading>
+								<Detail>Krever oppfølging</Detail>
+							</VStack>
+						</Box>
+					</Link>
+				)}
 			</HGrid>
-
-			{(totalRoutinesIkkeGjennomfort > 0 || needsFollowUpApps > 0) && (
-				<HStack gap="space-4" wrap>
-					{totalRoutinesIkkeGjennomfort > 0 && (
-						<Link
-							to={`/seksjoner/${seksjon}/team/${team}/rutiner`}
-							style={{ textDecoration: "none", color: "inherit" }}
-						>
-							<Box padding="space-12" borderRadius="8" background="warning-moderate">
-								<HStack align="center" gap="space-8">
-									<VStack gap="space-0">
-										<Heading size="medium" level="3">
-											{totalRoutinesIkkeGjennomfort}
-										</Heading>
-										<Detail>Ikke-gjennomførte rutiner</Detail>
-									</VStack>
-								</HStack>
-							</Box>
-						</Link>
-					)}
-					{needsFollowUpApps > 0 && (
-						<Link
-							to={`/seksjoner/${seksjon}/team/${team}/oppfolging`}
-							style={{ textDecoration: "none", color: "inherit" }}
-						>
-							<Box padding="space-12" borderRadius="8" background="warning-moderate">
-								<HStack align="center" gap="space-8">
-									<VStack gap="space-0">
-										<Heading size="medium" level="3">
-											{needsFollowUpApps}
-										</Heading>
-										<Detail>Krever oppfølging</Detail>
-									</VStack>
-								</HStack>
-							</Box>
-						</Link>
-					)}
-				</HStack>
-			)}
 
 			<DeploymentSummaryCards stats={deploymentStats} />
 
