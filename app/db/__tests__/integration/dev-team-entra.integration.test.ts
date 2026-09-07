@@ -13,6 +13,7 @@ vi.mock("~/db/connection.server", () => ({
 const {
 	clearDevTeamEntraMembers,
 	getActiveDevTeamEntraMembers,
+	getActiveDevTeamIdsForNavIdent,
 	getDevTeamsWithEntraGroup,
 	isActiveDevTeamEntraMember,
 	linkEntraGroupToTeam,
@@ -227,6 +228,31 @@ describe("dev-team-entra query-lag", () => {
 
 		expect(await isActiveDevTeamEntraMember(TEAM_ID, "Z990001")).toBe(false)
 		expect(await isActiveDevTeamEntraMember(OTHER_TEAM_ID, "Z990001")).toBe(true)
+	})
+
+	it("getActiveDevTeamIdsForNavIdent returner alle team en bruker er aktivt medlem av", async () => {
+		await linkEntraGroupToTeam(TEAM_ID, ENTRA_GROUP_ID, "Team A", "Z990001")
+		await linkEntraGroupToTeam(OTHER_TEAM_ID, "entra-group-2", "Team B", "Z990001")
+
+		await syncDevTeamEntraMembers(
+			TEAM_ID,
+			ENTRA_GROUP_ID,
+			[{ navIdent: "Z990001", displayName: "Glad Fjord", mail: null }],
+			"system:entra-team-sync",
+		)
+		await syncDevTeamEntraMembers(
+			OTHER_TEAM_ID,
+			"entra-group-2",
+			[{ navIdent: "Z990001", displayName: "Glad Fjord", mail: null }],
+			"system:entra-team-sync",
+		)
+
+		expect(await getActiveDevTeamIdsForNavIdent("Z990001")).toEqual(expect.arrayContaining([TEAM_ID, OTHER_TEAM_ID]))
+		expect(await getActiveDevTeamIdsForNavIdent("Z990002")).toEqual([])
+
+		await clearDevTeamEntraMembers(TEAM_ID, ENTRA_GROUP_ID, "system:entra-team-sync")
+
+		expect(await getActiveDevTeamIdsForNavIdent("Z990001")).toEqual([OTHER_TEAM_ID])
 	})
 
 	it("har partiell unik indeks på entra_group_id for aktive team", async () => {

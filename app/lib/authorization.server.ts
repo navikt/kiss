@@ -155,9 +155,11 @@ export function requireAnySectionRole(user: NavUser, sectionId: string): void {
 
 const TEAM_MEMBER_ROLES: ReadonlySet<UserRole> = new Set(["developer", "tech_lead", "product_owner"])
 
-/** Sjekk om bruker har en vilkårlig team-rolle (developer, tech_lead, product_owner) i et gitt team. Admin har alltid tilgang. */
+/** Sjekk om bruker har en vilkårlig team-rolle (developer, tech_lead, product_owner) i et gitt team,
+ * eller er aktivt automatisk medlem av teamet via en koblet Entra ID-gruppe. Admin har alltid tilgang. */
 export function hasAnyTeamRole(user: NavUser, devTeamId: string): boolean {
 	if (isAdmin(user)) return true
+	if (user.entraTeamIds.includes(devTeamId)) return true
 	return (user.dbRoles ?? []).some((r) => r.devTeamId === devTeamId && TEAM_MEMBER_ROLES.has(r.role))
 }
 
