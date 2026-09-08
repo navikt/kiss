@@ -5,6 +5,7 @@ import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam } from "~/db/queries/applications.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
+import { getActiveDevTeamEntraMembers } from "~/db/queries/dev-team-entra.server"
 import { countOpenFollowUpPointsForApps } from "~/db/queries/routines.server"
 import { getSectionBySlug, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
 import { getUsersForTeam } from "~/db/queries/users.server"
@@ -44,7 +45,27 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	}
 
 	const availableApps = canAddApp ? await getAvailableAppsForTeam(result.team.id, section.id) : []
-	const teamUsers = user ? await getUsersForTeam(result.team.id) : []
+	const [teamUsers, entraMembers] = await Promise.all([
+		user ? getUsersForTeam(result.team.id) : Promise.resolve([]),
+		user && result.team.entraGroupId ? getActiveDevTeamEntraMembers(result.team.id) : Promise.resolve([]),
+	])
+
+	// Entra-koblede medlemmer synkroniseres automatisk og har ikke egne userRoles-rader (jf. #706/#707).
+	// Slå dem sammen med KISS-forvaltede roller (Tech Lead/Produktleder) slik at de vises som "Utvikler" her.
+	// Nøkkelen normaliseres (trim + uppercase) for å unngå duplikater ved avvikende casing/whitespace
+	// mellom userRoles og Entra-cachen, i tråd med konvensjonen i getUserNamesByNavIdents.
+	const teamUsersByNavIdent = new Map(teamUsers.map((u) => [u.navIdent.trim().toUpperCase(), u]))
+	for (const m of entraMembers) {
+		const key = m.navIdent.trim().toUpperCase()
+		if (!teamUsersByNavIdent.has(key)) {
+			teamUsersByNavIdent.set(key, {
+				navIdent: m.navIdent,
+				name: m.displayName?.trim() || m.navIdent,
+				roles: ["developer"],
+			})
+		}
+	}
+	const mergedTeamUsers = Array.from(teamUsersByNavIdent.values()).sort((a, b) => a.name.localeCompare(b.name, "nb"))
 
 	const totalControls = result.apps.reduce((sum, a) => sum + a.total, 0)
 	const totalImplemented = result.apps.reduce((sum, a) => sum + a.implemented, 0)
@@ -75,7 +96,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		canManage,
 		canAddApp,
 		availableApps,
-		teamUsers,
+		teamUsers: mergedTeamUsers,
 		totalImplemented,
 		totalPartial,
 		totalMangler,
