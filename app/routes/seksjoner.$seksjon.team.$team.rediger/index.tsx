@@ -20,6 +20,7 @@ import { AddAppModal } from "~/components/AddAppModal"
 import { LeggTilMedlemModal } from "~/components/LeggTilMedlemModal"
 import { LinkEntraGroupModal } from "~/components/LinkEntraGroupModal"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { TildelEntraRolleModal } from "~/components/TildelEntraRolleModal"
 import { getAvailableAppsForTeam, linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
 import {
 	getActiveDevTeamEntraMembers,
@@ -217,6 +218,34 @@ export async function action({ request, params }: Route.ActionArgs) {
 			throw new Response("Person er påkrevd", { status: 400 })
 		}
 
+		if (teamRecord.entraGroupId) {
+			// Entra-koblet team: vanlige teammedlemmer kommer automatisk fra gruppesynken.
+			// I KISS kan kun Tech Lead/Produktleder tildeles manuelt, og kun blant medlemmer
+			// som er aktivt synkronisert fra den koblede Entra ID-gruppen.
+			const navIdent = rawPerson.trim().toUpperCase()
+			if (!navIdent) {
+				throw new Response("Person er påkrevd", { status: 400 })
+			}
+			if (typeof rawRole !== "string" || !ELEVATED_ROLES.includes(rawRole as UserRole)) {
+				throw new Response("Ugyldig rolle", { status: 400 })
+			}
+			const role = rawRole as UserRole
+
+			const canAssignElevated = canManageSection(authedUser, teamRecord.sectionId)
+			if (!canAssignElevated) {
+				throw new Response("Kun seksjonsledere, teknologiledere og admin kan tildele denne rollen", { status: 403 })
+			}
+
+			const activeEntraMembers = await getActiveDevTeamEntraMembers(teamRecord.id)
+			const member = activeEntraMembers.find((m) => m.navIdent === navIdent)
+			if (!member) {
+				throw new Response(`${navIdent} er ikke et aktivt medlem av den koblede Entra ID-gruppen`, { status: 400 })
+			}
+
+			await assignRole(navIdent, member.displayName?.trim() || navIdent, role, userId, undefined, teamRecord.id)
+			return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
+		}
+
 		let navIdent: string
 		try {
 			const parsed = JSON.parse(rawPerson) as { navIdent?: unknown; displayName?: unknown }
@@ -372,11 +401,19 @@ export default function RedigerTeam() {
 					<Heading size="medium" level="3">
 						Teammedlemmer ({teamMembers.length})
 					</Heading>
-					{!isArchived && <LeggTilMedlemModal assignableRoles={assignableRoles} />}
+					{!isArchived &&
+						(entraGroupId ? (
+							userCanAssignElevatedRoles && (
+								<TildelEntraRolleModal entraMembers={entraMembers} assignableRoles={ELEVATED_ROLES} />
+							)
+						) : (
+							<LeggTilMedlemModal assignableRoles={assignableRoles} />
+						))}
 				</HStack>
 				<BodyLong size="small">
-					Teammedlemmer med roller i KISS. Produktledere og tech leads kan legge til utviklere. Kun admin kan tildele
-					produktleder- og tech lead-roller.
+					{entraGroupId
+						? "Teammedlemmer synkroniseres automatisk fra den koblede Entra ID-gruppen. I KISS kan kun Tech Lead og Produktleder tildeles manuelt, og kun blant gruppens medlemmer. Kun seksjonsledere, teknologiledere og admin kan tildele disse rollene."
+						: "Teammedlemmer med roller i KISS. Produktledere og Tech Leads kan legge til utviklere. Kun seksjonsledere, teknologiledere og admin kan tildele Produktleder- og Tech Lead-roller."}
 				</BodyLong>
 
 				{teamMembers.length > 0 && (
@@ -492,8 +529,9 @@ export default function RedigerTeam() {
 					Entra ID-gruppe
 				</Heading>
 				<BodyLong size="small">
-					Medlemmer av en koblet Entra ID-gruppe synkroniseres automatisk som teammedlemmer her. Automatisk tilgang
-					basert på medlemskapet kommer i en senere leveranse.
+					Medlemmer av en koblet Entra ID-gruppe synkroniseres automatisk som teammedlemmer her, og får dermed tilgang
+					til teamets applikasjoner. Seksjonsledere, teknologiledere og admin kan tildele Tech Lead/Produktleder til
+					enkeltmedlemmer under "Teammedlemmer" over.
 				</BodyLong>
 
 				{entraGroupId ? (
