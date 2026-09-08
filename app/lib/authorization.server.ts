@@ -55,9 +55,10 @@ export function canManageSection(user: NavUser, sectionId: string): boolean {
 	return hasRoleForSection(user, "section_manager", sectionId) || hasRoleForSection(user, "tech_manager", sectionId)
 }
 
-/** Har bruker en vilkårlig rolle i en seksjon (direkte eller via team). */
+/** Har bruker en vilkårlig rolle i en seksjon (direkte, via manuell team-rolle, eller via Entra-teammedlemskap). */
 export function hasAnySectionRole(user: NavUser, sectionId: string): boolean {
 	if (isAdmin(user)) return true
+	if (user.entraSectionIds.includes(sectionId)) return true
 	return (user.dbRoles ?? []).some(
 		(r) =>
 			r.sectionId === sectionId ||
