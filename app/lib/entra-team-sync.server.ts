@@ -12,6 +12,7 @@ export interface EntraTeamSyncResult {
 	teamsGroupDeleted: number
 	totalAdded: number
 	totalArchived: number
+	totalRolesRevoked: number
 }
 
 /**
@@ -29,7 +30,7 @@ export async function runEntraTeamMemberSync(options: { jobId?: string } = {}): 
 	const teams = await getDevTeamsWithEntraGroup()
 	if (teams.length === 0) {
 		logger.info("[entra-team-sync] Ingen team koblet til Entra-gruppe — hopper over")
-		return { teamsSynced: 0, teamsGroupDeleted: 0, totalAdded: 0, totalArchived: 0 }
+		return { teamsSynced: 0, teamsGroupDeleted: 0, totalAdded: 0, totalArchived: 0, totalRolesRevoked: 0 }
 	}
 
 	const fetched: Array<{
@@ -51,7 +52,7 @@ export async function runEntraTeamMemberSync(options: { jobId?: string } = {}): 
 
 	if (fetched.length === 0) {
 		logger.warn("[entra-team-sync] Alle Graph-kall feilet — ingenting å synke")
-		return { teamsSynced: 0, teamsGroupDeleted: 0, totalAdded: 0, totalArchived: 0 }
+		return { teamsSynced: 0, teamsGroupDeleted: 0, totalAdded: 0, totalArchived: 0, totalRolesRevoked: 0 }
 	}
 
 	const result = await withAdvisoryLock("entra-team-member-sync", async () => {
@@ -59,6 +60,7 @@ export async function runEntraTeamMemberSync(options: { jobId?: string } = {}): 
 		let teamsGroupDeleted = 0
 		let totalAdded = 0
 		let totalArchived = 0
+		let totalRolesRevoked = 0
 
 		for (const { team, members } of fetched) {
 			try {
@@ -95,10 +97,16 @@ export async function runEntraTeamMemberSync(options: { jobId?: string } = {}): 
 				teamsSynced++
 				totalAdded += diff.added
 				totalArchived += diff.archived
+				totalRolesRevoked += diff.rolesRevoked
 
 				if (diff.added > 0 || diff.archived > 0) {
 					logger.info(
 						`[entra-team-sync] Team "${team.teamName}": +${diff.added} added, -${diff.archived} archived, ${diff.updated} updated`,
+					)
+				}
+				if (diff.rolesRevoked > 0) {
+					logger.info(
+						`[entra-team-sync] Team "${team.teamName}": ${diff.rolesRevoked} elevated-rolle(r) tilbakekalt (medlemskap i Entra-gruppen opphørt)`,
 					)
 				}
 			} catch (err) {
@@ -109,7 +117,7 @@ export async function runEntraTeamMemberSync(options: { jobId?: string } = {}): 
 			}
 		}
 
-		return { teamsSynced, teamsGroupDeleted, totalAdded, totalArchived }
+		return { teamsSynced, teamsGroupDeleted, totalAdded, totalArchived, totalRolesRevoked }
 	})
 
 	if (result === null) {

@@ -41,7 +41,7 @@ import {
 } from "~/db/queries/sections.server"
 import { assignRole, getTeamMemberRoleById, getTeamMemberRoles, removeRole } from "~/db/queries/users.server"
 import type { UserRole } from "~/db/schema/organization"
-import { userRoleLabels } from "~/db/schema/organization"
+import { ELEVATED_TEAM_ROLES, userRoleLabels } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection, canManageTeam } from "~/lib/authorization.server"
 import { syncSingleDevTeamEntraGroup } from "~/lib/entra-team-sync.server"
@@ -52,7 +52,7 @@ import type { Route } from "./+types/index"
 /** Roller som teamledere (produktleder/tech lead) kan administrere på eget team. */
 const TEAM_MANAGEABLE_ROLES: UserRole[] = ["developer"]
 /** Roller som seksjonsledere, teknologiledere og admin kan administrere. */
-const ELEVATED_ROLES: UserRole[] = ["product_owner", "tech_lead"]
+const ELEVATED_ROLES: UserRole[] = ELEVATED_TEAM_ROLES
 
 export async function loader({ request, params }: Route.LoaderArgs) {
 	const seksjon = params.seksjon

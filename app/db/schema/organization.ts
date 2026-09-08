@@ -124,6 +124,12 @@ export const roleScopeMap: Record<UserRole, RoleScope> = {
 	developer: "team",
 }
 
+/**
+ * Team-roller som kan tildeles manuelt for Entra-koblede team (jf. #707).
+ * Developer-rollen styres utelukkende av Entra-gruppemedlemskap for slike team.
+ */
+export const ELEVATED_TEAM_ROLES: UserRole[] = ["product_owner", "tech_lead"]
+
 export const users = pgTable("users", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	navIdent: text("nav_ident").notNull().unique(),

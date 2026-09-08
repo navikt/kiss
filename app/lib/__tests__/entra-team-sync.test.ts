@@ -42,18 +42,36 @@ describe("runEntraTeamMemberSync", () => {
 
 		const result = await runEntraTeamMemberSync()
 
-		expect(result).toEqual({ teamsSynced: 0, teamsGroupDeleted: 0, totalAdded: 0, totalArchived: 0 })
+		expect(result).toEqual({
+			teamsSynced: 0,
+			teamsGroupDeleted: 0,
+			totalAdded: 0,
+			totalArchived: 0,
+			totalRolesRevoked: 0,
+		})
 		expect(mockFetchTeamEntraMembers).not.toHaveBeenCalled()
 	})
 
 	it("synker team med vellykket Graph-svar, sender med forventet entraGroupId (race-guard)", async () => {
 		mockGetDevTeamsWithEntraGroup.mockResolvedValue([TEAM_A])
 		mockFetchTeamEntraMembers.mockResolvedValue([{ navIdent: "Z990001", displayName: "Glad Fjord", mail: null }])
-		mockSyncDevTeamEntraMembers.mockResolvedValue({ added: 1, updated: 0, archived: 0, skipped: false })
+		mockSyncDevTeamEntraMembers.mockResolvedValue({
+			added: 1,
+			updated: 0,
+			archived: 0,
+			rolesRevoked: 0,
+			skipped: false,
+		})
 
 		const result = await runEntraTeamMemberSync({ jobId: "job-1" })
 
-		expect(result).toEqual({ teamsSynced: 1, teamsGroupDeleted: 0, totalAdded: 1, totalArchived: 0 })
+		expect(result).toEqual({
+			teamsSynced: 1,
+			teamsGroupDeleted: 0,
+			totalAdded: 1,
+			totalArchived: 0,
+			totalRolesRevoked: 0,
+		})
 		expect(mockSyncDevTeamEntraMembers).toHaveBeenCalledWith(
 			"team-a",
 			"group-a",
@@ -63,7 +81,7 @@ describe("runEntraTeamMemberSync", () => {
 		)
 	})
 
-	it("tømmer cache umiddelbart når Graph returnerer null (gruppe slettet)", async () => {
+	it("tømmer cache umiddelbart når Graph returnerer null (gruppe slettet) — roller tilbakekalles ikke her", async () => {
 		mockGetDevTeamsWithEntraGroup.mockResolvedValue([TEAM_A])
 		mockFetchTeamEntraMembers.mockResolvedValue(null)
 		mockClearDevTeamEntraMembers.mockResolvedValue({ archived: 3, skipped: false })
@@ -72,17 +90,29 @@ describe("runEntraTeamMemberSync", () => {
 
 		expect(mockClearDevTeamEntraMembers).toHaveBeenCalledWith("team-a", "group-a", "system:entra-team-sync", undefined)
 		expect(mockSyncDevTeamEntraMembers).not.toHaveBeenCalled()
-		expect(result).toEqual({ teamsSynced: 0, teamsGroupDeleted: 1, totalAdded: 0, totalArchived: 3 })
+		expect(result).toEqual({
+			teamsSynced: 0,
+			teamsGroupDeleted: 1,
+			totalAdded: 0,
+			totalArchived: 3,
+			totalRolesRevoked: 0,
+		})
 	})
 
 	it("teller ikke team som skipped når query-laget oppdager at teamet er av-/omkoblet (race)", async () => {
 		mockGetDevTeamsWithEntraGroup.mockResolvedValue([TEAM_A])
 		mockFetchTeamEntraMembers.mockResolvedValue([{ navIdent: "Z990001", displayName: "Glad Fjord", mail: null }])
-		mockSyncDevTeamEntraMembers.mockResolvedValue({ added: 0, updated: 0, archived: 0, skipped: true })
+		mockSyncDevTeamEntraMembers.mockResolvedValue({ added: 0, updated: 0, archived: 0, rolesRevoked: 0, skipped: true })
 
 		const result = await runEntraTeamMemberSync()
 
-		expect(result).toEqual({ teamsSynced: 0, teamsGroupDeleted: 0, totalAdded: 0, totalArchived: 0 })
+		expect(result).toEqual({
+			teamsSynced: 0,
+			teamsGroupDeleted: 0,
+			totalAdded: 0,
+			totalArchived: 0,
+			totalRolesRevoked: 0,
+		})
 	})
 
 	it("beholder cache uendret når Graph-kallet kaster (transient feil)", async () => {
@@ -91,7 +121,13 @@ describe("runEntraTeamMemberSync", () => {
 			if (groupId === "group-a") throw new Error("Graph API nede")
 			return [{ navIdent: "Z990002", displayName: "Rask Elv", mail: null }]
 		})
-		mockSyncDevTeamEntraMembers.mockResolvedValue({ added: 1, updated: 0, archived: 0, skipped: false })
+		mockSyncDevTeamEntraMembers.mockResolvedValue({
+			added: 1,
+			updated: 0,
+			archived: 0,
+			rolesRevoked: 0,
+			skipped: false,
+		})
 
 		const result = await runEntraTeamMemberSync()
 

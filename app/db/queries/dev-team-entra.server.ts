@@ -1,8 +1,77 @@
-import { and, eq, isNotNull, isNull } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm"
 import { db } from "../connection.server"
 import { isUniqueViolation } from "../pg-errors.server"
-import { devTeamEntraMembers, devTeams } from "../schema/organization"
+import { devTeamEntraMembers, devTeams, ELEVATED_TEAM_ROLES, userRoles, users } from "../schema/organization"
 import { writeAuditLog } from "./audit.server"
+
+/** Transaksjons-håndtak — bevisst IKKE unionert med `typeof db` her: denne funksjonen skal alltid
+ * kjøres inni en eksisterende transaksjon (se dokumentasjon under), og en snevrere type gjør det
+ * umulig å ved en feil kalle den utenfor en `db.transaction()` og dermed miste atomisitet mellom
+ * rollearkivering og audit-logg. */
+type TxExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+/**
+ * Tilbakekaller aktive elevated-roller (Tech Lead/Produktleder) for navIdent-er som ikke lenger
+ * er aktive medlemmer av teamets koblede Entra ID-gruppe. Manuell tildeling av disse rollene for
+ * Entra-koblede team krever aktivt gruppemedlemskap ved tildelingstidspunktet (jf. #707), men uten
+ * denne oppryddingen ville rollen «henge igjen» i KISS på ubestemt tid etter at noen forlater
+ * gruppen. Må kalles i samme transaksjon som arkiveringen av devTeamEntraMembers-radene.
+ */
+async function revokeElevatedRolesForDepartedMembers(
+	tx: TxExecutor,
+	devTeamId: string,
+	departedNavIdents: string[],
+	performedBy: string,
+	syncJobId?: string,
+): Promise<number> {
+	if (departedNavIdents.length === 0) return 0
+
+	const rows = await tx
+		.select({ roleId: userRoles.id, role: userRoles.role, navIdent: users.navIdent })
+		.from(userRoles)
+		.innerJoin(users, eq(userRoles.userId, users.id))
+		.where(
+			and(
+				eq(userRoles.devTeamId, devTeamId),
+				isNull(userRoles.archivedAt),
+				inArray(userRoles.role, ELEVATED_TEAM_ROLES),
+				inArray(users.navIdent, departedNavIdents),
+			),
+		)
+	if (rows.length === 0) return 0
+
+	const now = new Date()
+	let revokedCount = 0
+	for (const row of rows) {
+		const [archived] = await tx
+			.update(userRoles)
+			.set({ archivedAt: now, archivedBy: performedBy })
+			.where(and(eq(userRoles.id, row.roleId), isNull(userRoles.archivedAt)))
+			.returning({ id: userRoles.id })
+
+		// Raden kan ha blitt arkivert av en samtidig operasjon (f.eks. en admin som fjerner rollen
+		// manuelt) mellom SELECT-en over og denne UPDATE-en — hopp over audit-logging i så fall for
+		// å unngå en misvisende duplikat-oppføring for en mutasjon som ikke faktisk skjedde her.
+		if (!archived) continue
+		revokedCount++
+
+		await writeAuditLog(
+			{
+				action: "user_role_revoked",
+				entityType: "user_role",
+				entityId: row.roleId,
+				previousValue: JSON.stringify({ navIdent: row.navIdent, role: row.role, devTeamId }),
+				newValue: null,
+				metadata: { reason: "entra_membership_lapsed" },
+				performedBy,
+				syncJobId,
+			},
+			tx,
+		)
+	}
+
+	return revokedCount
+}
 
 export interface DevTeamEntraSyncTarget {
 	devTeamId: string
@@ -69,7 +138,7 @@ export async function linkEntraGroupToTeam(
 					.update(devTeamEntraMembers)
 					.set({ archivedAt: now, archivedBy: performedBy, updatedBy: performedBy, updatedAt: now })
 					.where(and(eq(devTeamEntraMembers.devTeamId, devTeamId), isNull(devTeamEntraMembers.archivedAt)))
-					.returning({ id: devTeamEntraMembers.id })
+					.returning({ id: devTeamEntraMembers.id, navIdent: devTeamEntraMembers.navIdent })
 				if (archivedRows.length > 0) {
 					await writeAuditLog(
 						{
@@ -85,6 +154,12 @@ export async function linkEntraGroupToTeam(
 							performedBy,
 						},
 						tx,
+					)
+					await revokeElevatedRolesForDepartedMembers(
+						tx,
+						devTeamId,
+						archivedRows.map((r) => r.navIdent),
+						performedBy,
 					)
 				}
 			}
@@ -164,6 +239,8 @@ export interface DevTeamEntraSyncDiff {
 	added: number
 	updated: number
 	archived: number
+	/** Antall elevated-roller (Tech Lead/Produktleder) automatisk tilbakekalt fordi innehaveren ikke lenger er aktivt gruppemedlem. */
+	rolesRevoked: number
 	/** true når teamet ble av-/omkoblet til en annen Entra-gruppe mellom Graph-henting og DB-skriving — ingen mutasjon ble utført. */
 	skipped: boolean
 }
@@ -191,7 +268,7 @@ export async function syncDevTeamEntraMembers(
 			.where(and(eq(devTeams.id, devTeamId), isNull(devTeams.archivedAt)))
 			.for("update")
 		if (!team || team.entraGroupId !== expectedEntraGroupId) {
-			return { added: 0, updated: 0, archived: 0, skipped: true }
+			return { added: 0, updated: 0, archived: 0, rolesRevoked: 0, skipped: true }
 		}
 
 		const now = new Date()
@@ -278,6 +355,14 @@ export async function syncDevTeamEntraMembers(
 			archived++
 		}
 
+		const rolesRevoked = await revokeElevatedRolesForDepartedMembers(
+			tx,
+			devTeamId,
+			toArchive.map((m) => m.navIdent),
+			performedBy,
+			syncJobId,
+		)
+
 		if (added > 0 || archived > 0 || updated > 0) {
 			await writeAuditLog(
 				{
@@ -292,11 +377,19 @@ export async function syncDevTeamEntraMembers(
 			)
 		}
 
-		return { added, updated, archived, skipped: false }
+		return { added, updated, archived, rolesRevoked, skipped: false }
 	})
 }
 
-/** Arkiverer all cachet medlemskap for et team umiddelbart — brukes når Entra-gruppen er slettet. */
+/**
+ * Arkiverer all cachet medlemskap for et team umiddelbart — brukes når Entra-gruppen er slettet.
+ *
+ * Tilbakekaller BEVISST ikke elevated-roller her (i motsetning til syncDevTeamEntraMembers og
+ * linkEntraGroupToTeam): at hele gruppen forsvinner fra Graph er en tvetydig hendelse — kan skyldes
+ * at noen ved en feil slettet gruppen i Entra (opplevd i praksis), ikke nødvendigvis at teammedlemmene
+ * faktisk skal miste tilgangen sin. Rollene blir stående urørt til gruppen evt. gjenopprettes og
+ * re-kobles (linkEntraGroupToTeam), eller til en admin bevisst fjerner dem manuelt.
+ */
 export async function clearDevTeamEntraMembers(
 	devTeamId: string,
 	expectedEntraGroupId: string,

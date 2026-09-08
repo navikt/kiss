@@ -22,17 +22,22 @@ export interface TrackedEntraTeamSyncResult {
 
 function toEntraTeamSyncJob(job: SyncJob): EntraTeamSyncJob {
 	const result = job.result
+	// totalRolesRevoked ble lagt til i etterkant — historiske sync-jobber i databasen mangler
+	// feltet i sitt lagrede resultat-JSON. Krev det ikke, men tolk fraværet som 0 slik at gamle
+	// jobber fortsatt kan parses og vises i admin-UI-et.
 	const parsedResult =
 		result &&
 		typeof result.teamsSynced === "number" &&
 		typeof result.teamsGroupDeleted === "number" &&
 		typeof result.totalAdded === "number" &&
-		typeof result.totalArchived === "number"
+		typeof result.totalArchived === "number" &&
+		(result.totalRolesRevoked === undefined || typeof result.totalRolesRevoked === "number")
 			? {
 					teamsSynced: result.teamsSynced,
 					teamsGroupDeleted: result.teamsGroupDeleted,
 					totalAdded: result.totalAdded,
 					totalArchived: result.totalArchived,
+					totalRolesRevoked: result.totalRolesRevoked ?? 0,
 				}
 			: null
 	return { ...job, result: parsedResult }
@@ -93,9 +98,10 @@ export async function runTrackedEntraTeamMemberSync({
 			teamsGroupDeleted: r.teamsGroupDeleted,
 			totalAdded: r.totalAdded,
 			totalArchived: r.totalArchived,
+			totalRolesRevoked: r.totalRolesRevoked,
 		},
 		performedBy,
-		`Synkronisering fullført: ${r.teamsSynced} team, ${r.teamsGroupDeleted} med slettet gruppe, +${r.totalAdded} lagt til, -${r.totalArchived} arkivert`,
+		`Synkronisering fullført: ${r.teamsSynced} team, ${r.teamsGroupDeleted} med slettet gruppe, +${r.totalAdded} lagt til, -${r.totalArchived} arkivert, ${r.totalRolesRevoked} rolle(r) tilbakekalt`,
 	)
 	return { jobId: job.id, state: "completed", result: r }
 }
