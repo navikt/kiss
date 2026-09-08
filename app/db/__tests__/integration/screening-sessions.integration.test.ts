@@ -24,6 +24,7 @@ const testUser: NavUser = {
 	isActualAdmin: false,
 	adminSuppressed: false,
 	entraTeamIds: [],
+	entraSectionIds: [],
 }
 
 const {

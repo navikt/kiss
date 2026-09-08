@@ -461,11 +461,17 @@ export async function isActiveDevTeamEntraMember(devTeamId: string, navIdent: st
 	return !!row
 }
 
-/** Alle team-ID-er en navIdent er aktivt automatisk medlem av — brukt til å bygge effektiv autorisasjon per request.
+export interface ActiveDevTeamMembership {
+	devTeamId: string
+	sectionId: string
+}
+
+/** Alle team en navIdent er aktivt automatisk medlem av (med tilhørende seksjon) — brukt til å bygge
+ * effektiv autorisasjon per request (team- og seksjonstilgang via Entra-gruppemedlemskap).
  * Ekskluderer arkiverte team, siden archiveTeam() ikke arkiverer dev_team_entra_members. */
-export async function getActiveDevTeamIdsForNavIdent(navIdent: string): Promise<string[]> {
+export async function getActiveDevTeamMembershipsForNavIdent(navIdent: string): Promise<ActiveDevTeamMembership[]> {
 	const rows = await db
-		.select({ devTeamId: devTeamEntraMembers.devTeamId })
+		.select({ devTeamId: devTeamEntraMembers.devTeamId, sectionId: devTeams.sectionId })
 		.from(devTeamEntraMembers)
 		.innerJoin(devTeams, eq(devTeams.id, devTeamEntraMembers.devTeamId))
 		.where(
@@ -475,5 +481,5 @@ export async function getActiveDevTeamIdsForNavIdent(navIdent: string): Promise<
 				isNull(devTeams.archivedAt),
 			),
 		)
-	return rows.map((r) => r.devTeamId)
+	return rows
 }

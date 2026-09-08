@@ -37,6 +37,7 @@ function makeUser(overrides: Partial<NavUser> = {}): NavUser {
 		isActualAdmin: false,
 		adminSuppressed: false,
 		entraTeamIds: [],
+		entraSectionIds: [],
 		...overrides,
 	}
 }
@@ -348,8 +349,22 @@ describe("buildEffectiveAuth — admin undertrykker revisor", () => {
 	const ADMIN_GROUP = "admin-group"
 	const AUDITOR_GROUP = "auditor-group"
 
-	function build(groups: string[], dbRoles: NavUser["dbRoles"], adminSuppressed = false, entraTeamIds: string[] = []) {
-		return buildEffectiveAuth(groups, dbRoles ?? [], [ADMIN_GROUP], [AUDITOR_GROUP], adminSuppressed, entraTeamIds)
+	function build(
+		groups: string[],
+		dbRoles: NavUser["dbRoles"],
+		adminSuppressed = false,
+		entraTeamIds: string[] = [],
+		entraSectionIds: string[] = [],
+	) {
+		return buildEffectiveAuth(
+			groups,
+			dbRoles ?? [],
+			[ADMIN_GROUP],
+			[AUDITOR_GROUP],
+			adminSuppressed,
+			entraTeamIds,
+			entraSectionIds,
+		)
 	}
 
 	it("admin som også er i revisor-gruppe: revisor fjernes fra roles og dbRoles", () => {
@@ -388,25 +403,29 @@ describe("buildEffectiveAuth — admin undertrykker revisor", () => {
 		expect(result.isActualAdmin).toBe(true)
 	})
 
-	it("ren revisor med Entra-gruppemedlemskap: entraTeamIds strippes (ingen bypass via hasAnyTeamRole)", () => {
+	it("ren revisor med Entra-gruppemedlemskap: entraTeamIds og entraSectionIds strippes (ingen bypass)", () => {
 		const result = build(
 			[AUDITOR_GROUP],
 			[{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null }],
 			false,
 			["team-abc"],
+			["section-abc"],
 		)
 		expect(result.roles.has("auditor")).toBe(true)
 		expect(result.entraTeamIds).toEqual([])
+		expect(result.entraSectionIds).toEqual([])
 	})
 
-	it("admin beholder entraTeamIds uendret", () => {
-		const result = build([ADMIN_GROUP], [], false, ["team-abc"])
+	it("admin beholder entraTeamIds og entraSectionIds uendret", () => {
+		const result = build([ADMIN_GROUP], [], false, ["team-abc"], ["section-abc"])
 		expect(result.entraTeamIds).toEqual(["team-abc"])
+		expect(result.entraSectionIds).toEqual(["section-abc"])
 	})
 
-	it("vanlig bruker (verken admin eller revisor) beholder entraTeamIds uendret", () => {
-		const result = build([], [], false, ["team-abc"])
+	it("vanlig bruker (verken admin eller revisor) beholder entraTeamIds og entraSectionIds uendret", () => {
+		const result = build([], [], false, ["team-abc"], ["section-abc"])
 		expect(result.entraTeamIds).toEqual(["team-abc"])
+		expect(result.entraSectionIds).toEqual(["section-abc"])
 	})
 })
 
@@ -438,6 +457,16 @@ describe("hasAnySectionRole", () => {
 		const user = makeUser({
 			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "team-1", devTeamSectionId: "other-section" }],
 		})
+		expect(hasAnySectionRole(user, sectionId)).toBe(false)
+	})
+
+	it("returns true when user is an automatic Entra team member of a team in the section", () => {
+		const user = makeUser({ entraSectionIds: [sectionId] })
+		expect(hasAnySectionRole(user, sectionId)).toBe(true)
+	})
+
+	it("returns false when user's entraSectionIds only contains a different section", () => {
+		const user = makeUser({ entraSectionIds: ["other-section"] })
 		expect(hasAnySectionRole(user, sectionId)).toBe(false)
 	})
 
