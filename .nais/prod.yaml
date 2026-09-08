@@ -116,6 +116,8 @@ spec:
       value: "true"
     - name: ENABLE_GITHUB_ACCESS_SYNC
       value: "true"
+    - name: ENABLE_ENTRA_TEAM_SYNC
+      value: "true"
     - name: SHOW_COMPLIANCE_STATS
       value: "false"
   envFrom:
