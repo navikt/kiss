@@ -63,12 +63,31 @@ describe("entra team sync jobs wrapper", () => {
 		expect(mockGetSyncJob).toHaveBeenCalledWith("job-1", SYNC_JOB_TYPES.ENTRA_TEAM_MEMBER_SYNC)
 	})
 
+	it("parser historiske jobb-resultater uten totalRolesRevoked (lagt til i etterkant) som 0", async () => {
+		mockGetSyncJob.mockResolvedValue({
+			...pendingJob(),
+			state: "completed",
+			result: { teamsSynced: 2, teamsGroupDeleted: 0, totalAdded: 1, totalArchived: 1 },
+		})
+
+		const job = await getEntraTeamSyncJob("job-1")
+
+		expect(job?.result).toEqual({
+			teamsSynced: 2,
+			teamsGroupDeleted: 0,
+			totalAdded: 1,
+			totalArchived: 1,
+			totalRolesRevoked: 0,
+		})
+	})
+
 	it("markerer jobb completed med resultatet fra sync-kjøringen", async () => {
 		mockRunEntraTeamMemberSync.mockResolvedValue({
 			teamsSynced: 2,
 			teamsGroupDeleted: 1,
 			totalAdded: 3,
 			totalArchived: 1,
+			totalRolesRevoked: 1,
 		})
 
 		const result = await runTrackedEntraTeamMemberSync({ performedBy: "Z990001" })
@@ -76,7 +95,7 @@ describe("entra team sync jobs wrapper", () => {
 		expect(result.state).toBe("completed")
 		expect(mockMarkSyncJobCompleted).toHaveBeenCalledWith(
 			"job-1",
-			{ teamsSynced: 2, teamsGroupDeleted: 1, totalAdded: 3, totalArchived: 1 },
+			{ teamsSynced: 2, teamsGroupDeleted: 1, totalAdded: 3, totalArchived: 1, totalRolesRevoked: 1 },
 			"Z990001",
 			expect.stringContaining("2 team"),
 		)

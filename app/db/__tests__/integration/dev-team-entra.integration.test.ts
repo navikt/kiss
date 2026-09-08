@@ -21,6 +21,8 @@ const {
 	unlinkEntraGroupFromTeam,
 } = await import("~/db/queries/dev-team-entra.server")
 
+const { assignRole, getTeamMemberRoles } = await import("~/db/queries/users.server")
+
 const SECTION_ID = "00000000-0000-0000-0000-000000000201"
 const TEAM_ID = "00000000-0000-0000-0000-000000000202"
 const OTHER_TEAM_ID = "00000000-0000-0000-0000-000000000203"
@@ -36,7 +38,7 @@ describe("dev-team-entra query-lag", () => {
 	})
 
 	beforeEach(async () => {
-		await truncateWithRetry(["dev_team_entra_members", "dev_teams", "sections"])
+		await truncateWithRetry(["dev_team_entra_members", "user_roles", "users", "dev_teams", "sections"])
 
 		const db = getTestDb()
 		await db.execute(/* sql */ `
@@ -117,7 +119,7 @@ describe("dev-team-entra query-lag", () => {
 			{ navIdent: "Z990002", displayName: "Rask Elv", mail: "rask.elv@nav.no" },
 		]
 		const diff1 = await syncDevTeamEntraMembers(TEAM_ID, ENTRA_GROUP_ID, members1, "system:entra-team-sync")
-		expect(diff1).toEqual({ added: 2, updated: 0, archived: 0, skipped: false })
+		expect(diff1).toEqual({ added: 2, updated: 0, archived: 0, rolesRevoked: 0, skipped: false })
 
 		// Z990001 oppdateres, Z990002 forsvinner (arkiveres), Z990003 er nytt medlem
 		const members2 = [
@@ -125,7 +127,7 @@ describe("dev-team-entra query-lag", () => {
 			{ navIdent: "Z990003", displayName: "Stille Skog", mail: "stille.skog@nav.no" },
 		]
 		const diff2 = await syncDevTeamEntraMembers(TEAM_ID, ENTRA_GROUP_ID, members2, "system:entra-team-sync")
-		expect(diff2).toEqual({ added: 1, updated: 1, archived: 1, skipped: false })
+		expect(diff2).toEqual({ added: 1, updated: 1, archived: 1, rolesRevoked: 0, skipped: false })
 
 		const active = await getActiveDevTeamEntraMembers(TEAM_ID)
 		expect(active.map((m) => m.navIdent).sort()).toEqual(["Z990001", "Z990003"])
@@ -136,7 +138,7 @@ describe("dev-team-entra query-lag", () => {
 		// Z990002 kommer tilbake — skal reaktiveres, ikke gi duplikat-feil på unik indeks
 		const members3 = [...members2, { navIdent: "Z990002", displayName: "Rask Elv", mail: "rask.elv@nav.no" }]
 		const diff3 = await syncDevTeamEntraMembers(TEAM_ID, ENTRA_GROUP_ID, members3, "system:entra-team-sync")
-		expect(diff3).toEqual({ added: 1, updated: 2, archived: 0, skipped: false })
+		expect(diff3).toEqual({ added: 1, updated: 2, archived: 0, rolesRevoked: 0, skipped: false })
 		expect(await isActiveDevTeamEntraMember(TEAM_ID, "Z990002")).toBe(true)
 	})
 
@@ -149,7 +151,7 @@ describe("dev-team-entra query-lag", () => {
 		]
 
 		const diff = await syncDevTeamEntraMembers(TEAM_ID, ENTRA_GROUP_ID, membersWithDuplicate, "system:entra-team-sync")
-		expect(diff).toEqual({ added: 1, updated: 0, archived: 0, skipped: false })
+		expect(diff).toEqual({ added: 1, updated: 0, archived: 0, rolesRevoked: 0, skipped: false })
 
 		const active = await getActiveDevTeamEntraMembers(TEAM_ID)
 		expect(active).toHaveLength(1)
@@ -165,7 +167,7 @@ describe("dev-team-entra query-lag", () => {
 			"system:entra-team-sync",
 		)
 
-		expect(diff).toEqual({ added: 0, updated: 0, archived: 0, skipped: true })
+		expect(diff).toEqual({ added: 0, updated: 0, archived: 0, rolesRevoked: 0, skipped: true })
 		expect(await getActiveDevTeamEntraMembers(TEAM_ID)).toEqual([])
 	})
 
@@ -264,5 +266,101 @@ describe("dev-team-entra query-lag", () => {
 		const indexDef = (result.rows[0] as { indexdef: string }).indexdef
 		expect(indexDef).toContain("UNIQUE")
 		expect(indexDef).toContain("WHERE ((entra_group_id IS NOT NULL) AND (archived_at IS NULL))")
+	})
+
+	describe("auto-opprydding av henge-igjen elevated-roller", () => {
+		it("tilbakekaller Tech Lead-rollen når medlemmet forsvinner fra Entra-gruppen ved sync", async () => {
+			await linkEntraGroupToTeam(TEAM_ID, ENTRA_GROUP_ID, "Team A", "Z990001")
+			await syncDevTeamEntraMembers(
+				TEAM_ID,
+				ENTRA_GROUP_ID,
+				[{ navIdent: "Z990002", displayName: "Glad Fjord", mail: null }],
+				"system:entra-team-sync",
+			)
+			await assignRole("Z990002", "Glad Fjord", "tech_lead", "Z990001", undefined, TEAM_ID)
+
+			const diff = await syncDevTeamEntraMembers(TEAM_ID, ENTRA_GROUP_ID, [], "system:entra-team-sync")
+			expect(diff).toEqual({ added: 0, updated: 0, archived: 1, rolesRevoked: 1, skipped: false })
+
+			const roles = await getTeamMemberRoles(TEAM_ID)
+			expect(roles).toEqual([])
+
+			const db = getTestDb()
+			const auditRows = await db.execute(
+				/* sql */ `SELECT previous_value, metadata FROM audit_log WHERE action = 'user_role_revoked'`,
+			)
+			expect(auditRows.rows).toHaveLength(1)
+			const row = auditRows.rows[0] as { previous_value: string; metadata: string }
+			expect(JSON.parse(row.previous_value)).toEqual({ navIdent: "Z990002", role: "tech_lead", devTeamId: TEAM_ID })
+			expect(JSON.parse(row.metadata)).toMatchObject({ reason: "entra_membership_lapsed" })
+		})
+
+		it("lar Teammedlem-rollen (ikke elevated) stå selv om medlemmet forlater Entra-gruppen", async () => {
+			await linkEntraGroupToTeam(TEAM_ID, ENTRA_GROUP_ID, "Team A", "Z990001")
+			await syncDevTeamEntraMembers(
+				TEAM_ID,
+				ENTRA_GROUP_ID,
+				[{ navIdent: "Z990002", displayName: "Glad Fjord", mail: null }],
+				"system:entra-team-sync",
+			)
+			await assignRole("Z990002", "Glad Fjord", "developer", "Z990001", undefined, TEAM_ID)
+
+			await syncDevTeamEntraMembers(TEAM_ID, ENTRA_GROUP_ID, [], "system:entra-team-sync")
+
+			const roles = await getTeamMemberRoles(TEAM_ID)
+			expect(roles).toHaveLength(1)
+			expect(roles[0]).toMatchObject({ navIdent: "Z990002", role: "developer" })
+		})
+
+		it("lar Produktleder-rollen stå urørt ved clearDevTeamEntraMembers (gruppe slettet) — kan være en admin-feil", async () => {
+			await linkEntraGroupToTeam(TEAM_ID, ENTRA_GROUP_ID, "Team A", "Z990001")
+			await syncDevTeamEntraMembers(
+				TEAM_ID,
+				ENTRA_GROUP_ID,
+				[{ navIdent: "Z990002", displayName: "Glad Fjord", mail: null }],
+				"system:entra-team-sync",
+			)
+			await assignRole("Z990002", "Glad Fjord", "product_owner", "Z990001", undefined, TEAM_ID)
+
+			const { archived, skipped } = await clearDevTeamEntraMembers(TEAM_ID, ENTRA_GROUP_ID, "system:entra-team-sync")
+			expect(skipped).toBe(false)
+			expect(archived).toBe(1)
+
+			const roles = await getTeamMemberRoles(TEAM_ID)
+			expect(roles).toHaveLength(1)
+			expect(roles[0]).toMatchObject({ navIdent: "Z990002", role: "product_owner" })
+		})
+
+		it("tilbakekaller elevated-rolle ved relink til en annen Entra-gruppe", async () => {
+			await linkEntraGroupToTeam(TEAM_ID, ENTRA_GROUP_ID, "Team A", "Z990001")
+			await syncDevTeamEntraMembers(
+				TEAM_ID,
+				ENTRA_GROUP_ID,
+				[{ navIdent: "Z990002", displayName: "Glad Fjord", mail: null }],
+				"system:entra-team-sync",
+			)
+			await assignRole("Z990002", "Glad Fjord", "tech_lead", "Z990001", undefined, TEAM_ID)
+
+			await linkEntraGroupToTeam(TEAM_ID, "entra-group-ny", "Ny gruppe", "Z990001")
+
+			expect(await getTeamMemberRoles(TEAM_ID)).toEqual([])
+		})
+
+		it("lar eksisterende elevated-roller stå ved unlinkEntraGroupFromTeam", async () => {
+			await linkEntraGroupToTeam(TEAM_ID, ENTRA_GROUP_ID, "Team A", "Z990001")
+			await syncDevTeamEntraMembers(
+				TEAM_ID,
+				ENTRA_GROUP_ID,
+				[{ navIdent: "Z990002", displayName: "Glad Fjord", mail: null }],
+				"system:entra-team-sync",
+			)
+			await assignRole("Z990002", "Glad Fjord", "tech_lead", "Z990001", undefined, TEAM_ID)
+
+			await unlinkEntraGroupFromTeam(TEAM_ID, "Z990001")
+
+			const roles = await getTeamMemberRoles(TEAM_ID)
+			expect(roles).toHaveLength(1)
+			expect(roles[0]).toMatchObject({ navIdent: "Z990002", role: "tech_lead" })
+		})
 	})
 })
