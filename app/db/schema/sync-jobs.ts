@@ -24,5 +24,6 @@ export const syncJobs = pgTable(
 	(t) => [
 		index("sync_jobs_created_at_idx").on(t.createdAt.desc()),
 		index("sync_jobs_type_created_at_idx").on(t.jobType, t.createdAt.desc()),
+		index("sync_jobs_type_finished_at_idx").on(t.jobType, t.finishedAt.desc()),
 	],
 )

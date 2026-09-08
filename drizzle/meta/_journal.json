@@ -827,6 +827,13 @@
       "when": 1781918980000,
       "tag": "0117_entra_team_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1781919040000,
+      "tag": "0118_sync_jobs_finished_at_index",
+      "breakpoints": true
     }
   ]
 }
