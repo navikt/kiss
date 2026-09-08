@@ -102,6 +102,7 @@ pnpm check            # Biome + React Router typegen + tsc (kjør før commit)
 | Ny vedlikeholdsaktivitetstype | [`docs/activity-types.md`](docs/activity-types.md) og [`docs/staged-data-pattern.md`](docs/staged-data-pattern.md) |
 | Ny bevisaktivitetstype | [`docs/activity-types.md`](docs/activity-types.md) |
 | Seksjon-app-tilhørighet, StorageProvider, Evidence Providers, Nais | [`docs/architecture.md`](docs/architecture.md) |
+| Roller, tilgangskontroll, Entra ID-teamkobling, autorisasjonslag | [`docs/access-control.md`](docs/access-control.md) |
 | Responsivt design, UU/WCAG | [`docs/ui-conventions.md`](docs/ui-conventions.md) |
 
 ---
