@@ -323,6 +323,7 @@ export default function RedigerTeam() {
 	} = useLoaderData<typeof loader>()
 
 	const archiveModalRef = useRef<HTMLDialogElement>(null)
+	const unlinkEntraGroupModalRef = useRef<HTMLDialogElement>(null)
 	const isArchived = teamArchivedAt !== null
 
 	const assignableRoles: UserRole[] = userCanAssignElevatedRoles
@@ -541,12 +542,14 @@ export default function RedigerTeam() {
 								{entraGroupName ?? entraGroupId}
 							</Tag>
 							{!isArchived && (
-								<Form method="post">
-									<input type="hidden" name="intent" value="unlink-entra-group" />
-									<Button type="submit" variant="tertiary-neutral" size="xsmall">
-										Fjern kobling
-									</Button>
-								</Form>
+								<Button
+									type="button"
+									variant="tertiary-neutral"
+									size="xsmall"
+									onClick={() => unlinkEntraGroupModalRef.current?.showModal()}
+								>
+									Fjern kobling
+								</Button>
 							)}
 						</HStack>
 
@@ -683,6 +686,34 @@ export default function RedigerTeam() {
 								Arkiver
 							</Button>
 							<Button type="button" variant="secondary" size="small" onClick={() => archiveModalRef.current?.close()}>
+								Avbryt
+							</Button>
+						</HStack>
+					</Form>
+				</Modal.Footer>
+			</Modal>
+
+			{/* Unlink Entra group modal */}
+			<Modal ref={unlinkEntraGroupModalRef} header={{ heading: "Fjern Entra ID-gruppekobling" }}>
+				<Modal.Body>
+					<BodyLong>
+						Er du sikker på at du vil fjerne koblingen til Entra ID-gruppen «{entraGroupName ?? entraGroupId}»?
+						Medlemmer som kun har tilgang via denne gruppen mister tilgangen til teamets applikasjoner ved neste synk.
+					</BodyLong>
+				</Modal.Body>
+				<Modal.Footer>
+					<Form method="post" onSubmit={() => unlinkEntraGroupModalRef.current?.close()}>
+						<input type="hidden" name="intent" value="unlink-entra-group" />
+						<HStack gap="space-4">
+							<Button type="submit" variant="danger" size="small">
+								Fjern kobling
+							</Button>
+							<Button
+								type="button"
+								variant="secondary"
+								size="small"
+								onClick={() => unlinkEntraGroupModalRef.current?.close()}
+							>
 								Avbryt
 							</Button>
 						</HStack>
