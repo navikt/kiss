@@ -17,6 +17,7 @@
  */
 
 import { logPoolStats } from "~/db/connection.server"
+import { markStaleRunningSyncJobsAsFailed } from "~/db/queries/sync-jobs.server"
 import { runTrackedEntraTeamMemberSync } from "./entra-team-sync-jobs.server"
 import { logger } from "./logger.server"
 
@@ -181,11 +182,37 @@ const jobs: JobConfig[] = [
 	},
 ]
 
+/**
+ * Jobber som blir hengende i "running" fordi podden som kjørte dem ble terminert
+ * (f.eks. ved redeploy) før den rakk å markere jobben ferdig. Denne terskelen er satt
+ * godt over normal kjøretid for alle sync-jobbene, slik at kun reelt hengende jobber
+ * ryddes opp — ikke en jobb som legitimt fortsatt kjører.
+ */
+const STALE_RUNNING_JOB_THRESHOLD_MS = 60 * 60 * 1000 // 1 time
+
+async function cleanupStaleRunningSyncJobs() {
+	try {
+		const olderThan = new Date(Date.now() - STALE_RUNNING_JOB_THRESHOLD_MS)
+		const { jobIds } = await markStaleRunningSyncJobsAsFailed(olderThan, "unified-scheduler")
+		if (jobIds.length > 0) {
+			logger.warn(
+				`[unified-scheduler] Ryddet opp ${jobIds.length} hengende "Pågår"-synkjobb(er) (sannsynlig pod-restart)`,
+			)
+		}
+	} catch (err) {
+		logger.error("[unified-scheduler] Kunne ikke rydde opp hengende synkjobber", err)
+	}
+}
+
 async function runCycle() {
 	cycleCount++
 	const cycleStart = Date.now()
 	logPoolStats("cycle-start")
 	logger.info(`[unified-scheduler] Starting cycle ${cycleCount}`)
+
+	// Kjøres alltid, uavhengig av hvilke enkeltjobber som er skrudd på — dette er
+	// en selvhelbredende sikkerhetsmekanisme, ikke en synk-funksjon i seg selv.
+	await cleanupStaleRunningSyncJobs()
 
 	for (const job of jobs) {
 		if (process.env[job.envVar] !== "true") continue
@@ -211,16 +238,18 @@ export function startUnifiedScheduler() {
 
 	const enabledJobs = jobs.filter((j) => process.env[j.envVar] === "true")
 	if (enabledJobs.length === 0) {
-		logger.info("[unified-scheduler] No sync jobs enabled — not starting scheduler")
-		return
+		// Ingen enkeltjobber er skrudd på, men scheduleren starter likevel — oppryddingen av
+		// hengende "Pågår"-synkjobber (cleanupStaleRunningSyncJobs) kjøres uavhengig av
+		// ENABLE_*-flaggene og må derfor kunne kjøre selv når ingen sync-jobber er aktivert.
+		logger.info("[unified-scheduler] Ingen synk-jobber enabled — starter likevel for hengende-jobb-opprydding")
+	} else {
+		logger.info(
+			`[unified-scheduler] Starting — ${enabledJobs.length} jobs enabled, cycle interval ${CYCLE_INTERVAL_MS / 1000}s, initial delay ${INITIAL_DELAY_MS / 1000}s`,
+		)
+		logger.info(
+			"[unified-scheduler] Jobs run sequentially to minimize connection pool usage (was: 4 independent schedulers)",
+		)
 	}
-
-	logger.info(
-		`[unified-scheduler] Starting — ${enabledJobs.length} jobs enabled, cycle interval ${CYCLE_INTERVAL_MS / 1000}s, initial delay ${INITIAL_DELAY_MS / 1000}s`,
-	)
-	logger.info(
-		"[unified-scheduler] Jobs run sequentially to minimize connection pool usage (was: 4 independent schedulers)",
-	)
 
 	running = true
 	generation++

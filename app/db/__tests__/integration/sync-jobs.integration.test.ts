@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { writeAuditLog } from "~/db/queries/audit.server"
 import { getSyncJobEventCount } from "~/db/queries/sync-job-events.server"
 import { auditLog } from "~/db/schema/audit"
+import { syncJobs } from "~/db/schema/sync-jobs"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase, truncateWithRetry } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
@@ -19,6 +20,7 @@ const {
 	createSyncJob,
 	deleteOldFinishedSyncJobs,
 	listSyncJobSummaries,
+	markStaleRunningSyncJobsAsFailed,
 	markSyncJobCompleted,
 	markSyncJobFailed,
 	markSyncJobRunning,
@@ -174,5 +176,35 @@ describe("Sync jobs integration tests", () => {
 			.limit(1)
 
 		expect(auditRowAfterDelete?.syncJobId).toBeNull()
+	})
+
+	it("marks stale running jobs as failed but leaves recent running jobs untouched", async () => {
+		const db = getTestDb()
+		const staleJob = await createSyncJob({ jobType: "entra_team_member_sync", performedBy: "Z990001" })
+		await markSyncJobRunning(staleJob.id, "Z990001")
+
+		const recentJob = await createSyncJob({ jobType: "entra_team_member_sync", performedBy: "Z990001" })
+		await markSyncJobRunning(recentJob.id, "Z990001")
+
+		await db.execute(sql`UPDATE sync_jobs SET started_at = now() - interval '2 hours' WHERE id = ${staleJob.id}`)
+
+		const { jobIds } = await markStaleRunningSyncJobsAsFailed(
+			new Date(Date.now() - 60 * 60 * 1000),
+			"unified-scheduler",
+		)
+
+		expect(jobIds).toEqual([staleJob.id])
+
+		const [staleAfter] = await db
+			.select({ state: syncJobs.state, error: syncJobs.error })
+			.from(syncJobs)
+			.where(eq(syncJobs.id, staleJob.id))
+		expect(staleAfter?.state).toBe("failed")
+		expect(staleAfter?.error).toBe("stale_running_job_cleanup")
+
+		const [recentAfter] = await db.select({ state: syncJobs.state }).from(syncJobs).where(eq(syncJobs.id, recentJob.id))
+		expect(recentAfter?.state).toBe("running")
+
+		expect(await getSyncJobEventCount(staleJob.id)).toBeGreaterThan(0)
 	})
 })

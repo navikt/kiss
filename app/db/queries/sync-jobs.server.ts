@@ -411,6 +411,50 @@ export async function deleteOldFinishedSyncJobs(params: {
 	return { deletedJobIds: deletedRows.map((row) => row.id) }
 }
 
+/**
+ * Markerer synkjobber som har stått i "running" lenger enn `olderThan` som "failed".
+ *
+ * Jobber blir hengende i "running" hvis podden som kjørte dem termineres (f.eks. ved
+ * redeploy) før den rekker å markere jobben ferdig — det finnes ingen SIGTERM-drenering
+ * som fanger dette opp. Uten denne oppryddingen vil slike hengende jobber vises som
+ * "Pågår" i synkjobb-oversikten for alltid, og neste kjøring av samme jobbtype vil se ut
+ * til å kjøre parallelt med en jobb som egentlig er død.
+ */
+export async function markStaleRunningSyncJobsAsFailed(
+	olderThan: Date,
+	performedBy: string,
+): Promise<{ jobIds: string[] }> {
+	return db.transaction(async (tx) => {
+		const stale = await tx
+			.update(syncJobs)
+			.set({
+				state: "failed",
+				finishedAt: new Date(),
+				message: "Avbrutt automatisk — jobben ble stående i «Pågår» uten å fullføre (sannsynligvis pod-restart)",
+				error: "stale_running_job_cleanup",
+				updatedBy: performedBy,
+				updatedAt: new Date(),
+			})
+			.where(and(eq(syncJobs.state, "running"), lt(syncJobs.startedAt, olderThan)))
+			.returning({ id: syncJobs.id })
+
+		for (const row of stale) {
+			await appendSyncJobEvent(
+				{
+					syncJobId: row.id,
+					eventType: "job_failed",
+					createdBy: performedBy,
+					message: "Avbrutt automatisk — hengende «Pågår»-jobb ryddet opp",
+					metadata: { error: "stale_running_job_cleanup" },
+				},
+				tx,
+			)
+		}
+
+		return { jobIds: stale.map((row) => row.id) }
+	})
+}
+
 /** Returns the finishedAt timestamp of the most recently completed job of the given type, or null if none. */
 export async function getLastCompletedSyncJobAt(jobType: string): Promise<Date | null> {
 	const [row] = await db
