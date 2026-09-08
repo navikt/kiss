@@ -107,7 +107,7 @@ export const userRoleLabels: Record<UserRole, string> = {
 	tech_lead: "Tech Lead",
 	auditor: "Revisor",
 	system_owner: "Systemeier",
-	developer: "Utvikler",
+	developer: "Teammedlem",
 }
 
 export type RoleScope = "global" | "section" | "team"
