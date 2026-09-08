@@ -465,3 +465,19 @@ export async function getLastCompletedSyncJobAt(jobType: string): Promise<Date |
 		.limit(1)
 	return row?.finishedAt ?? null
 }
+
+/**
+ * Returns the finishedAt timestamp of the most recently *finished* job of the given type — i.e. in
+ * any terminal state (completed, failed or skipped) — or null if none. Used for cadence throttling
+ * where re-attempts should be gated regardless of outcome, so a failing or lock-skipped job doesn't
+ * get retried every cycle and bypass its intended cadence.
+ */
+export async function getLastFinishedSyncJobAt(jobType: string): Promise<Date | null> {
+	const [row] = await db
+		.select({ finishedAt: syncJobs.finishedAt })
+		.from(syncJobs)
+		.where(and(eq(syncJobs.jobType, jobType), inArray(syncJobs.state, ["completed", "failed", "skipped"])))
+		.orderBy(desc(syncJobs.finishedAt))
+		.limit(1)
+	return row?.finishedAt ?? null
+}
