@@ -92,3 +92,22 @@ export const MedEntraGruppe: Story = {
 			"/seksjoner/pensjon-og-ufore/team/starte-pensjon/rediger",
 		),
 }
+
+export const MedEntraGruppeOgTildelingsrett: Story = {
+	name: "Koblet til Entra-gruppe (kan tildele Tech Lead/Produktleder)",
+	render: () =>
+		renderWithLoader(
+			RedigerTeam,
+			{
+				...mockTeamEditData(),
+				entraGroupId: "11111111-1111-1111-1111-111111111111",
+				entraGroupName: "team-starte-pensjon",
+				entraMembers: [
+					{ navIdent: "Z990001", displayName: "Glad Fjord" },
+					{ navIdent: "Z990004", displayName: "Snill Bre" },
+				],
+				userCanAssignElevatedRoles: true,
+			},
+			"/seksjoner/pensjon-og-ufore/team/starte-pensjon/rediger",
+		),
+}
