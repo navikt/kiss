@@ -18,7 +18,7 @@ Innlogging er åpen for alle Entra ID-brukere med gyldig token (ingen allowlist 
 | `system_owner` | seksjon | Systemeier |
 | `product_owner` | team | Produktleder |
 | `tech_lead` | team | Tech Lead |
-| `developer` | team | Utvikler (Teammedlem) |
+| `developer` | team | Teammedlem |
 
 `ELEVATED_TEAM_ROLES` (`product_owner`, `tech_lead`) er team-roller som kan tildeles manuelt selv for Entra-koblede team, jf. under.
 

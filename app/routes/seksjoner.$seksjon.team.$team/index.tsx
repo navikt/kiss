@@ -51,7 +51,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	])
 
 	// Entra-koblede medlemmer synkroniseres automatisk og har ikke egne userRoles-rader (jf. #706/#707).
-	// Slå dem sammen med KISS-forvaltede roller (Tech Lead/Produktleder) slik at de vises som "Utvikler" her.
+	// Slå dem sammen med KISS-forvaltede roller (Tech Lead/Produktleder) slik at de vises som "Teammedlem" her.
 	// Nøkkelen normaliseres (trim + uppercase) for å unngå duplikater ved avvikende casing/whitespace
 	// mellom userRoles og Entra-cachen, i tråd med konvensjonen i getUserNamesByNavIdents.
 	const teamUsersByNavIdent = new Map(teamUsers.map((u) => [u.navIdent.trim().toUpperCase(), u]))
