@@ -21,6 +21,26 @@ export interface NaisPersistenceResource {
 	auditLogging?: boolean
 	auditLogUrl?: string
 	flags?: Record<string, string>
+	/** Navn på anbefalte pgaudit-flagg som ikke er satt til anbefalt verdi. Se RECOMMENDED_PGAUDIT_FLAGS. */
+	missingAuditFlags?: string[]
+}
+
+/**
+ * Anbefalte pgaudit-flagg for Cloud SQL Postgres audit-logging, ut over selve
+ * `cloudsql.enable_pgaudit`. Se https://docs.nais.io/persistence/cloudsql/how-to/enable-auditing/
+ *
+ * `pgaudit.log_relation=on` sikrer at substatements i CTE-baserte oppdateringer
+ * (Common Table Expressions) blir audit-logget på lik linje med vanlige
+ * oppdateringer. Legg til flere anbefalte flagg her etter hvert som Nais
+ * oppdaterer sine anbefalinger.
+ */
+export const RECOMMENDED_PGAUDIT_FLAGS: { name: string; value: string }[] = [
+	{ name: "pgaudit.log_relation", value: "on" },
+]
+
+/** Finner navn på anbefalte pgaudit-flagg som mangler eller ikke er satt til anbefalt verdi. */
+function findMissingAuditFlags(flagMap: Record<string, string>): string[] {
+	return RECOMMENDED_PGAUDIT_FLAGS.filter((flag) => flagMap[flag.name] !== flag.value).map((flag) => flag.name)
 }
 
 export interface NaisAuthIntegration {
@@ -332,6 +352,7 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 				}
 				const pgAuditEnabled =
 					flagMap["cloudsql.enable_pgaudit"] === "on" || flagMap["cloudsql.enable_pgaudit"] === "true"
+				const missingAuditFlags = pgAuditEnabled ? findMissingAuditFlags(flagMap) : []
 
 				persistence.push({
 					type: "cloud_sql_postgres",
@@ -342,6 +363,7 @@ export async function fetchNaisApps(token: string | undefined, teamSlug: string)
 					auditLogging: pgAuditEnabled,
 					auditLogUrl: sql.auditLog?.logUrl,
 					flags: Object.keys(flagMap).length > 0 ? flagMap : undefined,
+					missingAuditFlags,
 				})
 			}
 

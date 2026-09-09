@@ -1,7 +1,9 @@
 import type { JWTPayload } from "jose"
 import { createRemoteJWKSet, jwtVerify } from "jose"
+import { getActiveDevTeamMembershipsForNavIdent } from "~/db/queries/dev-team-entra.server"
 import { getUserRoles, upsertUser } from "~/db/queries/users.server"
 import type { UserRole } from "~/db/schema/organization"
+import { logger } from "./logger.server"
 
 export interface UserRoleEntry {
 	role: UserRole
@@ -25,6 +27,19 @@ export interface NavUser {
 	isActualAdmin: boolean
 	/** True when admin privileges are not active (no elevation cookie). Used by toggle UI for button label. */
 	adminSuppressed: boolean
+	/**
+	 * Team-ID-er der brukeren er aktivt automatisk medlem via en koblet Entra ID-gruppe.
+	 * Gir kun "Teammedlem"-tilgang (hasAnyTeamRole), aldri canManageTeam.
+	 * Strippes til [] av buildEffectiveAuth ved auditor-suppression (samme mønster som dbRoles),
+	 * slik at revisorer ikke får team-/app-tilgang via Entra-medlemskap. Uendret for admin og vanlige brukere.
+	 */
+	entraTeamIds: string[]
+	/**
+	 * Seksjons-ID-er for teamene i entraTeamIds — gir samme seksjonstilgang (hasAnySectionRole) som
+	 * manuelt tildelte team-roller allerede får via devTeamSectionId. Strippes til [] sammen med
+	 * entraTeamIds ved auditor-suppression.
+	 */
+	entraSectionIds: string[]
 }
 
 interface AzureAdClaims extends JWTPayload {
@@ -73,7 +88,10 @@ export function extractBearerToken(request: Request): string | null {
 }
 
 /** Build a local dev user from environment variables. Returns null if not configured. */
-function getLocalDevUser(): Omit<NavUser, "dbRoles" | "roles" | "isActualAdmin" | "adminSuppressed"> | null {
+function getLocalDevUser(): Omit<
+	NavUser,
+	"dbRoles" | "roles" | "isActualAdmin" | "adminSuppressed" | "entraTeamIds" | "entraSectionIds"
+> | null {
 	const ident = process.env.LOCAL_DEV_USER
 	if (!ident) return null
 
@@ -106,7 +124,16 @@ export function buildEffectiveAuth(
 	adminGroupIds: string[],
 	auditorGroupIds: string[],
 	adminSuppressed: boolean,
-): { groups: string[]; dbRoles: UserRoleEntry[]; roles: ReadonlySet<UserRole>; isActualAdmin: boolean } {
+	entraTeamIds: string[] = [],
+	entraSectionIds: string[] = [],
+): {
+	groups: string[]
+	dbRoles: UserRoleEntry[]
+	roles: ReadonlySet<UserRole>
+	isActualAdmin: boolean
+	entraTeamIds: string[]
+	entraSectionIds: string[]
+} {
 	const isActualAdmin = groups.some((g) => adminGroupIds.includes(g)) || dbRoles.some((r) => r.role === "admin")
 	const effectiveGroups = adminSuppressed ? groups.filter((g) => !adminGroupIds.includes(g)) : groups
 	const effectiveDbRoles = adminSuppressed ? dbRoles.filter((r) => r.role !== "admin") : dbRoles
@@ -123,17 +150,25 @@ export function buildEffectiveAuth(
 	if (roles.has("admin")) {
 		roles.delete("auditor")
 		const adminDbRoles = effectiveDbRoles.filter((r) => r.role !== "auditor")
-		return { groups: effectiveGroups, dbRoles: adminDbRoles, roles, isActualAdmin }
+		return { groups: effectiveGroups, dbRoles: adminDbRoles, roles, isActualAdmin, entraTeamIds, entraSectionIds }
 	}
 
 	// Auditor-suppression: when a user has the auditor role but is NOT an effective admin,
-	// strip all other DB roles so auditor mode cannot be bypassed via team/section roles.
+	// strip all other DB roles AND automatic Entra team memberships, so auditor mode cannot
+	// be bypassed via team/section roles or via hasAnyTeamRole()/requireAppMembership().
 	if (roles.has("auditor")) {
 		const auditorOnlyRoles = effectiveDbRoles.filter((r) => r.role === "auditor")
-		return { groups: effectiveGroups, dbRoles: auditorOnlyRoles, roles: new Set<UserRole>(["auditor"]), isActualAdmin }
+		return {
+			groups: effectiveGroups,
+			dbRoles: auditorOnlyRoles,
+			roles: new Set<UserRole>(["auditor"]),
+			isActualAdmin,
+			entraTeamIds: [],
+			entraSectionIds: [],
+		}
 	}
 
-	return { groups: effectiveGroups, dbRoles: effectiveDbRoles, roles, isActualAdmin }
+	return { groups: effectiveGroups, dbRoles: effectiveDbRoles, roles, isActualAdmin, entraTeamIds, entraSectionIds }
 }
 
 async function loadDbRoles(navIdent: string): Promise<UserRoleEntry[]> {
@@ -148,6 +183,22 @@ async function loadDbRoles(navIdent: string): Promise<UserRoleEntry[]> {
 	} catch {
 		// DB not available during startup/tests — fall back to empty roles
 		return []
+	}
+}
+
+/** Team- og seksjons-ID-er brukeren er aktivt automatisk medlem av via en koblet Entra ID-gruppe. */
+async function loadEntraTeamMemberships(navIdent: string): Promise<{ teamIds: string[]; sectionIds: string[] }> {
+	try {
+		const memberships = await getActiveDevTeamMembershipsForNavIdent(navIdent)
+		return {
+			teamIds: memberships.map((m) => m.devTeamId),
+			sectionIds: memberships.map((m) => m.sectionId),
+		}
+	} catch (err) {
+		// DB not available during startup/tests, or query failure — log and fall back to empty lists
+		// so authorization degrades safely (no team/section access) instead of throwing per request.
+		logger.error("[auth] loadEntraTeamMemberships failed", err)
+		return { teamIds: [], sectionIds: [] }
 	}
 }
 
@@ -168,8 +219,19 @@ export async function getAuthenticatedUser(request: Request): Promise<NavUser | 
 	// In local development, use the configured dev user
 	const localDevBase = getLocalDevUser()
 	if (localDevBase) {
-		const dbRoles = await loadDbRoles(localDevBase.navIdent)
-		const auth = buildEffectiveAuth(localDevBase.groups, dbRoles, adminGroupIds, auditorGroupIds, adminSuppressed)
+		const [dbRoles, entraMemberships] = await Promise.all([
+			loadDbRoles(localDevBase.navIdent),
+			loadEntraTeamMemberships(localDevBase.navIdent),
+		])
+		const auth = buildEffectiveAuth(
+			localDevBase.groups,
+			dbRoles,
+			adminGroupIds,
+			auditorGroupIds,
+			adminSuppressed,
+			entraMemberships.teamIds,
+			entraMemberships.sectionIds,
+		)
 		trackLogin(localDevBase.navIdent, localDevBase.name, localDevBase.email)
 		return { ...localDevBase, ...auth, adminSuppressed }
 	}
@@ -185,8 +247,16 @@ export async function getAuthenticatedUser(request: Request): Promise<NavUser | 
 		const navIdent = claims.NAVident ?? "unknown"
 		const name = claims.name ?? "Ukjent bruker"
 		const email = claims.preferred_username
-		const dbRoles = await loadDbRoles(navIdent)
-		const auth = buildEffectiveAuth(groups, dbRoles, adminGroupIds, auditorGroupIds, adminSuppressed)
+		const [dbRoles, entraMemberships] = await Promise.all([loadDbRoles(navIdent), loadEntraTeamMemberships(navIdent)])
+		const auth = buildEffectiveAuth(
+			groups,
+			dbRoles,
+			adminGroupIds,
+			auditorGroupIds,
+			adminSuppressed,
+			entraMemberships.teamIds,
+			entraMemberships.sectionIds,
+		)
 		trackLogin(navIdent, name, email)
 		return { navIdent, name, email, token, ...auth, adminSuppressed }
 	} catch {

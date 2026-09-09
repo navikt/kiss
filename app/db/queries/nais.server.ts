@@ -882,6 +882,7 @@ export async function upsertAppPersistence(
 		highAvailability?: boolean | null
 		auditLogging?: boolean | null
 		auditLogUrl?: string | null
+		missingAuditFlags?: string[] | null
 		cluster?: string | null
 	},
 ): Promise<boolean> {
@@ -945,6 +946,7 @@ export async function upsertAppPersistence(
 				highAvailability: opts?.highAvailability ?? existing.highAvailability,
 				auditLogging: opts?.auditLogging ?? existing.auditLogging,
 				auditLogUrl: opts?.auditLogUrl ?? existing.auditLogUrl,
+				missingAuditFlags: opts?.missingAuditFlags ?? existing.missingAuditFlags,
 				cluster: opts?.cluster ?? existing.cluster,
 			}
 			const previousFields = {
@@ -953,6 +955,7 @@ export async function upsertAppPersistence(
 				highAvailability: existing.highAvailability,
 				auditLogging: existing.auditLogging,
 				auditLogUrl: existing.auditLogUrl,
+				missingAuditFlags: existing.missingAuditFlags,
 				cluster: existing.cluster,
 			}
 			const fieldsChanged =
@@ -961,6 +964,8 @@ export async function upsertAppPersistence(
 				nextState.highAvailability !== previousFields.highAvailability ||
 				nextState.auditLogging !== previousFields.auditLogging ||
 				nextState.auditLogUrl !== previousFields.auditLogUrl ||
+				canonicalizeStringArray(nextState.missingAuditFlags) !==
+					canonicalizeStringArray(previousFields.missingAuditFlags) ||
 				nextState.cluster !== previousFields.cluster
 
 			// Hopp over UPDATE helt når det ikke er noe å endre (verken
@@ -1014,7 +1019,65 @@ export async function upsertAppPersistence(
 					tx,
 				)
 			}
+
 			return false
+		}
+
+		// Historiske rader mangler cluster (se commit adfb772c). Backfiller i stedet
+		// for å arkivere+opprette ny rad, siden det ville mistet manuelt satte felter
+		// og FK-koblinger fra persistence_audit_confirmations/-summaries.
+		if (opts?.cluster) {
+			const [legacy] = await tx
+				.select()
+				.from(applicationPersistence)
+				.where(
+					and(
+						eq(applicationPersistence.applicationId, applicationId),
+						eq(applicationPersistence.type, type),
+						eq(applicationPersistence.name, name),
+						isNull(applicationPersistence.cluster),
+						isNull(applicationPersistence.archivedAt),
+					),
+				)
+				.for("update")
+				.limit(1)
+			if (legacy) {
+				const nextState = {
+					cluster: opts.cluster,
+					version: opts?.version ?? legacy.version,
+					tier: opts?.tier ?? legacy.tier,
+					highAvailability: opts?.highAvailability ?? legacy.highAvailability,
+					auditLogging: opts?.auditLogging ?? legacy.auditLogging,
+					auditLogUrl: opts?.auditLogUrl ?? legacy.auditLogUrl,
+					missingAuditFlags: opts?.missingAuditFlags ?? legacy.missingAuditFlags,
+				}
+				const previousFields = {
+					cluster: legacy.cluster,
+					version: legacy.version,
+					tier: legacy.tier,
+					highAvailability: legacy.highAvailability,
+					auditLogging: legacy.auditLogging,
+					auditLogUrl: legacy.auditLogUrl,
+					missingAuditFlags: legacy.missingAuditFlags,
+				}
+				await tx
+					.update(applicationPersistence)
+					.set({ ...nextState, updatedAt: new Date() })
+					.where(eq(applicationPersistence.id, legacy.id))
+				await writeAuditLog(
+					{
+						action: "persistence_updated",
+						entityType: "application_persistence",
+						entityId: legacy.id,
+						previousValue: JSON.stringify(previousFields),
+						newValue: JSON.stringify(nextState),
+						metadata: { applicationId, type, name, reason: "cluster_backfilled_by_nais_sync", source: "nais-sync" },
+						performedBy: "nais-sync",
+					},
+					tx,
+				)
+				return false
+			}
 		}
 
 		const [inserted] = await tx
@@ -1028,6 +1091,7 @@ export async function upsertAppPersistence(
 				highAvailability: opts?.highAvailability ?? null,
 				auditLogging: opts?.auditLogging ?? null,
 				auditLogUrl: opts?.auditLogUrl ?? null,
+				missingAuditFlags: opts?.missingAuditFlags ?? null,
 				cluster: opts?.cluster ?? null,
 			})
 			.returning()
@@ -1045,6 +1109,7 @@ export async function upsertAppPersistence(
 					highAvailability: inserted.highAvailability,
 					auditLogging: inserted.auditLogging,
 					auditLogUrl: inserted.auditLogUrl,
+					missingAuditFlags: inserted.missingAuditFlags,
 					cluster: inserted.cluster,
 				}),
 				metadata: { applicationId, source: "nais-sync" },
@@ -1054,6 +1119,37 @@ export async function upsertAppPersistence(
 		)
 		return true
 	})
+}
+
+/**
+ * Henter appnavn/type/navn for aktive Nais-synkede persistence-rader som
+ * fortsatt mangler `cluster` (legacy-rader fra før commit adfb772c). Ekskluderer
+ * manuelt lagt til rader (`manuallyAdded=true`) siden de aldri kommer fra
+ * Nais-sync og aldri får cluster satt — de ville ellers gjort signalet
+ * misvisende ved at det forblir > 0 selv når all ekte legacy er backfillet.
+ * Brukes som observabilitetssignal i nais-sync for å følge med på om
+ * backfill-casen i `upsertAppPersistence` fortsatt trigges, eller om all
+ * legacy er migrert og logikken kan vurderes fjernet.
+ */
+export async function getLegacyPersistenceRowsWithoutCluster(): Promise<
+	{ appName: string; type: string; name: string }[]
+> {
+	return db
+		.select({
+			appName: monitoredApplications.name,
+			type: applicationPersistence.type,
+			name: applicationPersistence.name,
+		})
+		.from(applicationPersistence)
+		.innerJoin(monitoredApplications, eq(applicationPersistence.applicationId, monitoredApplications.id))
+		.where(
+			and(
+				isNull(applicationPersistence.cluster),
+				isNull(applicationPersistence.archivedAt),
+				eq(applicationPersistence.manuallyAdded, false),
+			),
+		)
+		.orderBy(monitoredApplications.name, applicationPersistence.type, applicationPersistence.name)
 }
 
 // Kanonisk JSON-serialisering for arrays/objekter slik at sammenligning
@@ -1274,10 +1370,29 @@ export async function getAppAuthIntegrations(applicationId: string, opts?: { exc
 /**
  * Henter persistens-ressurser for en applikasjon. Filtrerer bort arkiverte
  * rader. Sett `includeArchived: true` for admin-/historikk-visninger.
+ * Sett `activeClusters` for å filtrere bort rader knyttet til klustre som ikke
+ * lenger er aktivt overvåket for applikasjonen (f.eks. et Kubernetes-miljø som
+ * ikke lenger blir oppdaget av Nais-sync, eller et cluster som er ekskludert
+ * på seksjonsnivå). Rader uten cluster (legacy/manuelt lagt til) beholdes alltid.
  */
-export async function getAppPersistence(applicationId: string, opts?: { includeArchived?: boolean }) {
+export async function getAppPersistence(
+	applicationId: string,
+	opts?: { includeArchived?: boolean; activeClusters?: Set<string> },
+) {
 	const conditions = [eq(applicationPersistence.applicationId, applicationId)]
 	if (!opts?.includeArchived) conditions.push(isNull(applicationPersistence.archivedAt))
+	if (opts?.activeClusters) {
+		// Eksplisitt gren for tomt sett — legacy-rader skal fortsatt vises selv
+		// om appen ikke har aktive miljøer.
+		conditions.push(
+			opts.activeClusters.size === 0
+				? isNull(applicationPersistence.cluster)
+				: (or(
+						isNull(applicationPersistence.cluster),
+						inArray(applicationPersistence.cluster, [...opts.activeClusters]),
+					) ?? sql`FALSE`),
+		)
+	}
 	return db
 		.select()
 		.from(applicationPersistence)
@@ -1394,8 +1509,11 @@ export async function getApplicationDetail(applicationId: string) {
 	for (const clusters of excludedBySection.values()) {
 		for (const c of clusters) allExcludedClusters.add(c)
 	}
+	const activeAppClusters = new Set(
+		environmentsWithExcluded.map((env) => env.cluster).filter((c): c is string => Boolean(c)),
+	)
 
-	const persistence = await getAppPersistence(applicationId)
+	const persistence = await getAppPersistence(applicationId, { activeClusters: activeAppClusters })
 	const authIntegrations = await getAppAuthIntegrations(applicationId, {
 		excludedClusters: allExcludedClusters,
 	})

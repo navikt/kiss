@@ -54,6 +54,8 @@ spec:
             value: "write,ddl,role"
           - name: "pgaudit.log_parameter"
             value: "on"
+          - name: "pgaudit.log_relation"
+            value: "on"
         databases:
           - name: kiss
     buckets:
@@ -113,6 +115,10 @@ spec:
     - name: ENABLE_DEPLOYMENT_AUDIT_SYNC
       value: "true"
     - name: ENABLE_GITHUB_ACCESS_SYNC
+      value: "true"
+    - name: ENABLE_ENTRA_TEAM_SYNC
+      value: "true"
+    - name: ENABLE_RPA_SYNC
       value: "true"
     - name: SHOW_COMPLIANCE_STATS
       value: "false"

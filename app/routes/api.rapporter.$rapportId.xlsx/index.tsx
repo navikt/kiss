@@ -1,10 +1,11 @@
 import { eq } from "drizzle-orm"
 import * as XLSX from "xlsx"
 import { db } from "~/db/connection.server"
+import { getAppScopeIds } from "~/db/queries/applications.server"
 import { getReport } from "~/db/queries/reports.server"
 import { sections } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { canManageSection, isAuditor } from "~/lib/authorization.server"
+import { canAccessAppReports, canManageSection, isAuditor } from "~/lib/authorization.server"
 import { sanitizeFilename } from "~/lib/sanitize-filename"
 import { getStorageProvider } from "~/lib/storage/index.server"
 import type { Route } from "./+types/index"
@@ -55,6 +56,25 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			throw new Response("Ikke autorisert", { status: 403 })
 		}
 		throw new Response("Seksjonsrapporter lastes ned som ZIP via PDF-endepunktet", { status: 400 })
+	}
+
+	// Enforce access for app-compliance reports
+	if (report.reportType === "app_compliance") {
+		if (!report.scopeId) throw new Response("Rapport mangler applikasjon-ID", { status: 500 })
+		const { devTeamIds, sectionIds } = await getAppScopeIds(report.scopeId)
+		if (!canAccessAppReports(user, sectionIds, devTeamIds)) {
+			throw new Response("Ikke autorisert", { status: 403 })
+		}
+	}
+
+	// Rutine-gjennomgang-rapporter lagres kun som ZIP (reportBucketPath) og kan ikke bygges om til XLSX
+	if (report.reportType === "routine_review") {
+		if (!report.scopeId) throw new Response("Rapport mangler applikasjon-ID", { status: 500 })
+		const { devTeamIds, sectionIds } = await getAppScopeIds(report.scopeId)
+		if (!canAccessAppReports(user, sectionIds, devTeamIds)) {
+			throw new Response("Ikke autorisert", { status: 403 })
+		}
+		throw new Response("Rutine-gjennomgang-rapporter lastes ned som ZIP via PDF-endepunktet", { status: 400 })
 	}
 
 	if (!report.snapshotBucketPath) {

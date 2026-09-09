@@ -240,6 +240,7 @@ describe("fetchNaisApps", () => {
 				auditLogging: false,
 				auditLogUrl: undefined,
 				flags: undefined,
+				missingAuditFlags: [],
 			},
 			{ type: "opensearch", name: "my-search" },
 			{ type: "bucket", name: "my-bucket" },
@@ -294,6 +295,51 @@ describe("fetchNaisApps", () => {
 			"cloudsql.enable_pgaudit": "on",
 			"pgaudit.log": "write,ddl,role",
 		})
+		expect(db.missingAuditFlags).toEqual(["pgaudit.log_relation"])
+	})
+
+	it("reports no missing audit flags when pgaudit.log_relation is set to on", async () => {
+		const nodes = [
+			{
+				name: "audit-app",
+				image: null,
+				manifest: null,
+				authIntegrations: [],
+				teamEnvironment: { environment: { name: "prod-gcp" } },
+				sqlInstances: {
+					nodes: [
+						{
+							name: "audit-db",
+							version: "POSTGRES_17",
+							tier: "db-custom-1-3840",
+							highAvailability: true,
+							auditLog: { logUrl: "https://console.cloud.google.com/logs" },
+							flags: {
+								nodes: [
+									{ name: "cloudsql.enable_pgaudit", value: "on" },
+									{ name: "pgaudit.log", value: "write,ddl,role" },
+									{ name: "pgaudit.log_relation", value: "on" },
+								],
+							},
+						},
+					],
+				},
+				postgresInstances: { nodes: [] },
+				openSearch: null,
+				buckets: { nodes: [] },
+				valkeys: { nodes: [] },
+				deployments: { nodes: [] },
+			},
+		]
+		vi.stubGlobal(
+			"fetch",
+			mockFetchResponse({
+				data: { team: { applications: { pageInfo: noMorePages, nodes } } },
+			}),
+		)
+
+		const result = await fetchNaisApps("token", "my-team")
+		expect(result[0].persistence[0].missingAuditFlags).toEqual([])
 	})
 
 	it("detects Oracle databases from vault paths in manifest", async () => {

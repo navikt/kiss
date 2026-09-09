@@ -10,7 +10,7 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { archiveStaleAppEnvironments, upsertAppEnvironment, getApplicationDetail } = await import(
+const { archiveStaleAppEnvironments, upsertAppEnvironment, getApplicationDetail, upsertAppPersistence } = await import(
 	"~/db/queries/nais.server"
 )
 
@@ -84,7 +84,9 @@ describe("App environment archive integration tests", () => {
 			DELETE FROM application_team_mappings;
 			DELETE FROM application_persistence;
 			DELETE FROM monitored_applications;
+			DELETE FROM section_environments;
 			DELETE FROM nais_teams;
+			DELETE FROM sections;
 		`)
 	})
 
@@ -166,5 +168,31 @@ describe("App environment archive integration tests", () => {
 		expect(envIds).toContain(activeId)
 		expect(detail?.environments).toHaveLength(1)
 		expect(detail?.environments[0].cluster).toBe("dev-gcp")
+	})
+
+	it("getApplicationDetail skjuler persistence-rader for ikke-aktive/ekskluderte clustre, men beholder legacy-rader uten cluster", async () => {
+		const db = getTestDb()
+		const teamId = await createTestNaisTeam("stille-tjern")
+		const appId = await createTestApp("Stille Tjern App")
+		await createTestEnvironment(appId, "dev-gcp", "stille-tjern", teamId)
+
+		const sectionResult = await db.execute(
+			/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('Stille Tjern Seksjon', 'stille-tjern-sec', 'test', 'test') RETURNING id`,
+		)
+		const sectionId = (sectionResult.rows[0] as { id: string }).id
+		await db.execute(/* sql */ `UPDATE nais_teams SET section_id = '${sectionId}' WHERE id = '${teamId}'`)
+		await db.execute(
+			/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${sectionId}', 'prod-gcp', false, 'test', 'test')`,
+		)
+
+		await upsertAppPersistence(appId, "cloud_sql_postgres", "active-db", { cluster: "dev-gcp" })
+		await upsertAppPersistence(appId, "cloud_sql_postgres", "excluded-db", { cluster: "prod-gcp" })
+		await upsertAppPersistence(appId, "cloud_sql_postgres", "legacy-db")
+
+		const detail = await getApplicationDetail(appId)
+		const names = detail?.persistence.map((p) => p.name)
+		expect(names).toContain("active-db")
+		expect(names).toContain("legacy-db")
+		expect(names).not.toContain("excluded-db")
 	})
 })

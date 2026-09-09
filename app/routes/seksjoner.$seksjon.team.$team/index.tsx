@@ -5,6 +5,8 @@ import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam } from "~/db/queries/applications.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
+import { getActiveDevTeamEntraMembers } from "~/db/queries/dev-team-entra.server"
+import { countOpenFollowUpPointsForApps } from "~/db/queries/routines.server"
 import { getSectionBySlug, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
 import { getUsersForTeam } from "~/db/queries/users.server"
 import { type EconomySystemType, economySystemTypeLabels } from "~/db/schema/applications"
@@ -29,9 +31,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const appIds = result.apps.map((a) => a.appId)
 	const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
-	const [deploymentStats, screeningProgressMap] = await Promise.all([
+	const [deploymentStats, screeningProgressMap, needsFollowUpPoints] = await Promise.all([
 		getDeploymentVerificationAggregate(appIds),
 		getScreeningProgressForApps(appIds, [section.id]),
+		countOpenFollowUpPointsForApps(section.id, appIds),
 	])
 
 	const canManage = user ? canManageTeam(user, result.team.id, section.id) : false
@@ -42,7 +45,27 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	}
 
 	const availableApps = canAddApp ? await getAvailableAppsForTeam(result.team.id, section.id) : []
-	const teamUsers = user ? await getUsersForTeam(result.team.id) : []
+	const [teamUsers, entraMembers] = await Promise.all([
+		user ? getUsersForTeam(result.team.id) : Promise.resolve([]),
+		user && result.team.entraGroupId ? getActiveDevTeamEntraMembers(result.team.id) : Promise.resolve([]),
+	])
+
+	// Entra-koblede medlemmer synkroniseres automatisk og har ikke egne userRoles-rader (jf. #706/#707).
+	// Slå dem sammen med KISS-forvaltede roller (Tech Lead/Produktleder) slik at de vises som "Teammedlem" her.
+	// Nøkkelen normaliseres (trim + uppercase) for å unngå duplikater ved avvikende casing/whitespace
+	// mellom userRoles og Entra-cachen, i tråd med konvensjonen i getUserNamesByNavIdents.
+	const teamUsersByNavIdent = new Map(teamUsers.map((u) => [u.navIdent.trim().toUpperCase(), u]))
+	for (const m of entraMembers) {
+		const key = m.navIdent.trim().toUpperCase()
+		if (!teamUsersByNavIdent.has(key)) {
+			teamUsersByNavIdent.set(key, {
+				navIdent: m.navIdent,
+				name: m.displayName?.trim() || m.navIdent,
+				roles: ["developer"],
+			})
+		}
+	}
+	const mergedTeamUsers = Array.from(teamUsersByNavIdent.values()).sort((a, b) => a.name.localeCompare(b.name, "nb"))
 
 	const totalControls = result.apps.reduce((sum, a) => sum + a.total, 0)
 	const totalImplemented = result.apps.reduce((sum, a) => sum + a.implemented, 0)
@@ -73,12 +96,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		canManage,
 		canAddApp,
 		availableApps,
-		teamUsers,
+		teamUsers: mergedTeamUsers,
 		totalImplemented,
 		totalPartial,
 		totalMangler,
 		overallPercent,
 		totalRoutinesIkkeGjennomfort,
+		needsFollowUpPoints,
 		deploymentStats,
 	})
 }
@@ -169,6 +193,7 @@ export default function TeamDashboard() {
 		totalMangler,
 		overallPercent,
 		totalRoutinesIkkeGjennomfort,
+		needsFollowUpPoints,
 		deploymentStats,
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
@@ -242,24 +267,33 @@ export default function TeamDashboard() {
 						</VStack>
 					</Box>
 				</Link>
+				<Link to={`/seksjoner/${seksjon}/team/${team}/rutiner`} style={{ textDecoration: "none", color: "inherit" }}>
+					<Box
+						padding="space-6"
+						borderRadius="8"
+						background={totalRoutinesIkkeGjennomfort > 0 ? "warning-moderate" : "sunken"}
+					>
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{totalRoutinesIkkeGjennomfort}
+							</Heading>
+							<Detail>Ikke-gjennomførte rutiner</Detail>
+						</VStack>
+					</Box>
+				</Link>
+				<Link to={`/seksjoner/${seksjon}/team/${team}/oppfolging`} style={{ textDecoration: "none", color: "inherit" }}>
+					<Box padding="space-6" borderRadius="8" background={needsFollowUpPoints > 0 ? "warning-moderate" : "sunken"}>
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{needsFollowUpPoints}
+							</Heading>
+							<Detail>Åpne oppfølgingspunkter</Detail>
+						</VStack>
+					</Box>
+				</Link>
 			</HGrid>
 
 			<DeploymentSummaryCards stats={deploymentStats} />
-
-			{totalRoutinesIkkeGjennomfort > 0 && (
-				<Link to={`/seksjoner/${seksjon}/team/${team}/rutiner`} style={{ textDecoration: "none", color: "inherit" }}>
-					<Box padding="space-12" borderRadius="8" background="warning-moderate">
-						<HStack align="center" gap="space-8">
-							<VStack gap="space-0">
-								<Heading size="medium" level="3">
-									{totalRoutinesIkkeGjennomfort}
-								</Heading>
-								<Detail>Ikke-gjennomførte rutiner</Detail>
-							</VStack>
-						</HStack>
-					</Box>
-				</Link>
-			)}
 
 			<HStack align="center" justify="space-between" wrap>
 				<Heading size="large" level="3">

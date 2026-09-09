@@ -578,6 +578,12 @@ function AuditRow({
 						<UserDisplayName navIdent={row.confirmation.confirmedBy} name={row.confirmation.confirmedByName} />
 					</BodyShort>
 				)}
+				{row.missingAuditFlags && row.missingAuditFlags.length > 0 && (
+					<BodyShort size="small" style={{ color: "var(--ax-text-warning)" }}>
+						{row.missingAuditFlags.length > 1 ? "Mangler anbefalte flagg" : "Mangler anbefalt flagg"}:{" "}
+						{row.missingAuditFlags.join(", ")}
+					</BodyShort>
+				)}
 			</Table.DataCell>
 			<Table.DataCell>
 				{canManage && row.status === "unknown" && !row.confirmation && (

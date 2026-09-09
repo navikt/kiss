@@ -818,7 +818,28 @@
       "idx": 116,
       "version": "7",
       "when": 1781918920000,
-      "tag": "0116_ruleset_replace_lineage",
+      "tag": "0116_missing_audit_flags",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1781918980000,
+      "tag": "0117_entra_team_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1781919040000,
+      "tag": "0118_sync_jobs_finished_at_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1781919100000,
+      "tag": "0119_ruleset_replace_lineage",
       "breakpoints": true
     }
   ]

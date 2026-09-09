@@ -16,6 +16,7 @@ const {
 	deleteManualPersistence,
 	getAppPersistence,
 	getAppsPersistence,
+	getLegacyPersistenceRowsWithoutCluster,
 	linkPersistenceToOracleInstance,
 	unarchiveManualPersistence,
 	updatePersistenceClassification,
@@ -60,6 +61,7 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 			DELETE FROM persistence_audit_confirmations;
 			DELETE FROM persistence_audit_summaries;
 			DELETE FROM application_persistence;
+			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
 			DELETE FROM audit_log;
 		`)
@@ -279,6 +281,8 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(unarchive?.performed_by).toBe("ensure-caller")
 		const metadata = JSON.parse((unarchive?.metadata as string | null) ?? "{}")
 		expect(metadata.reason).toBe("oracle_instance_ensure")
+		const previousValue = JSON.parse((unarchive?.previous_value as string | null) ?? "{}")
+		expect(previousValue.cluster).toBeNull()
 	})
 
 	it("ensureOraclePersistenceEntries prefers an existing active row over an archived duplicate", async () => {
@@ -313,6 +317,55 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		// Ingen audit skal skrives når ingen rad endres
 		const audit = await getAuditByEntity("application_persistence", archivedId)
 		expect(audit.find((a) => a.action === "persistence_unarchived")).toBeUndefined()
+	})
+
+	it("ensureOraclePersistenceEntries setter cluster på ny rad når appen har nøyaktig ett aktivt miljø", async () => {
+		const appId = await createTestApp("App L3")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'team-x')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-single-env"], "Z990001")
+		expect(result.cluster).toBe("prod-gcp")
+
+		const audit = await getAuditByEntity("application_persistence", result.id)
+		const added = audit.find((a) => a.action === "persistence_added")
+		expect(added?.performed_by).toBe("Z990001")
+		const newValue = JSON.parse((added?.new_value as string | null) ?? "{}")
+		expect(newValue.cluster).toBe("prod-gcp")
+	})
+
+	it("ensureOraclePersistenceEntries lar cluster stå NULL når appen har flere aktive miljøer", async () => {
+		const appId = await createTestApp("App L4")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'team-x'), ('${appId}', 'dev-gcp', 'team-x')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-multi-env"], "Z990001")
+		expect(result.cluster).toBeNull()
+	})
+
+	it("ensureOraclePersistenceEntries backfiller cluster på en eksisterende aktiv rad uten cluster", async () => {
+		const appId = await createTestApp("App L5")
+		const db = getTestDb()
+		await upsertAppPersistence(appId, "oracle", "ora-existing-active")
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'team-x')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-existing-active"], "Z990001")
+		expect(result.cluster).toBe("prod-gcp")
+
+		const audit = await getAuditByEntity("application_persistence", result.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		expect(updated?.performed_by).toBe("Z990001")
+		const metadata = JSON.parse((updated?.metadata as string | null) ?? "{}")
+		expect(metadata.reason).toBe("oracle_instance_cluster_backfilled")
 	})
 
 	it("partial unique index blocks two active rows with same (appId, type, name) but allows archive+reinsert", async () => {
@@ -371,5 +424,63 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 			/* sql */ `SELECT persistence_id FROM persistence_audit_summaries WHERE persistence_id = '${row.id}'`,
 		)
 		expect(summaryRow.rows).toHaveLength(1)
+	})
+
+	it("upsertAppPersistence backfiller cluster på en legacy-rad (cluster=NULL) i stedet for å opprette en ny rad", async () => {
+		const appId = await createTestApp("App O1")
+		await upsertAppPersistence(appId, "cloud_sql_postgres", "legacy-db")
+		const [legacyRow] = await getAppPersistence(appId)
+		expect(legacyRow.cluster).toBeNull()
+
+		const wasNew = await upsertAppPersistence(appId, "cloud_sql_postgres", "legacy-db", {
+			cluster: "prod-gcp",
+			tier: "premium",
+		})
+		expect(wasNew).toBe(false)
+
+		const rows = await getAppPersistence(appId)
+		expect(rows).toHaveLength(1)
+		expect(rows[0].id).toBe(legacyRow.id)
+		expect(rows[0].cluster).toBe("prod-gcp")
+		expect(rows[0].tier).toBe("premium")
+
+		const audit = await getAuditByEntity("application_persistence", legacyRow.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		expect(updated?.performed_by).toBe("nais-sync")
+		const newValue = JSON.parse((updated?.new_value as string | null) ?? "{}")
+		expect(newValue.cluster).toBe("prod-gcp")
+		expect(newValue.tier).toBe("premium")
+		const metadata = JSON.parse((updated?.metadata as string | null) ?? "{}")
+		expect(metadata.reason).toBe("cluster_backfilled_by_nais_sync")
+	})
+
+	it("getLegacyPersistenceRowsWithoutCluster returnerer appnavn/type/navn for rader uten cluster og fjerner dem etter backfill", async () => {
+		const appId = await createTestApp("App O4")
+		const db = getTestDb()
+
+		const before = await getLegacyPersistenceRowsWithoutCluster()
+
+		await db.execute(
+			/* sql */ `INSERT INTO application_persistence (application_id, type, name)
+				VALUES ('${appId}', 'oracle', 'no-cluster-yet')`,
+		)
+
+		const after = await getLegacyPersistenceRowsWithoutCluster()
+		expect(after).toHaveLength(before.length + 1)
+		expect(after).toContainEqual({ appName: "App O4", type: "oracle", name: "no-cluster-yet" })
+
+		await upsertAppPersistence(appId, "oracle", "no-cluster-yet", { cluster: "prod-gcp" })
+
+		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
+	})
+
+	it("getLegacyPersistenceRowsWithoutCluster ekskluderer manuelt lagt til rader (manuallyAdded=true)", async () => {
+		const appId = await createTestApp("App O5")
+
+		const before = await getLegacyPersistenceRowsWithoutCluster()
+
+		await addManualPersistence(appId, "cloud_sql_postgres", "manuell-db", null, "u")
+
+		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
 	})
 })

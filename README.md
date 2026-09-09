@@ -1,3 +1,5 @@
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/navikt/kiss)
+
 # KISS – Kontrollrammeverk for Integrert Sikker Systemutvikling
 
 Internkontroll-applikasjon for å vise at Nav har kontroll på Software Development Life Cycle (SDLC).
@@ -292,10 +294,6 @@ sum by (area) (
 
 ## Integrasjoner
 
-- **[Nav Deployment Audit](https://github.com/navikt/deployment-audit)**: Konsoliderte rapporter (planlagt)
+- **[Nav Deployment Audit](https://github.com/navikt/nda)**: Konsoliderte rapporter
 - **Nais GraphQL API**: Automatisk oppdagelse av applikasjoner
 - **Azure AD**: Autentisering og autorisasjon (OBO + Client Credentials)
-
-## Lisens
-
-Privat – Nav

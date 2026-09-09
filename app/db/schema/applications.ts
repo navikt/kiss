@@ -159,6 +159,11 @@ export const applicationPersistence = pgTable(
 		highAvailability: boolean("high_availability"),
 		auditLogging: boolean("audit_logging"),
 		auditLogUrl: text("audit_log_url"),
+		// Navn på anbefalte pgaudit-flagg (f.eks. "pgaudit.log_relation") som Nais
+		// rapporterer som ikke satt til anbefalt verdi. Kun relevant for
+		// cloud_sql_postgres. Utvides ved å legge til flere flagg i
+		// RECOMMENDED_PGAUDIT_FLAGS i app/lib/nais.server.ts.
+		missingAuditFlags: text("missing_audit_flags").array(),
 		oracleInstanceId: text("oracle_instance_id"),
 		dataClassification: text("data_classification", { enum: dataClassificationEnum }),
 		manuallyAdded: boolean("manually_added").notNull().default(false),

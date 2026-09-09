@@ -23,6 +23,8 @@ const testUser: NavUser = {
 	roles: new Set(),
 	isActualAdmin: false,
 	adminSuppressed: false,
+	entraTeamIds: [],
+	entraSectionIds: [],
 }
 
 const {

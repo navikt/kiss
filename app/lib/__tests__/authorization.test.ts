@@ -36,6 +36,8 @@ function makeUser(overrides: Partial<NavUser> = {}): NavUser {
 		roles,
 		isActualAdmin: false,
 		adminSuppressed: false,
+		entraTeamIds: [],
+		entraSectionIds: [],
 		...overrides,
 	}
 }
@@ -87,6 +89,12 @@ describe("canManageTeam", () => {
 
 	it("returns false for user with no roles", () => {
 		const user = makeUser()
+		expect(canManageTeam(user, devTeamId)).toBe(false)
+	})
+
+	it("returns false for active Entra ID group member without an explicit tech_lead/product_owner dbRole", () => {
+		// Automatic Entra membership only grants "Teammedlem" (hasAnyTeamRole) — never manage rights.
+		const user = makeUser({ entraTeamIds: [devTeamId] })
 		expect(canManageTeam(user, devTeamId)).toBe(false)
 	})
 
@@ -341,8 +349,22 @@ describe("buildEffectiveAuth — admin undertrykker revisor", () => {
 	const ADMIN_GROUP = "admin-group"
 	const AUDITOR_GROUP = "auditor-group"
 
-	function build(groups: string[], dbRoles: NavUser["dbRoles"], adminSuppressed = false) {
-		return buildEffectiveAuth(groups, dbRoles ?? [], [ADMIN_GROUP], [AUDITOR_GROUP], adminSuppressed)
+	function build(
+		groups: string[],
+		dbRoles: NavUser["dbRoles"],
+		adminSuppressed = false,
+		entraTeamIds: string[] = [],
+		entraSectionIds: string[] = [],
+	) {
+		return buildEffectiveAuth(
+			groups,
+			dbRoles ?? [],
+			[ADMIN_GROUP],
+			[AUDITOR_GROUP],
+			adminSuppressed,
+			entraTeamIds,
+			entraSectionIds,
+		)
 	}
 
 	it("admin som også er i revisor-gruppe: revisor fjernes fra roles og dbRoles", () => {
@@ -380,6 +402,31 @@ describe("buildEffectiveAuth — admin undertrykker revisor", () => {
 		expect(result.roles.has("admin")).toBe(false)
 		expect(result.isActualAdmin).toBe(true)
 	})
+
+	it("ren revisor med Entra-gruppemedlemskap: entraTeamIds og entraSectionIds strippes (ingen bypass)", () => {
+		const result = build(
+			[AUDITOR_GROUP],
+			[{ role: "auditor", sectionId: null, devTeamId: null, devTeamSectionId: null }],
+			false,
+			["team-abc"],
+			["section-abc"],
+		)
+		expect(result.roles.has("auditor")).toBe(true)
+		expect(result.entraTeamIds).toEqual([])
+		expect(result.entraSectionIds).toEqual([])
+	})
+
+	it("admin beholder entraTeamIds og entraSectionIds uendret", () => {
+		const result = build([ADMIN_GROUP], [], false, ["team-abc"], ["section-abc"])
+		expect(result.entraTeamIds).toEqual(["team-abc"])
+		expect(result.entraSectionIds).toEqual(["section-abc"])
+	})
+
+	it("vanlig bruker (verken admin eller revisor) beholder entraTeamIds og entraSectionIds uendret", () => {
+		const result = build([], [], false, ["team-abc"], ["section-abc"])
+		expect(result.entraTeamIds).toEqual(["team-abc"])
+		expect(result.entraSectionIds).toEqual(["section-abc"])
+	})
 })
 
 describe("hasAnySectionRole", () => {
@@ -410,6 +457,16 @@ describe("hasAnySectionRole", () => {
 		const user = makeUser({
 			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "team-1", devTeamSectionId: "other-section" }],
 		})
+		expect(hasAnySectionRole(user, sectionId)).toBe(false)
+	})
+
+	it("returns true when user is an automatic Entra team member of a team in the section", () => {
+		const user = makeUser({ entraSectionIds: [sectionId] })
+		expect(hasAnySectionRole(user, sectionId)).toBe(true)
+	})
+
+	it("returns false when user's entraSectionIds only contains a different section", () => {
+		const user = makeUser({ entraSectionIds: ["other-section"] })
 		expect(hasAnySectionRole(user, sectionId)).toBe(false)
 	})
 
@@ -618,6 +675,16 @@ describe("hasAnyTeamRole", () => {
 		const user = makeUser({ isActualAdmin: true })
 		expect(hasAnyTeamRole(user, devTeamId)).toBe(false)
 	})
+
+	it("returns true for active Entra ID group member of the team (no dbRole needed)", () => {
+		const user = makeUser({ entraTeamIds: [devTeamId] })
+		expect(hasAnyTeamRole(user, devTeamId)).toBe(true)
+	})
+
+	it("returns false for Entra ID group member of a different team", () => {
+		const user = makeUser({ entraTeamIds: ["other-team"] })
+		expect(hasAnyTeamRole(user, devTeamId)).toBe(false)
+	})
 })
 
 describe("requireAppMembership", () => {
@@ -645,6 +712,12 @@ describe("requireAppMembership", () => {
 		const user = makeUser({
 			dbRoles: [{ role: "tech_lead", sectionId: null, devTeamId, devTeamSectionId: null }],
 		})
+		await expect(requireAppMembership(user, appId)).resolves.toBeUndefined()
+	})
+
+	it("passes for active Entra ID group member without any dbRole", async () => {
+		mockGetAppScopeIds.mockResolvedValueOnce({ devTeamIds: [devTeamId], sectionIds: [] })
+		const user = makeUser({ entraTeamIds: [devTeamId] })
 		await expect(requireAppMembership(user, appId)).resolves.toBeUndefined()
 	})
 

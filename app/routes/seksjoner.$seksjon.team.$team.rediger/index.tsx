@@ -18,8 +18,15 @@ import { useRef } from "react"
 import { data, Form, Link, redirect, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
 import { LeggTilMedlemModal } from "~/components/LeggTilMedlemModal"
+import { LinkEntraGroupModal } from "~/components/LinkEntraGroupModal"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
+import { TildelEntraRolleModal } from "~/components/TildelEntraRolleModal"
 import { getAvailableAppsForTeam, linkAppToTeam, unlinkAppFromTeam } from "~/db/queries/applications.server"
+import {
+	getActiveDevTeamEntraMembers,
+	linkEntraGroupToTeam,
+	unlinkEntraGroupFromTeam,
+} from "~/db/queries/dev-team-entra.server"
 import { getNaisTeamsForSection } from "~/db/queries/nais.server"
 import {
 	archiveTeam,
@@ -34,9 +41,10 @@ import {
 } from "~/db/queries/sections.server"
 import { assignRole, getTeamMemberRoleById, getTeamMemberRoles, removeRole } from "~/db/queries/users.server"
 import type { UserRole } from "~/db/schema/organization"
-import { userRoleLabels } from "~/db/schema/organization"
+import { ELEVATED_TEAM_ROLES, userRoleLabels } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { canManageSection, canManageTeam } from "~/lib/authorization.server"
+import { syncSingleDevTeamEntraGroup } from "~/lib/entra-team-sync.server"
 import { getUserByNavIdent } from "~/lib/graph.server"
 import { requireUuid } from "~/lib/utils"
 import type { Route } from "./+types/index"
@@ -44,7 +52,7 @@ import type { Route } from "./+types/index"
 /** Roller som teamledere (produktleder/tech lead) kan administrere på eget team. */
 const TEAM_MANAGEABLE_ROLES: UserRole[] = ["developer"]
 /** Roller som seksjonsledere, teknologiledere og admin kan administrere. */
-const ELEVATED_ROLES: UserRole[] = ["product_owner", "tech_lead"]
+const ELEVATED_ROLES: UserRole[] = ELEVATED_TEAM_ROLES
 
 export async function loader({ request, params }: Route.LoaderArgs) {
 	const seksjon = params.seksjon
@@ -64,12 +72,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
 	if (teamRecord.sectionId !== section.id) throw new Response("Team tilhører ikke denne seksjonen", { status: 404 })
 
-	const [result, availableApps, linkedNaisTeams, sectionNaisTeams, teamMembers] = await Promise.all([
+	const [result, availableApps, linkedNaisTeams, sectionNaisTeams, teamMembers, entraMembers] = await Promise.all([
 		getTeamApps(team),
 		getAvailableAppsForTeam(teamRecord.id, section.id),
 		getNaisTeamsForDevTeam(teamRecord.id),
 		getNaisTeamsForSection(section.id),
 		getTeamMemberRoles(teamRecord.id),
+		teamRecord.entraGroupId ? getActiveDevTeamEntraMembers(teamRecord.id) : Promise.resolve([]),
 	])
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
 
@@ -86,6 +95,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		teamName: result.team.name,
 		teamDescription: result.team.description,
 		teamArchivedAt: result.team.archivedAt,
+		entraGroupId: teamRecord.entraGroupId,
+		entraGroupName: teamRecord.entraGroupName,
+		// Kun feltene UI-et faktisk viser — ikke send e-post/synk-tidspunkt til klienten.
+		entraMembers: entraMembers.map((m) => ({ navIdent: m.navIdent, displayName: m.displayName })),
 		apps: result.apps,
 		availableApps,
 		linkedNaisTeams,
@@ -134,6 +147,35 @@ export async function action({ request, params }: Route.ActionArgs) {
 		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
 	}
 
+	if (intent === "link-entra-group") {
+		if (teamRecord.archivedAt) throw new Response("Teamet er arkivert", { status: 400 })
+
+		const groupId = (formData.get("groupId") as string)?.trim()
+		const groupName = (formData.get("groupName") as string)?.trim() || null
+		if (!groupId) throw new Response("Gruppe-ID er påkrevd", { status: 400 })
+
+		try {
+			await linkEntraGroupToTeam(teamRecord.id, groupId, groupName, userId)
+		} catch (err) {
+			const message = err instanceof Error ? err.message : ""
+			if (message === "Denne Entra ID-gruppen er allerede koblet til et annet team") {
+				throw new Response(message, { status: 409 })
+			}
+			throw err
+		}
+
+		// Best-effort umiddelbar synk — mislykkes den, tar periodisk synk seg av det senere.
+		// syncSingleDevTeamEntraGroup fanger og logger egne feil, kaster aldri.
+		await syncSingleDevTeamEntraGroup(teamRecord.id, groupId, userId)
+		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
+	}
+
+	if (intent === "unlink-entra-group") {
+		if (teamRecord.archivedAt) throw new Response("Teamet er arkivert", { status: 400 })
+		await unlinkEntraGroupFromTeam(teamRecord.id, userId)
+		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
+	}
+
 	if (intent === "link-nais-to-devteam") {
 		const naisTeamSlug = formData.get("naisTeamSlug") as string
 		if (!naisTeamSlug) throw new Response("Mangler påkrevde felt", { status: 400 })
@@ -174,6 +216,34 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 		if (typeof rawPerson !== "string" || !rawPerson) {
 			throw new Response("Person er påkrevd", { status: 400 })
+		}
+
+		if (teamRecord.entraGroupId) {
+			// Entra-koblet team: vanlige teammedlemmer kommer automatisk fra gruppesynken.
+			// I KISS kan kun Tech Lead/Produktleder tildeles manuelt, og kun blant medlemmer
+			// som er aktivt synkronisert fra den koblede Entra ID-gruppen.
+			const navIdent = rawPerson.trim().toUpperCase()
+			if (!navIdent) {
+				throw new Response("Person er påkrevd", { status: 400 })
+			}
+			if (typeof rawRole !== "string" || !ELEVATED_ROLES.includes(rawRole as UserRole)) {
+				throw new Response("Ugyldig rolle", { status: 400 })
+			}
+			const role = rawRole as UserRole
+
+			const canAssignElevated = canManageSection(authedUser, teamRecord.sectionId)
+			if (!canAssignElevated) {
+				throw new Response("Kun seksjonsledere, teknologiledere og admin kan tildele denne rollen", { status: 403 })
+			}
+
+			const activeEntraMembers = await getActiveDevTeamEntraMembers(teamRecord.id)
+			const member = activeEntraMembers.find((m) => m.navIdent === navIdent)
+			if (!member) {
+				throw new Response(`${navIdent} er ikke et aktivt medlem av den koblede Entra ID-gruppen`, { status: 400 })
+			}
+
+			await assignRole(navIdent, member.displayName?.trim() || navIdent, role, userId, undefined, teamRecord.id)
+			return redirect(`/seksjoner/${seksjon}/team/${teamSlug}/rediger`)
 		}
 
 		let navIdent: string
@@ -240,6 +310,9 @@ export default function RedigerTeam() {
 		teamName,
 		teamDescription,
 		teamArchivedAt,
+		entraGroupId,
+		entraGroupName,
+		entraMembers,
 		apps,
 		availableApps,
 		linkedNaisTeams,
@@ -250,6 +323,7 @@ export default function RedigerTeam() {
 	} = useLoaderData<typeof loader>()
 
 	const archiveModalRef = useRef<HTMLDialogElement>(null)
+	const unlinkEntraGroupModalRef = useRef<HTMLDialogElement>(null)
 	const isArchived = teamArchivedAt !== null
 
 	const assignableRoles: UserRole[] = userCanAssignElevatedRoles
@@ -328,11 +402,19 @@ export default function RedigerTeam() {
 					<Heading size="medium" level="3">
 						Teammedlemmer ({teamMembers.length})
 					</Heading>
-					{!isArchived && <LeggTilMedlemModal assignableRoles={assignableRoles} />}
+					{!isArchived &&
+						(entraGroupId ? (
+							userCanAssignElevatedRoles && (
+								<TildelEntraRolleModal entraMembers={entraMembers} assignableRoles={ELEVATED_ROLES} />
+							)
+						) : (
+							<LeggTilMedlemModal assignableRoles={assignableRoles} />
+						))}
 				</HStack>
 				<BodyLong size="small">
-					Teammedlemmer med roller i KISS. Produktledere og tech leads kan legge til utviklere. Kun admin kan tildele
-					produktleder- og tech lead-roller.
+					{entraGroupId
+						? "Teammedlemmer synkroniseres automatisk fra den koblede Entra ID-gruppen. I KISS kan kun Tech Lead og Produktleder tildeles manuelt, og kun blant gruppens medlemmer. Kun seksjonsledere, teknologiledere og admin kan tildele disse rollene."
+						: "Teammedlemmer med roller i KISS. Produktledere og Tech Leads kan legge til utviklere. Kun seksjonsledere, teknologiledere og admin kan tildele Produktleder- og Tech Lead-roller."}
 				</BodyLong>
 
 				{teamMembers.length > 0 && (
@@ -442,6 +524,66 @@ export default function RedigerTeam() {
 				)}
 			</VStack>
 
+			{/* Entra ID-gruppekobling */}
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Entra ID-gruppe
+				</Heading>
+				<BodyLong size="small">
+					Medlemmer av en koblet Entra ID-gruppe synkroniseres automatisk som teammedlemmer her, og får dermed tilgang
+					til teamets applikasjoner. Seksjonsledere, teknologiledere og admin kan tildele Tech Lead/Produktleder til
+					enkeltmedlemmer under "Teammedlemmer" over.
+				</BodyLong>
+
+				{entraGroupId ? (
+					<VStack gap="space-4">
+						<HStack gap="space-4" align="center" wrap>
+							<Tag variant="info" size="small">
+								{entraGroupName ?? entraGroupId}
+							</Tag>
+							{!isArchived && (
+								<Button
+									type="button"
+									variant="tertiary-neutral"
+									size="xsmall"
+									onClick={() => unlinkEntraGroupModalRef.current?.showModal()}
+								>
+									Fjern kobling
+								</Button>
+							)}
+						</HStack>
+
+						{entraMembers.length > 0 ? (
+							/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+							<section className="table-scroll" tabIndex={0} aria-label="Medlemmer fra Entra ID-gruppe">
+								<Table size="small">
+									<Table.Header>
+										<Table.Row>
+											<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
+											<Table.HeaderCell scope="col">NAV-ident</Table.HeaderCell>
+										</Table.Row>
+									</Table.Header>
+									<Table.Body>
+										{entraMembers.map((m) => (
+											<Table.Row key={m.navIdent}>
+												<Table.DataCell>{m.displayName ?? "Ukjent"}</Table.DataCell>
+												<Table.DataCell>{m.navIdent}</Table.DataCell>
+											</Table.Row>
+										))}
+									</Table.Body>
+								</Table>
+							</section>
+						) : (
+							<BodyLong size="small" textColor="subtle">
+								Ingen medlemmer synkronisert fra gruppen ennå.
+							</BodyLong>
+						)}
+					</VStack>
+				) : (
+					!isArchived && <LinkEntraGroupModal intent="link-entra-group" />
+				)}
+			</VStack>
+
 			{/* App management */}
 			<VStack gap="space-4">
 				<Heading size="medium" level="3">
@@ -544,6 +686,34 @@ export default function RedigerTeam() {
 								Arkiver
 							</Button>
 							<Button type="button" variant="secondary" size="small" onClick={() => archiveModalRef.current?.close()}>
+								Avbryt
+							</Button>
+						</HStack>
+					</Form>
+				</Modal.Footer>
+			</Modal>
+
+			{/* Unlink Entra group modal */}
+			<Modal ref={unlinkEntraGroupModalRef} header={{ heading: "Fjern Entra ID-gruppekobling" }}>
+				<Modal.Body>
+					<BodyLong>
+						Er du sikker på at du vil fjerne koblingen til Entra ID-gruppen «{entraGroupName ?? entraGroupId}»?
+						Medlemmer som kun har tilgang via denne gruppen mister tilgangen til teamets applikasjoner ved neste synk.
+					</BodyLong>
+				</Modal.Body>
+				<Modal.Footer>
+					<Form method="post" onSubmit={() => unlinkEntraGroupModalRef.current?.close()}>
+						<input type="hidden" name="intent" value="unlink-entra-group" />
+						<HStack gap="space-4">
+							<Button type="submit" variant="danger" size="small">
+								Fjern kobling
+							</Button>
+							<Button
+								type="button"
+								variant="secondary"
+								size="small"
+								onClick={() => unlinkEntraGroupModalRef.current?.close()}
+							>
 								Avbryt
 							</Button>
 						</HStack>
