@@ -240,6 +240,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 			if (meta.archivedAt) {
 				return data<ActionResult>({ success: false, error: "Kan ikke endre koblinger på et arkivert regelsett." })
 			}
+			if (meta.status !== "draft") {
+				return data<ActionResult>({
+					success: false,
+					error: "Regelsettet er godkjent og kan ikke redigeres direkte. Kopier det for å redigere.",
+				})
+			}
 			const routineId = formData.get("routineId")
 			if (typeof routineId !== "string" || !routineId.trim()) {
 				return data<ActionResult>({ success: false, error: "Velg en rutine." })
@@ -263,6 +269,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 			}
 			if (meta.archivedAt) {
 				return data<ActionResult>({ success: false, error: "Kan ikke endre koblinger på et arkivert regelsett." })
+			}
+			if (meta.status !== "draft") {
+				return data<ActionResult>({
+					success: false,
+					error: "Regelsettet er godkjent og kan ikke redigeres direkte. Kopier det for å redigere.",
+				})
 			}
 			const linkId = formData.get("linkId")
 			if (typeof linkId !== "string" || !linkId.trim()) {
