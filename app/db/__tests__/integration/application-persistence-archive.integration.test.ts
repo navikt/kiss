@@ -61,6 +61,7 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 			DELETE FROM persistence_audit_confirmations;
 			DELETE FROM persistence_audit_summaries;
 			DELETE FROM application_persistence;
+			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
 			DELETE FROM audit_log;
 		`)
@@ -280,6 +281,8 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(unarchive?.performed_by).toBe("ensure-caller")
 		const metadata = JSON.parse((unarchive?.metadata as string | null) ?? "{}")
 		expect(metadata.reason).toBe("oracle_instance_ensure")
+		const previousValue = JSON.parse((unarchive?.previous_value as string | null) ?? "{}")
+		expect(previousValue.cluster).toBeNull()
 	})
 
 	it("ensureOraclePersistenceEntries prefers an existing active row over an archived duplicate", async () => {
@@ -314,6 +317,55 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		// Ingen audit skal skrives når ingen rad endres
 		const audit = await getAuditByEntity("application_persistence", archivedId)
 		expect(audit.find((a) => a.action === "persistence_unarchived")).toBeUndefined()
+	})
+
+	it("ensureOraclePersistenceEntries setter cluster på ny rad når appen har nøyaktig ett aktivt miljø", async () => {
+		const appId = await createTestApp("App L3")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'team-x')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-single-env"], "Z990001")
+		expect(result.cluster).toBe("prod-gcp")
+
+		const audit = await getAuditByEntity("application_persistence", result.id)
+		const added = audit.find((a) => a.action === "persistence_added")
+		expect(added?.performed_by).toBe("Z990001")
+		const newValue = JSON.parse((added?.new_value as string | null) ?? "{}")
+		expect(newValue.cluster).toBe("prod-gcp")
+	})
+
+	it("ensureOraclePersistenceEntries lar cluster stå NULL når appen har flere aktive miljøer", async () => {
+		const appId = await createTestApp("App L4")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'team-x'), ('${appId}', 'dev-gcp', 'team-x')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-multi-env"], "Z990001")
+		expect(result.cluster).toBeNull()
+	})
+
+	it("ensureOraclePersistenceEntries backfiller cluster på en eksisterende aktiv rad uten cluster", async () => {
+		const appId = await createTestApp("App L5")
+		const db = getTestDb()
+		await upsertAppPersistence(appId, "oracle", "ora-existing-active")
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'team-x')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-existing-active"], "Z990001")
+		expect(result.cluster).toBe("prod-gcp")
+
+		const audit = await getAuditByEntity("application_persistence", result.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		expect(updated?.performed_by).toBe("Z990001")
+		const metadata = JSON.parse((updated?.metadata as string | null) ?? "{}")
+		expect(metadata.reason).toBe("oracle_instance_cluster_backfilled")
 	})
 
 	it("partial unique index blocks two active rows with same (appId, type, name) but allows archive+reinsert", async () => {
