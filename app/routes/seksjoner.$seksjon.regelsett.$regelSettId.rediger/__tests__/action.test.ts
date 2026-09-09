@@ -122,7 +122,12 @@ describe("ruleset edit action authorization", () => {
 	})
 
 	it("rejects section-role user when ruleset is approved (active)", async () => {
-		mockGetRulesetDetail.mockResolvedValue(makeRuleset({ lastApproval: { validUntil: new Date() }, status: "active" }))
+		mockGetRulesetMeta.mockResolvedValue({
+			id: "ruleset-1",
+			sectionId: fakeSection.id,
+			status: "active",
+			archivedAt: null,
+		})
 
 		const formData = new FormData()
 		formData.set("intent", "update")
@@ -142,7 +147,12 @@ describe("ruleset edit action authorization", () => {
 
 	it("rejects admin too when ruleset is approved (active) — no bypass", async () => {
 		mockIsAdmin.mockReturnValue(true)
-		mockGetRulesetDetail.mockResolvedValue(makeRuleset({ lastApproval: { validUntil: new Date() }, status: "active" }))
+		mockGetRulesetMeta.mockResolvedValue({
+			id: "ruleset-1",
+			sectionId: fakeSection.id,
+			status: "active",
+			archivedAt: null,
+		})
 
 		const formData = new FormData()
 		formData.set("intent", "update")

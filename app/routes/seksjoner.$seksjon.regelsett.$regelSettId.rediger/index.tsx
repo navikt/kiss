@@ -125,7 +125,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	// dette (forsvar i dybden), men vi sjekker her også for en tydeligere
 	// feilmelding.
 	if (intent === "update" || intent === "link-control" || intent === "unlink-control") {
-		const current = await getRulesetDetail(regelSettId)
+		const current = await getRulesetMeta(regelSettId)
 		if (!current || current.sectionId !== section.id) {
 			throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
 		}
