@@ -105,6 +105,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 		if (!current || current.sectionId !== section.id) {
 			throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
 		}
+		if (current.archivedAt) {
+			return data<ActionResult>({
+				success: false,
+				error: "Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.",
+			})
+		}
 		if (current.status !== "active") {
 			return data<ActionResult>({
 				success: false,
