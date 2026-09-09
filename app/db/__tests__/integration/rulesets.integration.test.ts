@@ -277,13 +277,15 @@ describe("rulesets.server integration tests", () => {
 		it("getRulesetsForControl returns rulesets pointing at a control", async () => {
 			const sectionId = await createSectionRow("sec6")
 			const rulesetId = await createRuleset({ sectionId, name: "RsX", frequency: "annually", createdBy: "admin" })
+			const controlId = await createControl("K-X.01")
+			// Kontrollkobling må gjøres mens regelsettet ennå er draft — godkjent
+			// innhold er låst, se linkControlToRuleset().
+			await linkControlToRuleset(rulesetId, controlId, "Z990001")
 			await approveRuleset({
 				rulesetId,
 				approvedBy: "a",
 				approvedByName: "A",
 			})
-			const controlId = await createControl("K-X.01")
-			await linkControlToRuleset(rulesetId, controlId, "Z990001")
 
 			const rows = await getRulesetsForControl(controlId)
 			expect(rows).toHaveLength(1)
