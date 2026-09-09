@@ -10,7 +10,7 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { archiveApplication, unarchiveApplication } = await import("~/db/queries/nais.server")
+const { archiveApplication, unarchiveApplication, getArchivableAppIds } = await import("~/db/queries/nais.server")
 const { getApplications, getAvailableAppsForTeam } = await import("~/db/queries/applications.server")
 
 async function getAuditByEntity(entityType: string, entityId: string) {
@@ -388,6 +388,109 @@ describe("Application archive (soft-delete) integration tests", () => {
 			const newVal = JSON.parse(unarchiveEntry?.new_value ?? "{}")
 			expect(newVal.archivedAt).toBeUndefined()
 			expect(unarchiveEntry?.performed_by).toBe("user-b")
+		})
+	})
+
+	describe("getArchivableAppIds() matches archiveApplication() preconditions", () => {
+		it("includes an app with no active environments and no linked apps", async () => {
+			const appId = await createTestApp("No env app")
+			const result = await getArchivableAppIds([appId])
+			expect(result.has(appId)).toBe(true)
+			await expect(archiveApplication(appId, "admin")).resolves.toMatchObject({ id: appId })
+		})
+
+		it("excludes an app that still has an active Nais environment", async () => {
+			const appId = await createTestApp("Live env app", { withEnvironment: true })
+			const result = await getArchivableAppIds([appId])
+			expect(result.has(appId)).toBe(false)
+			await expect(archiveApplication(appId, "admin")).rejects.toThrow(/Nais/)
+		})
+
+		it("includes an app whose only environment is in a cluster excluded by its own nais-team's section", async () => {
+			const db = getTestDb()
+			const sectionRow = await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('ArchivableSec', 'archivable-sec', 'test', 'test') RETURNING id`,
+			)
+			const sectionId = (sectionRow.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${sectionId}', 'dev-gcp', false, 'test', 'test')`,
+			)
+			const teamRow = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('archivable-team', '${sectionId}') RETURNING id`,
+			)
+			const naisTeamId = (teamRow.rows[0] as { id: string }).id
+
+			const appId = await createTestApp("Excluded cluster app")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', 'dev-gcp', 'team-x', '${naisTeamId}')`,
+			)
+			const result = await getArchivableAppIds([appId])
+			expect(result.has(appId)).toBe(true)
+			await expect(archiveApplication(appId, "admin")).resolves.toMatchObject({ id: appId })
+		})
+
+		it("excludes an app whose environment cluster is only excluded in an unrelated section", async () => {
+			// Regression test: the same cluster name ("dev-gcp") is excluded in one section but
+			// not in the section that actually owns the app's environment (via its nais-team).
+			// getArchivableAppIds() must resolve exclusion per environment's own nais-team/section,
+			// not via a single caller-supplied cluster set, to match archiveApplication() exactly.
+			const db = getTestDb()
+			const unrelatedSectionRow = await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('UnrelatedSec', 'unrelated-sec', 'test', 'test') RETURNING id`,
+			)
+			const unrelatedSectionId = (unrelatedSectionRow.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by) VALUES ('${unrelatedSectionId}', 'dev-gcp', false, 'test', 'test')`,
+			)
+
+			const ownSectionRow = await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('OwnSec', 'own-sec', 'test', 'test') RETURNING id`,
+			)
+			const ownSectionId = (ownSectionRow.rows[0] as { id: string }).id
+			// dev-gcp is NOT excluded in the app's own section, so its environment stays active.
+			const teamRow = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, section_id) VALUES ('own-team', '${ownSectionId}') RETURNING id`,
+			)
+			const naisTeamId = (teamRow.rows[0] as { id: string }).id
+
+			const appId = await createTestApp("Cross-section app")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${appId}', 'dev-gcp', 'team-x', '${naisTeamId}')`,
+			)
+			const result = await getArchivableAppIds([appId])
+			expect(result.has(appId)).toBe(false)
+			await expect(archiveApplication(appId, "admin")).rejects.toThrow(/Nais/)
+		})
+
+		it("excludes an app with an active (non-archived) linked child app", async () => {
+			const primary = await createTestApp("Primary with active child")
+			await createTestApp("Active child", { primaryAppId: primary })
+
+			const result = await getArchivableAppIds([primary])
+			expect(result.has(primary)).toBe(false)
+			await expect(archiveApplication(primary, "admin")).rejects.toThrow(/lenkede/)
+		})
+
+		it("excludes an app with an archived linked child app, matching archiveApplication()'s unconditional child check", async () => {
+			const primary = await createTestApp("Primary with archived child")
+			const childId = await createTestApp("Archived child", { primaryAppId: primary })
+			await archiveApplication(childId, "admin")
+
+			const result = await getArchivableAppIds([primary])
+			expect(result.has(primary)).toBe(false)
+			await expect(archiveApplication(primary, "admin")).rejects.toThrow(/lenkede/)
+		})
+
+		it("returns a mixed result set for a batch of applications", async () => {
+			const archivable = await createTestApp("Batch archivable")
+			const withEnv = await createTestApp("Batch with env", { withEnvironment: true })
+			const primaryWithChild = await createTestApp("Batch primary with child")
+			await createTestApp("Batch child", { primaryAppId: primaryWithChild })
+
+			const result = await getArchivableAppIds([archivable, withEnv, primaryWithChild])
+			expect(result.has(archivable)).toBe(true)
+			expect(result.has(withEnv)).toBe(false)
+			expect(result.has(primaryWithChild)).toBe(false)
 		})
 	})
 })

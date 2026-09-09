@@ -16,6 +16,7 @@ import { routineReviews, routines } from "../schema/routines"
 import { getComplianceSummaries, getRoutineComplianceSummaries } from "./application-controls.server"
 import { writeAuditLog } from "./audit.server"
 import { type EconomyClassification, getEconomyClassifications } from "./economy-classification.server"
+import { getArchivableAppIds } from "./nais.server"
 import { getRoutineDeadlinesWithControls } from "./routine-deadlines.server"
 import { assignRole } from "./users.server"
 
@@ -782,10 +783,11 @@ export async function getTeamApps(teamSlug: string) {
 			: []
 	const appById = new Map(appRows.map((a) => [a.id, a]))
 	const activeAppIds = appRows.map((a) => a.id)
-	const [summaryMap, routineMap, economyMap] = await Promise.all([
+	const [summaryMap, routineMap, economyMap, archivableAppIds] = await Promise.all([
 		getComplianceSummaries(activeAppIds),
 		getRoutineComplianceSummaries(activeAppIds),
 		getEconomyClassifications(activeAppIds),
+		getArchivableAppIds(activeAppIds),
 	])
 
 	const apps = appIdList
@@ -811,6 +813,7 @@ export async function getTeamApps(teamSlug: string) {
 				routineCompliance: r,
 				isEconomySystem: economyMap.get(appId)?.isEconomySystem ?? null,
 				economySystemType: economyMap.get(appId)?.economySystemType ?? null,
+				canArchive: archivableAppIds.has(appId),
 			}
 		})
 		.filter((a): a is NonNullable<typeof a> => a !== null)
@@ -1202,6 +1205,67 @@ export async function getSectionApps(seksjonSlug: string) {
 		.filter((a): a is NonNullable<typeof a> => a !== null)
 
 	apps.sort((a, b) => a.appName.localeCompare(b.appName, "nb"))
+
+	return { section, apps }
+}
+
+/**
+ * Get archived applications that have historically belonged to a team or Nais team in the
+ * section (via applicationTeamMappings or applicationEnvironments, including archived rows,
+ * since those associations typically predate/survive the application-level archiving).
+ */
+export async function getArchivedSectionApps(seksjonSlug: string) {
+	const [section] = await db.select().from(sections).where(eq(sections.slug, seksjonSlug)).limit(1)
+	if (!section) return null
+
+	const teams = await db.select({ id: devTeams.id }).from(devTeams).where(eq(devTeams.sectionId, section.id))
+	const teamIds = teams.map((t) => t.id)
+
+	const naisTeamRows = await db.select({ id: naisTeams.id }).from(naisTeams).where(eq(naisTeams.sectionId, section.id))
+	const naisTeamIds = naisTeamRows.map((t) => t.id)
+
+	const appIdSet = new Set<string>()
+
+	if (teamIds.length > 0) {
+		const directRows = await db
+			.selectDistinct({ appId: applicationTeamMappings.applicationId })
+			.from(applicationTeamMappings)
+			.where(inArray(applicationTeamMappings.devTeamId, teamIds))
+		for (const row of directRows) appIdSet.add(row.appId)
+	}
+
+	if (naisTeamIds.length > 0) {
+		const naisAppRows = await db
+			.selectDistinct({ appId: applicationEnvironments.applicationId })
+			.from(applicationEnvironments)
+			.where(inArray(applicationEnvironments.naisTeamId, naisTeamIds))
+		for (const row of naisAppRows) appIdSet.add(row.appId)
+	}
+
+	if (appIdSet.size === 0) return { section, apps: [] }
+
+	const archivedAppRows = await db
+		.select()
+		.from(monitoredApplications)
+		.where(
+			and(
+				inArray(monitoredApplications.id, [...appIdSet]),
+				isNotNull(monitoredApplications.archivedAt),
+				isNull(monitoredApplications.primaryApplicationId),
+			),
+		)
+		.orderBy(sql`${monitoredApplications.archivedAt} DESC`)
+
+	const archivedAppIds = archivedAppRows.map((a) => a.id)
+	const teamNamesByApp = await getTeamNamesForApps(archivedAppIds, section.id, { includeArchived: true })
+
+	const apps = archivedAppRows.map((app) => ({
+		appId: app.id,
+		appName: app.name,
+		archivedAt: app.archivedAt,
+		archivedBy: app.archivedBy,
+		teamNames: teamNamesByApp.get(app.id) ?? [],
+	}))
 
 	return { section, apps }
 }
@@ -1653,8 +1717,13 @@ export async function countSectionRoutinesIncomplete(appIds: string[]): Promise<
  * 2. Via devTeamNaisTeamMappings join table (appId → naisTeamId → devTeamId)
  * 3. Via naisTeams.devTeamId direct FK (appId → naisTeamId → devTeams)
  */
-export async function getTeamNamesForApps(appIds: string[], sectionId: string): Promise<Map<string, string[]>> {
+export async function getTeamNamesForApps(
+	appIds: string[],
+	sectionId: string,
+	opts?: { includeArchived?: boolean },
+): Promise<Map<string, string[]>> {
 	if (appIds.length === 0) return new Map()
+	const includeArchived = opts?.includeArchived ?? false
 
 	const [directRows, naisMappingRows, naisDirectRows] = await Promise.all([
 		// Path 1: application → applicationTeamMappings → devTeam (filtered to section)
@@ -1666,8 +1735,8 @@ export async function getTeamNamesForApps(appIds: string[], sectionId: string): 
 				and(
 					inArray(applicationTeamMappings.applicationId, appIds),
 					eq(devTeams.sectionId, sectionId),
-					isNull(applicationTeamMappings.archivedAt),
-					isNull(devTeams.archivedAt),
+					includeArchived ? undefined : isNull(applicationTeamMappings.archivedAt),
+					includeArchived ? undefined : isNull(devTeams.archivedAt),
 				),
 			),
 		// Path 2: application → applicationEnvironments → devTeamNaisTeamMappings join table → devTeam
@@ -1680,8 +1749,8 @@ export async function getTeamNamesForApps(appIds: string[], sectionId: string): 
 				and(
 					inArray(applicationEnvironments.applicationId, appIds),
 					eq(devTeams.sectionId, sectionId),
-					isNull(devTeamNaisTeamMappings.archivedAt),
-					isNull(devTeams.archivedAt),
+					includeArchived ? undefined : isNull(devTeamNaisTeamMappings.archivedAt),
+					includeArchived ? undefined : isNull(devTeams.archivedAt),
 				),
 			),
 		// Path 3: application → applicationEnvironments → naisTeams.devTeamId direct FK → devTeam
@@ -1694,7 +1763,7 @@ export async function getTeamNamesForApps(appIds: string[], sectionId: string): 
 				and(
 					inArray(applicationEnvironments.applicationId, appIds),
 					eq(devTeams.sectionId, sectionId),
-					isNull(devTeams.archivedAt),
+					includeArchived ? undefined : isNull(devTeams.archivedAt),
 				),
 			),
 	])
