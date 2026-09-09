@@ -1037,7 +1037,7 @@ export async function replaceRuleset(input: {
 }): Promise<string | null> {
 	const { newRulesetId, oldRulesetId } = input
 	if (newRulesetId === oldRulesetId) {
-		throw new Response("Ny og gammel regelsett-ID kan ikke være den samme", { status: 400 })
+		throw new Response("Nytt og gammelt regelsett-ID kan ikke være det samme", { status: 400 })
 	}
 
 	const now = new Date()
