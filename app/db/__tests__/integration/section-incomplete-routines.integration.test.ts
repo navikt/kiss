@@ -31,6 +31,21 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
+// createRoutine() fires off triggerSyncForSection() in the background (fire-and-forget,
+// see routines.server.ts) to refresh the compliance cache for the section's apps. Left
+// un-mocked, that background sync races with insertApplicationControl() below — since
+// it isn't awaited by createRoutine(), it can still be running (or start) while the test
+// inserts its own application_controls row for the same (application_id, control_id),
+// causing an intermittent unique-violation (uq_app_control). Tests here set up
+// application_controls state directly, so it's safe to no-op the fire-and-forget trigger.
+vi.mock("~/db/queries/application-controls.server", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("~/db/queries/application-controls.server")>()
+	return {
+		...actual,
+		triggerSyncForSection: vi.fn(),
+	}
+})
+
 const { createTeam, getSectionIncompleteRoutines, countSectionRoutinesIncomplete } = await import(
 	"~/db/queries/sections.server"
 )
