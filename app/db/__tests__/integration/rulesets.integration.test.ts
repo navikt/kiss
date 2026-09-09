@@ -253,6 +253,29 @@ describe("rulesets.server integration tests", () => {
 			expect(detail?.status).toBe("active")
 			expect(detail?.approvals).toHaveLength(1)
 		})
+
+		it("writes an audit row for the approval, atomically with the status change", async () => {
+			const { getAuditLogForEntity } = await import("~/db/queries/audit.server")
+			const sectionId = await createSectionRow("sec4c")
+			const id = await createRuleset({ sectionId, name: "Aud approve", frequency: "annually", createdBy: "admin" })
+
+			const approvalId = await approveRuleset({
+				rulesetId: id,
+				approvedBy: "approver",
+				approvedByName: "Approver Name",
+			})
+			expect(approvalId).not.toBeNull()
+
+			const log = await getAuditLogForEntity("ruleset", id)
+			const approvedEntries = log.filter((r) => r.action === "ruleset_approved")
+			expect(approvedEntries).toHaveLength(1)
+			expect(approvedEntries[0].performedBy).toBe("approver")
+			expect(JSON.parse(approvedEntries[0].newValue as string)).toMatchObject({
+				approvalId,
+				approvedBy: "approver",
+				approvedByName: "Approver Name",
+			})
+		})
 	})
 
 	describe("Control linking", () => {

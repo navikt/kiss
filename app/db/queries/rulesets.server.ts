@@ -939,6 +939,22 @@ export async function approveRuleset(input: {
 			})
 		}
 
+		await writeAuditLog(
+			{
+				action: "ruleset_approved",
+				entityType: "ruleset",
+				entityId: input.rulesetId,
+				newValue: JSON.stringify({
+					approvalId: row.id,
+					approvedBy: input.approvedBy,
+					approvedByName: input.approvedByName,
+					validUntil,
+				}),
+				performedBy: input.approvedBy,
+			},
+			tx,
+		)
+
 		return row.id
 	})
 }
