@@ -200,18 +200,16 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 			// Hvis regelsettet er en redigert kopi (opprettet via copyRuleset), skal
 			// godkjenning erstatte det opprinnelige regelsettet i stedet for en
-			// vanlig fornyelse — se replaceRuleset().
+			// vanlig fornyelse — se replaceRuleset(). Funksjonen returnerer aldri
+			// null; feil kastes som Response og håndteres av rutens feilgrense.
 			if (ruleset.sourceRulesetId) {
-				const approvalId = await replaceRuleset({
+				await replaceRuleset({
 					newRulesetId: regelSettId,
 					oldRulesetId: ruleset.sourceRulesetId,
 					approvedBy: authedUser.navIdent,
 					approvedByName: authedUser.name,
 					comment: typeof comment === "string" && comment.trim() ? comment.trim() : undefined,
 				})
-				if (!approvalId) {
-					return data<ActionResult>({ success: false, error: "Kunne ikke godkjenne og erstatte regelsettet." })
-				}
 				return data<ActionResult>({ success: true, message: "Regelsett godkjent og opprinnelig versjon erstattet." })
 			}
 

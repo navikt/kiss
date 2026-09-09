@@ -892,9 +892,11 @@ export async function unarchiveRuleset(rulesetId: string, performedBy: string) {
  * `validUntil` basert på regelsettets faktiske frekvens (lest fra den låste
  * raden, ikke et kallested-argument — samme prinsipp som `replaceRuleset()`).
  * Returnerer `null` hvis regelsettet ikke finnes, er arkivert, eller ikke
- * lenger er `draft` (allerede godkjent). Bruker en transaksjon med
- * `SELECT FOR UPDATE` på regelsett-raden for å unngå TOCTOU mot samtidig
- * arkivering eller dobbel godkjenning.
+ * lenger er `draft` (allerede godkjent). Kaster `Response(409)` hvis raden
+ * endret seg mellom låsen og selve statusoppdateringen (uventet race, ikke en
+ * forventet guard-feil). Bruker en transaksjon med `SELECT FOR UPDATE` på
+ * regelsett-raden for å unngå TOCTOU mot samtidig arkivering eller dobbel
+ * godkjenning.
  */
 export async function approveRuleset(input: {
 	rulesetId: string
@@ -1072,6 +1074,12 @@ export async function copyRuleset(rulesetId: string, performedBy: string) {
  * (viser hvilket regelsett appen fulgte på svartidspunktet). Appen må selv
  * velge/bekrefte det nye regelsettet for at det skal telle i fremtidig
  * compliance-vurdering.
+ *
+ * Returnerer alltid en godkjennings-ID ved suksess. Funksjonen returnerer
+ * **aldri** `null` — alle forventede guard-feil (regelsett ikke funnet,
+ * arkivert, feil status, feil kobling mellom kopi og original) og uventede
+ * race conditions kastes som `Response` (4xx/409). Kallesteder trenger derfor
+ * ikke sjekke for en falsy returverdi.
  */
 export async function replaceRuleset(input: {
 	newRulesetId: string
@@ -1079,7 +1087,7 @@ export async function replaceRuleset(input: {
 	approvedBy: string
 	approvedByName: string
 	comment?: string
-}): Promise<string | null> {
+}): Promise<string> {
 	const { newRulesetId, oldRulesetId } = input
 	if (newRulesetId === oldRulesetId) {
 		throw new Response("Nytt og gammelt regelsett-ID kan ikke være det samme", { status: 400 })
@@ -1168,7 +1176,7 @@ export async function replaceRuleset(input: {
 				updatedAt: now,
 				updatedBy: input.approvedBy,
 			})
-			.where(and(eq(rulesets.id, oldRulesetId), isNull(rulesets.archivedAt)))
+			.where(and(eq(rulesets.id, oldRulesetId), eq(rulesets.status, "active"), isNull(rulesets.archivedAt)))
 			.returning({ id: rulesets.id })
 		if (!archived) {
 			throw new Response("Kunne ikke arkivere det opprinnelige regelsettet — status endret seg underveis", {
