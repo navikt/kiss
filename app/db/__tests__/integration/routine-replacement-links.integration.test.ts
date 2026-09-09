@@ -25,6 +25,21 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
+// createRoutine() fires off triggerSyncForSection() in the background (fire-and-forget,
+// see routines.server.ts). Its internal call to syncApplicationControls() bypasses the
+// per-test syncSpy below (same-module call, not through the exported binding), so left
+// un-mocked it can still race with insertApplicationControlsWithRoutine() and insert the
+// application_controls row before the test's own insert runs, causing an intermittent
+// unique-violation (uq_app_control). No-op the trigger here; tests that verify sync
+// behaviour go through the awaited syncApplicationControls export instead (see syncSpy).
+vi.mock("~/db/queries/application-controls.server", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("~/db/queries/application-controls.server")>()
+	return {
+		...actual,
+		triggerSyncForSection: vi.fn(),
+	}
+})
+
 // Import AFTER mocking
 const {
 	createRoutine,
