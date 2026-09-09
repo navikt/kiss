@@ -130,31 +130,38 @@ export async function ensureOraclePersistenceEntries(appId: string, instanceIds:
 }
 
 /**
- * Engangsoperasjon: kjører `ensureOraclePersistenceEntries` for alle applikasjoner
- * som har minst én aktiv Oracle-instanskobling (`application_oracle_instances`).
- * Backfiller `cluster` på eksisterende Oracle-persistence-rader som mangler det
- * (se `ensureOneOraclePersistenceEntry`), samt oppretter/reaktiverer rader for
- * instanser som mangler en tilsvarende persistence-rad. Trygg å kjøre flere
- * ganger — hopper over apper/instanser som allerede er i orden.
+ * Engangsoperasjon: kjører `ensureOraclePersistenceEntries` for alle
+ * applikasjoner som har minst én aktiv `application_persistence`-rad av type
+ * `oracle` uten `cluster`. Går bevisst via persistence-radene (ikke
+ * `application_oracle_instances`) siden koblingen der kan mangle eller være
+ * arkivert for gamle apper i Nais-clustere som ikke lenger overvåkes — mens
+ * persistence-raden fortsatt er aktiv og faktisk trenger backfill. Trygg å
+ * kjøre flere ganger — hopper over apper/instanser som allerede er i orden.
  */
 export async function backfillOracleClustersForAllApps(
 	performedBy: string,
 ): Promise<{ appsProcessed: number; entriesAffected: number }> {
 	const rows = await db
 		.select({
-			applicationId: applicationOracleInstances.applicationId,
-			instanceId: applicationOracleInstances.instanceId,
+			applicationId: applicationPersistence.applicationId,
+			persistenceName: applicationPersistence.name,
 		})
-		.from(applicationOracleInstances)
-		.where(isNull(applicationOracleInstances.archivedAt))
+		.from(applicationPersistence)
+		.where(
+			and(
+				eq(applicationPersistence.type, "oracle"),
+				isNull(applicationPersistence.cluster),
+				isNull(applicationPersistence.archivedAt),
+			),
+		)
 
 	const instanceIdsByApp = new Map<string, string[]>()
 	for (const row of rows) {
 		const existing = instanceIdsByApp.get(row.applicationId)
 		if (existing) {
-			existing.push(row.instanceId)
+			existing.push(row.persistenceName)
 		} else {
-			instanceIdsByApp.set(row.applicationId, [row.instanceId])
+			instanceIdsByApp.set(row.applicationId, [row.persistenceName])
 		}
 	}
 
