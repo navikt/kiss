@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm"
 import { data, useFetcher, useLoaderData } from "react-router"
 import { db } from "~/db/connection.server"
 import { syncAllApplicationControls } from "~/db/queries/application-controls.server"
+import { backfillClusterOnLegacyPersistenceRows } from "~/db/queries/nais.server"
 import { migrateExistingReplacementChains } from "~/db/queries/routines.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
@@ -81,6 +82,31 @@ export async function action({ request }: Route.ActionArgs) {
 		})
 	}
 
+	if (intent === "backfill-legacy-persistence-cluster") {
+		const start = Date.now()
+		try {
+			const result = await backfillClusterOnLegacyPersistenceRows(authedUser.navIdent)
+			const elapsed = Date.now() - start
+
+			return data({
+				intent: "backfill-legacy-persistence-cluster",
+				success: true,
+				rowsProcessed: result.rowsProcessed,
+				rowsUpdated: result.rowsUpdated,
+				elapsed,
+			})
+		} catch (error) {
+			return data(
+				{
+					intent: "backfill-legacy-persistence-cluster",
+					success: false,
+					message: error instanceof Error ? error.message : "Backfill feilet.",
+				},
+				{ status: 500 },
+			)
+		}
+	}
+
 	return data({ intent: "unknown", success: false, message: "Ukjent handling" }, { status: 400 })
 }
 
@@ -101,6 +127,7 @@ export default function AdminVedlikehold() {
 			<VStack gap="space-6">
 				<SyncControlsCard stats={appControlStats} />
 				<MigrateRoutineLinksCard />
+				<BackfillLegacyPersistenceClusterCard />
 			</VStack>
 		</VStack>
 	)
@@ -182,6 +209,47 @@ function MigrateRoutineLinksCard() {
 						Migrering fullført på {formatElapsed(result.elapsed)}. {result.presets} forvalgte rutiner,{" "}
 						{result.selections} rutinevalg, {result.arrayReplacements} kontrollcache-rader, {result.reviewsInherited}{" "}
 						arvede gjennomganger og {result.titlesBackfilled} titler oppdatert.
+					</Alert>
+				)}
+				{result?.success === false && "message" in result && (
+					<Alert variant="warning" size="small">
+						{result.message}
+					</Alert>
+				)}
+			</VStack>
+		</section>
+	)
+}
+
+function BackfillLegacyPersistenceClusterCard() {
+	const fetcher = useFetcher<typeof action>()
+	const isSubmitting = fetcher.state !== "idle"
+	const result = fetcher.data?.intent === "backfill-legacy-persistence-cluster" ? fetcher.data : null
+
+	return (
+		<section className="admin-maintenance-card">
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Backfill cluster på persistence-rader
+				</Heading>
+				<BodyLong>
+					Engangsoperasjon som setter <code>cluster</code> på Nais-synkede persistence-rader (Cloud SQL, bucket, Valkey,
+					on-prem Postgres m.fl.) som mangler det — typisk rader tilhørende applikasjoner hvor Nais-clusteret ikke
+					lenger er overvåket, slik at vanlig sync aldri fyller inn feltet. Utleder cluster fra applikasjonens aktive
+					eller (som fallback) arkiverte miljøer, kun når nøyaktig ett cluster finnes. Trygg å kjøre flere ganger.
+				</BodyLong>
+				<HStack gap="space-4" align="center">
+					<fetcher.Form method="post">
+						<input type="hidden" name="intent" value="backfill-legacy-persistence-cluster" />
+						<Button type="submit" variant="secondary" size="small" loading={isSubmitting}>
+							{isSubmitting ? "Backfiller..." : "Kjør backfill"}
+						</Button>
+					</fetcher.Form>
+				</HStack>
+				{result?.success && "rowsProcessed" in result && (
+					<Alert variant="success" size="small">
+						Fullført på {formatElapsed(result.elapsed)}. {result.rowsProcessed} rad(er) vurdert, {result.rowsUpdated}{" "}
+						oppdatert med cluster.
 					</Alert>
 				)}
 				{result?.success === false && "message" in result && (
