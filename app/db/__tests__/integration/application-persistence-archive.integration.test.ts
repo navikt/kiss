@@ -22,7 +22,9 @@ const {
 	updatePersistenceClassification,
 	upsertAppPersistence,
 } = await import("~/db/queries/nais.server")
-const { ensureOraclePersistenceEntries } = await import("~/db/queries/audit-logging.server")
+const { ensureOraclePersistenceEntries, backfillOracleClustersForAllApps } = await import(
+	"~/db/queries/audit-logging.server"
+)
 
 async function createTestApp(name: string) {
 	const db = getTestDb()
@@ -61,6 +63,7 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 			DELETE FROM persistence_audit_confirmations;
 			DELETE FROM persistence_audit_summaries;
 			DELETE FROM application_persistence;
+			DELETE FROM application_oracle_instances;
 			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
 			DELETE FROM audit_log;
@@ -366,6 +369,29 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(updated?.performed_by).toBe("Z990001")
 		const metadata = JSON.parse((updated?.metadata as string | null) ?? "{}")
 		expect(metadata.reason).toBe("oracle_instance_cluster_backfilled")
+	})
+
+	it("backfillOracleClustersForAllApps backfiller cluster for alle apper med aktive Oracle-instanskoblinger", async () => {
+		const appId = await createTestApp("App L6")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'team-x')`,
+		)
+		await upsertAppPersistence(appId, "oracle", "ora-batch")
+		await db.execute(
+			/* sql */ `INSERT INTO application_oracle_instances (application_id, instance_id, configured_by)
+				VALUES ('${appId}', 'ora-batch', 'test')`,
+		)
+
+		const result = await backfillOracleClustersForAllApps("Z990001")
+		expect(result.appsProcessed).toBe(1)
+		expect(result.entriesAffected).toBe(1)
+
+		const row = await db.execute(
+			/* sql */ `SELECT cluster FROM application_persistence WHERE application_id = '${appId}' AND name = 'ora-batch'`,
+		)
+		expect((row.rows[0] as { cluster: string | null }).cluster).toBe("prod-gcp")
 	})
 
 	it("partial unique index blocks two active rows with same (appId, type, name) but allows archive+reinsert", async () => {

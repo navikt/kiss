@@ -119,6 +119,44 @@ export async function ensureOraclePersistenceEntries(appId: string, instanceIds:
 	return results
 }
 
+/**
+ * Engangsoperasjon: kjører `ensureOraclePersistenceEntries` for alle applikasjoner
+ * som har minst én aktiv Oracle-instanskobling (`application_oracle_instances`).
+ * Backfiller `cluster` på eksisterende Oracle-persistence-rader som mangler det
+ * (se `ensureOneOraclePersistenceEntry`), samt oppretter/reaktiverer rader for
+ * instanser som mangler en tilsvarende persistence-rad. Trygg å kjøre flere
+ * ganger — hopper over apper/instanser som allerede er i orden.
+ */
+export async function backfillOracleClustersForAllApps(
+	performedBy: string,
+): Promise<{ appsProcessed: number; entriesAffected: number }> {
+	const rows = await db
+		.select({
+			applicationId: applicationOracleInstances.applicationId,
+			instanceId: applicationOracleInstances.instanceId,
+		})
+		.from(applicationOracleInstances)
+		.where(isNull(applicationOracleInstances.archivedAt))
+
+	const instanceIdsByApp = new Map<string, string[]>()
+	for (const row of rows) {
+		const existing = instanceIdsByApp.get(row.applicationId)
+		if (existing) {
+			existing.push(row.instanceId)
+		} else {
+			instanceIdsByApp.set(row.applicationId, [row.instanceId])
+		}
+	}
+
+	let entriesAffected = 0
+	for (const [applicationId, instanceIds] of instanceIdsByApp) {
+		const affected = await ensureOraclePersistenceEntries(applicationId, instanceIds, performedBy)
+		entriesAffected += affected.length
+	}
+
+	return { appsProcessed: instanceIdsByApp.size, entriesAffected }
+}
+
 async function ensureOneOraclePersistenceEntry(
 	appId: string,
 	instanceId: string,

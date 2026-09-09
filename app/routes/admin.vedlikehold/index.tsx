@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm"
 import { data, useFetcher, useLoaderData } from "react-router"
 import { db } from "~/db/connection.server"
 import { syncAllApplicationControls } from "~/db/queries/application-controls.server"
+import { backfillOracleClustersForAllApps } from "~/db/queries/audit-logging.server"
 import { migrateExistingReplacementChains } from "~/db/queries/routines.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
@@ -57,6 +58,20 @@ export async function action({ request }: Route.ActionArgs) {
 		})
 	}
 
+	if (intent === "backfill-oracle-clusters") {
+		const start = Date.now()
+		const result = await backfillOracleClustersForAllApps(authedUser.navIdent)
+		const elapsed = Date.now() - start
+
+		return data({
+			intent: "backfill-oracle-clusters",
+			success: true,
+			appsProcessed: result.appsProcessed,
+			entriesAffected: result.entriesAffected,
+			elapsed,
+		})
+	}
+
 	if (intent === "migrate-routine-links") {
 		const start = Date.now()
 		const result = await migrateExistingReplacementChains(authedUser.navIdent)
@@ -100,6 +115,7 @@ export default function AdminVedlikehold() {
 
 			<VStack gap="space-6">
 				<SyncControlsCard stats={appControlStats} />
+				<BackfillOracleClustersCard />
 				<MigrateRoutineLinksCard />
 			</VStack>
 		</VStack>
@@ -146,6 +162,41 @@ function SyncControlsCard({ stats }: { stats: { totalApps: number; syncedApps: n
 					<Alert variant="success" size="small">
 						Synkronisering fullført på {formatElapsed(result.elapsed)}. {result.synced} applikasjoner synkronisert
 						{result.errors > 0 ? `, ${result.errors} feil` : ""}.
+					</Alert>
+				)}
+			</VStack>
+		</section>
+	)
+}
+
+function BackfillOracleClustersCard() {
+	const fetcher = useFetcher<typeof action>()
+	const isSubmitting = fetcher.state !== "idle"
+	const result = fetcher.data?.intent === "backfill-oracle-clusters" ? fetcher.data : null
+
+	return (
+		<section className="admin-maintenance-card">
+			<VStack gap="space-4">
+				<Heading size="medium" level="3">
+					Backfill cluster på Oracle-koblinger
+				</Heading>
+				<BodyLong>
+					Engangsoperasjon som går gjennom alle applikasjoner med aktive Oracle-instanskoblinger og setter/backfiller
+					`cluster` på tilhørende persistence-rader (kun når appen har nøyaktig ett aktivt cluster). Oppretter også
+					manglende rader for instanser som ikke har en tilsvarende persistence-rad ennå. Trygg å kjøre flere ganger.
+				</BodyLong>
+				<HStack gap="space-4" align="center">
+					<fetcher.Form method="post">
+						<input type="hidden" name="intent" value="backfill-oracle-clusters" />
+						<Button type="submit" variant="secondary" size="small" loading={isSubmitting}>
+							{isSubmitting ? "Backfiller..." : "Kjør backfill"}
+						</Button>
+					</fetcher.Form>
+				</HStack>
+				{result?.success && "appsProcessed" in result && (
+					<Alert variant="success" size="small">
+						Fullført på {formatElapsed(result.elapsed)}. {result.appsProcessed} applikasjoner behandlet,{" "}
+						{result.entriesAffected} persistence-rader oppdatert/opprettet.
 					</Alert>
 				)}
 			</VStack>
