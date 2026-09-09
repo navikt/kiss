@@ -385,7 +385,7 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(result.cluster).toBe("prod-gcp")
 	})
 
-	it("backfillOracleClustersForAllApps backfiller cluster for alle apper med aktive Oracle-instanskoblinger", async () => {
+	it("backfillOracleClustersForAllApps backfiller cluster basert på persistence-rader (uavhengig av application_oracle_instances)", async () => {
 		const appId = await createTestApp("App L6")
 		const db = getTestDb()
 		await db.execute(
@@ -393,10 +393,6 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 				VALUES ('${appId}', 'prod-gcp', 'team-x')`,
 		)
 		await upsertAppPersistence(appId, "oracle", "ora-batch")
-		await db.execute(
-			/* sql */ `INSERT INTO application_oracle_instances (application_id, instance_id, configured_by)
-				VALUES ('${appId}', 'ora-batch', 'test')`,
-		)
 
 		const result = await backfillOracleClustersForAllApps("Z990001")
 		expect(result.appsProcessed).toBe(1)
@@ -404,6 +400,24 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 
 		const row = await db.execute(
 			/* sql */ `SELECT cluster FROM application_persistence WHERE application_id = '${appId}' AND name = 'ora-batch'`,
+		)
+		expect((row.rows[0] as { cluster: string | null }).cluster).toBe("prod-gcp")
+	})
+
+	it("backfillOracleClustersForAllApps dekker apper der Nais-clusteret ikke lenger overvåkes (kun arkivert miljø)", async () => {
+		const appId = await createTestApp("App L8")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, archived_at, archived_by)
+				VALUES ('${appId}', 'prod-gcp', 'team-x', now(), 'nais-sync')`,
+		)
+		await upsertAppPersistence(appId, "oracle", "ora-unmonitored")
+
+		const result = await backfillOracleClustersForAllApps("Z990001")
+		expect(result.entriesAffected).toBe(1)
+
+		const row = await db.execute(
+			/* sql */ `SELECT cluster FROM application_persistence WHERE application_id = '${appId}' AND name = 'ora-unmonitored'`,
 		)
 		expect((row.rows[0] as { cluster: string | null }).cluster).toBe("prod-gcp")
 	})
