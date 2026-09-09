@@ -50,9 +50,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
 	}
 
+	// Godkjenning (både første gangs og erstatning av et opprinnelig
+	// regelsett via `sourceRulesetId`) er kun meningsfullt når regelsettet
+	// fortsatt er `draft` — et allerede aktivt regelsett skal ikke kunne
+	// "godkjennes" på nytt (se replaceRuleset()/approveRuleset(), som begge
+	// krever `status === 'draft'`).
 	const canApprove =
 		user !== null &&
-		ruleset.status !== "archived" &&
+		ruleset.status === "draft" &&
 		((ruleset.responsibleIdent !== null && user.navIdent === ruleset.responsibleIdent) ||
 			(ruleset.responsibleRole !== null &&
 				hasExactRoleForSection(user, ruleset.responsibleRole as UserRole, section.id)))
@@ -169,6 +174,14 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 			if (ruleset.status === "archived") {
 				return data<ActionResult>({ success: false, error: "Kan ikke godkjenne et arkivert regelsett." })
+			}
+			// Godkjenning (og en eventuell erstatning via `sourceRulesetId`) skal
+			// kun kunne skje mens regelsettet er `draft`. Uten denne sjekken vil
+			// et regelsett som allerede er erstattet én gang (og fortsatt har
+			// `sourceRulesetId` for lineage) forsøke å erstatte på nytt ved et
+			// senere «Godkjenn»-klikk, noe som feiler i replaceRuleset().
+			if (ruleset.status !== "draft") {
+				return data<ActionResult>({ success: false, error: "Regelsettet er allerede godkjent." })
 			}
 
 			const canApprove =
