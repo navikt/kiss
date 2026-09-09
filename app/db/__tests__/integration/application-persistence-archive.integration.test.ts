@@ -371,6 +371,20 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(metadata.reason).toBe("oracle_instance_cluster_backfilled")
 	})
 
+	it("ensureOraclePersistenceEntries faller tilbake til arkivert miljø når appen ikke har aktive miljøer", async () => {
+		const appId = await createTestApp("App L7")
+		const db = getTestDb()
+		// Appen kjørte tidligere kun i prod-gcp, men clusteret er ikke lenger overvåket
+		// (miljøet er arkivert) — ingen aktive miljøer finnes.
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, archived_at, archived_by)
+				VALUES ('${appId}', 'prod-gcp', 'team-x', now(), 'nais-sync')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-archived-env"], "Z990001")
+		expect(result.cluster).toBe("prod-gcp")
+	})
+
 	it("backfillOracleClustersForAllApps backfiller cluster for alle apper med aktive Oracle-instanskoblinger", async () => {
 		const appId = await createTestApp("App L6")
 		const db = getTestDb()
