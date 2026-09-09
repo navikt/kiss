@@ -153,6 +153,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 			if (!meta || meta.sectionId !== section.id) {
 				throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
 			}
+			if (meta.archivedAt) {
+				return data<ActionResult>({
+					success: false,
+					error: "Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.",
+				})
+			}
 			if (meta.status !== "active") {
 				return data<ActionResult>({
 					success: false,
