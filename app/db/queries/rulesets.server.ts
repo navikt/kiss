@@ -1200,6 +1200,22 @@ export async function replaceRuleset(input: {
 			tx,
 		)
 
+		// Audit-logg hentes per entityId (getAuditLogForEntity), så uten en egen
+		// rad på oldRulesetId ville arkiveringen av det opprinnelige regelsettet
+		// vært usporbar der, selv om raden faktisk ble mutert i denne tx-en.
+		await writeAuditLog(
+			{
+				action: "ruleset_archived",
+				entityType: "ruleset",
+				entityId: oldRulesetId,
+				previousValue: JSON.stringify({ name: oldLocked.name, status: oldLocked.status }),
+				newValue: JSON.stringify({ status: "archived", replacedByRulesetId: newRulesetId }),
+				metadata: { replacedByRulesetId: newRulesetId },
+				performedBy: input.approvedBy,
+			},
+			tx,
+		)
+
 		return row.id
 	})
 }

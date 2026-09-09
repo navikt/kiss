@@ -582,6 +582,7 @@ describe("rulesets.server integration tests", () => {
 		})
 
 		it("replaceRuleset activates the copy, archives the original, and does not migrate screeningAnswers", async () => {
+			const { getAuditLogForEntity } = await import("~/db/queries/audit.server")
 			const sectionId = await createSectionRow("secRepl1")
 			const id = await createRuleset({ sectionId, name: "Original", frequency: "annually", createdBy: "admin" })
 			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin" })
@@ -605,6 +606,13 @@ describe("rulesets.server integration tests", () => {
 			const oldDetail = await getRulesetDetail(id)
 			expect(oldDetail?.status).toBe("archived")
 			expect(oldDetail?.replacedByRulesetId).toBe(copy.id)
+
+			// Audit-logg hentes per entityId — begge regelsettene skal ha en
+			// sporbar hendelse for erstatningen, ikke bare det nye.
+			const newLog = await getAuditLogForEntity("ruleset", copy.id)
+			expect(newLog.some((r) => r.action === "ruleset_replaced")).toBe(true)
+			const oldLog = await getAuditLogForEntity("ruleset", id)
+			expect(oldLog.some((r) => r.action === "ruleset_archived")).toBe(true)
 		})
 
 		it("rejects replaceRuleset when the new ruleset is not a draft copy of the old one", async () => {
