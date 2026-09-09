@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm"
 import type { AuditEvidenceSummary } from "~/lib/oracle-revisjon.server"
 import { db } from "../connection.server"
 import { isUniqueViolation } from "../pg-errors.server"
@@ -111,8 +111,11 @@ export function computeAuditStatus(
  * Hvis det allerede finnes en aktiv rad med cluster satt: ingen endring. Hvis
  * en aktiv eller arkivert rad mangler cluster: backfilles cluster fra appens
  * aktive miljø (kun når appen har nøyaktig ett aktivt cluster — ellers kan vi
- * ikke vite hvilket cluster Oracle-koblingen tilhører). Hvis kun en arkivert
- * rad finnes: reaktiveres (audit-logges som `persistence_unarchived` med
+ * ikke vite hvilket cluster Oracle-koblingen tilhører). Hvis appen ikke har
+ * noen aktive miljøer (f.eks. fordi Nais-clusteret ikke lenger overvåkes),
+ * faller inferensen tilbake til appens arkiverte miljøer (samme
+ * ett-cluster-regel). Hvis kun en arkivert rad finnes: reaktiveres
+ * (audit-logges som `persistence_unarchived` med
  * `metadata.reason = "oracle_instance_ensure"`). Hvis ingen rad finnes:
  * opprettes en ny aktiv rad. Returnerer alle berørte (nye, reaktiverte eller
  * cluster-oppdaterte) rader.
@@ -193,6 +196,10 @@ async function ensureOneOraclePersistenceEntry(
 			// cluster-backfill. Sett cluster fra appens miljø når appen kun har ett
 			// aktivt cluster — ved flere aktive clustre kan vi ikke vite hvilket
 			// clusteret Oracle-tilkoblingen faktisk hører til, så cluster forblir NULL.
+			// Faller tilbake til arkiverte miljøer når appen ikke har noen aktive
+			// (f.eks. fordi Nais-clusteret ikke lenger overvåkes) — clusteret appen
+			// historisk kjørte i er fortsatt korrekt selv om det ikke lenger telles
+			// som aktivt.
 			let inferredCluster: string | null = null
 			if (!existing || existing.cluster === null) {
 				const activeEnvironments = await tx
@@ -201,6 +208,14 @@ async function ensureOneOraclePersistenceEntry(
 					.where(and(eq(applicationEnvironments.applicationId, appId), isNull(applicationEnvironments.archivedAt)))
 				if (activeEnvironments.length === 1) {
 					inferredCluster = activeEnvironments[0].cluster
+				} else if (activeEnvironments.length === 0) {
+					const archivedEnvironments = await tx
+						.selectDistinct({ cluster: applicationEnvironments.cluster })
+						.from(applicationEnvironments)
+						.where(and(eq(applicationEnvironments.applicationId, appId), isNotNull(applicationEnvironments.archivedAt)))
+					if (archivedEnvironments.length === 1) {
+						inferredCluster = archivedEnvironments[0].cluster
+					}
 				}
 			}
 
