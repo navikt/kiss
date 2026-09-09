@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm"
 import { logger } from "~/lib/logger.server"
 import { db } from "../connection.server"
 import {
@@ -1150,6 +1150,110 @@ export async function getLegacyPersistenceRowsWithoutCluster(): Promise<
 			),
 		)
 		.orderBy(monitoredApplications.name, applicationPersistence.type, applicationPersistence.name)
+}
+
+/**
+ * Engangsoperasjon: backfiller `cluster` på aktive Nais-synkede persistence-rader
+ * (`cloud_sql_postgres`, `bucket`, `valkey`, `on_prem_postgres`, osv. — alt unntatt
+ * manuelt lagt til rader) som mangler det. Rammer typisk rader tilhørende apper hvor
+ * Nais-clusteret ikke lenger er overvåket, slik at `upsertAppPersistence` sin
+ * cluster-backfill (som kun kjører ved ny nais-sync) aldri trigges for dem.
+ *
+ * Utleder cluster fra appens miljøer (`application_environments`): først aktive,
+ * så arkiverte som fallback — kun når appen har nøyaktig ett distinkt cluster i det
+ * settet (ellers kan vi ikke vite hvilket cluster raden hører til, og den hoppes over).
+ * Trygg å kjøre flere ganger — hopper over rader som allerede har cluster eller ikke
+ * kan disambigueres.
+ */
+export async function backfillClusterOnLegacyPersistenceRows(
+	performedBy: string,
+): Promise<{ rowsProcessed: number; rowsUpdated: number }> {
+	const legacyRows = await db
+		.select({
+			id: applicationPersistence.id,
+			applicationId: applicationPersistence.applicationId,
+			type: applicationPersistence.type,
+			name: applicationPersistence.name,
+		})
+		.from(applicationPersistence)
+		.where(
+			and(
+				isNull(applicationPersistence.cluster),
+				isNull(applicationPersistence.archivedAt),
+				eq(applicationPersistence.manuallyAdded, false),
+			),
+		)
+
+	let rowsUpdated = 0
+	for (const row of legacyRows) {
+		const updated = await db.transaction(async (tx) => {
+			const [current] = await tx
+				.select({
+					cluster: applicationPersistence.cluster,
+					archivedAt: applicationPersistence.archivedAt,
+					manuallyAdded: applicationPersistence.manuallyAdded,
+				})
+				.from(applicationPersistence)
+				.where(eq(applicationPersistence.id, row.id))
+				.for("update")
+				.limit(1)
+			// Revalider under låsen — raden kan ha blitt arkivert/manuelt lagt til
+			// (eller fått cluster satt) mellom den innledende listingen og at vi
+			// tar låsen her.
+			if (!current || current.cluster !== null || current.archivedAt !== null || current.manuallyAdded) return false
+
+			const activeEnvironments = await tx
+				.selectDistinct({ cluster: applicationEnvironments.cluster })
+				.from(applicationEnvironments)
+				.where(
+					and(eq(applicationEnvironments.applicationId, row.applicationId), isNull(applicationEnvironments.archivedAt)),
+				)
+			let inferredCluster: string | null = null
+			if (activeEnvironments.length === 1) {
+				inferredCluster = activeEnvironments[0].cluster
+			} else if (activeEnvironments.length === 0) {
+				const archivedEnvironments = await tx
+					.selectDistinct({ cluster: applicationEnvironments.cluster })
+					.from(applicationEnvironments)
+					.where(
+						and(
+							eq(applicationEnvironments.applicationId, row.applicationId),
+							isNotNull(applicationEnvironments.archivedAt),
+						),
+					)
+				if (archivedEnvironments.length === 1) {
+					inferredCluster = archivedEnvironments[0].cluster
+				}
+			}
+			if (!inferredCluster) return false
+
+			await tx
+				.update(applicationPersistence)
+				.set({ cluster: inferredCluster, updatedAt: new Date() })
+				.where(eq(applicationPersistence.id, row.id))
+			await writeAuditLog(
+				{
+					action: "persistence_updated",
+					entityType: "application_persistence",
+					entityId: row.id,
+					previousValue: JSON.stringify({ cluster: null }),
+					newValue: JSON.stringify({ cluster: inferredCluster }),
+					metadata: {
+						applicationId: row.applicationId,
+						type: row.type,
+						name: row.name,
+						reason: "legacy_persistence_cluster_backfill",
+					},
+					performedBy,
+				},
+				tx,
+			)
+			return true
+		})
+		if (updated) rowsUpdated++
+	}
+
+	return { rowsProcessed: legacyRows.length, rowsUpdated }
 }
 
 // Kanonisk JSON-serialisering for arrays/objekter slik at sammenligning
