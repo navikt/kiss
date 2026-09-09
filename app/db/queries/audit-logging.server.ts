@@ -15,6 +15,7 @@ import { applicationOracleInstances } from "../schema/audit-evidence"
 import type { AuditConclusion } from "../schema/audit-logging"
 import { persistenceAuditConfirmations, persistenceAuditSummaries } from "../schema/audit-logging"
 import { devTeams, sectionEnvironments, sections } from "../schema/organization"
+import { writeAuditLog } from "./audit.server"
 import { getEconomyClassifications } from "./economy-classification.server"
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -107,17 +108,19 @@ export function computeAuditStatus(
  * transaksjon med `SELECT ... FOR UPDATE` for å hindre TOCTOU-duplikater
  * mellom samtidige kall (loadere kjører parallelt med actions).
  *
- * Hvis det allerede finnes en aktiv rad: ingen endring. Hvis kun en arkivert
+ * Hvis det allerede finnes en aktiv rad med cluster satt: ingen endring. Hvis
+ * en aktiv eller arkivert rad mangler cluster: backfilles cluster fra appens
+ * aktive miljø (kun når appen har nøyaktig ett aktivt cluster — ellers kan vi
+ * ikke vite hvilket cluster Oracle-koblingen tilhører). Hvis kun en arkivert
  * rad finnes: reaktiveres (audit-logges som `persistence_unarchived` med
  * `metadata.reason = "oracle_instance_ensure"`). Hvis ingen rad finnes:
- * opprettes en ny aktiv rad. Returnerer alle berørte (nye eller reaktiverte)
- * rader.
+ * opprettes en ny aktiv rad. Returnerer alle berørte (nye, reaktiverte eller
+ * cluster-oppdaterte) rader.
  */
 export async function ensureOraclePersistenceEntries(appId: string, instanceIds: string[], performedBy: string) {
-	const { writeAuditLog } = await import("./audit.server")
 	const results: (typeof applicationPersistence.$inferSelect)[] = []
 	for (const instanceId of instanceIds) {
-		const affected = await ensureOneOraclePersistenceEntry(appId, instanceId, performedBy, writeAuditLog)
+		const affected = await ensureOneOraclePersistenceEntry(appId, instanceId, performedBy)
 		if (affected) results.push(affected)
 	}
 	return results
@@ -127,7 +130,6 @@ async function ensureOneOraclePersistenceEntry(
 	appId: string,
 	instanceId: string,
 	performedBy: string,
-	writeAuditLog: typeof import("./audit.server").writeAuditLog,
 ): Promise<typeof applicationPersistence.$inferSelect | null> {
 	try {
 		return await db.transaction(async (tx) => {
@@ -148,11 +150,32 @@ async function ensureOneOraclePersistenceEntry(
 				.for("update")
 				.limit(1)
 
+			// Oracle-koblinger opprettes manuelt via rediger-siden, ikke oppdaget
+			// fra Nais-manifestet, så de går ikke gjennom upsertAppPersistence sin
+			// cluster-backfill. Sett cluster fra appens miljø når appen kun har ett
+			// aktivt cluster — ved flere aktive clustre kan vi ikke vite hvilket
+			// clusteret Oracle-tilkoblingen faktisk hører til, så cluster forblir NULL.
+			let inferredCluster: string | null = null
+			if (!existing || existing.cluster === null) {
+				const activeEnvironments = await tx
+					.selectDistinct({ cluster: applicationEnvironments.cluster })
+					.from(applicationEnvironments)
+					.where(and(eq(applicationEnvironments.applicationId, appId), isNull(applicationEnvironments.archivedAt)))
+				if (activeEnvironments.length === 1) {
+					inferredCluster = activeEnvironments[0].cluster
+				}
+			}
+
 			if (existing?.archivedAt) {
 				const previousArchivedAt = existing.archivedAt
 				const [restored] = await tx
 					.update(applicationPersistence)
-					.set({ archivedAt: null, archivedBy: null, updatedAt: new Date() })
+					.set({
+						archivedAt: null,
+						archivedBy: null,
+						cluster: existing.cluster ?? inferredCluster,
+						updatedAt: new Date(),
+					})
 					.where(eq(applicationPersistence.id, existing.id))
 					.returning()
 				await writeAuditLog(
@@ -164,14 +187,39 @@ async function ensureOneOraclePersistenceEntry(
 							type: existing.type,
 							name: existing.name,
 							archivedAt: previousArchivedAt,
+							cluster: existing.cluster,
 						}),
-						newValue: JSON.stringify({ type: existing.type, name: existing.name }),
+						newValue: JSON.stringify({ type: existing.type, name: existing.name, cluster: restored?.cluster }),
 						metadata: { applicationId: appId, reason: "oracle_instance_ensure" },
 						performedBy,
 					},
 					tx,
 				)
 				return restored
+			}
+
+			// Aktiv rad finnes allerede uten cluster (f.eks. koblet før denne
+			// backfill-logikken fantes) — backfill cluster hvis vi kan utlede den,
+			// uten å opprette en ny rad.
+			if (existing && existing.cluster === null && inferredCluster) {
+				const [updated] = await tx
+					.update(applicationPersistence)
+					.set({ cluster: inferredCluster, updatedAt: new Date() })
+					.where(eq(applicationPersistence.id, existing.id))
+					.returning()
+				await writeAuditLog(
+					{
+						action: "persistence_updated",
+						entityType: "application_persistence",
+						entityId: existing.id,
+						previousValue: JSON.stringify({ cluster: null }),
+						newValue: JSON.stringify({ cluster: inferredCluster }),
+						metadata: { applicationId: appId, reason: "oracle_instance_cluster_backfilled" },
+						performedBy,
+					},
+					tx,
+				)
+				return updated ?? null
 			}
 
 			if (existing) return null
@@ -183,8 +231,22 @@ async function ensureOneOraclePersistenceEntry(
 					type: "oracle",
 					name: instanceId,
 					oracleInstanceId: instanceId,
+					cluster: inferredCluster,
 				})
 				.returning()
+			if (row) {
+				await writeAuditLog(
+					{
+						action: "persistence_added",
+						entityType: "application_persistence",
+						entityId: row.id,
+						newValue: JSON.stringify({ type: row.type, name: row.name, cluster: row.cluster }),
+						metadata: { applicationId: appId, reason: "oracle_instance_ensure" },
+						performedBy,
+					},
+					tx,
+				)
+			}
 			return row ?? null
 		})
 	} catch (err: unknown) {
