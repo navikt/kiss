@@ -951,14 +951,25 @@ export async function approveRuleset(input: {
  * `copyRoutine()`. Returnerer `null` hvis kilderegelsettet ikke finnes.
  */
 export async function copyRuleset(rulesetId: string, performedBy: string) {
-	const source = await getRulesetDetail(rulesetId)
-	if (!source) return null
-
-	// Atomisk: archive-guard + INSERTs i tx med FOR SHARE-lås på kilde-regelsettet
-	// så samtidig archiveRuleset() blokkeres til vi har kopiert ferdig.
+	// Atomisk: archive-guard + lesing + INSERTs i samme tx med FOR SHARE-lås på
+	// kilde-regelsettet, så samtidig archiveRuleset() blokkeres til vi har
+	// kopiert ferdig. Henter kun feltene som trengs for kopiering (ikke
+	// getRulesetDetail(), som også slår opp approvals/attachments/rolleinnehaver
+	// utenfor tx — unødvendig arbeid og ikke lås-bundet til selve kopieringen).
 	return db.transaction(async (tx) => {
 		const [locked] = await tx
-			.select({ status: rulesets.status, archivedAt: rulesets.archivedAt })
+			.select({
+				sectionId: rulesets.sectionId,
+				name: rulesets.name,
+				description: rulesets.description,
+				responsibleIdent: rulesets.responsibleIdent,
+				responsibleName: rulesets.responsibleName,
+				responsibleRole: rulesets.responsibleRole,
+				frequency: rulesets.frequency,
+				category: rulesets.category,
+				status: rulesets.status,
+				archivedAt: rulesets.archivedAt,
+			})
 			.from(rulesets)
 			.where(eq(rulesets.id, rulesetId))
 			.for("share")
@@ -971,18 +982,29 @@ export async function copyRuleset(rulesetId: string, performedBy: string) {
 			throw new Response("Kun godkjente (aktive) regelsett kan kopieres for redigering.", { status: 400 })
 		}
 
+		const [controls, linkedRoutines] = await Promise.all([
+			tx
+				.select({ controlId: rulesetControls.controlId })
+				.from(rulesetControls)
+				.where(and(eq(rulesetControls.rulesetId, rulesetId), isNull(rulesetControls.archivedAt))),
+			tx
+				.select({ routineId: rulesetRoutines.routineId })
+				.from(rulesetRoutines)
+				.where(and(eq(rulesetRoutines.rulesetId, rulesetId), isNull(rulesetRoutines.archivedAt))),
+		])
+
 		const [copy] = await tx
 			.insert(rulesets)
 			.values({
-				sectionId: source.sectionId,
+				sectionId: locked.sectionId,
 				code: null,
-				name: source.name,
-				description: source.description,
-				responsibleIdent: source.responsibleIdent,
-				responsibleName: source.responsibleName,
-				responsibleRole: source.responsibleRole,
-				frequency: source.frequency as RoutineFrequency,
-				category: source.category,
+				name: locked.name,
+				description: locked.description,
+				responsibleIdent: locked.responsibleIdent,
+				responsibleName: locked.responsibleName,
+				responsibleRole: locked.responsibleRole,
+				frequency: locked.frequency as RoutineFrequency,
+				category: locked.category,
 				status: "draft",
 				sourceRulesetId: rulesetId,
 				createdBy: performedBy,
@@ -990,13 +1012,13 @@ export async function copyRuleset(rulesetId: string, performedBy: string) {
 			})
 			.returning()
 
-		if (source.controls.length > 0) {
-			await tx.insert(rulesetControls).values(source.controls.map((c) => ({ rulesetId: copy.id, controlId: c.id })))
+		if (controls.length > 0) {
+			await tx.insert(rulesetControls).values(controls.map((c) => ({ rulesetId: copy.id, controlId: c.controlId })))
 		}
 
-		if (source.linkedRoutines.length > 0) {
+		if (linkedRoutines.length > 0) {
 			await tx.insert(rulesetRoutines).values(
-				source.linkedRoutines.map((r) => ({
+				linkedRoutines.map((r) => ({
 					rulesetId: copy.id,
 					routineId: r.routineId,
 					createdBy: performedBy,
