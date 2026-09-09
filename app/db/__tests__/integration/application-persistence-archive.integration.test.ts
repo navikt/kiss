@@ -22,9 +22,7 @@ const {
 	updatePersistenceClassification,
 	upsertAppPersistence,
 } = await import("~/db/queries/nais.server")
-const { ensureOraclePersistenceEntries, backfillOracleClustersForAllApps } = await import(
-	"~/db/queries/audit-logging.server"
-)
+const { ensureOraclePersistenceEntries } = await import("~/db/queries/audit-logging.server")
 
 async function createTestApp(name: string) {
 	const db = getTestDb()
@@ -383,43 +381,6 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 
 		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-archived-env"], "Z990001")
 		expect(result.cluster).toBe("prod-gcp")
-	})
-
-	it("backfillOracleClustersForAllApps backfiller cluster basert på persistence-rader (uavhengig av application_oracle_instances)", async () => {
-		const appId = await createTestApp("App L6")
-		const db = getTestDb()
-		await db.execute(
-			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
-				VALUES ('${appId}', 'prod-gcp', 'team-x')`,
-		)
-		await upsertAppPersistence(appId, "oracle", "ora-batch")
-
-		const result = await backfillOracleClustersForAllApps("Z990001")
-		expect(result.appsProcessed).toBe(1)
-		expect(result.entriesAffected).toBe(1)
-
-		const row = await db.execute(
-			/* sql */ `SELECT cluster FROM application_persistence WHERE application_id = '${appId}' AND name = 'ora-batch'`,
-		)
-		expect((row.rows[0] as { cluster: string | null }).cluster).toBe("prod-gcp")
-	})
-
-	it("backfillOracleClustersForAllApps dekker apper der Nais-clusteret ikke lenger overvåkes (kun arkivert miljø)", async () => {
-		const appId = await createTestApp("App L8")
-		const db = getTestDb()
-		await db.execute(
-			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, archived_at, archived_by)
-				VALUES ('${appId}', 'prod-gcp', 'team-x', now(), 'nais-sync')`,
-		)
-		await upsertAppPersistence(appId, "oracle", "ora-unmonitored")
-
-		const result = await backfillOracleClustersForAllApps("Z990001")
-		expect(result.entriesAffected).toBe(1)
-
-		const row = await db.execute(
-			/* sql */ `SELECT cluster FROM application_persistence WHERE application_id = '${appId}' AND name = 'ora-unmonitored'`,
-		)
-		expect((row.rows[0] as { cluster: string | null }).cluster).toBe("prod-gcp")
 	})
 
 	it("partial unique index blocks two active rows with same (appId, type, name) but allows archive+reinsert", async () => {

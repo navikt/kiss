@@ -3,7 +3,6 @@ import { sql } from "drizzle-orm"
 import { data, useFetcher, useLoaderData } from "react-router"
 import { db } from "~/db/connection.server"
 import { syncAllApplicationControls } from "~/db/queries/application-controls.server"
-import { backfillKnownDevFssOracleClusters, backfillOracleClustersForAllApps } from "~/db/queries/audit-logging.server"
 import { migrateExistingReplacementChains } from "~/db/queries/routines.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { requireAdmin } from "~/lib/authorization.server"
@@ -58,34 +57,6 @@ export async function action({ request }: Route.ActionArgs) {
 		})
 	}
 
-	if (intent === "backfill-oracle-clusters") {
-		const start = Date.now()
-		const result = await backfillOracleClustersForAllApps(authedUser.navIdent)
-		const elapsed = Date.now() - start
-
-		return data({
-			intent: "backfill-oracle-clusters",
-			success: true,
-			appsProcessed: result.appsProcessed,
-			entriesAffected: result.entriesAffected,
-			elapsed,
-		})
-	}
-
-	if (intent === "backfill-known-dev-fss-oracle-clusters") {
-		const start = Date.now()
-		const result = await backfillKnownDevFssOracleClusters(authedUser.navIdent)
-		const elapsed = Date.now() - start
-
-		return data({
-			intent: "backfill-known-dev-fss-oracle-clusters",
-			success: true,
-			rowsUpdated: result.rowsUpdated,
-			rowsSkipped: result.rowsSkipped,
-			elapsed,
-		})
-	}
-
 	if (intent === "migrate-routine-links") {
 		const start = Date.now()
 		const result = await migrateExistingReplacementChains(authedUser.navIdent)
@@ -129,8 +100,6 @@ export default function AdminVedlikehold() {
 
 			<VStack gap="space-6">
 				<SyncControlsCard stats={appControlStats} />
-				<BackfillOracleClustersCard />
-				<BackfillKnownDevFssOracleClustersCard />
 				<MigrateRoutineLinksCard />
 			</VStack>
 		</VStack>
@@ -177,77 +146,6 @@ function SyncControlsCard({ stats }: { stats: { totalApps: number; syncedApps: n
 					<Alert variant="success" size="small">
 						Synkronisering fullført på {formatElapsed(result.elapsed)}. {result.synced} applikasjoner synkronisert
 						{result.errors > 0 ? `, ${result.errors} feil` : ""}.
-					</Alert>
-				)}
-			</VStack>
-		</section>
-	)
-}
-
-function BackfillOracleClustersCard() {
-	const fetcher = useFetcher<typeof action>()
-	const isSubmitting = fetcher.state !== "idle"
-	const result = fetcher.data?.intent === "backfill-oracle-clusters" ? fetcher.data : null
-
-	return (
-		<section className="admin-maintenance-card">
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Backfill cluster på Oracle-koblinger
-				</Heading>
-				<BodyLong>
-					Engangsoperasjon som går gjennom alle applikasjoner med aktive Oracle-instanskoblinger og setter/backfiller
-					`cluster` på tilhørende persistence-rader (kun når appen har nøyaktig ett aktivt cluster). Oppretter også
-					manglende rader for instanser som ikke har en tilsvarende persistence-rad ennå. Trygg å kjøre flere ganger.
-				</BodyLong>
-				<HStack gap="space-4" align="center">
-					<fetcher.Form method="post">
-						<input type="hidden" name="intent" value="backfill-oracle-clusters" />
-						<Button type="submit" variant="secondary" size="small" loading={isSubmitting}>
-							{isSubmitting ? "Backfiller..." : "Kjør backfill"}
-						</Button>
-					</fetcher.Form>
-				</HStack>
-				{result?.success && "appsProcessed" in result && (
-					<Alert variant="success" size="small">
-						Fullført på {formatElapsed(result.elapsed)}. {result.appsProcessed} applikasjoner behandlet,{" "}
-						{result.entriesAffected} persistence-rader oppdatert/opprettet.
-					</Alert>
-				)}
-			</VStack>
-		</section>
-	)
-}
-
-function BackfillKnownDevFssOracleClustersCard() {
-	const fetcher = useFetcher<typeof action>()
-	const isSubmitting = fetcher.state !== "idle"
-	const result = fetcher.data?.intent === "backfill-known-dev-fss-oracle-clusters" ? fetcher.data : null
-
-	return (
-		<section className="admin-maintenance-card">
-			<VStack gap="space-4">
-				<Heading size="medium" level="3">
-					Sett cluster på kjente dev-fss Oracle-baser
-				</Heading>
-				<BodyLong>
-					Engangsoperasjon som setter `cluster = 'dev-fss'` manuelt på to spesifikke Oracle-persistence-rader
-					(`supstonad-historisk/oracle/historisk_exodus_q1` og `supstonad-historisk/oracle/su_infotrygd_q`) som ikke kan
-					cluster-utledes automatisk fordi applikasjonen finnes som to separate rader (prod-fss og dev-fss). Trygg å
-					kjøre flere ganger — hopper over rader som allerede har cluster satt.
-				</BodyLong>
-				<HStack gap="space-4" align="center">
-					<fetcher.Form method="post">
-						<input type="hidden" name="intent" value="backfill-known-dev-fss-oracle-clusters" />
-						<Button type="submit" variant="secondary" size="small" loading={isSubmitting}>
-							{isSubmitting ? "Oppdaterer..." : "Sett cluster"}
-						</Button>
-					</fetcher.Form>
-				</HStack>
-				{result?.success && "rowsUpdated" in result && (
-					<Alert variant="success" size="small">
-						Fullført på {formatElapsed(result.elapsed)}. {result.rowsUpdated} rad(er) oppdatert, {result.rowsSkipped}{" "}
-						hoppet over (allerede satt).
 					</Alert>
 				)}
 			</VStack>
