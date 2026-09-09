@@ -332,7 +332,11 @@ export default function RegelsettDetalj() {
 				<HStack gap="space-4" wrap>
 					{predecessorInfo && (
 						<Alert variant="info" size="small">
-							Dette regelsettet erstattet «{predecessorInfo.name}».{" "}
+							{ruleset.status === "draft" ? (
+								<>Dette er en kopi som vil erstatte «{predecessorInfo.name}» ved godkjenning. </>
+							) : (
+								<>Dette regelsettet erstattet «{predecessorInfo.name}». </>
+							)}
 							<Link to={`/seksjoner/${section.slug}/regelsett/${ruleset.sourceRulesetId}`}>Se forrige versjon</Link>
 						</Alert>
 					)}
