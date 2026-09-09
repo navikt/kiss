@@ -1,4 +1,21 @@
-import { Alert, BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { MenuElipsisVerticalIcon } from "@navikt/aksel-icons"
+import {
+	ActionMenu,
+	Alert,
+	BodyLong,
+	BodyShort,
+	Box,
+	Button,
+	Detail,
+	Dialog,
+	Heading,
+	HGrid,
+	HStack,
+	Table,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
+import { useRef, useState } from "react"
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
@@ -200,6 +217,97 @@ function TeamMedlemmer({ teamUsers }: { teamUsers: TeamUser[] }) {
 	)
 }
 
+function TeamAppActionsCell({
+	seksjon,
+	team,
+	appId,
+	appName,
+	canArchive,
+	canArchiveApps,
+}: {
+	seksjon: string
+	team: string
+	appId: string
+	appName: string
+	canArchive: boolean
+	canArchiveApps: boolean
+}) {
+	const [confirmOpen, setConfirmOpen] = useState(false)
+	const archiveFormRef = useRef<HTMLFormElement>(null)
+	const showArchive = canArchive && canArchiveApps
+
+	return (
+		<>
+			<ActionMenu>
+				<ActionMenu.Trigger>
+					<Button
+						aria-label={`Handlinger for ${appName}`}
+						data-color="neutral"
+						icon={<MenuElipsisVerticalIcon aria-hidden />}
+						size="small"
+						variant="tertiary"
+					/>
+				</ActionMenu.Trigger>
+				<ActionMenu.Content>
+					<ActionMenu.Item
+						as={Link}
+						to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${appId}/detaljer?fane=screeninger`}
+					>
+						Vurder
+					</ActionMenu.Item>
+					{showArchive && (
+						<ActionMenu.Item variant="danger" onSelect={() => setConfirmOpen(true)}>
+							Arkiver
+						</ActionMenu.Item>
+					)}
+				</ActionMenu.Content>
+			</ActionMenu>
+			{showArchive && (
+				<>
+					<Form method="post" ref={archiveFormRef}>
+						<input type="hidden" name="intent" value="archive-app" />
+						<input type="hidden" name="applicationId" value={appId} />
+					</Form>
+					<Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+						<Dialog.Popup
+							width="small"
+							position="center"
+							closeOnOutsideClick
+							aria-label={`Bekreft arkivering av ${appName}`}
+						>
+							<Dialog.Header>Arkiver {appName}?</Dialog.Header>
+							<Dialog.Body>
+								<VStack gap="space-16">
+									<BodyShort>
+										Er du sikker på at du vil arkivere {appName}? Applikasjonen skjules fra brukervendte lister, men all
+										data og historikk bevares. Arkivering kan reverseres.
+									</BodyShort>
+									<HStack gap="space-4">
+										<Button
+											type="button"
+											variant="danger"
+											size="small"
+											onClick={() => {
+												setConfirmOpen(false)
+												archiveFormRef.current?.requestSubmit()
+											}}
+										>
+											Arkiver
+										</Button>
+										<Button type="button" variant="secondary" size="small" onClick={() => setConfirmOpen(false)}>
+											Avbryt
+										</Button>
+									</HStack>
+								</VStack>
+							</Dialog.Body>
+						</Dialog.Popup>
+					</Dialog>
+				</>
+			)}
+		</>
+	)
+}
+
 export default function TeamDashboard() {
 	const {
 		seksjon,
@@ -350,7 +458,9 @@ export default function TeamDashboard() {
 								<Table.HeaderCell scope="col" align="right">
 									Status %
 								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" />
+								<Table.HeaderCell scope="col" align="right">
+									Handlinger
+								</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
@@ -399,28 +509,15 @@ export default function TeamDashboard() {
 												? "–"
 												: `${Math.round((app.routineCompliance.routinesGjennomfort / app.routineCompliance.routinesTotal) * 100)}%`}
 										</Table.DataCell>
-										<Table.DataCell>
-											<HStack align="center" gap="space-4" wrap={false}>
-												<Link
-													to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer?fane=screeninger`}
-												>
-													Vurder
-												</Link>
-												{app.canArchive && canArchiveApps && (
-													<Form
-														method="post"
-														onSubmit={(e) =>
-															!confirm(`Er du sikker på at du vil arkivere ${app.appName}?`) && e.preventDefault()
-														}
-													>
-														<input type="hidden" name="intent" value="archive-app" />
-														<input type="hidden" name="applicationId" value={app.appId} />
-														<Button variant="danger" size="xsmall" type="submit">
-															Arkiver
-														</Button>
-													</Form>
-												)}
-											</HStack>
+										<Table.DataCell align="right">
+											<TeamAppActionsCell
+												seksjon={seksjon}
+												team={team}
+												appId={app.appId}
+												appName={app.appName}
+												canArchive={app.canArchive}
+												canArchiveApps={canArchiveApps}
+											/>
 										</Table.DataCell>
 									</Table.Row>
 								)
