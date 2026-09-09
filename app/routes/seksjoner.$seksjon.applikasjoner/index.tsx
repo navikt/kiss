@@ -1,9 +1,11 @@
 import type { SortState } from "@navikt/ds-react"
-import { BodyLong, Box, Detail, Heading, HGrid, Search, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyLong, Box, Detail, Heading, HGrid, HStack, Search, Switch, Table, Tag, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getSectionApps } from "~/db/queries/sections.server"
+import { UserDisplayName } from "~/components/UserDisplayName"
+import { getArchivedSectionApps, getSectionApps } from "~/db/queries/sections.server"
+import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { economySystemTypeLabels } from "~/db/schema/applications"
 import { compliancePercent } from "~/lib/utils"
 import type { Route } from "./+types/index"
@@ -25,6 +27,14 @@ export async function loader({ params }: Route.LoaderArgs) {
 	const totalControls = result.apps.reduce((sum, a) => sum + a.total, 0)
 	const overallPercent = compliancePercent(totalImplemented, totalPartial, totalControls, totalNotRelevant)
 
+	const archivedResult = await getArchivedSectionApps(seksjon)
+	const archivedByNavIdents = [
+		...new Set((archivedResult?.apps ?? []).map((a) => a.archivedBy).filter((v): v is string => v !== null)),
+	]
+	const userNames = await getUserNamesByNavIdents(archivedByNavIdents)
+	const nameFor = (navIdent: string | null) =>
+		navIdent ? (userNames.get(navIdent.trim().toUpperCase()) ?? null) : null
+
 	return data({
 		seksjon,
 		seksjonName: result.section.name,
@@ -42,6 +52,14 @@ export async function loader({ params }: Route.LoaderArgs) {
 					: null,
 			}
 		}),
+		archivedApps: (archivedResult?.apps ?? []).map((a) => ({
+			appId: a.appId,
+			appName: a.appName,
+			archivedAt: a.archivedAt ? a.archivedAt.toISOString() : null,
+			archivedBy: a.archivedBy,
+			archivedByName: nameFor(a.archivedBy),
+			teamNames: a.teamNames,
+		})),
 		totalApps: result.apps.length,
 		totalImplemented,
 		totalPartial,
@@ -61,10 +79,11 @@ type SortKey =
 	| "economySystem"
 
 export default function SeksjonApplikasjoner() {
-	const { seksjon, seksjonName, apps, totalApps, totalImplemented, totalPartial, overallPercent } =
+	const { seksjon, seksjonName, apps, archivedApps, totalApps, totalImplemented, totalPartial, overallPercent } =
 		useLoaderData<typeof loader>()
 	const [search, setSearch] = useState("")
 	const [sort, setSort] = useState<SortState>({ orderBy: "appName", direction: "ascending" })
+	const [showArchived, setShowArchived] = useState(false)
 
 	const filtered = useMemo(() => {
 		const q = search.toLowerCase()
@@ -161,13 +180,18 @@ export default function SeksjonApplikasjoner() {
 				</Box>
 			</HGrid>
 
-			<Search
-				label="Søk etter applikasjon eller team"
-				value={search}
-				onChange={setSearch}
-				onClear={() => setSearch("")}
-				style={{ maxWidth: "24rem" }}
-			/>
+			<HStack align="end" gap="space-6" wrap>
+				<Search
+					label="Søk etter applikasjon eller team"
+					value={search}
+					onChange={setSearch}
+					onClear={() => setSearch("")}
+					style={{ maxWidth: "24rem" }}
+				/>
+				<Switch checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)}>
+					Vis arkiverte applikasjoner ({archivedApps.length})
+				</Switch>
+			</HStack>
 
 			{sorted.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
@@ -244,6 +268,49 @@ export default function SeksjonApplikasjoner() {
 				</section>
 			) : (
 				<BodyLong>{search ? "Ingen applikasjoner matcher søket." : "Ingen applikasjoner i denne seksjonen."}</BodyLong>
+			)}
+
+			{showArchived && (
+				<VStack gap="space-4">
+					<Heading size="large" level="3">
+						Arkiverte applikasjoner
+					</Heading>
+					{archivedApps.length > 0 ? (
+						/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
+						<section className="table-scroll" tabIndex={0} aria-label="Arkiverte applikasjoner i seksjonen">
+							<Table>
+								<Table.Header>
+									<Table.Row>
+										<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Team</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Arkivert</Table.HeaderCell>
+										<Table.HeaderCell scope="col">Arkivert av</Table.HeaderCell>
+									</Table.Row>
+								</Table.Header>
+								<Table.Body>
+									{archivedApps.map((app) => (
+										<Table.Row key={app.appId}>
+											<Table.DataCell>
+												<Link to={`/seksjoner/${seksjon}/applikasjoner/${app.appId}/detaljer`}>{app.appName}</Link>
+											</Table.DataCell>
+											<Table.DataCell>
+												{app.teamNames.length > 0 ? app.teamNames.join(", ") : "Ikke tildelt"}
+											</Table.DataCell>
+											<Table.DataCell>
+												{app.archivedAt ? new Date(app.archivedAt).toLocaleDateString("nb-NO") : "–"}
+											</Table.DataCell>
+											<Table.DataCell>
+												{app.archivedBy ? <UserDisplayName navIdent={app.archivedBy} name={app.archivedByName} /> : "–"}
+											</Table.DataCell>
+										</Table.Row>
+									))}
+								</Table.Body>
+							</Table>
+						</section>
+					) : (
+						<BodyLong>Ingen arkiverte applikasjoner i denne seksjonen.</BodyLong>
+					)}
+				</VStack>
 			)}
 		</VStack>
 	)
