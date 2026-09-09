@@ -181,7 +181,6 @@ describe("rulesets.server integration tests", () => {
 				rulesetId: id,
 				approvedBy: "a",
 				approvedByName: "A",
-				frequency: "annually",
 			})
 			await archiveRuleset(id, "admin")
 			const r = await unarchiveRuleset(id, "operator")
@@ -218,7 +217,6 @@ describe("rulesets.server integration tests", () => {
 				approvedBy: "approver",
 				approvedByName: "Approver Name",
 				comment: "Godkjent",
-				frequency: "annually",
 			})
 
 			const detail = await getRulesetDetail(id)
@@ -227,6 +225,33 @@ describe("rulesets.server integration tests", () => {
 			expect(detail?.lastApproval).not.toBeNull()
 			expect(detail?.approvals).toHaveLength(1)
 			expect(detail?.approvals[0].approvedBy).toBe("approver")
+		})
+
+		// Regresjonstest: approveRuleset() må selv håndheve status==='draft' i
+		// query-laget (ikke bare stole på at UI-en skjuler godkjenn-knappen),
+		// ellers kan et allerede aktivt regelsett få en ny (duplikat)
+		// godkjenningsrad uten at status endres.
+		it("rejects approving a ruleset that is already active (no duplicate approval row)", async () => {
+			const sectionId = await createSectionRow("sec4b")
+			const id = await createRuleset({ sectionId, name: "Already active", frequency: "annually", createdBy: "admin" })
+
+			const firstApprovalId = await approveRuleset({
+				rulesetId: id,
+				approvedBy: "approver",
+				approvedByName: "Approver Name",
+			})
+			expect(firstApprovalId).not.toBeNull()
+
+			const secondApprovalId = await approveRuleset({
+				rulesetId: id,
+				approvedBy: "approver-2",
+				approvedByName: "Approver Two",
+			})
+			expect(secondApprovalId).toBeNull()
+
+			const detail = await getRulesetDetail(id)
+			expect(detail?.status).toBe("active")
+			expect(detail?.approvals).toHaveLength(1)
 		})
 	})
 
@@ -256,7 +281,6 @@ describe("rulesets.server integration tests", () => {
 				rulesetId,
 				approvedBy: "a",
 				approvedByName: "A",
-				frequency: "annually",
 			})
 			const controlId = await createControl("K-X.01")
 			await linkControlToRuleset(rulesetId, controlId, "Z990001")
@@ -319,7 +343,6 @@ describe("rulesets.server integration tests", () => {
 				rulesetId: id,
 				approvedBy: "admin",
 				approvedByName: "Admin",
-				frequency: "annually",
 			})
 			expect(approvalId).toBeNull()
 		})
@@ -415,7 +438,6 @@ describe("rulesets.server integration tests", () => {
 				rulesetId: id,
 				approvedBy: "admin",
 				approvedByName: "Admin",
-				frequency: "annually",
 			})
 
 			expect(await updateRuleset(id, { name: "Skal ikke lagres", updatedBy: "section-user" })).toBe(false)
@@ -432,7 +454,6 @@ describe("rulesets.server integration tests", () => {
 				rulesetId: id,
 				approvedBy: "admin",
 				approvedByName: "Admin",
-				frequency: "annually",
 			})
 
 			expect(await linkControlToRuleset(id, controlB, "admin")).toBe(false)
@@ -450,7 +471,6 @@ describe("rulesets.server integration tests", () => {
 				rulesetId: id,
 				approvedBy: "admin",
 				approvedByName: "Admin",
-				frequency: "annually",
 			})
 
 			const routineId2 = await createRoutineRow(sectionId, "Rutine C2")
@@ -475,7 +495,7 @@ describe("rulesets.server integration tests", () => {
 			const routineId = await createRoutineRow(sectionId, "Rutine Copy")
 			await linkControlToRuleset(id, control, "admin")
 			await linkRoutineToRuleset(id, routineId, "admin")
-			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin", frequency: "annually" })
+			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin" })
 
 			const copy = await copyRuleset(id, "admin")
 			if (!copy) throw new Error("copyRuleset returned null")
@@ -510,7 +530,7 @@ describe("rulesets.server integration tests", () => {
 		it("replaceRuleset bases the approval's validUntil on the ruleset's own (possibly just-edited) frequency", async () => {
 			const sectionId = await createSectionRow("secRepl4")
 			const id = await createRuleset({ sectionId, name: "Original", frequency: "monthly", createdBy: "admin" })
-			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin", frequency: "monthly" })
+			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin" })
 
 			const copy = await copyRuleset(id, "admin")
 			if (!copy) throw new Error("copyRuleset returned null")
@@ -539,7 +559,7 @@ describe("rulesets.server integration tests", () => {
 		it("replaceRuleset activates the copy, archives the original, and does not migrate screeningAnswers", async () => {
 			const sectionId = await createSectionRow("secRepl1")
 			const id = await createRuleset({ sectionId, name: "Original", frequency: "annually", createdBy: "admin" })
-			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin", frequency: "annually" })
+			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin" })
 
 			const copy = await copyRuleset(id, "admin")
 			if (!copy) throw new Error("copyRuleset returned null")
@@ -580,7 +600,7 @@ describe("rulesets.server integration tests", () => {
 		it("rejects replaceRuleset when the ruleset being replaced is not active (defense in depth)", async () => {
 			const sectionId = await createSectionRow("secRepl3")
 			const id = await createRuleset({ sectionId, name: "Original", frequency: "annually", createdBy: "admin" })
-			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin", frequency: "annually" })
+			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin" })
 			const copy = await copyRuleset(id, "admin")
 			if (!copy) throw new Error("copyRuleset returned null")
 
@@ -738,7 +758,6 @@ describe("rulesets.server integration tests", () => {
 				rulesetId,
 				approvedBy: "test",
 				approvedByName: "Frisk Ål",
-				frequency: "quarterly",
 			})
 
 			const result = await getRulesetsLinkedToControls([controlId], sectionId)
@@ -995,7 +1014,6 @@ describe("rulesets.server integration tests", () => {
 				rulesetId,
 				approvedBy: "test",
 				approvedByName: "Frisk Ål",
-				frequency: "annually",
 			})
 
 			const appId = await createApp("DetailApp5")

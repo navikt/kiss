@@ -889,30 +889,32 @@ export async function unarchiveRuleset(rulesetId: string, performedBy: string) {
 
 /**
  * Godkjenner et regelsett ved å skrive en ny godkjenningsrad og sette
- * `validUntil` basert på frekvensen. Returnerer ID til godkjenningsraden,
- * eller `null` hvis regelsettet ikke finnes eller er arkivert. Bruker en
- * transaksjon med `SELECT FOR SHARE` på regelsett-raden for å unngå
- * TOCTOU mot samtidig arkivering.
+ * `validUntil` basert på regelsettets faktiske frekvens (lest fra den låste
+ * raden, ikke et kallested-argument — samme prinsipp som `replaceRuleset()`).
+ * Returnerer `null` hvis regelsettet ikke finnes, er arkivert, eller ikke
+ * lenger er `draft` (allerede godkjent). Bruker en transaksjon med
+ * `SELECT FOR UPDATE` på regelsett-raden for å unngå TOCTOU mot samtidig
+ * arkivering eller dobbel godkjenning.
  */
 export async function approveRuleset(input: {
 	rulesetId: string
 	approvedBy: string
 	approvedByName: string
 	comment?: string
-	frequency: string
 }): Promise<string | null> {
 	const now = new Date()
-	const days = frequencyDays[input.frequency as keyof typeof frequencyDays] ?? 365
-	const validUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
 
 	return db.transaction(async (tx) => {
 		const [locked] = await tx
-			.select({ archivedAt: rulesets.archivedAt })
+			.select({ status: rulesets.status, archivedAt: rulesets.archivedAt, frequency: rulesets.frequency })
 			.from(rulesets)
 			.where(eq(rulesets.id, input.rulesetId))
-			.for("share")
+			.for("update")
 			.limit(1)
-		if (!locked || locked.archivedAt) return null
+		if (!locked || locked.archivedAt || locked.status !== "draft") return null
+
+		const days = frequencyDays[locked.frequency as keyof typeof frequencyDays] ?? 365
+		const validUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
 
 		const [row] = await tx
 			.insert(rulesetApprovals)
@@ -926,11 +928,16 @@ export async function approveRuleset(input: {
 			})
 			.returning({ id: rulesetApprovals.id })
 
-		// Aktiver regelsettet hvis det fortsatt er utkast.
-		await tx
+		const [activated] = await tx
 			.update(rulesets)
 			.set({ status: "active", updatedAt: now, updatedBy: input.approvedBy })
 			.where(and(eq(rulesets.id, input.rulesetId), eq(rulesets.status, "draft")))
+			.returning({ id: rulesets.id })
+		if (!activated) {
+			throw new Response("Regelsettet ble endret av en annen operasjon under godkjenningen. Prøv igjen.", {
+				status: 409,
+			})
+		}
 
 		return row.id
 	})

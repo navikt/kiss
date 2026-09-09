@@ -214,12 +214,11 @@ export async function action({ request, params }: Route.ActionArgs) {
 				approvedBy: authedUser.navIdent,
 				approvedByName: authedUser.name,
 				comment: typeof comment === "string" && comment.trim() ? comment.trim() : undefined,
-				frequency: ruleset.frequency,
 			})
 			if (!approvalId) {
 				return data<ActionResult>({
 					success: false,
-					error: "Regelsettet ble arkivert før godkjenningen kunne lagres.",
+					error: "Regelsettet ble arkivert eller allerede godkjent før godkjenningen kunne lagres.",
 				})
 			}
 
