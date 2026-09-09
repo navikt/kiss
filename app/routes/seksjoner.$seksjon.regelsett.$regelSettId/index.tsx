@@ -13,15 +13,18 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { Fragment, useState } from "react"
-import { data, Form, Link, useActionData, useLoaderData } from "react-router"
+import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { UserDisplayName } from "~/components/UserDisplayName"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
 import {
 	approveRuleset,
+	copyRuleset,
 	getRulesetDetail,
 	getRulesetMeta,
+	getRulesetNamesByIds,
 	linkRoutineToRuleset,
+	replaceRuleset,
 	unlinkRoutineFromRuleset,
 } from "~/db/queries/rulesets.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
@@ -53,12 +56,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		((ruleset.responsibleIdent !== null && user.navIdent === ruleset.responsibleIdent) ||
 			(ruleset.responsibleRole !== null &&
 				hasExactRoleForSection(user, ruleset.responsibleRole as UserRole, section.id)))
-	const canEditDraft =
-		user !== null &&
-		ruleset.status !== "archived" &&
-		(isAdmin(user) || (hasAnySectionRole(user, section.id) && ruleset.lastApproval === null))
+	// Innhold kan kun redigeres direkte når regelsettet er `draft` (aldri
+	// godkjent). Et godkjent regelsett må kopieres (se `canCopy`) og
+	// gjennom en ny godkjenningsrunde for å erstattes.
+	const canEditDraft = user !== null && ruleset.status === "draft" && hasAnySectionRole(user, section.id)
+	const canCopy = user !== null && ruleset.status === "active" && hasAnySectionRole(user, section.id)
 	const userIsAdmin = user ? isAdmin(user) : false
-	const canMutate = userIsAdmin && ruleset.status !== "archived"
+	// Kobling til rutiner endrer hva regelsettet reelt sett dekker, og skal
+	// derfor kun kunne gjøres på `draft` — samme prinsipp som for innhold.
+	const canMutate = userIsAdmin && ruleset.status === "draft"
 
 	// Build display text for responsible
 	let responsibleDisplay: string
@@ -84,6 +90,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	])
 	const nameFor = (navIdent: string) => userNames.get(navIdent.trim().toUpperCase()) ?? null
 
+	// Hent navn for forgjenger (source) og erstatter (replaced-by) til lineage-visning
+	const lineageIds = [ruleset.sourceRulesetId, ruleset.replacedByRulesetId].filter(
+		(id): id is string => id !== null && id !== undefined,
+	)
+	const lineageNames = await getRulesetNamesByIds(lineageIds)
+	const predecessorInfo = ruleset.sourceRulesetId ? (lineageNames.get(ruleset.sourceRulesetId) ?? null) : null
+	const successorInfo = ruleset.replacedByRulesetId ? (lineageNames.get(ruleset.replacedByRulesetId) ?? null) : null
+
 	return data({
 		section,
 		ruleset: {
@@ -99,7 +113,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 				uploadedByName: nameFor(a.uploadedBy),
 			})),
 		},
+		predecessorInfo,
+		successorInfo,
 		canApprove,
+		canCopy,
 		canEditDraft,
 		canMutate,
 		responsibleDisplay,
@@ -123,6 +140,27 @@ export async function action({ request, params }: Route.ActionArgs) {
 	const intent = formData.get("intent")
 
 	switch (intent) {
+		case "copy": {
+			if (!hasAnySectionRole(authedUser, section.id)) {
+				throw data({ message: "Du har ikke rettigheter til å kopiere regelsett i denne seksjonen" }, { status: 403 })
+			}
+			const meta = await getRulesetMeta(regelSettId)
+			if (!meta || meta.sectionId !== section.id) {
+				throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
+			}
+			if (meta.status !== "active") {
+				return data<ActionResult>({
+					success: false,
+					error: "Kun godkjente regelsett kan kopieres for redigering.",
+				})
+			}
+			const copy = await copyRuleset(regelSettId, authedUser.navIdent)
+			if (!copy) {
+				return data<ActionResult>({ success: false, error: "Kunne ikke kopiere regelsettet." })
+			}
+			return redirect(`/seksjoner/${seksjon}/regelsett/${copy.id}/rediger`)
+		}
+
 		case "approve": {
 			const ruleset = await getRulesetDetail(regelSettId)
 			if (!ruleset || ruleset.sectionId !== section.id) {
@@ -140,6 +178,24 @@ export async function action({ request, params }: Route.ActionArgs) {
 			if (!canApprove) throw new Response("Ikke autorisert", { status: 403 })
 
 			const comment = formData.get("comment")
+
+			// Hvis regelsettet er en redigert kopi (opprettet via copyRuleset), skal
+			// godkjenning erstatte det opprinnelige regelsettet i stedet for en
+			// vanlig fornyelse — se replaceRuleset().
+			if (ruleset.sourceRulesetId) {
+				const approvalId = await replaceRuleset({
+					newRulesetId: regelSettId,
+					oldRulesetId: ruleset.sourceRulesetId,
+					approvedBy: authedUser.navIdent,
+					approvedByName: authedUser.name,
+					comment: typeof comment === "string" && comment.trim() ? comment.trim() : undefined,
+				})
+				if (!approvalId) {
+					return data<ActionResult>({ success: false, error: "Kunne ikke godkjenne og erstatte regelsettet." })
+				}
+				return data<ActionResult>({ success: true, message: "Regelsett godkjent og opprinnelig versjon erstattet." })
+			}
+
 			const approvalId = await approveRuleset({
 				rulesetId: regelSettId,
 				approvedBy: authedUser.navIdent,
@@ -213,7 +269,10 @@ export default function RegelsettDetalj() {
 	const {
 		section,
 		ruleset,
+		predecessorInfo,
+		successorInfo,
 		canApprove,
+		canCopy,
 		canEditDraft,
 		canMutate,
 		responsibleDisplay,
@@ -245,8 +304,33 @@ export default function RegelsettDetalj() {
 							Rediger
 						</Button>
 					)}
+					{canCopy && (
+						<Form method="post">
+							<input type="hidden" name="intent" value="copy" />
+							<Button type="submit" variant="secondary" size="small">
+								Kopier for redigering
+							</Button>
+						</Form>
+					)}
 				</HStack>
 			</HStack>
+
+			{(predecessorInfo || successorInfo) && (
+				<HStack gap="space-4" wrap>
+					{predecessorInfo && (
+						<Alert variant="info" size="small">
+							Dette regelsettet erstattet «{predecessorInfo.name}».{" "}
+							<Link to={`/seksjoner/${section.slug}/regelsett/${ruleset.sourceRulesetId}`}>Se forrige versjon</Link>
+						</Alert>
+					)}
+					{successorInfo && (
+						<Alert variant="warning" size="small">
+							Dette regelsettet er erstattet av «{successorInfo.name}».{" "}
+							<Link to={`/seksjoner/${section.slug}/regelsett/${ruleset.replacedByRulesetId}`}>Se ny versjon</Link>
+						</Alert>
+					)}
+				</HStack>
+			)}
 
 			{actionData && "success" in actionData && actionData.success && (
 				<Alert variant="success">{actionData.message}</Alert>
@@ -460,14 +544,19 @@ export default function RegelsettDetalj() {
 				<UserDisplayName navIdent={ruleset.updatedBy} name={ruleset.updatedByName} />.
 			</Detail>
 
-			<Modal open={approveOpen} onClose={() => setApproveOpen(false)} header={{ heading: "Godkjenn regelsett" }}>
+			<Modal
+				open={approveOpen}
+				onClose={() => setApproveOpen(false)}
+				header={{ heading: ruleset.sourceRulesetId ? "Godkjenn og erstatt regelsett" : "Godkjenn regelsett" }}
+			>
 				<Modal.Body>
 					<Form method="post" onSubmit={() => setApproveOpen(false)}>
 						<input type="hidden" name="intent" value="approve" />
 						<VStack gap="space-4">
 							<BodyLong>
-								Godkjenn «{ruleset.name}». Godkjenningen vil være gyldig i{" "}
-								{getFrequencyLabel(ruleset.frequency).toLowerCase()}.
+								{ruleset.sourceRulesetId
+									? `Godkjenn «${ruleset.name}». Dette erstatter forrige versjon${predecessorInfo ? ` («${predecessorInfo.name}»)` : ""}, som arkiveres. Godkjenningen vil være gyldig i ${getFrequencyLabel(ruleset.frequency).toLowerCase()}.`
+									: `Godkjenn «${ruleset.name}». Godkjenningen vil være gyldig i ${getFrequencyLabel(ruleset.frequency).toLowerCase()}.`}
 							</BodyLong>
 							<Textarea label="Kommentar (valgfri)" name="comment" />
 							<HStack gap="space-4">

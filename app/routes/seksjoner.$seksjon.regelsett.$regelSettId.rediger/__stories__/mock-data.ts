@@ -31,12 +31,14 @@ const baseRuleset = {
 	responsibleName: "Glad Fjord",
 	responsibleRole: null as string | null,
 	frequency: "quarterly",
-	status: "active" as const,
+	status: "draft" as const,
 	category: null as string | null,
 	approvalStatus: "unapproved" as const,
 	lastApproval: null,
 	approvals: [],
 	resolvedResponsible: null,
+	sourceRulesetId: null as string | null,
+	replacedByRulesetId: null as string | null,
 	controls: [
 		{
 			id: "ctrl-1",
@@ -60,6 +62,8 @@ export const regelsetUtenKategoriData = {
 	section: mockSection,
 	ruleset: { ...baseRuleset, category: null },
 	allControls: mockAllControls,
+	canEditContent: true,
+	canCopyForEditing: false,
 	canArchive: true,
 	frequencies: mockFrequencies,
 }
@@ -74,6 +78,8 @@ export const regelsetMedTilgangskontrollData = {
 		category: "tilgangskontroll",
 	},
 	allControls: mockAllControls,
+	canEditContent: true,
+	canCopyForEditing: false,
 	canArchive: true,
 	frequencies: mockFrequencies,
 }
@@ -99,6 +105,8 @@ export const regelsetMedEndringskontrollData = {
 		],
 	},
 	allControls: mockAllControls,
+	canEditContent: true,
+	canCopyForEditing: false,
 	canArchive: true,
 	frequencies: mockFrequencies,
 }
@@ -129,7 +137,9 @@ export const godkjentRegelsetData = {
 			},
 		],
 	},
-	allControls: mockAllControls,
+	allControls: [] as typeof mockAllControls,
+	canEditContent: false,
+	canCopyForEditing: true,
 	canArchive: true,
 	frequencies: mockFrequencies,
 }
@@ -145,7 +155,9 @@ export const arkivertRegelsetData = {
 		status: "archived" as const,
 		approvalStatus: "unapproved" as const,
 	},
-	allControls: mockAllControls,
+	allControls: [] as typeof mockAllControls,
+	canEditContent: false,
+	canCopyForEditing: false,
 	canArchive: true,
 	frequencies: mockFrequencies,
 }

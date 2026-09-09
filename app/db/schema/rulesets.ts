@@ -33,6 +33,11 @@ export const rulesets = pgTable("rulesets", {
 	frequency: text("frequency", { enum: ROUTINE_FREQUENCIES }).notNull(),
 	status: text("status", { enum: rulesetStatusEnum }).notNull().default("draft"),
 	category: text("category"),
+	/** Peker til regelsettet denne er en redigerbar kopi av (copy-and-replace-mønster, jf. routines.sourceRoutineId). */
+	sourceRulesetId: uuid("source_ruleset_id"),
+	/** Satt når dette regelsettet er erstattet av en godkjent kopi (jf. routines.replacedByRoutineId). */
+	replacedByRulesetId: uuid("replaced_by_ruleset_id"),
+	replacedAt: timestamp("replaced_at", { withTimezone: true }),
 	archivedAt: timestamp("archived_at", { withTimezone: true }),
 	archivedBy: text("archived_by"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

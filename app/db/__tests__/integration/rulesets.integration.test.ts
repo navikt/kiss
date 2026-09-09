@@ -16,6 +16,8 @@ const {
 	archiveRuleset,
 	unarchiveRuleset,
 	approveRuleset,
+	copyRuleset,
+	replaceRuleset,
 	linkControlToRuleset,
 	unlinkControlFromRuleset,
 	getRulesetsForSection,
@@ -406,7 +408,7 @@ describe("rulesets.server integration tests", () => {
 	})
 
 	describe("Approval guards on related mutations", () => {
-		it("blocks non-admin style update when ruleset has approvals", async () => {
+		it("blocks content updates once a ruleset has been approved (status is active), for anyone including admin", async () => {
 			const sectionId = await createSectionRow("secA1")
 			const id = await createRuleset({ sectionId, name: "A", frequency: "annually", createdBy: "admin" })
 			await approveRuleset({
@@ -416,13 +418,11 @@ describe("rulesets.server integration tests", () => {
 				frequency: "annually",
 			})
 
-			expect(
-				await updateRuleset(id, { name: "Skal ikke lagres", updatedBy: "section-user", requireUnapproved: true }),
-			).toBe(false)
-			expect(await updateRuleset(id, { name: "Admin kan lagre", updatedBy: "admin" })).toBe(true)
+			expect(await updateRuleset(id, { name: "Skal ikke lagres", updatedBy: "section-user" })).toBe(false)
+			expect(await updateRuleset(id, { name: "Skal heller ikke lagres", updatedBy: "admin" })).toBe(false)
 		})
 
-		it("blocks control link/unlink when requireUnapproved is set and ruleset has approvals", async () => {
+		it("blocks control link/unlink once a ruleset is active, for anyone including admin", async () => {
 			const sectionId = await createSectionRow("secA2")
 			const id = await createRuleset({ sectionId, name: "B", frequency: "annually", createdBy: "admin" })
 			const controlA = await createControl("K-AP.01")
@@ -435,11 +435,170 @@ describe("rulesets.server integration tests", () => {
 				frequency: "annually",
 			})
 
-			expect(await linkControlToRuleset(id, controlB, "section-user", { requireUnapproved: true })).toBe(false)
+			expect(await linkControlToRuleset(id, controlB, "admin")).toBe(false)
 			const detail = await getRulesetDetail(id)
 			const linkId = detail?.controls.find((c) => c.id === controlA)?.linkId as string
-			expect(await unlinkControlFromRuleset(id, linkId, "section-user", { requireUnapproved: true })).toBe(false)
-			expect(await unlinkControlFromRuleset(id, linkId, "admin")).toBe(true)
+			expect(await unlinkControlFromRuleset(id, linkId, "admin")).toBe(false)
+		})
+
+		it("blocks routine link/unlink once a ruleset is active", async () => {
+			const sectionId = await createSectionRow("secA3")
+			const id = await createRuleset({ sectionId, name: "C", frequency: "annually", createdBy: "admin" })
+			const routineId = await createRoutineRow(sectionId, "Rutine C")
+			expect(await linkRoutineToRuleset(id, routineId, "admin")).toBe(true)
+			await approveRuleset({
+				rulesetId: id,
+				approvedBy: "admin",
+				approvedByName: "Admin",
+				frequency: "annually",
+			})
+
+			const routineId2 = await createRoutineRow(sectionId, "Rutine C2")
+			expect(await linkRoutineToRuleset(id, routineId2, "admin")).toBe(false)
+			const detail = await getRulesetDetail(id)
+			const linkId = detail?.linkedRoutines.find((r) => r.routineId === routineId)?.linkId as string
+			expect(await unlinkRoutineFromRuleset(id, linkId, "admin")).toBe(false)
+		})
+	})
+
+	describe("copyRuleset and replaceRuleset", () => {
+		it("copies an active ruleset into a new draft with its own links, leaving the original untouched", async () => {
+			const sectionId = await createSectionRow("secCopy1")
+			const id = await createRuleset({
+				sectionId,
+				name: "Original",
+				description: "Beskrivelse",
+				frequency: "annually",
+				createdBy: "admin",
+			})
+			const control = await createControl("K-CP.01")
+			const routineId = await createRoutineRow(sectionId, "Rutine Copy")
+			await linkControlToRuleset(id, control, "admin")
+			await linkRoutineToRuleset(id, routineId, "admin")
+			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin", frequency: "annually" })
+
+			const copy = await copyRuleset(id, "admin")
+			if (!copy) throw new Error("copyRuleset returned null")
+			expect(copy.sourceRulesetId).toBe(id)
+			expect(copy.status).toBe("draft")
+			expect(copy.name).toBe("Original")
+
+			const copyDetail = await getRulesetDetail(copy.id)
+			expect(copyDetail?.controls).toHaveLength(1)
+			expect(copyDetail?.linkedRoutines).toHaveLength(1)
+
+			const originalDetail = await getRulesetDetail(id)
+			expect(originalDetail?.status).toBe("active")
+			expect(originalDetail?.controls).toHaveLength(1)
+		})
+
+		it("rejects copying an archived ruleset", async () => {
+			const sectionId = await createSectionRow("secCopy2")
+			const id = await createRuleset({ sectionId, name: "Arkivert", frequency: "annually", createdBy: "admin" })
+			await archiveRuleset(id, "admin")
+
+			await expect(copyRuleset(id, "admin")).rejects.toThrow()
+		})
+
+		it("rejects copying a ruleset that has never been approved (still draft)", async () => {
+			const sectionId = await createSectionRow("secCopy3")
+			const id = await createRuleset({ sectionId, name: "Kladd", frequency: "annually", createdBy: "admin" })
+
+			await expect(copyRuleset(id, "admin")).rejects.toThrow()
+		})
+
+		it("replaceRuleset bases the approval's validUntil on the ruleset's own (possibly just-edited) frequency", async () => {
+			const sectionId = await createSectionRow("secRepl4")
+			const id = await createRuleset({ sectionId, name: "Original", frequency: "monthly", createdBy: "admin" })
+			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin", frequency: "monthly" })
+
+			const copy = await copyRuleset(id, "admin")
+			if (!copy) throw new Error("copyRuleset returned null")
+			// Kopien redigeres til en annen frekvens før godkjenning — validUntil
+			// skal reflektere denne (fra den låste raden), ikke en potensielt
+			// utdatert verdi fra kallestedet.
+			await updateRuleset(copy.id, { frequency: "annually", updatedBy: "admin" })
+
+			const before = Date.now()
+			const approvalId = await replaceRuleset({
+				newRulesetId: copy.id,
+				oldRulesetId: id,
+				approvedBy: "admin",
+				approvedByName: "Admin",
+			})
+			expect(approvalId).toBeTruthy()
+
+			const newDetail = await getRulesetDetail(copy.id)
+			const validUntil = newDetail?.lastApproval?.validUntil
+			expect(validUntil).toBeTruthy()
+			const daysUntilValid = (new Date(validUntil as Date).getTime() - before) / (24 * 60 * 60 * 1000)
+			// ~365 dager (årlig) — ikke ~30 dager (månedlig, den opprinnelige frekvensen).
+			expect(daysUntilValid).toBeGreaterThan(300)
+		})
+
+		it("replaceRuleset activates the copy, archives the original, and does not migrate screeningAnswers", async () => {
+			const sectionId = await createSectionRow("secRepl1")
+			const id = await createRuleset({ sectionId, name: "Original", frequency: "annually", createdBy: "admin" })
+			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin", frequency: "annually" })
+
+			const copy = await copyRuleset(id, "admin")
+			if (!copy) throw new Error("copyRuleset returned null")
+			await updateRuleset(copy.id, { name: "Original v2", updatedBy: "admin" })
+
+			const approvalId = await replaceRuleset({
+				newRulesetId: copy.id,
+				oldRulesetId: id,
+				approvedBy: "admin",
+				approvedByName: "Admin",
+			})
+			expect(approvalId).toBeTruthy()
+
+			const newDetail = await getRulesetDetail(copy.id)
+			expect(newDetail?.status).toBe("active")
+			expect(newDetail?.name).toBe("Original v2")
+
+			const oldDetail = await getRulesetDetail(id)
+			expect(oldDetail?.status).toBe("archived")
+			expect(oldDetail?.replacedByRulesetId).toBe(copy.id)
+		})
+
+		it("rejects replaceRuleset when the new ruleset is not a draft copy of the old one", async () => {
+			const sectionId = await createSectionRow("secRepl2")
+			const idA = await createRuleset({ sectionId, name: "A", frequency: "annually", createdBy: "admin" })
+			const idB = await createRuleset({ sectionId, name: "B", frequency: "annually", createdBy: "admin" })
+
+			await expect(
+				replaceRuleset({
+					newRulesetId: idB,
+					oldRulesetId: idA,
+					approvedBy: "admin",
+					approvedByName: "Admin",
+				}),
+			).rejects.toThrow()
+		})
+
+		it("rejects replaceRuleset when the ruleset being replaced is not active (defense in depth)", async () => {
+			const sectionId = await createSectionRow("secRepl3")
+			const id = await createRuleset({ sectionId, name: "Original", frequency: "annually", createdBy: "admin" })
+			await approveRuleset({ rulesetId: id, approvedBy: "admin", approvedByName: "Admin", frequency: "annually" })
+			const copy = await copyRuleset(id, "admin")
+			if (!copy) throw new Error("copyRuleset returned null")
+
+			// Simulerer en tilstand hvor "gammelt" regelsett ikke lenger er aktivt,
+			// men heller ikke arkivert (f.eks. en fremtidig statusendring) — skal
+			// fortsatt avvises av den eksplisitte status==='active'-sjekken, ikke
+			// bare av archivedAt-sjekken.
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE rulesets SET status = 'draft' WHERE id = '${id}'`)
+
+			await expect(
+				replaceRuleset({
+					newRulesetId: copy.id,
+					oldRulesetId: id,
+					approvedBy: "admin",
+					approvedByName: "Admin",
+				}),
+			).rejects.toThrow()
 		})
 	})
 
