@@ -101,7 +101,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	const intent = formData.get("intent")
 
 	if (intent === "copy") {
-		const current = await getRulesetDetail(regelSettId)
+		const current = await getRulesetMeta(regelSettId)
 		if (!current || current.sectionId !== section.id) {
 			throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
 		}

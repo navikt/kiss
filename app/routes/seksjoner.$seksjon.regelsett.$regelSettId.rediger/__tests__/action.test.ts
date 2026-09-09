@@ -93,6 +93,12 @@ beforeEach(() => {
 	mockRequireAnySectionRole.mockImplementation(() => undefined)
 	mockGetSectionBySlug.mockResolvedValue(fakeSection)
 	mockGetRulesetDetail.mockResolvedValue(makeRuleset())
+	mockGetRulesetMeta.mockResolvedValue({
+		id: "ruleset-1",
+		sectionId: fakeSection.id,
+		status: "draft",
+		archivedAt: null,
+	})
 	mockUpdateRuleset.mockResolvedValue(true)
 })
 
@@ -155,7 +161,12 @@ describe("ruleset edit action authorization", () => {
 	})
 
 	it("copies an approved (active) ruleset and redirects to the copy's edit page", async () => {
-		mockGetRulesetDetail.mockResolvedValue(makeRuleset({ lastApproval: { validUntil: new Date() }, status: "active" }))
+		mockGetRulesetMeta.mockResolvedValue({
+			id: "ruleset-1",
+			sectionId: fakeSection.id,
+			status: "active",
+			archivedAt: null,
+		})
 		mockCopyRuleset.mockResolvedValue({ id: "ruleset-2", sourceRulesetId: "ruleset-1", status: "draft" })
 
 		const formData = new FormData()
@@ -170,7 +181,12 @@ describe("ruleset edit action authorization", () => {
 	})
 
 	it("rejects copy intent when ruleset is still a draft", async () => {
-		mockGetRulesetDetail.mockResolvedValue(makeRuleset({ status: "draft" }))
+		mockGetRulesetMeta.mockResolvedValue({
+			id: "ruleset-1",
+			sectionId: fakeSection.id,
+			status: "draft",
+			archivedAt: null,
+		})
 
 		const formData = new FormData()
 		formData.set("intent", "copy")
