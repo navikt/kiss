@@ -199,45 +199,55 @@ export default function SeksjonDashboard() {
 					</Button>
 				)}
 			</HStack>
-			<HStack gap="space-4" wrap>
-				<Button as={Link} to={`/seksjoner/${seksjon}/screening`} variant="secondary" size="small">
-					Screening-spørsmål
-				</Button>
-				<Button as={Link} to={`/seksjoner/${seksjon}/rutiner`} variant="secondary" size="small">
-					Rutiner
-				</Button>
-				<Button as={Link} to={`/seksjoner/${seksjon}/seksjonsrutiner`} variant="secondary" size="small">
-					Seksjonsrutiner
-				</Button>
-				<Button as={Link} to={`/seksjoner/${seksjon}/regelsett`} variant="secondary" size="small">
-					Regelsett
-				</Button>
-				<Button as={Link} to={`/seksjoner/${seksjon}/entra-grupper`} variant="secondary" size="small">
-					Entra ID-grupper
-				</Button>
-				<Button as={Link} to={`/seksjoner/${seksjon}/oracle-roller`} variant="secondary" size="small">
-					Oracle-roller
-				</Button>
-				<Button as={Link} to={`/seksjoner/${seksjon}/rpa-brukere`} variant="secondary" size="small">
-					RPA-brukere
-				</Button>
-				<Button as={Link} to={`/seksjoner/${seksjon}/okonomisystemer`} variant="secondary" size="small">
-					Økonomisystemer
-				</Button>
-				<Button as={Link} to={`/seksjoner/${seksjon}/audit-logging`} variant="secondary" size="small">
-					Audit logging
-				</Button>
-				{canViewReports && (
-					<Button as={Link} to={`/seksjoner/${seksjon}/rapporter`} variant="secondary" size="small">
-						Rapporter
-					</Button>
-				)}
-				{isGlobalAdmin && (
-					<Button as={Link} to={`/seksjoner/${seksjon}/koblingsforslag`} variant="secondary" size="small">
-						Koblingsforslag
-					</Button>
-				)}
-			</HStack>
+			<VStack gap="space-4">
+				<VStack gap="space-2">
+					<Detail textColor="subtle">Vurderingsgrunnlag</Detail>
+					<HStack gap="space-4" wrap>
+						<Button as={Link} to={`/seksjoner/${seksjon}/screening`} variant="secondary" size="small">
+							Screening-spørsmål
+						</Button>
+						<Button as={Link} to={`/seksjoner/${seksjon}/regelsett`} variant="secondary" size="small">
+							Regelsett
+						</Button>
+						<Button as={Link} to={`/seksjoner/${seksjon}/rutiner`} variant="secondary" size="small">
+							Rutiner
+						</Button>
+						<Button as={Link} to={`/seksjoner/${seksjon}/seksjonsrutiner`} variant="secondary" size="small">
+							Seksjonsrutiner
+						</Button>
+					</HStack>
+				</VStack>
+				<VStack gap="space-2">
+					<Detail textColor="subtle">Applikasjonsdata</Detail>
+					<HStack gap="space-4" wrap>
+						<Button as={Link} to={`/seksjoner/${seksjon}/entra-grupper`} variant="secondary" size="small">
+							Entra ID-grupper
+						</Button>
+						<Button as={Link} to={`/seksjoner/${seksjon}/oracle-roller`} variant="secondary" size="small">
+							Oracle-roller
+						</Button>
+						<Button as={Link} to={`/seksjoner/${seksjon}/rpa-brukere`} variant="secondary" size="small">
+							RPA-brukere
+						</Button>
+						<Button as={Link} to={`/seksjoner/${seksjon}/okonomisystemer`} variant="secondary" size="small">
+							Økonomisystemer
+						</Button>
+						<Button as={Link} to={`/seksjoner/${seksjon}/audit-logging`} variant="secondary" size="small">
+							Audit logging
+						</Button>
+						{canViewReports && (
+							<Button as={Link} to={`/seksjoner/${seksjon}/rapporter`} variant="secondary" size="small">
+								Rapporter
+							</Button>
+						)}
+						{isGlobalAdmin && (
+							<Button as={Link} to={`/seksjoner/${seksjon}/koblingsforslag`} variant="secondary" size="small">
+								Koblingsforslag
+							</Button>
+						)}
+					</HStack>
+				</VStack>
+			</VStack>
 			{(!hasUtviklerteam || !hasNaisTeam || !hasNaisMiljo) && (
 				<Alert variant="info">
 					<VStack gap="space-2">
