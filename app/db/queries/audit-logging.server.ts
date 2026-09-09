@@ -174,6 +174,79 @@ export async function backfillOracleClustersForAllApps(
 	return { appsProcessed: instanceIdsByApp.size, entriesAffected }
 }
 
+/**
+ * Engangsoperasjon: setter `cluster = 'dev-fss'` manuelt på et fast, hardkodet
+ * sett med Oracle-persistence-rader som ikke kan cluster-utledes automatisk
+ * (appen finnes som to separate `monitored_applications`-rader – én for
+ * prod-fss og én for dev-fss – så ett-cluster-regelen i
+ * `ensureOneOraclePersistenceEntry` kan ikke avgjøre riktig cluster for
+ * `dev-fss`-varianten). Matcher eksplisitt på `appName` i tillegg til
+ * `type`/`name` som en ekstra sikring mot å treffe feil rad. Kun ment å kjøres
+ * én gang. Trygg å kjøre flere ganger – hopper over rader som allerede har
+ * cluster satt.
+ */
+const MANUAL_CLUSTER_FIXES: Array<{ appName: string; type: "oracle"; name: string; cluster: string }> = [
+	{ appName: "supstonad-historisk", type: "oracle", name: "historisk_exodus_q1", cluster: "dev-fss" },
+	{ appName: "supstonad-historisk", type: "oracle", name: "su_infotrygd_q", cluster: "dev-fss" },
+]
+
+export async function backfillKnownDevFssOracleClusters(
+	performedBy: string,
+): Promise<{ rowsUpdated: number; rowsSkipped: number }> {
+	let rowsUpdated = 0
+	let rowsSkipped = 0
+
+	for (const fix of MANUAL_CLUSTER_FIXES) {
+		const updated = await db.transaction(async (tx) => {
+			const [existing] = await tx
+				.select({ persistence: applicationPersistence, appName: monitoredApplications.name })
+				.from(applicationPersistence)
+				.innerJoin(monitoredApplications, eq(applicationPersistence.applicationId, monitoredApplications.id))
+				.where(
+					and(
+						eq(monitoredApplications.name, fix.appName),
+						eq(applicationPersistence.type, fix.type),
+						eq(applicationPersistence.name, fix.name),
+						isNull(applicationPersistence.archivedAt),
+					),
+				)
+				.for("update")
+				.limit(1)
+
+			if (!existing || existing.persistence.cluster !== null) return false
+
+			await tx
+				.update(applicationPersistence)
+				.set({ cluster: fix.cluster, updatedAt: new Date() })
+				.where(eq(applicationPersistence.id, existing.persistence.id))
+
+			await writeAuditLog(
+				{
+					action: "persistence_updated",
+					entityType: "application_persistence",
+					entityId: existing.persistence.id,
+					previousValue: JSON.stringify({ cluster: null }),
+					newValue: JSON.stringify({ cluster: fix.cluster }),
+					metadata: {
+						applicationId: existing.persistence.applicationId,
+						appName: fix.appName,
+						name: fix.name,
+						reason: "manual_dev_fss_cluster_fix",
+					},
+					performedBy,
+				},
+				tx,
+			)
+			return true
+		})
+
+		if (updated) rowsUpdated++
+		else rowsSkipped++
+	}
+
+	return { rowsUpdated, rowsSkipped }
+}
+
 async function ensureOneOraclePersistenceEntry(
 	appId: string,
 	instanceId: string,
