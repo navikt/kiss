@@ -1,13 +1,14 @@
 import { Alert, BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, Tag, VStack } from "@navikt/ds-react"
-import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
+import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam } from "~/db/queries/applications.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getActiveDevTeamEntraMembers } from "~/db/queries/dev-team-entra.server"
+import { archiveApplication } from "~/db/queries/nais.server"
 import { countOpenFollowUpPointsForApps } from "~/db/queries/routines.server"
-import { getSectionBySlug, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
+import { getSectionBySlug, getTeamActiveAppIds, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
 import { getUsersForTeam } from "~/db/queries/users.server"
 import { type EconomySystemType, economySystemTypeLabels } from "~/db/schema/applications"
 import { userRoleLabels } from "~/db/schema/organization"
@@ -95,6 +96,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		})),
 		canManage,
 		canAddApp,
+		canArchiveApps: canAddApp,
 		availableApps,
 		teamUsers: mergedTeamUsers,
 		totalImplemented,
@@ -134,6 +136,26 @@ export async function action({ request, params }: Route.ActionArgs) {
 			return data({ success: false, error: "Velg en applikasjon." })
 		}
 		await linkAppToTeam(applicationId, teamRecord.id, authedUser.navIdent)
+		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}`)
+	}
+
+	if (intent === "archive-app") {
+		const applicationId = formData.get("applicationId")
+		if (typeof applicationId !== "string" || !applicationId) {
+			return data({ success: false, error: "Mangler applikasjon." })
+		}
+		const activeAppIds = await getTeamActiveAppIds(teamSlug)
+		if (!activeAppIds?.appIds.includes(applicationId)) {
+			throw new Response("Applikasjonen tilhører ikke dette teamet", { status: 403 })
+		}
+		try {
+			await archiveApplication(applicationId, authedUser.navIdent)
+		} catch (error) {
+			return data({
+				success: false,
+				error: error instanceof Error ? error.message : "Kunne ikke arkivere applikasjonen.",
+			})
+		}
 		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}`)
 	}
 
@@ -186,6 +208,7 @@ export default function TeamDashboard() {
 		apps,
 		canManage,
 		canAddApp,
+		canArchiveApps,
 		availableApps,
 		teamUsers,
 		totalImplemented,
@@ -335,9 +358,16 @@ export default function TeamDashboard() {
 								return (
 									<Table.Row key={app.appId}>
 										<Table.DataCell>
-											<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer`}>
-												{app.appName}
-											</Link>
+											<HStack align="center" gap="space-4" wrap={false}>
+												<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer`}>
+													{app.appName}
+												</Link>
+												{app.canArchive && (
+													<Tag variant="warning" size="xsmall">
+														Borte fra Nais
+													</Tag>
+												)}
+											</HStack>
 										</Table.DataCell>
 										<Table.DataCell>
 											{app.isEconomySystem === null ? (
@@ -370,11 +400,27 @@ export default function TeamDashboard() {
 												: `${Math.round((app.routineCompliance.routinesGjennomfort / app.routineCompliance.routinesTotal) * 100)}%`}
 										</Table.DataCell>
 										<Table.DataCell>
-											<Link
-												to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer?fane=screeninger`}
-											>
-												Vurder
-											</Link>
+											<HStack align="center" gap="space-4" wrap={false}>
+												<Link
+													to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer?fane=screeninger`}
+												>
+													Vurder
+												</Link>
+												{app.canArchive && canArchiveApps && (
+													<Form
+														method="post"
+														onSubmit={(e) =>
+															!confirm(`Er du sikker på at du vil arkivere ${app.appName}?`) && e.preventDefault()
+														}
+													>
+														<input type="hidden" name="intent" value="archive-app" />
+														<input type="hidden" name="applicationId" value={app.appId} />
+														<Button variant="danger" size="xsmall" type="submit">
+															Arkiver
+														</Button>
+													</Form>
+												)}
+											</HStack>
 										</Table.DataCell>
 									</Table.Row>
 								)
