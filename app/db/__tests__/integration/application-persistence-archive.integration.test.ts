@@ -469,9 +469,13 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(metadata.reason).toBe("cluster_backfilled_by_nais_sync")
 	})
 
-	it("getLegacyPersistenceRowsWithoutCluster returnerer appnavn/type/navn for rader uten cluster og fjerner dem etter backfill", async () => {
+	it("getLegacyPersistenceRowsWithoutCluster returnerer appnavn/type/navn for rader uten cluster (med aktivt miljø) og fjerner dem etter backfill", async () => {
 		const appId = await createTestApp("App O4")
 		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'ns')`,
+		)
 
 		const before = await getLegacyPersistenceRowsWithoutCluster()
 
@@ -491,11 +495,55 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 
 	it("getLegacyPersistenceRowsWithoutCluster ekskluderer manuelt lagt til rader (manuallyAdded=true)", async () => {
 		const appId = await createTestApp("App O5")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'ns')`,
+		)
 
 		const before = await getLegacyPersistenceRowsWithoutCluster()
 
 		await addManualPersistence(appId, "cloud_sql_postgres", "manuell-db", null, "u")
 
+		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
+	})
+
+	it("getLegacyPersistenceRowsWithoutCluster ekskluderer rader for apper uten aktive miljøer (kan ikke backfilles automatisk)", async () => {
+		const appId = await createTestApp("App O6")
+		const db = getTestDb()
+
+		const before = await getLegacyPersistenceRowsWithoutCluster()
+
+		await db.execute(
+			/* sql */ `INSERT INTO application_persistence (application_id, type, name)
+				VALUES ('${appId}', 'oracle', 'no-active-env')`,
+		)
+
+		// Ingen aktive miljøer for appen — raden kan aldri backfilles automatisk av
+		// nais-sync, så den skal ikke telles med i observabilitetssignalet.
+		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
+	})
+
+	it("getLegacyPersistenceRowsWithoutCluster ekskluderer rader for arkiverte applikasjoner selv om et miljø fortsatt er ikke-arkivert", async () => {
+		const appId = await createTestApp("App O7")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'ns')`,
+		)
+
+		const before = await getLegacyPersistenceRowsWithoutCluster()
+
+		await db.execute(
+			/* sql */ `INSERT INTO application_persistence (application_id, type, name)
+				VALUES ('${appId}', 'oracle', 'archived-app-active-env')`,
+		)
+		await db.execute(
+			/* sql */ `UPDATE monitored_applications SET archived_at = now(), archived_by = 'test' WHERE id = '${appId}'`,
+		)
+
+		// Appen er arkivert (ikke lenger overvåket) selv om det tilhørende miljøet
+		// ikke er arkivert — raden skal likevel ikke telles med.
 		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
 	})
 })
