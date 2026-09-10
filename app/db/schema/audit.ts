@@ -217,6 +217,9 @@ export const auditLogActionEnum = [
 	"ruleset_control_removed",
 	"ruleset_routine_added",
 	"ruleset_routine_removed",
+	"ruleset_copied",
+	"ruleset_replaced",
+	"ruleset_approved",
 
 	// Revisjonsbevis og automatiske synkroniseringer
 	"audit_confirmation_created",
