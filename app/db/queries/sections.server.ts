@@ -1270,6 +1270,86 @@ export async function getArchivedSectionApps(seksjonSlug: string) {
 	return { section, apps }
 }
 
+/** Collects app IDs historically associated with a team (direct mapping or via linked Nais teams). */
+async function getHistoricalTeamAppIds(teamId: string): Promise<Set<string>> {
+	const [directRows, naisTeamRows] = await Promise.all([
+		db
+			.selectDistinct({ appId: applicationTeamMappings.applicationId })
+			.from(applicationTeamMappings)
+			.where(eq(applicationTeamMappings.devTeamId, teamId)),
+		db
+			.selectDistinct({ naisTeamId: devTeamNaisTeamMappings.naisTeamId })
+			.from(devTeamNaisTeamMappings)
+			.where(eq(devTeamNaisTeamMappings.devTeamId, teamId)),
+	])
+	const appIdSet = new Set(directRows.map((r) => r.appId))
+	const naisTeamIds = naisTeamRows.map((r) => r.naisTeamId)
+
+	if (naisTeamIds.length > 0) {
+		const naisAppRows = await db
+			.selectDistinct({ appId: applicationEnvironments.applicationId })
+			.from(applicationEnvironments)
+			.where(inArray(applicationEnvironments.naisTeamId, naisTeamIds))
+		for (const row of naisAppRows) appIdSet.add(row.appId)
+	}
+
+	return appIdSet
+}
+
+/**
+ * Get archived applications that have historically belonged to a specific team (via
+ * applicationTeamMappings or applicationEnvironments on linked Nais teams), regardless of the
+ * mapping's own archivedAt state, since the team association typically predates/survives the
+ * application-level archiving.
+ */
+export async function getArchivedTeamApps(teamId: string) {
+	const appIdSet = await getHistoricalTeamAppIds(teamId)
+	if (appIdSet.size === 0) return []
+
+	const archivedAppRows = await db
+		.select({
+			id: monitoredApplications.id,
+			name: monitoredApplications.name,
+			archivedAt: monitoredApplications.archivedAt,
+			archivedBy: monitoredApplications.archivedBy,
+		})
+		.from(monitoredApplications)
+		.where(
+			and(
+				inArray(monitoredApplications.id, [...appIdSet]),
+				isNotNull(monitoredApplications.archivedAt),
+				isNull(monitoredApplications.primaryApplicationId),
+			),
+		)
+		.orderBy(sql`${monitoredApplications.archivedAt} DESC`)
+
+	return archivedAppRows.map((app) => ({
+		appId: app.id,
+		appName: app.name,
+		archivedAt: app.archivedAt,
+		archivedBy: app.archivedBy,
+	}))
+}
+
+/** Lightweight count of archived applications historically belonging to a team, for dashboard badges. */
+export async function countArchivedTeamApps(teamId: string): Promise<number> {
+	const appIdSet = await getHistoricalTeamAppIds(teamId)
+	if (appIdSet.size === 0) return 0
+
+	const [row] = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(monitoredApplications)
+		.where(
+			and(
+				inArray(monitoredApplications.id, [...appIdSet]),
+				isNotNull(monitoredApplications.archivedAt),
+				isNull(monitoredApplications.primaryApplicationId),
+			),
+		)
+
+	return Number(row?.count ?? 0)
+}
+
 /**
  * Returns all effective app IDs in a section, applying the same filters as section UI:
  * - Excludes child apps (primaryApplicationId IS NOT NULL)
