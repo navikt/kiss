@@ -243,6 +243,145 @@ describe("Application archive (soft-delete) integration tests", () => {
 		expect(audit.find((a) => a.action === "application_unarchived")?.performed_by).toBe("reactivator")
 	})
 
+	describe("getArchivedTeamApps", () => {
+		it("returns archived apps directly mapped to the team, but not active ones", async () => {
+			const db = getTestDb()
+			const sectionRow = await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('ArchTeamSec', 'arch-team-sec', 'test', 'test') RETURNING id`,
+			)
+			const sectionId = (sectionRow.rows[0] as { id: string }).id
+			const teamRow = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by) VALUES ('ArchTeam', 'arch-team', '${sectionId}', 'test', 'test') RETURNING id`,
+			)
+			const teamId = (teamRow.rows[0] as { id: string }).id
+
+			const active = await createTestApp("Still Active App")
+			await db.execute(
+				/* sql */ `INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES ('${active}', '${teamId}', 'test')`,
+			)
+
+			const archived = await createTestApp("Gone App")
+			await db.execute(
+				/* sql */ `INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES ('${archived}', '${teamId}', 'test')`,
+			)
+			await archiveApplication(archived, "archiver")
+
+			const { getArchivedTeamApps } = await import("~/db/queries/sections.server")
+			const result = await getArchivedTeamApps(teamId)
+
+			expect(result.map((a) => a.appId)).toEqual([archived])
+			expect(result[0].appName).toBe("Gone App")
+			expect(result[0].archivedBy).toBe("archiver")
+			expect(result[0].archivedAt).not.toBeNull()
+		})
+
+		it("returns an empty array for a team with no archived apps", async () => {
+			const db = getTestDb()
+			const sectionRow = await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('NoArchSec', 'no-arch-sec', 'test', 'test') RETURNING id`,
+			)
+			const sectionId = (sectionRow.rows[0] as { id: string }).id
+			const teamRow = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by) VALUES ('NoArchTeam', 'no-arch-team', '${sectionId}', 'test', 'test') RETURNING id`,
+			)
+			const teamId = (teamRow.rows[0] as { id: string }).id
+
+			const { getArchivedTeamApps } = await import("~/db/queries/sections.server")
+			const result = await getArchivedTeamApps(teamId)
+
+			expect(result).toEqual([])
+		})
+
+		it("returns archived apps historically linked via a Nais team, but not active ones", async () => {
+			const db = getTestDb()
+			const sectionRow = await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('ArchNaisSec', 'arch-nais-sec', 'test', 'test') RETURNING id`,
+			)
+			const sectionId = (sectionRow.rows[0] as { id: string }).id
+			const teamRow = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by) VALUES ('ArchNaisTeam', 'arch-nais-team', '${sectionId}', 'test', 'test') RETURNING id`,
+			)
+			const teamId = (teamRow.rows[0] as { id: string }).id
+			const naisTeamRow = await db.execute(
+				/* sql */ `INSERT INTO nais_teams (slug, dev_team_id) VALUES ('arch-nais-slug', '${teamId}') RETURNING id`,
+			)
+			const naisTeamId = (naisTeamRow.rows[0] as { id: string }).id
+			await db.execute(
+				/* sql */ `INSERT INTO dev_team_nais_team_mappings (dev_team_id, nais_team_id, created_by) VALUES ('${teamId}', '${naisTeamId}', 'test')`,
+			)
+
+			const active = await createTestApp("Nais Active App")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id) VALUES ('${active}', 'dev-gcp', 'team-x', '${naisTeamId}')`,
+			)
+
+			const archived = await createTestApp("Nais Gone App")
+			await db.execute(
+				/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, nais_team_id, archived_at, archived_by) VALUES ('${archived}', 'dev-gcp', 'team-x', '${naisTeamId}', now(), 'archiver')`,
+			)
+			await archiveApplication(archived, "archiver")
+
+			const { getArchivedTeamApps } = await import("~/db/queries/sections.server")
+			const result = await getArchivedTeamApps(teamId)
+
+			expect(result.map((a) => a.appId)).toEqual([archived])
+			expect(result[0].appName).toBe("Nais Gone App")
+		})
+	})
+
+	describe("countArchivedTeamApps", () => {
+		it("counts archived apps mapped to the team without counting active ones", async () => {
+			const db = getTestDb()
+			const sectionRow = await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('CountArchSec', 'count-arch-sec', 'test', 'test') RETURNING id`,
+			)
+			const sectionId = (sectionRow.rows[0] as { id: string }).id
+			const teamRow = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by) VALUES ('CountArchTeam', 'count-arch-team', '${sectionId}', 'test', 'test') RETURNING id`,
+			)
+			const teamId = (teamRow.rows[0] as { id: string }).id
+
+			const active = await createTestApp("Count Active App")
+			await db.execute(
+				/* sql */ `INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES ('${active}', '${teamId}', 'test')`,
+			)
+
+			const archivedOne = await createTestApp("Count Gone App 1")
+			await db.execute(
+				/* sql */ `INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES ('${archivedOne}', '${teamId}', 'test')`,
+			)
+			await archiveApplication(archivedOne, "archiver")
+
+			const archivedTwo = await createTestApp("Count Gone App 2")
+			await db.execute(
+				/* sql */ `INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES ('${archivedTwo}', '${teamId}', 'test')`,
+			)
+			await archiveApplication(archivedTwo, "archiver")
+
+			const { countArchivedTeamApps } = await import("~/db/queries/sections.server")
+			const count = await countArchivedTeamApps(teamId)
+
+			expect(count).toBe(2)
+		})
+
+		it("returns 0 for a team with no archived apps", async () => {
+			const db = getTestDb()
+			const sectionRow = await db.execute(
+				/* sql */ `INSERT INTO sections (name, slug, created_by, updated_by) VALUES ('CountNoArchSec', 'count-no-arch-sec', 'test', 'test') RETURNING id`,
+			)
+			const sectionId = (sectionRow.rows[0] as { id: string }).id
+			const teamRow = await db.execute(
+				/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by) VALUES ('CountNoArchTeam', 'count-no-arch-team', '${sectionId}', 'test', 'test') RETURNING id`,
+			)
+			const teamId = (teamRow.rows[0] as { id: string }).id
+
+			const { countArchivedTeamApps } = await import("~/db/queries/sections.server")
+			const count = await countArchivedTeamApps(teamId)
+
+			expect(count).toBe(0)
+		})
+	})
+
 	it("rejects archive when application has Nais environments", async () => {
 		const appId = await createTestApp("Live App", { withEnvironment: true })
 		await expect(archiveApplication(appId, "admin")).rejects.toThrow(/Nais/)

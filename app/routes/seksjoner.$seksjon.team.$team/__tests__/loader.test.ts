@@ -15,9 +15,13 @@ vi.mock("~/lib/authorization.server", () => ({
 
 const mockGetTeamApps = vi.fn()
 const mockGetSectionBySlug = vi.fn()
+const mockCountArchivedTeamApps = vi.fn().mockResolvedValue(0)
+const mockGetTeamActiveAppIds = vi.fn().mockResolvedValue([])
 vi.mock("~/db/queries/sections.server", () => ({
 	getTeamApps: (...args: unknown[]) => mockGetTeamApps(...args),
 	getSectionBySlug: (...args: unknown[]) => mockGetSectionBySlug(...args),
+	countArchivedTeamApps: (...args: unknown[]) => mockCountArchivedTeamApps(...args),
+	getTeamActiveAppIds: (...args: unknown[]) => mockGetTeamActiveAppIds(...args),
 	getTeamBySlug: vi.fn(),
 }))
 
@@ -58,7 +62,10 @@ function makeRequest(): Request {
 
 function getPayload(result: Awaited<ReturnType<typeof loader>>) {
 	if (!result || !("data" in result)) throw new Error("Loader returnerte ikke data()")
-	return result.data as { teamUsers: Array<{ navIdent: string; name: string; roles: string[] }> }
+	return result.data as {
+		teamUsers: Array<{ navIdent: string; name: string; roles: string[] }>
+		archivedAppsCount: number
+	}
 }
 
 const baseTeam = {
@@ -78,6 +85,7 @@ beforeEach(() => {
 	mockGetTeamApps.mockResolvedValue({ team: baseTeam, apps: [] })
 	mockGetUsersForTeam.mockResolvedValue([])
 	mockGetActiveDevTeamEntraMembers.mockResolvedValue([])
+	mockCountArchivedTeamApps.mockResolvedValue(0)
 	mockGetAuthenticatedUser.mockResolvedValue({ navIdent: "Z990001", dbRoles: [] })
 })
 
@@ -156,5 +164,32 @@ describe("loader — teamUsers for Entra-koblede team", () => {
 		expect(payload.teamUsers).toEqual(
 			expect.arrayContaining([{ navIdent: " z990002 ", name: "Rask Elv", roles: ["tech_lead"] }]),
 		)
+	})
+})
+
+describe("loader — archivedAppsCount", () => {
+	it("teller antall arkiverte applikasjoner for teamet", async () => {
+		mockCountArchivedTeamApps.mockResolvedValue(2)
+
+		const result = await loader({
+			request: makeRequest(),
+			params: { seksjon: "pensjon-og-ufore", team: "pensjon-opptjening" },
+			context: {},
+		} as unknown as Parameters<typeof loader>[0])
+		const payload = getPayload(result)
+
+		expect(mockCountArchivedTeamApps).toHaveBeenCalledWith(baseTeam.id)
+		expect(payload.archivedAppsCount).toBe(2)
+	})
+
+	it("er 0 når teamet ikke har arkiverte applikasjoner", async () => {
+		const result = await loader({
+			request: makeRequest(),
+			params: { seksjon: "pensjon-og-ufore", team: "pensjon-opptjening" },
+			context: {},
+		} as unknown as Parameters<typeof loader>[0])
+		const payload = getPayload(result)
+
+		expect(payload.archivedAppsCount).toBe(0)
 	})
 })

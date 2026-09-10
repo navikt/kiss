@@ -25,7 +25,13 @@ import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audi
 import { getActiveDevTeamEntraMembers } from "~/db/queries/dev-team-entra.server"
 import { archiveApplication } from "~/db/queries/nais.server"
 import { countOpenFollowUpPointsForApps } from "~/db/queries/routines.server"
-import { getSectionBySlug, getTeamActiveAppIds, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
+import {
+	countArchivedTeamApps,
+	getSectionBySlug,
+	getTeamActiveAppIds,
+	getTeamApps,
+	getTeamBySlug,
+} from "~/db/queries/sections.server"
 import { getUsersForTeam } from "~/db/queries/users.server"
 import { type EconomySystemType, economySystemTypeLabels } from "~/db/schema/applications"
 import { userRoleLabels } from "~/db/schema/organization"
@@ -49,10 +55,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const appIds = result.apps.map((a) => a.appId)
 	const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
-	const [deploymentStats, screeningProgressMap, needsFollowUpPoints] = await Promise.all([
+	const [deploymentStats, screeningProgressMap, needsFollowUpPoints, archivedAppsCount] = await Promise.all([
 		getDeploymentVerificationAggregate(appIds),
 		getScreeningProgressForApps(appIds, [section.id]),
 		countOpenFollowUpPointsForApps(section.id, appIds),
+		countArchivedTeamApps(result.team.id),
 	])
 
 	const canManage = user ? canManageTeam(user, result.team.id, section.id) : false
@@ -114,6 +121,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		canManage,
 		canAddApp,
 		canArchiveApps: canAddApp,
+		archivedAppsCount,
 		availableApps,
 		teamUsers: mergedTeamUsers,
 		totalImplemented,
@@ -325,6 +333,7 @@ export default function TeamDashboard() {
 		overallPercent,
 		totalRoutinesIkkeGjennomfort,
 		needsFollowUpPoints,
+		archivedAppsCount,
 		deploymentStats,
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
@@ -419,6 +428,16 @@ export default function TeamDashboard() {
 								{needsFollowUpPoints}
 							</Heading>
 							<Detail>Åpne oppfølgingspunkter</Detail>
+						</VStack>
+					</Box>
+				</Link>
+				<Link to={`/seksjoner/${seksjon}/team/${team}/arkiverte`} style={{ textDecoration: "none", color: "inherit" }}>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{archivedAppsCount}
+							</Heading>
+							<Detail>Arkiverte applikasjoner</Detail>
 						</VStack>
 					</Box>
 				</Link>
