@@ -1,4 +1,5 @@
 import { MenuElipsisVerticalIcon } from "@navikt/aksel-icons"
+import type { SortState } from "@navikt/ds-react"
 import {
 	ActionMenu,
 	Alert,
@@ -15,7 +16,7 @@ import {
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import { useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
@@ -316,6 +317,15 @@ function TeamAppActionsCell({
 	)
 }
 
+type SortKey =
+	| "appName"
+	| "economySystem"
+	| "screening"
+	| "routinesGjennomfort"
+	| "routinesIkkeGjennomfort"
+	| "followUp"
+	| "statusPct"
+
 export default function TeamDashboard() {
 	const {
 		seksjon,
@@ -337,6 +347,50 @@ export default function TeamDashboard() {
 		deploymentStats,
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
+	const [sort, setSort] = useState<SortState>({ orderBy: "appName", direction: "ascending" })
+
+	const sortedApps = useMemo(() => {
+		const dir = sort.direction === "ascending" ? 1 : -1
+		return [...apps].sort((a, b) => {
+			switch (sort.orderBy as SortKey) {
+				case "appName":
+					return dir * a.appName.localeCompare(b.appName, "nb")
+				case "economySystem": {
+					const label = (a: (typeof apps)[number]): string => {
+						if (a.isEconomySystem === null) return ""
+						if (!a.isEconomySystem) return "Nei"
+						return economyTypeLabel(a.economySystemType)
+					}
+					return dir * label(a).localeCompare(label(b), "nb")
+				}
+				case "screening":
+					return dir * (a.screeningProgress.answered - b.screeningProgress.answered)
+				case "routinesGjennomfort":
+					return dir * (a.routineCompliance.routinesGjennomfort - b.routineCompliance.routinesGjennomfort)
+				case "routinesIkkeGjennomfort":
+					return dir * (a.routineCompliance.routinesIkkeGjennomfort - b.routineCompliance.routinesIkkeGjennomfort)
+				case "followUp":
+					return dir * (a.routineCompliance.routinesMaaFolgesOpp - b.routineCompliance.routinesMaaFolgesOpp)
+				case "statusPct": {
+					const pctFor = (a: (typeof apps)[number]) =>
+						a.routineCompliance.routinesTotal === 0
+							? -1
+							: (a.routineCompliance.routinesGjennomfort / a.routineCompliance.routinesTotal) * 100
+					return dir * (pctFor(a) - pctFor(b))
+				}
+				default:
+					return 0
+			}
+		})
+	}, [apps, sort])
+
+	const handleSort = (sortKey: string) => {
+		setSort((prev) =>
+			prev.orderBy === sortKey
+				? { orderBy: sortKey, direction: prev.direction === "ascending" ? "descending" : "ascending" }
+				: { orderBy: sortKey, direction: "ascending" },
+		)
+	}
 
 	return (
 		<VStack gap="space-8">
@@ -457,33 +511,37 @@ export default function TeamDashboard() {
 			{apps.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
 				<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner per team">
-					<Table>
+					<Table sort={sort} onSortChange={handleSort}>
 						<Table.Header>
 							<Table.Row>
-								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Økonomisystem</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
+								<Table.ColumnHeader scope="col" sortKey="appName" sortable>
+									Applikasjon
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" sortKey="economySystem" sortable>
+									Økonomisystem
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" align="right" sortKey="screening" sortable>
 									Spørsmål
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" align="right" sortKey="routinesGjennomfort" sortable>
 									Rutiner gjennomført
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" align="right" sortKey="routinesIkkeGjennomfort" sortable>
 									Rutiner ikke gjennomført
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" align="right" sortKey="followUp" sortable>
 									Gjennomganger med åpne punkter
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" align="right" sortKey="statusPct" sortable>
 									Status %
-								</Table.HeaderCell>
+								</Table.ColumnHeader>
 								<Table.HeaderCell scope="col" align="right">
 									Handlinger
 								</Table.HeaderCell>
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
-							{apps.map((app) => {
+							{sortedApps.map((app) => {
 								return (
 									<Table.Row key={app.appId}>
 										<Table.DataCell>
