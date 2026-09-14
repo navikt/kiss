@@ -8,6 +8,7 @@ import {
 	canManageTeam,
 	hasAnySectionRole,
 	hasAnyTeamRole,
+	hasReviewReadAccess,
 	hasRole,
 	hasRoleForSection,
 	isActualAdmin,
@@ -857,6 +858,34 @@ describe("requireReviewReadAccess", () => {
 			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
 		})
 		await expect(requireReviewReadAccess(user, { applicationId: null, sectionId })).resolves.toBeUndefined()
+		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
+	})
+})
+
+describe("hasReviewReadAccess — preloadedDevTeamIds", () => {
+	const appId = "app-1"
+	const sectionId = "sec-1"
+	const devTeamId = "team-1"
+
+	beforeEach(() => mockGetAppScopeIds.mockReset())
+
+	it("uses the preloaded dev-team ids instead of calling getAppScopeIds", async () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId, devTeamSectionId: null }],
+		})
+		const result = await hasReviewReadAccess(user, { applicationId: appId, sectionId }, [devTeamId])
+
+		expect(result).toBe(true)
+		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
+	})
+
+	it("denies access when the user has no role in any of the preloaded dev teams", async () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "other-team", devTeamSectionId: null }],
+		})
+		const result = await hasReviewReadAccess(user, { applicationId: appId, sectionId }, [devTeamId])
+
+		expect(result).toBe(false)
 		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
 	})
 })
