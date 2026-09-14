@@ -35,6 +35,7 @@ import {
 	getRoutineNamesByIds,
 	isOverdue,
 	replaceRoutine,
+	resolveEffectiveResponsibleRole,
 	updateRoutinePriority,
 } from "~/db/queries/routines.server"
 import { getScreeningQuestion } from "~/db/queries/screening.server"
@@ -181,7 +182,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		}),
 	)
 
-	const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+	const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 	const userCanApprove = user ? canApproveRoutine(user, effectiveRole, section.id) : false
 	const userCanAdmin = user ? isAdmin(user) : false
 	const userCanEdit = user ? hasAnySectionRole(user, section.id) : false
@@ -246,7 +247,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	}
 
 	if (intent === "approve" || intent === "approve-as-new") {
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw data({ message: "Du har ikke riktig rolle til å godkjenne denne rutinen" }, { status: 403 })
 		}
@@ -255,7 +256,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	}
 
 	if (intent === "approve-replace") {
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw data({ message: "Du har ikke riktig rolle til å godkjenne denne rutinen" }, { status: 403 })
 		}
@@ -292,7 +293,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 		if (routine.status !== "approved") {
 			throw data({ message: "Kun godkjente rutiner kan arkiveres." }, { status: 400 })
 		}
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 		if (!isAdmin(authedUser) && !canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw data({ message: "Du har ikke rettigheter til å arkivere denne rutinen." }, { status: 403 })
 		}
@@ -301,7 +302,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	}
 
 	if (intent === "update-priority") {
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 		if (!isAdmin(authedUser) && !canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw data({ message: "Du har ikke rettigheter til å endre prioritet på denne rutinen" }, { status: 403 })
 		}
@@ -578,7 +579,6 @@ export default function RutineDetaljer() {
 					</VStack>
 
 					{(() => {
-						const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible
 						if (!effectiveRole) return null
 						const isInherited = !routine.responsibleRole
 						return (

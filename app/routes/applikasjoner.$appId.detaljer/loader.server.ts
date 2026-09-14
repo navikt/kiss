@@ -21,7 +21,12 @@ import {
 import { getLatestOracleRoleCriticalityReview, getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
 import { getReportsForApp } from "~/db/queries/reports.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
-import { getApplicationDocumentsForReviews, getReviewsForApp } from "~/db/queries/routines.server"
+import {
+	getApplicationDocumentsForReviews,
+	getReviewDetailAccessScopes,
+	getReviewsForApp,
+	resolveEffectiveResponsibleRole,
+} from "~/db/queries/routines.server"
 import { getRpaUsersForApp } from "~/db/queries/rpa.server"
 import { getRulesetsSelectedByApp } from "~/db/queries/rulesets.server"
 import { getScreeningProgressForApps, getScreeningQuestionsWithAnswersForApp } from "~/db/queries/screening.server"
@@ -31,7 +36,7 @@ import { getApplicationElements } from "~/db/queries/technology-elements.server"
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import type { GroupCriticality } from "~/db/schema/applications"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { canAccessAppReports, hasAnyTeamRole, hasRole, isAdmin } from "~/lib/authorization.server"
+import { canAccessAppReports, canViewReviewDetail, hasAnyTeamRole, hasRole, isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
@@ -155,11 +160,39 @@ export async function loader({ request, params }: LoaderArgs) {
 		getLatestOracleRoleCriticalityReview(appId),
 	])
 
-	const applicationDocuments = await getApplicationDocumentsForReviews(completedReviews)
+	// Skjul gjennomganger brukeren ikke har detaljtilgang til (samme regel som requireReviewDetailAccess),
+	// slik at hverken oppføringer, oppfølgingspunkter eller vedlegg for slike gjennomganger lekker ut her.
+	const visibleReviews = user
+		? completedReviews.filter((review) =>
+				canViewReviewDetail(user, {
+					responsibleRole: resolveEffectiveResponsibleRole(review.routineResponsibleRole, review.routineControls),
+					sectionId: review.sectionId,
+					status: review.status,
+					createdBy: review.createdBy,
+				}),
+			)
+		: []
+
+	const applicationDocuments = await getApplicationDocumentsForReviews(visibleReviews, user)
+
+	// Draft-gjennomganger på tvers av rutiner (routineDeadlines) inneholder en draftReviewId som lenker
+	// direkte til gjennomgangsdetaljene. Uten samme detaljtilgangssjekk som visibleReviews ville dette
+	// lekket eksistensen og lenken til en annen brukers pågående utkast til alle med canManageReviews.
+	const draftReviewIds = deadlinesWithControls
+		.map((d) => d.draftReviewId)
+		.filter((id): id is string => id !== undefined)
+	const draftAccessScopes = user && draftReviewIds.length > 0 ? await getReviewDetailAccessScopes(draftReviewIds) : null
+	const visibleDeadlinesWithControls = deadlinesWithControls.map((d) => {
+		if (!d.draftReviewId) return d
+		const scope = draftAccessScopes?.get(d.draftReviewId)
+		if (scope && user && canViewReviewDetail(user, scope)) return d
+		const { draftReviewId: _draftReviewId, ...rest } = d
+		return rest
+	})
 
 	const reviewerNamesPromise = getUserNamesByNavIdents([
-		...completedReviews.map((r) => r.createdBy),
-		...completedReviews.flatMap((r) => r.followUpPoints.map((p) => p.createdBy)),
+		...visibleReviews.map((r) => r.createdBy),
+		...visibleReviews.flatMap((r) => r.followUpPoints.map((p) => p.createdBy)),
 		...appReports.map((r) => r.createdBy),
 		...screeningSessions.filter((s) => s.archivedBy).map((s) => s.archivedBy as string),
 		...applicationDocuments.map((d) => d.uploadedBy),
@@ -324,6 +357,10 @@ export async function loader({ request, params }: LoaderArgs) {
 		latestOracleRoleCriticalityReview: (() => {
 			if (!latestOracleRoleCriticalityReview) return null
 			const { reviewId, routineId, sectionId, title, reviewedAt } = latestOracleRoleCriticalityReview
+			// Skjul metadata/lenke hvis brukeren ikke har detaljtilgang til den underliggende gjennomgangen
+			// (samme regel som visibleReviews over), slik at Oracle-fanen ikke lekker tittel/lenke til en
+			// gjennomgang brukeren ellers ikke får se.
+			if (!visibleReviews.some((r) => r.id === reviewId)) return null
 			const sectionSlug = sectionId ? sectionSlugMap[sectionId] : null
 			const gjennomgangUrl = sectionSlug
 				? `/seksjoner/${sectionSlug}/rutiner/${routineId}/gjennomgang/${reviewId}`
@@ -352,8 +389,8 @@ export async function loader({ request, params }: LoaderArgs) {
 		primaryApp: detail.primaryApp,
 		linkedApps: detail.linkedApps,
 		appElements,
-		routineDeadlines: deadlinesWithControls,
-		completedReviews: completedReviews.map((r) => ({
+		routineDeadlines: visibleDeadlinesWithControls,
+		completedReviews: visibleReviews.map((r) => ({
 			...r,
 			createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
 			followUpPoints: r.followUpPoints.map((p) => ({

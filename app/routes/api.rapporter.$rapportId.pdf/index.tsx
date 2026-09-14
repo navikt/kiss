@@ -4,9 +4,16 @@ import PDFDocument from "pdfkit"
 import { db } from "~/db/connection.server"
 import { getAppScopeIds } from "~/db/queries/applications.server"
 import { getReport } from "~/db/queries/reports.server"
+import { getReviewDetailAccessScopes } from "~/db/queries/routines.server"
 import { sections } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { canAccessAppReports, canManageSection, isAuditor } from "~/lib/authorization.server"
+import {
+	canAccessAppReports,
+	canManageSection,
+	canViewReviewDetail,
+	isAdmin,
+	isAuditor,
+} from "~/lib/authorization.server"
 import { sanitizeFilename } from "~/lib/sanitize-filename"
 import { getStorageProvider } from "~/lib/storage/index.server"
 import type { Route } from "./+types/index"
@@ -79,6 +86,20 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 		if (!canAccessAppReports(user, sectionIds, devTeamIds)) {
 			throw new Response("Ikke autorisert", { status: 403 })
 		}
+		// Rapporten kan inneholde gjennomgangstekst/-vedlegg brukeren siden har mistet detaljtilgang til
+		// (f.eks. et utkast eid av en annen). Eldre rapporter (generert før review_ids ble lagret) har ingen
+		// liste å sjekke mot — da nektes nedlasting for ikke-admin, siden vi aldri skal myke opp tilgangen.
+		if (!isAdmin(user)) {
+			if (!report.reviewIds) {
+				throw new Response("Ikke autorisert", { status: 403 })
+			}
+			const scopes = await getReviewDetailAccessScopes(report.reviewIds)
+			const hasAccessToAll = report.reviewIds.every((id) => {
+				const scope = scopes.get(id)
+				return scope !== undefined && canViewReviewDetail(user, scope)
+			})
+			if (!hasAccessToAll) throw new Response("Ikke autorisert", { status: 403 })
+		}
 	}
 
 	// scopeId is the applicationId for routine review reports
@@ -87,6 +108,17 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 		const { devTeamIds, sectionIds } = await getAppScopeIds(report.scopeId)
 		if (!canAccessAppReports(user, sectionIds, devTeamIds)) {
 			throw new Response("Ikke autorisert", { status: 403 })
+		}
+		if (!isAdmin(user)) {
+			if (!report.reviewIds) {
+				throw new Response("Ikke autorisert", { status: 403 })
+			}
+			const scopes = await getReviewDetailAccessScopes(report.reviewIds)
+			const hasAccessToAll = report.reviewIds.every((id) => {
+				const scope = scopes.get(id)
+				return scope !== undefined && canViewReviewDetail(user, scope)
+			})
+			if (!hasAccessToAll) throw new Response("Ikke autorisert", { status: 403 })
 		}
 	}
 

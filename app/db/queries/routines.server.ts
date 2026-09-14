@@ -1,5 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, type SQL, sql } from "drizzle-orm"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity } from "../../lib/activity-types"
+import type { NavUser } from "../../lib/auth.server"
+import { canViewReviewDetail } from "../../lib/authorization.server"
 import {
 	applyEntraStagedDataPatch,
 	ENTRA_STAGED_DATA_ACTIVITY_TYPE,
@@ -256,7 +258,8 @@ export async function getRoutine(id: string) {
 			)
 			.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
 			.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
-			.where(and(eq(routineControls.routineId, id), isNull(routineControls.archivedAt))),
+			.where(and(eq(routineControls.routineId, id), isNull(routineControls.archivedAt)))
+			.orderBy(frameworkControls.controlId),
 		db
 			.select()
 			.from(routineGroupClassificationLinks)
@@ -1517,7 +1520,8 @@ export async function getReviewsForApp(applicationId: string) {
 						)
 						.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
 						.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
-						.where(and(inArray(routineControls.routineId, routineIds), isNull(routineControls.archivedAt))),
+						.where(and(inArray(routineControls.routineId, routineIds), isNull(routineControls.archivedAt)))
+						.orderBy(routineControls.routineId, frameworkControls.controlId),
 				])
 			: [[], []]
 
@@ -1575,8 +1579,24 @@ export interface ApplicationDocument {
 }
 
 export async function getApplicationDocumentsForReviews(
-	reviews: Awaited<ReturnType<typeof getReviewsForApp>>,
+	allReviews: Awaited<ReturnType<typeof getReviewsForApp>>,
+	user: NavUser | null,
 ): Promise<ApplicationDocument[]> {
+	if (allReviews.length === 0) return []
+
+	// Skjul dokumenter fra gjennomganger brukeren ikke har detaljtilgang til, slik at Dokumenter-fanen
+	// aldri viser nedlastingslenker som senere blir avvist av vedleggs-endepunktene (samme regel som
+	// requireReviewDetailAccess).
+	const reviews = user
+		? allReviews.filter((review) =>
+				canViewReviewDetail(user, {
+					responsibleRole: resolveEffectiveResponsibleRole(review.routineResponsibleRole, review.routineControls),
+					sectionId: review.sectionId,
+					status: review.status,
+					createdBy: review.createdBy,
+				}),
+			)
+		: []
 	if (reviews.length === 0) return []
 
 	const reviewIds = reviews.map((r) => r.id)
@@ -1662,9 +1682,12 @@ export async function getApplicationDocumentsForReviews(
 	return documents
 }
 
-export async function getApplicationDocuments(applicationId: string): Promise<ApplicationDocument[]> {
+export async function getApplicationDocuments(
+	applicationId: string,
+	user: NavUser | null,
+): Promise<ApplicationDocument[]> {
 	const reviews = await getReviewsForApp(applicationId)
-	return getApplicationDocumentsForReviews(reviews)
+	return getApplicationDocumentsForReviews(reviews, user)
 }
 
 export async function getReview(id: string) {
@@ -1722,6 +1745,7 @@ export async function getReportableReviewsForRoutineAndApp(
 	routineId: string,
 	applicationId: string,
 	reviewId?: string,
+	reviewIds?: string[],
 ) {
 	const routineIds = await getRoutineAncestorChain(routineId)
 
@@ -1734,6 +1758,7 @@ export async function getReportableReviewsForRoutineAndApp(
 				eq(routineReviews.applicationId, applicationId),
 				inArray(routineReviews.status, ["completed", "needs_follow_up"]),
 				reviewId ? eq(routineReviews.id, reviewId) : undefined,
+				reviewIds ? inArray(routineReviews.id, reviewIds) : undefined,
 			),
 		)
 		.orderBy(desc(routineReviews.reviewedAt))
@@ -2848,6 +2873,152 @@ export async function getReviewScope(id: string): Promise<{
 		.where(eq(routineReviews.id, id))
 		.limit(1)
 	return row ?? null
+}
+
+/** Ren funksjon som velger rutinens effektive ansvarlige rolle: responsibleRole hvis satt, ellers
+ * "Arves fra krav" via første kontroll (i den rekkefølgen den ble hentet) som har et responsible-felt.
+ * Brukes av rutinesiden, rediger-siden og gjennomgangsdetaljene for å garantere samme resultat overalt. */
+export function resolveEffectiveResponsibleRole(
+	responsibleRole: string | null,
+	controls: { responsible: string | null }[],
+): string | null {
+	return responsibleRole || controls.find((c) => c.responsible)?.responsible || null
+}
+
+/** Henter kontrollene knyttet til en rutine, med samme filtrering (aktiv risiko-kontroll-mapping)
+ * og rekkefølge som getRoutine()'s controls-spørring, slik at resolveEffectiveResponsibleRole
+ * gir samme svar uansett om man går via getRoutine() eller denne lettvekts-varianten. */
+async function getRoutineControlsForRoleResolution(routineId: string): Promise<{ responsible: string | null }[]> {
+	return db
+		.selectDistinct({
+			id: frameworkControls.id,
+			controlId: frameworkControls.controlId,
+			responsible: frameworkControls.responsible,
+		})
+		.from(routineControls)
+		.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
+		.innerJoin(
+			frameworkRiskControlMappings,
+			and(
+				eq(frameworkControls.id, frameworkRiskControlMappings.controlId),
+				isNull(frameworkRiskControlMappings.archivedAt),
+			),
+		)
+		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+		.where(and(eq(routineControls.routineId, routineId), isNull(routineControls.archivedAt)))
+		.orderBy(frameworkControls.controlId)
+}
+
+/** Batch-variant av getRoutineControlsForRoleResolution — henter kontroller for flere rutiner i én
+ * spørring (gruppert per rutine-ID) i stedet for én spørring per rutine. */
+async function getRoutineControlsForRoleResolutionBatch(
+	routineIds: string[],
+): Promise<Map<string, { responsible: string | null }[]>> {
+	const result = new Map<string, { responsible: string | null }[]>()
+	if (routineIds.length === 0) return result
+
+	const rows = await db
+		.selectDistinct({
+			routineId: routineControls.routineId,
+			id: frameworkControls.id,
+			controlId: frameworkControls.controlId,
+			responsible: frameworkControls.responsible,
+		})
+		.from(routineControls)
+		.innerJoin(frameworkControls, eq(routineControls.controlId, frameworkControls.id))
+		.innerJoin(
+			frameworkRiskControlMappings,
+			and(
+				eq(frameworkControls.id, frameworkRiskControlMappings.controlId),
+				isNull(frameworkRiskControlMappings.archivedAt),
+			),
+		)
+		.innerJoin(frameworkRisks, eq(frameworkRiskControlMappings.riskId, frameworkRisks.id))
+		.innerJoin(frameworkDomains, eq(frameworkRisks.domainId, frameworkDomains.id))
+		.where(and(inArray(routineControls.routineId, routineIds), isNull(routineControls.archivedAt)))
+		.orderBy(routineControls.routineId, frameworkControls.controlId)
+
+	for (const row of rows) {
+		const arr = result.get(row.routineId) ?? []
+		arr.push({ responsible: row.responsible })
+		result.set(row.routineId, arr)
+	}
+	return result
+}
+
+/** Lightweight scope lookup for a review's detail-page access control (canViewReviewDetail/requireReviewDetailAccess).
+ * `responsibleRole` falls back til samme "Arves fra krav"-logikk (resolveEffectiveResponsibleRole) som resten av
+ * rutineflyten bruker (rutineside, rediger-side, gjennomgangsdetaljer). `status`/`createdBy` inkluderes slik at
+ * canViewReviewDetail kan håndheve utkast-eier-unntaket likt på alle steder (side, vedleggs-endepunkter). */
+export async function getReviewDetailAccessScope(id: string): Promise<{
+	responsibleRole: string | null
+	sectionId: string
+	status: ReviewStatus
+	createdBy: string
+} | null> {
+	const [row] = await db
+		.select({
+			responsibleRole: routines.responsibleRole,
+			sectionId: routines.sectionId,
+			routineId: routines.id,
+			status: routineReviews.status,
+			createdBy: routineReviews.createdBy,
+		})
+		.from(routineReviews)
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+		.where(eq(routineReviews.id, id))
+		.limit(1)
+	if (!row) return null
+
+	const controls = await getRoutineControlsForRoleResolution(row.routineId)
+	const responsibleRole = resolveEffectiveResponsibleRole(row.responsibleRole, controls)
+	return { responsibleRole, sectionId: row.sectionId, status: row.status, createdBy: row.createdBy }
+}
+
+/** Batch-variant av getReviewDetailAccessScope — én spørring for gjennomgangene og én per unike rutine
+ * (ikke én per gjennomgang), slik at rapportnedlasting med mange gjennomganger ikke gir N+1-spørringer
+ * mot databasen. */
+export async function getReviewDetailAccessScopes(ids: string[]): Promise<
+	Map<
+		string,
+		{
+			responsibleRole: string | null
+			sectionId: string
+			status: ReviewStatus
+			createdBy: string
+		}
+	>
+> {
+	const result = new Map<
+		string,
+		{ responsibleRole: string | null; sectionId: string; status: ReviewStatus; createdBy: string }
+	>()
+	if (ids.length === 0) return result
+
+	const rows = await db
+		.select({
+			id: routineReviews.id,
+			responsibleRole: routines.responsibleRole,
+			sectionId: routines.sectionId,
+			routineId: routines.id,
+			status: routineReviews.status,
+			createdBy: routineReviews.createdBy,
+		})
+		.from(routineReviews)
+		.innerJoin(routines, eq(routineReviews.routineId, routines.id))
+		.where(inArray(routineReviews.id, ids))
+
+	const routineIds = [...new Set(rows.map((r) => r.routineId))]
+	const controlsByRoutine = await getRoutineControlsForRoleResolutionBatch(routineIds)
+
+	for (const row of rows) {
+		const controls = controlsByRoutine.get(row.routineId) ?? []
+		const responsibleRole = resolveEffectiveResponsibleRole(row.responsibleRole, controls)
+		result.set(row.id, { responsibleRole, sectionId: row.sectionId, status: row.status, createdBy: row.createdBy })
+	}
+
+	return result
 }
 
 /**

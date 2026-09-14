@@ -33,6 +33,7 @@ import {
 	getRoutine,
 	getRoutineActivityLinks,
 	replaceRoutine,
+	resolveEffectiveResponsibleRole,
 	unarchiveRoutine,
 	updateRoutine,
 	updateRoutinePriority,
@@ -165,7 +166,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		})),
 	)
 
-	const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+	const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 	const userCanApprove = canApproveRoutine(authedUser, effectiveRole, section.id)
 	const userCanChangePriority = isAdmin(authedUser) || canApproveRoutine(authedUser, effectiveRole, section.id)
 
@@ -211,8 +212,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	// Unarchive må håndteres før status-guarden, ellers blir backfillede rader
 	// (status='deleted' + archivedAt) blokkert fra reaktivering.
 	if (intent === "unarchive") {
-		const effectiveRole =
-			existingRoutine.responsibleRole || existingRoutine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(existingRoutine.responsibleRole, existingRoutine.controls)
 		if (!isAdmin(authedUser) && !canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw new Response("Du har ikke rettigheter til å reaktivere denne rutinen.", { status: 403 })
 		}
@@ -403,8 +403,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 		})
 
 		if (priority !== undefined) {
-			const er =
-				existingRoutine.responsibleRole || existingRoutine.controls.find((c) => c.responsible)?.responsible || null
+			const er = resolveEffectiveResponsibleRole(existingRoutine.responsibleRole, existingRoutine.controls)
 			if (isAdmin(authedUser) || canApproveRoutine(authedUser, er, section.id)) {
 				await updateRoutinePriority(rutineId, priority, authedUser.navIdent)
 			}
@@ -423,8 +422,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	}
 
 	if (intent === "approve-replace") {
-		const effectiveRole =
-			existingRoutine.responsibleRole || existingRoutine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(existingRoutine.responsibleRole, existingRoutine.controls)
 		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw new Response("Du har ikke riktig rolle til å godkjenne denne rutinen", { status: 403 })
 		}
@@ -443,8 +441,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	}
 
 	if (intent === "approve-as-new") {
-		const effectiveRole =
-			existingRoutine.responsibleRole || existingRoutine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(existingRoutine.responsibleRole, existingRoutine.controls)
 		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw new Response("Du har ikke riktig rolle til å godkjenne denne rutinen", { status: 403 })
 		}

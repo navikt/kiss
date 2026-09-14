@@ -21,19 +21,23 @@ const mockApproveRoutine = vi.fn()
 const mockCopyRoutine = vi.fn()
 const mockArchiveRoutine = vi.fn()
 const mockUpdateRoutinePriority = vi.fn()
-vi.mock("~/db/queries/routines.server", () => ({
-	getRoutine: mockGetRoutine,
-	approveRoutine: mockApproveRoutine,
-	copyRoutine: mockCopyRoutine,
-	archiveRoutine: mockArchiveRoutine,
-	updateRoutinePriority: mockUpdateRoutinePriority,
-	calculateDeadline: vi.fn(),
-	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
-	getLatestReviewForApp: vi.fn(),
-	getLatestSectionReview: vi.fn().mockResolvedValue(null),
-	getReviewsForRoutine: vi.fn().mockResolvedValue([]),
-	isOverdue: vi.fn(),
-}))
+vi.mock("~/db/queries/routines.server", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("~/db/queries/routines.server")>()
+	return {
+		...actual,
+		getRoutine: mockGetRoutine,
+		approveRoutine: mockApproveRoutine,
+		copyRoutine: mockCopyRoutine,
+		archiveRoutine: mockArchiveRoutine,
+		updateRoutinePriority: mockUpdateRoutinePriority,
+		calculateDeadline: vi.fn(),
+		getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
+		getLatestReviewForApp: vi.fn(),
+		getLatestSectionReview: vi.fn().mockResolvedValue(null),
+		getReviewsForRoutine: vi.fn().mockResolvedValue([]),
+		isOverdue: vi.fn(),
+	}
+})
 
 vi.mock("~/db/queries/screening.server", () => ({
 	getScreeningQuestion: vi.fn().mockResolvedValue(null),
