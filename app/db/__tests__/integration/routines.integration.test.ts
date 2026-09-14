@@ -82,6 +82,20 @@ async function createTestApp(name: string) {
 	return (result.rows[0] as { id: string }).id
 }
 
+/** Makes an app an effective member of a section via a dev team, matching how
+ * getAppIdsInSection/getEffectiveAppIdsInSection determine section membership. */
+async function assignAppToSection(appId: string, sectionId: string) {
+	const db = getTestDb()
+	const slug = `team-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+	const teamResult = await db.execute(
+		/* sql */ `INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by) VALUES ('${slug}', '${slug}', '${sectionId}', 'test', 'test') RETURNING id`,
+	)
+	const teamId = (teamResult.rows[0] as { id: string }).id
+	await db.execute(
+		/* sql */ `INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES ('${appId}', '${teamId}', 'test')`,
+	)
+}
+
 async function createTestScreeningQuestion(sectionId: string, text: string) {
 	const db = getTestDb()
 	const result = await db.execute(
@@ -1049,6 +1063,7 @@ describe("Routines integration tests", () => {
 			await createTestChoice(questionId, "Yes")
 
 			const appId = await createTestApp("My App")
+			await assignAppToSection(appId, sectionId)
 			await createTestScreeningAnswer(appId, questionId, "Yes")
 
 			const routine = await createRoutine({
@@ -1079,10 +1094,12 @@ describe("Routines integration tests", () => {
 			const elemId = await createTestTechElement("Docker")
 
 			const app1Id = await createTestApp("Docker App")
+			await assignAppToSection(app1Id, sectionId)
 			await createTestScreeningAnswer(app1Id, questionId, "Yes")
 			await confirmAppTechElement(app1Id, elemId)
 
 			const app2Id = await createTestApp("Non-Docker App")
+			await assignAppToSection(app2Id, sectionId)
 			await createTestScreeningAnswer(app2Id, questionId, "Yes")
 
 			const routine = await createRoutine({
@@ -1113,6 +1130,7 @@ describe("Routines integration tests", () => {
 			const elemId = await createTestTechElement("Oracle")
 
 			const appId = await createTestApp("Oracle App")
+			await assignAppToSection(appId, sectionId)
 			await createTestScreeningAnswer(appId, questionId, "Yes")
 			// Manually added — no confirmed_at, mirrors what addApplicationElement() inserts
 			await addManualAppTechElement(appId, elemId)
@@ -1171,6 +1189,7 @@ describe("Routines integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Security", "security")
 			const appId = await createTestApp("Oracle App")
+			await assignAppToSection(appId, sectionId)
 
 			// App has Oracle persistence with data classification
 			await db.execute(
@@ -1232,6 +1251,7 @@ describe("Routines integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Security", "security")
 			const appId = await createTestApp("Entra App")
+			await assignAppToSection(appId, sectionId)
 
 			// Create an Entra group with classification
 			const groupId = "test-group-001"
@@ -1272,6 +1292,7 @@ describe("Routines integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Security", "security")
 			const appId = await createTestApp("Manual Group App")
+			await assignAppToSection(appId, sectionId)
 
 			const groupId = "manual-group-001"
 			await db.execute(
@@ -1310,6 +1331,7 @@ describe("Routines integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Security", "security")
 			const appId = await createTestApp("Critical Oracle App")
+			await assignAppToSection(appId, sectionId)
 
 			// Create Oracle instance first
 			await db.execute(
@@ -1348,6 +1370,7 @@ describe("Routines integration tests", () => {
 			const db = getTestDb()
 			const sectionId = await createTestSection("Security", "security")
 			const appId = await createTestApp("Selected App")
+			await assignAppToSection(appId, sectionId)
 			const questionId = await createTestScreeningQuestion(sectionId, "Some question?")
 			const choiceId = await createTestChoice(questionId, "Yes")
 
@@ -1513,6 +1536,7 @@ describe("Routines integration tests", () => {
 			await createTestChoice(questionId, "Yes")
 
 			const appId = await createTestApp("Multi-match App")
+			await assignAppToSection(appId, sectionId)
 
 			// Match via screening question (Path 1)
 			await createTestScreeningAnswer(appId, questionId, "Yes")
@@ -1566,6 +1590,118 @@ describe("Routines integration tests", () => {
 			const apps = await getAppsRequiringRoutine(routine.id)
 			expect(apps).toHaveLength(0)
 		})
+
+		it("should NOT match apps from another section, even with matching persistence (Path 2)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+			const otherSectionId = await createTestSection("Other Section", "other-section")
+
+			const otherSectionAppId = await createTestApp("Other Section Oracle App")
+			await assignAppToSection(otherSectionAppId, otherSectionId)
+			await db.execute(
+				/* sql */ `INSERT INTO application_persistence (application_id, type, name, data_classification)
+				VALUES ('${otherSectionAppId}', 'oracle', 'PROD_DB', 'financial_regulation')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Oracle Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [{ persistenceType: "oracle", dataClassification: "financial_regulation" }],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(0)
+		})
+
+		it("should NOT match apps from another section, even with matching group classification (Path 3)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+			const otherSectionId = await createTestSection("Other Section", "other-section")
+
+			const otherSectionAppId = await createTestApp("Other Section Entra App")
+			await assignAppToSection(otherSectionAppId, otherSectionId)
+
+			const groupId = "test-group-cross-section"
+			await db.execute(
+				/* sql */ `INSERT INTO entra_group_classifications (group_id, classification, created_by, updated_by)
+				VALUES ('${groupId}', 'mine_tilganger', 'test', 'test')`,
+			)
+			await db.execute(
+				/* sql */ `INSERT INTO application_auth_integrations (application_id, type, cluster, groups)
+				VALUES ('${otherSectionAppId}', 'entra_id', 'prod-gcp', '["${groupId}"]')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Mine Tilganger Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				groupClassifications: ["mine_tilganger"],
+				createdBy: "Z990001",
+			})
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(0)
+		})
+
+		it("should NOT match apps from another section via an explicit screening selection for a different routine's section (Path 5)", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Security", "security")
+			const otherSectionId = await createTestSection("Other Section", "other-section")
+
+			const otherSectionAppId = await createTestApp("Other Section Selected App")
+			await assignAppToSection(otherSectionAppId, otherSectionId)
+
+			const controlResult = await db.execute(
+				/* sql */ `INSERT INTO framework_controls (control_id) VALUES ('K-TEST.CROSS-SEC') RETURNING id`,
+			)
+			const controlId = (controlResult.rows[0] as { id: string }).id
+			const questionId = await createTestScreeningQuestion(otherSectionId, "Cross-section question?")
+			const choiceId = await createTestChoice(questionId, "Yes")
+			const effectResult = await db.execute(
+				/* sql */ `INSERT INTO screening_choice_effects (choice_id, control_id) VALUES ('${choiceId}', '${controlId}') RETURNING id`,
+			)
+			const effectId = (effectResult.rows[0] as { id: string }).id
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Selected Routine",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+
+			await db.execute(
+				/* sql */ `INSERT INTO screening_routine_selections (application_id, choice_effect_id, routine_id, selected_by)
+				VALUES ('${otherSectionAppId}', '${effectId}', '${routine.id}', 'test')`,
+			)
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps).toHaveLength(0)
+		})
 	})
 
 	// ─── Deadlines ───────────────────────────────────────────────────────
@@ -1598,6 +1734,7 @@ describe("Routines integration tests", () => {
 			await createTestChoice(questionId, "Yes")
 
 			const appId = await createTestApp("Overdue App")
+			await assignAppToSection(appId, sectionId)
 			await createTestScreeningAnswer(appId, questionId, "Yes")
 
 			const routine = await createRoutine({

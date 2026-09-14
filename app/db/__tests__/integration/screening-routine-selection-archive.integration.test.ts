@@ -42,6 +42,20 @@ async function createApp(name: string) {
 	return (r.rows[0] as { id: string }).id
 }
 
+/** Makes an app an effective member of a section via a dev team, matching how
+ * getAppIdsInSection/getEffectiveAppIdsInSection determine section membership. */
+async function assignAppToSection(appId: string, sectionId: string) {
+	const db = getTestDb()
+	const slug = `team-${uid()}`
+	const teamR = await db.execute(
+		sql`INSERT INTO dev_teams (name, slug, section_id, created_by, updated_by) VALUES (${slug}, ${slug}, ${sectionId}, 'Z990001', 'Z990001') RETURNING id`,
+	)
+	const teamId = (teamR.rows[0] as { id: string }).id
+	await db.execute(
+		sql`INSERT INTO application_team_mappings (application_id, dev_team_id, created_by) VALUES (${appId}, ${teamId}, 'Z990001')`,
+	)
+}
+
 async function createSection(name: string) {
 	const db = getTestDb()
 	const slug = `sek-${uid()}`
@@ -136,6 +150,7 @@ describe("archived screening_routine_selections are excluded", () => {
 		it("includes app when it has an active screening selection for the routine", async () => {
 			const sectionId = await createSection("Seksjon Glad Fjord")
 			const appId = await createApp("Rask Elv")
+			await assignAppToSection(appId, sectionId)
 			const controlId = await createControl(`K-ARCH-SEL.01-${uid()}`)
 			const { choiceId } = await createQuestion("Brukes sensitiv lagring?")
 			const choiceEffectId = await createChoiceEffect(choiceId, controlId)
@@ -166,6 +181,7 @@ describe("archived screening_routine_selections are excluded", () => {
 		it("excludes app when its screening selection for the routine is archived", async () => {
 			const sectionId = await createSection("Seksjon Sterk Berg")
 			const appId = await createApp("Mild Skog")
+			await assignAppToSection(appId, sectionId)
 			const controlId = await createControl(`K-ARCH-SEL.02-${uid()}`)
 			const { choiceId } = await createQuestion("Behandles personopplysninger?")
 			const choiceEffectId = await createChoiceEffect(choiceId, controlId)
@@ -197,6 +213,7 @@ describe("archived screening_routine_selections are excluded", () => {
 		it("includes app when it re-selects a routine after a previous selection was archived", async () => {
 			const sectionId = await createSection("Seksjon Dyp Dal")
 			const appId = await createApp("Høy Fjell")
+			await assignAppToSection(appId, sectionId)
 			const controlId = await createControl(`K-ARCH-SEL.03-${uid()}`)
 			const { choiceId } = await createQuestion("Har ekstern tilgang?")
 			const choiceEffectId = await createChoiceEffect(choiceId, controlId)
@@ -225,6 +242,38 @@ describe("archived screening_routine_selections are excluded", () => {
 
 			const apps = await getAppsRequiringRoutine(routine.id)
 			expect(apps.map((a) => a.id)).toContain(appId)
+		})
+
+		it("excludes app from another section, even with an active screening selection for the routine", async () => {
+			const sectionId = await createSection("Seksjon Klar Fjord")
+			const otherSectionId = await createSection("Seksjon Annen Dal")
+			const appId = await createApp("Fjern Topp")
+			await assignAppToSection(appId, otherSectionId)
+			const controlId = await createControl(`K-ARCH-SEL.04-${uid()}`)
+			const { choiceId } = await createQuestion("Cross-seksjon spørsmål?")
+			const choiceEffectId = await createChoiceEffect(choiceId, controlId)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Rutine Fjern Seksjon",
+				description: "Testrutine",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: "tech_manager",
+				isSectionRoutine: false,
+				persistenceLinks: [],
+				technologyElementIds: [],
+				controlIds: [],
+				createdBy: "Z990001",
+			})
+			await setRoutineApproved(routine.id)
+
+			await saveRoutineSelection(appId, choiceEffectId, routine.id, "Z990001")
+
+			const apps = await getAppsRequiringRoutine(routine.id)
+			expect(apps.map((a) => a.id)).not.toContain(appId)
 		})
 	})
 
