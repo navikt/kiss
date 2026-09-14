@@ -2,9 +2,12 @@ import { BodyShort, Box, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { UserDisplayName } from "~/components/UserDisplayName"
+import { getAppScopeIdsForApps } from "~/db/queries/applications.server"
 import { getCompletedReviewsForSection } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { hasReviewReadAccess, isAdmin, isAuditor } from "~/lib/authorization.server"
 import type { Route } from "./+types/index"
 
 function formatDate(date: string | Date | null): string {
@@ -12,18 +15,51 @@ function formatDate(date: string | Date | null): string {
 	return new Date(date).toLocaleDateString("nb-NO")
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ params, request }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) {
 		throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 	}
+
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) {
 		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 	}
 
-	const reviews = await getCompletedReviewsForSection(section.id)
+	const allReviews = await getCompletedReviewsForSection(section.id)
+
+	// Admin/auditor see everything regardless of app scope, so the batch lookup below
+	// would only spend DB queries to compute a result that's discarded by hasReviewReadAccess.
+	const isPrivilegedUser = isAdmin(authedUser) || isAuditor(authedUser)
+
+	// Resolve dev-team scope for every distinct application in one batch, instead of
+	// calling getAppScopeIds() per review — a section can have reviews for many apps.
+	const uniqueAppIds = isPrivilegedUser
+		? []
+		: [...new Set(allReviews.flatMap((r) => (r.applicationId ? [r.applicationId] : [])))]
+	const scopeByAppId = await getAppScopeIdsForApps(uniqueAppIds)
+
+	// Several completed reviews can share the same application; cache the access
+	// check per application so hasReviewReadAccess() isn't re-evaluated for each review.
+	const accessByScope = new Map<string, Promise<boolean>>()
+	const cacheKeyFor = (applicationId: string | null) =>
+		applicationId ? `app:${applicationId}` : `section:${section.id}`
+	const checkAccess = (applicationId: string | null) => {
+		const cacheKey = cacheKeyFor(applicationId)
+		let access = accessByScope.get(cacheKey)
+		if (!access) {
+			const preloadedDevTeamIds = applicationId ? scopeByAppId.get(applicationId)?.devTeamIds : undefined
+			access = hasReviewReadAccess(authedUser, { applicationId, sectionId: section.id }, preloadedDevTeamIds)
+			accessByScope.set(cacheKey, access)
+		}
+		return access
+	}
+
+	const accessFlags = await Promise.all(allReviews.map((review) => checkAccess(review.applicationId)))
+	const reviews = allReviews.filter((_, i) => accessFlags[i])
+
 	const reviewerNames = await getUserNamesByNavIdents(reviews.map((r) => r.createdBy))
 	const reviewsWithNames = reviews.map((r) => ({
 		...r,
