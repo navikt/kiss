@@ -290,21 +290,35 @@ export async function getAvailableAppsForTeam(devTeamId: string, sectionId: stri
 }
 
 /** Get dev team IDs and section IDs for an application — used for authorization checks.
- * Section IDs are derived from both dev-team mappings and NAIS-team environments. */
+ * Section IDs are derived from both dev-team mappings and NAIS-team environments.
+ * Delegates to getAppScopeIdsForApps to avoid maintaining two copies of the same join logic. */
 export async function getAppScopeIds(appId: string): Promise<{ devTeamIds: string[]; sectionIds: string[] }> {
+	const scopeByApp = await getAppScopeIdsForApps([appId])
+	return scopeByApp.get(appId) ?? { devTeamIds: [], sectionIds: [] }
+}
+export async function getAppScopeIdsForApps(
+	appIds: string[],
+): Promise<Map<string, { devTeamIds: string[]; sectionIds: string[] }>> {
+	if (appIds.length === 0) return new Map()
+
 	const [devTeamRows, naisTeamRows, naisLinkedDevTeamRows, naisDirectDevTeamRows] = await Promise.all([
 		db
-			.select({ devTeamId: devTeams.id, sectionId: devTeams.sectionId })
+			.select({
+				appId: applicationTeamMappings.applicationId,
+				devTeamId: devTeams.id,
+				sectionId: devTeams.sectionId,
+			})
 			.from(applicationTeamMappings)
-			.innerJoin(devTeams, eq(applicationTeamMappings.devTeamId, devTeams.id))
-			.where(and(eq(applicationTeamMappings.applicationId, appId), isNull(applicationTeamMappings.archivedAt))),
+			.innerJoin(devTeams, and(eq(applicationTeamMappings.devTeamId, devTeams.id), isNull(devTeams.archivedAt)))
+			.where(and(inArray(applicationTeamMappings.applicationId, appIds), isNull(applicationTeamMappings.archivedAt))),
 		db
-			.selectDistinct({ sectionId: naisTeams.sectionId })
+			.selectDistinct({ appId: applicationEnvironments.applicationId, sectionId: naisTeams.sectionId })
 			.from(applicationEnvironments)
 			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
 			.where(
 				and(
-					eq(applicationEnvironments.applicationId, appId),
+					inArray(applicationEnvironments.applicationId, appIds),
+					isNull(applicationEnvironments.archivedAt),
 					isNotNull(naisTeams.sectionId),
 					notExists(
 						db
@@ -320,9 +334,12 @@ export async function getAppScopeIds(appId: string): Promise<{ devTeamIds: strin
 					),
 				),
 			),
-		// Dev teams linked via NAIS team mappings many-to-many (app_env → dev_team_nais_team_mappings → dev_teams)
 		db
-			.selectDistinct({ devTeamId: devTeams.id, sectionId: devTeams.sectionId })
+			.selectDistinct({
+				appId: applicationEnvironments.applicationId,
+				devTeamId: devTeams.id,
+				sectionId: devTeams.sectionId,
+			})
 			.from(applicationEnvironments)
 			.innerJoin(
 				devTeamNaisTeamMappings,
@@ -332,30 +349,69 @@ export async function getAppScopeIds(appId: string): Promise<{ devTeamIds: strin
 				),
 			)
 			.innerJoin(devTeams, and(eq(devTeams.id, devTeamNaisTeamMappings.devTeamId), isNull(devTeams.archivedAt)))
-			.where(eq(applicationEnvironments.applicationId, appId)),
-		// Dev teams linked directly on the NAIS team (nais_teams.dev_team_id)
+			.where(and(inArray(applicationEnvironments.applicationId, appIds), isNull(applicationEnvironments.archivedAt))),
 		db
-			.selectDistinct({ devTeamId: devTeams.id, sectionId: devTeams.sectionId })
+			.selectDistinct({
+				appId: applicationEnvironments.applicationId,
+				devTeamId: devTeams.id,
+				sectionId: devTeams.sectionId,
+			})
 			.from(applicationEnvironments)
 			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
 			.innerJoin(devTeams, and(eq(devTeams.id, naisTeams.devTeamId), isNull(devTeams.archivedAt)))
-			.where(and(eq(applicationEnvironments.applicationId, appId), isNotNull(naisTeams.devTeamId))),
+			.where(
+				and(
+					inArray(applicationEnvironments.applicationId, appIds),
+					isNull(applicationEnvironments.archivedAt),
+					isNotNull(naisTeams.devTeamId),
+				),
+			),
 	])
 
-	const allDevTeamIds = [
-		...devTeamRows.map((r) => r.devTeamId),
-		...naisLinkedDevTeamRows.map((r) => r.devTeamId),
-		...naisDirectDevTeamRows.map((r) => r.devTeamId),
-	]
-	const devTeamIds = [...new Set(allDevTeamIds)]
-	const allSectionIds = [
-		...devTeamRows.map((r) => r.sectionId),
-		...naisTeamRows.map((r) => r.sectionId),
-		...naisLinkedDevTeamRows.map((r) => r.sectionId),
-		...naisDirectDevTeamRows.map((r) => r.sectionId),
-	]
-	const sectionIds = [...new Set(allSectionIds.filter((s): s is string => s !== null))]
-	return { devTeamIds, sectionIds }
+	const devTeamIdsByApp = new Map<string, Set<string>>()
+	const sectionIdsByApp = new Map<string, Set<string>>()
+	const addDevTeam = (appId: string, devTeamId: string) => {
+		let set = devTeamIdsByApp.get(appId)
+		if (!set) {
+			set = new Set()
+			devTeamIdsByApp.set(appId, set)
+		}
+		set.add(devTeamId)
+	}
+	const addSection = (appId: string, sectionId: string | null) => {
+		if (!sectionId) return
+		let set = sectionIdsByApp.get(appId)
+		if (!set) {
+			set = new Set()
+			sectionIdsByApp.set(appId, set)
+		}
+		set.add(sectionId)
+	}
+
+	for (const r of devTeamRows) {
+		addDevTeam(r.appId, r.devTeamId)
+		addSection(r.appId, r.sectionId)
+	}
+	for (const r of naisTeamRows) {
+		addSection(r.appId, r.sectionId)
+	}
+	for (const r of naisLinkedDevTeamRows) {
+		addDevTeam(r.appId, r.devTeamId)
+		addSection(r.appId, r.sectionId)
+	}
+	for (const r of naisDirectDevTeamRows) {
+		addDevTeam(r.appId, r.devTeamId)
+		addSection(r.appId, r.sectionId)
+	}
+
+	const scopeByApp = new Map<string, { devTeamIds: string[]; sectionIds: string[] }>()
+	for (const appId of appIds) {
+		scopeByApp.set(appId, {
+			devTeamIds: [...(devTeamIdsByApp.get(appId) ?? [])],
+			sectionIds: [...(sectionIdsByApp.get(appId) ?? [])],
+		})
+	}
+	return scopeByApp
 }
 
 /** Get teams NOT yet linked to a specific application. */

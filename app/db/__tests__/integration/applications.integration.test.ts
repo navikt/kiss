@@ -15,6 +15,8 @@ const { stageFrameworkImport, applyFrameworkImport } = await import("~/db/querie
 const {
 	getApplications,
 	getApplicationsForSection,
+	getAppScopeIds,
+	getAppScopeIdsForApps,
 	getTeamMembersForApp,
 	linkAppToTeam,
 	searchApplications,
@@ -503,6 +505,144 @@ describe("Applications integration tests", () => {
 
 			const allIdents = result.flatMap((t) => t.members.map((m) => m.navIdent))
 			expect(allIdents).not.toContain("Z990070")
+		})
+	})
+
+	describe("getAppScopeIdsForApps", () => {
+		it("returns an empty map for an empty list of application ids", async () => {
+			const result = await getAppScopeIdsForApps([])
+
+			expect(result.size).toBe(0)
+		})
+
+		it("resolves dev teams and sections from direct application-team mappings", async () => {
+			const sectionId = await createTestSection("Direkte", "direkte")
+			const devTeamId = await createTestDevTeam("Direkte team", "direkte-team", sectionId)
+			const appId = await createTestApp("direkte-app")
+			await linkAppToTeam(appId, devTeamId, "test")
+
+			const result = await getAppScopeIdsForApps([appId])
+
+			expect(result.get(appId)?.devTeamIds).toEqual([devTeamId])
+			expect(result.get(appId)?.sectionIds).toEqual([sectionId])
+		})
+
+		it("resolves dev teams linked via dev_team_nais_team_mappings", async () => {
+			const sectionId = await createTestSection("Nais-lenket", "nais-lenket")
+			const naisTeamId = await createTestNaisTeam("nais-lenket-team", sectionId)
+			const devTeamId = await createTestDevTeam("Nais-lenket dev", "nais-lenket-dev", sectionId)
+			const appId = await createTestApp("nais-lenket-app")
+			await createAppEnvironment(appId, naisTeamId, "prod-gcp", "nais-lenket-ns")
+			await linkNaisTeamToDevTeam(devTeamId, naisTeamId)
+
+			const result = await getAppScopeIdsForApps([appId])
+
+			expect(result.get(appId)?.devTeamIds).toEqual([devTeamId])
+		})
+
+		it("resolves dev teams configured directly on the nais team", async () => {
+			const sectionId = await createTestSection("Nais-direkte", "nais-direkte")
+			const naisTeamId = await createTestNaisTeam("nais-direkte-team", sectionId)
+			const devTeamId = await createTestDevTeam("Nais-direkte dev", "nais-direkte-dev", sectionId)
+			const appId = await createTestApp("nais-direkte-app")
+			await createAppEnvironment(appId, naisTeamId, "prod-gcp", "nais-direkte-ns")
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE nais_teams SET dev_team_id = '${devTeamId}' WHERE id = '${naisTeamId}'`)
+
+			const result = await getAppScopeIdsForApps([appId])
+
+			expect(result.get(appId)?.devTeamIds).toEqual([devTeamId])
+		})
+
+		it("excludes section ids for clusters the section has explicitly excluded", async () => {
+			const sectionId = await createTestSection("Ekskludert cluster", "ekskludert-cluster")
+			const naisTeamId = await createTestNaisTeam("ekskludert-team", sectionId)
+			const appId = await createTestApp("ekskludert-app")
+			await createAppEnvironment(appId, naisTeamId, "dev-gcp", "ekskludert-ns")
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `INSERT INTO section_environments (section_id, cluster, included, added_by, updated_by)
+				VALUES ('${sectionId}', 'dev-gcp', false, 'test', 'test')`,
+			)
+
+			const result = await getAppScopeIdsForApps([appId])
+
+			expect(result.get(appId)?.sectionIds).toEqual([])
+		})
+
+		it("keeps scope isolated per application when resolving several applications at once", async () => {
+			const sectionId = await createTestSection("Isolasjon", "isolasjon")
+			const devTeamAId = await createTestDevTeam("Isolasjon A", "isolasjon-a", sectionId)
+			const devTeamBId = await createTestDevTeam("Isolasjon B", "isolasjon-b", sectionId)
+			const appAId = await createTestApp("isolasjon-app-a")
+			const appBId = await createTestApp("isolasjon-app-b")
+			await linkAppToTeam(appAId, devTeamAId, "test")
+			await linkAppToTeam(appBId, devTeamBId, "test")
+
+			const result = await getAppScopeIdsForApps([appAId, appBId])
+
+			expect(result.get(appAId)?.devTeamIds).toEqual([devTeamAId])
+			expect(result.get(appBId)?.devTeamIds).toEqual([devTeamBId])
+		})
+
+		it("excludes dev teams reached through an archived application-team mapping", async () => {
+			const sectionId = await createTestSection("Arkivert mapping", "arkivert-mapping")
+			const devTeamId = await createTestDevTeam("Arkivert mapping team", "arkivert-mapping-team", sectionId)
+			const appId = await createTestApp("arkivert-mapping-app")
+			await linkAppToTeam(appId, devTeamId, "test")
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `UPDATE application_team_mappings SET archived_at = NOW(), archived_by = 'test'
+				WHERE application_id = '${appId}' AND dev_team_id = '${devTeamId}'`,
+			)
+
+			const result = await getAppScopeIdsForApps([appId])
+
+			expect(result.get(appId)?.devTeamIds).toEqual([])
+		})
+
+		it("excludes an archived dev team even when the application-team mapping is still active", async () => {
+			const sectionId = await createTestSection("Arkivert team", "arkivert-team")
+			const devTeamId = await createTestDevTeam("Arkivert team", "arkivert-team-team", sectionId)
+			const appId = await createTestApp("arkivert-team-app")
+			await linkAppToTeam(appId, devTeamId, "test")
+			await archiveTeam(devTeamId, "test")
+
+			const result = await getAppScopeIdsForApps([appId])
+
+			expect(result.get(appId)?.devTeamIds).toEqual([])
+		})
+
+		it("excludes scope reached through an archived application environment", async () => {
+			const sectionId = await createTestSection("Arkivert miljø", "arkivert-miljo")
+			const naisTeamId = await createTestNaisTeam("arkivert-miljo-team", sectionId)
+			const devTeamId = await createTestDevTeam("Arkivert miljø dev", "arkivert-miljo-dev", sectionId)
+			const appId = await createTestApp("arkivert-miljo-app")
+			await createAppEnvironment(appId, naisTeamId, "prod-gcp", "arkivert-miljo-ns")
+			await linkNaisTeamToDevTeam(devTeamId, naisTeamId)
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `UPDATE application_environments SET archived_at = NOW(), archived_by = 'test'
+				WHERE application_id = '${appId}'`,
+			)
+
+			const result = await getAppScopeIdsForApps([appId])
+
+			expect(result.get(appId)?.devTeamIds).toEqual([])
+			expect(result.get(appId)?.sectionIds).toEqual([])
+		})
+
+		it("matches getAppScopeIds when resolving the same application individually", async () => {
+			const sectionId = await createTestSection("Parity", "parity")
+			const devTeamId = await createTestDevTeam("Parity team", "parity-team", sectionId)
+			const appId = await createTestApp("parity-app")
+			await linkAppToTeam(appId, devTeamId, "test")
+
+			const batched = await getAppScopeIdsForApps([appId])
+			const single = await getAppScopeIds(appId)
+
+			expect(batched.get(appId)?.devTeamIds).toEqual(single.devTeamIds)
+			expect(batched.get(appId)?.sectionIds).toEqual(single.sectionIds)
 		})
 	})
 })

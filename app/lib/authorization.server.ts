@@ -172,17 +172,30 @@ export async function requireAppMembership(user: NavUser, appId: string): Promis
 	throw new Response("Ikke autorisert", { status: 403 })
 }
 
+/** Sjekk lesetilgang til en gjennomgang: admin, revisor, app-tilhørighet eller seksjons-tilhørighet.
+ * `preloadedDevTeamIds` lar kallere som allerede har hentet scope for flere applikasjoner (batch)
+ * unngå at getAppScopeIds() kjøres på nytt per applikasjon. */
+export async function hasReviewReadAccess(
+	user: NavUser,
+	scope: { applicationId: string | null; sectionId: string },
+	preloadedDevTeamIds?: string[],
+): Promise<boolean> {
+	if (isAdmin(user)) return true
+	if (isAuditor(user)) return true
+	if (scope.applicationId) {
+		const devTeamIds = preloadedDevTeamIds ?? (await getAppScopeIds(scope.applicationId)).devTeamIds
+		return devTeamIds.some((id) => hasAnyTeamRole(user, id))
+	}
+	return hasAnySectionRole(user, scope.sectionId)
+}
+
 /** Krev lesetilgang til en gjennomgang: admin, revisor, app-tilhørighet eller seksjons-tilhørighet. */
 export async function requireReviewReadAccess(
 	user: NavUser,
 	scope: { applicationId: string | null; sectionId: string },
 ): Promise<void> {
-	if (isAdmin(user)) return
-	if (isAuditor(user)) return
-	if (scope.applicationId) {
-		return requireAppMembership(user, scope.applicationId)
-	}
-	requireAnySectionRole(user, scope.sectionId)
+	if (await hasReviewReadAccess(user, scope)) return
+	throw new Response("Ikke autorisert", { status: 403 })
 }
 
 /** Krev skrivetilgang til en gjennomgang: admin, app-tilhørighet eller seksjons-tilhørighet. Revisorer nektes eksplisitt. */
