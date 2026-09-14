@@ -62,7 +62,8 @@ vi.mock("archiver", () => {
 })
 
 // DB mock — covers db.transaction (used for completion update + audit log)
-const mockTxUpdate = vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) }))
+const mockTxSet = vi.fn(() => ({ where: vi.fn() }))
+const mockTxUpdate = vi.fn(() => ({ set: mockTxSet }))
 const mockDbTransaction = vi.fn(async (fn: (tx: unknown) => Promise<void>) => fn({ update: mockTxUpdate }))
 vi.mock("~/db/connection.server", () => ({ db: { transaction: mockDbTransaction } }))
 
@@ -93,6 +94,7 @@ const fakeArtifact = {
 		followUpPointText?: string
 		followUpKind?: "description" | "resolution"
 	}>,
+	reviewIds: [] as string[],
 }
 
 describe("startSectionBatchReport", () => {
@@ -266,6 +268,18 @@ describe("startSectionBatchReport", () => {
 			pdfContent,
 			expect.objectContaining({ name: expect.stringMatching(/Min App.*\.pdf$/) }),
 		)
+	})
+
+	it("stores deduplicated reviewIds across apps on the completed report", async () => {
+		mockBuildAppComplianceArtifact
+			.mockResolvedValueOnce({ ...fakeArtifact, reviewIds: ["review-1", "review-2"] })
+			.mockResolvedValueOnce({ ...fakeArtifact, reviewIds: ["review-2", "review-3"] })
+
+		const { startSectionBatchReport } = await import("~/lib/section-report-jobs.server")
+		await startSectionBatchReport({ ...baseParams, selectedAppIds: ["app-1", "app-2"], includeReviews: true })
+		await vi.waitFor(() => expect(mockMarkSyncJobCompleted).toHaveBeenCalled())
+
+		expect(mockTxSet).toHaveBeenCalledWith(expect.objectContaining({ reviewIds: ["review-1", "review-2", "review-3"] }))
 	})
 
 	it("calls buildAppComplianceArtifact with correct applicationId and includeReviews params", async () => {

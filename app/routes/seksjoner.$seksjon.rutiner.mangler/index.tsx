@@ -6,7 +6,10 @@ import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
 import { getEconomyClassifications } from "~/db/queries/economy-classification.server"
+import { getReviewDetailAccessScopes } from "~/db/queries/routines.server"
 import { getSectionBySlug, getSectionIncompleteRoutines, getTeamNamesForApps } from "~/db/queries/sections.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { canViewReviewDetail } from "~/lib/authorization.server"
 import type { Route } from "./+types/index"
 
 function formatDate(date: string | Date | null): string {
@@ -20,11 +23,13 @@ type SortDirection = "ascending" | "descending"
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) {
 		throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 	}
+
+	const user = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) {
@@ -104,7 +109,32 @@ export async function loader({ params }: Route.LoaderArgs) {
 		needsFollowUp: d.needsFollowUp ?? false,
 	}))
 
-	return data({ seksjon, sectionName: section.name, appRows, sectionRows })
+	// draftReviewId lenker direkte til en annen brukers pågående utkast (se canViewReviewDetail).
+	// Uten samme detaljtilgangssjekk som resten av rutineflyten ville denne siden avslørt at et
+	// utkast finnes (og dets ID) til alle med tilgang til denne oversikten.
+	const draftReviewIds = [
+		...new Set(
+			[...sectionRows.map((r) => r.draftReviewId), ...appRows.map((r) => r.draftReviewId)].filter(
+				(id): id is string => id !== null,
+			),
+		),
+	]
+	const draftAccessScopes = draftReviewIds.length > 0 ? await getReviewDetailAccessScopes(draftReviewIds) : new Map()
+	const canViewDraft = (draftReviewId: string | null) => {
+		if (!draftReviewId) return true
+		const scope = draftAccessScopes.get(draftReviewId)
+		return scope !== undefined && canViewReviewDetail(user, scope)
+	}
+	const sectionRowsRedacted = sectionRows.map((r) => ({
+		...r,
+		draftReviewId: canViewDraft(r.draftReviewId) ? r.draftReviewId : null,
+	}))
+	const appRowsRedacted = appRows.map((r) => ({
+		...r,
+		draftReviewId: canViewDraft(r.draftReviewId) ? r.draftReviewId : null,
+	}))
+
+	return data({ seksjon, sectionName: section.name, appRows: appRowsRedacted, sectionRows: sectionRowsRedacted })
 }
 
 function statusKey(row: { lastReviewDate: string | null; overdue: boolean; draftReviewId?: string | null }) {

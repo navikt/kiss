@@ -23,6 +23,7 @@ import {
 	patchManualActivityStep,
 	patchManualActivityStepNotes,
 	patchOracleRoleCriticalityActivity,
+	resolveEffectiveResponsibleRole,
 	seedEntraActivity,
 	seedManualActivity,
 	seedOracleRoleCriticalityActivity,
@@ -37,7 +38,7 @@ import { type GroupCriticality, groupCriticalityEnum } from "~/db/schema/applica
 import { FOLLOW_UP_POINT_STATUSES, type FollowUpPointStatus, RPA_DECISION_VALUES } from "~/db/schema/routines"
 import { getEvidenceTypesForActivity, getProviderTypeForActivity, type RoutineActivityType } from "~/lib/activity-types"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireReviewAccess, requireReviewReadAccess } from "~/lib/authorization.server"
+import { requireReviewAccess, requireReviewDetailAccess } from "~/lib/authorization.server"
 import {
 	type EntraCriticality,
 	entraCriticalityValues,
@@ -243,7 +244,18 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 	if (review.routineId !== rutineId) {
 		throw data({ message: "Gjennomgangen tilhører ikke rutinen" }, { status: 404 })
 	}
-	await requireReviewReadAccess(authedUser, { applicationId: review.applicationId, sectionId: routine.sectionId })
+	// Rutinesiden bruker samme fallback ved "Arves fra krav" — delt logikk sikrer at begge steder alltid
+	// beregner samme effektive rolle (unngår at ulike, ufiltrerte spørringer kan gi ulikt svar).
+	const effectiveResponsibleRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
+	// Utkast-eier-unntaket er sentralisert i canViewReviewDetail/requireReviewDetailAccess (status+createdBy),
+	// slik at denne siden og vedleggs-endepunktene (api.rutine-vedlegg, api.oppfolgingspunkt-vedlegg) håndhever
+	// nøyaktig samme regel — ellers kan en utkast-eier se siden men få 403 på egne vedlegg.
+	requireReviewDetailAccess(authedUser, {
+		responsibleRole: effectiveResponsibleRole,
+		sectionId: routine.sectionId,
+		status: review.status,
+		createdBy: review.createdBy,
+	})
 
 	const followUpNavIdents = review.followUpPoints.flatMap((p) => [
 		p.updatedBy,

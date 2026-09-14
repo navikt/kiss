@@ -5,23 +5,16 @@ vi.mock("~/lib/auth.server", () => ({
 	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
-const mockHasReviewReadAccess = vi.fn()
-const mockIsAdmin = vi.fn()
-const mockIsAuditor = vi.fn()
+const mockCanViewReviewDetail = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
-	hasReviewReadAccess: mockHasReviewReadAccess,
-	isAdmin: mockIsAdmin,
-	isAuditor: mockIsAuditor,
-}))
-
-const mockGetAppScopeIdsForApps = vi.fn()
-vi.mock("~/db/queries/applications.server", () => ({
-	getAppScopeIdsForApps: mockGetAppScopeIdsForApps,
+	canViewReviewDetail: mockCanViewReviewDetail,
 }))
 
 const mockGetFollowUpReviewsForSection = vi.fn()
+const mockGetReviewDetailAccessScopes = vi.fn()
 vi.mock("~/db/queries/routines.server", () => ({
 	getFollowUpReviewsForSection: mockGetFollowUpReviewsForSection,
+	getReviewDetailAccessScopes: mockGetReviewDetailAccessScopes,
 }))
 
 const mockGetSectionBySlug = vi.fn()
@@ -38,6 +31,10 @@ const SECTION_REVIEW_ID = "section-review"
 
 function fakeUser() {
 	return { navIdent: "Z990001", name: "Glad Fjord", token: "token", groups: [] }
+}
+
+function fakeScope(overrides: Partial<Record<string, unknown>> = {}) {
+	return { responsibleRole: null, sectionId: SECTION_ID, status: "completed", createdBy: "Z990002", ...overrides }
 }
 
 function makeRequest(seksjon = "test-seksjon") {
@@ -57,19 +54,30 @@ describe("seksjoner.$seksjon.rutiner.oppfolging loader", () => {
 		vi.clearAllMocks()
 		mockRequireAuthenticatedUser.mockResolvedValue(fakeUser())
 		mockGetSectionBySlug.mockResolvedValue({ id: SECTION_ID, name: "Test-seksjon" })
-		mockGetAppScopeIdsForApps.mockResolvedValue(new Map())
-		mockIsAdmin.mockReturnValue(false)
-		mockIsAuditor.mockReturnValue(false)
 		mockGetFollowUpReviewsForSection.mockResolvedValue([
 			{ id: APP_REVIEW_WITH_ACCESS_ID, applicationId: "app-1", openFollowUpPoints: [] },
 			{ id: APP_REVIEW_WITHOUT_ACCESS_ID, applicationId: "app-2", openFollowUpPoints: [] },
 			{ id: SECTION_REVIEW_ID, applicationId: null, openFollowUpPoints: [] },
 		])
+		mockGetReviewDetailAccessScopes.mockResolvedValue(
+			new Map([
+				[APP_REVIEW_WITH_ACCESS_ID, fakeScope()],
+				[APP_REVIEW_WITHOUT_ACCESS_ID, fakeScope()],
+				[SECTION_REVIEW_ID, fakeScope()],
+			]),
+		)
 	})
 
-	it("keeps only reviews the user has read access to", async () => {
-		mockHasReviewReadAccess.mockImplementation(
-			async (_user: unknown, scope: { applicationId: string | null }) => scope.applicationId !== "app-2",
+	it("keeps only reviews the user has detail access to", async () => {
+		mockCanViewReviewDetail.mockImplementation(
+			(_user: unknown, scope: { createdBy: string }) => scope.createdBy !== "Z990099",
+		)
+		mockGetReviewDetailAccessScopes.mockResolvedValue(
+			new Map([
+				[APP_REVIEW_WITH_ACCESS_ID, fakeScope()],
+				[APP_REVIEW_WITHOUT_ACCESS_ID, fakeScope({ createdBy: "Z990099" })],
+				[SECTION_REVIEW_ID, fakeScope()],
+			]),
 		)
 
 		const result = await loader(makeRequest())
@@ -78,46 +86,31 @@ describe("seksjoner.$seksjon.rutiner.oppfolging loader", () => {
 		expect(body.reviews.map((r) => r.id)).toEqual([APP_REVIEW_WITH_ACCESS_ID, SECTION_REVIEW_ID])
 	})
 
-	it("checks app-scoped reviews with the review's applicationId and section-scoped reviews with the section id", async () => {
-		mockGetAppScopeIdsForApps.mockResolvedValue(
-			new Map([
-				["app-1", { devTeamIds: ["team-1"], sectionIds: [] }],
-				["app-2", { devTeamIds: ["team-2"], sectionIds: [] }],
-			]),
-		)
-		mockHasReviewReadAccess.mockResolvedValue(true)
+	it("looks up detail-access scopes for every review returned for the section", async () => {
+		mockCanViewReviewDetail.mockReturnValue(true)
 
 		await loader(makeRequest())
 
-		expect(mockHasReviewReadAccess).toHaveBeenCalledWith(
-			fakeUser(),
-			{ applicationId: "app-1", sectionId: SECTION_ID },
-			["team-1"],
-		)
-		expect(mockHasReviewReadAccess).toHaveBeenCalledWith(
-			fakeUser(),
-			{ applicationId: "app-2", sectionId: SECTION_ID },
-			["team-2"],
-		)
-		expect(mockHasReviewReadAccess).toHaveBeenCalledWith(
-			fakeUser(),
-			{ applicationId: null, sectionId: SECTION_ID },
-			undefined,
-		)
+		expect(mockGetReviewDetailAccessScopes).toHaveBeenCalledWith([
+			APP_REVIEW_WITH_ACCESS_ID,
+			APP_REVIEW_WITHOUT_ACCESS_ID,
+			SECTION_REVIEW_ID,
+		])
 	})
 
-	it("resolves the dev-team scope for all distinct applications in a single batched call", async () => {
-		mockGetFollowUpReviewsForSection.mockResolvedValue([
-			{ id: "app-1-review-a", applicationId: "app-1", openFollowUpPoints: [] },
-			{ id: "app-1-review-b", applicationId: "app-1", openFollowUpPoints: [] },
-			{ id: "app-2-review", applicationId: "app-2", openFollowUpPoints: [] },
-		])
-		mockHasReviewReadAccess.mockResolvedValue(true)
+	it("excludes a review when its detail-access scope cannot be resolved", async () => {
+		mockCanViewReviewDetail.mockReturnValue(true)
+		mockGetReviewDetailAccessScopes.mockResolvedValue(
+			new Map([
+				[APP_REVIEW_WITH_ACCESS_ID, fakeScope()],
+				[SECTION_REVIEW_ID, fakeScope()],
+			]),
+		)
 
-		await loader(makeRequest())
+		const result = await loader(makeRequest())
+		const body = getData<{ reviews: Array<{ id: string }> }>(result)
 
-		expect(mockGetAppScopeIdsForApps).toHaveBeenCalledTimes(1)
-		expect(mockGetAppScopeIdsForApps).toHaveBeenCalledWith(["app-1", "app-2"])
+		expect(body.reviews.map((r) => r.id)).toEqual([APP_REVIEW_WITH_ACCESS_ID, SECTION_REVIEW_ID])
 	})
 
 	it("propagates the authentication failure and never loads reviews", async () => {
@@ -127,38 +120,6 @@ describe("seksjoner.$seksjon.rutiner.oppfolging loader", () => {
 		await expect(loader(makeRequest())).rejects.toBe(authError)
 
 		expect(mockGetFollowUpReviewsForSection).not.toHaveBeenCalled()
-		expect(mockHasReviewReadAccess).not.toHaveBeenCalled()
-	})
-
-	it("caches the access check per scope so hasReviewReadAccess is called only once per application or section", async () => {
-		mockGetFollowUpReviewsForSection.mockResolvedValue([
-			{ id: "app-1-review-a", applicationId: "app-1", openFollowUpPoints: [] },
-			{ id: "app-1-review-b", applicationId: "app-1", openFollowUpPoints: [] },
-			{ id: "section-review-a", applicationId: null, openFollowUpPoints: [] },
-			{ id: "section-review-b", applicationId: null, openFollowUpPoints: [] },
-		])
-		mockHasReviewReadAccess.mockResolvedValue(true)
-
-		await loader(makeRequest())
-
-		expect(mockHasReviewReadAccess).toHaveBeenCalledTimes(2)
-	})
-
-	it("skips the batched scope lookup for admin users, who already bypass the app-scope check", async () => {
-		mockIsAdmin.mockReturnValue(true)
-		mockHasReviewReadAccess.mockResolvedValue(true)
-
-		await loader(makeRequest())
-
-		expect(mockGetAppScopeIdsForApps).toHaveBeenCalledWith([])
-	})
-
-	it("skips the batched scope lookup for auditor users, who already bypass the app-scope check", async () => {
-		mockIsAuditor.mockReturnValue(true)
-		mockHasReviewReadAccess.mockResolvedValue(true)
-
-		await loader(makeRequest())
-
-		expect(mockGetAppScopeIdsForApps).toHaveBeenCalledWith([])
+		expect(mockGetReviewDetailAccessScopes).not.toHaveBeenCalled()
 	})
 })

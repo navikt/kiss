@@ -4,9 +4,16 @@ import PDFDocument from "pdfkit"
 import { db } from "~/db/connection.server"
 import { getAppScopeIds } from "~/db/queries/applications.server"
 import { getReport } from "~/db/queries/reports.server"
+import { getReviewDetailAccessScopes } from "~/db/queries/routines.server"
 import { sections } from "~/db/schema/organization"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { canAccessAppReports, canManageSection, isAuditor } from "~/lib/authorization.server"
+import {
+	canAccessAppReports,
+	canManageSection,
+	canViewReviewDetail,
+	isAdmin,
+	isAuditor,
+} from "~/lib/authorization.server"
 import { sanitizeFilename } from "~/lib/sanitize-filename"
 import { getStorageProvider } from "~/lib/storage/index.server"
 import type { Route } from "./+types/index"
@@ -58,6 +65,26 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 		if (!canManageSection(user, report.scopeId) && !isAuditor(user)) {
 			throw new Response("Ikke autorisert", { status: 403 })
 		}
+		// Batchen bygges per applikasjon og kan inkludere gjennomganger fra andre seksjoner enn den
+		// rapporten er scopet til (en applikasjon kan tilhøre flere seksjoner). Tilgang til å administrere
+		// denne seksjonen er derfor ikke nok — auditor har full tilgang, men øvrige må ha detaljtilgang til
+		// hver enkelt gjennomgang som faktisk er inkludert i rapporten. Legacy-batcher fra før reviewIds ble
+		// lagret har `reviewIds === null` og ingen kjent liste å håndheve mot — de nektes derfor helt for
+		// ikke-auditor, i tråd med at vi aldri skal myke opp tilgangen. `reviewIds === []` er gyldig (ingen
+		// gjennomganger inkludert) og skal ikke behandles som legacy.
+		if (!isAuditor(user)) {
+			if (!report.reviewIds) {
+				throw new Response("Ikke autorisert", { status: 403 })
+			}
+			if (report.reviewIds.length > 0) {
+				const scopes = await getReviewDetailAccessScopes(report.reviewIds)
+				const hasAccessToAll = report.reviewIds.every((id) => {
+					const scope = scopes.get(id)
+					return scope !== undefined && canViewReviewDetail(user, scope)
+				})
+				if (!hasAccessToAll) throw new Response("Ikke autorisert", { status: 403 })
+			}
+		}
 
 		// Batch reports: distinguish failed vs. not-ready vs. broken invariant
 		if (!report.reportBucketPath) {
@@ -72,12 +99,30 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 		}
 	}
 
-	// Enforce access for app-compliance reports
-	if (report.reportType === "app_compliance") {
+	// Enforce access for app-compliance reports. "application_compliance" er den eldre rapporttypen
+	// (se app/db/seed.ts) som fortsatt kan finnes i databasen — den skal ha samme håndheving som
+	// "app_compliance", ellers omgås gjennomgangs-filteret for disse eldre rapportene.
+	if (report.reportType === "app_compliance" || report.reportType === "application_compliance") {
 		if (!report.scopeId) throw new Response("Rapport mangler applikasjon-ID", { status: 500 })
 		const { devTeamIds, sectionIds } = await getAppScopeIds(report.scopeId)
 		if (!canAccessAppReports(user, sectionIds, devTeamIds)) {
 			throw new Response("Ikke autorisert", { status: 403 })
+		}
+		// Rapporten kan inneholde gjennomgangstekst/-vedlegg brukeren siden har mistet detaljtilgang til
+		// (f.eks. et utkast eid av en annen). Eldre rapporter (generert før review_ids ble lagret) har
+		// `reviewIds === null` og ingen liste å sjekke mot — da nektes nedlasting for ikke-admin, siden vi
+		// aldri skal myke opp tilgangen. En rapport med `reviewIds === []` er derimot gyldig og betyr at
+		// rapporten faktisk ikke inneholder noen gjennomganger, og skal ikke behandles som legacy.
+		if (!isAdmin(user)) {
+			if (!report.reviewIds) {
+				throw new Response("Ikke autorisert", { status: 403 })
+			}
+			const scopes = await getReviewDetailAccessScopes(report.reviewIds)
+			const hasAccessToAll = report.reviewIds.every((id) => {
+				const scope = scopes.get(id)
+				return scope !== undefined && canViewReviewDetail(user, scope)
+			})
+			if (!hasAccessToAll) throw new Response("Ikke autorisert", { status: 403 })
 		}
 	}
 
@@ -88,6 +133,17 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 		if (!canAccessAppReports(user, sectionIds, devTeamIds)) {
 			throw new Response("Ikke autorisert", { status: 403 })
 		}
+		if (!isAdmin(user)) {
+			if (!report.reviewIds) {
+				throw new Response("Ikke autorisert", { status: 403 })
+			}
+			const scopes = await getReviewDetailAccessScopes(report.reviewIds)
+			const hasAccessToAll = report.reviewIds.every((id) => {
+				const scope = scopes.get(id)
+				return scope !== undefined && canViewReviewDetail(user, scope)
+			})
+			if (!hasAccessToAll) throw new Response("Ikke autorisert", { status: 403 })
+		}
 	}
 
 	const forceDownload = url.searchParams.get("download") === "true"
@@ -96,6 +152,7 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 
 	if (
 		(report.reportType === "app_compliance" ||
+			report.reportType === "application_compliance" ||
 			report.reportType === "section_batch" ||
 			report.reportType === "routine_review") &&
 		report.reportBucketPath

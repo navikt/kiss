@@ -5,9 +5,18 @@ import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
-import { getSectionBySlug, getSections, getTeamBySlug, getTeamIncompleteRoutines } from "~/db/queries/sections.server"
+import { getReviewDetailAccessScopes, getRoutine } from "~/db/queries/routines.server"
+import {
+	getSectionBySlug,
+	getSections,
+	getTeamActiveAppIds,
+	getTeamBySlug,
+	getTeamIncompleteRoutines,
+} from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { canManageSection, canViewReviewDetail, hasAnyTeamRole } from "~/lib/authorization.server"
 import { createDraftReview } from "~/lib/create-draft-review.server"
+import { isValidUuid } from "~/lib/utils"
 import type { Route } from "./+types/index"
 
 export { RouteErrorBoundary as ErrorBoundary }
@@ -18,7 +27,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 	if (!teamSlug) throw new Response("Mangler team", { status: 400 })
 
-	await requireAuthenticatedUser(request)
+	const user = await requireAuthenticatedUser(request)
 
 	const [result, section, allSections] = await Promise.all([
 		getTeamIncompleteRoutines(teamSlug),
@@ -32,21 +41,33 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const sectionSlugMap = Object.fromEntries(allSections.map((s) => [s.id, s.slug]))
 
+	// Skjul draftReviewId for utkast brukeren ikke har detaljtilgang til (samme regel som
+	// canViewReviewDetail/requireReviewDetailAccess) — ellers ville teamoversikten avslørt at et
+	// utkast finnes og sendt brukeren til en lenke som uansett gir 403.
+	const draftReviewIds = result.deadlines.map((d) => d.draftReviewId).filter((id): id is string => id !== undefined)
+	const draftAccessScopes = draftReviewIds.length > 0 ? await getReviewDetailAccessScopes(draftReviewIds) : null
+	const visibleDeadlines = result.deadlines.map((d) => {
+		if (!d.draftReviewId) return d
+		const scope = draftAccessScopes?.get(d.draftReviewId)
+		if (scope && canViewReviewDetail(user, scope)) return d
+		return { ...d, draftReviewId: undefined }
+	})
+
 	// Seksjonsrutiner dedupliseres på routine.id — samme rutine kan matche
 	// mot flere apper i teamet, men lastReviewDate/deadline er seksjonsnivå.
 	// Type guard narrows dl.routine til non-null slik at UI-koden slipper optional chaining.
-	type DeadlineWithRoutine = (typeof result.deadlines)[number] & {
-		routine: NonNullable<(typeof result.deadlines)[number]["routine"]>
+	type DeadlineWithRoutine = (typeof visibleDeadlines)[number] & {
+		routine: NonNullable<(typeof visibleDeadlines)[number]["routine"]>
 	}
 	const seenRoutineIds = new Set<string>()
-	const sectionRoutines = result.deadlines.filter((d): d is DeadlineWithRoutine => {
+	const sectionRoutines = visibleDeadlines.filter((d): d is DeadlineWithRoutine => {
 		if (!d.isSectionRoutine || !d.routine) return false
 		if (seenRoutineIds.has(d.routine.id)) return false
 		seenRoutineIds.add(d.routine.id)
 		return true
 	})
 
-	const appRoutines = result.deadlines.filter((d) => !d.isSectionRoutine)
+	const appRoutines = visibleDeadlines.filter((d) => !d.isSectionRoutine)
 
 	return data({
 		seksjon,
@@ -72,16 +93,54 @@ export async function action({ request, params }: Route.ActionArgs) {
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
 	if (!team) throw new Response("Team ikke funnet", { status: 404 })
 	if (team.sectionId !== section.id) throw new Response("Team tilhører ikke denne seksjonen", { status: 404 })
+	// Arkiverte team skal ikke kunne få nye gjennomganger opprettet mot seg — den aktive teamlisten
+	// filtrerer dem allerede bort, men uten denne sjekken kan en seksjonsleder POSTe direkte mot en
+	// arkivert team-URL og likevel opprette en gjennomgang for et team som ikke lenger er aktivt.
+	if (team.archivedAt) throw new Response("Teamet er arkivert", { status: 403 })
+
+	// Kun teammedlemmer eller seksjonens ledelse kan starte en gjennomgang for teamet — ellers kunne enhver
+	// autentisert bruker opprette et utkast og dermed bli utkast-eier med detaljtilgang via unntaket i
+	// canViewReviewDetail.
+	if (!hasAnyTeamRole(authedUser, team.id) && !canManageSection(authedUser, section.id)) {
+		throw new Response("Ikke autorisert", { status: 403 })
+	}
 
 	const formData = await request.formData()
 	const intent = formData.get("intent")
 
 	if (intent === "create-draft") {
+		const submittedRoutineId = formData.get("routineId") as string | null
+		const submittedApplicationId = (formData.get("applicationId") as string | null) || null
+
+		// Verifiser at rutinen/appen faktisk tilhører dette teamet — ellers kunne et medlem av team A
+		// sende inn team B sin routineId/applicationId og bli utkast-eier for en gjennomgang utenfor
+		// eget team, og dermed få detaljtilgang via unntaket i canViewReviewDetail. Bruker den lette
+		// getTeamActiveAppIds-varianten (kun app-ID-er) fremfor getTeamIncompleteRoutines, som beregner
+		// hele teamets fristoversikt (compliance for alle apper) for hver innsending.
+		if (!submittedRoutineId) {
+			throw new Response("Mangler rutine-ID", { status: 400 })
+		}
+		if (!isValidUuid(submittedRoutineId)) {
+			throw new Response("Ugyldig rutine-ID-format", { status: 400 })
+		}
+		const routine = await getRoutine(submittedRoutineId)
+		if (!routine || routine.sectionId !== section.id) {
+			throw new Response("Rutinen tilhører ikke dette teamet", { status: 403 })
+		}
+		if (submittedApplicationId) {
+			const teamAppIds = await getTeamActiveAppIds(teamSlug)
+			if (!teamAppIds?.appIds.includes(submittedApplicationId)) {
+				throw new Response("Rutinen tilhører ikke dette teamet", { status: 403 })
+			}
+		} else if (routine.isSectionRoutine !== 1) {
+			throw new Response("Rutinen tilhører ikke dette teamet", { status: 403 })
+		}
+
 		const result = await createDraftReview({
-			routineId: formData.get("routineId") as string | null,
+			routineId: submittedRoutineId,
 			sectionSlug: seksjon,
-			applicationId: (formData.get("applicationId") as string | null) || null,
-			navIdent: authedUser.navIdent,
+			applicationId: submittedApplicationId,
+			user: authedUser,
 		})
 		if (!result.ok) {
 			return data({ success: false, error: result.error, intent: "create-draft" }, { status: result.status })

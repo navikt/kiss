@@ -58,13 +58,17 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 		throw new Response("Seksjonsrapporter lastes ned som ZIP via PDF-endepunktet", { status: 400 })
 	}
 
-	// Enforce access for app-compliance reports
-	if (report.reportType === "app_compliance") {
+	// Enforce access for app-compliance reports. "application_compliance" er den eldre rapporttypen
+	// (se app/db/seed.ts) som fortsatt kan finnes i databasen. Snapshotet for disse rapportene har et
+	// annet format (assessments/reviews) enn det denne XLSX-en forventer (rows) — PDF-endepunktet er
+	// derfor den eneste støttede nedlastingsveien for denne rapporttypen.
+	if (report.reportType === "app_compliance" || report.reportType === "application_compliance") {
 		if (!report.scopeId) throw new Response("Rapport mangler applikasjon-ID", { status: 500 })
 		const { devTeamIds, sectionIds } = await getAppScopeIds(report.scopeId)
 		if (!canAccessAppReports(user, sectionIds, devTeamIds)) {
 			throw new Response("Ikke autorisert", { status: 403 })
 		}
+		throw new Response("App-compliance-rapporter lastes ned som PDF/ZIP via PDF-endepunktet", { status: 400 })
 	}
 
 	// Rutine-gjennomgang-rapporter lagres kun som ZIP (reportBucketPath) og kan ikke bygges om til XLSX

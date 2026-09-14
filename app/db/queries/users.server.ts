@@ -60,7 +60,10 @@ export async function getUserRoles(navIdent: string): Promise<UserRoleEntry[]> {
 			sectionId: userRoles.sectionId,
 			sectionName: sections.name,
 			sectionSlug: sections.slug,
-			devTeamId: userRoles.devTeamId,
+			// devTeamId hentes fra det (arkivert-filtrerte) joinede devTeams-oppslaget, ikke direkte fra
+			// userRoles.devTeamId, slik at en rolle på et arkivert team ikke lenger regnes som et gyldig
+			// team-medlemskap av hasAnyTeamRole/canManageTeam (som sammenligner devTeamId direkte).
+			devTeamId: devTeams.id,
 			devTeamName: devTeams.name,
 			devTeamSlug: devTeams.slug,
 			devTeamSectionId: devTeams.sectionId,
@@ -70,7 +73,7 @@ export async function getUserRoles(navIdent: string): Promise<UserRoleEntry[]> {
 		.from(userRoles)
 		.innerJoin(users, eq(userRoles.userId, users.id))
 		.leftJoin(sections, eq(userRoles.sectionId, sections.id))
-		.leftJoin(devTeams, eq(userRoles.devTeamId, devTeams.id))
+		.leftJoin(devTeams, and(eq(userRoles.devTeamId, devTeams.id), isNull(devTeams.archivedAt)))
 		.where(and(eq(users.navIdent, navIdent), isNull(userRoles.archivedAt)))
 
 	return rows.map((r) => ({

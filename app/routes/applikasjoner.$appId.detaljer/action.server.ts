@@ -9,11 +9,19 @@ import {
 	updatePersistenceClassification,
 } from "~/db/queries/nais.server"
 import { generateAppComplianceReport, generateRoutineReviewReport } from "~/db/queries/reports.server"
+import {
+	getReportableReviewsForRoutineAndApp,
+	getReviewDetailAccessScope,
+	getReviewDetailAccessScopes,
+	getReviewsForApp,
+	resolveEffectiveResponsibleRole,
+} from "~/db/queries/routines.server"
 import { type DataClassification, persistenceTypeEnum } from "~/db/schema/applications"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { canAccessAppReports, isAdmin, requireAppMembership } from "~/lib/authorization.server"
+import { canAccessAppReports, canViewReviewDetail, isAdmin, requireAppMembership } from "~/lib/authorization.server"
 import { createDraftReview } from "~/lib/create-draft-review.server"
 import { logger } from "~/lib/logger.server"
+import { isValidUuid } from "~/lib/utils"
 import type { Route } from "./+types/index"
 
 export async function action({ request, params, url }: Route.ActionArgs) {
@@ -33,7 +41,7 @@ export async function action({ request, params, url }: Route.ActionArgs) {
 			routineId,
 			sectionSlug,
 			applicationId: appId,
-			navIdent: authedUser.navIdent,
+			user: authedUser,
 		})
 		if (!result.ok) {
 			return data(
@@ -67,7 +75,37 @@ export async function action({ request, params, url }: Route.ActionArgs) {
 		const includeAttachments = formData.get("includeAttachments") === "true"
 		const includeRoutineDescription = formData.get("includeRoutineDescription") === "true"
 		const reviewIdsRaw = formData.get("reviewIds")
-		const reviewIds = reviewIdsRaw != null ? String(reviewIdsRaw).split(",").filter(Boolean) : undefined
+		const requestedReviewIds = reviewIdsRaw != null ? String(reviewIdsRaw).split(",").filter(Boolean) : undefined
+		// Rapporten kan inneholde gjennomgangstekst/-vedlegg, så reviewIds må alltid begrenses til gjennomganger
+		// brukeren faktisk har detaljtilgang til (samme regel som requireReviewDetailAccess) — også når
+		// reviewIds er utelatt, siden generatoren da tolker det som "alle gjennomganger for applikasjonen".
+		let reviewIds = requestedReviewIds
+		let preFetchedReviews: Awaited<ReturnType<typeof getReviewsForApp>> | undefined
+		if (includeReviews && !isAdmin(authedUser)) {
+			// prepareAppComplianceArtifact svelger stille en feilende getReviewsForApp (rutinetabeller kan
+			// mangle) og faller tilbake til en rapport uten gjennomganger — denne prefetchen må bevare samme
+			// fallback, ellers feiler hele handlingen med en uhåndtert feil der generatoren ville klart seg.
+			let allReviews: Awaited<ReturnType<typeof getReviewsForApp>> = []
+			try {
+				allReviews = await getReviewsForApp(appId)
+			} catch (err) {
+				logger.warn("Failed to prefetch reviews for app compliance report filtering", { appId, error: err })
+			}
+			preFetchedReviews = allReviews
+			const visibleReviewIds = new Set(
+				allReviews
+					.filter((review) =>
+						canViewReviewDetail(authedUser, {
+							responsibleRole: resolveEffectiveResponsibleRole(review.routineResponsibleRole, review.routineControls),
+							sectionId: review.sectionId,
+							status: review.status,
+							createdBy: review.createdBy,
+						}),
+					)
+					.map((review) => review.id),
+			)
+			reviewIds = (requestedReviewIds ?? allReviews.map((review) => review.id)).filter((id) => visibleReviewIds.has(id))
+		}
 		try {
 			await generateAppComplianceReport({
 				applicationId: appId,
@@ -76,6 +114,7 @@ export async function action({ request, params, url }: Route.ActionArgs) {
 				includeAttachments,
 				includeRoutineDescription,
 				reviewIds: includeReviews ? reviewIds : undefined,
+				preFetchedReviews,
 			})
 			return data({ success: true, message: "Rapport generert.", error: null })
 		} catch (err) {
@@ -93,17 +132,49 @@ export async function action({ request, params, url }: Route.ActionArgs) {
 			return data({ success: false, message: null, error: "Ikke autorisert til å generere rapport." }, { status: 403 })
 		}
 		const routineId = formData.get("routineId") as string | null
-		if (!routineId) {
-			return data({ success: false, message: null, error: "Mangler rutine-ID" }, { status: 400 })
+		if (!routineId || !isValidUuid(routineId)) {
+			return data({ success: false, message: null, error: "Mangler eller ugyldig rutine-ID" }, { status: 400 })
 		}
 		const rawReviewId = formData.get("reviewId")
 		const reviewId = typeof rawReviewId === "string" && rawReviewId.length > 0 ? rawReviewId : undefined
+		if (reviewId && !isValidUuid(reviewId)) {
+			return data({ success: false, message: null, error: "Ugyldig gjennomgang-ID-format" }, { status: 400 })
+		}
+		let reviewIds: string[] | undefined
+		if (reviewId) {
+			const scope = await getReviewDetailAccessScope(reviewId)
+			if (!scope || !canViewReviewDetail(authedUser, scope)) {
+				return data(
+					{ success: false, message: null, error: "Ikke autorisert til å generere rapport for denne gjennomgangen." },
+					{ status: 403 },
+				)
+			}
+		} else if (!isAdmin(authedUser)) {
+			// Uten en oppgitt reviewId begrenses rapporten til gjennomganger brukeren faktisk har
+			// detaljtilgang til (samme regel som ved app-rapporter), slik at auditorer/seksjonsledere
+			// fortsatt kan generere en samlerapport uten å måtte oppgi én og én gjennomgang.
+			const allReportable = await getReportableReviewsForRoutineAndApp(routineId, appId)
+			const scopes = await getReviewDetailAccessScopes(allReportable.map((review) => review.id))
+			reviewIds = allReportable
+				.filter((review) => {
+					const scope = scopes.get(review.id)
+					return scope !== undefined && canViewReviewDetail(authedUser, scope)
+				})
+				.map((review) => review.id)
+			if (reviewIds.length === 0) {
+				return data(
+					{ success: false, message: null, error: "Ingen gjennomganger du har tilgang til å rapportere for." },
+					{ status: 403 },
+				)
+			}
+		}
 		try {
 			const result = await generateRoutineReviewReport({
 				routineId,
 				applicationId: appId,
 				createdBy: authedUser.navIdent,
 				reviewId,
+				reviewIds,
 			})
 			return data({ success: true, message: "Rapport generert.", error: null, reportId: result.reportId })
 		} catch (err) {

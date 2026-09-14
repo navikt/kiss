@@ -1,5 +1,6 @@
 import { getAppScopeIds } from "~/db/queries/applications.server"
 import { roleScopeMap, type UserRole } from "~/db/schema/organization"
+import type { ReviewStatus } from "~/db/schema/routines"
 import type { NavUser } from "./auth.server"
 
 // ---------------------------------------------------------------------------
@@ -106,6 +107,14 @@ export function requireSectionReportAccess(user: NavUser, sectionId: string): vo
 export function canAssignRoles(user: NavUser): boolean {
 	return isAdmin(user)
 }
+/** Sjekk om bruker har en teamscopet rolle hvis team tilhører gitt seksjon (via devTeamSectionId).
+ * Brukes for roller som product_owner/tech_lead der plain hasRoleForSection ville tolket
+ * sectionId: null feilaktig som et seksjons-wildcard, selv om null der bare betyr "rollen er ikke seksjonsscopet". */
+function hasTeamScopedRoleForSection(user: NavUser, role: UserRole, sectionId: string): boolean {
+	if (isAdmin(user)) return true
+	return (user.dbRoles ?? []).some((r) => r.role === role && r.devTeamSectionId === sectionId)
+}
+
 export function canApproveRoutine(user: NavUser, responsibleRole: string | null, sectionId: string): boolean {
 	if (isAdmin(user)) return true
 	if (!responsibleRole) return false
@@ -117,6 +126,9 @@ export function canApproveRoutine(user: NavUser, responsibleRole: string | null,
 	}
 	const mappedRole = roleMap[responsibleRole]
 	if (!mappedRole) return false
+	if (roleScopeMap[mappedRole] === "team") {
+		return hasTeamScopedRoleForSection(user, mappedRole, sectionId)
+	}
 	return hasRoleForSection(user, mappedRole, sectionId)
 }
 
@@ -196,6 +208,31 @@ export async function requireReviewReadAccess(
 ): Promise<void> {
 	if (await hasReviewReadAccess(user, scope)) return
 	throw new Response("Ikke autorisert", { status: 403 })
+}
+
+/** Sjekk lesetilgang til gjennomgangsdetaljer: admin, revisor, ansvarlig for rutinen (responsibleRole),
+ * seksjonens teknologileder/seksjonsleder, eller den som selv opprettet et utkast (kun mens det er utkast —
+ * ellers låses brukeren ute av gjennomgangen de selv har startet, før den er ferdig). Strengere enn
+ * hasReviewReadAccess — ekskluderer vanlige app-team-medlemmer uten en av disse rollene. */
+export function canViewReviewDetail(
+	user: NavUser,
+	scope: { responsibleRole: string | null; sectionId: string; status?: ReviewStatus; createdBy?: string },
+): boolean {
+	if (isAuditor(user)) return true
+	if (canManageSection(user, scope.sectionId)) return true
+	if (canApproveRoutine(user, scope.responsibleRole, scope.sectionId)) return true
+	if (scope.status === "draft" && scope.createdBy === user.navIdent) return true
+	return false
+}
+
+/** Krev lesetilgang til gjennomgangsdetaljer, se canViewReviewDetail. */
+export function requireReviewDetailAccess(
+	user: NavUser,
+	scope: { responsibleRole: string | null; sectionId: string; status?: ReviewStatus; createdBy?: string },
+): void {
+	if (!canViewReviewDetail(user, scope)) {
+		throw new Response("Ikke autorisert", { status: 403 })
+	}
 }
 
 /** Krev skrivetilgang til en gjennomgang: admin, app-tilhørighet eller seksjons-tilhørighet. Revisorer nektes eksplisitt. */
