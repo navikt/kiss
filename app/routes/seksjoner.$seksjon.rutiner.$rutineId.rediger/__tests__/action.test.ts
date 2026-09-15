@@ -24,14 +24,18 @@ const mockDeleteDraftRoutine = vi.fn()
 const mockUnarchiveRoutine = vi.fn()
 const mockApproveRoutine = vi.fn()
 const mockReplaceRoutine = vi.fn()
-vi.mock("~/db/queries/routines.server", () => ({
-	getRoutine: mockGetRoutine,
-	updateRoutine: mockUpdateRoutine,
-	deleteDraftRoutine: mockDeleteDraftRoutine,
-	unarchiveRoutine: mockUnarchiveRoutine,
-	approveRoutine: mockApproveRoutine,
-	replaceRoutine: mockReplaceRoutine,
-}))
+vi.mock("~/db/queries/routines.server", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("~/db/queries/routines.server")>()
+	return {
+		...actual,
+		getRoutine: mockGetRoutine,
+		updateRoutine: mockUpdateRoutine,
+		deleteDraftRoutine: mockDeleteDraftRoutine,
+		unarchiveRoutine: mockUnarchiveRoutine,
+		approveRoutine: mockApproveRoutine,
+		replaceRoutine: mockReplaceRoutine,
+	}
+})
 
 vi.mock("~/db/queries/screening.server", () => ({
 	getScreeningQuestions: vi.fn().mockResolvedValue([]),

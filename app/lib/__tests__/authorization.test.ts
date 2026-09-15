@@ -6,6 +6,7 @@ import {
 	canAccessAppReports,
 	canApproveRoutine,
 	canManageTeam,
+	canViewReviewDetail,
 	hasAnySectionRole,
 	hasAnyTeamRole,
 	hasReviewReadAccess,
@@ -15,6 +16,7 @@ import {
 	isAdmin,
 	requireAppMembership,
 	requireReviewAccess,
+	requireReviewDetailAccess,
 	requireReviewReadAccess,
 } from "../authorization.server"
 
@@ -181,11 +183,25 @@ describe("canApproveRoutine", () => {
 		expect(canApproveRoutine(user, "Teknologileder", sectionId)).toBe(false)
 	})
 
-	it("Produktleder role maps to product_owner for section", () => {
+	it("Produktleder role maps to product_owner scoped via devTeamSectionId (team-scoped role)", () => {
 		const user = makeUser({
-			dbRoles: [{ role: "product_owner", sectionId, devTeamId: null, devTeamSectionId: null }],
+			dbRoles: [{ role: "product_owner", sectionId: null, devTeamId: "team-1", devTeamSectionId: sectionId }],
 		})
 		expect(canApproveRoutine(user, "Produktleder", sectionId)).toBe(true)
+	})
+
+	it("Produktleder does not match a product_owner role scoped to an unrelated team/section", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "product_owner", sectionId: null, devTeamId: "other-team", devTeamSectionId: "other-section" }],
+		})
+		expect(canApproveRoutine(user, "Produktleder", sectionId)).toBe(false)
+	})
+
+	it("Produktleder does not match a product_owner role with sectionId: null and no devTeamSectionId (would otherwise wildcard-match every section)", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "product_owner", sectionId: null, devTeamId: "team-1", devTeamSectionId: null }],
+		})
+		expect(canApproveRoutine(user, "Produktleder", sectionId)).toBe(false)
 	})
 
 	it("Seksjonsleder role maps to section_manager", () => {
@@ -859,6 +875,115 @@ describe("requireReviewReadAccess", () => {
 		})
 		await expect(requireReviewReadAccess(user, { applicationId: null, sectionId })).resolves.toBeUndefined()
 		expect(mockGetAppScopeIds).not.toHaveBeenCalled()
+	})
+})
+
+describe("canViewReviewDetail", () => {
+	const sectionId = "sec-1"
+
+	it("passes for admin", () => {
+		const user = makeUser({ roles: new Set(["admin"]) })
+		expect(canViewReviewDetail(user, { responsibleRole: null, sectionId })).toBe(true)
+	})
+
+	it("passes for auditor even without a section role or responsibleRole match", () => {
+		const user = makeUser({ roles: new Set(["auditor"]) })
+		expect(canViewReviewDetail(user, { responsibleRole: null, sectionId })).toBe(true)
+	})
+
+	it("passes for section tech_manager", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "tech_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canViewReviewDetail(user, { responsibleRole: null, sectionId })).toBe(true)
+	})
+
+	it("passes for section_manager", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "section_manager", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canViewReviewDetail(user, { responsibleRole: null, sectionId })).toBe(true)
+	})
+
+	it("passes when user's role matches the routine's responsibleRole", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "product_owner", sectionId: null, devTeamId: "team-1", devTeamSectionId: sectionId }],
+		})
+		expect(canViewReviewDetail(user, { responsibleRole: "Produktleder", sectionId })).toBe(true)
+	})
+
+	it("rejects a plain developer with no matching role", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "team-1", devTeamSectionId: null }],
+		})
+		expect(canViewReviewDetail(user, { responsibleRole: "Teknologileder", sectionId })).toBe(false)
+	})
+
+	it("rejects when responsibleRole is set but user's role doesn't match it", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "product_owner", sectionId, devTeamId: null, devTeamSectionId: null }],
+		})
+		expect(canViewReviewDetail(user, { responsibleRole: "Teknologileder", sectionId })).toBe(false)
+	})
+
+	it("passes for the draft's own creator even without a matching role", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "team-1", devTeamSectionId: null }],
+		})
+		expect(
+			canViewReviewDetail(user, {
+				responsibleRole: "Teknologileder",
+				sectionId,
+				status: "draft",
+				createdBy: user.navIdent,
+			}),
+		).toBe(true)
+	})
+
+	it("rejects a draft created by someone else, even with the draft status set", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "team-1", devTeamSectionId: null }],
+		})
+		expect(
+			canViewReviewDetail(user, {
+				responsibleRole: "Teknologileder",
+				sectionId,
+				status: "draft",
+				createdBy: "annen-bruker",
+			}),
+		).toBe(false)
+	})
+
+	it("rejects the review's creator when the review is no longer a draft", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "team-1", devTeamSectionId: null }],
+		})
+		expect(
+			canViewReviewDetail(user, {
+				responsibleRole: "Teknologileder",
+				sectionId,
+				status: "completed",
+				createdBy: user.navIdent,
+			}),
+		).toBe(false)
+	})
+})
+
+describe("requireReviewDetailAccess", () => {
+	const sectionId = "sec-1"
+
+	it("passes for admin", () => {
+		const user = makeUser({ roles: new Set(["admin"]) })
+		expect(() => requireReviewDetailAccess(user, { responsibleRole: null, sectionId })).not.toThrow()
+	})
+
+	it("throws 403 for a user with no relevant role", () => {
+		const user = makeUser({
+			dbRoles: [{ role: "developer", sectionId: null, devTeamId: "team-1", devTeamSectionId: null }],
+		})
+		expect(() => requireReviewDetailAccess(user, { responsibleRole: null, sectionId })).toThrow(
+			expect.objectContaining({ status: 403 }),
+		)
 	})
 })
 

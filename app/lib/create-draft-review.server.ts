@@ -9,11 +9,14 @@ import {
 	createReview,
 	findActiveReviewConflict,
 	getAppsRequiringRoutine,
+	getReviewDetailAccessScope,
 	getRoutine,
 	getRoutineActivityLinks,
 } from "~/db/queries/routines.server"
 import { getSectionBySlug, isAppEffectiveInSection } from "~/db/queries/sections.server"
 import { activityTypeLabels } from "~/lib/activity-types"
+import type { NavUser } from "~/lib/auth.server"
+import { canViewReviewDetail } from "~/lib/authorization.server"
 import { isValidUuid } from "~/lib/utils"
 
 export type CreateDraftReviewSuccess = {
@@ -47,9 +50,10 @@ export async function createDraftReview(params: {
 	routineId: string | null
 	sectionSlug: string | null
 	applicationId: string | null
-	navIdent: string
+	user: NavUser
 }): Promise<CreateDraftReviewResult> {
-	const { routineId, sectionSlug, applicationId, navIdent } = params
+	const { routineId, sectionSlug, applicationId, user } = params
+	const navIdent = user.navIdent
 
 	if (!routineId) return { ok: false, error: "Mangler rutine-ID", status: 400 }
 	if (!isValidUuid(routineId)) return { ok: false, error: "Ugyldig rutine-ID-format", status: 400 }
@@ -88,6 +92,13 @@ export async function createDraftReview(params: {
 	const activityTypes = activityLinks.map((l) => l.activityType)
 	const conflict = await findActiveReviewConflict(routineId, effectiveAppId, activityTypes)
 	if (conflict) {
+		// Ikke avslør at en konflikterende gjennomgang finnes hvis brukeren ikke har
+		// detaljtilgang til den — ellers lekker en generisk 409 informasjon om et utkast
+		// brukeren ellers ikke skulle visst om (se canViewReviewDetail).
+		const conflictScope = await getReviewDetailAccessScope(conflict.reviewId)
+		if (!conflictScope || !canViewReviewDetail(user, conflictScope)) {
+			return { ok: false, error: "Kan ikke opprette gjennomgang for denne rutinen nå.", status: 409 }
+		}
 		const conflictMessage = conflict.activityType
 			? `Det finnes allerede en aktiv gjennomgang for «${activityTypeLabels[conflict.activityType] ?? conflict.activityType}». Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny.`
 			: "Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."

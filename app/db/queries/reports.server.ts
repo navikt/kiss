@@ -491,6 +491,7 @@ async function prepareAppComplianceArtifact(params: {
 	includeAttachments?: boolean
 	includeRoutineDescription?: boolean
 	reviewIds?: string[]
+	preFetchedReviews?: Awaited<ReturnType<typeof getReviewsForApp>>
 }) {
 	const {
 		applicationId,
@@ -498,6 +499,7 @@ async function prepareAppComplianceArtifact(params: {
 		includeAttachments = true,
 		includeRoutineDescription = false,
 		reviewIds,
+		preFetchedReviews,
 	} = params
 
 	const [detail, assessmentsResult] = await Promise.all([
@@ -507,10 +509,14 @@ async function prepareAppComplianceArtifact(params: {
 
 	let reviews: Awaited<ReturnType<typeof getReviewsForApp>> = []
 	if (includeReviews) {
-		try {
-			reviews = await getReviewsForApp(applicationId)
-		} catch {
-			// Routine tables may not exist
+		if (preFetchedReviews) {
+			reviews = preFetchedReviews
+		} else {
+			try {
+				reviews = await getReviewsForApp(applicationId)
+			} catch {
+				// Routine tables may not exist
+			}
 		}
 	}
 
@@ -730,6 +736,7 @@ export async function generateAppComplianceReport(params: {
 	includeAttachments?: boolean
 	includeRoutineDescription?: boolean
 	reviewIds?: string[]
+	preFetchedReviews?: Awaited<ReturnType<typeof getReviewsForApp>>
 }): Promise<{ reportId: string; reportBucketPath: string; appName: string }> {
 	const {
 		applicationId,
@@ -738,6 +745,7 @@ export async function generateAppComplianceReport(params: {
 		includeAttachments = true,
 		includeRoutineDescription = false,
 		reviewIds,
+		preFetchedReviews,
 	} = params
 
 	const { artifact, detail, assessments, completedReviews, auditEvidence, activitiesByReviewId } =
@@ -747,6 +755,7 @@ export async function generateAppComplianceReport(params: {
 			includeAttachments,
 			includeRoutineDescription,
 			reviewIds,
+			preFetchedReviews,
 		})
 
 	const now = new Date()
@@ -924,27 +933,39 @@ export async function generateAppComplianceReport(params: {
 		reportBucketPath = zipPath
 	}
 
-	const [report] = await db
-		.insert(reports)
-		.values({
-			name: reportName,
-			reportType: "app_compliance",
-			scope: "application",
-			scopeId: applicationId,
-			snapshotBucketPath: snapshotPath,
-			reportBucketPath,
-			appVersion: "0.1.0",
-			createdBy,
-		})
-		.returning()
+	const [report] = await db.transaction(async (tx) => {
+		const inserted = await tx
+			.insert(reports)
+			.values({
+				name: reportName,
+				reportType: "app_compliance",
+				scope: "application",
+				scopeId: applicationId,
+				reviewIds: completedReviews.map((r) => r.id),
+				snapshotBucketPath: snapshotPath,
+				reportBucketPath,
+				appVersion: "0.1.0",
+				createdBy,
+			})
+			.returning()
 
-	await writeAuditLog({
-		action: "report_generated",
-		entityType: "report",
-		entityId: report.id,
-		newValue: reportName,
-		metadata: { scope: "application", applicationId, totalControls: total },
-		performedBy: createdBy,
+		await writeAuditLog(
+			{
+				action: "report_generated",
+				entityType: "report",
+				entityId: inserted[0].id,
+				newValue: reportName,
+				metadata: {
+					scope: "application",
+					applicationId,
+					totalControls: total,
+					reviewIds: inserted[0].reviewIds,
+				},
+				performedBy: createdBy,
+			},
+			tx,
+		)
+		return inserted
 	})
 
 	return { reportId: report.id, reportBucketPath, appName: artifact.appName }
@@ -962,24 +983,25 @@ export async function generateRoutineReviewReport(params: {
 	applicationId: string
 	createdBy: string
 	reviewId?: string
+	reviewIds?: string[]
 }): Promise<{ reportId: string; reportBucketPath: string; reportName: string }> {
-	const { routineId, applicationId, createdBy, reviewId } = params
+	const { routineId, applicationId, createdBy, reviewId, reviewIds } = params
 
 	// Kun fullførte gjennomganger (eller de med åpne oppfølgingspunkter) skal med i rapporten —
 	// utkast er ikke ferdigstilt og skal ikke lekke ut i genererte rapporter. Filtreres i selve
-	// spørringen slik at utkast ikke berikes unødvendig. Hvis `reviewId` er oppgitt, begrenses
-	// rapporten til kun den ene gjennomgangen.
+	// spørringen slik at utkast ikke berikes unødvendig. Hvis `reviewId`/`reviewIds` er oppgitt,
+	// begrenses rapporten til disse gjennomgangene.
 	const [routine, detail, reviews] = await Promise.all([
 		getRoutine(routineId),
 		getApplicationDetail(applicationId),
-		getReportableReviewsForRoutineAndApp(routineId, applicationId, reviewId),
+		getReportableReviewsForRoutineAndApp(routineId, applicationId, reviewId, reviewIds),
 	])
 
 	if (!routine) throw new Error(`Fant ikke rutine: ${routineId}`)
 	if (!detail) throw new Error(`Fant ikke applikasjon: ${applicationId}`)
 	if (reviews.length === 0) {
 		throw new Error(
-			reviewId
+			reviewId || reviewIds
 				? "Gjennomgangen finnes ikke, eller er ikke rapporterbar for denne rutinen/applikasjonen"
 				: "Ingen gjennomganger funnet for denne rutinen og applikasjonen",
 		)
@@ -1178,6 +1200,7 @@ export async function generateRoutineReviewReport(params: {
 					scope: "routine_review",
 					scopeId: applicationId,
 					secondaryScopeId: routineId,
+					reviewIds: reviews.map((r) => r.id),
 					reportBucketPath: zipPath,
 					appVersion: "0.1.0",
 					createdBy,
@@ -1195,6 +1218,7 @@ export async function generateRoutineReviewReport(params: {
 						applicationId,
 						reviewId,
 						totalReviews: reviews.length,
+						reviewIds: inserted[0].reviewIds,
 						sizeBytes: uploadResult.sizeBytes,
 					},
 					performedBy: createdBy,
