@@ -61,8 +61,8 @@ const { action } = await import("../index")
 // --- Helpers ---------------------------------------------------------
 
 const fakeUser = {
-	navIdent: "T123456",
-	name: "Test",
+	navIdent: "Z990001",
+	name: "Glad Fjord",
 	groups: [],
 	token: "t",
 	dbRoles: [],
@@ -117,7 +117,7 @@ describe("copy-to-section intent", () => {
 		expect(response.headers.get("location")).toContain("annen-seksjon")
 		expect(response.headers.get("location")).toContain("ruleset-copy-2")
 		expect(mockRequireAnySectionRole).toHaveBeenCalledWith(fakeUser, "section-2")
-		expect(mockCopyRulesetToSection).toHaveBeenCalledWith("ruleset-1", "section-2", "T123456")
+		expect(mockCopyRulesetToSection).toHaveBeenCalledWith("ruleset-1", "section-2", "Z990001")
 	})
 
 	it("rejects copy-to-section when user lacks target section role", async () => {
