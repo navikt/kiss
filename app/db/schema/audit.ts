@@ -161,6 +161,7 @@ export const auditLogActionEnum = [
 	"routine_approved",
 	"routine_copied",
 	"routine_replaced",
+	"routine_copied_cross_section",
 	"routine_priority_changed",
 	"routine_attachment_uploaded",
 	"routine_review_created",
@@ -202,6 +203,7 @@ export const auditLogActionEnum = [
 	"routine_oracle_role_criticality_link_removed",
 	"routine_screening_question_added",
 	"routine_screening_question_removed",
+	"routine_activity_link_added",
 
 	// Dokumenter
 	"document_uploaded",
@@ -210,6 +212,7 @@ export const auditLogActionEnum = [
 	"document_unarchived",
 
 	// Regelsett
+	"ruleset_created",
 	"ruleset_archived",
 	"ruleset_unarchived",
 	"ruleset_updated",
@@ -220,6 +223,7 @@ export const auditLogActionEnum = [
 	"ruleset_copied",
 	"ruleset_replaced",
 	"ruleset_approved",
+	"ruleset_copied_cross_section",
 
 	// Revisjonsbevis og automatiske synkroniseringer
 	"audit_confirmation_created",

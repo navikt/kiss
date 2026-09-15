@@ -55,7 +55,7 @@ import {
 	frameworkRisks,
 	technologyElements,
 } from "../schema/framework"
-import { users } from "../schema/organization"
+import { sections, users } from "../schema/organization"
 import {
 	type EntraChangeType,
 	FOLLOW_UP_POINT_STATUSES,
@@ -6782,6 +6782,413 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 }
 
 /**
+ * Kopierer en rutine (eller seksjonsrutine) TIL en annen seksjon enn der den
+ * ligger i dag. I motsetning til `copyRoutine()` er dette IKKE en
+ * draft-for-redigering i samme seksjon som senere skal erstatte originalen
+ * via `replaceRoutine()` — kopien er en helt ny, uavhengig rutine i
+ * målseksjonen som går gjennom vanlig draft → ready → godkjent-flyt.
+ *
+ * Derfor settes IKKE `sourceRoutineId` på kopien (det feltet driver
+ * "erstatt"-flyten og godkjenning-modalen i UI — å sette det på tvers av
+ * seksjoner ville latt en bruker med godkjenningsrettigheter i målseksjonen
+ * arkivere/erstatte en rutine som tilhører en helt annen seksjon). Lineage
+ * spores utelukkende via audit-metadata (`routine_copied_cross_section`),
+ * skrevet på BÅDE kopien og kilderutinen slik at begge seksjoner kan se
+ * kopieringen i sin endringslogg.
+ *
+ * Screening-koblinger (`screeningQuestionId`/`routineScreeningQuestions`)
+ * kopieres kun når spørsmålet er reelt globalt (`sectionId IS NULL`) —
+ * seksjonsspesifikke spørsmål, også de som tilfeldigvis tilhører målseksjonen,
+ * droppes, siden kilderutinens kobling ikke skal avgjøre hva som er relevant
+ * i målseksjonen.
+ */
+export async function copyRoutineToSection(
+	routineId: string,
+	targetSectionId: string,
+	performedBy: string,
+	tx?: DbExecutor,
+) {
+	if (tx) return copyRoutineToSectionInTx(routineId, targetSectionId, performedBy, tx)
+	return db.transaction((innerTx) => copyRoutineToSectionInTx(routineId, targetSectionId, performedBy, innerTx))
+}
+
+async function copyRoutineToSectionInTx(
+	routineId: string,
+	targetSectionId: string,
+	performedBy: string,
+	tx: DbExecutor,
+) {
+	const source = await getRoutine(routineId)
+	if (!source) return null
+
+	const [locked] = await tx
+		.select({ archivedAt: routines.archivedAt, sectionId: routines.sectionId, name: routines.name })
+		.from(routines)
+		.where(eq(routines.id, routineId))
+		.for("share")
+		.limit(1)
+	if (!locked) return null
+	if (locked.archivedAt) {
+		throw new Response("Arkiverte rutiner kan ikke kopieres. Reaktiver rutinen først.", { status: 403 })
+	}
+	if (locked.sectionId === targetSectionId) {
+		throw new Response("Kan ikke kopiere en rutine til seksjonen den allerede tilhører", { status: 400 })
+	}
+	// Håndheves her (ikke bare i routen) siden copyRulesetToSection() kaller
+	// denne funksjonen direkte for hver lenkede rutine — linkRoutineToRuleset()
+	// tillater enhver ikke-arkivert rutine, så et aktivt regelsett kan inneholde
+	// en draft-rutine som ellers ville blitt kopiert på tvers av seksjoner usjekket.
+	if (source.status !== "approved") {
+		throw new Response("Kun godkjente rutiner kan kopieres til en annen seksjon.", { status: 400 })
+	}
+	if (!source.frequency && !source.eventFrequency) {
+		throw new Response("Kan ikke kopiere rutine uten frekvens", { status: 400 })
+	}
+
+	const [targetSection] = await tx
+		.select({ id: sections.id, archivedAt: sections.archivedAt })
+		.from(sections)
+		.where(eq(sections.id, targetSectionId))
+		.for("share")
+		.limit(1)
+	if (!targetSection) {
+		throw new Response("Fant ikke målseksjonen", { status: 404 })
+	}
+	if (targetSection.archivedAt) {
+		throw new Response("Kan ikke kopiere rutine til en arkivert seksjon", { status: 400 })
+	}
+
+	// screeningQuestionId er et eldre felt uten tilhørende rad i routineScreeningQuestions,
+	// og må derfor tas med eksplisitt her for at det ikke skal falle utenfor gyldighetssjekken.
+	const screeningQuestionIds = [
+		...new Set([
+			...source.screeningQuestions.map((sq) => sq.questionId),
+			...(source.screeningQuestionId ? [source.screeningQuestionId] : []),
+		]),
+	]
+	const validScreeningQuestionIds = new Set<string>()
+	if (screeningQuestionIds.length > 0) {
+		const questionRows = await tx
+			.select({
+				id: screeningQuestions.id,
+				sectionId: screeningQuestions.sectionId,
+				rulesetId: screeningQuestions.rulesetId,
+			})
+			.from(screeningQuestions)
+			.where(inArray(screeningQuestions.id, screeningQuestionIds))
+		for (const q of questionRows) {
+			// rulesetId knytter svaret til et bestemt regelsetts kontroller (se
+			// getRulesetControlsForApp), og det regelsettet tilhører alltid en
+			// bestemt seksjon. Et slikt spørsmål er derfor aldri reelt globalt,
+			// selv om sectionId er null, og må droppes ved kryss-seksjon-kopi.
+			// sectionId === targetSectionId aksepteres bevisst ikke: kilderutinens
+			// kobling til et spørsmål som tilfeldigvis eies av målseksjonen er ikke
+			// et signal om at koblingen er relevant der, kun global (sectionId null).
+			if (q.rulesetId === null && q.sectionId === null) {
+				validScreeningQuestionIds.add(q.id)
+			}
+		}
+	}
+	const keepTopLevelScreening =
+		source.screeningQuestionId !== null && validScreeningQuestionIds.has(source.screeningQuestionId)
+
+	// Håndhever samme seksjonsrutine-invariant som createRoutine()/updateRoutine():
+	// isSectionRoutine impliserer appliesToAllInSection, og krever en eierrolle.
+	// Uten dette kunne kopien reprodusere en inkonsistent rad selv om kilden er gyldig
+	// (f.eks. en eldre kilderad med appliesToAllInSection=0 eller manglende eierrolle).
+	if (source.isSectionRoutine && !source.sectionRoutineOwnerRole) {
+		throw new Response("Seksjonsrutiner krever en eierrolle (sectionRoutineOwnerRole)", { status: 400 })
+	}
+
+	const [copy] = await tx
+		.insert(routines)
+		.values({
+			sectionId: targetSectionId,
+			name: source.name,
+			description: source.description,
+			frequency: source.frequency,
+			eventFrequency: source.eventFrequency,
+			responsibleRole: source.responsibleRole,
+			appliesToAllInSection: source.isSectionRoutine ? 1 : source.appliesToAllInSection ? 1 : 0,
+			isSectionRoutine: source.isSectionRoutine,
+			sectionRoutineOwnerRole: source.isSectionRoutine ? source.sectionRoutineOwnerRole : null,
+			screeningQuestionId: keepTopLevelScreening ? source.screeningQuestionId : null,
+			screeningChoiceValue: keepTopLevelScreening ? source.screeningChoiceValue : null,
+			priority: source.priority,
+			status: "draft",
+			createdBy: performedBy,
+			updatedBy: performedBy,
+		})
+		.returning()
+
+	// Mirrors updateRoutine()'s writeLinkAudit: hver kopiert lenke-rad skal ha en
+	// tilhørende "_added" audit-oppføring, ikke bare toppnivå-kopien.
+	const writeCopyLinkAudit = async (action: AuditLogAction, entityType: string, metadata: Record<string, unknown>) => {
+		await writeAuditLog(
+			{
+				action,
+				entityType,
+				entityId: copy.id,
+				newValue: JSON.stringify({ routineId: copy.id, ...metadata }),
+				metadata,
+				performedBy,
+			},
+			tx,
+		)
+	}
+
+	// Flere av lenke-tabellene under mangler unique-constraint (samme forhold som
+	// updateRoutine() håndterer eksplisitt for hver av dem, se linjene den kommenteres
+	// med under) — uten dedup her ville en eldre kilderutine med duplikate aktive rader
+	// gi duplikate lenker og duplikate audit-entries i kopien.
+	function dedupeBy<T>(items: T[], keyFn: (item: T) => string): T[] {
+		const seen = new Set<string>()
+		return items.filter((item) => {
+			const k = keyFn(item)
+			if (seen.has(k)) return false
+			seen.add(k)
+			return true
+		})
+	}
+
+	const uniqueTechnologyElements = dedupeBy(source.technologyElements, (el) => el.id)
+	if (uniqueTechnologyElements.length > 0) {
+		await tx
+			.insert(routineTechnologyElements)
+			.values(uniqueTechnologyElements.map((el) => ({ routineId: copy.id, elementId: el.id })))
+		for (const el of uniqueTechnologyElements) {
+			await writeCopyLinkAudit("routine_technology_element_added", "routine_technology_element", {
+				elementId: el.id,
+			})
+		}
+	}
+
+	// source.controls (fra getRoutine()) inner-joiner frameworkRiskControlMappings og
+	// utelater derfor kontroller der mappingen er arkivert selv om selve rutine-koblingen
+	// fortsatt er aktiv — filtrer derfor kopierte lenker på samme måte, ellers vil
+	// redigeringssiden (som bruker getRoutine()) ikke se disse kontrollene i controlIds,
+	// og en påfølgende lagring vil arkivere lenkene igjen (updateRoutine() erstatter
+	// hele settet med det editoren sendte inn).
+	// Tabellen mangler unique-constraint, så en eldre kilderutine kan ha duplikate
+	// aktive lenker — selectDistinct (samme mønster som getRoutine()) hindrer duplikate
+	// koblinger og duplikate audit-rader i kopien.
+	const sourceControlLinks = await tx
+		.selectDistinct({ controlId: routineControls.controlId })
+		.from(routineControls)
+		.innerJoin(
+			frameworkRiskControlMappings,
+			and(
+				eq(routineControls.controlId, frameworkRiskControlMappings.controlId),
+				isNull(frameworkRiskControlMappings.archivedAt),
+			),
+		)
+		.where(and(eq(routineControls.routineId, routineId), isNull(routineControls.archivedAt)))
+	if (sourceControlLinks.length > 0) {
+		await tx
+			.insert(routineControls)
+			.values(sourceControlLinks.map((c) => ({ routineId: copy.id, controlId: c.controlId })))
+		for (const c of sourceControlLinks) {
+			await writeCopyLinkAudit("routine_control_added", "routine_control", { controlId: c.controlId })
+		}
+	}
+
+	const uniquePersistenceLinks = dedupeBy(
+		source.persistenceLinks,
+		(pl) => `${pl.persistenceType}|${pl.dataClassification}`,
+	)
+	if (uniquePersistenceLinks.length > 0) {
+		await tx.insert(routinePersistenceLinks).values(
+			uniquePersistenceLinks.map((pl) => ({
+				routineId: copy.id,
+				persistenceType: pl.persistenceType,
+				dataClassification: pl.dataClassification,
+			})),
+		)
+		for (const pl of uniquePersistenceLinks) {
+			await writeCopyLinkAudit("routine_persistence_link_added", "routine_persistence_link", {
+				persistenceType: pl.persistenceType,
+				dataClassification: pl.dataClassification,
+			})
+		}
+	}
+
+	const uniqueGroupClassifications = dedupeBy(source.groupClassifications, (gc) => gc.classification)
+	if (uniqueGroupClassifications.length > 0) {
+		await tx.insert(routineGroupClassificationLinks).values(
+			uniqueGroupClassifications.map((gc) => ({
+				routineId: copy.id,
+				classification: gc.classification as GroupAccessClassification,
+			})),
+		)
+		for (const gc of uniqueGroupClassifications) {
+			await writeCopyLinkAudit("routine_group_classification_link_added", "routine_group_classification_link", {
+				classification: gc.classification,
+			})
+		}
+	}
+
+	const uniqueOracleRoleCriticalities = dedupeBy(source.oracleRoleCriticalities, (orc) => orc.criticality)
+	if (uniqueOracleRoleCriticalities.length > 0) {
+		await tx.insert(routineOracleRoleCriticalityLinks).values(
+			uniqueOracleRoleCriticalities.map((orc) => ({
+				routineId: copy.id,
+				criticality: orc.criticality as GroupCriticality,
+			})),
+		)
+		for (const orc of uniqueOracleRoleCriticalities) {
+			await writeCopyLinkAudit("routine_oracle_role_criticality_link_added", "routine_oracle_role_criticality_link", {
+				criticality: orc.criticality,
+			})
+		}
+	}
+
+	// Tabellen mangler unique-constraint (se samme mønster i updateRoutine()), så en
+	// eldre kilderutine med duplikate aktive (questionId, choiceValue)-rader ville uten
+	// dedup gi duplikate lenker og duplikate audit-entries i kopien.
+	const sqKey = (l: { questionId: string; choiceValue: string | null }) => JSON.stringify([l.questionId, l.choiceValue])
+	const seenSqKeys = new Set<string>()
+	const screeningLinksToCopy = source.screeningQuestions
+		.filter((sq) => validScreeningQuestionIds.has(sq.questionId))
+		.filter((sq) => {
+			const k = sqKey(sq)
+			if (seenSqKeys.has(k)) return false
+			seenSqKeys.add(k)
+			return true
+		})
+	if (screeningLinksToCopy.length > 0) {
+		await tx.insert(routineScreeningQuestions).values(
+			screeningLinksToCopy.map((sq) => ({
+				routineId: copy.id,
+				questionId: sq.questionId,
+				choiceValue: sq.choiceValue,
+			})),
+		)
+		for (const sq of screeningLinksToCopy) {
+			await writeCopyLinkAudit("routine_screening_question_added", "routine_screening_question", {
+				questionId: sq.questionId,
+				choiceValue: sq.choiceValue,
+			})
+		}
+	}
+	// Det eldre toppnivåfeltet (screeningQuestionId) har ikke nødvendigvis en egen rad i
+	// routineScreeningQuestions (se kommentaren ved 6861) — hvis så, er den ikke dekket av
+	// løkken over og må auditeres separat for å ikke bryte CRUD-audit-kravet.
+	if (
+		keepTopLevelScreening &&
+		source.screeningQuestionId &&
+		!screeningLinksToCopy.some(
+			(sq) => sq.questionId === source.screeningQuestionId && sq.choiceValue === source.screeningChoiceValue,
+		)
+	) {
+		await writeCopyLinkAudit("routine_screening_question_added", "routine_screening_question", {
+			questionId: source.screeningQuestionId,
+			choiceValue: source.screeningChoiceValue,
+		})
+	}
+
+	const sourceActivityLinks = source.isSectionRoutine
+		? []
+		: await tx
+				.select()
+				.from(routineActivityLinks)
+				.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
+				.orderBy(routineActivityLinks.sortOrder)
+	if (sourceActivityLinks.length > 0) {
+		await tx.insert(routineActivityLinks).values(
+			sourceActivityLinks.map((link) => ({
+				routineId: copy.id,
+				activityType: link.activityType,
+				sortOrder: link.sortOrder,
+				stepTitle: link.stepTitle,
+				stepDescription: link.stepDescription,
+				stepComponents: link.stepComponents,
+				createdBy: performedBy,
+			})),
+		)
+		for (const link of sourceActivityLinks) {
+			await writeCopyLinkAudit("routine_activity_link_added", "routine_activity_link", {
+				activityType: link.activityType,
+				stepTitle: link.stepTitle,
+			})
+		}
+	}
+
+	// routineActivitySteps er den eldre modellen for manuelle sjekklistepunkter
+	// (før routineActivityLinks), fortsatt lest av getActivityStepsForRoutine().
+	// Seksjonsrutiner har ingen aktivitetstype/sjekkliste (samme invariant som over).
+	const sourceActivitySteps = source.isSectionRoutine
+		? []
+		: await tx
+				.select()
+				.from(routineActivitySteps)
+				.where(and(eq(routineActivitySteps.routineId, routineId), isNull(routineActivitySteps.archivedAt)))
+				.orderBy(routineActivitySteps.sortOrder)
+	if (sourceActivitySteps.length > 0) {
+		const insertedSteps = await tx
+			.insert(routineActivitySteps)
+			.values(
+				sourceActivitySteps.map((step) => ({
+					routineId: copy.id,
+					title: step.title,
+					description: step.description,
+					sortOrder: step.sortOrder,
+					createdBy: performedBy,
+					updatedBy: performedBy,
+				})),
+			)
+			.returning()
+		for (const step of insertedSteps) {
+			await writeAuditLog(
+				{
+					action: "routine_checklist_step_created",
+					entityType: "routine_checklist_step",
+					entityId: step.id,
+					newValue: JSON.stringify({ routineId: copy.id, title: step.title, sortOrder: step.sortOrder }),
+					performedBy,
+				},
+				tx,
+			)
+		}
+	}
+
+	// To audit-oppføringer skrives (kopi + kilde) slik at kildeseksjonen også
+	// ser i sin endringslogg at rutinen ble kopiert ut til en annen seksjon.
+	// Lineage legges også i newValue (ikke bare metadata) slik at Endringslogg-UI-en
+	// (som kun leser previousValue/newValue) viser kilden, i tråd med copyRoutine().
+	await writeAuditLog(
+		{
+			action: "routine_copied_cross_section",
+			entityType: "routine",
+			entityId: copy.id,
+			newValue: JSON.stringify({ sourceRoutineId: routineId, sourceSectionId: locked.sectionId, name: copy.name }),
+			metadata: {
+				sourceRoutineId: routineId,
+				sourceSectionId: locked.sectionId,
+				sourceName: locked.name,
+			},
+			performedBy,
+		},
+		tx,
+	)
+	await writeAuditLog(
+		{
+			action: "routine_copied_cross_section",
+			entityType: "routine",
+			entityId: routineId,
+			newValue: JSON.stringify({ targetRoutineId: copy.id, targetSectionId }),
+			metadata: {
+				targetRoutineId: copy.id,
+				targetSectionId,
+			},
+			performedBy,
+		},
+		tx,
+	)
+
+	return copy
+}
+
+/**
  * Erstatter en godkjent rutine med en ny. `deadlinePolicy` (`"reset"` eller
  * `"continue"`) blir lagret i audit-metadata for sporing — selve fristlogikken
  * er ikke implementert ennå, og verdien påvirker per i dag ikke hvordan
@@ -6806,6 +7213,7 @@ export async function replaceRoutine(
 				archivedAt: routines.archivedAt,
 				name: routines.name,
 				sourceRoutineId: routines.sourceRoutineId,
+				sectionId: routines.sectionId,
 			})
 			.from(routines)
 			.where(eq(routines.id, newRoutineId))
@@ -6827,7 +7235,12 @@ export async function replaceRoutine(
 
 		// Lock and validate old routine (must be approved, not archived)
 		const [oldLocked] = await tx
-			.select({ status: routines.status, archivedAt: routines.archivedAt, name: routines.name })
+			.select({
+				status: routines.status,
+				archivedAt: routines.archivedAt,
+				name: routines.name,
+				sectionId: routines.sectionId,
+			})
 			.from(routines)
 			.where(eq(routines.id, oldRoutineId))
 			.for("share")
@@ -6840,6 +7253,11 @@ export async function replaceRoutine(
 		}
 		if (oldLocked.status !== "approved") {
 			throw new Response("Kun godkjente rutiner kan erstattes", { status: 400 })
+		}
+		// Hindrer at en godkjent rutine i én seksjon erstattes/arkiveres av en
+		// bruker som kun har rettigheter i en annen seksjon.
+		if (newLocked.sectionId !== oldLocked.sectionId) {
+			throw new Response("Kan ikke erstatte en rutine som tilhører en annen seksjon", { status: 400 })
 		}
 
 		const now = new Date()
@@ -8198,6 +8616,15 @@ async function completeOracleRoleCriticalityActivity(
 }
 
 // ─── Manual Activity ────────────────────────────────────────────────
+
+/** Alle sjekklistepunkt-IDer for en rutine, inkl. arkiverte — brukt for å slå opp full audit-historikk. */
+export async function getActivityStepIdsForRoutine(routineId: string) {
+	const rows = await db
+		.select({ id: routineActivitySteps.id })
+		.from(routineActivitySteps)
+		.where(eq(routineActivitySteps.routineId, routineId))
+	return rows.map((r) => r.id)
+}
 
 export async function getActivityStepsForRoutine(routineId: string) {
 	return db

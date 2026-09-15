@@ -1322,6 +1322,7 @@ export function mockRutineDetaljData(overrides?: {
 		reviews,
 		appsWithDeadlines,
 		screeningQuestion: null,
+		copyTargetSections: [],
 		descriptionHtml: eventOnly
 			? "<p>Gjennomfør sikkerhetsgjennomgang ved alle endringer i applikasjonens kildekode eller konfigurasjon.</p>"
 			: isSec
