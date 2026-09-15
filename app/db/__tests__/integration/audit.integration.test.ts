@@ -11,8 +11,14 @@ vi.mock("~/db/connection.server", () => ({
 	},
 }))
 
-const { writeAuditLog, getAuditLogForEntity, getRecentAuditLog, getAuditLogByAction, getRecentAuditLogByEntityTypes } =
-	await import("~/db/queries/audit.server")
+const {
+	writeAuditLog,
+	getAuditLogForEntity,
+	getAuditLogForEntities,
+	getRecentAuditLog,
+	getAuditLogByAction,
+	getRecentAuditLogByEntityTypes,
+} = await import("~/db/queries/audit.server")
 
 describe("Audit log integration tests", () => {
 	beforeAll(async () => {
@@ -213,6 +219,129 @@ describe("Audit log integration tests", () => {
 
 			const results = await getRecentAuditLogByEntityTypes(["section", "team"])
 			expect(results).toHaveLength(0)
+		})
+	})
+
+	describe("getAuditLogForEntities", () => {
+		it("should return an empty array for an empty entityIds list without querying the database", async () => {
+			const results = await getAuditLogForEntities("routine_checklist_step", [])
+			expect(results).toHaveLength(0)
+		})
+
+		it("should return entries for multiple entities of the same type, merged and sorted", async () => {
+			await writeAuditLog({
+				action: "routine_checklist_step_created",
+				entityType: "routine_checklist_step",
+				entityId: "step-1",
+				performedBy: "Z990001",
+			})
+			await writeAuditLog({
+				action: "routine_checklist_step_created",
+				entityType: "routine_checklist_step",
+				entityId: "step-2",
+				performedBy: "Z990001",
+			})
+			await writeAuditLog({
+				action: "routine_checklist_step_created",
+				entityType: "routine_checklist_step",
+				entityId: "step-3-not-included",
+				performedBy: "Z990001",
+			})
+
+			const results = await getAuditLogForEntities("routine_checklist_step", ["step-1", "step-2"])
+			expect(results).toHaveLength(2)
+			expect(results.every((r) => ["step-1", "step-2"].includes(r.entityId))).toBe(true)
+		})
+
+		it("should order the merged result by performedAt descending", async () => {
+			const db = getTestDb()
+			const older = new Date("2024-01-01T10:00:00Z")
+			const newer = new Date("2024-01-01T11:00:00Z")
+			await db.insert(auditLog).values({
+				action: "routine_checklist_step_created",
+				entityType: "routine_checklist_step",
+				entityId: "step-1",
+				performedBy: "Z990001",
+				performedAt: older,
+			})
+			await db.insert(auditLog).values({
+				action: "routine_checklist_step_created",
+				entityType: "routine_checklist_step",
+				entityId: "step-2",
+				performedBy: "Z990001",
+				performedAt: newer,
+			})
+
+			const results = await getAuditLogForEntities("routine_checklist_step", ["step-1", "step-2"])
+			expect(results).toHaveLength(2)
+			expect(results[0].entityId).toBe("step-2")
+			expect(results[1].entityId).toBe("step-1")
+		})
+
+		it("should respect perEntityLimit per entityId rather than across the combined result set", async () => {
+			const db = getTestDb()
+			const baseTime = new Date("2024-01-01T00:00:00Z").getTime()
+			// step-1 has 3 older entries, step-2 has 1 newer entry — with an aggregate (non-per-entity)
+			// limit of 2, step-1's newest entries would crowd out step-2's only entry.
+			for (let i = 0; i < 3; i++) {
+				await db.insert(auditLog).values({
+					action: "routine_checklist_step_created",
+					entityType: "routine_checklist_step",
+					entityId: "step-1",
+					performedBy: "Z990001",
+					performedAt: new Date(baseTime + i * 1000),
+				})
+			}
+			await db.insert(auditLog).values({
+				action: "routine_checklist_step_created",
+				entityType: "routine_checklist_step",
+				entityId: "step-2",
+				performedBy: "Z990001",
+				performedAt: new Date(baseTime + 10_000),
+			})
+
+			const results = await getAuditLogForEntities("routine_checklist_step", ["step-1", "step-2"], 2)
+			const step1Count = results.filter((r) => r.entityId === "step-1").length
+			const step2Count = results.filter((r) => r.entityId === "step-2").length
+			expect(step1Count).toBe(2)
+			expect(step2Count).toBe(1)
+		})
+
+		it("should cap the merged result at overallLimit even when per-entity limits are satisfied", async () => {
+			const db = getTestDb()
+			const baseTime = new Date("2024-01-01T00:00:00Z").getTime()
+			const entityIds = ["step-1", "step-2", "step-3"]
+			for (const [index, entityId] of entityIds.entries()) {
+				await db.insert(auditLog).values({
+					action: "routine_checklist_step_created",
+					entityType: "routine_checklist_step",
+					entityId,
+					performedBy: "Z990001",
+					performedAt: new Date(baseTime + index * 1000),
+				})
+			}
+
+			const results = await getAuditLogForEntities("routine_checklist_step", entityIds, 50, 2)
+			expect(results).toHaveLength(2)
+		})
+
+		it("should not return entries of a different entityType", async () => {
+			await writeAuditLog({
+				action: "routine_checklist_step_created",
+				entityType: "routine_checklist_step",
+				entityId: "step-1",
+				performedBy: "Z990001",
+			})
+			await writeAuditLog({
+				action: "routine_activity_link_added",
+				entityType: "routine_activity_link",
+				entityId: "step-1",
+				performedBy: "Z990001",
+			})
+
+			const results = await getAuditLogForEntities("routine_checklist_step", ["step-1"])
+			expect(results).toHaveLength(1)
+			expect(results[0].action).toBe("routine_checklist_step_created")
 		})
 	})
 

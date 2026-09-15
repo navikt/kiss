@@ -13,13 +13,15 @@ import {
 	VStack,
 } from "@navikt/ds-react"
 import { Fragment, useState } from "react"
-import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
+import { data, Form, Link, redirect, useActionData, useLoaderData, useNavigation } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { UserDisplayName } from "~/components/UserDisplayName"
+import { getAuditLogForEntity } from "~/db/queries/audit.server"
 import { getRoutinesForSection } from "~/db/queries/routines.server"
 import {
 	approveRuleset,
 	copyRuleset,
+	copyRulesetToSection,
 	getRulesetDetail,
 	getRulesetMeta,
 	getRulesetNamesByIds,
@@ -27,15 +29,47 @@ import {
 	replaceRuleset,
 	unlinkRoutineFromRuleset,
 } from "~/db/queries/rulesets.server"
-import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getSectionBySlug, getSections } from "~/db/queries/sections.server"
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { type UserRole, userRoleLabels } from "~/db/schema/organization"
 import { approvalStatusConfig } from "~/lib/approval-status"
 import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
-import { hasAnySectionRole, hasExactRoleForSection, isAdmin, requireAdmin } from "~/lib/authorization.server"
+import {
+	hasAnySectionRole,
+	hasExactRoleForSection,
+	isAdmin,
+	requireAdmin,
+	requireAnySectionRole,
+} from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import { getFrequencyLabel } from "~/lib/routine-frequencies"
 import type { Route } from "./+types/index"
+
+const auditActionLabels: Record<string, string> = {
+	ruleset_created: "Regelsett opprettet",
+	ruleset_updated: "Regelsett oppdatert",
+	ruleset_archived: "Regelsett arkivert",
+	ruleset_unarchived: "Regelsett gjenåpnet",
+	ruleset_approved: "Regelsett godkjent",
+	ruleset_copied: "Kopiert for redigering",
+	ruleset_copied_cross_section: "Kopiert til/fra annen seksjon",
+	ruleset_replaced: "Erstattet gammelt regelsett",
+	ruleset_routine_added: "Rutine koblet til",
+	ruleset_routine_removed: "Rutine frakoblet",
+	ruleset_control_added: "Kontroll koblet til",
+	ruleset_control_removed: "Kontroll frakoblet",
+}
+
+function formatDateTime(date: string | Date | null): string {
+	if (!date) return "—"
+	return new Date(date).toLocaleDateString("nb-NO", {
+		day: "numeric",
+		month: "numeric",
+		year: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	})
+}
 
 export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon, regelSettId } = params
@@ -87,11 +121,25 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	const linkedRoutineIds = new Set(ruleset.linkedRoutines.map((r) => r.routineId))
 	const availableRoutines = sectionRoutines.filter((r) => !linkedRoutineIds.has(r.id))
 
+	// ruleset_routine_added/removed og ruleset_control_added/removed skrives med
+	// entityType "ruleset_routine"/"ruleset_control" og regelsettets ID (se
+	// copyRulesetToSection/linkRoutineToRuleset/linkControlToRuleset), ikke "ruleset" —
+	// alle tre må derfor hentes og slås sammen for å vise en komplett endringslogg.
+	const [rulesetAuditLog, rulesetRoutineAuditLog, rulesetControlAuditLog] = await Promise.all([
+		getAuditLogForEntity("ruleset", regelSettId),
+		getAuditLogForEntity("ruleset_routine", regelSettId),
+		getAuditLogForEntity("ruleset_control", regelSettId),
+	])
+	const auditLog = [...rulesetAuditLog, ...rulesetRoutineAuditLog, ...rulesetControlAuditLog].sort(
+		(a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime(),
+	)
+
 	const userNames = await getUserNamesByNavIdents([
 		ruleset.createdBy,
 		ruleset.updatedBy,
 		...ruleset.linkedRoutines.map((r) => r.createdBy),
 		...ruleset.attachments.map((a) => a.uploadedBy),
+		...auditLog.map((entry) => entry.performedBy),
 	])
 	const nameFor = (navIdent: string) => userNames.get(navIdent.trim().toUpperCase()) ?? null
 
@@ -102,6 +150,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	const lineageNames = await getRulesetNamesByIds(lineageIds)
 	const predecessorInfo = ruleset.sourceRulesetId ? (lineageNames.get(ruleset.sourceRulesetId) ?? null) : null
 	const successorInfo = ruleset.replacedByRulesetId ? (lineageNames.get(ruleset.replacedByRulesetId) ?? null) : null
+
+	// Seksjoner brukeren kan kopiere DETTE regelsettet inn i (utenom seksjonen det allerede
+	// ligger i, som har sin egen "kopier for redigering"-knapp via `copyRuleset()`).
+	const copyTargetSections = user
+		? (await getSections()).filter((s) => s.id !== section.id && hasAnySectionRole(user, s.id))
+		: []
 
 	return data({
 		section,
@@ -127,6 +181,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		responsibleDisplay,
 		descriptionHtml: renderMarkdown(ruleset.description),
 		availableRoutines: availableRoutines.map((r) => ({ id: r.id, name: r.name })),
+		copyTargetSections,
+		auditLog: auditLog.map((entry) => ({
+			...entry,
+			performedByName: nameFor(entry.performedBy),
+		})),
 	})
 }
 
@@ -170,6 +229,51 @@ export async function action({ request, params }: Route.ActionArgs) {
 				return data<ActionResult>({ success: false, error: "Kunne ikke kopiere regelsettet." })
 			}
 			return redirect(`/seksjoner/${seksjon}/regelsett/${copy.id}/rediger`)
+		}
+
+		case "copy-to-section": {
+			const targetSectionId = formData.get("targetSectionId")
+			if (typeof targetSectionId !== "string" || !targetSectionId.trim()) {
+				return data<ActionResult>({ success: false, error: "Velg en seksjon å kopiere til." })
+			}
+			// Retten sjekkes mot MÅLseksjonen (der regelsettet skal opprettes), ikke
+			// seksjonen regelsettet kopieres fra.
+			requireAnySectionRole(authedUser, targetSectionId.trim())
+			const meta = await getRulesetMeta(regelSettId)
+			if (!meta || meta.sectionId !== section.id) {
+				throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
+			}
+			if (meta.archivedAt) {
+				return data<ActionResult>({
+					success: false,
+					error: "Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.",
+				})
+			}
+			if (meta.status !== "active") {
+				return data<ActionResult>({
+					success: false,
+					error: "Kun godkjente regelsett kan kopieres til en annen seksjon.",
+				})
+			}
+			// Målseksjonen valideres FØR kopieringen for å unngå at kopien opprettes
+			// mot en arkivert seksjon. Selve slug-en til redirect-URL-en hentes derimot
+			// PÅ NYTT etter kopieringen (ikke gjenbrukt fra denne pre-sjekken), siden
+			// en seksjon kan bli omdøpt (ny slug) i vinduet mellom validering og kopi.
+			const targetSectionExists = (await getSections()).some((s) => s.id === targetSectionId.trim())
+			if (!targetSectionExists) {
+				return data<ActionResult>({ success: false, error: "Fant ikke målseksjonen." })
+			}
+			const copy = await copyRulesetToSection(regelSettId, targetSectionId.trim(), authedUser.navIdent)
+			if (!copy) {
+				return data<ActionResult>({ success: false, error: "Kunne ikke kopiere regelsettet." })
+			}
+			const targetSection = (await getSections({ includeArchived: true })).find((s) => s.id === targetSectionId.trim())
+			if (!targetSection) {
+				// Uventet siden kopieringen selv nettopp validerte seksjonen, men uten
+				// en gyldig slug kan vi ikke bygge redirect-URL-en.
+				return data<ActionResult>({ success: false, error: "Fant ikke målseksjonen etter kopiering." })
+			}
+			return redirect(`/seksjoner/${targetSection.slug}/regelsett/${copy.id}/rediger`)
 		}
 
 		case "approve": {
@@ -306,9 +410,13 @@ export default function RegelsettDetalj() {
 		responsibleDisplay,
 		descriptionHtml,
 		availableRoutines,
+		copyTargetSections,
+		auditLog,
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
+	const navigation = useNavigation()
 	const [approveOpen, setApproveOpen] = useState(false)
+	const [copyTargetSectionId, setCopyTargetSectionId] = useState("")
 
 	const cfg = approvalStatusConfig[ruleset.approvalStatus]
 
@@ -316,7 +424,7 @@ export default function RegelsettDetalj() {
 		<VStack gap="space-6">
 			<HStack justify="space-between" align="center">
 				<Heading size="large">{ruleset.name}</Heading>
-				<HStack gap="space-2">
+				<HStack gap="space-2" align="end" wrap>
 					{canApprove && (
 						<Button variant="primary" size="small" onClick={() => setApproveOpen(true)}>
 							Godkjenn
@@ -338,6 +446,36 @@ export default function RegelsettDetalj() {
 							<Button type="submit" variant="secondary" size="small">
 								Kopier for redigering
 							</Button>
+						</Form>
+					)}
+					{ruleset.status === "active" && copyTargetSections.length > 0 && (
+						<Form method="post">
+							<input type="hidden" name="intent" value="copy-to-section" />
+							<HStack gap="space-4" align="end">
+								<Select
+									label="Kopier til seksjon"
+									size="small"
+									name="targetSectionId"
+									value={copyTargetSectionId}
+									onChange={(e) => setCopyTargetSectionId(e.target.value)}
+								>
+									<option value="">Velg seksjon</option>
+									{copyTargetSections.map((s) => (
+										<option key={s.id} value={s.id}>
+											{s.name}
+										</option>
+									))}
+								</Select>
+								<Button
+									type="submit"
+									variant="secondary"
+									size="small"
+									disabled={!copyTargetSectionId}
+									loading={navigation.state !== "idle" && navigation.formData?.get("intent") === "copy-to-section"}
+								>
+									Kopier til min seksjon
+								</Button>
+							</HStack>
 						</Form>
 					)}
 				</HStack>
@@ -561,6 +699,52 @@ export default function RegelsettDetalj() {
 											<UserDisplayName navIdent={a.uploadedBy} name={a.uploadedByName} />
 										</Table.DataCell>
 										<Table.DataCell>{new Date(a.uploadedAt).toLocaleDateString("nb-NO")}</Table.DataCell>
+									</Table.Row>
+								))}
+							</Table.Body>
+						</Table>
+					</section>
+				</VStack>
+			)}
+
+			{auditLog.length > 0 && (
+				<VStack gap="space-4">
+					<Heading size="medium" level="3">
+						Endringslogg
+					</Heading>
+					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
+					<section className="table-scroll" tabIndex={0} aria-label="Endringslogg for regelsettet">
+						<Table size="small">
+							<caption className="navds-sr-only">Endringslogg for regelsettet</caption>
+							<Table.Header>
+								<Table.Row>
+									<Table.HeaderCell scope="col">Tidspunkt</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Handling</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Detaljer</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Utført av</Table.HeaderCell>
+								</Table.Row>
+							</Table.Header>
+							<Table.Body>
+								{auditLog.map((entry) => (
+									<Table.Row key={entry.id}>
+										<Table.DataCell>{formatDateTime(entry.performedAt)}</Table.DataCell>
+										<Table.DataCell>
+											<Tag variant={entry.action === "ruleset_archived" ? "warning" : "info"} size="xsmall">
+												{auditActionLabels[entry.action] ?? entry.action}
+											</Tag>
+										</Table.DataCell>
+										<Table.DataCell>
+											{entry.previousValue != null && entry.newValue != null
+												? `«${entry.previousValue}» → «${entry.newValue}»`
+												: entry.newValue != null
+													? `«${entry.newValue}»`
+													: entry.previousValue != null
+														? `«${entry.previousValue}»`
+														: "–"}
+										</Table.DataCell>
+										<Table.DataCell>
+											<UserDisplayName navIdent={entry.performedBy} name={entry.performedByName} />
+										</Table.DataCell>
 									</Table.Row>
 								))}
 							</Table.Body>
