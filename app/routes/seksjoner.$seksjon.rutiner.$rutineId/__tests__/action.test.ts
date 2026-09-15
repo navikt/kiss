@@ -71,8 +71,8 @@ const { action } = await import("../index")
 // --- Helpers ---------------------------------------------------------
 
 const fakeUser = {
-	navIdent: "T123456",
-	name: "Test",
+	navIdent: "Z990001",
+	name: "Glad Fjord",
 	groups: [],
 	token: "t",
 	dbRoles: [],
@@ -132,7 +132,7 @@ describe("approve intent", () => {
 
 		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
-		expect(mockApproveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockApproveRoutine).toHaveBeenCalledWith("routine-1", "Z990001")
 	})
 
 	it("rejects approval when user lacks correct role", async () => {
@@ -158,7 +158,7 @@ describe("copy intent", () => {
 		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
 		expect(response.headers.get("location")).toContain("routine-copy-1")
-		expect(mockCopyRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockCopyRoutine).toHaveBeenCalledWith("routine-1", "Z990001")
 		expect(mockHasAnySectionRole).toHaveBeenCalledWith(fakeUser, "section-1")
 	})
 
@@ -200,7 +200,7 @@ describe("copy-to-section intent", () => {
 		expect(response.headers.get("location")).toContain("annen-seksjon")
 		expect(response.headers.get("location")).toContain("routine-copy-2")
 		expect(mockRequireAnySectionRole).toHaveBeenCalledWith(fakeUser, "section-2")
-		expect(mockCopyRoutineToSection).toHaveBeenCalledWith("routine-1", "section-2", "T123456")
+		expect(mockCopyRoutineToSection).toHaveBeenCalledWith("routine-1", "section-2", "Z990001")
 	})
 
 	it("rejects copy-to-section when user lacks target section role", async () => {
@@ -272,7 +272,7 @@ describe("archive intent", () => {
 
 		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
-		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "Z990001")
 	})
 
 	it("archives approved routine when user has approver role", async () => {
@@ -286,7 +286,7 @@ describe("archive intent", () => {
 
 		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
-		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "Z990001")
 	})
 
 	it("rejects archive when user lacks admin and approver role", async () => {
@@ -353,7 +353,7 @@ describe("update-priority intent", () => {
 
 		const result = await callAction(fd)
 		expect(result).toMatchObject({ data: { success: true } })
-		expect(mockUpdateRoutinePriority).toHaveBeenCalledWith("routine-1", 1, "T123456")
+		expect(mockUpdateRoutinePriority).toHaveBeenCalledWith("routine-1", 1, "Z990001")
 	})
 
 	it("rejects when user lacks priority change permission", async () => {
