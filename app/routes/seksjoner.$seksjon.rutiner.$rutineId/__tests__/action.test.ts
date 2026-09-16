@@ -226,16 +226,19 @@ describe("copy-to-section intent", () => {
 		expect(mockCopyRoutineToSection).not.toHaveBeenCalled()
 	})
 
-	it("rejects copy-to-section when routine is not approved", async () => {
+	it("copies routine to target section even when routine is not approved", async () => {
 		mockRequireAnySectionRole.mockImplementation(() => {})
 		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "ready" })
+		mockGetSections.mockResolvedValue([{ id: "section-2", slug: "annen-seksjon", archivedAt: null }])
+		mockCopyRoutineToSection.mockResolvedValue({ id: "routine-copy-2" })
 
 		const fd = new FormData()
 		fd.set("intent", "copy-to-section")
 		fd.set("targetSectionId", "section-2")
 
-		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 400 } })
-		expect(mockCopyRoutineToSection).not.toHaveBeenCalled()
+		const response = (await callAction(fd)) as Response
+		expect(response.status).toBe(302)
+		expect(mockCopyRoutineToSection).toHaveBeenCalledWith("routine-1", "section-2", "Z990001")
 	})
 
 	it("rejects copy-to-section when target section does not exist", async () => {

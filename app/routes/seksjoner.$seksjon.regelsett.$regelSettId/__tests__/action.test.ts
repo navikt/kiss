@@ -156,17 +156,19 @@ describe("copy-to-section intent", () => {
 		expect(mockCopyRulesetToSection).not.toHaveBeenCalled()
 	})
 
-	it("rejects copy-to-section when source ruleset is not active", async () => {
+	it("copies ruleset to target section even when source ruleset is a draft", async () => {
 		mockRequireAnySectionRole.mockImplementation(() => {})
 		mockGetRulesetMeta.mockResolvedValue({ ...fakeMeta, status: "draft" })
+		mockGetSections.mockResolvedValue([{ id: "section-2", slug: "annen-seksjon", archivedAt: null }])
+		mockCopyRulesetToSection.mockResolvedValue({ id: "ruleset-copy-2" })
 
 		const fd = new FormData()
 		fd.set("intent", "copy-to-section")
 		fd.set("targetSectionId", "section-2")
 
-		const result = await callAction(fd)
-		expect(result).toMatchObject({ data: { success: false } })
-		expect(mockCopyRulesetToSection).not.toHaveBeenCalled()
+		const response = (await callAction(fd)) as Response
+		expect(response.status).toBe(302)
+		expect(mockCopyRulesetToSection).toHaveBeenCalledWith("ruleset-1", "section-2", "Z990001")
 	})
 
 	it("returns error result when target section does not exist", async () => {

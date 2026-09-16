@@ -6834,13 +6834,6 @@ async function copyRoutineToSectionInTx(
 	if (locked.sectionId === targetSectionId) {
 		throw new Response("Kan ikke kopiere en rutine til seksjonen den allerede tilhører", { status: 400 })
 	}
-	// Håndheves her (ikke bare i routen) siden copyRulesetToSection() kaller
-	// denne funksjonen direkte for hver lenkede rutine — linkRoutineToRuleset()
-	// tillater enhver ikke-arkivert rutine, så et aktivt regelsett kan inneholde
-	// en draft-rutine som ellers ville blitt kopiert på tvers av seksjoner usjekket.
-	if (source.status !== "approved") {
-		throw new Response("Kun godkjente rutiner kan kopieres til en annen seksjon.", { status: 400 })
-	}
 	if (!source.frequency && !source.eventFrequency) {
 		throw new Response("Kan ikke kopiere rutine uten frekvens", { status: 400 })
 	}

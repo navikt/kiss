@@ -362,9 +362,6 @@ export async function action({ request, params }: Route.ActionArgs) {
 		// seksjonen rutinen kopieres fra — lesing av andre seksjoners rutiner
 		// er allerede åpent for alle innloggede brukere.
 		requireAnySectionRole(authedUser, targetSectionId.trim())
-		if (routine.status !== "approved") {
-			throw data({ message: "Kun godkjente rutiner kan kopieres til en annen seksjon." }, { status: 400 })
-		}
 		// Målseksjonen valideres FØR kopieringen for å unngå at kopien opprettes
 		// mot en arkivert seksjon. Selve slug-en til redirect-URL-en hentes derimot
 		// PÅ NYTT etter kopieringen (ikke gjenbrukt fra denne pre-sjekken), siden
@@ -503,7 +500,7 @@ export default function RutineDetaljer() {
 								</Button>
 							</fetcher.Form>
 						)}
-						{!routine.archivedAt && routine.status === "approved" && copyTargetSections.length > 0 && (
+						{!routine.archivedAt && copyTargetSections.length > 0 && (
 							<Form method="post">
 								<input type="hidden" name="intent" value="copy-to-section" />
 								<HStack gap="space-4" align="end">
@@ -605,6 +602,19 @@ export default function RutineDetaljer() {
 									{successorInfo.name}
 								</Link>
 								. Gå til den nye rutinen for gjennomganger og oppdatert innhold.
+							</BodyShort>
+						</LocalAlert.Content>
+					</LocalAlert>
+				)}
+				{!routine.archivedAt && routine.status !== "approved" && copyTargetSections.length > 0 && (
+					<LocalAlert status="warning">
+						<LocalAlert.Header>
+							<LocalAlert.Title>Rutinen er ikke godkjent</LocalAlert.Title>
+						</LocalAlert.Header>
+						<LocalAlert.Content>
+							<BodyShort size="small">
+								Rutinen har status «{routine.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er ferdig
+								og godt nok før den kopieres til en annen seksjon.
 							</BodyShort>
 						</LocalAlert.Content>
 					</LocalAlert>
