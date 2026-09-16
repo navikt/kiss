@@ -4,6 +4,7 @@ import {
 	Box,
 	Button,
 	Detail,
+	Dialog,
 	Heading,
 	HStack,
 	Label,
@@ -435,6 +436,7 @@ export default function RutineDetaljer() {
 	const navigation = useNavigation()
 	const archiveModalRef = useRef<HTMLDialogElement>(null)
 	const approveModalRef = useRef<HTMLDialogElement>(null)
+	const [copyToSectionOpen, setCopyToSectionOpen] = useState(false)
 	const [copyTargetSectionId, setCopyTargetSectionId] = useState("")
 	const userCanArchive = !routine.archivedAt && routine.status === "approved" && (userCanAdmin || userCanApprove)
 
@@ -504,34 +506,9 @@ export default function RutineDetaljer() {
 							routine.status !== "archived" &&
 							routine.status !== "deleted" &&
 							copyTargetSections.length > 0 && (
-								<Form method="post">
-									<input type="hidden" name="intent" value="copy-to-section" />
-									<HStack gap="space-4" align="end">
-										<Select
-											label="Kopier til seksjon"
-											size="small"
-											name="targetSectionId"
-											value={copyTargetSectionId}
-											onChange={(e) => setCopyTargetSectionId(e.target.value)}
-										>
-											<option value="">Velg seksjon</option>
-											{copyTargetSections.map((s) => (
-												<option key={s.id} value={s.id}>
-													{s.name}
-												</option>
-											))}
-										</Select>
-										<Button
-											type="submit"
-											variant="secondary"
-											size="small"
-											disabled={!copyTargetSectionId}
-											loading={navigation.state !== "idle" && navigation.formData?.get("intent") === "copy-to-section"}
-										>
-											Kopier til min seksjon
-										</Button>
-									</HStack>
-								</Form>
+								<Button variant="secondary" size="small" onClick={() => setCopyToSectionOpen(true)}>
+									Kopier til seksjon
+								</Button>
 							)}
 						{!routine.archivedAt &&
 							routine.status === "ready" &&
@@ -609,23 +586,6 @@ export default function RutineDetaljer() {
 						</LocalAlert.Content>
 					</LocalAlert>
 				)}
-				{!routine.archivedAt &&
-					routine.status !== "approved" &&
-					routine.status !== "archived" &&
-					routine.status !== "deleted" &&
-					copyTargetSections.length > 0 && (
-						<LocalAlert status="warning">
-							<LocalAlert.Header>
-								<LocalAlert.Title as="h3">Rutinen er ikke godkjent</LocalAlert.Title>
-							</LocalAlert.Header>
-							<LocalAlert.Content>
-								<BodyShort size="small">
-									Rutinen har status «{routine.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er ferdig
-									og godt nok før den kopieres til en annen seksjon.
-								</BodyShort>
-							</LocalAlert.Content>
-						</LocalAlert>
-					)}
 				{routine.status === "ready" && !userCanApprove && (
 					<BodyShort size="small" textColor="subtle">
 						Godkjenning krever rollen{" "}
@@ -1130,6 +1090,60 @@ export default function RutineDetaljer() {
 					</Button>
 				</Modal.Footer>
 			</Modal>
+			<Dialog open={copyToSectionOpen} onOpenChange={setCopyToSectionOpen}>
+				<Dialog.Popup>
+					<Dialog.Header>
+						<Dialog.Title>Kopier til seksjon</Dialog.Title>
+					</Dialog.Header>
+					<Dialog.Body>
+						<Form id="copy-to-section-form" method="post">
+							<input type="hidden" name="intent" value="copy-to-section" />
+							<VStack gap="space-4">
+								{routine.status !== "approved" && (
+									<LocalAlert status="warning">
+										<LocalAlert.Header>
+											<LocalAlert.Title as="h3">Rutinen er ikke godkjent</LocalAlert.Title>
+										</LocalAlert.Header>
+										<LocalAlert.Content>
+											<BodyShort size="small">
+												Rutinen har status «{routine.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er
+												ferdig og godt nok før den kopieres til en annen seksjon.
+											</BodyShort>
+										</LocalAlert.Content>
+									</LocalAlert>
+								)}
+								<Select
+									label="Velg seksjon"
+									name="targetSectionId"
+									value={copyTargetSectionId}
+									onChange={(e) => setCopyTargetSectionId(e.target.value)}
+								>
+									<option value="">Velg seksjon</option>
+									{copyTargetSections.map((s) => (
+										<option key={s.id} value={s.id}>
+											{s.name}
+										</option>
+									))}
+								</Select>
+							</VStack>
+						</Form>
+					</Dialog.Body>
+					<Dialog.Footer>
+						<Button
+							type="submit"
+							form="copy-to-section-form"
+							variant="primary"
+							disabled={!copyTargetSectionId}
+							loading={navigation.state !== "idle" && navigation.formData?.get("intent") === "copy-to-section"}
+						>
+							Kopier til seksjon
+						</Button>
+						<Dialog.CloseTrigger>
+							<Button variant="secondary">Avbryt</Button>
+						</Dialog.CloseTrigger>
+					</Dialog.Footer>
+				</Dialog.Popup>
+			</Dialog>
 		</VStack>
 	)
 }

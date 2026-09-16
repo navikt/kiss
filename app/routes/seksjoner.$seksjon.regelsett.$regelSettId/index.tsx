@@ -3,6 +3,7 @@ import {
 	BodyLong,
 	Button,
 	Detail,
+	Dialog,
 	Heading,
 	HStack,
 	Modal,
@@ -189,7 +190,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	})
 }
 
-type ActionResult = { success: true; message: string } | { success: false; error: string }
+type ActionResult = { success: true; message: string } | { success: false; error: string; intent?: string }
 
 export async function action({ request, params }: Route.ActionArgs) {
 	const { seksjon, regelSettId } = params
@@ -234,7 +235,11 @@ export async function action({ request, params }: Route.ActionArgs) {
 		case "copy-to-section": {
 			const targetSectionId = formData.get("targetSectionId")
 			if (typeof targetSectionId !== "string" || !targetSectionId.trim()) {
-				return data<ActionResult>({ success: false, error: "Velg en seksjon å kopiere til." })
+				return data<ActionResult>({
+					success: false,
+					error: "Velg en seksjon å kopiere til.",
+					intent: "copy-to-section",
+				})
 			}
 			// Retten sjekkes mot MÅLseksjonen (der regelsettet skal opprettes), ikke
 			// seksjonen regelsettet kopieres fra.
@@ -247,6 +252,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 				return data<ActionResult>({
 					success: false,
 					error: "Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.",
+					intent: "copy-to-section",
 				})
 			}
 			// Målseksjonen valideres FØR kopieringen for å unngå at kopien opprettes
@@ -255,17 +261,25 @@ export async function action({ request, params }: Route.ActionArgs) {
 			// en seksjon kan bli omdøpt (ny slug) i vinduet mellom validering og kopi.
 			const targetSectionExists = (await getSections()).some((s) => s.id === targetSectionId.trim())
 			if (!targetSectionExists) {
-				return data<ActionResult>({ success: false, error: "Fant ikke målseksjonen." })
+				return data<ActionResult>({ success: false, error: "Fant ikke målseksjonen.", intent: "copy-to-section" })
 			}
 			const copy = await copyRulesetToSection(regelSettId, targetSectionId.trim(), authedUser.navIdent)
 			if (!copy) {
-				return data<ActionResult>({ success: false, error: "Kunne ikke kopiere regelsettet." })
+				return data<ActionResult>({
+					success: false,
+					error: "Kunne ikke kopiere regelsettet.",
+					intent: "copy-to-section",
+				})
 			}
 			const targetSection = (await getSections({ includeArchived: true })).find((s) => s.id === targetSectionId.trim())
 			if (!targetSection) {
 				// Uventet siden kopieringen selv nettopp validerte seksjonen, men uten
 				// en gyldig slug kan vi ikke bygge redirect-URL-en.
-				return data<ActionResult>({ success: false, error: "Fant ikke målseksjonen etter kopiering." })
+				return data<ActionResult>({
+					success: false,
+					error: "Fant ikke målseksjonen etter kopiering.",
+					intent: "copy-to-section",
+				})
 			}
 			return redirect(`/seksjoner/${targetSection.slug}/regelsett/${copy.id}/rediger`)
 		}
@@ -410,6 +424,7 @@ export default function RegelsettDetalj() {
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const [approveOpen, setApproveOpen] = useState(false)
+	const [copyToSectionOpen, setCopyToSectionOpen] = useState(false)
 	const [copyTargetSectionId, setCopyTargetSectionId] = useState("")
 
 	const cfg = approvalStatusConfig[ruleset.approvalStatus]
@@ -443,41 +458,14 @@ export default function RegelsettDetalj() {
 						</Form>
 					)}
 					{ruleset.status !== "archived" && copyTargetSections.length > 0 && (
-						<Form method="post">
-							<input type="hidden" name="intent" value="copy-to-section" />
-							<HStack gap="space-4" align="end">
-								<Select
-									label="Kopier til seksjon"
-									size="small"
-									name="targetSectionId"
-									value={copyTargetSectionId}
-									onChange={(e) => setCopyTargetSectionId(e.target.value)}
-								>
-									<option value="">Velg seksjon</option>
-									{copyTargetSections.map((s) => (
-										<option key={s.id} value={s.id}>
-											{s.name}
-										</option>
-									))}
-								</Select>
-								<Button
-									type="submit"
-									variant="secondary"
-									size="small"
-									disabled={!copyTargetSectionId}
-									loading={navigation.state !== "idle" && navigation.formData?.get("intent") === "copy-to-section"}
-								>
-									Kopier til min seksjon
-								</Button>
-							</HStack>
-						</Form>
+						<Button variant="secondary" size="small" onClick={() => setCopyToSectionOpen(true)}>
+							Kopier til seksjon
+						</Button>
 					)}
 				</HStack>
 			</HStack>
 
-			{(predecessorInfo ||
-				successorInfo ||
-				(ruleset.status !== "active" && ruleset.status !== "archived" && copyTargetSections.length > 0)) && (
+			{(predecessorInfo || successorInfo) && (
 				<HStack gap="space-4" wrap>
 					{predecessorInfo && (
 						<Alert variant="info" size="small">
@@ -495,19 +483,13 @@ export default function RegelsettDetalj() {
 							<Link to={`/seksjoner/${section.slug}/regelsett/${ruleset.replacedByRulesetId}`}>Se ny versjon</Link>
 						</Alert>
 					)}
-					{ruleset.status !== "active" && ruleset.status !== "archived" && copyTargetSections.length > 0 && (
-						<Alert variant="warning" size="small">
-							Regelsettet har status «{ruleset.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er ferdig
-							og godt nok før det kopieres til en annen seksjon.
-						</Alert>
-					)}
 				</HStack>
 			)}
 
 			{actionData && "success" in actionData && actionData.success && (
 				<Alert variant="success">{actionData.message}</Alert>
 			)}
-			{actionData && "success" in actionData && !actionData.success && (
+			{actionData && "success" in actionData && !actionData.success && actionData.intent !== "copy-to-section" && (
 				<Alert variant="error">{actionData.error}</Alert>
 			)}
 
@@ -789,6 +771,62 @@ export default function RegelsettDetalj() {
 					</Form>
 				</Modal.Body>
 			</Modal>
+
+			<Dialog open={copyToSectionOpen} onOpenChange={setCopyToSectionOpen}>
+				<Dialog.Popup>
+					<Dialog.Header>
+						<Dialog.Title>Kopier til seksjon</Dialog.Title>
+					</Dialog.Header>
+					<Dialog.Body>
+						<Form id="copy-to-section-form" method="post">
+							<input type="hidden" name="intent" value="copy-to-section" />
+							<VStack gap="space-4">
+								{actionData &&
+									"success" in actionData &&
+									!actionData.success &&
+									actionData.intent === "copy-to-section" && (
+										<Alert variant="error" size="small">
+											{actionData.error}
+										</Alert>
+									)}
+								{ruleset.status !== "active" && (
+									<Alert variant="warning" size="small">
+										Regelsettet har status «{ruleset.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er
+										ferdig og godt nok før det kopieres til en annen seksjon.
+									</Alert>
+								)}
+								<Select
+									label="Velg seksjon"
+									name="targetSectionId"
+									value={copyTargetSectionId}
+									onChange={(e) => setCopyTargetSectionId(e.target.value)}
+								>
+									<option value="">Velg seksjon</option>
+									{copyTargetSections.map((s) => (
+										<option key={s.id} value={s.id}>
+											{s.name}
+										</option>
+									))}
+								</Select>
+							</VStack>
+						</Form>
+					</Dialog.Body>
+					<Dialog.Footer>
+						<Button
+							type="submit"
+							form="copy-to-section-form"
+							variant="primary"
+							disabled={!copyTargetSectionId}
+							loading={navigation.state !== "idle" && navigation.formData?.get("intent") === "copy-to-section"}
+						>
+							Kopier til seksjon
+						</Button>
+						<Dialog.CloseTrigger>
+							<Button variant="secondary">Avbryt</Button>
+						</Dialog.CloseTrigger>
+					</Dialog.Footer>
+				</Dialog.Popup>
+			</Dialog>
 		</VStack>
 	)
 }
