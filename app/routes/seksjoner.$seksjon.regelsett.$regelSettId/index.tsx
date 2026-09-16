@@ -249,12 +249,6 @@ export async function action({ request, params }: Route.ActionArgs) {
 					error: "Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.",
 				})
 			}
-			if (meta.status !== "active") {
-				return data<ActionResult>({
-					success: false,
-					error: "Kun godkjente regelsett kan kopieres til en annen seksjon.",
-				})
-			}
 			// Målseksjonen valideres FØR kopieringen for å unngå at kopien opprettes
 			// mot en arkivert seksjon. Selve slug-en til redirect-URL-en hentes derimot
 			// PÅ NYTT etter kopieringen (ikke gjenbrukt fra denne pre-sjekken), siden
@@ -448,7 +442,7 @@ export default function RegelsettDetalj() {
 							</Button>
 						</Form>
 					)}
-					{ruleset.status === "active" && copyTargetSections.length > 0 && (
+					{ruleset.status !== "archived" && copyTargetSections.length > 0 && (
 						<Form method="post">
 							<input type="hidden" name="intent" value="copy-to-section" />
 							<HStack gap="space-4" align="end">
@@ -481,7 +475,9 @@ export default function RegelsettDetalj() {
 				</HStack>
 			</HStack>
 
-			{(predecessorInfo || successorInfo) && (
+			{(predecessorInfo ||
+				successorInfo ||
+				(ruleset.status !== "active" && ruleset.status !== "archived" && copyTargetSections.length > 0)) && (
 				<HStack gap="space-4" wrap>
 					{predecessorInfo && (
 						<Alert variant="info" size="small">
@@ -497,6 +493,12 @@ export default function RegelsettDetalj() {
 						<Alert variant="warning" size="small">
 							Dette regelsettet er erstattet av «{successorInfo.name}».{" "}
 							<Link to={`/seksjoner/${section.slug}/regelsett/${ruleset.replacedByRulesetId}`}>Se ny versjon</Link>
+						</Alert>
+					)}
+					{ruleset.status !== "active" && ruleset.status !== "archived" && copyTargetSections.length > 0 && (
+						<Alert variant="warning" size="small">
+							Regelsettet har status «{ruleset.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er ferdig
+							og godt nok før det kopieres til en annen seksjon.
 						</Alert>
 					)}
 				</HStack>

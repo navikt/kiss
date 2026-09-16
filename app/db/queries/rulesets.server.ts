@@ -1117,11 +1117,10 @@ export async function copyRulesetToSection(rulesetId: string, targetSectionId: s
 			.for("share")
 			.limit(1)
 		if (!locked) return null
-		if (locked.archivedAt) {
+		// status kan være "archived" uten at archivedAt er satt, så begge må sjekkes
+		// eksplisitt fremfor å stole på archivedAt alene.
+		if (locked.archivedAt || locked.status === "archived") {
 			throw new Response("Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.", { status: 403 })
-		}
-		if (locked.status !== "active") {
-			throw new Response("Kun godkjente (aktive) regelsett kan kopieres.", { status: 400 })
 		}
 		if (locked.sectionId === targetSectionId) {
 			throw new Response("Kan ikke kopiere et regelsett til seksjonen det allerede tilhører", { status: 400 })
@@ -1162,17 +1161,15 @@ export async function copyRulesetToSection(rulesetId: string, targetSectionId: s
 
 		// Filtreres bort her fremfor å kaste feil, siden brukeren i målseksjonen
 		// ikke har rettigheter til å rette opp arkiverte/ufullstendige rutiner i kildeseksjonen.
-		// linkRoutineToRuleset() krever kun en ikke-arkivert rutine i samme seksjon (ikke
-		// godkjent status), så et aktivt regelsett kan lovlig inneholde en draft/ready-rutine.
-		// status === "approved" filtreres derfor bort her også, siden copyRoutineToSection()
-		// ellers kaster en feil som IKKE er en av de forventede stale-source-feilene under,
-		// og hele regelsett-kopien da ville blitt rullet tilbake.
+		// linkRoutineToRuleset() krever kun en ikke-arkivert rutine i samme seksjon, så et
+		// regelsett kan lovlig inneholde en draft/ready-rutine — disse kopieres på lik linje
+		// med godkjente rutiner, siden approved-kravet er fjernet fra copyRoutineToSection().
 		// rulesetRoutines mangler unique-constraint (dokumentert i lenke-hjelperen) — en
 		// eldre kilde med to aktive rader for samme rutine ville uten dedup gi to
 		// uavhengige rutinekopier og to koblinger i stedet for én logisk lenket rutine.
 		const seenRoutineIds = new Set<string>()
 		const copyableLinkedRoutines = linkedRoutines
-			.filter((r) => !r.archivedAt && r.status === "approved" && (r.frequency || r.eventFrequency))
+			.filter((r) => !r.archivedAt && (r.frequency || r.eventFrequency))
 			.filter((r) => {
 				if (seenRoutineIds.has(r.routineId)) return false
 				seenRoutineIds.add(r.routineId)
@@ -1229,9 +1226,9 @@ export async function copyRulesetToSection(rulesetId: string, targetSectionId: s
 			} catch (err) {
 				// Fanger kun opp de to feilene copyableLinkedRoutines-filteret er ment å dekke
 				// (arkivert / manglende frekvens) — andre valideringsfeil i copyRoutineToSection()
-				// (f.eks. manglende sectionRoutineOwnerRole eller ikke-godkjent status) skal IKKE
-				// svelges her, ellers rapporteres regelsett-kopien som vellykket selv om en lenket
-				// rutine, dens kobling og audit stille utelates.
+				// (f.eks. manglende sectionRoutineOwnerRole) skal IKKE svelges her, ellers
+				// rapporteres regelsett-kopien som vellykket selv om en lenket rutine, dens
+				// kobling og audit stille utelates.
 				const isExpectedStaleSourceError =
 					err instanceof Response &&
 					((err.status === 403 && (await err.clone().text()).includes("Arkiverte rutiner")) ||

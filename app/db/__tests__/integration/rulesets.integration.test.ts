@@ -28,6 +28,7 @@ const {
 	unlinkRoutineFromRuleset,
 	getRulesetIdsSelectedByApp,
 	getRulesetsSelectedByApp,
+	copyRulesetToSection,
 } = await import("~/db/queries/rulesets.server")
 
 async function createSectionRow(slug: string) {
@@ -346,6 +347,55 @@ describe("rulesets.server integration tests", () => {
 			await unlinkRoutineFromRuleset(rulesetId, detail?.linkedRoutines[0].linkId as string, "Z990001")
 			const after = await getRulesetDetail(rulesetId)
 			expect(after?.linkedRoutines).toHaveLength(0)
+		})
+	})
+
+	describe("copyRulesetToSection", () => {
+		it("copies a draft ruleset with a linked draft (non-approved) routine to another section", async () => {
+			const sourceSectionId = await createSectionRow("kilde-rs")
+			const targetSectionId = await createSectionRow("mal-rs")
+			const rulesetId = await createRuleset({
+				sectionId: sourceSectionId,
+				name: "Regelsett med draft-rutine",
+				frequency: "annually",
+				createdBy: "Z990001",
+			})
+			// createRoutineRow setter status til default ('draft') — dette er nettopp
+			// tilfellet som skal kopieres med nå som approved-kravet er fjernet.
+			const routineId = await createRoutineRow(sourceSectionId, "Draft-rutine")
+			await linkRoutineToRuleset(rulesetId, routineId, "Z990001")
+
+			const copy = await copyRulesetToSection(rulesetId, targetSectionId, "Z990002")
+
+			expect(copy).toBeDefined()
+			expect(copy?.sectionId).toBe(targetSectionId)
+			expect(copy?.status).toBe("draft")
+
+			const copyDetail = await getRulesetDetail(copy?.id as string)
+			expect(copyDetail?.linkedRoutines).toHaveLength(1)
+			expect(copyDetail?.linkedRoutines[0].routineName).toBe("Draft-rutine")
+
+			const db = getTestDb()
+			const auditRows = await db.execute(
+				/* sql */ `SELECT entity_id, action FROM audit_log WHERE action = 'ruleset_copied_cross_section'`,
+			)
+			expect(auditRows.rows.length).toBe(2)
+		})
+
+		it("rejects copying an archived ruleset", async () => {
+			const sourceSectionId = await createSectionRow("kilde-rs-arkivert")
+			const targetSectionId = await createSectionRow("mal-rs-arkivert")
+			const rulesetId = await createRuleset({
+				sectionId: sourceSectionId,
+				name: "Arkivert regelsett",
+				frequency: "annually",
+				createdBy: "Z990001",
+			})
+			await archiveRuleset(rulesetId, "Z990001")
+
+			await expect(copyRulesetToSection(rulesetId, targetSectionId, "Z990002")).rejects.toMatchObject({
+				status: 403,
+			})
 		})
 	})
 

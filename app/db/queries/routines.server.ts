@@ -6818,28 +6818,33 @@ async function copyRoutineToSectionInTx(
 	performedBy: string,
 	tx: DbExecutor,
 ) {
-	const source = await getRoutine(routineId)
-	if (!source) return null
-
+	// FOR SHARE-låsen tas FØR getRoutine()-lesingen (ikke etter) for å hindre at en
+	// samtidig updateRoutine() (lovlig for draft/ready siden approved-kravet ble fjernet
+	// fra kryss-seksjon-kopiering) rekker å endre rutinen mellom lesing og lås — en
+	// eventuell endring blokkeres av låsen til vi har lest et konsistent øyeblikksbilde.
 	const [locked] = await tx
-		.select({ archivedAt: routines.archivedAt, sectionId: routines.sectionId, name: routines.name })
+		.select({
+			archivedAt: routines.archivedAt,
+			sectionId: routines.sectionId,
+			name: routines.name,
+			status: routines.status,
+		})
 		.from(routines)
 		.where(eq(routines.id, routineId))
 		.for("share")
 		.limit(1)
 	if (!locked) return null
-	if (locked.archivedAt) {
+
+	const source = await getRoutine(routineId)
+	if (!source) return null
+
+	// status kan være "archived"/"deleted" uten at archivedAt er satt (skjemaet tillater
+	// dette), så begge må sjekkes eksplisitt fremfor å stole på archivedAt alene.
+	if (locked.archivedAt || locked.status === "archived" || locked.status === "deleted") {
 		throw new Response("Arkiverte rutiner kan ikke kopieres. Reaktiver rutinen først.", { status: 403 })
 	}
 	if (locked.sectionId === targetSectionId) {
 		throw new Response("Kan ikke kopiere en rutine til seksjonen den allerede tilhører", { status: 400 })
-	}
-	// Håndheves her (ikke bare i routen) siden copyRulesetToSection() kaller
-	// denne funksjonen direkte for hver lenkede rutine — linkRoutineToRuleset()
-	// tillater enhver ikke-arkivert rutine, så et aktivt regelsett kan inneholde
-	// en draft-rutine som ellers ville blitt kopiert på tvers av seksjoner usjekket.
-	if (source.status !== "approved") {
-		throw new Response("Kun godkjente rutiner kan kopieres til en annen seksjon.", { status: 400 })
 	}
 	if (!source.frequency && !source.eventFrequency) {
 		throw new Response("Kan ikke kopiere rutine uten frekvens", { status: 400 })
