@@ -1117,7 +1117,9 @@ export async function copyRulesetToSection(rulesetId: string, targetSectionId: s
 			.for("share")
 			.limit(1)
 		if (!locked) return null
-		if (locked.archivedAt) {
+		// status kan være "archived" uten at archivedAt er satt, så begge må sjekkes
+		// eksplisitt fremfor å stole på archivedAt alene.
+		if (locked.archivedAt || locked.status === "archived") {
 			throw new Response("Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.", { status: 403 })
 		}
 		if (locked.sectionId === targetSectionId) {

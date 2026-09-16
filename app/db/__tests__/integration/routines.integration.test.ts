@@ -57,6 +57,7 @@ const {
 	getRoutineActivityLinks,
 	getFollowUpReviewsForSection,
 	getFollowUpReviewsForApps,
+	copyRoutineToSection,
 } = await import("~/db/queries/routines.server")
 
 const { recordManualEvidenceUpload } = await import("~/db/queries/evidence-downloads.server")
@@ -534,6 +535,73 @@ describe("Routines integration tests", () => {
 				/* sql */ `SELECT * FROM audit_log WHERE action = 'routine_archived' AND entity_id = '${routine.id}'`,
 			)
 			expect(auditResult.rows.length).toBeGreaterThanOrEqual(1)
+		})
+	})
+
+	// ─── Cross-section copy ──────────────────────────────────────────────
+
+	describe("copyRoutineToSection", () => {
+		it("copies a draft routine (no approved-status requirement) to another section", async () => {
+			const sourceSectionId = await createTestSection("Kilde", "kilde-copy")
+			const targetSectionId = await createTestSection("Mål", "mal-copy")
+
+			const source = await createRoutine({
+				sectionId: sourceSectionId,
+				name: "Draft-rutine",
+				description: "En rutine som ikke er godkjent ennå",
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			expect(source.status).toBe("draft")
+
+			const copy = await copyRoutineToSection(source.id, targetSectionId, "Z990002")
+
+			expect(copy).toBeDefined()
+			expect(copy?.sectionId).toBe(targetSectionId)
+			expect(copy?.status).toBe("draft")
+			expect(copy?.sourceRoutineId).toBeNull()
+
+			const db = getTestDb()
+			const auditRows = await db.execute(
+				/* sql */ `SELECT entity_id, action FROM audit_log WHERE action = 'routine_copied_cross_section'`,
+			)
+			expect(auditRows.rows.length).toBe(2)
+			const entityIds = auditRows.rows.map((r) => (r as { entity_id: string }).entity_id)
+			expect(entityIds).toContain(copy?.id)
+			expect(entityIds).toContain(source.id)
+		})
+
+		it("rejects copying an archived routine", async () => {
+			const sourceSectionId = await createTestSection("Kilde", "kilde-arkivert")
+			const targetSectionId = await createTestSection("Mål", "mal-arkivert")
+
+			const source = await createRoutine({
+				sectionId: sourceSectionId,
+				name: "Arkivert rutine",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(source.id)
+			await archiveRoutine(source.id, "Z990001")
+
+			await expect(copyRoutineToSection(source.id, targetSectionId, "Z990002")).rejects.toMatchObject({
+				status: 403,
+			})
 		})
 	})
 

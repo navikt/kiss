@@ -500,36 +500,39 @@ export default function RutineDetaljer() {
 								</Button>
 							</fetcher.Form>
 						)}
-						{!routine.archivedAt && copyTargetSections.length > 0 && (
-							<Form method="post">
-								<input type="hidden" name="intent" value="copy-to-section" />
-								<HStack gap="space-4" align="end">
-									<Select
-										label="Kopier til seksjon"
-										size="small"
-										name="targetSectionId"
-										value={copyTargetSectionId}
-										onChange={(e) => setCopyTargetSectionId(e.target.value)}
-									>
-										<option value="">Velg seksjon</option>
-										{copyTargetSections.map((s) => (
-											<option key={s.id} value={s.id}>
-												{s.name}
-											</option>
-										))}
-									</Select>
-									<Button
-										type="submit"
-										variant="secondary"
-										size="small"
-										disabled={!copyTargetSectionId}
-										loading={navigation.state !== "idle" && navigation.formData?.get("intent") === "copy-to-section"}
-									>
-										Kopier til min seksjon
-									</Button>
-								</HStack>
-							</Form>
-						)}
+						{!routine.archivedAt &&
+							routine.status !== "archived" &&
+							routine.status !== "deleted" &&
+							copyTargetSections.length > 0 && (
+								<Form method="post">
+									<input type="hidden" name="intent" value="copy-to-section" />
+									<HStack gap="space-4" align="end">
+										<Select
+											label="Kopier til seksjon"
+											size="small"
+											name="targetSectionId"
+											value={copyTargetSectionId}
+											onChange={(e) => setCopyTargetSectionId(e.target.value)}
+										>
+											<option value="">Velg seksjon</option>
+											{copyTargetSections.map((s) => (
+												<option key={s.id} value={s.id}>
+													{s.name}
+												</option>
+											))}
+										</Select>
+										<Button
+											type="submit"
+											variant="secondary"
+											size="small"
+											disabled={!copyTargetSectionId}
+											loading={navigation.state !== "idle" && navigation.formData?.get("intent") === "copy-to-section"}
+										>
+											Kopier til min seksjon
+										</Button>
+									</HStack>
+								</Form>
+							)}
 						{!routine.archivedAt &&
 							routine.status === "ready" &&
 							userCanApprove &&
@@ -569,7 +572,7 @@ export default function RutineDetaljer() {
 				{routine.archivedAt && (
 					<LocalAlert status="warning">
 						<LocalAlert.Header>
-							<LocalAlert.Title>Rutinen er arkivert</LocalAlert.Title>
+							<LocalAlert.Title as="h3">Rutinen er arkivert</LocalAlert.Title>
 						</LocalAlert.Header>
 						<LocalAlert.Content>
 							<BodyShort size="small">
@@ -593,7 +596,7 @@ export default function RutineDetaljer() {
 				{routine.replacedByRoutineId && successorInfo && (
 					<LocalAlert status="announcement">
 						<LocalAlert.Header>
-							<LocalAlert.Title>Rutinen er erstattet</LocalAlert.Title>
+							<LocalAlert.Title as="h3">Rutinen er erstattet</LocalAlert.Title>
 						</LocalAlert.Header>
 						<LocalAlert.Content>
 							<BodyShort size="small">
@@ -606,19 +609,23 @@ export default function RutineDetaljer() {
 						</LocalAlert.Content>
 					</LocalAlert>
 				)}
-				{!routine.archivedAt && routine.status !== "approved" && copyTargetSections.length > 0 && (
-					<LocalAlert status="warning">
-						<LocalAlert.Header>
-							<LocalAlert.Title>Rutinen er ikke godkjent</LocalAlert.Title>
-						</LocalAlert.Header>
-						<LocalAlert.Content>
-							<BodyShort size="small">
-								Rutinen har status «{routine.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er ferdig
-								og godt nok før den kopieres til en annen seksjon.
-							</BodyShort>
-						</LocalAlert.Content>
-					</LocalAlert>
-				)}
+				{!routine.archivedAt &&
+					routine.status !== "approved" &&
+					routine.status !== "archived" &&
+					routine.status !== "deleted" &&
+					copyTargetSections.length > 0 && (
+						<LocalAlert status="warning">
+							<LocalAlert.Header>
+								<LocalAlert.Title as="h3">Rutinen er ikke godkjent</LocalAlert.Title>
+							</LocalAlert.Header>
+							<LocalAlert.Content>
+								<BodyShort size="small">
+									Rutinen har status «{routine.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er ferdig
+									og godt nok før den kopieres til en annen seksjon.
+								</BodyShort>
+							</LocalAlert.Content>
+						</LocalAlert>
+					)}
 				{routine.status === "ready" && !userCanApprove && (
 					<BodyShort size="small" textColor="subtle">
 						Godkjenning krever rollen{" "}

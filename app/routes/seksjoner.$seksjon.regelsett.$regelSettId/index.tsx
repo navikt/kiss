@@ -475,7 +475,9 @@ export default function RegelsettDetalj() {
 				</HStack>
 			</HStack>
 
-			{(predecessorInfo || successorInfo || (ruleset.status !== "active" && copyTargetSections.length > 0)) && (
+			{(predecessorInfo ||
+				successorInfo ||
+				(ruleset.status !== "active" && ruleset.status !== "archived" && copyTargetSections.length > 0)) && (
 				<HStack gap="space-4" wrap>
 					{predecessorInfo && (
 						<Alert variant="info" size="small">
@@ -493,7 +495,7 @@ export default function RegelsettDetalj() {
 							<Link to={`/seksjoner/${section.slug}/regelsett/${ruleset.replacedByRulesetId}`}>Se ny versjon</Link>
 						</Alert>
 					)}
-					{ruleset.status !== "active" && copyTargetSections.length > 0 && (
+					{ruleset.status !== "active" && ruleset.status !== "archived" && copyTargetSections.length > 0 && (
 						<Alert variant="warning" size="small">
 							Regelsettet har status «{ruleset.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er ferdig
 							og godt nok før det kopieres til en annen seksjon.
