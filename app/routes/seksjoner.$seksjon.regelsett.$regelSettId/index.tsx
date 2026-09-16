@@ -768,6 +768,11 @@ export default function RegelsettDetalj() {
 						<Form id="copy-to-section-form" method="post">
 							<input type="hidden" name="intent" value="copy-to-section" />
 							<VStack gap="space-4">
+								{actionData && "success" in actionData && !actionData.success && (
+									<Alert variant="error" size="small">
+										{actionData.error}
+									</Alert>
+								)}
 								{ruleset.status !== "active" && (
 									<Alert variant="warning" size="small">
 										Regelsettet har status «{ruleset.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er
