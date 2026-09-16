@@ -10,29 +10,45 @@ vi.mock("~/lib/auth.server", () => ({
 const mockCanApproveRoutine = vi.fn()
 const mockIsAdmin = vi.fn()
 const mockHasAnySectionRole = vi.fn()
+const mockRequireAnySectionRole = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
 	canApproveRoutine: mockCanApproveRoutine,
 	isAdmin: mockIsAdmin,
 	hasAnySectionRole: mockHasAnySectionRole,
+	requireAnySectionRole: mockRequireAnySectionRole,
 }))
 
 const mockGetRoutine = vi.fn()
 const mockApproveRoutine = vi.fn()
 const mockCopyRoutine = vi.fn()
+const mockCopyRoutineToSection = vi.fn()
 const mockArchiveRoutine = vi.fn()
 const mockUpdateRoutinePriority = vi.fn()
+const mockReplaceRoutine = vi.fn()
 vi.mock("~/db/queries/routines.server", () => ({
 	getRoutine: mockGetRoutine,
 	approveRoutine: mockApproveRoutine,
 	copyRoutine: mockCopyRoutine,
+	copyRoutineToSection: mockCopyRoutineToSection,
 	archiveRoutine: mockArchiveRoutine,
 	updateRoutinePriority: mockUpdateRoutinePriority,
+	replaceRoutine: mockReplaceRoutine,
 	calculateDeadline: vi.fn(),
 	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
+	getEffectiveLastReviewDate: vi.fn(),
 	getLatestReviewForApp: vi.fn(),
 	getLatestSectionReview: vi.fn().mockResolvedValue(null),
 	getReviewsForRoutine: vi.fn().mockResolvedValue([]),
+	getRoutineFollowUpApplicationIds: vi.fn().mockResolvedValue([]),
+	getRoutineNamesByIds: vi.fn().mockResolvedValue(new Map()),
+	getActivityStepsForRoutine: vi.fn().mockResolvedValue([]),
+	getActivityStepIdsForRoutine: vi.fn().mockResolvedValue([]),
 	isOverdue: vi.fn(),
+}))
+
+vi.mock("~/db/queries/audit.server", () => ({
+	getAuditLogForEntity: vi.fn().mockResolvedValue([]),
+	getAuditLogForEntities: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock("~/db/queries/screening.server", () => ({
@@ -40,8 +56,10 @@ vi.mock("~/db/queries/screening.server", () => ({
 }))
 
 const mockGetSectionBySlug = vi.fn()
+const mockGetSections = vi.fn().mockResolvedValue([])
 vi.mock("~/db/queries/sections.server", () => ({
 	getSectionBySlug: mockGetSectionBySlug,
+	getSections: mockGetSections,
 }))
 
 vi.mock("~/lib/markdown.server", () => ({
@@ -53,8 +71,8 @@ const { action } = await import("../index")
 // --- Helpers ---------------------------------------------------------
 
 const fakeUser = {
-	navIdent: "T123456",
-	name: "Test",
+	navIdent: "Z990001",
+	name: "Glad Fjord",
 	groups: [],
 	token: "t",
 	dbRoles: [],
@@ -114,7 +132,7 @@ describe("approve intent", () => {
 
 		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
-		expect(mockApproveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockApproveRoutine).toHaveBeenCalledWith("routine-1", "Z990001")
 	})
 
 	it("rejects approval when user lacks correct role", async () => {
@@ -140,7 +158,7 @@ describe("copy intent", () => {
 		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
 		expect(response.headers.get("location")).toContain("routine-copy-1")
-		expect(mockCopyRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockCopyRoutine).toHaveBeenCalledWith("routine-1", "Z990001")
 		expect(mockHasAnySectionRole).toHaveBeenCalledWith(fakeUser, "section-1")
 	})
 
@@ -166,6 +184,74 @@ describe("copy intent", () => {
 	})
 })
 
+describe("copy-to-section intent", () => {
+	it("copies routine to target section when user has target section role", async () => {
+		mockRequireAnySectionRole.mockImplementation(() => {})
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "approved" })
+		mockGetSections.mockResolvedValue([{ id: "section-2", slug: "annen-seksjon", archivedAt: null }])
+		mockCopyRoutineToSection.mockResolvedValue({ id: "routine-copy-2" })
+
+		const fd = new FormData()
+		fd.set("intent", "copy-to-section")
+		fd.set("targetSectionId", "section-2")
+
+		const response = (await callAction(fd)) as Response
+		expect(response.status).toBe(302)
+		expect(response.headers.get("location")).toContain("annen-seksjon")
+		expect(response.headers.get("location")).toContain("routine-copy-2")
+		expect(mockRequireAnySectionRole).toHaveBeenCalledWith(fakeUser, "section-2")
+		expect(mockCopyRoutineToSection).toHaveBeenCalledWith("routine-1", "section-2", "Z990001")
+	})
+
+	it("rejects copy-to-section when user lacks target section role", async () => {
+		mockRequireAnySectionRole.mockImplementation(() => {
+			throw new Response("Ingen tilgang", { status: 403 })
+		})
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "approved" })
+
+		const fd = new FormData()
+		fd.set("intent", "copy-to-section")
+		fd.set("targetSectionId", "section-2")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ status: 403 })
+		expect(mockCopyRoutineToSection).not.toHaveBeenCalled()
+	})
+
+	it("rejects copy-to-section with blank target section", async () => {
+		const fd = new FormData()
+		fd.set("intent", "copy-to-section")
+		fd.set("targetSectionId", "  ")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 400 } })
+		expect(mockCopyRoutineToSection).not.toHaveBeenCalled()
+	})
+
+	it("rejects copy-to-section when routine is not approved", async () => {
+		mockRequireAnySectionRole.mockImplementation(() => {})
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "ready" })
+
+		const fd = new FormData()
+		fd.set("intent", "copy-to-section")
+		fd.set("targetSectionId", "section-2")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 400 } })
+		expect(mockCopyRoutineToSection).not.toHaveBeenCalled()
+	})
+
+	it("rejects copy-to-section when target section does not exist", async () => {
+		mockRequireAnySectionRole.mockImplementation(() => {})
+		mockGetRoutine.mockResolvedValue({ ...fakeRoutine, status: "approved" })
+		mockGetSections.mockResolvedValue([])
+
+		const fd = new FormData()
+		fd.set("intent", "copy-to-section")
+		fd.set("targetSectionId", "section-2")
+
+		await expect(callAction(fd)).rejects.toMatchObject({ init: { status: 404 } })
+		expect(mockCopyRoutineToSection).not.toHaveBeenCalled()
+	})
+})
+
 describe("unknown intent", () => {
 	it("rejects unknown intent with 400", async () => {
 		const fd = new FormData()
@@ -186,7 +272,7 @@ describe("archive intent", () => {
 
 		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
-		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "Z990001")
 	})
 
 	it("archives approved routine when user has approver role", async () => {
@@ -200,7 +286,7 @@ describe("archive intent", () => {
 
 		const response = (await callAction(fd)) as Response
 		expect(response.status).toBe(302)
-		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "T123456")
+		expect(mockArchiveRoutine).toHaveBeenCalledWith("routine-1", "Z990001")
 	})
 
 	it("rejects archive when user lacks admin and approver role", async () => {
@@ -267,7 +353,7 @@ describe("update-priority intent", () => {
 
 		const result = await callAction(fd)
 		expect(result).toMatchObject({ data: { success: true } })
-		expect(mockUpdateRoutinePriority).toHaveBeenCalledWith("routine-1", 1, "T123456")
+		expect(mockUpdateRoutinePriority).toHaveBeenCalledWith("routine-1", 1, "Z990001")
 	})
 
 	it("rejects when user lacks priority change permission", async () => {

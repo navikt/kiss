@@ -18,6 +18,7 @@ import {
 } from "../schema/rulesets"
 import { screeningAnswers, screeningQuestions } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
+import { copyRoutineToSection } from "./routines.server"
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -720,21 +721,33 @@ export async function createRuleset(input: {
 	frequency: RoutineFrequency
 	createdBy: string
 }): Promise<string> {
-	const [row] = await db
-		.insert(rulesets)
-		.values({
-			sectionId: input.sectionId,
-			name: input.name,
-			description: input.description ?? null,
-			responsibleIdent: input.responsibleIdent ?? null,
-			responsibleName: input.responsibleName ?? null,
-			responsibleRole: input.responsibleRole ?? null,
-			frequency: input.frequency,
-			createdBy: input.createdBy,
-			updatedBy: input.createdBy,
-		})
-		.returning({ id: rulesets.id })
-	return row.id
+	return db.transaction(async (tx) => {
+		const [row] = await tx
+			.insert(rulesets)
+			.values({
+				sectionId: input.sectionId,
+				name: input.name,
+				description: input.description ?? null,
+				responsibleIdent: input.responsibleIdent ?? null,
+				responsibleName: input.responsibleName ?? null,
+				responsibleRole: input.responsibleRole ?? null,
+				frequency: input.frequency,
+				createdBy: input.createdBy,
+				updatedBy: input.createdBy,
+			})
+			.returning({ id: rulesets.id })
+		await writeAuditLog(
+			{
+				action: "ruleset_created",
+				entityType: "ruleset",
+				entityId: row.id,
+				newValue: JSON.stringify({ sectionId: input.sectionId, name: input.name }),
+				performedBy: input.createdBy,
+			},
+			tx,
+		)
+		return row.id
+	})
 }
 
 /**
@@ -1061,6 +1074,230 @@ export async function copyRuleset(rulesetId: string, performedBy: string) {
 }
 
 /**
+ * Kopierer et regelsett TIL en annen seksjon enn der det ligger i dag.
+ * I motsetning til `copyRuleset()` er dette IKKE en draft-for-redigering som
+ * senere skal erstatte originalen via `replaceRuleset()` — kopien er et
+ * helt nytt, uavhengig regelsett i målseksjonen som går gjennom vanlig
+ * draft → godkjent-flyt (`approveRuleset()`).
+ *
+ * Derfor settes IKKE `sourceRulesetId` på kopien (feltet driver
+ * "erstatt"-flyten — å sette det på tvers av seksjoner ville latt en bruker
+ * med godkjenningsrettigheter i målseksjonen arkivere/erstatte et regelsett
+ * som tilhører en helt annen seksjon, se guard i `replaceRuleset()`).
+ * Lineage spores kun via audit-metadata (`ruleset_copied_cross_section`),
+ * skrevet på både kopien og kilderegelsettet.
+ *
+ * `responsibleIdent`/`responsibleName`/`code` nullstilles (i motsetning til
+ * `copyRuleset()`, som beholder disse feltene siden den kopierer innad i
+ * samme seksjon) — en navngitt godkjenner fra kildeseksjonen har ikke
+ * nødvendigvis noen rolle i målseksjonen, og en kopiert kode ville kollidert
+ * med kildens kode.
+ *
+ * `rulesetRoutines`-koblinger kan ikke kopieres direkte (rutine-IDene
+ * tilhører kildeseksjonen). I stedet kopieres de lenkede rutinene selv til
+ * målseksjonen (via `copyRoutineToSection()`, i samme transaksjon) og det
+ * nye regelsettet kobles til rutine-KOPIENE — ellers ville regelsettet vært
+ * en tom skalldel som kun admin kan fylle (kobling av rutine til draft-regelsett
+ * krever admin, se `link-routine`-intent).
+ */
+export async function copyRulesetToSection(rulesetId: string, targetSectionId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [locked] = await tx
+			.select({
+				sectionId: rulesets.sectionId,
+				name: rulesets.name,
+				description: rulesets.description,
+				frequency: rulesets.frequency,
+				category: rulesets.category,
+				status: rulesets.status,
+				archivedAt: rulesets.archivedAt,
+			})
+			.from(rulesets)
+			.where(eq(rulesets.id, rulesetId))
+			.for("share")
+			.limit(1)
+		if (!locked) return null
+		if (locked.archivedAt) {
+			throw new Response("Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.", { status: 403 })
+		}
+		if (locked.status !== "active") {
+			throw new Response("Kun godkjente (aktive) regelsett kan kopieres.", { status: 400 })
+		}
+		if (locked.sectionId === targetSectionId) {
+			throw new Response("Kan ikke kopiere et regelsett til seksjonen det allerede tilhører", { status: 400 })
+		}
+
+		const [targetSection] = await tx
+			.select({ id: sections.id, archivedAt: sections.archivedAt })
+			.from(sections)
+			.where(eq(sections.id, targetSectionId))
+			.for("share")
+			.limit(1)
+		if (!targetSection) {
+			throw new Response("Fant ikke målseksjonen", { status: 404 })
+		}
+		if (targetSection.archivedAt) {
+			throw new Response("Kan ikke kopiere regelsett til en arkivert seksjon", { status: 400 })
+		}
+
+		const [controls, linkedRoutines] = await Promise.all([
+			// rulesetControls mangler unique-constraint (se lenke-hjelperen som dokumenterer
+			// dette) — selectDistinct hindrer duplikate koblinger/audit-rader i kopien.
+			tx
+				.selectDistinct({ controlId: rulesetControls.controlId })
+				.from(rulesetControls)
+				.where(and(eq(rulesetControls.rulesetId, rulesetId), isNull(rulesetControls.archivedAt))),
+			tx
+				.select({
+					routineId: rulesetRoutines.routineId,
+					archivedAt: routines.archivedAt,
+					status: routines.status,
+					frequency: routines.frequency,
+					eventFrequency: routines.eventFrequency,
+				})
+				.from(rulesetRoutines)
+				.innerJoin(routines, eq(routines.id, rulesetRoutines.routineId))
+				.where(and(eq(rulesetRoutines.rulesetId, rulesetId), isNull(rulesetRoutines.archivedAt))),
+		])
+
+		// Filtreres bort her fremfor å kaste feil, siden brukeren i målseksjonen
+		// ikke har rettigheter til å rette opp arkiverte/ufullstendige rutiner i kildeseksjonen.
+		// linkRoutineToRuleset() krever kun en ikke-arkivert rutine i samme seksjon (ikke
+		// godkjent status), så et aktivt regelsett kan lovlig inneholde en draft/ready-rutine.
+		// status === "approved" filtreres derfor bort her også, siden copyRoutineToSection()
+		// ellers kaster en feil som IKKE er en av de forventede stale-source-feilene under,
+		// og hele regelsett-kopien da ville blitt rullet tilbake.
+		// rulesetRoutines mangler unique-constraint (dokumentert i lenke-hjelperen) — en
+		// eldre kilde med to aktive rader for samme rutine ville uten dedup gi to
+		// uavhengige rutinekopier og to koblinger i stedet for én logisk lenket rutine.
+		const seenRoutineIds = new Set<string>()
+		const copyableLinkedRoutines = linkedRoutines
+			.filter((r) => !r.archivedAt && r.status === "approved" && (r.frequency || r.eventFrequency))
+			.filter((r) => {
+				if (seenRoutineIds.has(r.routineId)) return false
+				seenRoutineIds.add(r.routineId)
+				return true
+			})
+
+		const [copy] = await tx
+			.insert(rulesets)
+			.values({
+				sectionId: targetSectionId,
+				code: null,
+				name: locked.name,
+				description: locked.description,
+				responsibleIdent: null,
+				responsibleName: null,
+				responsibleRole: null,
+				frequency: locked.frequency as RoutineFrequency,
+				category: locked.category,
+				status: "draft",
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
+			.returning()
+
+		if (controls.length > 0) {
+			await tx.insert(rulesetControls).values(controls.map((c) => ({ rulesetId: copy.id, controlId: c.controlId })))
+			// Samme audit-action som linkControlToRuleset(), slik at kopierte
+			// kontroller ikke bryter CRUD-audit-kravet (AGENTS.md regel 6) og vises
+			// i regelsettets endringslogg som "ruleset_control"-oppføringer.
+			for (const c of controls) {
+				await writeAuditLog(
+					{
+						action: "ruleset_control_added",
+						entityType: "ruleset_control",
+						entityId: copy.id,
+						newValue: JSON.stringify({ rulesetId: copy.id, controlId: c.controlId }),
+						metadata: { controlId: c.controlId },
+						performedBy,
+					},
+					tx,
+				)
+			}
+		}
+
+		for (const link of copyableLinkedRoutines) {
+			// copyableLinkedRoutines er filtrert før FOR SHARE-låsen tas i
+			// copyRoutineToSection(), så en rutine kan i prinsippet rekke å bli
+			// arkivert i mellomtiden. Fanger derfor opp nettopp disse feilene her
+			// og hopper over rutinen i stedet for å rulle tilbake hele
+			// regelsett-kopien, som var hensikten med pre-filteret.
+			let copiedRoutine: Awaited<ReturnType<typeof copyRoutineToSection>>
+			try {
+				copiedRoutine = await copyRoutineToSection(link.routineId, targetSectionId, performedBy, tx)
+			} catch (err) {
+				// Fanger kun opp de to feilene copyableLinkedRoutines-filteret er ment å dekke
+				// (arkivert / manglende frekvens) — andre valideringsfeil i copyRoutineToSection()
+				// (f.eks. manglende sectionRoutineOwnerRole eller ikke-godkjent status) skal IKKE
+				// svelges her, ellers rapporteres regelsett-kopien som vellykket selv om en lenket
+				// rutine, dens kobling og audit stille utelates.
+				const isExpectedStaleSourceError =
+					err instanceof Response &&
+					((err.status === 403 && (await err.clone().text()).includes("Arkiverte rutiner")) ||
+						(err.status === 400 && (await err.clone().text()).includes("uten frekvens")))
+				if (isExpectedStaleSourceError) continue
+				throw err
+			}
+			if (!copiedRoutine) continue
+			await tx.insert(rulesetRoutines).values({
+				rulesetId: copy.id,
+				routineId: copiedRoutine.id,
+				createdBy: performedBy,
+			})
+			// Samme audit-action som linkRoutineToRuleset(), slik at
+			// getRulesetsLinkedToRoutineAtDate() finner koblingen ved historisk oppslag.
+			await writeAuditLog(
+				{
+					action: "ruleset_routine_added",
+					entityType: "ruleset_routine",
+					entityId: copy.id,
+					newValue: JSON.stringify({ rulesetId: copy.id, routineId: copiedRoutine.id }),
+					metadata: { routineId: copiedRoutine.id },
+					performedBy,
+				},
+				tx,
+			)
+		}
+
+		// Lineage legges også i newValue (ikke bare metadata) slik at en fremtidig
+		// Endringslogg-visning for regelsett (i tråd med rutine-siden) kan vise kilden
+		// uten å måtte tolke metadata spesifikt for denne action-typen.
+		await writeAuditLog(
+			{
+				action: "ruleset_copied_cross_section",
+				entityType: "ruleset",
+				entityId: copy.id,
+				newValue: JSON.stringify({ sourceRulesetId: rulesetId, sourceSectionId: locked.sectionId, name: copy.name }),
+				metadata: {
+					sourceRulesetId: rulesetId,
+					sourceSectionId: locked.sectionId,
+					sourceName: locked.name,
+				},
+				performedBy,
+			},
+			tx,
+		)
+		await writeAuditLog(
+			{
+				action: "ruleset_copied_cross_section",
+				entityType: "ruleset",
+				entityId: rulesetId,
+				newValue: JSON.stringify({ targetRulesetId: copy.id, targetSectionId }),
+				metadata: {
+					targetRulesetId: copy.id,
+					targetSectionId,
+				},
+				performedBy,
+			},
+			tx,
+		)
+
+		return copy
+	})
+}
+
+/**
  * Godkjenner en redigert kopi (`newRulesetId`, med `sourceRulesetId` som peker
  * til `oldRulesetId`) og erstatter den opprinnelige, godkjente versjonen.
  * Samme prinsipp som `replaceRoutine()` for rutiner: den gamle raden endres
@@ -1103,6 +1340,7 @@ export async function replaceRuleset(input: {
 				archivedAt: rulesets.archivedAt,
 				sourceRulesetId: rulesets.sourceRulesetId,
 				frequency: rulesets.frequency,
+				sectionId: rulesets.sectionId,
 			})
 			.from(rulesets)
 			.where(eq(rulesets.id, newRulesetId))
@@ -1127,7 +1365,12 @@ export async function replaceRuleset(input: {
 		const validUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
 
 		const [oldLocked] = await tx
-			.select({ name: rulesets.name, status: rulesets.status, archivedAt: rulesets.archivedAt })
+			.select({
+				name: rulesets.name,
+				status: rulesets.status,
+				archivedAt: rulesets.archivedAt,
+				sectionId: rulesets.sectionId,
+			})
 			.from(rulesets)
 			.where(eq(rulesets.id, oldRulesetId))
 			.for("update")
@@ -1138,6 +1381,11 @@ export async function replaceRuleset(input: {
 		}
 		if (oldLocked.status !== "active") {
 			throw new Response("Kun et godkjent (aktivt) regelsett kan erstattes", { status: 400 })
+		}
+		// Hindrer at et godkjent regelsett i én seksjon erstattes/arkiveres av en
+		// bruker som kun har rettigheter i en annen seksjon.
+		if (newLocked.sectionId !== oldLocked.sectionId) {
+			throw new Response("Kan ikke erstatte et regelsett som tilhører en annen seksjon", { status: 400 })
 		}
 
 		const [row] = await tx
