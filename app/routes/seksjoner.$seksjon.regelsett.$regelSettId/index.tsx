@@ -3,6 +3,7 @@ import {
 	BodyLong,
 	Button,
 	Detail,
+	Dialog,
 	Heading,
 	HStack,
 	Modal,
@@ -410,6 +411,7 @@ export default function RegelsettDetalj() {
 	const actionData = useActionData<typeof action>()
 	const navigation = useNavigation()
 	const [approveOpen, setApproveOpen] = useState(false)
+	const [copyToSectionOpen, setCopyToSectionOpen] = useState(false)
 	const [copyTargetSectionId, setCopyTargetSectionId] = useState("")
 
 	const cfg = approvalStatusConfig[ruleset.approvalStatus]
@@ -443,41 +445,14 @@ export default function RegelsettDetalj() {
 						</Form>
 					)}
 					{ruleset.status !== "archived" && copyTargetSections.length > 0 && (
-						<Form method="post">
-							<input type="hidden" name="intent" value="copy-to-section" />
-							<HStack gap="space-4" align="end">
-								<Select
-									label="Kopier til seksjon"
-									size="small"
-									name="targetSectionId"
-									value={copyTargetSectionId}
-									onChange={(e) => setCopyTargetSectionId(e.target.value)}
-								>
-									<option value="">Velg seksjon</option>
-									{copyTargetSections.map((s) => (
-										<option key={s.id} value={s.id}>
-											{s.name}
-										</option>
-									))}
-								</Select>
-								<Button
-									type="submit"
-									variant="secondary"
-									size="small"
-									disabled={!copyTargetSectionId}
-									loading={navigation.state !== "idle" && navigation.formData?.get("intent") === "copy-to-section"}
-								>
-									Kopier til min seksjon
-								</Button>
-							</HStack>
-						</Form>
+						<Button variant="secondary" size="small" onClick={() => setCopyToSectionOpen(true)}>
+							Kopier til seksjon
+						</Button>
 					)}
 				</HStack>
 			</HStack>
 
-			{(predecessorInfo ||
-				successorInfo ||
-				(ruleset.status !== "active" && ruleset.status !== "archived" && copyTargetSections.length > 0)) && (
+			{(predecessorInfo || successorInfo) && (
 				<HStack gap="space-4" wrap>
 					{predecessorInfo && (
 						<Alert variant="info" size="small">
@@ -493,12 +468,6 @@ export default function RegelsettDetalj() {
 						<Alert variant="warning" size="small">
 							Dette regelsettet er erstattet av «{successorInfo.name}».{" "}
 							<Link to={`/seksjoner/${section.slug}/regelsett/${ruleset.replacedByRulesetId}`}>Se ny versjon</Link>
-						</Alert>
-					)}
-					{ruleset.status !== "active" && ruleset.status !== "archived" && copyTargetSections.length > 0 && (
-						<Alert variant="warning" size="small">
-							Regelsettet har status «{ruleset.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er ferdig
-							og godt nok før det kopieres til en annen seksjon.
 						</Alert>
 					)}
 				</HStack>
@@ -789,6 +758,54 @@ export default function RegelsettDetalj() {
 					</Form>
 				</Modal.Body>
 			</Modal>
+
+			<Dialog open={copyToSectionOpen} onOpenChange={setCopyToSectionOpen}>
+				<Dialog.Popup>
+					<Dialog.Header>
+						<Dialog.Title>Kopier til seksjon</Dialog.Title>
+					</Dialog.Header>
+					<Dialog.Body>
+						<VStack gap="space-4">
+							{ruleset.status !== "active" && (
+								<Alert variant="warning" size="small">
+									Regelsettet har status «{ruleset.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er
+									ferdig og godt nok før det kopieres til en annen seksjon.
+								</Alert>
+							)}
+							<Select
+								label="Velg seksjon"
+								name="targetSectionId"
+								form="copy-to-section-form"
+								value={copyTargetSectionId}
+								onChange={(e) => setCopyTargetSectionId(e.target.value)}
+							>
+								<option value="">Velg seksjon</option>
+								{copyTargetSections.map((s) => (
+									<option key={s.id} value={s.id}>
+										{s.name}
+									</option>
+								))}
+							</Select>
+						</VStack>
+					</Dialog.Body>
+					<Dialog.Footer>
+						<Form id="copy-to-section-form" method="post" onSubmit={() => setCopyToSectionOpen(false)}>
+							<input type="hidden" name="intent" value="copy-to-section" />
+							<Button
+								type="submit"
+								variant="primary"
+								disabled={!copyTargetSectionId}
+								loading={navigation.state !== "idle" && navigation.formData?.get("intent") === "copy-to-section"}
+							>
+								Kopier til seksjon
+							</Button>
+						</Form>
+						<Dialog.CloseTrigger>
+							<Button variant="secondary">Avbryt</Button>
+						</Dialog.CloseTrigger>
+					</Dialog.Footer>
+				</Dialog.Popup>
+			</Dialog>
 		</VStack>
 	)
 }
