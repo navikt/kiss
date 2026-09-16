@@ -190,7 +190,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	})
 }
 
-type ActionResult = { success: true; message: string } | { success: false; error: string }
+type ActionResult = { success: true; message: string } | { success: false; error: string; intent?: string }
 
 export async function action({ request, params }: Route.ActionArgs) {
 	const { seksjon, regelSettId } = params
@@ -235,7 +235,11 @@ export async function action({ request, params }: Route.ActionArgs) {
 		case "copy-to-section": {
 			const targetSectionId = formData.get("targetSectionId")
 			if (typeof targetSectionId !== "string" || !targetSectionId.trim()) {
-				return data<ActionResult>({ success: false, error: "Velg en seksjon å kopiere til." })
+				return data<ActionResult>({
+					success: false,
+					error: "Velg en seksjon å kopiere til.",
+					intent: "copy-to-section",
+				})
 			}
 			// Retten sjekkes mot MÅLseksjonen (der regelsettet skal opprettes), ikke
 			// seksjonen regelsettet kopieres fra.
@@ -248,6 +252,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 				return data<ActionResult>({
 					success: false,
 					error: "Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.",
+					intent: "copy-to-section",
 				})
 			}
 			// Målseksjonen valideres FØR kopieringen for å unngå at kopien opprettes
@@ -256,17 +261,25 @@ export async function action({ request, params }: Route.ActionArgs) {
 			// en seksjon kan bli omdøpt (ny slug) i vinduet mellom validering og kopi.
 			const targetSectionExists = (await getSections()).some((s) => s.id === targetSectionId.trim())
 			if (!targetSectionExists) {
-				return data<ActionResult>({ success: false, error: "Fant ikke målseksjonen." })
+				return data<ActionResult>({ success: false, error: "Fant ikke målseksjonen.", intent: "copy-to-section" })
 			}
 			const copy = await copyRulesetToSection(regelSettId, targetSectionId.trim(), authedUser.navIdent)
 			if (!copy) {
-				return data<ActionResult>({ success: false, error: "Kunne ikke kopiere regelsettet." })
+				return data<ActionResult>({
+					success: false,
+					error: "Kunne ikke kopiere regelsettet.",
+					intent: "copy-to-section",
+				})
 			}
 			const targetSection = (await getSections({ includeArchived: true })).find((s) => s.id === targetSectionId.trim())
 			if (!targetSection) {
 				// Uventet siden kopieringen selv nettopp validerte seksjonen, men uten
 				// en gyldig slug kan vi ikke bygge redirect-URL-en.
-				return data<ActionResult>({ success: false, error: "Fant ikke målseksjonen etter kopiering." })
+				return data<ActionResult>({
+					success: false,
+					error: "Fant ikke målseksjonen etter kopiering.",
+					intent: "copy-to-section",
+				})
 			}
 			return redirect(`/seksjoner/${targetSection.slug}/regelsett/${copy.id}/rediger`)
 		}
@@ -476,7 +489,7 @@ export default function RegelsettDetalj() {
 			{actionData && "success" in actionData && actionData.success && (
 				<Alert variant="success">{actionData.message}</Alert>
 			)}
-			{actionData && "success" in actionData && !actionData.success && (
+			{actionData && "success" in actionData && !actionData.success && actionData.intent !== "copy-to-section" && (
 				<Alert variant="error">{actionData.error}</Alert>
 			)}
 
@@ -768,11 +781,14 @@ export default function RegelsettDetalj() {
 						<Form id="copy-to-section-form" method="post">
 							<input type="hidden" name="intent" value="copy-to-section" />
 							<VStack gap="space-4">
-								{actionData && "success" in actionData && !actionData.success && (
-									<Alert variant="error" size="small">
-										{actionData.error}
-									</Alert>
-								)}
+								{actionData &&
+									"success" in actionData &&
+									!actionData.success &&
+									actionData.intent === "copy-to-section" && (
+										<Alert variant="error" size="small">
+											{actionData.error}
+										</Alert>
+									)}
 								{ruleset.status !== "active" && (
 									<Alert variant="warning" size="small">
 										Regelsettet har status «{ruleset.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er
