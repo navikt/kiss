@@ -37,7 +37,6 @@ export const mockAllRoutinesForControls: Record<string, Array<{ id: string; name
 
 export const nyttSporsmalData = {
 	isNew: true,
-	hasExistingEconomyQuestion: false,
 	question: {
 		id: "ny",
 		questionText: "",
@@ -65,7 +64,6 @@ export const nyttSporsmalData = {
 
 export const eksisterendeSporsmalData = {
 	isNew: false,
-	hasExistingEconomyQuestion: false,
 	question: {
 		id: "q-1",
 		questionText: "Har applikasjonen tilgangsstyring med periodisk gjennomgang?",
@@ -184,7 +182,6 @@ export const nyttRegelsettsSporsmalData = {
 /** Eksisterende regelsett-spørsmål med kategoribegrensning «Tilgangskontroll» */
 export const regelsettsSporsmalMedKategoriData = {
 	isNew: false,
-	hasExistingEconomyQuestion: false,
 	question: {
 		id: "q-tilgang",
 		questionText: "Hvilket tilgangskontroll-regelsett gjelder for applikasjonen?",

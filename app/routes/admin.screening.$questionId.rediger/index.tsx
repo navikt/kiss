@@ -78,16 +78,8 @@ export async function loader({ request, params, url }: Route.LoaderArgs) {
 			getRoutinesForAllControlsAndTechElements([]),
 		])
 
-		// Check if an economy_system question already exists in this scope
-		const { getScreeningQuestions, getSectionScreeningQuestions } = await import("~/db/queries/screening.server")
-		const scopeQuestions = sectionId
-			? await getSectionScreeningQuestions(sectionId, { includeArchived: false })
-			: await getScreeningQuestions({ includeArchived: false })
-		const hasExistingEconomyQuestion = scopeQuestions.some((q) => q.answerType === "economy_system")
-
 		return data({
 			isNew: true,
-			hasExistingEconomyQuestion,
 			question: {
 				id: "ny",
 				questionText: "",
@@ -136,7 +128,6 @@ export async function loader({ request, params, url }: Route.LoaderArgs) {
 
 	return data({
 		isNew: false,
-		hasExistingEconomyQuestion: false,
 		question: {
 			...question,
 			descriptionHtml: renderMarkdown(question.description),
@@ -268,17 +259,8 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function EditScreeningQuestion() {
-	const {
-		isNew,
-		hasExistingEconomyQuestion,
-		question,
-		choices,
-		controls,
-		technologyElements,
-		sectionId,
-		returnPath,
-		allRoutinesForControls,
-	} = useLoaderData<typeof loader>()
+	const { isNew, question, choices, controls, technologyElements, sectionId, returnPath, allRoutinesForControls } =
+		useLoaderData<typeof loader>()
 	const [pendingChoices, setPendingChoices] = useState<PendingChoice[]>([])
 	const [answerType, setAnswerType] = useState(question.answerType ?? "")
 	const [deleteTarget, setDeleteTarget] = useState<{
@@ -328,6 +310,8 @@ export default function EditScreeningQuestion() {
 						name="answerType"
 						size="small"
 						value={answerType}
+						readOnly={!isNew}
+						description={!isNew ? "Svartype kan ikke endres etter at spørsmålet er opprettet." : undefined}
 						onChange={(e) => {
 							const newType = e.target.value
 							const prevType = answerType
@@ -372,9 +356,7 @@ export default function EditScreeningQuestion() {
 						<option value="single_choice">Egendefinerte valg</option>
 						<option value="persistence">Persistens (databaser)</option>
 						<option value="entra_id_groups">Entra ID-grupper</option>
-						{((isNew && !hasExistingEconomyQuestion) || question.answerType === "economy_system") && (
-							<option value="economy_system">Økonomisystem</option>
-						)}
+						<option value="economy_system">Økonomisystem</option>
 						<option value="ruleset">Regelsett</option>
 					</Select>
 					{answerType === "persistence" && (
