@@ -7,11 +7,15 @@ import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
 import { UserDisplayName } from "~/components/UserDisplayName"
-import { getReviewsForSection, getSectionRoutinesForSection } from "~/db/queries/routines.server"
+import {
+	getReviewDetailAccessScopes,
+	getReviewsForSection,
+	getSectionRoutinesForSection,
+} from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import { getAuthenticatedUser } from "~/lib/auth.server"
-import { hasAnySectionRole, isAdmin, isAuditor } from "~/lib/authorization.server"
+import { canViewReviewDetail, hasAnySectionRole, isAdmin, isAuditor } from "~/lib/authorization.server"
 import { getCompositeFrequencyLabel } from "~/lib/routine-frequencies"
 import type { Route } from "./+types/index"
 
@@ -31,10 +35,39 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	const canReadReviews = user !== null && (isAdmin(user) || isAuditor(user) || hasAnySectionRole(user, section.id))
 	const canManageReviews = user !== null && !isAuditor(user) && (isAdmin(user) || hasAnySectionRole(user, section.id))
 
-	const [sectionRoutines, reviews] = await Promise.all([
+	const [sectionRoutines, allReviews] = await Promise.all([
 		getSectionRoutinesForSection(section.id),
 		canReadReviews ? getReviewsForSection(section.id) : Promise.resolve([]),
 	])
+
+	// Listen viser en generell "eier/utfører har seksjonsrolle"-sjekk (canReadReviews), men den
+	// enkelte gjennomgangens detaljside håndhever en strengere policy (canViewReviewDetail). Filtrer
+	// derfor bort gjennomganger her som brukeren likevel ikke ville fått åpnet, slik at listen ikke
+	// avslører tittel/deltakere/lenke til gjennomganger utenfor det nye rollesettet.
+	//
+	// sectionRoutines[].activeReview er en egen, uavhengig kilde til gjennomgangs-ID-er (brukt til
+	// "Fortsett gjennomgang"-knappen) og må derfor slås opp i samme batch, ellers lekker den ID-en
+	// til et utkast/oppfølgingsgjennomgang brukeren mangler detaljtilgang til. Det samme gjelder
+	// lastReview, som inneholder tittel/status/opprettet-av for siste fullførte gjennomgang og ellers
+	// ville lekket ut til brukere som består canReadReviews men ikke canViewReviewDetail.
+	const activeReviewIds = sectionRoutines
+		.map((sr) => sr.activeReview?.id)
+		.filter((id): id is string => id !== undefined)
+	const lastReviewIds = sectionRoutines
+		.map((sr) => sr.lastReview?.reviewId)
+		.filter((id): id is string => id !== undefined)
+	const scopeIds = [...new Set([...allReviews.map((r) => r.id), ...activeReviewIds, ...lastReviewIds])]
+	const scopes = scopeIds.length > 0 ? await getReviewDetailAccessScopes(scopeIds) : new Map()
+	const canViewScope = (id: string) => {
+		const scope = scopes.get(id)
+		return scope !== undefined && user !== null && canViewReviewDetail(user, scope)
+	}
+	const reviews = allReviews.filter((r) => canViewScope(r.id))
+	const sectionRoutinesRedacted = sectionRoutines.map((sr) => ({
+		...sr,
+		activeReview: sr.activeReview && canViewScope(sr.activeReview.id) ? sr.activeReview : null,
+		lastReview: sr.lastReview && canViewScope(sr.lastReview.reviewId) ? sr.lastReview : null,
+	}))
 
 	const reviewerNames = await getUserNamesByNavIdents(reviews.map((r) => r.createdBy))
 	const reviewsWithNames = reviews.map((r) => ({
@@ -45,7 +78,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	return data({
 		section,
 		seksjon,
-		sectionRoutines,
+		sectionRoutines: sectionRoutinesRedacted,
 		reviews: reviewsWithNames,
 		canManageReviews,
 		canReadReviews,

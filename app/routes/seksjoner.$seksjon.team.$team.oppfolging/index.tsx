@@ -1,8 +1,10 @@
 import { BodyShort, Box, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
-import { getFollowUpReviewsForApps } from "~/db/queries/routines.server"
+import { getFollowUpReviewsForApps, getReviewDetailAccessScopes } from "~/db/queries/routines.server"
 import { getSectionBySlug, getTeamActiveAppIds } from "~/db/queries/sections.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { canViewReviewDetail } from "~/lib/authorization.server"
 import type { Route } from "./+types/index"
 
 function formatDate(date: string | Date | null): string {
@@ -10,17 +12,27 @@ function formatDate(date: string | Date | null): string {
 	return new Date(date).toLocaleDateString("nb-NO")
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ params, request }: Route.LoaderArgs) {
 	const { seksjon, team: teamSlug } = params
 	if (!seksjon) throw new Response("Mangler seksjon", { status: 400 })
 	if (!teamSlug) throw new Response("Mangler team", { status: 400 })
+
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const [result, section] = await Promise.all([getTeamActiveAppIds(teamSlug), getSectionBySlug(seksjon)])
 	if (!result) throw new Response("Team ikke funnet", { status: 404 })
 	if (!section) throw new Response("Seksjon ikke funnet", { status: 404 })
 	if (result.team.sectionId !== section.id) throw new Response("Team tilhører ikke denne seksjonen", { status: 404 })
 
-	const reviews = await getFollowUpReviewsForApps(section.id, result.appIds)
+	const allReviews = await getFollowUpReviewsForApps(section.id, result.appIds)
+
+	// Åpne oppfølgingspunkter kan inneholde sensitivt innhold — bruk samme detaljtilgangsregel
+	// som selve gjennomgangssiden (canViewReviewDetail), ikke bare team-tilhørighet.
+	const scopes = await getReviewDetailAccessScopes(allReviews.map((r) => r.id))
+	const reviews = allReviews.filter((review) => {
+		const scope = scopes.get(review.id)
+		return scope !== undefined && canViewReviewDetail(authedUser, scope)
+	})
 
 	return data({
 		seksjon,

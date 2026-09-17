@@ -25,26 +25,30 @@ const mockCopyRoutineToSection = vi.fn()
 const mockArchiveRoutine = vi.fn()
 const mockUpdateRoutinePriority = vi.fn()
 const mockReplaceRoutine = vi.fn()
-vi.mock("~/db/queries/routines.server", () => ({
-	getRoutine: mockGetRoutine,
-	approveRoutine: mockApproveRoutine,
-	copyRoutine: mockCopyRoutine,
-	copyRoutineToSection: mockCopyRoutineToSection,
-	archiveRoutine: mockArchiveRoutine,
-	updateRoutinePriority: mockUpdateRoutinePriority,
-	replaceRoutine: mockReplaceRoutine,
-	calculateDeadline: vi.fn(),
-	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
-	getEffectiveLastReviewDate: vi.fn(),
-	getLatestReviewForApp: vi.fn(),
-	getLatestSectionReview: vi.fn().mockResolvedValue(null),
-	getReviewsForRoutine: vi.fn().mockResolvedValue([]),
-	getRoutineFollowUpApplicationIds: vi.fn().mockResolvedValue([]),
-	getRoutineNamesByIds: vi.fn().mockResolvedValue(new Map()),
-	getActivityStepsForRoutine: vi.fn().mockResolvedValue([]),
-	getActivityStepIdsForRoutine: vi.fn().mockResolvedValue([]),
-	isOverdue: vi.fn(),
-}))
+vi.mock("~/db/queries/routines.server", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("~/db/queries/routines.server")>()
+	return {
+		...actual,
+		getRoutine: mockGetRoutine,
+		approveRoutine: mockApproveRoutine,
+		copyRoutine: mockCopyRoutine,
+		copyRoutineToSection: mockCopyRoutineToSection,
+		archiveRoutine: mockArchiveRoutine,
+		updateRoutinePriority: mockUpdateRoutinePriority,
+		replaceRoutine: mockReplaceRoutine,
+		calculateDeadline: vi.fn(),
+		getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
+		getEffectiveLastReviewDate: vi.fn(),
+		getLatestReviewForApp: vi.fn(),
+		getLatestSectionReview: vi.fn().mockResolvedValue(null),
+		getReviewsForRoutine: vi.fn().mockResolvedValue([]),
+		getRoutineFollowUpApplicationIds: vi.fn().mockResolvedValue([]),
+		getRoutineNamesByIds: vi.fn().mockResolvedValue(new Map()),
+		getActivityStepsForRoutine: vi.fn().mockResolvedValue([]),
+		getActivityStepIdsForRoutine: vi.fn().mockResolvedValue([]),
+		isOverdue: vi.fn(),
+	}
+})
 
 vi.mock("~/db/queries/audit.server", () => ({
 	getAuditLogForEntity: vi.fn().mockResolvedValue([]),

@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm"
 import { db } from "~/db/connection.server"
-import { getFollowUpPointAttachmentContext } from "~/db/queries/routines.server"
+import { getFollowUpPointAttachmentContext, getReviewDetailAccessScope } from "~/db/queries/routines.server"
 import { routineReviewFollowUpPointAttachments } from "~/db/schema"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireReviewReadAccess } from "~/lib/authorization.server"
+import { requireReviewDetailAccess } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 import type { Route } from "./+types/index"
 
@@ -23,7 +23,9 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 
 	const ctx = await getFollowUpPointAttachmentContext(attachment.pointId)
 	if (!ctx) throw new Response("Vedlegg ikke funnet", { status: 404 })
-	await requireReviewReadAccess(user, { applicationId: ctx.applicationId, sectionId: ctx.sectionId })
+	const scope = await getReviewDetailAccessScope(ctx.reviewId)
+	if (!scope) throw new Response("Vedlegg ikke funnet", { status: 404 })
+	requireReviewDetailAccess(user, scope)
 
 	const storage = getStorageProvider()
 	const fileBuffer = await storage.download(attachment.bucketPath)

@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm"
 import { db } from "~/db/connection.server"
-import { getReviewScope } from "~/db/queries/routines.server"
+import { getReviewDetailAccessScope } from "~/db/queries/routines.server"
 import { routineReviewAttachments } from "~/db/schema"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireReviewReadAccess } from "~/lib/authorization.server"
+import { requireReviewDetailAccess } from "~/lib/authorization.server"
 import { getStorageProvider } from "~/lib/storage/index.server"
 import type { Route } from "./+types/index"
 
@@ -21,9 +21,9 @@ export async function loader({ params, request, url }: Route.LoaderArgs) {
 
 	if (!attachment) throw new Response("Vedlegg ikke funnet", { status: 404 })
 
-	const scope = await getReviewScope(attachment.reviewId)
+	const scope = await getReviewDetailAccessScope(attachment.reviewId)
 	if (!scope) throw new Response("Vedlegg ikke funnet", { status: 404 })
-	await requireReviewReadAccess(authedUser, scope)
+	requireReviewDetailAccess(authedUser, scope)
 
 	const storage = getStorageProvider()
 	const fileBuffer = await storage.download(attachment.bucketPath)

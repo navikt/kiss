@@ -131,6 +131,10 @@ async function runSectionBatchReportGeneration(
 		let processedApps = 0
 		let includedApps = 0
 		const totalApps = selectedAppIds.length
+		// Samler gjennomgangs-IDer på tvers av alle apper i batchen, slik at PDF-nedlastingen kan håndheve
+		// detaljtilgang per gjennomgang — uten dette kunne en seksjonsleder lastet ned en ZIP med
+		// gjennomgangstekst/-vedlegg fra en annen seksjon via en delt applikasjon.
+		const allReviewIds: string[] = []
 		// Status update throttle: update DB on first, last, and every 5th app to reduce writes
 		// (UI polls every 3 s — per-app updates add unnecessary load for large sections)
 		const shouldUpdateStatus = (idx: number) => idx === 0 || idx === totalApps - 1 || (idx + 1) % 5 === 0
@@ -161,6 +165,7 @@ async function runSectionBatchReportGeneration(
 
 			const { buffer, ext } = await buildArtifactBuffer(artifact)
 			archive.append(buffer, { name: `${appPrefix}${ext}`, date: zipEntryDate() })
+			allReviewIds.push(...artifact.reviewIds)
 
 			includedApps++
 			processedApps++
@@ -179,6 +184,7 @@ async function runSectionBatchReportGeneration(
 					reportBucketPath: zipPath,
 					status: "completed",
 					progressMessage: `${includedApps} av ${totalApps} applikasjoner inkludert`,
+					reviewIds: includeReviews ? [...new Set(allReviewIds)] : [],
 					updatedAt: new Date(),
 				})
 				.where(eq(reports.id, reportId))

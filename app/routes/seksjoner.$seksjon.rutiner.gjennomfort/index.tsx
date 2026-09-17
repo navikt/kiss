@@ -2,9 +2,11 @@ import { BodyShort, Box, Heading, Table, Tag, VStack } from "@navikt/ds-react"
 import { data, Link, useLoaderData } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { UserDisplayName } from "~/components/UserDisplayName"
-import { getCompletedReviewsForSection } from "~/db/queries/routines.server"
+import { getCompletedReviewsForSection, getReviewDetailAccessScopes } from "~/db/queries/routines.server"
 import { getSectionBySlug } from "~/db/queries/sections.server"
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
+import { canViewReviewDetail } from "~/lib/authorization.server"
 import type { Route } from "./+types/index"
 
 function formatDate(date: string | Date | null): string {
@@ -12,18 +14,30 @@ function formatDate(date: string | Date | null): string {
 	return new Date(date).toLocaleDateString("nb-NO")
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
 	const { seksjon } = params
 	if (!seksjon) {
 		throw data({ message: "Mangler seksjonsparameter" }, { status: 400 })
 	}
+
+	const user = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) {
 		throw data({ message: `Fant ikke seksjon: ${seksjon}` }, { status: 404 })
 	}
 
-	const reviews = await getCompletedReviewsForSection(section.id)
+	const allReviews = await getCompletedReviewsForSection(section.id)
+
+	// Denne siden krevde tidligere ingen autentisering og viste alle ikke-forkastede gjennomganger
+	// (inkludert utkast) uten tilgangssjekk. Filtrer nå bort gjennomganger brukeren ikke har
+	// detaljtilgang til (samme regel som requireReviewDetailAccess).
+	const scopes = allReviews.length > 0 ? await getReviewDetailAccessScopes(allReviews.map((r) => r.id)) : new Map()
+	const reviews = allReviews.filter((r) => {
+		const scope = scopes.get(r.id)
+		return scope !== undefined && canViewReviewDetail(user, scope)
+	})
+
 	const reviewerNames = await getUserNamesByNavIdents(reviews.map((r) => r.createdBy))
 	const reviewsWithNames = reviews.map((r) => ({
 		...r,

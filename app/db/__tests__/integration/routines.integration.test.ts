@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import type { NavUser } from "~/lib/auth.server"
 import { getTestDb, getTestPool, setupTestDatabase, teardownTestDatabase } from "./setup"
 
 vi.mock("~/db/connection.server", () => ({
@@ -9,6 +10,20 @@ vi.mock("~/db/connection.server", () => ({
 		return getTestPool()
 	},
 }))
+
+const adminTestUser: NavUser = {
+	navIdent: "Z990001",
+	name: "Rask Elv",
+	email: "test@nav.no",
+	groups: [],
+	token: "test-token",
+	dbRoles: [],
+	roles: new Set(["admin"]),
+	isActualAdmin: true,
+	adminSuppressed: false,
+	entraTeamIds: [],
+	entraSectionIds: [],
+}
 
 const mockStorage = {
 	upload: vi.fn(async (path: string, data: Buffer, options?: { contentType?: string }) => ({
@@ -3267,7 +3282,7 @@ describe("Routines integration tests", () => {
 		}
 
 		it("returnerer tom liste når applikasjonen ikke har noen gjennomganger", async () => {
-			const documents = await getApplicationDocumentsForReviews([])
+			const documents = await getApplicationDocumentsForReviews([], adminTestUser)
 			expect(documents).toEqual([])
 		})
 
@@ -3331,7 +3346,7 @@ describe("Routines integration tests", () => {
 			})
 
 			const reviews = await getReviewsForApp(appId)
-			const documents = await getApplicationDocumentsForReviews(reviews)
+			const documents = await getApplicationDocumentsForReviews(reviews, adminTestUser)
 
 			expect(documents).toHaveLength(3)
 			expect(documents.map((d) => d.id).sort()).toEqual(
@@ -3358,6 +3373,55 @@ describe("Routines integration tests", () => {
 			for (let i = 0; i < documents.length - 1; i++) {
 				expect(documents[i].uploadedAt.getTime()).toBeGreaterThanOrEqual(documents[i + 1].uploadedAt.getTime())
 			}
+		})
+
+		it("skjuler dokumenter fra gjennomganger brukeren ikke har detaljtilgang til", async () => {
+			const sectionId = await createTestSection("Dokumenter-tilgang-seksjon", "dokumenter-tilgang-seksjon")
+			const appId = await createTestApp("Dokumenter-tilgang-app")
+			const routine = await createApprovedRoutine(sectionId, "Dokumenter-tilgang-rutine")
+
+			const review = await createReview({
+				routineId: routine.id,
+				applicationId: appId,
+				title: "Dokumenter-tilgang-gjennomgang",
+				summary: null,
+				routineSnapshotPath: null,
+				reviewedAt: new Date(),
+				createdBy: "Z990001",
+				participants: [],
+			})
+
+			await addReviewAttachment({
+				reviewId: review.id,
+				fileName: "hemmelig.pdf",
+				bucketPath: "routines/test/hemmelig.pdf",
+				contentType: "application/pdf",
+				sizeBytes: 100,
+				uploadedBy: "Z990001",
+			})
+
+			const reviews = await getReviewsForApp(appId)
+
+			const restrictedUser: NavUser = {
+				navIdent: "Z990099",
+				name: "Glad Fjord",
+				email: "restricted@nav.no",
+				groups: [],
+				token: "test-token",
+				dbRoles: [],
+				roles: new Set(),
+				isActualAdmin: false,
+				adminSuppressed: false,
+				entraTeamIds: [],
+				entraSectionIds: [],
+			}
+
+			const restrictedDocuments = await getApplicationDocumentsForReviews(reviews, restrictedUser)
+			expect(restrictedDocuments).toEqual([])
+
+			const authorizedDocuments = await getApplicationDocumentsForReviews(reviews, adminTestUser)
+			expect(authorizedDocuments).toHaveLength(1)
+			expect(authorizedDocuments[0]?.fileName).toBe("hemmelig.pdf")
 		})
 	})
 })

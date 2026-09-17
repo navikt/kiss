@@ -11,6 +11,9 @@ export const reports = pgTable("reports", {
 	scopeId: uuid("scope_id"),
 	/** Secondary scope dimension — e.g. routineId for reports scoped to both an application AND a routine. */
 	secondaryScopeId: uuid("secondary_scope_id"),
+	/** Gjennomgangs-IDer faktisk inkludert i rapporten (app_compliance/routine_review), brukt til å
+	 * håndheve detaljtilgang ved nedlasting uten å måtte gjette hvilke gjennomganger som ble tatt med. */
+	reviewIds: uuid("review_ids").array(),
 	/** Nullable for batch reports that have no JSON snapshot */
 	snapshotBucketPath: text("snapshot_bucket_path"),
 	reportBucketPath: text("report_bucket_path"),

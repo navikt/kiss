@@ -9,6 +9,7 @@ import {
 	createReview,
 	findActiveReviewConflict,
 	getAppsRequiringRoutine,
+	getReviewDetailAccessScope,
 	getRoutine,
 	getRoutineActivityLinks,
 } from "~/db/queries/routines.server"
@@ -16,8 +17,9 @@ import { getSectionBySlug } from "~/db/queries/sections.server"
 import type { ReviewActivityProviderConfig } from "~/db/schema/routines"
 import type { RoutineActivityType } from "~/lib/activity-types"
 import { activityTypeLabels, getProviderTypeForActivity } from "~/lib/activity-types"
+import type { NavUser } from "~/lib/auth.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireReviewAccess } from "~/lib/authorization.server"
+import { canViewReviewDetail, requireReviewAccess } from "~/lib/authorization.server"
 import { parseParticipantsFormValue } from "~/lib/participants"
 import type { Route } from "./+types/index"
 
@@ -25,11 +27,19 @@ function isUniqueViolation(err: unknown): boolean {
 	return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "23505"
 }
 
-function buildConflictMessage(
-	conflict: { activityType: RoutineActivityType | null },
+// Ikke avslør at en konflikterende gjennomgang finnes hvis brukeren ikke har detaljtilgang til
+// den (se canViewReviewDetail) — ellers lekker konfliktmeldingen eksistensen av en gjennomgang
+// (og noen ganger dens aktivitetstype) til brukere som ellers ville fått 403 på detaljsiden.
+async function buildConflictMessage(
+	user: NavUser,
+	conflict: { activityType: RoutineActivityType | null; reviewId: string },
 	isSectionRoutine: boolean,
 	effectiveAppId: string | null,
-): string {
+): Promise<string> {
+	const conflictScope = await getReviewDetailAccessScope(conflict.reviewId)
+	if (!conflictScope || !canViewReviewDetail(user, conflictScope)) {
+		return "Kan ikke opprette gjennomgang for denne rutinen nå."
+	}
 	if (conflict.activityType) {
 		const label = activityTypeLabels[conflict.activityType] ?? conflict.activityType
 		const suffix = isSectionRoutine ? " for denne seksjonen" : effectiveAppId ? " på denne applikasjonen" : ""
@@ -38,11 +48,13 @@ function buildConflictMessage(
 	return "Det finnes allerede en aktiv gjennomgang for denne rutinen. Fullfør eller forkast den eksisterende gjennomgangen før du oppretter en ny."
 }
 
-export async function loader({ params, url }: Route.LoaderArgs) {
+export async function loader({ params, request, url }: Route.LoaderArgs) {
 	const { seksjon, rutineId } = params
 	if (!seksjon || !rutineId) {
 		throw data({ message: "Mangler parametere" }, { status: 400 })
 	}
+
+	const authedUser = await requireAuthenticatedUser(request)
 
 	const section = await getSectionBySlug(seksjon)
 	if (!section) {
@@ -93,7 +105,12 @@ export async function loader({ params, url }: Route.LoaderArgs) {
 	if (routine.isSectionRoutine === 1 || preselectedAppId) {
 		const conflict = await findActiveReviewConflict(rutineId, effectiveAppIdForConflict, activityTypes)
 		if (conflict) {
-			loaderConflictError = buildConflictMessage(conflict, routine.isSectionRoutine === 1, effectiveAppIdForConflict)
+			loaderConflictError = await buildConflictMessage(
+				authedUser,
+				conflict,
+				routine.isSectionRoutine === 1,
+				effectiveAppIdForConflict,
+			)
 		}
 	}
 
@@ -144,7 +161,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 	const activeConflict = await findActiveReviewConflict(rutineId, effectiveAppId, activityTypes)
 	if (activeConflict) {
-		const conflictMessage = buildConflictMessage(activeConflict, routine.isSectionRoutine === 1, effectiveAppId)
+		const conflictMessage = await buildConflictMessage(
+			authedUser,
+			activeConflict,
+			routine.isSectionRoutine === 1,
+			effectiveAppId,
+		)
 		return data({ conflictError: conflictMessage }, { status: 409 })
 	}
 
@@ -181,16 +203,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 		})
 	} catch (err) {
 		if (isUniqueViolation(err)) {
-			return data(
-				{
-					conflictError: buildConflictMessage(
-						{ activityType: activityTypes[0] ?? null },
-						routine.isSectionRoutine === 1,
-						effectiveAppId,
-					),
-				},
-				{ status: 409 },
-			)
+			// findActiveReviewConflict filtrerer på rutinens nåværende aktivitetstyper, mens den
+			// unike databaseindeksen forkaster enhver aktiv gjennomgang for samme rutine/app
+			// uavhengig av aktivitetstype. Bruk derfor alltid den generiske meldingen her — vi kan
+			// ikke garantere at raceConflict finner den faktiske konflikten som forårsaket
+			// unik-brudd, og en detaljert melding ville da kunne avsløre en skjult gjennomgang.
+			return data({ conflictError: "Kan ikke opprette gjennomgang for denne rutinen nå." }, { status: 409 })
 		}
 		throw err
 	}

@@ -39,6 +39,7 @@ import {
 	getRoutineNamesByIds,
 	isOverdue,
 	replaceRoutine,
+	resolveEffectiveResponsibleRole,
 	updateRoutinePriority,
 } from "~/db/queries/routines.server"
 import { getScreeningQuestion } from "~/db/queries/screening.server"
@@ -56,7 +57,13 @@ import {
 } from "~/db/schema/applications"
 import { activityTypeLabels } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
-import { canApproveRoutine, hasAnySectionRole, isAdmin, requireAnySectionRole } from "~/lib/authorization.server"
+import {
+	canApproveRoutine,
+	canViewReviewDetail,
+	hasAnySectionRole,
+	isAdmin,
+	requireAnySectionRole,
+} from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
 import type { Route } from "./+types/index"
@@ -182,8 +189,23 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		...activityLinkAuditLog,
 	].sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime())
 
+	// Rutinesiden viste tidligere alle ikke-forkastede gjennomganger til enhver med lesetilgang til
+	// rutinen, men detaljsiden håndhever en strengere policy (canViewReviewDetail). Filtrer derfor
+	// bort gjennomganger her som brukeren likevel ikke ville fått åpnet.
+	const effectiveRoleForReviews = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
+	const visibleReviews = user
+		? reviews.filter((r) =>
+				canViewReviewDetail(user, {
+					responsibleRole: effectiveRoleForReviews,
+					sectionId: routine.sectionId,
+					status: r.status,
+					createdBy: r.createdBy,
+				}),
+			)
+		: []
+
 	const reviewerNames = await getUserNamesByNavIdents([
-		...reviews.map((r) => r.createdBy),
+		...visibleReviews.map((r) => r.createdBy),
 		...(routine.approvedBy ? [routine.approvedBy] : []),
 		...(routine.archivedBy ? [routine.archivedBy] : []),
 		...(routine.priorityUpdatedBy ? [routine.priorityUpdatedBy] : []),
@@ -194,7 +216,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		...entry,
 		performedByName: reviewerNames.get(entry.performedBy.trim().toUpperCase()) ?? null,
 	}))
-	const reviewsWithNames = reviews.map((r) => ({
+	const reviewsWithNames = visibleReviews.map((r) => ({
 		...r,
 		createdByName: reviewerNames.get(r.createdBy.trim().toUpperCase()) ?? null,
 	}))
@@ -243,7 +265,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		}),
 	)
 
-	const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+	const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 	const userCanApprove = user ? canApproveRoutine(user, effectiveRole, section.id) : false
 	const userCanAdmin = user ? isAdmin(user) : false
 	const userCanEdit = user ? hasAnySectionRole(user, section.id) : false
@@ -315,7 +337,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	}
 
 	if (intent === "approve" || intent === "approve-as-new") {
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw data({ message: "Du har ikke riktig rolle til å godkjenne denne rutinen" }, { status: 403 })
 		}
@@ -324,7 +346,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	}
 
 	if (intent === "approve-replace") {
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 		if (!canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw data({ message: "Du har ikke riktig rolle til å godkjenne denne rutinen" }, { status: 403 })
 		}
@@ -383,7 +405,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 		if (routine.status !== "approved") {
 			throw data({ message: "Kun godkjente rutiner kan arkiveres." }, { status: 400 })
 		}
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 		if (!isAdmin(authedUser) && !canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw data({ message: "Du har ikke rettigheter til å arkivere denne rutinen." }, { status: 403 })
 		}
@@ -392,7 +414,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 	}
 
 	if (intent === "update-priority") {
-		const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible || null
+		const effectiveRole = resolveEffectiveResponsibleRole(routine.responsibleRole, routine.controls)
 		if (!isAdmin(authedUser) && !canApproveRoutine(authedUser, effectiveRole, section.id)) {
 			throw data({ message: "Du har ikke rettigheter til å endre prioritet på denne rutinen" }, { status: 403 })
 		}
@@ -681,7 +703,6 @@ export default function RutineDetaljer() {
 					</VStack>
 
 					{(() => {
-						const effectiveRole = routine.responsibleRole || routine.controls.find((c) => c.responsible)?.responsible
 						if (!effectiveRole) return null
 						const isInherited = !routine.responsibleRole
 						return (

@@ -5,9 +5,11 @@ vi.mock("~/lib/auth.server", () => ({
 	requireAuthenticatedUser: mockRequireAuthenticatedUser,
 }))
 
+const mockCanViewReviewDetail = vi.fn()
 vi.mock("~/lib/authorization.server", () => ({
 	requireAnySectionRole: vi.fn(),
 	requireReviewAccess: vi.fn(),
+	canViewReviewDetail: mockCanViewReviewDetail,
 }))
 
 const mockGetSectionBySlug = vi.fn()
@@ -20,6 +22,7 @@ const mockAutoCreateActivitiesForReview = vi.fn()
 const mockGetRoutine = vi.fn()
 const mockGetRoutineActivityLinks = vi.fn()
 const mockFindActiveReviewConflict = vi.fn().mockResolvedValue(null)
+const mockGetReviewDetailAccessScope = vi.fn()
 vi.mock("~/db/queries/routines.server", () => ({
 	createReview: mockCreateReview,
 	autoCreateActivitiesForReview: mockAutoCreateActivitiesForReview,
@@ -27,6 +30,7 @@ vi.mock("~/db/queries/routines.server", () => ({
 	getRoutineActivityLinks: mockGetRoutineActivityLinks,
 	getAppsRequiringRoutine: vi.fn().mockResolvedValue([]),
 	findActiveReviewConflict: mockFindActiveReviewConflict,
+	getReviewDetailAccessScope: mockGetReviewDetailAccessScope,
 }))
 
 const mockGetOracleInstancesForApp = vi.fn()
@@ -77,6 +81,13 @@ beforeEach(() => {
 	mockCreateReview.mockResolvedValue({ id: "review-1" })
 	mockAutoCreateActivitiesForReview.mockResolvedValue(undefined)
 	mockGetRoutineActivityLinks.mockResolvedValue([])
+	mockCanViewReviewDetail.mockReturnValue(true)
+	mockGetReviewDetailAccessScope.mockResolvedValue({
+		responsibleRole: null,
+		sectionId: "section-1",
+		status: "draft",
+		createdBy: "T654321",
+	})
 })
 
 describe("gjennomgang.ny action - oracle provider config", () => {

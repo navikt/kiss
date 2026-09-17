@@ -1,7 +1,8 @@
 import { data } from "react-router"
-import { downloadEvidenceFileFromStorage, getSectionIdForDownload } from "~/db/queries/evidence-downloads.server"
+import { downloadEvidenceFileFromStorage, getEvidenceDownloadContext } from "~/db/queries/evidence-downloads.server"
+import { getReviewDetailAccessScope } from "~/db/queries/routines.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
-import { requireReviewReadAccess } from "~/lib/authorization.server"
+import { requireReviewDetailAccess } from "~/lib/authorization.server"
 import { requireUuid } from "~/lib/utils"
 import type { Route } from "./+types/index"
 
@@ -10,11 +11,15 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
 	const downloadId = requireUuid(params.downloadId, "downloadId")
 
-	const sectionId = await getSectionIdForDownload(downloadId)
-	if (!sectionId) {
+	const download = await getEvidenceDownloadContext(downloadId)
+	if (!download) {
 		throw data({ error: "Fant ikke nedlastet fil" }, { status: 404 })
 	}
-	await requireReviewReadAccess(authedUser, { applicationId: null, sectionId })
+	const scope = await getReviewDetailAccessScope(download.reviewId)
+	if (!scope) {
+		throw data({ error: "Fant ikke nedlastet fil" }, { status: 404 })
+	}
+	requireReviewDetailAccess(authedUser, scope)
 
 	const result = await downloadEvidenceFileFromStorage(downloadId)
 	if (!result) {

@@ -375,16 +375,19 @@ WHERE a.id = ${activityId}
 	}
 }
 
-export async function getSectionIdForDownload(downloadId: string): Promise<string | null> {
+export async function getEvidenceDownloadContext(
+	downloadId: string,
+): Promise<{ sectionId: string; reviewId: string } | null> {
 	const result = await db.execute(sql`
-SELECT r.section_id
+SELECT r.section_id, rv.id AS review_id
 FROM routine_review_evidence_downloads d
 JOIN routine_review_activities a ON a.id = d.activity_id
 JOIN routine_reviews rv ON rv.id = a.review_id
 JOIN routines r ON r.id = rv.routine_id
 WHERE d.id = ${downloadId}
 `)
-	return (result.rows[0] as { section_id: string } | undefined)?.section_id ?? null
+	const row = result.rows[0] as { section_id: string; review_id: string } | undefined
+	return row ? { sectionId: row.section_id, reviewId: row.review_id } : null
 }
 
 export async function isInstanceConfiguredForApp(applicationId: string, instanceId: string): Promise<boolean> {
