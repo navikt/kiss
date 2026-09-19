@@ -443,6 +443,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 			{ id: "rule-5", direction: "inbound", ruleApplication: "ekstern-gateway", ruleNamespace: "gateway", ruleCluster: "prod-gcp" },
 		],
 		teams: [{ teamId: "t-01", teamName: "Starte pensjon", teamSlug: "starte-pensjon" }],
+		effectiveSections: [],
 		primaryApp: null,
 		linkedApps: [],
 		appElements: [

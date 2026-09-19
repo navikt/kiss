@@ -58,6 +58,7 @@ export default function ApplikasjonDetalj() {
 		rpaUsers,
 		accessPolicyRules,
 		teams,
+		effectiveSections,
 		primaryApp,
 		linkedApps,
 		appElements,
@@ -282,6 +283,27 @@ export default function ApplikasjonDetalj() {
 							)
 						})}
 					</HStack>
+				</Box>
+			)}
+
+			{effectiveSections.length > 0 && (
+				<Box>
+					<BodyShort weight="semibold" spacing>
+						Seksjoner
+					</BodyShort>
+					<HStack gap="space-4" wrap>
+						{effectiveSections.map((s: { id: string; name: string; slug: string }) => (
+							<Tag key={s.id} variant={effectiveSections.length > 1 ? "warning" : "info"} size="small">
+								<Link to={`/seksjoner/${s.slug}/rutiner`}>{s.name}</Link>
+							</Tag>
+						))}
+					</HStack>
+					{effectiveSections.length > 1 && (
+						<BodyShort textColor="subtle" size="small" spacing>
+							Applikasjonen resolves til flere seksjoner (via team- eller Nais-miljøkoblinger). Seksjonsrutiner fra alle
+							disse seksjonene vises under «Rutiner».
+						</BodyShort>
+					)}
 				</Box>
 			)}
 

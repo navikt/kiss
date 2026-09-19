@@ -21,7 +21,7 @@ import {
 import { getLatestOracleRoleCriticalityReview, getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
 import { getReportsForApp } from "~/db/queries/reports.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
-import { getApplicationDocumentsForReviews, getReviewsForApp } from "~/db/queries/routines.server"
+import { getApplicationDocumentsForReviews, getReviewsForApp, getSectionIdsForApp } from "~/db/queries/routines.server"
 import { getRpaUsersForApp } from "~/db/queries/rpa.server"
 import { getRulesetsSelectedByApp } from "~/db/queries/rulesets.server"
 import { getScreeningProgressForApps, getScreeningQuestionsWithAnswersForApp } from "~/db/queries/screening.server"
@@ -128,6 +128,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		githubChangeLog,
 		oracleRoleAssessmentsMap,
 		latestOracleRoleCriticalityReview,
+		effectiveSectionIds,
 	] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesWithControls(appId),
@@ -153,6 +154,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		effectiveGitRepository ? getGitHubAccessChangeLog(appId) : Promise.resolve([]),
 		getOracleRoleAssessments(appId),
 		getLatestOracleRoleCriticalityReview(appId),
+		getSectionIdsForApp(appId),
 	])
 
 	const applicationDocuments = await getApplicationDocumentsForReviews(completedReviews)
@@ -177,6 +179,13 @@ export async function loader({ request, params }: LoaderArgs) {
 	)
 
 	const sectionSlugMap = Object.fromEntries(allSections.map((s) => [s.id, s.slug]))
+
+	const sectionById = new Map(allSections.map((s) => [s.id, s]))
+	const effectiveSections = effectiveSectionIds
+		.map((id) => sectionById.get(id))
+		.filter((s): s is NonNullable<typeof s> => s != null)
+		.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))
+		.sort((a, b) => a.name.localeCompare(b.name))
 
 	const routineNameById = new Map(
 		deadlinesWithControls
@@ -349,6 +358,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		rpaUsers: rpaUsers.map((u) => ({ ...u, syncedAt: u.syncedAt.toISOString() })),
 		accessPolicyRules: detail.accessPolicyRules,
 		teams: detail.teams,
+		effectiveSections,
 		primaryApp: detail.primaryApp,
 		linkedApps: detail.linkedApps,
 		appElements,
