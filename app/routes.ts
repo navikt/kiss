@@ -146,6 +146,7 @@ export default [
 	route("rpa-brukere/:userObjectId", "routes/rpa-brukere.$userObjectId/index.tsx"),
 	route("admin/audit-logg-volum", "routes/admin.audit-logg-volum/index.tsx"),
 	route("admin/audit-logg-volum/detaljer", "routes/admin.audit-logg-volum.detaljer/index.tsx"),
+	route("admin/rutine-seksjonsavvik", "routes/admin.rutine-seksjonsavvik/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),
 	route("api/isready", "routes/api.isready/index.tsx"),
 	route("api/nais-sync", "routes/api.nais-sync/index.tsx"),
