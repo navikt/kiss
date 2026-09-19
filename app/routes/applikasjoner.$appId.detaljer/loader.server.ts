@@ -185,7 +185,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		.map((id) => sectionById.get(id))
 		.filter((s): s is NonNullable<typeof s> => s != null)
 		.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))
-		.sort((a, b) => a.name.localeCompare(b.name))
+		.sort((a, b) => a.name.localeCompare(b.name, "nb"))
 
 	const routineNameById = new Map(
 		deadlinesWithControls
