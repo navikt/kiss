@@ -4,11 +4,9 @@
  * These are designed to be called once per app, returning data
  * grouped by control for efficient auto-status derivation.
  */
-import { and, eq, inArray, isNotNull, isNull, notExists, or } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm"
 import { db } from "../connection.server"
-import { applicationEnvironments, naisTeams } from "../schema/applications"
 import { applicationTechnologyElements } from "../schema/framework"
-import { sectionEnvironments } from "../schema/organization"
 import {
 	screeningAnswers,
 	screeningChoiceEffects,
@@ -16,6 +14,7 @@ import {
 	screeningQuestions,
 	screeningQuestionTechnologyElements,
 } from "../schema/screening"
+import { getSectionIdsForApp } from "./routines.server"
 
 /** Build a composite key for screening effects: "controlId:techElementId" or "controlId:all". */
 export function screeningKey(controlId: string, techElementId: string): string {
@@ -50,31 +49,8 @@ export async function getScreeningEffectsByControlForApp(applicationId: string) 
 		)
 	const appTechElementIds = new Set(appTechRows.map((r) => r.elementId))
 
-	// 2. Find app's section IDs via enabled environments only
-	const sectionRows = await db
-		.selectDistinct({ sectionId: naisTeams.sectionId })
-		.from(applicationEnvironments)
-		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(
-			and(
-				eq(applicationEnvironments.applicationId, applicationId),
-				isNotNull(naisTeams.sectionId),
-				// Exclude environments that are disabled for their section
-				notExists(
-					db
-						.select({ cluster: sectionEnvironments.cluster })
-						.from(sectionEnvironments)
-						.where(
-							and(
-								eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
-								eq(sectionEnvironments.sectionId, naisTeams.sectionId),
-								eq(sectionEnvironments.included, false),
-							),
-						),
-				),
-			),
-		)
-	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+	// 2. Find app's section IDs using canonical membership (NAIS-team environments + dev-team mappings)
+	const sectionIds = await getSectionIdsForApp(applicationId)
 
 	// 3. Load all applicable questions (global + section-scoped, kun godkjente)
 	const globalQuestions = await db

@@ -1,11 +1,10 @@
-import { and, eq, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm"
 import { ScreeningValidationError } from "../../lib/screening-types"
 import { isValidUuid } from "../../lib/utils"
 import { db } from "../connection.server"
-import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
+import { monitoredApplications } from "../schema/applications"
 import { complianceAssessmentHistory, complianceAssessments } from "../schema/compliance"
 import { frameworkControls, technologyElements } from "../schema/framework"
-import { sectionEnvironments } from "../schema/organization"
 import { routineControls, routines, routineTechnologyElements } from "../schema/routines"
 import { rulesetControls } from "../schema/rulesets"
 import {
@@ -20,6 +19,7 @@ import {
 	type ValidScreeningQuestionStatus,
 } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
+import { getSectionIdsForApp } from "./routines.server"
 
 // ─── Questions CRUD ──────────────────────────────────────────────────────
 
@@ -814,34 +814,11 @@ export async function getScreeningAnswersForApp(applicationId: string) {
 /**
  * Get all approved, non-archived screening questions with their answer status for a specific app.
  * Scope mirrors getScreeningDataForApp: global questions (sectionId IS NULL) + section questions
- * only for the sections the app actually belongs to (via NAIS team environments).
+ * only for the sections the app effectively belongs to (via getSectionIdsForApp — covers NAIS
+ * team environments and dev-team mappings).
  */
 export async function getScreeningQuestionsWithAnswersForApp(appId: string) {
-	// Resolve section IDs for this app via NAIS environments (same logic as getScreeningDataForApp)
-	const sectionRows = await db
-		.selectDistinct({ sectionId: naisTeams.sectionId })
-		.from(applicationEnvironments)
-		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(
-			and(
-				eq(applicationEnvironments.applicationId, appId),
-				isNotNull(naisTeams.sectionId),
-				notExists(
-					db
-						.select({ cluster: sectionEnvironments.cluster })
-						.from(sectionEnvironments)
-						.where(
-							and(
-								eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
-								eq(sectionEnvironments.sectionId, naisTeams.sectionId),
-								eq(sectionEnvironments.included, false),
-							),
-						),
-				),
-			),
-		)
-
-	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+	const sectionIds = await getSectionIdsForApp(appId)
 
 	const scopeFilter =
 		sectionIds.length > 0
@@ -1121,32 +1098,10 @@ export async function getScreeningDataForApp(applicationId: string) {
 	// Get global questions + section-scoped questions for the app's section(s)
 	const globalQuestions = await getScreeningQuestions({ status: "approved" })
 
-	// Find section IDs for this app via its nais team environments (enabled only)
-	const sectionRows = await db
-		.selectDistinct({ sectionId: naisTeams.sectionId })
-		.from(applicationEnvironments)
-		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(
-			and(
-				eq(applicationEnvironments.applicationId, applicationId),
-				isNotNull(naisTeams.sectionId),
-				// Exclude environments that are disabled for their section
-				notExists(
-					db
-						.select({ cluster: sectionEnvironments.cluster })
-						.from(sectionEnvironments)
-						.where(
-							and(
-								eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
-								eq(sectionEnvironments.sectionId, naisTeams.sectionId),
-								eq(sectionEnvironments.included, false),
-							),
-						),
-				),
-			),
-		)
-
-	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+	// Find the app's effective section(s). Uses the canonical getSectionIdsForApp — covers NAIS
+	// team environments and dev-team mappings, so cross-scope leaks don't reappear if the app is
+	// only linked to a section via a dev team.
+	const sectionIds = await getSectionIdsForApp(applicationId)
 
 	let sectionQuestions: Awaited<ReturnType<typeof getScreeningQuestions>> = []
 	if (sectionIds.length > 0) {
@@ -1253,7 +1208,9 @@ export async function getScreeningDataForApp(applicationId: string) {
 		}
 	}
 
-	// Load routines linked to select_routine controls (user picks during screening)
+	// Load routines linked to select_routine controls (user picks during screening).
+	// A routine only applies to apps effectively within its own section — never across sections,
+	// so we scope candidates to the app's own (canonical, getSectionIdsForApp-derived) section(s).
 	const routineOptionsByControl = new Map<string, Array<{ id: string; name: string; sectionId: string }>>()
 	if (selectRoutineControlIds.size > 0) {
 		const linkedRoutines = await db
@@ -1271,6 +1228,7 @@ export async function getScreeningDataForApp(applicationId: string) {
 					isNull(routineControls.archivedAt),
 					eq(routines.status, "approved"),
 					isNull(routines.archivedAt),
+					sectionIds.length > 0 ? inArray(routines.sectionId, sectionIds) : sql`false`,
 				),
 			)
 
@@ -1370,31 +1328,10 @@ type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0
  * preset routine selections) are visible.
  */
 export async function getScreeningQuestionsForSnapshot(applicationId: string, executor: DbExecutor = db) {
-	// Section membership — same logic as getScreeningDataForApp
-	const sectionRows = await executor
-		.selectDistinct({ sectionId: naisTeams.sectionId })
-		.from(applicationEnvironments)
-		.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-		.where(
-			and(
-				eq(applicationEnvironments.applicationId, applicationId),
-				isNotNull(naisTeams.sectionId),
-				notExists(
-					executor
-						.select({ cluster: sectionEnvironments.cluster })
-						.from(sectionEnvironments)
-						.where(
-							and(
-								eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
-								eq(sectionEnvironments.sectionId, naisTeams.sectionId),
-								eq(sectionEnvironments.included, false),
-							),
-						),
-				),
-			),
-		)
-
-	const sectionIds = sectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+	// Section membership via the canonical getSectionIdsForApp (covers NAIS team environments and
+	// dev-team mappings), using the provided executor so it sees any uncommitted writes in the
+	// same transaction.
+	const sectionIds = await getSectionIdsForApp(applicationId, executor)
 
 	const globalQuestions = await executor
 		.select()
@@ -1519,6 +1456,7 @@ export async function getScreeningQuestionsForSnapshot(applicationId: string, ex
 					isNull(routineControls.archivedAt),
 					eq(routines.status, "approved"),
 					isNull(routines.archivedAt),
+					sectionIds.length > 0 ? inArray(routines.sectionId, sectionIds) : sql`false`,
 				),
 			)
 
@@ -1607,6 +1545,29 @@ export async function saveRoutineSelection(
 	executor?: DbExecutor,
 ) {
 	const run = async (exec: DbExecutor) => {
+		// Enforce section-scoping invariant at the query layer, not just in the route action:
+		// a routine can only be selected for an app effectively within the routine's own section.
+		// Runs on the same executor/transaction as the mutation below, so the validated state
+		// cannot change between the check and the write.
+		if (routineId !== null) {
+			const [routine] = await exec
+				.select({ sectionId: routines.sectionId, status: routines.status, archivedAt: routines.archivedAt })
+				.from(routines)
+				.where(eq(routines.id, routineId))
+			if (!routine) {
+				throw new ScreeningValidationError(`Rutine ${routineId} finnes ikke`)
+			}
+			if (routine.archivedAt !== null || routine.status !== "approved") {
+				throw new ScreeningValidationError(`Rutine ${routineId} er arkivert eller ikke godkjent og kan ikke velges`)
+			}
+			const appSectionIds = await getSectionIdsForApp(applicationId, exec)
+			if (!appSectionIds.includes(routine.sectionId)) {
+				throw new ScreeningValidationError(
+					`Rutine ${routineId} tilhører en annen seksjon enn applikasjonen og kan ikke velges`,
+				)
+			}
+		}
+
 		// Soft-delete any existing active selection for this (applicationId, choiceEffectId)
 		await exec
 			.update(screeningRoutineSelections)

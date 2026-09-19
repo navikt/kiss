@@ -53,6 +53,9 @@ const {
 	completeReviewActivity,
 	getActivitiesForReviews,
 	getRoutineDeadlinesForApp,
+	getRoutineDeadlinesForAppByPersistence,
+	getRoutineDeadlinesForAppByGroupClassification,
+	getRoutineDeadlinesForAppByOracleRoleCriticality,
 	findActiveReviewConflict,
 	getRoutineActivityLinks,
 	getFollowUpReviewsForSection,
@@ -2612,6 +2615,7 @@ describe("Routines integration tests", () => {
 		it("matches routines via routine_screening_questions", async () => {
 			const sectionId = await createTestSection("Screening Q Section", "screening-q-section")
 			const appId = await createTestApp("Screening Q App")
+			await assignAppToSection(appId, sectionId)
 			const questionId = await createTestScreeningQuestion(sectionId, "Has CI/CD?")
 			const choiceLabel = "yes"
 			await createTestChoice(questionId, choiceLabel)
@@ -2652,6 +2656,7 @@ describe("Routines integration tests", () => {
 		it("matches routines via legacy screeningQuestionId/screeningChoiceValue fields", async () => {
 			const sectionId = await createTestSection("Legacy Section", "legacy-section")
 			const appId = await createTestApp("Legacy App")
+			await assignAppToSection(appId, sectionId)
 			const questionId = await createTestScreeningQuestion(sectionId, "Uses database?")
 			const choiceLabel = "yes"
 			await createTestChoice(questionId, choiceLabel)
@@ -2677,6 +2682,7 @@ describe("Routines integration tests", () => {
 		it("includes routines when app has manually added (unconfirmed) tech element matching routine constraint", async () => {
 			const sectionId = await createTestSection("Tech Section", "tech-deadline-section")
 			const appId = await createTestApp("Tech Deadline App")
+			await assignAppToSection(appId, sectionId)
 			const elemId = await createTestTechElement("Kafka")
 			const questionId = await createTestScreeningQuestion(sectionId, "Uses Kafka?")
 			const choiceLabel = "yes"
@@ -2709,6 +2715,7 @@ describe("Routines integration tests", () => {
 		it("does not match non-approved or archived routines", async () => {
 			const sectionId = await createTestSection("Filter Section", "filter-section")
 			const appId = await createTestApp("Filter App")
+			await assignAppToSection(appId, sectionId)
 			const questionId = await createTestScreeningQuestion(sectionId, "Has monitoring?")
 			const choiceLabel = "yes"
 			await createTestChoice(questionId, choiceLabel)
@@ -2766,6 +2773,255 @@ describe("Routines integration tests", () => {
 			// Neither draft nor archived routine should appear
 			expect(results.every((r) => r.routine?.id !== draftId)).toBe(true)
 			expect(results.every((r) => r.routine?.id !== archivedId)).toBe(true)
+		})
+
+		it("does not match a screening-based routine owned by a section the app is not in", async () => {
+			const otherSectionId = await createTestSection("Other Section", "other-section-screening")
+			const appSectionId = await createTestSection("App Section", "app-section-screening")
+			const appId = await createTestApp("Cross-Section App")
+			await assignAppToSection(appId, appSectionId)
+
+			const questionId = await createTestScreeningQuestion(otherSectionId, "Uses Oracle?")
+			const choiceLabel = "yes"
+			await createTestChoice(questionId, choiceLabel)
+
+			const routine = await createRoutine({
+				name: "Other Section Routine",
+				description: null,
+				sectionId: otherSectionId,
+				frequency: "annually",
+				screeningQuestionId: questionId,
+				screeningChoiceValue: choiceLabel,
+				responsibleRole: null,
+				appliesToAllInSection: false,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "test",
+			})
+			await markRoutineApproved(routine.id)
+
+			await createTestScreeningAnswer(appId, questionId, choiceLabel)
+
+			const results = await getRoutineDeadlinesForApp(appId)
+			expect(results.every((r) => r.routine?.id !== routine.id)).toBe(true)
+		})
+	})
+
+	describe("getRoutineDeadlinesForAppByPersistence", () => {
+		it("does not match a persistence-based routine owned by a section the app is not in", async () => {
+			const db = getTestDb()
+			const otherSectionId = await createTestSection("Other Section", "other-section-persistence")
+			const appSectionId = await createTestSection("App Section", "app-section-persistence")
+			const appId = await createTestApp("Cross-Section Oracle App")
+			await assignAppToSection(appId, appSectionId)
+
+			await db.execute(
+				/* sql */ `INSERT INTO application_persistence (application_id, type, name, data_classification)
+				VALUES ('${appId}', 'oracle', 'PROD_DB', 'financial_regulation')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId: otherSectionId,
+				name: "Other Section Oracle Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [{ persistenceType: "oracle", dataClassification: "financial_regulation" }],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const results = await getRoutineDeadlinesForAppByPersistence(appId)
+			expect(results.every((r) => r.routine?.id !== routine.id)).toBe(true)
+		})
+
+		it("matches a persistence-based routine owned by the app's own section", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Same Section", "same-section-persistence")
+			const appId = await createTestApp("Same-Section Oracle App")
+			await assignAppToSection(appId, sectionId)
+
+			await db.execute(
+				/* sql */ `INSERT INTO application_persistence (application_id, type, name, data_classification)
+				VALUES ('${appId}', 'oracle', 'PROD_DB', 'financial_regulation')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Same Section Oracle Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [{ persistenceType: "oracle", dataClassification: "financial_regulation" }],
+				controlIds: [],
+				technologyElementIds: [],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const results = await getRoutineDeadlinesForAppByPersistence(appId)
+			expect(results.some((r) => r.routine?.id === routine.id)).toBe(true)
+		})
+	})
+
+	describe("getRoutineDeadlinesForAppByGroupClassification", () => {
+		it("does not match a group-classification-based routine owned by a section the app is not in", async () => {
+			const db = getTestDb()
+			const otherSectionId = await createTestSection("Other Section", "other-section-groupclass")
+			const appSectionId = await createTestSection("App Section", "app-section-groupclass")
+			const appId = await createTestApp("Cross-Section Entra App")
+			await assignAppToSection(appId, appSectionId)
+
+			const groupId = "cross-section-group-001"
+			await db.execute(
+				/* sql */ `INSERT INTO entra_group_classifications (group_id, classification, created_by, updated_by)
+				VALUES ('${groupId}', 'mine_tilganger', 'test', 'test')`,
+			)
+			await db.execute(
+				/* sql */ `INSERT INTO application_auth_integrations (application_id, type, cluster, groups)
+				VALUES ('${appId}', 'entra_id', 'prod-gcp', '["${groupId}"]')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId: otherSectionId,
+				name: "Other Section Mine Tilganger Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				groupClassifications: ["mine_tilganger"],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const results = await getRoutineDeadlinesForAppByGroupClassification(appId)
+			expect(results.every((r) => r.routine?.id !== routine.id)).toBe(true)
+		})
+
+		it("matches a group-classification-based routine owned by the app's own section", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Same Section", "same-section-groupclass")
+			const appId = await createTestApp("Same-Section Entra App")
+			await assignAppToSection(appId, sectionId)
+
+			const groupId = "same-section-group-001"
+			await db.execute(
+				/* sql */ `INSERT INTO entra_group_classifications (group_id, classification, created_by, updated_by)
+				VALUES ('${groupId}', 'mine_tilganger', 'test', 'test')`,
+			)
+			await db.execute(
+				/* sql */ `INSERT INTO application_auth_integrations (application_id, type, cluster, groups)
+				VALUES ('${appId}', 'entra_id', 'prod-gcp', '["${groupId}"]')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Same Section Mine Tilganger Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				groupClassifications: ["mine_tilganger"],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const results = await getRoutineDeadlinesForAppByGroupClassification(appId)
+			expect(results.some((r) => r.routine?.id === routine.id)).toBe(true)
+		})
+	})
+
+	describe("getRoutineDeadlinesForAppByOracleRoleCriticality", () => {
+		it("does not match an oracle-criticality-based routine owned by a section the app is not in", async () => {
+			const db = getTestDb()
+			const otherSectionId = await createTestSection("Other Section", "other-section-oraclecrit")
+			const appSectionId = await createTestSection("App Section", "app-section-oraclecrit")
+			const appId = await createTestApp("Cross-Section Critical Oracle App")
+			await assignAppToSection(appId, appSectionId)
+
+			await db.execute(
+				/* sql */ `INSERT INTO application_oracle_instances (application_id, instance_id, configured_by)
+				VALUES ('${appId}', 'INST1', 'test')`,
+			)
+			await db.execute(
+				/* sql */ `INSERT INTO oracle_role_assessments (application_id, instance_id, role_name, criticality, assessed_by, updated_by, created_by)
+				VALUES ('${appId}', 'INST1', 'DBA_ROLE', 'high', 'test', 'test', 'test')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId: otherSectionId,
+				name: "Other Section High Criticality Oracle Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				oracleRoleCriticalities: ["high"],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const results = await getRoutineDeadlinesForAppByOracleRoleCriticality(appId)
+			expect(results.every((r) => r.routine?.id !== routine.id)).toBe(true)
+		})
+
+		it("matches an oracle-criticality-based routine owned by the app's own section", async () => {
+			const db = getTestDb()
+			const sectionId = await createTestSection("Same Section", "same-section-oraclecrit")
+			const appId = await createTestApp("Same-Section Critical Oracle App")
+			await assignAppToSection(appId, sectionId)
+
+			await db.execute(
+				/* sql */ `INSERT INTO application_oracle_instances (application_id, instance_id, configured_by)
+				VALUES ('${appId}', 'INST1', 'test')`,
+			)
+			await db.execute(
+				/* sql */ `INSERT INTO oracle_role_assessments (application_id, instance_id, role_name, criticality, assessed_by, updated_by, created_by)
+				VALUES ('${appId}', 'INST1', 'DBA_ROLE', 'high', 'test', 'test', 'test')`,
+			)
+
+			const routine = await createRoutine({
+				sectionId,
+				name: "Same Section High Criticality Oracle Review",
+				description: null,
+				frequency: "quarterly",
+				screeningQuestionId: null,
+				screeningChoiceValue: null,
+				appliesToAllInSection: false,
+				responsibleRole: null,
+				persistenceLinks: [],
+				controlIds: [],
+				technologyElementIds: [],
+				oracleRoleCriticalities: ["high"],
+				createdBy: "Z990001",
+			})
+			await markRoutineApproved(routine.id)
+
+			const results = await getRoutineDeadlinesForAppByOracleRoleCriticality(appId)
+			expect(results.some((r) => r.routine?.id === routine.id)).toBe(true)
 		})
 	})
 
@@ -2895,6 +3151,7 @@ describe("Routines integration tests", () => {
 		it("setter draftReviewId på deadline når det finnes en aktiv draft-gjennomgang for appen", async () => {
 			const sectionId = await createTestSection("Draft-seksjon", "draft-seksjon")
 			const appId = await createTestApp("Draft-app")
+			await assignAppToSection(appId, sectionId)
 			const questionId = await createTestScreeningQuestion(sectionId, "Har rutine?")
 			await createTestChoice(questionId, "ja")
 
@@ -2948,6 +3205,8 @@ describe("Routines integration tests", () => {
 			const sectionId = await createTestSection("Annen-app-seksjon", "annen-app-seksjon")
 			const appA = await createTestApp("App A")
 			const appB = await createTestApp("App B")
+			await assignAppToSection(appA, sectionId)
+			await assignAppToSection(appB, sectionId)
 			const questionId = await createTestScreeningQuestion(sectionId, "Har rutine annen?")
 			await createTestChoice(questionId, "ja")
 
