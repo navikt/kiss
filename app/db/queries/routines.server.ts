@@ -109,6 +109,7 @@ import { getEffectiveAppIdsInSection } from "./sections.server"
 export interface ResolverOpts {
 	appName?: string
 	appElementIds?: Set<string>
+	sectionIds?: string[]
 }
 
 async function resolveAppName(applicationId: string, opts?: ResolverOpts): Promise<string> {
@@ -119,6 +120,11 @@ async function resolveAppName(applicationId: string, opts?: ResolverOpts): Promi
 		.where(eq(monitoredApplications.id, applicationId))
 		.limit(1)
 	return appRow?.name ?? ""
+}
+
+async function resolveSectionIds(applicationId: string, opts?: ResolverOpts): Promise<string[]> {
+	if (opts?.sectionIds !== undefined) return opts.sectionIds
+	return getSectionIdsForApp(applicationId)
 }
 
 // ─── Routine CRUD ────────────────────────────────────────────────────────
@@ -1324,8 +1330,8 @@ export async function getReviewsForRoutine(routineId: string) {
  * Uses one SQL query to union the three membership paths and apply the
  * same archived, child-app, ignored-app, and excluded-environment filters.
  */
-export async function getSectionIdsForApp(applicationId: string): Promise<string[]> {
-	const result = await db.execute(sql`
+export async function getSectionIdsForApp(applicationId: string, executor: DbExecutor = db): Promise<string[]> {
+	const result = await executor.execute(sql`
 		WITH valid_app AS (
 			SELECT id
 			FROM monitored_applications
@@ -4133,6 +4139,10 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 
 	if (matchingRoutineIds.size === 0) return []
 
+	// A routine only applies to apps effectively within its own section — never across sections.
+	const sectionIds = await resolveSectionIds(applicationId, opts)
+	if (sectionIds.length === 0) return []
+
 	// Step 2: Load matched routines with tech elements, screening questions, and persistence links in batch
 	const routineIdList = [...matchingRoutineIds]
 	const [routineRows, allElements, allScreeningLinks, allPersLinks] = await Promise.all([
@@ -4140,7 +4150,11 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 			.select()
 			.from(routines)
 			.where(
-				and(inArray(routines.id, routineIdList), and(eq(routines.status, "approved"), isNull(routines.archivedAt))),
+				and(
+					inArray(routines.id, routineIdList),
+					inArray(routines.sectionId, sectionIds),
+					and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+				),
 			),
 		db
 			.select({
@@ -4295,10 +4309,20 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	const routineIds = [...persLinksByRoutine.keys()].filter((id) => !excludeRoutineIds.has(id))
 	if (routineIds.length === 0) return []
 
+	// A routine only applies to apps effectively within its own section — never across sections.
+	const sectionIds = await resolveSectionIds(applicationId, opts)
+	if (sectionIds.length === 0) return []
+
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.id, routineIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
+		.where(
+			and(
+				inArray(routines.id, routineIds),
+				inArray(routines.sectionId, sectionIds),
+				and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+			),
+		)
 
 	// Filter to routines where at least one persistence link matches the app
 	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number]; matchedLinks: typeof allPersLinks }> = []
@@ -4463,10 +4487,20 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 	const routineIds = [...gcLinksByRoutine.keys()].filter((id) => !excludeRoutineIds.has(id))
 	if (routineIds.length === 0) return []
 
+	// A routine only applies to apps effectively within its own section — never across sections.
+	const sectionIds = await resolveSectionIds(applicationId, opts)
+	if (sectionIds.length === 0) return []
+
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.id, routineIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
+		.where(
+			and(
+				inArray(routines.id, routineIds),
+				inArray(routines.sectionId, sectionIds),
+				and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+			),
+		)
 
 	// Filter to routines where at least one classification link matches
 	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number] }> = []
@@ -4610,10 +4644,20 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 
 	const routineIds = [...new Set(matchingLinks.map((l) => l.routineId))]
 
+	// A routine only applies to apps effectively within its own section — never across sections.
+	const sectionIds = await resolveSectionIds(applicationId, opts)
+	if (sectionIds.length === 0) return []
+
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.id, routineIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
+		.where(
+			and(
+				inArray(routines.id, routineIds),
+				inArray(routines.sectionId, sectionIds),
+				and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+			),
+		)
 
 	if (candidateRoutines.length === 0) return []
 
@@ -4715,6 +4759,12 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 	excludeRoutineIds: Set<string> = new Set(),
 	opts?: ResolverOpts,
 ) {
+	// A routine only applies to apps effectively within its own section — never across sections,
+	// even if a stored selection points at a routine from another section (e.g. from before this
+	// scoping was enforced at selection time).
+	const sectionIds = await resolveSectionIds(applicationId, opts)
+	if (sectionIds.length === 0) return []
+
 	const selections = await db
 		.select({ routineId: screeningRoutineSelections.routineId })
 		.from(screeningRoutineSelections)
@@ -4739,7 +4789,13 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		db
 			.select()
 			.from(routines)
-			.where(and(inArray(routines.id, uniqueIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt)))),
+			.where(
+				and(
+					inArray(routines.id, uniqueIds),
+					inArray(routines.sectionId, sectionIds),
+					and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+				),
+			),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -4833,7 +4889,7 @@ export async function getRoutineDeadlinesForAppBySection(
 	opts?: ResolverOpts,
 ): Promise<RoutineDeadlineInfo[]> {
 	// Find section IDs for this app via both nais environments and direct team mappings
-	const sectionIds = await getSectionIdsForApp(applicationId)
+	const sectionIds = await resolveSectionIds(applicationId, opts)
 	if (sectionIds.length === 0) return []
 
 	// Find routines that apply to all apps in these sections (approved only)
@@ -5056,7 +5112,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 	if (selectedRulesetIds.size === 0) return []
 
 	// Scope to active, non-archived rulesets in the app's current sections
-	const sectionIds = await getSectionIdsForApp(applicationId)
+	const sectionIds = await resolveSectionIds(applicationId, opts)
 	if (sectionIds.length === 0) return []
 
 	const activeRulesets = await db
