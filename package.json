@@ -96,7 +96,7 @@
 		"drizzle-kit": "^0.31.10",
 		"jsdom": "^30.0.1",
 		"knip": "^6.35.1",
-		"lefthook": "^2.1.12",
+		"lefthook": "^2.1.14",
 		"playwright": "^1.63.0",
 		"storybook": "^10.6.0",
 		"testcontainers": "^12.1.0",
