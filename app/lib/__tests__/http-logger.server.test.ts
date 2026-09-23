@@ -74,6 +74,33 @@ describe("loggedFetch", () => {
 		expect(mockLogger.info).not.toHaveBeenCalled()
 	})
 
+	it("logs expected request cancellation at debug level", async () => {
+		const abortError = new DOMException("This operation was aborted", "AbortError")
+		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(abortError))
+
+		await expect(loggedFetch("https://example.com/api", undefined, { area: "test" })).rejects.toThrow()
+
+		expect(mockLogger.debug).toHaveBeenCalledWith(
+			"Outgoing HTTP request cancelled",
+			expect.objectContaining({
+				log_type: "outgoing_http",
+				area: "test",
+				error_name: "AbortError",
+			}),
+		)
+		expect(mockLogger.error).not.toHaveBeenCalled()
+	})
+
+	it("logs request timeouts as errors", async () => {
+		const timeoutError = new DOMException("The operation was aborted due to timeout", "TimeoutError")
+		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeoutError))
+
+		await expect(loggedFetch("https://example.com/api", undefined, { area: "test" })).rejects.toThrow()
+
+		expect(mockLogger.error).toHaveBeenCalledOnce()
+		expect(mockLogger.debug).not.toHaveBeenCalled()
+	})
+
 	it("includes cause chain in error log", async () => {
 		const cause = new Error("DNS lookup failed")
 		const networkError = new Error("Connection refused", { cause })

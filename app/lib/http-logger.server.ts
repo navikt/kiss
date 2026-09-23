@@ -57,6 +57,20 @@ function redactUrl(rawUrl: string): { host: string; path: string; url: string } 
 /** Extract error fields including cause chain, mirroring logger.server.ts behaviour */
 function collectErrorMeta(error: unknown): Record<string, unknown> {
 	if (!(error instanceof Error)) {
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"name" in error &&
+			typeof error.name === "string" &&
+			"message" in error &&
+			typeof error.message === "string"
+		) {
+			return {
+				error: error.message,
+				error_name: error.name,
+				...("stack" in error && typeof error.stack === "string" ? { stack_trace: error.stack } : {}),
+			}
+		}
 		return { error: String(error) }
 	}
 	const meta: Record<string, unknown> = {
@@ -128,8 +142,7 @@ export async function loggedFetch(
 		return response
 	} catch (error) {
 		const durationMs = Date.now() - startMs
-
-		logger.error("Outgoing HTTP request failed", {
+		const meta = {
 			log_type: "outgoing_http",
 			area: options.area,
 			method,
@@ -138,7 +151,13 @@ export async function loggedFetch(
 			url: redactedUrl,
 			durationMs,
 			...collectErrorMeta(error),
-		})
+		}
+
+		if (typeof error === "object" && error !== null && "name" in error && error.name === "AbortError") {
+			logger.debug("Outgoing HTTP request cancelled", meta)
+		} else {
+			logger.error("Outgoing HTTP request failed", meta)
+		}
 
 		throw error
 	}
