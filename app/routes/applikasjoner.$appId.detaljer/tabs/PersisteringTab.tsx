@@ -22,6 +22,7 @@ export function PersisteringTab({
 		missingAuditFlags: string[] | null
 		oracleInstanceId: string | null
 		dataClassification: string | null
+		dataClassificationJustification: string | null
 		manuallyAdded: boolean
 	}>
 	oracleAuditSummaries: Record<

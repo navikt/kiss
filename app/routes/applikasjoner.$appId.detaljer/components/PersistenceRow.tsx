@@ -1,6 +1,17 @@
 import { TrashIcon } from "@navikt/aksel-icons"
-import { Link as AkselLink, Button, Detail, HStack, ReadMore, Select, Table, Tag, VStack } from "@navikt/ds-react"
-import type { ChangeEvent } from "react"
+import {
+	Link as AkselLink,
+	Button,
+	Detail,
+	HStack,
+	ReadMore,
+	Select,
+	Table,
+	Tag,
+	TextField,
+	VStack,
+} from "@navikt/ds-react"
+import type { ChangeEvent, FocusEvent } from "react"
 import { useFetcher } from "react-router"
 import { type DataClassification, dataClassificationLabels } from "~/db/schema/applications"
 import { conclusionConfig, findingSeverityVariant, persistenceLabels, persistenceVariants } from "../shared"
@@ -21,6 +32,7 @@ export function PersistenceRow({
 		missingAuditFlags: string[] | null
 		oracleInstanceId: string | null
 		dataClassification: string | null
+		dataClassificationJustification: string | null
 		manuallyAdded: boolean
 	}
 	oracleAuditSummaries: Record<
@@ -59,24 +71,38 @@ export function PersistenceRow({
 				<classificationFetcher.Form method="post">
 					<input type="hidden" name="intent" value="update-classification" />
 					<input type="hidden" name="persistenceId" value={p.id} />
-					<Select
-						label="Dataklassifisering"
-						hideLabel
-						size="small"
-						name="dataClassification"
-						defaultValue={p.dataClassification ?? ""}
-						onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-							const form = e.currentTarget.form
-							if (form) classificationFetcher.submit(form)
-						}}
-					>
-						<option value="">Ikke satt</option>
-						{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(([value, label]) => (
-							<option key={value} value={value}>
-								{label}
-							</option>
-						))}
-					</Select>
+					<VStack gap="space-2">
+						<Select
+							label="Dataklassifisering"
+							hideLabel
+							size="small"
+							name="dataClassification"
+							defaultValue={p.dataClassification ?? ""}
+							onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+								const form = e.currentTarget.form
+								if (form) classificationFetcher.submit(form)
+							}}
+						>
+							<option value="">Ikke satt</option>
+							{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(([value, label]) => (
+								<option key={value} value={value}>
+									{label}
+								</option>
+							))}
+						</Select>
+						<TextField
+							label="Begrunnelse"
+							hideLabel
+							placeholder="Begrunnelse (valgfritt)"
+							size="small"
+							name="dataClassificationJustification"
+							defaultValue={p.dataClassificationJustification ?? ""}
+							onBlur={(e: FocusEvent<HTMLInputElement>) => {
+								const form = e.currentTarget.form
+								if (form) classificationFetcher.submit(form)
+							}}
+						/>
+					</VStack>
 				</classificationFetcher.Form>
 			</Table.DataCell>
 			<Table.DataCell>{p.version ?? "–"}</Table.DataCell>

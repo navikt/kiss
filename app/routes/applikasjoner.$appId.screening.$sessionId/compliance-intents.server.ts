@@ -33,6 +33,7 @@ export async function handleComplianceIntent(
 		const type = formData.get("persistenceType") as string
 		const name = (formData.get("persistenceName") as string)?.trim()
 		const classification = (formData.get("dataClassification") as string) || null
+		const justification = (formData.get("dataClassificationJustification") as string)?.trim() || null
 
 		if (!type || !name) {
 			return data({
@@ -57,6 +58,7 @@ export async function handleComplianceIntent(
 				name,
 				validClassification,
 				authedUser.navIdent,
+				justification,
 			)
 		} catch (err) {
 			logger.error("addManualPersistence failed", { error: err })
@@ -79,6 +81,7 @@ export async function handleComplianceIntent(
 	if (intent === "update-persistence-classification") {
 		const persistenceId = formData.get("persistenceId") as string
 		const classification = (formData.get("dataClassification") as string) || null
+		const justification = (formData.get("dataClassificationJustification") as string)?.trim() || null
 		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
 
 		// Verify persistence belongs to this application
@@ -96,7 +99,7 @@ export async function handleComplianceIntent(
 				? (classification as DataClassification)
 				: null
 
-		await updatePersistenceClassification(persistenceId, validClassification, authedUser.navIdent)
+		await updatePersistenceClassification(persistenceId, validClassification, authedUser.navIdent, justification)
 
 		if (!options?.skipSync) {
 			const { syncApplicationControls } = await import("~/db/queries/application-controls.server")

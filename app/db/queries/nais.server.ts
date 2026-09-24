@@ -2729,6 +2729,7 @@ export async function addManualPersistence(
 	name: string,
 	dataClassification: DataClassification | null,
 	performedBy: string,
+	dataClassificationJustification: string | null = null,
 ) {
 	return db.transaction(async (tx) => {
 		// Søk på (appId, type, name) uten å filtrere på manuallyAdded — slik
@@ -2764,6 +2765,7 @@ export async function addManualPersistence(
 					archivedAt: null,
 					archivedBy: null,
 					dataClassification,
+					dataClassificationJustification,
 					manuallyAdded: true,
 					updatedAt: new Date(),
 				})
@@ -2776,7 +2778,7 @@ export async function addManualPersistence(
 					entityType: "application_persistence",
 					entityId: existing.id,
 					previousValue: JSON.stringify({ type, name, archivedAt: previousArchivedAt }),
-					newValue: JSON.stringify({ type, name, dataClassification }),
+					newValue: JSON.stringify({ type, name, dataClassification, dataClassificationJustification }),
 					metadata: { applicationId, reason: "manual_re_add" },
 					performedBy,
 				},
@@ -2792,6 +2794,7 @@ export async function addManualPersistence(
 				type,
 				name,
 				dataClassification,
+				dataClassificationJustification,
 				manuallyAdded: true,
 			})
 			.returning()
@@ -2801,7 +2804,7 @@ export async function addManualPersistence(
 				action: "persistence_added",
 				entityType: "application_persistence",
 				entityId: inserted.id,
-				newValue: JSON.stringify({ type, name, dataClassification }),
+				newValue: JSON.stringify({ type, name, dataClassification, dataClassificationJustification }),
 				metadata: { applicationId },
 				performedBy,
 			},
@@ -2816,6 +2819,7 @@ export async function updatePersistenceClassification(
 	persistenceId: string,
 	classification: DataClassification | null,
 	performedBy: string,
+	justification: string | null = null,
 ) {
 	return db.transaction(async (tx) => {
 		const [existing] = await tx
@@ -2830,7 +2834,11 @@ export async function updatePersistenceClassification(
 
 		await tx
 			.update(applicationPersistence)
-			.set({ dataClassification: classification, updatedAt: new Date() })
+			.set({
+				dataClassification: classification,
+				dataClassificationJustification: justification,
+				updatedAt: new Date(),
+			})
 			.where(eq(applicationPersistence.id, persistenceId))
 
 		await writeAuditLog(
@@ -2838,8 +2846,14 @@ export async function updatePersistenceClassification(
 				action: "persistence_updated",
 				entityType: "application_persistence",
 				entityId: persistenceId,
-				previousValue: JSON.stringify({ dataClassification: existing.dataClassification }),
-				newValue: JSON.stringify({ dataClassification: classification }),
+				previousValue: JSON.stringify({
+					dataClassification: existing.dataClassification,
+					dataClassificationJustification: existing.dataClassificationJustification,
+				}),
+				newValue: JSON.stringify({
+					dataClassification: classification,
+					dataClassificationJustification: justification,
+				}),
 				metadata: { applicationId: existing.applicationId, name: existing.name },
 				performedBy,
 			},

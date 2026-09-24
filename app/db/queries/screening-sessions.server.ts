@@ -46,6 +46,7 @@ export async function captureStateSnapshot(appId: string, userGroups: string[] =
 		type: p.type,
 		name: p.name,
 		dataClassification: p.dataClassification,
+		dataClassificationJustification: p.dataClassificationJustification,
 		manuallyAdded: p.manuallyAdded,
 	}))
 

@@ -63,6 +63,12 @@ export function PersistenceSection({ entries }: { entries: PersistenceEntry[] })
 											),
 										)}
 									</Select>
+									<TextField
+										label="Begrunnelse (valgfritt)"
+										description="Forklar gjerne hvorfor databasen er vurdert til denne klassifiseringen"
+										name="dataClassificationJustification"
+										size="small"
+									/>
 									<Button type="submit" variant="primary" size="small" loading={fetcher.state !== "idle"}>
 										Legg til
 									</Button>
@@ -97,27 +103,42 @@ export function PersistenceSection({ entries }: { entries: PersistenceEntry[] })
 										<fetcher.Form method="post">
 											<input type="hidden" name="intent" value="update-persistence-classification" />
 											<input type="hidden" name="persistenceId" value={p.id} />
-											<Select
-												label="Klassifisering"
-												hideLabel
-												name="dataClassification"
-												size="small"
-												defaultValue={p.dataClassification ?? ""}
-												id={`classification-${p.id}`}
-												onChange={(e) => {
-													const form = e.target.closest("form")
-													if (form) fetcher.submit(form)
-												}}
-											>
-												<option value="">Ikke satt</option>
-												{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(
-													([value, label]) => (
-														<option key={value} value={value}>
-															{label}
-														</option>
-													),
-												)}
-											</Select>
+											<VStack gap="space-2">
+												<Select
+													label="Klassifisering"
+													hideLabel
+													name="dataClassification"
+													size="small"
+													defaultValue={p.dataClassification ?? ""}
+													id={`classification-${p.id}`}
+													onChange={(e) => {
+														const form = e.target.closest("form")
+														if (form) fetcher.submit(form)
+													}}
+												>
+													<option value="">Ikke satt</option>
+													{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(
+														([value, label]) => (
+															<option key={value} value={value}>
+																{label}
+															</option>
+														),
+													)}
+												</Select>
+												<TextField
+													label="Begrunnelse"
+													hideLabel
+													placeholder="Begrunnelse (valgfritt)"
+													name="dataClassificationJustification"
+													size="small"
+													defaultValue={p.dataClassificationJustification ?? ""}
+													id={`classification-justification-${p.id}`}
+													onBlur={(e) => {
+														const form = e.target.closest("form")
+														if (form) fetcher.submit(form)
+													}}
+												/>
+											</VStack>
 										</fetcher.Form>
 									</Table.DataCell>
 									<Table.DataCell>
