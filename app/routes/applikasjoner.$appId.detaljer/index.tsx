@@ -79,6 +79,7 @@ export default function ApplikasjonDetalj() {
 		totalOracleInstanceCount,
 		instanceSnapshotHistories,
 		githubAccess,
+		sharedGitHubApplications,
 		effectiveGitRepository,
 		appRulesets,
 		economyClassification,
@@ -471,6 +472,7 @@ export default function ApplikasjonDetalj() {
 							teams={githubAccess.teams}
 							collaborators={githubAccess.collaborators}
 							changeLog={githubAccess.changeLog}
+							sharedApplications={sharedGitHubApplications}
 						/>
 					</Tabs.Panel>
 				)}

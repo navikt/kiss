@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { MemoryRouter } from "react-router"
 import { afterEach, describe, expect, it } from "vitest"
 import { GitHubTilgangerTab } from "../tabs/GitHubTilgangerTab"
 
@@ -22,6 +23,7 @@ describe("GitHubTilgangerTab", () => {
 					},
 				]}
 				changeLog={[]}
+				sharedApplications={[]}
 			/>,
 		)
 
@@ -45,6 +47,7 @@ describe("GitHubTilgangerTab", () => {
 					},
 				]}
 				changeLog={[]}
+				sharedApplications={[]}
 			/>,
 		)
 
@@ -73,6 +76,7 @@ describe("GitHubTilgangerTab", () => {
 				]}
 				collaborators={[]}
 				changeLog={[]}
+				sharedApplications={[]}
 			/>,
 		)
 
@@ -81,5 +85,22 @@ describe("GitHubTilgangerTab", () => {
 		expect(screen.getAllByText("Rask Elv")).toHaveLength(2)
 		expect(screen.getAllByRole("link", { name: "@rask-elv" })).toHaveLength(2)
 		expect(screen.getAllByText("Z990042")).toHaveLength(2)
+	})
+
+	it("shows other applications that use the same repository", () => {
+		render(
+			<MemoryRouter>
+				<GitHubTilgangerTab
+					teams={[]}
+					collaborators={[]}
+					changeLog={[]}
+					sharedApplications={[{ id: "app-2", name: "Kalkulator", gitRepository: "navikt/shared-repo" }]}
+				/>
+			</MemoryRouter>,
+		)
+
+		expect(screen.getByRole("heading", { name: "Andre applikasjoner med samme repository" })).toBeTruthy()
+		expect(screen.getByRole("link", { name: "Kalkulator" }).getAttribute("href")).toBe("/applikasjoner/app-2/detaljer")
+		expect(screen.getByText("navikt/shared-repo")).toBeTruthy()
 	})
 })

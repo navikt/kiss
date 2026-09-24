@@ -45,8 +45,15 @@ vi.mock("node:crypto", () => ({
 	},
 }))
 
-const { parseLinkNext, getRepoTeams, getRepoCollaborators, getTeamMembers, isGitHubAppConfigured, clearTokenCache } =
-	await import("~/lib/github.server")
+const {
+	parseLinkNext,
+	normalizeGitRepository,
+	getRepoTeams,
+	getRepoCollaborators,
+	getTeamMembers,
+	isGitHubAppConfigured,
+	clearTokenCache,
+} = await import("~/lib/github.server")
 
 describe("parseLinkNext", () => {
 	it("returns null for null header", () => {
@@ -65,6 +72,20 @@ describe("parseLinkNext", () => {
 
 	it("handles next as only link", () => {
 		expect(parseLinkNext('<https://api.github.com/next?page=3>; rel="next"')).toBe("https://api.github.com/next?page=3")
+	})
+})
+
+describe("normalizeGitRepository", () => {
+	it("normalizes repository paths and GitHub URLs", () => {
+		expect(normalizeGitRepository("navikt/KISS")).toBe("navikt/kiss")
+		expect(normalizeGitRepository("navikt/KISS.git/")).toBe("navikt/kiss")
+		expect(normalizeGitRepository("https://github.com/navikt/KISS.git/")).toBe("navikt/kiss")
+	})
+
+	it("rejects invalid or non-GitHub repositories", () => {
+		expect(normalizeGitRepository("")).toBeNull()
+		expect(normalizeGitRepository("https://git.example.com/navikt/kiss")).toBeNull()
+		expect(normalizeGitRepository("navikt")).toBeNull()
 	})
 })
 
