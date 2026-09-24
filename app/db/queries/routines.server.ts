@@ -55,7 +55,7 @@ import {
 	frameworkRisks,
 	technologyElements,
 } from "../schema/framework"
-import { users } from "../schema/organization"
+import { sections, users } from "../schema/organization"
 import {
 	type EntraChangeType,
 	FOLLOW_UP_POINT_STATUSES,
@@ -109,6 +109,7 @@ import { getEffectiveAppIdsInSection } from "./sections.server"
 export interface ResolverOpts {
 	appName?: string
 	appElementIds?: Set<string>
+	sectionIds?: string[]
 }
 
 async function resolveAppName(applicationId: string, opts?: ResolverOpts): Promise<string> {
@@ -119,6 +120,11 @@ async function resolveAppName(applicationId: string, opts?: ResolverOpts): Promi
 		.where(eq(monitoredApplications.id, applicationId))
 		.limit(1)
 	return appRow?.name ?? ""
+}
+
+async function resolveSectionIds(applicationId: string, opts?: ResolverOpts): Promise<string[]> {
+	if (opts?.sectionIds !== undefined) return opts.sectionIds
+	return getSectionIdsForApp(applicationId)
 }
 
 // ─── Routine CRUD ────────────────────────────────────────────────────────
@@ -1324,8 +1330,8 @@ export async function getReviewsForRoutine(routineId: string) {
  * Uses one SQL query to union the three membership paths and apply the
  * same archived, child-app, ignored-app, and excluded-environment filters.
  */
-export async function getSectionIdsForApp(applicationId: string): Promise<string[]> {
-	const result = await db.execute(sql`
+export async function getSectionIdsForApp(applicationId: string, executor: DbExecutor = db): Promise<string[]> {
+	const result = await executor.execute(sql`
 		WITH valid_app AS (
 			SELECT id
 			FROM monitored_applications
@@ -1438,6 +1444,15 @@ export async function getSectionIdsForApp(applicationId: string): Promise<string
  */
 async function getAppIdsInSection(sectionId: string): Promise<string[]> {
 	return getEffectiveAppIdsInSection(sectionId)
+}
+
+async function getCachedSectionAppIds(sectionId: string, cache?: Map<string, string[]>): Promise<string[]> {
+	if (cache?.has(sectionId)) {
+		return cache.get(sectionId) ?? []
+	}
+	const appIds = await getAppIdsInSection(sectionId)
+	cache?.set(sectionId, appIds)
+	return appIds
 }
 
 export async function getReviewsForApp(applicationId: string) {
@@ -2992,19 +3007,15 @@ export async function getAppsRequiringRoutine(
 		throw new Error(`routineData.id (${opts.routineData.id}) does not match routineId (${routineId})`)
 	}
 
-	// Section routines: start with all apps in the section, then apply constraints
-	if (routine.isSectionRoutine === 1 && routine.sectionId) {
-		const cache = opts?.sectionAppIdsCache
-		let appIds: string[]
-		if (cache?.has(routine.sectionId)) {
-			appIds = cache.get(routine.sectionId) ?? []
-		} else {
-			appIds = await getAppIdsInSection(routine.sectionId)
-			cache?.set(routine.sectionId, appIds)
-		}
-		if (appIds.length === 0) return []
+	// A routine always belongs to exactly one section; only apps effectively within that
+	// section can ever require it.
+	const sectionAppIds = routine.sectionId
+		? await getCachedSectionAppIds(routine.sectionId, opts?.sectionAppIdsCache)
+		: []
+	if (sectionAppIds.length === 0) return []
 
-		const filteredIds = await applyRoutineConstraintFilters(appIds, {
+	if (routine.isSectionRoutine === 1) {
+		const filteredIds = await applyRoutineConstraintFilters(sectionAppIds, {
 			technologyElements: routine.technologyElements,
 			persistenceLinks: routine.persistenceLinks,
 			oracleRoleCriticalities: routine.oracleRoleCriticalities,
@@ -3018,10 +3029,8 @@ export async function getAppsRequiringRoutine(
 			.orderBy(monitoredApplications.name)
 	}
 
-	// Collect app IDs from all matching paths (not just screening questions)
 	const allMatchedAppIds = new Set<string>()
 
-	// Path 1: Screening question links
 	const questionLinks =
 		routine.screeningQuestions.length > 0
 			? routine.screeningQuestions
@@ -3036,59 +3045,64 @@ export async function getAppsRequiringRoutine(
 				const rows = await db
 					.select({ applicationId: screeningAnswers.applicationId })
 					.from(screeningAnswers)
-					.where(and(eq(screeningAnswers.questionId, link.questionId), eq(screeningAnswers.answer, link.choiceValue)))
+					.where(
+						and(
+							eq(screeningAnswers.questionId, link.questionId),
+							eq(screeningAnswers.answer, link.choiceValue),
+							inArray(screeningAnswers.applicationId, sectionAppIds),
+						),
+					)
 				return rows.map((r) => r.applicationId)
 			}),
 		)
 		for (const id of matchingAppSets.flat()) allMatchedAppIds.add(id)
 	}
 
-	// Path 2: Persistence links (Oracle, PostgreSQL, etc.)
 	if (routine.persistenceLinks.length > 0) {
-		const persAppIds = await findAppsByPersistenceMatch(routine.persistenceLinks)
+		const persAppIds = await findAppsByPersistenceMatch(routine.persistenceLinks, sectionAppIds)
 		for (const id of persAppIds) allMatchedAppIds.add(id)
 	}
 
-	// Path 3: Group classification links (Entra ID groups)
 	if (routine.groupClassifications.length > 0) {
-		const gcAppIds = await findAppsByGroupClassificationMatch(routine.groupClassifications)
+		const gcAppIds = await findAppsByGroupClassificationMatch(routine.groupClassifications, sectionAppIds)
 		for (const id of gcAppIds) allMatchedAppIds.add(id)
 	}
 
-	// Path 4: Oracle role criticality links
 	if (routine.oracleRoleCriticalities.length > 0) {
-		const orcAppIds = await findAppsByOracleRoleCriticalityMatch(routine.oracleRoleCriticalities)
+		const orcAppIds = await findAppsByOracleRoleCriticalityMatch(routine.oracleRoleCriticalities, sectionAppIds)
 		for (const id of orcAppIds) allMatchedAppIds.add(id)
 	}
 
-	// Path 5: Screening selections (explicit per-app routine selections)
 	const selectionRows = await db
 		.select({ applicationId: screeningRoutineSelections.applicationId })
 		.from(screeningRoutineSelections)
-		.where(and(eq(screeningRoutineSelections.routineId, routineId), isNull(screeningRoutineSelections.archivedAt)))
+		.where(
+			and(
+				eq(screeningRoutineSelections.routineId, routineId),
+				isNull(screeningRoutineSelections.archivedAt),
+				inArray(screeningRoutineSelections.applicationId, sectionAppIds),
+			),
+		)
 	for (const row of selectionRows) allMatchedAppIds.add(row.applicationId)
 
-	// Path 6: Section-wide (appliesToAllInSection but NOT isSectionRoutine)
-	if (routine.appliesToAllInSection === 1 && routine.sectionId) {
-		const cache = opts?.sectionAppIdsCache
-		let sectionAppIds: string[]
-		if (cache?.has(routine.sectionId)) {
-			sectionAppIds = cache.get(routine.sectionId) ?? []
-		} else {
-			sectionAppIds = await getAppIdsInSection(routine.sectionId)
-			cache?.set(routine.sectionId, sectionAppIds)
-		}
+	if (routine.appliesToAllInSection === 1) {
 		for (const id of sectionAppIds) allMatchedAppIds.add(id)
 	}
 
-	// Path 7: Ruleset — apps that answered screening questions linked to rulesets containing this routine
+	// Rulesets carry their own sectionId, not necessarily the routine's, so this path can't be
+	// scoped by sectionAppIds like the others — the intersection below guards it instead.
 	const rulesetAppIds = await findAppsByRulesetMatch(routineId)
 	for (const id of rulesetAppIds) allMatchedAppIds.add(id)
 
 	if (allMatchedAppIds.size === 0) return []
 
-	// Apply tech element constraint filter (the only AND-filter for non-section routines;
-	// persistence and oracle criticality are OR-inclusion paths above, not AND-filters here)
+	const sectionAppIdSet = new Set(sectionAppIds)
+	for (const id of allMatchedAppIds) {
+		if (!sectionAppIdSet.has(id)) allMatchedAppIds.delete(id)
+	}
+
+	if (allMatchedAppIds.size === 0) return []
+
 	const filteredIds = await applyRoutineConstraintFilters([...allMatchedAppIds], {
 		technologyElements: routine.technologyElements,
 		persistenceLinks: [],
@@ -3181,10 +3195,14 @@ async function findAppsByPersistenceMatch(
 	return [...matchedApps]
 }
 
-/** Reverse lookup: find apps with Entra groups matching the routine's group classification links */
+/** Reverse lookup: find apps with Entra groups matching the routine's group classification links.
+ * If `candidateIds` is provided, the query is scoped to those apps only. */
 async function findAppsByGroupClassificationMatch(
 	groupClassifications: Array<{ classification: GroupAccessClassification | null }>,
+	candidateIds?: string[],
 ): Promise<string[]> {
+	// If caller scoped to a candidate set that is empty, there can be no matches
+	if (candidateIds !== undefined && candidateIds.length === 0) return []
 	const classifications = groupClassifications
 		.map((gc) => gc.classification)
 		.filter((c): c is GroupAccessClassification => c !== null)
@@ -3206,13 +3224,17 @@ async function findAppsByGroupClassificationMatch(
 	const matchingGroupIdSet = new Set(matchingGroupIds)
 
 	// Auth integrations (groups is a JSON text column — only Entra ID integrations have groups)
+	const authFilters = [isNotNull(applicationAuthIntegrations.groups), eq(applicationAuthIntegrations.type, "entra_id")]
+	if (candidateIds && candidateIds.length > 0) {
+		authFilters.push(inArray(applicationAuthIntegrations.applicationId, candidateIds))
+	}
 	const authRows = await db
 		.select({
 			applicationId: applicationAuthIntegrations.applicationId,
 			groups: applicationAuthIntegrations.groups,
 		})
 		.from(applicationAuthIntegrations)
-		.where(and(isNotNull(applicationAuthIntegrations.groups), eq(applicationAuthIntegrations.type, "entra_id")))
+		.where(and(...authFilters))
 	for (const row of authRows) {
 		if (!row.groups) continue
 		try {
@@ -3227,12 +3249,17 @@ async function findAppsByGroupClassificationMatch(
 
 	// Manual groups
 	if (matchingGroupIds.length > 0) {
+		const manualFilters = [
+			inArray(applicationManualGroups.groupId, matchingGroupIds),
+			isNull(applicationManualGroups.archivedAt),
+		]
+		if (candidateIds && candidateIds.length > 0) {
+			manualFilters.push(inArray(applicationManualGroups.applicationId, candidateIds))
+		}
 		const manualRows = await db
 			.select({ applicationId: applicationManualGroups.applicationId })
 			.from(applicationManualGroups)
-			.where(
-				and(inArray(applicationManualGroups.groupId, matchingGroupIds), isNull(applicationManualGroups.archivedAt)),
-			)
+			.where(and(...manualFilters))
 		for (const r of manualRows) allApps.add(r.applicationId)
 	}
 
@@ -4112,6 +4139,10 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 
 	if (matchingRoutineIds.size === 0) return []
 
+	// A routine only applies to apps effectively within its own section — never across sections.
+	const sectionIds = await resolveSectionIds(applicationId, opts)
+	if (sectionIds.length === 0) return []
+
 	// Step 2: Load matched routines with tech elements, screening questions, and persistence links in batch
 	const routineIdList = [...matchingRoutineIds]
 	const [routineRows, allElements, allScreeningLinks, allPersLinks] = await Promise.all([
@@ -4119,7 +4150,11 @@ export async function getRoutineDeadlinesForApp(applicationId: string, opts?: Re
 			.select()
 			.from(routines)
 			.where(
-				and(inArray(routines.id, routineIdList), and(eq(routines.status, "approved"), isNull(routines.archivedAt))),
+				and(
+					inArray(routines.id, routineIdList),
+					inArray(routines.sectionId, sectionIds),
+					and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+				),
 			),
 		db
 			.select({
@@ -4274,10 +4309,20 @@ export async function getRoutineDeadlinesForAppByPersistence(
 	const routineIds = [...persLinksByRoutine.keys()].filter((id) => !excludeRoutineIds.has(id))
 	if (routineIds.length === 0) return []
 
+	// A routine only applies to apps effectively within its own section — never across sections.
+	const sectionIds = await resolveSectionIds(applicationId, opts)
+	if (sectionIds.length === 0) return []
+
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.id, routineIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
+		.where(
+			and(
+				inArray(routines.id, routineIds),
+				inArray(routines.sectionId, sectionIds),
+				and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+			),
+		)
 
 	// Filter to routines where at least one persistence link matches the app
 	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number]; matchedLinks: typeof allPersLinks }> = []
@@ -4442,10 +4487,20 @@ export async function getRoutineDeadlinesForAppByGroupClassification(
 	const routineIds = [...gcLinksByRoutine.keys()].filter((id) => !excludeRoutineIds.has(id))
 	if (routineIds.length === 0) return []
 
+	// A routine only applies to apps effectively within its own section — never across sections.
+	const sectionIds = await resolveSectionIds(applicationId, opts)
+	if (sectionIds.length === 0) return []
+
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.id, routineIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
+		.where(
+			and(
+				inArray(routines.id, routineIds),
+				inArray(routines.sectionId, sectionIds),
+				and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+			),
+		)
 
 	// Filter to routines where at least one classification link matches
 	const matchingRoutines: Array<{ routine: (typeof candidateRoutines)[number] }> = []
@@ -4589,10 +4644,20 @@ export async function getRoutineDeadlinesForAppByOracleRoleCriticality(
 
 	const routineIds = [...new Set(matchingLinks.map((l) => l.routineId))]
 
+	// A routine only applies to apps effectively within its own section — never across sections.
+	const sectionIds = await resolveSectionIds(applicationId, opts)
+	if (sectionIds.length === 0) return []
+
 	const candidateRoutines = await db
 		.select()
 		.from(routines)
-		.where(and(inArray(routines.id, routineIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt))))
+		.where(
+			and(
+				inArray(routines.id, routineIds),
+				inArray(routines.sectionId, sectionIds),
+				and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+			),
+		)
 
 	if (candidateRoutines.length === 0) return []
 
@@ -4694,6 +4759,12 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 	excludeRoutineIds: Set<string> = new Set(),
 	opts?: ResolverOpts,
 ) {
+	// A routine only applies to apps effectively within its own section — never across sections,
+	// even if a stored selection points at a routine from another section (e.g. from before this
+	// scoping was enforced at selection time).
+	const sectionIds = await resolveSectionIds(applicationId, opts)
+	if (sectionIds.length === 0) return []
+
 	const selections = await db
 		.select({ routineId: screeningRoutineSelections.routineId })
 		.from(screeningRoutineSelections)
@@ -4718,7 +4789,13 @@ export async function getRoutineDeadlinesForAppByScreeningSelection(
 		db
 			.select()
 			.from(routines)
-			.where(and(inArray(routines.id, uniqueIds), and(eq(routines.status, "approved"), isNull(routines.archivedAt)))),
+			.where(
+				and(
+					inArray(routines.id, uniqueIds),
+					inArray(routines.sectionId, sectionIds),
+					and(eq(routines.status, "approved"), isNull(routines.archivedAt)),
+				),
+			),
 		db
 			.select({
 				routineId: routineTechnologyElements.routineId,
@@ -4812,7 +4889,7 @@ export async function getRoutineDeadlinesForAppBySection(
 	opts?: ResolverOpts,
 ): Promise<RoutineDeadlineInfo[]> {
 	// Find section IDs for this app via both nais environments and direct team mappings
-	const sectionIds = await getSectionIdsForApp(applicationId)
+	const sectionIds = await resolveSectionIds(applicationId, opts)
 	if (sectionIds.length === 0) return []
 
 	// Find routines that apply to all apps in these sections (approved only)
@@ -5035,7 +5112,7 @@ export async function getRoutineDeadlinesForAppByRuleset(
 	if (selectedRulesetIds.size === 0) return []
 
 	// Scope to active, non-archived rulesets in the app's current sections
-	const sectionIds = await getSectionIdsForApp(applicationId)
+	const sectionIds = await resolveSectionIds(applicationId, opts)
 	if (sectionIds.length === 0) return []
 
 	const activeRulesets = await db
@@ -6761,6 +6838,418 @@ export async function copyRoutine(routineId: string, performedBy: string) {
 }
 
 /**
+ * Kopierer en rutine (eller seksjonsrutine) TIL en annen seksjon enn der den
+ * ligger i dag. I motsetning til `copyRoutine()` er dette IKKE en
+ * draft-for-redigering i samme seksjon som senere skal erstatte originalen
+ * via `replaceRoutine()` — kopien er en helt ny, uavhengig rutine i
+ * målseksjonen som går gjennom vanlig draft → ready → godkjent-flyt.
+ *
+ * Derfor settes IKKE `sourceRoutineId` på kopien (det feltet driver
+ * "erstatt"-flyten og godkjenning-modalen i UI — å sette det på tvers av
+ * seksjoner ville latt en bruker med godkjenningsrettigheter i målseksjonen
+ * arkivere/erstatte en rutine som tilhører en helt annen seksjon). Lineage
+ * spores utelukkende via audit-metadata (`routine_copied_cross_section`),
+ * skrevet på BÅDE kopien og kilderutinen slik at begge seksjoner kan se
+ * kopieringen i sin endringslogg.
+ *
+ * Screening-koblinger (`screeningQuestionId`/`routineScreeningQuestions`)
+ * kopieres kun når spørsmålet er reelt globalt (`sectionId IS NULL`) —
+ * seksjonsspesifikke spørsmål, også de som tilfeldigvis tilhører målseksjonen,
+ * droppes, siden kilderutinens kobling ikke skal avgjøre hva som er relevant
+ * i målseksjonen.
+ */
+export async function copyRoutineToSection(
+	routineId: string,
+	targetSectionId: string,
+	performedBy: string,
+	tx?: DbExecutor,
+) {
+	if (tx) return copyRoutineToSectionInTx(routineId, targetSectionId, performedBy, tx)
+	return db.transaction((innerTx) => copyRoutineToSectionInTx(routineId, targetSectionId, performedBy, innerTx))
+}
+
+async function copyRoutineToSectionInTx(
+	routineId: string,
+	targetSectionId: string,
+	performedBy: string,
+	tx: DbExecutor,
+) {
+	// FOR SHARE-låsen tas FØR getRoutine()-lesingen (ikke etter) for å hindre at en
+	// samtidig updateRoutine() (lovlig for draft/ready siden approved-kravet ble fjernet
+	// fra kryss-seksjon-kopiering) rekker å endre rutinen mellom lesing og lås — en
+	// eventuell endring blokkeres av låsen til vi har lest et konsistent øyeblikksbilde.
+	const [locked] = await tx
+		.select({
+			archivedAt: routines.archivedAt,
+			sectionId: routines.sectionId,
+			name: routines.name,
+			status: routines.status,
+		})
+		.from(routines)
+		.where(eq(routines.id, routineId))
+		.for("share")
+		.limit(1)
+	if (!locked) return null
+
+	const source = await getRoutine(routineId)
+	if (!source) return null
+
+	// status kan være "archived"/"deleted" uten at archivedAt er satt (skjemaet tillater
+	// dette), så begge må sjekkes eksplisitt fremfor å stole på archivedAt alene.
+	if (locked.archivedAt || locked.status === "archived" || locked.status === "deleted") {
+		throw new Response("Arkiverte rutiner kan ikke kopieres. Reaktiver rutinen først.", { status: 403 })
+	}
+	if (locked.sectionId === targetSectionId) {
+		throw new Response("Kan ikke kopiere en rutine til seksjonen den allerede tilhører", { status: 400 })
+	}
+	if (!source.frequency && !source.eventFrequency) {
+		throw new Response("Kan ikke kopiere rutine uten frekvens", { status: 400 })
+	}
+
+	const [targetSection] = await tx
+		.select({ id: sections.id, archivedAt: sections.archivedAt })
+		.from(sections)
+		.where(eq(sections.id, targetSectionId))
+		.for("share")
+		.limit(1)
+	if (!targetSection) {
+		throw new Response("Fant ikke målseksjonen", { status: 404 })
+	}
+	if (targetSection.archivedAt) {
+		throw new Response("Kan ikke kopiere rutine til en arkivert seksjon", { status: 400 })
+	}
+
+	// screeningQuestionId er et eldre felt uten tilhørende rad i routineScreeningQuestions,
+	// og må derfor tas med eksplisitt her for at det ikke skal falle utenfor gyldighetssjekken.
+	const screeningQuestionIds = [
+		...new Set([
+			...source.screeningQuestions.map((sq) => sq.questionId),
+			...(source.screeningQuestionId ? [source.screeningQuestionId] : []),
+		]),
+	]
+	const validScreeningQuestionIds = new Set<string>()
+	if (screeningQuestionIds.length > 0) {
+		const questionRows = await tx
+			.select({
+				id: screeningQuestions.id,
+				sectionId: screeningQuestions.sectionId,
+				rulesetId: screeningQuestions.rulesetId,
+			})
+			.from(screeningQuestions)
+			.where(inArray(screeningQuestions.id, screeningQuestionIds))
+		for (const q of questionRows) {
+			// rulesetId knytter svaret til et bestemt regelsetts kontroller (se
+			// getRulesetControlsForApp), og det regelsettet tilhører alltid en
+			// bestemt seksjon. Et slikt spørsmål er derfor aldri reelt globalt,
+			// selv om sectionId er null, og må droppes ved kryss-seksjon-kopi.
+			// sectionId === targetSectionId aksepteres bevisst ikke: kilderutinens
+			// kobling til et spørsmål som tilfeldigvis eies av målseksjonen er ikke
+			// et signal om at koblingen er relevant der, kun global (sectionId null).
+			if (q.rulesetId === null && q.sectionId === null) {
+				validScreeningQuestionIds.add(q.id)
+			}
+		}
+	}
+	const keepTopLevelScreening =
+		source.screeningQuestionId !== null && validScreeningQuestionIds.has(source.screeningQuestionId)
+
+	// Håndhever samme seksjonsrutine-invariant som createRoutine()/updateRoutine():
+	// isSectionRoutine impliserer appliesToAllInSection, og krever en eierrolle.
+	// Uten dette kunne kopien reprodusere en inkonsistent rad selv om kilden er gyldig
+	// (f.eks. en eldre kilderad med appliesToAllInSection=0 eller manglende eierrolle).
+	if (source.isSectionRoutine && !source.sectionRoutineOwnerRole) {
+		throw new Response("Seksjonsrutiner krever en eierrolle (sectionRoutineOwnerRole)", { status: 400 })
+	}
+
+	const [copy] = await tx
+		.insert(routines)
+		.values({
+			sectionId: targetSectionId,
+			name: source.name,
+			description: source.description,
+			frequency: source.frequency,
+			eventFrequency: source.eventFrequency,
+			responsibleRole: source.responsibleRole,
+			appliesToAllInSection: source.isSectionRoutine ? 1 : source.appliesToAllInSection ? 1 : 0,
+			isSectionRoutine: source.isSectionRoutine,
+			sectionRoutineOwnerRole: source.isSectionRoutine ? source.sectionRoutineOwnerRole : null,
+			screeningQuestionId: keepTopLevelScreening ? source.screeningQuestionId : null,
+			screeningChoiceValue: keepTopLevelScreening ? source.screeningChoiceValue : null,
+			priority: source.priority,
+			status: "draft",
+			createdBy: performedBy,
+			updatedBy: performedBy,
+		})
+		.returning()
+
+	// Mirrors updateRoutine()'s writeLinkAudit: hver kopiert lenke-rad skal ha en
+	// tilhørende "_added" audit-oppføring, ikke bare toppnivå-kopien.
+	const writeCopyLinkAudit = async (action: AuditLogAction, entityType: string, metadata: Record<string, unknown>) => {
+		await writeAuditLog(
+			{
+				action,
+				entityType,
+				entityId: copy.id,
+				newValue: JSON.stringify({ routineId: copy.id, ...metadata }),
+				metadata,
+				performedBy,
+			},
+			tx,
+		)
+	}
+
+	// Flere av lenke-tabellene under mangler unique-constraint (samme forhold som
+	// updateRoutine() håndterer eksplisitt for hver av dem, se linjene den kommenteres
+	// med under) — uten dedup her ville en eldre kilderutine med duplikate aktive rader
+	// gi duplikate lenker og duplikate audit-entries i kopien.
+	function dedupeBy<T>(items: T[], keyFn: (item: T) => string): T[] {
+		const seen = new Set<string>()
+		return items.filter((item) => {
+			const k = keyFn(item)
+			if (seen.has(k)) return false
+			seen.add(k)
+			return true
+		})
+	}
+
+	const uniqueTechnologyElements = dedupeBy(source.technologyElements, (el) => el.id)
+	if (uniqueTechnologyElements.length > 0) {
+		await tx
+			.insert(routineTechnologyElements)
+			.values(uniqueTechnologyElements.map((el) => ({ routineId: copy.id, elementId: el.id })))
+		for (const el of uniqueTechnologyElements) {
+			await writeCopyLinkAudit("routine_technology_element_added", "routine_technology_element", {
+				elementId: el.id,
+			})
+		}
+	}
+
+	// source.controls (fra getRoutine()) inner-joiner frameworkRiskControlMappings og
+	// utelater derfor kontroller der mappingen er arkivert selv om selve rutine-koblingen
+	// fortsatt er aktiv — filtrer derfor kopierte lenker på samme måte, ellers vil
+	// redigeringssiden (som bruker getRoutine()) ikke se disse kontrollene i controlIds,
+	// og en påfølgende lagring vil arkivere lenkene igjen (updateRoutine() erstatter
+	// hele settet med det editoren sendte inn).
+	// Tabellen mangler unique-constraint, så en eldre kilderutine kan ha duplikate
+	// aktive lenker — selectDistinct (samme mønster som getRoutine()) hindrer duplikate
+	// koblinger og duplikate audit-rader i kopien.
+	const sourceControlLinks = await tx
+		.selectDistinct({ controlId: routineControls.controlId })
+		.from(routineControls)
+		.innerJoin(
+			frameworkRiskControlMappings,
+			and(
+				eq(routineControls.controlId, frameworkRiskControlMappings.controlId),
+				isNull(frameworkRiskControlMappings.archivedAt),
+			),
+		)
+		.where(and(eq(routineControls.routineId, routineId), isNull(routineControls.archivedAt)))
+	if (sourceControlLinks.length > 0) {
+		await tx
+			.insert(routineControls)
+			.values(sourceControlLinks.map((c) => ({ routineId: copy.id, controlId: c.controlId })))
+		for (const c of sourceControlLinks) {
+			await writeCopyLinkAudit("routine_control_added", "routine_control", { controlId: c.controlId })
+		}
+	}
+
+	const uniquePersistenceLinks = dedupeBy(
+		source.persistenceLinks,
+		(pl) => `${pl.persistenceType}|${pl.dataClassification}`,
+	)
+	if (uniquePersistenceLinks.length > 0) {
+		await tx.insert(routinePersistenceLinks).values(
+			uniquePersistenceLinks.map((pl) => ({
+				routineId: copy.id,
+				persistenceType: pl.persistenceType,
+				dataClassification: pl.dataClassification,
+			})),
+		)
+		for (const pl of uniquePersistenceLinks) {
+			await writeCopyLinkAudit("routine_persistence_link_added", "routine_persistence_link", {
+				persistenceType: pl.persistenceType,
+				dataClassification: pl.dataClassification,
+			})
+		}
+	}
+
+	const uniqueGroupClassifications = dedupeBy(source.groupClassifications, (gc) => gc.classification)
+	if (uniqueGroupClassifications.length > 0) {
+		await tx.insert(routineGroupClassificationLinks).values(
+			uniqueGroupClassifications.map((gc) => ({
+				routineId: copy.id,
+				classification: gc.classification as GroupAccessClassification,
+			})),
+		)
+		for (const gc of uniqueGroupClassifications) {
+			await writeCopyLinkAudit("routine_group_classification_link_added", "routine_group_classification_link", {
+				classification: gc.classification,
+			})
+		}
+	}
+
+	const uniqueOracleRoleCriticalities = dedupeBy(source.oracleRoleCriticalities, (orc) => orc.criticality)
+	if (uniqueOracleRoleCriticalities.length > 0) {
+		await tx.insert(routineOracleRoleCriticalityLinks).values(
+			uniqueOracleRoleCriticalities.map((orc) => ({
+				routineId: copy.id,
+				criticality: orc.criticality as GroupCriticality,
+			})),
+		)
+		for (const orc of uniqueOracleRoleCriticalities) {
+			await writeCopyLinkAudit("routine_oracle_role_criticality_link_added", "routine_oracle_role_criticality_link", {
+				criticality: orc.criticality,
+			})
+		}
+	}
+
+	// Tabellen mangler unique-constraint (se samme mønster i updateRoutine()), så en
+	// eldre kilderutine med duplikate aktive (questionId, choiceValue)-rader ville uten
+	// dedup gi duplikate lenker og duplikate audit-entries i kopien.
+	const sqKey = (l: { questionId: string; choiceValue: string | null }) => JSON.stringify([l.questionId, l.choiceValue])
+	const seenSqKeys = new Set<string>()
+	const screeningLinksToCopy = source.screeningQuestions
+		.filter((sq) => validScreeningQuestionIds.has(sq.questionId))
+		.filter((sq) => {
+			const k = sqKey(sq)
+			if (seenSqKeys.has(k)) return false
+			seenSqKeys.add(k)
+			return true
+		})
+	if (screeningLinksToCopy.length > 0) {
+		await tx.insert(routineScreeningQuestions).values(
+			screeningLinksToCopy.map((sq) => ({
+				routineId: copy.id,
+				questionId: sq.questionId,
+				choiceValue: sq.choiceValue,
+			})),
+		)
+		for (const sq of screeningLinksToCopy) {
+			await writeCopyLinkAudit("routine_screening_question_added", "routine_screening_question", {
+				questionId: sq.questionId,
+				choiceValue: sq.choiceValue,
+			})
+		}
+	}
+	// Det eldre toppnivåfeltet (screeningQuestionId) har ikke nødvendigvis en egen rad i
+	// routineScreeningQuestions (se kommentaren ved 6861) — hvis så, er den ikke dekket av
+	// løkken over og må auditeres separat for å ikke bryte CRUD-audit-kravet.
+	if (
+		keepTopLevelScreening &&
+		source.screeningQuestionId &&
+		!screeningLinksToCopy.some(
+			(sq) => sq.questionId === source.screeningQuestionId && sq.choiceValue === source.screeningChoiceValue,
+		)
+	) {
+		await writeCopyLinkAudit("routine_screening_question_added", "routine_screening_question", {
+			questionId: source.screeningQuestionId,
+			choiceValue: source.screeningChoiceValue,
+		})
+	}
+
+	const sourceActivityLinks = source.isSectionRoutine
+		? []
+		: await tx
+				.select()
+				.from(routineActivityLinks)
+				.where(and(eq(routineActivityLinks.routineId, routineId), isNull(routineActivityLinks.archivedAt)))
+				.orderBy(routineActivityLinks.sortOrder)
+	if (sourceActivityLinks.length > 0) {
+		await tx.insert(routineActivityLinks).values(
+			sourceActivityLinks.map((link) => ({
+				routineId: copy.id,
+				activityType: link.activityType,
+				sortOrder: link.sortOrder,
+				stepTitle: link.stepTitle,
+				stepDescription: link.stepDescription,
+				stepComponents: link.stepComponents,
+				createdBy: performedBy,
+			})),
+		)
+		for (const link of sourceActivityLinks) {
+			await writeCopyLinkAudit("routine_activity_link_added", "routine_activity_link", {
+				activityType: link.activityType,
+				stepTitle: link.stepTitle,
+			})
+		}
+	}
+
+	// routineActivitySteps er den eldre modellen for manuelle sjekklistepunkter
+	// (før routineActivityLinks), fortsatt lest av getActivityStepsForRoutine().
+	// Seksjonsrutiner har ingen aktivitetstype/sjekkliste (samme invariant som over).
+	const sourceActivitySteps = source.isSectionRoutine
+		? []
+		: await tx
+				.select()
+				.from(routineActivitySteps)
+				.where(and(eq(routineActivitySteps.routineId, routineId), isNull(routineActivitySteps.archivedAt)))
+				.orderBy(routineActivitySteps.sortOrder)
+	if (sourceActivitySteps.length > 0) {
+		const insertedSteps = await tx
+			.insert(routineActivitySteps)
+			.values(
+				sourceActivitySteps.map((step) => ({
+					routineId: copy.id,
+					title: step.title,
+					description: step.description,
+					sortOrder: step.sortOrder,
+					createdBy: performedBy,
+					updatedBy: performedBy,
+				})),
+			)
+			.returning()
+		for (const step of insertedSteps) {
+			await writeAuditLog(
+				{
+					action: "routine_checklist_step_created",
+					entityType: "routine_checklist_step",
+					entityId: step.id,
+					newValue: JSON.stringify({ routineId: copy.id, title: step.title, sortOrder: step.sortOrder }),
+					performedBy,
+				},
+				tx,
+			)
+		}
+	}
+
+	// To audit-oppføringer skrives (kopi + kilde) slik at kildeseksjonen også
+	// ser i sin endringslogg at rutinen ble kopiert ut til en annen seksjon.
+	// Lineage legges også i newValue (ikke bare metadata) slik at Endringslogg-UI-en
+	// (som kun leser previousValue/newValue) viser kilden, i tråd med copyRoutine().
+	await writeAuditLog(
+		{
+			action: "routine_copied_cross_section",
+			entityType: "routine",
+			entityId: copy.id,
+			newValue: JSON.stringify({ sourceRoutineId: routineId, sourceSectionId: locked.sectionId, name: copy.name }),
+			metadata: {
+				sourceRoutineId: routineId,
+				sourceSectionId: locked.sectionId,
+				sourceName: locked.name,
+			},
+			performedBy,
+		},
+		tx,
+	)
+	await writeAuditLog(
+		{
+			action: "routine_copied_cross_section",
+			entityType: "routine",
+			entityId: routineId,
+			newValue: JSON.stringify({ targetRoutineId: copy.id, targetSectionId }),
+			metadata: {
+				targetRoutineId: copy.id,
+				targetSectionId,
+			},
+			performedBy,
+		},
+		tx,
+	)
+
+	return copy
+}
+
+/**
  * Erstatter en godkjent rutine med en ny. `deadlinePolicy` (`"reset"` eller
  * `"continue"`) blir lagret i audit-metadata for sporing — selve fristlogikken
  * er ikke implementert ennå, og verdien påvirker per i dag ikke hvordan
@@ -6785,6 +7274,7 @@ export async function replaceRoutine(
 				archivedAt: routines.archivedAt,
 				name: routines.name,
 				sourceRoutineId: routines.sourceRoutineId,
+				sectionId: routines.sectionId,
 			})
 			.from(routines)
 			.where(eq(routines.id, newRoutineId))
@@ -6806,7 +7296,12 @@ export async function replaceRoutine(
 
 		// Lock and validate old routine (must be approved, not archived)
 		const [oldLocked] = await tx
-			.select({ status: routines.status, archivedAt: routines.archivedAt, name: routines.name })
+			.select({
+				status: routines.status,
+				archivedAt: routines.archivedAt,
+				name: routines.name,
+				sectionId: routines.sectionId,
+			})
 			.from(routines)
 			.where(eq(routines.id, oldRoutineId))
 			.for("share")
@@ -6819,6 +7314,11 @@ export async function replaceRoutine(
 		}
 		if (oldLocked.status !== "approved") {
 			throw new Response("Kun godkjente rutiner kan erstattes", { status: 400 })
+		}
+		// Hindrer at en godkjent rutine i én seksjon erstattes/arkiveres av en
+		// bruker som kun har rettigheter i en annen seksjon.
+		if (newLocked.sectionId !== oldLocked.sectionId) {
+			throw new Response("Kan ikke erstatte en rutine som tilhører en annen seksjon", { status: 400 })
 		}
 
 		const now = new Date()
@@ -8177,6 +8677,15 @@ async function completeOracleRoleCriticalityActivity(
 }
 
 // ─── Manual Activity ────────────────────────────────────────────────
+
+/** Alle sjekklistepunkt-IDer for en rutine, inkl. arkiverte — brukt for å slå opp full audit-historikk. */
+export async function getActivityStepIdsForRoutine(routineId: string) {
+	const rows = await db
+		.select({ id: routineActivitySteps.id })
+		.from(routineActivitySteps)
+		.where(eq(routineActivitySteps.routineId, routineId))
+	return rows.map((r) => r.id)
+}
 
 export async function getActivityStepsForRoutine(routineId: string) {
 	return db

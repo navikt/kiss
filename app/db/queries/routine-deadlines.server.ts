@@ -24,6 +24,14 @@ import {
 import {
 	calculateDeadline,
 	getEffectiveLastReviewDatesBatch,
+	getRoutineDeadlinesForApp,
+	getRoutineDeadlinesForAppByGroupClassification,
+	getRoutineDeadlinesForAppByOracleRoleCriticality,
+	getRoutineDeadlinesForAppByPersistence,
+	getRoutineDeadlinesForAppByRuleset,
+	getRoutineDeadlinesForAppByScreeningSelection,
+	getRoutineDeadlinesForAppBySection,
+	getSectionIdsForApp,
 	isOverdue,
 	type ResolverOpts,
 	type RoutineDeadlineInfo,
@@ -67,59 +75,49 @@ export interface DeadlineWithControls {
  * consumers should use.
  */
 export async function getRoutineDeadlinesWithControls(appId: string): Promise<DeadlineWithControls[]> {
-	const {
-		getRoutineDeadlinesForApp,
-		getRoutineDeadlinesForAppByGroupClassification,
-		getRoutineDeadlinesForAppByOracleRoleCriticality,
-		getRoutineDeadlinesForAppByPersistence,
-		getRoutineDeadlinesForAppByScreeningSelection,
-		getRoutineDeadlinesForAppBySection,
-		getRoutineDeadlinesForAppByRuleset,
-	} = await import("./routines.server")
-
 	const [appRow] = await db
 		.select({ name: monitoredApplications.name })
 		.from(monitoredApplications)
 		.where(eq(monitoredApplications.id, appId))
 		.limit(1)
 	const appName = appRow?.name ?? ""
-	const resolverOpts: ResolverOpts = { appName }
+	const sectionIds = await getSectionIdsForApp(appId)
+	const resolverOpts: ResolverOpts = { appName, sectionIds }
+	// Section/ruleset/screening/persistence/group/oracle-criticality matching is always scoped to the
+	// app's own section(s) — skip those DB round trips entirely when the app has no effective section.
+	const hasSection = sectionIds.length > 0
 
 	// Step 1: Resolve all deadline sources with deduplication
-	const screeningRoutines = await getRoutineDeadlinesForApp(appId, resolverOpts)
+	const screeningRoutines = hasSection ? await getRoutineDeadlinesForApp(appId, resolverOpts) : []
 	const screeningRoutineIds = new Set(screeningRoutines.map((d) => d.routine?.id).filter(Boolean) as string[])
 
-	const persistenceRoutines = await getRoutineDeadlinesForAppByPersistence(appId, screeningRoutineIds, resolverOpts)
+	const persistenceRoutines = hasSection
+		? await getRoutineDeadlinesForAppByPersistence(appId, screeningRoutineIds, resolverOpts)
+		: []
 	const afterPersistenceIds = new Set([
 		...screeningRoutineIds,
 		...(persistenceRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 
-	const groupClassificationRoutines = await getRoutineDeadlinesForAppByGroupClassification(
-		appId,
-		afterPersistenceIds,
-		resolverOpts,
-	)
+	const groupClassificationRoutines = hasSection
+		? await getRoutineDeadlinesForAppByGroupClassification(appId, afterPersistenceIds, resolverOpts)
+		: []
 	const afterGroupIds = new Set([
 		...afterPersistenceIds,
 		...(groupClassificationRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 
-	const oracleRoleCriticalityRoutines = await getRoutineDeadlinesForAppByOracleRoleCriticality(
-		appId,
-		afterGroupIds,
-		resolverOpts,
-	)
+	const oracleRoleCriticalityRoutines = hasSection
+		? await getRoutineDeadlinesForAppByOracleRoleCriticality(appId, afterGroupIds, resolverOpts)
+		: []
 	const alreadyMatchedIds = new Set([
 		...afterGroupIds,
 		...(oracleRoleCriticalityRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 
-	const screeningSelectionRoutines = await getRoutineDeadlinesForAppByScreeningSelection(
-		appId,
-		alreadyMatchedIds,
-		resolverOpts,
-	)
+	const screeningSelectionRoutines = hasSection
+		? await getRoutineDeadlinesForAppByScreeningSelection(appId, alreadyMatchedIds, resolverOpts)
+		: []
 	const allMatchedIds = new Set([
 		...alreadyMatchedIds,
 		...(screeningSelectionRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
@@ -160,13 +158,17 @@ export async function getRoutineDeadlinesWithControls(appId: string): Promise<De
 		}
 	}
 
-	const sectionWideRoutines = await getRoutineDeadlinesForAppBySection(appId, allMatchedIds, resolverOpts)
+	const sectionWideRoutines = hasSection
+		? await getRoutineDeadlinesForAppBySection(appId, allMatchedIds, resolverOpts)
+		: []
 	const allMatchedBeforeRuleset = new Set([
 		...allMatchedIds,
 		...(sectionWideRoutines.map((d) => d.routine?.id).filter(Boolean) as string[]),
 	])
 
-	const rulesetRoutines = await getRoutineDeadlinesForAppByRuleset(appId, allMatchedBeforeRuleset, resolverOpts)
+	const rulesetRoutines = hasSection
+		? await getRoutineDeadlinesForAppByRuleset(appId, allMatchedBeforeRuleset, resolverOpts)
+		: []
 
 	// Step 2: Tag each deadline with its match source
 	const routineDeadlines = [

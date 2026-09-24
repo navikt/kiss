@@ -88,6 +88,17 @@ describe("buildBreadcrumbs", () => {
 		expect(crumbs[3].to).toBeNull()
 	})
 
+	it("resolves team arkiverte path", () => {
+		const crumbs = buildBreadcrumbs(
+			"/seksjoner/utvikling/team/mitt-team/arkiverte",
+			{ seksjonName: "Utvikling", teamName: "Mitt team" },
+			{ seksjon: "utvikling", team: "mitt-team" },
+		)
+		expect(crumbLabels(crumbs)).toEqual(["Seksjoner", "Utvikling", "Mitt team", "Arkiverte applikasjoner"])
+		expect(crumbs[2].to).toBe("/seksjoner/utvikling/team/mitt-team")
+		expect(crumbs[3].to).toBeNull()
+	})
+
 	// ── Gjennomgang (seksjon-rutine, no app) ──
 
 	describe("gjennomgang without application", () => {

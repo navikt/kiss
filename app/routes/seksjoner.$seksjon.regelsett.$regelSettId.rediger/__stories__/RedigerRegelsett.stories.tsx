@@ -47,38 +47,39 @@ type Story = StoryObj
 // ─── Stories ──────────────────────────────────────────────────────────────────
 
 /**
- * Aktivt regelsett uten kategori satt.
+ * Regelsett i kladd (aldri godkjent) uten kategori satt.
  * «Kategori»-feltet vises nederst i skjemaet med «— Ingen kategori —» som default.
  * Velg en kategori og lagre for å se at den persisteres.
  */
 export const RegelsetUtenKategori: Story = {
-	name: "Aktivt regelsett – uten kategori",
+	name: "Kladd – uten kategori",
 	render: () => <StoryWrapper loaderData={regelsetUtenKategoriData} />,
 }
 
 /**
- * Aktivt regelsett med kategori «Tilgangskontroll».
+ * Regelsett i kladd med kategori «Tilgangskontroll».
  * «Kategori»-feltet er forhåndsvalgt til «Tilgangskontroll».
  * Dette styrer hvilke screening-spørsmål kan begrense til å kun vise dette regelsettet.
  */
 export const RegelsetMedTilgangskontroll: Story = {
-	name: "Aktivt regelsett – kategori: Tilgangskontroll",
+	name: "Kladd – kategori: Tilgangskontroll",
 	render: () => <StoryWrapper loaderData={regelsetMedTilgangskontrollData} />,
 }
 
 /**
- * Aktivt regelsett med kategori «Endringskontroll».
+ * Regelsett i kladd med kategori «Endringskontroll».
  * Demonstrerer den andre tilgjengelige kategorien.
  */
 export const RegelsetMedEndringskontroll: Story = {
-	name: "Aktivt regelsett – kategori: Endringskontroll",
+	name: "Kladd – kategori: Endringskontroll",
 	render: () => <StoryWrapper loaderData={regelsetMedEndringskontrollData} />,
 }
 
 /**
  * Godkjent regelsett med kategori «Tilgangskontroll».
- * Redigeringsknapper er deaktivert for ikke-admin-brukere,
- * men viser at kategori allerede er satt fra forrige versjon.
+ * Godkjente regelsett kan ikke redigeres direkte (heller ikke av admin) —
+ * siden viser i stedet en «Kopier for redigering»-knapp som oppretter en
+ * ny kladd basert på dette regelsettet.
  */
 export const GodkjentRegelsett: Story = {
 	name: "Godkjent regelsett – kategori: Tilgangskontroll",

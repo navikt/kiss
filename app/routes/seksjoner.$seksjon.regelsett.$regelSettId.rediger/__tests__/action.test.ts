@@ -26,6 +26,7 @@ const mockArchiveRuleset = vi.fn()
 const mockUnarchiveRuleset = vi.fn()
 const mockLinkControlToRuleset = vi.fn()
 const mockUnlinkControlFromRuleset = vi.fn()
+const mockCopyRuleset = vi.fn()
 vi.mock("~/db/queries/rulesets.server", () => ({
 	getRulesetDetail: mockGetRulesetDetail,
 	getRulesetMeta: mockGetRulesetMeta,
@@ -34,6 +35,7 @@ vi.mock("~/db/queries/rulesets.server", () => ({
 	unarchiveRuleset: mockUnarchiveRuleset,
 	linkControlToRuleset: mockLinkControlToRuleset,
 	unlinkControlFromRuleset: mockUnlinkControlFromRuleset,
+	copyRuleset: mockCopyRuleset,
 }))
 
 vi.mock("~/db/queries/framework.server", () => ({
@@ -91,11 +93,17 @@ beforeEach(() => {
 	mockRequireAnySectionRole.mockImplementation(() => undefined)
 	mockGetSectionBySlug.mockResolvedValue(fakeSection)
 	mockGetRulesetDetail.mockResolvedValue(makeRuleset())
+	mockGetRulesetMeta.mockResolvedValue({
+		id: "ruleset-1",
+		sectionId: fakeSection.id,
+		status: "draft",
+		archivedAt: null,
+	})
 	mockUpdateRuleset.mockResolvedValue(true)
 })
 
 describe("ruleset edit action authorization", () => {
-	it("allows section-role user to update an unapproved ruleset", async () => {
+	it("allows section-role user to update a draft (unapproved) ruleset", async () => {
 		const formData = new FormData()
 		formData.set("intent", "update")
 		formData.set("name", "Oppdatert regelsett")
@@ -109,12 +117,17 @@ describe("ruleset edit action authorization", () => {
 		expect(data).toEqual({ success: true, message: "Regelsett oppdatert." })
 		expect(mockUpdateRuleset).toHaveBeenCalledWith(
 			"ruleset-1",
-			expect.objectContaining({ requireUnapproved: true, updatedBy: fakeUser.navIdent }),
+			expect.objectContaining({ updatedBy: fakeUser.navIdent }),
 		)
 	})
 
-	it("rejects section-role user when ruleset is approved", async () => {
-		mockGetRulesetDetail.mockResolvedValue(makeRuleset({ lastApproval: { validUntil: new Date() }, status: "active" }))
+	it("rejects section-role user when ruleset is approved (active)", async () => {
+		mockGetRulesetMeta.mockResolvedValue({
+			id: "ruleset-1",
+			sectionId: fakeSection.id,
+			status: "active",
+			archivedAt: null,
+		})
 
 		const formData = new FormData()
 		formData.set("intent", "update")
@@ -125,27 +138,73 @@ describe("ruleset edit action authorization", () => {
 		const result = await callAction(formData)
 		const data = getData(result)
 
-		expect(data).toEqual({ success: false, error: "Regelsettet er godkjent og kan ikke redigeres." })
+		expect(data).toEqual({
+			success: false,
+			error: "Regelsettet er godkjent og kan ikke redigeres direkte. Kopier det for å redigere.",
+		})
 		expect(mockUpdateRuleset).not.toHaveBeenCalled()
 	})
 
-	it("allows admin to update an approved ruleset", async () => {
+	it("rejects admin too when ruleset is approved (active) — no bypass", async () => {
 		mockIsAdmin.mockReturnValue(true)
-		mockGetRulesetDetail.mockResolvedValue(makeRuleset({ lastApproval: { validUntil: new Date() }, status: "active" }))
+		mockGetRulesetMeta.mockResolvedValue({
+			id: "ruleset-1",
+			sectionId: fakeSection.id,
+			status: "active",
+			archivedAt: null,
+		})
 
 		const formData = new FormData()
 		formData.set("intent", "update")
-		formData.set("name", "Admin kan oppdatere")
+		formData.set("name", "Admin skal ikke kunne oppdatere direkte")
 		formData.set("responsibleType", "person")
 		formData.set("frequency", "annually")
 
 		const result = await callAction(formData)
 		const data = getData(result)
 
-		expect(data).toEqual({ success: true, message: "Regelsett oppdatert." })
-		expect(mockUpdateRuleset).toHaveBeenCalledWith(
-			"ruleset-1",
-			expect.objectContaining({ requireUnapproved: false, updatedBy: fakeUser.navIdent }),
-		)
+		expect(data).toEqual({
+			success: false,
+			error: "Regelsettet er godkjent og kan ikke redigeres direkte. Kopier det for å redigere.",
+		})
+		expect(mockUpdateRuleset).not.toHaveBeenCalled()
+	})
+
+	it("copies an approved (active) ruleset and redirects to the copy's edit page", async () => {
+		mockGetRulesetMeta.mockResolvedValue({
+			id: "ruleset-1",
+			sectionId: fakeSection.id,
+			status: "active",
+			archivedAt: null,
+		})
+		mockCopyRuleset.mockResolvedValue({ id: "ruleset-2", sourceRulesetId: "ruleset-1", status: "draft" })
+
+		const formData = new FormData()
+		formData.set("intent", "copy")
+
+		const result = await callAction(formData)
+
+		expect(mockCopyRuleset).toHaveBeenCalledWith("ruleset-1", fakeUser.navIdent)
+		expect(result).toBeInstanceOf(Response)
+		expect((result as Response).status).toBe(302)
+		expect((result as Response).headers.get("Location")).toBe("/seksjoner/pensjon/regelsett/ruleset-2/rediger")
+	})
+
+	it("rejects copy intent when ruleset is still a draft", async () => {
+		mockGetRulesetMeta.mockResolvedValue({
+			id: "ruleset-1",
+			sectionId: fakeSection.id,
+			status: "draft",
+			archivedAt: null,
+		})
+
+		const formData = new FormData()
+		formData.set("intent", "copy")
+
+		const result = await callAction(formData)
+		const data = getData(result)
+
+		expect(data).toEqual({ success: false, error: "Kun godkjente regelsett kan kopieres for redigering." })
+		expect(mockCopyRuleset).not.toHaveBeenCalled()
 	})
 })

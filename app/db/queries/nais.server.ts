@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, exists, inArray, isNull, notExists, notInArray, or, sql } from "drizzle-orm"
 import { logger } from "~/lib/logger.server"
 import { db } from "../connection.server"
 import {
@@ -994,8 +994,15 @@ export async function upsertAppPersistence(
 							type: existing.type,
 							name: existing.name,
 							archivedAt: previousArchivedAt,
+							dataClassification: existing.dataClassification,
+							dataClassificationJustification: existing.dataClassificationJustification,
 						}),
-						newValue: JSON.stringify({ type: existing.type, name: existing.name }),
+						newValue: JSON.stringify({
+							type: existing.type,
+							name: existing.name,
+							dataClassification: existing.dataClassification,
+							dataClassificationJustification: existing.dataClassificationJustification,
+						}),
 						metadata: { applicationId, reason: "nais_resync" },
 						performedBy: "nais-sync",
 					},
@@ -1123,13 +1130,24 @@ export async function upsertAppPersistence(
 
 /**
  * Henter appnavn/type/navn for aktive Nais-synkede persistence-rader som
- * fortsatt mangler `cluster` (legacy-rader fra før commit adfb772c). Ekskluderer
- * manuelt lagt til rader (`manuallyAdded=true`) siden de aldri kommer fra
- * Nais-sync og aldri får cluster satt — de ville ellers gjort signalet
- * misvisende ved at det forblir > 0 selv når all ekte legacy er backfillet.
- * Brukes som observabilitetssignal i nais-sync for å følge med på om
- * backfill-casen i `upsertAppPersistence` fortsatt trigges, eller om all
- * legacy er migrert og logikken kan vurderes fjernet.
+ * fortsatt mangler `cluster` (legacy-rader fra før commit adfb772c) OG hvor
+ * appen har minst ett aktivt miljø — altså rader som faktisk kan backfilles
+ * automatisk ved neste matchende `nais-sync` (`upsertAppPersistence` sin
+ * cluster-backfill). Ekskluderer manuelt lagt til rader (`manuallyAdded=true`)
+ * siden de aldri kommer fra Nais-sync og aldri får cluster satt.
+ *
+ * Rader tilhørende apper uten aktive miljøer (arkiverte/ikke lenger
+ * overvåkede apper) ekskluderes bevisst: disse kan ikke backfilles automatisk
+ * uansett hvor mange ganger sync kjører, siden nais-sync kun rapporterer
+ * (og dermed kun sender `cluster` for) apper med et aktivt miljø i det
+ * overvåkede clusteret — appen mottar rett og slett aldri et nytt
+ * `upsertAppPersistence`-kall med `cluster` satt. De ville derfor gjort
+ * dette observabilitetssignalet misvisende ved at det aldri når 0. Krever i
+ * tillegg eksplisitt `monitored_applications.archived_at IS NULL` — en
+ * arkivert app kan i prinsippet fortsatt ha en ikke-arkivert
+ * `application_environments`-rad, og skal uansett ikke telles med siden
+ * appen ikke lenger overvåkes.
+ * Brukes i nais-sync for å følge med på reelt aksjonerbare tilfeller.
  */
 export async function getLegacyPersistenceRowsWithoutCluster(): Promise<
 	{ appName: string; type: string; name: string }[]
@@ -1147,6 +1165,18 @@ export async function getLegacyPersistenceRowsWithoutCluster(): Promise<
 				isNull(applicationPersistence.cluster),
 				isNull(applicationPersistence.archivedAt),
 				eq(applicationPersistence.manuallyAdded, false),
+				isNull(monitoredApplications.archivedAt),
+				exists(
+					db
+						.select({ id: applicationEnvironments.id })
+						.from(applicationEnvironments)
+						.where(
+							and(
+								eq(applicationEnvironments.applicationId, applicationPersistence.applicationId),
+								isNull(applicationEnvironments.archivedAt),
+							),
+						),
+				),
 			),
 		)
 		.orderBy(monitoredApplications.name, applicationPersistence.type, applicationPersistence.name)
@@ -1808,6 +1838,55 @@ export async function unarchiveApplication(appId: string, performedBy: string) {
 		return app
 	})
 }
+
+/**
+ * Batch-versjon av arkiverbarhets-sjekken i `archiveApplication`: finn hvilke av de gitte
+ * (ikke-arkiverte) applikasjonene som ikke lenger har aktive Nais-miljøer og som ikke har
+ * lenkede applikasjoner. Brukes til å vise en «Arkiver»-handling direkte i team-oversikten
+ * uten en spørring per applikasjon.
+ *
+ * Et miljø regnes som "aktivt" med mindre clusteret er ekskludert (included=false) i
+ * seksjonen til miljøets *eget* nais-team (via `nais_team_id` -> `nais_teams.section_id`) —
+ * ikke seksjonen til teamet man ser applikasjonslisten fra. Dette speiler `archiveApplication()`
+ * sin per-miljø `NOT EXISTS`-sjekk eksakt, slik at en applikasjon aldri vises som arkiverbar i
+ * UI når `archiveApplication()` faktisk vil avvise arkiveringen.
+ */
+export async function getArchivableAppIds(appIds: string[]): Promise<Set<string>> {
+	if (appIds.length === 0) return new Set()
+
+	const activeEnvRows = await db
+		.selectDistinct({ appId: applicationEnvironments.applicationId })
+		.from(applicationEnvironments)
+		.leftJoin(naisTeams, eq(naisTeams.id, applicationEnvironments.naisTeamId))
+		.where(
+			and(
+				inArray(applicationEnvironments.applicationId, appIds),
+				isNull(applicationEnvironments.archivedAt),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(sectionEnvironments)
+						.where(
+							and(
+								eq(sectionEnvironments.sectionId, naisTeams.sectionId),
+								eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
+								eq(sectionEnvironments.included, false),
+							),
+						),
+				),
+			),
+		)
+	const hasActiveEnv = new Set(activeEnvRows.map((r) => r.appId))
+
+	const childRows = await db
+		.select({ parentId: monitoredApplications.primaryApplicationId })
+		.from(monitoredApplications)
+		.where(inArray(monitoredApplications.primaryApplicationId, appIds))
+	const hasChildren = new Set(childRows.map((r) => r.parentId).filter((id): id is string => id !== null))
+
+	return new Set(appIds.filter((id) => !hasActiveEnv.has(id) && !hasChildren.has(id)))
+}
+
 /** Extract base application name by stripping environment suffixes like -q0, -q1, -q2, -q5, -popp etc. */
 export function extractBaseName(appName: string): string | null {
 	const match = appName.match(/^(.+)-(?:popp|q\d+)$/)
@@ -2777,7 +2856,13 @@ export async function addManualPersistence(
 					action: "persistence_unarchived",
 					entityType: "application_persistence",
 					entityId: existing.id,
-					previousValue: JSON.stringify({ type, name, archivedAt: previousArchivedAt }),
+					previousValue: JSON.stringify({
+						type,
+						name,
+						archivedAt: previousArchivedAt,
+						dataClassification: existing.dataClassification,
+						dataClassificationJustification: existing.dataClassificationJustification,
+					}),
 					newValue: JSON.stringify({ type, name, dataClassification, dataClassificationJustification }),
 					metadata: { applicationId, reason: "manual_re_add" },
 					performedBy,
@@ -2817,9 +2902,11 @@ export async function addManualPersistence(
 
 export async function updatePersistenceClassification(
 	persistenceId: string,
+	applicationId: string,
 	classification: DataClassification | null,
 	performedBy: string,
-	justification: string | null = null,
+	// `undefined` = ikke oppgitt (behold eksisterende begrunnelse), `null` = eksplisitt fjern begrunnelsen.
+	justification?: string | null,
 ) {
 	return db.transaction(async (tx) => {
 		const [existing] = await tx
@@ -2829,14 +2916,27 @@ export async function updatePersistenceClassification(
 			.for("update")
 			.limit(1)
 
-		if (!existing) throw new Error("Persistens-oppføring ikke funnet")
+		// Håndhev eierskap her (ikke bare i route-koden) slik at enhver fremtidig
+		// kalling av denne funksjonen ikke kan endre en annen applikasjons database.
+		if (!existing || existing.applicationId !== applicationId) throw new Error("Persistens-oppføring ikke funnet")
 		if (existing.archivedAt) throw new Error("Kan ikke endre arkivert persistens-oppføring")
+
+		const nextJustification = justification === undefined ? existing.dataClassificationJustification : justification
+
+		// Ingen faktisk endring (f.eks. tab/blur uten redigering) — hopp over
+		// oppdatering og audit-logg for å unngå falsk historikk og updatedAt-endring.
+		if (
+			classification === existing.dataClassification &&
+			nextJustification === existing.dataClassificationJustification
+		) {
+			return
+		}
 
 		await tx
 			.update(applicationPersistence)
 			.set({
 				dataClassification: classification,
-				dataClassificationJustification: justification,
+				...(justification !== undefined && { dataClassificationJustification: justification }),
 				updatedAt: new Date(),
 			})
 			.where(eq(applicationPersistence.id, persistenceId))
@@ -2852,7 +2952,7 @@ export async function updatePersistenceClassification(
 				}),
 				newValue: JSON.stringify({
 					dataClassification: classification,
-					dataClassificationJustification: justification,
+					dataClassificationJustification: nextJustification,
 				}),
 				metadata: { applicationId: existing.applicationId, name: existing.name },
 				performedBy,
@@ -2905,11 +3005,14 @@ export async function archiveManualPersistence(persistenceId: string, performedB
 					type: archived.type,
 					name: archived.name,
 					dataClassification: archived.dataClassification,
+					dataClassificationJustification: archived.dataClassificationJustification,
 				}),
 				newValue: JSON.stringify({
 					type: archived.type,
 					name: archived.name,
 					archivedAt: archived.archivedAt,
+					dataClassification: archived.dataClassification,
+					dataClassificationJustification: archived.dataClassificationJustification,
 				}),
 				metadata: { applicationId: archived.applicationId },
 				performedBy,
@@ -2954,8 +3057,15 @@ export async function unarchiveManualPersistence(persistenceId: string, performe
 					type: restored.type,
 					name: restored.name,
 					archivedAt: previousArchivedAt,
+					dataClassification: existing.dataClassification,
+					dataClassificationJustification: existing.dataClassificationJustification,
 				}),
-				newValue: JSON.stringify({ type: restored.type, name: restored.name }),
+				newValue: JSON.stringify({
+					type: restored.type,
+					name: restored.name,
+					dataClassification: restored.dataClassification,
+					dataClassificationJustification: restored.dataClassificationJustification,
+				}),
 				metadata: { applicationId: restored.applicationId },
 				performedBy,
 			},

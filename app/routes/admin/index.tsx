@@ -93,6 +93,14 @@ export default function Admin() {
 						Analyser volumet av audit-logg-oppføringer for å identifisere unormal aktivitet.
 					</BodyLong>
 				</Link>
+				<Link to="/admin/rutine-seksjonsavvik" className="admin-card">
+					<Heading size="small" level="3">
+						Rutine-seksjonsavvik
+					</Heading>
+					<BodyLong size="small">
+						Finn aktive rutinevalg fra screening der rutinen tilhører en annen seksjon enn applikasjonen.
+					</BodyLong>
+				</Link>
 			</div>
 		</VStack>
 	)

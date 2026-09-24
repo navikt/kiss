@@ -21,7 +21,7 @@ import {
 import { getLatestOracleRoleCriticalityReview, getOracleRoleAssessments } from "~/db/queries/oracle-roles.server"
 import { getReportsForApp } from "~/db/queries/reports.server"
 import { getRoutineDeadlinesWithControls } from "~/db/queries/routine-deadlines.server"
-import { getApplicationDocumentsForReviews, getReviewsForApp } from "~/db/queries/routines.server"
+import { getApplicationDocumentsForReviews, getReviewsForApp, getSectionIdsForApp } from "~/db/queries/routines.server"
 import { getRpaUsersForApp } from "~/db/queries/rpa.server"
 import { getRulesetsSelectedByApp } from "~/db/queries/rulesets.server"
 import { getScreeningProgressForApps, getScreeningQuestionsWithAnswersForApp } from "~/db/queries/screening.server"
@@ -34,6 +34,8 @@ import { getAuthenticatedUser } from "~/lib/auth.server"
 import { canAccessAppReports, hasAnyTeamRole, hasRole, isAdmin } from "~/lib/authorization.server"
 import { computeAutoCompliance } from "~/lib/auto-compliance"
 import { resolveGroupNames } from "~/lib/graph.server"
+import { logger } from "~/lib/logger.server"
+import { type GitHubUserLookupResult, lookupGitHubUsers } from "~/lib/nda-github-users.server"
 import { filterInstancesByAccess } from "~/lib/oracle-access.server"
 import { getOracleInstances } from "~/lib/oracle-revisjon.server"
 import { computeRoutineComplianceCounts } from "~/lib/routine-compliance"
@@ -49,6 +51,7 @@ type LoaderArgs = Route.LoaderArgs & {
 export async function loader({ request, params }: LoaderArgs) {
 	const appId = params.appId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
+	const isGitHubAccessTab = new URL(request.url).searchParams.get("fane") === "github-tilganger"
 
 	const user = await getAuthenticatedUser(request)
 
@@ -128,6 +131,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		githubChangeLog,
 		oracleRoleAssessmentsMap,
 		latestOracleRoleCriticalityReview,
+		effectiveSectionIds,
 	] = await Promise.all([
 		getApplicationElements(appId),
 		getRoutineDeadlinesWithControls(appId),
@@ -153,7 +157,24 @@ export async function loader({ request, params }: LoaderArgs) {
 		effectiveGitRepository ? getGitHubAccessChangeLog(appId) : Promise.resolve([]),
 		getOracleRoleAssessments(appId),
 		getLatestOracleRoleCriticalityReview(appId),
+		getSectionIdsForApp(appId),
 	])
+
+	const githubUsernames = [
+		...githubTeams.flatMap((team) => team.members.map((member) => member.username)),
+		...githubCollaborators.map((collaborator) => collaborator.username),
+	]
+	let githubUserLookups = new Map<string, GitHubUserLookupResult>()
+	if (isGitHubAccessTab && githubUsernames.length > 0) {
+		try {
+			githubUserLookups = await lookupGitHubUsers(githubUsernames, { signal: request.signal })
+		} catch (error) {
+			if (request.signal.aborted) {
+				throw error
+			}
+			logger.warn("Kunne ikke hente visningsnavn for GitHub-brukere fra NDA", error)
+		}
+	}
 
 	const applicationDocuments = await getApplicationDocumentsForReviews(completedReviews)
 
@@ -177,6 +198,13 @@ export async function loader({ request, params }: LoaderArgs) {
 	)
 
 	const sectionSlugMap = Object.fromEntries(allSections.map((s) => [s.id, s.slug]))
+
+	const sectionById = new Map(allSections.map((s) => [s.id, s]))
+	const effectiveSections = effectiveSectionIds
+		.map((id) => sectionById.get(id))
+		.filter((s): s is NonNullable<typeof s> => s != null)
+		.map((s) => ({ id: s.id, name: s.name, slug: s.slug }))
+		.sort((a, b) => a.name.localeCompare(b.name, "nb"))
 
 	const routineNameById = new Map(
 		deadlinesWithControls
@@ -349,6 +377,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		rpaUsers: rpaUsers.map((u) => ({ ...u, syncedAt: u.syncedAt.toISOString() })),
 		accessPolicyRules: detail.accessPolicyRules,
 		teams: detail.teams,
+		effectiveSections,
 		primaryApp: detail.primaryApp,
 		linkedApps: detail.linkedApps,
 		appElements,
@@ -450,12 +479,25 @@ export async function loader({ request, params }: LoaderArgs) {
 		githubAccess: {
 			teams: githubTeams.map((t) => ({
 				...t,
+				members: t.members.map((member) => {
+					const lookup = githubUserLookups.get(member.username)
+					return {
+						...member,
+						displayName: lookup?.found ? lookup.displayName : null,
+						navIdent: lookup?.found ? lookup.navIdent : null,
+					}
+				}),
 				syncedAt: t.syncedAt.toISOString(),
 			})),
-			collaborators: githubCollaborators.map((c) => ({
-				...c,
-				syncedAt: c.syncedAt.toISOString(),
-			})),
+			collaborators: githubCollaborators.map((c) => {
+				const lookup = githubUserLookups.get(c.username)
+				return {
+					...c,
+					displayName: lookup?.found ? lookup.displayName : null,
+					navIdent: lookup?.found ? lookup.navIdent : null,
+					syncedAt: c.syncedAt.toISOString(),
+				}
+			}),
 			changeLog: githubChangeLog.map((e) => ({
 				...e,
 				performedAt: e.performedAt.toISOString(),

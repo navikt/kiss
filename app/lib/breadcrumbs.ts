@@ -320,6 +320,15 @@ const rules: BreadcrumbRule[] = [
 		],
 	},
 	{
+		pattern: "seksjoner/:seksjon/team/:team/arkiverte",
+		segments: [
+			SEKSJONER,
+			{ label: sectionName, to: sectionPath },
+			{ label: teamName, to: teamPath },
+			{ label: "Arkiverte applikasjoner" },
+		],
+	},
+	{
 		pattern: "seksjoner/:seksjon/team/:team",
 		segments: [SEKSJONER, { label: sectionName, to: sectionPath }, { label: teamName }],
 	},

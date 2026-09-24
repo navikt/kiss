@@ -19,6 +19,7 @@ import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAllControlsForSelection } from "~/db/queries/framework.server"
 import {
 	archiveRuleset,
+	copyRuleset,
 	getRulesetDetail,
 	getRulesetMeta,
 	linkControlToRuleset,
@@ -63,16 +64,22 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
 	}
 	const userIsAdmin = isAdmin(authedUser)
-	if (!userIsAdmin && ruleset.lastApproval) {
-		throw new Response("Ikke autorisert", { status: 403 })
-	}
 
-	const allControls = await getAllControlsForSelection()
+	// Innhold kan kun redigeres direkte når regelsettet er `draft` (aldri
+	// godkjent). Et godkjent regelsett (status `active`) kan ikke endres i
+	// etterkant av noen — heller ikke admin — det må kopieres og erstattes
+	// via godkjenningsflyten (se `copyRuleset`/`replaceRuleset`).
+	const canEditContent = ruleset.status === "draft"
+	const canCopyForEditing = ruleset.status === "active"
+
+	const allControls = canEditContent ? await getAllControlsForSelection() : []
 
 	return data({
 		section,
 		ruleset,
 		allControls,
+		canEditContent,
+		canCopyForEditing,
 		canArchive: userIsAdmin,
 		frequencies: ROUTINE_FREQUENCIES.map((f) => ({ value: f, label: frequencyLabels[f] })),
 	})
@@ -92,14 +99,39 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 	const formData = await request.formData()
 	const intent = formData.get("intent")
-	const userIsAdmin = isAdmin(authedUser)
 
-	// Mutasjoner som krever at regelsettet er aktivt (ikke arkivert) og (for
-	// ikke-admin) ikke godkjent. Bruker `getRulesetDetail` fordi vi må validere
-	// både section-binding, status og `lastApproval` før vi forsøker mutasjon.
-	// DB-laget har egne TOCTOU-guards for ikke-admin via `requireUnapproved`.
+	if (intent === "copy") {
+		const current = await getRulesetMeta(regelSettId)
+		if (!current || current.sectionId !== section.id) {
+			throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
+		}
+		if (current.archivedAt) {
+			return data<ActionResult>({
+				success: false,
+				error: "Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.",
+			})
+		}
+		if (current.status !== "active") {
+			return data<ActionResult>({
+				success: false,
+				error: "Kun godkjente regelsett kan kopieres for redigering.",
+			})
+		}
+		const copy = await copyRuleset(regelSettId, authedUser.navIdent)
+		if (!copy) {
+			return data<ActionResult>({ success: false, error: "Kunne ikke kopiere regelsettet." })
+		}
+		return redirect(`/seksjoner/${seksjon}/regelsett/${copy.id}/rediger`)
+	}
+
+	// Mutasjoner som krever at regelsettet er aktivt (ikke arkivert) og
+	// `draft` (aldri godkjent). Gjelder alle brukere, inkludert admin — et
+	// godkjent regelsett skal aldri kunne endres i etterkant uten en ny
+	// godkjenningsrunde. DB-laget håndhever `status='draft'` uavhengig av
+	// dette (forsvar i dybden), men vi sjekker her også for en tydeligere
+	// feilmelding.
 	if (intent === "update" || intent === "link-control" || intent === "unlink-control") {
-		const current = await getRulesetDetail(regelSettId)
+		const current = await getRulesetMeta(regelSettId)
 		if (!current || current.sectionId !== section.id) {
 			throw data({ message: "Fant ikke regelsettet" }, { status: 404 })
 		}
@@ -109,10 +141,10 @@ export async function action({ request, params }: Route.ActionArgs) {
 				error: "Regelsettet er arkivert. Reaktiver det før du gjør endringer.",
 			})
 		}
-		if (!userIsAdmin && current.lastApproval) {
+		if (current.status !== "draft") {
 			return data<ActionResult>({
 				success: false,
-				error: "Regelsettet er godkjent og kan ikke redigeres.",
+				error: "Regelsettet er godkjent og kan ikke redigeres direkte. Kopier det for å redigere.",
 			})
 		}
 	}
@@ -164,15 +196,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 				frequency: isRoutineFrequency(frequency) ? (frequency as RoutineFrequency) : undefined,
 				category,
 				updatedBy: authedUser.navIdent,
-				requireUnapproved: !userIsAdmin,
 			})
 
 			if (!updated) {
 				return data<ActionResult>({
 					success: false,
-					error: userIsAdmin
-						? "Regelsettet er arkivert eller finnes ikke."
-						: "Regelsettet er godkjent, arkivert eller finnes ikke.",
+					error: "Regelsettet er godkjent, arkivert eller finnes ikke.",
 				})
 			}
 			return data<ActionResult>({ success: true, message: "Regelsett oppdatert." })
@@ -199,15 +228,11 @@ export async function action({ request, params }: Route.ActionArgs) {
 			if (typeof controlId !== "string" || !controlId.trim()) {
 				return data<ActionResult>({ success: false, error: "Velg et kontrollkrav." })
 			}
-			const linked = await linkControlToRuleset(regelSettId, controlId.trim(), authedUser.navIdent, {
-				requireUnapproved: !userIsAdmin,
-			})
+			const linked = await linkControlToRuleset(regelSettId, controlId.trim(), authedUser.navIdent)
 			if (!linked) {
 				return data<ActionResult>({
 					success: false,
-					error: userIsAdmin
-						? "Regelsettet er arkivert eller finnes ikke."
-						: "Regelsettet er godkjent, arkivert eller finnes ikke.",
+					error: "Regelsettet er godkjent, arkivert eller finnes ikke.",
 				})
 			}
 			return data<ActionResult>({ success: true, message: "Kontrollkrav koblet." })
@@ -218,15 +243,11 @@ export async function action({ request, params }: Route.ActionArgs) {
 			if (typeof linkId !== "string" || !linkId.trim()) {
 				return data<ActionResult>({ success: false, error: "Mangler kobling-ID." })
 			}
-			const unlinked = await unlinkControlFromRuleset(regelSettId, linkId.trim(), authedUser.navIdent, {
-				requireUnapproved: !userIsAdmin,
-			})
+			const unlinked = await unlinkControlFromRuleset(regelSettId, linkId.trim(), authedUser.navIdent)
 			if (!unlinked) {
 				return data<ActionResult>({
 					success: false,
-					error: userIsAdmin
-						? "Regelsettet er arkivert eller finnes ikke."
-						: "Regelsettet er godkjent, arkivert eller finnes ikke.",
+					error: "Regelsettet er godkjent, arkivert eller finnes ikke.",
 				})
 			}
 			return data<ActionResult>({ success: true, message: "Kontrollkrav fjernet." })
@@ -238,7 +259,8 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function RegelsettRediger() {
-	const { section, ruleset, allControls, canArchive, frequencies } = useLoaderData<typeof loader>()
+	const { section, ruleset, allControls, canEditContent, canCopyForEditing, canArchive, frequencies } =
+		useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
 	const initialType = ruleset.responsibleRole ? "role" : "person"
 	const [responsibleType, setResponsibleType] = useState<"person" | "role">(initialType)
@@ -263,10 +285,32 @@ export default function RegelsettRediger() {
 				<Alert variant="info">Regelsettet er arkivert. Reaktiver det nederst på siden for å gjøre endringer.</Alert>
 			)}
 
-			{ruleset.status !== "archived" && (
+			{canCopyForEditing && (
+				<Alert variant="info">
+					<VStack gap="space-4">
+						<BodyLong>
+							Regelsettet er godkjent og kan ikke redigeres direkte. Lag en kopi for å gjøre endringer — kopien må
+							godkjennes på nytt før den erstatter dagens versjon.
+						</BodyLong>
+						<Form method="post">
+							<input type="hidden" name="intent" value="copy" />
+							<Button type="submit" variant="secondary" size="small">
+								Kopier for redigering
+							</Button>
+						</Form>
+					</VStack>
+				</Alert>
+			)}
+
+			{canEditContent && (
 				<Form method="post">
 					<input type="hidden" name="intent" value="update" />
 					<VStack gap="space-4">
+						{ruleset.sourceRulesetId && (
+							<Alert variant="info">
+								Dette er en redigert kopi. Godkjenning av kopien vil erstatte det opprinnelige regelsettet.
+							</Alert>
+						)}
 						<TextField label="Navn" name="name" defaultValue={ruleset.name} />
 						<MarkdownEditor label="Beskrivelse" name="description" defaultValue={ruleset.description ?? ""} />
 
@@ -331,7 +375,7 @@ export default function RegelsettRediger() {
 				</Form>
 			)}
 
-			{ruleset.status !== "archived" && (
+			{canEditContent && (
 				<VStack gap="space-4">
 					<Heading size="small" level="3">
 						Tilknyttede kontrollkrav

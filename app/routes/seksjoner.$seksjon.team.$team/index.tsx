@@ -1,13 +1,38 @@
-import { Alert, BodyLong, Box, Button, Detail, Heading, HGrid, HStack, Table, Tag, VStack } from "@navikt/ds-react"
-import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
+import { MenuElipsisVerticalIcon } from "@navikt/aksel-icons"
+import type { SortState } from "@navikt/ds-react"
+import {
+	ActionMenu,
+	Alert,
+	BodyLong,
+	BodyShort,
+	Box,
+	Button,
+	Detail,
+	Dialog,
+	Heading,
+	HGrid,
+	HStack,
+	Table,
+	Tag,
+	VStack,
+} from "@navikt/ds-react"
+import { useMemo, useRef, useState } from "react"
+import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { AddAppModal } from "~/components/AddAppModal"
 import { DeploymentSummaryCards } from "~/components/DeploymentSummaryCards"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { getAvailableAppsForTeam, linkAppToTeam } from "~/db/queries/applications.server"
 import { getDeploymentVerificationAggregate } from "~/db/queries/deployment-audit.server"
 import { getActiveDevTeamEntraMembers } from "~/db/queries/dev-team-entra.server"
+import { archiveApplication } from "~/db/queries/nais.server"
 import { countOpenFollowUpPointsForApps } from "~/db/queries/routines.server"
-import { getSectionBySlug, getTeamApps, getTeamBySlug } from "~/db/queries/sections.server"
+import {
+	countArchivedTeamApps,
+	getSectionBySlug,
+	getTeamActiveAppIds,
+	getTeamApps,
+	getTeamBySlug,
+} from "~/db/queries/sections.server"
 import { getUsersForTeam } from "~/db/queries/users.server"
 import { type EconomySystemType, economySystemTypeLabels } from "~/db/schema/applications"
 import { userRoleLabels } from "~/db/schema/organization"
@@ -31,10 +56,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const appIds = result.apps.map((a) => a.appId)
 	const { getScreeningProgressForApps } = await import("~/db/queries/screening.server")
-	const [deploymentStats, screeningProgressMap, needsFollowUpPoints] = await Promise.all([
+	const [deploymentStats, screeningProgressMap, needsFollowUpPoints, archivedAppsCount] = await Promise.all([
 		getDeploymentVerificationAggregate(appIds),
 		getScreeningProgressForApps(appIds, [section.id]),
 		countOpenFollowUpPointsForApps(section.id, appIds),
+		countArchivedTeamApps(result.team.id),
 	])
 
 	const canManage = user ? canManageTeam(user, result.team.id, section.id) : false
@@ -95,6 +121,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		})),
 		canManage,
 		canAddApp,
+		canArchiveApps: canAddApp,
+		archivedAppsCount,
 		availableApps,
 		teamUsers: mergedTeamUsers,
 		totalImplemented,
@@ -134,6 +162,26 @@ export async function action({ request, params }: Route.ActionArgs) {
 			return data({ success: false, error: "Velg en applikasjon." })
 		}
 		await linkAppToTeam(applicationId, teamRecord.id, authedUser.navIdent)
+		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}`)
+	}
+
+	if (intent === "archive-app") {
+		const applicationId = formData.get("applicationId")
+		if (typeof applicationId !== "string" || !applicationId) {
+			return data({ success: false, error: "Mangler applikasjon." })
+		}
+		const activeAppIds = await getTeamActiveAppIds(teamSlug)
+		if (!activeAppIds?.appIds.includes(applicationId)) {
+			throw new Response("Applikasjonen tilhører ikke dette teamet", { status: 403 })
+		}
+		try {
+			await archiveApplication(applicationId, authedUser.navIdent)
+		} catch (error) {
+			return data({
+				success: false,
+				error: error instanceof Error ? error.message : "Kunne ikke arkivere applikasjonen.",
+			})
+		}
 		return redirect(`/seksjoner/${seksjon}/team/${teamSlug}`)
 	}
 
@@ -178,6 +226,106 @@ function TeamMedlemmer({ teamUsers }: { teamUsers: TeamUser[] }) {
 	)
 }
 
+function TeamAppActionsCell({
+	seksjon,
+	team,
+	appId,
+	appName,
+	canArchive,
+	canArchiveApps,
+}: {
+	seksjon: string
+	team: string
+	appId: string
+	appName: string
+	canArchive: boolean
+	canArchiveApps: boolean
+}) {
+	const [confirmOpen, setConfirmOpen] = useState(false)
+	const archiveFormRef = useRef<HTMLFormElement>(null)
+	const showArchive = canArchive && canArchiveApps
+
+	return (
+		<>
+			<ActionMenu>
+				<ActionMenu.Trigger>
+					<Button
+						aria-label={`Handlinger for ${appName}`}
+						data-color="neutral"
+						icon={<MenuElipsisVerticalIcon aria-hidden />}
+						size="small"
+						variant="tertiary"
+					/>
+				</ActionMenu.Trigger>
+				<ActionMenu.Content>
+					<ActionMenu.Item
+						as={Link}
+						to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${appId}/detaljer?fane=screeninger`}
+					>
+						Vurder
+					</ActionMenu.Item>
+					{showArchive && (
+						<ActionMenu.Item variant="danger" onSelect={() => setConfirmOpen(true)}>
+							Arkiver
+						</ActionMenu.Item>
+					)}
+				</ActionMenu.Content>
+			</ActionMenu>
+			{showArchive && (
+				<>
+					<Form method="post" ref={archiveFormRef}>
+						<input type="hidden" name="intent" value="archive-app" />
+						<input type="hidden" name="applicationId" value={appId} />
+					</Form>
+					<Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+						<Dialog.Popup
+							width="small"
+							position="center"
+							closeOnOutsideClick
+							aria-label={`Bekreft arkivering av ${appName}`}
+						>
+							<Dialog.Header>Arkiver {appName}?</Dialog.Header>
+							<Dialog.Body>
+								<VStack gap="space-16">
+									<BodyShort>
+										Er du sikker på at du vil arkivere {appName}? Applikasjonen skjules fra brukervendte lister, men all
+										data og historikk bevares. Arkivering kan reverseres.
+									</BodyShort>
+									<HStack gap="space-4">
+										<Button
+											type="button"
+											variant="danger"
+											size="small"
+											onClick={() => {
+												setConfirmOpen(false)
+												archiveFormRef.current?.requestSubmit()
+											}}
+										>
+											Arkiver
+										</Button>
+										<Button type="button" variant="secondary" size="small" onClick={() => setConfirmOpen(false)}>
+											Avbryt
+										</Button>
+									</HStack>
+								</VStack>
+							</Dialog.Body>
+						</Dialog.Popup>
+					</Dialog>
+				</>
+			)}
+		</>
+	)
+}
+
+type SortKey =
+	| "appName"
+	| "economySystem"
+	| "screening"
+	| "routinesGjennomfort"
+	| "routinesIkkeGjennomfort"
+	| "followUp"
+	| "statusPct"
+
 export default function TeamDashboard() {
 	const {
 		seksjon,
@@ -186,6 +334,7 @@ export default function TeamDashboard() {
 		apps,
 		canManage,
 		canAddApp,
+		canArchiveApps,
 		availableApps,
 		teamUsers,
 		totalImplemented,
@@ -194,9 +343,54 @@ export default function TeamDashboard() {
 		overallPercent,
 		totalRoutinesIkkeGjennomfort,
 		needsFollowUpPoints,
+		archivedAppsCount,
 		deploymentStats,
 	} = useLoaderData<typeof loader>()
 	const actionData = useActionData<typeof action>()
+	const [sort, setSort] = useState<SortState>({ orderBy: "appName", direction: "ascending" })
+
+	const sortedApps = useMemo(() => {
+		const dir = sort.direction === "ascending" ? 1 : -1
+		return [...apps].sort((a, b) => {
+			switch (sort.orderBy as SortKey) {
+				case "appName":
+					return dir * a.appName.localeCompare(b.appName, "nb")
+				case "economySystem": {
+					const label = (a: (typeof apps)[number]): string => {
+						if (a.isEconomySystem === null) return ""
+						if (!a.isEconomySystem) return "Nei"
+						return economyTypeLabel(a.economySystemType)
+					}
+					return dir * label(a).localeCompare(label(b), "nb")
+				}
+				case "screening":
+					return dir * (a.screeningProgress.answered - b.screeningProgress.answered)
+				case "routinesGjennomfort":
+					return dir * (a.routineCompliance.routinesGjennomfort - b.routineCompliance.routinesGjennomfort)
+				case "routinesIkkeGjennomfort":
+					return dir * (a.routineCompliance.routinesIkkeGjennomfort - b.routineCompliance.routinesIkkeGjennomfort)
+				case "followUp":
+					return dir * (a.routineCompliance.routinesMaaFolgesOpp - b.routineCompliance.routinesMaaFolgesOpp)
+				case "statusPct": {
+					const pctFor = (a: (typeof apps)[number]) =>
+						a.routineCompliance.routinesTotal === 0
+							? -1
+							: (a.routineCompliance.routinesGjennomfort / a.routineCompliance.routinesTotal) * 100
+					return dir * (pctFor(a) - pctFor(b))
+				}
+				default:
+					return 0
+			}
+		})
+	}, [apps, sort])
+
+	const handleSort = (sortKey: string) => {
+		setSort((prev) =>
+			prev.orderBy === sortKey
+				? { orderBy: sortKey, direction: prev.direction === "ascending" ? "descending" : "ascending" }
+				: { orderBy: sortKey, direction: "ascending" },
+		)
+	}
 
 	return (
 		<VStack gap="space-8">
@@ -291,6 +485,16 @@ export default function TeamDashboard() {
 						</VStack>
 					</Box>
 				</Link>
+				<Link to={`/seksjoner/${seksjon}/team/${team}/arkiverte`} style={{ textDecoration: "none", color: "inherit" }}>
+					<Box padding="space-6" borderRadius="8" background="sunken">
+						<VStack align="center">
+							<Heading size="xlarge" level="3">
+								{archivedAppsCount}
+							</Heading>
+							<Detail>Arkiverte applikasjoner</Detail>
+						</VStack>
+					</Box>
+				</Link>
 			</HGrid>
 
 			<DeploymentSummaryCards stats={deploymentStats} />
@@ -307,37 +511,50 @@ export default function TeamDashboard() {
 			{apps.length > 0 ? (
 				/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */
 				<section className="table-scroll" tabIndex={0} aria-label="Applikasjoner per team">
-					<Table>
+					<Table sort={sort} onSortChange={handleSort}>
 						<Table.Header>
 							<Table.Row>
-								<Table.HeaderCell scope="col">Applikasjon</Table.HeaderCell>
-								<Table.HeaderCell scope="col">Økonomisystem</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
+								<Table.ColumnHeader scope="col" sortKey="appName" sortable>
+									Applikasjon
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" sortKey="economySystem" sortable>
+									Økonomisystem
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" align="right" sortKey="screening" sortable>
 									Spørsmål
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" align="right" sortKey="routinesGjennomfort" sortable>
 									Rutiner gjennomført
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" align="right" sortKey="routinesIkkeGjennomfort" sortable>
 									Rutiner ikke gjennomført
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" align="right" sortKey="followUp" sortable>
 									Gjennomganger med åpne punkter
-								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" align="right">
+								</Table.ColumnHeader>
+								<Table.ColumnHeader scope="col" align="right" sortKey="statusPct" sortable>
 									Status %
+								</Table.ColumnHeader>
+								<Table.HeaderCell scope="col" align="right">
+									Handlinger
 								</Table.HeaderCell>
-								<Table.HeaderCell scope="col" />
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
-							{apps.map((app) => {
+							{sortedApps.map((app) => {
 								return (
 									<Table.Row key={app.appId}>
 										<Table.DataCell>
-											<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer`}>
-												{app.appName}
-											</Link>
+											<HStack align="center" gap="space-4" wrap={false}>
+												<Link to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer`}>
+													{app.appName}
+												</Link>
+												{app.canArchive && (
+													<Tag variant="warning" size="xsmall">
+														Borte fra Nais
+													</Tag>
+												)}
+											</HStack>
 										</Table.DataCell>
 										<Table.DataCell>
 											{app.isEconomySystem === null ? (
@@ -369,12 +586,15 @@ export default function TeamDashboard() {
 												? "–"
 												: `${Math.round((app.routineCompliance.routinesGjennomfort / app.routineCompliance.routinesTotal) * 100)}%`}
 										</Table.DataCell>
-										<Table.DataCell>
-											<Link
-												to={`/seksjoner/${seksjon}/team/${team}/applikasjoner/${app.appId}/detaljer?fane=screeninger`}
-											>
-												Vurder
-											</Link>
+										<Table.DataCell align="right">
+											<TeamAppActionsCell
+												seksjon={seksjon}
+												team={team}
+												appId={app.appId}
+												appName={app.appName}
+												canArchive={app.canArchive}
+												canArchiveApps={canArchiveApps}
+											/>
 										</Table.DataCell>
 									</Table.Row>
 								)

@@ -177,7 +177,9 @@ export async function action({ request, params, url }: Route.ActionArgs) {
 		await requireAppMembership(authedUser, appId)
 		const persistenceId = formData.get("persistenceId") as string
 		const classification = (formData.get("dataClassification") as string) || null
-		const justification = (formData.get("dataClassificationJustification") as string)?.trim() || null
+		const justification = formData.has("dataClassificationJustification")
+			? (formData.get("dataClassificationJustification") as string).trim() || null
+			: undefined
 		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
 
 		const validClassification =
@@ -185,7 +187,27 @@ export async function action({ request, params, url }: Route.ActionArgs) {
 				? (classification as DataClassification)
 				: null
 
-		await updatePersistenceClassification(persistenceId, validClassification, authedUser.navIdent, justification)
+		try {
+			await updatePersistenceClassification(
+				persistenceId,
+				appId,
+				validClassification,
+				authedUser.navIdent,
+				justification,
+			)
+		} catch (err) {
+			const knownError =
+				err instanceof Error &&
+				(err.message === "Persistens-oppføring ikke funnet" ||
+					err.message === "Kan ikke endre arkivert persistens-oppføring")
+					? err.message
+					: null
+			if (!knownError) {
+				logger.error("updatePersistenceClassification failed", { error: err })
+				throw err
+			}
+			return data({ success: false, message: null, error: knownError })
+		}
 		const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
 		await syncApplicationControls(appId, authedUser.navIdent)
 		return data({ success: true, message: "Klassifisering oppdatert.", error: null })

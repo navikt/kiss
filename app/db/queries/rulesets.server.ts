@@ -18,6 +18,7 @@ import {
 } from "../schema/rulesets"
 import { screeningAnswers, screeningQuestions } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
+import { copyRoutineToSection } from "./routines.server"
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,8 @@ export interface RulesetListItem {
 export interface RulesetDetail extends RulesetListItem {
 	sectionId: string
 	sectionName: string
+	sourceRulesetId: string | null
+	replacedByRulesetId: string | null
 	resolvedResponsible: { navIdent: string; name: string } | null
 	approvals: {
 		id: string
@@ -524,21 +527,40 @@ export async function getRulesetsLinkedToRoutineAtDate(
 export interface RulesetMeta {
 	id: string
 	sectionId: string
+	status: RulesetStatus
 	archivedAt: Date | null
 }
 
 /**
- * Lett SELECT for action-guards: kun id, seksjon og arkiv-status.
+ * Lett SELECT for action-guards: kun id, seksjon, status og arkiv-status.
  * Bruk denne i stedet for `getRulesetDetail` når du kun trenger å verifisere
- * at regelsettet eksisterer, tilhører riktig seksjon og ikke er arkivert.
+ * at regelsettet finnes, tilhører riktig seksjon og har forventet status
+ * (f.eks. `status === 'active'` før kopiering, eller ikke arkivert).
  */
 export async function getRulesetMeta(rulesetId: string): Promise<RulesetMeta | null> {
 	const [row] = await db
-		.select({ id: rulesets.id, sectionId: rulesets.sectionId, archivedAt: rulesets.archivedAt })
+		.select({
+			id: rulesets.id,
+			sectionId: rulesets.sectionId,
+			status: rulesets.status,
+			archivedAt: rulesets.archivedAt,
+		})
 		.from(rulesets)
 		.where(eq(rulesets.id, rulesetId))
 		.limit(1)
 	return row ?? null
+}
+
+/** Henter navn (for lineage-visning: forgjenger/erstatter) for en liste med regelsett-IDer. */
+export async function getRulesetNamesByIds(
+	ids: string[],
+): Promise<Map<string, { name: string; status: RulesetStatus }>> {
+	if (ids.length === 0) return new Map()
+	const rows = await db
+		.select({ id: rulesets.id, name: rulesets.name, status: rulesets.status })
+		.from(rulesets)
+		.where(inArray(rulesets.id, ids))
+	return new Map(rows.map((r) => [r.id, { name: r.name, status: r.status }]))
 }
 
 export async function getRulesetById(
@@ -570,6 +592,8 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 			frequency: rulesets.frequency,
 			status: rulesets.status,
 			category: rulesets.category,
+			sourceRulesetId: rulesets.sourceRulesetId,
+			replacedByRulesetId: rulesets.replacedByRulesetId,
 			createdAt: rulesets.createdAt,
 			createdBy: rulesets.createdBy,
 			updatedAt: rulesets.updatedAt,
@@ -635,6 +659,8 @@ export async function getRulesetDetail(rulesetId: string): Promise<RulesetDetail
 		frequency: row.frequency,
 		status: row.status as RulesetStatus,
 		category: row.category ?? null,
+		sourceRulesetId: row.sourceRulesetId,
+		replacedByRulesetId: row.replacedByRulesetId,
 		resolvedResponsible,
 		approvalStatus: computeApprovalStatus(
 			row.status as RulesetStatus,
@@ -695,30 +721,45 @@ export async function createRuleset(input: {
 	frequency: RoutineFrequency
 	createdBy: string
 }): Promise<string> {
-	const [row] = await db
-		.insert(rulesets)
-		.values({
-			sectionId: input.sectionId,
-			name: input.name,
-			description: input.description ?? null,
-			responsibleIdent: input.responsibleIdent ?? null,
-			responsibleName: input.responsibleName ?? null,
-			responsibleRole: input.responsibleRole ?? null,
-			frequency: input.frequency,
-			createdBy: input.createdBy,
-			updatedBy: input.createdBy,
-		})
-		.returning({ id: rulesets.id })
-	return row.id
+	return db.transaction(async (tx) => {
+		const [row] = await tx
+			.insert(rulesets)
+			.values({
+				sectionId: input.sectionId,
+				name: input.name,
+				description: input.description ?? null,
+				responsibleIdent: input.responsibleIdent ?? null,
+				responsibleName: input.responsibleName ?? null,
+				responsibleRole: input.responsibleRole ?? null,
+				frequency: input.frequency,
+				createdBy: input.createdBy,
+				updatedBy: input.createdBy,
+			})
+			.returning({ id: rulesets.id })
+		await writeAuditLog(
+			{
+				action: "ruleset_created",
+				entityType: "ruleset",
+				entityId: row.id,
+				newValue: JSON.stringify({ sectionId: input.sectionId, name: input.name }),
+				performedBy: input.createdBy,
+			},
+			tx,
+		)
+		return row.id
+	})
 }
 
 /**
- * Oppdaterer et regelsett. Guarded i DB-laget mot arkiverte rad — UPDATE
- * skjer kun hvis `archived_at IS NULL`, slik at TOCTOU mellom action og
- * mutasjon ikke kan utnyttes. Returnerer `true` ved suksess, `false` hvis
- * regelsettet ikke finnes eller er arkivert. Når `requireUnapproved=true`
- * kjøres mutasjonen i transaksjon med `SELECT FOR UPDATE` på regelsett-raden
- * slik at sjekken mot `ruleset_approvals` serialiseres mot `approveRuleset`.
+ * Oppdaterer et regelsett. Kan **kun** endre regelsett med `status='draft'`
+ * (dvs. som aldri har vært godkjent) — et regelsett som er eller har vært
+ * `active` skal redigeres via `copyRuleset()` + `replaceRuleset()`, ikke
+ * muteres direkte. Dette gjelder alle brukere, inkludert admin: en godkjent
+ * versjon skal aldri kunne endres i etterkant uten en ny godkjenningsrunde.
+ * Kjøres i transaksjon med `SELECT FOR UPDATE` på regelsett-raden slik at
+ * status-sjekken serialiseres mot samtidig `approveRuleset`/`archiveRuleset`.
+ * Returnerer `true` ved suksess, `false` hvis regelsettet ikke finnes, er
+ * arkivert, eller ikke lenger er `draft`.
  */
 export async function updateRuleset(
 	rulesetId: string,
@@ -731,7 +772,6 @@ export async function updateRuleset(
 		frequency?: RoutineFrequency
 		category?: string | null
 		updatedBy: string
-		requireUnapproved?: boolean
 	},
 ): Promise<boolean> {
 	const set: Record<string, unknown> = { updatedAt: new Date(), updatedBy: input.updatedBy }
@@ -743,49 +783,19 @@ export async function updateRuleset(
 	if (input.frequency !== undefined) set.frequency = input.frequency
 	if (input.category !== undefined) set.category = input.category
 
-	if (input.requireUnapproved) {
-		return db.transaction(async (tx) => {
-			const [locked] = await tx
-				.select({ archivedAt: rulesets.archivedAt })
-				.from(rulesets)
-				.where(eq(rulesets.id, rulesetId))
-				.for("update")
-				.limit(1)
-			if (!locked || locked.archivedAt) return false
-
-			const [approval] = await tx
-				.select({ id: rulesetApprovals.id })
-				.from(rulesetApprovals)
-				.where(eq(rulesetApprovals.rulesetId, rulesetId))
-				.limit(1)
-			if (approval) return false
-
-			const updated = await tx
-				.update(rulesets)
-				.set(set)
-				.where(and(eq(rulesets.id, rulesetId), isNull(rulesets.archivedAt)))
-				.returning({ id: rulesets.id })
-			if (updated.length === 0) return false
-
-			await writeAuditLog(
-				{
-					action: "ruleset_updated",
-					entityType: "ruleset",
-					entityId: rulesetId,
-					newValue: JSON.stringify(set),
-					performedBy: input.updatedBy,
-				},
-				tx,
-			)
-			return true
-		})
-	}
-
 	return db.transaction(async (tx) => {
+		const [locked] = await tx
+			.select({ archivedAt: rulesets.archivedAt, status: rulesets.status })
+			.from(rulesets)
+			.where(eq(rulesets.id, rulesetId))
+			.for("update")
+			.limit(1)
+		if (!locked || locked.archivedAt || locked.status !== "draft") return false
+
 		const updated = await tx
 			.update(rulesets)
 			.set(set)
-			.where(and(eq(rulesets.id, rulesetId), isNull(rulesets.archivedAt)))
+			.where(and(eq(rulesets.id, rulesetId), isNull(rulesets.archivedAt), eq(rulesets.status, "draft")))
 			.returning({ id: rulesets.id })
 		if (updated.length === 0) return false
 
@@ -892,30 +902,34 @@ export async function unarchiveRuleset(rulesetId: string, performedBy: string) {
 
 /**
  * Godkjenner et regelsett ved å skrive en ny godkjenningsrad og sette
- * `validUntil` basert på frekvensen. Returnerer ID til godkjenningsraden,
- * eller `null` hvis regelsettet ikke finnes eller er arkivert. Bruker en
- * transaksjon med `SELECT FOR SHARE` på regelsett-raden for å unngå
- * TOCTOU mot samtidig arkivering.
+ * `validUntil` basert på regelsettets faktiske frekvens (lest fra den låste
+ * raden, ikke et kallested-argument — samme prinsipp som `replaceRuleset()`).
+ * Returnerer `null` hvis regelsettet ikke finnes, er arkivert, eller ikke
+ * lenger er `draft` (allerede godkjent). Kaster `Response(409)` hvis raden
+ * endret seg mellom låsen og selve statusoppdateringen (uventet race, ikke en
+ * forventet guard-feil). Bruker en transaksjon med `SELECT FOR UPDATE` på
+ * regelsett-raden for å unngå TOCTOU mot samtidig arkivering eller dobbel
+ * godkjenning.
  */
 export async function approveRuleset(input: {
 	rulesetId: string
 	approvedBy: string
 	approvedByName: string
 	comment?: string
-	frequency: string
 }): Promise<string | null> {
 	const now = new Date()
-	const days = frequencyDays[input.frequency as keyof typeof frequencyDays] ?? 365
-	const validUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
 
 	return db.transaction(async (tx) => {
 		const [locked] = await tx
-			.select({ archivedAt: rulesets.archivedAt })
+			.select({ status: rulesets.status, archivedAt: rulesets.archivedAt, frequency: rulesets.frequency })
 			.from(rulesets)
 			.where(eq(rulesets.id, input.rulesetId))
-			.for("share")
+			.for("update")
 			.limit(1)
-		if (!locked || locked.archivedAt) return null
+		if (!locked || locked.archivedAt || locked.status !== "draft") return null
+
+		const days = frequencyDays[locked.frequency as keyof typeof frequencyDays] ?? 365
+		const validUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
 
 		const [row] = await tx
 			.insert(rulesetApprovals)
@@ -929,11 +943,531 @@ export async function approveRuleset(input: {
 			})
 			.returning({ id: rulesetApprovals.id })
 
-		// Aktiver regelsettet hvis det fortsatt er utkast.
-		await tx
+		const [activated] = await tx
 			.update(rulesets)
 			.set({ status: "active", updatedAt: now, updatedBy: input.approvedBy })
 			.where(and(eq(rulesets.id, input.rulesetId), eq(rulesets.status, "draft")))
+			.returning({ id: rulesets.id })
+		if (!activated) {
+			throw new Response("Regelsettet ble endret av en annen operasjon under godkjenningen. Prøv igjen.", {
+				status: 409,
+			})
+		}
+
+		await writeAuditLog(
+			{
+				action: "ruleset_approved",
+				entityType: "ruleset",
+				entityId: input.rulesetId,
+				newValue: JSON.stringify({
+					approvalId: row.id,
+					approvedBy: input.approvedBy,
+					approvedByName: input.approvedByName,
+					validUntil,
+				}),
+				performedBy: input.approvedBy,
+			},
+			tx,
+		)
+
+		return row.id
+	})
+}
+
+/**
+ * Lager en draft-kopi av et eksisterende regelsett med alle aktive
+ * kontrollkrav- og rutinekoblinger. Brukes som utgangspunkt for å redigere
+ * et regelsett som er (eller har vært) godkjent — se `replaceRuleset()` for
+ * hvordan kopien senere erstatter originalen. Samme mønster som
+ * `copyRoutine()`. Returnerer `null` hvis kilderegelsettet ikke finnes.
+ */
+export async function copyRuleset(rulesetId: string, performedBy: string) {
+	// Atomisk: archive-guard + lesing + INSERTs i samme tx med FOR SHARE-lås på
+	// kilde-regelsettet, så samtidig archiveRuleset() blokkeres til vi har
+	// kopiert ferdig. Henter kun feltene som trengs for kopiering (ikke
+	// getRulesetDetail(), som også slår opp approvals/attachments/rolleinnehaver
+	// utenfor tx — unødvendig arbeid og ikke lås-bundet til selve kopieringen).
+	return db.transaction(async (tx) => {
+		const [locked] = await tx
+			.select({
+				sectionId: rulesets.sectionId,
+				name: rulesets.name,
+				description: rulesets.description,
+				responsibleIdent: rulesets.responsibleIdent,
+				responsibleName: rulesets.responsibleName,
+				responsibleRole: rulesets.responsibleRole,
+				frequency: rulesets.frequency,
+				category: rulesets.category,
+				status: rulesets.status,
+				archivedAt: rulesets.archivedAt,
+			})
+			.from(rulesets)
+			.where(eq(rulesets.id, rulesetId))
+			.for("share")
+			.limit(1)
+		if (!locked) return null
+		if (locked.archivedAt) {
+			throw new Response("Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.", { status: 403 })
+		}
+		if (locked.status !== "active") {
+			throw new Response("Kun godkjente (aktive) regelsett kan kopieres for redigering.", { status: 400 })
+		}
+
+		const [controls, linkedRoutines] = await Promise.all([
+			tx
+				.select({ controlId: rulesetControls.controlId })
+				.from(rulesetControls)
+				.where(and(eq(rulesetControls.rulesetId, rulesetId), isNull(rulesetControls.archivedAt))),
+			tx
+				.select({ routineId: rulesetRoutines.routineId })
+				.from(rulesetRoutines)
+				.where(and(eq(rulesetRoutines.rulesetId, rulesetId), isNull(rulesetRoutines.archivedAt))),
+		])
+
+		const [copy] = await tx
+			.insert(rulesets)
+			.values({
+				sectionId: locked.sectionId,
+				code: null,
+				name: locked.name,
+				description: locked.description,
+				responsibleIdent: locked.responsibleIdent,
+				responsibleName: locked.responsibleName,
+				responsibleRole: locked.responsibleRole,
+				frequency: locked.frequency as RoutineFrequency,
+				category: locked.category,
+				status: "draft",
+				sourceRulesetId: rulesetId,
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
+			.returning()
+
+		if (controls.length > 0) {
+			await tx.insert(rulesetControls).values(controls.map((c) => ({ rulesetId: copy.id, controlId: c.controlId })))
+		}
+
+		if (linkedRoutines.length > 0) {
+			await tx.insert(rulesetRoutines).values(
+				linkedRoutines.map((r) => ({
+					rulesetId: copy.id,
+					routineId: r.routineId,
+					createdBy: performedBy,
+				})),
+			)
+		}
+
+		await writeAuditLog(
+			{
+				action: "ruleset_copied",
+				entityType: "ruleset",
+				entityId: copy.id,
+				newValue: JSON.stringify({ sourceRulesetId: rulesetId, name: copy.name }),
+				metadata: { sourceRulesetId: rulesetId },
+				performedBy,
+			},
+			tx,
+		)
+
+		return copy
+	})
+}
+
+/**
+ * Kopierer et regelsett TIL en annen seksjon enn der det ligger i dag.
+ * I motsetning til `copyRuleset()` er dette IKKE en draft-for-redigering som
+ * senere skal erstatte originalen via `replaceRuleset()` — kopien er et
+ * helt nytt, uavhengig regelsett i målseksjonen som går gjennom vanlig
+ * draft → godkjent-flyt (`approveRuleset()`).
+ *
+ * Derfor settes IKKE `sourceRulesetId` på kopien (feltet driver
+ * "erstatt"-flyten — å sette det på tvers av seksjoner ville latt en bruker
+ * med godkjenningsrettigheter i målseksjonen arkivere/erstatte et regelsett
+ * som tilhører en helt annen seksjon, se guard i `replaceRuleset()`).
+ * Lineage spores kun via audit-metadata (`ruleset_copied_cross_section`),
+ * skrevet på både kopien og kilderegelsettet.
+ *
+ * `responsibleIdent`/`responsibleName`/`code` nullstilles (i motsetning til
+ * `copyRuleset()`, som beholder disse feltene siden den kopierer innad i
+ * samme seksjon) — en navngitt godkjenner fra kildeseksjonen har ikke
+ * nødvendigvis noen rolle i målseksjonen, og en kopiert kode ville kollidert
+ * med kildens kode.
+ *
+ * `rulesetRoutines`-koblinger kan ikke kopieres direkte (rutine-IDene
+ * tilhører kildeseksjonen). I stedet kopieres de lenkede rutinene selv til
+ * målseksjonen (via `copyRoutineToSection()`, i samme transaksjon) og det
+ * nye regelsettet kobles til rutine-KOPIENE — ellers ville regelsettet vært
+ * en tom skalldel som kun admin kan fylle (kobling av rutine til draft-regelsett
+ * krever admin, se `link-routine`-intent).
+ */
+export async function copyRulesetToSection(rulesetId: string, targetSectionId: string, performedBy: string) {
+	return db.transaction(async (tx) => {
+		const [locked] = await tx
+			.select({
+				sectionId: rulesets.sectionId,
+				name: rulesets.name,
+				description: rulesets.description,
+				frequency: rulesets.frequency,
+				category: rulesets.category,
+				status: rulesets.status,
+				archivedAt: rulesets.archivedAt,
+			})
+			.from(rulesets)
+			.where(eq(rulesets.id, rulesetId))
+			.for("share")
+			.limit(1)
+		if (!locked) return null
+		// status kan være "archived" uten at archivedAt er satt, så begge må sjekkes
+		// eksplisitt fremfor å stole på archivedAt alene.
+		if (locked.archivedAt || locked.status === "archived") {
+			throw new Response("Arkiverte regelsett kan ikke kopieres. Reaktiver regelsettet først.", { status: 403 })
+		}
+		if (locked.sectionId === targetSectionId) {
+			throw new Response("Kan ikke kopiere et regelsett til seksjonen det allerede tilhører", { status: 400 })
+		}
+
+		const [targetSection] = await tx
+			.select({ id: sections.id, archivedAt: sections.archivedAt })
+			.from(sections)
+			.where(eq(sections.id, targetSectionId))
+			.for("share")
+			.limit(1)
+		if (!targetSection) {
+			throw new Response("Fant ikke målseksjonen", { status: 404 })
+		}
+		if (targetSection.archivedAt) {
+			throw new Response("Kan ikke kopiere regelsett til en arkivert seksjon", { status: 400 })
+		}
+
+		const [controls, linkedRoutines] = await Promise.all([
+			// rulesetControls mangler unique-constraint (se lenke-hjelperen som dokumenterer
+			// dette) — selectDistinct hindrer duplikate koblinger/audit-rader i kopien.
+			tx
+				.selectDistinct({ controlId: rulesetControls.controlId })
+				.from(rulesetControls)
+				.where(and(eq(rulesetControls.rulesetId, rulesetId), isNull(rulesetControls.archivedAt))),
+			tx
+				.select({
+					routineId: rulesetRoutines.routineId,
+					archivedAt: routines.archivedAt,
+					status: routines.status,
+					frequency: routines.frequency,
+					eventFrequency: routines.eventFrequency,
+				})
+				.from(rulesetRoutines)
+				.innerJoin(routines, eq(routines.id, rulesetRoutines.routineId))
+				.where(and(eq(rulesetRoutines.rulesetId, rulesetId), isNull(rulesetRoutines.archivedAt))),
+		])
+
+		// Filtreres bort her fremfor å kaste feil, siden brukeren i målseksjonen
+		// ikke har rettigheter til å rette opp arkiverte/ufullstendige rutiner i kildeseksjonen.
+		// linkRoutineToRuleset() krever kun en ikke-arkivert rutine i samme seksjon, så et
+		// regelsett kan lovlig inneholde en draft/ready-rutine — disse kopieres på lik linje
+		// med godkjente rutiner, siden approved-kravet er fjernet fra copyRoutineToSection().
+		// rulesetRoutines mangler unique-constraint (dokumentert i lenke-hjelperen) — en
+		// eldre kilde med to aktive rader for samme rutine ville uten dedup gi to
+		// uavhengige rutinekopier og to koblinger i stedet for én logisk lenket rutine.
+		const seenRoutineIds = new Set<string>()
+		const copyableLinkedRoutines = linkedRoutines
+			.filter((r) => !r.archivedAt && (r.frequency || r.eventFrequency))
+			.filter((r) => {
+				if (seenRoutineIds.has(r.routineId)) return false
+				seenRoutineIds.add(r.routineId)
+				return true
+			})
+
+		const [copy] = await tx
+			.insert(rulesets)
+			.values({
+				sectionId: targetSectionId,
+				code: null,
+				name: locked.name,
+				description: locked.description,
+				responsibleIdent: null,
+				responsibleName: null,
+				responsibleRole: null,
+				frequency: locked.frequency as RoutineFrequency,
+				category: locked.category,
+				status: "draft",
+				createdBy: performedBy,
+				updatedBy: performedBy,
+			})
+			.returning()
+
+		if (controls.length > 0) {
+			await tx.insert(rulesetControls).values(controls.map((c) => ({ rulesetId: copy.id, controlId: c.controlId })))
+			// Samme audit-action som linkControlToRuleset(), slik at kopierte
+			// kontroller ikke bryter CRUD-audit-kravet (AGENTS.md regel 6) og vises
+			// i regelsettets endringslogg som "ruleset_control"-oppføringer.
+			for (const c of controls) {
+				await writeAuditLog(
+					{
+						action: "ruleset_control_added",
+						entityType: "ruleset_control",
+						entityId: copy.id,
+						newValue: JSON.stringify({ rulesetId: copy.id, controlId: c.controlId }),
+						metadata: { controlId: c.controlId },
+						performedBy,
+					},
+					tx,
+				)
+			}
+		}
+
+		for (const link of copyableLinkedRoutines) {
+			// copyableLinkedRoutines er filtrert før FOR SHARE-låsen tas i
+			// copyRoutineToSection(), så en rutine kan i prinsippet rekke å bli
+			// arkivert i mellomtiden. Fanger derfor opp nettopp disse feilene her
+			// og hopper over rutinen i stedet for å rulle tilbake hele
+			// regelsett-kopien, som var hensikten med pre-filteret.
+			let copiedRoutine: Awaited<ReturnType<typeof copyRoutineToSection>>
+			try {
+				copiedRoutine = await copyRoutineToSection(link.routineId, targetSectionId, performedBy, tx)
+			} catch (err) {
+				// Fanger kun opp de to feilene copyableLinkedRoutines-filteret er ment å dekke
+				// (arkivert / manglende frekvens) — andre valideringsfeil i copyRoutineToSection()
+				// (f.eks. manglende sectionRoutineOwnerRole) skal IKKE svelges her, ellers
+				// rapporteres regelsett-kopien som vellykket selv om en lenket rutine, dens
+				// kobling og audit stille utelates.
+				const isExpectedStaleSourceError =
+					err instanceof Response &&
+					((err.status === 403 && (await err.clone().text()).includes("Arkiverte rutiner")) ||
+						(err.status === 400 && (await err.clone().text()).includes("uten frekvens")))
+				if (isExpectedStaleSourceError) continue
+				throw err
+			}
+			if (!copiedRoutine) continue
+			await tx.insert(rulesetRoutines).values({
+				rulesetId: copy.id,
+				routineId: copiedRoutine.id,
+				createdBy: performedBy,
+			})
+			// Samme audit-action som linkRoutineToRuleset(), slik at
+			// getRulesetsLinkedToRoutineAtDate() finner koblingen ved historisk oppslag.
+			await writeAuditLog(
+				{
+					action: "ruleset_routine_added",
+					entityType: "ruleset_routine",
+					entityId: copy.id,
+					newValue: JSON.stringify({ rulesetId: copy.id, routineId: copiedRoutine.id }),
+					metadata: { routineId: copiedRoutine.id },
+					performedBy,
+				},
+				tx,
+			)
+		}
+
+		// Lineage legges også i newValue (ikke bare metadata) slik at en fremtidig
+		// Endringslogg-visning for regelsett (i tråd med rutine-siden) kan vise kilden
+		// uten å måtte tolke metadata spesifikt for denne action-typen.
+		await writeAuditLog(
+			{
+				action: "ruleset_copied_cross_section",
+				entityType: "ruleset",
+				entityId: copy.id,
+				newValue: JSON.stringify({ sourceRulesetId: rulesetId, sourceSectionId: locked.sectionId, name: copy.name }),
+				metadata: {
+					sourceRulesetId: rulesetId,
+					sourceSectionId: locked.sectionId,
+					sourceName: locked.name,
+				},
+				performedBy,
+			},
+			tx,
+		)
+		await writeAuditLog(
+			{
+				action: "ruleset_copied_cross_section",
+				entityType: "ruleset",
+				entityId: rulesetId,
+				newValue: JSON.stringify({ targetRulesetId: copy.id, targetSectionId }),
+				metadata: {
+					targetRulesetId: copy.id,
+					targetSectionId,
+				},
+				performedBy,
+			},
+			tx,
+		)
+
+		return copy
+	})
+}
+
+/**
+ * Godkjenner en redigert kopi (`newRulesetId`, med `sourceRulesetId` som peker
+ * til `oldRulesetId`) og erstatter den opprinnelige, godkjente versjonen.
+ * Samme prinsipp som `replaceRoutine()` for rutiner: den gamle raden endres
+ * aldri i etterkant — den arkiveres og merkes med `replacedByRulesetId`, mens
+ * den nye raden aktiveres med en fersk godkjenningsrad. Alle koblinger
+ * (kontrollkrav, rutiner) ligger allerede på kopien fra `copyRuleset()`, så
+ * her arkiveres kun de gamle koblingene for å unngå to "aktive" koblingssett.
+ *
+ * Merk: `screeningAnswers`-svar av typen `answerType='ruleset'` som peker på
+ * `oldRulesetId` migreres **ikke** automatisk — de forblir historisk korrekte
+ * (viser hvilket regelsett appen fulgte på svartidspunktet). Appen må selv
+ * velge/bekrefte det nye regelsettet for at det skal telle i fremtidig
+ * compliance-vurdering.
+ *
+ * Returnerer alltid en godkjennings-ID ved suksess. Funksjonen returnerer
+ * **aldri** `null` — alle forventede guard-feil (regelsett ikke funnet,
+ * arkivert, feil status, feil kobling mellom kopi og original) og uventede
+ * race conditions kastes som `Response` (4xx/409). Kallesteder trenger derfor
+ * ikke sjekke for en falsy returverdi.
+ */
+export async function replaceRuleset(input: {
+	newRulesetId: string
+	oldRulesetId: string
+	approvedBy: string
+	approvedByName: string
+	comment?: string
+}): Promise<string> {
+	const { newRulesetId, oldRulesetId } = input
+	if (newRulesetId === oldRulesetId) {
+		throw new Response("Nytt og gammelt regelsett-ID kan ikke være det samme", { status: 400 })
+	}
+
+	const now = new Date()
+
+	return db.transaction(async (tx) => {
+		const [newLocked] = await tx
+			.select({
+				name: rulesets.name,
+				status: rulesets.status,
+				archivedAt: rulesets.archivedAt,
+				sourceRulesetId: rulesets.sourceRulesetId,
+				frequency: rulesets.frequency,
+				sectionId: rulesets.sectionId,
+			})
+			.from(rulesets)
+			.where(eq(rulesets.id, newRulesetId))
+			.for("update")
+			.limit(1)
+		if (!newLocked) throw new Response("Regelsettet som skal godkjennes ble ikke funnet", { status: 404 })
+		if (newLocked.archivedAt) {
+			throw new Response("Arkiverte regelsett kan ikke godkjennes. Reaktiver regelsettet først.", { status: 403 })
+		}
+		if (newLocked.status !== "draft") {
+			throw new Response("Kun draft-regelsett kan godkjennes som erstatning", { status: 400 })
+		}
+		if (newLocked.sourceRulesetId !== oldRulesetId) {
+			throw new Response("Regelsettet peker ikke på det opprinnelige regelsettet som skal erstattes", { status: 400 })
+		}
+
+		// Bruk regelsettets faktiske (nylig låste) frekvens for gyldighetsperioden,
+		// ikke en frekvens oppgitt av kallestedet — sistnevnte kan være foreldet
+		// hvis regelsettet ble redigert etter at kallestedet leste det, men før
+		// denne transaksjonen tok låsen.
+		const days = frequencyDays[newLocked.frequency as keyof typeof frequencyDays] ?? 365
+		const validUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
+
+		const [oldLocked] = await tx
+			.select({
+				name: rulesets.name,
+				status: rulesets.status,
+				archivedAt: rulesets.archivedAt,
+				sectionId: rulesets.sectionId,
+			})
+			.from(rulesets)
+			.where(eq(rulesets.id, oldRulesetId))
+			.for("update")
+			.limit(1)
+		if (!oldLocked) throw new Response("Regelsettet som skal erstattes ble ikke funnet", { status: 404 })
+		if (oldLocked.archivedAt) {
+			throw new Response("Kan ikke erstatte et arkivert regelsett.", { status: 400 })
+		}
+		if (oldLocked.status !== "active") {
+			throw new Response("Kun et godkjent (aktivt) regelsett kan erstattes", { status: 400 })
+		}
+		// Hindrer at et godkjent regelsett i én seksjon erstattes/arkiveres av en
+		// bruker som kun har rettigheter i en annen seksjon.
+		if (newLocked.sectionId !== oldLocked.sectionId) {
+			throw new Response("Kan ikke erstatte et regelsett som tilhører en annen seksjon", { status: 400 })
+		}
+
+		const [row] = await tx
+			.insert(rulesetApprovals)
+			.values({
+				rulesetId: newRulesetId,
+				approvedBy: input.approvedBy,
+				approvedByName: input.approvedByName,
+				comment: input.comment ?? null,
+				validFrom: now,
+				validUntil,
+			})
+			.returning({ id: rulesetApprovals.id })
+
+		const [activated] = await tx
+			.update(rulesets)
+			.set({ status: "active", updatedAt: now, updatedBy: input.approvedBy })
+			.where(and(eq(rulesets.id, newRulesetId), eq(rulesets.status, "draft")))
+			.returning({ id: rulesets.id })
+		if (!activated) {
+			// Skal ikke kunne skje siden raden er låst med FOR UPDATE ovenfor og
+			// status allerede er validert til "draft" — men vi sjekker likevel
+			// eksplisitt (forsvar i dybden mot fremtidige endringer i denne
+			// funksjonen som fjerner låsen).
+			throw new Response("Kunne ikke aktivere det nye regelsettet — status endret seg underveis", { status: 409 })
+		}
+
+		const [archived] = await tx
+			.update(rulesets)
+			.set({
+				status: "archived",
+				archivedAt: now,
+				archivedBy: input.approvedBy,
+				replacedByRulesetId: newRulesetId,
+				replacedAt: now,
+				updatedAt: now,
+				updatedBy: input.approvedBy,
+			})
+			.where(and(eq(rulesets.id, oldRulesetId), eq(rulesets.status, "active"), isNull(rulesets.archivedAt)))
+			.returning({ id: rulesets.id })
+		if (!archived) {
+			throw new Response("Kunne ikke arkivere det opprinnelige regelsettet — status endret seg underveis", {
+				status: 409,
+			})
+		}
+
+		// Arkiver gamle koblinger for å unngå to "aktive" koblingssett samtidig
+		// (kopien fikk allerede egne, ferske koblinger i copyRuleset()).
+		await tx
+			.update(rulesetControls)
+			.set({ archivedAt: now, archivedBy: input.approvedBy })
+			.where(and(eq(rulesetControls.rulesetId, oldRulesetId), isNull(rulesetControls.archivedAt)))
+		await tx
+			.update(rulesetRoutines)
+			.set({ archivedAt: now, archivedBy: input.approvedBy })
+			.where(and(eq(rulesetRoutines.rulesetId, oldRulesetId), isNull(rulesetRoutines.archivedAt)))
+
+		await writeAuditLog(
+			{
+				action: "ruleset_replaced",
+				entityType: "ruleset",
+				entityId: newRulesetId,
+				previousValue: JSON.stringify({ id: oldRulesetId, name: oldLocked.name, status: oldLocked.status }),
+				newValue: JSON.stringify({ id: newRulesetId, name: newLocked.name, status: "active" }),
+				metadata: { replacedRulesetId: oldRulesetId },
+				performedBy: input.approvedBy,
+			},
+			tx,
+		)
+
+		// Audit-logg hentes per entityId (getAuditLogForEntity), så uten en egen
+		// rad på oldRulesetId ville arkiveringen av det opprinnelige regelsettet
+		// vært usporbar der, selv om raden faktisk ble mutert i denne tx-en.
+		await writeAuditLog(
+			{
+				action: "ruleset_archived",
+				entityType: "ruleset",
+				entityId: oldRulesetId,
+				previousValue: JSON.stringify({ name: oldLocked.name, status: oldLocked.status }),
+				newValue: JSON.stringify({ status: "archived", replacedByRulesetId: newRulesetId }),
+				metadata: { replacedByRulesetId: newRulesetId },
+				performedBy: input.approvedBy,
+			},
+			tx,
+		)
 
 		return row.id
 	})
@@ -942,12 +1476,13 @@ export async function approveRuleset(input: {
 // ─── Control linking ──────────────────────────────────────────────────────
 
 /**
- * Kobler et kontrollkrav til et regelsett. Atomisk guarded mot arkivering
- * via `SELECT FOR UPDATE` på regelsett-raden — blokkerer samtidig
- * `archiveRuleset` og serialiserer parallelle link/unlink-operasjoner mot
- * samme regelsett. Returnerer `true` når operasjonen kjøres mot et
- * eksisterende, ikke-arkivert regelsett, `false` hvis regelsettet ikke
- * finnes eller er arkivert.
+ * Kobler et kontrollkrav til et regelsett. Kan **kun** gjøres på regelsett
+ * med `status='draft'` — se `updateRuleset()` for begrunnelse (godkjent
+ * innhold skal ikke kunne endres i etterkant, heller ikke av admin). Atomisk
+ * guarded mot arkivering og statusendring via `SELECT FOR UPDATE` på
+ * regelsett-raden. Returnerer `true` når operasjonen kjøres mot et
+ * eksisterende draft-regelsett, `false` hvis regelsettet ikke finnes, er
+ * arkivert, eller ikke lenger er `draft`.
  *
  * Merk: skjemaet har ingen unik begrensning på (ruleset_id, control_id),
  * så `onConflictDoNothing()` ville ikke forhindret duplikater. Idempotens
@@ -959,24 +1494,15 @@ export async function linkControlToRuleset(
 	rulesetId: string,
 	controlId: string,
 	performedBy: string,
-	options?: { requireUnapproved?: boolean },
 ): Promise<boolean> {
 	return db.transaction(async (tx) => {
 		const [locked] = await tx
-			.select({ archivedAt: rulesets.archivedAt })
+			.select({ archivedAt: rulesets.archivedAt, status: rulesets.status })
 			.from(rulesets)
 			.where(eq(rulesets.id, rulesetId))
 			.for("update")
 			.limit(1)
-		if (!locked || locked.archivedAt) return false
-		if (options?.requireUnapproved) {
-			const [approval] = await tx
-				.select({ id: rulesetApprovals.id })
-				.from(rulesetApprovals)
-				.where(eq(rulesetApprovals.rulesetId, rulesetId))
-				.limit(1)
-			if (approval) return false
-		}
+		if (!locked || locked.archivedAt || locked.status !== "draft") return false
 		// Eksplisitt eksistens-sjekk under samme tx-lås: ruleset_controls har ingen
 		// unik begrensning på (ruleset_id, control_id), så onConflictDoNothing gir
 		// ingen reell idempotens. FOR UPDATE på regelsett-raden serialiserer
@@ -1011,36 +1537,29 @@ export async function linkControlToRuleset(
 }
 
 /**
- * Fjerner en kobling fra et regelsett til et kontrollkrav. Tar `rulesetId`
+ * Fjerner en kobling fra et regelsett til et kontrollkrav. Kan **kun** gjøres
+ * på regelsett med `status='draft'` (se `updateRuleset()`). Tar `rulesetId`
  * som parameter for å forhindre cross-resource-mutasjon (en stale `linkId`
  * skal ikke kunne ramme et regelsett i en annen seksjon). Idempotent:
  * returnerer `true` hvis koblingen allerede er fjernet (sluttilstand er den
- * ønskede). Returnerer `false` hvis regelsettet er arkivert eller ikke finnes.
+ * ønskede). Returnerer `false` hvis regelsettet er arkivert, ikke finnes,
+ * eller ikke lenger er `draft`.
  */
 export async function unlinkControlFromRuleset(
 	rulesetId: string,
 	linkId: string,
 	performedBy: string,
-	options?: { requireUnapproved?: boolean },
 ): Promise<boolean> {
 	return db.transaction(async (tx) => {
 		// FOR UPDATE for å serialisere mot samtidige link/unlink-operasjoner på
 		// samme regelsett (samme semantikk som linkControlToRuleset).
 		const [locked] = await tx
-			.select({ archivedAt: rulesets.archivedAt })
+			.select({ archivedAt: rulesets.archivedAt, status: rulesets.status })
 			.from(rulesets)
 			.where(eq(rulesets.id, rulesetId))
 			.for("update")
 			.limit(1)
-		if (!locked || locked.archivedAt) return false
-		if (options?.requireUnapproved) {
-			const [approval] = await tx
-				.select({ id: rulesetApprovals.id })
-				.from(rulesetApprovals)
-				.where(eq(rulesetApprovals.rulesetId, rulesetId))
-				.limit(1)
-			if (approval) return false
-		}
+		if (!locked || locked.archivedAt || locked.status !== "draft") return false
 		const archived = await tx
 			.update(rulesetControls)
 			.set({ archivedAt: new Date(), archivedBy: performedBy })
@@ -1122,12 +1641,14 @@ export async function getRulesetsForControl(
 // ─── Routine linking ──────────────────────────────────────────────────────
 
 /**
- * Kobler en rutine til et regelsett. Atomisk guarded mot arkivering via
- * `SELECT FOR UPDATE` på regelsett-raden og `SELECT FOR SHARE` på rutine-raden,
- * og verifiserer at rutinen tilhører samme seksjon som regelsettet
- * (kryss-seksjon-kobling avvises) og ikke selv er arkivert. Returnerer `false`
- * hvis regelsettet ikke finnes/er arkivert eller hvis rutinen ikke
- * finnes/er arkivert/tilhører en annen seksjon.
+ * Kobler en rutine til et regelsett. Kan **kun** gjøres på regelsett med
+ * `status='draft'` (se `updateRuleset()` for begrunnelse). Atomisk guarded
+ * mot arkivering via `SELECT FOR UPDATE` på regelsett-raden og
+ * `SELECT FOR SHARE` på rutine-raden, og verifiserer at rutinen tilhører
+ * samme seksjon som regelsettet (kryss-seksjon-kobling avvises) og ikke selv
+ * er arkivert. Returnerer `false` hvis regelsettet ikke finnes/er
+ * arkivert/ikke lenger `draft`, eller hvis rutinen ikke finnes/er
+ * arkivert/tilhører en annen seksjon.
  *
  * Merk: skjemaet har ingen unik begrensning på (ruleset_id, routine_id).
  * Idempotens sikres via `FOR UPDATE`-låsen + eksplisitt eksistens-sjekk
@@ -1137,12 +1658,12 @@ export async function getRulesetsForControl(
 export async function linkRoutineToRuleset(rulesetId: string, routineId: string, createdBy: string): Promise<boolean> {
 	return db.transaction(async (tx) => {
 		const [locked] = await tx
-			.select({ archivedAt: rulesets.archivedAt, sectionId: rulesets.sectionId })
+			.select({ archivedAt: rulesets.archivedAt, sectionId: rulesets.sectionId, status: rulesets.status })
 			.from(rulesets)
 			.where(eq(rulesets.id, rulesetId))
 			.for("update")
 			.limit(1)
-		if (!locked || locked.archivedAt) return false
+		if (!locked || locked.archivedAt || locked.status !== "draft") return false
 
 		const [routine] = await tx
 			.select({ sectionId: routines.sectionId, archivedAt: routines.archivedAt })
@@ -1186,10 +1707,11 @@ export async function linkRoutineToRuleset(rulesetId: string, routineId: string,
 }
 
 /**
- * Fjerner en rutinekobling fra et regelsett. Tar `rulesetId` som parameter
+ * Fjerner en rutinekobling fra et regelsett. Kan **kun** gjøres på regelsett
+ * med `status='draft'` (se `updateRuleset()`). Tar `rulesetId` som parameter
  * for å forhindre cross-resource-mutasjon. Idempotent: returnerer `true`
  * også når koblingen allerede er fjernet. Returnerer `false` hvis regelsettet
- * er arkivert eller ikke finnes.
+ * er arkivert, ikke finnes, eller ikke lenger er `draft`.
  */
 export async function unlinkRoutineFromRuleset(
 	rulesetId: string,
@@ -1200,12 +1722,12 @@ export async function unlinkRoutineFromRuleset(
 		// FOR UPDATE for å serialisere mot samtidige link/unlink-operasjoner på
 		// samme regelsett (samme semantikk som linkRoutineToRuleset).
 		const [locked] = await tx
-			.select({ archivedAt: rulesets.archivedAt })
+			.select({ archivedAt: rulesets.archivedAt, status: rulesets.status })
 			.from(rulesets)
 			.where(eq(rulesets.id, rulesetId))
 			.for("update")
 			.limit(1)
-		if (!locked || locked.archivedAt) return false
+		if (!locked || locked.archivedAt || locked.status !== "draft") return false
 		const archived = await tx
 			.update(rulesetRoutines)
 			.set({ archivedAt: new Date(), archivedBy: performedBy })

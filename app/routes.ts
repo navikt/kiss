@@ -50,6 +50,7 @@ export default [
 	route("seksjoner/:seksjon/team/:team/rutiner", "routes/seksjoner.$seksjon.team.$team.rutiner/index.tsx"),
 	route("seksjoner/:seksjon/team/:team/mangler", "routes/seksjoner.$seksjon.team.$team.mangler/index.tsx"),
 	route("seksjoner/:seksjon/team/:team/oppfolging", "routes/seksjoner.$seksjon.team.$team.oppfolging/index.tsx"),
+	route("seksjoner/:seksjon/team/:team/arkiverte", "routes/seksjoner.$seksjon.team.$team.arkiverte/index.tsx"),
 	// Team-context app routes (breadcrumbs reflect team origin)
 	route(
 		"seksjoner/:seksjon/team/:team/applikasjoner/:appId/detaljer",
@@ -145,6 +146,7 @@ export default [
 	route("rpa-brukere/:userObjectId", "routes/rpa-brukere.$userObjectId/index.tsx"),
 	route("admin/audit-logg-volum", "routes/admin.audit-logg-volum/index.tsx"),
 	route("admin/audit-logg-volum/detaljer", "routes/admin.audit-logg-volum.detaljer/index.tsx"),
+	route("admin/rutine-seksjonsavvik", "routes/admin.rutine-seksjonsavvik/index.tsx"),
 	route("api/isalive", "routes/api.isalive/index.tsx"),
 	route("api/isready", "routes/api.isready/index.tsx"),
 	route("api/nais-sync", "routes/api.nais-sync/index.tsx"),

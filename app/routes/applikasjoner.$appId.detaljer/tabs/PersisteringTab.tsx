@@ -54,6 +54,7 @@ export function PersisteringTab({
 								<Table.HeaderCell scope="col">Type</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Navn</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Klassifisering</Table.HeaderCell>
+								<Table.HeaderCell scope="col">Begrunnelse</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Versjon</Table.HeaderCell>
 								<Table.HeaderCell scope="col">Tier</Table.HeaderCell>
 								<Table.HeaderCell scope="col">HA</Table.HeaderCell>

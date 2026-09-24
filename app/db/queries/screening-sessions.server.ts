@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm"
 import type { NavUser } from "~/lib/auth.server"
 import {
 	ScreeningAlreadyCompletedError,
@@ -9,8 +9,6 @@ import {
 } from "~/lib/screening-errors"
 import { logger } from "../../lib/logger.server"
 import { db } from "../connection.server"
-import { applicationEnvironments, naisTeams } from "../schema/applications"
-import { sectionEnvironments } from "../schema/organization"
 import {
 	screeningAnswers,
 	screeningChoiceEffects,
@@ -23,6 +21,7 @@ import {
 	screeningSessions,
 } from "../schema/screening"
 import { writeAuditLog } from "./audit.server"
+import { getSectionIdsForApp } from "./routines.server"
 import { getRulesetsForSection } from "./rulesets.server"
 import { getPresetRoutinesForAnswers, getScreeningQuestionsForSnapshot, saveRoutineSelection } from "./screening.server"
 
@@ -665,31 +664,10 @@ export async function completeScreeningSession(sessionId: string, authedUser: Na
 
 				// Resolve the app's section IDs so we can scope questions correctly.
 				// Global questions (sectionId IS NULL) are always in scope; section-scoped
-				// questions are only valid when the section belongs to the app.
-				const appSectionRows = await tx
-					.selectDistinct({ sectionId: naisTeams.sectionId })
-					.from(applicationEnvironments)
-					.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
-					.where(
-						and(
-							eq(applicationEnvironments.applicationId, frozen.applicationId),
-							isNotNull(naisTeams.sectionId),
-							notExists(
-								tx
-									.select({ cluster: sectionEnvironments.cluster })
-									.from(sectionEnvironments)
-									.where(
-										and(
-											eq(sectionEnvironments.cluster, applicationEnvironments.cluster),
-											eq(sectionEnvironments.sectionId, naisTeams.sectionId),
-											eq(sectionEnvironments.included, false),
-										),
-									),
-							),
-						),
-					)
-
-				const appSectionIds = appSectionRows.map((r) => r.sectionId).filter((id): id is string => id !== null)
+				// questions are only valid when the section belongs to the app. Uses the canonical
+				// getSectionIdsForApp (covers NAIS team environments and dev-team mappings),
+				// participating in this transaction via tx so it sees any uncommitted writes.
+				const appSectionIds = await getSectionIdsForApp(frozen.applicationId, tx)
 
 				const questionScopeFilter =
 					appSectionIds.length > 0

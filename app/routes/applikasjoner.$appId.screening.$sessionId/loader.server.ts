@@ -233,11 +233,12 @@ export async function loader({ params }: Route.LoaderArgs) {
 			case "update-persistence-classification": {
 				const persistenceId = p.persistenceId
 				const classification = (p.dataClassification as DataClassification) || null
-				const justification = p.dataClassificationJustification?.trim() || null
+				const justification =
+					"dataClassificationJustification" in p ? p.dataClassificationJustification?.trim() || null : undefined
 				const entry = persistence.find((e) => e.id === persistenceId)
 				if (entry) {
 					entry.dataClassification = classification
-					entry.dataClassificationJustification = justification
+					if (justification !== undefined) entry.dataClassificationJustification = justification
 				}
 				break
 			}

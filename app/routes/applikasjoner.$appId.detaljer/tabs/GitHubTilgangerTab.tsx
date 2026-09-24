@@ -1,9 +1,11 @@
-import { BodyLong, BodyShort, Detail, Heading, HStack, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyLong, BodyShort, Detail, Heading, HStack, Link, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
 
 interface TeamMember {
 	username: string
 	role: string
+	displayName?: string | null
+	navIdent?: string | null
 }
 
 interface GitHubTeam {
@@ -20,6 +22,8 @@ interface GitHubCollaborator {
 	username: string
 	permission: string
 	syncedAt: string
+	displayName?: string | null
+	navIdent?: string | null
 }
 
 interface ChangeLogEntry {
@@ -49,6 +53,8 @@ function highestPermission(permissions: string[]): string {
 
 interface UserAccess {
 	username: string
+	displayName: string | null
+	navIdent: string | null
 	highestPermission: string
 	directPermission: string | null
 	viaTeams: Array<{ teamSlug: string; teamName: string; permission: string }>
@@ -57,16 +63,36 @@ interface UserAccess {
 function computeUserAccess(teams: GitHubTeam[], collaborators: GitHubCollaborator[]): UserAccess[] {
 	const map = new Map<
 		string,
-		{ permissions: string[]; directPermission: string | null; viaTeams: UserAccess["viaTeams"] }
+		{
+			displayName: string | null
+			navIdent: string | null
+			permissions: string[]
+			directPermission: string | null
+			viaTeams: UserAccess["viaTeams"]
+		}
 	>()
 
 	for (const collab of collaborators) {
-		map.set(collab.username, { permissions: [collab.permission], directPermission: collab.permission, viaTeams: [] })
+		map.set(collab.username, {
+			displayName: collab.displayName ?? null,
+			navIdent: collab.navIdent ?? null,
+			permissions: [collab.permission],
+			directPermission: collab.permission,
+			viaTeams: [],
+		})
 	}
 
 	for (const team of teams) {
 		for (const member of team.members) {
-			const entry = map.get(member.username) ?? { permissions: [], directPermission: null, viaTeams: [] }
+			const entry = map.get(member.username) ?? {
+				displayName: member.displayName ?? null,
+				navIdent: member.navIdent ?? null,
+				permissions: [],
+				directPermission: null,
+				viaTeams: [],
+			}
+			entry.displayName ??= member.displayName ?? null
+			entry.navIdent ??= member.navIdent ?? null
 			entry.permissions.push(team.permission)
 			entry.viaTeams.push({ teamSlug: team.teamSlug, teamName: team.teamName, permission: team.permission })
 			map.set(member.username, entry)
@@ -76,6 +102,8 @@ function computeUserAccess(teams: GitHubTeam[], collaborators: GitHubCollaborato
 	return Array.from(map.entries())
 		.map(([username, data]) => ({
 			username,
+			displayName: data.displayName,
+			navIdent: data.navIdent,
 			highestPermission: highestPermission(data.permissions),
 			directPermission: data.directPermission,
 			viaTeams: data.viaTeams,
@@ -88,6 +116,23 @@ function computeUserAccess(teams: GitHubTeam[], collaborators: GitHubCollaborato
 			const bOrder = bIdx === -1 ? PERMISSION_ORDER.length : bIdx
 			return aOrder !== bOrder ? aOrder - bOrder : a.username.localeCompare(b.username)
 		})
+}
+
+function GitHubUser({ username, displayName, navIdent }: Pick<UserAccess, "username" | "displayName" | "navIdent">) {
+	const normalizedDisplayName = displayName?.trim() || null
+	const normalizedNavIdent = navIdent?.trim() || null
+
+	return (
+		<VStack gap="space-1">
+			{normalizedDisplayName && <BodyShort>{normalizedDisplayName}</BodyShort>}
+			<HStack gap="space-2" align="center" wrap>
+				<Link href={`https://github.com/${username}`} target="_blank" rel="noopener noreferrer">
+					{normalizedDisplayName ? `@${username}` : username}
+				</Link>
+				{normalizedNavIdent && <Detail>{normalizedNavIdent}</Detail>}
+			</HStack>
+		</VStack>
+	)
 }
 
 function UserSourcesContent({ user }: { user: UserAccess }) {
@@ -246,9 +291,11 @@ function TeamRow({ team }: { team: GitHubTeam }) {
 				team.members.map((member) => (
 					<Table.Row key={`${team.id}-${member.username}`}>
 						<Table.DataCell style={{ paddingLeft: "2.5rem" }}>
-							<a href={`https://github.com/${member.username}`} target="_blank" rel="noopener noreferrer">
-								{member.username}
-							</a>
+							<GitHubUser
+								username={member.username}
+								displayName={member.displayName ?? null}
+								navIdent={member.navIdent ?? null}
+							/>
 						</Table.DataCell>
 						<Table.DataCell>
 							<Tag variant="neutral" size="xsmall">
@@ -284,7 +331,7 @@ export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 							<Table.Header>
 								<Table.Row>
 									<Table.HeaderCell scope="col" />
-									<Table.HeaderCell scope="col">Brukernavn</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Bruker</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Høyeste tilgang</Table.HeaderCell>
 								</Table.Row>
 							</Table.Header>
@@ -292,9 +339,7 @@ export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 								{allUsers.map((user) => (
 									<Table.ExpandableRow key={user.username} content={<UserSourcesContent user={user} />} colSpan={3}>
 										<Table.DataCell>
-											<a href={`https://github.com/${user.username}`} target="_blank" rel="noopener noreferrer">
-												{user.username}
-											</a>
+											<GitHubUser username={user.username} displayName={user.displayName} navIdent={user.navIdent} />
 										</Table.DataCell>
 										<Table.DataCell>{permissionTag(user.highestPermission)}</Table.DataCell>
 									</Table.ExpandableRow>
@@ -341,7 +386,7 @@ export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 						<Table size="small">
 							<Table.Header>
 								<Table.Row>
-									<Table.HeaderCell scope="col">Brukernavn</Table.HeaderCell>
+									<Table.HeaderCell scope="col">Bruker</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Tilgang</Table.HeaderCell>
 									<Table.HeaderCell scope="col">Sist synkronisert</Table.HeaderCell>
 								</Table.Row>
@@ -350,9 +395,11 @@ export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 								{collaborators.map((collab) => (
 									<Table.Row key={collab.id}>
 										<Table.DataCell>
-											<a href={`https://github.com/${collab.username}`} target="_blank" rel="noopener noreferrer">
-												{collab.username}
-											</a>
+											<GitHubUser
+												username={collab.username}
+												displayName={collab.displayName ?? null}
+												navIdent={collab.navIdent ?? null}
+											/>
 										</Table.DataCell>
 										<Table.DataCell>{permissionTag(collab.permission)}</Table.DataCell>
 										<Table.DataCell>{new Date(collab.syncedAt).toLocaleDateString("nb-NO")}</Table.DataCell>

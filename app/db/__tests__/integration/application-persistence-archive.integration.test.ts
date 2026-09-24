@@ -61,6 +61,8 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 			DELETE FROM persistence_audit_confirmations;
 			DELETE FROM persistence_audit_summaries;
 			DELETE FROM application_persistence;
+			DELETE FROM application_oracle_instances;
+			DELETE FROM application_environments;
 			DELETE FROM monitored_applications;
 			DELETE FROM audit_log;
 		`)
@@ -83,6 +85,45 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 
 		const audit = await getAuditByEntity("application_persistence", row.id)
 		expect(audit.find((a) => a.action === "persistence_archived")?.performed_by).toBe("archiver")
+	})
+
+	it("includes dataClassificationJustification in the archive audit previousValue", async () => {
+		const appId = await createTestApp("App A")
+		const row = await addManualPersistence(
+			appId,
+			"cloud_sql_postgres",
+			"kunde-db",
+			"critical",
+			"creator",
+			"Inneholder sensitive kundedata",
+		)
+
+		await archiveManualPersistence(row.id, "archiver")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const entry = audit.find((a) => a.action === "persistence_archived")
+		const previousValue = JSON.parse(entry?.previous_value as string)
+		expect(previousValue.dataClassificationJustification).toBe("Inneholder sensitive kundedata")
+	})
+
+	it("includes dataClassification fields in the archive audit newValue since the archived row retains them", async () => {
+		const appId = await createTestApp("App A2")
+		const row = await addManualPersistence(
+			appId,
+			"cloud_sql_postgres",
+			"kunde-db-2",
+			"critical",
+			"creator",
+			"Inneholder sensitive kundedata",
+		)
+
+		await archiveManualPersistence(row.id, "archiver")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const entry = audit.find((a) => a.action === "persistence_archived")
+		const newValue = JSON.parse(entry?.new_value as string)
+		expect(newValue.dataClassification).toBe("critical")
+		expect(newValue.dataClassificationJustification).toBe("Inneholder sensitive kundedata")
 	})
 
 	it("excludes archived rows from getAppPersistence by default and includes them with includeArchived", async () => {
@@ -201,7 +242,154 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		const row = await addManualPersistence(appId, "bucket", "frozen", null, "u")
 		await archiveManualPersistence(row.id, "u")
 
-		await expect(updatePersistenceClassification(row.id, "critical", "u")).rejects.toThrow(/arkivert/)
+		await expect(updatePersistenceClassification(row.id, appId, "critical", "u")).rejects.toThrow(/arkivert/)
+	})
+
+	it("persists dataClassificationJustification on add and includes it in the audit newValue", async () => {
+		const appId = await createTestApp("App S")
+		const row = await addManualPersistence(
+			appId,
+			"bucket",
+			"begrunnet-db",
+			"not_critical",
+			"creator",
+			"Inneholder kun offentlige maler uten persondata",
+		)
+		expect(row.dataClassificationJustification).toBe("Inneholder kun offentlige maler uten persondata")
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassificationJustification).toBe("Inneholder kun offentlige maler uten persondata")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const added = audit.find((a) => a.action === "persistence_added")
+		const newValue = JSON.parse(added?.new_value ?? "{}")
+		expect(newValue.dataClassificationJustification).toBe("Inneholder kun offentlige maler uten persondata")
+	})
+
+	it("persists dataClassificationJustification on update and records both old and new value in the audit log", async () => {
+		const appId = await createTestApp("App T")
+		const row = await addManualPersistence(
+			appId,
+			"bucket",
+			"oppdater-begrunnelse",
+			"critical",
+			"u",
+			"Opprinnelig begrunnelse",
+		)
+
+		await updatePersistenceClassification(
+			row.id,
+			appId,
+			"not_critical",
+			"oppdaterer",
+			"Ny begrunnelse etter revurdering",
+		)
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassification).toBe("not_critical")
+		expect(fetched.dataClassificationJustification).toBe("Ny begrunnelse etter revurdering")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		const previousValue = JSON.parse(updated?.previous_value ?? "{}")
+		const newValue = JSON.parse(updated?.new_value ?? "{}")
+		expect(previousValue.dataClassificationJustification).toBe("Opprinnelig begrunnelse")
+		expect(newValue.dataClassificationJustification).toBe("Ny begrunnelse etter revurdering")
+	})
+
+	it("omitting justification (undefined) preserves the existing dataClassificationJustification", async () => {
+		const appId = await createTestApp("App T-undefined")
+		const row = await addManualPersistence(appId, "bucket", "udefinert-begrunnelse", "critical", "u", "Skal bevares")
+
+		// Ingen `justification`-argument gitt (undefined) — kun klassifiseringen endres.
+		await updatePersistenceClassification(row.id, appId, "not_critical", "oppdaterer")
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassification).toBe("not_critical")
+		expect(fetched.dataClassificationJustification).toBe("Skal bevares")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		const newValue = JSON.parse(updated?.new_value ?? "{}")
+		expect(newValue.dataClassificationJustification).toBe("Skal bevares")
+	})
+
+	it("explicit null clears an existing dataClassificationJustification", async () => {
+		const appId = await createTestApp("App T-null")
+		const row = await addManualPersistence(appId, "bucket", "fjern-begrunnelse", "critical", "u", "Skal fjernes")
+
+		await updatePersistenceClassification(row.id, appId, "not_critical", "oppdaterer", null)
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassification).toBe("not_critical")
+		expect(fetched.dataClassificationJustification).toBeNull()
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		const previousValue = JSON.parse(updated?.previous_value ?? "{}")
+		const newValue = JSON.parse(updated?.new_value ?? "{}")
+		expect(previousValue.dataClassificationJustification).toBe("Skal fjernes")
+		expect(newValue.dataClassificationJustification).toBeNull()
+	})
+
+	it("an unchanged classification+justification writes neither an UPDATE nor a persistence_updated audit row", async () => {
+		const appId = await createTestApp("App T-noop")
+		const row = await addManualPersistence(appId, "bucket", "uendret-db", "critical", "u", "Samme begrunnelse")
+		const beforeUpdatedAt = (await getAppPersistence(appId))[0].updatedAt
+
+		const result = await updatePersistenceClassification(row.id, appId, "critical", "u", "Samme begrunnelse")
+		expect(result).toBeUndefined()
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassification).toBe("critical")
+		expect(fetched.dataClassificationJustification).toBe("Samme begrunnelse")
+		expect(fetched.updatedAt).toEqual(beforeUpdatedAt)
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		expect(audit.some((a) => a.action === "persistence_updated")).toBe(false)
+	})
+
+	it("rejects updatePersistenceClassification when the row belongs to a different application", async () => {
+		const appId = await createTestApp("App U1")
+		const otherAppId = await createTestApp("App U2")
+		const row = await addManualPersistence(appId, "bucket", "annen-app-db", null, "u")
+
+		await expect(
+			updatePersistenceClassification(row.id, otherAppId, "critical", "angriper", "uautorisert endring"),
+		).rejects.toThrow(/ikke funnet/)
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassification).toBeNull()
+		expect(fetched.dataClassificationJustification).toBeNull()
+	})
+
+	it("restores dataClassificationJustification when reactivating an archived manual persistence row", async () => {
+		const appId = await createTestApp("App V")
+		const row = await addManualPersistence(
+			appId,
+			"bucket",
+			"gjenaktiver-begrunnelse",
+			"critical",
+			"u",
+			"Begrunnelse ved oppretting",
+		)
+		await archiveManualPersistence(row.id, "u")
+
+		const readded = await addManualPersistence(
+			appId,
+			"bucket",
+			"gjenaktiver-begrunnelse",
+			"not_critical",
+			"manual-user",
+			"Ny begrunnelse ved gjenaktivering",
+		)
+		expect(readded.id).toBe(row.id)
+		expect(readded.dataClassificationJustification).toBe("Ny begrunnelse ved gjenaktivering")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const unarchive = audit.find((a) => a.action === "persistence_unarchived")
+		const newValue = JSON.parse(unarchive?.new_value ?? "{}")
+		expect(newValue.dataClassificationJustification).toBe("Ny begrunnelse ved gjenaktivering")
 	})
 
 	it("rejects linkPersistenceToOracleInstance on archived rows", async () => {
@@ -280,6 +468,8 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(unarchive?.performed_by).toBe("ensure-caller")
 		const metadata = JSON.parse((unarchive?.metadata as string | null) ?? "{}")
 		expect(metadata.reason).toBe("oracle_instance_ensure")
+		const previousValue = JSON.parse((unarchive?.previous_value as string | null) ?? "{}")
+		expect(previousValue.cluster).toBeNull()
 	})
 
 	it("ensureOraclePersistenceEntries prefers an existing active row over an archived duplicate", async () => {
@@ -314,6 +504,69 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		// Ingen audit skal skrives når ingen rad endres
 		const audit = await getAuditByEntity("application_persistence", archivedId)
 		expect(audit.find((a) => a.action === "persistence_unarchived")).toBeUndefined()
+	})
+
+	it("ensureOraclePersistenceEntries setter cluster på ny rad når appen har nøyaktig ett aktivt miljø", async () => {
+		const appId = await createTestApp("App L3")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'team-x')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-single-env"], "Z990001")
+		expect(result.cluster).toBe("prod-gcp")
+
+		const audit = await getAuditByEntity("application_persistence", result.id)
+		const added = audit.find((a) => a.action === "persistence_added")
+		expect(added?.performed_by).toBe("Z990001")
+		const newValue = JSON.parse((added?.new_value as string | null) ?? "{}")
+		expect(newValue.cluster).toBe("prod-gcp")
+	})
+
+	it("ensureOraclePersistenceEntries lar cluster stå NULL når appen har flere aktive miljøer", async () => {
+		const appId = await createTestApp("App L4")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'team-x'), ('${appId}', 'dev-gcp', 'team-x')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-multi-env"], "Z990001")
+		expect(result.cluster).toBeNull()
+	})
+
+	it("ensureOraclePersistenceEntries backfiller cluster på en eksisterende aktiv rad uten cluster", async () => {
+		const appId = await createTestApp("App L5")
+		const db = getTestDb()
+		await upsertAppPersistence(appId, "oracle", "ora-existing-active")
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'team-x')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-existing-active"], "Z990001")
+		expect(result.cluster).toBe("prod-gcp")
+
+		const audit = await getAuditByEntity("application_persistence", result.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		expect(updated?.performed_by).toBe("Z990001")
+		const metadata = JSON.parse((updated?.metadata as string | null) ?? "{}")
+		expect(metadata.reason).toBe("oracle_instance_cluster_backfilled")
+	})
+
+	it("ensureOraclePersistenceEntries faller tilbake til arkivert miljø når appen ikke har aktive miljøer", async () => {
+		const appId = await createTestApp("App L7")
+		const db = getTestDb()
+		// Appen kjørte tidligere kun i prod-gcp, men clusteret er ikke lenger overvåket
+		// (miljøet er arkivert) — ingen aktive miljøer finnes.
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace, archived_at, archived_by)
+				VALUES ('${appId}', 'prod-gcp', 'team-x', now(), 'nais-sync')`,
+		)
+
+		const [result] = await ensureOraclePersistenceEntries(appId, ["ora-archived-env"], "Z990001")
+		expect(result.cluster).toBe("prod-gcp")
 	})
 
 	it("partial unique index blocks two active rows with same (appId, type, name) but allows archive+reinsert", async () => {
@@ -402,9 +655,13 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(metadata.reason).toBe("cluster_backfilled_by_nais_sync")
 	})
 
-	it("getLegacyPersistenceRowsWithoutCluster returnerer appnavn/type/navn for rader uten cluster og fjerner dem etter backfill", async () => {
+	it("getLegacyPersistenceRowsWithoutCluster returnerer appnavn/type/navn for rader uten cluster (med aktivt miljø) og fjerner dem etter backfill", async () => {
 		const appId = await createTestApp("App O4")
 		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'ns')`,
+		)
 
 		const before = await getLegacyPersistenceRowsWithoutCluster()
 
@@ -424,11 +681,55 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 
 	it("getLegacyPersistenceRowsWithoutCluster ekskluderer manuelt lagt til rader (manuallyAdded=true)", async () => {
 		const appId = await createTestApp("App O5")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'ns')`,
+		)
 
 		const before = await getLegacyPersistenceRowsWithoutCluster()
 
 		await addManualPersistence(appId, "cloud_sql_postgres", "manuell-db", null, "u")
 
+		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
+	})
+
+	it("getLegacyPersistenceRowsWithoutCluster ekskluderer rader for apper uten aktive miljøer (kan ikke backfilles automatisk)", async () => {
+		const appId = await createTestApp("App O6")
+		const db = getTestDb()
+
+		const before = await getLegacyPersistenceRowsWithoutCluster()
+
+		await db.execute(
+			/* sql */ `INSERT INTO application_persistence (application_id, type, name)
+				VALUES ('${appId}', 'oracle', 'no-active-env')`,
+		)
+
+		// Ingen aktive miljøer for appen — raden kan aldri backfilles automatisk av
+		// nais-sync, så den skal ikke telles med i observabilitetssignalet.
+		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
+	})
+
+	it("getLegacyPersistenceRowsWithoutCluster ekskluderer rader for arkiverte applikasjoner selv om et miljø fortsatt er ikke-arkivert", async () => {
+		const appId = await createTestApp("App O7")
+		const db = getTestDb()
+		await db.execute(
+			/* sql */ `INSERT INTO application_environments (application_id, cluster, namespace)
+				VALUES ('${appId}', 'prod-gcp', 'ns')`,
+		)
+
+		const before = await getLegacyPersistenceRowsWithoutCluster()
+
+		await db.execute(
+			/* sql */ `INSERT INTO application_persistence (application_id, type, name)
+				VALUES ('${appId}', 'oracle', 'archived-app-active-env')`,
+		)
+		await db.execute(
+			/* sql */ `UPDATE monitored_applications SET archived_at = now(), archived_by = 'test' WHERE id = '${appId}'`,
+		)
+
+		// Appen er arkivert (ikke lenger overvåket) selv om det tilhørende miljøet
+		// ikke er arkivert — raden skal likevel ikke telles med.
 		expect(await getLegacyPersistenceRowsWithoutCluster()).toEqual(before)
 	})
 })

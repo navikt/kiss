@@ -40,30 +40,17 @@ function listSqlFiles(): string[] {
 }
 
 /**
- * Cut-off policy for future timestamps:
+ * Timestamp policy:
  *
- * Due to past AI errors, some journal entries have `when` timestamps in the
- * future (as of April 2026). To avoid breaking the existing migration chain,
- * we allow new entries to continue incrementing beyond the highest existing
- * timestamp — but only up to a 2-hour window (allowing ~120 migrations at
- * 1-minute spacing).
- *
- * Once the real-world clock passes CUTOFF_DATE, ALL new timestamps must be
- * ≤ Date.now(). No more future timestamps are permitted.
+ * Historisk har noen journal-entries fått `when`-tidsstempler i fremtiden
+ * pga. AI-genererte feil, kompensert med en midlertidig "logical clock"-ordning
+ * (strikte 1-minutts-økninger). Etter eksplisitt beslutning fra tech lead er
+ * denne ordningen erstattet: nye migrasjoner skal ha `when` som reflekterer
+ * det faktiske opprettelsestidspunktet, og testene skal kun sikre at ingen
+ * migrasjon får et tidsstempel i fremtiden. Eksisterende (historiske)
+ * entries med gamle fremtidsdaterte tidsstempler er ikke lenger i fremtiden
+ * ettersom klokken har passert dem, og trenger derfor ingen særbehandling.
  */
-const MAX_FUTURE_WINDOW_MS = 2 * 60 * 60 * 1000 // 2 hours
-const STRICT_INCREMENT_MS = 60_000 // 1 minute — mandatory for new future-dated entries
-
-/**
- * All entries up to and including this index are "legacy" and exempt from the
- * strict 1-minute increment rule. Starting at FIRST_STRICT_IDX, all future-
- * dated entries must increment by exactly STRICT_INCREMENT_MS.
- *
- * This is set to 35 because entries 0–34 already exist with variable gaps
- * (some as large as 16.7 minutes). We can't change those, but going forward
- * every new entry must use exactly 1 minute to preserve capacity.
- */
-const FIRST_STRICT_IDX = 35
 
 /**
  * Frozen allowlist of all legacy journal entries (idx 0–37).
@@ -212,121 +199,21 @@ describe("Drizzle migration integrity", () => {
 
 	// ─── 4. Future timestamp policy ───────────────────────────────────────
 
-	it("no timestamps exceed the future cutoff window", () => {
-		if (entries.length === 0) return
-
-		const highestWhen = entries[entries.length - 1].when
-		const cutoffDate = highestWhen + MAX_FUTURE_WINDOW_MS
+	it("no journal entry has a timestamp in the future", () => {
 		const now = Date.now()
 		const violations: string[] = []
 
-		// Once the clock passes the cutoff date, NO entry may be in the future
-		if (now >= cutoffDate) {
-			for (const entry of entries) {
-				if (entry.when > now) {
-					violations.push(
-						`Entry ${entry.idx} "${entry.tag}" has when=${entry.when} ` +
-							`(${new Date(entry.when).toISOString()}) which is in the future. ` +
-							`The cutoff date (${new Date(cutoffDate).toISOString()}) has passed; ` +
-							`future timestamps are no longer allowed.`,
-					)
-				}
-			}
-		}
-
-		// Regardless of date: no entry may exceed the absolute cutoff
 		for (const entry of entries) {
-			if (entry.when > cutoffDate) {
+			if (entry.when > now) {
 				violations.push(
 					`Entry ${entry.idx} "${entry.tag}" has when=${entry.when} ` +
-						`which exceeds the cutoff (highest + 2h = ${cutoffDate}).`,
+						`(${new Date(entry.when).toISOString()}) which is in the future ` +
+						`relative to now (${new Date(now).toISOString()}).`,
 				)
 			}
 		}
 
 		expect(violations, `Future timestamp violations:\n${violations.join("\n")}`).toEqual([])
-	})
-
-	it("the highest timestamp does not exceed current time plus 2h window", () => {
-		if (entries.length === 0) return
-
-		const highestWhen = entries[entries.length - 1].when
-		const cutoffDate = highestWhen + MAX_FUTURE_WINDOW_MS
-		const now = Date.now()
-
-		// After the cutoff date has passed, the highest timestamp must be ≤ now
-		if (now >= cutoffDate) {
-			expect(
-				highestWhen,
-				`Highest timestamp ${highestWhen} (${new Date(highestWhen).toISOString()}) ` +
-					`is in the future. After ${new Date(cutoffDate).toISOString()}, ` +
-					`only past/present timestamps are allowed.`,
-			).toBeLessThanOrEqual(now)
-		}
-	})
-
-	// ─── 5. New migration timestamp validation ───────────────────────────
-
-	it("the last journal entry has a valid timestamp relative to its predecessor", () => {
-		if (entries.length < 2) return
-
-		const last = entries[entries.length - 1]
-		const secondLast = entries[entries.length - 2]
-
-		// Must be greater than predecessor
-		expect(
-			last.when,
-			`Last entry "${last.tag}" (when=${last.when}) must be after ` + `"${secondLast.tag}" (when=${secondLast.when})`,
-		).toBeGreaterThan(secondLast.when)
-
-		// Must not exceed 2h from predecessor (prevents massive jumps)
-		const maxJump = MAX_FUTURE_WINDOW_MS
-		expect(
-			last.when - secondLast.when,
-			`Last entry "${last.tag}" jumped ${last.when - secondLast.when}ms from predecessor. ` +
-				`Maximum allowed jump is ${maxJump}ms (2 hours).`,
-		).toBeLessThanOrEqual(maxJump)
-	})
-
-	// ─── 5b. Strict 1-minute increments for new future-dated entries ──────
-
-	it("new entries (idx >= FIRST_STRICT_IDX) use exactly 1-minute increments", () => {
-		const violations: string[] = []
-
-		for (let i = Math.max(FIRST_STRICT_IDX, 1); i < entries.length; i++) {
-			const prev = entries[i - 1]
-			const curr = entries[i]
-			const gap = curr.when - prev.when
-
-			if (gap !== STRICT_INCREMENT_MS) {
-				violations.push(
-					`Entry ${curr.idx} "${curr.tag}": gap from previous is ${gap}ms (${(gap / 60_000).toFixed(1)} min), ` +
-						`expected exactly ${STRICT_INCREMENT_MS}ms (1 min). ` +
-						`This wastes future timestamp capacity.`,
-				)
-			}
-		}
-
-		expect(
-			violations,
-			`Entries from idx ${FIRST_STRICT_IDX} onward must use exactly 1-minute increments ` +
-				`to preserve room for 120 migrations:\n${violations.join("\n")}`,
-		).toEqual([])
-	})
-
-	it("there is room for at least 120 migrations at 1-minute increments before the cutoff", () => {
-		if (entries.length === 0) return
-
-		const highestWhen = entries[entries.length - 1].when
-		const cutoff = highestWhen + MAX_FUTURE_WINDOW_MS
-		const capacityMs = cutoff - highestWhen
-		const remainingSlots = Math.floor(capacityMs / STRICT_INCREMENT_MS)
-
-		expect(
-			remainingSlots,
-			`Only ${remainingSlots} migration slots remain before the 2h cutoff ` +
-				`(${new Date(cutoff).toISOString()}). Need at least 120.`,
-		).toBeGreaterThanOrEqual(120)
 	})
 
 	// ─── 6. File naming convention ────────────────────────────────────────

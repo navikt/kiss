@@ -13,7 +13,6 @@ import {
 	getQuestionTechnologyElements,
 	getRoutinesForAllControlsAndTechElements,
 	getScreeningQuestion,
-	getSectionScreeningQuestions,
 	isEffectOwnedByQuestion,
 	setQuestionTechnologyElements,
 	updateChoice,
@@ -51,18 +50,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	if (!isNew) requireUuid(questionId, "questionId")
 
 	if (isNew) {
-		const [controls, technologyElementsList, sectionRulesets, sectionQuestions, allRoutinesForControls] =
-			await Promise.all([
-				getAllControls(),
-				getAllTechnologyElements(),
-				getRulesetsForSection(sectionId),
-				getSectionScreeningQuestions(sectionId, { includeArchived: false }),
-				getRoutinesForAllControlsAndTechElements([]),
-			])
-		const hasExistingEconomyQuestion = sectionQuestions.some((q) => q.answerType === "economy_system")
+		const [controls, technologyElementsList, sectionRulesets, allRoutinesForControls] = await Promise.all([
+			getAllControls(),
+			getAllTechnologyElements(),
+			getRulesetsForSection(sectionId),
+			getRoutinesForAllControlsAndTechElements([]),
+		])
 		return data({
 			isNew: true,
-			hasExistingEconomyQuestion,
 			question: {
 				id: "ny",
 				questionText: "",
@@ -113,7 +108,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	return data({
 		isNew: false,
-		hasExistingEconomyQuestion: false,
 		question: {
 			...question,
 			descriptionHtml: renderMarkdown(question.description),

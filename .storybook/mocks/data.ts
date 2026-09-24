@@ -443,6 +443,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 			{ id: "rule-5", direction: "inbound", ruleApplication: "ekstern-gateway", ruleNamespace: "gateway", ruleCluster: "prod-gcp" },
 		],
 		teams: [{ teamId: "t-01", teamName: "Starte pensjon", teamSlug: "starte-pensjon" }],
+		effectiveSections: [],
 		primaryApp: null,
 		linkedApps: [],
 		appElements: [
@@ -1322,6 +1323,7 @@ export function mockRutineDetaljData(overrides?: {
 		reviews,
 		appsWithDeadlines,
 		screeningQuestion: null,
+		copyTargetSections: [],
 		descriptionHtml: eventOnly
 			? "<p>Gjennomfør sikkerhetsgjennomgang ved alle endringer i applikasjonens kildekode eller konfigurasjon.</p>"
 			: isSec

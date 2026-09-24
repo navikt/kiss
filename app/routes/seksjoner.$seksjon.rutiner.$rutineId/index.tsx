@@ -4,29 +4,33 @@ import {
 	Box,
 	Button,
 	Detail,
+	Dialog,
 	Heading,
 	HStack,
 	Label,
 	LocalAlert,
 	Modal,
+	Select,
 	Table,
 	Tag,
 	VStack,
 } from "@navikt/ds-react"
-import { useRef } from "react"
-import { data, Link, redirect, useFetcher, useLoaderData } from "react-router"
+import { useRef, useState } from "react"
+import { data, Form, Link, redirect, useFetcher, useLoaderData, useNavigation } from "react-router"
 import { ApproveReplaceModal } from "~/components/ApproveReplaceModal"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PrioritySelect } from "~/components/PrioritySelect"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { UserDisplayName } from "~/components/UserDisplayName"
-import { getAuditLogForEntity } from "~/db/queries/audit.server"
+import { getAuditLogForEntities, getAuditLogForEntity } from "~/db/queries/audit.server"
 import {
 	approveRoutine,
 	archiveRoutine,
 	calculateDeadline,
 	copyRoutine,
+	copyRoutineToSection,
+	getActivityStepIdsForRoutine,
 	getAppsRequiringRoutine,
 	getEffectiveLastReviewDate,
 	getReviewsForRoutine,
@@ -38,7 +42,7 @@ import {
 	updateRoutinePriority,
 } from "~/db/queries/routines.server"
 import { getScreeningQuestion } from "~/db/queries/screening.server"
-import { getSectionBySlug } from "~/db/queries/sections.server"
+import { getSectionBySlug, getSections } from "~/db/queries/sections.server"
 import { getUserNamesByNavIdents } from "~/db/queries/users.server"
 import {
 	type DataClassification,
@@ -52,7 +56,7 @@ import {
 } from "~/db/schema/applications"
 import { activityTypeLabels } from "~/lib/activity-types"
 import { getAuthenticatedUser, requireAuthenticatedUser } from "~/lib/auth.server"
-import { canApproveRoutine, hasAnySectionRole, isAdmin } from "~/lib/authorization.server"
+import { canApproveRoutine, hasAnySectionRole, isAdmin, requireAnySectionRole } from "~/lib/authorization.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { RoutineFrequency } from "~/lib/routine-frequencies"
 import type { Route } from "./+types/index"
@@ -71,9 +75,26 @@ const auditActionLabels: Record<string, string> = {
 	routine_unarchived: "Rutine reaktivert",
 	routine_approved: "Rutine godkjent",
 	routine_copied: "Kopiert fra annen rutine",
+	routine_copied_cross_section: "Kopiert til/fra annen seksjon",
 	routine_replaced: "Erstattet gammel rutine",
 	routine_priority_changed: "Prioritet endret",
 	routine_attachment_uploaded: "Vedlegg lastet opp",
+	routine_technology_element_added: "Teknologi koblet til",
+	routine_technology_element_removed: "Teknologi frakoblet",
+	routine_control_added: "Kontroll koblet til",
+	routine_control_removed: "Kontroll frakoblet",
+	routine_persistence_link_added: "Lagringspunkt lagt til",
+	routine_persistence_link_removed: "Lagringspunkt fjernet",
+	routine_group_classification_link_added: "Gruppeklassifisering lagt til",
+	routine_group_classification_link_removed: "Gruppeklassifisering fjernet",
+	routine_oracle_role_criticality_link_added: "Oracle-rollekritikalitet lagt til",
+	routine_oracle_role_criticality_link_removed: "Oracle-rollekritikalitet fjernet",
+	routine_screening_question_added: "Screeningspørsmål koblet til",
+	routine_screening_question_removed: "Screeningspørsmål frakoblet",
+	routine_checklist_step_created: "Sjekklistepunkt opprettet",
+	routine_checklist_step_updated: "Sjekklistepunkt endret",
+	routine_checklist_step_archived: "Sjekklistepunkt arkivert",
+	routine_activity_link_added: "Aktivitet koblet til",
 }
 
 function formatDate(date: string | Date | null): string {
@@ -113,12 +134,53 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		throw data({ message: "Rutinen tilhører ikke denne seksjonen" }, { status: 403 })
 	}
 
-	const [reviews, apps, followUpAppIds, auditLog] = await Promise.all([
+	const [
+		reviews,
+		apps,
+		followUpAppIds,
+		activityStepIds,
+		routineAuditLog,
+		technologyAuditLog,
+		controlAuditLog,
+		persistenceAuditLog,
+		gcAuditLog,
+		orcAuditLog,
+		screeningAuditLog,
+		activityLinkAuditLog,
+	] = await Promise.all([
 		getReviewsForRoutine(rutineId),
 		getAppsRequiringRoutine(rutineId),
 		getRoutineFollowUpApplicationIds(rutineId),
+		getActivityStepIdsForRoutine(rutineId),
 		getAuditLogForEntity("routine", rutineId),
+		getAuditLogForEntity("routine_technology_element", rutineId),
+		getAuditLogForEntity("routine_control", rutineId),
+		getAuditLogForEntity("routine_persistence_link", rutineId),
+		getAuditLogForEntity("routine_group_classification_link", rutineId),
+		getAuditLogForEntity("routine_oracle_role_criticality_link", rutineId),
+		getAuditLogForEntity("routine_screening_question", rutineId),
+		getAuditLogForEntity("routine_activity_link", rutineId),
 	])
+	// routine_checklist_step-rader skrives med sjekkpunktets egen ID som entityId
+	// (samme kontrakt som createActivityStep()/updateActivityStep()/archiveActivityStep()),
+	// ikke rutinens — må derfor slås opp via ALLE (også arkiverte) sjekkpunkt-IDer for
+	// rutinen, ikke rutineId, ellers forsvinner historikk for arkiverte punkter fra loggen.
+	const checklistAuditLog = await getAuditLogForEntities("routine_checklist_step", activityStepIds)
+	// Lenke-audit (teknologi/kontroll/persistens/klassifisering/kritikalitet/screening/aktivitet)
+	// skrives med entityId = rutinens egen ID, men entityType satt til barnetypen (se
+	// writeLinkAudit/writeCopyLinkAudit i routines.server.ts) — derfor må hver strøm hentes
+	// separat og flettes inn her, slik regelsett-ruten gjør for ruleset_routine/ruleset_control.
+	const auditLog = [
+		...routineAuditLog,
+		...technologyAuditLog,
+		...controlAuditLog,
+		...persistenceAuditLog,
+		...gcAuditLog,
+		...orcAuditLog,
+		...screeningAuditLog,
+		...checklistAuditLog,
+		...activityLinkAuditLog,
+	].sort((a, b) => new Date(b.performedAt).getTime() - new Date(a.performedAt).getTime())
 
 	const reviewerNames = await getUserNamesByNavIdents([
 		...reviews.map((r) => r.createdBy),
@@ -195,6 +257,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	const predecessorInfo = routine.sourceRoutineId ? (lineageNames.get(routine.sourceRoutineId) ?? null) : null
 	const successorInfo = routine.replacedByRoutineId ? (lineageNames.get(routine.replacedByRoutineId) ?? null) : null
 
+	// Seksjoner brukeren kan kopiere DENNE rutinen inn i (utenom seksjonen den allerede ligger i,
+	// som har sin egen "kopier for redigering"-knapp via `copyRoutine()`/intent "copy").
+	const copyTargetSections = user
+		? (await getSections()).filter((s) => s.id !== section.id && hasAnySectionRole(user, s.id))
+		: []
+
 	return data({
 		section,
 		routine,
@@ -213,6 +281,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		predecessorInfo,
 		successorInfo,
 		auditLog: auditLogWithNames,
+		copyTargetSections,
 	})
 }
 
@@ -240,7 +309,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 		routine.archivedAt &&
 		intent &&
 		typeof intent === "string" &&
-		["approve", "approve-replace", "approve-as-new", "copy"].includes(intent)
+		["approve", "approve-replace", "approve-as-new", "copy", "copy-to-section"].includes(intent)
 	) {
 		throw data({ message: "Arkiverte rutiner kan ikke endres. Reaktiver rutinen først." }, { status: 403 })
 	}
@@ -283,6 +352,28 @@ export async function action({ request, params }: Route.ActionArgs) {
 		const copy = await copyRoutine(rutineId, authedUser.navIdent)
 		if (!copy) throw data({ message: "Kunne ikke kopiere rutine" }, { status: 500 })
 		return redirect(`/seksjoner/${seksjon}/rutiner/${copy.id}/rediger`)
+	}
+
+	if (intent === "copy-to-section") {
+		const targetSectionId = formData.get("targetSectionId")
+		if (typeof targetSectionId !== "string" || !targetSectionId.trim()) {
+			throw data({ message: "Velg en seksjon å kopiere til." }, { status: 400 })
+		}
+		// Retten sjekkes mot MÅLseksjonen (der rutinen skal opprettes), ikke
+		// seksjonen rutinen kopieres fra — lesing av andre seksjoners rutiner
+		// er allerede åpent for alle innloggede brukere.
+		requireAnySectionRole(authedUser, targetSectionId.trim())
+		// Målseksjonen valideres FØR kopieringen for å unngå at kopien opprettes
+		// mot en arkivert seksjon. Selve slug-en til redirect-URL-en hentes derimot
+		// PÅ NYTT etter kopieringen (ikke gjenbrukt fra denne pre-sjekken), siden
+		// en seksjon kan bli omdøpt (ny slug) i vinduet mellom validering og kopi.
+		const targetSectionExists = (await getSections()).some((s) => s.id === targetSectionId.trim())
+		if (!targetSectionExists) throw data({ message: "Fant ikke målseksjonen" }, { status: 404 })
+		const copy = await copyRoutineToSection(rutineId, targetSectionId.trim(), authedUser.navIdent)
+		if (!copy) throw data({ message: "Kunne ikke kopiere rutinen" }, { status: 500 })
+		const targetSection = (await getSections({ includeArchived: true })).find((s) => s.id === targetSectionId.trim())
+		if (!targetSection) throw data({ message: "Fant ikke målseksjonen etter kopiering" }, { status: 500 })
+		return redirect(`/seksjoner/${targetSection.slug}/rutiner/${copy.id}/rediger`)
 	}
 
 	if (intent === "archive") {
@@ -338,11 +429,15 @@ export default function RutineDetaljer() {
 		predecessorInfo,
 		successorInfo,
 		auditLog,
+		copyTargetSections,
 	} = useLoaderData<typeof loader>()
 	const fetcher = useFetcher()
 	const archiveFetcher = useFetcher()
+	const navigation = useNavigation()
 	const archiveModalRef = useRef<HTMLDialogElement>(null)
 	const approveModalRef = useRef<HTMLDialogElement>(null)
+	const [copyToSectionOpen, setCopyToSectionOpen] = useState(false)
+	const [copyTargetSectionId, setCopyTargetSectionId] = useState("")
 	const userCanArchive = !routine.archivedAt && routine.status === "approved" && (userCanAdmin || userCanApprove)
 
 	return (
@@ -388,7 +483,7 @@ export default function RutineDetaljer() {
 							</Tag>
 						)}
 					</HStack>
-					<HStack gap="space-2">
+					<HStack gap="space-2" wrap>
 						{!routine.replacedByRoutineId && (routine.status !== "approved" || routine.archivedAt) && (
 							<Button as={Link} to="./rediger" variant="secondary" size="small">
 								Rediger
@@ -407,6 +502,14 @@ export default function RutineDetaljer() {
 								</Button>
 							</fetcher.Form>
 						)}
+						{!routine.archivedAt &&
+							routine.status !== "archived" &&
+							routine.status !== "deleted" &&
+							copyTargetSections.length > 0 && (
+								<Button variant="secondary" size="small" onClick={() => setCopyToSectionOpen(true)}>
+									Kopier til seksjon
+								</Button>
+							)}
 						{!routine.archivedAt &&
 							routine.status === "ready" &&
 							userCanApprove &&
@@ -446,7 +549,7 @@ export default function RutineDetaljer() {
 				{routine.archivedAt && (
 					<LocalAlert status="warning">
 						<LocalAlert.Header>
-							<LocalAlert.Title>Rutinen er arkivert</LocalAlert.Title>
+							<LocalAlert.Title as="h3">Rutinen er arkivert</LocalAlert.Title>
 						</LocalAlert.Header>
 						<LocalAlert.Content>
 							<BodyShort size="small">
@@ -470,7 +573,7 @@ export default function RutineDetaljer() {
 				{routine.replacedByRoutineId && successorInfo && (
 					<LocalAlert status="announcement">
 						<LocalAlert.Header>
-							<LocalAlert.Title>Rutinen er erstattet</LocalAlert.Title>
+							<LocalAlert.Title as="h3">Rutinen er erstattet</LocalAlert.Title>
 						</LocalAlert.Header>
 						<LocalAlert.Content>
 							<BodyShort size="small">
@@ -921,6 +1024,7 @@ export default function RutineDetaljer() {
 					{/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable regions need keyboard access per WCAG 2.1 */}
 					<section className="table-scroll" tabIndex={0} aria-label="Endringslogg for rutinen">
 						<Table size="small">
+							<caption className="navds-sr-only">Endringslogg for rutinen</caption>
 							<Table.Header>
 								<Table.Row>
 									<Table.HeaderCell scope="col">Tidspunkt</Table.HeaderCell>
@@ -986,6 +1090,60 @@ export default function RutineDetaljer() {
 					</Button>
 				</Modal.Footer>
 			</Modal>
+			<Dialog open={copyToSectionOpen} onOpenChange={setCopyToSectionOpen}>
+				<Dialog.Popup>
+					<Dialog.Header>
+						<Dialog.Title>Kopier til seksjon</Dialog.Title>
+					</Dialog.Header>
+					<Dialog.Body>
+						<Form id="copy-to-section-form" method="post">
+							<input type="hidden" name="intent" value="copy-to-section" />
+							<VStack gap="space-4">
+								{routine.status !== "approved" && (
+									<LocalAlert status="warning">
+										<LocalAlert.Header>
+											<LocalAlert.Title as="h3">Rutinen er ikke godkjent</LocalAlert.Title>
+										</LocalAlert.Header>
+										<LocalAlert.Content>
+											<BodyShort size="small">
+												Rutinen har status «{routine.status}» og er ikke ferdig kvalitetssikret. Vurder om innholdet er
+												ferdig og godt nok før den kopieres til en annen seksjon.
+											</BodyShort>
+										</LocalAlert.Content>
+									</LocalAlert>
+								)}
+								<Select
+									label="Velg seksjon"
+									name="targetSectionId"
+									value={copyTargetSectionId}
+									onChange={(e) => setCopyTargetSectionId(e.target.value)}
+								>
+									<option value="">Velg seksjon</option>
+									{copyTargetSections.map((s) => (
+										<option key={s.id} value={s.id}>
+											{s.name}
+										</option>
+									))}
+								</Select>
+							</VStack>
+						</Form>
+					</Dialog.Body>
+					<Dialog.Footer>
+						<Button
+							type="submit"
+							form="copy-to-section-form"
+							variant="primary"
+							disabled={!copyTargetSectionId}
+							loading={navigation.state !== "idle" && navigation.formData?.get("intent") === "copy-to-section"}
+						>
+							Kopier til seksjon
+						</Button>
+						<Dialog.CloseTrigger>
+							<Button variant="secondary">Avbryt</Button>
+						</Dialog.CloseTrigger>
+					</Dialog.Footer>
+				</Dialog.Popup>
+			</Dialog>
 		</VStack>
 	)
 }

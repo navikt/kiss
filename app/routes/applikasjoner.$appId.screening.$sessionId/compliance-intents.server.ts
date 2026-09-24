@@ -81,7 +81,9 @@ export async function handleComplianceIntent(
 	if (intent === "update-persistence-classification") {
 		const persistenceId = formData.get("persistenceId") as string
 		const classification = (formData.get("dataClassification") as string) || null
-		const justification = (formData.get("dataClassificationJustification") as string)?.trim() || null
+		const justification = formData.has("dataClassificationJustification")
+			? (formData.get("dataClassificationJustification") as string)?.trim() || null
+			: undefined
 		if (!persistenceId) throw new Response("Mangler persistens-ID", { status: 400 })
 
 		// Verify persistence belongs to this application
@@ -99,7 +101,7 @@ export async function handleComplianceIntent(
 				? (classification as DataClassification)
 				: null
 
-		await updatePersistenceClassification(persistenceId, validClassification, authedUser.navIdent, justification)
+		await updatePersistenceClassification(persistenceId, appId, validClassification, authedUser.navIdent, justification)
 
 		if (!options?.skipSync) {
 			const { syncApplicationControls } = await import("~/db/queries/application-controls.server")
