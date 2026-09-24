@@ -1,5 +1,6 @@
-import { BodyLong, BodyShort, Detail, Heading, HStack, Link, Table, Tag, VStack } from "@navikt/ds-react"
+import { BodyLong, BodyShort, Detail, Heading, HStack, Link, List, Table, Tag, VStack } from "@navikt/ds-react"
 import { useState } from "react"
+import { Link as RouterLink } from "react-router"
 
 interface TeamMember {
 	username: string
@@ -40,6 +41,7 @@ interface Props {
 	teams: GitHubTeam[]
 	collaborators: GitHubCollaborator[]
 	changeLog: ChangeLogEntry[]
+	sharedApplications?: Array<{ id: string; name: string; gitRepository: string }>
 }
 
 const PERMISSION_ORDER = ["admin", "maintain", "push", "write", "triage", "pull", "read"]
@@ -310,8 +312,8 @@ function TeamRow({ team }: { team: GitHubTeam }) {
 	)
 }
 
-export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
-	const hasData = teams.length > 0 || collaborators.length > 0
+export function GitHubTilgangerTab({ teams, collaborators, changeLog, sharedApplications = [] }: Props) {
+	const hasData = teams.length > 0 || collaborators.length > 0 || sharedApplications.length > 0
 	const allUsers = computeUserAccess(teams, collaborators)
 
 	if (!hasData && changeLog.length === 0) {
@@ -320,6 +322,25 @@ export function GitHubTilgangerTab({ teams, collaborators, changeLog }: Props) {
 
 	return (
 		<VStack gap="space-8">
+			{sharedApplications.length > 0 && (
+				<section>
+					<Heading size="small" spacing>
+						Andre applikasjoner med samme repository
+					</Heading>
+					<BodyLong>
+						Disse applikasjonene bruker også{" "}
+						<code>{sharedApplications[0].gitRepository}</code>.
+					</BodyLong>
+					<List>
+						{sharedApplications.map((application) => (
+							<List.Item key={application.id}>
+								<RouterLink to={`/applikasjoner/${application.id}/detaljer`}>{application.name}</RouterLink>
+							</List.Item>
+						))}
+					</List>
+				</section>
+			)}
+
 			{allUsers.length > 0 && (
 				<section>
 					<Heading size="small" spacing>

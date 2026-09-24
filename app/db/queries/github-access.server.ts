@@ -1,5 +1,7 @@
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { normalizeGitRepository } from "../../lib/github.server"
 import { db } from "../connection.server"
+import { applicationEnvironments, monitoredApplications } from "../schema/applications"
 import { type AuditLogAction, auditLog } from "../schema/audit"
 import { githubRepoCollaborators, githubRepoTeamMembers, githubRepoTeams } from "../schema/github-access"
 
@@ -30,6 +32,86 @@ export interface GitHubAccessChangeLogEntry {
 	metadata: string | null
 	performedBy: string
 	performedAt: Date
+}
+
+export interface GitHubSharedApplication {
+	id: string
+	name: string
+	gitRepository: string
+}
+
+async function getApplicationsSharingGitRepository(
+	appId: string,
+	gitRepository: string,
+): Promise<GitHubSharedApplication[]> {
+	const repositoryKey = normalizeGitRepository(gitRepository)
+	if (!repositoryKey) return []
+
+	const rows = await db.execute<{
+		id: string
+		name: string
+		git_repository: string | null
+	}>(sql`
+		SELECT
+			ma.id,
+			ma.name,
+			COALESCE(
+				NULLIF(trim(ma.git_repository), ''),
+				(
+					SELECT ae.git_repository
+					FROM ${applicationEnvironments} ae
+					WHERE ae.application_id = ma.id
+						AND ae.archived_at IS NULL
+						AND ae.git_repository IS NOT NULL
+						AND trim(ae.git_repository) != ''
+					ORDER BY ae.discovered_at ASC
+					LIMIT 1
+				)
+			) AS git_repository
+		FROM ${monitoredApplications} ma
+		WHERE ma.archived_at IS NULL
+	`)
+
+	return rows.rows
+		.map((row) => ({
+			...row,
+			normalizedRepository: row.git_repository ? normalizeGitRepository(row.git_repository) : null,
+		}))
+		.filter((row): row is typeof row & { git_repository: string; normalizedRepository: string } =>
+			row.id !== appId && row.git_repository != null && row.normalizedRepository === repositoryKey,
+		)
+		.map(({ id, name, git_repository: gitRepository }) => ({ id, name, gitRepository }))
+		.sort((a, b) => a.name.localeCompare(b.name, "nb"))
+}
+
+/**
+ * Hent aktive applikasjoner som bruker samme effektive GitHub-repository som en applikasjon.
+ * App-nivået prioriteres, ellers brukes eldste aktive miljø-repository.
+ */
+export async function getApplicationsSharingGitRepositoryForApp(appId: string): Promise<GitHubSharedApplication[]> {
+	const rows = await db.execute<{ git_repository: string | null }>(sql`
+		SELECT
+			COALESCE(
+				NULLIF(trim(ma.git_repository), ''),
+				(
+					SELECT ae.git_repository
+					FROM ${applicationEnvironments} ae
+					WHERE ae.application_id = ma.id
+						AND ae.archived_at IS NULL
+						AND ae.git_repository IS NOT NULL
+						AND trim(ae.git_repository) != ''
+					ORDER BY ae.discovered_at ASC
+					LIMIT 1
+				)
+			) AS git_repository
+		FROM ${monitoredApplications} ma
+		WHERE ma.id = ${appId}
+			AND ma.archived_at IS NULL
+		LIMIT 1
+	`)
+
+	const gitRepository = rows.rows[0]?.git_repository?.trim()
+	return gitRepository ? getApplicationsSharingGitRepository(appId, gitRepository) : []
 }
 
 /**

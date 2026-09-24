@@ -7,6 +7,7 @@ import { getScreeningEffectsByControlForApp } from "~/db/queries/compliance-auto
 import { getDeploymentVerificationForAppWithFetch } from "~/db/queries/deployment-audit.server"
 import { getEconomyClassification } from "~/db/queries/economy-classification.server"
 import {
+	getApplicationsSharingGitRepositoryForApp,
 	getGitHubAccessChangeLog,
 	getGitHubCollaboratorsForApp,
 	getGitHubTeamsForApp,
@@ -129,6 +130,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		githubTeams,
 		githubCollaborators,
 		githubChangeLog,
+		sharedGitHubApplications,
 		oracleRoleAssessmentsMap,
 		latestOracleRoleCriticalityReview,
 		effectiveSectionIds,
@@ -155,6 +157,7 @@ export async function loader({ request, params }: LoaderArgs) {
 		effectiveGitRepository ? getGitHubTeamsForApp(appId) : Promise.resolve([]),
 		effectiveGitRepository ? getGitHubCollaboratorsForApp(appId) : Promise.resolve([]),
 		effectiveGitRepository ? getGitHubAccessChangeLog(appId) : Promise.resolve([]),
+		effectiveGitRepository ? getApplicationsSharingGitRepositoryForApp(appId) : Promise.resolve([]),
 		getOracleRoleAssessments(appId),
 		getLatestOracleRoleCriticalityReview(appId),
 		getSectionIdsForApp(appId),
@@ -503,6 +506,7 @@ export async function loader({ request, params }: LoaderArgs) {
 				performedAt: e.performedAt.toISOString(),
 			})),
 		},
+		sharedGitHubApplications,
 		appRulesets,
 		economyClassification: economyClassification
 			? {

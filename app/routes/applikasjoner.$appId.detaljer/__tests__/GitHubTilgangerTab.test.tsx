@@ -22,6 +22,7 @@ describe("GitHubTilgangerTab", () => {
 					},
 				]}
 				changeLog={[]}
+				sharedApplications={[]}
 			/>,
 		)
 
@@ -45,6 +46,7 @@ describe("GitHubTilgangerTab", () => {
 					},
 				]}
 				changeLog={[]}
+				sharedApplications={[]}
 			/>,
 		)
 
@@ -73,6 +75,7 @@ describe("GitHubTilgangerTab", () => {
 				]}
 				collaborators={[]}
 				changeLog={[]}
+				sharedApplications={[]}
 			/>,
 		)
 
@@ -81,5 +84,23 @@ describe("GitHubTilgangerTab", () => {
 		expect(screen.getAllByText("Rask Elv")).toHaveLength(2)
 		expect(screen.getAllByRole("link", { name: "@rask-elv" })).toHaveLength(2)
 		expect(screen.getAllByText("Z990042")).toHaveLength(2)
+	})
+
+	it("shows other applications that use the same repository", () => {
+		render(
+			<GitHubTilgangerTab
+				teams={[]}
+				collaborators={[]}
+				changeLog={[]}
+				sharedApplications={[{ id: "app-2", name: "Kalkulator", gitRepository: "navikt/shared-repo" }]}
+			/>,
+		)
+
+		expect(screen.getByRole("heading", { name: "Andre applikasjoner med samme repository" })).toBeInTheDocument()
+		expect(screen.getByRole("link", { name: "Kalkulator" })).toHaveAttribute(
+			"href",
+			"/applikasjoner/app-2/detaljer",
+		)
+		expect(screen.getByText("navikt/shared-repo")).toBeInTheDocument()
 	})
 })

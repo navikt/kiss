@@ -153,6 +153,31 @@ export function parseLinkNext(linkHeader: string | null): string | null {
 	return match ? match[1] : null
 }
 
+/**
+ * Normaliserer et GitHub-repository til en stabil sammenligningsnøkkel.
+ * Godtar både owner/repo og GitHub-URL-er, med valgfri .git-suffiks.
+ */
+export function normalizeGitRepository(value: string): string | null {
+	let ownerRepo = value.trim()
+	if (!ownerRepo) return null
+
+	if (ownerRepo.startsWith("http://") || ownerRepo.startsWith("https://")) {
+		try {
+			const url = new URL(ownerRepo)
+			if (url.hostname.toLowerCase() !== "github.com") return null
+			ownerRepo = url.pathname.replace(/^\/|\/$/g, "")
+		} catch {
+			return null
+		}
+	}
+
+	ownerRepo = ownerRepo.replace(/\.git$/, "")
+	const segments = ownerRepo.split("/")
+	if (segments.length !== 2 || !segments[0] || !segments[1]) return null
+
+	return `${segments[0].toLowerCase()}/${segments[1].toLowerCase()}`
+}
+
 // --- Public API ---
 
 /**
