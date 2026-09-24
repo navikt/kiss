@@ -3,8 +3,8 @@ import { useCallback, useMemo } from "react"
 import { data, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
-	getApplicationsSharingGitRepositoryForApp,
 	type GitHubSharedApplication,
+	getApplicationsSharingGitRepositoryForApp,
 } from "~/db/queries/github-access.server"
 import {
 	addFollowUpPoint,

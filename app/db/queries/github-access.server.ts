@@ -1,9 +1,10 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm"
 import { normalizeGitRepository } from "../../lib/github.server"
 import { db } from "../connection.server"
-import { applicationEnvironments, monitoredApplications } from "../schema/applications"
+import { applicationEnvironments, monitoredApplications, naisTeams } from "../schema/applications"
 import { type AuditLogAction, auditLog } from "../schema/audit"
 import { githubRepoCollaborators, githubRepoTeamMembers, githubRepoTeams } from "../schema/github-access"
+import { sectionEnvironments } from "../schema/organization"
 
 export interface GitHubRepoTeamWithMembers {
 	id: string
@@ -64,6 +65,15 @@ async function getApplicationsSharingGitRepository(
 						AND ae.archived_at IS NULL
 						AND ae.git_repository IS NOT NULL
 						AND trim(ae.git_repository) != ''
+						AND NOT EXISTS (
+							SELECT 1
+							FROM ${naisTeams} nt
+							INNER JOIN ${sectionEnvironments} se
+								ON se.section_id = nt.section_id
+								AND se.cluster = ae.cluster
+								AND se.included = false
+							WHERE nt.id = ae.nais_team_id
+						)
 					ORDER BY ae.discovered_at ASC
 					LIMIT 1
 				)
@@ -77,8 +87,9 @@ async function getApplicationsSharingGitRepository(
 			...row,
 			normalizedRepository: row.git_repository ? normalizeGitRepository(row.git_repository) : null,
 		}))
-		.filter((row): row is typeof row & { git_repository: string; normalizedRepository: string } =>
-			row.id !== appId && row.git_repository != null && row.normalizedRepository === repositoryKey,
+		.filter(
+			(row): row is typeof row & { git_repository: string; normalizedRepository: string } =>
+				row.id !== appId && row.git_repository != null && row.normalizedRepository === repositoryKey,
 		)
 		.map(({ id, name, git_repository: gitRepository }) => ({ id, name, gitRepository }))
 		.sort((a, b) => a.name.localeCompare(b.name, "nb"))
@@ -100,6 +111,15 @@ export async function getApplicationsSharingGitRepositoryForApp(appId: string): 
 						AND ae.archived_at IS NULL
 						AND ae.git_repository IS NOT NULL
 						AND trim(ae.git_repository) != ''
+						AND NOT EXISTS (
+							SELECT 1
+							FROM ${naisTeams} nt
+							INNER JOIN ${sectionEnvironments} se
+								ON se.section_id = nt.section_id
+								AND se.cluster = ae.cluster
+								AND se.included = false
+							WHERE nt.id = ae.nais_team_id
+						)
 					ORDER BY ae.discovered_at ASC
 					LIMIT 1
 				)

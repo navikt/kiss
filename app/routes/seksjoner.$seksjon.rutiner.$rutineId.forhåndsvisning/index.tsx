@@ -394,6 +394,7 @@ export default function ForhåndsvisningGjennomgang() {
 		createdByName: "Rask Elv",
 		applicationId: null,
 		applicationName: null,
+		sharedGitHubApplications: [],
 		participants: MOCK_PARTICIPANTS,
 		attachments: MOCK_REVIEW_ATTACHMENTS.map((a) => ({ id: a.id, fileName: a.fileName })),
 		links: MOCK_LINKS,

@@ -328,13 +328,14 @@ export function GitHubTilgangerTab({ teams, collaborators, changeLog, sharedAppl
 						Andre applikasjoner med samme repository
 					</Heading>
 					<BodyLong>
-						Disse applikasjonene bruker også{" "}
-						<code>{sharedApplications[0].gitRepository}</code>.
+						Disse applikasjonene bruker også <code>{sharedApplications[0].gitRepository}</code>.
 					</BodyLong>
 					<List>
 						{sharedApplications.map((application) => (
 							<List.Item key={application.id}>
-								<RouterLink to={`/applikasjoner/${application.id}/detaljer`}>{application.name}</RouterLink>
+								<Link as={RouterLink} to={`/applikasjoner/${application.id}/detaljer`}>
+									{application.name}
+								</Link>
 							</List.Item>
 						))}
 					</List>
