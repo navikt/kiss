@@ -6,7 +6,6 @@ import {
 	Heading,
 	HStack,
 	Label,
-	List,
 	Table,
 	Tag,
 	TextField,
@@ -25,7 +24,6 @@ type ActionResult = {
 
 type TeamMember = { navIdent: string; name: string }
 type TeamGroup = { teamName: string; members: TeamMember[] }
-type SharedGitHubApplication = { id: string; name: string; gitRepository: string }
 
 type Props = {
 	review: {
@@ -38,30 +36,10 @@ type Props = {
 		createdByName: string | null
 		applicationId: string | null
 		applicationName: string | null
-		sharedGitHubApplications: SharedGitHubApplication[]
 		participants: Array<{ id: string; userIdent: string; userName: string | null; confirmedAt: string | null }>
 	}
 	isDraft: boolean
 	teamMembers?: TeamGroup[]
-}
-
-function SharedGitHubApplications({ applications }: { applications: SharedGitHubApplication[] }) {
-	if (applications.length === 0) return null
-
-	return (
-		<div>
-			<Label size="small">Andre applikasjoner med samme repository</Label>
-			<List size="small">
-				{applications.map((application) => (
-					<List.Item key={application.id}>
-						<AkselLink as={Link} to={`/applikasjoner/${application.id}/detaljer`}>
-							{application.name}
-						</AkselLink>
-					</List.Item>
-				))}
-			</List>
-		</div>
-	)
 }
 
 export function StepIntroduction({ review, isDraft, teamMembers = [] }: Props) {
@@ -107,7 +85,6 @@ export function StepIntroduction({ review, isDraft, teamMembers = [] }: Props) {
 							</BodyShort>
 						</div>
 					)}
-					<SharedGitHubApplications applications={review.sharedGitHubApplications} />
 					<div>
 						<Label size="small">Opprettet av</Label>
 						<BodyShort>
@@ -205,7 +182,6 @@ export function StepIntroduction({ review, isDraft, teamMembers = [] }: Props) {
 							</BodyShort>
 						</div>
 					)}
-					<SharedGitHubApplications applications={review.sharedGitHubApplications} />
 
 					<HStack gap="space-6" align="end">
 						<div>

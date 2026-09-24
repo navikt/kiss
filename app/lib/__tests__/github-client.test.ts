@@ -78,6 +78,7 @@ describe("parseLinkNext", () => {
 describe("normalizeGitRepository", () => {
 	it("normalizes repository paths and GitHub URLs", () => {
 		expect(normalizeGitRepository("navikt/KISS")).toBe("navikt/kiss")
+		expect(normalizeGitRepository("navikt/KISS.git/")).toBe("navikt/kiss")
 		expect(normalizeGitRepository("https://github.com/navikt/KISS.git/")).toBe("navikt/kiss")
 	})
 

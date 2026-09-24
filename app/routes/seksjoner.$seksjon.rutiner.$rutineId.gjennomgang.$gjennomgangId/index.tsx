@@ -3,10 +3,6 @@ import { useCallback, useMemo } from "react"
 import { data, Link, redirect, useLoaderData, useSearchParams } from "react-router"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import {
-	type GitHubSharedApplication,
-	getApplicationsSharingGitRepositoryForApp,
-} from "~/db/queries/github-access.server"
-import {
 	addFollowUpPoint,
 	addReviewLink,
 	autoCreateActivitiesForReview,
@@ -259,20 +255,17 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 	const nameFor = (navIdent: string) => userNames.get(navIdent.trim().toUpperCase()) ?? null
 
 	let applicationName: string | null = null
-	let sharedGitHubApplications: GitHubSharedApplication[] = []
 	let teamMembers: Array<{ teamName: string; members: Array<{ navIdent: string; name: string }> }> = []
 	if (review.applicationId) {
 		const applicationId = review.applicationId
-		const [appDetail, teamMembersResult, sharedApplicationsResult] = await Promise.all([
+		const [appDetail, teamMembersResult] = await Promise.all([
 			import("~/db/queries/nais.server").then((m) => m.getApplicationDetail(applicationId)),
 			review.status === "draft"
 				? import("~/db/queries/applications.server").then((m) => m.getTeamMembersForApp(applicationId))
 				: Promise.resolve([]),
-			getApplicationsSharingGitRepositoryForApp(applicationId),
 		])
 		applicationName = appDetail?.app.name ?? null
 		teamMembers = teamMembersResult
-		sharedGitHubApplications = sharedApplicationsResult
 	}
 
 	// Load activity data — auto-create activities for any draft review that is missing them.
@@ -714,7 +707,6 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 			...review,
 			createdByName: creatorName,
 			applicationName,
-			sharedGitHubApplications,
 			reviewedAt: review.reviewedAt.toISOString(),
 			createdAt: review.createdAt.toISOString(),
 			summaryHtml: renderMarkdown(review.summary),

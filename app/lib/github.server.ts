@@ -171,7 +171,7 @@ export function normalizeGitRepository(value: string): string | null {
 		}
 	}
 
-	ownerRepo = ownerRepo.replace(/\.git$/, "")
+	ownerRepo = ownerRepo.replace(/\/+$/, "").replace(/\.git$/, "")
 	const segments = ownerRepo.split("/")
 	if (segments.length !== 2 || !segments[0] || !segments[1]) return null
 
