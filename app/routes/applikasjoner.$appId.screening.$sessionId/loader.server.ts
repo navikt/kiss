@@ -72,6 +72,7 @@ export async function loader({ params }: Route.LoaderArgs) {
 		type: PersistenceType
 		name: string
 		dataClassification: DataClassification | null
+		dataClassificationJustification: string | null
 		manuallyAdded: boolean
 	}> = []
 	if (hasPersistenceQuestion) {
@@ -85,6 +86,7 @@ export async function loader({ params }: Route.LoaderArgs) {
 				type: p.type,
 				name: p.name,
 				dataClassification: p.dataClassification,
+				dataClassificationJustification: p.dataClassificationJustification,
 				manuallyAdded: p.manuallyAdded,
 			}))
 		}
@@ -206,12 +208,14 @@ export async function loader({ params }: Route.LoaderArgs) {
 				const type = p.persistenceType as PersistenceType
 				const name = p.persistenceName
 				const classification = (p.dataClassification as DataClassification) || null
+				const justification = p.dataClassificationJustification?.trim() || null
 				if (type && name) {
 					persistence.push({
 						id: `staged-${op.id}`,
 						type,
 						name,
 						dataClassification: classification,
+						dataClassificationJustification: justification,
 						manuallyAdded: true,
 					})
 				}
@@ -229,8 +233,13 @@ export async function loader({ params }: Route.LoaderArgs) {
 			case "update-persistence-classification": {
 				const persistenceId = p.persistenceId
 				const classification = (p.dataClassification as DataClassification) || null
+				const justification =
+					"dataClassificationJustification" in p ? p.dataClassificationJustification?.trim() || null : undefined
 				const entry = persistence.find((e) => e.id === persistenceId)
-				if (entry) entry.dataClassification = classification
+				if (entry) {
+					entry.dataClassification = classification
+					if (justification !== undefined) entry.dataClassificationJustification = justification
+				}
 				break
 			}
 			case "add-manual-group": {

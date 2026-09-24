@@ -994,8 +994,15 @@ export async function upsertAppPersistence(
 							type: existing.type,
 							name: existing.name,
 							archivedAt: previousArchivedAt,
+							dataClassification: existing.dataClassification,
+							dataClassificationJustification: existing.dataClassificationJustification,
 						}),
-						newValue: JSON.stringify({ type: existing.type, name: existing.name }),
+						newValue: JSON.stringify({
+							type: existing.type,
+							name: existing.name,
+							dataClassification: existing.dataClassification,
+							dataClassificationJustification: existing.dataClassificationJustification,
+						}),
 						metadata: { applicationId, reason: "nais_resync" },
 						performedBy: "nais-sync",
 					},
@@ -2801,6 +2808,7 @@ export async function addManualPersistence(
 	name: string,
 	dataClassification: DataClassification | null,
 	performedBy: string,
+	dataClassificationJustification: string | null = null,
 ) {
 	return db.transaction(async (tx) => {
 		// Søk på (appId, type, name) uten å filtrere på manuallyAdded — slik
@@ -2836,6 +2844,7 @@ export async function addManualPersistence(
 					archivedAt: null,
 					archivedBy: null,
 					dataClassification,
+					dataClassificationJustification,
 					manuallyAdded: true,
 					updatedAt: new Date(),
 				})
@@ -2847,8 +2856,14 @@ export async function addManualPersistence(
 					action: "persistence_unarchived",
 					entityType: "application_persistence",
 					entityId: existing.id,
-					previousValue: JSON.stringify({ type, name, archivedAt: previousArchivedAt }),
-					newValue: JSON.stringify({ type, name, dataClassification }),
+					previousValue: JSON.stringify({
+						type,
+						name,
+						archivedAt: previousArchivedAt,
+						dataClassification: existing.dataClassification,
+						dataClassificationJustification: existing.dataClassificationJustification,
+					}),
+					newValue: JSON.stringify({ type, name, dataClassification, dataClassificationJustification }),
 					metadata: { applicationId, reason: "manual_re_add" },
 					performedBy,
 				},
@@ -2864,6 +2879,7 @@ export async function addManualPersistence(
 				type,
 				name,
 				dataClassification,
+				dataClassificationJustification,
 				manuallyAdded: true,
 			})
 			.returning()
@@ -2873,7 +2889,7 @@ export async function addManualPersistence(
 				action: "persistence_added",
 				entityType: "application_persistence",
 				entityId: inserted.id,
-				newValue: JSON.stringify({ type, name, dataClassification }),
+				newValue: JSON.stringify({ type, name, dataClassification, dataClassificationJustification }),
 				metadata: { applicationId },
 				performedBy,
 			},
@@ -2886,8 +2902,11 @@ export async function addManualPersistence(
 
 export async function updatePersistenceClassification(
 	persistenceId: string,
+	applicationId: string,
 	classification: DataClassification | null,
 	performedBy: string,
+	// `undefined` = ikke oppgitt (behold eksisterende begrunnelse), `null` = eksplisitt fjern begrunnelsen.
+	justification?: string | null,
 ) {
 	return db.transaction(async (tx) => {
 		const [existing] = await tx
@@ -2897,12 +2916,29 @@ export async function updatePersistenceClassification(
 			.for("update")
 			.limit(1)
 
-		if (!existing) throw new Error("Persistens-oppføring ikke funnet")
+		// Håndhev eierskap her (ikke bare i route-koden) slik at enhver fremtidig
+		// kalling av denne funksjonen ikke kan endre en annen applikasjons database.
+		if (!existing || existing.applicationId !== applicationId) throw new Error("Persistens-oppføring ikke funnet")
 		if (existing.archivedAt) throw new Error("Kan ikke endre arkivert persistens-oppføring")
+
+		const nextJustification = justification === undefined ? existing.dataClassificationJustification : justification
+
+		// Ingen faktisk endring (f.eks. tab/blur uten redigering) — hopp over
+		// oppdatering og audit-logg for å unngå falsk historikk og updatedAt-endring.
+		if (
+			classification === existing.dataClassification &&
+			nextJustification === existing.dataClassificationJustification
+		) {
+			return
+		}
 
 		await tx
 			.update(applicationPersistence)
-			.set({ dataClassification: classification, updatedAt: new Date() })
+			.set({
+				dataClassification: classification,
+				...(justification !== undefined && { dataClassificationJustification: justification }),
+				updatedAt: new Date(),
+			})
 			.where(eq(applicationPersistence.id, persistenceId))
 
 		await writeAuditLog(
@@ -2910,8 +2946,14 @@ export async function updatePersistenceClassification(
 				action: "persistence_updated",
 				entityType: "application_persistence",
 				entityId: persistenceId,
-				previousValue: JSON.stringify({ dataClassification: existing.dataClassification }),
-				newValue: JSON.stringify({ dataClassification: classification }),
+				previousValue: JSON.stringify({
+					dataClassification: existing.dataClassification,
+					dataClassificationJustification: existing.dataClassificationJustification,
+				}),
+				newValue: JSON.stringify({
+					dataClassification: classification,
+					dataClassificationJustification: nextJustification,
+				}),
 				metadata: { applicationId: existing.applicationId, name: existing.name },
 				performedBy,
 			},
@@ -2963,11 +3005,14 @@ export async function archiveManualPersistence(persistenceId: string, performedB
 					type: archived.type,
 					name: archived.name,
 					dataClassification: archived.dataClassification,
+					dataClassificationJustification: archived.dataClassificationJustification,
 				}),
 				newValue: JSON.stringify({
 					type: archived.type,
 					name: archived.name,
 					archivedAt: archived.archivedAt,
+					dataClassification: archived.dataClassification,
+					dataClassificationJustification: archived.dataClassificationJustification,
 				}),
 				metadata: { applicationId: archived.applicationId },
 				performedBy,
@@ -3012,8 +3057,15 @@ export async function unarchiveManualPersistence(persistenceId: string, performe
 					type: restored.type,
 					name: restored.name,
 					archivedAt: previousArchivedAt,
+					dataClassification: existing.dataClassification,
+					dataClassificationJustification: existing.dataClassificationJustification,
 				}),
-				newValue: JSON.stringify({ type: restored.type, name: restored.name }),
+				newValue: JSON.stringify({
+					type: restored.type,
+					name: restored.name,
+					dataClassification: restored.dataClassification,
+					dataClassificationJustification: restored.dataClassificationJustification,
+				}),
 				metadata: { applicationId: restored.applicationId },
 				performedBy,
 			},

@@ -166,6 +166,7 @@ export const applicationPersistence = pgTable(
 		missingAuditFlags: text("missing_audit_flags").array(),
 		oracleInstanceId: text("oracle_instance_id"),
 		dataClassification: text("data_classification", { enum: dataClassificationEnum }),
+		dataClassificationJustification: text("data_classification_justification"),
 		manuallyAdded: boolean("manually_added").notNull().default(false),
 		extra: text("extra"),
 		discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull().defaultNow(),

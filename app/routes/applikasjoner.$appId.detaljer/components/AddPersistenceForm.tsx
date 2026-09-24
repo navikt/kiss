@@ -33,6 +33,12 @@ export function AddPersistenceForm() {
 								</option>
 							))}
 						</Select>
+						<TextField
+							label="Begrunnelse (valgfritt)"
+							name="dataClassificationJustification"
+							size="small"
+							style={{ minWidth: "16rem" }}
+						/>
 						<Button
 							type="submit"
 							variant="secondary"

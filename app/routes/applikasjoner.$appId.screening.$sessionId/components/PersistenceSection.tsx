@@ -1,6 +1,7 @@
 import { PlusIcon, TrashIcon } from "@navikt/aksel-icons"
 import { BodyShort, Button, Dialog, Heading, Select, Table, Tag, TextField, VStack } from "@navikt/ds-react"
-import { useRef, useState } from "react"
+import type { MouseEvent } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useFetcher } from "react-router"
 import {
 	type DataClassification,
@@ -63,6 +64,12 @@ export function PersistenceSection({ entries }: { entries: PersistenceEntry[] })
 											),
 										)}
 									</Select>
+									<TextField
+										label="Begrunnelse (valgfritt)"
+										description="Forklar gjerne hvorfor databasen er vurdert til denne klassifiseringen"
+										name="dataClassificationJustification"
+										size="small"
+									/>
 									<Button type="submit" variant="primary" size="small" loading={fetcher.state !== "idle"}>
 										Legg til
 									</Button>
@@ -81,57 +88,13 @@ export function PersistenceSection({ entries }: { entries: PersistenceEntry[] })
 								<Table.HeaderCell>Type</Table.HeaderCell>
 								<Table.HeaderCell>Navn</Table.HeaderCell>
 								<Table.HeaderCell>Klassifisering</Table.HeaderCell>
+								<Table.HeaderCell>Begrunnelse</Table.HeaderCell>
 								<Table.HeaderCell />
 							</Table.Row>
 						</Table.Header>
 						<Table.Body>
 							{entries.map((p) => (
-								<Table.Row key={p.id}>
-									<Table.DataCell>
-										<Tag variant={persistenceVariants[p.type] ?? "neutral"} size="xsmall">
-											{persistenceTypeLabels[p.type as keyof typeof persistenceTypeLabels] ?? p.type}
-										</Tag>
-									</Table.DataCell>
-									<Table.DataCell>{p.name}</Table.DataCell>
-									<Table.DataCell>
-										<fetcher.Form method="post">
-											<input type="hidden" name="intent" value="update-persistence-classification" />
-											<input type="hidden" name="persistenceId" value={p.id} />
-											<Select
-												label="Klassifisering"
-												hideLabel
-												name="dataClassification"
-												size="small"
-												defaultValue={p.dataClassification ?? ""}
-												id={`classification-${p.id}`}
-												onChange={(e) => {
-													const form = e.target.closest("form")
-													if (form) fetcher.submit(form)
-												}}
-											>
-												<option value="">Ikke satt</option>
-												{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(
-													([value, label]) => (
-														<option key={value} value={value}>
-															{label}
-														</option>
-													),
-												)}
-											</Select>
-										</fetcher.Form>
-									</Table.DataCell>
-									<Table.DataCell>
-										{p.manuallyAdded && (
-											<fetcher.Form method="post">
-												<input type="hidden" name="intent" value="archive-persistence" />
-												<input type="hidden" name="persistenceId" value={p.id} />
-												<Button type="submit" size="xsmall" variant="tertiary-neutral" icon={<TrashIcon aria-hidden />}>
-													Arkiver
-												</Button>
-											</fetcher.Form>
-										)}
-									</Table.DataCell>
-								</Table.Row>
+								<PersistenceEntryRow key={p.id} p={p} />
 							))}
 						</Table.Body>
 					</Table>
@@ -142,5 +105,131 @@ export function PersistenceSection({ entries }: { entries: PersistenceEntry[] })
 				</BodyShort>
 			)}
 		</VStack>
+	)
+}
+
+function PersistenceEntryRow({ p }: { p: PersistenceEntry }) {
+	const classificationFetcher = useFetcher()
+	const archiveFetcher = useFetcher()
+	const submitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const lastSavedJustification = useRef(p.dataClassificationJustification ?? "")
+	const archiveFormRef = useRef<HTMLFormElement | null>(null)
+	const pendingArchiveRef = useRef(false)
+	const flushClassificationForm = useCallback(() => {
+		if (submitTimer.current) {
+			clearTimeout(submitTimer.current)
+			submitTimer.current = null
+		}
+		const form = document.getElementById(`classification-form-${p.id}`) as HTMLFormElement | null
+		if (form) classificationFetcher.submit(form)
+	}, [p.id, classificationFetcher])
+	useEffect(
+		() => () => {
+			if (submitTimer.current) flushClassificationForm()
+		},
+		[flushClassificationForm],
+	)
+	// Begge intents er "staged" (skrives til staged_data og replayes ved
+	// fullføring). Hvis en klassifiserings-lagring fortsatt venter når
+	// arkivering trigges, må den staged FØR arkiveringen — ellers kan
+	// arkiveringen bli staged først, og replay ved fullføring vil da avvise
+	// den senere klassifiseringsoppdateringen mot den (nå) arkiverte raden.
+	useEffect(() => {
+		if (pendingArchiveRef.current && classificationFetcher.state === "idle") {
+			pendingArchiveRef.current = false
+			archiveFormRef.current?.requestSubmit()
+		}
+	}, [classificationFetcher.state])
+	const scheduleSubmit = () => {
+		if (submitTimer.current) clearTimeout(submitTimer.current)
+		submitTimer.current = setTimeout(() => {
+			submitTimer.current = null
+			const form = document.getElementById(`classification-form-${p.id}`) as HTMLFormElement | null
+			if (form) classificationFetcher.submit(form)
+		}, 400)
+	}
+	const handleArchiveClick = (e: MouseEvent<HTMLButtonElement>) => {
+		if (submitTimer.current) {
+			e.preventDefault()
+			pendingArchiveRef.current = true
+			flushClassificationForm()
+		} else if (classificationFetcher.state !== "idle") {
+			e.preventDefault()
+			pendingArchiveRef.current = true
+		}
+	}
+
+	return (
+		<Table.Row>
+			<Table.DataCell>
+				<Tag variant={persistenceVariants[p.type] ?? "neutral"} size="xsmall">
+					{persistenceTypeLabels[p.type as keyof typeof persistenceTypeLabels] ?? p.type}
+				</Tag>
+			</Table.DataCell>
+			<Table.DataCell>{p.name}</Table.DataCell>
+			<Table.DataCell>
+				<classificationFetcher.Form method="post" id={`classification-form-${p.id}`}>
+					<input type="hidden" name="intent" value="update-persistence-classification" />
+					<input type="hidden" name="persistenceId" value={p.id} />
+				</classificationFetcher.Form>
+				<Select
+					label="Klassifisering"
+					hideLabel
+					name="dataClassification"
+					size="small"
+					form={`classification-form-${p.id}`}
+					defaultValue={p.dataClassification ?? ""}
+					id={`classification-${p.id}`}
+					onChange={() => {
+						const justificationInput = document.getElementById(
+							`classification-justification-${p.id}`,
+						) as HTMLInputElement | null
+						if (justificationInput) lastSavedJustification.current = justificationInput.value
+						scheduleSubmit()
+					}}
+				>
+					<option value="">Ikke satt</option>
+					{(Object.entries(dataClassificationLabels) as [DataClassification, string][]).map(([value, label]) => (
+						<option key={value} value={value}>
+							{label}
+						</option>
+					))}
+				</Select>
+			</Table.DataCell>
+			<Table.DataCell>
+				<TextField
+					label="Begrunnelse (valgfritt)"
+					hideLabel
+					name="dataClassificationJustification"
+					size="small"
+					form={`classification-form-${p.id}`}
+					defaultValue={p.dataClassificationJustification ?? ""}
+					id={`classification-justification-${p.id}`}
+					onBlur={(e) => {
+						if (e.target.value === lastSavedJustification.current) return
+						lastSavedJustification.current = e.target.value
+						scheduleSubmit()
+					}}
+				/>
+			</Table.DataCell>
+			<Table.DataCell>
+				{p.manuallyAdded && (
+					<archiveFetcher.Form method="post" ref={archiveFormRef}>
+						<input type="hidden" name="intent" value="archive-persistence" />
+						<input type="hidden" name="persistenceId" value={p.id} />
+						<Button
+							type="submit"
+							size="xsmall"
+							variant="tertiary-neutral"
+							icon={<TrashIcon aria-hidden />}
+							loading={archiveFetcher.state !== "idle"}
+							onClick={handleArchiveClick}
+						>
+							Arkiver
+						</Button>
+					</archiveFetcher.Form>
+				)}
+			</Table.DataCell>
+		</Table.Row>
 	)
 }

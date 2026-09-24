@@ -87,6 +87,45 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		expect(audit.find((a) => a.action === "persistence_archived")?.performed_by).toBe("archiver")
 	})
 
+	it("includes dataClassificationJustification in the archive audit previousValue", async () => {
+		const appId = await createTestApp("App A")
+		const row = await addManualPersistence(
+			appId,
+			"cloud_sql_postgres",
+			"kunde-db",
+			"critical",
+			"creator",
+			"Inneholder sensitive kundedata",
+		)
+
+		await archiveManualPersistence(row.id, "archiver")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const entry = audit.find((a) => a.action === "persistence_archived")
+		const previousValue = JSON.parse(entry?.previous_value as string)
+		expect(previousValue.dataClassificationJustification).toBe("Inneholder sensitive kundedata")
+	})
+
+	it("includes dataClassification fields in the archive audit newValue since the archived row retains them", async () => {
+		const appId = await createTestApp("App A2")
+		const row = await addManualPersistence(
+			appId,
+			"cloud_sql_postgres",
+			"kunde-db-2",
+			"critical",
+			"creator",
+			"Inneholder sensitive kundedata",
+		)
+
+		await archiveManualPersistence(row.id, "archiver")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const entry = audit.find((a) => a.action === "persistence_archived")
+		const newValue = JSON.parse(entry?.new_value as string)
+		expect(newValue.dataClassification).toBe("critical")
+		expect(newValue.dataClassificationJustification).toBe("Inneholder sensitive kundedata")
+	})
+
 	it("excludes archived rows from getAppPersistence by default and includes them with includeArchived", async () => {
 		const appId = await createTestApp("App B")
 		const a = await addManualPersistence(appId, "cloud_sql_postgres", "active", null, "u")
@@ -203,7 +242,154 @@ describe("Application persistence archive (soft-delete) integration tests", () =
 		const row = await addManualPersistence(appId, "bucket", "frozen", null, "u")
 		await archiveManualPersistence(row.id, "u")
 
-		await expect(updatePersistenceClassification(row.id, "critical", "u")).rejects.toThrow(/arkivert/)
+		await expect(updatePersistenceClassification(row.id, appId, "critical", "u")).rejects.toThrow(/arkivert/)
+	})
+
+	it("persists dataClassificationJustification on add and includes it in the audit newValue", async () => {
+		const appId = await createTestApp("App S")
+		const row = await addManualPersistence(
+			appId,
+			"bucket",
+			"begrunnet-db",
+			"not_critical",
+			"creator",
+			"Inneholder kun offentlige maler uten persondata",
+		)
+		expect(row.dataClassificationJustification).toBe("Inneholder kun offentlige maler uten persondata")
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassificationJustification).toBe("Inneholder kun offentlige maler uten persondata")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const added = audit.find((a) => a.action === "persistence_added")
+		const newValue = JSON.parse(added?.new_value ?? "{}")
+		expect(newValue.dataClassificationJustification).toBe("Inneholder kun offentlige maler uten persondata")
+	})
+
+	it("persists dataClassificationJustification on update and records both old and new value in the audit log", async () => {
+		const appId = await createTestApp("App T")
+		const row = await addManualPersistence(
+			appId,
+			"bucket",
+			"oppdater-begrunnelse",
+			"critical",
+			"u",
+			"Opprinnelig begrunnelse",
+		)
+
+		await updatePersistenceClassification(
+			row.id,
+			appId,
+			"not_critical",
+			"oppdaterer",
+			"Ny begrunnelse etter revurdering",
+		)
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassification).toBe("not_critical")
+		expect(fetched.dataClassificationJustification).toBe("Ny begrunnelse etter revurdering")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		const previousValue = JSON.parse(updated?.previous_value ?? "{}")
+		const newValue = JSON.parse(updated?.new_value ?? "{}")
+		expect(previousValue.dataClassificationJustification).toBe("Opprinnelig begrunnelse")
+		expect(newValue.dataClassificationJustification).toBe("Ny begrunnelse etter revurdering")
+	})
+
+	it("omitting justification (undefined) preserves the existing dataClassificationJustification", async () => {
+		const appId = await createTestApp("App T-undefined")
+		const row = await addManualPersistence(appId, "bucket", "udefinert-begrunnelse", "critical", "u", "Skal bevares")
+
+		// Ingen `justification`-argument gitt (undefined) — kun klassifiseringen endres.
+		await updatePersistenceClassification(row.id, appId, "not_critical", "oppdaterer")
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassification).toBe("not_critical")
+		expect(fetched.dataClassificationJustification).toBe("Skal bevares")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		const newValue = JSON.parse(updated?.new_value ?? "{}")
+		expect(newValue.dataClassificationJustification).toBe("Skal bevares")
+	})
+
+	it("explicit null clears an existing dataClassificationJustification", async () => {
+		const appId = await createTestApp("App T-null")
+		const row = await addManualPersistence(appId, "bucket", "fjern-begrunnelse", "critical", "u", "Skal fjernes")
+
+		await updatePersistenceClassification(row.id, appId, "not_critical", "oppdaterer", null)
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassification).toBe("not_critical")
+		expect(fetched.dataClassificationJustification).toBeNull()
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const updated = audit.find((a) => a.action === "persistence_updated")
+		const previousValue = JSON.parse(updated?.previous_value ?? "{}")
+		const newValue = JSON.parse(updated?.new_value ?? "{}")
+		expect(previousValue.dataClassificationJustification).toBe("Skal fjernes")
+		expect(newValue.dataClassificationJustification).toBeNull()
+	})
+
+	it("an unchanged classification+justification writes neither an UPDATE nor a persistence_updated audit row", async () => {
+		const appId = await createTestApp("App T-noop")
+		const row = await addManualPersistence(appId, "bucket", "uendret-db", "critical", "u", "Samme begrunnelse")
+		const beforeUpdatedAt = (await getAppPersistence(appId))[0].updatedAt
+
+		const result = await updatePersistenceClassification(row.id, appId, "critical", "u", "Samme begrunnelse")
+		expect(result).toBeUndefined()
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassification).toBe("critical")
+		expect(fetched.dataClassificationJustification).toBe("Samme begrunnelse")
+		expect(fetched.updatedAt).toEqual(beforeUpdatedAt)
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		expect(audit.some((a) => a.action === "persistence_updated")).toBe(false)
+	})
+
+	it("rejects updatePersistenceClassification when the row belongs to a different application", async () => {
+		const appId = await createTestApp("App U1")
+		const otherAppId = await createTestApp("App U2")
+		const row = await addManualPersistence(appId, "bucket", "annen-app-db", null, "u")
+
+		await expect(
+			updatePersistenceClassification(row.id, otherAppId, "critical", "angriper", "uautorisert endring"),
+		).rejects.toThrow(/ikke funnet/)
+
+		const [fetched] = await getAppPersistence(appId)
+		expect(fetched.dataClassification).toBeNull()
+		expect(fetched.dataClassificationJustification).toBeNull()
+	})
+
+	it("restores dataClassificationJustification when reactivating an archived manual persistence row", async () => {
+		const appId = await createTestApp("App V")
+		const row = await addManualPersistence(
+			appId,
+			"bucket",
+			"gjenaktiver-begrunnelse",
+			"critical",
+			"u",
+			"Begrunnelse ved oppretting",
+		)
+		await archiveManualPersistence(row.id, "u")
+
+		const readded = await addManualPersistence(
+			appId,
+			"bucket",
+			"gjenaktiver-begrunnelse",
+			"not_critical",
+			"manual-user",
+			"Ny begrunnelse ved gjenaktivering",
+		)
+		expect(readded.id).toBe(row.id)
+		expect(readded.dataClassificationJustification).toBe("Ny begrunnelse ved gjenaktivering")
+
+		const audit = await getAuditByEntity("application_persistence", row.id)
+		const unarchive = audit.find((a) => a.action === "persistence_unarchived")
+		const newValue = JSON.parse(unarchive?.new_value ?? "{}")
+		expect(newValue.dataClassificationJustification).toBe("Ny begrunnelse ved gjenaktivering")
 	})
 
 	it("rejects linkPersistenceToOracleInstance on archived rows", async () => {

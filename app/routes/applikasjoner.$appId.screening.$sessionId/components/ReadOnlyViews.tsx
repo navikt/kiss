@@ -105,6 +105,7 @@ export function ReadOnlyPersistence({ entries }: { entries: PersistenceEntry[] }
 							<Table.HeaderCell>Type</Table.HeaderCell>
 							<Table.HeaderCell>Navn</Table.HeaderCell>
 							<Table.HeaderCell>Klassifisering</Table.HeaderCell>
+							<Table.HeaderCell>Begrunnelse</Table.HeaderCell>
 						</Table.Row>
 					</Table.Header>
 					<Table.Body>
@@ -121,6 +122,7 @@ export function ReadOnlyPersistence({ entries }: { entries: PersistenceEntry[] }
 										? dataClassificationLabels[p.dataClassification as DataClassification]
 										: "Ikke satt"}
 								</Table.DataCell>
+								<Table.DataCell>{p.dataClassificationJustification || "–"}</Table.DataCell>
 							</Table.Row>
 						))}
 					</Table.Body>
