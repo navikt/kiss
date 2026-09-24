@@ -10,9 +10,35 @@ interface CachedToken {
 	expiresAt: number
 }
 
+interface InflightTokenRequest {
+	promise: Promise<string>
+	controller: AbortController
+	activeConsumers: number
+	settled: boolean
+}
+
 const CACHE_BUFFER_MS = 5 * 60 * 1000
 const clientCredentialCache = new Map<string, CachedToken>()
-const inflightRequests = new Map<string, Promise<string>>()
+const inflightRequests = new Map<string, InflightTokenRequest>()
+
+function waitForSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+	signal.throwIfAborted()
+
+	return new Promise((resolve, reject) => {
+		const onAbort = () => reject(signal.reason)
+		signal.addEventListener("abort", onAbort, { once: true })
+		promise.then(
+			(value) => {
+				signal.removeEventListener("abort", onAbort)
+				resolve(value)
+			},
+			(error) => {
+				signal.removeEventListener("abort", onAbort)
+				reject(error)
+			},
+		)
+	})
+}
 
 export async function getOnBehalfOfToken(user: NavUser, targetScope: string): Promise<string> {
 	if (!AZURE_OPENID_CONFIG_TOKEN_ENDPOINT || !AZURE_APP_CLIENT_ID || !AZURE_APP_CLIENT_SECRET) {
@@ -45,33 +71,55 @@ export async function getOnBehalfOfToken(user: NavUser, targetScope: string): Pr
 	return data.access_token
 }
 
-export async function getClientCredentialToken(targetScope: string): Promise<string> {
+export async function getClientCredentialToken(
+	targetScope: string,
+	options?: { signal?: AbortSignal },
+): Promise<string> {
 	if (!AZURE_OPENID_CONFIG_TOKEN_ENDPOINT || !AZURE_APP_CLIENT_ID || !AZURE_APP_CLIENT_SECRET) {
 		throw new Error("Azure AD environment variables not configured")
 	}
+	options?.signal?.throwIfAborted()
 
 	const cached = clientCredentialCache.get(targetScope)
 	if (cached && cached.expiresAt > Date.now()) {
 		return cached.accessToken
 	}
 
-	// Deduplicate concurrent requests for the same scope
-	const inflight = inflightRequests.get(targetScope)
-	if (inflight) {
-		return inflight
+	let request = inflightRequests.get(targetScope)
+	if (!request) {
+		const controller = new AbortController()
+		const promise = fetchClientCredentialToken(targetScope, controller.signal)
+		const createdRequest = { promise, controller, activeConsumers: 0, settled: false }
+		request = createdRequest
+		inflightRequests.set(targetScope, createdRequest)
+		void promise.then(
+			() => finishInflightRequest(targetScope, createdRequest),
+			() => finishInflightRequest(targetScope, createdRequest),
+		)
 	}
 
-	const promise = fetchClientCredentialToken(targetScope)
-	inflightRequests.set(targetScope, promise)
-
+	request.activeConsumers += 1
 	try {
-		return await promise
+		return await (options?.signal ? waitForSignal(request.promise, options.signal) : request.promise)
 	} finally {
+		request.activeConsumers -= 1
+		if (!request.settled && request.activeConsumers === 0) {
+			if (inflightRequests.get(targetScope) === request) {
+				inflightRequests.delete(targetScope)
+			}
+			request.controller.abort()
+		}
+	}
+}
+
+function finishInflightRequest(targetScope: string, request: InflightTokenRequest): void {
+	request.settled = true
+	if (inflightRequests.get(targetScope) === request) {
 		inflightRequests.delete(targetScope)
 	}
 }
 
-async function fetchClientCredentialToken(targetScope: string): Promise<string> {
+async function fetchClientCredentialToken(targetScope: string, signal: AbortSignal): Promise<string> {
 	if (!AZURE_OPENID_CONFIG_TOKEN_ENDPOINT || !AZURE_APP_CLIENT_ID || !AZURE_APP_CLIENT_SECRET) {
 		throw new Error("Azure AD environment variables not configured")
 	}
@@ -87,6 +135,7 @@ async function fetchClientCredentialToken(targetScope: string): Promise<string> 
 				client_secret: AZURE_APP_CLIENT_SECRET,
 				scope: targetScope,
 			}),
+			signal,
 		},
 		{ area: "azure-ad" },
 	)

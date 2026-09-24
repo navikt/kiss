@@ -18,7 +18,7 @@ const teams = [
 		permission: "push",
 		syncedAt: "2026-06-01T10:00:00Z",
 		members: [
-			{ username: "glad-fjord", role: "member" },
+			{ username: "glad-fjord", role: "member", displayName: "Glad Fjord", navIdent: "Z990001" },
 			{ username: "rask-elv", role: "member" },
 			{ username: "stille-skog", role: "maintainer" },
 		],
@@ -81,7 +81,14 @@ const teams = [
 ]
 
 const collaborators = [
-	{ id: "c-1", username: "glad-fjord", permission: "admin", syncedAt: "2026-06-01T10:00:00Z" },
+	{
+		id: "c-1",
+		username: "glad-fjord",
+		displayName: "Glad Fjord",
+		navIdent: "Z990001",
+		permission: "admin",
+		syncedAt: "2026-06-01T10:00:00Z",
+	},
 	{ id: "c-2", username: "rask-elv", permission: "admin", syncedAt: "2026-06-01T10:00:00Z" },
 	{ id: "c-3", username: "stille-skog", permission: "admin", syncedAt: "2026-06-01T10:00:00Z" },
 ]

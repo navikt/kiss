@@ -37,6 +37,56 @@ describe("getClientCredentialToken cache", () => {
 		expect(token).toContain("token-")
 	})
 
+	it("should deduplicate token requests while allowing individual callers to abort", async () => {
+		let resolveToken: ((value: Response) => void) | undefined
+		const tokenSignals: AbortSignal[] = []
+		mockFetch.mockImplementationOnce(
+			(_url, options) =>
+				new Promise<Response>((resolve) => {
+					resolveToken = resolve
+					if (options?.signal instanceof AbortSignal) {
+						tokenSignals.push(options.signal)
+					}
+				}),
+		)
+		const firstController = new AbortController()
+		const secondController = new AbortController()
+
+		const firstPromise = getClientCredentialToken("api://abortable/.default", { signal: firstController.signal })
+		const firstRejection = expect(firstPromise).rejects.toThrow()
+		const secondPromise = getClientCredentialToken("api://abortable/.default", { signal: secondController.signal })
+		firstController.abort()
+		expect(tokenSignals[0]?.aborted).toBe(false)
+		resolveToken?.(mockTokenResponse(3600, "shared-token"))
+
+		await firstRejection
+		await expect(secondPromise).resolves.toBe("shared-token")
+		expect(mockFetch).toHaveBeenCalledTimes(1)
+	})
+
+	it("should abort the token request when its last caller aborts", async () => {
+		const tokenSignals: AbortSignal[] = []
+		mockFetch.mockImplementationOnce(
+			(_url, options) =>
+				new Promise<Response>((_resolve, reject) => {
+					if (!(options?.signal instanceof AbortSignal)) {
+						reject(new Error("Expected token request signal"))
+						return
+					}
+					tokenSignals.push(options.signal)
+					options.signal.addEventListener("abort", () => reject(options.signal?.reason), { once: true })
+				}),
+		)
+		const controller = new AbortController()
+
+		const tokenPromise = getClientCredentialToken("api://cancelled/.default", { signal: controller.signal })
+		const rejection = expect(tokenPromise).rejects.toThrow()
+		controller.abort()
+
+		await rejection
+		expect(tokenSignals[0]?.aborted).toBe(true)
+	})
+
 	it("should return cached token on subsequent calls with same scope", async () => {
 		mockFetch.mockResolvedValueOnce(mockTokenResponse())
 
