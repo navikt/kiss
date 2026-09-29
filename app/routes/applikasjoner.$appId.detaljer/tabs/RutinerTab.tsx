@@ -69,6 +69,7 @@ type CompletedReview = {
 	createdByName: string | null
 	sectionId: string | null
 	participants: Array<{ confirmedAt: Date | string | null }>
+	canRead: boolean
 }
 
 export function RutinerTab({
@@ -116,6 +117,15 @@ export function RutinerTab({
 	const routineIdsWithReviews = new Set(
 		completedReviews.filter((r) => r.status === "completed" || r.status === "needs_follow_up").map((r) => r.routineId),
 	)
+
+	const latestReviewByRoutine = new Map<string, { reviewId: string; sectionId: string | null }>()
+	for (const r of completedReviews) {
+		if (r.status !== "completed" && r.status !== "needs_follow_up") continue
+		if (!r.canRead) continue
+		if (!latestReviewByRoutine.has(r.routineId)) {
+			latestReviewByRoutine.set(r.routineId, { reviewId: r.id, sectionId: r.sectionId })
+		}
+	}
 
 	const routineStatusKey = (dl: RoutineDeadline): string => {
 		if (dl.draftReviewId) return "draft"
@@ -278,6 +288,8 @@ export function RutinerTab({
 		const canReview = canManageReviews && !!dl.routine?.sectionId && !!sectionSlug
 		const hasReport = !!dl.routine?.id && routineIdsWithReviews.has(dl.routine.id)
 		if (!canReview && !hasReport) return null
+		const latestReview = dl.routine?.id ? latestReviewByRoutine.get(dl.routine.id) : undefined
+		const latestReviewSectionSlug = latestReview?.sectionId ? sectionSlugMap[latestReview.sectionId] : undefined
 		return (
 			<RoutineActionsMenu
 				routineId={dl.routine?.id ?? ""}
@@ -285,6 +297,8 @@ export function RutinerTab({
 				sectionSlug={sectionSlug}
 				canReview={canReview}
 				hasReport={hasReport}
+				latestReviewId={latestReview?.reviewId}
+				latestReviewSectionSlug={latestReviewSectionSlug}
 			/>
 		)
 	}
@@ -808,6 +822,8 @@ function RoutineActionsMenu({
 	canReview,
 	hasReport,
 	reviewId,
+	latestReviewId,
+	latestReviewSectionSlug,
 }: {
 	routineId: string
 	draftReviewId?: string | null
@@ -815,6 +831,8 @@ function RoutineActionsMenu({
 	canReview: boolean
 	hasReport: boolean
 	reviewId?: string
+	latestReviewId?: string
+	latestReviewSectionSlug?: string
 }) {
 	const submit = useSubmit()
 	const reportFetcher = useFetcher<typeof action>()
@@ -894,6 +912,14 @@ function RoutineActionsMenu({
 							}}
 						>
 							Ny gjennomgang
+						</ActionMenu.Item>
+					)}
+					{latestReviewId && latestReviewSectionSlug && (
+						<ActionMenu.Item
+							as={Link}
+							to={`/seksjoner/${latestReviewSectionSlug}/rutiner/${routineId}/gjennomgang/${latestReviewId}`}
+						>
+							Se siste gjennomgang
 						</ActionMenu.Item>
 					)}
 					{hasReport && (
