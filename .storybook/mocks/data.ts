@@ -586,6 +586,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				status: "needs_follow_up" as const,
 				createdBy: "Z990001",
 				sectionId: "s-01",
+				canRead: true,
 				participants: [{ confirmedAt: "2026-03-01T11:00:00Z" }],
 				followUpPoints: [
 					{
@@ -625,6 +626,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				status: "completed" as const,
 				createdBy: "Z990001",
 				sectionId: "s-01",
+				canRead: true,
 				participants: [{ confirmedAt: "2026-03-15T09:30:00Z" }, { confirmedAt: null }],
 				followUpPoints: [],
 			},
@@ -637,6 +639,7 @@ export function mockAppDetaljerData(overrides?: Record<string, unknown>) {
 				status: "discarded" as const,
 				createdBy: "Z990001",
 				sectionId: "s-01",
+				canRead: true,
 				participants: [],
 				followUpPoints: [],
 			},

@@ -115,6 +115,109 @@ export const RutinerFane: Story = {
 		renderWithLoader(ApplikasjonDetalj, mockAppDetaljerData(), "/applikasjoner/app-1/detaljer?fane=rutiner"),
 }
 
+export const SisteGjennomgangILenkemeny: Story = {
+	name: "«Se siste gjennomgang» velger nyeste fullførte gjennomgang (RutinerTab)",
+	render: () =>
+		renderWithLoader(
+			ApplikasjonDetalj,
+			mockAppDetaljerData({
+				completedReviews: [
+					{
+						id: "rev-draft-newest",
+						routineId: "routine-1",
+						routineName: "Sikkerhetstesting av applikasjoner",
+						title: "Sikkerhetstesting Q2 2026 (pågår)",
+						reviewedAt: "2026-04-01T10:00:00Z",
+						status: "draft" as const,
+						createdBy: "Z990001",
+						sectionId: "s-01",
+						canRead: true,
+						participants: [],
+						followUpPoints: [],
+					},
+					{
+						id: "rev-eligible-latest",
+						routineId: "routine-1",
+						routineName: "Sikkerhetstesting av applikasjoner",
+						title: "Sikkerhetstesting Q1 2026 (må følges opp)",
+						reviewedAt: "2026-03-20T10:00:00Z",
+						status: "needs_follow_up" as const,
+						createdBy: "Z990001",
+						sectionId: "s-01",
+						canRead: true,
+						participants: [{ confirmedAt: "2026-03-20T11:00:00Z" }],
+						followUpPoints: [],
+					},
+					{
+						id: "rev-eligible-older",
+						routineId: "routine-1",
+						routineName: "Sikkerhetstesting av applikasjoner",
+						title: "Sikkerhetstesting Q4 2025",
+						reviewedAt: "2026-01-01T10:00:00Z",
+						status: "completed" as const,
+						createdBy: "Z990001",
+						sectionId: "s-01",
+						canRead: true,
+						participants: [],
+						followUpPoints: [],
+					},
+				],
+			}),
+			"/applikasjoner/app-1/detaljer?fane=rutiner",
+		),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement)
+		const candidates = await canvas.findAllByText("Sikkerhetstesting av applikasjoner")
+		const routineLink = candidates.find((el) => el.tagName === "A")
+		const row = routineLink?.closest("tr")
+		if (!row) throw new Error("Fant ikke raden for rutinen i rutinestatus-tabellen")
+		const rowCanvas = within(row)
+		await userEvent.click(rowCanvas.getByRole("button", { name: "Handlinger" }))
+		const link = await screen.findByText("Se siste gjennomgang")
+		await expect(link.closest("a")).toHaveAttribute(
+			"href",
+			"/seksjoner/pensjon-og-ufore/rutiner/routine-1/gjennomgang/rev-eligible-latest",
+		)
+	},
+}
+
+export const SisteGjennomgangUtenLesetilgang: Story = {
+	name: "«Se siste gjennomgang» vises ikke når brukeren mangler lesetilgang (RutinerTab)",
+	render: () =>
+		renderWithLoader(
+			ApplikasjonDetalj,
+			mockAppDetaljerData({
+				completedReviews: [
+					{
+						id: "rev-no-access",
+						routineId: "routine-1",
+						routineName: "Sikkerhetstesting av applikasjoner",
+						title: "Sikkerhetstesting Q1 2026 (må følges opp)",
+						reviewedAt: "2026-03-20T10:00:00Z",
+						status: "needs_follow_up" as const,
+						createdBy: "Z990001",
+						sectionId: "s-01",
+						canRead: false,
+						participants: [{ confirmedAt: "2026-03-20T11:00:00Z" }],
+						followUpPoints: [],
+					},
+				],
+			}),
+			"/applikasjoner/app-1/detaljer?fane=rutiner",
+		),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement)
+		const candidates = await canvas.findAllByText("Sikkerhetstesting av applikasjoner")
+		const routineLink = candidates.find((el) => el.tagName === "A")
+		const row = routineLink?.closest("tr")
+		if (!row) throw new Error("Fant ikke raden for rutinen i rutinestatus-tabellen")
+		const rowCanvas = within(row)
+		await userEvent.click(rowCanvas.getByRole("button", { name: "Handlinger" }))
+		await screen.findByText("Last ned rapport")
+		expect(screen.queryByText("Se siste gjennomgang")).not.toBeInTheDocument()
+	},
+}
+
 export const OppfolgingspunkterFane: Story = {
 	name: "Oppfølgingspunkter-fanen (med åpne og løste punkter)",
 	render: () =>
