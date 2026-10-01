@@ -5,6 +5,7 @@ import { FrequencyDisplay } from "~/components/FrequencyDisplay"
 import { PriorityTag } from "~/components/PriorityTag"
 import { RouteErrorBoundary } from "~/components/RouteErrorBoundary"
 import { RoutineStatusTag } from "~/components/RoutineStatusTag"
+import { getEconomyClassifications } from "~/db/queries/economy-classification.server"
 import { getSectionBySlug, getSections, getTeamBySlug, getTeamIncompleteRoutines } from "~/db/queries/sections.server"
 import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { createDraftReview } from "~/lib/create-draft-review.server"
@@ -48,6 +49,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 	const appRoutines = result.deadlines.filter((d) => !d.isSectionRoutine)
 
+	const appIds = [...new Set(appRoutines.map((d) => d.applicationId))]
+	const economyClassifications = await getEconomyClassifications(appIds)
+	const economySystemAppIds = appIds.filter((id) => economyClassifications.get(id)?.isEconomySystem)
+
 	return data({
 		seksjon,
 		seksjonName: section.name,
@@ -56,6 +61,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		sectionRoutines,
 		appRoutines,
 		sectionSlugMap,
+		economySystemAppIds,
 	})
 }
 
@@ -111,8 +117,9 @@ function routineStatusKey(dl: {
 }
 
 export default function TeamUgjennomforteRutiner() {
-	const { seksjon, seksjonName, team, teamName, sectionRoutines, appRoutines, sectionSlugMap } =
+	const { seksjon, seksjonName, team, teamName, sectionRoutines, appRoutines, sectionSlugMap, economySystemAppIds } =
 		useLoaderData<typeof loader>()
+	const economySystemAppIdSet = useMemo(() => new Set(economySystemAppIds), [economySystemAppIds])
 	const actionData = useActionData<typeof action>()
 	const createDraftError =
 		actionData && "error" in actionData && "intent" in actionData && actionData.intent === "create-draft"
@@ -297,7 +304,14 @@ export default function TeamUgjennomforteRutiner() {
 				</Table.DataCell>
 				{opts.showApp && (
 					<Table.DataCell>
-						<Link to={appLink}>{dl.applicationName}</Link>
+						<HStack gap="space-2" align="center">
+							<Link to={appLink}>{dl.applicationName}</Link>
+							{economySystemAppIdSet.has(dl.applicationId) && (
+								<span aria-label="Klassifisert som økonomisystem" title="Klassifisert som økonomisystem">
+									💰
+								</span>
+							)}
+						</HStack>
 					</Table.DataCell>
 				)}
 				<Table.DataCell align="left">{renderRoutineAction(dl)}</Table.DataCell>

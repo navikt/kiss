@@ -2706,6 +2706,7 @@ export function mockTeamRutinerData() {
 		sectionSlugMap: { "seksjon-1": "pensjon-og-ufore" },
 		sectionRoutines,
 		appRoutines,
+		economySystemAppIds: ["app-1"],
 	}
 }
 
@@ -2718,6 +2719,7 @@ export function mockTeamRutinerEmptyData() {
 		sectionSlugMap: { "seksjon-1": "pensjon-og-ufore" },
 		sectionRoutines: [],
 		appRoutines: [],
+		economySystemAppIds: [],
 	}
 }
 
