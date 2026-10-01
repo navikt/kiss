@@ -201,10 +201,14 @@ function roleLabel(r: string): string {
 	return isUserRole(r) ? userRoleLabels[r] : r
 }
 
+function isTechLeadOrProductOwner(u: TeamUser) {
+	return u.roles.some((r) => r === "tech_lead" || r === "product_owner")
+}
+
 type TeamUser = { navIdent: string; name: string; roles: readonly string[] }
 
 function TeamMedlemmer({ teamUsers }: { teamUsers: TeamUser[] }) {
-	const utviklere = teamUsers.filter((u) => !u.roles.some((r) => r === "tech_lead" || r === "product_owner"))
+	const utviklere = teamUsers.filter((u) => !isTechLeadOrProductOwner(u))
 
 	if (utviklere.length === 0) return null
 
@@ -399,15 +403,13 @@ export default function TeamDashboard() {
 					<Heading size="xlarge" level="2">
 						{teamName}
 					</Heading>
-					{teamUsers.some((u) => u.roles.some((r) => r === "tech_lead" || r === "product_owner")) && (
+					{teamUsers.some(isTechLeadOrProductOwner) && (
 						<HStack gap="space-6" wrap>
-							{teamUsers
-								.filter((u) => u.roles.some((r) => r === "tech_lead" || r === "product_owner"))
-								.map((u) => (
-									<Detail key={u.navIdent}>
-										<strong>{u.roles.map(roleLabel).join(", ")}:</strong> {u.name}
-									</Detail>
-								))}
+							{teamUsers.filter(isTechLeadOrProductOwner).map((u) => (
+								<Detail key={u.navIdent}>
+									<strong>{u.roles.map(roleLabel).join(", ")}:</strong> {u.name}
+								</Detail>
+							))}
 						</HStack>
 					)}
 					<TeamMedlemmer teamUsers={teamUsers} />
