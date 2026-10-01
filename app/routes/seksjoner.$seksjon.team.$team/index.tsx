@@ -410,6 +410,7 @@ export default function TeamDashboard() {
 								))}
 						</HStack>
 					)}
+					<TeamMedlemmer teamUsers={teamUsers} />
 				</VStack>
 				{canManage && (
 					<Button as={Link} to={`/seksjoner/${seksjon}/team/${team}/rediger`} variant="tertiary" size="small">
@@ -605,9 +606,6 @@ export default function TeamDashboard() {
 			) : (
 				<BodyLong>Ingen applikasjoner er tilknyttet dette teamet.</BodyLong>
 			)}
-
-			{/* Teammedlemmer */}
-			{teamUsers.length > 0 && <TeamMedlemmer teamUsers={teamUsers} />}
 		</VStack>
 	)
 }
