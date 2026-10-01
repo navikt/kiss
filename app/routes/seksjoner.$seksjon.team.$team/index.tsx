@@ -207,6 +207,22 @@ function isTechLeadOrProductOwner(u: TeamUser) {
 
 type TeamUser = { navIdent: string; name: string; roles: readonly string[] }
 
+function TeamLedelse({ teamUsers }: { teamUsers: TeamUser[] }) {
+	const ledelse = teamUsers.filter(isTechLeadOrProductOwner)
+
+	if (ledelse.length === 0) return null
+
+	return (
+		<HStack gap="space-6" wrap>
+			{ledelse.map((u) => (
+				<Detail key={u.navIdent}>
+					<strong>{u.roles.map(roleLabel).join(", ")}:</strong> {u.name}
+				</Detail>
+			))}
+		</HStack>
+	)
+}
+
 function TeamMedlemmer({ teamUsers }: { teamUsers: TeamUser[] }) {
 	const utviklere = teamUsers.filter((u) => !isTechLeadOrProductOwner(u))
 
@@ -403,15 +419,7 @@ export default function TeamDashboard() {
 					<Heading size="xlarge" level="2">
 						{teamName}
 					</Heading>
-					{teamUsers.some(isTechLeadOrProductOwner) && (
-						<HStack gap="space-6" wrap>
-							{teamUsers.filter(isTechLeadOrProductOwner).map((u) => (
-								<Detail key={u.navIdent}>
-									<strong>{u.roles.map(roleLabel).join(", ")}:</strong> {u.name}
-								</Detail>
-							))}
-						</HStack>
-					)}
+					<TeamLedelse teamUsers={teamUsers} />
 					<TeamMedlemmer teamUsers={teamUsers} />
 				</VStack>
 				{canManage && (
