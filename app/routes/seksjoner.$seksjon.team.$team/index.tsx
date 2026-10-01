@@ -424,7 +424,9 @@ export default function TeamDashboard() {
 						{teamName}
 					</Heading>
 					<TeamLedelse teamUsers={teamUsers} />
-					<TeamMedlemmer teamUsers={teamUsers} />
+					<Box paddingBlock="space-6 space-0">
+						<TeamMedlemmer teamUsers={teamUsers} />
+					</Box>
 				</VStack>
 				{canManage && (
 					<Button as={Link} to={`/seksjoner/${seksjon}/team/${team}/rediger`} variant="tertiary" size="small">
