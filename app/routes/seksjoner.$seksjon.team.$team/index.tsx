@@ -201,14 +201,18 @@ function roleLabel(r: string): string {
 	return isUserRole(r) ? userRoleLabels[r] : r
 }
 
-function isTechLeadOrProductOwner(u: TeamUser) {
-	return u.roles.some((r) => r === "tech_lead" || r === "product_owner")
+function isLeadershipRole(r: string) {
+	return ["tech_lead", "product_owner"].includes(r)
+}
+
+function isLeadership(u: TeamUser) {
+	return u.roles.some(isLeadershipRole)
 }
 
 type TeamUser = { navIdent: string; name: string; roles: readonly string[] }
 
 function TeamLedelse({ teamUsers }: { teamUsers: TeamUser[] }) {
-	const ledelse = teamUsers.filter(isTechLeadOrProductOwner)
+	const ledelse = teamUsers.filter(isLeadership)
 
 	if (ledelse.length === 0) return null
 
@@ -216,7 +220,7 @@ function TeamLedelse({ teamUsers }: { teamUsers: TeamUser[] }) {
 		<HStack gap="space-6" wrap>
 			{ledelse.map((u) => (
 				<Detail key={u.navIdent}>
-					<strong>{u.roles.map(roleLabel).join(", ")}:</strong> {u.name}
+					<strong>{u.roles.filter(isLeadershipRole).map(roleLabel).join(", ")}:</strong> {u.name}
 				</Detail>
 			))}
 		</HStack>
@@ -224,7 +228,7 @@ function TeamLedelse({ teamUsers }: { teamUsers: TeamUser[] }) {
 }
 
 function TeamMedlemmer({ teamUsers }: { teamUsers: TeamUser[] }) {
-	const utviklere = teamUsers.filter((u) => !isTechLeadOrProductOwner(u))
+	const utviklere = teamUsers.filter((u) => !isLeadership(u))
 
 	if (utviklere.length === 0) return null
 
