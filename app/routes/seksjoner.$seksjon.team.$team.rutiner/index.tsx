@@ -307,7 +307,7 @@ export default function TeamUgjennomforteRutiner() {
 						<HStack gap="space-2" align="center">
 							<Link to={appLink}>{dl.applicationName}</Link>
 							{economySystemAppIdSet.has(dl.applicationId) && (
-								<span aria-label="Klassifisert som økonomisystem" title="Klassifisert som økonomisystem">
+								<span role="img" aria-label="Klassifisert som økonomisystem" title="Klassifisert som økonomisystem">
 									💰
 								</span>
 							)}
