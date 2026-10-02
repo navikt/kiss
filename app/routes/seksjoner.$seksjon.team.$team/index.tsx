@@ -201,10 +201,34 @@ function roleLabel(r: string): string {
 	return isUserRole(r) ? userRoleLabels[r] : r
 }
 
+function isLeadershipRole(r: string) {
+	return ["tech_lead", "product_owner"].includes(r)
+}
+
+function isLeadership(u: TeamUser) {
+	return u.roles.some(isLeadershipRole)
+}
+
 type TeamUser = { navIdent: string; name: string; roles: readonly string[] }
 
+function TeamLedelse({ teamUsers }: { teamUsers: TeamUser[] }) {
+	const ledelse = teamUsers.filter(isLeadership)
+
+	if (ledelse.length === 0) return null
+
+	return (
+		<HStack gap="space-6" wrap>
+			{ledelse.map((u) => (
+				<Detail key={u.navIdent}>
+					<strong>{u.roles.filter(isLeadershipRole).map(roleLabel).join(", ")}:</strong> {u.name}
+				</Detail>
+			))}
+		</HStack>
+	)
+}
+
 function TeamMedlemmer({ teamUsers }: { teamUsers: TeamUser[] }) {
-	const utviklere = teamUsers.filter((u) => !u.roles.some((r) => r === "tech_lead" || r === "product_owner"))
+	const utviklere = teamUsers.filter((u) => !isLeadership(u))
 
 	if (utviklere.length === 0) return null
 
@@ -399,17 +423,10 @@ export default function TeamDashboard() {
 					<Heading size="xlarge" level="2">
 						{teamName}
 					</Heading>
-					{teamUsers.some((u) => u.roles.some((r) => r === "tech_lead" || r === "product_owner")) && (
-						<HStack gap="space-6" wrap>
-							{teamUsers
-								.filter((u) => u.roles.some((r) => r === "tech_lead" || r === "product_owner"))
-								.map((u) => (
-									<Detail key={u.navIdent}>
-										<strong>{u.roles.map(roleLabel).join(", ")}:</strong> {u.name}
-									</Detail>
-								))}
-						</HStack>
-					)}
+					<TeamLedelse teamUsers={teamUsers} />
+					<Box paddingBlock="space-6 space-0">
+						<TeamMedlemmer teamUsers={teamUsers} />
+					</Box>
 				</VStack>
 				{canManage && (
 					<Button as={Link} to={`/seksjoner/${seksjon}/team/${team}/rediger`} variant="tertiary" size="small">
@@ -605,9 +622,6 @@ export default function TeamDashboard() {
 			) : (
 				<BodyLong>Ingen applikasjoner er tilknyttet dette teamet.</BodyLong>
 			)}
-
-			{/* Teammedlemmer */}
-			{teamUsers.length > 0 && <TeamMedlemmer teamUsers={teamUsers} />}
 		</VStack>
 	)
 }
