@@ -506,6 +506,66 @@ describe("Applications integration tests", () => {
 			const allIdents = result.flatMap((t) => t.members.map((m) => m.navIdent))
 			expect(allIdents).not.toContain("Z990070")
 		})
+
+		it("excludes members reached through an archived application environment", async () => {
+			const sectionId = await createTestSection("Arkivert miljø medlemmer", "arkivert-miljo-medlemmer")
+			const naisTeamId = await createTestNaisTeam("arkivert-miljo-medlemmer-team", sectionId)
+			const devTeamId = await createTestDevTeam(
+				"Arkivert miljø medlemmer dev",
+				"arkivert-miljo-medlemmer-dev",
+				sectionId,
+			)
+			const appId = await createTestApp("arkivert-miljo-medlemmer-app")
+			await createAppEnvironment(appId, naisTeamId, "prod-gcp", "arkivert-miljo-medlemmer-ns")
+			await linkNaisTeamToDevTeam(devTeamId, naisTeamId)
+			await assignRole("Z990080", "Glad Fjord", "developer", "test", undefined, devTeamId)
+			const db = getTestDb()
+			await db.execute(
+				/* sql */ `UPDATE application_environments SET archived_at = NOW(), archived_by = 'test'
+				WHERE application_id = '${appId}'`,
+			)
+
+			const result = await getTeamMembersForApp(appId)
+
+			const allIdents = result.flatMap((t) => t.members.map((m) => m.navIdent))
+			expect(allIdents).not.toContain("Z990080")
+		})
+
+		it("returns members via dev team configured directly on the nais team", async () => {
+			const sectionId = await createTestSection("Nais-direkte medlemmer", "nais-direkte-medlemmer")
+			const naisTeamId = await createTestNaisTeam("nais-direkte-medlemmer-team", sectionId)
+			const devTeamId = await createTestDevTeam("Nais-direkte medlemmer dev", "nais-direkte-medlemmer-dev", sectionId)
+			const appId = await createTestApp("nais-direkte-medlemmer-app")
+			await createAppEnvironment(appId, naisTeamId, "prod-gcp", "nais-direkte-medlemmer-ns")
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE nais_teams SET dev_team_id = '${devTeamId}' WHERE id = '${naisTeamId}'`)
+			await assignRole("Z990090", "Snill Vind", "developer", "test", undefined, devTeamId)
+
+			const result = await getTeamMembersForApp(appId)
+
+			const allIdents = result.flatMap((t) => t.members.map((m) => m.navIdent))
+			expect(allIdents).toContain("Z990090")
+		})
+
+		it("excludes members via dev team on nais team when the environment is archived", async () => {
+			const sectionId = await createTestSection("Nais-direkte arkivert", "nais-direkte-arkivert")
+			const naisTeamId = await createTestNaisTeam("nais-direkte-arkivert-team", sectionId)
+			const devTeamId = await createTestDevTeam("Nais-direkte arkivert dev", "nais-direkte-arkivert-dev", sectionId)
+			const appId = await createTestApp("nais-direkte-arkivert-app")
+			await createAppEnvironment(appId, naisTeamId, "prod-gcp", "nais-direkte-arkivert-ns")
+			const db = getTestDb()
+			await db.execute(/* sql */ `UPDATE nais_teams SET dev_team_id = '${devTeamId}' WHERE id = '${naisTeamId}'`)
+			await assignRole("Z990091", "Rask Elv", "developer", "test", undefined, devTeamId)
+			await db.execute(
+				/* sql */ `UPDATE application_environments SET archived_at = NOW(), archived_by = 'test'
+				WHERE application_id = '${appId}'`,
+			)
+
+			const result = await getTeamMembersForApp(appId)
+
+			const allIdents = result.flatMap((t) => t.members.map((m) => m.navIdent))
+			expect(allIdents).not.toContain("Z990091")
+		})
 	})
 
 	describe("getAppScopeIdsForApps", () => {

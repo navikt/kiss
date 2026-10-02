@@ -79,6 +79,21 @@ describe("screening session loader", () => {
 		mockGetStagedOperations.mockResolvedValue([])
 	})
 
+	describe("authentication", () => {
+		it("throws 401 when user is not authenticated", async () => {
+			mockRequireAuthenticatedUser.mockRejectedValue(new Response("Ikke autentisert", { status: 401 }))
+
+			try {
+				await callLoader()
+				expect.fail("should have thrown")
+			} catch (e) {
+				expect(e).toBeInstanceOf(Response)
+				expect((e as Response).status).toBe(401)
+			}
+			expect(mockGetScreeningSession).not.toHaveBeenCalled()
+		})
+	})
+
 	describe("parameter validation", () => {
 		it("throws 400 when appId is missing", async () => {
 			try {
@@ -183,6 +198,25 @@ describe("screening session loader", () => {
 				{ teamName: "Team A", members: [{ navIdent: "Z990001", name: "Glad Fjord" }] },
 			])
 			expect(mockGetTeamMembersForApp).toHaveBeenCalledWith("app-1")
+		})
+
+		it("does not fail the loader when getTeamMembersForApp rejects", async () => {
+			mockGetScreeningSession.mockResolvedValue({
+				id: "session-1",
+				applicationId: "app-1",
+				status: "draft",
+				title: "Test screening",
+				participants: [],
+				answers: [],
+			})
+			mockGetScreeningDataForApp.mockResolvedValue({ questions: [], sectionIds: [] })
+			mockGetApplicationDetail.mockResolvedValue({ app: { name: "test-app" }, authIntegrations: [] })
+			mockGetTeamMembersForApp.mockRejectedValue(new Error("boom"))
+
+			const result = await callLoader()
+
+			const payload = "data" in result ? (result as { data: Record<string, unknown> }).data : result
+			expect(payload).toHaveProperty("teamMembers", [])
 		})
 
 		it("uses snapshot questions for completed sessions instead of live questions", async () => {
