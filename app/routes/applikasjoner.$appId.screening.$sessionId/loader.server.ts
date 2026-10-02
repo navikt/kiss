@@ -1,4 +1,5 @@
 import { data } from "react-router"
+import { getTeamMembersForApp } from "~/db/queries/applications.server"
 import { getApplicationDetail, getGroupAssessmentsForApp, getManualGroupsForApp } from "~/db/queries/nais.server"
 import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import { getScreeningDataForApp, getScreeningQuestionsByIds } from "~/db/queries/screening.server"
@@ -24,6 +25,10 @@ export async function loader({ params }: Route.LoaderArgs) {
 	if (!session) throw new Response("Screening-sesjon ikke funnet", { status: 404 })
 	if (session.applicationId !== appId) throw new Response("Sesjon tilhører ikke denne applikasjonen", { status: 403 })
 	if (!appDetail) throw new Response("Applikasjon ikke funnet", { status: 404 })
+
+	// Started here (not awaited) so it runs in parallel with the rest of the loader's I/O below —
+	// only resolved right before it's needed in the final response.
+	const teamMembersPromise = session.status === "draft" ? getTeamMembersForApp(appId) : Promise.resolve([])
 
 	// For completed sessions, use the state snapshot as baseline (historical view).
 	// For in-progress sessions, load live data as baseline (current state preview).
@@ -335,6 +340,8 @@ export async function loader({ params }: Route.LoaderArgs) {
 		}
 	})
 
+	const teamMembers = await teamMembersPromise
+
 	return data({
 		appId,
 		appName: appDetail.app.name,
@@ -349,6 +356,7 @@ export async function loader({ params }: Route.LoaderArgs) {
 				userName: p.userName,
 			})),
 		},
+		teamMembers,
 		screening,
 		persistence,
 		rulesetOptions,
