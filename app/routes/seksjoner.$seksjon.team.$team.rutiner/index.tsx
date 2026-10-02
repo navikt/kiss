@@ -1,4 +1,4 @@
-import { Alert, BodyShort, Box, Button, Heading, HStack, Select, Table, VStack } from "@navikt/ds-react"
+import { Alert, BodyShort, Box, Button, Checkbox, Heading, HStack, Select, Table, VStack } from "@navikt/ds-react"
 import { useMemo, useState } from "react"
 import { data, Link, redirect, useActionData, useLoaderData } from "react-router"
 import { FrequencyDisplay } from "~/components/FrequencyDisplay"
@@ -138,6 +138,7 @@ export default function TeamUgjennomforteRutiner() {
 	const [appPageSize, setAppPageSize] = useState(25)
 	const [appActionFilter, setAppActionFilter] = useState<ActionFilter>("alle")
 	const [sectionActionFilter, setSectionActionFilter] = useState<ActionFilter>("alle")
+	const [onlyEconomySystems, setOnlyEconomySystems] = useState(false)
 
 	const handleAppSort = (sortKey: string | undefined) => {
 		if (!sortKey) return
@@ -241,7 +242,11 @@ export default function TeamUgjennomforteRutiner() {
 		return true
 	}
 
-	const filteredAppRoutines = sortedAppRoutines.filter((dl) => matchesActionFilter(appActionFilter, dl.draftReviewId))
+	const filteredAppRoutines = sortedAppRoutines.filter(
+		(dl) =>
+			matchesActionFilter(appActionFilter, dl.draftReviewId) &&
+			(!onlyEconomySystems || economySystemAppIdSet.has(dl.applicationId)),
+	)
 	const filteredSectionRoutines = sortedSectionRoutines.filter((dl) =>
 		matchesActionFilter(sectionActionFilter, dl.draftReviewId),
 	)
@@ -372,12 +377,23 @@ export default function TeamUgjennomforteRutiner() {
 							<Heading size="medium" level="3">
 								Applikasjonsrutiner
 							</Heading>
+							<Checkbox
+								checked={onlyEconomySystems}
+								onChange={(e) => {
+									setOnlyEconomySystems(e.target.checked)
+									setAppPage(1)
+								}}
+							>
+								Kun økonomiapplikasjoner
+							</Checkbox>
 							<HStack justify="space-between" align="end" wrap>
 								<BodyShort size="small" textColor="subtle">
 									Viser {filteredAppRoutines.length === 0 ? 0 : (currentFilteredAppPage - 1) * appPageSize + 1}–
 									{Math.min(currentFilteredAppPage * appPageSize, filteredAppRoutines.length)} av{" "}
 									{filteredAppRoutines.length}
-									{appActionFilter !== "alle" ? ` (filtrert fra ${sortedAppRoutines.length})` : ""}
+									{appActionFilter !== "alle" || onlyEconomySystems
+										? ` (filtrert fra ${sortedAppRoutines.length})`
+										: ""}
 								</BodyShort>
 								<HStack gap="space-4" align="end">
 									<Select
