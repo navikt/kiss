@@ -795,7 +795,8 @@ export async function getApplicationsForSection(sectionId: string) {
 export async function getTeamMembersForApp(appId: string) {
 	// Path 1: app → application_team_mappings → dev_teams → user_roles → users
 	// Path 2: app → application_environments → dev_team_nais_team_mappings → dev_teams → user_roles → users
-	const [directRows, naisRows] = await Promise.all([
+	// Path 3: app → application_environments → nais_teams.dev_team_id → dev_teams → user_roles → users
+	const [directRows, naisRows, naisDirectRows] = await Promise.all([
 		db
 			.selectDistinct({
 				navIdent: users.navIdent,
@@ -827,12 +828,32 @@ export async function getTeamMembersForApp(appId: string) {
 			.innerJoin(devTeams, and(eq(devTeams.id, devTeamNaisTeamMappings.devTeamId), isNull(devTeams.archivedAt)))
 			.innerJoin(userRoles, and(eq(userRoles.devTeamId, devTeams.id), isNull(userRoles.archivedAt)))
 			.innerJoin(users, eq(users.id, userRoles.userId))
-			.where(eq(applicationEnvironments.applicationId, appId))
+			.where(and(eq(applicationEnvironments.applicationId, appId), isNull(applicationEnvironments.archivedAt)))
+			.orderBy(devTeams.name, users.name),
+		db
+			.selectDistinct({
+				navIdent: users.navIdent,
+				name: users.name,
+				teamId: devTeams.id,
+				teamName: devTeams.name,
+			})
+			.from(applicationEnvironments)
+			.innerJoin(naisTeams, eq(applicationEnvironments.naisTeamId, naisTeams.id))
+			.innerJoin(devTeams, and(eq(devTeams.id, naisTeams.devTeamId), isNull(devTeams.archivedAt)))
+			.innerJoin(userRoles, and(eq(userRoles.devTeamId, devTeams.id), isNull(userRoles.archivedAt)))
+			.innerJoin(users, eq(users.id, userRoles.userId))
+			.where(
+				and(
+					eq(applicationEnvironments.applicationId, appId),
+					isNull(applicationEnvironments.archivedAt),
+					isNotNull(naisTeams.devTeamId),
+				),
+			)
 			.orderBy(devTeams.name, users.name),
 	])
 
 	// Sort combined rows alphabetically by (teamName, name, navIdent) for fully deterministic ordering
-	const allRows = [...directRows, ...naisRows].sort((a, b) => {
+	const allRows = [...directRows, ...naisRows, ...naisDirectRows].sort((a, b) => {
 		const teamCmp = a.teamName.localeCompare(b.teamName, "nb")
 		if (teamCmp !== 0) return teamCmp
 		const nameCmp = a.name.localeCompare(b.name, "nb")

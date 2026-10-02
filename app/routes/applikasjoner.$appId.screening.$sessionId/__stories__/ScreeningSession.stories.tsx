@@ -17,6 +17,7 @@ function SessionPage({
 	title,
 	appName,
 	participants,
+	teamMembers = [],
 	isCompleted,
 	screening,
 	wizardArgs,
@@ -24,6 +25,7 @@ function SessionPage({
 	title: string
 	appName: string
 	participants: Array<{ id: string; userIdent: string; userName: string | null }>
+	teamMembers?: Array<{ teamName: string; members: Array<{ navIdent: string; name: string }> }>
 	isCompleted: boolean
 	screening: typeof mockScreening
 	wizardArgs: typeof defaultWizardArgs
@@ -75,6 +77,12 @@ function SessionPage({
 									navIdent: p.userIdent,
 									displayName: p.userName,
 								}))}
+								quickAddOptions={teamMembers.flatMap((team) =>
+									team.members.map((member) => ({
+										navIdent: member.navIdent,
+										displayName: member.name,
+									})),
+								)}
 							/>
 						</VStack>
 					}
@@ -187,6 +195,12 @@ export const DeltakereSteg: Story = {
 				title="Compliance-screening Q2 2026"
 				appName="pensjon-sak"
 				participants={[]}
+				teamMembers={[
+					{
+						teamName: "Team Pensjon",
+						members: [{ navIdent: "Z990042", name: "Rask Elv" }],
+					},
+				]}
 				isCompleted={false}
 				screening={mockScreening}
 				wizardArgs={defaultWizardArgs}
@@ -203,6 +217,12 @@ export const DeltakereMedValgte: Story = {
 				title="Compliance-screening Q2 2026"
 				appName="pensjon-sak"
 				participants={mockParticipants}
+				teamMembers={[
+					{
+						teamName: "Team Pensjon",
+						members: [{ navIdent: "Z990042", name: "Rask Elv" }],
+					},
+				]}
 				isCompleted={false}
 				screening={mockScreening}
 				wizardArgs={defaultWizardArgs}

@@ -1,14 +1,19 @@
 import { data } from "react-router"
+import { getTeamMembersForApp } from "~/db/queries/applications.server"
 import { getApplicationDetail, getGroupAssessmentsForApp, getManualGroupsForApp } from "~/db/queries/nais.server"
 import { getRulesetsForSection } from "~/db/queries/rulesets.server"
 import { getScreeningDataForApp, getScreeningQuestionsByIds } from "~/db/queries/screening.server"
 import { getScreeningSession, getStagedOperations } from "~/db/queries/screening-sessions.server"
 import type { DataClassification, PersistenceType } from "~/db/schema/applications"
+import { requireAuthenticatedUser } from "~/lib/auth.server"
 import { resolveGroupNames } from "~/lib/graph.server"
+import { logger } from "~/lib/logger.server"
 import { renderMarkdown } from "~/lib/markdown.server"
 import type { Route } from "./+types/index"
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ request, params }: Route.LoaderArgs) {
+	await requireAuthenticatedUser(request)
+
 	const appId = params.appId
 	const sessionId = params.sessionId
 	if (!appId) throw new Response("Mangler app-ID", { status: 400 })
@@ -24,6 +29,14 @@ export async function loader({ params }: Route.LoaderArgs) {
 	if (!session) throw new Response("Screening-sesjon ikke funnet", { status: 404 })
 	if (session.applicationId !== appId) throw new Response("Sesjon tilhører ikke denne applikasjonen", { status: 403 })
 	if (!appDetail) throw new Response("Applikasjon ikke funnet", { status: 404 })
+
+	const teamMembersPromise =
+		session.status === "draft"
+			? getTeamMembersForApp(appId).catch((error) => {
+					logger.error(`[screening-session] getTeamMembersForApp failed (non-blocking) for app ${appId}`, error)
+					return []
+				})
+			: Promise.resolve([])
 
 	// For completed sessions, use the state snapshot as baseline (historical view).
 	// For in-progress sessions, load live data as baseline (current state preview).
@@ -335,6 +348,8 @@ export async function loader({ params }: Route.LoaderArgs) {
 		}
 	})
 
+	const teamMembers = await teamMembersPromise
+
 	return data({
 		appId,
 		appName: appDetail.app.name,
@@ -349,6 +364,7 @@ export async function loader({ params }: Route.LoaderArgs) {
 				userName: p.userName,
 			})),
 		},
+		teamMembers,
 		screening,
 		persistence,
 		rulesetOptions,
