@@ -188,6 +188,7 @@ export const mockPersistence = [
 		type: "cloud_sql_postgres" as const,
 		name: "pensjon-sak-db",
 		dataClassification: "critical" as const,
+		dataClassificationJustification: null,
 		manuallyAdded: false,
 	},
 	{
@@ -195,6 +196,7 @@ export const mockPersistence = [
 		type: "oracle" as const,
 		name: "PENSJON_REGNSKAP_01",
 		dataClassification: "financial_regulation" as const,
+		dataClassificationJustification: null,
 		manuallyAdded: false,
 	},
 	{
@@ -202,6 +204,7 @@ export const mockPersistence = [
 		type: "bucket" as const,
 		name: "pensjon-vedlegg-bucket",
 		dataClassification: null as "not_critical" | "critical" | "financial_regulation" | null,
+		dataClassificationJustification: "Inneholder kun offentlige maler uten persondata" as string | null,
 		manuallyAdded: true,
 	},
 ]
